@@ -1,0 +1,87 @@
+{
+  "updatedAt": "2025-11-24T14:02:40.000Z",
+  "createdAt": "2025-11-24T14:02:06.994Z",
+  "id": "TMv7F6oZqeWsWhCl",
+  "name": "Lemonfit error",
+  "description": null,
+  "active": false,
+  "isArchived": false,
+  "nodes": [
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1,
+      "position": [
+        -192,
+        0
+      ],
+      "id": "fab5033c-85ca-4ffa-84c8-5678b05e1b2b",
+      "name": "Error Trigger"
+    },
+    {
+      "parameters": {
+        "chatId": "1387986",
+        "text": "=Request error in node:\n{{ JSON.stringify($json.execution.lastNodeExecuted).replace(/[_*[\\]()~`>#+\\-=|{}.!]/g, '\\\\$&') }}",
+        "additionalFields": {
+          "appendAttribution": false
+        }
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        32,
+        0
+      ],
+      "id": "737fdb22-a56b-43b9-8eed-4597ea26bef0",
+      "name": "Send a text message1",
+      "webhookId": "a54295b8-5304-4679-96ce-24bca9d5a593",
+      "credentials": {
+        "telegramApi": {
+          "id": "GlN5OGKLXSsawcEL",
+          "name": "Lemonfit заявки"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Error Trigger": {
+      "main": [
+        [
+          {
+            "node": "Send a text message1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "meta": null,
+  "pinData": {},
+  "versionId": "42f2c48e-4653-4185-a7f5-186f8d4697e8",
+  "versionCounter": 4,
+  "triggerCount": 0,
+  "tags": [],
+  "shared": [
+    {
+      "updatedAt": "2025-11-24T14:02:06.998Z",
+      "createdAt": "2025-11-24T14:02:06.998Z",
+      "role": "workflow:owner",
+      "workflowId": "TMv7F6oZqeWsWhCl",
+      "projectId": "Khq0xGbDHq3t4IJq",
+      "project": {
+        "updatedAt": "2025-10-09T12:38:52.281Z",
+        "createdAt": "2025-10-09T12:30:53.020Z",
+        "id": "Khq0xGbDHq3t4IJq",
+        "name": "Dilshod Davletyarov <dilshod95@gmail.com>",
+        "type": "personal",
+        "icon": null,
+        "description": null
+      }
+    }
+  ]
+}

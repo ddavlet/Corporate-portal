@@ -1,0 +1,533 @@
+{
+  "updatedAt": "2025-11-30T10:53:40.000Z",
+  "createdAt": "2025-11-26T21:55:31.779Z",
+  "id": "3EGJKKCmSVWWxZg2",
+  "name": "Cashless table",
+  "description": null,
+  "active": false,
+  "isArchived": false,
+  "nodes": [
+    {
+      "parameters": {
+        "authentication": "serviceAccount",
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "1tQcPIEJtSXK1EsSuo9EEpX4GAks5gSz3ei8ENOR3SvU",
+          "mode": "list",
+          "cachedResultName": "Клиника - заявка бланка",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1tQcPIEJtSXK1EsSuo9EEpX4GAks5gSz3ei8ENOR3SvU/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "Лист ЗАЯВКИ",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1tQcPIEJtSXK1EsSuo9EEpX4GAks5gSz3ei8ENOR3SvU/edit#gid=0"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "26.": "=K{{ String($json.rows).padStart(4, \"0\") }}",
+            "Дата заявки": "={{ $('When Executed by Another Workflow').item.json.submitted_at.toDateTime().format('dd.MM.yyyy') }}",
+            "Поставщик": "={{ $('When Executed by Another Workflow').item.json.vendor }}",
+            "Направление": "Реал.Медклиника",
+            "Назначение платежа": "={{ $('When Executed by Another Workflow').item.json.payment_purpose }}",
+            "Ответственное лицо": "={{ $('When Executed by Another Workflow').item.json.requester.split('.')[1].trimStart() }}",
+            "от какой фирмы": "КМ",
+            "Вид валюты": "={{$('When Executed by Another Workflow').item.json.currency}}",
+            "Сумма заявки": "={{ Number($('When Executed by Another Workflow').item.json.amount) }}",
+            "Оплачено": "0",
+            "Остатка": "==O{{$json.rows-1}}-P{{$json.rows-1}}",
+            "id": "={{ $('When Executed by Another Workflow').item.json.id }}",
+            "Статус": "Создано",
+            "Срочность": "={{ $('When Executed by Another Workflow').item.json.urgency }}",
+            "Вид договора": "={{ $('When Executed by Another Workflow').item.json['Вид оплаты'] }}",
+            "№ ДОГОВОРА": "==HYPERLINK(\"#gid=1541467070&range=C{{ $('get row number').item.json.row_number }}\";\"{{ $('get contract').item.json.contract_number }}\")",
+            "Расчётный счёт (р/с)": "={{ $('get contract').item.json.acc_number }}",
+            "Дата договора": "={{ $('get contract').item.json.date_from.toDateTime().format('dd.MM.yyyy') }}",
+            "Состояние договора": "={{ $('get contract').item.json.contract_status }}"
+          },
+          "matchingColumns": [
+            "id"
+          ],
+          "schema": [
+            {
+              "id": "id",
+              "displayName": "id",
+              "required": false,
+              "defaultMatch": true,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "26.",
+              "displayName": "26.",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Дата заявки",
+              "displayName": "Дата заявки",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Поставщик",
+              "displayName": "Поставщик",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Расчётный счёт (р/с)",
+              "displayName": "Расчётный счёт (р/с)",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Вид договора",
+              "displayName": "Вид договора",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "№ ДОГОВОРА",
+              "displayName": "№ ДОГОВОРА",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Дата договора",
+              "displayName": "Дата договора",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Направление",
+              "displayName": "Направление",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Состояние договора",
+              "displayName": "Состояние договора",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Назначение платежа",
+              "displayName": "Назначение платежа",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Ответственное лицо",
+              "displayName": "Ответственное лицо",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "от какой фирмы",
+              "displayName": "от какой фирмы",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Вид валюты",
+              "displayName": "Вид валюты",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Сумма заявки",
+              "displayName": "Сумма заявки",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Оплачено",
+              "displayName": "Оплачено",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Остатка",
+              "displayName": "Остатка",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Статус",
+              "displayName": "Статус",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Срочность",
+              "displayName": "Срочность",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Файл",
+              "displayName": "Файл",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        1296,
+        0
+      ],
+      "id": "ae81f58f-5819-45a1-9037-f44dba0e5b8c",
+      "name": "Append row in sheet",
+      "credentials": {
+        "googleApi": {
+          "id": "mRkpe2z9NTTuFURb",
+          "name": "service account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "9e0ec639-8ae5-4b3f-9b8d-1c0803068986",
+              "name": "rows",
+              "value": "={{ $('get all requests').last().json.row_number + 2 }}",
+              "type": "number"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1024,
+        0
+      ],
+      "id": "4e3e400a-e7d1-4fe0-b230-f841dacf4e4f",
+      "name": "Edit Fields",
+      "executeOnce": true
+    },
+    {
+      "parameters": {
+        "inputSource": "passthrough"
+      },
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        -16,
+        0
+      ],
+      "id": "78b87c87-5136-40b6-8d91-f1e56e980039",
+      "name": "When Executed by Another Workflow"
+    },
+    {
+      "parameters": {
+        "authentication": "serviceAccount",
+        "documentId": {
+          "__rl": true,
+          "value": "1tQcPIEJtSXK1EsSuo9EEpX4GAks5gSz3ei8ENOR3SvU",
+          "mode": "list",
+          "cachedResultName": "Клиника - заявка бланка",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1tQcPIEJtSXK1EsSuo9EEpX4GAks5gSz3ei8ENOR3SvU/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 1541467070,
+          "mode": "list",
+          "cachedResultName": "Договора",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1tQcPIEJtSXK1EsSuo9EEpX4GAks5gSz3ei8ENOR3SvU/edit#gid=1541467070"
+        },
+        "filtersUI": {
+          "values": [
+            {
+              "lookupColumn": "id",
+              "lookupValue": "={{ $json.id }}"
+            }
+          ]
+        },
+        "options": {
+          "returnFirstMatch": true
+        }
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        720,
+        0
+      ],
+      "id": "852438a2-2cf4-493e-a9ed-757d44081e6f",
+      "name": "get row number",
+      "credentials": {
+        "googleApi": {
+          "id": "mRkpe2z9NTTuFURb",
+          "name": "service account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "select",
+        "schema": {
+          "__rl": true,
+          "mode": "list",
+          "value": "public"
+        },
+        "table": {
+          "__rl": true,
+          "value": "contracts",
+          "mode": "list",
+          "cachedResultName": "contracts"
+        },
+        "limit": 1,
+        "where": {
+          "values": [
+            {
+              "column": "id",
+              "value": "={{ $('When Executed by Another Workflow').item.json.contract_id }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        496,
+        0
+      ],
+      "id": "00e8b812-9de8-4021-bad7-a5471014f1ab",
+      "name": "get contract",
+      "executeOnce": true,
+      "credentials": {
+        "postgres": {
+          "id": "YXvWoKdEZBm6fktV",
+          "name": "Neuron_requests"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "authentication": "serviceAccount",
+        "documentId": {
+          "__rl": true,
+          "value": "1tQcPIEJtSXK1EsSuo9EEpX4GAks5gSz3ei8ENOR3SvU",
+          "mode": "list",
+          "cachedResultName": "Клиника - заявка бланка",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1tQcPIEJtSXK1EsSuo9EEpX4GAks5gSz3ei8ENOR3SvU/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "Лист ЗАЯВКИ",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1tQcPIEJtSXK1EsSuo9EEpX4GAks5gSz3ei8ENOR3SvU/edit#gid=0"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        288,
+        0
+      ],
+      "id": "84a6d2bd-55f7-4158-a3ad-0de5ad2c0eb1",
+      "name": "get all requests",
+      "credentials": {
+        "googleApi": {
+          "id": "mRkpe2z9NTTuFURb",
+          "name": "service account"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Edit Fields": {
+      "main": [
+        [
+          {
+            "node": "Append row in sheet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "When Executed by Another Workflow": {
+      "main": [
+        [
+          {
+            "node": "get all requests",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "get row number": {
+      "main": [
+        [
+          {
+            "node": "Edit Fields",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "get contract": {
+      "main": [
+        [
+          {
+            "node": "get row number",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "get all requests": {
+      "main": [
+        [
+          {
+            "node": "get contract",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "pinData": {
+    "When Executed by Another Workflow": [
+      {
+        "json": {
+          "id": 172,
+          "company_payer": "Kolberg Construction",
+          "category": "Коммунальные расходы",
+          "vendor": "Test",
+          "title": "NeuronMed",
+          "description": "",
+          "amount": "1000.00",
+          "currency": "UZS",
+          "payment_type": "Перечисление",
+          "payment_purpose": "1212312",
+          "urgency": "Обычно",
+          "requester": "5. Кучкарбаев Икром",
+          "submitted_at": "2025-11-30T10:08:24.899Z",
+          "status": "1",
+          "contract_id": 14,
+          "contract_number": "=HYPERLINK(\"#gid=1541467070&range=C2\";123) ",
+          "Вид оплаты": "Долг"
+        }
+      }
+    ]
+  },
+  "versionId": "3907df0c-8979-4428-a46b-f72db278b388",
+  "versionCounter": 22,
+  "triggerCount": 0,
+  "tags": [],
+  "shared": [
+    {
+      "updatedAt": "2025-11-26T21:55:31.784Z",
+      "createdAt": "2025-11-26T21:55:31.784Z",
+      "role": "workflow:owner",
+      "workflowId": "3EGJKKCmSVWWxZg2",
+      "projectId": "Khq0xGbDHq3t4IJq",
+      "project": {
+        "updatedAt": "2025-10-09T12:38:52.281Z",
+        "createdAt": "2025-10-09T12:30:53.020Z",
+        "id": "Khq0xGbDHq3t4IJq",
+        "name": "Dilshod Davletyarov <dilshod95@gmail.com>",
+        "type": "personal",
+        "icon": null,
+        "description": null
+      }
+    }
+  ]
+}

@@ -1,0 +1,496 @@
+{
+  "updatedAt": "2025-11-24T14:03:01.000Z",
+  "createdAt": "2025-11-23T15:55:25.564Z",
+  "id": "1U5gEq50g2wpDKKj",
+  "name": "Check cash on hand",
+  "description": null,
+  "active": true,
+  "isArchived": false,
+  "nodes": [
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        -528,
+        -96
+      ],
+      "id": "c2b8b406-aed8-435c-9bd7-6b9a6f185abb",
+      "name": "When clicking ‘Execute workflow’"
+    },
+    {
+      "parameters": {
+        "chatId": "1387986",
+        "text": "⚠️ Требуется провести плановую инвентаризацию денежных средств.\nПричина: ежемесячная инвентаризация.\nПросьба выполнить проверку и подтвердить результат.",
+        "replyMarkup": "inlineKeyboard",
+        "inlineKeyboard": {
+          "rows": [
+            {
+              "row": {
+                "buttons": [
+                  {
+                    "text": "✅ Выполнено",
+                    "additionalFields": {
+                      "callback_data": "=cashcheck_done_{{ $json.id }}"
+                    }
+                  },
+                  {
+                    "text": "❌ Отмена",
+                    "additionalFields": {
+                      "callback_data": "=cashcheck_canceled_{{ $json.id }}"
+                    }
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        "additionalFields": {
+          "appendAttribution": false
+        }
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        -80,
+        0
+      ],
+      "id": "eb2640db-8b4c-4771-be62-f978356e232b",
+      "name": "Send a text message",
+      "webhookId": "1097ebc8-e118-4daf-b531-8bc4a95a0add",
+      "credentials": {
+        "telegramApi": {
+          "id": "GlN5OGKLXSsawcEL",
+          "name": "Lemonfit заявки"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "authentication": "serviceAccount",
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "1PprnRX0z4WI5oujjM9FOiSJ2z_XKNJRwAApnwaxa0fA",
+          "mode": "list",
+          "cachedResultName": "Lemonfit control",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1PprnRX0z4WI5oujjM9FOiSJ2z_XKNJRwAApnwaxa0fA/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "Инвентаризация ДС",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1PprnRX0z4WI5oujjM9FOiSJ2z_XKNJRwAApnwaxa0fA/edit#gid=0"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "id": "={{ Number($now) }}",
+            "date": "={{$now.format('dd.MM.yyyy')}}",
+            "reason": "auto",
+            "result": "planed"
+          },
+          "matchingColumns": [
+            "id"
+          ],
+          "schema": [
+            {
+              "id": "id",
+              "displayName": "id",
+              "required": false,
+              "defaultMatch": true,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "date",
+              "displayName": "date",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "reason",
+              "displayName": "reason",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "result",
+              "displayName": "result",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        -304,
+        0
+      ],
+      "id": "9caed87f-3403-444c-bec0-acb63b7d6164",
+      "name": "Append row in sheet",
+      "credentials": {
+        "googleApi": {
+          "id": "mRkpe2z9NTTuFURb",
+          "name": "service account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "inputSource": "passthrough"
+      },
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        -528,
+        320
+      ],
+      "id": "b20f2318-f184-40f3-8a47-f0b4542c5350",
+      "name": "callback"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "7ed68a1d-87b4-49d5-bf42-8c59fc3ac727",
+              "name": "accepted",
+              "value": "={{ $json.callback_query.data.split('_')[1]}}",
+              "type": "string"
+            },
+            {
+              "id": "84a38aa1-8c4c-4fab-81c4-b102393591f8",
+              "name": "approval_id",
+              "value": "={{ $json.callback_query.data.split('_').last() }}",
+              "type": "number"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -304,
+        320
+      ],
+      "id": "121e9326-62a1-45d4-8a27-9b7a4aa448de",
+      "name": "split callback data"
+    },
+    {
+      "parameters": {
+        "authentication": "serviceAccount",
+        "operation": "update",
+        "documentId": {
+          "__rl": true,
+          "value": "1PprnRX0z4WI5oujjM9FOiSJ2z_XKNJRwAApnwaxa0fA",
+          "mode": "list",
+          "cachedResultName": "Lemonfit control",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1PprnRX0z4WI5oujjM9FOiSJ2z_XKNJRwAApnwaxa0fA/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "Инвентаризация ДС",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1PprnRX0z4WI5oujjM9FOiSJ2z_XKNJRwAApnwaxa0fA/edit#gid=0"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "result": "={{ $json.accepted }}",
+            "id": "={{ $json.approval_id }}"
+          },
+          "matchingColumns": [
+            "id"
+          ],
+          "schema": [
+            {
+              "id": "id",
+              "displayName": "id",
+              "required": false,
+              "defaultMatch": true,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "date",
+              "displayName": "date",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "reason",
+              "displayName": "reason",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "result",
+              "displayName": "result",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "row_number",
+              "displayName": "row_number",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true,
+              "readOnly": true,
+              "removed": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        -80,
+        320
+      ],
+      "id": "408d1c5f-6af5-4bdc-b1b2-38eb2805fdb4",
+      "name": "Update row in sheet",
+      "credentials": {
+        "googleApi": {
+          "id": "mRkpe2z9NTTuFURb",
+          "name": "service account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "47fd403b-5384-473a-8e7c-7bfbabc01ac4",
+              "leftValue": "={{ $json.result }}",
+              "rightValue": "done",
+              "operator": {
+                "type": "string",
+                "operation": "notEquals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        144,
+        320
+      ],
+      "id": "3d49bc73-32ce-4f27-b623-6e221b789efc",
+      "name": "If"
+    },
+    {
+      "parameters": {
+        "chatId": "1387986",
+        "text": "!Инвентаризация не подтверждена!",
+        "additionalFields": {
+          "appendAttribution": false
+        }
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        368,
+        320
+      ],
+      "id": "82b27db0-0b34-41fc-aee9-659e1afaf136",
+      "name": "DR",
+      "webhookId": "1b2487e7-4a69-4498-94c6-3126c84e53fd",
+      "credentials": {
+        "telegramApi": {
+          "id": "GlN5OGKLXSsawcEL",
+          "name": "Lemonfit заявки"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "months",
+              "triggerAtDayOfMonth": 22,
+              "triggerAtHour": 10
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -528,
+        96
+      ],
+      "id": "5e8a3b39-c78f-40d3-8059-077d65865f44",
+      "name": "Schedule Trigger"
+    }
+  ],
+  "connections": {
+    "When clicking ‘Execute workflow’": {
+      "main": [
+        [
+          {
+            "node": "Append row in sheet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Append row in sheet": {
+      "main": [
+        [
+          {
+            "node": "Send a text message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "callback": {
+      "main": [
+        [
+          {
+            "node": "split callback data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "split callback data": {
+      "main": [
+        [
+          {
+            "node": "Update row in sheet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update row in sheet": {
+      "main": [
+        [
+          {
+            "node": "If",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If": {
+      "main": [
+        [
+          {
+            "node": "DR",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Append row in sheet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false,
+    "errorWorkflow": "TMv7F6oZqeWsWhCl"
+  },
+  "staticData": {
+    "node:Schedule Trigger": {
+      "recurrenceRules": []
+    }
+  },
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "pinData": {},
+  "versionId": "92e5d9b4-898e-4927-8e92-bb8d31bc5b69",
+  "versionCounter": 32,
+  "triggerCount": 1,
+  "tags": [],
+  "shared": [
+    {
+      "updatedAt": "2025-11-23T15:55:25.569Z",
+      "createdAt": "2025-11-23T15:55:25.569Z",
+      "role": "workflow:owner",
+      "workflowId": "1U5gEq50g2wpDKKj",
+      "projectId": "Khq0xGbDHq3t4IJq",
+      "project": {
+        "updatedAt": "2025-10-09T12:38:52.281Z",
+        "createdAt": "2025-10-09T12:30:53.020Z",
+        "id": "Khq0xGbDHq3t4IJq",
+        "name": "Dilshod Davletyarov <dilshod95@gmail.com>",
+        "type": "personal",
+        "icon": null,
+        "description": null
+      }
+    }
+  ]
+}

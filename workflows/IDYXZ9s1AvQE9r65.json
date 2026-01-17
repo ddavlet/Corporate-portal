@@ -1,0 +1,755 @@
+{
+  "updatedAt": "2025-11-30T09:42:34.000Z",
+  "createdAt": "2025-11-11T10:05:49.788Z",
+  "id": "IDYXZ9s1AvQE9r65",
+  "name": "Request",
+  "description": null,
+  "active": true,
+  "isArchived": false,
+  "nodes": [
+    {
+      "parameters": {
+        "formTitle": "Kolberg Group",
+        "formFields": {
+          "values": [
+            {
+              "fieldLabel": "Заявка на",
+              "fieldType": "dropdown",
+              "fieldOptions": {
+                "values": [
+                  {
+                    "option": "1. Выдача оклада Сардор"
+                  },
+                  {
+                    "option": "2. Выдача оклада Дильшод"
+                  },
+                  {
+                    "option": "3. Оплата за сервер и хранилище данных"
+                  },
+                  {
+                    "option": "4. Выдача в счет аванса Kolberg Construction Сардор"
+                  }
+                ]
+              },
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "Сумма",
+              "fieldType": "number",
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "Валюта",
+              "fieldType": "radio",
+              "fieldOptions": {
+                "values": [
+                  {
+                    "option": "EUR"
+                  },
+                  {
+                    "option": "USD"
+                  },
+                  {
+                    "option": "UZS"
+                  }
+                ]
+              },
+              "requiredField": true
+            }
+          ]
+        },
+        "options": {
+          "path": "main/request"
+        }
+      },
+      "type": "n8n-nodes-base.formTrigger",
+      "typeVersion": 2.3,
+      "position": [
+        -16,
+        0
+      ],
+      "id": "e5230e18-7ccf-4e50-ba29-8abc31f9b916",
+      "name": "On form submission",
+      "webhookId": "d41863c5-1568-462f-84c9-b8a0072ae2aa"
+    },
+    {
+      "parameters": {
+        "updates": [
+          "callback_query"
+        ],
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.telegramTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -16,
+        512
+      ],
+      "id": "318ce7bc-4e2a-4ca6-81a9-84997a8c25fd",
+      "name": "Telegram Trigger",
+      "webhookId": "fe9a73d8-27fa-4a91-bc40-20f48290e143",
+      "credentials": {
+        "telegramApi": {
+          "id": "aWHwOyLFkwJ6DMCd",
+          "name": "KG заявки"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "chatId": "690818",
+        "text": "=💰 *Новая заявка на расход*\n690818\n*Назначение:* {{ $('On form submission').item.json['Заявка на'].split(\".\")[1] }}\n*Сумма:* {{ $('On form submission').item.json['Сумма'].toLocaleString(\"ru\", { \n      minimumFractionDigits: 2, \n      maximumFractionDigits: 2\n    }) }} {{ $('On form submission').item.json['Валюта'] }}\n",
+        "replyMarkup": "inlineKeyboard",
+        "inlineKeyboard": {
+          "rows": [
+            {
+              "row": {
+                "buttons": [
+                  {
+                    "text": "✅ Выплачено",
+                    "additionalFields": {
+                      "callback_data": "=payed_{{ $('On form submission').item.json['Заявка на'].split(\".\")[0] }}_{{ $('On form submission').item.json['Сумма']}}_{{ $('On form submission').item.json['Валюта'] }}_{{ $json.type }}\n"
+                    }
+                  },
+                  {
+                    "text": "❌ Отклонить",
+                    "additionalFields": {
+                      "callback_data": "=canceled_{{ $('On form submission').item.json['Заявка на'].split(\".\")[0]}}_{{ $('On form submission').item.json['Сумма']}}_{{ $('On form submission').item.json['Валюта']  }}_{{ $json.type }}"
+                    }
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        "additionalFields": {
+          "appendAttribution": false
+        }
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        768,
+        0
+      ],
+      "id": "976cf4b5-6b50-4061-9d72-1b3fbe214bdf",
+      "name": "RB",
+      "webhookId": "dfeecd32-79eb-4458-9c84-c731cef08dab",
+      "credentials": {
+        "telegramApi": {
+          "id": "aWHwOyLFkwJ6DMCd",
+          "name": "KG заявки"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "296a8cc7-ccb5-4376-8e20-52645226cc88",
+              "name": "status",
+              "value": "={{ $json.callback_query.data.split(\"_\")[0] }}",
+              "type": "string"
+            },
+            {
+              "id": "7714b42f-8aa7-47a0-8a1a-51b897e68b30",
+              "name": "code",
+              "value": "={{ $json.callback_query.data.split(\"_\")[1] }}",
+              "type": "number"
+            },
+            {
+              "id": "bfa07981-1bc0-45b8-a3dd-3b8fd9f5294c",
+              "name": "sum",
+              "value": "={{ $json.callback_query.data.split(\"_\")[2] }}",
+              "type": "number"
+            },
+            {
+              "id": "30706685-bafe-48c3-9646-0d4a7b7841a2",
+              "name": "currency",
+              "value": "={{ $json.callback_query.data.split(\"_\")[3] }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        208,
+        512
+      ],
+      "id": "050adb83-2a07-4682-8902-1bcc3e562fc8",
+      "name": "Edit Fields"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "78456cd8-d327-455d-96a8-296e3fdcb4bb",
+              "leftValue": "={{ $json.code }}",
+              "rightValue": 4,
+              "operator": {
+                "type": "number",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        656,
+        512
+      ],
+      "id": "d91934df-5bb7-4d21-8cc9-cac8cea29bd5",
+      "name": "If"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "f2b647ea-1d7c-4e5d-acc3-86e6c43238bf",
+              "leftValue": "={{ $json.status }}",
+              "rightValue": "payed",
+              "operator": {
+                "type": "string",
+                "operation": "equals",
+                "name": "filter.operator.equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        432,
+        512
+      ],
+      "id": "5d421fa8-6219-4a47-ba9f-38fe4e62780a",
+      "name": "If1"
+    },
+    {
+      "parameters": {
+        "resource": "callback",
+        "queryId": "={{ $('Telegram Trigger').item.json.callback_query.id }}",
+        "additionalFields": {
+          "text": "❌ Отклонено"
+        }
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        656,
+        800
+      ],
+      "id": "07ef62e5-9dca-4310-b12e-363fb10bf61a",
+      "name": "Answer Query a callback",
+      "webhookId": "73e44e17-0c4a-4d3a-a73f-d76415b7dc4c",
+      "credentials": {
+        "telegramApi": {
+          "id": "aWHwOyLFkwJ6DMCd",
+          "name": "KG заявки"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "callback",
+        "queryId": "={{ $('Telegram Trigger').item.json.callback_query.id }}",
+        "additionalFields": {
+          "text": "✅ Оплата подтверждена"
+        }
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        656,
+        224
+      ],
+      "id": "13f8d17f-2014-4b53-9a96-6f3ecfaf6ac5",
+      "name": "Answer Query a callback4",
+      "webhookId": "3576067b-b1ef-4fb8-8f66-4790c3163a8d",
+      "credentials": {
+        "telegramApi": {
+          "id": "aWHwOyLFkwJ6DMCd",
+          "name": "KG заявки"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "editMessageText",
+        "chatId": "={{ $('Telegram Trigger').item.json.callback_query.message.chat.id }}",
+        "messageId": "={{ $('Telegram Trigger').item.json.callback_query.message.message_id }}",
+        "text": "={{ $('Telegram Trigger').item.json.callback_query.message.text }}",
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        880,
+        800
+      ],
+      "id": "ca75b80b-2729-45cf-ba0f-a4c38ecd1852",
+      "name": "Edit a text message",
+      "webhookId": "b70cb832-d9f5-44b1-9bf1-082de824e654",
+      "credentials": {
+        "telegramApi": {
+          "id": "aWHwOyLFkwJ6DMCd",
+          "name": "KG заявки"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "editMessageText",
+        "chatId": "={{ $('Telegram Trigger').item.json.callback_query.message.chat.id }}",
+        "messageId": "={{ $('Telegram Trigger').item.json.callback_query.message.message_id }}",
+        "text": "={{ $('Telegram Trigger').item.json.callback_query.message.text }}",
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        880,
+        224
+      ],
+      "id": "6b219648-8aeb-41f9-a2a7-c89f32abf6d0",
+      "name": "Edit a text message1",
+      "webhookId": "b70cb832-d9f5-44b1-9bf1-082de824e654",
+      "credentials": {
+        "telegramApi": {
+          "id": "aWHwOyLFkwJ6DMCd",
+          "name": "KG заявки"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "authentication": "serviceAccount",
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "1qygApIr2xAwu7kytu2QdLhZD2BSAJVTCeSWHjqk8DRE",
+          "mode": "list",
+          "cachedResultName": "Инвестиционный отчет Kolberg Construction",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1qygApIr2xAwu7kytu2QdLhZD2BSAJVTCeSWHjqk8DRE/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 36178071,
+          "mode": "list",
+          "cachedResultName": "Выплаты",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1qygApIr2xAwu7kytu2QdLhZD2BSAJVTCeSWHjqk8DRE/edit#gid=36178071"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Дата": "={{ $now.format('dd.MM.yyyy') }}",
+            "Получатель": "Давлетьяров Сардор",
+            "Сумма": "={{ $json.sum }}",
+            "Currency": "={{ $json.currency }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "Дата",
+              "displayName": "Дата",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Получатель",
+              "displayName": "Получатель",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Сумма",
+              "displayName": "Сумма",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Currency",
+              "displayName": "Currency",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Комментарий",
+              "displayName": "Комментарий",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        880,
+        416
+      ],
+      "id": "8bf31793-d2a6-442b-95ca-ccb35f57bbe5",
+      "name": "Append Construction",
+      "credentials": {
+        "googleApi": {
+          "id": "mRkpe2z9NTTuFURb",
+          "name": "service account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "authentication": "serviceAccount",
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "1zZDZz_2OWV2YPF9_NbofXjpqnPcgDFxzOA0o1yyz3hw",
+          "mode": "list",
+          "cachedResultName": "Kolberg group",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1zZDZz_2OWV2YPF9_NbofXjpqnPcgDFxzOA0o1yyz3hw/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "Выплаты",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1zZDZz_2OWV2YPF9_NbofXjpqnPcgDFxzOA0o1yyz3hw/edit#gid=0"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Дата": "={{ $now.format('dd.MM.yyyy') }}",
+            "Сумма": "={{ $json.sum }}",
+            "Currency": "={{ $json.currency }}",
+            "Получатель": "={{ $if($('Telegram Trigger').item.json.callback_query.message.text.includes('Дильшод'), \"Давлетьяров Дильшод\", \"Давлетьяров Сардор\") }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "Дата",
+              "displayName": "Дата",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Получатель",
+              "displayName": "Получатель",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Сумма",
+              "displayName": "Сумма",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Currency",
+              "displayName": "Currency",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "Комментарий",
+              "displayName": "Комментарий",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        1152,
+        608
+      ],
+      "id": "9f631408-36c5-4c15-9b55-04bf7b4966d2",
+      "name": "Append Kolberg",
+      "credentials": {
+        "googleApi": {
+          "id": "mRkpe2z9NTTuFURb",
+          "name": "service account"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "On form submission": {
+      "main": [
+        [
+          {
+            "node": "RB",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "RB": {
+      "main": [
+        []
+      ]
+    },
+    "Telegram Trigger": {
+      "main": [
+        [
+          {
+            "node": "Edit Fields",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Edit Fields": {
+      "main": [
+        [
+          {
+            "node": "If1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If": {
+      "main": [
+        [
+          {
+            "node": "Append Construction",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Append Kolberg",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If1": {
+      "main": [
+        [
+          {
+            "node": "If",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Answer Query a callback4",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Answer Query a callback",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Answer Query a callback": {
+      "main": [
+        [
+          {
+            "node": "Edit a text message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Answer Query a callback4": {
+      "main": [
+        [
+          {
+            "node": "Edit a text message1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "pinData": {
+    "On form submission": [
+      {
+        "json": {
+          "Заявка на": "4. Выдача в счет аванса Kolberg Construction Сардор",
+          "Сумма": 1000,
+          "Валюта": "USD",
+          "submittedAt": "2025-11-17T10:23:58.335+05:00",
+          "formMode": "production"
+        }
+      }
+    ],
+    "Telegram Trigger": [
+      {
+        "json": {
+          "update_id": 992682331,
+          "callback_query": {
+            "id": "2967042873429251",
+            "from": {
+              "id": 690818,
+              "is_bot": false,
+              "first_name": "Ravshan",
+              "last_name": "Davletyarov",
+              "username": "rdavletyarov",
+              "language_code": "ru",
+              "is_premium": true
+            },
+            "message": {
+              "message_id": 10,
+              "from": {
+                "id": 8005200076,
+                "is_bot": true,
+                "first_name": "KG заявки",
+                "username": "kg_requests_bot"
+              },
+              "chat": {
+                "id": 690818,
+                "first_name": "Ravshan",
+                "last_name": "Davletyarov",
+                "username": "rdavletyarov",
+                "type": "private"
+              },
+              "date": 1764253732,
+              "text": "💰 Новая заявка на расход\n690818\nНазначение:  Выдача оклада Дильшод\nСумма: 500,00 EUR",
+              "entities": [
+                {
+                  "offset": 3,
+                  "length": 22,
+                  "type": "bold"
+                },
+                {
+                  "offset": 33,
+                  "length": 11,
+                  "type": "bold"
+                },
+                {
+                  "offset": 68,
+                  "length": 6,
+                  "type": "bold"
+                }
+              ],
+              "reply_markup": {
+                "inline_keyboard": [
+                  [
+                    {
+                      "text": "✅ Выплачено",
+                      "callback_data": "payed_2_500_EUR_\n"
+                    },
+                    {
+                      "text": "❌ Отклонить",
+                      "callback_data": "canceled_2_500_EUR_"
+                    }
+                  ]
+                ]
+              }
+            },
+            "chat_instance": "-1220039748564633381",
+            "data": "payed_2_500_EUR_\n"
+          }
+        }
+      }
+    ]
+  },
+  "versionId": "ad7015ac-6b4e-4040-86b1-16f515b9b9ba",
+  "versionCounter": 88,
+  "triggerCount": 2,
+  "tags": [],
+  "shared": [
+    {
+      "updatedAt": "2025-11-11T10:05:49.798Z",
+      "createdAt": "2025-11-11T10:05:49.798Z",
+      "role": "workflow:owner",
+      "workflowId": "IDYXZ9s1AvQE9r65",
+      "projectId": "Khq0xGbDHq3t4IJq",
+      "project": {
+        "updatedAt": "2025-10-09T12:38:52.281Z",
+        "createdAt": "2025-10-09T12:30:53.020Z",
+        "id": "Khq0xGbDHq3t4IJq",
+        "name": "Dilshod Davletyarov <dilshod95@gmail.com>",
+        "type": "personal",
+        "icon": null,
+        "description": null
+      }
+    }
+  ]
+}

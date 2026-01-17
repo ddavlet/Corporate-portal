@@ -1,0 +1,1362 @@
+{
+    "nodes": [
+        {
+            "parameters": {
+                "operation": "select",
+                "schema": {
+                    "__rl": true,
+                    "mode": "list",
+                    "value": "public"
+                },
+                "table": {
+                    "__rl": true,
+                    "value": "approvals",
+                    "mode": "list",
+                    "cachedResultName": "approvals"
+                },
+                "returnAll": true,
+                "where": {
+                    "values": [
+                        {
+                            "column": "request_id",
+                            "value": "={{ $('Start').item.json.request_id }}"
+                        }
+                    ]
+                },
+                "options": {}
+            },
+            "type": "n8n-nodes-base.postgres",
+            "typeVersion": 2.6,
+            "position": [
+                -1120,
+                352
+            ],
+            "id": "8424a754-0816-4562-883a-e624c18b1cb0",
+            "name": "get approvals1",
+            "alwaysOutputData": false,
+            "credentials": {
+                "postgres": {
+                    "id": "VtaNUZahv5Ssh4y2",
+                    "name": "Lemonfit 2"
+                }
+            }
+        },
+        {
+            "parameters": {
+                "operation": "editMessageText",
+                "chatId": "={{ $('get users').item.json.telegram_chat_id }}",
+                "messageId": "={{$('get approvals1').item.json.message_id }}",
+                "replyMarkup": "inlineKeyboard",
+                "text": "=❌ *Заявка отклонена на {{ $('Start').item.json.step }} этапе*\n\n*Заявка отклонена пользователем:*\n**{{ $('Start').item.json.name }}**\n\nЗаявка:\n\n{{ $('Edit Fields').item.json.text }}",
+                "additionalFields": {
+                    "disable_web_page_preview": true,
+                    "parse_mode": "MarkdownV2"
+                }
+            },
+            "type": "n8n-nodes-base.telegram",
+            "typeVersion": 1.2,
+            "position": [
+                0,
+                0
+            ],
+            "id": "281df2c1-bba6-4507-b605-5f660d9cfab0",
+            "name": "change messages status to canceled",
+            "webhookId": "ce5603c1-1138-4d84-8db9-af0ad6f7bee3",
+            "credentials": {
+                "telegramApi": {
+                    "id": "GlN5OGKLXSsawcEL",
+                    "name": "Lemonfit заявки"
+                }
+            }
+        },
+        {
+            "parameters": {
+                "conditions": {
+                    "options": {
+                        "caseSensitive": true,
+                        "leftValue": "",
+                        "typeValidation": "strict",
+                        "version": 2
+                    },
+                    "conditions": [
+                        {
+                            "id": "7a5caac6-bb09-4aac-b1f8-c45ee825dff3",
+                            "leftValue": "={{ $('get approvals1').item.json.message_sent }}",
+                            "rightValue": "",
+                            "operator": {
+                                "type": "boolean",
+                                "operation": "true",
+                                "singleValue": true
+                            }
+                        }
+                    ],
+                    "combinator": "and"
+                },
+                "options": {}
+            },
+            "type": "n8n-nodes-base.if",
+            "typeVersion": 2.2,
+            "position": [
+                -224,
+                16
+            ],
+            "id": "a40adb1f-7625-4762-8143-a34251bdea71",
+            "name": "message sent?1"
+        },
+        {
+            "parameters": {
+                "workflowInputs": {
+                    "values": [
+                        {
+                            "name": "request_id",
+                            "type": "any"
+                        },
+                        {
+                            "name": "name",
+                            "type": "any"
+                        },
+                        {
+                            "name": "type"
+                        },
+                        {
+                            "name": "step"
+                        }
+                    ]
+                }
+            },
+            "id": "dd42ff0b-7fb9-40e3-9d2d-622bd8622867",
+            "typeVersion": 1.1,
+            "name": "Start",
+            "type": "n8n-nodes-base.executeWorkflowTrigger",
+            "position": [
+                -2080,
+                352
+            ]
+        },
+        {
+            "parameters": {
+                "rules": {
+                    "values": [
+                        {
+                            "conditions": {
+                                "options": {
+                                    "caseSensitive": true,
+                                    "leftValue": "",
+                                    "typeValidation": "strict",
+                                    "version": 2
+                                },
+                                "conditions": [
+                                    {
+                                        "leftValue": "={{ $('Start').item.json.type }}",
+                                        "rightValue": "rejected",
+                                        "operator": {
+                                            "type": "string",
+                                            "operation": "equals"
+                                        },
+                                        "id": "7f1ecd36-7d03-4dd1-ba03-ef162a840559"
+                                    }
+                                ],
+                                "combinator": "and"
+                            },
+                            "renameOutput": true,
+                            "outputKey": "rejected"
+                        },
+                        {
+                            "conditions": {
+                                "options": {
+                                    "caseSensitive": true,
+                                    "leftValue": "",
+                                    "typeValidation": "strict",
+                                    "version": 2
+                                },
+                                "conditions": [
+                                    {
+                                        "id": "5147d916-4380-4e2f-8e51-5f1a7f4d84de",
+                                        "leftValue": "={{ $('Start').item.json.type }}",
+                                        "rightValue": "accepted",
+                                        "operator": {
+                                            "type": "string",
+                                            "operation": "equals",
+                                            "name": "filter.operator.equals"
+                                        }
+                                    }
+                                ],
+                                "combinator": "and"
+                            },
+                            "renameOutput": true,
+                            "outputKey": "accepted"
+                        },
+                        {
+                            "conditions": {
+                                "options": {
+                                    "caseSensitive": true,
+                                    "leftValue": "",
+                                    "typeValidation": "strict",
+                                    "version": 2
+                                },
+                                "conditions": [
+                                    {
+                                        "id": "b6ee6c91-e0c8-43dd-ab46-54db5be00f66",
+                                        "leftValue": "={{ $('Start').item.json.type }}",
+                                        "rightValue": "send_form",
+                                        "operator": {
+                                            "type": "string",
+                                            "operation": "equals",
+                                            "name": "filter.operator.equals"
+                                        }
+                                    }
+                                ],
+                                "combinator": "and"
+                            },
+                            "renameOutput": true,
+                            "outputKey": "send_form"
+                        },
+                        {
+                            "conditions": {
+                                "options": {
+                                    "caseSensitive": true,
+                                    "leftValue": "",
+                                    "typeValidation": "strict",
+                                    "version": 2
+                                },
+                                "conditions": [
+                                    {
+                                        "id": "fde123a7-b6a0-4337-9020-ec7f1a35b77a",
+                                        "leftValue": "={{ $('Start').item.json.type }}",
+                                        "rightValue": "payed",
+                                        "operator": {
+                                            "type": "string",
+                                            "operation": "equals",
+                                            "name": "filter.operator.equals"
+                                        }
+                                    }
+                                ],
+                                "combinator": "and"
+                            },
+                            "renameOutput": true,
+                            "outputKey": "payed"
+                        }
+                    ]
+                },
+                "options": {}
+            },
+            "type": "n8n-nodes-base.switch",
+            "typeVersion": 3.3,
+            "position": [
+                -448,
+                320
+            ],
+            "id": "6b4b756d-929e-4d53-a598-5172afb78b6d",
+            "name": "Switch"
+        },
+        {
+            "parameters": {
+                "operation": "select",
+                "schema": {
+                    "__rl": true,
+                    "mode": "list",
+                    "value": "public"
+                },
+                "table": {
+                    "__rl": true,
+                    "value": "requests",
+                    "mode": "list",
+                    "cachedResultName": "requests"
+                },
+                "limit": 1,
+                "where": {
+                    "values": [
+                        {
+                            "column": "id",
+                            "value": "={{ $('Start').item.json.request_id }}"
+                        }
+                    ]
+                },
+                "options": {}
+            },
+            "type": "n8n-nodes-base.postgres",
+            "typeVersion": 2.6,
+            "position": [
+                -1856,
+                352
+            ],
+            "id": "da77758c-b1e6-4880-9879-c03b6f3bae90",
+            "name": "get request",
+            "credentials": {
+                "postgres": {
+                    "id": "VtaNUZahv5Ssh4y2",
+                    "name": "Lemonfit 2"
+                }
+            }
+        },
+        {
+            "parameters": {
+                "operation": "select",
+                "schema": {
+                    "__rl": true,
+                    "mode": "list",
+                    "value": "public"
+                },
+                "table": {
+                    "__rl": true,
+                    "value": "attachments",
+                    "mode": "list",
+                    "cachedResultName": "attachments"
+                },
+                "returnAll": true,
+                "where": {
+                    "values": [
+                        {
+                            "column": "request_id",
+                            "value": "={{ $('Start').item.json.request_id }}"
+                        }
+                    ]
+                },
+                "options": {}
+            },
+            "type": "n8n-nodes-base.postgres",
+            "typeVersion": 2.6,
+            "position": [
+                -1408,
+                352
+            ],
+            "id": "9953fade-04c8-4d69-bc69-d5e1a3639ba9",
+            "name": "get attachments",
+            "alwaysOutputData": true,
+            "credentials": {
+                "postgres": {
+                    "id": "VtaNUZahv5Ssh4y2",
+                    "name": "Lemonfit 2"
+                }
+            }
+        },
+        {
+            "parameters": {
+                "operation": "editMessageText",
+                "chatId": "={{ $('get users').item.json.telegram_chat_id }}",
+                "messageId": "={{$('get approvals1').item.json.message_id }}",
+                "replyMarkup": "inlineKeyboard",
+                "text": "=✅ *Заявка №* {{ $('get request').item.json.id }} *польностью одобрена*\n\n{{ $('Edit Fields').item.json.text }}",
+                "inlineKeyboard": {
+                    "rows": [
+                        {
+                            "row": {
+                                "buttons": [
+                                    {
+                                        "text": "📁 Получить файлы",
+                                        "additionalFields": {
+                                            "callback_data": "=files_{{ $('get request').item.json.id }}"
+                                        }
+                                    }
+                                ]
+                            }
+                        }
+                    ]
+                },
+                "additionalFields": {
+                    "disable_web_page_preview": true,
+                    "parse_mode": "MarkdownV2"
+                }
+            },
+            "type": "n8n-nodes-base.telegram",
+            "typeVersion": 1.2,
+            "position": [
+                16,
+                240
+            ],
+            "id": "1a5e7e0a-64a6-4cf1-8bff-7ffbe2f52ad1",
+            "name": "change messages status to canceled1",
+            "webhookId": "ce5603c1-1138-4d84-8db9-af0ad6f7bee3",
+            "credentials": {
+                "telegramApi": {
+                    "id": "GlN5OGKLXSsawcEL",
+                    "name": "Lemonfit заявки"
+                }
+            }
+        },
+        {
+            "parameters": {
+                "conditions": {
+                    "options": {
+                        "caseSensitive": true,
+                        "leftValue": "",
+                        "typeValidation": "strict",
+                        "version": 2
+                    },
+                    "conditions": [
+                        {
+                            "id": "7a5caac6-bb09-4aac-b1f8-c45ee825dff3",
+                            "leftValue": "={{ $('get approvals1').item.json.message_sent }}",
+                            "rightValue": "",
+                            "operator": {
+                                "type": "boolean",
+                                "operation": "true",
+                                "singleValue": true
+                            }
+                        }
+                    ],
+                    "combinator": "and"
+                },
+                "options": {}
+            },
+            "type": "n8n-nodes-base.if",
+            "typeVersion": 2.2,
+            "position": [
+                -224,
+                256
+            ],
+            "id": "1296375f-2c1d-4116-a133-e8db28a77052",
+            "name": "message sent?"
+        },
+        {
+            "parameters": {
+                "chatId": "={{$json.telegram_chat_id}}",
+                "text": "=✅ *Заявка №* {{ $('get request').item.json.id }} *польностью одобрена*\n\n{{ $('Edit Fields').item.json.text }}",
+                "replyMarkup": "inlineKeyboard",
+                "inlineKeyboard": {
+                    "rows": [
+                        {
+                            "row": {
+                                "buttons": [
+                                    {
+                                        "text": "💰 Выплачено",
+                                        "additionalFields": {
+                                            "callback_data": "=payed_{{ $('get request').item.json.id }}"
+                                        }
+                                    }
+                                ]
+                            }
+                        },
+                        {
+                            "row": {
+                                "buttons": [
+                                    {
+                                        "text": "📁 Получить файлы",
+                                        "additionalFields": {
+                                            "callback_data": "=files_{{ $('get request').item.json.id }}"
+                                        }
+                                    }
+                                ]
+                            }
+                        }
+                    ]
+                },
+                "additionalFields": {
+                    "disable_web_page_preview": true,
+                    "parse_mode": "MarkdownV2"
+                }
+            },
+            "type": "n8n-nodes-base.telegram",
+            "typeVersion": 1.2,
+            "position": [
+                1344,
+                160
+            ],
+            "id": "11c6568b-7926-4512-8b89-72dd003774a6",
+            "name": "send message to acc group",
+            "webhookId": "b8d996a5-781e-422a-a32e-a3aec05944e6",
+            "executeOnce": true,
+            "credentials": {
+                "telegramApi": {
+                    "id": "GlN5OGKLXSsawcEL",
+                    "name": "Lemonfit заявки"
+                }
+            }
+        },
+        {
+            "parameters": {
+                "conditions": {
+                    "options": {
+                        "caseSensitive": true,
+                        "leftValue": "",
+                        "typeValidation": "strict",
+                        "version": 2
+                    },
+                    "conditions": [
+                        {
+                            "id": "2389492c-6303-4e1b-8f8e-c00f3b6be431",
+                            "leftValue": "={{ $('get request').item.json.payment_type }}",
+                            "rightValue": "=Перечисление",
+                            "operator": {
+                                "type": "string",
+                                "operation": "equals",
+                                "name": "filter.operator.equals"
+                            }
+                        },
+                        {
+                            "id": "091ef3bd-8212-41f7-b926-6665d9b9fa16",
+                            "leftValue": "={{ $('get request').item.json.payment_type }}",
+                            "rightValue": "Пополнение",
+                            "operator": {
+                                "type": "string",
+                                "operation": "equals",
+                                "name": "filter.operator.equals"
+                            }
+                        }
+                    ],
+                    "combinator": "or"
+                },
+                "options": {}
+            },
+            "type": "n8n-nodes-base.if",
+            "typeVersion": 2.2,
+            "position": [
+                912,
+                240
+            ],
+            "id": "82262bda-c8b9-413c-8add-539b7c6329e6",
+            "name": "is bank transfer",
+            "executeOnce": false
+        },
+        {
+            "parameters": {
+                "operation": "select",
+                "schema": {
+                    "__rl": true,
+                    "mode": "list",
+                    "value": "public"
+                },
+                "table": {
+                    "__rl": true,
+                    "value": "users",
+                    "mode": "list",
+                    "cachedResultName": "users"
+                },
+                "limit": 1,
+                "where": {
+                    "values": [
+                        {
+                            "column": "role",
+                            "value": "acc_group"
+                        }
+                    ]
+                },
+                "options": {}
+            },
+            "type": "n8n-nodes-base.postgres",
+            "typeVersion": 2.6,
+            "position": [
+                1120,
+                160
+            ],
+            "id": "c1258315-f30e-40d0-8265-da7ea6d8e597",
+            "name": "get accountant group2",
+            "executeOnce": true,
+            "credentials": {
+                "postgres": {
+                    "id": "VtaNUZahv5Ssh4y2",
+                    "name": "Lemonfit 2"
+                }
+            }
+        },
+        {
+            "parameters": {
+                "chatId": "={{$json.telegram_chat_id}}",
+                "text": "=✅ *Заявка №* {{ $('get request').item.json.id }} *польностью одобрена*\n\n{{ $('Edit Fields').item.json.text }}",
+                "replyMarkup": "inlineKeyboard",
+                "inlineKeyboard": {
+                    "rows": [
+                        {
+                            "row": {
+                                "buttons": [
+                                    {
+                                        "text": "💰 Выплачено",
+                                        "additionalFields": {
+                                            "callback_data": "=payed_{{ $('get request').item.json.id }}"
+                                        }
+                                    }
+                                ]
+                            }
+                        },
+                        {
+                            "row": {
+                                "buttons": [
+                                    {
+                                        "text": "📁 Получить файлы",
+                                        "additionalFields": {
+                                            "callback_data": "=files_{{ $('get request').item.json.id }}"
+                                        }
+                                    }
+                                ]
+                            }
+                        }
+                    ]
+                },
+                "additionalFields": {
+                    "appendAttribution": false,
+                    "disable_web_page_preview": true,
+                    "parse_mode": "MarkdownV2"
+                }
+            },
+            "type": "n8n-nodes-base.telegram",
+            "typeVersion": 1.2,
+            "position": [
+                1344,
+                336
+            ],
+            "id": "112c6606-198d-4c20-bcb6-ce5d8f65c3ec",
+            "name": "send request approved",
+            "webhookId": "0e85ac3c-9c7e-4848-ba5e-d3e420bfbc45",
+            "executeOnce": true,
+            "retryOnFail": false,
+            "credentials": {
+                "telegramApi": {
+                    "id": "GlN5OGKLXSsawcEL",
+                    "name": "Lemonfit заявки"
+                }
+            }
+        },
+        {
+            "parameters": {
+                "operation": "select",
+                "schema": {
+                    "__rl": true,
+                    "mode": "list",
+                    "value": "public"
+                },
+                "table": {
+                    "__rl": true,
+                    "value": "users",
+                    "mode": "list",
+                    "cachedResultName": "users"
+                },
+                "limit": 1,
+                "where": {
+                    "values": [
+                        {
+                            "column": "role",
+                            "value": "cashier"
+                        }
+                    ]
+                },
+                "options": {}
+            },
+            "type": "n8n-nodes-base.postgres",
+            "typeVersion": 2.6,
+            "position": [
+                1120,
+                336
+            ],
+            "id": "dbdd9c79-9ef7-41b1-bf3b-7c2b8f9115e2",
+            "name": "get cashier",
+            "credentials": {
+                "postgres": {
+                    "id": "VtaNUZahv5Ssh4y2",
+                    "name": "Lemonfit 2"
+                }
+            }
+        },
+        {
+            "parameters": {
+                "chatId": "={{ $json.telegram_chat_id }}",
+                "text": "=💰 *Новая заявка на расход №*{{ $('get request').item.json.id }}\n\n{{ $('Edit Fields').item.json.text }}",
+                "replyMarkup": "inlineKeyboard",
+                "inlineKeyboard": {
+                    "rows": [
+                        {
+                            "row": {
+                                "buttons": [
+                                    {
+                                        "text": "✅ Одобрить",
+                                        "additionalFields": {
+                                            "callback_data": "=accepted_{{ $('get approvals').item.json.id }}"
+                                        }
+                                    },
+                                    {
+                                        "text": "❌ Отклонить",
+                                        "additionalFields": {
+                                            "callback_data": "=rejected_{{ $('get approvals').item.json.id }}"
+                                        }
+                                    }
+                                ]
+                            }
+                        },
+                        {
+                            "row": {
+                                "buttons": [
+                                    {
+                                        "text": "📁 Получить файлы",
+                                        "additionalFields": {
+                                            "callback_data": "=files_{{ $('get request').item.json.id }}"
+                                        }
+                                    }
+                                ]
+                            }
+                        }
+                    ]
+                },
+                "additionalFields": {
+                    "appendAttribution": false,
+                    "disable_web_page_preview": true,
+                    "parse_mode": "MarkdownV2"
+                }
+            },
+            "type": "n8n-nodes-base.telegram",
+            "typeVersion": 1.2,
+            "position": [
+                176,
+                512
+            ],
+            "id": "4e3af4fd-2c42-4bb4-8244-d0359ca179af",
+            "name": "send approval form1",
+            "webhookId": "cd21baac-60a6-488d-bc89-cd8d1bbca8e6",
+            "credentials": {
+                "telegramApi": {
+                    "id": "GlN5OGKLXSsawcEL",
+                    "name": "Lemonfit заявки"
+                }
+            }
+        },
+        {
+            "parameters": {
+                "operation": "select",
+                "schema": {
+                    "__rl": true,
+                    "mode": "list",
+                    "value": "public"
+                },
+                "table": {
+                    "__rl": true,
+                    "value": "approvals",
+                    "mode": "list",
+                    "cachedResultName": "approvals"
+                },
+                "returnAll": true,
+                "where": {
+                    "values": [
+                        {
+                            "column": "request_id",
+                            "value": "={{ $('Start').item.json.request_id }}"
+                        },
+                        {
+                            "column": "step",
+                            "value": "={{ $('Start').item.json.step }}"
+                        },
+                        {
+                            "column": "message_sent",
+                            "value": "false"
+                        }
+                    ]
+                },
+                "options": {}
+            },
+            "type": "n8n-nodes-base.postgres",
+            "typeVersion": 2.6,
+            "position": [
+                -224,
+                512
+            ],
+            "id": "ad33492c-e86c-4b24-bdc0-3bfcf856b390",
+            "name": "get approvals",
+            "alwaysOutputData": false,
+            "executeOnce": true,
+            "credentials": {
+                "postgres": {
+                    "id": "VtaNUZahv5Ssh4y2",
+                    "name": "Lemonfit 2"
+                }
+            }
+        },
+        {
+            "parameters": {
+                "operation": "update",
+                "schema": {
+                    "__rl": true,
+                    "mode": "list",
+                    "value": "public"
+                },
+                "table": {
+                    "__rl": true,
+                    "value": "approvals",
+                    "mode": "list",
+                    "cachedResultName": "approvals"
+                },
+                "columns": {
+                    "mappingMode": "defineBelow",
+                    "value": {
+                        "message_sent": true,
+                        "message_id": "={{ $json.result.message_id }}",
+                        "id": "={{ $('get approvals').item.json.id }}"
+                    },
+                    "matchingColumns": [
+                        "id"
+                    ],
+                    "schema": [
+                        {
+                            "id": "id",
+                            "displayName": "id",
+                            "required": false,
+                            "defaultMatch": true,
+                            "display": true,
+                            "type": "number",
+                            "canBeUsedToMatch": true,
+                            "removed": false
+                        },
+                        {
+                            "id": "request_id",
+                            "displayName": "request_id",
+                            "required": true,
+                            "defaultMatch": false,
+                            "display": true,
+                            "type": "number",
+                            "canBeUsedToMatch": true,
+                            "removed": true
+                        },
+                        {
+                            "id": "approver_user_id",
+                            "displayName": "approver_user_id",
+                            "required": true,
+                            "defaultMatch": false,
+                            "display": true,
+                            "type": "number",
+                            "canBeUsedToMatch": true,
+                            "removed": true
+                        },
+                        {
+                            "id": "approver_tg_id",
+                            "displayName": "approver_tg_id",
+                            "required": false,
+                            "defaultMatch": false,
+                            "display": true,
+                            "type": "number",
+                            "canBeUsedToMatch": true,
+                            "removed": true
+                        },
+                        {
+                            "id": "message_id",
+                            "displayName": "message_id",
+                            "required": false,
+                            "defaultMatch": false,
+                            "display": true,
+                            "type": "number",
+                            "canBeUsedToMatch": true
+                        },
+                        {
+                            "id": "message_sent",
+                            "displayName": "message_sent",
+                            "required": false,
+                            "defaultMatch": false,
+                            "display": true,
+                            "type": "boolean",
+                            "canBeUsedToMatch": true
+                        },
+                        {
+                            "id": "step",
+                            "displayName": "step",
+                            "required": false,
+                            "defaultMatch": false,
+                            "display": true,
+                            "type": "number",
+                            "canBeUsedToMatch": true,
+                            "removed": true
+                        },
+                        {
+                            "id": "step_type",
+                            "displayName": "step_type",
+                            "required": false,
+                            "defaultMatch": false,
+                            "display": true,
+                            "type": "string",
+                            "canBeUsedToMatch": true,
+                            "removed": true
+                        },
+                        {
+                            "id": "decision",
+                            "displayName": "decision",
+                            "required": false,
+                            "defaultMatch": false,
+                            "display": true,
+                            "type": "string",
+                            "canBeUsedToMatch": true,
+                            "removed": true
+                        },
+                        {
+                            "id": "comment",
+                            "displayName": "comment",
+                            "required": false,
+                            "defaultMatch": false,
+                            "display": true,
+                            "type": "string",
+                            "canBeUsedToMatch": true,
+                            "removed": true
+                        },
+                        {
+                            "id": "decided_at",
+                            "displayName": "decided_at",
+                            "required": false,
+                            "defaultMatch": false,
+                            "display": true,
+                            "type": "dateTime",
+                            "canBeUsedToMatch": true,
+                            "removed": true
+                        }
+                    ],
+                    "attemptToConvertTypes": false,
+                    "convertFieldsToString": false
+                },
+                "options": {}
+            },
+            "type": "n8n-nodes-base.postgres",
+            "typeVersion": 2.6,
+            "position": [
+                400,
+                512
+            ],
+            "id": "a62a9b20-3bbc-4eb1-9219-ce9870552cc6",
+            "name": "Update approval delivery status1",
+            "credentials": {
+                "postgres": {
+                    "id": "VtaNUZahv5Ssh4y2",
+                    "name": "Lemonfit 2"
+                }
+            }
+        },
+        {
+            "parameters": {
+                "assignments": {
+                    "assignments": [
+                        {
+                            "id": "a3eb08f8-7f27-444d-bbb5-c6334d3e0b9e",
+                            "name": "text",
+                            "value": "=*Компания*: {{ $('get request').item.json.company_payer }}\n*Проект*: {{ $('get request').item.json.title }}\n\n💰 *Финансы*\n• *Поставщик*: {{ $('get request').item.json.vendor.replace(/([_*\\[\\]()~`>#+\\-=|{}.!])/g, '\\\\$1') }}\n• *Категория*: {{ $('get request').item.json.category.replace(/([_*\\[\\]()~`>#+\\-=|{}.!])/g, '\\\\$1') }}\n• *Сумма*: *{{ Number($('get request').item.json.amount).toLocaleString(\"ru\", { minimumFractionDigits: 2, maximumFractionDigits: 2, style: \"currency\", currency: $('get request').item.json.currency }) }}*\n• *Тип оплаты*: {{ $('get request').item.json.payment_type }}\n\n📌 *Назначение*\n• *Назначение платежа*: {{ $('get request').item.json.payment_purpose.replace(/([_*\\[\\]()~`>#+\\-=|{}.!])/g, '\\\\$1') }}\n• *Описание*: {{ $('get request').item.json.description.replace(/([_*\\[\\]()~`>#+\\-=|{}.!])/g, '\\\\$1') }}\n\n⏱ *Статус*\n• *Срочность*: *{{ $('get request').item.json.urgency }}*\n• *Заявитель*: {{ $('get request').item.json.requester }}\n\n{{$if( $('get attachments').item.json.isEmpty(), \"\", \"📎*Вложения*:\\n\\t\\\\* [\" + $('get attachments').item.json.filename.replace(/[_*[\\]()~>#+\\-=|{}.!]/g, '\\\\$&') + \"](\" + $('get attachments').item.json.file_url .replace(/([_*\\[\\]()~>#+\\-=|{}.!])/g, '\\\\$1') + \")\\n\" )}}\n🕒 *Подано*: {{ new Date($('get request').item.json.submitted_at).toLocaleString('ru-RU', { hour: '2-digit', minute: '2-digit', day: '2-digit', month: 'long', year: 'numeric' }).replace(/([_*\\[\\]()~`>#+\\-=|{}.!])/g, '\\\\$1') }}\n",
+                            "type": "string"
+                        }
+                    ]
+                },
+                "options": {}
+            },
+            "type": "n8n-nodes-base.set",
+            "typeVersion": 3.4,
+            "position": [
+                -688,
+                352
+            ],
+            "id": "7da455fb-5ec1-43f9-a55f-90b36f1ee7bb",
+            "name": "Edit Fields"
+        },
+        {
+            "parameters": {
+                "operation": "editMessageText",
+                "chatId": "={{ $('get users').item.json.telegram_chat_id }}",
+                "messageId": "={{$('get approvals1').item.json.message_id }}",
+                "replyMarkup": "inlineKeyboard",
+                "text": "=☑️ *Заявка №* {{ $('get request').item.json.id }} *закрыта*\n\nОтветсвенный за оплату: {{ $('Start').item.json.name }}\n\n{{ $('Edit Fields').item.json.text }}",
+                "additionalFields": {
+                    "disable_web_page_preview": true,
+                    "parse_mode": "MarkdownV2"
+                }
+            },
+            "type": "n8n-nodes-base.telegram",
+            "typeVersion": 1.2,
+            "position": [
+                0,
+                688
+            ],
+            "id": "e36b4ef3-a4a8-4e19-ab76-c662fcc39d00",
+            "name": "change messages status to canceled2",
+            "webhookId": "ce5603c1-1138-4d84-8db9-af0ad6f7bee3",
+            "credentials": {
+                "telegramApi": {
+                    "id": "GlN5OGKLXSsawcEL",
+                    "name": "Lemonfit заявки"
+                }
+            }
+        },
+        {
+            "parameters": {
+                "operation": "select",
+                "schema": {
+                    "__rl": true,
+                    "mode": "list",
+                    "value": "public"
+                },
+                "table": {
+                    "__rl": true,
+                    "value": "users",
+                    "mode": "list",
+                    "cachedResultName": "users"
+                },
+                "limit": 1,
+                "where": {
+                    "values": [
+                        {
+                            "column": "id",
+                            "value": "={{ $json.approver_user_id }}"
+                        }
+                    ]
+                },
+                "options": {}
+            },
+            "type": "n8n-nodes-base.postgres",
+            "typeVersion": 2.6,
+            "position": [
+                -16,
+                512
+            ],
+            "id": "651de1af-0014-4cbc-8341-afab34c90f9d",
+            "name": "Select rows from a table1",
+            "credentials": {
+                "postgres": {
+                    "id": "VtaNUZahv5Ssh4y2",
+                    "name": "Lemonfit 2"
+                }
+            }
+        },
+        {
+            "parameters": {
+                "conditions": {
+                    "options": {
+                        "caseSensitive": true,
+                        "leftValue": "",
+                        "typeValidation": "strict",
+                        "version": 2
+                    },
+                    "conditions": [
+                        {
+                            "id": "7a5caac6-bb09-4aac-b1f8-c45ee825dff3",
+                            "leftValue": "={{ $('get approvals1').item.json.message_sent }}",
+                            "rightValue": "",
+                            "operator": {
+                                "type": "boolean",
+                                "operation": "true",
+                                "singleValue": true
+                            }
+                        }
+                    ],
+                    "combinator": "and"
+                },
+                "options": {}
+            },
+            "type": "n8n-nodes-base.if",
+            "typeVersion": 2.2,
+            "position": [
+                -224,
+                704
+            ],
+            "id": "f5af3cd5-d9cb-4385-a472-955255abe931",
+            "name": "message sent?2"
+        },
+        {
+            "parameters": {
+                "operation": "select",
+                "schema": {
+                    "__rl": true,
+                    "mode": "list",
+                    "value": "public"
+                },
+                "table": {
+                    "__rl": true,
+                    "value": "users",
+                    "mode": "list",
+                    "cachedResultName": "users"
+                },
+                "limit": 1,
+                "where": {
+                    "values": [
+                        {
+                            "column": "id",
+                            "value": "={{ $json.approver_user_id }}"
+                        }
+                    ]
+                },
+                "options": {}
+            },
+            "type": "n8n-nodes-base.postgres",
+            "typeVersion": 2.6,
+            "position": [
+                -912,
+                352
+            ],
+            "id": "5aaff612-26b8-41d5-850d-03ab1028d773",
+            "name": "get users",
+            "credentials": {
+                "postgres": {
+                    "id": "VtaNUZahv5Ssh4y2",
+                    "name": "Lemonfit 2"
+                }
+            }
+        },
+        {
+            "parameters": {
+                "operation": "select",
+                "schema": {
+                    "__rl": true,
+                    "mode": "list",
+                    "value": "public"
+                },
+                "table": {
+                    "__rl": true,
+                    "value": "contracts",
+                    "mode": "list",
+                    "cachedResultName": "contracts"
+                },
+                "limit": 1,
+                "where": {
+                    "values": [
+                        {
+                            "column": "id",
+                            "value": "={{ $json.contract_id }}"
+                        }
+                    ]
+                },
+                "options": {}
+            },
+            "type": "n8n-nodes-base.postgres",
+            "typeVersion": 2.6,
+            "position": [
+                -1632,
+                352
+            ],
+            "id": "e27fe33c-962f-43a0-beac-c9d774b7460a",
+            "name": "get contract2",
+            "alwaysOutputData": true,
+            "credentials": {
+                "postgres": {
+                    "id": "VtaNUZahv5Ssh4y2",
+                    "name": "Lemonfit 2"
+                }
+            }
+        }
+    ],
+    "connections": {
+        "get approvals1": {
+            "main": [
+                [
+                    {
+                        "node": "get users",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "message sent?1": {
+            "main": [
+                [
+                    {
+                        "node": "change messages status to canceled",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Start": {
+            "main": [
+                [
+                    {
+                        "node": "get request",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Switch": {
+            "main": [
+                [
+                    {
+                        "node": "message sent?1",
+                        "type": "main",
+                        "index": 0
+                    }
+                ],
+                [
+                    {
+                        "node": "message sent?",
+                        "type": "main",
+                        "index": 0
+                    }
+                ],
+                [
+                    {
+                        "node": "get approvals",
+                        "type": "main",
+                        "index": 0
+                    }
+                ],
+                [
+                    {
+                        "node": "message sent?2",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "get request": {
+            "main": [
+                [
+                    {
+                        "node": "get contract2",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "get attachments": {
+            "main": [
+                [
+                    {
+                        "node": "get approvals1",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "change messages status to canceled1": {
+            "main": [
+                [
+                    {
+                        "node": "is bank transfer",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "message sent?": {
+            "main": [
+                [
+                    {
+                        "node": "change messages status to canceled1",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "is bank transfer": {
+            "main": [
+                [
+                    {
+                        "node": "get accountant group2",
+                        "type": "main",
+                        "index": 0
+                    }
+                ],
+                [
+                    {
+                        "node": "get cashier",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "get accountant group2": {
+            "main": [
+                [
+                    {
+                        "node": "send message to acc group",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "get cashier": {
+            "main": [
+                [
+                    {
+                        "node": "send request approved",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "send approval form1": {
+            "main": [
+                [
+                    {
+                        "node": "Update approval delivery status1",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "get approvals": {
+            "main": [
+                [
+                    {
+                        "node": "Select rows from a table1",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Edit Fields": {
+            "main": [
+                [
+                    {
+                        "node": "Switch",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "Select rows from a table1": {
+            "main": [
+                [
+                    {
+                        "node": "send approval form1",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "message sent?2": {
+            "main": [
+                [
+                    {
+                        "node": "change messages status to canceled2",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "get users": {
+            "main": [
+                [
+                    {
+                        "node": "Edit Fields",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        },
+        "get contract2": {
+            "main": [
+                [
+                    {
+                        "node": "get attachments",
+                        "type": "main",
+                        "index": 0
+                    }
+                ]
+            ]
+        }
+    },
+    "pinData": {
+        "Start": [
+            {
+                "request_id": 392,
+                "name": "Buxgalter Guzal",
+                "type": "rejected",
+                "step": "2"
+            }
+        ]
+    },
+    "meta": {
+        "instanceId": "aaa5eb3b3bb2b0e4c2900ebf2061149fc2bf8ef76f120e9fd24b91ca24d47211"
+    }
+}

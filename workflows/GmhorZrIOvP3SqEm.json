@@ -1,0 +1,159 @@
+{
+  "updatedAt": "2025-11-25T11:26:09.000Z",
+  "createdAt": "2025-11-09T19:26:03.635Z",
+  "id": "GmhorZrIOvP3SqEm",
+  "name": "On comment in the bot",
+  "description": null,
+  "active": true,
+  "isArchived": false,
+  "nodes": [
+    {
+      "parameters": {
+        "updates": [
+          "message"
+        ],
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.telegramTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -288,
+        -80
+      ],
+      "id": "b972cb95-361d-4374-b0b3-aa99662d765f",
+      "name": "Telegram Trigger",
+      "webhookId": "82a5b478-efb8-4fc2-b40a-4bef80867ffc",
+      "credentials": {
+        "telegramApi": {
+          "id": "TwF5TakXsFDGzAEL",
+          "name": "KC requests"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "chatId": "291875946",
+        "text": "={{ $if($('Telegram Trigger').item.json.message.reply_to_message, String(\"Комментарий к сообщению:\\n\\n-------\\n\" + $('Telegram Trigger').item.json.message.reply_to_message.text + \"\\n-------\\n\\n\"), \"\") }}От: {{ $json.name }}\nКомментарий:\n{{ $('Telegram Trigger').item.json.message.text || \"\" }}",
+        "additionalFields": {
+          "appendAttribution": false
+        }
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        400,
+        -80
+      ],
+      "id": "1510ce01-de6b-4390-8964-b9db899799e6",
+      "name": "Send a text message",
+      "webhookId": "94f9bf24-0356-4e8e-9858-151e19cc20a4",
+      "credentials": {
+        "telegramApi": {
+          "id": "TwF5TakXsFDGzAEL",
+          "name": "KC requests"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "select",
+        "schema": {
+          "__rl": true,
+          "mode": "list",
+          "value": "public"
+        },
+        "table": {
+          "__rl": true,
+          "value": "users",
+          "mode": "list",
+          "cachedResultName": "users"
+        },
+        "limit": 1,
+        "where": {
+          "values": [
+            {
+              "column": "telegram_chat_id",
+              "value": "={{ $json.message.chat.id }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        16,
+        -80
+      ],
+      "id": "1c1fd709-d8cb-4d9f-99a2-4565449f4a1d",
+      "name": "Select rows from a table",
+      "credentials": {
+        "postgres": {
+          "id": "MMzwDDpcwJakO7kL",
+          "name": "construction_requests"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Telegram Trigger": {
+      "main": [
+        [
+          {
+            "node": "Select rows from a table",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Select rows from a table": {
+      "main": [
+        [
+          {
+            "node": "Send a text message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "pinData": {},
+  "versionId": "83ce9641-12c2-4290-9aff-1a81b1ac93e2",
+  "versionCounter": 58,
+  "triggerCount": 1,
+  "tags": [
+    {
+      "updatedAt": "2025-10-28T12:21:34.379Z",
+      "createdAt": "2025-10-28T12:21:34.379Z",
+      "id": "AF6lC1ccKNZsTMSk",
+      "name": "construction"
+    }
+  ],
+  "shared": [
+    {
+      "updatedAt": "2025-11-09T19:26:03.640Z",
+      "createdAt": "2025-11-09T19:26:03.640Z",
+      "role": "workflow:owner",
+      "workflowId": "GmhorZrIOvP3SqEm",
+      "projectId": "Khq0xGbDHq3t4IJq",
+      "project": {
+        "updatedAt": "2025-10-09T12:38:52.281Z",
+        "createdAt": "2025-10-09T12:30:53.020Z",
+        "id": "Khq0xGbDHq3t4IJq",
+        "name": "Dilshod Davletyarov <dilshod95@gmail.com>",
+        "type": "personal",
+        "icon": null,
+        "description": null
+      }
+    }
+  ]
+}

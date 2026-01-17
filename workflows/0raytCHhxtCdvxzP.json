@@ -1,0 +1,99 @@
+{
+  "updatedAt": "2025-11-08T11:04:07.000Z",
+  "createdAt": "2025-11-07T20:26:32.594Z",
+  "id": "0raytCHhxtCdvxzP",
+  "name": "My workflow 2",
+  "description": null,
+  "active": false,
+  "isArchived": true,
+  "nodes": [
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "24d7fc43-a381-492a-ba85-4a6312d6c988",
+      "name": "When clicking ‘Execute workflow’"
+    },
+    {
+      "parameters": {
+        "authentication": "serviceAccount",
+        "documentId": {
+          "__rl": true,
+          "value": "1qygApIr2xAwu7kytu2QdLhZD2BSAJVTCeSWHjqk8DRE",
+          "mode": "list",
+          "cachedResultName": "Инвестиционный отчет Kolberg Construction",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1qygApIr2xAwu7kytu2QdLhZD2BSAJVTCeSWHjqk8DRE/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "Яккасарай 4",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1qygApIr2xAwu7kytu2QdLhZD2BSAJVTCeSWHjqk8DRE/edit#gid=0"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        208,
+        0
+      ],
+      "id": "dd83d667-d352-48aa-8163-0e6ea23ed05e",
+      "name": "Get row(s) in sheet",
+      "credentials": {
+        "googleApi": {
+          "id": "mRkpe2z9NTTuFURb",
+          "name": "service account"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "When clicking ‘Execute workflow’": {
+      "main": [
+        [
+          {
+            "node": "Get row(s) in sheet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "pinData": {},
+  "versionId": "d798c4d8-4a9a-4e29-a2e1-fe2a8ab64c43",
+  "versionCounter": 3,
+  "triggerCount": 0,
+  "tags": [],
+  "shared": [
+    {
+      "updatedAt": "2025-11-07T20:26:32.604Z",
+      "createdAt": "2025-11-07T20:26:32.604Z",
+      "role": "workflow:owner",
+      "workflowId": "0raytCHhxtCdvxzP",
+      "projectId": "Khq0xGbDHq3t4IJq",
+      "project": {
+        "updatedAt": "2025-10-09T12:38:52.281Z",
+        "createdAt": "2025-10-09T12:30:53.020Z",
+        "id": "Khq0xGbDHq3t4IJq",
+        "name": "Dilshod Davletyarov <dilshod95@gmail.com>",
+        "type": "personal",
+        "icon": null,
+        "description": null
+      }
+    }
+  ]
+}

@@ -1,0 +1,2278 @@
+{
+  "updatedAt": "2025-11-23T16:16:58.000Z",
+  "createdAt": "2025-10-30T10:32:45.146Z",
+  "id": "l0elJH4HxpJ3RVR3",
+  "name": "Callback",
+  "description": null,
+  "active": true,
+  "isArchived": false,
+  "nodes": [
+    {
+      "parameters": {
+        "updates": [
+          "callback_query"
+        ],
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.telegramTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -2048,
+        592
+      ],
+      "id": "bd6e06fc-a6be-4e4f-be62-eb1836ca2200",
+      "name": "Telegram Trigger",
+      "webhookId": "b073b5ad-e5bc-4160-827b-ef285e75d868",
+      "credentials": {
+        "telegramApi": {
+          "id": "GlN5OGKLXSsawcEL",
+          "name": "Lemonfit заявки"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $('split callback data').item.json.accepted }}",
+                    "rightValue": "accepted",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "id": "2be834ec-3479-481a-a40d-dec8f5296f87"
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "accepted"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "39868aea-cb6d-4096-a659-3d8140b5c982",
+                    "leftValue": "={{ $('split callback data').item.json.accepted }}",
+                    "rightValue": "rejected",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "rejected"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "d2ddd460-45d9-44d2-971c-cf687b7198d0",
+                    "leftValue": "={{ $('split callback data').item.json.accepted }}",
+                    "rightValue": "info",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "info"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.3,
+      "position": [
+        -272,
+        112
+      ],
+      "id": "3ed0db6e-24ea-4ffb-bf9b-933ed48a1cda",
+      "name": "Switch"
+    },
+    {
+      "parameters": {
+        "operation": "select",
+        "schema": {
+          "__rl": true,
+          "mode": "list",
+          "value": "public"
+        },
+        "table": {
+          "__rl": true,
+          "value": "users",
+          "mode": "list",
+          "cachedResultName": "users"
+        },
+        "limit": 1,
+        "where": {
+          "values": [
+            {
+              "column": "telegram_chat_id",
+              "value": "={{ $json.callback_query.from.id }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        -1392,
+        592
+      ],
+      "id": "c9c9fd50-6d12-4f73-98e5-04b18ee8821d",
+      "name": "get user",
+      "alwaysOutputData": true,
+      "credentials": {
+        "postgres": {
+          "id": "rRyTNu2Ha00QWo8E",
+          "name": "lemonfit_requests"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "select",
+        "schema": {
+          "__rl": true,
+          "mode": "list",
+          "value": "public"
+        },
+        "table": {
+          "__rl": true,
+          "value": "approvals",
+          "mode": "list",
+          "cachedResultName": "approvals"
+        },
+        "returnAll": true,
+        "where": {
+          "values": [
+            {
+              "column": "id",
+              "value": "={{ $('split callback data').item.json.approval_id }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        -720,
+        240
+      ],
+      "id": "f8d24bf3-29f0-41c6-8d4c-310e30828824",
+      "name": "get approval",
+      "credentials": {
+        "postgres": {
+          "id": "rRyTNu2Ha00QWo8E",
+          "name": "lemonfit_requests"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "7ed68a1d-87b4-49d5-bf42-8c59fc3ac727",
+              "name": "accepted",
+              "value": "={{ $('Telegram Trigger').item.json.callback_query.data.split('_').first()}}",
+              "type": "string"
+            },
+            {
+              "id": "84a38aa1-8c4c-4fab-81c4-b102393591f8",
+              "name": "approval_id",
+              "value": "={{ $('Telegram Trigger').item.json.callback_query.data.split('_').last() }}",
+              "type": "number"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -1824,
+        592
+      ],
+      "id": "0e8524f4-d233-49c8-a350-00703c0d8dcb",
+      "name": "split callback data"
+    },
+    {
+      "parameters": {
+        "resource": "callback",
+        "queryId": "={{ $('Telegram Trigger').item.json.callback_query.id }}",
+        "additionalFields": {
+          "text": "✅ Одобрено"
+        }
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        400,
+        -64
+      ],
+      "id": "257dcc18-3b55-4803-9583-7029212ea3e5",
+      "name": "Answer Query a callback",
+      "webhookId": "0c1f14cf-ce3a-4617-b83b-388287a8e0eb",
+      "credentials": {
+        "telegramApi": {
+          "id": "GlN5OGKLXSsawcEL",
+          "name": "Lemonfit заявки"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "schema": {
+          "__rl": true,
+          "mode": "list",
+          "value": "public"
+        },
+        "table": {
+          "__rl": true,
+          "value": "approvals",
+          "mode": "list",
+          "cachedResultName": "approvals"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "id": "={{ $json.id }}",
+            "decision": "approved",
+            "comment": "without comment",
+            "decided_at": "={{ $now }}"
+          },
+          "matchingColumns": [
+            "id"
+          ],
+          "schema": [
+            {
+              "id": "id",
+              "displayName": "id",
+              "required": false,
+              "defaultMatch": true,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "request_id",
+              "displayName": "request_id",
+              "required": true,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "approver_user_id",
+              "displayName": "approver_user_id",
+              "required": true,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "approver_tg_id",
+              "displayName": "approver_tg_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "step",
+              "displayName": "step",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "step_type",
+              "displayName": "step_type",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "decision",
+              "displayName": "decision",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "comment",
+              "displayName": "comment",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "decided_at",
+              "displayName": "decided_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "dateTime",
+              "canBeUsedToMatch": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        -48,
+        -64
+      ],
+      "id": "fb3a4585-7add-4540-837a-b08ac474017a",
+      "name": "accept approval",
+      "credentials": {
+        "postgres": {
+          "id": "rRyTNu2Ha00QWo8E",
+          "name": "lemonfit_requests"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "schema": {
+          "__rl": true,
+          "mode": "list",
+          "value": "public"
+        },
+        "table": {
+          "__rl": true,
+          "value": "approvals",
+          "mode": "list",
+          "cachedResultName": "approvals"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "id": "={{ $json.id }}",
+            "decision": "rejected",
+            "comment": "without comment",
+            "decided_at": "={{ $now }}"
+          },
+          "matchingColumns": [
+            "id"
+          ],
+          "schema": [
+            {
+              "id": "id",
+              "displayName": "id",
+              "required": false,
+              "defaultMatch": true,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "request_id",
+              "displayName": "request_id",
+              "required": true,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "approver_user_id",
+              "displayName": "approver_user_id",
+              "required": true,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "approver_tg_id",
+              "displayName": "approver_tg_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "step",
+              "displayName": "step",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "step_type",
+              "displayName": "step_type",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "decision",
+              "displayName": "decision",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "comment",
+              "displayName": "comment",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "decided_at",
+              "displayName": "decided_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "dateTime",
+              "canBeUsedToMatch": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        -48,
+        128
+      ],
+      "id": "906c05e8-fed2-4332-81e3-b4b7b7f2ed7f",
+      "name": "reject approval",
+      "credentials": {
+        "postgres": {
+          "id": "rRyTNu2Ha00QWo8E",
+          "name": "lemonfit_requests"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "callback",
+        "queryId": "={{ $('Telegram Trigger').item.json.callback_query.id }}",
+        "additionalFields": {
+          "text": "❌ Отклонено"
+        }
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        400,
+        128
+      ],
+      "id": "2e6063bb-4410-4f7d-b63a-105067f71b6e",
+      "name": "Answer Query a callback1",
+      "webhookId": "0c1f14cf-ce3a-4617-b83b-388287a8e0eb",
+      "credentials": {
+        "telegramApi": {
+          "id": "GlN5OGKLXSsawcEL",
+          "name": "Lemonfit заявки"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "callback",
+        "queryId": "={{ $('Telegram Trigger').item.json.callback_query.id }}",
+        "additionalFields": {
+          "text": "❓ Отложено"
+        }
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        400,
+        320
+      ],
+      "id": "531821d2-1f05-4312-b1c9-53171d16a234",
+      "name": "Answer Query a callback2",
+      "webhookId": "0c1f14cf-ce3a-4617-b83b-388287a8e0eb",
+      "credentials": {
+        "telegramApi": {
+          "id": "GlN5OGKLXSsawcEL",
+          "name": "Lemonfit заявки"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "schema": {
+          "__rl": true,
+          "mode": "list",
+          "value": "public"
+        },
+        "table": {
+          "__rl": true,
+          "value": "approvals",
+          "mode": "list",
+          "cachedResultName": "approvals"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "id": "={{ $json.id }}",
+            "comment": "without comment",
+            "decided_at": "={{ $now }}",
+            "decision": "info"
+          },
+          "matchingColumns": [
+            "id"
+          ],
+          "schema": [
+            {
+              "id": "id",
+              "displayName": "id",
+              "required": false,
+              "defaultMatch": true,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "request_id",
+              "displayName": "request_id",
+              "required": true,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "approver_user_id",
+              "displayName": "approver_user_id",
+              "required": true,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "approver_tg_id",
+              "displayName": "approver_tg_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "step",
+              "displayName": "step",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "step_type",
+              "displayName": "step_type",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "decision",
+              "displayName": "decision",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "comment",
+              "displayName": "comment",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "decided_at",
+              "displayName": "decided_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "dateTime",
+              "canBeUsedToMatch": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        -48,
+        320
+      ],
+      "id": "325ec874-d2cc-4e51-9b37-185a26ff1750",
+      "name": "information requested",
+      "credentials": {
+        "postgres": {
+          "id": "rRyTNu2Ha00QWo8E",
+          "name": "lemonfit_requests"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "editMessageText",
+        "chatId": "={{ $('Telegram Trigger').item.json.callback_query.message.chat.id }}",
+        "messageId": "={{ $('Telegram Trigger').item.json.callback_query.message.message_id }}",
+        "text": "={{ $('Telegram Trigger').item.json.callback_query.message.text.replace(\"💰 Новая заявка на расход\", \"✅ Заявка одобрена\") }}",
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        176,
+        -64
+      ],
+      "id": "47e285c0-e842-4b3e-8824-6b1b931d4120",
+      "name": "✅",
+      "webhookId": "3f2b2141-f5f2-4488-a1aa-e0296e0e2d22",
+      "credentials": {
+        "telegramApi": {
+          "id": "GlN5OGKLXSsawcEL",
+          "name": "Lemonfit заявки"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "editMessageText",
+        "chatId": "={{ $('Telegram Trigger').item.json.callback_query.message.chat.id }}",
+        "messageId": "={{ $('Telegram Trigger').item.json.callback_query.message.message_id }}",
+        "text": "={{ $('Telegram Trigger').item.json.callback_query.message.text.replace(\"💰 Новая заявка на расход\", \"❌ Заявка Отклонена\") }}",
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        176,
+        128
+      ],
+      "id": "7a82036f-bb1f-4c51-968d-6dd2c501b978",
+      "name": "❌",
+      "webhookId": "3f2b2141-f5f2-4488-a1aa-e0296e0e2d22",
+      "credentials": {
+        "telegramApi": {
+          "id": "GlN5OGKLXSsawcEL",
+          "name": "Lemonfit заявки"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "aTDAdYsdCvP3r9lX",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/aTDAdYsdCvP3r9lX",
+          "cachedResultName": "Approvals"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "request_id": "={{ Number($('get approval').item.json.request_id) }}",
+            "approval_status": "={{ $('split callback data').item.json.accepted }}",
+            "approver_id": "={{ Number($json.approver_id)}}"
+          },
+          "matchingColumns": [
+            "request_id"
+          ],
+          "schema": [
+            {
+              "id": "request_id",
+              "displayName": "request_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "number",
+              "removed": false
+            },
+            {
+              "id": "approval_status",
+              "displayName": "approval_status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "approver_id",
+              "displayName": "approver_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "number",
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        1072,
+        128
+      ],
+      "name": "Call approval status",
+      "id": "ac78f9a3-b738-4c71-8ea6-5a71bc4bee97"
+    },
+    {
+      "parameters": {
+        "numberInputs": 3
+      },
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        848,
+        112
+      ],
+      "id": "e78bc984-2bfa-403c-89b6-e9079b58440a",
+      "name": "Merge"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "1cbaeffd-aa10-4f22-815a-0bbe590abde8",
+              "name": "approver_id",
+              "value": "={{ $('accept approval').item.json.approver_user_id }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        624,
+        -64
+      ],
+      "id": "c44e2842-ac36-4355-8d05-7f1acf1ac667",
+      "name": "add approval id"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "1cbaeffd-aa10-4f22-815a-0bbe590abde8",
+              "name": "approver_id",
+              "value": "={{ $('reject approval').item.json.approver_user_id }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        624,
+        128
+      ],
+      "id": "c0b9484e-d53e-4f91-93e3-89704f8d1b64",
+      "name": "add approval id1"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "1cbaeffd-aa10-4f22-815a-0bbe590abde8",
+              "name": "approver_id",
+              "value": "={{ $('information requested').item.json.approver_user_id }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        624,
+        320
+      ],
+      "id": "425a2f5f-0484-4152-92c7-bed2f1143553",
+      "name": "add approval id2"
+    },
+    {
+      "parameters": {
+        "operation": "editMessageText",
+        "chatId": "={{ $('Telegram Trigger').item.json.callback_query.message.chat.id }}",
+        "messageId": "={{ $('Telegram Trigger').item.json.callback_query.message.message_id }}",
+        "text": "={{ $('Telegram Trigger').item.json.callback_query.message.text.replace(\"💰 Новая заявка на расход\", \"❓ Запрошена информация\") }}",
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        176,
+        320
+      ],
+      "id": "4275e601-ce7d-4139-b817-0b4ec8a478dc",
+      "name": "info",
+      "webhookId": "3f2b2141-f5f2-4488-a1aa-e0296e0e2d22",
+      "credentials": {
+        "telegramApi": {
+          "id": "GlN5OGKLXSsawcEL",
+          "name": "Lemonfit заявки"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "19af30b1-bcaa-46c2-b048-0785bdca0230",
+              "leftValue": "={{ $('split callback data').item.json.accepted }}",
+              "rightValue": "payed",
+              "operator": {
+                "type": "string",
+                "operation": "notEquals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -944,
+        496
+      ],
+      "id": "3dabd562-2490-4e81-95fc-e5e655376911",
+      "name": "is not payed"
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "schema": {
+          "__rl": true,
+          "mode": "list",
+          "value": "public"
+        },
+        "table": {
+          "__rl": true,
+          "value": "requests",
+          "mode": "list",
+          "cachedResultName": "requests"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "id": "={{ $('split callback data').item.json.approval_id }}",
+            "status": "=PAYED",
+            "payed_at": "={{ Number($now.format('yyyyMMdd')) }}"
+          },
+          "matchingColumns": [
+            "id"
+          ],
+          "schema": [
+            {
+              "id": "id",
+              "displayName": "id",
+              "required": false,
+              "defaultMatch": true,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "company_payer",
+              "displayName": "company_payer",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "category",
+              "displayName": "category",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "vendor",
+              "displayName": "vendor",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "title",
+              "displayName": "title",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "description",
+              "displayName": "description",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "amount",
+              "displayName": "amount",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "currency",
+              "displayName": "currency",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "payment_type",
+              "displayName": "payment_type",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "payment_purpose",
+              "displayName": "payment_purpose",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "urgency",
+              "displayName": "urgency",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "requester",
+              "displayName": "requester",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "submitted_at",
+              "displayName": "submitted_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "dateTime",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "payed_at",
+              "displayName": "payed_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        400,
+        784
+      ],
+      "id": "bbe64e5e-920e-402c-a1a6-a07ed413b05e",
+      "name": "Request status payed",
+      "credentials": {
+        "postgres": {
+          "id": "rRyTNu2Ha00QWo8E",
+          "name": "lemonfit_requests"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "select",
+        "schema": {
+          "__rl": true,
+          "mode": "list",
+          "value": "public"
+        },
+        "table": {
+          "__rl": true,
+          "value": "approvals",
+          "mode": "list",
+          "cachedResultName": "approvals"
+        },
+        "returnAll": true,
+        "where": {
+          "values": [
+            {
+              "column": "request_id",
+              "value": "={{ $json.id }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        624,
+        784
+      ],
+      "id": "37d76900-becc-494e-b4c1-05a931979e97",
+      "name": "get approvals3",
+      "credentials": {
+        "postgres": {
+          "id": "rRyTNu2Ha00QWo8E",
+          "name": "lemonfit_requests"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "editMessageText",
+        "chatId": "={{ $('get approvals3').item.json.approver_tg_id }}",
+        "messageId": "={{$('get approvals3').item.json.message_id }}",
+        "replyMarkup": "inlineKeyboard",
+        "text": "=*Заявка закрыта*\n\n*Номер*: {{  $('Request status payed').item.json.id }}\n*Проект*: {{ $('Request status payed').item.json.title.replace(/[_*[\\]()~`>#+\\-=|{}.!]/g, '\\\\$&') }}\n*Поставщик*: {{ $('Request status payed').item.json.vendor.replace(/[_*[\\]()~`>#+\\-=|{}.!]/g, '\\\\$&') }}\n*Категория расхода*: {{ $('Request status payed').item.json.category }}\n*Сумма*: {{ Number($('Request status payed').item.json.amount).toLocaleString(\"uz\", {\n    minimumFractionDigits: 2,\n    maximumFractionDigits: 2,\n    style: \"currency\", currency: $('Request status payed').item.json.currency\n  }) }}\n*Тип оплаты*: {{ $('Request status payed').item.json.payment_type.replace(/[_*[\\]()~`>#+\\-=|{}.!]/g, '\\\\$&') }}\n*Назначение платежа*: {{ $('Request status payed').item.json.payment_purpose.replace(/[_*[\\]()~`>#+\\-=|{}.!]/g, '\\\\$&') }}\n*Описание / зачем*: {{ $('Request status payed').item.json.description.replace(/[_*[\\]()~`>#+\\-=|{}.!]/g, '\\\\$&') }}\n*Срочность*: {{ $('Request status payed').item.json.urgency.replace(/[_*[\\]()~`>#+\\-=|{}.!]/g, '\\\\$&') }}\n*Заявитель*: {{ $('Request status payed').item.json.requester.replace(/[_*[\\]()~`>#+\\-=|{}.!]/g, '\\\\$&') }}\n\n📎*Вложения*:\nнет вложений\n\n🕒*Дата подачи*: {{ new Date($('Request status payed').item.json.submitted_at).toLocaleString('ru-RU', {  \n    hour: '2-digit',\n    minute: '2-digit',\n    day: '2-digit',\n    month: 'long',\n    year: 'numeric',\n\n  }) }}",
+        "additionalFields": {
+          "disable_web_page_preview": true,
+          "parse_mode": "Markdown"
+        }
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1072,
+        784
+      ],
+      "id": "00c7ae3e-a0a9-4885-92de-f1feb7e284a1",
+      "name": "change messages status to confirmed",
+      "webhookId": "bcb2da8f-1f6e-4025-a114-c386057f60ea",
+      "executeOnce": true,
+      "credentials": {
+        "telegramApi": {
+          "id": "GlN5OGKLXSsawcEL",
+          "name": "Lemonfit заявки"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "7a5caac6-bb09-4aac-b1f8-c45ee825dff3",
+              "leftValue": "={{ $json.message_id }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "exists",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        848,
+        784
+      ],
+      "id": "ddd3e816-5da5-42d7-ab8a-251220d4cb85",
+      "name": "message sent?"
+    },
+    {
+      "parameters": {
+        "operation": "editMessageText",
+        "chatId": "={{ $('Telegram Trigger').item.json.callback_query.message.chat.id }}",
+        "messageId": "={{ $('Telegram Trigger').item.json.callback_query.message.message_id }}",
+        "text": "={{ $('Telegram Trigger').item.json.callback_query.message.text.replace(\"✅ Заявка польностью одобрена\", \"☑️ Заявка закрыта\") }}",
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        176,
+        784
+      ],
+      "id": "fc558379-6a36-4d11-bac9-081b341b01d9",
+      "name": "payed",
+      "webhookId": "3f2b2141-f5f2-4488-a1aa-e0296e0e2d22",
+      "credentials": {
+        "telegramApi": {
+          "id": "GlN5OGKLXSsawcEL",
+          "name": "Lemonfit заявки"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "a8343a01-329e-4820-9f16-2dc2ac3fa6a0",
+              "leftValue": "={{ $json.payment_type }}",
+              "rightValue": "Перечисление",
+              "operator": {
+                "type": "string",
+                "operation": "equals",
+                "name": "filter.operator.equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -496,
+        688
+      ],
+      "id": "1c728f17-ad83-4444-ac90-3de3e43598bc",
+      "name": "is bank transfer"
+    },
+    {
+      "parameters": {
+        "operation": "select",
+        "schema": {
+          "__rl": true,
+          "mode": "list",
+          "value": "public"
+        },
+        "table": {
+          "__rl": true,
+          "value": "requests",
+          "mode": "list",
+          "cachedResultName": "requests"
+        },
+        "returnAll": true,
+        "where": {
+          "values": [
+            {
+              "column": "id",
+              "value": "={{ $('split callback data').item.json.approval_id }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        -720,
+        688
+      ],
+      "id": "ea3f26c8-6fac-413c-8074-99b5109f6b38",
+      "name": "Request status payed1",
+      "credentials": {
+        "postgres": {
+          "id": "rRyTNu2Ha00QWo8E",
+          "name": "lemonfit_requests"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "callback",
+        "queryId": "={{ $('Telegram Trigger').item.json.callback_query.id }}",
+        "additionalFields": {
+          "text": "✅ Оплата подтверждена"
+        }
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        -48,
+        704
+      ],
+      "id": "65e8e011-3361-4019-bb57-d5d47cc8db6e",
+      "name": "Answer Query a callback4",
+      "webhookId": "0c1f14cf-ce3a-4617-b83b-388287a8e0eb",
+      "credentials": {
+        "telegramApi": {
+          "id": "GlN5OGKLXSsawcEL",
+          "name": "Lemonfit заявки"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "callback",
+        "queryId": "={{ $('Telegram Trigger').item.json.callback_query.id }}",
+        "additionalFields": {
+          "text": "❌ Вы не можете подтвердить оплату"
+        }
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        -48,
+        512
+      ],
+      "id": "469c20dc-8d05-4eb6-b208-60fb4647a1d4",
+      "name": "Answer Query a callback3",
+      "webhookId": "0c1f14cf-ce3a-4617-b83b-388287a8e0eb",
+      "credentials": {
+        "telegramApi": {
+          "id": "GlN5OGKLXSsawcEL",
+          "name": "Lemonfit заявки"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "daf90b39-6d2f-436d-8693-4623ff6b5e72",
+              "leftValue": "={{ $('get user').item.json.role }}",
+              "rightValue": "accountant",
+              "operator": {
+                "type": "string",
+                "operation": "notEquals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -272,
+        608
+      ],
+      "id": "40dc28b0-badc-4545-90b9-d5b88f752b2f",
+      "name": "user_is_NOT_accountant"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "f6075767-bca7-4acd-a182-15472d45fb94",
+              "leftValue": "={{ $json.approver_tg_id }}",
+              "rightValue": "={{ $('get user').item.json.telegram_chat_id }}",
+              "operator": {
+                "type": "string",
+                "operation": "equals",
+                "name": "filter.operator.equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -496,
+        240
+      ],
+      "id": "4a6f7363-fe33-4e50-9cb4-3e8b9fc716f7",
+      "name": "valid approver"
+    },
+    {
+      "parameters": {
+        "resource": "callback",
+        "queryId": "={{ $('Telegram Trigger').item.json.callback_query.id }}",
+        "additionalFields": {
+          "text": "❌ Вы не можете подтвердить оплату"
+        }
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        -272,
+        416
+      ],
+      "id": "f1ad4ad7-2d62-47a2-b9ae-84b9882f5b8c",
+      "name": "Answer Query a callback5",
+      "webhookId": "0c1f14cf-ce3a-4617-b83b-388287a8e0eb",
+      "credentials": {
+        "telegramApi": {
+          "id": "GlN5OGKLXSsawcEL",
+          "name": "Lemonfit заявки"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "cf10ae64-ea5f-4840-a917-5fd3c75e31e2",
+              "leftValue": "={{ $('get user').item.json.isEmpty() }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "false",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        -1168,
+        592
+      ],
+      "id": "3822d9a3-8ad4-48df-8e40-ad9116271309",
+      "name": "user found"
+    },
+    {
+      "parameters": {
+        "resource": "callback",
+        "queryId": "={{ $('Telegram Trigger').item.json.callback_query.id }}",
+        "additionalFields": {
+          "text": "❌ Вы не можете подтвердить заявку"
+        }
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        -944,
+        688
+      ],
+      "id": "0381fbde-d386-4d92-be90-82910caeae6e",
+      "name": "Answer Query a callback6",
+      "webhookId": "0c1f14cf-ce3a-4617-b83b-388287a8e0eb",
+      "credentials": {
+        "telegramApi": {
+          "id": "GlN5OGKLXSsawcEL",
+          "name": "Lemonfit заявки"
+        }
+      }
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1,
+      "position": [
+        -2048,
+        1008
+      ],
+      "id": "e0d2aca6-b5f3-4693-97c8-67cb0c6e70a4",
+      "name": "Error Trigger"
+    },
+    {
+      "parameters": {
+        "chatId": "1387986",
+        "text": "=Request error in node:\n{{ JSON.stringify($json.execution.lastNodeExecuted).replace(/[_*[\\]()~`>#+\\-=|{}.!]/g, '\\\\$&') }}",
+        "additionalFields": {
+          "appendAttribution": false
+        }
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        -1824,
+        1008
+      ],
+      "id": "b45a3717-35f0-42b6-8fa2-9bf9897538be",
+      "name": "Send a text message1",
+      "webhookId": "a54295b8-5304-4679-96ce-24bca9d5a593",
+      "credentials": {
+        "telegramApi": {
+          "id": "GlN5OGKLXSsawcEL",
+          "name": "Lemonfit заявки"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.accepted }}",
+                    "rightValue": "cashcheck",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "id": "85b4b028-f17b-4e01-9746-50065eebe9bf"
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "cashcheck"
+            }
+          ]
+        },
+        "options": {
+          "fallbackOutput": "extra"
+        }
+      },
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.3,
+      "position": [
+        -1616,
+        592
+      ],
+      "id": "957d6587-525f-4331-baff-a2dbe7a671b9",
+      "name": "Switch1"
+    },
+    {
+      "parameters": {
+        "resource": "callback",
+        "queryId": "={{ $('Telegram Trigger').item.json.callback_query.id }}",
+        "additionalFields": {
+          "text": "✅ Выполнение подтверждено"
+        }
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        -1216,
+        272
+      ],
+      "id": "60c515d5-ebe9-49db-9d1c-78c122090e98",
+      "name": "Answer Query a callback7",
+      "webhookId": "0c1f14cf-ce3a-4617-b83b-388287a8e0eb",
+      "credentials": {
+        "telegramApi": {
+          "id": "GlN5OGKLXSsawcEL",
+          "name": "Lemonfit заявки"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "editMessageText",
+        "chatId": "={{ $('Telegram Trigger').item.json.callback_query.message.chat.id }}",
+        "messageId": "={{ $('Telegram Trigger').item.json.callback_query.message.message_id }}",
+        "text": "={{ $('Telegram Trigger').item.json.callback_query.message.text }}",
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        -960,
+        112
+      ],
+      "id": "a87214c7-77da-464e-8019-9cc5bc9ad561",
+      "name": "confirmed",
+      "webhookId": "3f2b2141-f5f2-4488-a1aa-e0296e0e2d22",
+      "credentials": {
+        "telegramApi": {
+          "id": "GlN5OGKLXSsawcEL",
+          "name": "Lemonfit заявки"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "1U5gEq50g2wpDKKj",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/1U5gEq50g2wpDKKj",
+          "cachedResultName": "Check cash on hand"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {}
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.3,
+      "position": [
+        -1424,
+        432
+      ],
+      "id": "6fdad9c6-cc9f-42a1-accc-c13a95c0efdc",
+      "name": "Call 'Check cash on hand'"
+    }
+  ],
+  "connections": {
+    "Telegram Trigger": {
+      "main": [
+        [
+          {
+            "node": "split callback data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Switch": {
+      "main": [
+        [
+          {
+            "node": "accept approval",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "reject approval",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "information requested",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "get user": {
+      "main": [
+        [
+          {
+            "node": "user found",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "get approval": {
+      "main": [
+        [
+          {
+            "node": "valid approver",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "split callback data": {
+      "main": [
+        [
+          {
+            "node": "Switch1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Answer Query a callback": {
+      "main": [
+        [
+          {
+            "node": "add approval id",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "accept approval": {
+      "main": [
+        [
+          {
+            "node": "✅",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "reject approval": {
+      "main": [
+        [
+          {
+            "node": "❌",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Answer Query a callback1": {
+      "main": [
+        [
+          {
+            "node": "add approval id1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Answer Query a callback2": {
+      "main": [
+        [
+          {
+            "node": "add approval id2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "information requested": {
+      "main": [
+        [
+          {
+            "node": "info",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "✅": {
+      "main": [
+        [
+          {
+            "node": "Answer Query a callback",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "❌": {
+      "main": [
+        [
+          {
+            "node": "Answer Query a callback1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge": {
+      "main": [
+        [
+          {
+            "node": "Call approval status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "add approval id": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "add approval id1": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "add approval id2": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 2
+          }
+        ]
+      ]
+    },
+    "info": {
+      "main": [
+        [
+          {
+            "node": "Answer Query a callback2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "is not payed": {
+      "main": [
+        [
+          {
+            "node": "get approval",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Request status payed1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Request status payed": {
+      "main": [
+        [
+          {
+            "node": "get approvals3",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "get approvals3": {
+      "main": [
+        [
+          {
+            "node": "message sent?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "message sent?": {
+      "main": [
+        [
+          {
+            "node": "change messages status to confirmed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "payed": {
+      "main": [
+        [
+          {
+            "node": "Request status payed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "is bank transfer": {
+      "main": [
+        [
+          {
+            "node": "user_is_NOT_accountant",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "payed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Request status payed1": {
+      "main": [
+        [
+          {
+            "node": "is bank transfer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Answer Query a callback4": {
+      "main": [
+        [
+          {
+            "node": "payed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "user_is_NOT_accountant": {
+      "main": [
+        [
+          {
+            "node": "Answer Query a callback3",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Answer Query a callback4",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "valid approver": {
+      "main": [
+        [
+          {
+            "node": "Switch",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Answer Query a callback5",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "user found": {
+      "main": [
+        [
+          {
+            "node": "is not payed",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Answer Query a callback6",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Error Trigger": {
+      "main": [
+        [
+          {
+            "node": "Send a text message1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Switch1": {
+      "main": [
+        [
+          {
+            "node": "Call 'Check cash on hand'",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "get user",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Answer Query a callback7": {
+      "main": [
+        [
+          {
+            "node": "confirmed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call 'Check cash on hand'": {
+      "main": [
+        [
+          {
+            "node": "Answer Query a callback7",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "pinData": {
+    "Telegram Trigger": [
+      {
+        "json": {
+          "update_id": 207461670,
+          "callback_query": {
+            "id": "4462589394325083827",
+            "from": {
+              "id": 5333994857,
+              "is_bot": false,
+              "first_name": "Руслан",
+              "username": "Ruslan_bank_klient",
+              "language_code": "ru"
+            },
+            "message": {
+              "message_id": 1224,
+              "from": {
+                "id": 8413478981,
+                "is_bot": true,
+                "first_name": "LemonFit заявки",
+                "username": "kolberg_requests_bot"
+              },
+              "chat": {
+                "id": -1003013413461,
+                "title": "Lemon-Sport -Group Buxgalteriya",
+                "type": "supergroup"
+              },
+              "date": 1763720208,
+              "edit_date": 1763720231,
+              "text": "✅ Заявка польностью одобрена\n\nLemonFit\n\nНомер: 240\nПроект: LemonFit\nПоставщик: global foods import\nКатегория расхода: Продукты питания\nСумма: 2 970 000,00 soʻm\nТип оплаты: Перечисление\nНазначение платежа: Молочная продукция протеиновая Экспонент\nОписание / зачем: \nСрочность: Обычно\nЗаявитель: Наталья Сумина\n\n\n🕒Дата подачи: 21 ноября 2025 г. в 15:14",
+              "entities": [
+                {
+                  "offset": 2,
+                  "length": 26,
+                  "type": "bold"
+                },
+                {
+                  "offset": 40,
+                  "length": 5,
+                  "type": "bold"
+                },
+                {
+                  "offset": 51,
+                  "length": 6,
+                  "type": "bold"
+                },
+                {
+                  "offset": 68,
+                  "length": 9,
+                  "type": "bold"
+                },
+                {
+                  "offset": 99,
+                  "length": 17,
+                  "type": "bold"
+                },
+                {
+                  "offset": 135,
+                  "length": 5,
+                  "type": "bold"
+                },
+                {
+                  "offset": 160,
+                  "length": 10,
+                  "type": "bold"
+                },
+                {
+                  "offset": 185,
+                  "length": 18,
+                  "type": "bold"
+                },
+                {
+                  "offset": 246,
+                  "length": 16,
+                  "type": "bold"
+                },
+                {
+                  "offset": 265,
+                  "length": 9,
+                  "type": "bold"
+                },
+                {
+                  "offset": 283,
+                  "length": 9,
+                  "type": "bold"
+                },
+                {
+                  "offset": 313,
+                  "length": 11,
+                  "type": "bold"
+                }
+              ],
+              "reply_markup": {
+                "inline_keyboard": [
+                  [
+                    {
+                      "text": "💰 Выплачено",
+                      "callback_data": "payed_240"
+                    }
+                  ]
+                ]
+              }
+            },
+            "chat_instance": "-7287957779554716337",
+            "data": "payed_240"
+          }
+        }
+      }
+    ]
+  },
+  "versionId": "abb25761-bacf-4838-a97d-7055e310d691",
+  "versionCounter": 47,
+  "triggerCount": 1,
+  "tags": [
+    {
+      "updatedAt": "2025-10-28T12:21:42.035Z",
+      "createdAt": "2025-10-28T12:21:42.035Z",
+      "id": "AguU7z7MxNS4t4tS",
+      "name": "requests"
+    },
+    {
+      "updatedAt": "2025-10-28T12:22:13.008Z",
+      "createdAt": "2025-10-28T12:22:13.008Z",
+      "id": "ccWlvl6UxFDSmPeQ",
+      "name": "lemonfit"
+    }
+  ],
+  "shared": [
+    {
+      "updatedAt": "2025-10-30T10:32:45.161Z",
+      "createdAt": "2025-10-30T10:32:45.161Z",
+      "role": "workflow:owner",
+      "workflowId": "l0elJH4HxpJ3RVR3",
+      "projectId": "Khq0xGbDHq3t4IJq",
+      "project": {
+        "updatedAt": "2025-10-09T12:38:52.281Z",
+        "createdAt": "2025-10-09T12:30:53.020Z",
+        "id": "Khq0xGbDHq3t4IJq",
+        "name": "Dilshod Davletyarov <dilshod95@gmail.com>",
+        "type": "personal",
+        "icon": null,
+        "description": null
+      }
+    }
+  ]
+}

@@ -1,0 +1,216 @@
+{
+  "updatedAt": "2025-11-27T13:05:25.000Z",
+  "createdAt": "2025-11-27T12:22:21.710Z",
+  "id": "pXVbuaOCnhkYmWBv",
+  "name": "Get file",
+  "description": null,
+  "active": true,
+  "isArchived": false,
+  "nodes": [
+    {
+      "parameters": {
+        "path": "neuron/getfile",
+        "authentication": "basicAuth",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -192,
+        0
+      ],
+      "id": "d5cace9e-b751-47ab-8c03-a30a06a5a1ef",
+      "name": "get file",
+      "webhookId": "0b86d525-977c-42c2-b1b7-f682b2be669c",
+      "credentials": {
+        "httpBasicAuth": {
+          "id": "R0OkL9lBvL1rRrUD",
+          "name": "Neuron"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "protocol": "sftp",
+        "path": "=/home/sftpuser/upload/{{ $('get file').item.json.headers.host.split(\".\")[0] }}/{{ $('get file').item.json.query.filename }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.ftp",
+      "typeVersion": 1,
+      "position": [
+        32,
+        0
+      ],
+      "id": "3c2dd3c3-180a-41ad-9eb8-358734ed73ae",
+      "name": "FTP1",
+      "credentials": {
+        "sftp": {
+          "id": "8lqZXk6gHsvR30gh",
+          "name": "FTP account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "respondWith": "binary",
+        "options": {
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Content-Disposition",
+                "value": "=attachment; filename=\"{{$binary.data.fileName}}\""
+              }
+            ]
+          }
+        }
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [
+        256,
+        0
+      ],
+      "id": "eeba0b92-caf4-4943-bae3-b8d242a42dd3",
+      "name": "Respond to Webhook1"
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1,
+      "position": [
+        -192,
+        224
+      ],
+      "id": "071794ab-718a-45ff-8238-1f544b556ece",
+      "name": "Error Trigger"
+    },
+    {
+      "parameters": {
+        "chatId": "1387986",
+        "text": "=Request error in node:\n{{ JSON.stringify($json.execution.lastNodeExecuted) }}",
+        "additionalFields": {
+          "appendAttribution": false
+        }
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        32,
+        224
+      ],
+      "id": "75e19986-8f89-4a20-b0e6-6d0691dce508",
+      "name": "Send a text message1",
+      "webhookId": "a629d4a7-3b41-49be-b4f8-cecb94ada37f",
+      "credentials": {
+        "telegramApi": {
+          "id": "FPHdMIUGJcFBJ7BA",
+          "name": "Neuron заявки"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "get file": {
+      "main": [
+        [
+          {
+            "node": "FTP1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "FTP1": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Error Trigger": {
+      "main": [
+        [
+          {
+            "node": "Send a text message1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "pinData": {
+    "get file": [
+      {
+        "json": {
+          "headers": {
+            "host": "lemonfit.kolberg.uz",
+            "user-agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 18_6_2 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) CriOS/142.0.7444.77 Mobile/15E148 Safari/604.1",
+            "accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            "accept-encoding": "gzip, deflate, br",
+            "accept-language": "en-GB,en;q=0.9",
+            "authorization": "Basic bGVtb246bGVtb24xMzMx",
+            "sec-fetch-dest": "document",
+            "sec-fetch-mode": "navigate",
+            "sec-fetch-site": "none",
+            "x-forwarded-for": "109.43.51.179",
+            "x-forwarded-host": "lemonfit.kolberg.uz",
+            "x-forwarded-port": "443",
+            "x-forwarded-proto": "https",
+            "x-forwarded-server": "e3eba89bab17",
+            "x-real-ip": "109.43.51.179"
+          },
+          "params": {},
+          "query": {
+            "filename": "1762248125592342221821907266081_2025-11-04_02-34-24.jpeg"
+          },
+          "body": {},
+          "webhookUrl": "https://dev.kolberg.uz/webhook/lemonfit/getfile",
+          "executionMode": "production"
+        }
+      }
+    ]
+  },
+  "versionId": "71ecff11-e8f1-4f4c-994a-d94a8574b5b8",
+  "versionCounter": 33,
+  "triggerCount": 1,
+  "tags": [
+    {
+      "updatedAt": "2025-11-18T10:37:06.616Z",
+      "createdAt": "2025-11-18T10:37:06.616Z",
+      "id": "KVTaDUSTDrqfQGKX",
+      "name": "neuron"
+    }
+  ],
+  "shared": [
+    {
+      "updatedAt": "2025-11-27T12:22:21.715Z",
+      "createdAt": "2025-11-27T12:22:21.715Z",
+      "role": "workflow:owner",
+      "workflowId": "pXVbuaOCnhkYmWBv",
+      "projectId": "Khq0xGbDHq3t4IJq",
+      "project": {
+        "updatedAt": "2025-10-09T12:38:52.281Z",
+        "createdAt": "2025-10-09T12:30:53.020Z",
+        "id": "Khq0xGbDHq3t4IJq",
+        "name": "Dilshod Davletyarov <dilshod95@gmail.com>",
+        "type": "personal",
+        "icon": null,
+        "description": null
+      }
+    }
+  ]
+}
