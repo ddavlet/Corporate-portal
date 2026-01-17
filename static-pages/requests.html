@@ -1,0 +1,633 @@
+<!doctype html>
+<html lang="ru">
+
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Заявки</title>
+  <style>
+    :root {
+      --bg: #0b1020;
+      --card: #0f1730;
+      --muted: #94a3b8;
+      --text: #e5e7eb;
+      --border: rgba(148, 163, 184, .18);
+      --shadow: 0 10px 30px rgba(0, 0, 0, .35);
+      --ok: #22c55e;
+      --bad: #ef4444;
+      --warn: #f59e0b;
+      --pill: #0b122a;
+    }
+
+    * {
+      box-sizing: border-box
+    }
+
+    body {
+      margin: 0;
+      font: 13px/1.25 ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial, "Noto Sans", "Apple Color Emoji", "Segoe UI Emoji";
+      color: var(--text);
+      background: radial-gradient(1200px 700px at 10% 0%, #121b3a, transparent 60%),
+        radial-gradient(900px 600px at 95% 10%, #1a2a58, transparent 55%),
+        var(--bg);
+    }
+
+    .wrap {
+      max-width: 1200px;
+      margin: 22px auto;
+      padding: 0 14px
+    }
+
+    header {
+      display: flex;
+      gap: 12px;
+      align-items: flex-start;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      margin-bottom: 12px
+    }
+
+    h1 {
+      font-size: 18px;
+      margin: 0
+    }
+
+    .sub {
+      color: var(--muted);
+      margin-top: 4px
+    }
+
+    .controls {
+      display: flex;
+      gap: 10px;
+      align-items: center
+    }
+
+    button {
+      background: rgba(15, 23, 48, .7);
+      border: 1px solid var(--border);
+      color: var(--text);
+      border-radius: 12px;
+      padding: 8px 12px;
+      cursor: pointer;
+    }
+
+    button:hover {
+      background: rgba(148, 163, 184, .10)
+    }
+
+    .card {
+      background: rgba(15, 23, 48, .75);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      box-shadow: var(--shadow);
+      overflow: hidden;
+    }
+
+    .table-wrap {
+      overflow: auto
+    }
+
+    table {
+      width: 100%;
+      border-collapse: separate;
+      border-spacing: 0;
+      min-width: 980px;
+      table-layout: fixed
+    }
+
+    thead th {
+      position: sticky;
+      top: 0;
+      z-index: 2;
+      text-align: left;
+      font-weight: 600;
+      font-size: 12px;
+      color: #cbd5e1;
+      background: rgba(8, 12, 28, .85);
+      backdrop-filter: blur(6px);
+      border-bottom: 1px solid var(--border);
+      padding: 10px 10px;
+      white-space: nowrap;
+      user-select: none;
+    }
+
+    tbody td {
+      padding: 8px 10px;
+      border-bottom: 1px solid var(--border);
+      vertical-align: top;
+    }
+
+    tbody tr {
+      cursor: pointer
+    }
+
+    tbody tr:hover {
+      background: rgba(148, 163, 184, .06)
+    }
+
+    .mono {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace
+    }
+
+    .muted {
+      color: var(--muted)
+    }
+
+    .right {
+      text-align: right
+    }
+
+    .nowrap {
+      white-space: nowrap
+    }
+
+    .truncate {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap
+    }
+
+    .tight {
+      line-height: 1.12
+    }
+
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      border: 1px solid var(--border);
+      background: var(--pill);
+      padding: 4px 10px;
+      border-radius: 999px;
+      font-size: 12px;
+      white-space: nowrap;
+    }
+
+    .dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%
+    }
+
+    .dot.ok {
+      background: var(--ok)
+    }
+
+    .dot.bad {
+      background: var(--bad)
+    }
+
+    .dot.warn {
+      background: var(--warn)
+    }
+
+    .footer {
+      display: flex;
+      gap: 10px;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      padding: 10px 12px;
+      border-top: 1px solid var(--border);
+      background: rgba(8, 12, 28, .55);
+    }
+
+    .small {
+      font-size: 11px
+    }
+
+    /* Modal */
+    #modal {
+      display: none;
+      position: fixed;
+      inset: 0;
+      z-index: 50
+    }
+
+    #modalOverlay {
+      position: absolute;
+      inset: 0;
+      background: rgba(0, 0, 0, .55)
+    }
+
+    #modalPanel {
+      position: relative;
+      max-width: 980px;
+      margin: 6vh auto;
+      background: rgba(15, 23, 48, .94);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      box-shadow: var(--shadow);
+      overflow: hidden;
+    }
+
+    #modalHeader {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 14px 14px;
+      border-bottom: 1px solid var(--border);
+      background: rgba(8, 12, 28, .55);
+    }
+
+    #modalTitle {
+      font-weight: 800
+    }
+
+    #modalSub {
+      margin-top: 2px
+    }
+
+    #modalBody {
+      padding: 14px 14px;
+      max-height: 70vh;
+      overflow: auto
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px
+    }
+
+    .kv {
+      padding: 10px;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      background: rgba(8, 12, 28, .35)
+    }
+
+    .k {
+      font-size: 11px;
+      color: var(--muted)
+    }
+
+    .v {
+      margin-top: 4px
+    }
+
+    .section {
+      margin-top: 14px
+    }
+
+    .sectionTitle {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 8px
+    }
+
+    .sectionTitle .label {
+      font-weight: 800
+    }
+
+    .apprRow {
+      display: flex;
+      gap: 10px;
+      align-items: flex-start;
+      padding: 9px 0;
+      border-bottom: 1px solid var(--border)
+    }
+
+    .apprLeft {
+      width: 92px;
+      flex: 0 0 auto
+    }
+
+    .apprMid {
+      min-width: 0;
+      flex: 1
+    }
+
+    .apprRight {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      align-items: flex-end
+    }
+  </style>
+</head>
+
+<body>
+  <div class="wrap">
+    <header>
+      <div>
+        <h1>Заявки</h1>
+        <div class="sub">Короткий список. Нажмите на заявку, чтобы открыть детали и согласования.</div>
+      </div>
+      <div class="controls">
+        <button id="reloadBtn" title="Загрузить свежие данные из API">Обновить</button>
+      </div>
+    </header>
+
+    <div class="card">
+      <div class="table-wrap">
+        <table id="tbl" aria-label="Таблица заявок">
+          <colgroup>
+            <col style="width:60px" />
+            <col style="width:210px" />
+            <col style="width:420px" />
+            <col style="width:150px" />
+            <col style="width:120px" />
+            <col style="width:160px" />
+            <col style="width:120px" />
+          </colgroup>
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>Поставщик</th>
+              <th>Название / Назначение</th>
+              <th class="right">Сумма</th>
+              <th>Статус</th>
+              <th>Заявитель</th>
+              <th>Отправлено</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+
+      <div class="footer">
+        <div class="small muted" id="meta"></div>
+        <div class="small muted">Подсказка: нажмите на любую строку</div>
+      </div>
+    </div>
+
+    <!-- Modal -->
+    <div id="modal">
+      <div id="modalOverlay"></div>
+      <div id="modalPanel" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+        <div id="modalHeader">
+          <div style="min-width:0">
+            <div id="modalTitle" class="truncate">Заявка</div>
+            <div id="modalSub" class="small muted truncate"></div>
+          </div>
+          <button id="modalClose" title="Закрыть">Закрыть</button>
+        </div>
+        <div id="modalBody"></div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // Build API URL dynamically from current subdomain, so the same page
+    // works on neuron.kolberg.uz, lemonfit.kolberg.uz, etc.
+    const CURRENT_HOST = (location && location.host) || "neuron.kolberg.uz";
+    const API_URL = `https://${CURRENT_HOST}/requests-data`;
+
+    // Optional fallback:
+    // const EMBEDDED_DATA = { requests:[...], approvals:[...], users:[...] };
+    const EMBEDDED_DATA = null;
+
+    let apiResponse = { requests: [], approvals: [], users: [] };
+    let requests = [];
+    let approvals = [];
+    let usersById = new Map();
+    let usersByTg = new Map();
+
+    const $ = (s) => document.querySelector(s);
+
+    function escapeHtml(s) {
+      return String(s ?? "")
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;")
+        .replaceAll("'", "&#039;");
+    }
+
+    function fmtMoney(amountStr) {
+      const n = Number(amountStr);
+      if (!Number.isFinite(n)) return amountStr ?? "";
+      return n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    }
+
+    function fmtDate(iso) {
+      if (!iso) return "";
+      const d = new Date(iso);
+      if (isNaN(d.getTime())) return iso;
+      return d.toLocaleString('ru-RU', { year: "numeric", month: "2-digit", day: "2-digit" });
+    }
+
+    function setMeta(text) {
+      const el = $("#meta");
+      if (el) el.textContent = text;
+    }
+
+    function statusBadge(status) {
+      const s = String(status ?? "");
+      const map = {
+        "APPROVED": { cls: "ok", label: "APPROVED" },
+        "REJECTED": { cls: "bad", label: "REJECTED" },
+        "pending": { cls: "warn", label: "PENDING" },
+        "1": { cls: "warn", label: "STATUS 1" },
+        "3": { cls: "warn", label: "STATUS 3" }
+      };
+      const m = map[s] || { cls: "warn", label: (s || "—") };
+      return `<span class="pill"><span class="dot ${m.cls}"></span>${escapeHtml(m.label)}</span>`;
+    }
+
+    function decisionPill(decision) {
+      const d = String(decision ?? "pending").toLowerCase();
+      const cls = d === "approved" ? "ok" : d === "rejected" ? "bad" : "warn";
+      const label = d.toUpperCase();
+      return `<span class="pill"><span class="dot ${cls}"></span>${escapeHtml(label)}</span>`;
+    }
+
+    function getUserNameFromApproval(a) {
+      const byId = usersById.get(a.approver_user_id);
+      if (byId?.name) return byId.name;
+      const byTg = usersByTg.get(String(a.approver_tg_id ?? ""));
+      if (byTg?.name) return byTg.name;
+      return `User #${a.approver_user_id ?? "?"}`;
+    }
+
+    function applyData(data) {
+      apiResponse = data || { requests: [], approvals: [], users: [] };
+      requests = (apiResponse.requests || []).map(x => x.json).filter(Boolean);
+      approvals = (apiResponse.approvals || []).map(x => x.json).filter(Boolean);
+      usersById = new Map((apiResponse.users || []).map(x => [x.json?.id, x.json]));
+      usersByTg = new Map((apiResponse.users || []).map(x => [String(x.json?.telegram_chat_id ?? ""), x.json]));
+      render();
+    }
+
+    function render() {
+      const tbody = $("#tbl tbody");
+      if (!tbody) return;
+
+      const rows = requests.slice().sort((a, b) =>
+        new Date(b.submitted_at).getTime() - new Date(a.submitted_at).getTime()
+      );
+
+      tbody.innerHTML = rows.map(r => `
+        <tr data-request-id="${escapeHtml(r.id)}">
+          <td class="mono nowrap">${escapeHtml(r.id)}</td>
+          <td class="truncate">${escapeHtml(r.vendor)}</td>
+          <td style="min-width:0">
+            <div class="tight truncate">${escapeHtml(r.title)}</div>
+            ${r.payment_purpose ? `<div class="small muted tight truncate">${escapeHtml(r.payment_purpose)}</div>` : ``}
+          </td>
+          <td class="right nowrap mono">${escapeHtml(fmtMoney(r.amount))} ${escapeHtml(r.currency)}</td>
+          <td>${statusBadge(r.status)}</td>
+          <td class="truncate">${escapeHtml(r.requester)}</td>
+          <td class="nowrap mono">${escapeHtml(fmtDate(r.submitted_at))}</td>
+        </tr>
+      `).join("");
+
+      setMeta(`Заявок: ${rows.length}`);
+    }
+
+    function openModal(req) {
+      const modal = $("#modal");
+      const title = $("#modalTitle");
+      const sub = $("#modalSub");
+      const body = $("#modalBody");
+      if (!modal || !title || !sub || !body) return;
+
+      const list = approvals
+        .filter(a => a && a.request_id === req.id)
+        .slice()
+        .sort((a, b) => (a.step ?? 0) - (b.step ?? 0) || String(a.step_type ?? "").localeCompare(String(b.step_type ?? "")));
+
+      const normalized = list.map(a => ({
+        ...a,
+        name: getUserNameFromApproval(a),
+        decisionNorm: String(a.decision ?? "pending").toLowerCase()
+      }));
+
+      const approved = normalized.filter(x => x.decisionNorm === "approved");
+      const rejected = normalized.filter(x => x.decisionNorm === "rejected");
+      const pending = normalized.filter(x => x.decisionNorm !== "approved" && x.decisionNorm !== "rejected");
+
+      const apprRow = (a) => {
+        const stepInfo = `S${a.step ?? "?"}${a.step_type ? `/${a.step_type}` : ""}`;
+        const decided = a.decided_at ? fmtDate(a.decided_at) : "—";
+        const comment = a.comment ? escapeHtml(a.comment) : "";
+        return `
+          <div class="apprRow">
+            <div class="apprLeft mono muted">${escapeHtml(stepInfo)}</div>
+            <div class="apprMid">
+              <div class="tight">${escapeHtml(a.name)}</div>
+              ${comment ? `<div class="small muted tight">${comment}</div>` : ``}
+            </div>
+            <div class="apprRight">
+              ${decisionPill(a.decision)}
+              <div class="small muted mono">${escapeHtml(decided)}</div>
+            </div>
+          </div>
+        `;
+      };
+
+      const section = (label, items) => `
+        <div class="section">
+          <div class="sectionTitle">
+            <div class="label">${escapeHtml(label)}</div>
+            <div class="small muted">(${items.length})</div>
+          </div>
+          <div>${items.length ? items.map(apprRow).join("") : `<div class="small muted">—</div>`}</div>
+        </div>
+      `;
+
+      title.textContent = `Заявка #${req.id}`;
+      sub.textContent = `${req.vendor || ""} • ${req.requester || ""} • ${fmtDate(req.submitted_at)}`;
+
+      body.innerHTML = `
+        <div class="grid">
+          <div class="kv"><div class="k">Компания</div><div class="v">${escapeHtml(req.company_payer)}</div></div>
+          <div class="kv"><div class="k">Статус</div><div class="v">${statusBadge(req.status)}</div></div>
+          <div class="kv"><div class="k">Категория</div><div class="v">${escapeHtml(req.category)}</div></div>
+          <div class="kv"><div class="k">ID контракта</div><div class="v mono">${escapeHtml(req.contract_id)}</div></div>
+          <div class="kv"><div class="k">Сумма</div><div class="v mono">${escapeHtml(fmtMoney(req.amount))} ${escapeHtml(req.currency)}</div></div>
+          <div class="kv"><div class="k">Оплата</div><div class="v">${escapeHtml(req.payment_type)} • ${escapeHtml(req.urgency)}</div></div>
+        </div>
+
+        <div class="section">
+          <div class="sectionTitle"><div class="label">Название</div></div>
+          <div class="kv"><div class="v">${escapeHtml(req.title)}</div></div>
+        </div>
+
+        ${req.payment_purpose ? `
+          <div class="section">
+            <div class="sectionTitle"><div class="label">Назначение</div></div>
+            <div class="kv"><div class="v">${escapeHtml(req.payment_purpose)}</div></div>
+          </div>
+        ` : ``}
+
+        ${req.description ? `
+          <div class="section">
+            <div class="sectionTitle"><div class="label">Описание</div></div>
+            <div class="kv"><div class="v">${escapeHtml(req.description)}</div></div>
+          </div>
+        ` : ``}
+
+        ${section("Одобрено", approved)}
+        ${section("Отклонено", rejected)}
+        ${section("В ожидании", pending)}
+      `;
+
+      modal.style.display = "block";
+    }
+
+    function closeModal() {
+      const modal = $("#modal");
+      if (modal) modal.style.display = "none";
+    }
+
+    async function loadData(force = false) {
+      setMeta(force ? "Обновление…" : "Загрузка…");
+      try {
+        const isNullOrigin = (location.origin === "null") || (location.protocol === "file:");
+        const res = await fetch(API_URL, {
+          method: "GET",
+          credentials: isNullOrigin ? "omit" : "include",
+          headers: { "Accept": "application/json" }
+        });
+        if (!res.ok) throw new Error(`HTTP ${res.status} ${res.statusText}`);
+        const data = await res.json();
+        applyData(data);
+        setMeta(`Заявок: ${requests.length}`);
+      } catch (err) {
+        console.error(err);
+        if (EMBEDDED_DATA) {
+          applyData(EMBEDDED_DATA);
+          setMeta(`Заявок: ${requests.length} (встроенные данные)`);
+        } else {
+          applyData({ requests: [], approvals: [], users: [] });
+          setMeta(`Не удалось загрузить. ${err?.message || err}`);
+        }
+      }
+    }
+
+    function bindOnce() {
+      if (bindOnce._done) return;
+      bindOnce._done = true;
+
+      const reloadBtn = $("#reloadBtn");
+      if (reloadBtn) reloadBtn.addEventListener("click", () => loadData(true));
+
+      const tbody = $("#tbl tbody");
+      if (tbody) {
+        tbody.addEventListener("click", (e) => {
+          const tr = e.target.closest("tr[data-request-id]");
+          if (!tr) return;
+          const id = Number(tr.getAttribute("data-request-id"));
+          const req = requests.find(r => Number(r.id) === id);
+          if (req) openModal(req);
+        });
+      }
+
+      const overlay = $("#modalOverlay");
+      const closeBtn = $("#modalClose");
+      if (overlay) overlay.addEventListener("click", closeModal);
+      if (closeBtn) closeBtn.addEventListener("click", closeModal);
+      document.addEventListener("keydown", (ev) => { if (ev.key === "Escape") closeModal(); });
+    }
+
+    bindOnce();
+    window.addEventListener("DOMContentLoaded", () => loadData(false));
+  </script>
+</body>
+
+</html>

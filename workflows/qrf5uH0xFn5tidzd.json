@@ -1,0 +1,180 @@
+{
+  "updatedAt": "2025-11-27T13:26:19.000Z",
+  "createdAt": "2025-11-09T09:27:37.963Z",
+  "id": "qrf5uH0xFn5tidzd",
+  "name": "Add to regular payments",
+  "description": null,
+  "active": false,
+  "isArchived": true,
+  "nodes": [
+    {
+      "parameters": {
+        "formTitle": "Новый платеж",
+        "formFields": {
+          "values": [
+            {
+              "fieldLabel": "vendor",
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "agreement"
+            },
+            {
+              "fieldLabel": "sum",
+              "fieldType": "number"
+            },
+            {
+              "fieldLabel": "payment_date",
+              "fieldType": "number"
+            }
+          ]
+        },
+        "options": {
+          "path": "/lemonfit/regular_vendors"
+        }
+      },
+      "type": "n8n-nodes-base.formTrigger",
+      "typeVersion": 2.3,
+      "position": [
+        0,
+        0
+      ],
+      "id": "9faad554-4661-4c00-8cf3-334b927be94e",
+      "name": "On form submission",
+      "webhookId": "9c96699c-cdd4-4e82-8a0c-dda33113723d"
+    },
+    {
+      "parameters": {
+        "dataTableId": {
+          "__rl": true,
+          "value": "PzKQfkycbo50ph0U",
+          "mode": "list",
+          "cachedResultName": "LemonFit regular Payments",
+          "cachedResultUrl": "/projects/Khq0xGbDHq3t4IJq/datatables/PzKQfkycbo50ph0U"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "vendor": "={{ $json.vendor }}",
+            "agreement": "={{ $json.agreement }}",
+            "sum": "={{ $json.sum }}",
+            "payment_date": "={{ $json.payment_date }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "vendor",
+              "displayName": "vendor",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "agreement",
+              "displayName": "agreement",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "sum",
+              "displayName": "sum",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": false
+            },
+            {
+              "id": "payment_date",
+              "displayName": "payment_date",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "readOnly": false,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.dataTable",
+      "typeVersion": 1,
+      "position": [
+        208,
+        0
+      ],
+      "id": "6353f788-09f2-4816-be96-0c0045d6932e",
+      "name": "Insert row"
+    }
+  ],
+  "connections": {
+    "On form submission": {
+      "main": [
+        [
+          {
+            "node": "Insert row",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Insert row": {
+      "main": [
+        []
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "meta": null,
+  "pinData": {
+    "On form submission": [
+      {
+        "json": {
+          "vendor": "\"VOLIDA-BIZNES-SERVIS\" MCHJ",
+          "agreement": "\"VOLIDA-BIZNES-SERVIS\" MCHJ",
+          "sum": 136080000,
+          "payment_date": 17,
+          "submittedAt": "2025-11-09T14:29:49.945+05:00",
+          "formMode": "test"
+        }
+      }
+    ]
+  },
+  "versionId": "fab52724-a903-4e4d-a032-82b7f194b1d6",
+  "versionCounter": 30,
+  "triggerCount": 1,
+  "tags": [],
+  "shared": [
+    {
+      "updatedAt": "2025-11-09T09:27:37.970Z",
+      "createdAt": "2025-11-09T09:27:37.970Z",
+      "role": "workflow:owner",
+      "workflowId": "qrf5uH0xFn5tidzd",
+      "projectId": "Khq0xGbDHq3t4IJq",
+      "project": {
+        "updatedAt": "2025-10-09T12:38:52.281Z",
+        "createdAt": "2025-10-09T12:30:53.020Z",
+        "id": "Khq0xGbDHq3t4IJq",
+        "name": "Dilshod Davletyarov <dilshod95@gmail.com>",
+        "type": "personal",
+        "icon": null,
+        "description": null
+      }
+    }
+  ]
+}

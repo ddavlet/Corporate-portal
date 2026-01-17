@@ -1,0 +1,180 @@
+{
+  "updatedAt": "2025-11-11T09:14:31.000Z",
+  "createdAt": "2025-11-02T21:59:50.934Z",
+  "id": "YLPLSlDidckPT3CH",
+  "name": "Get file",
+  "description": null,
+  "active": true,
+  "isArchived": false,
+  "nodes": [
+    {
+      "parameters": {
+        "protocol": "sftp",
+        "path": "=/home/sftpuser/upload/{{ $('get file').item.json.headers.host.split(\".\")[0] }}/{{$('get file').item.json.query.type}}/{{ $('get file').item.json.query.filename }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.ftp",
+      "typeVersion": 1,
+      "position": [
+        272,
+        0
+      ],
+      "id": "bc6cd53c-bb59-4cbe-9610-2977dec5d9bc",
+      "name": "FTP",
+      "credentials": {
+        "sftp": {
+          "id": "8lqZXk6gHsvR30gh",
+          "name": "FTP account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "respondWith": "binary",
+        "options": {
+          "responseHeaders": {
+            "entries": [
+              {
+                "name": "Content-Disposition",
+                "value": "=attachment; filename=\"{{$binary.data.fileName.urlEncode()}}\""
+              }
+            ]
+          }
+        }
+      },
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [
+        720,
+        0
+      ],
+      "id": "3cf3626e-ce8b-4e20-8177-4ae9e86250f3",
+      "name": "Respond to Webhook"
+    },
+    {
+      "parameters": {
+        "path": "construction/getfile",
+        "authentication": "basicAuth",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        -192,
+        0
+      ],
+      "id": "21068a79-0ca5-42ea-a6ed-03f430517ff7",
+      "name": "get file",
+      "webhookId": "97afad4a-757b-4cbd-9c6c-68b584a9e03c",
+      "credentials": {
+        "httpBasicAuth": {
+          "id": "6i3UOb550f2KxA3a",
+          "name": "construction"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "FTP": {
+      "main": [
+        [
+          {
+            "node": "Respond to Webhook",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "get file": {
+      "main": [
+        [
+          {
+            "node": "FTP",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "pinData": {
+    "get file": [
+      {
+        "json": {
+          "headers": {
+            "host": "construction.kolberg.uz",
+            "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/142.0.0.0 Safari/537.36",
+            "accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7",
+            "accept-encoding": "gzip, deflate, br, zstd",
+            "accept-language": "ru,en-US;q=0.9,en;q=0.8,de;q=0.7",
+            "authorization": "Basic S0M6S0MxMzMx",
+            "cookie": "rl_page_init_referrer=RudderEncrypt%3AU2FsdGVkX183a8rORKfqYNpJQ5whT4TRFSCU6mCJdHM%3D; rl_page_init_referring_domain=RudderEncrypt%3AU2FsdGVkX1%2BesemVL1QRELCAAQUrBcpHETdGM5hoCoc%3D; rl_anonymous_id=RudderEncrypt%3AU2FsdGVkX1%2BklJmYmsI79Va5liHm6viztxbs1MiA83cI346C1iq6ANWfJ7BrdSe9nba1MQTAmd%2BDQWzVoCndzA%3D%3D; rl_user_id=RudderEncrypt%3AU2FsdGVkX189Stnrs4Fl%2Fd7EVRXnGQfbqe1yYJLOHbhU6nMexD88JU%2B5yoUv15fyCFStdqIZVMtClIUgbPEIrdwEzcf8Jp6q2hjNpFJHkBm%2FcySm6USS1L56ua0Hsg5mUIRuHMhhCJzMt6omgKGRESNGBgO2ZRW07xcbiAbzE4U%3D; rl_trait=RudderEncrypt%3AU2FsdGVkX18%2BrGx%2BYIdzAwJVd3RVOANcqglrNlrCDl5psCExjMw7YnhTi2xGmv%2FNkXmydGd2IIE7tvwXXlhoC%2BUon3KRoGIGTZRLa8p7gltMfCgN3woVqbyyZW1TKGBTAc5Brv%2FDe9xmqvGdi4E0dlDNpxyjkD09Hduwuctvi9E%3D; rl_session=RudderEncrypt%3AU2FsdGVkX1%2BY0R8vV0QD9tZavNgNnhWq%2BGKP%2FvaCC0HT2pF4goBVQgbPkGGNFuMb42ks8t1i1usntYCMnVIHcCSqix0gVB0%2F86Lbpnz5ihNr05St3PlE5U1%2BQP0aaTp2p5CqlUZ2nqdsX2D6TwGJcQ%3D%3D; ph_phc_4URIAm1uYfJO7j8kWSe0J8lc8IqnstRLS7Jx8NcakHo_posthog=%7B%22distinct_id%22%3A%22aaa5eb3b3bb2b0e4c2900ebf2061149fc2bf8ef76f120e9fd24b91ca24d47211%23ac130d50-f0cf-4c9d-aa5e-433e70ddd2b9%22%2C%22%24sesid%22%3A%5B1762852281123%2C%22019a722e-efa6-7326-8653-fa9fe9fb83a9%22%2C1762852269989%5D%2C%22%24epp%22%3Atrue%2C%22%24initial_person_info%22%3A%7B%22r%22%3A%22%24direct%22%2C%22u%22%3A%22https%3A%2F%2Fdev.kolberg.uz%2Fsignin%3Fredirect%3D%25252F%22%7D%7D",
+            "dnt": "1",
+            "priority": "u=0, i",
+            "sec-ch-ua": "\"Chromium\";v=\"142\", \"Google Chrome\";v=\"142\", \"Not_A Brand\";v=\"99\"",
+            "sec-ch-ua-mobile": "?0",
+            "sec-ch-ua-platform": "\"macOS\"",
+            "sec-fetch-dest": "document",
+            "sec-fetch-mode": "navigate",
+            "sec-fetch-site": "none",
+            "sec-fetch-user": "?1",
+            "upgrade-insecure-requests": "1",
+            "x-forwarded-for": "88.134.57.131",
+            "x-forwarded-host": "construction.kolberg.uz",
+            "x-forwarded-port": "443",
+            "x-forwarded-proto": "https",
+            "x-forwarded-server": "c000e204e733",
+            "x-real-ip": "88.134.57.131",
+            "x-replaced-path": "/getfile"
+          },
+          "params": {},
+          "query": {
+            "type": "requests",
+            "filename": "Потребность  Д.С  на 11ноября_2025-11-10_05-14-39.xlsx"
+          },
+          "body": {},
+          "webhookUrl": "https://dev.kolberg.uz/webhook/construction/getfile",
+          "executionMode": "production"
+        }
+      }
+    ]
+  },
+  "versionId": "6388f2a5-0e29-4a9d-9b15-bcadc3c9db1d",
+  "versionCounter": 31,
+  "triggerCount": 1,
+  "tags": [
+    {
+      "updatedAt": "2025-10-28T12:21:34.379Z",
+      "createdAt": "2025-10-28T12:21:34.379Z",
+      "id": "AF6lC1ccKNZsTMSk",
+      "name": "construction"
+    }
+  ],
+  "shared": [
+    {
+      "updatedAt": "2025-11-02T21:59:50.937Z",
+      "createdAt": "2025-11-02T21:59:50.937Z",
+      "role": "workflow:owner",
+      "workflowId": "YLPLSlDidckPT3CH",
+      "projectId": "Khq0xGbDHq3t4IJq",
+      "project": {
+        "updatedAt": "2025-10-09T12:38:52.281Z",
+        "createdAt": "2025-10-09T12:30:53.020Z",
+        "id": "Khq0xGbDHq3t4IJq",
+        "name": "Dilshod Davletyarov <dilshod95@gmail.com>",
+        "type": "personal",
+        "icon": null,
+        "description": null
+      }
+    }
+  ]
+}

@@ -1,0 +1,352 @@
+{
+  "updatedAt": "2025-11-09T21:05:54.000Z",
+  "createdAt": "2025-11-09T19:33:58.520Z",
+  "id": "2FmTDWcp2Qzz4MAY",
+  "name": "Request status check",
+  "description": null,
+  "active": true,
+  "isArchived": false,
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "daysInterval": 2,
+              "triggerAtHour": 12
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -128,
+        0
+      ],
+      "id": "5ac438aa-f743-41e6-917a-ea98705bae67",
+      "name": "Schedule Trigger"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "6caa94f3-1cdd-46e4-a790-5a9d8cd64d62",
+              "leftValue": "={{ $json['Статус'] }}",
+              "rightValue": "Выдано",
+              "operator": {
+                "type": "string",
+                "operation": "equals",
+                "name": "filter.operator.equals"
+              }
+            },
+            {
+              "id": "ca8efa9a-7a47-4fef-a5fc-d238ec94da12",
+              "leftValue": "={{DateTime.fromFormat($json[\"Дата\"], \"dd.MM.yyyy\")}}",
+              "rightValue": "={{ new Date($now - 1 * 24 * 60 * 60 * 1000)}}",
+              "operator": {
+                "type": "dateTime",
+                "operation": "before"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        528,
+        144
+      ],
+      "id": "75d7fdb1-e555-4279-9017-c26cd97c230b",
+      "name": "If"
+    },
+    {
+      "parameters": {
+        "authentication": "serviceAccount",
+        "documentId": {
+          "__rl": true,
+          "value": "1qygApIr2xAwu7kytu2QdLhZD2BSAJVTCeSWHjqk8DRE",
+          "mode": "list",
+          "cachedResultName": "Инвестиционный отчет Kolberg Construction",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1qygApIr2xAwu7kytu2QdLhZD2BSAJVTCeSWHjqk8DRE/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "Яккасарай 4",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1qygApIr2xAwu7kytu2QdLhZD2BSAJVTCeSWHjqk8DRE/edit#gid=0"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        96,
+        48
+      ],
+      "id": "16875958-eb66-4ea8-bfcf-48a518c3db57",
+      "name": "get requests",
+      "credentials": {
+        "googleApi": {
+          "id": "mRkpe2z9NTTuFURb",
+          "name": "service account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "authentication": "serviceAccount",
+        "documentId": {
+          "__rl": true,
+          "value": "1qygApIr2xAwu7kytu2QdLhZD2BSAJVTCeSWHjqk8DRE",
+          "mode": "list",
+          "cachedResultName": "Инвестиционный отчет Kolberg Construction",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1qygApIr2xAwu7kytu2QdLhZD2BSAJVTCeSWHjqk8DRE/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": 1987330808,
+          "mode": "list",
+          "cachedResultName": "Амир Тимур , Сагбон",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1qygApIr2xAwu7kytu2QdLhZD2BSAJVTCeSWHjqk8DRE/edit#gid=1987330808"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        96,
+        240
+      ],
+      "id": "19aa062d-234c-4063-a955-454fb2d30be3",
+      "name": "get requests1",
+      "credentials": {
+        "googleApi": {
+          "id": "mRkpe2z9NTTuFURb",
+          "name": "service account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "9d028cc3-b6f2-4dba-bcf3-3c6151e43724",
+              "name": "project",
+              "value": "Яккасарай",
+              "type": "string"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        304,
+        48
+      ],
+      "id": "baa3b4f4-deba-43d7-ba27-9ffd16d2e716",
+      "name": "set project"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "9d028cc3-b6f2-4dba-bcf3-3c6151e43724",
+              "name": "project",
+              "value": "Сагбон",
+              "type": "string"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        384,
+        288
+      ],
+      "id": "93f1ea8c-2fbf-478e-9dab-97e89d41af57",
+      "name": "set project1"
+    },
+    {
+      "parameters": {
+        "chatId": "291875946",
+        "text": "=📌 *Заявка №{{$('If').item.json.id}} от {{$('If').item.json[\"Дата\"]}}*\n*Проект:* {{$json.project  }}\n*Статья:* {{$('If').item.json[\"Статья\"]}}  \n*Сумма:* {{ Number($('If').item.json[\"Сумма UZS\"]).toLocaleString(\"ru-RU\") }} UZS (≈ {{ Number($('If').item.json[\"Сумма USD\"]).round() }} USD)  \n*Ответственный:* {{$('If').item.json[\"Ответственный\"]}}\n*Просрочка*: {{$now.diff(DateTime.fromFormat($('If').item.json[\"Дата\"], \"dd.MM.yyyy\"), 'days').days.round() }} дней\n\n\n⚠️ По этой заявке денежные средства выданы, но отсутствует подтверждение, что деньги были получены.  \nПожалуйста, уточните статус получения средств.\n",
+        "additionalFields": {
+          "appendAttribution": false
+        }
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        880,
+        32
+      ],
+      "id": "a5c11dc5-d1c1-4f8d-b7e0-88e20f75bc9e",
+      "name": "SR",
+      "webhookId": "cb87fbe9-0f20-4afb-a197-7e78131d5a25",
+      "credentials": {
+        "telegramApi": {
+          "id": "TwF5TakXsFDGzAEL",
+          "name": "KC requests"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "chatId": "1387986",
+        "text": "=📌 *Заявка №{{$('If').item.json.id}} от {{$('If').item.json[\"Дата\"]}}*\n*Проект:* {{$json.project  }}\n*Статья:* {{$('If').item.json[\"Статья\"]}}  \n*Сумма:* {{ Number($('If').item.json[\"Сумма UZS\"]).toLocaleString(\"ru-RU\") }} UZS (≈ {{ Number($('If').item.json[\"Сумма USD\"]).round() }} USD)  \n*Ответственный:* {{$('If').item.json[\"Ответственный\"]}}\n*Просрочка*: {{$now.diff(DateTime.fromFormat($('If').item.json[\"Дата\"], \"dd.MM.yyyy\"), 'days').days.round() }} дней\n\n\n⚠️ По этой заявке денежные средства выданы, но отсутствует подтверждение, что деньги были получены.  \nПожалуйста, уточните статус получения средств.\n",
+        "additionalFields": {
+          "appendAttribution": false
+        }
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        832,
+        240
+      ],
+      "id": "2b06176d-bc19-4bc5-a64e-3bd374560f02",
+      "name": "DR",
+      "webhookId": "cb87fbe9-0f20-4afb-a197-7e78131d5a25",
+      "credentials": {
+        "telegramApi": {
+          "id": "TwF5TakXsFDGzAEL",
+          "name": "KC requests"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "If": {
+      "main": [
+        [
+          {
+            "node": "SR",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "DR",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "get requests",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "get requests1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "get requests": {
+      "main": [
+        [
+          {
+            "node": "set project",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "get requests1": {
+      "main": [
+        [
+          {
+            "node": "set project1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "set project": {
+      "main": [
+        [
+          {
+            "node": "If",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "set project1": {
+      "main": [
+        [
+          {
+            "node": "If",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": {
+    "node:Schedule Trigger": {
+      "recurrenceRules": [
+        334
+      ]
+    }
+  },
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "pinData": {},
+  "versionId": "cb1b7951-ec26-4b54-9a11-43c496812030",
+  "versionCounter": 61,
+  "triggerCount": 1,
+  "tags": [],
+  "shared": [
+    {
+      "updatedAt": "2025-11-09T19:33:58.524Z",
+      "createdAt": "2025-11-09T19:33:58.524Z",
+      "role": "workflow:owner",
+      "workflowId": "2FmTDWcp2Qzz4MAY",
+      "projectId": "Khq0xGbDHq3t4IJq",
+      "project": {
+        "updatedAt": "2025-10-09T12:38:52.281Z",
+        "createdAt": "2025-10-09T12:30:53.020Z",
+        "id": "Khq0xGbDHq3t4IJq",
+        "name": "Dilshod Davletyarov <dilshod95@gmail.com>",
+        "type": "personal",
+        "icon": null,
+        "description": null
+      }
+    }
+  ]
+}

@@ -1,0 +1,359 @@
+{
+  "updatedAt": "2025-11-18T18:55:03.000Z",
+  "createdAt": "2025-11-18T18:55:03.312Z",
+  "id": "Fr5TPdzD4ziAJCaw",
+  "name": "Auto request: wait for response",
+  "description": null,
+  "active": false,
+  "isArchived": false,
+  "nodes": [
+    {
+      "parameters": {
+        "operation": "call_workflow",
+        "source": "database",
+        "workflowId": {
+          "__rl": true,
+          "value": "tYJAknRv7dHNAgvU",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/tYJAknRv7dHNAgvU",
+          "cachedResultName": "Request"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Поставщик": "={{ $('Start').item.json.vendor }}",
+            "Категория расхода": "={{ $('Start').item.json.cathegory }}",
+            "Сумма": "={{$json.data['Сумма платежа'] }}",
+            "Тип оплаты": "={{ $('Start').item.json.type }}",
+            "Назначение платежа": "={{ $json.payment_purpose || \"\" }}",
+            "Описание/зачем": "={{null || \"\"}}",
+            "Срочность": "Обычно",
+            "Заявитель": "Автоматически",
+            "Вложения": "={{ null }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "Поставщик",
+              "displayName": "Поставщик",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "Категория расхода",
+              "displayName": "Категория расхода",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "Сумма",
+              "displayName": "Сумма",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "number",
+              "removed": false
+            },
+            {
+              "id": "Тип оплаты",
+              "displayName": "Тип оплаты",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "Назначение платежа",
+              "displayName": "Назначение платежа",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "Описание/зачем",
+              "displayName": "Описание/зачем",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "Срочность",
+              "displayName": "Срочность",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "Заявитель",
+              "displayName": "Заявитель",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "Вложения",
+              "displayName": "Вложения",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "object",
+              "removed": false
+            },
+            {
+              "id": "submittedAt",
+              "displayName": "submittedAt",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": true
+            },
+            {
+              "id": "formMode",
+              "displayName": "formMode",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "mode": "once",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.3,
+      "position": [
+        1344,
+        -80
+      ],
+      "id": "071e0049-da0e-4e37-9d7d-a99915e365a3",
+      "name": "Call 'Request'1"
+    },
+    {
+      "parameters": {
+        "preBuiltAgentsCalloutTelegram": "",
+        "resource": "message",
+        "operation": "sendAndWait",
+        "chatId": "={{ $json.telegram_chat_id }}",
+        "message": "=Укажите сумму платежа для заявки:\n\nПоставщик: {{ $('Start').item.json.sum_is_null_vendor }}\nДоговор: {{ $('Start').item.json.agreement }}\nТип: {{ $('Start').item.json.sum_is_null_type }}",
+        "responseType": "customForm",
+        "defineForm": "fields",
+        "formFields": {
+          "values": [
+            {
+              "fieldLabel": "Сумма платежа",
+              "fieldType": "number",
+              "placeholder": "",
+              "requiredField": true
+            }
+          ]
+        },
+        "options": {
+          "messageButtonLabel": "Ввести сумму",
+          "responseFormTitle": "Сумма платежа",
+          "responseFormButtonLabel": "Submit",
+          "limitWaitTime": {
+            "values": {
+              "limitType": "afterTimeInterval",
+              "resumeAmount": 2,
+              "resumeUnit": "days"
+            }
+          },
+          "appendAttribution": false
+        }
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1120,
+        -80
+      ],
+      "id": "58447f96-8df6-46a2-8541-6c576fc41488",
+      "name": "Send message and wait for response",
+      "webhookId": "733487bf-9f2a-435b-84e7-9c22ce4e5287",
+      "credentials": {
+        "telegramApi": {
+          "id": "GlN5OGKLXSsawcEL",
+          "name": "Lemonfit заявки"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "database",
+        "operation": "select",
+        "schema": {
+          "__rl": true,
+          "mode": "list",
+          "value": "public"
+        },
+        "table": {
+          "__rl": true,
+          "value": "users",
+          "mode": "list"
+        },
+        "returnAll": false,
+        "limit": 1,
+        "where": {
+          "values": [
+            {
+              "column": "role",
+              "condition": "equal",
+              "value": "acc_group"
+            }
+          ]
+        },
+        "combineConditions": "AND",
+        "sort": {},
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        896,
+        -80
+      ],
+      "id": "3fb29163-3cc0-43a9-89e2-680457bef29e",
+      "name": "get acc group",
+      "credentials": {
+        "postgres": {
+          "id": "rRyTNu2Ha00QWo8E",
+          "name": "lemonfit_requests"
+        }
+      }
+    },
+    {
+      "id": "b5aad933-9ab1-4685-9b33-ab58c1d27d87",
+      "typeVersion": 1.1,
+      "name": "Start",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "position": [
+        688,
+        -80
+      ],
+      "parameters": {
+        "workflowInputs": {
+          "values": [
+            {
+              "name": "vendor",
+              "type": "any"
+            },
+            {
+              "name": "cathegory",
+              "type": "any"
+            },
+            {
+              "name": "type",
+              "type": "any"
+            },
+            {
+              "name": "agreement",
+              "type": "any"
+            },
+            {
+              "name": "sum_is_null_vendor",
+              "type": "any"
+            },
+            {
+              "name": "sum_is_null_type",
+              "type": "any"
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Send message and wait for response": {
+      "main": [
+        [
+          {
+            "node": "Call 'Request'1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "get acc group": {
+      "main": [
+        [
+          {
+            "node": "Send message and wait for response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Start": {
+      "main": [
+        [
+          {
+            "node": "get acc group",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "meta": null,
+  "pinData": null,
+  "versionId": "6bdd9500-b59e-484d-9d19-f63e336b76bf",
+  "versionCounter": 2,
+  "triggerCount": 0,
+  "tags": [],
+  "shared": [
+    {
+      "updatedAt": "2025-11-18T18:55:03.318Z",
+      "createdAt": "2025-11-18T18:55:03.318Z",
+      "role": "workflow:owner",
+      "workflowId": "Fr5TPdzD4ziAJCaw",
+      "projectId": "Khq0xGbDHq3t4IJq",
+      "project": {
+        "updatedAt": "2025-10-09T12:38:52.281Z",
+        "createdAt": "2025-10-09T12:30:53.020Z",
+        "id": "Khq0xGbDHq3t4IJq",
+        "name": "Dilshod Davletyarov <dilshod95@gmail.com>",
+        "type": "personal",
+        "icon": null,
+        "description": null
+      }
+    }
+  ]
+}

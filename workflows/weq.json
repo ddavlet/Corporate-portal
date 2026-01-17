@@ -1,0 +1,88 @@
+[
+    {
+        "fieldLabel": "Поставщик",
+        "placeholder": "Наименование контрагента",
+        "requiredField": true
+    },
+    {
+        "fieldLabel": "Категория расхода",
+        "fieldType": "hiddenField",
+        "fieldValue": "Платежная карта"
+    },
+    {
+        "fieldLabel": "Сумма",
+        "fieldType": "number",
+        "placeholder": "Сумма оплаты",
+        "requiredField": true
+    },
+    {
+        "fieldLabel": "Тип оплаты",
+        "fieldType": "hiddenField",
+        "fieldValue": "Корпоративная карта"
+    },
+    {
+        "fieldLabel": "Назначение платежа",
+        "placeholder": "короткий заголовок (например: \"Доставка баннера\")",
+        "requiredField": true
+    },
+    {
+        "fieldLabel": "Описание/зачем",
+        "fieldType": "textarea",
+        "placeholder": "1–2 предложения, простым языком"
+    },
+    {
+        "fieldLabel": "Срочность",
+        "fieldType": "radio",
+        "fieldOptions": {
+            "values": [
+                {
+                    "option": "Обычно"
+                },
+                {
+                    "option": "Срочно"
+                }
+            ]
+        }
+    },
+    {
+        "fieldLabel": "Заявитель",
+        "fieldType": "dropdown",
+        "fieldOptions": {
+            "values": [
+                {
+                    "option": "1. Алимов Ижод"
+                },
+                {
+                    "option": "2. Арипов Мурод"
+                },
+                {
+                    "option": "3. Каюмов Дилшод"
+                },
+                {
+                    "option": "4. Абдухакимов Баходир"
+                },
+                {
+                    "option": "5. Кучкарбаев Икром"
+                },
+                {
+                    "option": "6. Рузиев Нодир"
+                },
+                {
+                    "option": "7. Уктамов Илхом"
+                },
+                {
+                    "option": "8. Раджабова Гузал"
+                },
+                {
+                    "option": "9. Хусанов Азизжон"
+                }
+            ]
+        },
+        "requiredField": true
+    },
+    {
+        "fieldLabel": "Вложения",
+        "fieldType": "file",
+        "multipleFiles": false
+    }
+]

@@ -1,0 +1,1114 @@
+{
+  "updatedAt": "2025-11-19T22:45:57.000Z",
+  "createdAt": "2025-10-16T13:07:56.799Z",
+  "id": "6OusgojBk48sGWVA",
+  "name": "Voice assistant agent",
+  "description": null,
+  "active": false,
+  "isArchived": false,
+  "nodes": [
+    {
+      "parameters": {
+        "chatId": "={{ $('message').first().json.message.chat.id }}",
+        "text": "=Ваша заявка принята, спасибо",
+        "additionalFields": {
+          "appendAttribution": false
+        }
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        2784,
+        16
+      ],
+      "id": "7dea5c17-bfdb-4874-918b-a6583298efa2",
+      "name": "Reply in Telegram",
+      "webhookId": "b96b7a41-9806-455f-b72e-00aa638eda71",
+      "credentials": {
+        "telegramApi": {
+          "id": "DWN3ViuYbcWxhB5y",
+          "name": "Progress"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "file",
+        "fileId": "={{ $json.message.voice.file_id }}",
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        256,
+        -368
+      ],
+      "id": "66219c83-6371-4cc6-ad43-57cee44f52da",
+      "name": "Get a file",
+      "webhookId": "e0769871-efe3-49da-81a5-2f88a6fdd33f",
+      "credentials": {
+        "telegramApi": {
+          "id": "DWN3ViuYbcWxhB5y",
+          "name": "Progress"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "2b538077-d3d3-4713-b973-68748313ff97",
+              "leftValue": "={{ $json.message.voice }}",
+              "rightValue": "",
+              "operator": {
+                "type": "object",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        32,
+        -272
+      ],
+      "id": "3a1a7f7f-f122-438d-a0f2-1e80d1072dba",
+      "name": "Check if Audio file"
+    },
+    {
+      "parameters": {
+        "resource": "audio",
+        "operation": "transcribe",
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 1.8,
+      "position": [
+        480,
+        -368
+      ],
+      "id": "6f314aef-7ff1-4211-8656-e2c1f8fea374",
+      "name": "Transcribe audio",
+      "credentials": {
+        "openAiApi": {
+          "id": "aqhdz0yn2egGGxvo",
+          "name": "OpenAi account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "eb912219-2436-4f04-8ffc-c1c20eb07344",
+              "name": "text",
+              "value": "={{ $json.message.text }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        480,
+        -176
+      ],
+      "id": "2e9b0ca3-2a0f-441d-89a0-28365c5ba3ef",
+      "name": "Set field"
+    },
+    {
+      "parameters": {
+        "updates": [
+          "message"
+        ],
+        "additionalFields": {
+          "download": false
+        }
+      },
+      "id": "0c402bdc-7fa2-4fa1-96d6-f02853cfdaa1",
+      "name": "message",
+      "type": "n8n-nodes-base.telegramTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        -192,
+        -272
+      ],
+      "webhookId": "55acc711-c248-4ac9-b6cd-e295c2d33f4b",
+      "credentials": {
+        "telegramApi": {
+          "id": "DWN3ViuYbcWxhB5y",
+          "name": "Progress"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $('message').first().json.message.chat.id }}",
+        "text": "={{ $json.message.content }}",
+        "additionalFields": {
+          "appendAttribution": false
+        }
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        3056,
+        -368
+      ],
+      "id": "70f9d3a7-45c0-4f7e-8b07-09b2aabaf95d",
+      "name": "Reply in Telegram1",
+      "webhookId": "b96b7a41-9806-455f-b72e-00aa638eda71",
+      "credentials": {
+        "telegramApi": {
+          "id": "DWN3ViuYbcWxhB5y",
+          "name": "Progress"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "modelId": {
+          "__rl": true,
+          "value": "gpt-4o-mini",
+          "mode": "list",
+          "cachedResultName": "GPT-4O-MINI"
+        },
+        "messages": {
+          "values": [
+            {
+              "content": "=MISSING_INFORMATION:\n{{ JSON.stringify( $('If missing fields1').item.json.output.missing_data)  }}"
+            },
+            {
+              "content": "You are a helpful assistant tasked with drafting a polite and professional follow-up message. The goal is to ask the user for specific pieces of information that were missing from their previous message.\n\nUse a kind, understanding tone. Do not assume blame or pressure the user — instead, express appreciation for what they have shared already, and clearly list the missing details that are needed to proceed.\n\nUser language: Russian\n\nFormat the response as a short, readable message that could be sent via chat. Message must be formated as a usual conversation message, yet clear and concise \n\nInsert the following missing information as a bullet point list in the message:\n\n[MISSING_INFORMATION]",
+              "role": "system"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "typeVersion": 1.8,
+      "position": [
+        2704,
+        -368
+      ],
+      "id": "5bdae4ae-0194-4b11-8632-0fc82fd2d493",
+      "name": "Follow-up message",
+      "credentials": {
+        "openAiApi": {
+          "id": "aqhdz0yn2egGGxvo",
+          "name": "OpenAi account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "fieldsToAggregate": {
+          "fieldToAggregate": [
+            {
+              "fieldToAggregate": "text"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.aggregate",
+      "typeVersion": 1,
+      "position": [
+        704,
+        -272
+      ],
+      "id": "8369e159-dbdd-4360-9f3b-a9b35fa2aee3",
+      "name": "Aggregate"
+    },
+    {
+      "parameters": {
+        "operation": "select",
+        "schema": {
+          "__rl": true,
+          "mode": "list",
+          "value": "public"
+        },
+        "table": {
+          "__rl": true,
+          "value": "requests",
+          "mode": "list",
+          "cachedResultName": "requests"
+        },
+        "limit": 1,
+        "where": {
+          "values": [
+            {
+              "column": "requester",
+              "value": "={{ String($('message').item.json.message.from.id)}}"
+            },
+            {
+              "column": "status",
+              "value": "DRAFT"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        928,
+        -272
+      ],
+      "id": "06d76a11-e694-4ef2-ba5d-9545d9adeff0",
+      "name": "GET DRAFT",
+      "alwaysOutputData": true,
+      "credentials": {
+        "postgres": {
+          "id": "rRyTNu2Ha00QWo8E",
+          "name": "lemonfit_requests"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "model": {
+          "__rl": true,
+          "value": "gpt-4.1-mini",
+          "mode": "list",
+          "cachedResultName": "gpt-4.1-mini"
+        },
+        "options": {}
+      },
+      "id": "f3a7d6ef-3442-43a4-9766-c3a9bfe4fac4",
+      "name": "Model1",
+      "type": "@n8n/n8n-nodes-langchain.lmChatOpenAi",
+      "typeVersion": 1.2,
+      "position": [
+        1584,
+        -48
+      ],
+      "credentials": {
+        "openAiApi": {
+          "id": "aqhdz0yn2egGGxvo",
+          "name": "OpenAi account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "sessionIdType": "customKey",
+        "sessionKey": "={{ $('message').item.json.message.chat.id }}"
+      },
+      "type": "@n8n/n8n-nodes-langchain.memoryPostgresChat",
+      "typeVersion": 1.3,
+      "position": [
+        1712,
+        -48
+      ],
+      "id": "c57ce566-afe6-4f07-84ce-2746f432f85d",
+      "name": "Postgres Chat Memory1",
+      "credentials": {
+        "postgres": {
+          "id": "guHkJn6j6DDCPJCB",
+          "name": "corporate"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "8c0eb9a0-e98f-49e6-864e-2c26c5ee64e6",
+              "name": "json_schema",
+              "value": "={\n    \"Поставщик\": {\n      \"type\": \"string\",\n    },\n    \"Категория расхода\": {\n      \"type\": \"string\",\n    },\n    \"Сумма\": {\n      \"type\": \"number\",\n    },\n    \"Валюта\": {\n      \"type\": \"string\",\n      \"enum\": [\"UZS\", \"USD\"]\n    },\n    \"Тип оплаты\": {\n      \"type\": \"string\",\n    },\n    \"Назначение платежа\": {\n      \"type\": \"string\",\n    },\n    \"Описание/зачем\": {\n      \"type\": \"string\",\n    },\n    \"Срочность\": {\n      \"type\": \"string\",\n      \"enum\": [\"Обычно\", \"Срочно\"]\n    },\n    \"Заявитель\": {\n      \"type\": \"string\" or \"int\"\n    }\n}",
+              "type": "string"
+            },
+            {
+              "id": "7f236c61-dce4-4bb3-8aaf-e597a2fb5f06",
+              "name": "text",
+              "value": "={{ $('Aggregate').item.json.text[0] }}",
+              "type": "string"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        1360,
+        -272
+      ],
+      "id": "2bc6ca20-5dbe-42b6-b3e7-fbd17a9782e8",
+      "name": "Schema1"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "=JSON schema:\n{{ $json.json_schema }}\n\nLast draft:\n{{ JSON.stringify($('GET DRAFT').item.json) }}\n\nUser message to extract data from:\n{{$json.text}}",
+        "hasOutputParser": true,
+        "options": {
+          "systemMessage": "=You are a data extractor agent.\n\nYour task is to extract all available information from the provided text using the JSON schema provided by the user.\n\nInstructions:\n\n- Use the exact keys from the schema.\n- If a value is partially available, extract what’s present and leave the rest as null.\n- Consider information already available.\n- If the schema has nested objects, reflect that structure in both `parsed_data` and `missing_data`.\n- Do not hallucinate or infer data that is not explicitly stated in the input text.\n\nOutput must strictly follow this JSON format:\n{\n  \"parsed_data\": { ... },\n  \"missing_data\": { ... }\n}\n\n### Example output:\n**Full data:**\njson\n{\n  \"parsed_data\": {\n    \"Поставщик\": \"ООО Иван Иванов\",\n    \"Категория расхода\": \"Маркетинг\",\n    \"Сумма\": 120000,\n    \"Валюта\": \"UZS\",\n    \"Тип оплаты\": \"Безналичный расчет\",\n    \"Назначение платежа\": \"Оплата за рекламные услуги\",\n    \"Описание/зачем\": \"Привлечение новых клиентов\",\n    \"Срочность\": \"Обычно\",\n    \"Заявитель\": 1645823\n  },\n  \"missing_data\": {}\n}\nNo data:\n\n{\n  \"parsed_data\": {},\n  \"missing_data\": {\n    \"Поставщик\": null,\n    \"Категория расхода\": null,\n    \"Сумма\": null,\n    \"Валюта\": null,\n    \"Тип оплаты\": null,\n    \"Назначение платежа\": null,\n    \"Описание/зачем\": null,\n    \"Срочность\": null,\n    \"Заявитель\": null\n  }\n}\n\nPartial data:\n\n{\n  \"parsed_data\": {\n    \"Поставщик\": \"ИП Сидоров\",\n    \"Сумма\": 50000,\n    \"Валюта\": \"USD\"\n  },\n  \"missing_data\": {\n    \"Категория расхода\": null,\n    \"Тип оплаты\": null,\n    \"Назначение платежа\": null,\n    \"Описание/зачем\": null,\n    \"Срочность\": null,\n    \"Заявитель\": null\n  }\n}"
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 2.2,
+      "position": [
+        1584,
+        -272
+      ],
+      "id": "2c82c512-5fae-400a-90a9-849d18dc9193",
+      "name": "AI Agent1"
+    },
+    {
+      "parameters": {
+        "schemaType": "manual",
+        "inputSchema": "{\n  \"parsed_data\": {\n    \"type\": \"array\",\n      \"items\": {\n    \t\"type\": \"object\"\n\t\t}\n\t},\n  \"missing_data\": {\n    \"type\": \"array\",\n      \"items\": {\n    \t\"type\": \"string\"\n\t\t}\n  }\n}"
+      },
+      "type": "@n8n/n8n-nodes-langchain.outputParserStructured",
+      "typeVersion": 1.3,
+      "position": [
+        1840,
+        -48
+      ],
+      "id": "2c5a848f-80a4-4fac-a594-b13d072c4ccb",
+      "name": "Structured Output Parser1"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "a9136eb3-6dab-49e2-9e0d-ea022a14f7c7",
+              "leftValue": "={{ $json.output.missing_data.isEmpty() }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "false",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1904,
+        -272
+      ],
+      "id": "d150a0c9-e282-49fb-9eba-2951780fd721",
+      "name": "If missing fields1"
+    },
+    {
+      "parameters": {
+        "schema": {
+          "__rl": true,
+          "mode": "list",
+          "value": "public"
+        },
+        "table": {
+          "__rl": true,
+          "value": "requests",
+          "mode": "list",
+          "cachedResultName": "requests"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "category": "={{ $json.output.parsed_data[\"Категория расхода\"] || $json.output.missing_data[\"Категория расхода\"] }}",
+            "vendor": "={{ $json.output.parsed_data[\"Поставщик\"] || $json.output.missing_data[\"Поставщик\"] }}",
+            "description": "={{ $json.output.parsed_data[\"Описание/зачем\"] || $json.output.missing_data[\"Описание/зачем\"] }}",
+            "amount": "={{ $json.output.parsed_data[\"Сумма\"] || $json.output.missing_data[\"Сумма\"] }}",
+            "currency": "={{ $json.output.parsed_data[\"Валюта\"] || $json.output.missing_data[\"Валюта\"] }}",
+            "payment_type": "={{ $json.output.parsed_data[\"Тип оплаты\"] || $json.output.missing_data[\"Тип оплаты\"] }}",
+            "payment_purpose": "={{ $json.output.parsed_data[\"Назначение платежа\"] || $json.output.missing_data[\"Назначение платежа\"] }}",
+            "urgency": "={{ $json.output.parsed_data[\"Срочность\"] || $json.output.missing_data[\"Срочность\"] }}",
+            "requester": "={{ $('message').item.json.message.from.id }}",
+            "submitted_at": "={{ $now }}",
+            "status": "DRAFT"
+          },
+          "matchingColumns": [
+            "id"
+          ],
+          "schema": [
+            {
+              "id": "id",
+              "displayName": "id",
+              "required": false,
+              "defaultMatch": true,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "company_payer",
+              "displayName": "company_payer",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "category",
+              "displayName": "category",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "vendor",
+              "displayName": "vendor",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "title",
+              "displayName": "title",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "description",
+              "displayName": "description",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "amount",
+              "displayName": "amount",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "currency",
+              "displayName": "currency",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "payment_type",
+              "displayName": "payment_type",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "payment_purpose",
+              "displayName": "payment_purpose",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "urgency",
+              "displayName": "urgency",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "requester",
+              "displayName": "requester",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "submitted_at",
+              "displayName": "submitted_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "dateTime",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        2464,
+        -464
+      ],
+      "id": "9df169e6-f866-4476-96e8-cdf59cee8686",
+      "name": "NEW DRAFT",
+      "credentials": {
+        "postgres": {
+          "id": "rRyTNu2Ha00QWo8E",
+          "name": "lemonfit_requests"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "a5c253ee-6586-4393-9fe1-0f0a5b461dbe",
+              "leftValue": "={{ $('GET DRAFT').item.json.isEmpty() }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        2112,
+        -368
+      ],
+      "id": "90fa6818-79fc-416b-b478-67e3d8bc6661",
+      "name": "is new draft"
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "schema": {
+          "__rl": true,
+          "mode": "list",
+          "value": "public"
+        },
+        "table": {
+          "__rl": true,
+          "value": "requests",
+          "mode": "list",
+          "cachedResultName": "requests"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "id": "={{ $('GET DRAFT').item.json.id }}",
+            "category": "={{ $json.output.parsed_data[\"Категория расхода\"] }}",
+            "vendor": "={{ $json.output.parsed_data[\"Поставщик\"] }}",
+            "description": "={{ $json.output.parsed_data[\"Описание/зачем\"] }}",
+            "amount": "={{ $json.output.parsed_data[\"Сумма\"] }}",
+            "currency": "={{ $json.output.parsed_data[\"Валюта\"] }}",
+            "payment_type": "={{ $json.output.parsed_data[\"Тип оплаты\"] }}",
+            "payment_purpose": "={{ $json.output.parsed_data[\"Назначение платежа\"] }}",
+            "urgency": "={{ $json.output.parsed_data[\"Срочность\"] }}",
+            "requester": "={{ $('message').item.json.message.from.id }}",
+            "submitted_at": "={{ $now }}",
+            "status": "DRAFT"
+          },
+          "matchingColumns": [
+            "id"
+          ],
+          "schema": [
+            {
+              "id": "id",
+              "displayName": "id",
+              "required": false,
+              "defaultMatch": true,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "company_payer",
+              "displayName": "company_payer",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "category",
+              "displayName": "category",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "vendor",
+              "displayName": "vendor",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "title",
+              "displayName": "title",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "description",
+              "displayName": "description",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "amount",
+              "displayName": "amount",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "currency",
+              "displayName": "currency",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "payment_type",
+              "displayName": "payment_type",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "payment_purpose",
+              "displayName": "payment_purpose",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "urgency",
+              "displayName": "urgency",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "requester",
+              "displayName": "requester",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "submitted_at",
+              "displayName": "submitted_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "dateTime",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        2384,
+        -256
+      ],
+      "id": "8196b7cd-c094-4e1a-91ac-95270470f759",
+      "name": "UPDATE DRAFT",
+      "credentials": {
+        "postgres": {
+          "id": "rRyTNu2Ha00QWo8E",
+          "name": "lemonfit_requests"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Loop over input items and add a new field called 'myNewField' to the JSON of each one\nlet item = $input.first().json;\nfor (const property in item) {\n  console.log(`${property}`);\n  if (item[property] === null) {\n    delete item[property]\n  }\n}\n\nreturn $input.all();"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1136,
+        -272
+      ],
+      "id": "17048edb-5992-4ea8-9a36-74c1468e9acf",
+      "name": "Code in JavaScript"
+    }
+  ],
+  "connections": {
+    "Get a file": {
+      "main": [
+        [
+          {
+            "node": "Transcribe audio",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check if Audio file": {
+      "main": [
+        [
+          {
+            "node": "Get a file",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Set field",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Transcribe audio": {
+      "main": [
+        [
+          {
+            "node": "Aggregate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Set field": {
+      "main": [
+        [
+          {
+            "node": "Aggregate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "message": {
+      "main": [
+        [
+          {
+            "node": "Check if Audio file",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Follow-up message": {
+      "main": [
+        [
+          {
+            "node": "Reply in Telegram1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Aggregate": {
+      "main": [
+        [
+          {
+            "node": "GET DRAFT",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "GET DRAFT": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Model1": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Agent1",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Postgres Chat Memory1": {
+      "ai_memory": [
+        [
+          {
+            "node": "AI Agent1",
+            "type": "ai_memory",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Schema1": {
+      "main": [
+        [
+          {
+            "node": "AI Agent1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Agent1": {
+      "main": [
+        [
+          {
+            "node": "If missing fields1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Structured Output Parser1": {
+      "ai_outputParser": [
+        [
+          {
+            "node": "AI Agent1",
+            "type": "ai_outputParser",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If missing fields1": {
+      "main": [
+        [
+          {
+            "node": "is new draft",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Reply in Telegram",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "NEW DRAFT": {
+      "main": [
+        [
+          {
+            "node": "Follow-up message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "is new draft": {
+      "main": [
+        [
+          {
+            "node": "NEW DRAFT",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "UPDATE DRAFT",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript": {
+      "main": [
+        [
+          {
+            "node": "Schema1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "meta": {
+    "templateId": "voice_assistant_agent_with_telegram",
+    "templateCredsSetupCompleted": true
+  },
+  "pinData": {
+    "message": [
+      {
+        "json": {
+          "update_id": 161288681,
+          "message": {
+            "message_id": 5401,
+            "from": {
+              "id": 1387986,
+              "is_bot": false,
+              "first_name": "Dilshod",
+              "last_name": "Davletyarov",
+              "username": "Davletyarov",
+              "language_code": "en",
+              "is_premium": true
+            },
+            "chat": {
+              "id": 1387986,
+              "first_name": "Dilshod",
+              "last_name": "Davletyarov",
+              "username": "Davletyarov",
+              "type": "private"
+            },
+            "date": 1760623898,
+            "voice": {
+              "duration": 6,
+              "mime_type": "audio/ogg",
+              "file_id": "AwACAgIAAxkBAAIVGWjw_RocdJYDaCi4guMWjCCDm1noAAKJjwAC33OIS7g27-9Rz7ClNgQ",
+              "file_unique_id": "AgADiY8AAt9ziEs",
+              "file_size": 23563
+            }
+          }
+        }
+      }
+    ]
+  },
+  "versionId": "a0fb96f7-b87c-4019-bbbe-1228e4050bdf",
+  "versionCounter": 2,
+  "triggerCount": 0,
+  "tags": [],
+  "shared": [
+    {
+      "updatedAt": "2025-10-16T13:07:56.802Z",
+      "createdAt": "2025-10-16T13:07:56.802Z",
+      "role": "workflow:owner",
+      "workflowId": "6OusgojBk48sGWVA",
+      "projectId": "Khq0xGbDHq3t4IJq",
+      "project": {
+        "updatedAt": "2025-10-09T12:38:52.281Z",
+        "createdAt": "2025-10-09T12:30:53.020Z",
+        "id": "Khq0xGbDHq3t4IJq",
+        "name": "Dilshod Davletyarov <dilshod95@gmail.com>",
+        "type": "personal",
+        "icon": null,
+        "description": null
+      }
+    }
+  ]
+}

@@ -1,0 +1,304 @@
+{
+  "updatedAt": "2025-10-28T09:34:02.000Z",
+  "createdAt": "2025-10-22T07:54:06.834Z",
+  "id": "eEGrvUkFy0WLBFr4",
+  "name": "mannual trigger",
+  "description": null,
+  "active": false,
+  "isArchived": true,
+  "nodes": [
+    {
+      "parameters": {
+        "chatId": "={{1387986 || $('If').item.json.approver_tg_id}}",
+        "text": "=💰 *Новая заявка на расход*\n\n*Номер*: {{  $('add request').item.json.id }}\n*Поставщик*: {{ $('add request').item.json.vendor }}\n*Категория расхода*: {{ $('add request').item.json.category }}\n*Сумма*: {{ Number($('add request').item.json.amount).toLocaleString(\"uz\", {\n    minimumFractionDigits: 2,\n    maximumFractionDigits: 2,\n    style: \"currency\", currency: $('add request').item.json.currency\n  }) }}\n*Тип оплаты*: {{ $('add request').item.json.payment_type }}\n*Назначение платежа*: {{ $('add request').item.json.payment_purpose }}\n*Описание / зачем*: {{ $('add request').item.json.description }}\n*Срочность*: {{ $('add request').item.json.urgency }}\n*Заявитель*: {{ $('add request').item.json.requester }}\n\n📎*Вложения*:\n{{$('set additional fields').item.json.file_link}}\n\n🕒*Дата подачи*: {{ new Date($('add request').item.json.submitted_at).toLocaleString('ru-RU', {  \n    hour: '2-digit',\n    minute: '2-digit',\n    day: '2-digit',\n    month: 'long',\n    year: 'numeric',\n\n  }) }}",
+        "replyMarkup": "inlineKeyboard",
+        "inlineKeyboard": {
+          "rows": [
+            {
+              "row": {
+                "buttons": [
+                  {
+                    "text": "✅ Одобрить",
+                    "additionalFields": {
+                      "callback_data": "=accepted_{{ $json.id }}"
+                    }
+                  },
+                  {
+                    "text": "❌ Отклонить",
+                    "additionalFields": {
+                      "callback_data": "=rejected_{{ $json.id }}"
+                    }
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        "additionalFields": {
+          "appendAttribution": false,
+          "disable_web_page_preview": false,
+          "parse_mode": "Markdown"
+        }
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1008,
+        32
+      ],
+      "id": "5a57c72f-c514-48eb-92d0-4e22f7dce282",
+      "name": "send approval form1",
+      "webhookId": "bcb2da8f-1f6e-4025-a114-c386057f60ea",
+      "credentials": {
+        "telegramApi": {
+          "id": "GlN5OGKLXSsawcEL",
+          "name": "Requests_bot"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "schema": {
+          "__rl": true,
+          "mode": "list",
+          "value": "public"
+        },
+        "table": {
+          "__rl": true,
+          "value": "approvals",
+          "mode": "list",
+          "cachedResultName": "approvals"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "message_sent": true,
+            "message_id": "={{ $json.result.message_id }}",
+            "id": "={{ $('If').item.json.id }}"
+          },
+          "matchingColumns": [
+            "id"
+          ],
+          "schema": [
+            {
+              "id": "id",
+              "displayName": "id",
+              "required": false,
+              "defaultMatch": true,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "request_id",
+              "displayName": "request_id",
+              "required": true,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "approver_user_id",
+              "displayName": "approver_user_id",
+              "required": true,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "approver_tg_id",
+              "displayName": "approver_tg_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "message_id",
+              "displayName": "message_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "message_sent",
+              "displayName": "message_sent",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "boolean",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "step",
+              "displayName": "step",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "step_type",
+              "displayName": "step_type",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "decision",
+              "displayName": "decision",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "comment",
+              "displayName": "comment",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "decided_at",
+              "displayName": "decided_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "dateTime",
+              "canBeUsedToMatch": true,
+              "removed": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1440,
+        80
+      ],
+      "id": "ce8cab43-560f-4ab8-90f3-58f2dc2012ce",
+      "name": "Update approval delivery status1",
+      "credentials": {
+        "postgres": {
+          "id": "rRyTNu2Ha00QWo8E",
+          "name": "Payments"
+        }
+      }
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        -96,
+        16
+      ],
+      "id": "c11c7293-8e6e-49a6-8f99-0573f4bb0d34",
+      "name": "When clicking ‘Execute workflow’"
+    },
+    {
+      "parameters": {
+        "updates": [
+          "message",
+          "edited_channel_post",
+          "*"
+        ],
+        "additionalFields": {}
+      },
+      "type": "n8n-nodes-base.telegramTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        80,
+        240
+      ],
+      "id": "b332ce10-08f8-4f20-8f50-df0011246402",
+      "name": "Telegram Trigger",
+      "webhookId": "a17a7f5a-ca3b-4c01-9ca8-ba95cc9cc200",
+      "credentials": {
+        "telegramApi": {
+          "id": "GlN5OGKLXSsawcEL",
+          "name": "Requests_bot"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "send approval form1": {
+      "main": [
+        [
+          {
+            "node": "Update approval delivery status1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "When clicking ‘Execute workflow’": {
+      "main": [
+        [
+          {
+            "node": "send approval form1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "pinData": {},
+  "versionId": "e405a0ec-1d0e-493e-8bfd-97331f327751",
+  "versionCounter": 1,
+  "triggerCount": 1,
+  "tags": [],
+  "shared": [
+    {
+      "updatedAt": "2025-10-22T07:54:06.840Z",
+      "createdAt": "2025-10-22T07:54:06.840Z",
+      "role": "workflow:owner",
+      "workflowId": "eEGrvUkFy0WLBFr4",
+      "projectId": "Khq0xGbDHq3t4IJq",
+      "project": {
+        "updatedAt": "2025-10-09T12:38:52.281Z",
+        "createdAt": "2025-10-09T12:30:53.020Z",
+        "id": "Khq0xGbDHq3t4IJq",
+        "name": "Dilshod Davletyarov <dilshod95@gmail.com>",
+        "type": "personal",
+        "icon": null,
+        "description": null
+      }
+    }
+  ]
+}

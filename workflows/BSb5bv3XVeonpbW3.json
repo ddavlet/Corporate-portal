@@ -1,0 +1,700 @@
+{
+  "updatedAt": "2025-11-25T22:58:51.000Z",
+  "createdAt": "2025-11-24T13:11:15.105Z",
+  "id": "BSb5bv3XVeonpbW3",
+  "name": "Recieve cashless payments",
+  "description": null,
+  "active": false,
+  "isArchived": false,
+  "nodes": [
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        -400,
+        -128
+      ],
+      "id": "39450c4e-8213-461c-8138-08999b234831",
+      "name": "When clicking ‘Execute workflow’"
+    },
+    {
+      "parameters": {
+        "authentication": "serviceAccount",
+        "documentId": {
+          "__rl": true,
+          "value": "1157wGB9326BNh7ROzn4fRiupgBbGFktc4izjB8Eolpk",
+          "mode": "list",
+          "cachedResultName": "Lemonfit перечисление",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1157wGB9326BNh7ROzn4fRiupgBbGFktc4izjB8Eolpk/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "Sheet1",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1157wGB9326BNh7ROzn4fRiupgBbGFktc4izjB8Eolpk/edit#gid=0"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        -48,
+        -176
+      ],
+      "id": "ae63b918-0e5c-44ef-88c4-65d97de4f896",
+      "name": "Get row(s) in sheet",
+      "credentials": {
+        "googleApi": {
+          "id": "mRkpe2z9NTTuFURb",
+          "name": "service account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c9af4737-cfe4-4653-8e5a-0ea9ef992446",
+              "leftValue": "={{ $json['Обороты по дебету'] }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "notEquals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.filter",
+      "typeVersion": 2.2,
+      "position": [
+        240,
+        -176
+      ],
+      "id": "44eaf160-4898-49f7-81d4-d61d0fe400f4",
+      "name": "Filter"
+    },
+    {
+      "parameters": {
+        "schema": {
+          "__rl": true,
+          "mode": "list",
+          "value": "public"
+        },
+        "table": {
+          "__rl": true,
+          "value": "bank_expenses",
+          "mode": "list",
+          "cachedResultName": "bank_expenses"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [
+            "id"
+          ],
+          "schema": [
+            {
+              "id": "id",
+              "displayName": "id",
+              "required": false,
+              "defaultMatch": true,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "row_no",
+              "displayName": "row_no",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "doc_date",
+              "displayName": "doc_date",
+              "required": true,
+              "defaultMatch": false,
+              "display": true,
+              "type": "dateTime",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "process_date",
+              "displayName": "process_date",
+              "required": true,
+              "defaultMatch": false,
+              "display": true,
+              "type": "dateTime",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "doc_no",
+              "displayName": "doc_no",
+              "required": true,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "account_name",
+              "displayName": "account_name",
+              "required": true,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "inn",
+              "displayName": "inn",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "account_no",
+              "displayName": "account_no",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "mfo",
+              "displayName": "mfo",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "debit_turnover",
+              "displayName": "debit_turnover",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "credit_turnover",
+              "displayName": "credit_turnover",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "payment_purpose",
+              "displayName": "payment_purpose",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {
+          "skipOnConflict": true,
+          "replaceEmptyStrings": true
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        784,
+        -176
+      ],
+      "id": "a3b657c1-0ded-477d-91f9-8d48e47254ea",
+      "name": "Insert rows in a table",
+      "credentials": {
+        "postgres": {
+          "id": "rRyTNu2Ha00QWo8E",
+          "name": "lemonfit_requests"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "dec3f540-c181-4766-bcde-06e9d6c3a7ee",
+              "name": "id",
+              "value": "={{ $json['№ пп'] }}",
+              "type": "number"
+            },
+            {
+              "id": "323a6407-35ff-440f-99f4-6ab001ec82d9",
+              "name": "doc_date",
+              "value": "={{ $json['Дата документа'].toDateTime(\"dd.MM.yyyy\") }}",
+              "type": "string"
+            },
+            {
+              "id": "0164be34-1ae9-4a39-bfb9-1cb386b92a66",
+              "name": "process_date",
+              "value": "={{ $json['Дата обработки'].toDateTime(\"dd.MM.yyyy\") }}",
+              "type": "string"
+            },
+            {
+              "id": "179ec1c9-4f4e-4114-af6c-608463c8c323",
+              "name": "account_name",
+              "value": "={{ $json['Наименование счёта'] }}",
+              "type": "string"
+            },
+            {
+              "id": "cea32ca0-3bf6-4001-9577-f2e6937dad02",
+              "name": "inn",
+              "value": "={{ $json['ИНН'] }}",
+              "type": "number"
+            },
+            {
+              "id": "f746dbc2-aad2-49a3-8345-16898996f5d2",
+              "name": "account_no",
+              "value": "={{ $json['№ счёта'] }}",
+              "type": "number"
+            },
+            {
+              "id": "32169dbd-9dfa-4440-bbd3-60dd907fcc6c",
+              "name": "mfo",
+              "value": "={{ $json['МФО'] }}",
+              "type": "number"
+            },
+            {
+              "id": "b6050803-b379-46d9-b787-368ef1da1b7b",
+              "name": "debit_turnover",
+              "value": "={{ $json['Обороты по дебету'] }}",
+              "type": "string"
+            },
+            {
+              "id": "7489800d-2f6d-4eaf-bf94-790e98d1a703",
+              "name": "payment_purpose",
+              "value": "={{ $json['Назначение платежа'] }}",
+              "type": "string"
+            },
+            {
+              "id": "1ff625d7-c3dc-4444-ab5a-562bebec6c72",
+              "name": "doc_no",
+              "value": "={{ $json['№ док'] }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        448,
+        -176
+      ],
+      "id": "937f1f40-31fb-4b76-b04f-f964ff90d8e9",
+      "name": "Edit Fields1"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c9af4737-cfe4-4653-8e5a-0ea9ef992446",
+              "leftValue": "={{ $json['Обороты по кредиту'] }}",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "notEquals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.filter",
+      "typeVersion": 2.2,
+      "position": [
+        256,
+        16
+      ],
+      "id": "7c18ef67-a8d2-44a8-9570-40257f344215",
+      "name": "Filter1"
+    },
+    {
+      "parameters": {
+        "schema": {
+          "__rl": true,
+          "mode": "list",
+          "value": "public"
+        },
+        "table": {
+          "__rl": true,
+          "value": "bank_revenues",
+          "mode": "list",
+          "cachedResultName": "bank_revenues"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": [
+            "id"
+          ],
+          "schema": [
+            {
+              "id": "id",
+              "displayName": "id",
+              "required": false,
+              "defaultMatch": true,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "row_no",
+              "displayName": "row_no",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "doc_date",
+              "displayName": "doc_date",
+              "required": true,
+              "defaultMatch": false,
+              "display": true,
+              "type": "dateTime",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "process_date",
+              "displayName": "process_date",
+              "required": true,
+              "defaultMatch": false,
+              "display": true,
+              "type": "dateTime",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "doc_no",
+              "displayName": "doc_no",
+              "required": true,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "account_name",
+              "displayName": "account_name",
+              "required": true,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "inn",
+              "displayName": "inn",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "account_no",
+              "displayName": "account_no",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "mfo",
+              "displayName": "mfo",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "kredit_turnover",
+              "displayName": "kredit_turnover",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "payment_purpose",
+              "displayName": "payment_purpose",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "request_id",
+              "displayName": "request_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {
+          "skipOnConflict": true,
+          "replaceEmptyStrings": true
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        800,
+        16
+      ],
+      "id": "4c69e9c8-7e47-4e1b-bbae-29f6e2ce8229",
+      "name": "Insert rows in a table1",
+      "credentials": {
+        "postgres": {
+          "id": "rRyTNu2Ha00QWo8E",
+          "name": "lemonfit_requests"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "dec3f540-c181-4766-bcde-06e9d6c3a7ee",
+              "name": "id",
+              "value": "={{ $json['№ пп'] }}",
+              "type": "number"
+            },
+            {
+              "id": "323a6407-35ff-440f-99f4-6ab001ec82d9",
+              "name": "doc_date",
+              "value": "={{ $json['Дата документа'].toDateTime(\"dd.MM.yyyy\") }}",
+              "type": "string"
+            },
+            {
+              "id": "0164be34-1ae9-4a39-bfb9-1cb386b92a66",
+              "name": "process_date",
+              "value": "={{ $json['Дата обработки'].toDateTime(\"dd.MM.yyyy\") }}",
+              "type": "string"
+            },
+            {
+              "id": "179ec1c9-4f4e-4114-af6c-608463c8c323",
+              "name": "account_name",
+              "value": "={{ $json['Наименование счёта'] }}",
+              "type": "string"
+            },
+            {
+              "id": "cea32ca0-3bf6-4001-9577-f2e6937dad02",
+              "name": "inn",
+              "value": "={{ $json['ИНН'] }}",
+              "type": "number"
+            },
+            {
+              "id": "f746dbc2-aad2-49a3-8345-16898996f5d2",
+              "name": "account_no",
+              "value": "={{ $json['№ счёта'] }}",
+              "type": "number"
+            },
+            {
+              "id": "32169dbd-9dfa-4440-bbd3-60dd907fcc6c",
+              "name": "mfo",
+              "value": "={{ $json['МФО'] }}",
+              "type": "number"
+            },
+            {
+              "id": "b6050803-b379-46d9-b787-368ef1da1b7b",
+              "name": "kredit_turnover",
+              "value": "={{ $json['Обороты по кредиту'] }}",
+              "type": "string"
+            },
+            {
+              "id": "7489800d-2f6d-4eaf-bf94-790e98d1a703",
+              "name": "payment_purpose",
+              "value": "={{ $json['Назначение платежа'] }}",
+              "type": "string"
+            },
+            {
+              "id": "1ff625d7-c3dc-4444-ab5a-562bebec6c72",
+              "name": "doc_no",
+              "value": "={{ $json['№ док'] }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        464,
+        16
+      ],
+      "id": "ade02e16-e409-4d6c-a6c1-cb8eb4fbe982",
+      "name": "Edit Fields"
+    }
+  ],
+  "connections": {
+    "When clicking ‘Execute workflow’": {
+      "main": [
+        [
+          {
+            "node": "Get row(s) in sheet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get row(s) in sheet": {
+      "main": [
+        [
+          {
+            "node": "Filter",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Filter1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filter": {
+      "main": [
+        [
+          {
+            "node": "Edit Fields1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Insert rows in a table": {
+      "main": [
+        []
+      ]
+    },
+    "Edit Fields1": {
+      "main": [
+        [
+          {
+            "node": "Insert rows in a table",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filter1": {
+      "main": [
+        [
+          {
+            "node": "Edit Fields",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Edit Fields": {
+      "main": [
+        [
+          {
+            "node": "Insert rows in a table1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false,
+    "errorWorkflow": "TMv7F6oZqeWsWhCl"
+  },
+  "staticData": null,
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "pinData": {
+    "When clicking ‘Execute workflow’": [
+      {
+        "json": {}
+      }
+    ]
+  },
+  "versionId": "6089c9d5-4f1e-44c8-8957-e9f9057eb8af",
+  "versionCounter": 19,
+  "triggerCount": 0,
+  "tags": [],
+  "shared": [
+    {
+      "updatedAt": "2025-11-24T13:11:15.111Z",
+      "createdAt": "2025-11-24T13:11:15.111Z",
+      "role": "workflow:owner",
+      "workflowId": "BSb5bv3XVeonpbW3",
+      "projectId": "Khq0xGbDHq3t4IJq",
+      "project": {
+        "updatedAt": "2025-10-09T12:38:52.281Z",
+        "createdAt": "2025-10-09T12:30:53.020Z",
+        "id": "Khq0xGbDHq3t4IJq",
+        "name": "Dilshod Davletyarov <dilshod95@gmail.com>",
+        "type": "personal",
+        "icon": null,
+        "description": null
+      }
+    }
+  ]
+}

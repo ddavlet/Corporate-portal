@@ -1,0 +1,1671 @@
+{
+  "updatedAt": "2025-11-18T23:53:23.000Z",
+  "createdAt": "2025-10-28T12:21:48.645Z",
+  "id": "P2dpa1ucqq1VtFDt",
+  "name": "Request",
+  "description": null,
+  "active": true,
+  "isArchived": false,
+  "nodes": [
+    {
+      "parameters": {
+        "formTitle": "Новая заявка",
+        "formDescription": "Отправить новую заявку на расход",
+        "formFields": {
+          "values": [
+            {
+              "fieldLabel": "Поставщик",
+              "placeholder": "наименование контрагента",
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "Проект",
+              "fieldType": "dropdown",
+              "fieldOptions": {
+                "values": [
+                  {
+                    "option": "Яккасарай"
+                  },
+                  {
+                    "option": "Сагбон"
+                  }
+                ]
+              },
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "Категория расхода",
+              "fieldType": "dropdown",
+              "fieldOptions": {
+                "values": [
+                  {
+                    "option": "Строительные работы"
+                  },
+                  {
+                    "option": "Дизайн проект"
+                  },
+                  {
+                    "option": "Архитектурный проект"
+                  },
+                  {
+                    "option": "Реклама"
+                  },
+                  {
+                    "option": "Прочие"
+                  }
+                ]
+              },
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "Сумма",
+              "fieldType": "number",
+              "placeholder": "Сумма оплаты",
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "Тип оплаты",
+              "fieldType": "radio",
+              "fieldOptions": {
+                "values": [
+                  {
+                    "option": "Наличные"
+                  },
+                  {
+                    "option": "Платежная карта"
+                  }
+                ]
+              },
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "Назначение платежа",
+              "placeholder": "короткий заголовок (например: \"Доставка баннера\")",
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "Описание/зачем",
+              "fieldType": "textarea",
+              "placeholder": "1–2 предложения, простым языком"
+            },
+            {
+              "fieldLabel": "Срочность",
+              "fieldType": "radio",
+              "fieldOptions": {
+                "values": [
+                  {
+                    "option": "Обычно"
+                  },
+                  {
+                    "option": "Срочно"
+                  }
+                ]
+              }
+            },
+            {
+              "fieldLabel": "Заявитель",
+              "fieldType": "dropdown",
+              "fieldOptions": {
+                "values": [
+                  {
+                    "option": "Уткир Баходиров"
+                  },
+                  {
+                    "option": "Сардор Давлетьяров"
+                  }
+                ]
+              },
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "Вложения",
+              "fieldType": "file",
+              "multipleFiles": false
+            }
+          ]
+        },
+        "options": {
+          "appendAttribution": false,
+          "buttonLabel": "Отправить",
+          "path": "construction/request",
+          "ignoreBots": true
+        }
+      },
+      "type": "n8n-nodes-base.formTrigger",
+      "typeVersion": 2.3,
+      "position": [
+        -656,
+        -1280
+      ],
+      "id": "713b0b56-ad72-4350-875a-dcbbefecb34e",
+      "name": "New request",
+      "webhookId": "3c5b035a-f13b-4056-ae86-add4779302ae"
+    },
+    {
+      "parameters": {
+        "schema": {
+          "__rl": true,
+          "mode": "list",
+          "value": "public"
+        },
+        "table": {
+          "__rl": true,
+          "value": "users",
+          "mode": "list",
+          "cachedResultName": "users"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "name": "={{ $json.name }}",
+            "role": "={{ $json.role }}",
+            "telegram_chat_id": "={{ $json.chat_id }}",
+            "manager_id": "={{ $json.manager_id }}",
+            "ooo_until": "={{ $json.valid_until || DateTime.now().plus({days: 30})}}"
+          },
+          "matchingColumns": [
+            "id"
+          ],
+          "schema": [
+            {
+              "id": "id",
+              "displayName": "id",
+              "required": false,
+              "defaultMatch": true,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "name",
+              "displayName": "name",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "role",
+              "displayName": "role",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "telegram_chat_id",
+              "displayName": "telegram_chat_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "manager_id",
+              "displayName": "manager_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "ooo_until",
+              "displayName": "ooo_until",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "dateTime",
+              "canBeUsedToMatch": true,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        -432,
+        -640
+      ],
+      "id": "5546e60c-3251-4056-844d-97feab0030fd",
+      "name": "add user",
+      "credentials": {
+        "postgres": {
+          "id": "MMzwDDpcwJakO7kL",
+          "name": "construction_requests"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "formTitle": "user",
+        "formDescription": "new_user",
+        "formFields": {
+          "values": [
+            {
+              "fieldLabel": "name",
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "role",
+              "fieldType": "dropdown",
+              "fieldOptions": {
+                "values": [
+                  {
+                    "option": "admin"
+                  },
+                  {
+                    "option": "approver"
+                  },
+                  {
+                    "option": "requester"
+                  }
+                ]
+              },
+              "requiredField": true
+            },
+            {
+              "fieldLabel": "chat_id",
+              "placeholder": "telegram chat id"
+            },
+            {
+              "fieldLabel": "manager_id"
+            },
+            {
+              "fieldLabel": "valid_until",
+              "fieldType": "date"
+            }
+          ]
+        },
+        "responseMode": "lastNode",
+        "options": {
+          "appendAttribution": false,
+          "path": "construction/new_user",
+          "ignoreBots": true
+        }
+      },
+      "type": "n8n-nodes-base.formTrigger",
+      "typeVersion": 2.3,
+      "position": [
+        -656,
+        -640
+      ],
+      "id": "f3a34397-1188-4109-b8e3-64409cf425e3",
+      "name": "new user form",
+      "webhookId": "f26de3b2-6f57-4cf4-80eb-e0af2cab81b3"
+    },
+    {
+      "parameters": {
+        "schema": {
+          "__rl": true,
+          "mode": "list",
+          "value": "public"
+        },
+        "table": {
+          "__rl": true,
+          "value": "requests",
+          "mode": "list",
+          "cachedResultName": "requests"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "category": "={{ $json['Категория расхода'] }}",
+            "vendor": "={{ $json['Поставщик'] }}",
+            "payment_type": "={{ $json['Тип оплаты'] }}",
+            "payment_purpose": "={{ $json['Назначение платежа'] }}",
+            "urgency": "={{ $json['Срочность'] || \"Обычно\"}}",
+            "requester": "={{ $json['Заявитель'] }}",
+            "submitted_at": "={{ $json.submittedAt }}",
+            "description": "={{ $json['Описание/зачем'] }}",
+            "amount": "={{ $json['Сумма'] }}",
+            "currency": "={{ $json['Валюта'] }}",
+            "status": "1",
+            "company_payer": "Kolberg Construction",
+            "title": "={{ $json['Проект'] }}"
+          },
+          "matchingColumns": [
+            "id"
+          ],
+          "schema": [
+            {
+              "id": "id",
+              "displayName": "id",
+              "required": false,
+              "defaultMatch": true,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "company_payer",
+              "displayName": "company_payer",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "category",
+              "displayName": "category",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "vendor",
+              "displayName": "vendor",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "title",
+              "displayName": "title",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "description",
+              "displayName": "description",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "amount",
+              "displayName": "amount",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "currency",
+              "displayName": "currency",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "payment_type",
+              "displayName": "payment_type",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "payment_purpose",
+              "displayName": "payment_purpose",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "urgency",
+              "displayName": "urgency",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "requester",
+              "displayName": "requester",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "submitted_at",
+              "displayName": "submitted_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "dateTime",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        -208,
+        -1280
+      ],
+      "id": "3ac5749b-4387-433f-b027-ed2260894bc8",
+      "name": "add request",
+      "credentials": {
+        "postgres": {
+          "id": "MMzwDDpcwJakO7kL",
+          "name": "construction_requests"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "d348e043-5e05-4173-8d0c-99fa3d9c25cf",
+              "leftValue": "={{ $('new approvals').item.json.step }}",
+              "rightValue": 1,
+              "operator": {
+                "type": "number",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1360,
+        -1280
+      ],
+      "id": "935ded9f-8430-461d-9f6f-3f50b10379e4",
+      "name": "If"
+    },
+    {
+      "parameters": {
+        "schema": {
+          "__rl": true,
+          "mode": "list",
+          "value": "public"
+        },
+        "table": {
+          "__rl": true,
+          "value": "approvals",
+          "mode": "list",
+          "cachedResultName": "approvals"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "request_id": "={{ $('add request').item.json.id }}",
+            "approver_user_id": "={{ $json.id }}",
+            "step": "={{ $json.step }}",
+            "approver_tg_id": "={{ $json.telegram_chat_id }}"
+          },
+          "matchingColumns": [
+            "id"
+          ],
+          "schema": [
+            {
+              "id": "id",
+              "displayName": "id",
+              "required": false,
+              "defaultMatch": true,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "request_id",
+              "displayName": "request_id",
+              "required": true,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "approver_user_id",
+              "displayName": "approver_user_id",
+              "required": true,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "approver_tg_id",
+              "displayName": "approver_tg_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "message_id",
+              "displayName": "message_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "message_sent",
+              "displayName": "message_sent",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "boolean",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "step",
+              "displayName": "step",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "step_type",
+              "displayName": "step_type",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "decision",
+              "displayName": "decision",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "comment",
+              "displayName": "comment",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "decided_at",
+              "displayName": "decided_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "dateTime",
+              "canBeUsedToMatch": true,
+              "removed": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {
+          "skipOnConflict": true
+        }
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1136,
+        -1280
+      ],
+      "id": "cc9e3219-fb24-4bc6-bd39-91f6debb0a22",
+      "name": "new approvals",
+      "notesInFlow": true,
+      "credentials": {
+        "postgres": {
+          "id": "MMzwDDpcwJakO7kL",
+          "name": "construction_requests"
+        }
+      },
+      "notes": "APPROVING USER IS HARDCODED"
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "schema": {
+          "__rl": true,
+          "mode": "list",
+          "value": "public"
+        },
+        "table": {
+          "__rl": true,
+          "value": "approvals",
+          "mode": "list",
+          "cachedResultName": "approvals"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "message_sent": true,
+            "message_id": "={{ $json.result.message_id }}",
+            "id": "={{ $('If').item.json.id }}"
+          },
+          "matchingColumns": [
+            "id"
+          ],
+          "schema": [
+            {
+              "id": "id",
+              "displayName": "id",
+              "required": false,
+              "defaultMatch": true,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "request_id",
+              "displayName": "request_id",
+              "required": true,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "approver_user_id",
+              "displayName": "approver_user_id",
+              "required": true,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "approver_tg_id",
+              "displayName": "approver_tg_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "message_id",
+              "displayName": "message_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "message_sent",
+              "displayName": "message_sent",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "boolean",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "step",
+              "displayName": "step",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "step_type",
+              "displayName": "step_type",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "decision",
+              "displayName": "decision",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "comment",
+              "displayName": "comment",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "decided_at",
+              "displayName": "decided_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "dateTime",
+              "canBeUsedToMatch": true,
+              "removed": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1808,
+        -1360
+      ],
+      "id": "ed0c5451-509d-4280-bdaf-8c4d75e6160c",
+      "name": "Update approval delivery status",
+      "credentials": {
+        "postgres": {
+          "id": "MMzwDDpcwJakO7kL",
+          "name": "construction_requests"
+        }
+      }
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3.2,
+      "position": [
+        2032,
+        -1280
+      ],
+      "id": "fa16afae-c3e2-4c1e-907b-062e0d73ee65",
+      "name": "Merge1"
+    },
+    {
+      "parameters": {
+        "fieldsToAggregate": {
+          "fieldToAggregate": [
+            {
+              "fieldToAggregate": "id"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.aggregate",
+      "typeVersion": 1,
+      "position": [
+        2256,
+        -1280
+      ],
+      "id": "4e5a79a8-bf71-42c2-b122-5b9aa7b69d9d",
+      "name": "Aggregate"
+    },
+    {
+      "parameters": {
+        "operation": "select",
+        "schema": {
+          "__rl": true,
+          "mode": "list",
+          "value": "public"
+        },
+        "table": {
+          "__rl": true,
+          "value": "users",
+          "mode": "list",
+          "cachedResultName": "users"
+        },
+        "limit": "={{ $json.aprovals_needed }}",
+        "where": {
+          "values": [
+            {
+              "column": "role",
+              "value": "approver"
+            }
+          ]
+        },
+        "sort": {
+          "values": [
+            {
+              "column": "id"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        912,
+        -1280
+      ],
+      "id": "889bb1c8-54c7-4c40-9668-c3170a25d33f",
+      "name": "get users",
+      "credentials": {
+        "postgres": {
+          "id": "MMzwDDpcwJakO7kL",
+          "name": "construction_requests"
+        }
+      }
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1,
+      "position": [
+        -656,
+        -864
+      ],
+      "id": "8d230e49-2385-4823-bf8e-6aa21617c0c0",
+      "name": "Error Trigger"
+    },
+    {
+      "parameters": {
+        "chatId": "1387986",
+        "text": "=Request error in node:\n{{ JSON.stringify($json.execution.lastNodeExecuted) }}",
+        "additionalFields": {
+          "appendAttribution": false
+        }
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        -432,
+        -864
+      ],
+      "id": "7d784b00-cce3-4da4-bf9c-831a3e210176",
+      "name": "Send a text message1",
+      "webhookId": "0ff5632e-8499-40f9-8991-033154e5ef3e",
+      "credentials": {
+        "telegramApi": {
+          "id": "TwF5TakXsFDGzAEL",
+          "name": "KC requests"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "4b9128ae-8c38-4608-8cb9-c40c3ead0f17",
+              "name": "aprovals_needed",
+              "value": "={{ $if($json.amount > 10000000, 3, $if($json.amount > 5000000, 2, 1)) }}",
+              "type": "number"
+            },
+            {
+              "id": "e8f0176a-626a-4b64-82e9-966b1acefcc5",
+              "name": "aprovals_needed",
+              "value": "={{ $if($('add request').item.json.payment_type == \"Перечисление\", 3, 1)}}",
+              "type": "number"
+            },
+            {
+              "id": "e0d01dc8-4df2-40cd-aeb8-f10dcf5c407d",
+              "name": "file_link",
+              "value": "={{ $json.file_url || \"\"}}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        688,
+        -1280
+      ],
+      "id": "9318ed4a-a0b6-4eab-a2c8-e3c74ee5fe80",
+      "name": "set additional fields"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "06ec40a6-baf9-4f40-96c4-518acd10c235",
+              "leftValue": "={{ $('New request').item.json['Вложения'] }}",
+              "rightValue": "",
+              "operator": {
+                "type": "object",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        16,
+        -1280
+      ],
+      "id": "a908217f-1dae-4d5a-9daf-8a2585fbcdb6",
+      "name": "file added"
+    },
+    {
+      "parameters": {
+        "workflowId": {
+          "__rl": true,
+          "value": "BLNZQ7Jvxj2QWE8E",
+          "mode": "list",
+          "cachedResultUrl": "/workflow/BLNZQ7Jvxj2QWE8E",
+          "cachedResultName": "Save file"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "filename": "={{ $('env').item.json['Вложения'].filename }}",
+            "metadata": "={{ $('New request').item.json['Вложения'] }}",
+            "data": "={{ $('New request').item.binary.________ }}"
+          },
+          "matchingColumns": [],
+          "schema": [
+            {
+              "id": "filename",
+              "displayName": "filename",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "string",
+              "removed": false
+            },
+            {
+              "id": "metadata",
+              "displayName": "metadata",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "object",
+              "removed": false
+            },
+            {
+              "id": "data",
+              "displayName": "data",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "canBeUsedToMatch": true,
+              "type": "object",
+              "removed": false
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": true
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.3,
+      "position": [
+        240,
+        -1360
+      ],
+      "id": "9c7324f5-8e42-423a-aa9c-478f40c094f8",
+      "name": "Call 'Save file'"
+    },
+    {
+      "parameters": {
+        "schema": {
+          "__rl": true,
+          "mode": "list",
+          "value": "public"
+        },
+        "table": {
+          "__rl": true,
+          "value": "attachments",
+          "mode": "list",
+          "cachedResultName": "attachments"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "request_id": "={{ $('file added').item.json.id }}",
+            "filename": "={{ $('New request').item.json['Вложения'].filename }}",
+            "mimetype": "={{ $('New request').item.json['Вложения'].mimetype }}",
+            "size": "={{ $('New request').item.json['Вложения'].size }}",
+            "file_url": "=https://{{$('env').item.json.company}}.kolberg.uz/getfile?type=requests&filename={{$json.filename.urlEncode() }}"
+          },
+          "matchingColumns": [
+            "id"
+          ],
+          "schema": [
+            {
+              "id": "id",
+              "displayName": "id",
+              "required": false,
+              "defaultMatch": true,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "request_id",
+              "displayName": "request_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "filename",
+              "displayName": "filename",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "mimetype",
+              "displayName": "mimetype",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "size",
+              "displayName": "size",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "file_url",
+              "displayName": "file_url",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        464,
+        -1360
+      ],
+      "id": "d4615d46-84b0-42c5-911f-aa63ee3f4d7a",
+      "name": "attachment1",
+      "credentials": {
+        "postgres": {
+          "id": "MMzwDDpcwJakO7kL",
+          "name": "construction_requests"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "chatId": "=1387986",
+        "text": "=💰 *Новая заявка на расход*\n\n*Номер*: {{ $('add request').item.json.id }}\n*Проект*: {{ $('add request').item.json.title }}\n*Поставщик*: {{ $('add request').item.json.vendor.replace(/[_*[\\]()~`>#+\\-=|{}.!]/g, '\\\\$&') }}\n*Категория расхода*: {{ $('add request').item.json.category.replace(/[_*[\\]()~`>#+\\-=|{}.!]/g, '\\\\$&') }}\n*Сумма*: {{ \n  Number($('add request').item.json.amount)\n    .toLocaleString(\"uz\", { \n      minimumFractionDigits: 2, \n      maximumFractionDigits: 2, \n      style: \"currency\", \n      currency: $('add request').item.json.currency \n    })\n    .replace(/[_*[\\]()~`>#+\\-=|{}.!]/g, '\\\\$&')\n}}\n*Тип оплаты*: {{ $('add request').item.json.payment_type.replace(/[_*[\\]()~`>#+\\-=|{}.!]/g, '\\\\$&') }}\n*Назначение платежа*: {{ $('add request').item.json.payment_purpose.replace(/[_*[\\]()~`>#+\\-=|{}.!]/g, '\\\\$&') }}\n*Описание \\/ зачем*: {{ $('add request').item.json.description.replace(/[_*[\\]()~`>#+\\-=|{}.!]/g, '\\\\$&') }}\n*Срочность*: {{ $('add request').item.json.urgency.replace(/[_*[\\]()~`>#+\\-=|{}.!]/g, '\\\\$&') }}\n*Заявитель*: {{ $('add request').item.json.requester.replace(/[_*[\\]()~`>#+\\-=|{}.!]/g, '\\\\$&') }}\n\n{{$if(\n  $('set additional fields').item.json.file_link.isEmpty(), \n  \"\", \n  \"📎*Вложения*:\\n[\" + \n  $('Call \\'Save file\\'').item.json.filename.replace(/[_*[\\]()~`>#+\\-=|{}.!]/g, '\\\\$&') + \n  \"](\" + \n  $('set additional fields').item.json.file_link\n    .replace(/\\)/g, '\\\\)')\n    .replace(/\\\\/g, '\\\\\\\\') + \n  \")\\n\"\n)}}\n🕒*Дата подачи*: {{\n  new Date($('add request').item.json.submitted_at).toLocaleString('ru-RU', {\n    hour: '2-digit',\n    minute: '2-digit',\n    day: '2-digit',\n    month: 'long',\n    year: 'numeric'\n  }).replace(/[_*[\\]()~`>#+\\-=|{}.!]/g, '\\\\$&')\n}}\n",
+        "additionalFields": {
+          "appendAttribution": false,
+          "disable_web_page_preview": true,
+          "parse_mode": "MarkdownV2"
+        }
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        2480,
+        -1376
+      ],
+      "id": "b6789188-6b66-49d3-ab46-db69be863a51",
+      "name": "Send a text message2",
+      "webhookId": "bcb2da8f-1f6e-4025-a114-c386057f60ea",
+      "credentials": {
+        "telegramApi": {
+          "id": "TwF5TakXsFDGzAEL",
+          "name": "KC requests"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "chatId": "={{$('If').item.json.approver_tg_id}}",
+        "text": "=💰 *Новая заявка на расход*\n\n*Номер*: {{ $('add request').item.json.id }}\n*Проект*: {{ $('add request').item.json.title }}\n*Поставщик*: {{ $('add request').item.json.vendor.replace(/[_*[\\]()~`>#+\\-=|{}.!]/g, '\\\\$&') }}\n*Категория расхода*: {{ $('add request').item.json.category.replace(/[_*[\\]()~`>#+\\-=|{}.!]/g, '\\\\$&') }}\n*Сумма*: {{ \n  Number($('add request').item.json.amount)\n    .toLocaleString(\"uz\", { \n      minimumFractionDigits: 2, \n      maximumFractionDigits: 2, \n      style: \"currency\", \n      currency: $('add request').item.json.currency \n    })\n    .replace(/[_*[\\]()~`>#+\\-=|{}.!]/g, '\\\\$&')\n}}\n*Тип оплаты*: {{ $('add request').item.json.payment_type.replace(/[_*[\\]()~`>#+\\-=|{}.!]/g, '\\\\$&') }}\n*Назначение платежа*: {{ $('add request').item.json.payment_purpose.replace(/[_*[\\]()~`>#+\\-=|{}.!]/g, '\\\\$&') }}\n*Описание \\/ зачем*: {{ $('add request').item.json.description.replace(/[_*[\\]()~`>#+\\-=|{}.!]/g, '\\\\$&') }}\n*Срочность*: {{ $('add request').item.json.urgency.replace(/[_*[\\]()~`>#+\\-=|{}.!]/g, '\\\\$&') }}\n*Заявитель*: {{ $('add request').item.json.requester.replace(/[_*[\\]()~`>#+\\-=|{}.!]/g, '\\\\$&') }}\n\n{{$if(\n  $('set additional fields').item.json.file_link.isEmpty(), \n  \"\", \n  \"📎*Вложения*:\\n[\" + \n  $('Call \\'Save file\\'').item.json.filename.replace(/[_*[\\]()~`>#+\\-=|{}.!]/g, '\\\\$&') + \n  \"](\" + \n  $('set additional fields').item.json.file_link\n    .replace(/\\)/g, '\\\\)')\n    .replace(/\\\\/g, '\\\\\\\\') + \n  \")\\n\"\n)}}\n🕒*Дата подачи*: {{\n  new Date($('add request').item.json.submitted_at).toLocaleString('ru-RU', {\n    hour: '2-digit',\n    minute: '2-digit',\n    day: '2-digit',\n    month: 'long',\n    year: 'numeric'\n  }).replace(/[_*[\\]()~`>#+\\-=|{}.!]/g, '\\\\$&')\n}}\n",
+        "replyMarkup": "inlineKeyboard",
+        "inlineKeyboard": {
+          "rows": [
+            {
+              "row": {
+                "buttons": [
+                  {
+                    "text": "✅ Одобрить",
+                    "additionalFields": {
+                      "callback_data": "=accepted_{{ $json.id }}"
+                    }
+                  },
+                  {
+                    "text": "❌ Отклонить",
+                    "additionalFields": {
+                      "callback_data": "=rejected_{{ $json.id }}"
+                    }
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        "additionalFields": {
+          "appendAttribution": false,
+          "disable_web_page_preview": false,
+          "parse_mode": "MarkdownV2"
+        }
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1584,
+        -1360
+      ],
+      "id": "a91ae3dc-367f-42fa-89e9-647d37183e7a",
+      "name": "send approval form1",
+      "webhookId": "bcb2da8f-1f6e-4025-a114-c386057f60ea",
+      "credentials": {
+        "telegramApi": {
+          "id": "TwF5TakXsFDGzAEL",
+          "name": "KC requests"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "854f9884-63aa-4b00-bd39-f97deaee6308",
+              "name": "Валюта",
+              "value": "=UZS",
+              "type": "string"
+            },
+            {
+              "id": "1b81bd6f-532e-448e-a477-503f7d4fef2d",
+              "name": "company",
+              "value": "construction",
+              "type": "string"
+            }
+          ]
+        },
+        "includeOtherFields": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        -432,
+        -1280
+      ],
+      "id": "567182f2-eae7-411e-8522-9e8097953f31",
+      "name": "env"
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $('New request').item.json['Заявитель'] }}",
+                    "rightValue": "Уткир Баходиров",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "id": "eb9f4306-be6b-4346-805f-3fcd5ec09544"
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Уткир Баходиров"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "4a6347f9-ba30-447a-a511-e057112f162a",
+                    "leftValue": "={{ $('New request').item.json['Заявитель'] }}",
+                    "rightValue": "Сардор Давлетьяров",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "Сардор Давлетьяров"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.3,
+      "position": [
+        2480,
+        -1184
+      ],
+      "id": "6985a22a-572b-4b1b-b27f-43b68b5d3568",
+      "name": "Switch"
+    },
+    {
+      "parameters": {
+        "chatId": "=68769892",
+        "text": "=💰 *Новая заявка на расход создана*\n\n*Номер*: {{ $('add request').item.json.id }}\n*Проект*: {{ $('add request').item.json.title }}\n*Поставщик*: {{ $('add request').item.json.vendor.replace(/[_*[\\]()~`>#+\\-=|{}.!]/g, '\\\\$&') }}\n*Категория расхода*: {{ $('add request').item.json.category.replace(/[_*[\\]()~`>#+\\-=|{}.!]/g, '\\\\$&') }}\n*Сумма*: {{ \n  Number($('add request').item.json.amount)\n    .toLocaleString(\"uz\", { \n      minimumFractionDigits: 2, \n      maximumFractionDigits: 2, \n      style: \"currency\", \n      currency: $('add request').item.json.currency \n    })\n    .replace(/[_*[\\]()~`>#+\\-=|{}.!]/g, '\\\\$&')\n}}\n*Тип оплаты*: {{ $('add request').item.json.payment_type.replace(/[_*[\\]()~`>#+\\-=|{}.!]/g, '\\\\$&') }}\n*Назначение платежа*: {{ $('add request').item.json.payment_purpose.replace(/[_*[\\]()~`>#+\\-=|{}.!]/g, '\\\\$&') }}\n*Описание \\/ зачем*: {{ $('add request').item.json.description.replace(/[_*[\\]()~`>#+\\-=|{}.!]/g, '\\\\$&') }}\n*Срочность*: {{ $('add request').item.json.urgency.replace(/[_*[\\]()~`>#+\\-=|{}.!]/g, '\\\\$&') }}\n*Заявитель*: {{ $('add request').item.json.requester.replace(/[_*[\\]()~`>#+\\-=|{}.!]/g, '\\\\$&') }}\n\n{{$if(\n  $('set additional fields').item.json.file_link.isEmpty(), \n  \"\", \n  \"📎*Вложения*:\\n[\" + \n  $('Call \\'Save file\\'').item.json.filename.replace(/[_*[\\]()~`>#+\\-=|{}.!]/g, '\\\\$&') + \n  \"](\" + \n  $('set additional fields').item.json.file_link\n    .replace(/\\)/g, '\\\\)')\n    .replace(/\\\\/g, '\\\\\\\\') + \n  \")\\n\"\n)}}\n🕒*Дата подачи*: {{\n  new Date($('add request').item.json.submitted_at).toLocaleString('ru-RU', {\n    hour: '2-digit',\n    minute: '2-digit',\n    day: '2-digit',\n    month: 'long',\n    year: 'numeric'\n  }).replace(/[_*[\\]()~`>#+\\-=|{}.!]/g, '\\\\$&')\n}}\n",
+        "additionalFields": {
+          "appendAttribution": false,
+          "disable_web_page_preview": true,
+          "parse_mode": "MarkdownV2"
+        }
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        2704,
+        -1280
+      ],
+      "id": "fd022c27-bd78-43db-bd1d-9965f21bf2d4",
+      "name": "notify Уткир",
+      "webhookId": "bcb2da8f-1f6e-4025-a114-c386057f60ea",
+      "credentials": {
+        "telegramApi": {
+          "id": "TwF5TakXsFDGzAEL",
+          "name": "KC requests"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "chatId": "=291875946",
+        "text": "=💰 *Новая заявка на расход создана*\n\n*Номер*: {{ $('add request').item.json.id }}\n*Проект*: {{ $('add request').item.json.title }}\n*Поставщик*: {{ $('add request').item.json.vendor.replace(/[_*[\\]()~`>#+\\-=|{}.!]/g, '\\\\$&') }}\n*Категория расхода*: {{ $('add request').item.json.category.replace(/[_*[\\]()~`>#+\\-=|{}.!]/g, '\\\\$&') }}\n*Сумма*: {{ \n  Number($('add request').item.json.amount)\n    .toLocaleString(\"uz\", { \n      minimumFractionDigits: 2, \n      maximumFractionDigits: 2, \n      style: \"currency\", \n      currency: $('add request').item.json.currency \n    })\n    .replace(/[_*[\\]()~`>#+\\-=|{}.!]/g, '\\\\$&')\n}}\n*Тип оплаты*: {{ $('add request').item.json.payment_type.replace(/[_*[\\]()~`>#+\\-=|{}.!]/g, '\\\\$&') }}\n*Назначение платежа*: {{ $('add request').item.json.payment_purpose.replace(/[_*[\\]()~`>#+\\-=|{}.!]/g, '\\\\$&') }}\n*Описание \\/ зачем*: {{ $('add request').item.json.description.replace(/[_*[\\]()~`>#+\\-=|{}.!]/g, '\\\\$&') }}\n*Срочность*: {{ $('add request').item.json.urgency.replace(/[_*[\\]()~`>#+\\-=|{}.!]/g, '\\\\$&') }}\n*Заявитель*: {{ $('add request').item.json.requester.replace(/[_*[\\]()~`>#+\\-=|{}.!]/g, '\\\\$&') }}\n\n{{$if(\n  $('set additional fields').item.json.file_link.isEmpty(), \n  \"\", \n  \"📎*Вложения*:\\n[\" + \n  $('Call \\'Save file\\'').item.json.filename.replace(/[_*[\\]()~`>#+\\-=|{}.!]/g, '\\\\$&') + \n  \"](\" + \n  $('set additional fields').item.json.file_link\n    .replace(/\\)/g, '\\\\)')\n    .replace(/\\\\/g, '\\\\\\\\') + \n  \")\\n\"\n)}}\n🕒*Дата подачи*: {{\n  new Date($('add request').item.json.submitted_at).toLocaleString('ru-RU', {\n    hour: '2-digit',\n    minute: '2-digit',\n    day: '2-digit',\n    month: 'long',\n    year: 'numeric'\n  }).replace(/[_*[\\]()~`>#+\\-=|{}.!]/g, '\\\\$&')\n}}\n",
+        "additionalFields": {
+          "appendAttribution": false,
+          "disable_web_page_preview": true,
+          "parse_mode": "MarkdownV2"
+        }
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        2704,
+        -1088
+      ],
+      "id": "085fa80f-e908-4869-afec-de9688943afc",
+      "name": "notify Сардор",
+      "webhookId": "bcb2da8f-1f6e-4025-a114-c386057f60ea",
+      "credentials": {
+        "telegramApi": {
+          "id": "TwF5TakXsFDGzAEL",
+          "name": "KC requests"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "New request": {
+      "main": [
+        [
+          {
+            "node": "env",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "new user form": {
+      "main": [
+        [
+          {
+            "node": "add user",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "add request": {
+      "main": [
+        [
+          {
+            "node": "file added",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If": {
+      "main": [
+        [
+          {
+            "node": "send approval form1",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Merge1",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "new approvals": {
+      "main": [
+        [
+          {
+            "node": "If",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update approval delivery status": {
+      "main": [
+        [
+          {
+            "node": "Merge1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge1": {
+      "main": [
+        [
+          {
+            "node": "Aggregate",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Aggregate": {
+      "main": [
+        [
+          {
+            "node": "Switch",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Send a text message2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "get users": {
+      "main": [
+        [
+          {
+            "node": "new approvals",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Error Trigger": {
+      "main": [
+        [
+          {
+            "node": "Send a text message1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "set additional fields": {
+      "main": [
+        [
+          {
+            "node": "get users",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "file added": {
+      "main": [
+        [
+          {
+            "node": "Call 'Save file'",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "set additional fields",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call 'Save file'": {
+      "main": [
+        [
+          {
+            "node": "attachment1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "attachment1": {
+      "main": [
+        [
+          {
+            "node": "set additional fields",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "send approval form1": {
+      "main": [
+        [
+          {
+            "node": "Update approval delivery status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "env": {
+      "main": [
+        [
+          {
+            "node": "add request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Switch": {
+      "main": [
+        [
+          {
+            "node": "notify Уткир",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "notify Сардор",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "callerPolicy": "workflowsFromSameOwner",
+    "availableInMCP": false
+  },
+  "staticData": null,
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "pinData": {},
+  "versionId": "e8c7d9e5-a753-4fb0-8a7a-bfb81b8cdb27",
+  "versionCounter": 45,
+  "triggerCount": 2,
+  "tags": [
+    {
+      "updatedAt": "2025-10-28T12:21:34.379Z",
+      "createdAt": "2025-10-28T12:21:34.379Z",
+      "id": "AF6lC1ccKNZsTMSk",
+      "name": "construction"
+    },
+    {
+      "updatedAt": "2025-10-28T12:21:42.035Z",
+      "createdAt": "2025-10-28T12:21:42.035Z",
+      "id": "AguU7z7MxNS4t4tS",
+      "name": "requests"
+    }
+  ],
+  "shared": [
+    {
+      "updatedAt": "2025-10-28T12:21:48.685Z",
+      "createdAt": "2025-10-28T12:21:48.685Z",
+      "role": "workflow:owner",
+      "workflowId": "P2dpa1ucqq1VtFDt",
+      "projectId": "Khq0xGbDHq3t4IJq",
+      "project": {
+        "updatedAt": "2025-10-09T12:38:52.281Z",
+        "createdAt": "2025-10-09T12:30:53.020Z",
+        "id": "Khq0xGbDHq3t4IJq",
+        "name": "Dilshod Davletyarov <dilshod95@gmail.com>",
+        "type": "personal",
+        "icon": null,
+        "description": null
+      }
+    }
+  ]
+}

@@ -1,0 +1,2883 @@
+{
+  "updatedAt": "2025-11-30T10:57:04.000Z",
+  "createdAt": "2025-11-06T11:20:12.117Z",
+  "id": "ERXaLxOhbBmwT1x2",
+  "name": "Approvals",
+  "description": null,
+  "active": false,
+  "isArchived": false,
+  "nodes": [
+    {
+      "parameters": {
+        "operation": "update",
+        "schema": {
+          "__rl": true,
+          "mode": "list",
+          "value": "public"
+        },
+        "table": {
+          "__rl": true,
+          "value": "approvals",
+          "mode": "list",
+          "cachedResultName": "approvals"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "message_sent": true,
+            "message_id": "={{ $json.result.message_id }}",
+            "id": "={{ $('get approvals').item.json.id }}"
+          },
+          "matchingColumns": [
+            "id"
+          ],
+          "schema": [
+            {
+              "id": "id",
+              "displayName": "id",
+              "required": false,
+              "defaultMatch": true,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "request_id",
+              "displayName": "request_id",
+              "required": true,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "approver_user_id",
+              "displayName": "approver_user_id",
+              "required": true,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "approver_tg_id",
+              "displayName": "approver_tg_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "message_id",
+              "displayName": "message_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "message_sent",
+              "displayName": "message_sent",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "boolean",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "step",
+              "displayName": "step",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "step_type",
+              "displayName": "step_type",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "decision",
+              "displayName": "decision",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "comment",
+              "displayName": "comment",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "decided_at",
+              "displayName": "decided_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "dateTime",
+              "canBeUsedToMatch": true,
+              "removed": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        2176,
+        -944
+      ],
+      "id": "f01405c3-249a-4663-88d5-7e2e5437b3f4",
+      "name": "Update approval delivery status1",
+      "credentials": {
+        "postgres": {
+          "id": "YXvWoKdEZBm6fktV",
+          "name": "Neuron_requests"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "schema": {
+          "__rl": true,
+          "mode": "list",
+          "value": "public"
+        },
+        "table": {
+          "__rl": true,
+          "value": "requests",
+          "mode": "list",
+          "cachedResultName": "requests"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "id": "={{ $('get request').item.json.id }}",
+            "status": "=APPROVED"
+          },
+          "matchingColumns": [
+            "id"
+          ],
+          "schema": [
+            {
+              "id": "id",
+              "displayName": "id",
+              "required": false,
+              "defaultMatch": true,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "company_payer",
+              "displayName": "company_payer",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "category",
+              "displayName": "category",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "vendor",
+              "displayName": "vendor",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "title",
+              "displayName": "title",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "description",
+              "displayName": "description",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "amount",
+              "displayName": "amount",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "currency",
+              "displayName": "currency",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "payment_type",
+              "displayName": "payment_type",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "payment_purpose",
+              "displayName": "payment_purpose",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "urgency",
+              "displayName": "urgency",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "requester",
+              "displayName": "requester",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "submitted_at",
+              "displayName": "submitted_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "dateTime",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1280,
+        -720
+      ],
+      "id": "3232629e-31d3-4d20-803f-ed979029d41a",
+      "name": "Request status approved",
+      "credentials": {
+        "postgres": {
+          "id": "YXvWoKdEZBm6fktV",
+          "name": "Neuron_requests"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "select",
+        "schema": {
+          "__rl": true,
+          "mode": "list",
+          "value": "public"
+        },
+        "table": {
+          "__rl": true,
+          "value": "requests",
+          "mode": "list",
+          "cachedResultName": "requests"
+        },
+        "limit": 1,
+        "where": {
+          "values": [
+            {
+              "column": "id",
+              "value": "={{ $('Start').item.json.request_id }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        384,
+        -1232
+      ],
+      "id": "7ac7c72d-64f7-4c39-8990-ea13d6f780d6",
+      "name": "get request",
+      "credentials": {
+        "postgres": {
+          "id": "YXvWoKdEZBm6fktV",
+          "name": "Neuron_requests"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "select",
+        "schema": {
+          "__rl": true,
+          "mode": "list",
+          "value": "public"
+        },
+        "table": {
+          "__rl": true,
+          "value": "approvals",
+          "mode": "list",
+          "cachedResultName": "approvals"
+        },
+        "returnAll": true,
+        "where": {
+          "values": [
+            {
+              "column": "request_id",
+              "value": "={{ $('Start').item.json.request_id }}"
+            },
+            {
+              "column": "step",
+              "value": "={{ $('get request').item.json.status}}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        832,
+        -1296
+      ],
+      "id": "f157ab8b-6ed2-41c9-a551-0f9d724e5342",
+      "name": "get approvals",
+      "alwaysOutputData": true,
+      "credentials": {
+        "postgres": {
+          "id": "YXvWoKdEZBm6fktV",
+          "name": "Neuron_requests"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "// Loop over input items and add a new field called 'myNewField' to the JSON of each one\nlet approved_by_all = true\nfor (const item of $input.all()) {\n  if (item.json.decision != \"approved\"){\n    approved_by_all = false;\n  }\n}\n\nreturn {\"approved_by_all\": approved_by_all};"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1280,
+        -1296
+      ],
+      "id": "de131ce0-044f-4809-b3b9-ad1013efe34f",
+      "name": "Code in JavaScript"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "c7de9b40-9ffd-4708-a23b-07ec089b6d90",
+              "leftValue": "={{ $json }}",
+              "rightValue": "",
+              "operator": {
+                "type": "object",
+                "operation": "notEmpty",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1056,
+        -1296
+      ],
+      "id": "42fd8d2f-e952-40d5-9ef9-d62f3b7000e6",
+      "name": "Is not empty"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "e37abb2f-3e62-40e9-a80b-883cae0cedf8",
+              "leftValue": "={{ $json.approved_by_all }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1504,
+        -1296
+      ],
+      "id": "9042c9d6-aee8-49bc-a136-5d12fc88edb1",
+      "name": "Step approved"
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "schema": {
+          "__rl": true,
+          "mode": "list",
+          "value": "public"
+        },
+        "table": {
+          "__rl": true,
+          "value": "requests",
+          "mode": "list",
+          "cachedResultName": "requests"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "id": "={{ $('get request').item.json.id }}",
+            "status": "={{  Number($('get request').item.json.status) + 1}}"
+          },
+          "matchingColumns": [
+            "id"
+          ],
+          "schema": [
+            {
+              "id": "id",
+              "displayName": "id",
+              "required": false,
+              "defaultMatch": true,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "company_payer",
+              "displayName": "company_payer",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "category",
+              "displayName": "category",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "vendor",
+              "displayName": "vendor",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "title",
+              "displayName": "title",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "description",
+              "displayName": "description",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "amount",
+              "displayName": "amount",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "currency",
+              "displayName": "currency",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "payment_type",
+              "displayName": "payment_type",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "payment_purpose",
+              "displayName": "payment_purpose",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "urgency",
+              "displayName": "urgency",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "requester",
+              "displayName": "requester",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "submitted_at",
+              "displayName": "submitted_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "dateTime",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1728,
+        -1296
+      ],
+      "id": "b0a6bfd3-2632-4ad8-972e-2cabb703d487",
+      "name": "Update request status",
+      "credentials": {
+        "postgres": {
+          "id": "YXvWoKdEZBm6fktV",
+          "name": "Neuron_requests"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "workflowInputs": {
+          "values": [
+            {
+              "name": "request_id",
+              "type": "number"
+            },
+            {
+              "name": "approval_status"
+            },
+            {
+              "name": "approver_id",
+              "type": "number"
+            }
+          ]
+        }
+      },
+      "id": "5de334cd-61eb-4ba6-8094-480744aecb51",
+      "typeVersion": 1.1,
+      "name": "Start",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "position": [
+        -64,
+        -208
+      ]
+    },
+    {
+      "parameters": {
+        "rules": {
+          "values": [
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "leftValue": "={{ $json.approval_status }}",
+                    "rightValue": "accepted",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals"
+                    },
+                    "id": "d371f2a9-46ce-40ea-827a-ba562d553972"
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "accepted"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "21885b6b-0fce-410f-925b-62668cb7e902",
+                    "leftValue": "={{ $json.approval_status }}",
+                    "rightValue": "rejected",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "rejected"
+            },
+            {
+              "conditions": {
+                "options": {
+                  "caseSensitive": true,
+                  "leftValue": "",
+                  "typeValidation": "strict",
+                  "version": 2
+                },
+                "conditions": [
+                  {
+                    "id": "6a0a7476-65b7-4da1-9c48-e36d242e00c3",
+                    "leftValue": "={{ $json.approval_status }}",
+                    "rightValue": "info",
+                    "operator": {
+                      "type": "string",
+                      "operation": "equals",
+                      "name": "filter.operator.equals"
+                    }
+                  }
+                ],
+                "combinator": "and"
+              },
+              "renameOutput": true,
+              "outputKey": "info"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 3.3,
+      "position": [
+        160,
+        -224
+      ],
+      "id": "3d2b0765-1235-45ba-88f6-1b5e4ba0e832",
+      "name": "Switch"
+    },
+    {
+      "parameters": {
+        "operation": "select",
+        "schema": {
+          "__rl": true,
+          "mode": "list",
+          "value": "public"
+        },
+        "table": {
+          "__rl": true,
+          "value": "approvals",
+          "mode": "list",
+          "cachedResultName": "approvals"
+        },
+        "returnAll": true,
+        "where": {
+          "values": [
+            {
+              "column": "request_id",
+              "value": "={{ $('Start').item.json.request_id }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1280,
+        -208
+      ],
+      "id": "a3d16854-a155-4164-89c5-0da5c78b26fc",
+      "name": "get approvals1",
+      "alwaysOutputData": true,
+      "credentials": {
+        "postgres": {
+          "id": "YXvWoKdEZBm6fktV",
+          "name": "Neuron_requests"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "select",
+        "schema": {
+          "__rl": true,
+          "mode": "list",
+          "value": "public"
+        },
+        "table": {
+          "__rl": true,
+          "value": "requests",
+          "mode": "list",
+          "cachedResultName": "requests"
+        },
+        "limit": 1,
+        "where": {
+          "values": [
+            {
+              "column": "id",
+              "value": "={{ $('Start').item.json.request_id }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        384,
+        -208
+      ],
+      "id": "87a82211-976c-4a8a-a5ef-179a3d32595e",
+      "name": "get request1",
+      "credentials": {
+        "postgres": {
+          "id": "YXvWoKdEZBm6fktV",
+          "name": "Neuron_requests"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "select",
+        "schema": {
+          "__rl": true,
+          "mode": "list",
+          "value": "public"
+        },
+        "table": {
+          "__rl": true,
+          "value": "approvals",
+          "mode": "list",
+          "cachedResultName": "approvals"
+        },
+        "returnAll": true,
+        "where": {
+          "values": [
+            {
+              "column": "request_id",
+              "value": "={{ $('Start').item.json.request_id }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        608,
+        -16
+      ],
+      "id": "aad2e0e0-311d-4a08-89cd-5157026f157d",
+      "name": "get approvals2",
+      "alwaysOutputData": true,
+      "credentials": {
+        "postgres": {
+          "id": "YXvWoKdEZBm6fktV",
+          "name": "Neuron_requests"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "select",
+        "schema": {
+          "__rl": true,
+          "mode": "list",
+          "value": "public"
+        },
+        "table": {
+          "__rl": true,
+          "value": "requests",
+          "mode": "list",
+          "cachedResultName": "requests"
+        },
+        "limit": 1,
+        "where": {
+          "values": [
+            {
+              "column": "id",
+              "value": "={{ $('Start').item.json.request_id }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        384,
+        -16
+      ],
+      "id": "7cd988dd-1b55-4e5d-891a-20f3a5a9a3e3",
+      "name": "get request2",
+      "credentials": {
+        "postgres": {
+          "id": "YXvWoKdEZBm6fktV",
+          "name": "Neuron_requests"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "select",
+        "schema": {
+          "__rl": true,
+          "mode": "list",
+          "value": "public"
+        },
+        "table": {
+          "__rl": true,
+          "value": "users",
+          "mode": "list",
+          "cachedResultName": "users"
+        },
+        "returnAll": true,
+        "where": {
+          "values": [
+            {
+              "column": "id",
+              "value": "={{ $('Start').item.json.approver_id }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        832,
+        -208
+      ],
+      "id": "b8fbcf6a-7b61-4899-933a-ebe84abc2054",
+      "name": "rejected user",
+      "alwaysOutputData": true,
+      "credentials": {
+        "postgres": {
+          "id": "YXvWoKdEZBm6fktV",
+          "name": "Neuron_requests"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $('get approvals').item.json.approver_tg_id }}",
+        "text": "=💰 *Новая заявка на расход*\n\n{{ $('get request').item.json.company_payer }}\n\n*Номер*: {{  $('get request').item.json.id }}\n*Проект*: {{ $('get request').item.json.title }}\n*Поставщик*: {{ $('get request').item.json.vendor }}\n*Категория расхода*: {{ $('get request').item.json.category }}\n*Сумма*: {{ Number($('get request').item.json.amount).toLocaleString(\"ru\", {\n    minimumFractionDigits: 2,\n    maximumFractionDigits: 2,\n    style: \"currency\", currency: $('get request').item.json.currency\n  }) }}\n*Тип оплаты*: {{ $('get request').item.json.payment_type }}\n*Назначение платежа*: {{ $('get request').item.json.payment_purpose }}\n*Описание / зачем*: {{ $('get request').item.json.description }}\n*Срочность*: {{ $('get request').item.json.urgency }}\n*Заявитель*: {{ $('get request').item.json.requester }}\n\n{{$if(\n  $('get attachments').item.json.isEmpty(), \n  \"\", \n  \"📎*Вложения*:\\n[\" + \n  $('get attachments').item.json.filename.replace(/[_*[\\]()~`>#+\\-=|{}.!]/g, '\\\\$&') + \n  \"](\" + \n  $('get attachments').item.json.file_url\n    .replace(/\\)/g, '\\\\)')\n    .replace(/\\\\/g, '\\\\\\\\') + \n  \")\\n\"\n)}}\n🕒*Дата подачи*: {{ new Date($('get request').item.json.submitted_at).toLocaleString('ru-RU', {  \n    hour: '2-digit',\n    minute: '2-digit',\n    day: '2-digit',\n    month: 'long',\n    year: 'numeric',\n\n  }) }}",
+        "replyMarkup": "inlineKeyboard",
+        "inlineKeyboard": {
+          "rows": [
+            {
+              "row": {
+                "buttons": [
+                  {
+                    "text": "✅ Одобрить",
+                    "additionalFields": {
+                      "callback_data": "=accepted_{{ $('get approvals').item.json.id }}"
+                    }
+                  },
+                  {
+                    "text": "❌ Отклонить",
+                    "additionalFields": {
+                      "callback_data": "=rejected_{{ $('get approvals').item.json.id }}"
+                    }
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        "additionalFields": {
+          "appendAttribution": false,
+          "disable_web_page_preview": true
+        }
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1952,
+        -944
+      ],
+      "id": "1f983a33-19d2-49ac-8c00-803e04cbf531",
+      "name": "send approval form",
+      "webhookId": "cd21baac-60a6-488d-bc89-cd8d1bbca8e6",
+      "credentials": {
+        "telegramApi": {
+          "id": "FPHdMIUGJcFBJ7BA",
+          "name": "Neuron заявки"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "chatId": "={{$json.telegram_chat_id}}",
+        "text": "=✅ *Заявка польностью одобрена*\n\n{{ $('get request').item.json.company_payer }}\n\n*Номер*: {{  $('get request').item.json.id }}\n*Проект*: {{ $('get request').item.json.title }}\n*Поставщик*: {{ $('get request').item.json.vendor }}\n*Категория расхода*: {{ $('get request').item.json.category }}\n*Сумма*: {{ Number($('get request').item.json.amount).toLocaleString(\"ru\", {\n    minimumFractionDigits: 2,\n    maximumFractionDigits: 2,\n    style: \"currency\", currency: $('get request').item.json.currency\n  }) }}\n*Тип оплаты*: {{ $('get request').item.json.payment_type }}\n*Назначение платежа*: {{ $('get request').item.json.payment_purpose }}\n*Описание / зачем*: {{ $('get request').item.json.description }}\n*Срочность*: {{ $('get request').item.json.urgency }}\n*Заявитель*: {{ $('get request').item.json.requester }}\n\n{{$if(\n  $('get attachments').item.json.isEmpty(), \n  \"\", \n  \"📎*Вложения*:\\n[\" + \n  $('get attachments').item.json.filename.replace(/[_*[\\]()~`>#+\\-=|{}.!]/g, '\\\\$&') + \n  \"](\" + \n  $('get attachments').item.json.file_url\n    .replace(/\\)/g, '\\\\)')\n    .replace(/\\\\/g, '\\\\\\\\') + \n  \")\\n\"\n)}}\n🕒*Дата подачи*: {{ new Date($('get request').item.json.submitted_at).toLocaleString('ru-RU', {  \n    hour: '2-digit',\n    minute: '2-digit',\n    day: '2-digit',\n    month: 'long',\n    year: 'numeric',\n\n  }) }}",
+        "replyMarkup": "inlineKeyboard",
+        "inlineKeyboard": {
+          "rows": [
+            {
+              "row": {
+                "buttons": [
+                  {
+                    "text": "💰 Выплачено",
+                    "additionalFields": {
+                      "callback_data": "=payed_{{ $('get request').item.json.id }}"
+                    }
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        "additionalFields": {
+          "appendAttribution": false,
+          "disable_web_page_preview": true,
+          "parse_mode": "Markdown"
+        }
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        2832,
+        -368
+      ],
+      "id": "ef3f731d-3747-467f-ad68-2ec271525a83",
+      "name": "send request approved",
+      "webhookId": "0e85ac3c-9c7e-4848-ba5e-d3e420bfbc45",
+      "executeOnce": true,
+      "retryOnFail": false,
+      "credentials": {
+        "telegramApi": {
+          "id": "FPHdMIUGJcFBJ7BA",
+          "name": "Neuron заявки"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "schema": {
+          "__rl": true,
+          "mode": "list",
+          "value": "public"
+        },
+        "table": {
+          "__rl": true,
+          "value": "requests",
+          "mode": "list",
+          "cachedResultName": "requests"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "id": "={{ $('get request1').item.json.id }}",
+            "status": "REJECTED"
+          },
+          "matchingColumns": [
+            "id"
+          ],
+          "schema": [
+            {
+              "id": "id",
+              "displayName": "id",
+              "required": false,
+              "defaultMatch": true,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "company_payer",
+              "displayName": "company_payer",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "category",
+              "displayName": "category",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "vendor",
+              "displayName": "vendor",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "title",
+              "displayName": "title",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "description",
+              "displayName": "description",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "amount",
+              "displayName": "amount",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "currency",
+              "displayName": "currency",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "payment_type",
+              "displayName": "payment_type",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "payment_purpose",
+              "displayName": "payment_purpose",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "urgency",
+              "displayName": "urgency",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "requester",
+              "displayName": "requester",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "submitted_at",
+              "displayName": "submitted_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "dateTime",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "status",
+              "displayName": "status",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1056,
+        -208
+      ],
+      "id": "f0b37f72-140f-48b9-9bb0-180b4715c797",
+      "name": "request rejected",
+      "credentials": {
+        "postgres": {
+          "id": "YXvWoKdEZBm6fktV",
+          "name": "Neuron_requests"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "select",
+        "schema": {
+          "__rl": true,
+          "mode": "list",
+          "value": "public"
+        },
+        "table": {
+          "__rl": true,
+          "value": "users",
+          "mode": "list",
+          "cachedResultName": "users"
+        },
+        "limit": 1,
+        "where": {
+          "values": [
+            {
+              "column": "role",
+              "value": "cashier"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        2608,
+        -432
+      ],
+      "id": "d9426a1c-0cf8-444b-8a38-023e11d3e824",
+      "name": "get cashier",
+      "credentials": {
+        "postgres": {
+          "id": "YXvWoKdEZBm6fktV",
+          "name": "Neuron_requests"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "select",
+        "schema": {
+          "__rl": true,
+          "mode": "list",
+          "value": "public"
+        },
+        "table": {
+          "__rl": true,
+          "value": "approvals",
+          "mode": "list",
+          "cachedResultName": "approvals"
+        },
+        "returnAll": true,
+        "where": {
+          "values": [
+            {
+              "column": "request_id",
+              "value": "={{ $('get request').item.json.id }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1504,
+        -720
+      ],
+      "id": "61497616-112f-4425-a5ae-4161bc78bce0",
+      "name": "get approvals3",
+      "credentials": {
+        "postgres": {
+          "id": "YXvWoKdEZBm6fktV",
+          "name": "Neuron_requests"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "editMessageText",
+        "chatId": "={{ $('get approvals3').item.json.approver_tg_id }}",
+        "messageId": "={{$('get approvals3').item.json.message_id }}",
+        "replyMarkup": "inlineKeyboard",
+        "text": "=✅ *Заявка польностью одобрена*\n\n{{ $('get request').item.json.company_payer }}\n\n*Номер*: {{  $('get request').item.json.id }}\n*Проект*: {{ $('get request').item.json.title }}\n*Поставщик*: {{ $('get request').item.json.vendor }}\n*Категория расхода*: {{ $('get request').item.json.category }}\n*Сумма*: {{ Number($('get request').item.json.amount).toLocaleString(\"ru\", {\n    minimumFractionDigits: 2,\n    maximumFractionDigits: 2,\n    style: \"currency\", currency: $('get request').item.json.currency\n  }) }}\n*Тип оплаты*: {{ $('get request').item.json.payment_type }}\n*Назначение платежа*: {{ $('get request').item.json.payment_purpose }}\n*Описание / зачем*: {{ $('get request').item.json.description }}\n*Срочность*: {{ $('get request').item.json.urgency }}\n*Заявитель*: {{ $('get request').item.json.requester }}\n\n{{$if(\n  $('get attachments').item.json.isEmpty(), \n  \"\", \n  \"📎*Вложения*:\\n[\" + \n  $('get attachments').item.json.filename.replace(/[_*[\\]()~`>#+\\-=|{}.!]/g, '\\\\$&') + \n  \"](\" + \n  $('get attachments').item.json.file_url\n    .replace(/\\)/g, '\\\\)')\n    .replace(/\\\\/g, '\\\\\\\\') + \n  \")\\n\"\n)}}\n🕒*Дата подачи*: {{ new Date($('get request').item.json.submitted_at).toLocaleString('ru-RU', {  \n    hour: '2-digit',\n    minute: '2-digit',\n    day: '2-digit',\n    month: 'long',\n    year: 'numeric',\n\n  }) }}",
+        "additionalFields": {
+          "disable_web_page_preview": true,
+          "parse_mode": "Markdown"
+        }
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1952,
+        -720
+      ],
+      "id": "c84bc715-adfd-425f-bc06-d9515338eef3",
+      "name": "change messages status to confirmed",
+      "webhookId": "0774ca6d-f19e-405b-8689-2a60f70a24c3",
+      "credentials": {
+        "telegramApi": {
+          "id": "FPHdMIUGJcFBJ7BA",
+          "name": "Neuron заявки"
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "operation": "editMessageText",
+        "chatId": "={{ $('get approvals1').item.json.approver_tg_id }}",
+        "messageId": "={{$('get approvals1').item.json.message_id }}",
+        "replyMarkup": "inlineKeyboard",
+        "text": "=❌ *Заявка отклонена на {{ $('get request1').item.json.status }} этапе*\n\n*Заявка отклонена пользователем:*\n**{{ $('rejected user').item.json.name }}**\n\nЗаявка:\n\n{{ $('get request1').item.json.company_payer }}\n\n*Номер*: {{  $('get request1').item.json.id }}\n*Проект*: {{ $('get request1').item.json.title }}\n*Поставщик*: {{ $('get request1').item.json.vendor }}\n*Категория расхода*: {{ $('get request1').item.json.category }}\n*Сумма*: {{ Number($('get request1').item.json.amount).toLocaleString(\"ru\", {\n    minimumFractionDigits: 2,\n    maximumFractionDigits: 2,\n    style: \"currency\", currency: $('get request1').item.json.currency\n  }) }}\n*Тип оплаты*: {{ $('get request1').item.json.payment_type }}\n*Назначение платежа*: {{ $('get request1').item.json.payment_purpose }}\n*Описание / зачем*: {{ $('get request1').item.json.description }}\n*Срочность*: {{ $('get request1').item.json.urgency }}\n*Заявитель*: {{ $('get request1').item.json.requester }}\n\n{{$if(\n  $('get attachments1').item.json.isEmpty(), \n  \"\", \n  \"📎*Вложения*:\\n[\" + \n  $('get attachments1').item.json.filename.replace(/[_*[\\]()~`>#+\\-=|{}.!]/g, '\\\\$&') + \n  \"](\" + \n  $('get attachments1').item.json.file_url\n    .replace(/\\)/g, '\\\\)')\n    .replace(/\\\\/g, '\\\\\\\\') + \n  \")\\n\"\n)}}\n🕒*Дата подачи*: {{ new Date($('get request1').item.json.submitted_at).toLocaleString('ru-RU', {  \n    hour: '2-digit',\n    minute: '2-digit',\n    day: '2-digit',\n    month: 'long',\n    year: 'numeric',\n\n  }) }}",
+        "additionalFields": {
+          "disable_web_page_preview": true,
+          "parse_mode": "Markdown"
+        }
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        1728,
+        -208
+      ],
+      "id": "8c8f7c17-7965-42fe-9508-3951bbbc19e9",
+      "name": "change messages status to canceled",
+      "webhookId": "ce5603c1-1138-4d84-8db9-af0ad6f7bee3",
+      "credentials": {
+        "telegramApi": {
+          "id": "FPHdMIUGJcFBJ7BA",
+          "name": "Neuron заявки"
+        }
+      },
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "7a5caac6-bb09-4aac-b1f8-c45ee825dff3",
+              "leftValue": "={{ $json.message_id }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "exists",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1728,
+        -656
+      ],
+      "id": "d172c65c-1e25-4a10-be0b-3dcefa609a9f",
+      "name": "message sent?"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "7a5caac6-bb09-4aac-b1f8-c45ee825dff3",
+              "leftValue": "={{ $json.message_id }}",
+              "rightValue": "",
+              "operator": {
+                "type": "string",
+                "operation": "exists",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1504,
+        -208
+      ],
+      "id": "f879b43f-5366-40e1-a5c3-067b997dc63b",
+      "name": "message sent?1"
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1,
+      "position": [
+        -64,
+        224
+      ],
+      "id": "16bb9058-1cfc-45e2-8533-cd61f64bceeb",
+      "name": "Error Trigger"
+    },
+    {
+      "parameters": {
+        "chatId": "1387986",
+        "text": "=Request error in node:\n{{ JSON.stringify($json.execution.lastNodeExecuted) }}",
+        "additionalFields": {
+          "appendAttribution": false
+        }
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        160,
+        224
+      ],
+      "id": "3ecab272-a4ff-4014-aff6-a2abb41787d8",
+      "name": "Send a text message1",
+      "webhookId": "9f8a120f-f469-4f5e-8831-936cbd325892",
+      "credentials": {
+        "telegramApi": {
+          "id": "FPHdMIUGJcFBJ7BA",
+          "name": "Neuron заявки"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "2389492c-6303-4e1b-8f8e-c00f3b6be431",
+              "leftValue": "={{ $('get request').item.json.payment_type }}",
+              "rightValue": "=Перечисление",
+              "operator": {
+                "type": "string",
+                "operation": "equals",
+                "name": "filter.operator.equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        1728,
+        -1104
+      ],
+      "id": "50be9c83-b1f8-43cd-8463-4514d2bfed70",
+      "name": "is bank transfer1"
+    },
+    {
+      "parameters": {
+        "operation": "select",
+        "schema": {
+          "__rl": true,
+          "mode": "list",
+          "value": "public"
+        },
+        "table": {
+          "__rl": true,
+          "value": "users",
+          "mode": "list",
+          "cachedResultName": "users"
+        },
+        "limit": 1,
+        "where": {
+          "values": [
+            {
+              "column": "role",
+              "value": "acc_group"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1952,
+        -1136
+      ],
+      "id": "b7e48eb0-fee2-4975-ba9e-5124dd2dd67c",
+      "name": "get accountant group1",
+      "credentials": {
+        "postgres": {
+          "id": "YXvWoKdEZBm6fktV",
+          "name": "Neuron_requests"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "schema": {
+          "__rl": true,
+          "mode": "list",
+          "value": "public"
+        },
+        "table": {
+          "__rl": true,
+          "value": "approvals",
+          "mode": "list",
+          "cachedResultName": "approvals"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "message_sent": true,
+            "message_id": "={{ $json.result.message_id }}",
+            "id": "={{ $('get approvals').item.json.id }}"
+          },
+          "matchingColumns": [
+            "id"
+          ],
+          "schema": [
+            {
+              "id": "id",
+              "displayName": "id",
+              "required": false,
+              "defaultMatch": true,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "request_id",
+              "displayName": "request_id",
+              "required": true,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "approver_user_id",
+              "displayName": "approver_user_id",
+              "required": true,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "approver_tg_id",
+              "displayName": "approver_tg_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "message_id",
+              "displayName": "message_id",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "message_sent",
+              "displayName": "message_sent",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "boolean",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "step",
+              "displayName": "step",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "step_type",
+              "displayName": "step_type",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "decision",
+              "displayName": "decision",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "comment",
+              "displayName": "comment",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "decided_at",
+              "displayName": "decided_at",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "dateTime",
+              "canBeUsedToMatch": true,
+              "removed": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        2400,
+        -1136
+      ],
+      "id": "b1274358-549e-42b8-9058-f016790c8429",
+      "name": "Update approval delivery status",
+      "credentials": {
+        "postgres": {
+          "id": "YXvWoKdEZBm6fktV",
+          "name": "Neuron_requests"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "chatId": "={{ $('get accountant group1').item.json.telegram_chat_id }}",
+        "text": "=💰 *Новая заявка на расход*\n\n{{ $('get request').item.json.company_payer }}\n\n*Номер*: {{  $('get request').item.json.id }}\n*Проект*: {{ $('get request').item.json.title }}\n*Поставщик*: {{ $('get request').item.json.vendor }}\n*Категория расхода*: {{ $('get request').item.json.category }}\n*Сумма*: {{ Number($('get request').item.json.amount).toLocaleString(\"ru\", {\n    minimumFractionDigits: 2,\n    maximumFractionDigits: 2,\n    style: \"currency\", currency: $('get request').item.json.currency\n  }) }}\n*Тип оплаты*: {{ $('get request').item.json.payment_type }}\n*Назначение платежа*: {{ $('get request').item.json.payment_purpose }}\n*Описание / зачем*: {{ $('get request').item.json.description }}\n*Срочность*: {{ $('get request').item.json.urgency }}\n*Заявитель*: {{ $('get request').item.json.requester }}\n\n{{$if(\n  $('get attachments').item.json.isEmpty(), \n  \"\", \n  \"📎*Вложения*:\\n[\" + \n  $('get attachments').item.json.filename.replace(/[_*[\\]()~`>#+\\-=|{}.!]/g, '\\\\$&') + \n  \"](\" + \n  $('get attachments').item.json.file_url\n    .replace(/\\)/g, '\\\\)')\n    .replace(/\\\\/g, '\\\\\\\\') + \n  \")\\n\"\n)}}\n🕒*Дата подачи*: {{ new Date($('get request').item.json.submitted_at).toLocaleString('ru-RU', {  \n    hour: '2-digit',\n    minute: '2-digit',\n    day: '2-digit',\n    month: 'long',\n    year: 'numeric',\n\n  }) }}",
+        "replyMarkup": "inlineKeyboard",
+        "inlineKeyboard": {
+          "rows": [
+            {
+              "row": {
+                "buttons": [
+                  {
+                    "text": "✅ Одобрить",
+                    "additionalFields": {
+                      "callback_data": "=accepted_{{ $('get approvals').item.json.id }}"
+                    }
+                  },
+                  {
+                    "text": "❌ Отклонить",
+                    "additionalFields": {
+                      "callback_data": "=rejected_{{ $('get approvals').item.json.id }}"
+                    }
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        "additionalFields": {
+          "appendAttribution": false,
+          "disable_web_page_preview": true
+        }
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        2176,
+        -1136
+      ],
+      "id": "ca7ce35a-3f11-406a-9132-5eea8df22e1b",
+      "name": "send approval form to group",
+      "webhookId": "75583f07-fce1-4311-9a52-f6382a489da9",
+      "credentials": {
+        "telegramApi": {
+          "id": "FPHdMIUGJcFBJ7BA",
+          "name": "Neuron заявки"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "select",
+        "schema": {
+          "__rl": true,
+          "mode": "list",
+          "value": "public"
+        },
+        "table": {
+          "__rl": true,
+          "value": "users",
+          "mode": "list",
+          "cachedResultName": "users"
+        },
+        "limit": 1,
+        "where": {
+          "values": [
+            {
+              "column": "role",
+              "value": "acc_group"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        2176,
+        -752
+      ],
+      "id": "92f4b1c8-0f92-4cb6-9a62-7ea911b7f02c",
+      "name": "get accountant group2",
+      "executeOnce": false,
+      "credentials": {
+        "postgres": {
+          "id": "YXvWoKdEZBm6fktV",
+          "name": "Neuron_requests"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "editMessageText",
+        "chatId": "={{$json.telegram_chat_id}}",
+        "messageId": "={{ $('message sent?').item.json.message_id }}",
+        "replyMarkup": "inlineKeyboard",
+        "text": "=✅ *Заявка польностью одобрена*\n\n{{ $('get request').item.json.company_payer }}\n\n*Номер*: {{ $('get request').item.json.id }}\n*Проект*: {{ $('get request').item.json.title }}\n*Поставщик*: {{ $('get request').item.json.vendor }}\n*Категория расхода*: {{ $('get request').item.json.category }}\n*Сумма*: {{ Number($('get request').item.json.amount).toLocaleString(\"ru\", {\n    minimumFractionDigits: 2,\n    maximumFractionDigits: 2,\n    style: \"currency\", currency: $('get request').item.json.currency\n  }) }}\n*Тип оплаты*: {{ $('get request').item.json.payment_type }}\n*Назначение платежа*: {{ $('get request').item.json.payment_purpose }}\n*Описание / зачем*: {{ $('get request').item.json.description }}\n*Срочность*: {{ $('get request').item.json.urgency }}\n*Заявитель*: {{ $('get request').item.json.requester }}\n\n{{$if(\n  $('get attachments').item.json.isEmpty(), \n  \"\", \n  \"📎*Вложения*:\\n[\" + \n  $('get attachments').item.json.filename.replace(/[_*[\\]()~`>#+\\-=|{}.!]/g, '\\\\$&') + \n  \"](\" + \n  $('get attachments').item.json.file_url\n    .replace(/\\)/g, '\\\\)')\n    .replace(/\\\\/g, '\\\\\\\\') + \n  \")\\n\"\n)}}\n🕒*Дата подачи*: {{ new Date($('get request').item.json.submitted_at).toLocaleString('ru-RU', {  \n    hour: '2-digit',\n    minute: '2-digit',\n    day: '2-digit',\n    month: 'long',\n    year: 'numeric',\n\n  }) }}",
+        "inlineKeyboard": {
+          "rows": [
+            {
+              "row": {
+                "buttons": [
+                  {
+                    "text": "💰 Выплачено",
+                    "additionalFields": {
+                      "callback_data": "=payed_{{ $('get request').item.json.id }}"
+                    }
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        "additionalFields": {
+          "disable_web_page_preview": true,
+          "parse_mode": "Markdown"
+        }
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        2832,
+        -720
+      ],
+      "id": "008406a6-30ab-422e-962a-5806d59bf1c5",
+      "name": "change messages status to confirmed1",
+      "webhookId": "67db7565-89b4-4664-8828-dc99224938e8",
+      "executeOnce": true,
+      "credentials": {
+        "telegramApi": {
+          "id": "FPHdMIUGJcFBJ7BA",
+          "name": "Neuron заявки"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "conditions": [
+            {
+              "id": "2389492c-6303-4e1b-8f8e-c00f3b6be431",
+              "leftValue": "={{ $('get request').item.json.payment_type }}",
+              "rightValue": "=Перечисление",
+              "operator": {
+                "type": "string",
+                "operation": "equals",
+                "name": "filter.operator.equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.2,
+      "position": [
+        2208,
+        -576
+      ],
+      "id": "f39c3942-ede0-4024-949b-db9bf1055a41",
+      "name": "is bank transfer"
+    },
+    {
+      "parameters": {
+        "operation": "select",
+        "schema": {
+          "__rl": true,
+          "mode": "list",
+          "value": "public"
+        },
+        "table": {
+          "__rl": true,
+          "value": "users",
+          "mode": "list",
+          "cachedResultName": "users"
+        },
+        "limit": 1,
+        "where": {
+          "values": [
+            {
+              "column": "role",
+              "value": "acc_group"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        1952,
+        -208
+      ],
+      "id": "311a88fb-e380-4a6a-8645-8324b4e68542",
+      "name": "get accountant group",
+      "executeOnce": false,
+      "credentials": {
+        "postgres": {
+          "id": "YXvWoKdEZBm6fktV",
+          "name": "Neuron_requests"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "editMessageText",
+        "chatId": "={{$json.telegram_chat_id}}",
+        "messageId": "={{ $('message sent?1').item.json.message_id }}",
+        "replyMarkup": "inlineKeyboard",
+        "text": "=❌ *Заявка отклонена на {{ $('get request1').item.json.status }} этапе*\n\n*Заявка отклонена пользователем:*\n**{{ $('rejected user').item.json.name }}**\n\nЗаявка:\n\n{{ $('get request1').item.json.company_payer }}\n\n*Номер*: {{  $('get request1').item.json.id }}\n*Проект*: {{ $('get request1').item.json.title }}\n*Поставщик*: {{ $('get request1').item.json.vendor }}\n*Категория расхода*: {{ $('get request1').item.json.category }}\n*Сумма*: {{ Number($('get request1').item.json.amount).toLocaleString(\"ru\", {\n    minimumFractionDigits: 2,\n    maximumFractionDigits: 2,\n    style: \"currency\", currency: $('get request1').item.json.currency\n  }) }}\n*Тип оплаты*: {{ $('get request1').item.json.payment_type }}\n*Назначение платежа*: {{ $('get request1').item.json.payment_purpose }}\n*Описание / зачем*: {{ $('get request1').item.json.description }}\n*Срочность*: {{ $('get request1').item.json.urgency }}\n*Заявитель*: {{ $('get request1').item.json.requester }}\n\n{{$if(\n  $('get attachments1').item.json.isEmpty(), \n  \"\", \n  \"📎*Вложения*:\\n[\" + \n  $('get attachments1').item.json.filename.replace(/[_*[\\]()~`>#+\\-=|{}.!]/g, '\\\\$&') + \n  \"](\" + \n  $('get attachments1').item.json.file_url\n    .replace(/\\)/g, '\\\\)')\n    .replace(/\\\\/g, '\\\\\\\\') + \n  \")\\n\"\n)}}\n🕒*Дата подачи*: {{ new Date($('get request1').item.json.submitted_at).toLocaleString('ru-RU', {  \n    hour: '2-digit',\n    minute: '2-digit',\n    day: '2-digit',\n    month: 'long',\n    year: 'numeric',\n\n  }) }}",
+        "additionalFields": {
+          "disable_web_page_preview": true,
+          "parse_mode": "Markdown"
+        }
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        2176,
+        -208
+      ],
+      "id": "43e68389-352b-4783-9ace-ec8d5daeaf74",
+      "name": "change messages status to confirmed2",
+      "webhookId": "b8d996a5-781e-422a-a32e-a3aec05944e6",
+      "executeOnce": true,
+      "credentials": {
+        "telegramApi": {
+          "id": "FPHdMIUGJcFBJ7BA",
+          "name": "Neuron заявки"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "select",
+        "schema": {
+          "__rl": true,
+          "mode": "list",
+          "value": "public"
+        },
+        "table": {
+          "__rl": true,
+          "value": "attachments",
+          "mode": "list",
+          "cachedResultName": "attachments"
+        },
+        "limit": 1,
+        "where": {
+          "values": [
+            {
+              "column": "request_id",
+              "value": "={{ $json.id }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        608,
+        -1296
+      ],
+      "id": "fc84c843-b6d7-4a5a-b9bb-cbaabc847b76",
+      "name": "get attachments",
+      "alwaysOutputData": true,
+      "executeOnce": false,
+      "credentials": {
+        "postgres": {
+          "id": "YXvWoKdEZBm6fktV",
+          "name": "Neuron_requests"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "select",
+        "schema": {
+          "__rl": true,
+          "mode": "list",
+          "value": "public"
+        },
+        "table": {
+          "__rl": true,
+          "value": "attachments",
+          "mode": "list",
+          "cachedResultName": "attachments"
+        },
+        "limit": 1,
+        "where": {
+          "values": [
+            {
+              "column": "request_id",
+              "value": "={{ $json.id }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        608,
+        -208
+      ],
+      "id": "935c98ca-6ef9-43b3-87b9-fbc3c324a07a",
+      "name": "get attachments1",
+      "alwaysOutputData": true,
+      "executeOnce": false,
+      "credentials": {
+        "postgres": {
+          "id": "YXvWoKdEZBm6fktV",
+          "name": "Neuron_requests"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "chatId": "={{$json.telegram_chat_id}}",
+        "text": "=✅ *Заявка польностью одобрена*\n\n{{ $('get request').item.json.company_payer }}\n\n*Номер*: {{  $('get request').item.json.id }}\n*Проект*: {{ $('get request').item.json.title }}\n*Поставщик*: {{ $('get request').item.json.vendor }}\n*Категория расхода*: {{ $('get request').item.json.category }}\n*Сумма*: {{ Number($('get request').item.json.amount).toLocaleString(\"ru\", {\n    minimumFractionDigits: 2,\n    maximumFractionDigits: 2,\n    style: \"currency\", currency: $('get request').item.json.currency\n  }) }}\n*Тип оплаты*: {{ $('get request').item.json.payment_type }}\n*Назначение платежа*: {{ $('get request').item.json.payment_purpose }}\n*Описание / зачем*: {{ $('get request').item.json.description }}\n*Срочность*: {{ $('get request').item.json.urgency }}\n*Заявитель*: {{ $('get request').item.json.requester }}\n\n{{$if(\n  $('get attachments').item.json.isEmpty(), \n  \"\", \n  \"📎*Вложения*:\\n[\" + \n  $('get attachments').item.json.filename.replace(/[_*[\\]()~`>#+\\-=|{}.!]/g, '\\\\$&') + \n  \"](\" + \n  $('get attachments').item.json.file_url\n    .replace(/\\)/g, '\\\\)')\n    .replace(/\\\\/g, '\\\\\\\\') + \n  \")\\n\"\n)}}\n🕒*Дата подачи*: {{ new Date($('get request').item.json.submitted_at).toLocaleString('ru-RU', {  \n    hour: '2-digit',\n    minute: '2-digit',\n    day: '2-digit',\n    month: 'long',\n    year: 'numeric',\n\n  }) }}",
+        "replyMarkup": "inlineKeyboard",
+        "inlineKeyboard": {
+          "rows": [
+            {
+              "row": {
+                "buttons": [
+                  {
+                    "text": "💰 Выплачено",
+                    "additionalFields": {
+                      "callback_data": "=payed_{{ $('get request').item.json.id }}"
+                    }
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        "additionalFields": {
+          "appendAttribution": false,
+          "disable_web_page_preview": true,
+          "parse_mode": "Markdown"
+        }
+      },
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1.2,
+      "position": [
+        2832,
+        -544
+      ],
+      "id": "d0373beb-5066-4f0d-a5b6-d693d8168b57",
+      "name": "send request approved1",
+      "webhookId": "0e85ac3c-9c7e-4848-ba5e-d3e420bfbc45",
+      "executeOnce": true,
+      "retryOnFail": false,
+      "credentials": {
+        "telegramApi": {
+          "id": "FPHdMIUGJcFBJ7BA",
+          "name": "Neuron заявки"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "select",
+        "schema": {
+          "__rl": true,
+          "mode": "list",
+          "value": "public"
+        },
+        "table": {
+          "__rl": true,
+          "value": "users",
+          "mode": "list",
+          "cachedResultName": "users"
+        },
+        "limit": 1,
+        "where": {
+          "values": [
+            {
+              "column": "role",
+              "value": "accountant"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.6,
+      "position": [
+        2384,
+        -656
+      ],
+      "id": "60f4af42-41c7-448d-a403-654a9401ef83",
+      "name": "get accountant",
+      "credentials": {
+        "postgres": {
+          "id": "YXvWoKdEZBm6fktV",
+          "name": "Neuron_requests"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "authentication": "serviceAccount",
+        "operation": "update",
+        "documentId": {
+          "__rl": true,
+          "value": "1tQcPIEJtSXK1EsSuo9EEpX4GAks5gSz3ei8ENOR3SvU",
+          "mode": "list",
+          "cachedResultName": "Клиника - заявка бланка",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1tQcPIEJtSXK1EsSuo9EEpX4GAks5gSz3ei8ENOR3SvU/edit?usp=drivesdk"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "gid=0",
+          "mode": "list",
+          "cachedResultName": "Лист ЗАЯВКИ",
+          "cachedResultUrl": "https://docs.google.com/spreadsheets/d/1tQcPIEJtSXK1EsSuo9EEpX4GAks5gSz3ei8ENOR3SvU/edit#gid=0"
+        },
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "id": "={{ $('Request status approved').item.json.id }}",
+            "Статус": "Согласовано"
+          },
+          "matchingColumns": [
+            "id"
+          ],
+          "schema": [
+            {
+              "id": "id",
+              "displayName": "id",
+              "required": false,
+              "defaultMatch": true,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": false
+            },
+            {
+              "id": "26.",
+              "displayName": "26.",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "Дата заявки",
+              "displayName": "Дата заявки",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "Поставщик",
+              "displayName": "Поставщик",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "Расчётный счёт (р/с)",
+              "displayName": "Расчётный счёт (р/с)",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "Вид договора",
+              "displayName": "Вид договора",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "№ ДОГОВОРА",
+              "displayName": "№ ДОГОВОРА",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "Дата договора",
+              "displayName": "Дата договора",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "Направление",
+              "displayName": "Направление",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "Состояние договора",
+              "displayName": "Состояние договора",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "Назначение платежа",
+              "displayName": "Назначение платежа",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "Ответственное лицо",
+              "displayName": "Ответственное лицо",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "от какой фирмы",
+              "displayName": "от какой фирмы",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "Вид валюты",
+              "displayName": "Вид валюты",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "Сумма заявки",
+              "displayName": "Сумма заявки",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "Оплачено",
+              "displayName": "Оплачено",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "Остатка",
+              "displayName": "Остатка",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "Статус",
+              "displayName": "Статус",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true
+            },
+            {
+              "id": "Срочность",
+              "displayName": "Срочность",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "Файл",
+              "displayName": "Файл",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "string",
+              "canBeUsedToMatch": true,
+              "removed": true
+            },
+            {
+              "id": "row_number",
+              "displayName": "row_number",
+              "required": false,
+              "defaultMatch": false,
+              "display": true,
+              "type": "number",
+              "canBeUsedToMatch": true,
+              "readOnly": true,
+              "removed": true
+            }
+          ],
+          "attemptToConvertTypes": false,
+          "convertFieldsToString": false
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.7,
+      "position": [
+        3040,
+        -544
+      ],
+      "id": "457b1b8c-80ab-42b3-aa6d-c12a93d5e508",
+      "name": "Update row in sheet",
+      "credentials": {
+        "googleApi": {
+          "id": "mRkpe2z9NTTuFURb",
+          "name": "service account"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Request status approved": {
+      "main": [
+        [
+          {
+            "node": "get approvals3",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "get request": {
+      "main": [
+        [
+          {
+            "node": "get attachments",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "get approvals": {
+      "main": [
+        [
+          {
+            "node": "Is not empty",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code in JavaScript": {
+      "main": [
+        [
+          {
+            "node": "Step approved",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is not empty": {
+      "main": [
+        [
+          {
+            "node": "Code in JavaScript",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Request status approved",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Step approved": {
+      "main": [
+        [
+          {
+            "node": "Update request status",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "is bank transfer1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update request status": {
+      "main": [
+        [
+          {
+            "node": "get request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Start": {
+      "main": [
+        [
+          {
+            "node": "Switch",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Switch": {
+      "main": [
+        [
+          {
+            "node": "get request",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "get request1",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "get request2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "get approvals1": {
+      "main": [
+        [
+          {
+            "node": "message sent?1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "get request1": {
+      "main": [
+        [
+          {
+            "node": "get attachments1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "get request2": {
+      "main": [
+        [
+          {
+            "node": "get approvals2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "rejected user": {
+      "main": [
+        [
+          {
+            "node": "request rejected",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "send approval form": {
+      "main": [
+        [
+          {
+            "node": "Update approval delivery status1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "request rejected": {
+      "main": [
+        [
+          {
+            "node": "get approvals1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "get cashier": {
+      "main": [
+        [
+          {
+            "node": "send request approved",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "get approvals3": {
+      "main": [
+        [
+          {
+            "node": "message sent?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "change messages status to confirmed": {
+      "main": [
+        [
+          {
+            "node": "is bank transfer",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "get accountant group2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "change messages status to canceled": {
+      "main": [
+        [],
+        [
+          {
+            "node": "get accountant group",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "message sent?": {
+      "main": [
+        [
+          {
+            "node": "change messages status to confirmed",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "get cashier",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "message sent?1": {
+      "main": [
+        [
+          {
+            "node": "change messages status to canceled",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Error Trigger": {
+      "main": [
+        [
+          {
+            "node": "Send a text message1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "is bank transfer1": {
+      "main": [
+        [
+          {
+            "node": "get accountant group1",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "send approval form",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "get accountant group1": {
+      "main": [
+        [
+          {
+            "node": "send approval form to group",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "send approval form to group": {
+      "main": [
+        [
+          {
+            "node": "Update approval delivery status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "get accountant group2": {
+      "main": [
+        [
+          {
+            "node": "change messages status to confirmed1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "is bank transfer": {
+      "main": [
+        [
+          {
+            "node": "get accountant",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "get cashier",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "get accountant group": {
+      "main": [
+        [
+          {
+            "node": "change messages status to confirmed2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "get attachments": {
+      "main": [
+        [
+          {
+            "node": "get approvals",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "get attachments1": {
+      "main": [
+        [
+          {
+            "node": "rejected user",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "get accountant": {
+      "main": [
+        [
+          {
+            "node": "send request approved1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "send request approved1": {
+      "main": [
+        [
+          {
+            "node": "Update row in sheet",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "meta": {
+    "templateCredsSetupCompleted": true
+  },
+  "pinData": {
+    "Start": [
+      {
+        "json": {
+          "request_id": 177,
+          "approval_status": "accepted",
+          "approver_id": 8
+        }
+      }
+    ]
+  },
+  "versionId": "70607f20-28f3-4733-9b62-e509adcf3bcc",
+  "versionCounter": 6,
+  "triggerCount": 0,
+  "tags": [],
+  "shared": [
+    {
+      "updatedAt": "2025-11-06T11:20:12.120Z",
+      "createdAt": "2025-11-06T11:20:12.120Z",
+      "role": "workflow:owner",
+      "workflowId": "ERXaLxOhbBmwT1x2",
+      "projectId": "Khq0xGbDHq3t4IJq",
+      "project": {
+        "updatedAt": "2025-10-09T12:38:52.281Z",
+        "createdAt": "2025-10-09T12:30:53.020Z",
+        "id": "Khq0xGbDHq3t4IJq",
+        "name": "Dilshod Davletyarov <dilshod95@gmail.com>",
+        "type": "personal",
+        "icon": null,
+        "description": null
+      }
+    }
+  ]
+}

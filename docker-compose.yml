@@ -1,0 +1,309 @@
+services:
+
+  db:
+    image: pgvector/pgvector:pg17-trixie
+    restart: always
+    container_name: db
+    command: ["postgres", "-c", "timezone=Europe/Berlin"]
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      TZ: ${GENERIC_TIMEZONE}
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+
+  adminer:
+    image: adminer:latest
+    restart: always
+    container_name: adminer
+    depends_on:
+      db:
+        condition: service_started
+    labels:
+      - traefik.enable=true
+      - traefik.http.routers.adminer.rule=Host(`database.kolberg.uz`)
+      - traefik.http.routers.adminer.tls=true
+      - traefik.http.routers.adminer.entrypoints=web,websecure
+      - traefik.http.routers.adminer.tls.certresolver=mytlschallenge
+      - traefik.http.middlewares.adminer.headers.SSLRedirect=true
+      - traefik.http.middlewares.adminer.headers.STSSeconds=315360000
+      - traefik.http.middlewares.adminer.headers.browserXSSFilter=true
+      - traefik.http.middlewares.adminer.headers.contentTypeNosniff=true
+      - traefik.http.middlewares.adminer.headers.forceSTSHeader=true
+      - traefik.http.middlewares.adminer.headers.SSLHost=kolberg.uz
+      - traefik.http.middlewares.adminer.headers.STSIncludeSubdomains=true
+      - traefik.http.middlewares.adminer.headers.STSPreload=true
+      - traefik.http.routers.adminer.middlewares=adminer@docker
+      - traefik.http.services.adminer.loadbalancer.server.port=8080
+
+  traefik:
+    image: "traefik"
+    restart: always
+    container_name: traefik
+    command:
+      - "--api.insecure=true"
+      - "--providers.docker=true"
+      - "--providers.docker.exposedbydefault=false"
+      - "--entrypoints.web.address=:80"
+      - "--entrypoints.web.http.redirections.entryPoint.to=websecure"
+      - "--entrypoints.web.http.redirections.entrypoint.scheme=https"
+      - "--entrypoints.websecure.address=:443"
+      - "--certificatesresolvers.mytlschallenge.acme.tlschallenge=true"
+      - "--certificatesresolvers.mytlschallenge.acme.email=${SSL_EMAIL}"
+      - "--certificatesresolvers.mytlschallenge.acme.storage=/letsencrypt/acme.json"
+      - "--log.level=DEBUG"
+
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - traefik_data:/letsencrypt
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+
+  n8n:
+    image: docker.n8n.io/n8nio/n8n
+    restart: always
+    container_name: n8n
+    labels:
+       - traefik.enable=true
+       - traefik.container.name=traefik
+      # ---------- Shared security headers middleware ----------
+       - traefik.http.middlewares.n8n.headers.SSLRedirect=true
+       - traefik.http.middlewares.n8n.headers.STSSeconds=315360000
+       - traefik.http.middlewares.n8n.headers.browserXSSFilter=true
+       - traefik.http.middlewares.n8n.headers.contentTypeNosniff=true
+       - traefik.http.middlewares.n8n.headers.forceSTSHeader=true
+       - traefik.http.middlewares.n8n.headers.SSLHost=kolberg.uz
+       - traefik.http.middlewares.n8n.headers.STSIncludeSubdomains=true
+       - traefik.http.middlewares.n8n.headers.STSPreload=true
+
+      # ---------- CORS middleware for dev.kolberg.uz  ----------
+       - traefik.http.middlewares.n8n-dev-cors.headers.accessControlAllowOriginList=https://neuron.kolberg.uz,https://construction.kolberg.uz,https://lemonfit.kolberg.uz,https://main.kolberg.uz
+       - traefik.http.middlewares.n8n-dev-cors.headers.accessControlAllowMethods=GET,POST,OPTIONS
+       - traefik.http.middlewares.n8n-dev-cors.headers.accessControlAllowHeaders=Content-Type,Authorization
+       - traefik.http.middlewares.n8n-dev-cors.headers.addVaryHeader=true
+
+      # ---------- UI on dev.kolberg.uz ----------
+       - traefik.http.routers.n8n-ui.rule=Host(`dev.kolberg.uz`)
+       - traefik.http.routers.n8n-ui.entrypoints=web,websecure
+       - traefik.http.routers.n8n-ui.tls=true
+       - traefik.http.routers.n8n-ui.tls.certresolver=mytlschallenge
+       - traefik.http.routers.n8n-ui.middlewares=n8n@docker,n8n-dev-cors@docker,n8n-error-pages@docker
+       - traefik.http.routers.n8n-ui.service=n8n
+
+      # ---------- Webhooks & Forms for lemonfit.kolberg.uz ----------
+       - traefik.http.routers.n8n-webhook-lemonfit.rule=Host(`lemonfit.kolberg.uz`)
+       - traefik.http.routers.n8n-webhook-lemonfit.entrypoints=web,websecure
+       - traefik.http.routers.n8n-webhook-lemonfit.tls=true
+       - traefik.http.routers.n8n-webhook-lemonfit.tls.certresolver=mytlschallenge
+       - traefik.http.middlewares.n8n-lemonfit-webhook.replacepathregex.regex=^/(.*)$
+       - traefik.http.middlewares.n8n-lemonfit-webhook.replacepathregex.replacement=/webhook/lemonfit/$1
+
+       - traefik.http.routers.n8n-webhook-lemonfit.middlewares=n8n-lemonfit-webhook@docker,n8n@docker,n8n-error-pages@docker
+       - traefik.http.routers.n8n-webhook-lemonfit.service=n8n
+
+      # ---------- Webhooks & Forms for construction.kolberg.uz ----------
+       - traefik.http.routers.n8n-webhook-construction.rule=Host(`construction.kolberg.uz`)
+       - traefik.http.routers.n8n-webhook-construction.entrypoints=web,websecure
+       - traefik.http.routers.n8n-webhook-construction.tls=true
+       - traefik.http.routers.n8n-webhook-construction.tls.certresolver=mytlschallenge
+       - traefik.http.middlewares.n8n-construction-webhook.replacepathregex.regex=^/(.*)$
+       - traefik.http.middlewares.n8n-construction-webhook.replacepathregex.replacement=/webhook/construction/$1
+
+       - traefik.http.routers.n8n-webhook-construction.middlewares=n8n-construction-webhook@docker,n8n@docker,n8n-error-pages@docker
+       - traefik.http.routers.n8n-webhook-construction.service=n8n
+
+      # ---------- Webhooks & Forms for neuron.kolberg.uz ----------
+       - traefik.http.routers.n8n-webhook-neuron.rule=Host(`neuron.kolberg.uz`)
+       - traefik.http.routers.n8n-webhook-neuron.entrypoints=web,websecure
+       - traefik.http.routers.n8n-webhook-neuron.tls=true
+       - traefik.http.routers.n8n-webhook-neuron.tls.certresolver=mytlschallenge
+       - traefik.http.middlewares.n8n-neuron-webhook.replacepathregex.regex=^/(.*)$
+       - traefik.http.middlewares.n8n-neuron-webhook.replacepathregex.replacement=/webhook/neuron/$1
+       - traefik.http.routers.n8n-webhook-neuron.middlewares=n8n-neuron-webhook@docker,n8n@docker,n8n-error-pages@docker
+       - traefik.http.routers.n8n-webhook-neuron.service=n8n
+
+      # ---------- Webhooks & Forms for lemonfit2.kolberg.uz ----------
+       - traefik.http.routers.n8n-webhook-lemonfit2.rule=Host(`lemonfit2.kolberg.uz`)
+       - traefik.http.routers.n8n-webhook-lemonfit2.entrypoints=web,websecure
+       - traefik.http.routers.n8n-webhook-lemonfit2.tls=true
+       - traefik.http.routers.n8n-webhook-lemonfit2.tls.certresolver=mytlschallenge
+       - traefik.http.middlewares.n8n-lemonfit2-webhook.replacepathregex.regex=^/(.*)$
+       - traefik.http.middlewares.n8n-lemonfit2-webhook.replacepathregex.replacement=/webhook/lemonfit2/$1
+       - traefik.http.routers.n8n-webhook-lemonfit2.middlewares=n8n-lemonfit2-webhook@docker,n8n@docker,n8n-error-pages@docker
+       - traefik.http.routers.n8n-webhook-lemonfit2.service=n8n
+
+      # ---------- Webhooks & Forms for main.kolberg.uz ----------
+       - traefik.http.routers.n8n-webhook-main.rule=Host(`main.kolberg.uz`)
+       - traefik.http.routers.n8n-webhook-main.entrypoints=web,websecure
+       - traefik.http.routers.n8n-webhook-main.tls=true
+       - traefik.http.routers.n8n-webhook-main.tls.certresolver=mytlschallenge
+       - traefik.http.middlewares.n8n-main-webhook.replacepathregex.regex=^/(.*)$
+       - traefik.http.middlewares.n8n-main-webhook.replacepathregex.replacement=/webhook/main/$1
+       - traefik.http.routers.n8n-webhook-main.middlewares=n8n-main-webhook@docker,n8n@docker,n8n-error-pages@docker
+       - traefik.http.routers.n8n-webhook-main.service=n8n
+
+      # ---------- Final n8n service config ----------
+       - traefik.http.services.n8n.loadbalancer.server.port=5678
+
+    environment:
+      - N8N_ENFORCE_SETTINGS_FILE_PERMISSIONS=true
+      - N8N_HOST=dev.kolberg.uz
+      - N8N_PORT=5678
+      - N8N_PROTOCOL=https
+      - N8N_RUNNERS_ENABLED=true
+      - NODE_ENV=production
+      - WEBHOOK_URL=https://dev.kolberg.uz
+      - GENERIC_TIMEZONE=${GENERIC_TIMEZONE}
+      - TZ=${GENERIC_TIMEZONE}
+      - N8N_CONCURRENCY_PRODUCTION_LIMIT=10
+      - N8N_PROXY_HOPS=1
+
+      - N8N_DEFAULT_CORS=true
+      - N8N_CORS_ALLOW_ORIGIN=https://neuron.kolberg.uz,https://construction.kolberg.uz,https://lemonfit.kolberg.uz,https://main.kolberg.uz
+
+      - EXECUTIONS_DATA_PRUNE=true
+      - EXECUTIONS_DATA_MAX_AGE=720
+      - EXECUTIONS_DATA_PRUNE_MAX_COUNT=10000
+      - EXECUTIONS_TIMEOUT=300
+      - EXECUTIONS_TIMEOUT_MAX=432000
+
+    volumes:
+      - n8n_data:/home/node/.n8n
+      - ./local-files:/files
+
+
+  metabase:
+    image: metabase/metabase:latest
+    container_name: metabase
+    restart: always
+    hostname: metabase
+    volumes:
+      - /dev/urandom:/dev/random:ro
+    environment:
+      MB_DB_TYPE: postgres
+      MB_DB_DBNAME: ${POSTGRES_DB}
+      MB_DB_PORT: 5432
+      MB_DB_USER: ${POSTGRES_USER}
+      MB_DB_PASS: ${POSTGRES_PASSWORD}
+      MB_DB_HOST: db
+
+    labels:
+      - traefik.enable=true
+
+      # ---------- Security headers middleware (similar to adminer/n8n) ----------
+      - traefik.http.middlewares.metabase.headers.SSLRedirect=true
+      - traefik.http.middlewares.metabase.headers.STSSeconds=315360000
+      - traefik.http.middlewares.metabase.headers.browserXSSFilter=true
+      - traefik.http.middlewares.metabase.headers.contentTypeNosniff=true
+      - traefik.http.middlewares.metabase.headers.forceSTSHeader=true
+      - traefik.http.middlewares.metabase.headers.SSLHost=kolberg.uz
+      - traefik.http.middlewares.metabase.headers.STSIncludeSubdomains=true
+      - traefik.http.middlewares.metabase.headers.STSPreload=true
+
+      # ---------- Router for metabase.kolberg.uz ----------
+      - traefik.http.routers.metabase.rule=Host(`metabase.kolberg.uz`)
+      - traefik.http.routers.metabase.entrypoints=web,websecure
+      - traefik.http.routers.metabase.tls=true
+      - traefik.http.routers.metabase.tls.certresolver=mytlschallenge
+      - traefik.http.routers.metabase.middlewares=metabase@docker
+
+      # ---------- Service: internal Metabase port ----------
+      - traefik.http.services.metabase.loadbalancer.server.port=3000
+
+    healthcheck:
+      test: curl --fail -I http://localhost:3000/api/health || exit 1
+      interval: 15s
+      timeout: 5s
+      retries: 5
+
+  error-pages:
+    image: nginx:alpine
+    container_name: error-pages
+    restart: always
+    volumes:
+      - ./error-pages:/usr/share/nginx/html:ro
+    labels:
+      - traefik.enable=true
+      - traefik.http.services.error-pages.loadbalancer.server.port=80
+
+      # Serve custom pages for 404 and 409
+      - traefik.http.middlewares.n8n-error-pages.errors.status=404,409
+      - traefik.http.middlewares.n8n-error-pages.errors.service=error-pages
+      - traefik.http.middlewares.n8n-error-pages.errors.query=/{status}.html
+
+  static-pages:
+    image: nginx:alpine
+    container_name: static-pages
+    restart: always
+    volumes:
+      - ./static-pages:/usr/share/nginx/html:ro
+      - ./static-pages/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    labels:
+      - traefik.enable=true
+
+      # ---------- Security headers middleware ----------
+      - traefik.http.middlewares.static-pages.headers.SSLRedirect=true
+      - traefik.http.middlewares.static-pages.headers.STSSeconds=315360000
+      - traefik.http.middlewares.static-pages.headers.browserXSSFilter=true
+      - traefik.http.middlewares.static-pages.headers.contentTypeNosniff=true
+      - traefik.http.middlewares.static-pages.headers.forceSTSHeader=true
+      - traefik.http.middlewares.static-pages.headers.SSLHost=kolberg.uz
+      - traefik.http.middlewares.static-pages.headers.STSIncludeSubdomains=true
+      - traefik.http.middlewares.static-pages.headers.STSPreload=true
+
+      # ---------- Router for neuron.kolberg.uz/requests (exact match, higher priority than webhook) ----------
+      - traefik.http.routers.static-pages-neuron.rule=Host(`neuron.kolberg.uz`) && Path(`/requests`)
+      - traefik.http.routers.static-pages-neuron.entrypoints=web,websecure
+      - traefik.http.routers.static-pages-neuron.tls=true
+      - traefik.http.routers.static-pages-neuron.tls.certresolver=mytlschallenge
+      - traefik.http.routers.static-pages-neuron.priority=100
+      - traefik.http.routers.static-pages-neuron.middlewares=static-pages@docker
+      - traefik.http.routers.static-pages-neuron.service=static-pages
+
+      # ---------- Router for lemonfit.kolberg.uz/requests ----------
+      - traefik.http.routers.static-pages-lemonfit.rule=Host(`lemonfit.kolberg.uz`) && Path(`/requests`)
+      - traefik.http.routers.static-pages-lemonfit.entrypoints=web,websecure
+      - traefik.http.routers.static-pages-lemonfit.tls=true
+      - traefik.http.routers.static-pages-lemonfit.tls.certresolver=mytlschallenge
+      - traefik.http.routers.static-pages-lemonfit.priority=100
+      - traefik.http.routers.static-pages-lemonfit.middlewares=static-pages@docker
+      - traefik.http.routers.static-pages-lemonfit.service=static-pages
+
+      # ---------- Service: internal nginx port ----------
+      - traefik.http.services.static-pages.loadbalancer.server.port=80
+
+
+  db_backup:
+    image: postgres:17
+    container_name: db_backup
+    restart: always
+    depends_on:
+      - db
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - /opt/backups/postgres:/backups
+    command: >
+      bash -c "
+      while true; do
+        pg_dump -h db -U \"$POSTGRES_USER\" \"$POSTGRES_DB\" \
+          > /backups/backup-$(date +%F-%H%M).sql ;
+        find /backups -type f -mtime +7 -delete ;
+        sleep 86400 ;
+      done"
+
+
+volumes:
+  n8n_data:
+  traefik_data:
+  pg_data:
