@@ -13,6 +13,10 @@ POSTGRES_DB=database
 POSTGRES_USER=ddavlet
 POSTGRES_PASSWORD=ctz13
 
+POSGRES_NEXTCLOUD_DB=nextcloud
+POSGRES_NEXTCLOUD_USER=nextcloud
+POSGRES_NEXTCLOUD_PASSWORD='IUN#@3212enFLWFn123'
+
 # Additional Configuration (if needed)
 # N8N_ENCRYPTION_KEY=your-encryption-key-here
 # N8N_USER_MANAGEMENT_DISABLED=false
