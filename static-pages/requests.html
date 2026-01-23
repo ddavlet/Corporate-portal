@@ -128,7 +128,7 @@
     function fmtMoney(amountStr) {
       const n = Number(amountStr);
       if (!Number.isFinite(n)) return amountStr ?? "";
-      return n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+      return n.toLocaleString("uz-UZ", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
     }
 
     function fmtDate(iso) {
@@ -198,7 +198,10 @@
       }
 
       const filtered = checked.size > 0
-        ? requests.filter(r => checked.has(String(r.status ?? "")))
+        ? requests.filter(r => {
+            const status = String(r.status ?? "");
+            return checked.has(status) || (checked.has("pending") && ["1", "2", "3"].includes(status));
+          })
         : requests;
 
       const rows = filtered.slice().sort((a, b) =>
@@ -213,10 +216,10 @@
             <div class="tight truncate">${escapeHtml(r.title)}</div>
             ${r.payment_purpose ? `<div class="small muted tight truncate">${escapeHtml(r.payment_purpose)}</div>` : ``}
           </td>
-          <td class="right nowrap mono">${escapeHtml(fmtMoney(r.amount))} ${escapeHtml(r.currency)}</td>
+          <td class="right nowrap">${escapeHtml(fmtMoney(r.amount))} ${escapeHtml(r.currency)}</td>
           <td>${statusBadge(r.status)}</td>
           <td class="truncate hide-sm">${escapeHtml(r.requester)}</td>
-          <td class="nowrap mono hide-sm">${escapeHtml(fmtDate(r.submitted_at))}</td>
+          <td class="nowrap hide-sm">${escapeHtml(fmtDate(r.submitted_at))}</td>
         </tr>
       `).join("");
 
@@ -251,14 +254,14 @@
         const comment = a.comment ? escapeHtml(a.comment) : "";
         return `
           <div class="apprRow">
-            <div class="apprLeft mono muted">${escapeHtml(stepInfo)}</div>
+            <div class="apprLeft muted">${escapeHtml(stepInfo)}</div>
             <div class="apprMid">
               <div class="tight">${escapeHtml(a.name)}</div>
               ${comment ? `<div class="small muted tight">${comment}</div>` : ``}
             </div>
             <div class="apprRight">
               ${decisionPill(a.decision)}
-              <div class="small muted mono">${escapeHtml(decided)}</div>
+              <div class="small muted">${escapeHtml(decided)}</div>
             </div>
           </div>
         `;
@@ -283,7 +286,7 @@
           <div class="kv"><div class="k">Статус</div><div class="v">${statusBadge(req.status)}</div></div>
           <div class="kv"><div class="k">Категория</div><div class="v">${escapeHtml(req.category)}</div></div>
           <div class="kv"><div class="k">ID контракта</div><div class="v mono">${escapeHtml(req.contract_id)}</div></div>
-          <div class="kv"><div class="k">Сумма</div><div class="v mono">${escapeHtml(fmtMoney(req.amount))} ${escapeHtml(req.currency)}</div></div>
+          <div class="kv"><div class="k">Сумма</div><div class="v">${escapeHtml(fmtMoney(req.amount))} ${escapeHtml(req.currency)}</div></div>
           <div class="kv"><div class="k">Оплата</div><div class="v">${escapeHtml(req.payment_type)} • ${escapeHtml(req.urgency)}</div></div>
         </div>
 
