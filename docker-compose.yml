@@ -309,7 +309,7 @@ services:
       - traefik.http.middlewares.static-pages.headers.STSPreload=true
 
       # ---------- Router for neuron.kolberg.uz/requests (exact match, higher priority than webhook) ----------
-      - traefik.http.routers.static-pages-neuron.rule=Host(`neuron.kolberg.uz`) && Path(`/requests`)
+      - traefik.http.routers.static-pages-neuron.rule=Host(`neuron.kolberg.uz`) && (Path(`/requests`) || PathPrefix(`/assets`))
       - traefik.http.routers.static-pages-neuron.entrypoints=web,websecure
       - traefik.http.routers.static-pages-neuron.tls=true
       - traefik.http.routers.static-pages-neuron.tls.certresolver=mytlschallenge
@@ -318,13 +318,23 @@ services:
       - traefik.http.routers.static-pages-neuron.service=static-pages
 
       # ---------- Router for lemonfit.kolberg.uz/requests ----------
-      - traefik.http.routers.static-pages-lemonfit.rule=Host(`lemonfit.kolberg.uz`) && Path(`/requests`)
+      - traefik.http.routers.static-pages-lemonfit.rule=Host(`lemonfit.kolberg.uz`) && (Path(`/requests`) || PathPrefix(`/assets`))
       - traefik.http.routers.static-pages-lemonfit.entrypoints=web,websecure
       - traefik.http.routers.static-pages-lemonfit.tls=true
       - traefik.http.routers.static-pages-lemonfit.tls.certresolver=mytlschallenge
       - traefik.http.routers.static-pages-lemonfit.priority=100
       - traefik.http.routers.static-pages-lemonfit.middlewares=static-pages@docker
       - traefik.http.routers.static-pages-lemonfit.service=static-pages
+
+
+      # ---------- Router for lemonfit2.kolberg.uz/requests ----------
+      - traefik.http.routers.static-pages-lemonfit2.rule=Host(`lemonfit2.kolberg.uz`) && (Path(`/requests`) || PathPrefix(`/assets`))
+      - traefik.http.routers.static-pages-lemonfit2.entrypoints=web,websecure
+      - traefik.http.routers.static-pages-lemonfit2.tls=true
+      - traefik.http.routers.static-pages-lemonfit2.tls.certresolver=mytlschallenge
+      - traefik.http.routers.static-pages-lemonfit2.priority=100
+      - traefik.http.routers.static-pages-lemonfit2.middlewares=static-pages@docker
+      - traefik.http.routers.static-pages-lemonfit2.service=static-pages
 
       # ---------- Service: internal nginx port ----------
       - traefik.http.services.static-pages.loadbalancer.server.port=80
