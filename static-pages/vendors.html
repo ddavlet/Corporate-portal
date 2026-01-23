@@ -259,6 +259,7 @@
               <thead>
                 <tr>
                   <th>ID</th>
+                  <th>ID Контракта</th>
                   <th>Название</th>
                   <th class="right">Сумма</th>
                   <th>Статус</th>
@@ -270,6 +271,7 @@
                 ${reqs.length ? reqs.map(r => `
                   <tr>
                     <td class="mono nowrap">${escapeHtml(r.id)}</td>
+                    <td class="mono nowrap">${escapeHtml(r.contract_id)}</td>
                     <td style="min-width:0">
                       <div class="tight truncate">${escapeHtml(r.title || "—")}</div>
                       ${r.payment_purpose ? `<div class="small muted tight truncate">${escapeHtml(r.payment_purpose)}</div>` : ``}
@@ -334,4 +336,3 @@
   </script>
 </body>
 </html>
-
