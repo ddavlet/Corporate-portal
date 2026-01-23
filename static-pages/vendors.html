@@ -122,7 +122,7 @@
 
     let vendors = []; // [{key,name,contracts:[...]}]
     let vendorMap = new Map(); // key -> vendorObj
-    let requestsIndex = null; // Map<vendorKey, request[]>
+    let requestsCache = new Map(); // contractId -> requests[]
 
     async function fetchJson(url) {
       const isNullOrigin = (location.origin === "null") || (location.protocol === "file:");
@@ -175,34 +175,62 @@
       if (modal) modal.style.display = "none";
     }
 
-    async function ensureRequestsIndex() {
-      if (requestsIndex) return;
-      setMeta("Загрузка заявок поставщиков…");
-      const data = await fetchJson(VENDOR_REQUESTS_API_URL);
-      const reqItems = (Array.isArray(data) ? data : asArray(data, "requests")).map(x => x?.json ?? x).filter(Boolean);
+    async function fetchRequestsByContractId(contractId) {
+      if (!contractId) return [];
+      if (requestsCache.has(contractId)) {
+        return requestsCache.get(contractId);
+      }
 
-      requestsIndex = new Map();
-      for (const r of reqItems) {
-        const key = normalizeVendorKey(r.vendor);
-        if (!key) continue;
-        if (!requestsIndex.has(key)) requestsIndex.set(key, []);
-        requestsIndex.get(key).push(r);
+      try {
+        const url = `${VENDOR_REQUESTS_API_URL}?contract_id=${encodeURIComponent(contractId)}`;
+        const data = await fetchJson(url);
+        const reqItems = (Array.isArray(data) ? data : asArray(data, "requests")).map(x => x?.json ?? x).filter(Boolean);
+        requestsCache.set(contractId, reqItems);
+        return reqItems;
+      } catch (err) {
+        console.error(`Error loading requests for contract_id ${contractId}:`, err);
+        requestsCache.set(contractId, []); // Cache empty to prevent retries
+        return [];
       }
     }
 
-    function openVendorModal(vendor) {
+    async function openVendorModal(vendor) {
       const modal = $("#modal");
       const title = $("#modalTitle");
       const sub = $("#modalSub");
       const body = $("#modalBody");
       if (!modal || !title || !sub || !body) return;
 
-      const reqs = (requestsIndex?.get(vendor.key) || []).slice().sort((a, b) =>
+      title.textContent = vendor.name;
+      sub.textContent = `Контрактов: ${vendor.contracts.length} • Загрузка заявок…`;
+
+      // Show modal immediately with contracts
+      modal.style.display = "block";
+
+      // Fetch requests for all contracts in parallel
+      setMeta("Загрузка заявок…");
+      const contractIds = vendor.contracts.map(c => c.id).filter(Boolean);
+      const allRequests = [];
+
+      await Promise.all(contractIds.map(async (contractId) => {
+        const reqs = await fetchRequestsByContractId(contractId);
+        allRequests.push(...reqs);
+      }));
+
+      const reqs = allRequests.slice().sort((a, b) =>
         new Date(b.submitted_at || 0).getTime() - new Date(a.submitted_at || 0).getTime()
       );
 
-      title.textContent = vendor.name;
       sub.textContent = `Контрактов: ${vendor.contracts.length} • Заявок: ${reqs.length}`;
+      setMeta(`Поставщиков: ${vendors.length}`);
+
+      // Update modal body with contracts and requests
+      updateModalBody(vendor, reqs);
+    }
+
+    function updateModalBody(vendor, reqs) {
+      const body = $("#modalBody");
+      if (!body) return;
 
       const contractsHtml = vendor.contracts.map(c => `
         <div class="kv">
@@ -270,22 +298,12 @@
         </div>
         ${requestsHtml}
       `;
-
-      modal.style.display = "block";
     }
 
     async function onRowClick(vendorKey) {
       const vendor = vendorMap.get(vendorKey);
       if (!vendor) return;
-      try {
-        await ensureRequestsIndex();
-      } catch (e) {
-        // If the endpoint is protected and returns nothing, still show contracts.
-        requestsIndex = requestsIndex || new Map();
-        console.error(e);
-      }
-      openVendorModal(vendor);
-      setMeta(`Поставщиков: ${vendors.length}`);
+      await openVendorModal(vendor);
     }
 
     function bindOnce() {
