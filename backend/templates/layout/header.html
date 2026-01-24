@@ -1,0 +1,12 @@
+<header>
+    <div>
+        <h1>{% block page_h1 %}Страница{% endblock %}</h1>
+        <div class="sub">{% block page_sub %}{% endblock %}</div>
+    </div>
+
+    <div class="controls">
+        {% block header_actions %}{% endblock %}
+    </div>
+
+    {% block header_extra %}{% endblock %}
+</header>

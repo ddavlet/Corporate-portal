@@ -374,61 +374,6 @@ services:
     networks:
       - backend
 
-  nextcloud:
-    image: nextcloud:apache
-    restart: always
-    container_name: nextcloud
-    depends_on:
-      db:
-        condition: service_healthy
-      redis_nextcloud:
-        condition: service_started
-    environment:
-      TZ: ${GENERIC_TIMEZONE}
-
-      POSTGRES_HOST: db
-      POSTGRES_DB: nextcloud
-      POSTGRES_USER: ${POSGRES_NEXTCLOUD_USER}
-      POSTGRES_PASSWORD: ${POSGRES_NEXTCLOUD_PASSWORD}
-
-      REDIS_HOST: redis_nextcloud
-
-      NEXTCLOUD_TRUSTED_DOMAINS: cloud.kolberg.uz
-      OVERWRITEPROTOCOL: https
-      OVERWRITECLIURL: https://cloud.kolberg.uz
-
-    volumes:
-      - nextcloud_html:/var/www/html
-      - nextcloud_data:/var/www/html/data
-
-    labels:
-      - traefik.enable=true
-      - traefik.docker.network=n8n_traefik-public
-      - traefik.http.routers.nextcloud.rule=Host(`cloud.kolberg.uz`)
-      - traefik.http.routers.nextcloud.entrypoints=web,websecure
-      - traefik.http.routers.nextcloud.tls=true
-      - traefik.http.routers.nextcloud.tls.certresolver=mytlschallenge
-      - traefik.http.services.nextcloud.loadbalancer.server.port=80
-      - traefik.http.middlewares.nextcloud-headers.headers.customrequestheaders.X-Forwarded-Proto=https
-      - traefik.http.routers.nextcloud.middlewares=nextcloud-headers@docker
-
-    networks:
-      - traefik-public
-      - backend
-
-  nextcloud_cron:
-    image: nextcloud:apache
-    restart: always
-    container_name: nextcloud_cron
-    depends_on:
-      - nextcloud
-    entrypoint: /cron.sh
-    volumes:
-      - nextcloud_html:/var/www/html
-      - nextcloud_data:/var/www/html/data
-    networks:
-      - backend
-
   portainer:
     image: portainer/portainer-ce:latest
     container_name: portainer
@@ -505,8 +450,6 @@ services:
       DJANGO_DEBUG: "True"
     volumes:
       - ./backend:/app
-    ports:
-      - "8000:8000"
     depends_on:
       - db
     command: >
@@ -514,19 +457,36 @@ services:
       python manage.py migrate &&
       gunicorn config.wsgi:application --bind 0.0.0.0:8000
       "
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=n8n_traefik-public
+      - traefik.http.services.django.loadbalancer.server.port=8000
+
+      # login.kolberg.uz (оставляем как есть)
+      - traefik.http.routers.django-login.rule=Host(`login.kolberg.uz`)
+      - traefik.http.routers.django-login.entrypoints=web,websecure
+      - traefik.http.routers.django-login.tls=true
+      - traefik.http.routers.django-login.tls.certresolver=mytlschallenge
+      - traefik.http.routers.django-login.service=django
+      - traefik.http.routers.django-login.priority=1000
+
+      # tenants: только /web/*
+      - traefik.http.routers.django-web.rule=Host(`lemonfit.kolberg.uz`) && PathPrefix(`/web/`)
+      - traefik.http.routers.django-web.entrypoints=web,websecure
+      - traefik.http.routers.django-web.tls=true
+      - traefik.http.routers.django-web.tls.certresolver=mytlschallenge
+      - traefik.http.routers.django-web.service=django
+      - traefik.http.routers.django-web.priority=1000
+
     networks:
       - traefik-public
       - backend
-
-
 
 
 volumes:
   n8n_data:
   traefik_data:
   pg_data:
-  nextcloud_html:
-  nextcloud_data:
   portainer_data:
 # >>> CHANGE: добавили сети
 networks:

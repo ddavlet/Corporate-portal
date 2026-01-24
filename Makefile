@@ -17,10 +17,14 @@ EXCLUDES := \
 .PHONY: deploy dry-run clean-remote
 
 deploy:
-	rsync -avz --progress --omit-dir-times $(EXCLUDES) ./ $(SERVER):$(REMOTE_DIR)/
+	rsync -av --omit-dir-times $(EXCLUDES) ./ $(SERVER):$(REMOTE_DIR)/
 
 dry-run:
-	rsync -avzn --delete --progress $(EXCLUDES) ./ $(SERVER):$(REMOTE_DIR)/
+	rsync -avzn --delete $(EXCLUDES) ./ $(SERVER):$(REMOTE_DIR)/
 
 clean-remote:
 	ssh $(SERVER) "rm -rf $(REMOTE_DIR)/*"
+
+
+back:
+	rsync -avz --progress --omit-dir-times ${EXCLUDES} $(SERVER):$(REMOTE_DIR)/backend ./
