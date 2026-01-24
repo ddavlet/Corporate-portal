@@ -1,0 +1,41 @@
+{% extends "layout/base.html" %}
+
+{% block title %}Вход{% endblock %}
+
+{% block content %}
+<div class="auth-wrap">
+    <div class="card auth-card">
+        <div class="auth-brand">
+            <div class="logo">Kolberg</div>
+            <div class="hint">Authentication service</div>
+        </div>
+
+        <form method="post" class="form">
+            {% csrf_token %}
+
+            <div class="field">
+                <label for="id_username">Email или логин</label>
+                <input id="id_username" name="username" type="text" required autofocus>
+            </div>
+
+            <div class="field">
+                <label for="id_password">Пароль</label>
+                <input id="id_password" name="password" type="password" required>
+            </div>
+
+            {% if form.errors %}
+            <div class="error small">Неверный логин или пароль</div>
+            {% endif %}
+
+            <div class="auth-actions">
+                <button type="submit" class="btn btn-primary">Войти</button>
+            </div>
+
+            <div class="help-row small">
+                <span class="muted">© Kolberg</span>
+                <a href="/admin/" class="muted">Admin</a>
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}

@@ -2,36 +2,32 @@
 
 {% block title %}Заявки{% endblock %}
 
-{% block page_h1 %}Заявки{% endblock %}
-{% block page_sub %}Короткий список. Нажмите на заявку, чтобы открыть детали и согласования.{% endblock %}
-
-{% block header_actions %}
-<a class="btn btn-primary" href="/request" target="_blank" rel="noopener" title="Создать новую заявку">
-    + Новая заявка
-</a>
-
-<a class="btn" href="/vendors" title="Список поставщиков">
-    Поставщики
-</a>
-
-<button id="reloadBtn" title="Загрузить свежие данные из API">
-    Обновить
-</button>
-{% endblock %}
-
-{% block header_extra %}
-<div class="controls" id="statusFilters">
-    <label class="filter"><input type="checkbox" value="APPROVED" checked> APPROVED</label>
-    <label class="filter"><input type="checkbox" value="REJECTED" checked> REJECTED</label>
-    <label class="filter"><input type="checkbox" value="pending" checked> PENDING</label>
-    <label class="filter"><input type="checkbox" value="1" checked> STATUS 1</label>
-    <label class="filter"><input type="checkbox" value="2" checked> STATUS 2</label>
-    <label class="filter"><input type="checkbox" value="3" checked> STATUS 3</label>
-    <label class="filter"><input type="checkbox" value="PAYED" checked> PAYED</label>
-</div>
-{% endblock %}
-
 {% block content %}
+
+<!-- Локальная панель под общим header -->
+<div class="card" style="margin-bottom:12px">
+    <div
+        style="padding:12px; display:flex; gap:12px; align-items:flex-start; justify-content:space-between; flex-wrap:wrap;">
+        <div>
+            <h1 style="margin:0">Заявки</h1>
+            <div class="sub">Короткий список. Нажмите на заявку, чтобы открыть детали и согласования.</div>
+        </div>
+
+        <div class="controls">
+            <a class="btn btn-primary" href="/request" target="_blank" rel="noopener">+ Новая заявка</a>
+            <a class="btn" href="/web/vendors">Поставщики</a>
+            <button id="reloadBtn">Обновить</button>
+        </div>
+
+        <div class="controls" id="statusFilters">
+            <label class="filter"><input type="checkbox" value="APPROVED" checked> APPROVED</label>
+            <label class="filter"><input type="checkbox" value="REJECTED" checked> REJECTED</label>
+            <label class="filter"><input type="checkbox" value="PENDING" checked> PENDING</label>
+            <label class="filter"><input type="checkbox" value="PAYED" checked> PAYED</label>
+        </div>
+    </div>
+</div>
+
 <div class="card">
     <div class="table-wrap">
         <table id="tbl" aria-label="Таблица заявок">
@@ -87,6 +83,290 @@
 
 {% block scripts %}
 <script>
-    // сюда вставляешь твой текущий JS (почти без изменений)
+    // API endpoint (через /web/*, как в твоей архитектуре)
+    const API_URL = "/requests-data";
+
+    // Optional fallback:
+    const EMBEDDED_DATA = null;
+
+    let apiResponse = { requests: [], approvals: [], users: [] };
+    let requests = [];
+    let approvals = [];
+    let usersById = new Map();
+    let usersByTg = new Map();
+
+    const $ = (s) => document.querySelector(s);
+
+    function escapeHtml(s) {
+        return String(s ?? "")
+            .replaceAll("&", "&amp;")
+            .replaceAll("<", "&lt;")
+            .replaceAll(">", "&gt;")
+            .replaceAll('"', "&quot;")
+            .replaceAll("'", "&#039;");
+    }
+
+    function fmtMoney(amountStr) {
+        const n = Number(amountStr);
+        if (!Number.isFinite(n)) return amountStr ?? "";
+        return n.toLocaleString("uz-UZ", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    }
+
+    function fmtDate(iso) {
+        if (!iso) return "";
+        const d = new Date(iso);
+        if (isNaN(d.getTime())) return iso;
+        return d.toLocaleString('ru-RU', { year: "numeric", month: "2-digit", day: "2-digit" });
+    }
+
+    function setMeta(text) {
+        const el = $("#meta");
+        if (el) el.textContent = text;
+    }
+
+    function statusBadge(status) {
+        const s = String(status ?? "");
+        const map = {
+            "APPROVED": { cls: "ok", label: "APPROVED" },
+            "REJECTED": { cls: "bad", label: "REJECTED" },
+            "PAYED": { cls: "payed", label: "PAYED" },
+            "pending": { cls: "warn", label: "PENDING" },
+            "1": { cls: "warn", label: "STATUS 1" },
+            "2": { cls: "warn", label: "STATUS 2" },
+            "3": { cls: "warn", label: "STATUS 3" }
+        };
+        const m = map[s] || { cls: "warn", label: (s || "—") };
+        return `<span class="pill"><span class="dot ${m.cls}"></span>${escapeHtml(m.label)}</span>`;
+    }
+
+    function decisionPill(decision) {
+        const d = String(decision ?? "pending").toLowerCase();
+        const cls = d === "approved" ? "ok" : d === "rejected" ? "bad" : "warn";
+        const label = d.toUpperCase();
+        return `<span class="pill"><span class="dot ${cls}"></span>${escapeHtml(label)}</span>`;
+    }
+
+    function getUserNameFromApproval(a) {
+        const byId = usersById.get(a.approver_user_id);
+        if (byId?.name) return byId.name;
+        const byTg = usersByTg.get(String(a.approver_tg_id ?? ""));
+        if (byTg?.name) return byTg.name;
+        return `User #${a.approver_user_id ?? "?"}`;
+    }
+
+    function applyData(data) {
+        apiResponse = data || { requests: [], approvals: [], users: [] };
+        requests = (apiResponse.requests || []).map(x => x.json).filter(Boolean);
+        approvals = (apiResponse.approvals || []).map(x => x.json).filter(Boolean);
+        usersById = new Map((apiResponse.users || []).map(x => [x.json?.id, x.json]));
+        usersByTg = new Map((apiResponse.users || []).map(x => [String(x.json?.telegram_chat_id ?? ""), x.json]));
+        render();
+    }
+
+    function isPending(status) {
+        return ["1", "2", "3"].includes(String(status));
+    }
+
+    function render() {
+        const tbody = $("#tbl tbody");
+        if (!tbody) return;
+
+        const filterContainer = $("#statusFilters");
+        const checked = new Set();
+        if (filterContainer) {
+            filterContainer.querySelectorAll('input[type="checkbox"]:checked').forEach(cb => checked.add(cb.value));
+        }
+
+        const filtered = checked.size === 0
+            ? []
+            : requests.filter(r => {
+                const status = String(r.status ?? "");
+                if (checked.has("APPROVED") && status === "APPROVED") return true;
+                if (checked.has("REJECTED") && status === "REJECTED") return true;
+                if (checked.has("PAYED") && status === "PAYED") return true;
+                if (checked.has("PENDING") && isPending(status)) return true;
+                return false;
+            });
+
+        const rows = filtered.slice().sort((a, b) =>
+            new Date(b.submitted_at).getTime() - new Date(a.submitted_at).getTime()
+        );
+
+        tbody.innerHTML = rows.map(r => `
+      <tr data-request-id="${escapeHtml(r.id)}">
+        <td class="mono nowrap">${escapeHtml(r.id)}</td>
+        <td class="truncate">${escapeHtml(r.vendor)}</td>
+        <td style="min-width:0">
+          <div class="tight truncate">${escapeHtml(r.title)}</div>
+          ${r.payment_purpose ? `<div class="small muted tight truncate">${escapeHtml(r.payment_purpose)}</div>` : ``}
+        </td>
+        <td class="right nowrap">${escapeHtml(fmtMoney(r.amount))} ${escapeHtml(r.currency)}</td>
+        <td>${statusBadge(r.status)}</td>
+        <td class="truncate hide-sm">${escapeHtml(r.requester)}</td>
+        <td class="nowrap hide-sm">${escapeHtml(fmtDate(r.submitted_at))}</td>
+      </tr>
+    `).join("");
+
+        setMeta(`Заявок: ${rows.length}`);
+
+        // tenant label (optional)
+        const t = $("#tenantMeta");
+        if (t) t.textContent = location.host;
+    }
+
+    function openModal(req) {
+        const modal = $("#modal");
+        const title = $("#modalTitle");
+        const sub = $("#modalSub");
+        const body = $("#modalBody");
+        if (!modal || !title || !sub || !body) return;
+
+        const list = approvals
+            .filter(a => a && a.request_id === req.id)
+            .slice()
+            .sort((a, b) => (a.step ?? 0) - (b.step ?? 0) || String(a.step_type ?? "").localeCompare(String(b.step_type ?? "")));
+
+        const normalized = list.map(a => ({
+            ...a,
+            name: getUserNameFromApproval(a),
+            decisionNorm: String(a.decision ?? "pending").toLowerCase()
+        }));
+
+        const approved = normalized.filter(x => x.decisionNorm === "approved");
+        const rejected = normalized.filter(x => x.decisionNorm === "rejected");
+        const pending = normalized.filter(x => x.decisionNorm !== "approved" && x.decisionNorm !== "rejected");
+
+        const apprRow = (a) => {
+            const stepInfo = `S${a.step ?? "?"}${a.step_type ? `/${a.step_type}` : ""}`;
+            const decided = a.decided_at ? fmtDate(a.decided_at) : "—";
+            const comment = a.comment ? escapeHtml(a.comment) : "";
+            return `
+        <div class="apprRow">
+          <div class="apprLeft muted">${escapeHtml(stepInfo)}</div>
+          <div class="apprMid">
+            <div class="tight">${escapeHtml(a.name)}</div>
+            ${comment ? `<div class="small muted tight">${comment}</div>` : ``}
+          </div>
+          <div class="apprRight">
+            ${decisionPill(a.decision)}
+            <div class="small muted">${escapeHtml(decided)}</div>
+          </div>
+        </div>
+      `;
+        };
+
+        const section = (label, items) => `
+      <div class="section">
+        <div class="sectionTitle">
+          <div class="label">${escapeHtml(label)}</div>
+          <div class="small muted">(${items.length})</div>
+        </div>
+        <div>${items.length ? items.map(apprRow).join("") : `<div class="small muted">—</div>`}</div>
+      </div>
+    `;
+
+        title.textContent = `Заявка #${req.id}`;
+        sub.textContent = `${req.vendor || ""} • ${req.requester || ""} • ${fmtDate(req.submitted_at)}`;
+
+        body.innerHTML = `
+      <div class="grid">
+        <div class="kv"><div class="k">Компания</div><div class="v">${escapeHtml(req.company_payer)}</div></div>
+        <div class="kv"><div class="k">Статус</div><div class="v">${statusBadge(req.status)}</div></div>
+        <div class="kv"><div class="k">Категория</div><div class="v">${escapeHtml(req.category)}</div></div>
+        <div class="kv"><div class="k">ID контракта</div><div class="v mono">${escapeHtml(req.contract_id)}</div></div>
+        <div class="kv"><div class="k">Сумма</div><div class="v">${escapeHtml(fmtMoney(req.amount))} ${escapeHtml(req.currency)}</div></div>
+        <div class="kv"><div class="k">Оплата</div><div class="v">${escapeHtml(req.payment_type)} • ${escapeHtml(req.urgency)}</div></div>
+      </div>
+
+      <div class="section">
+        <div class="sectionTitle"><div class="label">Название</div></div>
+        <div class="kv"><div class="v">${escapeHtml(req.title)}</div></div>
+      </div>
+
+      ${req.payment_purpose ? `
+        <div class="section">
+          <div class="sectionTitle"><div class="label">Назначение</div></div>
+          <div class="kv"><div class="v">${escapeHtml(req.payment_purpose)}</div></div>
+        </div>
+      ` : ``}
+
+      ${req.description ? `
+        <div class="section">
+          <div class="sectionTitle"><div class="label">Описание</div></div>
+          <div class="kv"><div class="v">${escapeHtml(req.description)}</div></div>
+        </div>
+      ` : ``}
+
+      ${section("Одобрено", approved)}
+      ${section("Отклонено", rejected)}
+      ${section("В ожидании", pending)}
+    `;
+
+        modal.style.display = "block";
+    }
+
+    function closeModal() {
+        const modal = $("#modal");
+        if (modal) modal.style.display = "none";
+    }
+
+    async function loadData(force = false) {
+        setMeta(force ? "Обновление…" : "Загрузка…");
+        try {
+            const res = await fetch(API_URL, {
+                method: "GET",
+                credentials: "include",
+                headers: { "Accept": "application/json" }
+            });
+            if (!res.ok) throw new Error(`HTTP ${res.status} ${res.statusText}`);
+            const data = await res.json();
+            applyData(data);
+            setMeta(`Заявок: ${requests.length}`);
+        } catch (err) {
+            console.error(err);
+            if (EMBEDDED_DATA) {
+                applyData(EMBEDDED_DATA);
+                setMeta(`Заявок: ${requests.length} (встроенные данные)`);
+            } else {
+                applyData({ requests: [], approvals: [], users: [] });
+                setMeta(`Не удалось загрузить. ${err?.message || err}`);
+            }
+        }
+    }
+
+    function bindOnce() {
+        if (bindOnce._done) return;
+        bindOnce._done = true;
+
+        const reloadBtn = $("#reloadBtn");
+        if (reloadBtn) reloadBtn.addEventListener("click", () => loadData(true));
+
+        const tbody = $("#tbl tbody");
+        if (tbody) {
+            tbody.addEventListener("click", (e) => {
+                const tr = e.target.closest("tr[data-request-id]");
+                if (!tr) return;
+                const id = Number(tr.getAttribute("data-request-id"));
+                const req = requests.find(r => Number(r.id) === id);
+                if (req) openModal(req);
+            });
+        }
+
+        const overlay = $("#modalOverlay");
+        const closeBtn = $("#modalClose");
+        if (overlay) overlay.addEventListener("click", closeModal);
+        if (closeBtn) closeBtn.addEventListener("click", closeModal);
+        document.addEventListener("keydown", (ev) => { if (ev.key === "Escape") closeModal(); });
+
+        const filterContainer = $("#statusFilters");
+        if (filterContainer) {
+            filterContainer.querySelectorAll('input[type="checkbox"]').forEach(cb => {
+                cb.addEventListener("change", () => render());
+            });
+        }
+    }
+
+    bindOnce();
+    window.addEventListener("DOMContentLoaded", () => loadData(false));
 </script>
 {% endblock %}
