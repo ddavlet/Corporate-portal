@@ -17,18 +17,22 @@
     /* “модный” теплый тон (кофейный/тауп) */
     --pill: #f1ede7;
     --warm: #b89a7a;
-    /* для мягких теплых нюансов */
 }
 
+/* reset */
 * {
     box-sizing: border-box;
+}
+
+html,
+body {
+    height: 100%;
 }
 
 body {
     margin: 0;
     font: 13px/1.25 ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial, "Noto Sans", "Apple Color Emoji", "Segoe UI Emoji";
     color: var(--text);
-    /* очень легкая “бумажная” подложка, без ярких градиентов */
     background:
         radial-gradient(900px 600px at 15% 0%, rgba(184, 154, 122, .08), transparent 55%),
         radial-gradient(800px 500px at 95% 10%, rgba(90, 85, 75, .06), transparent 55%),
@@ -78,7 +82,6 @@ button {
 
 button:hover {
     background: rgba(241, 237, 231, .9);
-    /* теплый hover */
 }
 
 .filter {
@@ -95,7 +98,6 @@ button:hover {
 
 .filter input {
     accent-color: #b89a7a;
-    /* тёплый акцент */
     cursor: pointer;
 }
 
@@ -174,7 +176,6 @@ tbody tr {
 
 tbody tr:hover {
     background: rgba(241, 237, 231, .8);
-    /* теплый, спокойный */
 }
 
 .mono {
@@ -254,7 +255,7 @@ tbody tr:hover {
     font-size: 11px;
 }
 
-/* ===== Modal (ВОССТАНОВЛЕНО как в старой версии) ===== */
+/* ===== Modal ===== */
 #modal {
     display: none;
     position: fixed;
@@ -367,7 +368,103 @@ tbody tr:hover {
     align-items: flex-end;
 }
 
-/* Responsive table */
+/* ===== Login additions ===== */
+.auth-wrap {
+    min-height: calc(100vh - 44px);
+    display: grid;
+    place-items: center;
+    padding: 24px 14px;
+}
+
+.auth-card {
+    width: 100%;
+    max-width: 420px;
+    padding: 18px;
+}
+
+.auth-brand {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    margin-bottom: 14px;
+}
+
+.auth-brand .logo {
+    font-weight: 800;
+    letter-spacing: .2px;
+}
+
+.auth-brand .hint {
+    color: var(--muted);
+    font-size: 12px;
+}
+
+.form {
+    display: grid;
+    gap: 12px;
+}
+
+.field label {
+    display: block;
+    font-size: 12px;
+    color: var(--muted);
+    margin-bottom: 6px;
+}
+
+.field input {
+    width: 100%;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 10px 12px;
+    background: rgba(255, 255, 255, .85);
+    color: var(--text);
+    outline: none;
+}
+
+.field input:focus {
+    border-color: rgba(184, 154, 122, .55);
+    box-shadow: 0 0 0 4px rgba(184, 154, 122, .14);
+    background: rgba(255, 255, 255, .92);
+}
+
+.auth-actions {
+    display: flex;
+    gap: 10px;
+    margin-top: 8px;
+}
+
+.auth-actions .btn,
+.auth-actions button {
+    flex: 1;
+    justify-content: center;
+}
+
+.error {
+    border: 1px solid rgba(239, 68, 68, .35);
+    background: rgba(239, 68, 68, .08);
+    color: #7a1f1f;
+    border-radius: 12px;
+    padding: 10px 12px;
+}
+
+.help-row {
+    display: flex;
+    justify-content: space-between;
+    gap: 10px;
+    margin-top: 10px;
+}
+
+.help-row a {
+    color: var(--text);
+    text-decoration: none;
+    border-bottom: 1px dashed rgba(60, 60, 67, .28);
+}
+
+.help-row a:hover {
+    border-bottom-color: rgba(184, 154, 122, .75);
+}
+
+/* Responsive */
 @media (max-width: 720px) {
     .wrap {
         padding: 0 10px;
