@@ -1,0 +1,92 @@
+{% extends "layout/base.html" %}
+
+{% block title %}Заявки{% endblock %}
+
+{% block page_h1 %}Заявки{% endblock %}
+{% block page_sub %}Короткий список. Нажмите на заявку, чтобы открыть детали и согласования.{% endblock %}
+
+{% block header_actions %}
+<a class="btn btn-primary" href="/request" target="_blank" rel="noopener" title="Создать новую заявку">
+    + Новая заявка
+</a>
+
+<a class="btn" href="/vendors" title="Список поставщиков">
+    Поставщики
+</a>
+
+<button id="reloadBtn" title="Загрузить свежие данные из API">
+    Обновить
+</button>
+{% endblock %}
+
+{% block header_extra %}
+<div class="controls" id="statusFilters">
+    <label class="filter"><input type="checkbox" value="APPROVED" checked> APPROVED</label>
+    <label class="filter"><input type="checkbox" value="REJECTED" checked> REJECTED</label>
+    <label class="filter"><input type="checkbox" value="pending" checked> PENDING</label>
+    <label class="filter"><input type="checkbox" value="1" checked> STATUS 1</label>
+    <label class="filter"><input type="checkbox" value="2" checked> STATUS 2</label>
+    <label class="filter"><input type="checkbox" value="3" checked> STATUS 3</label>
+    <label class="filter"><input type="checkbox" value="PAYED" checked> PAYED</label>
+</div>
+{% endblock %}
+
+{% block content %}
+<div class="card">
+    <div class="table-wrap">
+        <table id="tbl" aria-label="Таблица заявок">
+            <colgroup>
+                <col style="width:60px" />
+                <col style="width:210px" />
+                <col style="width:420px" />
+                <col style="width:150px" />
+                <col style="width:120px" />
+                <col style="width:160px" />
+                <col style="width:120px" />
+            </colgroup>
+            <thead>
+                <tr>
+                    <th>ID</th>
+                    <th>Поставщик</th>
+                    <th>Название / Назначение</th>
+                    <th class="right">Сумма</th>
+                    <th>Статус</th>
+                    <th class="hide-sm">Заявитель</th>
+                    <th class="hide-sm">Отправлено</th>
+                </tr>
+            </thead>
+            <tbody></tbody>
+        </table>
+    </div>
+
+    <div class="footer">
+        <div class="small muted" id="meta"></div>
+        <div class="small muted">Подсказка: нажмите на любую строку</div>
+    </div>
+</div>
+
+<!-- Modal -->
+<div id="modal">
+    <div id="modalOverlay"></div>
+    <div id="modalPanel" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+        <div id="modalHeader">
+            <div style="min-width:0">
+                <div id="modalTitle" class="truncate">Заявка</div>
+                <div id="modalSub" class="small muted truncate"></div>
+            </div>
+            <button id="modalClose" title="Закрыть">Закрыть</button>
+        </div>
+        <div id="modalBody"></div>
+    </div>
+</div>
+{% endblock %}
+
+{% block footer_left %}
+<span class="muted">Статус:</span> <span class="muted" id="tenantMeta"></span>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    // сюда вставляешь твой текущий JS (почти без изменений)
+</script>
+{% endblock %}
