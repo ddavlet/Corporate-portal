@@ -92,9 +92,10 @@ TEMPLATES = [
 
 WSGI_APPLICATION = 'config.wsgi.application'
 
-
-N8N_PUBLIC_BASE_DOMAIN = "kolberg.uz"
+BASE_DOMAIN = "kolberg.uz"
 N8N_TOKEN = os.getenv("N8N_TOKEN", "")
+
+LOGIN_HOST = "login.kolberg.uz"
 
 
 # Database
