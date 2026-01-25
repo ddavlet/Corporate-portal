@@ -7,16 +7,18 @@
 <!-- Локальная панель под общим header -->
 <div class="card" style="margin-bottom:12px">
     <div
-        style="padding:12px; display:flex; gap:12px; align-items:flex-start; justify-content:space-between; flex-wrap:wrap;">
+        class="panel">
         <div>
             <h1 style="margin:0">Заявки</h1>
             <div class="sub">Короткий список. Нажмите на заявку, чтобы открыть детали и согласования.</div>
         </div>
 
         <div class="controls">
-            <a class="btn btn-primary" href="/request" target="_blank" rel="noopener">+ Новая заявка</a>
-            <a class="btn" href="/web/vendors">Поставщики</a>
+            <a class="btn btn-primary" href="/request/" target="_blank" rel="noopener">+ Новая заявка</a>
+            <a class="btn" href="/web/vendors/">Поставщики</a>
+            <a class="btn" href="/web/">На главную</a>
             <button id="reloadBtn">Обновить</button>
+
         </div>
 
         <div class="controls" id="statusFilters">
@@ -84,7 +86,7 @@
 {% block scripts %}
 <script>
     // API endpoint (через /web/*, как в твоей архитектуре)
-    const API_URL = "/web/requests-data";
+    const API_URL = "/web/requests-data/";
 
     // Optional fallback:
     const EMBEDDED_DATA = null;

@@ -98,6 +98,8 @@ N8N_TOKEN = os.getenv("N8N_TOKEN", "")
 LOGIN_HOST = "login.kolberg.uz"
 
 
+APPEND_SLASH = True
+
 # Database
 # https://docs.djangoproject.com/en/5.2/ref/settings/#databases
 
