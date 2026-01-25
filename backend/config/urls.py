@@ -10,6 +10,19 @@ urlpatterns = [
     path("logout/", portal.logout_view),
     path("choose-tenant/", portal.choose_tenant_view),
 
+    # password management
+    path("password/change/", auth_views.PasswordChangeView.as_view(
+            template_name="auth/password_change.html",
+            success_url="/password/change/done/",
+        ),
+        name="password_change",
+    ),
+    path("password/change/done/", auth_views.PasswordChangeDoneView.as_view(
+            template_name="auth/password_change_done.html",
+        ),
+        name="password_change_done",
+    ),
+
     # portal pages (на subdomain.kolberg.uz)
     path("web/requests", portal.requests_page),
     path("web/vendors", portal.vendors_page),
