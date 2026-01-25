@@ -1,8 +1,9 @@
+import requests
 from urllib.parse import urlparse
-
 from django.contrib.auth import authenticate, login, logout
 from django.shortcuts import render, redirect
-from django.http import HttpResponseForbidden
+from django.http import JsonResponse, HttpResponseForbidden, HttpResponseServerError
+from django.conf import settings
 from apps.core.models import Membership, Tenant
 
 BASE_DOMAIN = "kolberg.uz"
@@ -93,13 +94,57 @@ def logout_view(request):
 
 
 def requests_page(request):
+    if not request.user.is_authenticated:
+        return redirect("/login/")
     # пока просто страница-заглушка (позже вставим твой шаблон requests.html)
     return render(request, "requests.html")
 
 def vendors_page(request):
+    if not request.user.is_authenticated:
+        return redirect("/login/")
     # страница-заглушка (позже сделаем список поставщиков)
     return render(request, "vendors.html")
 
+
+def _proxy_n8n_json(request, endpoint: str):
+    if not request.user.is_authenticated:
+        return HttpResponseForbidden("Login required")
+
+    tenant = getattr(request, "tenant", None)
+    if not tenant:
+        return HttpResponseForbidden("No tenant")
+
+    url = f"https://{tenant.subdomain}.{settings.N8N_PUBLIC_BASE_DOMAIN}/{endpoint.lstrip('/')}"
+
+    try:
+        resp = requests.get(
+            url,
+            params=request.GET,
+            timeout=20,
+            headers={
+                "Accept": "application/json",
+                "X-N8N-Token": settings.N8N_TOKEN,
+                "X-Tenant": tenant.subdomain,
+                "X-User-Id": str(request.user.id),
+            },
+        )
+
+        if resp.status_code in (401, 403):
+            return HttpResponseForbidden("Forbidden by n8n")
+        if resp.status_code >= 400:
+            return HttpResponseServerError(f"n8n error {resp.status_code}")
+
+        return JsonResponse(resp.json(), safe=False)
+    except requests.RequestException as e:
+        return HttpResponseServerError(f"n8n request failed: {e}")
+
 def requests_data(request):
-    # временно отдаём пустые данные, чтобы фронт/JS не падал
-    return JsonResponse({"requests": [], "approvals": [], "users": []})
+    return _proxy_n8n_json(request, "/requests-data")
+
+
+def vendors_data(request):
+    return _proxy_n8n_json(request, "/vendors-data")
+
+def vendor_request_data(request):
+    return _proxy_n8n_json(request, "/vendor-request-data")
+

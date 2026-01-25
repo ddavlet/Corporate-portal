@@ -14,4 +14,6 @@ urlpatterns = [
     path("web/requests", portal.requests_page),
     path("web/vendors", portal.vendors_page),
     path("web/requests-data", portal.requests_data),
+    path("web/vendors-data", portal.vendors_data),
+    path("web/vendor-request-data", portal.vendor_request_data),
 ]

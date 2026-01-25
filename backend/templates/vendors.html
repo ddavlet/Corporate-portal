@@ -65,8 +65,8 @@
 {% block scripts %}
 <script>
     const CURRENT_HOST = (location && location.host) || "neuron.kolberg.uz";
-    const VENDORS_API_URL = `https://${CURRENT_HOST}/vendors-data`;
-    const VENDOR_REQUESTS_API_URL = `https://${CURRENT_HOST}/vendor-request-data`;
+    const VENDORS_API_URL = `https://${CURRENT_HOST}/web/vendors-data`;
+    const VENDOR_REQUESTS_API_URL = `https://${CURRENT_HOST}/web/vendor-request-data`;
 
     const $ = (s) => document.querySelector(s);
 
