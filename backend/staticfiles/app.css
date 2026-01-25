@@ -496,3 +496,138 @@ tbody tr:hover {
         max-width: 38vw;
     }
 }
+
+.container {
+    width: 100%;
+    max-width: 980px;
+    margin: 0 auto;
+}
+
+/* внутренние отступы для карточек-контента */
+.card-pad {
+    padding: 16px;
+}
+
+/* заголовок внутри карточки (если нужен второй h1/h2) */
+.page-title {
+    font-size: 16px;
+    margin: 0 0 6px 0;
+}
+
+.page-sub {
+    margin: 0;
+    color: var(--muted);
+    font-size: 12px;
+}
+
+/* простая вертикальная сетка для страниц типа “меню” */
+.stack {
+    display: grid;
+    gap: 10px;
+}
+
+.hr {
+    height: 1px;
+    background: var(--border);
+    border: 0;
+    margin: 12px 0;
+}
+
+/* ссылки в тексте */
+a.link {
+    color: var(--text);
+    text-decoration: none;
+    border-bottom: 1px dashed rgba(60, 60, 67, .28);
+}
+
+a.link:hover {
+    border-bottom-color: rgba(184, 154, 122, .75);
+}
+
+/* ===== Django form helpers (applies everywhere) ===== */
+
+/* стандартные ошибки Django: <ul class="errorlist"><li>...</li></ul> */
+.errorlist {
+    margin: 6px 0 0;
+    padding: 0;
+    list-style: none;
+    color: var(--bad);
+    font-size: 12px;
+}
+
+.helptext {
+    display: block;
+    margin-top: 6px;
+    font-size: 12px;
+    color: var(--muted);
+}
+
+/* универсальные поля (на случай textarea/select/и т.п.) */
+.field select,
+.field textarea {
+    width: 100%;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 10px 12px;
+    background: rgba(255, 255, 255, .85);
+    color: var(--text);
+    outline: none;
+}
+
+.field textarea {
+    min-height: 110px;
+    resize: vertical;
+}
+
+.field select:focus,
+.field textarea:focus {
+    border-color: rgba(184, 154, 122, .55);
+    box-shadow: 0 0 0 4px rgba(184, 154, 122, .14);
+    background: rgba(255, 255, 255, .92);
+}
+
+/* чекбоксы/радио в формах */
+.field input[type="checkbox"],
+.field input[type="radio"] {
+    width: auto;
+    padding: 0;
+    margin: 0 6px 0 0;
+    accent-color: #b89a7a;
+}
+
+/* disabled состояние */
+button:disabled,
+.btn[aria-disabled="true"] {
+    opacity: .55;
+    cursor: not-allowed;
+}
+
+/* маленькие “карточки-строки” для меню (tenant home / choose tenant) */
+.item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 14px;
+    border-top: 1px solid var(--border);
+}
+
+.item:first-child {
+    border-top: 0;
+}
+
+.item-title {
+    font-weight: 700;
+}
+
+.item-sub {
+    font-size: 12px;
+    color: var(--muted);
+    margin-top: 2px;
+}
+
+.chev {
+    font-size: 18px;
+    line-height: 1;
+    color: rgba(60, 60, 67, .7);
+}

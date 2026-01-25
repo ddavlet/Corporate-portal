@@ -4,30 +4,39 @@ from django.shortcuts import render, redirect
 from django.http import HttpResponseForbidden
 from django.conf import settings
 from apps.core.models import Membership, Tenant
+from django.utils.http import url_has_allowed_host_and_scheme
+from django.contrib.auth.forms import PasswordChangeForm
+from django.contrib.auth import update_session_auth_hash
 
 # Create your views here.
-def _safe_next(next_url: str) -> str:
-    """
-    Разрешаем редирект только на *.kolberg.uz, чтобы не было open redirect.
-    """
+def _safe_next(request, next_url: str) -> str:
     if not next_url:
         return ""
+
+    # разрешим относительные ссылки (в рамках login домена)
+    if next_url.startswith("/"):
+        return next_url
+
+    allowed = {settings.BASE_DOMAIN, f"login.{settings.BASE_DOMAIN}"}
+    # можно разрешить любой сабдомен базы:
+    # но url_has_allowed_host_and_scheme требует явный host, поэтому проще проверить через парсинг:
     try:
-        u = urlparse(next_url)
-        host = (u.hostname or "").lower()
+        host = (urlparse(next_url).hostname or "").lower()
         if host.endswith("." + settings.BASE_DOMAIN) or host == settings.BASE_DOMAIN:
-            return next_url
+            if url_has_allowed_host_and_scheme(next_url, allowed_hosts={host}, require_https=True):
+                return next_url
     except Exception:
         pass
+
     return ""
 
 def login_view(request):
     if request.method == "GET":
-        return render(request, "login.html", {"next": request.GET.get("next", "")})
+        return render(request, "auth/login.html", {"next": request.GET.get("next", "")})
 
     username = (request.POST.get("username") or "").strip()
     password = request.POST.get("password") or ""
-    next_url = _safe_next(request.POST.get("next") or request.GET.get("next") or "")
+    next_url = _safe_next(request, request.POST.get("next") or request.GET.get("next") or "")
 
     user = authenticate(request, username=username, password=password)
     if not user:
@@ -56,7 +65,7 @@ def login_view(request):
     # Одна компания → сразу туда
     if len(tenants) == 1:
         t = tenants[0]
-        return redirect(f"https://{t.subdomain}.kolberg.uz/web/requests")
+        return redirect(f"https://{t.subdomain}.{settings.BASE_DOMAIN}/web/requests")
 
     # Несколько → выбор компании
     request.session["tenant_choices"] = [t.id for t in tenants]
@@ -68,28 +77,18 @@ def choose_tenant_view(request):
     if not request.user.is_authenticated:
         return redirect("/login/")
 
-    tenants = list(
-        Tenant.objects.filter(
-            is_active=True,
-            membership__user=request.user,
-            membership__is_active=True,
-        ).distinct().order_by("name")
+    memberships = list(
+        Membership.objects.select_related("tenant")
+        .filter(user=request.user, is_active=True, tenant__is_active=True)
+        .order_by("tenant__name")
     )
 
-    if request.method == "GET":
-        return render(request, "choose_tenant.html", {"tenants": tenants})
+    # если доступ только к одной компании — сразу туда
+    if len(memberships) == 1:
+        t = memberships[0].tenant
+        return redirect(f"https://{t.subdomain}.{settings.BASE_DOMAIN}/web/requests")
 
-    tid = request.POST.get("tenant_id")
-    t = next((x for x in tenants if str(x.id) == str(tid)), None)
-    if not t:
-        return render(request, "choose_tenant.html", {"tenants": tenants, "error": "Выберите компанию"})
-
-    next_url = _safe_next(request.session.get("post_login_next") or "")
-    if next_url:
-        # если next уже на нужный сабдомен — редиректим туда
-        return redirect(next_url)
-
-    return redirect(f"https://{t.subdomain}.{settings.BASE_DOMAIN}/requests")
+    return render(request, "choose_tenant.html", {"memberships": memberships})
 
 def logout_view(request):
     logout(request)

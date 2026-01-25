@@ -16,6 +16,7 @@ urlpatterns = [
     path("password/change/done/", core.password_change_done),
 
     # portal pages (на subdomain.kolberg.uz)
+    path("web/", portal.tenant_home),
     path("web/requests", portal.requests_page),
     path("web/vendors", portal.vendors_page),
     path("web/requests-data", portal.requests_data),
