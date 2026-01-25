@@ -367,13 +367,6 @@ services:
     networks:
       - backend
 
-  redis_nextcloud:
-    image: redis:alpine
-    restart: always
-    container_name: redis_nextcloud
-    networks:
-      - backend
-
   portainer:
     image: portainer/portainer-ce:latest
     container_name: portainer
@@ -411,6 +404,7 @@ services:
       - traefik.docker.network=n8n_traefik-public
 
       - traefik.http.routers.favicon.rule=(
+        Host(`login.kolberg.uz`) ||
         Host(`neuron.kolberg.uz`) ||
         Host(`invest.kolberg.uz`) ||
         Host(`construction.kolberg.uz`) ||
