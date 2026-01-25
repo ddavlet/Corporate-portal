@@ -26,7 +26,7 @@ SECRET_KEY = 'django-insecure-8prh6$1t!3d&yflo%dgqvfw=!379p&8ib4-5lg@0oll2*w+!dr
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = ["login.kolberg.uz", "lemonfit.kolberg.uz", "neuron.kolberg.uz"]
+ALLOWED_HOSTS = ["login.kolberg.uz", "lemonfit.kolberg.uz", "neuron.kolberg.uz", "lemonfit2.kolberg.uz"]
 
 
 # чтобы сессия была доступна на всех сабдоменах
@@ -91,6 +91,10 @@ TEMPLATES = [
 ]
 
 WSGI_APPLICATION = 'config.wsgi.application'
+
+
+N8N_PUBLIC_BASE_DOMAIN = "kolberg.uz"
+N8N_TOKEN = os.getenv("N8N_TOKEN", "")
 
 
 # Database

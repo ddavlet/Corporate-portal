@@ -448,6 +448,7 @@ services:
       POSTGRES_PORT: 5432
       DJANGO_SECRET_KEY: "1111"
       DJANGO_DEBUG: "True"
+      N8N_TOKEN: ${N8N_TOKEN}
     volumes:
       - ./backend:/app
     depends_on:
@@ -471,7 +472,7 @@ services:
       - traefik.http.routers.django-login.priority=1000
 
       # tenants: только /web/*
-      - traefik.http.routers.django-web.rule=Host(`lemonfit.kolberg.uz`) && PathPrefix(`/web/`)
+      - traefik.http.routers.django-web.rule=(Host(`lemonfit.kolberg.uz`) || Host(`lemonfit2.kolberg.uz`) || Host(`neuron.kolberg.uz`)) && PathPrefix(`/web/`)
       - traefik.http.routers.django-web.entrypoints=web,websecure
       - traefik.http.routers.django-web.tls=true
       - traefik.http.routers.django-web.tls.certresolver=mytlschallenge
@@ -503,7 +504,7 @@ services:
       - traefik.http.routers.staticfiles-login.priority=2000
 
       # ---- tenants /static/* (добавь сюда нужные хосты) ----
-      - traefik.http.routers.staticfiles-tenants.rule=(Host(`lemonfit.kolberg.uz`) || Host(`neuron.kolberg.uz`)) && PathPrefix(`/static/`)
+      - traefik.http.routers.staticfiles-tenants.rule=(Host(`lemonfit.kolberg.uz`) || Host(`lemonfit2.kolberg.uz`) || Host(`neuron.kolberg.uz`)) && PathPrefix(`/static/`)
       - traefik.http.routers.staticfiles-tenants.entrypoints=web,websecure
       - traefik.http.routers.staticfiles-tenants.tls=true
       - traefik.http.routers.staticfiles-tenants.tls.certresolver=mytlschallenge

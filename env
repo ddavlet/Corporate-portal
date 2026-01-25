@@ -21,6 +21,9 @@ POSTGRES_WEB_DB=django
 POSTGRES_WEB_USER=django_user
 POSTGRES_WEB_PASSWORD='d32R32f09gj58h1hfjjf3f1h8'
 
+
+N8N_TOKEN=234f1ffcsa1fDv23rNO32hfnh9fewfbjHJB823ffwhYGO72fhnfHH
+
 # Additional Configuration (if needed)
 # N8N_ENCRYPTION_KEY=your-encryption-key-here
 # N8N_USER_MANAGEMENT_DISABLED=false
