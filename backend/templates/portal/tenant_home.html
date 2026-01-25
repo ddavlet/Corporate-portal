@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{% block content %}
+
+<div class="wrap">
+    <header>
+        <div>
+            <h1>{{ tenant.name|default:"Компания" }}</h1>
+            <div class="sub">Выберите раздел</div>
+        </div>
+
+        <div class="controls">
+            <a class="btn" href="https://{{ login_host }}/password/change/" target="_blank" rel="noopener">
+                Сменить пароль
+            </a>
+            <a class="btn" href="https://{{ login_host }}/logout/?next={{ request.build_absolute_uri|urlencode }}">
+                Выйти
+            </a>
+        </div>
+    </header>
+
+    <div class="card">
+        <div style="padding:16px">
+            <div style="display:grid; gap:12px; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));">
+                <a class="btn btn-primary" href="/web/requests/">
+                    Заявки
+                </a>
+                <a class="btn" href="/web/vendors/">
+                    Поставщики
+                </a>
+                <a class="btn" href="/web/">
+                    Главная
+                </a>
+            </div>
+
+            <div class="small muted" style="margin-top:14px">
+                Вы вошли как: <span class="mono">{{ request.user.username }}</span> •
+                tenant: <span class="mono">{{ tenant.subdomain }}</span>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% endblock %}
