@@ -80,6 +80,15 @@ button {
     cursor: pointer;
 }
 
+.pannel {
+    padding:12px;
+    display:flex;
+    gap:12px;
+    align-items:flex-start;
+    justify-content:space-between;
+    flex-wrap:wrap;
+}
+
 button:hover {
     background: rgba(241, 237, 231, .9);
 }
