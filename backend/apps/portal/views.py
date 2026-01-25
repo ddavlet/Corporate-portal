@@ -33,7 +33,7 @@ def login_view(request):
 
     user = authenticate(request, username=username, password=password)
     if not user:
-        return render(request, "login.html", {"error": "Неверный логин или пароль", "next": next_url})
+        return render(request, "auth/login.html", {"error": "Неверный логин или пароль", "next": next_url})
 
     login(request, user)
 
@@ -92,6 +92,24 @@ def logout_view(request):
     logout(request)
     return redirect("/login/")
 
+def password_change(request):
+    if not request.user.is_authenticated:
+        return redirect("/login/")
+    if request.method == "POST":
+        form = PasswordChangeForm(user=request.user, data=request.POST)
+        if form.is_valid():
+            user = form.save()  # меняет пароль
+            update_session_auth_hash(request, user)  # чтобы не разлогинило
+            return redirect("password_change_done")
+    else:
+        form = PasswordChangeForm(user=request.user)
+
+    return render(request, "auth/password_change.html", {"form": form})
+
+def password_change_done(request):
+    if not request.user.is_authenticated:
+        return redirect("/login/")
+    return render(request, "auth/password_change_done.html")
 
 def requests_page(request):
     if not request.user.is_authenticated:

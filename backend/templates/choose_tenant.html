@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block content %}
+
+<div class="wrap" style="max-width: 640px">
+    <div class="card">
+        <div style="padding: 20px">
+            <h1>Выберите компанию</h1>
+            <div class="sub">У вас есть доступ к нескольким компаниям</div>
+        </div>
+
+        <div style="padding: 12px">
+            {% for m in memberships %}
+            <a href="https://{{ m.tenant.subdomain }}.kolberg.uz/web/" class="btn"
+                style="width:100%; justify-content:space-between; margin-bottom:10px">
+                <span>
+                    <strong>{{ m.tenant.name }}</strong><br>
+                    <span class="small muted">{{ m.tenant.subdomain }}.kolberg.uz</span>
+                </span>
+                →
+            </a>
+            {% endfor %}
+        </div>
+    </div>
+</div>
+
+{% endblock %}
