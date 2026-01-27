@@ -1,62 +1,87 @@
+{% extends "layout/base.html" %}
+{% block title %}Отчёты{% endblock %}
+
+{% block content %}
 <div class="wrap">
     <header>
         <div>
-            <h1>Profit and Loss (P&L)</h1>
-            <div class="sub" id="pnl-meta"></div>
+            <h1><span id="pnl-company">[Company Name]</span></h1>
+            <div class="sub">
+                Profit and Loss (P&amp;L) Statement
+                <span class="muted">[<span id="pnl-unit"></span>]</span>
+            </div>
         </div>
     </header>
 
-    <div class="card table-wrap">
-        <table id="pnl-table">
+    <div class="card table-wrap pnl-card">
+        <table id="pnl-table" class="pnl">
             <thead>
-                <tr id="pnl-head">
-                    <th>USD $m</th>
+                <tr class="pnl-top">
+                    <th class="pnl-left" rowspan="2"> </th>
+                    <th class="pnl-year" id="pnl-year" colspan="13"></th>
+                </tr>
+                <tr id="pnl-head" class="pnl-months">
+                    <!-- месяцы + Full Year придут из JS -->
                 </tr>
             </thead>
             <tbody></tbody>
         </table>
     </div>
 </div>
+
 <script>
+    const fmt = (v) => {
+        if (v === null || v === undefined) return '-';
+        if (typeof v !== 'number') return String(v);
+        const abs = Math.abs(v).toFixed(1);
+        return v < 0 ? `(${abs})` : abs;
+    };
+
     fetch('/web/pnl-data')
         .then(r => r.json())
         .then(data => {
-            document.getElementById('pnl-meta').textContent =
-                `${data.year} · ${data.currency} · ${data.unit}`;
+            document.getElementById('pnl-company').textContent = data.company ?? '[Company Name]';
+            document.getElementById('pnl-unit').textContent = `${data.currency} $ ${data.unit}`;
+            document.getElementById('pnl-year').textContent = data.year;
+            document.getElementById('pnl-year').setAttribute('colspan', data.months.length + 1);
 
             const head = document.getElementById('pnl-head');
-            data.months.forEach(m => {
-                head.insertAdjacentHTML('beforeend', `<th class="right">${m}</th>`);
-            });
+            head.innerHTML = '';
+            data.months.forEach(m => head.insertAdjacentHTML('beforeend', `<th class="right">${m}</th>`));
             head.insertAdjacentHTML('beforeend', `<th class="right">Full Year</th>`);
 
             const tbody = document.querySelector('#pnl-table tbody');
+            tbody.innerHTML = '';
 
             data.rows.forEach(row => {
                 if (row.section) {
                     tbody.insertAdjacentHTML('beforeend', `
-          <tr class="section">
-            <td colspan="${data.months.length + 2}">${row.label}</td>
-          </tr>
-        `);
+            <tr class="pnl-section">
+              <td class="pnl-left" colspan="${data.months.length + 2}">${row.label}</td>
+            </tr>
+          `);
                     return;
                 }
 
-                const indent = row.indent ? `padding-left:${row.indent * 20}px` : '';
-                const cls = [
-                    row.bold ? 'bold' : '',
-                    row.style === 'negative' ? 'neg' : ''
-                ].join(' ');
+                const indentPx = (row.indent || 0) * 18;
+                const trCls = [
+                    row.bold ? 'pnl-bold' : '',
+                    row.ruleTop ? 'pnl-rule-top' : '',
+                ].join(' ').trim();
 
-                let tr = `<tr class="${cls}">
-        <td style="${indent}">${row.label}</td>`;
+                let tr = `<tr class="${trCls}">
+          <td class="pnl-left" style="padding-left:${indentPx}px">${row.label}</td>`;
 
-                row.values.forEach(v => {
-                    tr += `<td class="right">${v.toFixed(1)}</td>`;
+                (row.values || []).forEach(v => {
+                    const isNeg = typeof v === 'number' && v < 0;
+                    tr += `<td class="right ${isNeg ? 'pnl-neg' : ''}">${fmt(v)}</td>`;
                 });
 
-                tr += `<td class="right">${row.total.toFixed(1)}</td></tr>`;
+                const isNegT = typeof row.total === 'number' && row.total < 0;
+                tr += `<td class="right ${isNegT ? 'pnl-neg' : ''}">${fmt(row.total)}</td></tr>`;
+
                 tbody.insertAdjacentHTML('beforeend', tr);
             });
         });
 </script>
+{% endblock %}
