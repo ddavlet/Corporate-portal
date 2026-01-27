@@ -22,4 +22,7 @@ urlpatterns = [
     path("web/requests-data/", portal.requests_data),
     path("web/vendors-data/", portal.vendors_data),
     path("web/vendor-request-data/", portal.vendor_request_data),
+    path("web/reports", portal.reports_page),
+    path("web/reports/pnl/", portal.pnl_page),
+    path("web/pnl-data/", portal.pnl_data),
 ]

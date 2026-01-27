@@ -1,0 +1,65 @@
+{% extends "layout/base.html" %}
+{% block title %}Отчёты{% endblock %}
+
+{% block content %}
+<div class="wrap">
+    <header>
+        <div>
+            <h1>Отчёты</h1>
+            <div class="sub">
+                Финансовые отчёты компании. Нажмите на отчёт, чтобы открыть детали.
+            </div>
+        </div>
+        <div class="controls">
+            <a class="btn" href="/web/requests/" title="К заявкам">← Заявки</a>
+        </div>
+    </header>
+
+    <div class="card">
+        <div class="table-wrap">
+            <table aria-label="Таблица отчетов">
+                <colgroup>
+                    <col style="width: 520px" />
+                    <col style="width: 220px" />
+                    <col style="width: 240px" />
+                </colgroup>
+                <thead>
+                    <tr>
+                        <th>Отчёт</th>
+                        <th>Раздел</th>
+                        <th>Описание</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr class="clickable" data-href="/web/reports/pnl/">
+                        <td><strong>P&amp;L</strong></td>
+                        <td>Финансы</td>
+                        <td class="muted">Отчёт о прибылях и убытках</td>
+                    </tr>
+
+                    <tr class="clickable" data-href="/web/reports/cashflow/">
+                        <td><strong>Cashflow</strong></td>
+                        <td>Финансы</td>
+                        <td class="muted">Движение денежных средств</td>
+                    </tr>
+
+                    <tr class="clickable" data-href="/web/reports/investments/">
+                        <td><strong>Investments</strong></td>
+                        <td>Инвестиции</td>
+                        <td class="muted">Инвестиции и доли участия</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<script>
+    // переход по клику на строку таблицы
+    document.addEventListener("click", function (e) {
+        const row = e.target.closest("tr[data-href]");
+        if (!row) return;
+        window.location.href = row.dataset.href;
+    });
+</script>
+{% endblock %}

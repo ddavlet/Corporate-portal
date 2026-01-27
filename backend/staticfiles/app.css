@@ -137,7 +137,7 @@ button:hover {
 }
 
 .card {
-    background: rgba(255, 254, 252, .88);
+    background: rgba(34, 34, 33, 0.88);
     border: 1px solid var(--border);
     border-radius: 16px;
     box-shadow: var(--shadow);
@@ -147,6 +147,8 @@ button:hover {
 
 .table-wrap {
     overflow: auto;
+    padding-left: 16px;
+    padding-right: 10px;
 }
 
 table {
@@ -504,6 +506,9 @@ tbody tr:hover {
     .truncate {
         max-width: 38vw;
     }
+    table.pnl {
+        min-width: 980px;
+    }
 }
 
 .container {
@@ -639,4 +644,68 @@ button:disabled,
     font-size: 18px;
     line-height: 1;
     color: rgba(60, 60, 67, .7);
+}
+
+table.pnl {
+    min-width: 1100px;
+    /* отчет широкий */
+    table-layout: fixed;
+}
+
+table.pnl th.pnl-left,
+table.pnl td.pnl-left {
+    width: 360px;
+    /* широкая колонка статей */
+}
+
+/* P&L — не кликабельная таблица */
+table.pnl tbody tr {
+    cursor: default;
+}
+
+table.pnl tbody tr:hover {
+    background: transparent;
+}
+
+/* Двухуровневый thead: верхняя строка с годом чуть “тише” */
+table.pnl thead tr.pnl-top th {
+    font-size: 11px;
+    color: var(--muted);
+    letter-spacing: .02em;
+}
+
+/* Месяцы — как обычный sticky thead, но чуть плотнее */
+table.pnl thead tr.pnl-months th {
+    padding-top: 8px;
+    padding-bottom: 8px;
+}
+
+/* Секции (Expenses, Revenue, …) */
+table.pnl tbody tr.pnl-section td {
+    font-weight: 800;
+    color: var(--text);
+    background: rgba(241, 237, 231, .45);
+    /* мягкий теплый как у тебя */
+    border-bottom: 1px solid var(--border);
+}
+
+/* Итоги жирным (Total, Gross Profit, …) */
+table.pnl tbody tr.pnl-bold td {
+    font-weight: 800;
+}
+
+/* Толстая линия перед ключевыми итогами */
+table.pnl tbody tr.pnl-rule-top td {
+    border-top: 2px solid rgba(29, 29, 31, .55);
+}
+
+/* Отрицательные значения (в JS они в скобках, тут — цвет) */
+table.pnl td.pnl-neg {
+    color: var(--bad);
+}
+
+/* Чуть плотнее цифры, чтобы "как в отчете" */
+table.pnl td.right,
+table.pnl th.right {
+    font-variant-numeric: tabular-nums;
 }

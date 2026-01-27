@@ -4,10 +4,10 @@ from django.http import JsonResponse, HttpResponseForbidden, HttpResponseServerE
 from django.conf import settings
 from django.contrib.auth.decorators import login_required
 
-from portal.decorator import require_finance_report_access
+from apps.portal.decorator import require_finance_report_access
 
 
-@login_required(login_url="/login/")
+
 def tenant_home(request):
 
     tenant = getattr(request, "tenant", None)
@@ -21,17 +21,17 @@ def tenant_home(request):
         },
     )
 
-@login_required(login_url="/login/")
+
 def requests_page(request):
     # пока просто страница-заглушка (позже вставим твой шаблон requests.html)
     return render(request, "portal/requests.html")
 
-@login_required(login_url="/login/")
+
 def vendors_page(request):
     # страница-заглушка (позже сделаем список поставщиков)
     return render(request, "portal/vendors.html")
 
-@login_required(login_url="/login/")
+
 def _proxy_n8n_json(request, endpoint: str):
 
     tenant = getattr(request, "tenant", None)
@@ -62,19 +62,19 @@ def _proxy_n8n_json(request, endpoint: str):
     except requests.RequestException as e:
         return HttpResponseServerError(f"n8n request failed: {e}")
 
-@login_required(login_url="/login/")
+
 def requests_data(request):
     return _proxy_n8n_json(request, "/requests-data")
 
-@login_required(login_url="/login/")
+
 def vendors_data(request):
     return _proxy_n8n_json(request, "/vendors-data")
 
-@login_required(login_url="/login/")
+
 def vendor_request_data(request):
     return _proxy_n8n_json(request, "/vendor-request-data")
 
-@login_required(login_url="/login/")
+
 @require_finance_report_access
 def pnl_data(request):
     data = {
@@ -120,7 +120,11 @@ def pnl_data(request):
     return JsonResponse(data)
 
 
-@login_required(login_url="/login/")
+@require_finance_report_access
+def reports_page(request):
+    return render(request, 'portal/reports/reports.html')
+
+
 @require_finance_report_access
 def pnl_page(request):
     return render(request, "portal/reports/pnl.html")

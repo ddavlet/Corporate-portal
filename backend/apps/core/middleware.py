@@ -44,11 +44,15 @@ class TenantMiddleware:
             next_url = request.build_absolute_uri()
             return redirect(f"https://{LOGIN_HOST}/login/?next={quote(next_url)}")
 
-        # 4) Проверяем membership
-        ok = Membership.objects.filter(
-            user=request.user, tenant=tenant, is_active=True
-        ).exists()
-        if not ok:
+        # 4) Проверяем membership + кладём в request
+        m = (
+            Membership.objects
+            .select_related("tenant", "user")
+            .filter(user=request.user, tenant=tenant, is_active=True)
+            .first()
+        )
+        if not m:
             return HttpResponseForbidden("No access to this tenant")
 
+        request.membership = m
         return self.get_response(request)
