@@ -25,4 +25,5 @@ urlpatterns = [
     path("web/reports", portal.reports_page),
     path("web/reports/pnl/", portal.pnl_page),
     path("web/pnl-data/", portal.pnl_data),
+    path("web/file", portal.get_file),
 ]

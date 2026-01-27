@@ -243,7 +243,7 @@
             ${escapeHtml(c.contract_status ?? "")}
           </div>
           ${c.acc_number ? `<div class="small muted tight mono">Р/с: ${escapeHtml(c.acc_number)}</div>` : ``}
-          ${c.file_link ? `<div class="small tight"><a class="btn" href="${escapeHtml(c.file_link)}" target="_blank" rel="noopener">Файл</a></div>` : ``}
+          ${c.file_link ? `<div class="small tight"><a class="btn" href="${escapeHtml(c.file_link.replaceAll('getfile', 'web/file'))}" target="_blank" rel="noopener">Файл</a></div>` : ``}
         </div>
       </div>
     `).join("");
