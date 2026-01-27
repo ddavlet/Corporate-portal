@@ -23,6 +23,8 @@ class Membership(models.Model):
         choices=[("admin", "admin"), ("manager", "manager"), ("viewer", "viewer")],
     )
 
+    can_view_finance_report = models.BooleanField(default=False)
+
     class Meta:
         unique_together = [("user", "tenant")]
 

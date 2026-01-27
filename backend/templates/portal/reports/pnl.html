@@ -1,0 +1,62 @@
+<div class="wrap">
+    <header>
+        <div>
+            <h1>Profit and Loss (P&L)</h1>
+            <div class="sub" id="pnl-meta"></div>
+        </div>
+    </header>
+
+    <div class="card table-wrap">
+        <table id="pnl-table">
+            <thead>
+                <tr id="pnl-head">
+                    <th>USD $m</th>
+                </tr>
+            </thead>
+            <tbody></tbody>
+        </table>
+    </div>
+</div>
+<script>
+    fetch('/web/pnl-data')
+        .then(r => r.json())
+        .then(data => {
+            document.getElementById('pnl-meta').textContent =
+                `${data.year} · ${data.currency} · ${data.unit}`;
+
+            const head = document.getElementById('pnl-head');
+            data.months.forEach(m => {
+                head.insertAdjacentHTML('beforeend', `<th class="right">${m}</th>`);
+            });
+            head.insertAdjacentHTML('beforeend', `<th class="right">Full Year</th>`);
+
+            const tbody = document.querySelector('#pnl-table tbody');
+
+            data.rows.forEach(row => {
+                if (row.section) {
+                    tbody.insertAdjacentHTML('beforeend', `
+          <tr class="section">
+            <td colspan="${data.months.length + 2}">${row.label}</td>
+          </tr>
+        `);
+                    return;
+                }
+
+                const indent = row.indent ? `padding-left:${row.indent * 20}px` : '';
+                const cls = [
+                    row.bold ? 'bold' : '',
+                    row.style === 'negative' ? 'neg' : ''
+                ].join(' ');
+
+                let tr = `<tr class="${cls}">
+        <td style="${indent}">${row.label}</td>`;
+
+                row.values.forEach(v => {
+                    tr += `<td class="right">${v.toFixed(1)}</td>`;
+                });
+
+                tr += `<td class="right">${row.total.toFixed(1)}</td></tr>`;
+                tbody.insertAdjacentHTML('beforeend', tr);
+            });
+        });
+</script>

@@ -85,11 +85,7 @@
 
 {% block scripts %}
 <script>
-    // API endpoint (через /web/*, как в твоей архитектуре)
     const API_URL = "/web/requests-data/";
-
-    // Optional fallback:
-    const EMBEDDED_DATA = null;
 
     let apiResponse = { requests: [], approvals: [], users: [] };
     let requests = [];
@@ -326,13 +322,8 @@
             setMeta(`Заявок: ${requests.length}`);
         } catch (err) {
             console.error(err);
-            if (EMBEDDED_DATA) {
-                applyData(EMBEDDED_DATA);
-                setMeta(`Заявок: ${requests.length} (встроенные данные)`);
-            } else {
-                applyData({ requests: [], approvals: [], users: [] });
-                setMeta(`Не удалось загрузить. ${err?.message || err}`);
-            }
+            applyData({ requests: [], approvals: [], users: [] });
+            setMeta(`Не удалось загрузить. ${err?.message || err}`);
         }
     }
 
