@@ -88,7 +88,7 @@ def choose_tenant_view(request):
         t = memberships[0].tenant
         return redirect(f"https://{t.subdomain}.{settings.BASE_DOMAIN}/web/requests")
 
-    return render(request, "choose_tenant.html", {"memberships": memberships})
+    return render(request, "auth/choose_tenant.html", {"memberships": memberships})
 
 def logout_view(request):
     logout(request)
