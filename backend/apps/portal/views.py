@@ -138,10 +138,12 @@ def _proxy_n8n_file(request):
             return HttpResponseServerError(f"n8n error {resp.status_code}")
 
         # Stream back to user
+        content_type = resp.headers.get("Content-Type", "application/octet-stream")
+
         proxy = StreamingHttpResponse(
             streaming_content=resp.iter_content(chunk_size=1024 * 64),
             status=resp.status_code,
-            content_type=resp.headers.get("Content-Type", "application/octet-stream"),
+            content_type=content_type,
         )
 
         # Forward useful headers
@@ -150,11 +152,26 @@ def _proxy_n8n_file(request):
             proxy["Content-Length"] = content_length
 
         content_disp = resp.headers.get("Content-Disposition")
+
+        # Определяем, можем ли показывать файл прямо в браузере
+        inline_types = ("application/pdf", "image/", "text/plain")
+        can_inline = any(
+            content_type.startswith(t) for t in inline_types
+        )
+
         if content_disp:
-            proxy["Content-Disposition"] = content_disp
+            # Если upstream явно просит attachment, уважим это
+            if "attachment" in content_disp.lower():
+                proxy["Content-Disposition"] = content_disp
+            # Иначе пусть будет то, что он прислал (inline / filename и т.п.)
+            else:
+                proxy["Content-Disposition"] = content_disp
         else:
-            # default download name
-            proxy["Content-Disposition"] = f'attachment; filename="{filename}"'
+            # Если это PDF / картинка / текст — открываем во вкладке (inline),
+            # иначе по умолчанию скачиваем.
+            disp_type = "inline" if can_inline else "attachment"
+            safe_name = filename or "file"
+            proxy["Content-Disposition"] = f'{disp_type}; filename="{safe_name}"'
 
         return proxy
 
