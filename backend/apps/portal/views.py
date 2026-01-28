@@ -77,47 +77,7 @@ def vendor_request_data(request):
 
 @require_finance_report_access
 def pnl_data(request):
-    data = {
-        "year": 2018,
-        "currency": "USD",
-        "unit": "millions",
-        "months": ["JAN","FEB","MAR","APR","MAY","JUN","JUL","AUG","SEP","OCT","NOV","DEC"],
-        "rows": [
-            {
-                "key": "revenue_1",
-                "label": "Revenue stream 1",
-                "values": [587.0, 596.3, 605.8, 615.4, 625.2, 635.1, 645.2, 655.4, 665.8, 676.4, 687.1, 698.0],
-                "total": 7692.6
-            },
-            {
-                "key": "returns",
-                "label": "Returns, Refunds, Discounts",
-                "values": [-21.0, -21.3, -21.7, -22.0, -22.4, -22.7, -23.1, -23.5, -23.8, -24.2, -24.6, -25.0],
-                "total": -275.3,
-                "style": "negative"
-            },
-            {
-                "key": "total_net_revenue",
-                "label": "Total Net Revenue",
-                "values": [711.6, 722.9, 734.3, 746.0, 757.8, 769.9, 782.1, 794.5, 807.1, 819.9, 832.9, 846.1],
-                "total": 9325.0,
-                "bold": True
-            },
-            {
-                "key": "expenses",
-                "label": "Expenses",
-                "section": True
-            },
-            {
-                "key": "advertising",
-                "label": "Advertising & Promotion",
-                "values": [18.7, 19.1, 19.5, 19.8, 20.2, 20.6, 21.0, 21.5, 21.9, 22.3, 22.8, 23.2],
-                "total": 250.6,
-                "indent": 1
-            }
-        ]
-    }
-    return JsonResponse(data)
+    return _proxy_n8n_json(request, "/pnl_data")
 
 
 @require_finance_report_access

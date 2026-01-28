@@ -7,7 +7,7 @@
         <div>
             <h1><span id="pnl-company">[Company Name]</span></h1>
             <div class="sub">
-                Profit and Loss (P&amp;L) Statement
+                Отчёт о прибылях и убытках (P&amp;L)
                 <span class="muted">[<span id="pnl-unit"></span>]</span>
             </div>
         </div>
@@ -28,60 +28,350 @@
         </table>
     </div>
 </div>
+<div id="pnl-modal" class="modal" hidden aria-hidden="true">
+    <div class="modal__backdrop" data-close></div>
+    <div class="modal__panel" role="dialog" aria-modal="true" aria-labelledby="pnl-modal-title">
+        <div class="modal__head">
+            <div>
+                <div id="pnl-modal-title" class="modal__title">Details</div>
+                <div id="pnl-modal-sub" class="modal__sub muted"></div>
+            </div>
+            <button class="btn" type="button" data-close>✕</button>
+        </div>
 
+        <div class="modal__body">
+            <div class="table-wrap">
+                <table class="pnl pnl-details">
+                    <colgroup>
+                        <col style="width: 110px" />
+                        <col style="width: 120px" />
+                        <col style="width: 220px" />
+                        <col />
+                        <col style="width: 140px" />
+                    </colgroup>
+                    <thead>
+                        <tr>
+                            <th>Дата</th>
+                            <th>Тип</th>
+                            <th>Источник</th>
+                            <th>Описание</th>
+                            <th class="right">Сумма</th>
+                        </tr>
+                    </thead>
+                    <tbody id="pnl-modal-tbody"></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+</div>
+<script src="https://cdn.jsdelivr.net/npm/luxon@3/build/global/luxon.min.js"></script>
 <script>
+    const numberFmt = new Intl.NumberFormat('en-US', {
+            minimumFractionDigits: 1,
+            maximumFractionDigits: 1,
+        });
+
     const fmt = (v) => {
         if (v === null || v === undefined) return '-';
-        if (typeof v !== 'number') return String(v);
-        const abs = Math.abs(v).toFixed(1);
-        return v < 0 ? `(${abs})` : abs;
+        if (typeof v !== 'number' || Number.isNaN(v)) return '-';
+
+        const abs = Math.abs(v);
+        const formatted = numberFmt.format(abs);
+        return v < 0 ? `(${formatted})` : formatted;
     };
 
+    const parseAmount = (x) => {
+        if (x === null || x === undefined) return 0;
+        if (typeof x === 'number') return x;
+        const s = String(x).replace(/\s+/g, '').replace(',', '.');
+        const n = Number(s);
+        return Number.isFinite(n) ? n : 0;
+    };
+
+    const monthNames = ['Янв', 'Фев', 'Мар', 'Апр', 'Май', 'Июн', 'Июл', 'Авг', 'Сен', 'Окт', 'Ноя', 'Дек'];
+
+
+    const { DateTime } = luxon;
+    const REPORT_TZ = 'Asia/Tashkent';
+
+
+    const dtUZ = (iso) =>
+            DateTime.fromISO(iso, { setZone: true }).setZone(REPORT_TZ);
+    // ---------- Modal helpers ----------
+    const MODAL = {
+        root: document.getElementById('pnl-modal'),
+        title: document.getElementById('pnl-modal-title'),
+        sub: document.getElementById('pnl-modal-sub'),
+        tbody: document.getElementById('pnl-modal-tbody'),
+        open() {
+            this.root.hidden = false;
+            this.root.setAttribute('aria-hidden', 'false');
+            document.body.style.overflow = 'hidden';
+        },
+        close() {
+            this.root.hidden = true;
+            this.root.setAttribute('aria-hidden', 'true');
+            document.body.style.overflow = '';
+            this.tbody.innerHTML = '';
+        }
+    };
+
+    MODAL.root.addEventListener('click', (e) => {
+        if (e.target && e.target.matches('[data-close]')) MODAL.close();
+    });
+    document.addEventListener('keydown', (e) => {
+        if (!MODAL.root.hidden && e.key === 'Escape') MODAL.close();
+    });
+
+    const formatDate = (iso) => dtUZ(iso).toFormat('yyyy-MM-dd');
+
+
+    // Исходные данные (важно для drill-down)
+    const RAW = { revenue: [], expense: [] };
+
+    const showDetails = ({ year, monthIndex = null, category = null, title = 'Details' }) => {
+        // monthIndex: 0..11 или null = весь год
+        const inYear = (it) => {
+            const d = dtUZ(it.date);
+            return d.isValid && d.year === year;
+        };
+
+        const inMonth = (it) => {
+            if (monthIndex === null) return true;
+            const d = dtUZ(it.date);
+            return d.isValid && (d.month - 1) === monthIndex;
+        };
+        const inCategory = (it) => {
+            if (!category) return true;
+            return String(it.cathegory || '') === String(category);
+        };
+
+        const rows = [];
+        for (const it of RAW.revenue) {
+            if (inYear(it) && inMonth(it) && inCategory(it)) rows.push({ ...it, __type: 'revenue' });
+        }
+        for (const it of RAW.expense) {
+            if (inYear(it) && inMonth(it) && inCategory(it)) rows.push({ ...it, __type: 'expense' });
+        }
+
+        // сортировка по дате
+        rows.sort((a, b) => dtUZ(a.date).toMillis() - dtUZ(b.date).toMillis());
+
+       const monthLabel = monthIndex === null ? 'Год' : monthNames[monthIndex];
+        MODAL.title.textContent = title;
+        MODAL.sub.textContent = [
+            `Год: ${year}`,
+            category ? `Категория: ${category}` : null,
+            monthIndex !== null ? `Месяц: ${monthLabel}` : null,
+            `Операций: ${rows.length}`
+        ].filter(Boolean).join(' • ');
+
+
+        MODAL.tbody.innerHTML = '';
+        if (!rows.length) {
+            MODAL.tbody.insertAdjacentHTML('beforeend', `
+                <tr><td colspan="5" class="muted">Операции не найдены</td></tr>
+                `);
+            MODAL.open();
+            return;
+        }
+
+        for (const it of rows) {
+            const amount = parseAmount(it.amount);
+            const isNeg = amount < 0;
+            MODAL.tbody.insertAdjacentHTML('beforeend', `
+        <tr>
+          <td>${formatDate(it.date)}</td>
+          <td>${it.__type === 'revenue' ? 'Доход' : 'Расход'}</td>
+          <td>${it.source ?? ''}</td>
+          <td>${(it.details ?? '')}</td>
+          <td class="right ${isNeg ? 'pnl-neg' : ''}">${fmt(amount)}</td>
+        </tr>
+      `);
+        }
+
+        MODAL.open();
+    };
+
+    // ✅ НОВАЯ точка подгрузки (оставь свою)
     fetch('/web/pnl-data')
         .then(r => r.json())
-        .then(data => {
-            document.getElementById('pnl-company').textContent = data.company ?? '[Company Name]';
-            document.getElementById('pnl-unit').textContent = `${data.currency} $ ${data.unit}`;
-            document.getElementById('pnl-year').textContent = data.year;
-            document.getElementById('pnl-year').setAttribute('colspan', data.months.length + 1);
+        .then(payload => {
+            RAW.revenue = (payload.find(x => x.revenue)?.revenue) ?? [];
+            RAW.expense = (payload.find(x => x.expense)?.expense) ?? [];
+
+            const metadata = payload.find(x => x.metadata)?.metadata ?? {};
+            const companyName = metadata.company_name || '[Company Name]';
+
+            document.getElementById('pnl-company').textContent = companyName;
+
+
+            const anyDate = (RAW.revenue[0]?.date || RAW.expense[0]?.date);
+            const year = anyDate ? dtUZ(anyDate).year : DateTime.now().setZone(REPORT_TZ).year;
+
+            document.getElementById('pnl-unit').textContent = 'Отчет составлен в валюте Сум';
+
+            document.getElementById('pnl-year').textContent = String(year);
+
+            const months = monthNames.slice();
+            document.getElementById('pnl-year').setAttribute('colspan', months.length + 1);
 
             const head = document.getElementById('pnl-head');
             head.innerHTML = '';
-            data.months.forEach(m => head.insertAdjacentHTML('beforeend', `<th class="right">${m}</th>`));
-            head.insertAdjacentHTML('beforeend', `<th class="right">Full Year</th>`);
+
+            // Заголовки месяцев тоже сделаем кликабельными (показать все операции месяца)
+            months.forEach((m, idx) => {
+                head.insertAdjacentHTML('beforeend', `<th class="right pnl-click" data-month="${idx}" title="Показать все операции за ${m}">${m}</th>`);
+            });
+            head.insertAdjacentHTML('beforeend', `<th class="right pnl-click" data-month="all" title="Показать все операции за год">Год</th>`);
+
+            head.addEventListener('click', (e) => {
+                const th = e.target.closest('th[data-month]');
+                if (!th) return;
+                const val = th.getAttribute('data-month');
+                showDetails({
+                    year,
+                    monthIndex: val === 'all' ? null : Number(val),
+                    category: null,
+                    title: 'Все операции'
+                });
+            });
+
+            const buildCategoryMatrix = (items) => {
+                const map = new Map();
+                for (const it of items) {
+                    const d = dtUZ(it.date);
+                    if (!d.isValid) continue;
+                    if (d.year !== year) continue;
+
+                    const mi = d.month - 1;
+                    const cat = it.cathegory || '—';
+                    const amt = parseAmount(it.amount);
+
+                    if (!map.has(cat)) map.set(cat, Array(12).fill(0));
+                    map.get(cat)[mi] += amt;
+                }
+                return map;
+            };
+
+            const revMap = buildCategoryMatrix(RAW.revenue);
+            const expMap = buildCategoryMatrix(RAW.expense);
+
+
+            const sumArray = (arr) => arr.reduce((a, b) => a + b, 0);
+
+            const sumMapsByMonth = (map) => {
+                const res = Array(12).fill(0);
+                for (const arr of map.values()) {
+                    for (let i = 0; i < 12; i++) res[i] += arr[i];
+                }
+                return res;
+            };
+
+            const totalRevenueByMonth = sumMapsByMonth(revMap);
+            const totalExpenseByMonth = sumMapsByMonth(expMap);
 
             const tbody = document.querySelector('#pnl-table tbody');
             tbody.innerHTML = '';
 
-            data.rows.forEach(row => {
-                if (row.section) {
-                    tbody.insertAdjacentHTML('beforeend', `
-            <tr class="pnl-section">
-              <td class="pnl-left" colspan="${data.months.length + 2}">${row.label}</td>
-            </tr>
-          `);
+            const addSection = (title) => {
+                tbody.insertAdjacentHTML('beforeend', `
+          <tr class="pnl-section">
+            <td class="pnl-left" colspan="${months.length + 2}">${title}</td>
+          </tr>
+        `);
+            };
+
+            const addRow = (label, values, opts = {}) => {
+                const trCls = [
+                    opts.bold ? 'pnl-bold' : '',
+                    opts.ruleTop ? 'pnl-rule-top' : '',
+                ].join(' ').trim();
+
+                // label кликабелен: покажем все операции по категории за год
+                let tr = `<tr class="${trCls}" data-category="${String(label).replace(/"/g, '&quot;')}">
+          <td class="pnl-left pnl-click" data-click="category" title="Показать все операции по категории">${label}</td>`;
+
+                // ячейки месяцев кликабельны: категория + месяц
+                for (let i = 0; i < 12; i++) {
+                    const v = values[i];
+                    const isNeg = typeof v === 'number' && v < 0;
+                    tr += `<td class="right pnl-click ${isNeg ? 'pnl-neg' : ''}" data-click="cell" data-month="${i}" title="Show transactions for ${label} in ${months[i]}">${fmt(v)}</td>`;
+                }
+
+                const total = sumArray(values);
+                const isNegT = total < 0;
+                tr += `<td class="right pnl-click ${isNegT ? 'pnl-neg' : ''}" data-click="cell" data-month="all" title="Show transactions for ${label} (Full Year)">${fmt(total)}</td></tr>`;
+
+                tbody.insertAdjacentHTML('beforeend', tr);
+            };
+
+            // Revenue section
+            const revCats = Array.from(revMap.keys()).sort((a, b) => a.localeCompare(b));
+            addSection('Доходы');
+            for (const cat of revCats) addRow(cat, revMap.get(cat));
+
+            addRow('Итого доходы', totalRevenueByMonth, {
+                bold: true,
+                ruleTop: true
+            })
+
+
+
+            // Expense section
+            const expCats = Array.from(expMap.keys()).sort((a, b) => a.localeCompare(b));
+            addSection('Расходы');
+            for (const cat of expCats) addRow(cat, expMap.get(cat));
+
+            addRow('Итого расходы', totalExpenseByMonth, {
+                bold: true,
+                ruleTop: true
+            });
+
+
+            // Net Income
+            const revTotalsByMonth = Array(12).fill(0);
+            for (const arr of revMap.values()) for (let i = 0; i < 12; i++) revTotalsByMonth[i] += arr[i];
+
+            const expTotalsByMonth = Array(12).fill(0);
+            for (const arr of expMap.values()) for (let i = 0; i < 12; i++) expTotalsByMonth[i] += arr[i];
+
+            const netByMonth = revTotalsByMonth.map((v, i) => v + expTotalsByMonth[i]);
+            addRow('Чистая прибыль', netByMonth, { bold: true, ruleTop: true });
+
+            // Делегирование кликов по tbody
+            tbody.addEventListener('click', (e) => {
+                const cell = e.target.closest('[data-click]');
+                if (!cell) return;
+
+                const tr = cell.closest('tr[data-category]');
+                const category = tr ? tr.getAttribute('data-category') : null;
+
+                const kind = cell.getAttribute('data-click');
+                if (kind === 'category') {
+                    showDetails({
+                        year,
+                        monthIndex: null,
+                        category,
+                        title: 'Category details'
+                    });
                     return;
                 }
 
-                const indentPx = (row.indent || 0) * 18;
-                const trCls = [
-                    row.bold ? 'pnl-bold' : '',
-                    row.ruleTop ? 'pnl-rule-top' : '',
-                ].join(' ').trim();
-
-                let tr = `<tr class="${trCls}">
-          <td class="pnl-left" style="padding-left:${indentPx}px">${row.label}</td>`;
-
-                (row.values || []).forEach(v => {
-                    const isNeg = typeof v === 'number' && v < 0;
-                    tr += `<td class="right ${isNeg ? 'pnl-neg' : ''}">${fmt(v)}</td>`;
-                });
-
-                const isNegT = typeof row.total === 'number' && row.total < 0;
-                tr += `<td class="right ${isNegT ? 'pnl-neg' : ''}">${fmt(row.total)}</td></tr>`;
-
-                tbody.insertAdjacentHTML('beforeend', tr);
+                if (kind === 'cell') {
+                    const val = cell.getAttribute('data-month');
+                    showDetails({
+                        year,
+                        monthIndex: val === 'all' ? null : Number(val),
+                        category,
+                        title: 'Category details'
+                    });
+                    return;
+                }
             });
-        });
+        })
+        .catch(err => console.error('P&L load error:', err));
 </script>
+
+
 {% endblock %}
