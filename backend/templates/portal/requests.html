@@ -6,19 +6,18 @@
 
 <!-- Локальная панель под общим header -->
 <div class="card" style="margin-bottom:12px">
-    <div
-        class="panel">
+    <div class="panel">
         <div>
             <h1 style="margin:0">Заявки</h1>
             <div class="sub">Короткий список. Нажмите на заявку, чтобы открыть детали и согласования.</div>
         </div>
 
         <div class="controls">
+            <a class="btn" href="javascript:history.back()">← Назад</a>
             <a class="btn btn-primary" href="/request/" target="_blank" rel="noopener">+ Новая заявка</a>
             <a class="btn" href="/web/vendors/">Поставщики</a>
             <a class="btn" href="/web/">На главную</a>
             <button id="reloadBtn">Обновить</button>
-
         </div>
 
         <div class="controls" id="statusFilters">
@@ -51,11 +50,12 @@
             <colgroup>
                 <col style="width:60px" />
                 <col style="width:210px" />
-                <col style="width:420px" />
+                <col style="width:360px" />
                 <col style="width:150px" />
                 <col style="width:120px" />
                 <col style="width:160px" />
                 <col style="width:120px" />
+                <col style="width:100px" />
             </colgroup>
             <thead>
                 <tr>
@@ -66,6 +66,7 @@
                     <th>Статус</th>
                     <th class="hide-sm">Заявитель</th>
                     <th class="hide-sm">Отправлено</th>
+                    <th class="hide-sm">Файл</th>
                 </tr>
             </thead>
             <tbody></tbody>
@@ -231,7 +232,22 @@
                 new Date(b.submitted_at).getTime() - new Date(a.submitted_at).getTime()
             );
 
-        tbody.innerHTML = rows.map(r => `
+        tbody.innerHTML = rows.map(r => {
+            const rawLink = r.file_link || "";
+            let fileHref = "";
+            if (rawLink) {
+                try {
+                    fileHref = String(rawLink).replaceAll("getfile", "web/file");
+                } catch (e) {
+                    fileHref = String(rawLink);
+                }
+            }
+
+            const fileCell = fileHref
+                ? `<a class="btn btn-small" href="${escapeHtml(fileHref)}" target="_blank" rel="noopener">Файл</a>`
+                : "";
+
+            return `
     <tr data-request-id="${escapeHtml(r.id)}">
         <td class="mono nowrap">${escapeHtml(r.id)}</td>
         <td class="truncate">${escapeHtml(r.vendor)}</td>
@@ -243,8 +259,10 @@
         <td>${statusBadge(r.status)}</td>
         <td class="truncate hide-sm">${escapeHtml(r.requester)}</td>
         <td class="nowrap hide-sm">${escapeHtml(fmtDate(r.submitted_at))}</td>
+        <td class="nowrap hide-sm">${fileCell}</td>
     </tr>
-    `).join("");
+    `;
+        }).join("");
 
         setMeta(`Заявок: ${rows.length}`);
 
