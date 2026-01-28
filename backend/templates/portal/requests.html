@@ -27,6 +27,21 @@
             <label class="filter"><input type="checkbox" value="PENDING" checked> PENDING</label>
             <label class="filter"><input type="checkbox" value="PAYED" checked> PAYED</label>
         </div>
+
+        <div class="controls" id="paymentTypeFilters">
+            <label class="filter">
+                <input type="checkbox" value="Перечисление" checked>
+                Перечисление
+            </label>
+            <label class="filter">
+                <input type="checkbox" value="Наличные" checked>
+                Наличные
+            </label>
+            <label class="filter">
+                <input type="checkbox" value="Платежная карта" checked>
+                Платежная карта
+            </label>
+        </div>
     </div>
 </div>
 
@@ -104,6 +119,16 @@
             .replaceAll("'", "&#039;");
     }
 
+
+    function getCheckedValues(containerId) {
+            const box = document.getElementById(containerId);
+            if (!box) return new Set();
+            const set = new Set();
+            box.querySelectorAll('input[type="checkbox"]:checked')
+                .forEach(cb => set.add(cb.value));
+            return set;
+        }
+
     function fmtMoney(amountStr) {
         const n = Number(amountStr);
         if (!Number.isFinite(n)) return amountStr ?? "";
@@ -169,48 +194,64 @@
         const tbody = $("#tbl tbody");
         if (!tbody) return;
 
-        const filterContainer = $("#statusFilters");
-        const checked = new Set();
-        if (filterContainer) {
-            filterContainer.querySelectorAll('input[type="checkbox"]:checked').forEach(cb => checked.add(cb.value));
-        }
+        const statusChecked = getCheckedValues("statusFilters");
+        const paymentChecked = getCheckedValues("paymentTypeFilters");
 
-        const filtered = checked.size === 0
-            ? []
-            : requests.filter(r => {
-                const status = String(r.status ?? "");
-                if (checked.has("APPROVED") && status === "APPROVED") return true;
-                if (checked.has("REJECTED") && status === "REJECTED") return true;
-                if (checked.has("PAYED") && status === "PAYED") return true;
-                if (checked.has("PENDING") && isPending(status)) return true;
-                return false;
-            });
+        const filtered = requests.filter(r => {
+            // --- статус ---
+            let statusOk = false;
+            const status = String(r.status ?? "");
 
-        const rows = filtered.slice().sort((a, b) =>
-            new Date(b.submitted_at).getTime() - new Date(a.submitted_at).getTime()
-        );
+            if (statusChecked.size === 0) {
+                statusOk = false;
+            } else if (statusChecked.has("APPROVED") && status === "APPROVED") {
+                statusOk = true;
+            } else if (statusChecked.has("REJECTED") && status === "REJECTED") {
+                statusOk = true;
+            } else if (statusChecked.has("PAYED") && status === "PAYED") {
+                statusOk = true;
+            } else if (statusChecked.has("PENDING") && isPending(status)) {
+                statusOk = true;
+            }
+
+            if (!statusOk) return false;
+
+            // --- payment type ---
+            if (paymentChecked.size === 0) return false;
+
+            const pt = String(r.payment_type ?? "");
+            if (!paymentChecked.has(pt)) return false;
+
+            return true;
+        });
+
+        const rows = filtered
+            .slice()
+            .sort((a, b) =>
+                new Date(b.submitted_at).getTime() - new Date(a.submitted_at).getTime()
+            );
 
         tbody.innerHTML = rows.map(r => `
-      <tr data-request-id="${escapeHtml(r.id)}">
+    <tr data-request-id="${escapeHtml(r.id)}">
         <td class="mono nowrap">${escapeHtml(r.id)}</td>
         <td class="truncate">${escapeHtml(r.vendor)}</td>
         <td style="min-width:0">
-          <div class="tight truncate">${escapeHtml(r.title)}</div>
-          ${r.payment_purpose ? `<div class="small muted tight truncate">${escapeHtml(r.payment_purpose)}</div>` : ``}
+            <div class="tight truncate">${escapeHtml(r.title)}</div>
+            ${r.payment_purpose ? `<div class="small muted tight truncate">${escapeHtml(r.payment_purpose)}</div>` : ``}
         </td>
         <td class="right nowrap">${escapeHtml(fmtMoney(r.amount))} ${escapeHtml(r.currency)}</td>
         <td>${statusBadge(r.status)}</td>
         <td class="truncate hide-sm">${escapeHtml(r.requester)}</td>
         <td class="nowrap hide-sm">${escapeHtml(fmtDate(r.submitted_at))}</td>
-      </tr>
+    </tr>
     `).join("");
 
         setMeta(`Заявок: ${rows.length}`);
 
-        // tenant label (optional)
         const t = $("#tenantMeta");
         if (t) t.textContent = location.host;
     }
+
 
     function openModal(req) {
         const modal = $("#modal");
@@ -331,33 +372,45 @@
         if (bindOnce._done) return;
         bindOnce._done = true;
 
+        // reload
         const reloadBtn = $("#reloadBtn");
-        if (reloadBtn) reloadBtn.addEventListener("click", () => loadData(true));
+        if (reloadBtn) {
+            reloadBtn.addEventListener("click", () => loadData(true));
+        }
 
+        // table row click → modal
         const tbody = $("#tbl tbody");
         if (tbody) {
             tbody.addEventListener("click", (e) => {
                 const tr = e.target.closest("tr[data-request-id]");
                 if (!tr) return;
+
                 const id = Number(tr.getAttribute("data-request-id"));
                 const req = requests.find(r => Number(r.id) === id);
                 if (req) openModal(req);
             });
         }
 
+        // modal close
         const overlay = $("#modalOverlay");
         const closeBtn = $("#modalClose");
         if (overlay) overlay.addEventListener("click", closeModal);
         if (closeBtn) closeBtn.addEventListener("click", closeModal);
-        document.addEventListener("keydown", (ev) => { if (ev.key === "Escape") closeModal(); });
+        document.addEventListener("keydown", (ev) => {
+            if (ev.key === "Escape") closeModal();
+        });
 
-        const filterContainer = $("#statusFilters");
-        if (filterContainer) {
-            filterContainer.querySelectorAll('input[type="checkbox"]').forEach(cb => {
-                cb.addEventListener("change", () => render());
+        // filters (status + payment_type)
+        ["statusFilters", "paymentTypeFilters"].forEach(id => {
+            const box = document.getElementById(id);
+            if (!box) return;
+
+            box.querySelectorAll('input[type="checkbox"]').forEach(cb => {
+                cb.addEventListener("change", render);
             });
-        }
+        });
     }
+
 
     bindOnce();
     window.addEventListener("DOMContentLoaded", () => loadData(false));

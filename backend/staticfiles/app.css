@@ -80,13 +80,13 @@ button {
     cursor: pointer;
 }
 
-.pannel {
-    padding:12px;
-    display:flex;
-    gap:12px;
-    align-items:flex-start;
-    justify-content:space-between;
-    flex-wrap:wrap;
+.panel {
+    padding: 12px;
+    display: flex;
+    gap: 12px;
+    align-items: flex-start;
+    justify-content: space-between;
+    flex-wrap: wrap;
 }
 
 button:hover {
@@ -137,7 +137,7 @@ button:hover {
 }
 
 .card {
-    background: rgba(34, 34, 33, 0.88);
+    background: rgba(255, 254, 252, .88);
     border: 1px solid var(--border);
     border-radius: 16px;
     box-shadow: var(--shadow);
@@ -647,24 +647,18 @@ button:disabled,
 }
 
 table.pnl {
-    min-width: 1100px;
-    /* отчет широкий */
-    table-layout: fixed;
+    table-layout: auto;
+    /* ключевое */
+    width: max-content;
+    /* ширина = контент */
+    min-width: 100%;
+    /* но не уже контейнера */
 }
 
 table.pnl th.pnl-left,
 table.pnl td.pnl-left {
     width: 360px;
     /* широкая колонка статей */
-}
-
-/* P&L — не кликабельная таблица */
-table.pnl tbody tr {
-    cursor: default;
-}
-
-table.pnl tbody tr:hover {
-    background: transparent;
 }
 
 /* Двухуровневый thead: верхняя строка с годом чуть “тише” */
@@ -708,4 +702,86 @@ table.pnl td.pnl-neg {
 table.pnl td.right,
 table.pnl th.right {
     font-variant-numeric: tabular-nums;
+}
+/* === P&L drill-down (клики) === */
+
+/* 1) Разрешаем курсор/hover для P&L (у тебя сейчас отключено) */
+table.pnl tbody tr {
+    cursor: default;
+}
+
+table.pnl tbody tr:hover {
+    background: transparent;
+}
+
+/* 2) Кликабельные элементы (то, что JS помечает классом pnl-click) */
+table.pnl .pnl-click {
+    cursor: pointer;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+}
+
+table.pnl .pnl-click:hover {
+    opacity: .85;
+}
+
+/* === Новый modal для P&L (если используешь разметку с id="pnl-modal") === */
+#pnl-modal[hidden] {
+    display: none;
+}
+
+#pnl-modal {
+    position: fixed;
+    inset: 0;
+    z-index: 60;
+}
+
+#pnl-modal .modal__backdrop {
+    position: absolute;
+    inset: 0;
+    background: rgba(0, 0, 0, .35);
+}
+
+#pnl-modal .modal__panel {
+    position: relative;
+    width: min(980px, calc(100% - 24px));
+    max-height: calc(100% - 24px);
+    overflow: auto;
+    margin: 12px auto;
+    background: rgba(255, 255, 255, .92);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    box-shadow: var(--shadow);
+    backdrop-filter: blur(10px);
+}
+
+#pnl-modal .modal__head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 14px;
+    border-bottom: 1px solid var(--border);
+    background: rgba(250, 250, 252, .78);
+    backdrop-filter: blur(10px);
+}
+
+#pnl-modal .modal__title {
+    font-weight: 800;
+}
+
+#pnl-modal .modal__sub {
+    margin-top: 2px;
+    font-size: 12px;
+    color: var(--muted);
+}
+
+#pnl-modal .modal__body {
+    padding: 14px;
+}
+
+table.pnl th,
+table.pnl td {
+    white-space: nowrap;
+    /* числа в одну строку */
 }
