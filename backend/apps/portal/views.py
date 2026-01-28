@@ -81,6 +81,15 @@ def pnl_data(request):
 
 
 @require_finance_report_access
+def cashflow_data(request):
+    return _proxy_n8n_json(request, "/cashflow_data")
+
+
+@require_finance_report_access
+def investments_data(request):
+    return _proxy_n8n_json(request, "/investments-data")
+
+@require_finance_report_access
 def reports_page(request):
     return render(request, 'portal/reports/reports.html')
 
@@ -88,6 +97,14 @@ def reports_page(request):
 @require_finance_report_access
 def pnl_page(request):
     return render(request, "portal/reports/pnl.html")
+
+@require_finance_report_access
+def cashflow_page(request):
+    return render(request, "portal/reports/cashflow.html")
+
+@require_finance_report_access
+def investments_page(request):
+    return render(request, "portal/reports/investments.html")
 
 def _proxy_n8n_file(request):
     """

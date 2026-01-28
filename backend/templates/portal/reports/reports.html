@@ -11,7 +11,8 @@
             </div>
         </div>
         <div class="controls">
-            <a class="btn" href="/web/" title="К заявкам">На главную</a>
+            <a class="btn" href="javascript:history.back()">← Назад</a>
+            <a class="btn" href="/web/" title="На главную">На главную</a>
         </div>
     </header>
 
@@ -53,7 +54,9 @@
         </div>
     </div>
 </div>
+{% endblock %}
 
+{% block scripts %}
 <script>
     // переход по клику на строку таблицы
     document.addEventListener("click", function (e) {

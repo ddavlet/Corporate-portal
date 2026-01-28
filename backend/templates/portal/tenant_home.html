@@ -1,10 +1,10 @@
 {% extends "layout/base.html" %}
+
 {% block content %}
 
 <div class="wrap">
     <header>
-        <div
-            class="panel">
+        <div class="panel">
             <h1 style="margin:0">{{ tenant.name|default:"Компания" }}</h1>
             <div class="sub">Выберите раздел</div>
         </div>
@@ -21,7 +21,7 @@
 
     <div class="card">
         <div style="padding:16px">
-            <div style="display:grid; gap:12px; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));">
+            <div style="display:grid; gap:12px; grid-template-columns: 1fr;">
                 <a class="btn btn-primary" href="/web/requests/">
                     Заявки
                 </a>
