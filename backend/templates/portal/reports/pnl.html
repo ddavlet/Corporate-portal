@@ -11,6 +11,13 @@
                 <span class="muted">[<span id="pnl-unit"></span>]</span>
             </div>
         </div>
+
+        <div class="controls">
+            <label class="filter">
+                Год
+                <select id="year-select"></select>
+            </label>
+        </div>
     </header>
 
     <div class="card table-wrap pnl-card">
@@ -66,15 +73,15 @@
 </div>
 <script src="https://cdn.jsdelivr.net/npm/luxon@3/build/global/luxon.min.js"></script>
 <script>
+    // ---------- Number formatting ----------
     const numberFmt = new Intl.NumberFormat('en-US', {
-            minimumFractionDigits: 1,
-            maximumFractionDigits: 1,
-        });
+        minimumFractionDigits: 1,
+        maximumFractionDigits: 1,
+    });
 
     const fmt = (v) => {
         if (v === null || v === undefined) return '-';
         if (typeof v !== 'number' || Number.isNaN(v)) return '-';
-
         const abs = Math.abs(v);
         const formatted = numberFmt.format(abs);
         return v < 0 ? `(${formatted})` : formatted;
@@ -88,15 +95,19 @@
         return Number.isFinite(n) ? n : 0;
     };
 
+    // ---------- Dates / TZ ----------
     const monthNames = ['Янв', 'Фев', 'Мар', 'Апр', 'Май', 'Июн', 'Июл', 'Авг', 'Сен', 'Окт', 'Ноя', 'Дек'];
-
 
     const { DateTime } = luxon;
     const REPORT_TZ = 'Asia/Tashkent';
 
+    const dtUZ = (iso) => DateTime.fromISO(iso, { setZone: true }).setZone(REPORT_TZ);
 
-    const dtUZ = (iso) =>
-            DateTime.fromISO(iso, { setZone: true }).setZone(REPORT_TZ);
+    const formatDate = (iso) => {
+        const d = dtUZ(iso);
+        return d.isValid ? d.toFormat('yyyy-MM-dd') : String(iso || '');
+    };
+
     // ---------- Modal helpers ----------
     const MODAL = {
         root: document.getElementById('pnl-modal'),
@@ -113,7 +124,7 @@
             this.root.setAttribute('aria-hidden', 'true');
             document.body.style.overflow = '';
             this.tbody.innerHTML = '';
-        }
+        },
     };
 
     MODAL.root.addEventListener('click', (e) => {
@@ -123,14 +134,11 @@
         if (!MODAL.root.hidden && e.key === 'Escape') MODAL.close();
     });
 
-    const formatDate = (iso) => dtUZ(iso).toFormat('yyyy-MM-dd');
-
-
-    // Исходные данные (важно для drill-down)
+    // ---------- Data storage ----------
     const RAW = { revenue: [], expense: [] };
 
-    const showDetails = ({ year, monthIndex = null, category = null, title = 'Details' }) => {
-        // monthIndex: 0..11 или null = весь год
+    // ---------- Drill-down (modal) ----------
+    const showDetails = ({ year, monthIndex = null, category = null, title = 'Детализация' }) => {
         const inYear = (it) => {
             const d = dtUZ(it.date);
             return d.isValid && d.year === year;
@@ -141,37 +149,34 @@
             const d = dtUZ(it.date);
             return d.isValid && (d.month - 1) === monthIndex;
         };
+
         const inCategory = (it) => {
             if (!category) return true;
             return String(it.cathegory || '') === String(category);
         };
 
         const rows = [];
-        for (const it of RAW.revenue) {
-            if (inYear(it) && inMonth(it) && inCategory(it)) rows.push({ ...it, __type: 'revenue' });
-        }
-        for (const it of RAW.expense) {
-            if (inYear(it) && inMonth(it) && inCategory(it)) rows.push({ ...it, __type: 'expense' });
-        }
+        for (const it of RAW.revenue) if (inYear(it) && inMonth(it) && inCategory(it)) rows.push({ ...it, __type: 'revenue' });
+        for (const it of RAW.expense) if (inYear(it) && inMonth(it) && inCategory(it)) rows.push({ ...it, __type: 'expense' });
 
-        // сортировка по дате
         rows.sort((a, b) => dtUZ(a.date).toMillis() - dtUZ(b.date).toMillis());
 
-       const monthLabel = monthIndex === null ? 'Год' : monthNames[monthIndex];
+        const monthLabel = monthIndex === null ? 'Год' : monthNames[monthIndex];
+
         MODAL.title.textContent = title;
         MODAL.sub.textContent = [
             `Год: ${year}`,
             category ? `Категория: ${category}` : null,
             monthIndex !== null ? `Месяц: ${monthLabel}` : null,
-            `Операций: ${rows.length}`
-        ].filter(Boolean).join(' • ');
-
+            `Операций: ${rows.length}`,
+        ]
+            .filter(Boolean)
+            .join(' • ');
 
         MODAL.tbody.innerHTML = '';
+
         if (!rows.length) {
-            MODAL.tbody.insertAdjacentHTML('beforeend', `
-                <tr><td colspan="5" class="muted">Операции не найдены</td></tr>
-                `);
+            MODAL.tbody.insertAdjacentHTML('beforeend', `<tr><td colspan="5" class="muted">Операции не найдены</td></tr>`);
             MODAL.open();
             return;
         }
@@ -179,199 +184,200 @@
         for (const it of rows) {
             const amount = parseAmount(it.amount);
             const isNeg = amount < 0;
-            MODAL.tbody.insertAdjacentHTML('beforeend', `
-        <tr>
+            MODAL.tbody.insertAdjacentHTML(
+                'beforeend',
+                `<tr>
           <td>${formatDate(it.date)}</td>
           <td>${it.__type === 'revenue' ? 'Доход' : 'Расход'}</td>
           <td>${it.source ?? ''}</td>
-          <td>${(it.details ?? '')}</td>
+          <td>${it.details ?? ''}</td>
           <td class="right ${isNeg ? 'pnl-neg' : ''}">${fmt(amount)}</td>
-        </tr>
-      `);
+        </tr>`
+            );
         }
 
         MODAL.open();
     };
 
-    // ✅ НОВАЯ точка подгрузки (оставь свою)
-    fetch('/web/pnl-data')
-        .then(r => r.json())
-        .then(payload => {
-            RAW.revenue = (payload.find(x => x.revenue)?.revenue) ?? [];
-            RAW.expense = (payload.find(x => x.expense)?.expense) ?? [];
+    // ---------- Years helper ----------
+    const getYearsFromData = () => {
+        const years = new Set();
+        for (const it of [...RAW.revenue, ...RAW.expense]) {
+            const d = dtUZ(it.date);
+            if (d.isValid) years.add(d.year);
+        }
+        return Array.from(years).sort((a, b) => b - a);
+    };
 
-            const metadata = payload.find(x => x.metadata)?.metadata ?? {};
+    // ---------- Table refs ----------
+    const yearSelect = document.getElementById('year-select');
+    const head = document.getElementById('pnl-head');
+    const yearCell = document.getElementById('pnl-year');
+    const tbody = document.querySelector('#pnl-table tbody');
+
+    // Clicks on table body (categories/cells) — attach ONCE
+    tbody.addEventListener('click', (e) => {
+        const cell = e.target.closest('[data-click]');
+        if (!cell) return;
+
+        const tr = cell.closest('tr[data-category]');
+        const category = tr ? tr.getAttribute('data-category') : null;
+
+        const kind = cell.getAttribute('data-click');
+        const year = Number(yearSelect.value);
+
+        if (kind === 'category') {
+            showDetails({ year, monthIndex: null, category, title: 'Детализация по категории' });
+            return;
+        }
+
+        if (kind === 'cell') {
+            const val = cell.getAttribute('data-month');
+            showDetails({
+                year,
+                monthIndex: val === 'all' ? null : Number(val),
+                category,
+                title: 'Детализация по категории',
+            });
+        }
+    });
+
+    // ---------- Render ----------
+    const renderPnl = (year) => {
+        yearCell.textContent = String(year);
+
+        // Header months
+        head.innerHTML = '';
+        for (let idx = 0; idx < 12; idx++) {
+            const m = monthNames[idx];
+            head.insertAdjacentHTML('beforeend', `<th class="right pnl-click" data-month="${idx}" title="Показать все операции за ${m}">${m}</th>`);
+        }
+        head.insertAdjacentHTML('beforeend', `<th class="right pnl-click" data-month="all" title="Показать все операции за год">Год</th>`);
+        yearCell.setAttribute('colspan', 13);
+
+        // Clicks on header months — set handler ONCE per render (safe via .onclick)
+        head.onclick = (e) => {
+            const th = e.target.closest('th[data-month]');
+            if (!th) return;
+            const val = th.getAttribute('data-month');
+            showDetails({
+                year,
+                monthIndex: val === 'all' ? null : Number(val),
+                category: null,
+                title: 'Все операции',
+            });
+        };
+
+        const buildCategoryMatrix = (items) => {
+            const map = new Map();
+            for (const it of items) {
+                const d = dtUZ(it.date);
+                if (!d.isValid) continue;
+                if (d.year !== year) continue;
+
+                const mi = d.month - 1;
+                const cat = it.cathegory || '—';
+                const amt = parseAmount(it.amount);
+
+                if (!map.has(cat)) map.set(cat, Array(12).fill(0));
+                map.get(cat)[mi] += amt;
+            }
+            return map;
+        };
+
+        const revMap = buildCategoryMatrix(RAW.revenue);
+        const expMap = buildCategoryMatrix(RAW.expense);
+
+        const sumArray = (arr) => arr.reduce((a, b) => a + b, 0);
+
+        const sumMapsByMonth = (map) => {
+            const res = Array(12).fill(0);
+            for (const arr of map.values()) for (let i = 0; i < 12; i++) res[i] += arr[i];
+            return res;
+        };
+
+        const totalRevenueByMonth = sumMapsByMonth(revMap);
+        const totalExpenseByMonth = sumMapsByMonth(expMap);
+
+        tbody.innerHTML = '';
+
+        const addSection = (title) => {
+            tbody.insertAdjacentHTML(
+                'beforeend',
+                `<tr class="pnl-section">
+          <td class="pnl-left" colspan="14">${title}</td>
+        </tr>`
+            );
+        };
+
+        const addRow = (label, values, opts = {}) => {
+            const trCls = [opts.bold ? 'pnl-bold' : '', opts.ruleTop ? 'pnl-rule-top' : ''].join(' ').trim();
+
+            let tr = `<tr class="${trCls}" data-category="${String(label).replace(/"/g, '&quot;')}">
+        <td class="pnl-left pnl-click" data-click="category" title="Показать все операции по категории">${label}</td>`;
+
+            for (let i = 0; i < 12; i++) {
+                const v = values[i];
+                const isNeg = typeof v === 'number' && v < 0;
+                tr += `<td class="right pnl-click ${isNeg ? 'pnl-neg' : ''}" data-click="cell" data-month="${i}" title="Показать операции за ${monthNames[i]}">${fmt(v)}</td>`;
+            }
+
+            const total = sumArray(values);
+            const isNegT = total < 0;
+            tr += `<td class="right pnl-click ${isNegT ? 'pnl-neg' : ''}" data-click="cell" data-month="all" title="Показать операции за год">${fmt(total)}</td></tr>`;
+
+            tbody.insertAdjacentHTML('beforeend', tr);
+        };
+
+        // Revenue
+        addSection('Доходы');
+        const revCats = Array.from(revMap.keys()).sort((a, b) => a.localeCompare(b));
+        for (const cat of revCats) addRow(cat, revMap.get(cat));
+        addRow('Итого доходы', totalRevenueByMonth, { bold: true, ruleTop: true });
+
+        // Expense
+        addSection('Расходы');
+        const expCats = Array.from(expMap.keys()).sort((a, b) => a.localeCompare(b));
+        for (const cat of expCats) addRow(cat, expMap.get(cat));
+        addRow('Итого расходы', totalExpenseByMonth, { bold: true, ruleTop: true });
+
+        // Net
+        const netByMonth = totalRevenueByMonth.map((v, i) => v + totalExpenseByMonth[i]);
+        addRow('Чистая прибыль', netByMonth, { bold: true, ruleTop: true });
+    };
+
+    // ---------- Load data ----------
+    fetch('/web/pnl-data')
+        .then((r) => r.json())
+        .then((payload) => {
+            RAW.revenue = (payload.find((x) => x.revenue)?.revenue) ?? [];
+            RAW.expense = (payload.find((x) => x.expense)?.expense) ?? [];
+
+            const metadata = payload.find((x) => x.metadata)?.metadata ?? {};
             const companyName = metadata.company_name || '[Company Name]';
 
             document.getElementById('pnl-company').textContent = companyName;
-
-
-            const anyDate = (RAW.revenue[0]?.date || RAW.expense[0]?.date);
-            const year = anyDate ? dtUZ(anyDate).year : DateTime.now().setZone(REPORT_TZ).year;
-
             document.getElementById('pnl-unit').textContent = 'Отчет составлен в валюте Сум';
 
-            document.getElementById('pnl-year').textContent = String(year);
+            // years select
+            const years = getYearsFromData();
+            yearSelect.innerHTML = '';
 
-            const months = monthNames.slice();
-            document.getElementById('pnl-year').setAttribute('colspan', months.length + 1);
+            for (const y of years) {
+                yearSelect.insertAdjacentHTML('beforeend', `<option value="${y}">${y}</option>`);
+            }
 
-            const head = document.getElementById('pnl-head');
-            head.innerHTML = '';
+            const fallbackYear = DateTime.now().setZone(REPORT_TZ).year;
+            const defaultYear = years[0] ?? fallbackYear;
 
-            // Заголовки месяцев тоже сделаем кликабельными (показать все операции месяца)
-            months.forEach((m, idx) => {
-                head.insertAdjacentHTML('beforeend', `<th class="right pnl-click" data-month="${idx}" title="Показать все операции за ${m}">${m}</th>`);
-            });
-            head.insertAdjacentHTML('beforeend', `<th class="right pnl-click" data-month="all" title="Показать все операции за год">Год</th>`);
+            yearSelect.value = String(defaultYear);
+            renderPnl(Number(yearSelect.value));
 
-            head.addEventListener('click', (e) => {
-                const th = e.target.closest('th[data-month]');
-                if (!th) return;
-                const val = th.getAttribute('data-month');
-                showDetails({
-                    year,
-                    monthIndex: val === 'all' ? null : Number(val),
-                    category: null,
-                    title: 'Все операции'
-                });
-            });
-
-            const buildCategoryMatrix = (items) => {
-                const map = new Map();
-                for (const it of items) {
-                    const d = dtUZ(it.date);
-                    if (!d.isValid) continue;
-                    if (d.year !== year) continue;
-
-                    const mi = d.month - 1;
-                    const cat = it.cathegory || '—';
-                    const amt = parseAmount(it.amount);
-
-                    if (!map.has(cat)) map.set(cat, Array(12).fill(0));
-                    map.get(cat)[mi] += amt;
-                }
-                return map;
+            yearSelect.onchange = () => {
+                renderPnl(Number(yearSelect.value));
             };
-
-            const revMap = buildCategoryMatrix(RAW.revenue);
-            const expMap = buildCategoryMatrix(RAW.expense);
-
-
-            const sumArray = (arr) => arr.reduce((a, b) => a + b, 0);
-
-            const sumMapsByMonth = (map) => {
-                const res = Array(12).fill(0);
-                for (const arr of map.values()) {
-                    for (let i = 0; i < 12; i++) res[i] += arr[i];
-                }
-                return res;
-            };
-
-            const totalRevenueByMonth = sumMapsByMonth(revMap);
-            const totalExpenseByMonth = sumMapsByMonth(expMap);
-
-            const tbody = document.querySelector('#pnl-table tbody');
-            tbody.innerHTML = '';
-
-            const addSection = (title) => {
-                tbody.insertAdjacentHTML('beforeend', `
-          <tr class="pnl-section">
-            <td class="pnl-left" colspan="${months.length + 2}">${title}</td>
-          </tr>
-        `);
-            };
-
-            const addRow = (label, values, opts = {}) => {
-                const trCls = [
-                    opts.bold ? 'pnl-bold' : '',
-                    opts.ruleTop ? 'pnl-rule-top' : '',
-                ].join(' ').trim();
-
-                // label кликабелен: покажем все операции по категории за год
-                let tr = `<tr class="${trCls}" data-category="${String(label).replace(/"/g, '&quot;')}">
-          <td class="pnl-left pnl-click" data-click="category" title="Показать все операции по категории">${label}</td>`;
-
-                // ячейки месяцев кликабельны: категория + месяц
-                for (let i = 0; i < 12; i++) {
-                    const v = values[i];
-                    const isNeg = typeof v === 'number' && v < 0;
-                    tr += `<td class="right pnl-click ${isNeg ? 'pnl-neg' : ''}" data-click="cell" data-month="${i}" title="Show transactions for ${label} in ${months[i]}">${fmt(v)}</td>`;
-                }
-
-                const total = sumArray(values);
-                const isNegT = total < 0;
-                tr += `<td class="right pnl-click ${isNegT ? 'pnl-neg' : ''}" data-click="cell" data-month="all" title="Show transactions for ${label} (Full Year)">${fmt(total)}</td></tr>`;
-
-                tbody.insertAdjacentHTML('beforeend', tr);
-            };
-
-            // Revenue section
-            const revCats = Array.from(revMap.keys()).sort((a, b) => a.localeCompare(b));
-            addSection('Доходы');
-            for (const cat of revCats) addRow(cat, revMap.get(cat));
-
-            addRow('Итого доходы', totalRevenueByMonth, {
-                bold: true,
-                ruleTop: true
-            })
-
-
-
-            // Expense section
-            const expCats = Array.from(expMap.keys()).sort((a, b) => a.localeCompare(b));
-            addSection('Расходы');
-            for (const cat of expCats) addRow(cat, expMap.get(cat));
-
-            addRow('Итого расходы', totalExpenseByMonth, {
-                bold: true,
-                ruleTop: true
-            });
-
-
-            // Net Income
-            const revTotalsByMonth = Array(12).fill(0);
-            for (const arr of revMap.values()) for (let i = 0; i < 12; i++) revTotalsByMonth[i] += arr[i];
-
-            const expTotalsByMonth = Array(12).fill(0);
-            for (const arr of expMap.values()) for (let i = 0; i < 12; i++) expTotalsByMonth[i] += arr[i];
-
-            const netByMonth = revTotalsByMonth.map((v, i) => v + expTotalsByMonth[i]);
-            addRow('Чистая прибыль', netByMonth, { bold: true, ruleTop: true });
-
-            // Делегирование кликов по tbody
-            tbody.addEventListener('click', (e) => {
-                const cell = e.target.closest('[data-click]');
-                if (!cell) return;
-
-                const tr = cell.closest('tr[data-category]');
-                const category = tr ? tr.getAttribute('data-category') : null;
-
-                const kind = cell.getAttribute('data-click');
-                if (kind === 'category') {
-                    showDetails({
-                        year,
-                        monthIndex: null,
-                        category,
-                        title: 'Category details'
-                    });
-                    return;
-                }
-
-                if (kind === 'cell') {
-                    const val = cell.getAttribute('data-month');
-                    showDetails({
-                        year,
-                        monthIndex: val === 'all' ? null : Number(val),
-                        category,
-                        title: 'Category details'
-                    });
-                    return;
-                }
-            });
         })
-        .catch(err => console.error('P&L load error:', err));
+        .catch((err) => console.error('P&L load error:', err));
 </script>
-
 
 {% endblock %}
