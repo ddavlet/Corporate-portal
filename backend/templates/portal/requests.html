@@ -88,6 +88,7 @@
                 <div id="modalTitle" class="truncate">Заявка</div>
                 <div id="modalSub" class="small muted truncate"></div>
             </div>
+            <button type="button" id="resendRequestBtn" class="btn">Отправить запрос(ы) повторно</button>
             <button id="modalClose" title="Закрыть">Закрыть</button>
         </div>
         <div id="modalBody"></div>
@@ -325,6 +326,9 @@
         title.textContent = `Заявка #${req.id}`;
         sub.textContent = `${req.vendor || ""} • ${req.requester || ""} • ${fmtDate(req.submitted_at)}`;
 
+        const resendBtn = $("#resendRequestBtn");
+        if (resendBtn) resendBtn.dataset.requestId = String(req.id);
+
         body.innerHTML = `
       <div class="grid">
         <div class="kv"><div class="k">Компания</div><div class="v">${escapeHtml(req.company_payer)}</div></div>
@@ -406,6 +410,30 @@
                 const id = Number(tr.getAttribute("data-request-id"));
                 const req = requests.find(r => Number(r.id) === id);
                 if (req) openModal(req);
+            });
+        }
+
+        // resend request (no navigation, fetch + alert)
+        const resendBtn = $("#resendRequestBtn");
+        if (resendBtn) {
+            resendBtn.addEventListener("click", async () => {
+                const requestId = resendBtn.dataset.requestId;
+                if (!requestId) return;
+                try {
+                    const res = await fetch(`/resend_request?request_id=${encodeURIComponent(requestId)}`, {
+                        method: "GET",
+                        credentials: "include",
+                        headers: { "Accept": "application/json" }
+                    });
+                    const data = await res.json().catch(() => ({}));
+                    if (res.ok) {
+                        alert(data.message || "Запрос отправлен.");
+                    } else {
+                        alert(data.message || `Ошибка: ${res.status} ${res.statusText}`);
+                    }
+                } catch (err) {
+                    alert("Ошибка: " + (err.message || String(err)));
+                }
             });
         }
 
