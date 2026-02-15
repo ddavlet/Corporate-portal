@@ -146,6 +146,17 @@
     // ---------- Data storage ----------
     const RAW = { revenue: [], expense: [] };
 
+    // ---------- Category helper ----------
+    const getCategory = (it) => {
+            return (
+                it.category ??
+                it.cathegory ??   // старое название с опечаткой
+                it.cat ??
+                it.cat_name ??
+                null
+            );
+        };
+
     // ---------- Drill-down (modal) ----------
     const showDetails = ({ year, monthIndex = null, category = null, title = 'Детализация' }) => {
         const inYear = (it) => {
@@ -161,7 +172,7 @@
 
         const inCategory = (it) => {
             if (!category) return true;
-            return String(it.cathegory || '') === String(category);
+            return String(getCategory(it) || '') === String(category);
         };
 
         const rows = [];
@@ -285,7 +296,7 @@
                 if (d.year !== year) continue;
 
                 const mi = d.month - 1;
-                const cat = it.cathegory || '—';
+                const cat = getCategory(it) || '—';
                 const amt = parseAmount(it.amount);
 
                 if (!map.has(cat)) map.set(cat, Array(12).fill(0));

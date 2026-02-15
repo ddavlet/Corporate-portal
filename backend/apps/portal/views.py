@@ -77,12 +77,12 @@ def vendor_request_data(request):
 
 @require_finance_report_access
 def pnl_data(request):
-    return _proxy_n8n_json(request, "/pnl_data")
+    return _proxy_n8n_json(request, "/pnl-data")
 
 
 @require_finance_report_access
 def cashflow_data(request):
-    return _proxy_n8n_json(request, "/cashflow_data")
+    return _proxy_n8n_json(request, "/cashflow-data")
 
 
 @require_finance_report_access

@@ -1,36 +1,48 @@
 {% extends "layout/base.html" %}
 {% block title %}Отчёты{% endblock %}
 {% block page_h1 %}
-<span id="pnl-company">[Company Name]</span>
+Отчёт о движении денежных средств
 {% endblock %}
 {% block page_sub %}
-Отчёт о прибылях и убытках (P&amp;L)
-<span class="muted">[<span id="pnl-unit"></span>]</span>
-{% endblock %}
-
-{% block header_actions %}
-<label class="filter">
-    Год
-    <select id="year-select"></select>
-</label>
-<a class="btn" href="/web/reports/">← К отчётам</a>
-<a class="btn" href="/web/">На главную</a>
+Финансовый отчёт по месяцам
 {% endblock %}
 
 {% block content %}
-<div class="card table-wrap pnl-card">
-    <table id="pnl-table" class="pnl">
-        <thead>
-            <tr class="pnl-top">
-                <th class="pnl-left" rowspan="2"> </th>
-                <th class="pnl-year" id="pnl-year" colspan="13"></th>
-            </tr>
-            <tr id="pnl-head" class="pnl-months">
-                <!-- месяцы + Full Year придут из JS -->
-            </tr>
-        </thead>
-        <tbody></tbody>
-    </table>
+<div class="wrap">
+    <header>
+        <div>
+            <h1><span id="pnl-company">[Company Name]</span></h1>
+            <div class="sub">
+                Отчёт о движении денежных средств (Cashflow)
+                <span class="muted">[<span id="pnl-unit"></span>]</span>
+            </div>
+        </div>
+
+        <div class="controls">
+            <label class="filter">
+                Год
+                <select id="year-select"></select>
+            </label>
+            <a class="btn" href="javascript:history.back()">← Назад</a>
+            <a class="btn" href="/web/reports/">К отчётам</a>
+            <a class="btn" href="/web/">На главную</a>
+        </div>
+    </header>
+
+    <div class="card table-wrap pnl-card">
+        <table id="pnl-table" class="pnl">
+            <thead>
+                <tr class="pnl-top">
+                    <th class="pnl-left" rowspan="2"> </th>
+                    <th class="pnl-year" id="pnl-year" colspan="13"></th>
+                </tr>
+                <tr id="pnl-head" class="pnl-months">
+                    <!-- месяцы + Full Year придут из JS -->
+                </tr>
+            </thead>
+            <tbody></tbody>
+        </table>
+    </div>
 </div>
 <div id="pnl-modal" class="modal" hidden aria-hidden="true">
     <div class="modal__backdrop" data-close></div>
@@ -364,8 +376,7 @@
                 yearSelect.insertAdjacentHTML('beforeend', `<option value="${y}">${y}</option>`);
             }
 
-            const fallbackYear = DateTime.now().setZone(REPORT_TZ).year;
-            const defaultYear = years[0] ?? fallbackYear;
+            const defaultYear = DateTime.now().setZone(REPORT_TZ).year;
 
             yearSelect.value = String(defaultYear);
             renderPnl(Number(yearSelect.value));
@@ -374,7 +385,7 @@
                 renderPnl(Number(yearSelect.value));
             };
         })
-        .catch((err) => console.error('P&L load error:', err));
+        .catch((err) => console.error('Cashflow load error:', err));
 </script>
 
 {% endblock %}
