@@ -43,12 +43,6 @@ function utcDateKey(dateObj) {
     return dateObj.toISOString().slice(0, 10);
 }
 
-function addDaysUTC(dateObj, days) {
-    const d = new Date(dateObj.getTime());
-    d.setUTCDate(d.getUTCDate() + days);
-    return d;
-}
-
 function toNumber(val) {
     if (val === null || val === undefined) return null;
     if (typeof val === "number") return Number.isFinite(val) ? val : null;
@@ -74,47 +68,39 @@ requestsArr.forEach((r) => {
     r.__payed_date = parsePayedAtToUTCDate(r.payed_at);
 });
 
-// ---- index expenses by date+amount ----
-const expensesByDateAndAmount = new Map(); // key -> [idx...]
+// ---- index expenses by amount only (no date constraint) ----
+const expensesByAmount = new Map(); // amount -> [idx...]
 expensesArr.forEach((e, idx) => {
-    if (!e.__date_key) return;
     if (e.__total_sum_num === null) return;
-    const key = `${e.__date_key}__${e.__total_sum_num}`;
-    if (!expensesByDateAndAmount.has(key)) expensesByDateAndAmount.set(key, []);
-    expensesByDateAndAmount.get(key).push(idx);
+    if (!expensesByAmount.has(e.__total_sum_num)) expensesByAmount.set(e.__total_sum_num, []);
+    expensesByAmount.get(e.__total_sum_num).push(idx);
 });
 
 // Track used expenses (prevents reuse)
 const usedExpenseIdx = new Set();
-// Track which request indices got matched (so we can pass-2 only on unmatched)
 const matchedRequestIdx = new Set();
 
 // outputs
 const MatchedRequests = [];
 const MatchedExpenses = [];
-const UnmatchedRequests = [];
+let UnmatchedRequests = [];
+let UnmatchedExpenses = [];
 
-// core matcher
-function tryMatchRequest(req, dayOffsets /* array of ints */) {
+// core matcher: amount only, no date. Match ONLY when exactly one candidate.
+// Multiple candidates or zero → do NOT match; expenses not used; go to MaybeMatch.
+function tryMatchRequest(req) {
     const amount = req.__amount_num;
-    const payedDate = req.__payed_date;
+    if (amount === null) return null;
 
-    if (amount === null || !payedDate) return null;
-
-    for (const offset of dayOffsets) {
-        const dateKey = utcDateKey(addDaysUTC(payedDate, offset));
-        const mapKey = `${dateKey}__${amount}`;
-        const candidates = expensesByDateAndAmount.get(mapKey) || [];
-        const freeIdx = candidates.find((i) => !usedExpenseIdx.has(i));
-        if (freeIdx !== undefined) return freeIdx;
-    }
-
+    const candidates = expensesByAmount.get(amount) || [];
+    const freeIndices = candidates.filter((i) => !usedExpenseIdx.has(i));
+    if (freeIndices.length === 1) return freeIndices[0];
     return null;
 }
 
-// ---- PASS 1: payed_at .. payed_at+3 ----
+// ---- single pass: match by amount only (exactly one candidate) ----
 requestsArr.forEach((req, reqIdx) => {
-    const matchedIdx = tryMatchRequest(req, [0, 1, 2, 3]);
+    const matchedIdx = tryMatchRequest(req);
     if (matchedIdx === null) return;
 
     usedExpenseIdx.add(matchedIdx);
@@ -138,58 +124,10 @@ requestsArr.forEach((req, reqIdx) => {
     MatchedExpenses.push(expOut);
 });
 
-// ---- PASS 2: ONLY unmatched requests, ONLY unused expenses, check payed_at-1..-3 ----
-requestsArr.forEach((req, reqIdx) => {
-    if (matchedRequestIdx.has(reqIdx)) return; // only unmatched
-
-    const matchedIdx = tryMatchRequest(req, [-1, -2, -3]);
-    if (matchedIdx === null) return;
-
-    usedExpenseIdx.add(matchedIdx);
-    matchedRequestIdx.add(reqIdx);
-
-    const exp = expensesArr[matchedIdx];
-
-    const reqOut = { ...req, expense_id: exp.id ?? null };
-    const expOut = { ...exp, request_id: req.id ?? null };
-
-    if (!reqOut.expense_id) throw new Error(`Matched expense missing 'id'. expense.pk=${exp.pk ?? "n/a"}`);
-    if (!expOut.request_id) throw new Error(`Matched request missing 'id'. request.request_id=${req.request_id ?? "n/a"}`);
-
-    delete reqOut.__amount_num;
-    delete reqOut.__payed_date;
-    delete expOut.__total_sum_num;
-    delete expOut.__date_key;
-    delete expOut.__date_utc;
-
-    MatchedRequests.push(reqOut);
-    MatchedExpenses.push(expOut);
-});
-
-// ---- build unmatched lists ----
-requestsArr.forEach((req, reqIdx) => {
-    if (matchedRequestIdx.has(reqIdx)) return;
-    const cleanReq = { ...req };
-    delete cleanReq.__amount_num;
-    delete cleanReq.__payed_date;
-    UnmatchedRequests.push(cleanReq);
-});
-
-const UnmatchedExpenses = expensesArr
-    .map((e, idx) => ({ e, idx }))
-    .filter(({ idx }) => !usedExpenseIdx.has(idx))
-    .map(({ e }) => {
-        const cleanExp = { ...e };
-        delete cleanExp.__total_sum_num;
-        delete cleanExp.__date_key;
-        delete cleanExp.__date_utc;
-        return cleanExp;
-    });
-
-// ---- MAYBE MATCH (after both passes): same amount, both unmatched — no date limit ----
+// ---- MAYBE MATCH: same amount only (no date constraint) ----
+// All unmatched request × unmatched expense pairs with same amount.
 const MaybeMatch = [];
 
-// Use the still-normalized originals for matching, but only those still unmatched
 const unmatchedRequestObjs = requestsArr
     .map((r, idx) => ({ r, idx }))
     .filter(({ idx }) => !matchedRequestIdx.has(idx))
@@ -200,7 +138,6 @@ const unmatchedExpenseObjs = expensesArr
     .filter(({ idx }) => !usedExpenseIdx.has(idx))
     .map(({ e }) => e);
 
-// Index unmatched expenses by amount
 const unmatchedExpensesByAmount = new Map(); // amount -> [expense...]
 for (const e of unmatchedExpenseObjs) {
     if (e.__total_sum_num === null) continue;
@@ -210,21 +147,22 @@ for (const e of unmatchedExpenseObjs) {
 
 for (const r of unmatchedRequestObjs) {
     const amount = r.__amount_num;
-    const payedDate = r.__payed_date;
-    if (amount === null || !payedDate) continue;
+    if (amount === null) continue;
 
+    const payedDate = r.__payed_date;
     const candidates = unmatchedExpensesByAmount.get(amount) || [];
     for (const e of candidates) {
-        const dayDiff = e.__date_utc ? diffDaysUTC(e.__date_utc, payedDate) : null; // expense - payed
+        const dayDiff =
+            payedDate && e.__date_utc ? diffDaysUTC(e.__date_utc, payedDate) : null; // expense - payed (for display/sort only)
 
         MaybeMatch.push({
             // IDs
             request_id: r.id ?? null,
             expense_id: e.id ?? null,
 
-            // money & dates
+            // money & dates (for display and sort only)
             amount,
-            payed_date: utcDateKey(payedDate),
+            payed_date: payedDate ? utcDateKey(payedDate) : null,
             expense_date: e.__date_utc ? utcDateKey(e.__date_utc) : null,
             day_diff: dayDiff,
 
@@ -250,6 +188,29 @@ MaybeMatch.sort((a, b) => {
     const bd = b.day_diff == null ? Infinity : Math.abs(b.day_diff);
     return ad - bd;
 });
+
+// ---- Unmatched: only items that do NOT appear in MaybeMatch ----
+const inMaybeMatchRequestIds = new Set(MaybeMatch.map((m) => m.request_id));
+const inMaybeMatchExpenseIds = new Set(MaybeMatch.map((m) => m.expense_id));
+
+UnmatchedRequests = unmatchedRequestObjs
+    .filter((r) => !inMaybeMatchRequestIds.has(r.id ?? null))
+    .map((r) => {
+        const clean = { ...r };
+        delete clean.__amount_num;
+        delete clean.__payed_date;
+        return clean;
+    });
+
+UnmatchedExpenses = unmatchedExpenseObjs
+    .filter((e) => !inMaybeMatchExpenseIds.has(e.id ?? null))
+    .map((e) => {
+        const clean = { ...e };
+        delete clean.__total_sum_num;
+        delete clean.__date_key;
+        delete clean.__date_utc;
+        return clean;
+    });
 
 // ---- invariant ----
 if (MatchedRequests.length !== MatchedExpenses.length) {

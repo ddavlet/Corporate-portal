@@ -6,7 +6,10 @@
 // - product_name, qty, total (line total)
 // Optional client fields per row: client_name, company_name, phone, telegram_username, email, address
 //
-// Output: one item per client, sorted by importance (RFM desc, then Monetary desc, etc.)
+// Grades: D = one risk factor; E = two risk factors (worse than D); F = three or more (worst).
+// No state across runs — E/F are from how many problems the client has in this run.
+//
+// Output: one item per client, sorted F → E → D → C → B → A, then RFM, etc.
 
 const rows = $input.all().map(i => i.json);
 
@@ -56,6 +59,8 @@ const now = DateTime.now().toLocal().startOf('day');
 
 // Threshold: current inactivity is "normal" if <= INACTIVITY_NORMAL_MULTIPLE * typical interval
 const INACTIVITY_NORMAL_MULTIPLE = 1.5;
+// Last 2 purchases below this fraction of average check → D
+const LAST_TWO_BELOW_USUAL_RATIO = 0.8;
 
 // --- Aggregate ---
 const byClient = new Map();
@@ -80,6 +85,11 @@ for (const r of rows) {
             telegram_username: r.telegram_username ?? null,
             email: r.email ?? null,
             address: r.address ?? null,
+
+            // last contact (from CRM/contacts — fill from rows if present)
+            last_contact_date: r.last_contact_date ?? r.contact_date ?? null,
+            last_contact_comment: r.last_contact_comment ?? r.contact_comment ?? null,
+            last_contact_manager: r.last_contact_manager ?? r.contact_manager ?? null,
 
             // order aggregates
             orders_count: 0,
@@ -106,6 +116,20 @@ for (const r of rows) {
     if (agg.telegram_username == null && r.telegram_username != null) agg.telegram_username = r.telegram_username;
     if (agg.email == null && r.email != null) agg.email = r.email;
     if (agg.address == null && r.address != null) agg.address = r.address;
+    // Last contact: take the one with the latest date (or first non-null if no dates)
+    const rowContactDate = r.last_contact_date ?? r.contact_date ?? null;
+    const rowContactComment = r.last_contact_comment ?? r.contact_comment ?? null;
+    const rowContactManager = r.last_contact_manager ?? r.contact_manager ?? null;
+    if (rowContactDate != null || rowContactComment != null || rowContactManager != null) {
+        const rowDateStr = rowContactDate != null ? String(rowContactDate).trim() : '';
+        const aggDateStr = agg.last_contact_date != null ? String(agg.last_contact_date).trim() : '';
+        const useRow = aggDateStr === '' || (rowDateStr !== '' && rowDateStr > aggDateStr);
+        if (useRow) {
+            agg.last_contact_date = rowContactDate;
+            agg.last_contact_comment = rowContactComment;
+            agg.last_contact_manager = rowContactManager;
+        }
+    }
 
     // count order total once per order
     const orderKey = `${clientId}||${orderId}`;
@@ -177,22 +201,6 @@ for (const agg of byClient.values()) {
         daysInactive != null && medianDaysBetweenOrders != null && medianDaysBetweenOrders > 0
             ? Math.round((daysInactive / medianDaysBetweenOrders) * 100) / 100
             : null;
-    const inactivityNormal =
-        inactivityVsUsual == null
-            ? null
-            : inactivityVsUsual <= INACTIVITY_NORMAL_MULTIPLE
-                ? "Да"
-                : "Нет";
-
-    // Last interval (prev order → last order) in days; compare to usual
-    const lastIntervalDays =
-        lastDt && prevDt && lastDt.isValid && prevDt.isValid
-            ? Math.floor(lastDt.diff(prevDt, 'days').days)
-            : null;
-    const lastIntervalVsMedian =
-        lastIntervalDays != null && medianDaysBetweenOrders != null && medianDaysBetweenOrders > 0
-            ? Math.round((lastIntervalDays / medianDaysBetweenOrders) * 100) / 100
-            : null;
 
     // Orders in last 90 days (by order date)
     const cutoff90 = now.minus({ days: 90 });
@@ -200,17 +208,6 @@ for (const agg of byClient.values()) {
         const dt = DateTime.fromISO(d).toLocal().startOf('day');
         return dt.isValid && dt >= cutoff90;
     }).length;
-
-    // Spend trend: last order vs average check
-    const lastVsAvg = avgCheck ? (agg.last?.total_sum ?? 0) - avgCheck : 0;
-    const spendTrend =
-        avgCheck === 0
-            ? null
-            : lastVsAvg > avgCheck * 0.1
-                ? "Рост"
-                : lastVsAvg < -avgCheck * 0.1
-                    ? "Падение"
-                    : "Стабильно";
 
     // favorites
     let favQtyName = null, favQtyVal = -1;
@@ -223,12 +220,20 @@ for (const agg of byClient.values()) {
 
     report.push({
         "ID клиента": agg.client_id,
-        "Клиент": agg.client_name,
-        "Компания": agg.company_name,
+        "Название Юр. Лица": agg.client_name,
+        "Бренд (Название заведения)": agg.company_name,
         "Телефон": agg.phone,
         "Telegram": agg.telegram_username,
         "Email": agg.email,
         "Адрес": agg.address,
+
+        "Предыдущий контакт (дата)": (() => {
+            if (agg.last_contact_date == null) return null;
+            const dt = DateTime.fromISO(String(agg.last_contact_date)).toLocal();
+            return dt.isValid ? dt.toFormat('dd.MM.yyyy') : String(agg.last_contact_date);
+        })(),
+        "Предыдущий контакт (комментарий)": agg.last_contact_comment,
+        "Предыдущий контакт (менеджер)": agg.last_contact_manager,
 
         "Количество покупок": agg.orders_count,
         "Сумма всех покупок": Math.round(agg.total_spent * 100) / 100,
@@ -244,6 +249,9 @@ for (const agg of byClient.values()) {
 
         "Разница последняя-предыдущая": agg.prev ? Math.round((agg.last.total_sum - agg.prev.total_sum) * 100) / 100 : null,
         "Разница последняя-средняя": avgCheck ? Math.round((agg.last.total_sum - avgCheck) * 100) / 100 : null,
+        "Средний чек последних 2 заказов": agg.last != null && agg.prev != null
+            ? Math.round(((agg.last.total_sum + agg.prev.total_sum) / 2) * 100) / 100
+            : null,
 
         "Дней неактивности": daysInactive,
 
@@ -287,53 +295,71 @@ for (const r of report) {
     else if (R === 1 && F === 1 && M === 1) r["Сегмент"] = "Lost";
     else r["Сегмент"] = "Others";
 
-    // Grade A/B/C/D: D = need to contact to understand what's wrong
+    // Grade A/B/C/D/E/F by number of risk factors in this run: 1 → D, 2 → E, 3+ → F.
+    // Risk factors: Lost, At Risk, inactivity > 1.5× usual, no orders 90+ days, last 2 orders < 80% of avg check.
     const segment = r["Сегмент"];
     const inactivityOk = r["Неактивность / обычный интервал"] != null && r["Неактивность / обычный интервал"] <= INACTIVITY_NORMAL_MULTIPLE;
     const inactivityRatio = r["Неактивность / обычный интервал"];
     const ordersCount = Number(r["Количество покупок"]) || 0;
     const ordersInLast90 = r["Заказов за последние 90 дней"] != null ? Number(r["Заказов за последние 90 дней"]) : 0;
     const daysInactive = r["Дней неактивности"] != null ? Number(r["Дней неактивности"]) : null;
+    const avgCheck = Number(r["Средний чек"]) || 0;
+    const lastTwoAvg = r["Средний чек последних 2 заказов"] != null ? Number(r["Средний чек последних 2 заказов"]) : null;
+    const lastTwoBelowUsual = avgCheck > 0 && lastTwoAvg != null && lastTwoAvg < avgCheck * LAST_TWO_BELOW_USUAL_RATIO;
+
+    const dReasons = [];
+    if (segment === "Lost") dReasons.push("Сегмент Lost (давно не покупал, мало заказов).");
+    else if (segment === "At Risk") dReasons.push("Сегмент At Risk (давно не покупал при прошлой активности).");
+    if (!inactivityOk && ordersCount >= 2 && inactivityRatio != null) {
+        const ratio = Math.round(inactivityRatio * 100) / 100;
+        dReasons.push(`Неактивность в ${ratio} раз выше обычного интервала между заказами.`);
+    }
+    if (ordersCount >= 2 && ordersInLast90 === 0 && daysInactive != null && daysInactive > 90)
+        dReasons.push("Нет заказов более 90 дней при прежней активности.");
+    if (lastTwoBelowUsual)
+        dReasons.push("Сумма последних двух заказов ниже обычного.");
 
     let grade, why;
-    if (segment === "Lost") {
-        grade = "D";
-        why = "Сегмент Lost (давно не покупал, мало заказов). Связаться, чтобы выяснить причину.";
-    } else if (segment === "At Risk") {
-        grade = "D";
-        why = "Сегмент At Risk (давно не покупал при прошлой активности). Связаться, чтобы выяснить причину.";
-    } else if (!inactivityOk && ordersCount >= 2 && inactivityRatio != null) {
-        grade = "D";
-        const ratio = Math.round(inactivityRatio * 100) / 100;
-        why = `Неактивность в ${ratio} раз выше обычного интервала между заказами. Связаться, чтобы выяснить причину.`;
-    } else if (ordersCount >= 2 && ordersInLast90 === 0 && daysInactive != null && daysInactive > 90) {
-        grade = "D";
-        why = "Нет заказов более 90 дней при прежней активности. Связаться, чтобы выяснить причину.";
-    } else if (segment === "Need Attention") {
-        grade = "C";
-        why = "Сегмент Need Attention. Стоит мониторить.";
-    } else if (segment === "Champions" || segment === "Loyal / Potential Loyalist") {
-        grade = "A";
-        why = "Активный и ценный клиент. Всё в норме.";
-    } else if (inactivityRatio != null && inactivityRatio > 1) {
-        grade = "C";
-        why = "Неактивность чуть выше обычного. Стоит мониторить.";
-    } else if (segment === "Others" && (R === 1 || R === 2)) {
-        grade = "B";
-        why = "Средняя вовлечённость. Без срочных действий.";
+    if (dReasons.length > 0) {
+        const baseWhy = dReasons.join(" ");
+        if (dReasons.length === 1) {
+            grade = "D";
+            why = baseWhy;
+        } else if (dReasons.length === 2) {
+            grade = "E";
+            why = baseWhy + " Два фактора риска. Связаться в приоритете.";
+        } else {
+            grade = "F";
+            why = baseWhy + " Три и более факторов риска. Срочно связаться.";
+        }
+        r["Количество факторов риска"] = dReasons.length;
     } else {
-        grade = "B";
-        why = "В норме. Без срочных действий.";
+        if (segment === "Need Attention") {
+            grade = "C";
+            why = "Сегмент Need Attention. Стоит мониторить.";
+        } else if (segment === "Champions" || segment === "Loyal / Potential Loyalist") {
+            grade = "A";
+            why = "Активный и ценный клиент. Всё в норме.";
+        } else if (inactivityRatio != null && inactivityRatio > 1) {
+            grade = "C";
+            why = "Неактивность чуть выше обычного. Стоит мониторить.";
+        } else if (segment === "Others" && (R === 1 || R === 2)) {
+            grade = "B";
+            why = "Средняя вовлечённость. Без срочных действий.";
+        } else {
+            grade = "B";
+            why = "В норме. Без срочных действий.";
+        }
     }
     r["Оценка"] = grade;
     r["Почему оценка"] = why;
 }
 
-// --- Sort: Grade D first (need to contact), then C, B, A; then RFM, Monetary, Frequency, Recency ---
-const gradeOrder = { D: 0, C: 1, B: 2, A: 3 };
+// --- Sort: F, E, D first (need to contact), then C, B, A; then RFM, Monetary, Frequency, Recency ---
+const gradeOrder = { F: 0, E: 1, D: 2, C: 3, B: 4, A: 5 };
 report.sort((a, b) => {
-    const gA = gradeOrder[a["Оценка"]] ?? 4;
-    const gB = gradeOrder[b["Оценка"]] ?? 4;
+    const gA = gradeOrder[a["Оценка"]] ?? 6;
+    const gB = gradeOrder[b["Оценка"]] ?? 6;
     if (gA !== gB) return gA - gB;
 
     const rfmA = Number(a["RFM"]);
