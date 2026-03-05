@@ -6,10 +6,14 @@
 // - product_name, qty, total (line total)
 // Optional client fields per row: client_name, company_name, phone, telegram_username, email, address
 //
+// Aggregation: by company_name (brand). Multiple client_ids with the same company_name are merged
+// (e.g. company renamed); client_id and client_name in the output are from the last purchase in that brand.
+// If company_name is null/empty, fallback to one group per client_id.
+//
 // Grades: D = one risk factor; E = two risk factors (worse than D); F = three or more (worst).
 // No state across runs — E/F are from how many problems the client has in this run.
 //
-// Output: one item per client, sorted F → E → D → C → B → A, then RFM, etc.
+// Output: one item per brand (company_name), sorted F → E → D → C → B → A, then RFM, etc.
 
 const rows = $input.all().map(i => i.json);
 
@@ -62,10 +66,12 @@ const INACTIVITY_NORMAL_MULTIPLE = 1.5;
 // Last 2 purchases below this fraction of average check → D
 const LAST_TWO_BELOW_USUAL_RATIO = 0.8;
 
-// --- Aggregate ---
-const byClient = new Map();
+// --- Aggregate by company_name (same brand); fallback to client_id when no company_name ---
+// Multiple client_ids can share one company_name (e.g. company renamed); we merge them and
+// set client_id/client_name from the last purchase in that brand.
+const byCompany = new Map();
 // To avoid counting order totals multiple times (because each order has multiple lines)
-const orderSeen = new Set(); // key = `${client_id}||${order_id}`
+const orderSeen = new Set(); // key = `${groupKey}||${order_id}`
 
 for (const r of rows) {
     const clientId = r.client_id ? String(r.client_id) : null;
@@ -75,11 +81,17 @@ for (const r of rows) {
     const dayKey = dayKeyFromDerived(r);
     if (!dayKey) continue;
 
-    if (!byClient.has(clientId)) {
-        byClient.set(clientId, {
-            // client fields (filled from any row)
+    const companyNameRaw = r.company_name != null && String(r.company_name).trim() !== '' ? String(r.company_name).trim() : null;
+    const groupKey = companyNameRaw ?? clientId; // same brand = same company_name; else one group per client
+
+    if (!byCompany.has(groupKey)) {
+        byCompany.set(groupKey, {
+            // client fields (filled from any row; client_id/name overwritten from last purchase below)
             client_id: clientId,
             client_name: r.client_name ?? null,
+            last_client_id: null,
+            last_client_name: null,
+            clientIds: new Set(),
             company_name: r.company_name ?? null,
             phone: r.phone ?? null,
             telegram_username: r.telegram_username ?? null,
@@ -107,7 +119,8 @@ for (const r of rows) {
         });
     }
 
-    const agg = byClient.get(clientId);
+    const agg = byCompany.get(groupKey);
+    agg.clientIds.add(clientId);
 
     // fill missing client fields if later rows have them
     if (agg.client_name == null && r.client_name != null) agg.client_name = r.client_name;
@@ -132,7 +145,7 @@ for (const r of rows) {
     }
 
     // count order total once per order
-    const orderKey = `${clientId}||${orderId}`;
+    const orderKey = `${groupKey}||${orderId}`;
     if (!orderSeen.has(orderKey)) {
         orderSeen.add(orderKey);
 
@@ -142,7 +155,7 @@ for (const r of rows) {
 
         const ord = { day: dayKey, order_id: orderId, total_sum: orderTotal };
 
-        // update last/prev
+        // update last/prev; keep client_id and client_name from the row that has the latest purchase
         const betterThan = (a, b) => {
             // a later than b?
             if (!b) return true;
@@ -154,6 +167,8 @@ for (const r of rows) {
         if (agg.last == null || betterThan(ord, agg.last)) {
             agg.prev = agg.last;
             agg.last = ord;
+            agg.last_client_id = clientId;
+            agg.last_client_name = r.client_name ?? null;
         } else if (agg.prev == null || betterThan(ord, agg.prev)) {
             // don't let prev equal last
             if (agg.last?.order_id !== ord.order_id) agg.prev = ord;
@@ -177,7 +192,7 @@ for (const r of rows) {
 // --- Build report rows ---
 const report = [];
 
-for (const agg of byClient.values()) {
+for (const agg of byCompany.values()) {
     const avgCheck = agg.orders_count ? agg.total_spent / agg.orders_count : 0;
 
     const lastDt = agg.last?.day ? DateTime.fromISO(agg.last.day).toLocal().startOf('day') : null;
@@ -218,9 +233,14 @@ for (const agg of byClient.values()) {
         if (p.totalSum > favTotVal) { favTotVal = p.totalSum; favTotName = name; }
     }
 
+    // Use client_id and client_name from the last purchase in this brand (company_name)
+    const outClientId = agg.last_client_id ?? agg.client_id;
+    const outClientName = agg.last_client_name ?? agg.client_name;
+
     report.push({
-        "ID клиента": agg.client_id,
-        "Название Юр. Лица": agg.client_name,
+        "ID клиента": outClientId,
+        "Название Юр. Лица": outClientName,
+        "Количество Юр. Лиц": agg.clientIds.size,
         "Бренд (Название заведения)": agg.company_name,
         "Телефон": agg.phone,
         "Telegram": agg.telegram_username,

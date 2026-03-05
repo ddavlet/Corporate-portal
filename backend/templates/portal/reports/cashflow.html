@@ -110,7 +110,21 @@
     const { DateTime } = luxon;
     const REPORT_TZ = 'Asia/Tashkent';
 
-    const dtUZ = (iso) => DateTime.fromISO(iso, { setZone: true }).setZone(REPORT_TZ);
+    // Если в дате нет таймзоны — считаем время в REPORT_TZ, иначе браузер даст локальную дату и месяц может сдвинуться (напр. в январь).
+    const dtUZ = (iso) => {
+        const str = String(iso || '').trim();
+        const hasOffset = /(Z|[+-]\d{2}:?\d{2})$/i.test(str);
+        return hasOffset
+            ? DateTime.fromISO(str, { setZone: true }).setZone(REPORT_TZ)
+            : DateTime.fromISO(str, { zone: REPORT_TZ });
+    };
+
+    // Для привязки к году/месяцу берём те же значения, что видит пользователь в отчёте:
+    // сначала нормализуем дату в REPORT_TZ (dtUZ), затем берём year и month.
+    const getReportCalendar = (iso) => {
+        const d = dtUZ(iso);
+        return d.isValid ? { year: d.year, monthIndex: d.month - 1 } : null;
+    };
 
     const formatDate = (iso) => {
         const d = dtUZ(iso);
@@ -147,16 +161,17 @@
     const RAW = { revenue: [], expense: [] };
 
     // ---------- Drill-down (modal) ----------
-    const showDetails = ({ year, monthIndex = null, category = null, title = 'Детализация' }) => {
+    // typeFilter: 'revenue' | 'expense' | null — which section was clicked; null = show both
+    const showDetails = ({ year, monthIndex = null, category = null, typeFilter = null, title = 'Детализация' }) => {
         const inYear = (it) => {
-            const d = dtUZ(it.date);
-            return d.isValid && d.year === year;
+            const cal = getReportCalendar(it.date);
+            return cal && cal.year === year;
         };
 
         const inMonth = (it) => {
             if (monthIndex === null) return true;
-            const d = dtUZ(it.date);
-            return d.isValid && (d.month - 1) === monthIndex;
+            const cal = getReportCalendar(it.date);
+            return cal && cal.monthIndex === monthIndex;
         };
 
         const inCategory = (it) => {
@@ -165,8 +180,12 @@
         };
 
         const rows = [];
-        for (const it of RAW.revenue) if (inYear(it) && inMonth(it) && inCategory(it)) rows.push({ ...it, __type: 'revenue' });
-        for (const it of RAW.expense) if (inYear(it) && inMonth(it) && inCategory(it)) rows.push({ ...it, __type: 'expense' });
+        if (typeFilter !== 'expense') {
+            for (const it of RAW.revenue) if (inYear(it) && inMonth(it) && inCategory(it)) rows.push({ ...it, __type: 'revenue' });
+        }
+        if (typeFilter !== 'revenue') {
+            for (const it of RAW.expense) if (inYear(it) && inMonth(it) && inCategory(it)) rows.push({ ...it, __type: 'expense' });
+        }
 
         rows.sort((a, b) => dtUZ(a.date).toMillis() - dtUZ(b.date).toMillis());
 
@@ -212,8 +231,8 @@
     const getYearsFromData = () => {
         const years = new Set();
         for (const it of [...RAW.revenue, ...RAW.expense]) {
-            const d = dtUZ(it.date);
-            if (d.isValid) years.add(d.year);
+            const cal = getReportCalendar(it.date);
+            if (cal) years.add(cal.year);
         }
         return Array.from(years).sort((a, b) => b - a);
     };
@@ -225,18 +244,20 @@
     const tbody = document.querySelector('#pnl-table tbody');
 
     // Clicks on table body (categories/cells) — attach ONCE
+    // data-type on row: 'revenue' | 'expense' | absent = show both
     tbody.addEventListener('click', (e) => {
         const cell = e.target.closest('[data-click]');
         if (!cell) return;
 
         const tr = cell.closest('tr[data-category]');
         const category = tr ? tr.getAttribute('data-category') : null;
+        const typeFilter = tr && tr.hasAttribute('data-type') ? tr.getAttribute('data-type') : null;
 
         const kind = cell.getAttribute('data-click');
         const year = Number(yearSelect.value);
 
         if (kind === 'category') {
-            showDetails({ year, monthIndex: null, category, title: 'Детализация по категории' });
+            showDetails({ year, monthIndex: null, category, typeFilter, title: 'Детализация по категории' });
             return;
         }
 
@@ -246,6 +267,7 @@
                 year,
                 monthIndex: val === 'all' ? null : Number(val),
                 category,
+                typeFilter,
                 title: 'Детализация по категории',
             });
         }
@@ -280,11 +302,10 @@
         const buildCategoryMatrix = (items) => {
             const map = new Map();
             for (const it of items) {
-                const d = dtUZ(it.date);
-                if (!d.isValid) continue;
-                if (d.year !== year) continue;
+                const cal = getReportCalendar(it.date);
+                if (!cal || cal.year !== year) continue;
 
-                const mi = d.month - 1;
+                const mi = cal.monthIndex;
                 const cat = it.cathegory || '—';
                 const amt = parseAmount(it.amount);
 
@@ -321,8 +342,9 @@
 
         const addRow = (label, values, opts = {}) => {
             const trCls = [opts.bold ? 'pnl-bold' : '', opts.ruleTop ? 'pnl-rule-top' : ''].join(' ').trim();
+            const dataType = opts.type === 'revenue' || opts.type === 'expense' ? ` data-type="${opts.type}"` : '';
 
-            let tr = `<tr class="${trCls}" data-category="${String(label).replace(/"/g, '&quot;')}">
+            let tr = `<tr class="${trCls}" data-category="${String(label).replace(/"/g, '&quot;')}"${dataType}>
         <td class="pnl-left pnl-click" data-click="category" title="Показать все операции по категории">${label}</td>`;
 
             for (let i = 0; i < 12; i++) {
@@ -341,16 +363,16 @@
         // Revenue
         addSection('Доходы');
         const revCats = Array.from(revMap.keys()).sort((a, b) => a.localeCompare(b));
-        for (const cat of revCats) addRow(cat, revMap.get(cat));
-        addRow('Итого доходы', totalRevenueByMonth, { bold: true, ruleTop: true });
+        for (const cat of revCats) addRow(cat, revMap.get(cat), { type: 'revenue' });
+        addRow('Итого доходы', totalRevenueByMonth, { bold: true, ruleTop: true, type: 'revenue' });
 
         // Expense
         addSection('Расходы');
         const expCats = Array.from(expMap.keys()).sort((a, b) => a.localeCompare(b));
-        for (const cat of expCats) addRow(cat, expMap.get(cat));
-        addRow('Итого расходы', totalExpenseByMonth, { bold: true, ruleTop: true });
+        for (const cat of expCats) addRow(cat, expMap.get(cat), { type: 'expense' });
+        addRow('Итого расходы', totalExpenseByMonth, { bold: true, ruleTop: true, type: 'expense' });
 
-        // Net
+        // Net (no type = show both in modal)
         const netByMonth = totalRevenueByMonth.map((v, i) => v + totalExpenseByMonth[i]);
         addRow('Чистая прибыль', netByMonth, { bold: true, ruleTop: true });
     };

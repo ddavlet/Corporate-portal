@@ -196,6 +196,16 @@ services:
        - traefik.http.routers.n8n-webhook-syrop.middlewares=n8n-syrop-webhook@docker,n8n@docker,n8n-error-pages@docker
        - traefik.http.routers.n8n-webhook-syrop.service=n8n
 
+      # ---------- Webhooks & Forms for qulay.kolberg.uz ----------
+       - traefik.http.routers.n8n-webhook-qulay.rule=Host(`qulay.kolberg.uz`)
+       - traefik.http.routers.n8n-webhook-qulay.entrypoints=web,websecure
+       - traefik.http.routers.n8n-webhook-qulay.tls=true
+       - traefik.http.routers.n8n-webhook-qulay.tls.certresolver=mytlschallenge
+       - traefik.http.middlewares.n8n-qulay-webhook.replacepathregex.regex=^/(.*)$
+       - traefik.http.middlewares.n8n-qulay-webhook.replacepathregex.replacement=/webhook/qulay/$1
+       - traefik.http.routers.n8n-webhook-qulay.middlewares=n8n-qulay-webhook@docker,n8n@docker,n8n-error-pages@docker
+       - traefik.http.routers.n8n-webhook-qulay.service=n8n
+
       # ---------- Final n8n service config ----------
        - traefik.http.services.n8n.loadbalancer.server.port=5678
 
