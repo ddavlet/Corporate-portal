@@ -1,4 +1,5 @@
 from urllib.parse import urlparse
+import requests
 from django.contrib.auth import authenticate, login, logout
 from django.shortcuts import render, redirect
 from django.http import HttpResponseForbidden
@@ -112,3 +113,59 @@ def password_change_done(request):
     if not request.user.is_authenticated:
         return redirect("/login/")
     return render(request, "auth/password_change_done.html")
+
+
+def _normalize_investments_payload(payload):
+    if isinstance(payload, list):
+        return payload
+    if isinstance(payload, dict):
+        for key in ("data", "investments", "results"):
+            value = payload.get(key)
+            if isinstance(value, list):
+                return value
+    return []
+
+
+def corporate_investments_report(request):
+    if not request.user.is_authenticated:
+        return redirect("/login/")
+
+    allowed_username = getattr(settings, "CORPORATE_INVESTMENTS_ALLOWED_USER", "").strip()
+    if not allowed_username:
+        return HttpResponseForbidden("Report user is not configured")
+
+    if request.user.username != allowed_username:
+        return HttpResponseForbidden("Access denied")
+
+    sources = getattr(settings, "CORPORATE_INVESTMENTS_SOURCES", [])
+    timeout_sec = getattr(settings, "CORPORATE_INVESTMENTS_TIMEOUT_SEC", 15)
+
+    rows = []
+    for url in sources:
+        try:
+            response = requests.get(url, timeout=timeout_sec, headers={"Accept": "application/json"})
+            response.raise_for_status()
+            payload = response.json()
+        except (requests.RequestException, ValueError):
+            continue
+
+        source_name = str(url).rstrip("/").split("/")[-1] or "unknown"
+        for item in _normalize_investments_payload(payload):
+            if not isinstance(item, dict):
+                continue
+            normalized = dict(item)
+            normalized["company_name"] = (
+                normalized.get("company_name")
+                or normalized.get("company")
+                or source_name
+            )
+            rows.append(normalized)
+
+    return render(
+        request,
+        "corporate/investments.html",
+        {
+            "investments": rows,
+            "investment_sources": sources,
+        },
+    )

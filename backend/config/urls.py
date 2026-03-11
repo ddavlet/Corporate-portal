@@ -14,6 +14,7 @@ urlpatterns = [
     # password management
     path("password/change/", core.password_change),
     path("password/change/done/", core.password_change_done),
+    path("web/reports/corporate-investments/", core.corporate_investments_report),
 
     # portal pages (на subdomain.kolberg.uz)
     path("web/", portal.tenant_home),
