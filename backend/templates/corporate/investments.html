@@ -1,0 +1,231 @@
+{% extends "layout/base.html" %}
+
+{% block title %}Отчёт по инвестициям{% endblock %}
+
+{% block content %}
+<div class="wrap">
+    <header>
+        <div>
+            <h1>Инвестиции</h1>
+            <div class="sub">
+                Сводный отчёт по всем инвестиционным проектам.
+            </div>
+        </div>
+        <div class="controls">
+            <a class="btn" href="javascript:history.back()">← Назад</a>
+            <a class="btn" href="/web/reports/">К отчётам</a>
+            <a class="btn" href="/web/">На главную</a>
+        </div>
+    </header>
+
+    {% if investments %}
+    {{ investments|json_script:"investments-inline-data" }}
+    {% endif %}
+    {% if investment_sources %}
+    {{ investment_sources|json_script:"investments-source-list" }}
+    {% endif %}
+
+    <div class="card" style="margin-bottom: 12px;">
+        <div style="padding: 12px; display: grid; gap: 10px; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));">
+            <div class="pill">Проектов: <strong id="kpi-projects">0</strong></div>
+            <div class="pill">Всего инвестировано: <strong id="kpi-investments">0</strong></div>
+            <div class="pill">Всего к возврату: <strong id="kpi-to-return">0</strong></div>
+            <div class="pill">Следующий возврат: <strong id="kpi-next-return">-</strong></div>
+        </div>
+    </div>
+
+    <div class="card">
+        <div class="table-wrap">
+            <table aria-label="Таблица инвестиций">
+                <colgroup>
+                    <col style="width: 160px" />
+                    <col style="width: 220px" />
+                    <col style="width: 180px" />
+                    <col style="width: 180px" />
+                    <col style="width: 240px" />
+                    <col style="width: 240px" />
+                </colgroup>
+                <thead>
+                    <tr>
+                        <th>Компания</th>
+                        <th>Проект</th>
+                        <th class="right">Инвестировано</th>
+                        <th class="right">К возврату</th>
+                        <th>Последний возврат</th>
+                        <th>Следующий возврат</th>
+                    </tr>
+                </thead>
+                <tbody id="investments-tbody">
+                    <tr>
+                        <td colspan="6" class="muted">Загрузка данных...</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    const numberFormatter = new Intl.NumberFormat("en-US", {
+        minimumFractionDigits: 0,
+        maximumFractionDigits: 2,
+    });
+
+    const escapeHtml = (value) =>
+        String(value ?? "")
+            .replace(/&/g, "&amp;")
+            .replace(/</g, "&lt;")
+            .replace(/>/g, "&gt;")
+            .replace(/"/g, "&quot;")
+            .replace(/'/g, "&#39;");
+
+    const formatAmount = (value, currency = "") => {
+        const amount = Number(value ?? 0);
+        if (!Number.isFinite(amount)) return "-";
+        const formatted = numberFormatter.format(amount);
+        return currency ? `${formatted} ${currency}` : formatted;
+    };
+
+    const normalizeRows = (payload) => {
+        if (Array.isArray(payload)) return payload;
+        if (!payload || typeof payload !== "object") return [];
+        if (Array.isArray(payload.data)) return payload.data;
+        if (Array.isArray(payload.investments)) return payload.investments;
+        if (Array.isArray(payload.results)) return payload.results;
+        return [];
+    };
+
+    const renderInvestments = (rows) => {
+        const tbody = document.getElementById("investments-tbody");
+        if (!tbody) return;
+
+        const data = Array.isArray(rows) ? rows : [];
+        if (!data.length) {
+            tbody.innerHTML = `<tr><td colspan="6" class="muted">Нет данных по инвестициям</td></tr>`;
+            document.getElementById("kpi-projects").textContent = "0";
+            document.getElementById("kpi-investments").textContent = "0";
+            document.getElementById("kpi-to-return").textContent = "0";
+            document.getElementById("kpi-next-return").textContent = "-";
+            return;
+        }
+
+        const totalInvestments = data.reduce((sum, item) => sum + (Number(item.investments) || 0), 0);
+        const totalToReturn = data.reduce((sum, item) => sum + (Number(item.to_return) || 0), 0);
+
+        document.getElementById("kpi-projects").textContent = String(data.length);
+        document.getElementById("kpi-investments").textContent = numberFormatter.format(totalInvestments);
+        document.getElementById("kpi-to-return").textContent = numberFormatter.format(totalToReturn);
+
+        const nextRecord = data.find((item) => item.next_return_date || item.next_return_sum);
+        const nextDate = nextRecord?.next_return_date || "";
+        const nextSum = formatAmount(nextRecord?.next_return_sum, nextRecord?.next_return_currency || "");
+        document.getElementById("kpi-next-return").textContent = nextDate || nextSum !== "-" ? `${nextDate} ${nextSum}`.trim() : "-";
+
+        tbody.innerHTML = data
+            .map((item) => {
+                const company = escapeHtml(item.company_name || item.company || item.source_company || "—");
+                const project = escapeHtml(item.project_name || "—");
+                const investments = formatAmount(item.investments);
+                const toReturn = formatAmount(item.to_return);
+                const lastReturnDate = escapeHtml(item.last_return_date || "—");
+                const lastReturn = formatAmount(item.last_return, item.last_return_currency || "");
+                const nextReturnDate = escapeHtml(item.next_return_date || "—");
+                const nextReturn = formatAmount(item.next_return_sum, item.next_return_currency || "");
+
+                return `
+                    <tr>
+                        <td>${company}</td>
+                        <td><strong>${project}</strong></td>
+                        <td class="right">${investments}</td>
+                        <td class="right">${toReturn}</td>
+                        <td class="tight">
+                            <div>${lastReturnDate}</div>
+                            <div class="muted">${lastReturn}</div>
+                        </td>
+                        <td class="tight">
+                            <div>${nextReturnDate}</div>
+                            <div class="muted">${nextReturn}</div>
+                        </td>
+                    </tr>
+                `;
+            })
+            .join("");
+    };
+
+    const defaultSources = [
+        "https://main.kolberg.uz/reports/investments/lemonfit",
+        "https://main.kolberg.uz/reports/investments/lemonfit2",
+        "https://main.kolberg.uz/reports/investments/neuron",
+    ];
+
+    const getConfiguredSources = () => {
+        const sourceEl = document.getElementById("investments-source-list");
+        if (!sourceEl) return defaultSources;
+
+        try {
+            const parsed = JSON.parse(sourceEl.textContent);
+            if (Array.isArray(parsed) && parsed.length) return parsed;
+        } catch (error) {
+            console.error("Investments source list parse error:", error);
+        }
+        return defaultSources;
+    };
+
+    const fetchSource = async (url) => {
+        const response = await fetch(url, {
+            method: "GET",
+            credentials: "include",
+            headers: { Accept: "application/json" },
+        });
+        if (!response.ok) throw new Error(`${url} -> HTTP ${response.status} ${response.statusText}`);
+        const payload = await response.json();
+
+        const sourceKey = String(url).split("/").filter(Boolean).pop() || "unknown";
+        return normalizeRows(payload).map((item) => ({
+            ...item,
+            company_name: item.company_name || item.company || sourceKey,
+        }));
+    };
+
+    const loadFromSources = async () => {
+        const urls = getConfiguredSources();
+        if (!urls.length) return [];
+
+        const settled = await Promise.allSettled(urls.map((url) => fetchSource(url)));
+        const rows = [];
+
+        for (const result of settled) {
+            if (result.status === "fulfilled") rows.push(...result.value);
+            else console.error("Investments source load error:", result.reason);
+        }
+
+        return rows;
+    };
+
+    const loadInvestments = async () => {
+        const inlineDataEl = document.getElementById("investments-inline-data");
+        if (inlineDataEl) {
+            try {
+                renderInvestments(JSON.parse(inlineDataEl.textContent));
+                return;
+            } catch (error) {
+                console.error("Investments inline parse error:", error);
+            }
+        }
+
+        try {
+            const mergedRows = await loadFromSources();
+            renderInvestments(mergedRows);
+        } catch (error) {
+            console.error("Investments load error:", error);
+            const tbody = document.getElementById("investments-tbody");
+            if (!tbody) return;
+            tbody.innerHTML = `<tr><td colspan="6" class="muted">Не удалось загрузить данные</td></tr>`;
+        }
+    };
+
+    document.addEventListener("DOMContentLoaded", loadInvestments);
+</script>
+{% endblock %}

@@ -97,6 +97,19 @@ N8N_TOKEN = os.getenv("N8N_TOKEN", "")
 
 LOGIN_HOST = "login.kolberg.uz"
 
+CORPORATE_INVESTMENTS_ALLOWED_USER = os.getenv("CORPORATE_INVESTMENTS_ALLOWED_USER", "")
+CORPORATE_INVESTMENTS_SOURCES = [
+    url.strip()
+    for url in os.getenv(
+        "CORPORATE_INVESTMENTS_SOURCES",
+        "https://main.kolberg.uz/reports/investments/lemonfit,"
+        "https://main.kolberg.uz/reports/investments/lemonfit2,"
+        "https://main.kolberg.uz/reports/investments/neuron",
+    ).split(",")
+    if url.strip()
+]
+CORPORATE_INVESTMENTS_TIMEOUT_SEC = int(os.getenv("CORPORATE_INVESTMENTS_TIMEOUT_SEC", "15"))
+
 
 APPEND_SLASH = True
 
