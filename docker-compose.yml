@@ -317,15 +317,14 @@ services:
       - db
     environment:
       POSTGRES_USER: ${POSTGRES_USER}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      PGPASSWORD: ${POSTGRES_PASSWORD}
     volumes:
       - /opt/backups/postgres:/backups
     command: >
       bash -c "
       while true; do
         ts=$$(date +%F-%H%M) ;
-        pg_dumpall -h db -U \"$POSTGRES_USER\" \
-          | gzip > /backups/postgres-all-$$ts.sql.gz ;
+        pg_dumpall -h db -U \"$POSTGRES_USER\" | gzip > /backups/postgres-all-$$ts.sql.gz ;
         find /backups -type f -name 'postgres-all-*.sql.gz' -mtime +7 -delete ;
         sleep 86400 ;
       done"
@@ -350,6 +349,30 @@ services:
         find /backups -type f -name 'n8n-backup-*.tar.gz' -mtime +7 -delete ;
         sleep 86400 ;
       done"
+
+  gdrive_backup_sync:
+    image: rclone/rclone:latest
+    container_name: gdrive_backup_sync
+    restart: always
+    entrypoint:
+      - /bin/sh
+      - -lc
+      - |
+        while true; do
+          latest_pg=$$(ls -1t /backups/postgres/postgres-all-*.sql.gz 2>/dev/null | sed -n '1p');
+          if [ -n "$$latest_pg" ]; then
+            rclone copyto "$$latest_pg" gdrive:kolberg-backups/postgres-latest.sql.gz;
+          fi;
+          latest_n8n=$$(ls -1t /backups/n8n/n8n-backup-*.tar.gz 2>/dev/null | sed -n '1p');
+          if [ -n "$$latest_n8n" ]; then
+            rclone copyto "$$latest_n8n" gdrive:kolberg-backups/n8n-latest.tar.gz;
+          fi;
+          sleep 3600;
+        done
+    volumes:
+      - /opt/backups/postgres:/backups/postgres:ro
+      - /opt/backups/n8n:/backups/n8n:ro
+      - /opt/backups/rclone:/config/rclone:ro
 
   portainer:
     image: portainer/portainer-ce:latest
