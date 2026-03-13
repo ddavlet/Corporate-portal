@@ -323,10 +323,16 @@ services:
     command: >
       bash -c "
       while true; do
-        ts=$$(date +%F-%H%M) ;
-        pg_dumpall -h db -U \"$POSTGRES_USER\" | gzip > /backups/postgres-all-$$ts.sql.gz ;
-        find /backups -type f -name 'postgres-all-*.sql.gz' -mtime +7 -delete ;
-        sleep 86400 ;
+        now_hm=$$(date +%H:%M) ;
+        today=$$(date +%F) ;
+        last_backup=$$(cat /tmp/last_db_backup_date 2>/dev/null || true) ;
+        if [ \"$$now_hm\" = \"01:00\" ] && [ \"$$today\" != \"$$last_backup\" ]; then
+          ts=$$(date +%F-%H%M) ;
+          pg_dumpall -h db -U \"$POSTGRES_USER\" | gzip > /backups/postgres-all-$$ts.sql.gz ;
+          find /backups -type f -name 'postgres-all-*.sql.gz' -mtime +7 -delete ;
+          echo \"$$today\" > /tmp/last_db_backup_date ;
+        fi ;
+        sleep 30 ;
       done"
     # >>> CHANGE: backup только backend
     networks:
@@ -344,10 +350,16 @@ services:
     command: >
       sh -c "
       while true; do
-        ts=$$(date +%F-%H%M) ;
-        tar -czf /backups/n8n-backup-$$ts.tar.gz -C /source . ;
-        find /backups -type f -name 'n8n-backup-*.tar.gz' -mtime +7 -delete ;
-        sleep 86400 ;
+        now_hm=$$(date +%H:%M) ;
+        today=$$(date +%F) ;
+        last_backup=$$(cat /tmp/last_n8n_backup_date 2>/dev/null || true) ;
+        if [ \"$$now_hm\" = \"01:00\" ] && [ \"$$today\" != \"$$last_backup\" ]; then
+          ts=$$(date +%F-%H%M) ;
+          tar -czf /backups/n8n-backup-$$ts.tar.gz -C /source . ;
+          find /backups -type f -name 'n8n-backup-*.tar.gz' -mtime +7 -delete ;
+          echo \"$$today\" > /tmp/last_n8n_backup_date ;
+        fi ;
+        sleep 30 ;
       done"
 
   gdrive_backup_sync:
@@ -359,15 +371,21 @@ services:
       - -lc
       - |
         while true; do
-          latest_pg=$$(ls -1t /backups/postgres/postgres-all-*.sql.gz 2>/dev/null | sed -n '1p');
-          if [ -n "$$latest_pg" ]; then
-            rclone copyto "$$latest_pg" gdrive:kolberg-backups/postgres-latest.sql.gz;
+          now_hm=$$(date +%H:%M);
+          today=$$(date +%F);
+          last_sync=$$(cat /tmp/last_sync_date 2>/dev/null || true);
+          if [ "$$now_hm" = "02:00" ] && [ "$$today" != "$$last_sync" ]; then
+            latest_pg=$$(ls -1t /backups/postgres/postgres-all-*.sql.gz 2>/dev/null | sed -n '1p');
+            if [ -n "$$latest_pg" ]; then
+              rclone copyto "$$latest_pg" gdrive:kolberg-backups/postgres-latest.sql.gz;
+            fi;
+            latest_n8n=$$(ls -1t /backups/n8n/n8n-backup-*.tar.gz 2>/dev/null | sed -n '1p');
+            if [ -n "$$latest_n8n" ]; then
+              rclone copyto "$$latest_n8n" gdrive:kolberg-backups/n8n-latest.tar.gz;
+            fi;
+            echo "$$today" > /tmp/last_sync_date;
           fi;
-          latest_n8n=$$(ls -1t /backups/n8n/n8n-backup-*.tar.gz 2>/dev/null | sed -n '1p');
-          if [ -n "$$latest_n8n" ]; then
-            rclone copyto "$$latest_n8n" gdrive:kolberg-backups/n8n-latest.tar.gz;
-          fi;
-          sleep 3600;
+          sleep 30;
         done
     volumes:
       - /opt/backups/postgres:/backups/postgres:ro
