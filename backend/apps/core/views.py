@@ -127,6 +127,14 @@ def _normalize_investments_payload(payload):
 
 
 def corporate_investments_report(request):
+    canonical_host = getattr(settings, "LOGIN_HOST", "login.kolberg.uz")
+    current_host = request.get_host().split(":")[0].lower()
+    canonical_path = "/corporate/investments/"
+
+    # One canonical entrypoint for all organizations.
+    if current_host != canonical_host:
+        return redirect(f"https://{canonical_host}{canonical_path}")
+
     if not request.user.is_authenticated:
         return redirect("/login/")
 
