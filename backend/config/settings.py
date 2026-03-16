@@ -102,9 +102,8 @@ CORPORATE_INVESTMENTS_SOURCES = [
     url.strip()
     for url in os.getenv(
         "CORPORATE_INVESTMENTS_SOURCES",
-        "https://main.kolberg.uz/reports/investments/lemonfit,"
-        "https://main.kolberg.uz/reports/investments/lemonfit2,"
-        "https://main.kolberg.uz/reports/investments/neuron",
+        # Single consolidated endpoint that returns all projects in one array
+        "https://main.kolberg.uz/reports/investments",
     ).split(",")
     if url.strip()
 ]
