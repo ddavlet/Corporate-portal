@@ -159,6 +159,7 @@
 
     // ---------- Data storage ----------
     const RAW = { revenue: [], expense: [] };
+    const START = { year: null, monthIndex: null };
 
     // ---------- Drill-down (modal) ----------
     // typeFilter: 'revenue' | 'expense' | null — which section was clicked; null = show both
@@ -353,7 +354,7 @@
                 tr += `<td class="right pnl-click ${isNeg ? 'pnl-neg' : ''}" data-click="cell" data-month="${i}" title="Показать операции за ${monthNames[i]}">${fmt(v)}</td>`;
             }
 
-            const total = sumArray(values);
+            const total = opts.customTotal !== undefined ? opts.customTotal : sumArray(values);
             const isNegT = total < 0;
             tr += `<td class="right pnl-click ${isNegT ? 'pnl-neg' : ''}" data-click="cell" data-month="all" title="Показать операции за год">${fmt(total)}</td></tr>`;
 
@@ -375,6 +376,35 @@
         // Net (no type = show both in modal)
         const netByMonth = totalRevenueByMonth.map((v, i) => v + totalExpenseByMonth[i]);
         addRow('Чистая прибыль', netByMonth, { bold: true, ruleTop: true });
+
+        // Net starting from configured start_month (metadata.start_month: 'YYYY-MM')
+        const isOnOrAfterStart = (y, mi) => {
+            if (START.year === null || START.monthIndex === null) return true;
+            if (y > START.year) return true;
+            if (y < START.year) return false;
+            return mi >= START.monthIndex;
+        };
+
+        const netFromStartByMonth = [];
+        let runningNetFromStart = 0;
+        for (let i = 0; i < 12; i++) {
+            if (isOnOrAfterStart(year, i)) {
+                runningNetFromStart += netByMonth[i];
+                netFromStartByMonth.push(runningNetFromStart);
+            } else {
+                netFromStartByMonth.push(0);
+            }
+        }
+
+        const totalFromStart =
+            runningNetFromStart ||
+            netFromStartByMonth.reduce((acc, v) => (v !== 0 ? v : acc), 0);
+
+        addRow('Суммарная прибыль (с стартового месяца)', netFromStartByMonth, {
+            bold: true,
+            ruleTop: true,
+            customTotal: totalFromStart,
+        });
     };
 
     // ---------- Load data ----------
@@ -386,6 +416,19 @@
 
             const metadata = payload.find((x) => x.metadata)?.metadata ?? {};
             const companyName = metadata.company_name || '[Company Name]';
+            const startMonthStr = metadata.start_month || null;
+
+            if (typeof startMonthStr === 'string') {
+                const m = /^(\d{4})-(\d{2})$/.exec(startMonthStr.trim());
+                if (m) {
+                    const y = Number(m[1]);
+                    const mi = Number(m[2]) - 1; // 0-based month index
+                    if (Number.isFinite(y) && Number.isFinite(mi) && mi >= 0 && mi < 12) {
+                        START.year = y;
+                        START.monthIndex = mi;
+                    }
+                }
+            }
 
             document.getElementById('pnl-company').textContent = companyName;
             document.getElementById('pnl-unit').textContent = 'Отчет составлен в валюте Сум';

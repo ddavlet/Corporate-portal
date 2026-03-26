@@ -1,0 +1,123 @@
+{
+    "nodes": [
+        {
+            "parameters": {
+                "assignments": {
+                    "assignments": [
+                        {
+                            "id": "8ad00dfd-bdf1-414c-bb9a-08ad18e94b4c",
+                            "name": "form",
+                            "value": "[\n    {\n        \"fieldLabel\": \"Поставщик\",\n        \"placeholder\": \"Наименование контрагента\",\n        \"requiredField\": true\n    },\n    {\n        \"fieldLabel\": \"Категория расхода\",\n        \"fieldType\": \"dropdown\",\n        \"fieldOptions\": {\n            \"values\": [\n    { \"option\": \"Налоги\" },\n    { \"option\": \"Продукты питания\" },\n    { \"option\": \"Спортивное питание\" },\n    { \"option\": \"Прочее\" },\n    { \"option\": \"Обслуживание банка\" },\n    { \"option\": \"Ремонтные работы\"},\n    { \"option\": \"Одежда\" },\n    { \"option\": \"Пополнение корпоративной карты\" },\n    { \"option\": \"Зарплата\" },\n    { \"option\": \"Аренда помещения\" },\n    { \"option\": \"Обучение сотрудников\" },\n    { \"option\": \"Реклама и СММ\" },\n    { \"option\": \"Коммунальные расход\" },\n    { \"option\": \"Выплата по уменьшение уставного фонда\" },\n    { \"option\": \"Расходники клуба\" },\n    { \"option\": \"Связь, интернет, телефон\" }\n]\n        },\n        \"requiredField\": true\n    },\n    {\n        \"fieldLabel\": \"Сумма\",\n        \"fieldType\": \"number\",\n        \"placeholder\": \"Сумма оплаты\",\n        \"requiredField\": true\n    },\n    {\n        \"fieldLabel\": \"Тип оплаты\",\n        \"fieldType\": \"hiddenField\",\n        \"fieldValue\": \"Перечисление\"\n    },\n    {\n        \"fieldLabel\": \"Назначение платежа\",\n        \"placeholder\": \"короткий заголовок (например: \\\"Доставка баннера\\\")\",\n        \"requiredField\": true\n    },\n    {\n        \"fieldLabel\": \"Описание/зачем\",\n        \"fieldType\": \"textarea\",\n        \"placeholder\": \"1–2 предложения, простым языком\"\n    },\n    {\n        \"fieldLabel\": \"Срочность\",\n        \"fieldType\": \"radio\",\n        \"fieldOptions\": {\n            \"values\": [\n                {\n                    \"option\": \"Обычно\"\n                },\n                {\n                    \"option\": \"Срочно\"\n                }\n            ]\n        }\n    },\n    {\n        \"fieldLabel\": \"Заявитель\",\n        \"fieldType\": \"dropdown\",\n        \"fieldOptions\": {\n            \"values\": [\n                {\n                    \"option\": \"1. Сумина Наталья\"\n                },\n                {\n                    \"option\": \"2. Рецепция\"\n                },\n                {\n                    \"option\": \"3. Бар менеджер\"\n                },\n                {\n                    \"option\": \"4. Бухгалтерия\"\n                },\n                {\"option\": \"5. Руслан Элманов\"},\n {\"option\": \"6. Руководитель Отдела продаж (РОП) Аква зона\"},\n {\"option\": \"7. Тренажёрный зал\"},\n {\"option\": \"8. Менеджер АХО\"},\n{\"option\": \"9. Координатор ТЗ\"},\n{\"option\": \"10. Технический отдел\"}\n            ]\n        },\n        \"requiredField\": true\n    },\n    {\n        \"fieldLabel\": \"Вложения\",\n        \"fieldType\": \"file\",\n        \"multipleFiles\": false\n    }\n]",
+                            "type": "array"
+                        }
+                    ]
+                },
+                "options": {}
+            },
+            "type": "n8n-nodes-base.set",
+            "typeVersion": 3.4,
+            "position": [
+                -1104,
+                -2848
+            ],
+            "id": "ca76ecf6-f5ea-418e-85ac-d8e01eec519f",
+            "name": "set form"
+        },
+        {
+            "parameters": {
+                "assignments": {
+                    "assignments": [
+                        {
+                            "id": "8ad00dfd-bdf1-414c-bb9a-08ad18e94b4c",
+                            "name": "form",
+                            "value": "[\n    {\n        \"fieldLabel\": \"Поставщик\",\n        \"placeholder\": \"Наименование контрагента\",\n        \"requiredField\": true\n    },\n    {\n        \"fieldLabel\": \"Категория расхода\",\n        \"fieldType\": \"dropdown\",\n        \"fieldOptions\": {\n            \"values\": [\n     { \"option\": \"Налоги\" },\n    { \"option\": \"Продукты питания\" },\n    { \"option\": \"Спортивное питание\" },\n    { \"option\": \"Прочее\" },\n    { \"option\": \"Обслуживание банка\" },\n    { \"option\": \"Ремонтные работы\"},\n    { \"option\": \"Одежда\" },\n    { \"option\": \"Пополнение корпоративной карты\" },\n    { \"option\": \"Зарплата\" },\n    { \"option\": \"Аренда помещения\" },\n    { \"option\": \"Обучение сотрудников\" },\n    { \"option\": \"Реклама и СММ\" },\n    { \"option\": \"Коммунальные расход\" },\n    { \"option\": \"Выплата по уменьшение уставного фонда\" },\n    { \"option\": \"Расходники клуба\" },\n    { \"option\": \"Связь, интернет, телефон\" }\n]\n        },\n        \"requiredField\": true\n    },\n    {\n        \"fieldLabel\": \"Сумма\",\n        \"fieldType\": \"number\",\n        \"placeholder\": \"Сумма оплаты\",\n        \"requiredField\": true\n    },\n    {\n        \"fieldLabel\": \"Тип оплаты\",\n        \"fieldType\": \"hiddenField\",\n        \"fieldValue\": \"Наличные\"\n    },\n    {\n        \"fieldLabel\": \"Назначение платежа\",\n        \"placeholder\": \"короткий заголовок (например: \\\"Доставка баннера\\\")\",\n        \"requiredField\": true\n    },\n    {\n        \"fieldLabel\": \"Описание/зачем\",\n        \"fieldType\": \"textarea\",\n        \"placeholder\": \"1–2 предложения, простым языком\"\n    },\n    {\n        \"fieldLabel\": \"Срочность\",\n        \"fieldType\": \"radio\",\n        \"fieldOptions\": {\n            \"values\": [\n                {\n                    \"option\": \"Обычно\"\n                },\n                {\n                    \"option\": \"Срочно\"\n                }\n            ]\n        }\n    },\n    {\n        \"fieldLabel\": \"Заявитель\",\n        \"fieldType\": \"dropdown\",\n        \"fieldOptions\": {\n            \"values\": [\n                {\n                    \"option\": \"1. Сумина Наталья\"\n                },\n                {\n                    \"option\": \"2. Рецепция\"\n                },\n                {\n                    \"option\": \"3. Бар менеджер\"\n                },\n                {\n                    \"option\": \"4. Бухгалтерия\"\n                },\n                {\"option\": \"5. Руслан Элманов\"},\n {\"option\": \"6. Руководитель Отдела продаж (РОП) Аква зона\"},\n {\"option\": \"7. Тренажёрный зал\"},\n {\"option\": \"8. Менеджер АХО\"},\n{\"option\": \"9. Координатор ТЗ\"},\n{\"option\": \"10. Технический отдел\"}\n            ]\n        },\n        \"requiredField\": true\n    },\n    {\n        \"fieldLabel\": \"Вложения\",\n        \"fieldType\": \"file\",\n        \"multipleFiles\": false\n    }\n]",
+                            "type": "array"
+                        }
+                    ]
+                },
+                "options": {}
+            },
+            "type": "n8n-nodes-base.set",
+            "typeVersion": 3.4,
+            "position": [
+                -1104,
+                -2656
+            ],
+            "id": "143e3d67-1e84-4408-bdaa-dabad50ca707",
+            "name": "set form1"
+        },
+        {
+            "parameters": {
+                "assignments": {
+                    "assignments": [
+                        {
+                            "id": "8ad00dfd-bdf1-414c-bb9a-08ad18e94b4c",
+                            "name": "form",
+                            "value": "[\n    {\n        \"fieldLabel\": \"Поставщик\",\n        \"placeholder\": \"Наименование контрагента\",\n        \"requiredField\": true\n    },\n    {\n        \"fieldLabel\": \"Категория расхода\",\n        \"fieldType\": \"dropdown\",\n        \"fieldOptions\": {\n            \"values\": [\n     { \"option\": \"Налоги\" },\n    { \"option\": \"Продукты питания\" },\n    { \"option\": \"Спортивное питание\" },\n    { \"option\": \"Прочее\" },\n    { \"option\": \"Обслуживание банка\" },\n    { \"option\": \"Ремонтные работы\"},\n    { \"option\": \"Одежда\" },\n    { \"option\": \"Пополнение корпоративной карты\" },\n    { \"option\": \"Зарплата\" },\n    { \"option\": \"Аренда помещения\" },\n    { \"option\": \"Обучение сотрудников\" },\n    { \"option\": \"Реклама и СММ\" },\n    { \"option\": \"Коммунальные расход\" },\n    { \"option\": \"Выплата по уменьшение уставного фонда\" },\n    { \"option\": \"Расходники клуба\" },\n    { \"option\": \"Связь, интернет, телефон\" }\n]\n        },\n        \"requiredField\": true\n    },\n    {\n        \"fieldLabel\": \"Сумма\",\n        \"fieldType\": \"number\",\n        \"placeholder\": \"Сумма оплаты\",\n        \"requiredField\": true\n    },\n    {\n        \"fieldLabel\": \"Тип оплаты\",\n        \"fieldType\": \"hiddenField\",\n        \"fieldValue\": \"Платежная карта\"\n    },\n    {\n        \"fieldLabel\": \"Назначение платежа\",\n        \"placeholder\": \"короткий заголовок (например: \\\"Доставка баннера\\\")\",\n        \"requiredField\": true\n    },\n    {\n        \"fieldLabel\": \"Описание/зачем\",\n        \"fieldType\": \"textarea\",\n        \"placeholder\": \"1–2 предложения, простым языком\"\n    },\n    {\n        \"fieldLabel\": \"Срочность\",\n        \"fieldType\": \"radio\",\n        \"fieldOptions\": {\n            \"values\": [\n                {\n                    \"option\": \"Обычно\"\n                },\n                {\n                    \"option\": \"Срочно\"\n                }\n            ]\n        }\n    },\n    {\n        \"fieldLabel\": \"Заявитель\",\n        \"fieldType\": \"dropdown\",\n        \"fieldOptions\": {\n            \"values\": [\n                {\n                    \"option\": \"1. Сумина Наталья\"\n                },\n                {\n                    \"option\": \"2. Рецепция\"\n                },\n                {\n                    \"option\": \"3. Бар менеджер\"\n                },\n                {\n                    \"option\": \"4. Бухгалтерия\"\n                },\n                {\"option\": \"5. Руслан Элманов\"},\n {\"option\": \"6. Руководитель Отдела продаж (РОП) Аква зона\"},\n {\"option\": \"7. Тренажёрный зал\"},\n {\"option\": \"8. Менеджер АХО\"},\n{\"option\": \"9. Координатор ТЗ\"},\n{\"option\": \"10. Технический отдел\"}\n            ]\n        },\n        \"requiredField\": true\n    },\n    {\n        \"fieldLabel\": \"Вложения\",\n        \"fieldType\": \"file\",\n        \"multipleFiles\": false\n    }\n]",
+                            "type": "array"
+                        }
+                    ]
+                },
+                "options": {}
+            },
+            "type": "n8n-nodes-base.set",
+            "typeVersion": 3.4,
+            "position": [
+                -1104,
+                -2464
+            ],
+            "id": "8c801c2a-fff9-417d-a14a-24528a0a5d53",
+            "name": "set form2"
+        },
+        {
+            "parameters": {
+                "assignments": {
+                    "assignments": [
+                        {
+                            "id": "8ad00dfd-bdf1-414c-bb9a-08ad18e94b4c",
+                            "name": "form",
+                            "value": "[\n    {\n        \"fieldLabel\": \"Поставщик\",\n        \"fieldType\": \"hiddenField\",\n        \"fieldValue\": \"Lemonfit2\"\n    },\n    {\n        \"fieldLabel\": \"Категория расхода\",\n        \"fieldType\": \"hiddenField\",\n        \"fieldValue\": \"Пополнение корпоративной карты\"\n    },\n    {\n        \"fieldLabel\": \"Сумма\",\n        \"fieldType\": \"number\",\n        \"placeholder\": \"Сумма оплаты\",\n        \"requiredField\": true\n    },\n    {\n        \"fieldLabel\": \"Тип оплаты\",\n        \"fieldType\": \"hiddenField\",\n        \"fieldValue\": \"Пополнение\"\n    },\n    {\n        \"fieldLabel\": \"Назначение платежа\",\n        \"placeholder\": \"короткий заголовок (например: \\\"Доставка баннера\\\")\",\n        \"requiredField\": true\n    },\n    {\n        \"fieldLabel\": \"Описание/зачем\",\n        \"fieldType\": \"textarea\",\n        \"placeholder\": \"1–2 предложения, простым языком\"\n    },\n    {\n        \"fieldLabel\": \"Срочность\",\n        \"fieldType\": \"radio\",\n        \"fieldOptions\": {\n            \"values\": [\n                {\n                    \"option\": \"Обычно\"\n                },\n                {\n                    \"option\": \"Срочно\"\n                }\n            ]\n        }\n    },\n    {\n        \"fieldLabel\": \"Заявитель\",\n        \"fieldType\": \"dropdown\",\n        \"fieldOptions\": {\n            \"values\": [\n                {\n                    \"option\": \"1. Сумина Наталья\"\n                },\n                {\n                    \"option\": \"2. Рецепция\"\n                },\n                {\n                    \"option\": \"3. Бар менеджер\"\n                },\n                {\n                    \"option\": \"4. Бухгалтерия\"\n                },\n                {\"option\": \"5. Руслан Элманов\"},\n {\"option\": \"6. Руководитель Отдела продаж (РОП) Аква зона\"},\n {\"option\": \"7. Тренажёрный зал\"},\n {\"option\": \"8. Менеджер АХО\"},\n{\"option\": \"9. Координатор ТЗ\"},\n{\"option\": \"10. Технический отдел\"}\n            ]\n        },\n        \"requiredField\": true\n    },\n    {\n        \"fieldLabel\": \"Вложения\",\n        \"fieldType\": \"file\",\n        \"multipleFiles\": false\n    }\n]",
+                            "type": "array"
+                        }
+                    ]
+                },
+                "options": {}
+            },
+            "type": "n8n-nodes-base.set",
+            "typeVersion": 3.4,
+            "position": [
+                -1104,
+                -2272
+            ],
+            "id": "9e431aa9-4364-4f71-875f-24004e343432",
+            "name": "set form3"
+        }
+    ],
+    "connections": {
+        "set form": {
+            "main": [
+                []
+            ]
+        },
+        "set form1": {
+            "main": [
+                []
+            ]
+        },
+        "set form2": {
+            "main": [
+                []
+            ]
+        },
+        "set form3": {
+            "main": [
+                []
+            ]
+        }
+    },
+    "pinData": {},
+    "meta": {
+        "templateCredsSetupCompleted": true,
+        "instanceId": "aaa5eb3b3bb2b0e4c2900ebf2061149fc2bf8ef76f120e9fd24b91ca24d47211"
+    }
+}
