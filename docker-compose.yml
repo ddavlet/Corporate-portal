@@ -504,6 +504,48 @@ services:
       - traefik-public
       - backend
 
+  backend_v2:
+    build: ./backend_v2
+    container_name: django_v2
+    restart: always
+    environment:
+      # Separate DB creds so v2 doesn't share auth tables with v1
+      POSTGRES_DB: ${POSTGRES_V2_DB}
+      POSTGRES_USER: ${POSTGRES_V2_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_V2_PASSWORD}
+      POSTGRES_HOST: "db"
+      POSTGRES_PORT: 5432
+
+      BASE_DOMAIN: ${DOMAIN_NAME}
+      DJANGO_SECRET_KEY: "v2-change-me"
+      DJANGO_DEBUG: "True"
+      DJANGO_ALLOWED_HOSTS: "lemonfit.kolberg.uz,lemonfit2.kolberg.uz,neuron.kolberg.uz"
+    volumes:
+      - ./backend_v2:/app
+    depends_on:
+      - db
+    command: >
+      sh -c "
+      python manage.py migrate &&
+      gunicorn config.wsgi:application --bind 0.0.0.0:8001
+      "
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=n8n_traefik-public
+      - traefik.http.services.django-v2.loadbalancer.server.port=8001
+
+      # tenants: only /api/*
+      - traefik.http.routers.django-v2-api.rule=(Host(`lemonfit.kolberg.uz`) || Host(`lemonfit2.kolberg.uz`) || Host(`neuron.kolberg.uz`)) && PathPrefix(`/api/`)
+      - traefik.http.routers.django-v2-api.entrypoints=web,websecure
+      - traefik.http.routers.django-v2-api.tls=true
+      - traefik.http.routers.django-v2-api.tls.certresolver=mytlschallenge
+      - traefik.http.routers.django-v2-api.service=django-v2
+      - traefik.http.routers.django-v2-api.priority=1100
+
+    networks:
+      - traefik-public
+      - backend
+
   staticfiles:
     image: nginx:alpine
     container_name: staticfiles

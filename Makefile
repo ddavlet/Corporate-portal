@@ -14,7 +14,7 @@ EXCLUDES := \
 	--exclude env \
 	--exclude .env
 
-.PHONY: deploy dry-run clean-remote
+.PHONY: deploy dry-run clean-remote rebuild-backend-v2 logs-backend-v2
 
 deploy:
 	rsync -av --omit-dir-times $(EXCLUDES) ./ $(SERVER):$(REMOTE_DIR)/
@@ -28,3 +28,9 @@ clean-remote:
 
 back:
 	rsync -avz --progress --omit-dir-times ${EXCLUDES} $(SERVER):$(REMOTE_DIR)/backend ./
+
+rebuild-backend-v2:
+	ssh $(SERVER) "cd $(REMOTE_DIR) && docker compose --env-file ./.env up -d --build backend_v2"
+
+logs-backend-v2:
+	ssh $(SERVER) "cd $(REMOTE_DIR) && docker logs --tail=200 django_v2"
