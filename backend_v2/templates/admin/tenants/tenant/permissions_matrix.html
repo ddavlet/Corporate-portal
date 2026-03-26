@@ -1,0 +1,57 @@
+{% extends "admin/base_site.html" %}
+{% load i18n %}
+{% load tenants_extras %}
+
+{% block content %}
+  <div class="content">
+    <h1>{{ title }}</h1>
+
+    <p>
+      Tenant: <strong>{{ tenant.subdomain }}</strong>
+      · <a href="{% url 'admin:tenants_tenant_change' tenant.id %}">Back to tenant</a>
+    </p>
+
+    <form method="post" novalidate>
+      {% csrf_token %}
+
+      <div style="overflow:auto; border: 1px solid var(--hairline-color, #ddd); border-radius: 6px;">
+        <table class="adminlist" style="min-width: 900px; width: 100%;">
+          <thead>
+            <tr>
+              <th>User</th>
+              {% for m in modules %}
+                <th>{{ m.display_name }}<br><span style="color:#666; font-weight:normal;">{{ m.module_key }}</span></th>
+              {% endfor %}
+            </tr>
+          </thead>
+          <tbody>
+            {% for r in rows %}
+              <tr>
+                <td>
+                  <strong>{{ r.user.username }}</strong>
+                  {% if r.user.is_superuser %}<span style="color:#666;">(superuser)</span>{% endif %}
+                </td>
+                {% for m in modules %}
+                  <td style="text-align:center;">
+                    <input
+                      type="checkbox"
+                      name="perm__{{ r.user.id }}__{{ m.module_key }}"
+                      {% if r.checks|get_item:m.module_key %}checked{% endif %}
+                    />
+                  </td>
+                {% endfor %}
+              </tr>
+            {% empty %}
+              <tr><td colspan="{{ modules|length|add:1 }}">No active members for this tenant.</td></tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+
+      <div style="margin-top: 16px;">
+        <input type="submit" class="default" value="Save permissions" />
+      </div>
+    </form>
+  </div>
+{% endblock %}
+
