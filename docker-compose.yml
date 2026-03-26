@@ -469,7 +469,7 @@ services:
       DJANGO_SECRET_KEY: "1111"
       DJANGO_DEBUG: "True"
       N8N_TOKEN: ${N8N_TOKEN}
-      CORPORATE_INVESTMENTS_ALLOWED_USER: ddavlet
+      CORPORATE_INVESTMENTS_ALLOWED_USER: ddavlet, r.davletyarov
     volumes:
       - ./backend:/app
     depends_on:
