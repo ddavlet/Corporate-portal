@@ -1,4 +1,5 @@
 from django.db import models
+from django.conf import settings
 
 from apps.tenants.models import Tenant
 
@@ -13,6 +14,11 @@ class CashExpense(models.Model):
     note = models.TextField(blank=True, default="")
     payload = models.JSONField(default=dict, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="created_cash_expenses",
+    )
 
     class Meta:
         ordering = ["-created_at"]
@@ -33,6 +39,11 @@ class CashRevenue(models.Model):
     note = models.TextField(blank=True, default="")
     payload = models.JSONField(default=dict, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="created_cash_revenues",
+    )
 
     class Meta:
         ordering = ["-created_at"]

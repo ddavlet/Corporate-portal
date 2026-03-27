@@ -1,7 +1,48 @@
 from rest_framework.permissions import BasePermission
 
-from apps.tenants.models import TenantMembership, TenantModuleConfig, UserModulePermission
 from django.contrib.auth.models import AnonymousUser
+
+from apps.tenants.models import TenantMembership, TenantModuleConfig, TenantUserRole
+
+
+ROLE_MODULE_ACCESS: dict[str, set[str]] = {
+    "requests": {
+        TenantUserRole.ROLE_ADMIN,
+        TenantUserRole.ROLE_APPROVER,
+        TenantUserRole.ROLE_REQUESTER,
+    },
+    "cash": {
+        TenantUserRole.ROLE_ADMIN,
+        TenantUserRole.ROLE_CASHIER,
+    },
+    "bank": {
+        TenantUserRole.ROLE_ADMIN,
+        TenantUserRole.ROLE_ACCOUNTANT,
+    },
+}
+
+
+def _has_active_membership(*, user, tenant) -> bool:
+    return TenantMembership.objects.filter(user=user, tenant=tenant, is_active=True).exists()
+
+
+def _user_has_any_role(*, user, tenant, roles: set[str]) -> bool:
+    if not roles:
+        return False
+    return TenantUserRole.objects.filter(tenant=tenant, user=user, role__in=roles).exists()
+
+
+def role_allows_module(*, user, tenant, module_key: str) -> bool:
+    """
+    Role-based access for a module within a tenant.
+    Requires active membership AND at least one role granting the module.
+    """
+    if not module_key:
+        return False
+    if not _has_active_membership(user=user, tenant=tenant):
+        return False
+    roles = ROLE_MODULE_ACCESS.get(module_key, set())
+    return _user_has_any_role(user=user, tenant=tenant, roles=roles)
 
 
 class IsTenantAdmin(BasePermission):
@@ -10,8 +51,13 @@ class IsTenantAdmin(BasePermission):
         tenant = getattr(request, "tenant", None)
         if not user or not user.is_authenticated or not tenant:
             return False
-        return TenantMembership.objects.filter(
-            user=user, tenant=tenant, is_active=True, role=TenantMembership.ROLE_TENANT_ADMIN
+        # Tenant "admin" is now just a tenant role.
+        if not _has_active_membership(user=user, tenant=tenant):
+            return False
+        return TenantUserRole.objects.filter(
+            tenant=tenant,
+            user=user,
+            role=TenantUserRole.ROLE_ADMIN,
         ).exists()
 
 
@@ -28,25 +74,13 @@ class HasEffectiveModuleAccess(BasePermission):
         if not module_key or not user or not user.is_authenticated or not tenant:
             return False
 
-        # Tenant admin bypass.
-        if TenantMembership.objects.filter(
-            user=user,
-            tenant=tenant,
-            is_active=True,
-            role=TenantMembership.ROLE_TENANT_ADMIN,
-        ).exists():
-            return True
-
         tenant_enabled = TenantModuleConfig.objects.filter(
             tenant=tenant, module_key=module_key, is_enabled=True
         ).exists()
         if not tenant_enabled:
             return False
 
-        user_allowed = UserModulePermission.objects.filter(
-            tenant=tenant, user=user, module_key=module_key, can_access=True
-        ).exists()
-        return user_allowed
+        return role_allows_module(user=user, tenant=tenant, module_key=module_key)
 
 
 def has_effective_module_access(*, user, tenant, module_key: str) -> bool:
@@ -61,23 +95,11 @@ def has_effective_module_access(*, user, tenant, module_key: str) -> bool:
     if not user.is_authenticated:
         return False
 
-    # Tenant admin bypass.
-    if TenantMembership.objects.filter(
-        user=user,
-        tenant=tenant,
-        is_active=True,
-        role=TenantMembership.ROLE_TENANT_ADMIN,
-    ).exists():
-        return True
-
     tenant_enabled = TenantModuleConfig.objects.filter(
         tenant=tenant, module_key=module_key, is_enabled=True
     ).exists()
     if not tenant_enabled:
         return False
 
-    user_allowed = UserModulePermission.objects.filter(
-        tenant=tenant, user=user, module_key=module_key, can_access=True
-    ).exists()
-    return user_allowed
+    return role_allows_module(user=user, tenant=tenant, module_key=module_key)
 

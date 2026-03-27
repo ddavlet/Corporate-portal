@@ -12,28 +12,15 @@ class Tenant(models.Model):
 
 
 class TenantMembership(models.Model):
-    ROLE_TENANT_ADMIN = "tenant_admin"
-    ROLE_MEMBER = "member"
-
-    ROLE_CHOICES = [
-        (ROLE_TENANT_ADMIN, "tenant_admin"),
-        (ROLE_MEMBER, "member"),
-    ]
-
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
     tenant = models.ForeignKey(Tenant, on_delete=models.CASCADE, related_name="memberships")
     is_active = models.BooleanField(default=True)
-    role = models.CharField(max_length=30, choices=ROLE_CHOICES, default=ROLE_MEMBER)
 
     class Meta:
         unique_together = [("user", "tenant")]
 
     def __str__(self) -> str:
-        return f"{self.user_id} -> {self.tenant_id} ({self.role})"
-
-    @property
-    def is_tenant_admin(self) -> bool:
-        return self.role == self.ROLE_TENANT_ADMIN
+        return f"{self.user_id} -> {self.tenant_id}"
 
 
 class TenantModuleConfig(models.Model):
@@ -48,15 +35,31 @@ class TenantModuleConfig(models.Model):
         return f"{self.tenant_id}::{self.module_key}={self.is_enabled}"
 
 
-class UserModulePermission(models.Model):
-    tenant = models.ForeignKey(Tenant, on_delete=models.CASCADE, related_name="user_module_permissions")
-    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="module_permissions")
-    module_key = models.CharField(max_length=100)
-    can_access = models.BooleanField(default=False)
+class TenantUserRole(models.Model):
+    ROLE_REQUESTER = "requester"
+    ROLE_APPROVER = "approver"
+    ROLE_ADMIN = "admin"
+    ROLE_DIRECTOR = "director"
+    ROLE_CASHIER = "cashier"
+    ROLE_ACCOUNTANT = "accountant"
+
+    ROLE_CHOICES = [
+        (ROLE_REQUESTER, ROLE_REQUESTER),
+        (ROLE_APPROVER, ROLE_APPROVER),
+        (ROLE_ADMIN, ROLE_ADMIN),
+        (ROLE_DIRECTOR, ROLE_DIRECTOR),
+        (ROLE_CASHIER, ROLE_CASHIER),
+        (ROLE_ACCOUNTANT, ROLE_ACCOUNTANT),
+    ]
+
+    tenant = models.ForeignKey(Tenant, on_delete=models.CASCADE, related_name="tenant_user_roles")
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="tenant_roles")
+    role = models.CharField(max_length=30, choices=ROLE_CHOICES)
+    step = models.IntegerField()
 
     class Meta:
-        unique_together = [("tenant", "user", "module_key")]
+        unique_together = [("tenant", "user", "role")]
 
     def __str__(self) -> str:
-        return f"{self.tenant_id}::{self.user_id}::{self.module_key}={self.can_access}"
+        return f"{self.tenant_id}::{self.user_id}::{self.role} (step={self.step})"
 

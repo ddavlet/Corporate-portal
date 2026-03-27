@@ -18,7 +18,7 @@ class BankExpenseViewSet(viewsets.ModelViewSet):
         return BankExpense.objects.filter(tenant=tenant)
 
     def perform_create(self, serializer):
-        serializer.save(tenant=self.request.tenant)
+        serializer.save(tenant=self.request.tenant, created_by=self.request.user)
 
 
 class BankRevenueViewSet(viewsets.ModelViewSet):
@@ -33,5 +33,5 @@ class BankRevenueViewSet(viewsets.ModelViewSet):
         return BankRevenue.objects.filter(tenant_subdomain=tenant.subdomain)
 
     def perform_create(self, serializer):
-        serializer.save(tenant_subdomain=self.request.tenant.subdomain)
+        serializer.save(tenant_subdomain=self.request.tenant.subdomain, created_by=self.request.user)
 

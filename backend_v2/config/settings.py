@@ -30,6 +30,7 @@ INSTALLED_APPS = [
     "rest_framework_simplejwt",
 
     # Tenant-only backend
+    "apps.accounts",
     "apps.tenants",
     "apps.modules.requests",
     "apps.modules.cashier",
@@ -110,11 +111,13 @@ USE_TZ = True
 
 
 STATIC_URL = "/static/"
-STATICFILES_DIRS = [BASE_DIR / "static"]
+STATIC_DIR = BASE_DIR / "static"
+STATICFILES_DIRS = [STATIC_DIR] if STATIC_DIR.exists() else []
 STATIC_ROOT = BASE_DIR / "staticfiles"
 
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
+AUTH_USER_MODEL = "accounts.User"
 
 
 # DRF + JWT
