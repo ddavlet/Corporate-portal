@@ -1,7 +1,15 @@
 import { Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { ProLayout } from '@ant-design/pro-layout'
 import { Button, Space, Typography } from 'antd'
-import { BankOutlined, DashboardOutlined, DollarOutlined, FileTextOutlined, LogoutOutlined } from '@ant-design/icons'
+import {
+  BankOutlined,
+  CreditCardOutlined,
+  DashboardOutlined,
+  DollarOutlined,
+  FileTextOutlined,
+  LogoutOutlined,
+  SettingOutlined,
+} from '@ant-design/icons'
 import { useAuth } from './auth'
 
 export function AppShell() {
@@ -20,6 +28,13 @@ export function AppShell() {
           { path: '/requests', name: 'Заявки', icon: <FileTextOutlined /> },
           { path: '/cash', name: 'Касса', icon: <DollarOutlined /> },
           { path: '/bank', name: 'Банк', icon: <BankOutlined /> },
+          { path: '/corporate-card', name: 'Корпоративная карта', icon: <CreditCardOutlined /> },
+          {
+            path: '/settings',
+            name: 'Настройки',
+            icon: <SettingOutlined />,
+            routes: [{ path: '/settings/request-form-config', name: 'Configure request form' }],
+          },
         ],
       }}
       menuItemRender={(item, dom) => (

@@ -4,6 +4,11 @@ from apps.modules.bank_expenses.models import BankExpense, BankRevenue
 
 
 class BankExpenseSerializer(serializers.ModelSerializer):
+    id = serializers.IntegerField(required=False)
+    has_request = serializers.BooleanField(read_only=True)
+    has_paid_request = serializers.BooleanField(read_only=True)
+    matched_request_id = serializers.IntegerField(read_only=True, allow_null=True)
+
     class Meta:
         model = BankExpense
         fields = [
@@ -20,8 +25,11 @@ class BankExpenseSerializer(serializers.ModelSerializer):
             "mfo",
             "debit_turnover",
             "payment_purpose",
+            "has_request",
+            "has_paid_request",
+            "matched_request_id",
         ]
-        read_only_fields = ["id", "created_at", "created_by"]
+        read_only_fields = ["created_at", "created_by"]
 
 
 class BankRevenueSerializer(serializers.ModelSerializer):

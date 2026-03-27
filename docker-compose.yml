@@ -614,13 +614,38 @@ services:
       - SYS_MODULE
     restart: unless-stopped
 
-
+  claude-code:
+    build: ./claude-code
+    container_name: claude-code
+    restart: always
+    environment:
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+      WEBHOOK_TOKEN: ${CLAUDE_WEBHOOK_TOKEN}
+      PROJECTS_ROOT: /projects
+    volumes:
+      # Mount your project codebases (same host paths as the django containers)
+      - ./backend_v2:/projects/backend_v2
+      - ./frontend_v2:/projects/frontend_v2
+      # Persistent volume for Claude Code session memory / config
+      - claude_sessions:/root
+      # Shared context at workspace root for cross-project reasoning
+      - ./claude-code/CLAUDE.md:/projects/CLAUDE.md
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3001/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    # Internal only — n8n reaches it via backend network
+    # No Traefik labels needed
+    networks:
+      - backend
 
 volumes:
   n8n_data:
   traefik_data:
   pg_data:
   portainer_data:
+  claude_sessions:
 # >>> CHANGE: добавили сети
 networks:
   traefik-public:

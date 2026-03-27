@@ -1,11 +1,21 @@
 from django.conf import settings
 from django.db import models
 
+from apps.tenants.security import decrypt_secret, encrypt_secret
+
 
 class Tenant(models.Model):
     name = models.CharField(max_length=120)
     subdomain = models.SlugField(max_length=60, unique=True)
     is_active = models.BooleanField(default=True)
+    telegram_otp_enabled = models.BooleanField(default=False)
+    telegram_bot_token_enc = models.TextField(blank=True, default="")
+
+    def set_telegram_bot_token(self, token: str) -> None:
+        self.telegram_bot_token_enc = encrypt_secret(token.strip())
+
+    def get_telegram_bot_token(self) -> str:
+        return decrypt_secret(self.telegram_bot_token_enc)
 
     def __str__(self) -> str:
         return f"{self.subdomain} ({self.name})"

@@ -173,3 +173,116 @@ class Approval(models.Model):
             models.Index(fields=["message_sent"], name="approvals_message_sent_idx"),
         ]
 
+
+class RequestFormConfig(models.Model):
+    """
+    Tenant-level configuration for adaptive request-create form.
+    """
+
+    tenant = models.OneToOneField(Tenant, on_delete=models.CASCADE, related_name="request_form_config")
+    updated_at = models.DateTimeField(auto_now=True)
+    updated_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="updated_request_form_configs",
+        null=True,
+        blank=True,
+    )
+
+    class Meta:
+        db_table = "request_form_configs"
+
+
+class RequestFormPaymentTypeConfig(models.Model):
+    config = models.ForeignKey(RequestFormConfig, on_delete=models.CASCADE, related_name="payment_types")
+    payment_type = models.CharField(max_length=50, choices=Request.PAYMENT_TYPE_CHOICES)
+    is_enabled = models.BooleanField(default=True)
+
+    class Meta:
+        db_table = "request_form_payment_type_configs"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["config", "payment_type"],
+                name="req_form_payment_type_config_uniq",
+            )
+        ]
+        indexes = [
+            models.Index(fields=["config", "payment_type"], name="req_form_pt_cfg_idx"),
+            models.Index(fields=["is_enabled"], name="req_form_pt_enabled_idx"),
+        ]
+
+
+class RequestFormPaymentTypeRequester(models.Model):
+    payment_type_config = models.ForeignKey(
+        RequestFormPaymentTypeConfig,
+        on_delete=models.CASCADE,
+        related_name="allowed_requesters",
+    )
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="request_form_allowed_in_payment_types",
+    )
+
+    class Meta:
+        db_table = "request_form_payment_type_requesters"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["payment_type_config", "user"],
+                name="req_form_pt_requester_uniq",
+            )
+        ]
+        indexes = [
+            models.Index(fields=["payment_type_config"], name="req_form_pt_req_cfg_idx"),
+            models.Index(fields=["user"], name="req_form_pt_req_user_idx"),
+        ]
+
+
+class RequestFormPaymentTypeVendor(models.Model):
+    payment_type_config = models.ForeignKey(
+        RequestFormPaymentTypeConfig,
+        on_delete=models.CASCADE,
+        related_name="allowed_vendors",
+    )
+    vendor = models.ForeignKey(
+        Vendor,
+        on_delete=models.CASCADE,
+        related_name="request_form_allowed_in_payment_types",
+    )
+
+    class Meta:
+        db_table = "request_form_payment_type_vendors"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["payment_type_config", "vendor"],
+                name="req_form_pt_vendor_uniq",
+            )
+        ]
+        indexes = [
+            models.Index(fields=["payment_type_config"], name="req_form_pt_vendor_cfg_idx"),
+            models.Index(fields=["vendor"], name="req_form_pt_vendor_vendor_idx"),
+        ]
+
+
+class RequestPaymentPurposeConfig(models.Model):
+    payment_type_config = models.ForeignKey(
+        RequestFormPaymentTypeConfig,
+        on_delete=models.CASCADE,
+        related_name="payment_purposes",
+    )
+    name = models.CharField(max_length=200)
+    category = models.CharField(max_length=100, default="")
+    is_active = models.BooleanField(default=True)
+
+    class Meta:
+        db_table = "request_payment_purpose_configs"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["payment_type_config", "name"],
+                name="req_form_pt_purpose_name_uniq",
+            )
+        ]
+        indexes = [
+            models.Index(fields=["payment_type_config"], name="req_form_purpose_cfg_idx"),
+            models.Index(fields=["is_active"], name="req_form_purpose_active_idx"),
+        ]

@@ -1,0 +1,154 @@
+from django.conf import settings
+from django.db import migrations, models
+import django.db.models.deletion
+
+
+class Migration(migrations.Migration):
+    initial = True
+
+    dependencies = [
+        ("tenants", "0005_tenant_telegram_otp_fields"),
+        migrations.swappable_dependency(settings.AUTH_USER_MODEL),
+    ]
+
+    operations = [
+        migrations.SeparateDatabaseAndState(
+            state_operations=[
+                migrations.CreateModel(
+                    name="CardExpense",
+                    fields=[
+                        ("id", models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")),
+                        ("title", models.CharField(blank=True, default="", max_length=255)),
+                        ("amount", models.DecimalField(decimal_places=2, default=0, max_digits=18)),
+                        ("currency", models.CharField(blank=True, default="UZS", max_length=10)),
+                        ("expense_at", models.DateTimeField()),
+                        ("note", models.TextField(blank=True, default="")),
+                        ("payload", models.JSONField(blank=True, default=dict)),
+                        ("created_at", models.DateTimeField(auto_now_add=True)),
+                        (
+                            "created_by",
+                            models.ForeignKey(
+                                on_delete=django.db.models.deletion.PROTECT,
+                                related_name="created_card_expenses",
+                                to=settings.AUTH_USER_MODEL,
+                            ),
+                        ),
+                        (
+                            "tenant",
+                            models.ForeignKey(
+                                on_delete=django.db.models.deletion.CASCADE,
+                                related_name="card_expenses",
+                                to="tenants.tenant",
+                            ),
+                        ),
+                    ],
+                    options={
+                        "db_table": "corporate_card_expenses",
+                        "ordering": ["-expense_at", "-created_at"],
+                    },
+                ),
+                migrations.CreateModel(
+                    name="CardRevenue",
+                    fields=[
+                        ("id", models.BigAutoField(auto_created=True, primary_key=True, serialize=False, verbose_name="ID")),
+                        ("title", models.CharField(blank=True, default="", max_length=255)),
+                        ("amount", models.DecimalField(decimal_places=2, default=0, max_digits=18)),
+                        ("currency", models.CharField(blank=True, default="UZS", max_length=10)),
+                        ("revenue_at", models.DateTimeField()),
+                        ("note", models.TextField(blank=True, default="")),
+                        ("payload", models.JSONField(blank=True, default=dict)),
+                        ("bank_expense_id", models.BigIntegerField(blank=True, null=True)),
+                        ("created_at", models.DateTimeField(auto_now_add=True)),
+                        (
+                            "created_by",
+                            models.ForeignKey(
+                                on_delete=django.db.models.deletion.PROTECT,
+                                related_name="created_card_revenues",
+                                to=settings.AUTH_USER_MODEL,
+                            ),
+                        ),
+                        (
+                            "tenant",
+                            models.ForeignKey(
+                                on_delete=django.db.models.deletion.CASCADE,
+                                related_name="card_revenues",
+                                to="tenants.tenant",
+                            ),
+                        ),
+                    ],
+                    options={
+                        "db_table": "corporate_card_revenues",
+                        "ordering": ["-revenue_at", "-created_at"],
+                    },
+                ),
+                migrations.AddIndex(
+                    model_name="cardexpense",
+                    index=models.Index(fields=["tenant", "expense_at"], name="corp_card_exp_tenant_at_idx"),
+                ),
+                migrations.AddIndex(
+                    model_name="cardrevenue",
+                    index=models.Index(fields=["tenant", "revenue_at"], name="corp_card_rev_tenant_at_idx"),
+                ),
+                migrations.AddIndex(
+                    model_name="cardrevenue",
+                    index=models.Index(fields=["tenant", "bank_expense_id"], name="corp_card_rev_bank_id_idx"),
+                ),
+            ],
+            database_operations=[
+                migrations.RunSQL(
+                    sql="""
+                    CREATE TABLE IF NOT EXISTS corporate_card_expenses (
+                        id bigint GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+                        title varchar(255) NOT NULL DEFAULT '',
+                        amount numeric(18,2) NOT NULL DEFAULT 0,
+                        currency varchar(10) NOT NULL DEFAULT 'UZS',
+                        expense_at timestamp with time zone NOT NULL,
+                        note text NOT NULL DEFAULT '',
+                        payload jsonb NOT NULL DEFAULT '{}'::jsonb,
+                        created_at timestamp with time zone NOT NULL DEFAULT NOW(),
+                        created_by_id bigint NOT NULL,
+                        tenant_id bigint NOT NULL,
+                        CONSTRAINT corporate_card_expenses_created_by_fkey
+                            FOREIGN KEY (created_by_id) REFERENCES accounts_user(id)
+                            ON DELETE RESTRICT ON UPDATE NO ACTION,
+                        CONSTRAINT corporate_card_expenses_tenant_fkey
+                            FOREIGN KEY (tenant_id) REFERENCES tenants_tenant(id)
+                            ON DELETE CASCADE ON UPDATE NO ACTION
+                    );
+
+                    CREATE TABLE IF NOT EXISTS corporate_card_revenues (
+                        id bigint GENERATED BY DEFAULT AS IDENTITY PRIMARY KEY,
+                        title varchar(255) NOT NULL DEFAULT '',
+                        amount numeric(18,2) NOT NULL DEFAULT 0,
+                        currency varchar(10) NOT NULL DEFAULT 'UZS',
+                        revenue_at timestamp with time zone NOT NULL,
+                        note text NOT NULL DEFAULT '',
+                        payload jsonb NOT NULL DEFAULT '{}'::jsonb,
+                        bank_expense_id bigint NULL,
+                        created_at timestamp with time zone NOT NULL DEFAULT NOW(),
+                        created_by_id bigint NOT NULL,
+                        tenant_id bigint NOT NULL,
+                        CONSTRAINT corporate_card_revenues_created_by_fkey
+                            FOREIGN KEY (created_by_id) REFERENCES accounts_user(id)
+                            ON DELETE RESTRICT ON UPDATE NO ACTION,
+                        CONSTRAINT corporate_card_revenues_tenant_fkey
+                            FOREIGN KEY (tenant_id) REFERENCES tenants_tenant(id)
+                            ON DELETE CASCADE ON UPDATE NO ACTION
+                    );
+
+                    CREATE INDEX IF NOT EXISTS corp_card_exp_tenant_at_idx
+                        ON corporate_card_expenses (tenant_id, expense_at);
+                    CREATE INDEX IF NOT EXISTS corp_card_rev_tenant_at_idx
+                        ON corporate_card_revenues (tenant_id, revenue_at);
+                    CREATE INDEX IF NOT EXISTS corp_card_rev_bank_id_idx
+                        ON corporate_card_revenues (tenant_id, bank_expense_id);
+                    """,
+                    reverse_sql="""
+                    DROP TABLE IF EXISTS corporate_card_revenues;
+                    DROP TABLE IF EXISTS corporate_card_expenses;
+                    """,
+                ),
+            ],
+        ),
+    ]
+

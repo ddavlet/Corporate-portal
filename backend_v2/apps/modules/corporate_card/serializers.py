@@ -1,0 +1,109 @@
+from rest_framework import serializers
+
+from apps.modules.bank_expenses.models import BankExpense
+from apps.modules.corporate_card.models import CardExpense, CardRevenue
+from apps.tenants.permissions import has_effective_module_access
+
+
+class CardExpenseSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = CardExpense
+        fields = [
+            "id",
+            "title",
+            "amount",
+            "currency",
+            "expense_at",
+            "note",
+            "payload",
+            "created_at",
+            "created_by",
+        ]
+        read_only_fields = ["id", "created_at", "created_by"]
+
+
+class CardRevenueSerializer(serializers.ModelSerializer):
+    bank_expense_exists = serializers.SerializerMethodField(read_only=True)
+
+    class Meta:
+        model = CardRevenue
+        fields = [
+            "id",
+            "external_id",
+            "revenue_date",
+            "confirmed",
+            "direction",
+            "organization",
+            "unit",
+            "employee",
+            "cash_type",
+            "operation",
+            "account",
+            "counterparty",
+            "total_sum",
+            "comment",
+            "source_year",
+            "title",
+            "amount",
+            "currency",
+            "revenue_at",
+            "note",
+            "payload",
+            "bank_expense_id",
+            "bank_expense_exists",
+            "created_at",
+            "created_by",
+        ]
+        read_only_fields = ["id", "created_at", "created_by", "bank_expense_exists"]
+
+    def validate(self, attrs):
+        attrs = super().validate(attrs)
+        revenue_date = attrs.get("revenue_date")
+        revenue_at = attrs.get("revenue_at")
+
+        if revenue_date is None and self.instance is not None:
+            revenue_date = self.instance.revenue_date
+        if revenue_at is None and self.instance is not None:
+            revenue_at = self.instance.revenue_at
+
+        if revenue_date is None and revenue_at is not None:
+            revenue_date = revenue_at.date()
+            attrs["revenue_date"] = revenue_date
+
+        if revenue_date is not None:
+            attrs["source_year"] = revenue_date.year
+
+        # Keep compatibility with existing generic fields.
+        if "total_sum" in attrs and "amount" not in attrs:
+            attrs["amount"] = attrs["total_sum"]
+
+        if "comment" in attrs and "note" not in attrs:
+            attrs["note"] = attrs["comment"]
+        return attrs
+
+    def validate_bank_expense_id(self, value):
+        if value in (None, ""):
+            return None
+
+        request = self.context.get("request")
+        tenant = getattr(request, "tenant", None) if request else None
+        user = getattr(request, "user", None) if request else None
+        if not tenant or not user:
+            return value
+
+        # Soft validation: enforce existence only when bank module is effectively enabled.
+        if has_effective_module_access(user=user, tenant=tenant, module_key="bank"):
+            exists = BankExpense.objects.filter(tenant=tenant, id=value).exists()
+            if not exists:
+                raise serializers.ValidationError("Bank expense not found for this tenant.")
+        return value
+
+    def get_bank_expense_exists(self, obj):
+        if not obj.bank_expense_id:
+            return False
+        request = self.context.get("request")
+        tenant = getattr(request, "tenant", None) if request else getattr(obj, "tenant", None)
+        if not tenant:
+            return False
+        return BankExpense.objects.filter(tenant=tenant, id=obj.bank_expense_id).exists()
+

@@ -7,17 +7,20 @@ from apps.modules.cashier.models import CashExpense, CashRevenue
 class CashExpenseAdmin(admin.ModelAdmin):
     list_display = (
         "id",
+        "external_id",
         "tenant",
         "title",
         "amount",
         "currency",
-        "expense_date",
-        "category",
+        "expense_at",
+        "expense_year",
+        "expense_month",
+        "expense_day",
         "created_at",
         "created_by",
     )
-    list_filter = ("tenant", "currency", "category")
-    search_fields = ("title", "category", "note")
+    list_filter = ("tenant", "currency", "expense_year", "expense_month")
+    search_fields = ("external_id", "title", "note")
 
     def save_model(self, request, obj, form, change):
         if not obj.created_by_id:

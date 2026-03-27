@@ -12,6 +12,12 @@ def _module_choices():
 
 
 class TenantAdminForm(forms.ModelForm):
+    telegram_bot_token = forms.CharField(
+        label="Telegram bot token (for OTP)",
+        required=False,
+        widget=forms.PasswordInput(render_value=True),
+        help_text="Stored encrypted in DB. Leave empty to keep current token.",
+    )
     enabled_modules = forms.MultipleChoiceField(
         label="Enabled modules",
         required=False,
@@ -22,7 +28,7 @@ class TenantAdminForm(forms.ModelForm):
 
     class Meta:
         model = Tenant
-        fields = ["name", "subdomain", "is_active", "enabled_modules"]
+        fields = ["name", "subdomain", "is_active", "telegram_otp_enabled", "telegram_bot_token", "enabled_modules"]
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -31,10 +37,16 @@ class TenantAdminForm(forms.ModelForm):
                 TenantModuleConfig.objects.filter(tenant=self.instance, is_enabled=True).values_list("module_key", flat=True)
             )
             self.fields["enabled_modules"].initial = sorted(enabled)
+            self.fields["telegram_bot_token"].initial = self.instance.get_telegram_bot_token()
 
     @transaction.atomic
     def save(self, commit=True):
         tenant = super().save(commit=commit)
+        token = (self.cleaned_data.get("telegram_bot_token") or "").strip()
+        if token:
+            tenant.set_telegram_bot_token(token)
+            if commit:
+                tenant.save(update_fields=["telegram_bot_token_enc"])
 
         enabled_keys = set(self.cleaned_data.get("enabled_modules") or [])
         all_keys = [k for (k, _label) in _module_choices()]
@@ -66,12 +78,12 @@ class TenantUserRoleInline(admin.TabularInline):
 @admin.register(Tenant)
 class TenantAdmin(admin.ModelAdmin):
     form = TenantAdminForm
-    list_display = ("id", "subdomain", "name", "is_active")
-    list_filter = ("is_active",)
+    list_display = ("id", "subdomain", "name", "is_active", "telegram_otp_enabled")
+    list_filter = ("is_active", "telegram_otp_enabled")
     search_fields = ("subdomain", "name")
     ordering = ("subdomain",)
     inlines = [TenantMembershipInline, TenantUserRoleInline]
-    fields = ("name", "subdomain", "is_active", "enabled_modules")
+    fields = ("name", "subdomain", "is_active", "telegram_otp_enabled", "telegram_bot_token", "enabled_modules")
 
 
 @admin.register(TenantMembership)
