@@ -1,6 +1,7 @@
 # Makefile: upload everything in this folder to kolberg:~/n8n/
 SERVER     := kolberg
 REMOTE_DIR := ~/n8n
+.DEFAULT_GOAL := main
 
 # Files/folders to exclude from upload
 EXCLUDES := \
@@ -14,23 +15,16 @@ EXCLUDES := \
 	--exclude env \
 	--exclude .env
 
-.PHONY: deploy dry-run clean-remote rebuild-backend-v2 logs-backend-v2
+.PHONY: main deploy-files migrate-v2 deploy-rebuild-v2
 
-deploy:
+main: deploy-files
+
+deploy-files:
 	rsync -av --omit-dir-times $(EXCLUDES) ./ $(SERVER):$(REMOTE_DIR)/
 
-dry-run:
-	rsync -avzn --delete $(EXCLUDES) ./ $(SERVER):$(REMOTE_DIR)/
+migrate-v2:
+	ssh $(SERVER) "cd $(REMOTE_DIR) && docker compose --env-file ./.env exec -T backend_v2 python manage.py migrate && docker compose --env-file ./.env restart backend_v2"
 
-clean-remote:
-	ssh $(SERVER) "rm -rf $(REMOTE_DIR)/*"
-
-
-back:
-	rsync -avz --progress --omit-dir-times ${EXCLUDES} $(SERVER):$(REMOTE_DIR)/backend ./
-
-rebuild-backend-v2:
-	ssh $(SERVER) "cd $(REMOTE_DIR) && docker compose --env-file ./.env up -d --build backend_v2"
-
-logs-backend-v2:
-	ssh $(SERVER) "cd $(REMOTE_DIR) && docker logs --tail=200 django_v2"
+deploy-rebuild-v2:
+	$(MAKE) deploy-files
+	ssh $(SERVER) "cd $(REMOTE_DIR) && docker compose --env-file ./.env up -d --build backend_v2 frontend_v2 && docker compose --env-file ./.env exec -T backend_v2 python manage.py migrate && docker compose --env-file ./.env restart backend_v2"

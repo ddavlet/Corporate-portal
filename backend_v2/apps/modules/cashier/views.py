@@ -18,7 +18,7 @@ class CashExpenseViewSet(viewsets.ModelViewSet):
         return CashExpense.objects.filter(tenant=tenant)
 
     def perform_create(self, serializer):
-        serializer.save(tenant=self.request.tenant)
+        serializer.save(tenant=self.request.tenant, created_by=self.request.user)
 
 
 class CashRevenueViewSet(viewsets.ModelViewSet):
@@ -33,5 +33,5 @@ class CashRevenueViewSet(viewsets.ModelViewSet):
         return CashRevenue.objects.filter(tenant=tenant)
 
     def perform_create(self, serializer):
-        serializer.save(tenant=self.request.tenant)
+        serializer.save(tenant=self.request.tenant, created_by=self.request.user)
 

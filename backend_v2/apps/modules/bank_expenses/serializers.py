@@ -8,6 +8,8 @@ class BankExpenseSerializer(serializers.ModelSerializer):
         model = BankExpense
         fields = [
             "id",
+            "created_at",
+            "created_by",
             "row_no",
             "doc_date",
             "process_date",
@@ -19,7 +21,7 @@ class BankExpenseSerializer(serializers.ModelSerializer):
             "debit_turnover",
             "payment_purpose",
         ]
-        read_only_fields = ["id"]
+        read_only_fields = ["id", "created_at", "created_by"]
 
 
 class BankRevenueSerializer(serializers.ModelSerializer):
@@ -27,6 +29,8 @@ class BankRevenueSerializer(serializers.ModelSerializer):
         model = BankRevenue
         fields = [
             "id",
+            "created_at",
+            "created_by",
             "row_no",
             "doc_date",
             "process_date",
@@ -38,5 +42,5 @@ class BankRevenueSerializer(serializers.ModelSerializer):
             "kredit_turnover",
             "payment_purpose",
         ]
-        read_only_fields = ["id"]
+        read_only_fields = ["id", "created_at", "created_by"]
 

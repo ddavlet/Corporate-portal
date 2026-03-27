@@ -16,8 +16,9 @@ class CashExpenseSerializer(serializers.ModelSerializer):
             "note",
             "payload",
             "created_at",
+            "created_by",
         ]
-        read_only_fields = ["id", "created_at"]
+        read_only_fields = ["id", "created_at", "created_by"]
 
 
 class CashRevenueSerializer(serializers.ModelSerializer):
@@ -38,6 +39,7 @@ class CashRevenueSerializer(serializers.ModelSerializer):
             "note",
             "payload",
             "created_at",
+            "created_by",
         ]
-        read_only_fields = ["id", "created_at"]
+        read_only_fields = ["id", "created_at", "created_by"]
 

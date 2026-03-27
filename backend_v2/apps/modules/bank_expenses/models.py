@@ -1,10 +1,18 @@
 from django.db import models
+from django.conf import settings
+from django.utils import timezone
 
 from apps.tenants.models import Tenant
 
 
 class BankExpense(models.Model):
     tenant = models.ForeignKey(Tenant, on_delete=models.CASCADE, related_name="bank_expenses")
+    created_at = models.DateTimeField(default=timezone.now)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="created_bank_expenses",
+    )
     row_no = models.IntegerField()
     doc_date = models.DateField()
     process_date = models.DateField()
@@ -31,6 +39,12 @@ class BankExpense(models.Model):
 class BankRevenue(models.Model):
     # NOTE: "No foreign keys" requirement — we store tenant as plain subdomain.
     tenant_subdomain = models.SlugField(max_length=60)
+    created_at = models.DateTimeField(default=timezone.now)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="created_bank_revenues",
+    )
 
     row_no = models.IntegerField(null=True, blank=True)
     doc_date = models.DateField()

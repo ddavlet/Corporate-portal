@@ -3,7 +3,7 @@ from django.urls import path, include
 
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 
-from apps.tenants.views import ModuleCatalogView, TenantModuleConfigView, UserModulePermissionsView
+from apps.tenants.views import ModuleCatalogView, TenantModuleConfigView
 
 
 urlpatterns = [
@@ -16,7 +16,6 @@ urlpatterns = [
     # Tenants + module config/permissions
     path("api/modules/", ModuleCatalogView.as_view(), name="module_catalog"),
     path("api/tenant-module-config/", TenantModuleConfigView.as_view(), name="tenant_module_config"),
-    path("api/user-module-permissions/", UserModulePermissionsView.as_view(), name="user_module_permissions"),
 
     # Requests module (first module to scaffold)
     path("api/requests/", include("apps.modules.requests.urls")),
