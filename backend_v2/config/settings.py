@@ -35,6 +35,8 @@ INSTALLED_APPS = [
     "apps.modules.requests",
     "apps.modules.cashier",
     "apps.modules.bank_expenses",
+    "apps.modules.corporate_card",
+    "apps.modules.notes",
 ]
 
 MIDDLEWARE = [

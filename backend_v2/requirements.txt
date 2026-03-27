@@ -6,4 +6,5 @@ djangorestframework
 djangorestframework-simplejwt
 
 requests>=2.31.0
+cryptography>=43.0.0
 

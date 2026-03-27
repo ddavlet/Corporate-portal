@@ -2,8 +2,18 @@ from rest_framework import serializers
 from django.urls import reverse
 from django.contrib.auth import get_user_model
 from django.db import connection
+from urllib.parse import quote
 
-from apps.modules.requests.models import Approval, Request
+from apps.modules.requests.models import (
+    Approval,
+    Request,
+    RequestFormConfig,
+    RequestFormPaymentTypeConfig,
+    RequestFormPaymentTypeRequester,
+    RequestFormPaymentTypeVendor,
+    RequestPaymentPurposeConfig,
+    Vendor,
+)
 from apps.modules.cashier.models import CashExpense
 from apps.modules.bank_expenses.models import BankExpense
 from apps.tenants.permissions import has_effective_module_access
@@ -53,6 +63,10 @@ class PortalRequestSerializer(serializers.ModelSerializer):
         request_obj = self.context.get("request")
         tenant = getattr(request_obj, "tenant", None)
 
+        payment_type = attrs.get("payment_type")
+        if payment_type is None and self.instance is not None:
+            payment_type = self.instance.payment_type
+
         requester = attrs.get("requester")
         if requester is None and self.instance is not None:
             requester = self.instance.requester
@@ -76,6 +90,66 @@ class PortalRequestSerializer(serializers.ModelSerializer):
                 {"requester": "Requester must have role 'requester' in this tenant."}
             )
 
+        # Adaptive request-form config validation (tenant-level, optional).
+        cfg = RequestFormConfig.objects.filter(tenant=tenant).first()
+        if cfg and payment_type:
+            pt_cfg = RequestFormPaymentTypeConfig.objects.filter(
+                config=cfg,
+                payment_type=payment_type,
+            ).first()
+            if not pt_cfg or not pt_cfg.is_enabled:
+                raise serializers.ValidationError(
+                    {"payment_type": "This payment type is disabled by request form configuration."}
+                )
+
+            # Requester must be in configured subset if subset is defined.
+            allowed_requester_ids = list(
+                RequestFormPaymentTypeRequester.objects.filter(payment_type_config=pt_cfg).values_list(
+                    "user_id", flat=True
+                )
+            )
+            if allowed_requester_ids and requester.id not in set(allowed_requester_ids):
+                raise serializers.ValidationError(
+                    {"requester": "Requester is not allowed for this payment type."}
+                )
+
+            # Vendor restrictions: if configured, validate vendor exists and is allowed.
+            vendor_value = attrs.get("vendor")
+            if vendor_value is None and self.instance is not None:
+                vendor_value = self.instance.vendor
+            vendor_value = str(vendor_value or "").strip()
+            allowed_vendor_ids = list(
+                RequestFormPaymentTypeVendor.objects.filter(payment_type_config=pt_cfg).values_list(
+                    "vendor_id", flat=True
+                )
+            )
+            if vendor_value and allowed_vendor_ids:
+                vendor_obj = Vendor.objects.filter(tenant=tenant, name=vendor_value).first()
+                if not vendor_obj:
+                    raise serializers.ValidationError({"vendor": "Unknown vendor for this tenant."})
+                if vendor_obj.id not in set(allowed_vendor_ids):
+                    raise serializers.ValidationError({"vendor": "Vendor is not allowed for this payment type."})
+
+            # Payment purpose restrictions + auto category.
+            purpose_value = attrs.get("payment_purpose")
+            if purpose_value is None and self.instance is not None:
+                purpose_value = self.instance.payment_purpose
+            purpose_value = str(purpose_value or "").strip()
+
+            purpose_rows = list(
+                RequestPaymentPurposeConfig.objects.filter(payment_type_config=pt_cfg, is_active=True)
+            )
+            if purpose_rows:
+                if not purpose_value:
+                    raise serializers.ValidationError({"payment_purpose": "Payment purpose is required."})
+                matched = next((p for p in purpose_rows if p.name == purpose_value), None)
+                if not matched:
+                    raise serializers.ValidationError(
+                        {"payment_purpose": "Payment purpose is not allowed for this payment type."}
+                    )
+                # Category is derived from purpose mapping.
+                attrs["category"] = matched.category
+
         return attrs
 
     def get_requester_username(self, obj):
@@ -88,16 +162,19 @@ class PortalRequestSerializer(serializers.ModelSerializer):
 
         if not getattr(obj, "expense_id", None):
             return None
+        raw_expense_id = str(obj.expense_id).strip()
 
         # expense_id is stored as varchar(20) and is expected to be numeric for local modules.
         try:
-            numeric_id = int(str(obj.expense_id))
+            numeric_id = int(raw_expense_id)
         except (TypeError, ValueError):
             numeric_id = None
 
-        # If cash module is effectively enabled, resolve `expense_id` as a local cash expense.
-        if numeric_id is not None and has_effective_module_access(user=user, tenant=tenant, module_key="cash"):
-            cash_expense = CashExpense.objects.filter(tenant=tenant, id=numeric_id).first()
+        # If cash module is effectively enabled, resolve `expense_id` by PK or by external_id.
+        if has_effective_module_access(user=user, tenant=tenant, module_key="cash"):
+            cash_expense = CashExpense.objects.filter(tenant=tenant, external_id=raw_expense_id).first()
+            if not cash_expense and numeric_id is not None:
+                cash_expense = CashExpense.objects.filter(tenant=tenant, id=numeric_id).first()
             if cash_expense:
                 rel = reverse("cash-expenses-detail", kwargs={"pk": cash_expense.id})
                 url = request.build_absolute_uri(rel) if request else rel
@@ -122,7 +199,16 @@ class PortalRequestSerializer(serializers.ModelSerializer):
                 }
 
         # Fallback: only return raw external id (frontend can decide how to render).
-        return {"module": "external", "expense_type": "unknown", "id": obj.expense_id, "url": None}
+        return {"module": "external", "expense_type": "unknown", "id": raw_expense_id, "url": None}
+
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        file_link = data.get("file_link")
+        request = self.context.get("request")
+        if file_link and request:
+            gateway_rel = f"/api/files/gateway/?path={quote(str(file_link), safe='')}"
+            data["file_link"] = request.build_absolute_uri(gateway_rel)
+        return data
 
 
 class ApprovalSerializer(serializers.ModelSerializer):
@@ -162,4 +248,114 @@ class PortalRequestDetailSerializer(PortalRequestSerializer):
             return []
         queryset = Approval.objects.filter(request=obj).select_related("approver_user").order_by("step", "id")
         return ApprovalSerializer(queryset, many=True).data
+
+
+class RequestPaymentPurposeConfigItemSerializer(serializers.Serializer):
+    id = serializers.IntegerField(required=False)
+    name = serializers.CharField()
+    category = serializers.CharField()
+    is_active = serializers.BooleanField(required=False, default=True)
+
+
+class RequestFormPaymentTypeConfigSerializer(serializers.Serializer):
+    payment_type = serializers.ChoiceField(choices=Request.PAYMENT_TYPE_CHOICES)
+    is_enabled = serializers.BooleanField(required=False, default=True)
+    requester_ids = serializers.ListField(
+        child=serializers.IntegerField(),
+        required=False,
+        default=list,
+    )
+    vendor_ids = serializers.ListField(
+        child=serializers.IntegerField(),
+        required=False,
+        default=list,
+    )
+    payment_purposes = serializers.ListField(
+        child=RequestPaymentPurposeConfigItemSerializer(),
+        required=False,
+        default=list,
+    )
+
+
+class RequestFormConfigPayloadSerializer(serializers.Serializer):
+    payment_types = serializers.ListField(child=RequestFormPaymentTypeConfigSerializer())
+
+
+class RequesterCandidateSerializer(serializers.Serializer):
+    id = serializers.IntegerField()
+    username = serializers.CharField()
+
+
+class VendorCandidateSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Vendor
+        fields = ["id", "name", "account_number"]
+
+
+def build_request_form_config_response(*, tenant) -> dict:
+    """
+    Returns config plus candidates needed by admin UI.
+    """
+    cfg = RequestFormConfig.objects.filter(tenant=tenant).first()
+
+    # Candidates: all active tenant members with requester role.
+    requester_user_ids = list(
+        TenantUserRole.objects.filter(
+            tenant=tenant,
+            role=TenantUserRole.ROLE_REQUESTER,
+        ).values_list("user_id", flat=True)
+    )
+    requester_candidates = User.objects.filter(id__in=requester_user_ids).order_by("username")
+
+    vendor_candidates = Vendor.objects.filter(tenant=tenant).order_by("name")
+
+    # "Predefined categories" source (current codebase stores category as text).
+    categories_from_requests = (
+        Request.objects.filter(tenant=tenant)
+        .exclude(category="")
+        .values_list("category", flat=True)
+        .distinct()
+    )
+    categories_from_purposes = (
+        RequestPaymentPurposeConfig.objects.filter(payment_type_config__config__tenant=tenant)
+        .exclude(category="")
+        .values_list("category", flat=True)
+        .distinct()
+    )
+    categories = sorted({*list(categories_from_requests), *list(categories_from_purposes)})
+
+    payment_type_rows: list[dict] = []
+    if cfg:
+        pt_qs = (
+            RequestFormPaymentTypeConfig.objects.filter(config=cfg)
+            .prefetch_related("allowed_requesters", "allowed_vendors", "payment_purposes")
+            .order_by("payment_type")
+        )
+        for pt in pt_qs:
+            payment_type_rows.append(
+                {
+                    "payment_type": pt.payment_type,
+                    "is_enabled": pt.is_enabled,
+                    "requester_ids": list(pt.allowed_requesters.values_list("user_id", flat=True)),
+                    "vendor_ids": list(pt.allowed_vendors.values_list("vendor_id", flat=True)),
+                    "payment_purposes": [
+                        {
+                            "id": p.id,
+                            "name": p.name,
+                            "category": p.category,
+                            "is_active": p.is_active,
+                        }
+                        for p in pt.payment_purposes.all().order_by("name", "id")
+                    ],
+                }
+            )
+
+    return {
+        "payment_types": payment_type_rows,
+        "requester_candidates": RequesterCandidateSerializer(
+            requester_candidates, many=True
+        ).data,
+        "vendor_candidates": VendorCandidateSerializer(vendor_candidates, many=True).data,
+        "category_candidates": categories,
+    }
 

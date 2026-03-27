@@ -1,8 +1,12 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Alert, Card, DatePicker, Descriptions, Divider, Input, InputNumber, Modal, Select, Skeleton, Space, Table, Tag, Typography } from 'antd'
+import { Alert, Button, Card, DatePicker, Input, InputNumber, Select, Skeleton, Space, Table, Tag, Typography, message } from 'antd'
 import type { ColumnsType, TableProps } from 'antd/es/table'
 import type { Dayjs } from 'dayjs'
+import { useNavigate } from 'react-router-dom'
+import { FileSearchOutlined, MessageOutlined, ReloadOutlined } from '@ant-design/icons'
 import { apiFetch } from '../lib/api'
+import { RequestDetailModal, type RequestDetail } from './RequestDetailModal'
+import { NoteCreateModal } from './NoteCreateModal'
 
 type RequestRow = {
   id: number
@@ -23,23 +27,30 @@ type RequestRow = {
   billing_date: string
 }
 
-type ApprovalItem = {
-  id: number
-  step: number
-  step_type: string
-  decision: string
-  comment?: string | null
-  decided_at?: string | null
-  approver_username?: string | null
-}
-
-type RequestDetail = RequestRow & {
-  approvals: ApprovalItem[]
-}
-
 type SortState = {
   field: keyof RequestRow | null
   order: 'ascend' | 'descend' | null
+}
+
+let __agentLogCountRequests = 0
+function __agentDebugRequests(hypothesisId: string, location: string, message: string, data: Record<string, unknown>) {
+  if (__agentLogCountRequests >= 8) return
+  __agentLogCountRequests += 1
+  // #region agent log
+  fetch('http://127.0.0.1:7881/ingest/65e49d6f-5b21-403c-b9fe-96d5e00b64d7', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': 'f6d40b' },
+    body: JSON.stringify({
+      sessionId: 'f6d40b',
+      runId: 'pre-fix-requests',
+      hypothesisId,
+      location,
+      message,
+      data,
+      timestamp: Date.now(),
+    }),
+  }).catch(() => {})
+  // #endregion
 }
 
 function normalizeRows(payload: unknown): RequestRow[] {
@@ -62,10 +73,18 @@ function formatDateDDMMYYYY(value?: string | null): string {
   if (!value) return '-'
   const parsed = new Date(value)
   if (Number.isNaN(parsed.getTime())) return '-'
-  return dateFormatterTashkent.format(parsed)
+  const formatted = dateFormatterTashkent.format(parsed)
+  __agentDebugRequests('H1', 'RequestsPage.formatDateDDMMYYYY', 'Formatted date in requests table', {
+    input: value,
+    parsedIso: parsed.toISOString(),
+    formatted,
+    timezone: 'Asia/Tashkent',
+  })
+  return formatted
 }
 
 export function RequestsPage() {
+  const navigate = useNavigate()
   const [loading, setLoading] = useState(true)
   const [rows, setRows] = useState<RequestRow[]>([])
   const [error, setError] = useState<string | null>(null)
@@ -83,10 +102,14 @@ export function RequestsPage() {
   const [submittedRange, setSubmittedRange] = useState<[Dayjs | null, Dayjs | null] | null>(null)
   const [billingRange, setBillingRange] = useState<[Dayjs | null, Dayjs | null] | null>(null)
   const [sort, setSort] = useState<SortState>({ field: null, order: null })
+  const [currentPage, setCurrentPage] = useState(1)
+  const [pageSize, setPageSize] = useState(20)
   const [selectedRow, setSelectedRow] = useState<RequestRow | null>(null)
   const [selectedDetail, setSelectedDetail] = useState<RequestDetail | null>(null)
   const [detailLoading, setDetailLoading] = useState(false)
   const [detailError, setDetailError] = useState<string | null>(null)
+  const [openNoteModal, setOpenNoteModal] = useState(false)
+  const [resendLoading, setResendLoading] = useState(false)
 
   useEffect(() => {
     const id = window.setTimeout(() => setDebouncedSearch(search), 250)
@@ -116,7 +139,16 @@ export function RequestsPage() {
         if (!res.ok) {
           throw new Error(typeof json === 'object' && json ? JSON.stringify(json) : `HTTP ${res.status}`)
         }
-        if (!cancelled) setRows(normalizeRows(json))
+        if (!cancelled) {
+          const normalized = normalizeRows(json)
+          setRows(normalized)
+          const first = normalized[0]
+          __agentDebugRequests('H2', 'RequestsPage.fetchList', 'Sample request row date fields from API', {
+            count: normalized.length,
+            submitted_at: first?.submitted_at ?? null,
+            billing_date: first?.billing_date ?? null,
+          })
+        }
       } catch (e: any) {
         if (!cancelled) setError(e?.message || 'Ошибка запроса')
       } finally {
@@ -169,6 +201,11 @@ export function RequestsPage() {
         if (av === bv) return 0
         if (av === null || av === undefined) return -1 * dir
         if (bv === null || bv === undefined) return 1 * dir
+        if (sort.field === 'amount') {
+          const an = Number(av)
+          const bn = Number(bv)
+          if (!Number.isNaN(an) && !Number.isNaN(bn)) return (an - bn) * dir
+        }
         if (typeof av === 'number' && typeof bv === 'number') return (av - bv) * dir
         return String(av).localeCompare(String(bv)) * dir
       })
@@ -256,6 +293,8 @@ export function RequestsPage() {
   ]
 
   const onTableChange: TableProps<RequestRow>['onChange'] = (_, __, sorter) => {
+    if (_?.current) setCurrentPage(_.current)
+    if (_?.pageSize) setPageSize(_.pageSize)
     const normalized = Array.isArray(sorter) ? sorter[0] : sorter
     if (!normalized?.field || !normalized.order) {
       setSort({ field: null, order: null })
@@ -267,43 +306,26 @@ export function RequestsPage() {
     })
   }
 
-  const decisionKey = (decision?: string | null) => String(decision || '').toLowerCase()
-  const activeDetail = selectedDetail || (selectedRow ? ({ ...selectedRow, approvals: [] } as RequestDetail) : null)
-  const approvals = activeDetail?.approvals || []
-  const approvedApprovals = approvals.filter((a) => decisionKey(a.decision) === 'approved')
-  const rejectedApprovals = approvals.filter((a) => decisionKey(a.decision) === 'rejected')
-  const pendingApprovals = approvals.filter((a) => decisionKey(a.decision) === 'pending')
+  const activeDetail = selectedDetail
 
-  const getDecisionColor = (decision?: string | null): string | undefined => {
-    const key = decisionKey(decision)
-    if (key === 'approved') return 'green'
-    if (key === 'rejected') return 'red'
-    if (key === 'pending') return 'orange'
-    return 'default'
+  const resendRequest = async (requestId: number) => {
+    setResendLoading(true)
+    try {
+      const url = `https://lemonfit.kolberg.uz/resend_request?request_id=${requestId}`
+      const res = await fetch(url, { method: 'GET' })
+      const text = await res.text().catch(() => '')
+      const msg = text || `HTTP ${res.status}`
+      if (res.ok) {
+        message.success(`✅ Сообщение отправлено. ${msg}`)
+      } else {
+        message.error(`❌ Ошибка отправки. ${msg}`)
+      }
+    } catch (e: any) {
+      message.error(`❌ Ошибка отправки. ${e?.message || 'Не удалось отправить запрос повторно'}`)
+    } finally {
+      setResendLoading(false)
+    }
   }
-
-  const renderApprovalGroup = (title: string, items: ApprovalItem[]) => (
-    <Space direction="vertical" size={8} style={{ display: 'flex' }}>
-      <Typography.Text strong>{title}</Typography.Text>
-      {items.length === 0 ? (
-        <Typography.Text type="secondary">Нет записей</Typography.Text>
-      ) : (
-        items.map((item) => (
-          <Card key={item.id} size="small">
-            <Space direction="vertical" size={4} style={{ display: 'flex' }}>
-              <Space wrap>
-                <Typography.Text>{`S${item.step}/${item.step_type}`}</Typography.Text>
-                <Typography.Text>{item.approver_username || 'Unknown approver'}</Typography.Text>
-                <Tag color={getDecisionColor(item.decision)}>{String(item.decision || '').toUpperCase()}</Tag>
-              </Space>
-              <Typography.Text type="secondary">{item.comment || 'without comment'}</Typography.Text>
-              <Typography.Text type="secondary">{formatDateDDMMYYYY(item.decided_at)}</Typography.Text>
-            </Space>
-          </Card>
-        ))
-      )}
-    </Space>
-  )
 
   return (
     <Card>
@@ -413,59 +435,48 @@ export function RequestsPage() {
             onClick: () => setSelectedRow(record),
             style: { cursor: 'pointer' },
           })}
-          pagination={{ pageSize: 20, showSizeChanger: true }}
+          pagination={{
+            current: currentPage,
+            pageSize,
+            showSizeChanger: true,
+            pageSizeOptions: [20, 50, 100, 200],
+          }}
           scroll={{ x: 1200 }}
         />
       ) : null}
-      <Modal
+      <RequestDetailModal
         open={Boolean(selectedRow)}
-        title={selectedRow ? `Заявка #${selectedRow.id}` : 'Заявка'}
-        footer={null}
         onCancel={() => setSelectedRow(null)}
-        width={760}
-      >
-        {activeDetail ? (
-          <Descriptions bordered size="small" column={1}>
-            <Descriptions.Item label="Название">{activeDetail.title || '-'}</Descriptions.Item>
-            <Descriptions.Item label="Статус">
-              <Tag color={getStatusColor(activeDetail.status)}>{activeDetail.status}</Tag>
-            </Descriptions.Item>
-            <Descriptions.Item label="Сумма">
-              {`${Number(activeDetail.amount).toLocaleString('ru-RU')} ${activeDetail.currency}`}
-            </Descriptions.Item>
-            <Descriptions.Item label="Категория">{activeDetail.category || '-'}</Descriptions.Item>
-            <Descriptions.Item label="Поставщик">{activeDetail.vendor || '-'}</Descriptions.Item>
-            <Descriptions.Item label="Назначение платежа">{activeDetail.payment_purpose || '-'}</Descriptions.Item>
-            <Descriptions.Item label="Описание">{activeDetail.description || '-'}</Descriptions.Item>
-            <Descriptions.Item label="Заявитель">
-              {activeDetail.requester_username || (activeDetail.requester ? `User #${activeDetail.requester}` : '-')}
-            </Descriptions.Item>
-            <Descriptions.Item label="Отправлено">{formatDateDDMMYYYY(activeDetail.submitted_at)}</Descriptions.Item>
-            <Descriptions.Item label="Дата биллинга">{formatDateDDMMYYYY(activeDetail.billing_date)}</Descriptions.Item>
-            <Descriptions.Item label="Файл">
-              {activeDetail.file_link ? (
-                <Typography.Link href={activeDetail.file_link} target="_blank" rel="noreferrer">
-                  Открыть файл
-                </Typography.Link>
-              ) : (
-                '-'
-              )}
-            </Descriptions.Item>
-          </Descriptions>
-        ) : null}
-        {detailLoading ? <Skeleton active style={{ marginTop: 12 }} /> : null}
-        {detailError ? <Alert type="error" showIcon message={detailError} style={{ marginTop: 12 }} /> : null}
-        {!detailLoading && activeDetail ? (
-          <>
-            <Divider />
-            <Space direction="vertical" size={12} style={{ display: 'flex' }}>
-              {renderApprovalGroup(`Одобрено (${approvedApprovals.length})`, approvedApprovals)}
-              {renderApprovalGroup(`Отклонено (${rejectedApprovals.length})`, rejectedApprovals)}
-              {renderApprovalGroup(`В ожидании (${pendingApprovals.length})`, pendingApprovals)}
+        detail={activeDetail}
+        loading={detailLoading}
+        error={detailError}
+        actions={
+          selectedRow ? (
+            <Space>
+              <Button icon={<FileSearchOutlined />} onClick={() => navigate(`/requests/${selectedRow.id}`)}>
+                Открыть страницу
+              </Button>
+              <Button icon={<MessageOutlined />} onClick={() => setOpenNoteModal(true)}>
+                Добавить заметку
+              </Button>
+              <Button
+                type="primary"
+                icon={<ReloadOutlined />}
+                loading={resendLoading}
+                onClick={() => resendRequest(selectedRow.id)}
+              >
+                Отправить запрос(ы) повторно
+              </Button>
             </Space>
-          </>
-        ) : null}
-      </Modal>
+          ) : null
+        }
+      />
+      <NoteCreateModal
+        open={openNoteModal}
+        onCancel={() => setOpenNoteModal(false)}
+        targetType="request"
+        targetId={selectedRow?.id || null}
+      />
     </Card>
   )
 }

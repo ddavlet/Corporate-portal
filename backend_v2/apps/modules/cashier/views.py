@@ -1,8 +1,18 @@
 from rest_framework import viewsets
+from rest_framework import status
+from rest_framework.exceptions import ValidationError
 from rest_framework.permissions import IsAuthenticated
+from rest_framework.decorators import action
+from rest_framework.response import Response
+from django.db import IntegrityError
+from django.db.models import Exists, OuterRef, Subquery
+from django.db.models import Q
+from django.db.models.functions import Cast
+from django.db.models.fields import CharField
 
 from apps.modules.cashier.models import CashExpense, CashRevenue
 from apps.modules.cashier.serializers import CashExpenseSerializer, CashRevenueSerializer
+from apps.modules.requests.models import Request
 from apps.tenants.permissions import HasEffectiveModuleAccess
 
 
@@ -15,10 +25,68 @@ class CashExpenseViewSet(viewsets.ModelViewSet):
         tenant = getattr(self.request, "tenant", None)
         if not tenant:
             return CashExpense.objects.none()
-        return CashExpense.objects.filter(tenant=tenant)
+        request_subquery = Request.objects.filter(
+            tenant=tenant,
+        ).filter(
+            Q(expense_id=Cast(OuterRef("id"), CharField())) | Q(expense_id=OuterRef("external_id"))
+        )
+        paid_request_subquery = request_subquery.filter(status=Request.STATUS_PAYED)
+        return CashExpense.objects.filter(tenant=tenant).annotate(
+            has_request=Exists(request_subquery),
+            has_paid_request=Exists(paid_request_subquery),
+            matched_request_id=Subquery(request_subquery.order_by("-created_at").values("id")[:1]),
+        )
 
     def perform_create(self, serializer):
-        serializer.save(tenant=self.request.tenant, created_by=self.request.user)
+        try:
+            serializer.save(tenant=self.request.tenant, created_by=self.request.user)
+        except IntegrityError as exc:
+            raise ValidationError({"external_id": "This id is already used for this year."}) from exc
+
+    def perform_update(self, serializer):
+        try:
+            serializer.save()
+        except IntegrityError as exc:
+            raise ValidationError({"external_id": "This id is already used for this year."}) from exc
+
+    @action(detail=False, methods=["patch"], url_path="by-expense-id-year")
+    def update_by_expense_id_year(self, request):
+        tenant = getattr(request, "tenant", None)
+        if not tenant:
+            raise ValidationError({"detail": "Unknown tenant."})
+
+        raw_expense_id = request.data.get("expense_id", request.data.get("external_id"))
+        raw_year = request.data.get("expense_year")
+        if raw_expense_id in (None, ""):
+            raise ValidationError({"expense_id": "This field is required."})
+        if raw_year in (None, ""):
+            raise ValidationError({"expense_year": "This field is required."})
+
+        expense_id = str(raw_expense_id).strip()
+        try:
+            expense_year = int(raw_year)
+        except (TypeError, ValueError):
+            raise ValidationError({"expense_year": "Expense year must be an integer."})
+
+        instance = CashExpense.objects.filter(
+            tenant=tenant,
+            external_id=expense_id,
+            expense_year=expense_year,
+        ).first()
+        if not instance:
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        payload = dict(request.data)
+        if "external_id" not in payload:
+            payload["external_id"] = expense_id
+
+        serializer = self.get_serializer(instance=instance, data=payload, partial=True)
+        serializer.is_valid(raise_exception=True)
+        try:
+            serializer.save()
+        except IntegrityError as exc:
+            raise ValidationError({"external_id": "This id is already used for this year."}) from exc
+        return Response(serializer.data, status=status.HTTP_200_OK)
 
 
 class CashRevenueViewSet(viewsets.ModelViewSet):
