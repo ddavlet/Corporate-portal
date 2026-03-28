@@ -11,6 +11,13 @@ ROLE_MODULE_ACCESS: dict[str, set[str]] = {
         TenantUserRole.ROLE_APPROVER,
         TenantUserRole.ROLE_REQUESTER,
     },
+    "vendors": {
+        TenantUserRole.ROLE_ADMIN,
+        TenantUserRole.ROLE_APPROVER,
+        TenantUserRole.ROLE_REQUESTER,
+        TenantUserRole.ROLE_CASHIER,
+        TenantUserRole.ROLE_ACCOUNTANT,
+    },
     "cash": {
         TenantUserRole.ROLE_ADMIN,
         TenantUserRole.ROLE_CASHIER,

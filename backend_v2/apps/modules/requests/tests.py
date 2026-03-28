@@ -29,6 +29,7 @@ class RequestFormConfigTests(APITestCase):
         TenantUserRole.objects.create(tenant=self.tenant, user=self.requester_b, role=TenantUserRole.ROLE_REQUESTER, step=1)
 
         TenantModuleConfig.objects.create(tenant=self.tenant, module_key="requests", is_enabled=True)
+        TenantModuleConfig.objects.create(tenant=self.tenant, module_key="vendors", is_enabled=True)
 
         self.host = "acme.example.com"
 
@@ -113,7 +114,7 @@ class RequestFormConfigTests(APITestCase):
         self.assertEqual(res.status_code, 201)
         self.assertEqual(res.data["request"]["category"], "Admin")
 
-    def test_requester_subset_enforced(self):
+    def test_admin_can_assign_requester_outside_form_subset(self):
         cfg = RequestFormConfig.objects.create(tenant=self.tenant, updated_by=self.admin)
         pt_cfg = RequestFormPaymentTypeConfig.objects.create(config=cfg, payment_type="Наличные", is_enabled=True)
         RequestFormPaymentTypeRequester.objects.create(payment_type_config=pt_cfg, user=self.requester_a)
@@ -134,6 +135,92 @@ class RequestFormConfigTests(APITestCase):
             format="json",
             HTTP_HOST=self.host,
         )
+        self.assertEqual(res.status_code, 201)
+        self.assertEqual(res.data["request"]["requester"], self.requester_b.id)
+
+    def test_non_admin_rejected_when_self_not_in_requester_subset(self):
+        cfg = RequestFormConfig.objects.create(tenant=self.tenant, updated_by=self.admin)
+        pt_cfg = RequestFormPaymentTypeConfig.objects.create(config=cfg, payment_type="Наличные", is_enabled=True)
+        RequestFormPaymentTypeRequester.objects.create(payment_type_config=pt_cfg, user=self.requester_a)
+
+        self.client.force_authenticate(self.requester_b)
+        res = self.client.post(
+            "/api/requests/upsert/",
+            {
+                "title": "T",
+                "description": "",
+                "amount": 1,
+                "currency": "UZS",
+                "payment_type": "Наличные",
+                "urgency": "Обычно",
+                "billing_date": "2026-01-01",
+            },
+            format="json",
+            HTTP_HOST=self.host,
+        )
         self.assertEqual(res.status_code, 400)
         self.assertIn("requester", res.data)
+
+    def test_non_admin_payload_requester_for_actor_only(self):
+        cfg = RequestFormConfig.objects.create(tenant=self.tenant, updated_by=self.admin)
+        pt_cfg = RequestFormPaymentTypeConfig.objects.create(config=cfg, payment_type="Наличные", is_enabled=True)
+        RequestFormPaymentTypeRequester.objects.create(payment_type_config=pt_cfg, user=self.requester_a)
+        RequestFormPaymentTypeRequester.objects.create(payment_type_config=pt_cfg, user=self.requester_b)
+
+        self.client.force_authenticate(self.requester_a)
+        res = self.client.post(
+            "/api/requests/upsert/",
+            {
+                "title": "T",
+                "description": "",
+                "amount": 1,
+                "currency": "UZS",
+                "payment_type": "Наличные",
+                "urgency": "Обычно",
+                "requester": self.requester_b.id,
+                "billing_date": "2026-01-01",
+            },
+            format="json",
+            HTTP_HOST=self.host,
+        )
+        self.assertEqual(res.status_code, 201)
+        self.assertEqual(res.data["request"]["requester"], self.requester_a.id)
+
+    def test_form_options_requesters_match_config_only(self):
+        cfg = RequestFormConfig.objects.create(tenant=self.tenant, updated_by=self.admin)
+        pt_cfg = RequestFormPaymentTypeConfig.objects.create(config=cfg, payment_type="Наличные", is_enabled=True)
+        RequestFormPaymentTypeRequester.objects.create(payment_type_config=pt_cfg, user=self.requester_a)
+
+        self.client.force_authenticate(self.requester_a)
+        res = self.client.get("/api/requests/form-options/", HTTP_HOST=self.host)
+        self.assertEqual(res.status_code, 200)
+        pts = res.data["payment_types"]
+        self.assertEqual(len(pts), 1)
+        self.assertEqual(pts[0]["payment_type"], "Наличные")
+        ids = {r["id"] for r in pts[0]["requesters"]}
+        self.assertEqual(ids, {self.requester_a.id})
+
+    def test_form_options_no_fallback_when_requesters_not_configured(self):
+        cfg = RequestFormConfig.objects.create(tenant=self.tenant, updated_by=self.admin)
+        RequestFormPaymentTypeConfig.objects.create(config=cfg, payment_type="Наличные", is_enabled=True)
+
+        self.client.force_authenticate(self.requester_a)
+        res = self.client.get("/api/requests/form-options/", HTTP_HOST=self.host)
+        self.assertEqual(res.status_code, 200)
+        pts = res.data["payment_types"]
+        self.assertEqual(len(pts), 1)
+        self.assertEqual(pts[0]["requesters"], [])
+
+    def test_form_options_includes_admin_flag_and_requester_candidates(self):
+        self.client.force_authenticate(self.requester_a)
+        res = self.client.get("/api/requests/form-options/", HTTP_HOST=self.host)
+        self.assertEqual(res.status_code, 200)
+        self.assertIs(res.data["is_tenant_admin"], False)
+        cand_ids = {r["id"] for r in res.data["requester_candidates"]}
+        self.assertEqual(cand_ids, {self.requester_a.id, self.requester_b.id})
+
+        self.client.force_authenticate(self.admin)
+        res2 = self.client.get("/api/requests/form-options/", HTTP_HOST=self.host)
+        self.assertEqual(res2.status_code, 200)
+        self.assertIs(res2.data["is_tenant_admin"], True)
 

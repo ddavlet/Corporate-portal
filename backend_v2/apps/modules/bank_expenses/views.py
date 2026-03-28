@@ -6,7 +6,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.decorators import action
 from rest_framework import serializers
 from django.db import IntegrityError
-from django.db.models import Exists, OuterRef, Subquery
+from django.db.models import Exists, OuterRef, Q, Subquery
 
 from apps.modules.bank_expenses.models import BankExpense, BankRevenue
 from apps.modules.bank_expenses.serializers import BankExpenseSerializer, BankRevenueSerializer
@@ -28,11 +28,19 @@ class BankExpenseViewSet(viewsets.ModelViewSet):
             expense_id=OuterRef("doc_no"),
         )
         paid_request_subquery = request_subquery.filter(status=Request.STATUS_PAYED)
-        return BankExpense.objects.filter(tenant=tenant).annotate(
+        qs = BankExpense.objects.filter(tenant=tenant).annotate(
             has_request=Exists(request_subquery),
             has_paid_request=Exists(paid_request_subquery),
             matched_request_id=Subquery(request_subquery.order_by("-created_at").values("id")[:1]),
         )
+        vendor_search = (self.request.query_params.get("vendor_search") or "").strip()
+        if vendor_search:
+            qs = qs.filter(
+                Q(account_name__icontains=vendor_search)
+                | Q(vendor__name__icontains=vendor_search)
+                | Q(inn__icontains=vendor_search)
+            )
+        return qs
 
     def perform_create(self, serializer):
         serializer.save(tenant=self.request.tenant, created_by=self.request.user)

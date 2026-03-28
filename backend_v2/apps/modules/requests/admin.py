@@ -1,7 +1,7 @@
 from django.contrib import admin
 from django import forms
 
-from apps.modules.requests.models import Approval, Request, Vendor
+from apps.modules.requests.models import Approval, Request
 from apps.tenants.models import TenantUserRole
 
 
@@ -37,19 +37,7 @@ class RequestAdmin(admin.ModelAdmin):
         "expense_id",
     )
     list_filter = ("tenant", "status", "currency")
-    search_fields = ("title", "vendor", "requester__username", "payment_purpose", "expense_id")
-
-    def save_model(self, request, obj, form, change):
-        if not obj.created_by_id:
-            obj.created_by = request.user
-        super().save_model(request, obj, form, change)
-
-
-@admin.register(Vendor)
-class VendorAdmin(admin.ModelAdmin):
-    list_display = ("id", "tenant", "name", "account_number", "created_at", "created_by")
-    list_filter = ("tenant",)
-    search_fields = ("name", "account_number")
+    search_fields = ("title", "vendor", "vendor_ref__name", "requester__username", "payment_purpose", "expense_id")
 
     def save_model(self, request, obj, form, change):
         if not obj.created_by_id:

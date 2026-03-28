@@ -1,8 +1,14 @@
 type Tokens = { access: string; refresh: string }
 
 const STORAGE_KEY = 'kolberg_v2_tokens'
+const TG_STORAGE_KEY = 'kolberg_v2_tg_tokens'
 
-function getTokens(): Tokens | null {
+function pathIsTgWebApp(): boolean {
+  if (typeof window === 'undefined') return false
+  return window.location.pathname.includes('/tg/')
+}
+
+function readPortalTokens(): Tokens | null {
   try {
     const raw = localStorage.getItem(STORAGE_KEY)
     if (!raw) return null
@@ -12,6 +18,33 @@ function getTokens(): Tokens | null {
   } catch {
     return null
   }
+}
+
+export function readTgTokens(): Tokens | null {
+  try {
+    const raw = sessionStorage.getItem(TG_STORAGE_KEY)
+    if (!raw) return null
+    const parsed = JSON.parse(raw) as Partial<Tokens>
+    if (!parsed.access || !parsed.refresh) return null
+    return { access: parsed.access, refresh: parsed.refresh }
+  } catch {
+    return null
+  }
+}
+
+export function setTgTokens(tokens: Tokens | null) {
+  if (!tokens) {
+    sessionStorage.removeItem(TG_STORAGE_KEY)
+    return
+  }
+  sessionStorage.setItem(TG_STORAGE_KEY, JSON.stringify(tokens))
+}
+
+function getTokens(): Tokens | null {
+  if (pathIsTgWebApp()) {
+    return readTgTokens()
+  }
+  return readPortalTokens()
 }
 
 function setTokens(tokens: Tokens | null) {
@@ -51,11 +84,14 @@ export async function apiFetch(input: string, init: RequestInit = {}) {
   if (res.status === 401 && tokens?.refresh) {
     const newAccess = await refreshAccess(tokens.refresh)
     if (newAccess) {
-      setTokens({ access: newAccess, refresh: tokens.refresh })
+      const next = { access: newAccess, refresh: tokens.refresh }
+      if (pathIsTgWebApp()) setTgTokens(next)
+      else setTokens(next)
       headers.set('Authorization', `Bearer ${newAccess}`)
       res = await doFetch()
     } else {
-      setTokens(null)
+      if (pathIsTgWebApp()) setTgTokens(null)
+      else setTokens(null)
     }
   }
 
@@ -146,6 +182,24 @@ async function parseErrorBody(res: Response): Promise<string> {
   return typeof json === 'object' && json ? JSON.stringify(json) : `HTTP ${res.status}`
 }
 
+export type TelegramWebAppAuthResponse = {
+  access: string
+  refresh: string
+  username: string
+}
+
+export async function exchangeTelegramWebApp(initData: string): Promise<TelegramWebAppAuthResponse> {
+  const res = await fetch('/api/auth/telegram/webapp/', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+    body: JSON.stringify({ init_data: initData }),
+  })
+  if (!res.ok) throw new Error(await parseErrorBody(res))
+  const json = (await res.json().catch(() => null)) as TelegramWebAppAuthResponse | null
+  if (!json?.access || !json?.refresh) throw new Error('Empty auth response')
+  return json
+}
+
 export async function getCorporateCardExpenses(): Promise<CorporateCardExpense[]> {
   const res = await apiFetch('/api/corporate-card/expenses/')
   if (!res.ok) throw new Error(await parseErrorBody(res))
@@ -181,7 +235,9 @@ export type RequestFormConfigCandidateUser = {
 
 export type RequestFormConfigCandidateVendor = {
   id: number
+  kind: string
   name: string
+  inn?: string | null
   account_number?: string | null
 }
 
@@ -198,6 +254,14 @@ export type RequestFormConfigPaymentTypeItem = {
   requester_ids: number[]
   vendor_ids: number[]
   payment_purposes: RequestFormConfigPurposeItem[]
+  default_title: string
+  default_description: string
+  default_amount: string | null
+  default_currency: string
+  default_urgency: string
+  default_billing_days_offset: number
+  default_payment_purpose: string
+  default_vendor_id: number | null
 }
 
 export type RequestFormConfigResponse = {
@@ -214,6 +278,14 @@ export type RequestFormConfigUpdatePayload = {
     requester_ids: number[]
     vendor_ids: number[]
     payment_purposes: Array<{ name: string; category: string; is_active: boolean }>
+    default_title?: string
+    default_description?: string
+    default_amount?: string | number | null
+    default_currency?: string
+    default_urgency?: string
+    default_billing_days_offset?: number
+    default_payment_purpose?: string
+    default_vendor_id?: number | null
   }>
 }
 
@@ -233,6 +305,108 @@ export async function updateRequestFormConfig(payload: RequestFormConfigUpdatePa
   })
   if (!res.ok) throw new Error(await parseErrorBody(res))
   const json = (await res.json().catch(() => null)) as RequestFormConfigResponse | null
+  if (!json) throw new Error('Empty response')
+  return json
+}
+
+export type RequestFormOptionsRequester = {
+  id: number
+  username: string
+}
+
+export type RequestFormOptionsFormDefaults = {
+  title: string
+  description: string
+  amount: string | null
+  currency: string
+  urgency: string
+  billing_days_offset: number
+  payment_purpose: string | null
+  vendor_ref: number | null
+}
+
+export type RequestFormOptionsPaymentType = {
+  payment_type: string
+  requester_ids: number[]
+  requesters: RequestFormOptionsRequester[]
+  vendor_ids: number[]
+  payment_purposes: Array<{ name: string; category: string }>
+  defaults?: RequestFormOptionsFormDefaults
+}
+
+export type RequestFormOptionsResponse = {
+  is_tenant_admin?: boolean
+  requester_candidates?: RequestFormOptionsRequester[]
+  payment_types: RequestFormOptionsPaymentType[]
+}
+
+export async function getRequestFormOptions(): Promise<RequestFormOptionsResponse> {
+  const res = await apiFetch('/api/requests/form-options/')
+  if (!res.ok) throw new Error(await parseErrorBody(res))
+  const json = (await res.json().catch(() => null)) as RequestFormOptionsResponse | null
+  if (!json) {
+    return { is_tenant_admin: false, requester_candidates: [], payment_types: [] }
+  }
+  return {
+    is_tenant_admin: json.is_tenant_admin ?? false,
+    requester_candidates: json.requester_candidates ?? [],
+    payment_types: json.payment_types ?? [],
+  }
+}
+
+export type VendorDirectoryRow = {
+  id: number
+  tenant: number
+  kind: string
+  name: string
+  inn?: string | null
+  account_number?: string | null
+  created_at: string
+  created_by: number
+}
+
+export async function listVendors(params: { kind: 'cash' | 'transfer'; search?: string }): Promise<VendorDirectoryRow[]> {
+  const sp = new URLSearchParams()
+  sp.set('kind', params.kind)
+  if (params.search?.trim()) sp.set('search', params.search.trim())
+  const res = await apiFetch(`/api/vendors/?${sp.toString()}`)
+  if (!res.ok) throw new Error(await parseErrorBody(res))
+  const json = await res.json().catch(() => null)
+  return normalizeListPayload<VendorDirectoryRow>(json)
+}
+
+export type CreateVendorBody = {
+  kind: 'cash' | 'transfer'
+  name: string
+  inn?: string
+  account_number?: string
+}
+
+export async function createVendor(body: CreateVendorBody): Promise<VendorDirectoryRow> {
+  const res = await apiFetch('/api/vendors/', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+  if (!res.ok) throw new Error(await parseErrorBody(res))
+  const json = (await res.json().catch(() => null)) as VendorDirectoryRow | null
+  if (!json) throw new Error('Empty response')
+  return json
+}
+
+export type CreateRequestUpsertResponse = {
+  action: string
+  request: Record<string, unknown>
+}
+
+export async function createRequestViaUpsert(body: Record<string, unknown>): Promise<CreateRequestUpsertResponse> {
+  const res = await apiFetch('/api/requests/upsert/', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+  if (!res.ok) throw new Error(await parseErrorBody(res))
+  const json = (await res.json().catch(() => null)) as CreateRequestUpsertResponse | null
   if (!json) throw new Error('Empty response')
   return json
 }

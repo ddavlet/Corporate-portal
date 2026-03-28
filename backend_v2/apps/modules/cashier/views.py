@@ -31,11 +31,15 @@ class CashExpenseViewSet(viewsets.ModelViewSet):
             Q(expense_id=Cast(OuterRef("id"), CharField())) | Q(expense_id=OuterRef("external_id"))
         )
         paid_request_subquery = request_subquery.filter(status=Request.STATUS_PAYED)
-        return CashExpense.objects.filter(tenant=tenant).annotate(
+        qs = CashExpense.objects.filter(tenant=tenant).annotate(
             has_request=Exists(request_subquery),
             has_paid_request=Exists(paid_request_subquery),
             matched_request_id=Subquery(request_subquery.order_by("-created_at").values("id")[:1]),
         )
+        vendor_search = (self.request.query_params.get("vendor_search") or "").strip()
+        if vendor_search:
+            qs = qs.filter(Q(title__icontains=vendor_search) | Q(vendor__name__icontains=vendor_search))
+        return qs
 
     def perform_create(self, serializer):
         try:

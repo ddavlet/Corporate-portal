@@ -2,6 +2,7 @@ from collections.abc import Mapping
 from rest_framework import serializers
 
 from apps.modules.cashier.models import CashExpense, CashRevenue
+from apps.modules.vendors.models import Vendor
 
 
 class CashExpenseSerializer(serializers.ModelSerializer):
@@ -9,6 +10,7 @@ class CashExpenseSerializer(serializers.ModelSerializer):
     has_request = serializers.BooleanField(read_only=True)
     has_paid_request = serializers.BooleanField(read_only=True)
     matched_request_id = serializers.IntegerField(read_only=True, allow_null=True)
+    vendor = serializers.PrimaryKeyRelatedField(queryset=Vendor.objects.all(), allow_null=True, required=False)
 
     class Meta:
         model = CashExpense
@@ -25,6 +27,7 @@ class CashExpenseSerializer(serializers.ModelSerializer):
             "expense_day",
             "note",
             "payload",
+            "vendor",
             "has_request",
             "has_paid_request",
             "matched_request_id",
@@ -32,6 +35,13 @@ class CashExpenseSerializer(serializers.ModelSerializer):
             "created_by",
         ]
         read_only_fields = ["id", "expense_year", "expense_month", "expense_day", "created_at", "created_by"]
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        request_obj = self.context.get("request")
+        tenant = getattr(request_obj, "tenant", None)
+        if tenant and "vendor" in self.fields:
+            self.fields["vendor"].queryset = Vendor.objects.filter(tenant=tenant, kind=Vendor.KIND_CASH)
 
     def to_internal_value(self, data):
         if isinstance(data, Mapping):
@@ -43,6 +53,21 @@ class CashExpenseSerializer(serializers.ModelSerializer):
 
     def validate(self, attrs):
         attrs = super().validate(attrs)
+
+        vendor = attrs.get("vendor")
+        if vendor is None and self.instance is not None:
+            vendor = self.instance.vendor
+        if vendor:
+            if vendor.kind != Vendor.KIND_CASH:
+                raise serializers.ValidationError({"vendor": "Only vendors with type «наличные» are allowed."})
+            tenant = getattr(self.context.get("request"), "tenant", None)
+            if tenant and vendor.tenant_id != tenant.id:
+                raise serializers.ValidationError({"vendor": "Vendor must belong to this tenant."})
+            t = attrs.get("title")
+            if t is None and self.instance is not None:
+                t = self.instance.title
+            if not (t or "").strip():
+                attrs["title"] = vendor.name
 
         expense_at = attrs.get("expense_at")
         if expense_at is None and self.instance is not None:

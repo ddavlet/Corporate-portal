@@ -12,8 +12,8 @@ from apps.modules.requests.models import (
     RequestFormPaymentTypeRequester,
     RequestFormPaymentTypeVendor,
     RequestPaymentPurposeConfig,
-    Vendor,
 )
+from apps.modules.vendors.models import Vendor
 from apps.modules.cashier.models import CashExpense
 from apps.modules.bank_expenses.models import BankExpense
 from apps.tenants.permissions import has_effective_module_access
@@ -22,11 +22,18 @@ from apps.tenants.models import TenantMembership, TenantUserRole
 User = get_user_model()
 
 
+def payment_type_to_vendor_kind(payment_type: str) -> str:
+    if payment_type == Request.PAYMENT_TYPE_CASH:
+        return Vendor.KIND_CASH
+    return Vendor.KIND_TRANSFER
+
+
 class PortalRequestSerializer(serializers.ModelSerializer):
     id = serializers.IntegerField(required=False)
     expense_link = serializers.SerializerMethodField()
     requester = serializers.PrimaryKeyRelatedField(queryset=User.objects.all(), allow_null=True)
     requester_username = serializers.SerializerMethodField()
+    vendor_ref = serializers.PrimaryKeyRelatedField(queryset=Vendor.objects.all(), allow_null=True, required=False)
 
     class Meta:
         model = Request
@@ -39,6 +46,7 @@ class PortalRequestSerializer(serializers.ModelSerializer):
             "company_payer",
             "category",
             "vendor",
+            "vendor_ref",
             "title",
             "description",
             "amount",
@@ -59,9 +67,32 @@ class PortalRequestSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ["expense_link", "created_at", "created_by"]
 
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        request_obj = self.context.get("request")
+        tenant = getattr(request_obj, "tenant", None)
+        if tenant and "vendor_ref" in self.fields:
+            self.fields["vendor_ref"].queryset = Vendor.objects.filter(tenant=tenant)
+
     def validate(self, attrs):
         request_obj = self.context.get("request")
         tenant = getattr(request_obj, "tenant", None)
+        actor = getattr(request_obj, "user", None)
+
+        is_tenant_admin = bool(
+            tenant
+            and actor
+            and getattr(actor, "is_authenticated", False)
+            and TenantUserRole.objects.filter(
+                tenant=tenant,
+                user=actor,
+                role=TenantUserRole.ROLE_ADMIN,
+            ).exists()
+        )
+
+        # Не-админы всегда заявитель = кто создаёт заявку (поле requester из запроса игнорируется).
+        if not is_tenant_admin:
+            attrs["requester"] = actor
 
         payment_type = attrs.get("payment_type")
         if payment_type is None and self.instance is not None:
@@ -109,11 +140,16 @@ class PortalRequestSerializer(serializers.ModelSerializer):
                 )
             )
             if allowed_requester_ids and requester.id not in set(allowed_requester_ids):
-                raise serializers.ValidationError(
-                    {"requester": "Requester is not allowed for this payment type."}
-                )
+                if not is_tenant_admin:
+                    raise serializers.ValidationError(
+                        {"requester": "Requester is not allowed for this payment type."}
+                    )
 
-            # Vendor restrictions: if configured, validate vendor exists and is allowed.
+            expected_kind = payment_type_to_vendor_kind(payment_type)
+            vendor_ref = attrs.get("vendor_ref")
+            if vendor_ref is None and "vendor_ref" not in attrs and self.instance is not None:
+                vendor_ref = self.instance.vendor_ref
+
             vendor_value = attrs.get("vendor")
             if vendor_value is None and self.instance is not None:
                 vendor_value = self.instance.vendor
@@ -123,12 +159,24 @@ class PortalRequestSerializer(serializers.ModelSerializer):
                     "vendor_id", flat=True
                 )
             )
-            if vendor_value and allowed_vendor_ids:
-                vendor_obj = Vendor.objects.filter(tenant=tenant, name=vendor_value).first()
-                if not vendor_obj:
-                    raise serializers.ValidationError({"vendor": "Unknown vendor for this tenant."})
-                if vendor_obj.id not in set(allowed_vendor_ids):
-                    raise serializers.ValidationError({"vendor": "Vendor is not allowed for this payment type."})
+            if allowed_vendor_ids:
+                vref = vendor_ref
+                if not vref and vendor_value:
+                    vref = Vendor.objects.filter(
+                        tenant=tenant, name=vendor_value, kind=expected_kind
+                    ).first()
+                    if vref:
+                        attrs["vendor_ref"] = vref
+                        vendor_ref = vref
+                if vendor_ref or vendor_value:
+                    if not vendor_ref:
+                        raise serializers.ValidationError(
+                            {"vendor_ref": "Select a vendor from the directory or provide a valid vendor."}
+                        )
+                    if vendor_ref.id not in set(allowed_vendor_ids):
+                        raise serializers.ValidationError(
+                            {"vendor_ref": "Vendor is not allowed for this payment type."}
+                        )
 
             # Payment purpose restrictions + auto category.
             purpose_value = attrs.get("payment_purpose")
@@ -149,6 +197,23 @@ class PortalRequestSerializer(serializers.ModelSerializer):
                     )
                 # Category is derived from purpose mapping.
                 attrs["category"] = matched.category
+
+        vref = attrs.get("vendor_ref")
+        if vref is None and "vendor_ref" not in attrs and self.instance is not None:
+            vref = self.instance.vendor_ref
+        if "vendor_ref" in attrs and attrs.get("vendor_ref") is None:
+            vref = None
+        if payment_type and vref:
+            if vref.tenant_id != tenant.id:
+                raise serializers.ValidationError({"vendor_ref": "Vendor must belong to this tenant."})
+            if vref.kind != payment_type_to_vendor_kind(payment_type):
+                raise serializers.ValidationError(
+                    {"vendor_ref": "Vendor payment type does not match request payment type."}
+                )
+        if vref:
+            attrs["vendor"] = vref.name
+        elif "vendor_ref" in attrs and attrs.get("vendor_ref") is None:
+            attrs["vendor"] = (attrs.get("vendor") or "") if attrs.get("vendor") is not None else ""
 
         return attrs
 
@@ -275,6 +340,28 @@ class RequestFormPaymentTypeConfigSerializer(serializers.Serializer):
         required=False,
         default=list,
     )
+    default_title = serializers.CharField(required=False, allow_blank=True, max_length=200, default="")
+    default_description = serializers.CharField(required=False, allow_blank=True, default="")
+    default_amount = serializers.DecimalField(
+        required=False,
+        allow_null=True,
+        max_digits=12,
+        decimal_places=2,
+        default=None,
+    )
+    default_currency = serializers.ChoiceField(
+        choices=Request.CURRENCY_CHOICES, required=False, default=Request.CURRENCY_UZS
+    )
+    default_urgency = serializers.ChoiceField(
+        choices=Request.URGENCY_CHOICES, required=False, default=Request.URGENCY_NORMAL
+    )
+    default_billing_days_offset = serializers.IntegerField(
+        required=False, default=0, min_value=-3650, max_value=3650
+    )
+    default_payment_purpose = serializers.CharField(
+        required=False, allow_blank=True, max_length=200, default=""
+    )
+    default_vendor_id = serializers.IntegerField(required=False, allow_null=True, default=None)
 
 
 class RequestFormConfigPayloadSerializer(serializers.Serializer):
@@ -289,7 +376,7 @@ class RequesterCandidateSerializer(serializers.Serializer):
 class VendorCandidateSerializer(serializers.ModelSerializer):
     class Meta:
         model = Vendor
-        fields = ["id", "name", "account_number"]
+        fields = ["id", "kind", "name", "inn", "account_number"]
 
 
 def build_request_form_config_response(*, tenant) -> dict:
@@ -332,6 +419,7 @@ def build_request_form_config_response(*, tenant) -> dict:
             .order_by("payment_type")
         )
         for pt in pt_qs:
+            amt = pt.default_amount
             payment_type_rows.append(
                 {
                     "payment_type": pt.payment_type,
@@ -347,6 +435,14 @@ def build_request_form_config_response(*, tenant) -> dict:
                         }
                         for p in pt.payment_purposes.all().order_by("name", "id")
                     ],
+                    "default_title": pt.default_title,
+                    "default_description": pt.default_description,
+                    "default_amount": str(amt) if amt is not None else None,
+                    "default_currency": pt.default_currency,
+                    "default_urgency": pt.default_urgency,
+                    "default_billing_days_offset": pt.default_billing_days_offset,
+                    "default_payment_purpose": pt.default_payment_purpose,
+                    "default_vendor_id": pt.default_vendor_id,
                 }
             )
 

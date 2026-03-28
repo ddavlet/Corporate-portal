@@ -1,7 +1,21 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Alert, Button, Card, Checkbox, Divider, Input, Select, Skeleton, Space, Tabs, Typography, message } from 'antd'
-import type { TabsProps } from 'antd'
-import { PlusOutlined, SaveOutlined } from '@ant-design/icons'
+import {
+  Alert,
+  Button,
+  Card,
+  Checkbox,
+  Divider,
+  Input,
+  InputNumber,
+  Select,
+  Skeleton,
+  Space,
+  Tabs,
+  Typography,
+  message,
+} from 'antd'
+import { ArrowLeftOutlined, PlusOutlined, SaveOutlined } from '@ant-design/icons'
+import { useNavigate } from 'react-router-dom'
 import {
   getRequestFormConfig,
   updateRequestFormConfig,
@@ -9,27 +23,39 @@ import {
   type RequestFormConfigPurposeItem,
   type RequestFormConfigResponse,
 } from '../lib/api'
+import { labelBlockAboveField } from './formSpacing'
 
 const PAYMENT_TYPES = ['Наличные', 'Перечисление', 'Пополнение', 'Платежная карта'] as const
+
+function emptyPaymentTypeRow(pt: string): RequestFormConfigPaymentTypeItem {
+  return {
+    payment_type: pt,
+    is_enabled: false,
+    requester_ids: [],
+    vendor_ids: [],
+    payment_purposes: [],
+    default_title: '',
+    default_description: '',
+    default_amount: null,
+    default_currency: 'UZS',
+    default_urgency: 'Обычно',
+    default_billing_days_offset: 0,
+    default_payment_purpose: '',
+    default_vendor_id: null,
+  }
+}
 
 function normalizeConfig(resp: RequestFormConfigResponse): RequestFormConfigResponse {
   const existing = new Map(resp.payment_types.map((p) => [p.payment_type, p]))
   const normalized: RequestFormConfigPaymentTypeItem[] = PAYMENT_TYPES.map((pt) => {
     const row = existing.get(pt)
-    return (
-      row || {
-        payment_type: pt,
-        is_enabled: false,
-        requester_ids: [],
-        vendor_ids: [],
-        payment_purposes: [],
-      }
-    )
+    return row ? { ...emptyPaymentTypeRow(pt), ...row, payment_type: pt } : emptyPaymentTypeRow(pt)
   })
   return { ...resp, payment_types: normalized }
 }
 
 export function RequestFormConfigPage() {
+  const navigate = useNavigate()
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -61,10 +87,12 @@ export function RequestFormConfigPage() {
   )
   const vendorOptions = useMemo(
     () =>
-      (data?.vendor_candidates || []).map((v) => ({
-        label: v.account_number ? `${v.name} (${v.account_number})` : v.name,
-        value: v.id,
-      })),
+      (data?.vendor_candidates || []).map((v) => {
+        const bits = [v.kind === 'cash' ? 'Наличные' : 'Перечисление', v.name]
+        if (v.inn) bits.push(`ИНН ${v.inn}`)
+        if (v.account_number) bits.push(v.account_number)
+        return { label: bits.join(' · '), value: v.id }
+      }),
     [data],
   )
   const categoryOptions = useMemo(() => (data?.category_candidates || []).map((c) => ({ label: c, value: c })), [data])
@@ -145,6 +173,14 @@ export function RequestFormConfigPage() {
               is_active: p.is_active !== false,
             }))
             .filter((p) => p.name),
+          default_title: String(pt.default_title ?? ''),
+          default_description: String(pt.default_description ?? ''),
+          default_amount: pt.default_amount === '' || pt.default_amount == null ? null : pt.default_amount,
+          default_currency: pt.default_currency ?? 'UZS',
+          default_urgency: pt.default_urgency ?? 'Обычно',
+          default_billing_days_offset: pt.default_billing_days_offset ?? 0,
+          default_payment_purpose: String(pt.default_payment_purpose ?? '').trim(),
+          default_vendor_id: pt.default_vendor_id ?? null,
         })),
       }
 
@@ -159,6 +195,9 @@ export function RequestFormConfigPage() {
 
   return (
     <Card>
+      <Button type="link" icon={<ArrowLeftOutlined />} onClick={() => navigate('/settings')} style={{ padding: 0 }}>
+        Назад к настройкам
+      </Button>
       <Typography.Title level={4} style={{ marginTop: 0 }}>
         Настройка формы заявки
       </Typography.Title>
@@ -174,7 +213,9 @@ export function RequestFormConfigPage() {
       {!loading && data ? (
         <>
           <Space direction="vertical" size={12} style={{ display: 'flex' }}>
-            <Typography.Text strong>Типы оплаты</Typography.Text>
+            <Typography.Text strong style={labelBlockAboveField}>
+              Типы оплаты
+            </Typography.Text>
             <Space wrap>
               {data.payment_types.map((pt) => (
                 <Checkbox
@@ -207,8 +248,10 @@ export function RequestFormConfigPage() {
                   ) : null}
 
                   <div>
-                    <Typography.Text strong>Заявители (requesters)</Typography.Text>
-                    <div style={{ marginTop: 8 }}>
+                    <Typography.Text strong style={labelBlockAboveField}>
+                      Заявители (requesters)
+                    </Typography.Text>
+                    <div>
                       <Select
                         mode="multiple"
                         style={{ width: '100%' }}
@@ -220,14 +263,17 @@ export function RequestFormConfigPage() {
                         showSearch
                       />
                       <Typography.Paragraph type="secondary" style={{ marginTop: 6, marginBottom: 0 }}>
-                        Если список пустой — по умолчанию разрешены все пользователи с ролью requester.
+                        В форме создания заявки будут только перечисленные здесь заявители. Если никого не выбрать —
+                        шаг «Заявитель» будет пустым, пока администратор не добавит пользователей.
                       </Typography.Paragraph>
                     </div>
                   </div>
 
                   <div>
-                    <Typography.Text strong>Поставщики (vendors)</Typography.Text>
-                    <div style={{ marginTop: 8 }}>
+                    <Typography.Text strong style={labelBlockAboveField}>
+                      Поставщики (vendors)
+                    </Typography.Text>
+                    <div>
                       <Select
                         mode="multiple"
                         style={{ width: '100%' }}
@@ -245,7 +291,11 @@ export function RequestFormConfigPage() {
                   </div>
 
                   <div>
-                    <Space align="center" style={{ justifyContent: 'space-between', width: '100%' }}>
+                    <Space
+                      align="center"
+                      size="middle"
+                      style={{ justifyContent: 'space-between', width: '100%', marginBottom: 12 }}
+                    >
                       <Typography.Text strong>Назначения платежа (payment purpose)</Typography.Text>
                       <Button icon={<PlusOutlined />} onClick={() => addPurpose(pt.payment_type)}>
                         Добавить
@@ -297,6 +347,143 @@ export function RequestFormConfigPage() {
                           </Space>
                         </Card>
                       ))}
+                    </Space>
+                  </div>
+
+                  <Divider />
+                  <div>
+                    <Typography.Text strong style={labelBlockAboveField}>
+                      Значения по умолчанию при создании заявки
+                    </Typography.Text>
+                    <Typography.Paragraph type="secondary" style={{ marginTop: 0, marginBottom: 12 }}>
+                      Эти поля подставляются на шаге «Детали»; пользователь может их изменить перед отправкой.
+                    </Typography.Paragraph>
+                    <Space direction="vertical" size={12} style={{ display: 'flex' }}>
+                      <div>
+                        <Typography.Text type="secondary" style={labelBlockAboveField}>
+                          Название заявки
+                        </Typography.Text>
+                        <Input
+                          style={{ display: 'block', maxWidth: 560 }}
+                          placeholder="Заголовок в списке заявок"
+                          value={pt.default_title}
+                          onChange={(e) => updatePaymentType(pt.payment_type, { default_title: e.target.value })}
+                        />
+                      </div>
+                      <div>
+                        <Typography.Text type="secondary" style={labelBlockAboveField}>
+                          Описание
+                        </Typography.Text>
+                        <Input.TextArea
+                          style={{ maxWidth: 560 }}
+                          rows={2}
+                          value={pt.default_description}
+                          onChange={(e) => updatePaymentType(pt.payment_type, { default_description: e.target.value })}
+                        />
+                      </div>
+                      <Space wrap size={16}>
+                        <div>
+                          <Typography.Text type="secondary" style={labelBlockAboveField}>
+                            Сумма
+                          </Typography.Text>
+                          <InputNumber
+                            style={{ display: 'block', width: 160 }}
+                            min={0}
+                            value={
+                              pt.default_amount == null || pt.default_amount === ''
+                                ? undefined
+                                : Number(pt.default_amount)
+                            }
+                            onChange={(v) =>
+                              updatePaymentType(pt.payment_type, {
+                                default_amount: v == null ? null : String(v),
+                              })
+                            }
+                          />
+                        </div>
+                        <div>
+                          <Typography.Text type="secondary" style={labelBlockAboveField}>
+                            Валюта
+                          </Typography.Text>
+                          <Select
+                            style={{ display: 'block', width: 120 }}
+                            value={pt.default_currency}
+                            onChange={(v) => updatePaymentType(pt.payment_type, { default_currency: v })}
+                            options={['UZS', 'USD', 'EUR', 'RUB'].map((c) => ({ value: c, label: c }))}
+                          />
+                        </div>
+                        <div>
+                          <Typography.Text type="secondary" style={labelBlockAboveField}>
+                            Срочность
+                          </Typography.Text>
+                          <Select
+                            style={{ display: 'block', width: 180 }}
+                            value={pt.default_urgency}
+                            onChange={(v) => updatePaymentType(pt.payment_type, { default_urgency: v })}
+                            options={[
+                              { value: 'Низко', label: 'Низко' },
+                              { value: 'Обычно', label: 'Обычно' },
+                              { value: 'Срочно', label: 'Срочно' },
+                            ]}
+                          />
+                        </div>
+                        <div>
+                          <Typography.Text type="secondary" style={labelBlockAboveField}>
+                            Месяц биллинга по умолчанию (смещение в месяцах: 0 — текущий, −1 — предыдущий, 1 — следующий)
+                          </Typography.Text>
+                          <InputNumber
+                            style={{ display: 'block', width: 200 }}
+                            min={-1}
+                            max={1}
+                            value={pt.default_billing_days_offset}
+                            onChange={(v) =>
+                              updatePaymentType(pt.payment_type, {
+                                default_billing_days_offset: typeof v === 'number' ? v : 0,
+                              })
+                            }
+                          />
+                        </div>
+                      </Space>
+                      <div>
+                        <Typography.Text type="secondary" style={labelBlockAboveField}>
+                          Назначение платежа по умолчанию
+                        </Typography.Text>
+                        <Select
+                          style={{ display: 'block', maxWidth: 560 }}
+                          allowClear
+                          placeholder="Не задано"
+                          value={pt.default_payment_purpose || undefined}
+                          onChange={(v) =>
+                            updatePaymentType(pt.payment_type, { default_payment_purpose: v ?? '' })
+                          }
+                          options={pt.payment_purposes
+                            .filter((p) => p.is_active !== false && String(p.name || '').trim())
+                            .map((p) => ({ value: p.name.trim(), label: p.name.trim() }))}
+                        />
+                      </div>
+                      <div>
+                        <Typography.Text type="secondary" style={labelBlockAboveField}>
+                          Поставщик по умолчанию
+                        </Typography.Text>
+                        <Select
+                          style={{ display: 'block', maxWidth: 560 }}
+                          allowClear
+                          placeholder="Не задан"
+                          value={pt.default_vendor_id ?? undefined}
+                          onChange={(v) =>
+                            updatePaymentType(pt.payment_type, { default_vendor_id: v ?? null })
+                          }
+                          options={(data?.vendor_candidates || [])
+                            .filter((v) =>
+                              pt.payment_type === 'Наличные' ? v.kind === 'cash' : v.kind === 'transfer',
+                            )
+                            .map((v) => {
+                              const bits = [v.name]
+                              if (v.inn) bits.push(`ИНН ${v.inn}`)
+                              return { value: v.id, label: bits.join(' · ') }
+                            })}
+                        />
+                      </div>
                     </Space>
                   </div>
                 </Space>

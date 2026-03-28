@@ -6,6 +6,7 @@ import { FileSearchOutlined, MessageOutlined } from '@ant-design/icons'
 import { apiFetch, getBankRevenues, type BankRevenue } from '../lib/api'
 import { RequestDetailModal, type RequestDetail } from './RequestDetailModal'
 import { NoteCreateModal } from './NoteCreateModal'
+import { labelBlockAboveField } from './formSpacing'
 
 type BankExpenseRow = {
   id: number
@@ -266,10 +267,10 @@ export function BankPage() {
       <Typography.Title level={4} style={{ marginTop: 0 }}>
         Банк
       </Typography.Title>
-      <Typography.Text type="secondary">
-        Расходы и доходы
-      </Typography.Text>
-      <Space style={{ marginTop: 12, marginBottom: 12 }} wrap>
+      <div style={{ marginTop: 12, marginBottom: 12 }}>
+        <Typography.Text type="secondary" style={labelBlockAboveField}>
+          Расходы и доходы
+        </Typography.Text>
         <Input
           placeholder="Поиск: номер документа, контрагент, назначение"
           value={search}
@@ -277,7 +278,7 @@ export function BankPage() {
           allowClear
           style={{ width: 360 }}
         />
-      </Space>
+      </div>
       {loading ? <Skeleton active style={{ marginTop: 16 }} /> : null}
       {error ? <Alert type="error" showIcon message={error} style={{ marginTop: 16 }} /> : null}
       {!loading && !error ? (

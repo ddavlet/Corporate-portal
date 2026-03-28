@@ -21,6 +21,7 @@ export type RequestDetail = {
   payment_type: string
   category: string
   vendor: string
+  vendor_ref?: number | null
   payment_purpose?: string
   file_link?: string | null
   requester: number | null
