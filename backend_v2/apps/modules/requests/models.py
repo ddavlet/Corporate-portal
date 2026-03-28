@@ -5,25 +5,6 @@ from django.utils import timezone
 from apps.tenants.models import Tenant
 
 
-class Vendor(models.Model):
-    tenant = models.ForeignKey(Tenant, on_delete=models.CASCADE, related_name="vendors")
-    name = models.CharField(max_length=255)
-    account_number = models.CharField(max_length=34, null=True, blank=True)
-
-    created_at = models.DateTimeField(default=timezone.now)
-    created_by = models.ForeignKey(
-        settings.AUTH_USER_MODEL,
-        on_delete=models.PROTECT,
-        related_name="created_vendors",
-    )
-
-    class Meta:
-        db_table = "vendors"
-        constraints = [
-            models.UniqueConstraint(fields=["tenant", "name"], name="uniq_vendor_tenant_name"),
-        ]
-
-
 class Request(models.Model):
     CURRENCY_UZS = "UZS"
     CURRENCY_USD = "USD"
@@ -88,6 +69,13 @@ class Request(models.Model):
     company_payer = models.CharField(max_length=100, default="")
     category = models.CharField(max_length=100, default="")
     vendor = models.CharField(max_length=150, default="")
+    vendor_ref = models.ForeignKey(
+        "vendors.Vendor",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="requests",
+    )
 
     title = models.CharField(max_length=200, default="")
     description = models.TextField(default="")
@@ -198,6 +186,21 @@ class RequestFormPaymentTypeConfig(models.Model):
     payment_type = models.CharField(max_length=50, choices=Request.PAYMENT_TYPE_CHOICES)
     is_enabled = models.BooleanField(default=True)
 
+    default_title = models.CharField(max_length=200, default="")
+    default_description = models.TextField(default="")
+    default_amount = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
+    default_currency = models.CharField(max_length=10, default=Request.CURRENCY_UZS)
+    default_urgency = models.CharField(max_length=50, default=Request.URGENCY_NORMAL)
+    default_billing_days_offset = models.IntegerField(default=0)
+    default_payment_purpose = models.CharField(max_length=200, default="", blank=True)
+    default_vendor = models.ForeignKey(
+        "vendors.Vendor",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="request_form_default_for_payment_types",
+    )
+
     class Meta:
         db_table = "request_form_payment_type_configs"
         constraints = [
@@ -245,7 +248,7 @@ class RequestFormPaymentTypeVendor(models.Model):
         related_name="allowed_vendors",
     )
     vendor = models.ForeignKey(
-        Vendor,
+        "vendors.Vendor",
         on_delete=models.CASCADE,
         related_name="request_form_allowed_in_payment_types",
     )

@@ -29,12 +29,7 @@ export function AppShell() {
           { path: '/cash', name: 'Касса', icon: <DollarOutlined /> },
           { path: '/bank', name: 'Банк', icon: <BankOutlined /> },
           { path: '/corporate-card', name: 'Корпоративная карта', icon: <CreditCardOutlined /> },
-          {
-            path: '/settings',
-            name: 'Настройки',
-            icon: <SettingOutlined />,
-            routes: [{ path: '/settings/request-form-config', name: 'Configure request form' }],
-          },
+          { path: '/settings', name: 'Настройки', icon: <SettingOutlined /> },
         ],
       }}
       menuItemRender={(item, dom) => (

@@ -3,6 +3,10 @@ import ReactDOM from 'react-dom/client'
 import { BrowserRouter } from 'react-router-dom'
 import { ConfigProvider } from 'antd'
 import ruRU from 'antd/locale/ru_RU'
+import dayjs from 'dayjs'
+import 'dayjs/locale/ru'
+
+dayjs.locale('ru')
 import { App } from './routes/App'
 import { AuthProvider } from './ui/auth'
 import 'antd/dist/reset.css'

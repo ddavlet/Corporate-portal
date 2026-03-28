@@ -17,6 +17,13 @@ class CashExpense(models.Model):
     expense_day = models.PositiveSmallIntegerField()
     note = models.TextField(blank=True, default="")
     payload = models.JSONField(default=dict, blank=True)
+    vendor = models.ForeignKey(
+        "vendors.Vendor",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="cash_expenses",
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     created_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,

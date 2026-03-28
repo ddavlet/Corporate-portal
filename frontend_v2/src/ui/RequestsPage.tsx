@@ -3,7 +3,7 @@ import { Alert, Button, Card, DatePicker, Input, InputNumber, Select, Skeleton, 
 import type { ColumnsType, TableProps } from 'antd/es/table'
 import type { Dayjs } from 'dayjs'
 import { useNavigate } from 'react-router-dom'
-import { FileSearchOutlined, MessageOutlined, ReloadOutlined } from '@ant-design/icons'
+import { FileAddOutlined, FileSearchOutlined, MessageOutlined, ReloadOutlined } from '@ant-design/icons'
 import { apiFetch } from '../lib/api'
 import { RequestDetailModal, type RequestDetail } from './RequestDetailModal'
 import { NoteCreateModal } from './NoteCreateModal'
@@ -110,11 +110,18 @@ export function RequestsPage() {
   const [detailError, setDetailError] = useState<string | null>(null)
   const [openNoteModal, setOpenNoteModal] = useState(false)
   const [resendLoading, setResendLoading] = useState(false)
+  const [vendorSearchApi, setVendorSearchApi] = useState('')
+  const [debouncedVendorSearchApi, setDebouncedVendorSearchApi] = useState('')
 
   useEffect(() => {
     const id = window.setTimeout(() => setDebouncedSearch(search), 250)
     return () => window.clearTimeout(id)
   }, [search])
+
+  useEffect(() => {
+    const id = window.setTimeout(() => setDebouncedVendorSearchApi(vendorSearchApi.trim()), 300)
+    return () => window.clearTimeout(id)
+  }, [vendorSearchApi])
 
   useEffect(() => {
     let cancelled = false
@@ -131,6 +138,7 @@ export function RequestsPage() {
         if (submittedTo) params.set('submitted_to', submittedTo)
         if (billingFrom) params.set('billing_from', billingFrom)
         if (billingTo) params.set('billing_to', billingTo)
+        if (debouncedVendorSearchApi) params.set('vendor_search', debouncedVendorSearchApi)
         const query = params.toString()
         const endpoint = query ? `/api/requests/?${query}` : '/api/requests/'
 
@@ -158,7 +166,7 @@ export function RequestsPage() {
     return () => {
       cancelled = true
     }
-  }, [submittedRange, billingRange])
+  }, [submittedRange, billingRange, debouncedVendorSearchApi])
 
   const optionize = (values: string[]) =>
     [...new Set(values.filter(Boolean))].sort((a, b) => a.localeCompare(b)).map((value) => ({
@@ -329,9 +337,14 @@ export function RequestsPage() {
 
   return (
     <Card>
-      <Typography.Title level={4} style={{ marginTop: 0 }}>
-        Список заявок
-      </Typography.Title>
+      <Space align="center" style={{ justifyContent: 'space-between', width: '100%', flexWrap: 'wrap' }}>
+        <Typography.Title level={4} style={{ marginTop: 0 }}>
+          Список заявок
+        </Typography.Title>
+        <Button type="primary" icon={<FileAddOutlined />} onClick={() => navigate('/requests/new')}>
+          Новая заявка
+        </Button>
+      </Space>
       <Space direction="vertical" size={12} style={{ display: 'flex', marginTop: 12, marginBottom: 12 }}>
         <Input
           placeholder="Поиск: категория, поставщик, назначение, описание"
@@ -339,7 +352,14 @@ export function RequestsPage() {
           onChange={(e) => setSearch(e.target.value)}
           allowClear
         />
-        <Space wrap>
+        <Input
+          placeholder="Поставщик: поиск на сервере (название)"
+          value={vendorSearchApi}
+          onChange={(e) => setVendorSearchApi(e.target.value)}
+          allowClear
+          style={{ maxWidth: 360 }}
+        />
+        <Space wrap size={[12, 12]}>
           <Select
             placeholder="Статус"
             allowClear

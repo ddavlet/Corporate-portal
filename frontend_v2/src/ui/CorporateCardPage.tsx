@@ -7,6 +7,7 @@ import {
   type CorporateCardExpense,
   type CorporateCardRevenue,
 } from '../lib/api'
+import { labelBlockAboveField } from './formSpacing'
 
 const dateTimeFormatterTashkent = new Intl.DateTimeFormat('ru-RU', {
   day: '2-digit',
@@ -220,15 +221,18 @@ export function CorporateCardPage() {
       <Typography.Title level={4} style={{ marginTop: 0 }}>
         Corporate Card
       </Typography.Title>
-      <Typography.Text type="secondary">Расходы и пополнения корпоративной карты</Typography.Text>
-
-      <Input
-        placeholder="Поиск: id, организация, сотрудник, операция, комментарий, bank_expense_id"
-        value={search}
-        onChange={(e) => setSearch(e.target.value)}
-        allowClear
-        style={{ width: 420, marginTop: 12, marginBottom: 12 }}
-      />
+      <div style={{ marginTop: 8, marginBottom: 12 }}>
+        <Typography.Text type="secondary" style={labelBlockAboveField}>
+          Расходы и пополнения корпоративной карты
+        </Typography.Text>
+        <Input
+          placeholder="Поиск: id, организация, сотрудник, операция, комментарий, bank_expense_id"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          allowClear
+          style={{ width: 420 }}
+        />
+      </div>
 
       {loading ? <Skeleton active style={{ marginTop: 16 }} /> : null}
       {error ? <Alert type="error" showIcon message={error} style={{ marginTop: 16, marginBottom: 16 }} /> : null}

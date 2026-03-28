@@ -25,6 +25,13 @@ class BankExpense(models.Model):
 
     debit_turnover = models.DecimalField(max_digits=18, decimal_places=2, default=0)
     payment_purpose = models.TextField()
+    vendor = models.ForeignKey(
+        "vendors.Vendor",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="bank_expenses",
+    )
 
     class Meta:
         db_table = "bank_expenses"

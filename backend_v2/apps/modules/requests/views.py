@@ -1,9 +1,11 @@
 from datetime import date
 import os
 
+from django.contrib.auth import get_user_model
 from django.db import connection
 from django.db import IntegrityError
 from django.db import transaction
+from django.db.models import Q
 import requests
 from rest_framework import viewsets
 from rest_framework.decorators import action
@@ -21,17 +23,37 @@ from apps.modules.requests.models import (
     RequestFormPaymentTypeRequester,
     RequestFormPaymentTypeVendor,
     RequestPaymentPurposeConfig,
-    Vendor,
 )
+from apps.modules.vendors.models import Vendor
 from apps.modules.requests.serializers import (
     ApprovalSerializer,
     PortalRequestDetailSerializer,
     PortalRequestSerializer,
     RequestFormConfigPayloadSerializer,
     build_request_form_config_response,
+    payment_type_to_vendor_kind,
 )
+
 from apps.tenants.permissions import HasEffectiveModuleAccess, IsTenantAdmin
 from apps.tenants.models import TenantMembership, TenantUserRole
+
+User = get_user_model()
+
+
+def _requester_candidates_for_options(tenant) -> list[dict]:
+    requester_user_ids = list(
+        TenantUserRole.objects.filter(
+            tenant=tenant,
+            role=TenantUserRole.ROLE_REQUESTER,
+        ).values_list("user_id", flat=True)
+    )
+    active_ids = TenantMembership.objects.filter(
+        tenant=tenant, is_active=True, user_id__in=requester_user_ids
+    ).values_list("user_id", flat=True)
+    return [
+        {"id": u.id, "username": u.username}
+        for u in User.objects.filter(id__in=active_ids).order_by("username")
+    ]
 
 
 class PortalRequestViewSet(viewsets.ModelViewSet):
@@ -93,6 +115,12 @@ class PortalRequestViewSet(viewsets.ModelViewSet):
             qs = qs.filter(billing_date__gte=billing_from)
         if billing_to:
             qs = qs.filter(billing_date__lte=billing_to)
+
+        vendor_search = (self.request.query_params.get("vendor_search") or "").strip()
+        if vendor_search:
+            qs = qs.filter(
+                Q(vendor_ref__name__icontains=vendor_search) | Q(vendor__icontains=vendor_search)
+            )
 
         if self.action == "retrieve":
             if "approvals" in connection.introspection.table_names():
@@ -251,7 +279,69 @@ class RequestFormConfigView(APIView):
                     )
                 else:
                     pt_cfg.is_enabled = bool(item.get("is_enabled", True))
-                    pt_cfg.save(update_fields=["is_enabled"])
+
+                purpose_items = list(item.get("payment_purposes") or [])
+                purpose_names = {
+                    str(p.get("name") or "").strip()
+                    for p in purpose_items
+                    if str(p.get("name") or "").strip()
+                }
+                dp = str(item.get("default_payment_purpose") or "").strip()
+                if dp and dp not in purpose_names:
+                    raise ValidationError(
+                        {
+                            "payment_types": f"Значение по умолчанию «назначение платежа» ({dp!r}) должно "
+                            f"совпадать с одним из назначений для типа «{pt}»."
+                        }
+                    )
+
+                requested_vendor_ids = list(item.get("vendor_ids") or [])
+                valid_vendor_ids: set[int] = set()
+                if requested_vendor_ids:
+                    valid_vendor_ids = set(
+                        Vendor.objects.filter(
+                            tenant=tenant, id__in=requested_vendor_ids
+                        ).values_list("id", flat=True)
+                    )
+
+                dvid = item.get("default_vendor_id")
+                if dvid:
+                    dv = Vendor.objects.filter(tenant=tenant, id=dvid).first()
+                    if not dv or dv.kind != payment_type_to_vendor_kind(pt):
+                        raise ValidationError(
+                            {
+                                "payment_types": f"Поставщик по умолчанию недопустим для типа «{pt}» "
+                                f"(тенант или вид оплаты)."
+                            }
+                        )
+                    if valid_vendor_ids and dvid not in valid_vendor_ids:
+                        raise ValidationError(
+                            {
+                                "payment_types": f"Поставщик по умолчанию должен входить в список поставщиков для «{pt}»."
+                            }
+                        )
+
+                pt_cfg.default_title = str(item.get("default_title") or "")[:200]
+                pt_cfg.default_description = str(item.get("default_description") or "")
+                pt_cfg.default_amount = item.get("default_amount")
+                pt_cfg.default_currency = item.get("default_currency", Request.CURRENCY_UZS)
+                pt_cfg.default_urgency = item.get("default_urgency", Request.URGENCY_NORMAL)
+                pt_cfg.default_billing_days_offset = int(item.get("default_billing_days_offset", 0))
+                pt_cfg.default_payment_purpose = dp
+                pt_cfg.default_vendor_id = dvid if dvid else None
+                pt_cfg.save(
+                    update_fields=[
+                        "is_enabled",
+                        "default_title",
+                        "default_description",
+                        "default_amount",
+                        "default_currency",
+                        "default_urgency",
+                        "default_billing_days_offset",
+                        "default_payment_purpose",
+                        "default_vendor",
+                    ]
+                )
 
                 # Replace requesters
                 RequestFormPaymentTypeRequester.objects.filter(payment_type_config=pt_cfg).delete()
@@ -295,7 +385,6 @@ class RequestFormConfigView(APIView):
 
                 # Replace payment purposes
                 RequestPaymentPurposeConfig.objects.filter(payment_type_config=pt_cfg).delete()
-                purpose_items = list(item.get("payment_purposes") or [])
                 purpose_rows: list[RequestPaymentPurposeConfig] = []
                 for p in purpose_items:
                     name = str(p.get("name") or "").strip()
@@ -330,29 +419,68 @@ class RequestFormOptionsView(APIView):
         if not tenant:
             raise ValidationError({"detail": "Unknown tenant."})
 
+        is_tenant_admin = TenantUserRole.objects.filter(
+            tenant=tenant,
+            user=request.user,
+            role=TenantUserRole.ROLE_ADMIN,
+        ).exists()
+        requester_candidates = _requester_candidates_for_options(tenant)
+
         cfg = RequestFormConfig.objects.filter(tenant=tenant).first()
         if not cfg:
-            return Response({"payment_types": []})
+            return Response(
+                {
+                    "is_tenant_admin": is_tenant_admin,
+                    "requester_candidates": requester_candidates,
+                    "payment_types": [],
+                }
+            )
 
         pt_qs = (
             RequestFormPaymentTypeConfig.objects.filter(config=cfg, is_enabled=True)
             .prefetch_related("allowed_requesters", "allowed_vendors", "payment_purposes")
             .order_by("payment_type")
         )
+        def requesters_payload(pt_cfg):
+            # Только пользователи, явно выбранные в настройках формы для этого типа оплаты.
+            # Пустой список в настройках → пустой список в форме (без подстановки «все заявители»).
+            rids = list(pt_cfg.allowed_requesters.values_list("user_id", flat=True))
+            if not rids:
+                return []
+            qs_users = User.objects.filter(id__in=rids).order_by("username")
+            return [{"id": u.id, "username": u.username} for u in qs_users]
+
+        def form_defaults(pt_cfg: RequestFormPaymentTypeConfig) -> dict:
+            amt = pt_cfg.default_amount
+            return {
+                "title": pt_cfg.default_title,
+                "description": pt_cfg.default_description,
+                "amount": str(amt) if amt is not None else None,
+                "currency": pt_cfg.default_currency,
+                "urgency": pt_cfg.default_urgency,
+                "billing_days_offset": pt_cfg.default_billing_days_offset,
+                "payment_purpose": pt_cfg.default_payment_purpose or None,
+                "vendor_ref": pt_cfg.default_vendor_id,
+            }
+
         return Response(
             {
+                "is_tenant_admin": is_tenant_admin,
+                "requester_candidates": requester_candidates,
                 "payment_types": [
                     {
                         "payment_type": pt.payment_type,
                         "requester_ids": list(pt.allowed_requesters.values_list("user_id", flat=True)),
+                        "requesters": requesters_payload(pt),
                         "vendor_ids": list(pt.allowed_vendors.values_list("vendor_id", flat=True)),
                         "payment_purposes": [
                             {"name": p.name, "category": p.category}
                             for p in pt.payment_purposes.filter(is_active=True).order_by("name", "id")
                         ],
+                        "defaults": form_defaults(pt),
                     }
                     for pt in pt_qs
-                ]
+                ],
             }
         )
 

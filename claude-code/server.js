@@ -33,59 +33,114 @@ app.post("/claude", async (req, res) => {
 
   console.log(`[claude] session=${session_id} cwd=${PROJECTS_ROOT} prompt="${prompt.slice(0, 80)}..."`);
 
-  const args = [
-    "--print", // Non-interactive / headless mode
-    "--dangerously-skip-permissions", // Skip interactive permission prompts in Docker
-    "--output-format",
-    "json", // Structured output
-  ];
+  const runClaude = ({ withResume, withSkipPermissions }) =>
+    new Promise((resolve) => {
+      const args = ["--print"]; // Non-interactive / headless mode
 
-  if (session_id) {
-    args.push("--resume", String(session_id));
+      if (withSkipPermissions) {
+        args.push("--dangerously-skip-permissions");
+      }
+
+      if (withResume && session_id) {
+        args.push("--resume", String(session_id));
+      }
+      args.push(prompt);
+
+      let stdout = "";
+      let stderr = "";
+      const proc = spawn("claude", args, {
+        cwd: path.resolve(PROJECTS_ROOT),
+        env: {
+          ...process.env,
+          HOME: "/home/node",
+        },
+        stdio: ["ignore", "pipe", "pipe"],
+        timeout: 180_000,
+      });
+
+      proc.stdout.on("data", (d) => (stdout += d.toString()));
+      proc.stderr.on("data", (d) => (stderr += d.toString()));
+
+      proc.on("close", (code) => {
+        resolve({
+          code,
+          stdout: stdout.trim(),
+          stderr: stderr.trim(),
+          used_resume: Boolean(withResume && session_id),
+          used_skip_permissions: Boolean(withSkipPermissions),
+        });
+      });
+
+      proc.on("error", (err) => {
+        resolve({
+          code: -1,
+          stdout: "",
+          stderr: err.message,
+          used_resume: Boolean(withResume && session_id),
+          used_skip_permissions: Boolean(withSkipPermissions),
+        });
+      });
+    });
+
+  const attempts = [];
+  let attempt = await runClaude({ withResume: true, withSkipPermissions: true });
+  attempts.push(attempt);
+
+  // Common case in webhook usage: non-Claude session ids (e.g. "1") can yield empty output.
+  if (attempt.code === 0 && !attempt.stdout && !attempt.stderr) {
+    console.log("[claude] empty output with resume, retrying without resume");
+    attempt = await runClaude({ withResume: false, withSkipPermissions: true });
+    attempts.push(attempt);
   }
-  args.push(prompt);
 
-  let stdout = "";
-  let stderr = "";
-  const proc = spawn("claude", args, {
-    cwd: path.resolve(PROJECTS_ROOT),
-    env: {
-      ...process.env,
-      HOME: "/root",
-    },
-    timeout: 180_000,
-  });
+  // Fallback for environments where skip-permissions leads to empty completion.
+  if (attempt.code === 0 && !attempt.stdout && !attempt.stderr) {
+    console.log("[claude] still empty, retrying without skip-permissions");
+    attempt = await runClaude({ withResume: false, withSkipPermissions: false });
+    attempts.push(attempt);
+  }
 
-  proc.stdout.on("data", (d) => (stdout += d.toString()));
-  proc.stderr.on("data", (d) => (stderr += d.toString()));
-
-  proc.on("close", (code) => {
-    if (code !== 0) {
-      return res.status(500).json({
-        ok: false,
-        error: stderr || "Claude Code exited with error",
-        exit_code: code,
-      });
-    }
-    try {
-      const lines = stdout.trim().split("\n").filter(Boolean);
-      const last = JSON.parse(lines[lines.length - 1]);
-      return res.json({
-        ok: true,
-        result: last.result ?? last.content ?? stdout,
-        session_id: last.session_id ?? session_id,
-        cost: last.cost_usd ?? null,
-      });
-    } catch {
-      return res.json({ ok: true, result: stdout, session_id: session_id || null });
-    }
-  });
-
-  proc.on("error", (err) => {
+  if (attempt.code !== 0) {
     return res.status(500).json({
       ok: false,
-      error: err.message,
+      error: attempt.stderr || "Claude Code exited with error",
+      exit_code: attempt.code,
+      used_resume: attempt.used_resume,
+      used_skip_permissions: attempt.used_skip_permissions,
+      attempts: attempts.map((a, idx) => ({
+        idx: idx + 1,
+        code: a.code,
+        used_resume: a.used_resume,
+        used_skip_permissions: a.used_skip_permissions,
+        stdout_len: a.stdout.length,
+        stderr_len: a.stderr.length,
+      })),
     });
+  }
+
+  const result = attempt.stdout || attempt.stderr;
+  if (!result) {
+    return res.status(502).json({
+      ok: false,
+      error: "Claude returned empty output",
+      hint: "Try a new session_id or disable resume mapping from Telegram chat id",
+      attempts: attempts.map((a, idx) => ({
+        idx: idx + 1,
+        code: a.code,
+        used_resume: a.used_resume,
+        used_skip_permissions: a.used_skip_permissions,
+        stdout_len: a.stdout.length,
+        stderr_len: a.stderr.length,
+      })),
+    });
+  }
+
+  return res.json({
+    ok: true,
+    result,
+    session_id: session_id || null,
+    cost: null,
+    used_resume: attempt.used_resume,
   });
 });
 

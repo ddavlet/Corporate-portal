@@ -5,7 +5,12 @@ import { apiFetch } from '../lib/api'
 import { RequestDetailContent, type RequestDetail } from './RequestDetailModal'
 import { NoteCreateModal } from './NoteCreateModal'
 
-export function RequestDetailPage() {
+export type RequestDetailPageProps = {
+  /** Путь к списку заявок для кнопки «Назад» */
+  listPath?: string
+}
+
+export function RequestDetailPage({ listPath = '/requests' }: RequestDetailPageProps) {
   const navigate = useNavigate()
   const { id } = useParams<{ id: string }>()
   const [detail, setDetail] = useState<RequestDetail | null>(null)
@@ -52,7 +57,7 @@ export function RequestDetailPage() {
     <Card>
       <Space direction="vertical" size={12} style={{ display: 'flex' }}>
         <Space>
-          <Button onClick={() => navigate('/requests')}>Назад к списку</Button>
+          <Button onClick={() => navigate(listPath)}>Назад к списку</Button>
           {detail?.id ? <Button onClick={() => setOpenNoteModal(true)}>Добавить заметку</Button> : null}
           {detail?.expense_link?.id ? (
             <Button onClick={openLinkedExpense}>Открыть связанный расход</Button>

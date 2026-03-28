@@ -1,0 +1,501 @@
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import {
+  Alert,
+  Button,
+  Card,
+  DatePicker,
+  Form,
+  Input,
+  InputNumber,
+  Modal,
+  Select,
+  Space,
+  Steps,
+  Typography,
+  message,
+} from 'antd'
+import type { Dayjs } from 'dayjs'
+import dayjs from 'dayjs'
+import { ArrowLeftOutlined, PlusOutlined } from '@ant-design/icons'
+import { useNavigate } from 'react-router-dom'
+import {
+  createRequestViaUpsert,
+  createVendor,
+  getRequestFormOptions,
+  listVendors,
+  type RequestFormOptionsPaymentType,
+  type RequestFormOptionsRequester,
+} from '../lib/api'
+import { labelBlockAboveField } from './formSpacing'
+import { clampToAllowedBillingMonth, isAllowedBillingMonth } from '../lib/billingMonth'
+
+function vendorKindForPaymentType(paymentType: string): 'cash' | 'transfer' {
+  return paymentType === 'Наличные' ? 'cash' : 'transfer'
+}
+
+export type RequestCreatePageProps = {
+  /** Базовый путь списка заявок без завершающего «/», например `/tg/requests` */
+  requestsBasePath?: string
+}
+
+export function RequestCreatePage({ requestsBasePath = '/requests' }: RequestCreatePageProps) {
+  const navigate = useNavigate()
+  const [loading, setLoading] = useState(true)
+  const [optionsError, setOptionsError] = useState<string | null>(null)
+  const [formOptions, setFormOptions] = useState<RequestFormOptionsPaymentType[]>([])
+  const [isTenantAdmin, setIsTenantAdmin] = useState(false)
+  const [requesterCandidates, setRequesterCandidates] = useState<RequestFormOptionsRequester[]>([])
+  const [step, setStep] = useState(0)
+
+  const detailStep = isTenantAdmin ? 2 : 1
+
+  const [paymentType, setPaymentType] = useState<string | null>(null)
+  const [requesterId, setRequesterId] = useState<number | null>(null)
+  const [vendorRefId, setVendorRefId] = useState<number | null>(null)
+  const [vendorOptions, setVendorOptions] = useState<{ label: string; value: number }[]>([])
+  const [vendorSearchLoading, setVendorSearchLoading] = useState(false)
+
+  const [description, setDescription] = useState('')
+  const [amount, setAmount] = useState<number | null>(null)
+  const [currency, setCurrency] = useState('UZS')
+  const [urgency, setUrgency] = useState('Обычно')
+  const [paymentPurpose, setPaymentPurpose] = useState<string | null>(null)
+  const [billingDate, setBillingDate] = useState<Dayjs | null>(() => dayjs().startOf('month'))
+
+  const [submitting, setSubmitting] = useState(false)
+  const [newVendorOpen, setNewVendorOpen] = useState(false)
+  const [newVendorName, setNewVendorName] = useState('')
+  const [newVendorInn, setNewVendorInn] = useState('')
+  const [newVendorAccount, setNewVendorAccount] = useState('')
+  const [newVendorSaving, setNewVendorSaving] = useState(false)
+
+  const activePt = useMemo(
+    () => formOptions.find((p) => p.payment_type === paymentType) || null,
+    [formOptions, paymentType],
+  )
+
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      setLoading(true)
+      setOptionsError(null)
+      try {
+        const opts = await getRequestFormOptions()
+        if (!cancelled) {
+          setFormOptions(opts.payment_types)
+          setIsTenantAdmin(opts.is_tenant_admin ?? false)
+          setRequesterCandidates(opts.requester_candidates ?? [])
+        }
+      } catch (e: unknown) {
+        if (!cancelled) setOptionsError(e instanceof Error ? e.message : 'Не удалось загрузить настройки формы')
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  const loadVendors = useCallback(
+    async (search: string) => {
+      if (!paymentType) return
+      const kind = vendorKindForPaymentType(paymentType)
+      setVendorSearchLoading(true)
+      try {
+        const rows = await listVendors({ kind, search })
+        let filtered = rows
+        if (activePt?.vendor_ids?.length) {
+          const allowed = new Set(activePt.vendor_ids)
+          filtered = rows.filter((r) => allowed.has(r.id))
+        }
+        setVendorOptions(
+          filtered.map((r) => ({
+            value: r.id,
+            label: r.kind === 'transfer' && r.inn ? `${r.name} (ИНН ${r.inn})` : r.name,
+          })),
+        )
+      } catch {
+        setVendorOptions([])
+      } finally {
+        setVendorSearchLoading(false)
+      }
+    },
+    [paymentType, activePt],
+  )
+
+  useEffect(() => {
+    if (step >= detailStep && paymentType) {
+      void loadVendors('')
+    }
+  }, [step, paymentType, loadVendors, detailStep])
+
+  useEffect(() => {
+    if (step !== detailStep || !paymentType) return
+    const pt = formOptions.find((p) => p.payment_type === paymentType)
+    const d = pt?.defaults
+    if (d) {
+      setDescription(d.description ?? '')
+      if (d.amount != null && d.amount !== '') {
+        const n = Number(d.amount)
+        setAmount(Number.isFinite(n) ? n : null)
+      } else {
+        setAmount(null)
+      }
+      setCurrency(d.currency || 'UZS')
+      setUrgency(d.urgency || 'Обычно')
+      const monthShift = d.billing_days_offset ?? 0
+      const target = dayjs().startOf('month').add(monthShift, 'month')
+      setBillingDate(clampToAllowedBillingMonth(target))
+      setPaymentPurpose(d.payment_purpose ?? null)
+      setVendorRefId(d.vendor_ref ?? null)
+    } else {
+      setBillingDate((prev) => clampToAllowedBillingMonth(prev ?? dayjs().startOf('month')))
+    }
+  }, [step, paymentType, formOptions, detailStep])
+
+  let searchTimer: ReturnType<typeof setTimeout> | undefined
+  const onVendorSearch = (value: string) => {
+    window.clearTimeout(searchTimer)
+    searchTimer = setTimeout(() => void loadVendors(value), 300)
+  }
+
+  const purposeOptions = useMemo(() => {
+    if (!activePt?.payment_purposes?.length) return []
+    return activePt.payment_purposes.map((p) => ({
+      value: p.name,
+      label: `${p.name} → ${p.category}`,
+    }))
+  }, [activePt])
+
+  const stepItems = useMemo(() => {
+    if (isTenantAdmin) {
+      return [{ title: 'Тип оплаты' }, { title: 'Заявитель' }, { title: 'Детали' }]
+    }
+    return [{ title: 'Тип оплаты' }, { title: 'Детали' }]
+  }, [isTenantAdmin])
+
+  const goNext = () => {
+    if (step === 0 && !paymentType) {
+      message.warning('Выберите тип оплаты')
+      return
+    }
+    if (step === 1 && isTenantAdmin) {
+      if (requesterId == null) {
+        if (requesterCandidates.length === 0) {
+          message.warning('В тенанте нет пользователей с ролью «Заявитель».')
+        } else {
+          message.warning('Выберите заявителя')
+        }
+        return
+      }
+    }
+    setStep((s) => Math.min(s + 1, detailStep))
+  }
+
+  const goBack = () => setStep((s) => Math.max(s - 1, 0))
+
+  const submit = async () => {
+    if (!paymentType) {
+      message.error('Выберите тип оплаты')
+      return
+    }
+    if (isTenantAdmin && requesterId == null) {
+      message.error('Выберите заявителя')
+      return
+    }
+    if (amount == null || amount <= 0) {
+      message.warning('Укажите сумму')
+      return
+    }
+    if (!billingDate || !isAllowedBillingMonth(billingDate)) {
+      message.warning('Выберите допустимый месяц биллинга')
+      return
+    }
+    if (purposeOptions.length > 0 && !paymentPurpose) {
+      message.warning('Выберите назначение платежа')
+      return
+    }
+    if (activePt?.vendor_ids?.length && !vendorRefId) {
+      message.warning('Выберите поставщика из списка')
+      return
+    }
+
+    setSubmitting(true)
+    try {
+      const titleResolved =
+        (activePt?.defaults?.title || '').trim() ||
+        (paymentPurpose || '').trim() ||
+        'Заявка'
+      const body: Record<string, unknown> = {
+        title: titleResolved,
+        description: description.trim(),
+        amount,
+        currency,
+        payment_type: paymentType,
+        urgency,
+        billing_date: billingDate.startOf('month').format('YYYY-MM-DD'),
+        status: 'DRAFT',
+      }
+      if (isTenantAdmin && requesterId != null) {
+        body.requester = requesterId
+      }
+      if (paymentPurpose) body.payment_purpose = paymentPurpose
+      if (vendorRefId) body.vendor_ref = vendorRefId
+      const res = await createRequestViaUpsert(body)
+      message.success('Заявка создана')
+      const id = res.request?.id
+      if (typeof id === 'number') navigate(`${requestsBasePath}/${id}`)
+      else navigate(requestsBasePath)
+    } catch (e: unknown) {
+      message.error(e instanceof Error ? e.message : 'Ошибка сохранения')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  const saveNewVendor = async () => {
+    if (!paymentType) return
+    const name = newVendorName.trim()
+    if (!name) {
+      message.warning('Укажите наименование')
+      return
+    }
+    const kind = vendorKindForPaymentType(paymentType)
+    if (kind === 'transfer' && !newVendorInn.trim()) {
+      message.warning('ИНН обязателен для перечисления')
+      return
+    }
+    setNewVendorSaving(true)
+    try {
+      const row = await createVendor({
+        kind,
+        name,
+        inn: kind === 'transfer' ? newVendorInn.trim() : undefined,
+        account_number: newVendorAccount.trim() || undefined,
+      })
+      message.success('Поставщик добавлен')
+      setVendorRefId(row.id)
+      setNewVendorOpen(false)
+      setNewVendorName('')
+      setNewVendorInn('')
+      setNewVendorAccount('')
+      await loadVendors('')
+    } catch (e: unknown) {
+      message.error(e instanceof Error ? e.message : 'Ошибка')
+    } finally {
+      setNewVendorSaving(false)
+    }
+  }
+
+  return (
+    <Card>
+      <Space direction="vertical" size="large" style={{ display: 'flex' }}>
+        <Button type="link" icon={<ArrowLeftOutlined />} onClick={() => navigate(requestsBasePath)} style={{ padding: 0 }}>
+          К списку заявок
+        </Button>
+        <Typography.Title level={4} style={{ margin: 0 }}>
+          Новая заявка
+        </Typography.Title>
+        {optionsError ? <Alert type="error" showIcon message={optionsError} /> : null}
+        {!loading && !optionsError && formOptions.length === 0 ? (
+          <Alert
+            type="warning"
+            showIcon
+            message="Форма не настроена"
+            description="Администратор должен включить типы оплаты в Настройки → Заявки — форма создания."
+          />
+        ) : null}
+
+        <Steps
+          size="small"
+          current={step}
+          items={[{ title: 'Тип оплаты' }, { title: 'Заявитель' }, { title: 'Детали' }]}
+        />
+
+        {step === 0 ? (
+          <div>
+            <Typography.Text strong style={labelBlockAboveField}>
+              Тип оплаты
+            </Typography.Text>
+            <Select
+              placeholder="Выберите тип оплаты"
+              style={{ width: '100%', maxWidth: 400 }}
+              value={paymentType || undefined}
+              onChange={(v) => {
+                setPaymentType(v)
+                setRequesterId(null)
+                setVendorRefId(null)
+                setPaymentPurpose(null)
+              }}
+              options={formOptions.map((p) => ({ value: p.payment_type, label: p.payment_type }))}
+            />
+          </div>
+        ) : null}
+
+        {step === 1 && isTenantAdmin ? (
+          <div>
+            <Typography.Text strong style={labelBlockAboveField}>
+              Заявитель
+            </Typography.Text>
+            {requesterCandidates.length === 0 ? (
+              <Alert
+                type="warning"
+                showIcon
+                style={{ maxWidth: 560 }}
+                message="Нет кандидатов в роли заявителя"
+                description="Назначьте пользователям роль «Заявитель» в настройках тенанта."
+              />
+            ) : (
+              <Select
+                placeholder="Выберите заявителя"
+                style={{ width: '100%', maxWidth: 400 }}
+                value={requesterId ?? undefined}
+                onChange={(v) => setRequesterId(v)}
+                options={requesterCandidates.map((r) => ({ value: r.id, label: r.username }))}
+                showSearch
+                optionFilterProp="label"
+              />
+            )}
+          </div>
+        ) : null}
+
+        {step === detailStep ? (
+          <Space direction="vertical" size="middle" style={{ display: 'flex' }}>
+            <Space wrap size={16}>
+              <div>
+                <Typography.Text strong style={labelBlockAboveField}>
+                  Сумма
+                </Typography.Text>
+                <InputNumber
+                  style={{ display: 'block', width: 160 }}
+                  min={0}
+                  value={amount ?? undefined}
+                  onChange={(v) => setAmount(typeof v === 'number' ? v : null)}
+                />
+              </div>
+              <div>
+                <Typography.Text strong style={labelBlockAboveField}>
+                  Валюта
+                </Typography.Text>
+                <Select
+                  style={{ display: 'block', width: 120 }}
+                  value={currency}
+                  onChange={setCurrency}
+                  options={['UZS', 'USD', 'EUR', 'RUB'].map((c) => ({ value: c, label: c }))}
+                />
+              </div>
+              <div>
+                <Typography.Text strong style={labelBlockAboveField}>
+                  Срочность
+                </Typography.Text>
+                <Select
+                  style={{ display: 'block', width: 180 }}
+                  value={urgency}
+                  onChange={setUrgency}
+                  options={[
+                    { value: 'Низко', label: 'Низко' },
+                    { value: 'Обычно', label: 'Обычно' },
+                    { value: 'Срочно', label: 'Срочно' },
+                  ]}
+                />
+              </div>
+              <div>
+                <Typography.Text strong style={labelBlockAboveField}>
+                  Месяц биллинга
+                </Typography.Text>
+                <DatePicker
+                  picker="month"
+                  style={{ display: 'block', maxWidth: 280 }}
+                  format="MMMM YYYY"
+                  value={billingDate}
+                  onChange={(v) => setBillingDate(v ? v.startOf('month') : null)}
+                  disabledDate={(current) => !current || !isAllowedBillingMonth(current)}
+                />
+              </div>
+            </Space>
+            {purposeOptions.length > 0 ? (
+              <div>
+                <Typography.Text strong style={labelBlockAboveField}>
+                  Назначение платежа
+                </Typography.Text>
+                <Select
+                  placeholder="Выберите назначение"
+                  style={{ display: 'block', maxWidth: 560 }}
+                  value={paymentPurpose || undefined}
+                  onChange={setPaymentPurpose}
+                  options={purposeOptions}
+                />
+              </div>
+            ) : null}
+            <div>
+              <Space align="center" size="middle" wrap style={{ marginBottom: 8 }}>
+                <Typography.Text strong>Поставщик</Typography.Text>
+                <Button type="link" icon={<PlusOutlined />} onClick={() => setNewVendorOpen(true)} style={{ paddingInline: 0 }}>
+                  Новый поставщик
+                </Button>
+              </Space>
+              <Select
+                placeholder="Поиск по названию / ИНН"
+                style={{ display: 'block', maxWidth: 560 }}
+                showSearch
+                filterOption={false}
+                loading={vendorSearchLoading}
+                value={vendorRefId ?? undefined}
+                onChange={(v) => setVendorRefId(v)}
+                onSearch={onVendorSearch}
+                options={vendorOptions}
+                allowClear
+              />
+            </div>
+            <div>
+              <Typography.Text strong style={labelBlockAboveField}>
+                Описание
+              </Typography.Text>
+              <Input.TextArea style={{ maxWidth: 560 }} rows={3} value={description} onChange={(e) => setDescription(e.target.value)} />
+            </div>
+          </Space>
+        ) : null}
+
+        <Space>
+          {step > 0 ? <Button onClick={goBack}>Назад</Button> : null}
+          {step < detailStep ? (
+            <Button type="primary" onClick={goNext} disabled={loading || formOptions.length === 0}>
+              Далее
+            </Button>
+          ) : (
+            <Button type="primary" loading={submitting} onClick={() => void submit()}>
+              Создать заявку
+            </Button>
+          )}
+        </Space>
+      </Space>
+
+      <Modal
+        title="Новый поставщик"
+        open={newVendorOpen}
+        onCancel={() => setNewVendorOpen(false)}
+        onOk={() => void saveNewVendor()}
+        confirmLoading={newVendorSaving}
+        okText="Сохранить"
+      >
+        <Typography.Paragraph type="secondary">
+          Тип: {paymentType === 'Наличные' ? 'наличные' : 'перечисление'} (по выбранному типу оплаты заявки).
+        </Typography.Paragraph>
+        <Form layout="vertical">
+          <Form.Item label="Наименование" required>
+            <Input value={newVendorName} onChange={(e) => setNewVendorName(e.target.value)} />
+          </Form.Item>
+          {paymentType && paymentType !== 'Наличные' ? (
+            <Form.Item label="ИНН" required>
+              <Input value={newVendorInn} onChange={(e) => setNewVendorInn(e.target.value)} />
+            </Form.Item>
+          ) : null}
+          <Form.Item label="Расчётный счёт (необязательно)">
+            <Input value={newVendorAccount} onChange={(e) => setNewVendorAccount(e.target.value)} />
+          </Form.Item>
+        </Form>
+      </Modal>
+    </Card>
+  )
+}

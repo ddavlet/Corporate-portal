@@ -239,56 +239,6 @@ services:
       - traefik-public
       - backend
 
-
-  metabase:
-    image: metabase/metabase:latest
-    container_name: metabase
-    restart: always
-    hostname: metabase
-    volumes:
-      - /dev/urandom:/dev/random:ro
-    environment:
-      MB_DB_TYPE: postgres
-      MB_DB_DBNAME: ${POSTGRES_DB}
-      MB_DB_PORT: 5432
-      MB_DB_USER: ${POSTGRES_USER}
-      MB_DB_PASS: ${POSTGRES_PASSWORD}
-      MB_DB_HOST: db
-
-    labels:
-      - traefik.enable=true
-      - traefik.docker.network=n8n_traefik-public
-      # ---------- Security headers middleware (similar to adminer/n8n) ----------
-      - traefik.http.middlewares.metabase.headers.SSLRedirect=true
-      - traefik.http.middlewares.metabase.headers.STSSeconds=315360000
-      - traefik.http.middlewares.metabase.headers.browserXSSFilter=true
-      - traefik.http.middlewares.metabase.headers.contentTypeNosniff=true
-      - traefik.http.middlewares.metabase.headers.forceSTSHeader=true
-      - traefik.http.middlewares.metabase.headers.SSLHost=kolberg.uz
-      - traefik.http.middlewares.metabase.headers.STSIncludeSubdomains=true
-      - traefik.http.middlewares.metabase.headers.STSPreload=true
-
-      # ---------- Router for metabase.kolberg.uz ----------
-      - traefik.http.routers.metabase.rule=Host(`metabase.kolberg.uz`)
-      - traefik.http.routers.metabase.entrypoints=web,websecure
-      - traefik.http.routers.metabase.tls=true
-      - traefik.http.routers.metabase.tls.certresolver=mytlschallenge
-      - traefik.http.routers.metabase.middlewares=metabase@docker
-
-      # ---------- Service: internal Metabase port ----------
-      - traefik.http.services.metabase.loadbalancer.server.port=3000
-
-    healthcheck:
-      test: curl --fail -I http://localhost:3000/api/health || exit 1
-      interval: 15s
-      timeout: 5s
-      retries: 5
-    # >>> CHANGE: metabase в public (для traefik) и backend (для db)
-    networks:
-      - traefik-public
-      - backend
-
-
   error-pages:
     image: nginx:alpine
     container_name: error-pages
@@ -627,7 +577,7 @@ services:
       - ./backend_v2:/projects/backend_v2
       - ./frontend_v2:/projects/frontend_v2
       # Persistent volume for Claude Code session memory / config
-      - claude_sessions:/root
+      - claude_sessions:/home/node
       # Shared context at workspace root for cross-project reasoning
       - ./claude-code/CLAUDE.md:/projects/CLAUDE.md
     healthcheck:
