@@ -1,0 +1,17 @@
+.DS_Store
+
+# Python bytecode / caches
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Node / build
+node_modules/
+dist/
+
+# Editor / tooling
+.cursor/
+
+# Env
+.env
+env/
