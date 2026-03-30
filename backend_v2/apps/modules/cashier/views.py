@@ -12,6 +12,8 @@ from django.db.models.fields import CharField
 
 from apps.modules.cashier.models import CashExpense, CashRevenue
 from apps.modules.cashier.serializers import CashExpenseSerializer, CashRevenueSerializer
+from apps.modules.payroll.constants import SALARY_CATEGORY
+from apps.modules.payroll.utils import tenant_has_payroll_module_enabled
 from apps.modules.requests.models import Request
 from apps.tenants.permissions import HasEffectiveModuleAccess
 
@@ -30,6 +32,11 @@ class CashExpenseViewSet(viewsets.ModelViewSet):
         ).filter(
             Q(expense_id=Cast(OuterRef("id"), CharField())) | Q(expense_id=OuterRef("external_id"))
         )
+        if tenant_has_payroll_module_enabled(tenant):
+            request_subquery = request_subquery.exclude(
+                payment_type=Request.PAYMENT_TYPE_CASH,
+                category=SALARY_CATEGORY,
+            )
         paid_request_subquery = request_subquery.filter(status=Request.STATUS_PAYED)
         qs = CashExpense.objects.filter(tenant=tenant).annotate(
             has_request=Exists(request_subquery),

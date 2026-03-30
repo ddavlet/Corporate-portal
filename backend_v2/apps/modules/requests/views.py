@@ -1,11 +1,16 @@
 from datetime import date
+import logging
+import mimetypes
 import os
 
 from django.contrib.auth import get_user_model
+from django.conf import settings
 from django.db import connection
-from django.db import IntegrityError
 from django.db import transaction
 from django.db.models import Q
+from django.core.files.storage import default_storage
+from django.http import FileResponse
+from django.utils import timezone
 import requests
 from rest_framework import viewsets
 from rest_framework.decorators import action
@@ -13,15 +18,21 @@ from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework import status
+from rest_framework import serializers
 from rest_framework.views import APIView
 
 from apps.modules.requests.models import (
     Approval,
     Request,
+    UserRequestApproval,
     RequestFormConfig,
     RequestFormPaymentTypeConfig,
     RequestFormPaymentTypeRequester,
     RequestFormPaymentTypeVendor,
+    RequestApprovalConfig,
+    RequestApprovalPaymentTypeConfig,
+    RequestApprovalStepConfig,
+    RequestApprovalStepApproverConfig,
     RequestPaymentPurposeConfig,
 )
 from apps.modules.vendors.models import Vendor
@@ -29,9 +40,13 @@ from apps.modules.requests.serializers import (
     ApprovalSerializer,
     PortalRequestDetailSerializer,
     PortalRequestSerializer,
+    MyApprovalsRequestSummarySerializer,
+    UserRequestApprovalStepSerializer,
     RequestFormConfigPayloadSerializer,
     build_request_form_config_response,
     payment_type_to_vendor_kind,
+    RequestApprovalConfigPayloadSerializer,
+    build_request_approval_config_response,
 )
 
 from apps.tenants.permissions import HasEffectiveModuleAccess, IsTenantAdmin
@@ -131,43 +146,100 @@ class PortalRequestViewSet(viewsets.ModelViewSet):
 
     def perform_create(self, serializer):
         tenant = self.request.tenant
-        serializer.save(tenant=tenant, created_by=self.request.user)
+        approvals_payload: list[dict] = []
+        obj: Request | None = None
 
-    @action(detail=False, methods=["post"], url_path="upsert")
-    def upsert(self, request):
-        tenant = getattr(request, "tenant", None)
-        if not tenant:
-            raise ValidationError({"detail": "Unknown tenant."})
+        with transaction.atomic():
+            obj = serializer.save(tenant=tenant, created_by=self.request.user)
 
-        incoming_id = request.data.get("id")
-        if incoming_id in (None, ""):
-            serializer = PortalRequestSerializer(data=request.data, context={"request": request})
-            serializer.is_valid(raise_exception=True)
-            serializer.save(tenant=tenant, created_by=request.user)
-            return Response({"action": "created", "request": serializer.data}, status=status.HTTP_201_CREATED)
+            cfg = RequestApprovalConfig.objects.filter(tenant=tenant).first()
+            if cfg:
+                pt_cfg = cfg.payment_types.filter(payment_type=obj.payment_type, is_enabled=True).first()
+                if pt_cfg:
+                    step_cfgs = list(
+                        pt_cfg.steps.filter(is_enabled=True)
+                        .order_by("step", "id")
+                        .prefetch_related("approvers__approver_user")
+                    )
+
+                    approver_ids: set[int] = set()
+                    for step_cfg in step_cfgs:
+                        approver_ids.update(
+                            step_cfg.approvers.values_list("approver_user_id", flat=True).distinct()
+                        )
+                    active_approver_ids = set(
+                        TenantMembership.objects.filter(
+                            tenant=tenant, is_active=True, user_id__in=approver_ids
+                        ).values_list("user_id", flat=True)
+                    )
+
+                    approval_rows: list[Approval] = []
+                    for step_cfg in step_cfgs:
+                        approvers = step_cfg.approvers.all()
+                        for row in approvers:
+                            if row.approver_user_id not in active_approver_ids:
+                                continue
+                            approval_rows.append(
+                                Approval(
+                                    request=obj,
+                                    approver_user=row.approver_user,
+                                    approver_tg_id=row.approver_user.telegram_chat_id,
+                                    approver_tg_from_id=row.approver_user.telegram_from_id,
+                                    message_id=None,
+                                    message_sent=False,
+                                    step=step_cfg.step,
+                                    step_type=step_cfg.step_type,
+                                    decision=Approval.DECISION_PENDING,
+                                    comment=None,
+                                    decided_at=None,
+                                )
+                            )
+
+                    if approval_rows:
+                        Approval.objects.bulk_create(approval_rows)
+                        approvals_payload = [
+                            {
+                                "step": row.step,
+                                "step_type": row.step_type,
+                                "approver_user_id": row.approver_user_id,
+                                "approver_tg_from_id": row.approver_user.telegram_from_id,
+                                "decision": row.decision,
+                            }
+                            for row in approval_rows
+                        ]
+
+        # Notify n8n about created request and approvals list.
+        n8n_token = getattr(settings, "N8N_TOKEN", "").strip()
+        if not n8n_token or not getattr(tenant, "subdomain", None):
+            return
 
         try:
-            normalized_id = int(incoming_id)
-        except (TypeError, ValueError):
-            raise ValidationError({"id": "ID must be an integer."})
+            n8n_path = getattr(settings, "N8N_INTEGRATION_URL_PATH", "n8n").strip().strip("/")
+            base_url = f"https://{tenant.subdomain}.{settings.BASE_DOMAIN}"
+            url = f"{base_url}/{n8n_path}/new_request"
 
-        instance = Request.objects.filter(tenant=tenant, id=normalized_id).first()
-        if instance:
-            serializer = PortalRequestSerializer(instance=instance, data=request.data, partial=True, context={"request": request})
-            serializer.is_valid(raise_exception=True)
-            serializer.save()
-            return Response({"action": "updated", "request": serializer.data}, status=status.HTTP_200_OK)
+            request_payload = {
+                "id": obj.id if obj else None,
+                "tenant_subdomain": tenant.subdomain,
+                "payment_type": obj.payment_type if obj else None,
+                "requester_user_id": obj.requester_id if obj else None,
+            }
 
-        if Request.objects.filter(id=normalized_id).exists():
-            raise ValidationError({"id": "This ID already exists in another tenant."})
-
-        serializer = PortalRequestSerializer(data=request.data, context={"request": request})
-        serializer.is_valid(raise_exception=True)
-        try:
-            serializer.save(id=normalized_id, tenant=tenant, created_by=request.user)
-        except IntegrityError as exc:
-            raise ValidationError({"id": "Could not create request with this ID."}) from exc
-        return Response({"action": "created", "request": serializer.data}, status=status.HTTP_201_CREATED)
+            payload = {"request": request_payload, "approvals": approvals_payload}
+            resp = requests.post(
+                url,
+                json=payload,
+                headers={"X-N8N-Token": n8n_token},
+                timeout=10,
+            )
+            if resp.status_code >= 400:
+                logging.getLogger(__name__).warning(
+                    "n8n webhook returned HTTP %s for request id=%s",
+                    resp.status_code,
+                    obj.id if obj else None,
+                )
+        except Exception:
+            logging.getLogger(__name__).exception("Failed to notify n8n for request id=%s", obj.id if obj else None)
 
     @action(detail=True, methods=["get", "post"], url_path="approvals")
     def approvals(self, request, pk=None):
@@ -191,6 +263,123 @@ class PortalRequestViewSet(viewsets.ModelViewSet):
         serializer.is_valid(raise_exception=True)
         serializer.save(request=request_obj)
         return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+    class ApprovalDecisionPayloadSerializer(serializers.Serializer):
+        step = serializers.IntegerField(min_value=1)
+        decision = serializers.ChoiceField(
+            choices=[Approval.DECISION_APPROVED, Approval.DECISION_REJECTED]
+        )
+        comment = serializers.CharField(required=False, allow_blank=True, allow_null=True)
+
+    @action(detail=True, methods=["post"], url_path="approvals/decision")
+    def approvals_decision(self, request, pk=None):
+        """
+        Update existing approval decision for current approver.
+
+        This endpoint is intentionally "decision-only":
+        it updates the existing `Approval` row instead of creating a new one (to avoid unique constraint errors).
+        """
+        request_obj = self.get_object()
+
+        can_manage = self._has_role(request_obj.tenant, TenantUserRole.ROLE_ADMIN) or self._has_role(
+            request_obj.tenant, TenantUserRole.ROLE_APPROVER
+        )
+        if not can_manage:
+            raise PermissionDenied("Only admins or approvers can set approval decisions.")
+
+        payload = self.ApprovalDecisionPayloadSerializer(data=request.data)
+        payload.is_valid(raise_exception=True)
+
+        step = payload.validated_data["step"]
+        decision = payload.validated_data["decision"]
+        comment = payload.validated_data.get("comment")
+        if comment is not None and isinstance(comment, str):
+            comment = comment.strip() or None
+
+        approval = (
+            Approval.objects.filter(
+                request=request_obj,
+                approver_user=request.user,
+                step=step,
+            )
+            .select_related("approver_user")
+            .first()
+        )
+
+        if not approval:
+            return Response(
+                {"detail": "Approval row not found for this step and approver."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        approval.decision = decision
+        approval.comment = comment
+        approval.decided_at = timezone.now()
+        approval.save(update_fields=["decision", "comment", "decided_at"])
+
+        ser = ApprovalSerializer(approval, context={"request": request})
+        return Response(ser.data, status=status.HTTP_200_OK)
+
+    @action(detail=True, methods=["post"], url_path="file-upload")
+    def file_upload(self, request, pk=None):
+        """
+        Telegram/Web client multipart upload.
+
+        Stores file into Django filesystem storage under:
+          requests/<tenant_id>/<request_id>/<filename>
+        and updates `Request.file_link`.
+        """
+        request_obj = self.get_object()
+
+        # For safety and UX: only allow attaching files to drafts.
+        if request_obj.status != Request.STATUS_DRAFT:
+            raise ValidationError({"detail": "Files can be attached only to DRAFT requests."})
+
+        upload = request.FILES.get("file")
+        if not upload:
+            raise ValidationError({"file": "Multipart field `file` is required."})
+
+        tenant_id = request_obj.tenant_id
+        req_id = request_obj.id
+        if not tenant_id or not req_id:
+            raise ValidationError({"detail": "Cannot resolve tenant_id/request_id for storage."})
+
+        filename = os.path.basename(upload.name or "file") or "file"
+        filename = filename.replace("\x00", "").replace("/", "_").replace("\\", "_")
+        filename = filename.strip() or "file"
+
+        storage_rel_path = f"requests/{tenant_id}/{req_id}/{filename}"
+        saved_name = default_storage.save(storage_rel_path, upload)
+
+        request_obj.file_link = saved_name
+        request_obj.save(update_fields=["file_link"])
+
+        return Response({"file_link": saved_name}, status=status.HTTP_200_OK)
+
+    @action(detail=False, methods=["get"], url_path="my-approvals")
+    def my_approvals(self, request):
+        tenant = getattr(request, "tenant", None)
+        if not tenant:
+            return Response([])
+
+        queryset = (
+            UserRequestApproval.objects.filter(request__tenant=tenant, approver_user=request.user)
+            .select_related("request", "request__requester")
+            .order_by("request_id", "step", "id")
+        )
+
+        grouped: dict[int, dict] = {}
+        for row in queryset:
+            rid = row.request_id
+            if rid not in grouped:
+                grouped[rid] = {
+                    "request": MyApprovalsRequestSummarySerializer(row.request, context={"request": request}).data,
+                    "approvals": [],
+                }
+
+            grouped[rid]["approvals"].append(UserRequestApprovalStepSerializer(row).data)
+
+        return Response(list(grouped.values()))
 
 
 class FileGatewayView(APIView):
@@ -231,6 +420,68 @@ class FileGatewayView(APIView):
         if content_length:
             resp["Content-Length"] = content_length
         return resp
+
+
+def _sanitize_storage_relative_path(raw_path: str) -> str:
+    """
+    Convert the `path` query param into a Django storage-relative path.
+
+    Security rules:
+    - must not be absolute and must not contain `..`
+    - must be under `requests/` prefix
+    """
+    path = (raw_path or "").strip()
+    if not path:
+        raise ValidationError({"path": "Query param 'path' is required."})
+
+    # Reject absolute paths / weird characters.
+    if path.startswith(("/", "\\")) or "\x00" in path:
+        raise ValidationError({"path": "Invalid path."})
+
+    # Normalize separators and remove leading './'.
+    path = path.replace("\\", "/")
+    while path.startswith("./"):
+        path = path[2:]
+
+    segments = [seg for seg in path.split("/") if seg not in ("", ".")]
+    if any(seg == ".." for seg in segments):
+        raise ValidationError({"path": "Path traversal is not allowed."})
+
+    if not path.startswith("requests/"):
+        raise ValidationError({"path": "Path must be under 'requests/'."})
+
+    return path
+
+
+class FileDownloadView(APIView):
+    """
+    Auth-protected file download endpoint for files stored inside Django filesystem storage.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        rel_path = _sanitize_storage_relative_path(request.query_params.get("path", ""))
+
+        if not default_storage.exists(rel_path):
+            return Response({"detail": "File not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        try:
+            fh = default_storage.open(rel_path, mode="rb")
+        except Exception:
+            return Response({"detail": "File not available."}, status=status.HTTP_404_NOT_FOUND)
+
+        filename = os.path.basename(rel_path)
+        content_type, _ = mimetypes.guess_type(filename)
+        content_type = content_type or "application/octet-stream"
+
+        # Stream the file without loading it into memory.
+        return FileResponse(
+            fh,
+            as_attachment=True,
+            filename=filename,
+            content_type=content_type,
+        )
 
 
 class RequestFormConfigView(APIView):
@@ -483,4 +734,121 @@ class RequestFormOptionsView(APIView):
                 ],
             }
         )
+
+
+class RequestApprovalConfigView(APIView):
+    module_key = "requests"
+    permission_classes = [IsAuthenticated, HasEffectiveModuleAccess, IsTenantAdmin]
+
+    def get(self, request):
+        tenant = getattr(request, "tenant", None)
+        if not tenant:
+            raise ValidationError({"detail": "Unknown tenant."})
+        return Response(build_request_approval_config_response(tenant=tenant))
+
+    def put(self, request):
+        tenant = getattr(request, "tenant", None)
+        if not tenant:
+            raise ValidationError({"detail": "Unknown tenant."})
+
+        payload = RequestApprovalConfigPayloadSerializer(data=request.data)
+        payload.is_valid(raise_exception=True)
+        payment_types = payload.validated_data.get("payment_types", [])
+
+        # For each step approver list, validate user is active member and has role "approver".
+        # Also keep IDs unique to avoid duplicate approver rows.
+        valid_role_user_ids = set(
+            TenantUserRole.objects.filter(
+                tenant=tenant,
+                role=TenantUserRole.ROLE_APPROVER,
+            ).values_list("user_id", flat=True)
+        )
+        active_member_ids = set(
+            TenantMembership.objects.filter(tenant=tenant, is_active=True, user_id__in=valid_role_user_ids).values_list(
+                "user_id", flat=True
+            )
+        )
+
+        with transaction.atomic():
+            cfg, _created = RequestApprovalConfig.objects.select_for_update().get_or_create(
+                tenant=tenant, defaults={"updated_by": request.user}
+            )
+            cfg.updated_by = request.user
+            cfg.save(update_fields=["updated_by", "updated_at"])
+
+            existing_pt = {
+                row.payment_type: row
+                for row in RequestApprovalPaymentTypeConfig.objects.filter(config=cfg)
+            }
+            seen_types: set[str] = set()
+
+            for item in payment_types:
+                pt = item["payment_type"]
+                seen_types.add(pt)
+
+                pt_cfg = existing_pt.get(pt)
+                if not pt_cfg:
+                    pt_cfg = RequestApprovalPaymentTypeConfig.objects.create(
+                        config=cfg,
+                        payment_type=pt,
+                        is_enabled=bool(item.get("is_enabled", True)),
+                    )
+                else:
+                    pt_cfg.is_enabled = bool(item.get("is_enabled", True))
+
+                pt_cfg.save(update_fields=["is_enabled"])
+
+                # Replace step configs for this payment type.
+                RequestApprovalStepConfig.objects.filter(payment_type_config=pt_cfg).delete()
+
+                steps = list(item.get("steps") or [])
+                step_rows: list[RequestApprovalStepConfig] = []
+                for step_item in steps:
+                    step_no = int(step_item["step"])
+                    step_cfg = RequestApprovalStepConfig(
+                        payment_type_config=pt_cfg,
+                        step=step_no,
+                        step_type=step_item["step_type"],
+                        is_enabled=bool(step_item.get("is_enabled", True)),
+                    )
+                    step_rows.append(step_cfg)
+
+                if step_rows:
+                    RequestApprovalStepConfig.objects.bulk_create(step_rows)
+
+                # Re-fetch created step configs ordered by step_no.
+                created_steps = (
+                    RequestApprovalStepConfig.objects.filter(payment_type_config=pt_cfg)
+                    .order_by("step", "id")
+                    .all()
+                )
+
+                for step_cfg in created_steps:
+                    # Find corresponding payload step.
+                    matched = next((s for s in steps if int(s["step"]) == step_cfg.step), None)
+                    if not matched:
+                        continue
+
+                    raw_ids = list(matched.get("approver_user_ids") or [])
+                    unique_ids = sorted(set(int(x) for x in raw_ids))
+                    invalid = [uid for uid in unique_ids if uid not in active_member_ids]
+                    if invalid:
+                        raise ValidationError(
+                            {"approver_user_ids": f"Invalid approver users for step {step_cfg.step}: {invalid}."}
+                        )
+
+                    rows = [
+                        RequestApprovalStepApproverConfig(step_config=step_cfg, approver_user_id=uid)
+                        for uid in unique_ids
+                    ]
+                    if rows:
+                        RequestApprovalStepApproverConfig.objects.bulk_create(rows)
+
+            # Disable payment types that are missing from payload.
+            for pt, pt_cfg in existing_pt.items():
+                if pt not in seen_types and pt_cfg.is_enabled:
+                    pt_cfg.is_enabled = False
+                    pt_cfg.save(update_fields=["is_enabled"])
+
+        return Response(build_request_approval_config_response(tenant=tenant))
 

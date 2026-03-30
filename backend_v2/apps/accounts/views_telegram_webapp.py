@@ -39,7 +39,13 @@ class TelegramWebAppAuthView(APIView):
             flat = validate_webapp_init_data(init_data, bot_token)
             tg_uid = telegram_user_id_from_validated(flat)
         except TelegramWebAppDataError as exc:
-            return Response({"detail": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+            detail = str(exc)
+            if detail == "invalid init_data signature":
+                detail = (
+                    "invalid init_data signature; ensure the tenant Telegram bot token matches "
+                    "the bot that opened the Mini App (BotFather API token)."
+                )
+            return Response({"detail": detail}, status=status.HTTP_400_BAD_REQUEST)
 
         member_ids = TenantMembership.objects.filter(tenant=tenant, is_active=True).values_list(
             "user_id", flat=True

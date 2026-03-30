@@ -470,6 +470,9 @@ services:
       DJANGO_SECRET_KEY: "v2-change-me"
       DJANGO_DEBUG: "True"
       DJANGO_ALLOWED_HOSTS: "lemonfit.kolberg.uz,lemonfit2.kolberg.uz,neuron.kolberg.uz"
+      # No leading/trailing slashes (e.g. n8n). Slashes break Traefik labels: /api/${VAR}/ → /api/n8n//
+      N8N_INTEGRATION_URL_PATH: ${N8N_INTEGRATION_URL_PATH:-n8n}
+      N8N_INTEGRATION_TOKEN: ${N8N_INTEGRATION_TOKEN:-}
     volumes:
       - ./backend_v2:/app
     depends_on:
@@ -484,14 +487,21 @@ services:
       - traefik.docker.network=n8n_traefik-public
       - traefik.http.services.django-v2.loadbalancer.server.port=8001
 
-      # tenants: only /api/*
-      - traefik.http.routers.django-v2-api.rule=(Host(`lemonfit.kolberg.uz`) || Host(`lemonfit2.kolberg.uz`) || Host(`neuron.kolberg.uz`)) && PathPrefix(`/api/`)
+      # tenants: /api/* except n8n integration prefix (that prefix has its own router below)
+      - traefik.http.routers.django-v2-api.rule=(Host(`lemonfit.kolberg.uz`) || Host(`lemonfit2.kolberg.uz`) || Host(`neuron.kolberg.uz`)) && PathPrefix(`/api/`) && !PathPrefix(`/api/${N8N_INTEGRATION_URL_PATH:-n8n}/`)
       - traefik.http.routers.django-v2-api.entrypoints=web,websecure
       - traefik.http.routers.django-v2-api.tls=true
       - traefik.http.routers.django-v2-api.tls.certresolver=mytlschallenge
       - traefik.http.routers.django-v2-api.service=django-v2
       - traefik.http.routers.django-v2-api.priority=1100
 
+      # Integration API: must beat Host-only n8n webhooks on the same hosts (priority > django-v2-api)
+      - traefik.http.routers.django-v2-n8n.rule=(Host(`lemonfit.kolberg.uz`) || Host(`lemonfit2.kolberg.uz`) || Host(`neuron.kolberg.uz`)) && PathPrefix(`/api/${N8N_INTEGRATION_URL_PATH:-n8n}/`)
+      - traefik.http.routers.django-v2-n8n.entrypoints=web,websecure
+      - traefik.http.routers.django-v2-n8n.tls=true
+      - traefik.http.routers.django-v2-n8n.tls.certresolver=mytlschallenge
+      - traefik.http.routers.django-v2-n8n.service=django-v2
+      - traefik.http.routers.django-v2-n8n.priority=1200
     networks:
       - traefik-public
       - backend

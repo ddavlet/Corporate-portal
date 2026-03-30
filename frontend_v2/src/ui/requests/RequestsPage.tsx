@@ -4,9 +4,10 @@ import type { ColumnsType, TableProps } from 'antd/es/table'
 import type { Dayjs } from 'dayjs'
 import { useNavigate } from 'react-router-dom'
 import { FileAddOutlined, FileSearchOutlined, MessageOutlined, ReloadOutlined } from '@ant-design/icons'
-import { apiFetch } from '../lib/api'
+import { apiFetch, triggerResendRequest } from '../../lib/api'
+import { isPayedMissingLinkedExpense, type RequestExpenseLink } from '../../lib/requestExpense'
 import { RequestDetailModal, type RequestDetail } from './RequestDetailModal'
-import { NoteCreateModal } from './NoteCreateModal'
+import { NoteCreateModal } from '../NoteCreateModal'
 
 type RequestRow = {
   id: number
@@ -25,6 +26,7 @@ type RequestRow = {
   requester_username?: string | null
   submitted_at: string
   billing_date: string
+  expense_link?: RequestExpenseLink
 }
 
 type SortState = {
@@ -319,11 +321,8 @@ export function RequestsPage() {
   const resendRequest = async (requestId: number) => {
     setResendLoading(true)
     try {
-      const url = `https://lemonfit.kolberg.uz/resend_request?request_id=${requestId}`
-      const res = await fetch(url, { method: 'GET' })
-      const text = await res.text().catch(() => '')
-      const msg = text || `HTTP ${res.status}`
-      if (res.ok) {
+      const { ok, message: msg } = await triggerResendRequest(requestId)
+      if (ok) {
         message.success(`✅ Сообщение отправлено. ${msg}`)
       } else {
         message.error(`❌ Ошибка отправки. ${msg}`)
@@ -453,6 +452,7 @@ export function RequestsPage() {
           onChange={onTableChange}
           onRow={(record) => ({
             onClick: () => setSelectedRow(record),
+            className: isPayedMissingLinkedExpense(record) ? 'requests-row--payed-no-expense' : undefined,
             style: { cursor: 'pointer' },
           })}
           pagination={{

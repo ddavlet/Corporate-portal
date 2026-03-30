@@ -1,11 +1,12 @@
 from django.contrib import admin
+from django.conf import settings
 from django.urls import path, include
 
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 
 from apps.accounts.views_otp import OtpRequestView, OtpVerifyView
 from apps.accounts.views_telegram_webapp import TelegramWebAppAuthView
-from apps.modules.requests.views import FileGatewayView
+from apps.modules.requests.views import FileGatewayView, FileDownloadView
 from apps.tenants.views import ModuleCatalogView, TenantModuleConfigView
 
 
@@ -19,6 +20,7 @@ urlpatterns = [
     path("api/auth/otp/verify/", OtpVerifyView.as_view(), name="otp_verify"),
     path("api/auth/telegram/webapp/", TelegramWebAppAuthView.as_view(), name="telegram_webapp_auth"),
     path("api/files/gateway/", FileGatewayView.as_view(), name="files_gateway"),
+    path("api/files/download/", FileDownloadView.as_view(), name="files_download"),
 
     # Tenants + module config/permissions
     path("api/modules/", ModuleCatalogView.as_view(), name="module_catalog"),
@@ -40,5 +42,13 @@ urlpatterns = [
 
     # Notes module
     path("api/notes/", include("apps.modules.notes.urls")),
+
+    # Payroll accruals module
+    path("api/payroll/", include("apps.modules.payroll.urls")),
 ]
+
+for _n8n_seg in settings.N8N_INTEGRATION_MOUNT_PATHS:
+    urlpatterns.append(
+        path(f"api/{_n8n_seg}/", include("apps.modules.n8n_integration.urls")),
+    )
 

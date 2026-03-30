@@ -23,6 +23,10 @@ deploy-files:
 migrate-v2:
 	ssh $(SERVER) "cd $(REMOTE_DIR) && docker compose --env-file ./.env exec -T backend_v2 python manage.py migrate && docker compose --env-file ./.env restart backend_v2"
 
+makemigrations-v2:
+	ssh $(SERVER) "cd $(REMOTE_DIR) && docker compose --env-file ./.env exec -T backend_v2 python manage.py makemigrations"
+	rsync -av --omit-dir-times $(SERVER):$(REMOTE_DIR)/backend_v2/migrations/ ./backend_v2/migrations/
+
 deploy-rebuild-v2:
 	$(MAKE) deploy-files
 	ssh $(SERVER) "cd $(REMOTE_DIR) && docker compose --env-file ./.env up -d --build backend_v2 frontend_v2 && docker compose --env-file ./.env exec -T backend_v2 python manage.py migrate && docker compose --env-file ./.env restart backend_v2"

@@ -37,6 +37,9 @@ class TenantSubdomainMiddleware:
     def __call__(self, request):
         from django.conf import settings
 
+        if getattr(request, "tenant", None) is not None:
+            return self.get_response(request)
+
         sub = _get_subdomain(request.get_host(), getattr(settings, "BASE_DOMAIN", "") or "")
         if not sub:
             if getattr(settings, "TENANT_SUBDOMAIN_FALLBACK", True):

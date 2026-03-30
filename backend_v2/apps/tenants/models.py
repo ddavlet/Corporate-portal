@@ -15,7 +15,7 @@ class Tenant(models.Model):
         self.telegram_bot_token_enc = encrypt_secret(token.strip())
 
     def get_telegram_bot_token(self) -> str:
-        return decrypt_secret(self.telegram_bot_token_enc)
+        return decrypt_secret(self.telegram_bot_token_enc).strip()
 
     def __str__(self) -> str:
         return f"{self.subdomain} ({self.name})"

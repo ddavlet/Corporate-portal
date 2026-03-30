@@ -4,7 +4,7 @@ import type { ColumnsType } from 'antd/es/table'
 import { useNavigate } from 'react-router-dom'
 import { FileSearchOutlined, MessageOutlined } from '@ant-design/icons'
 import { apiFetch, getCashRevenues, type CashRevenue } from '../lib/api'
-import { RequestDetailModal, type RequestDetail } from './RequestDetailModal'
+import { RequestDetailModal, type RequestDetail } from './requests/RequestDetailModal'
 import { NoteCreateModal } from './NoteCreateModal'
 import { labelBlockAboveField } from './formSpacing'
 

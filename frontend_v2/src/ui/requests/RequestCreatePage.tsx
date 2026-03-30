@@ -19,26 +19,33 @@ import dayjs from 'dayjs'
 import { ArrowLeftOutlined, PlusOutlined } from '@ant-design/icons'
 import { useNavigate } from 'react-router-dom'
 import {
-  createRequestViaUpsert,
+  createPortalRequest,
   createVendor,
   getRequestFormOptions,
   listVendors,
+  type CreatedPortalRequest,
+  type PortalRequestCreateBody,
   type RequestFormOptionsPaymentType,
   type RequestFormOptionsRequester,
-} from '../lib/api'
-import { labelBlockAboveField } from './formSpacing'
-import { clampToAllowedBillingMonth, isAllowedBillingMonth } from '../lib/billingMonth'
+} from '../../lib/api'
+import { labelBlockAboveField } from '../formSpacing'
+import { clampToAllowedBillingMonth, isAllowedBillingMonth } from '../../lib/billingMonth'
 
 function vendorKindForPaymentType(paymentType: string): 'cash' | 'transfer' {
   return paymentType === 'Наличные' ? 'cash' : 'transfer'
 }
 
+const tgPopupContainer = () => document.body
+
 export type RequestCreatePageProps = {
   /** Базовый путь списка заявок без завершающего «/», например `/tg/requests` */
   requestsBasePath?: string
+  /** Мобильная вёрстка для Telegram WebApp */
+  variant?: 'portal' | 'telegram'
 }
 
-export function RequestCreatePage({ requestsBasePath = '/requests' }: RequestCreatePageProps) {
+export function RequestCreatePage({ requestsBasePath = '/requests', variant = 'portal' }: RequestCreatePageProps) {
+  const isTg = variant === 'telegram'
   const navigate = useNavigate()
   const [loading, setLoading] = useState(true)
   const [optionsError, setOptionsError] = useState<string | null>(null)
@@ -227,7 +234,7 @@ export function RequestCreatePage({ requestsBasePath = '/requests' }: RequestCre
         (activePt?.defaults?.title || '').trim() ||
         (paymentPurpose || '').trim() ||
         'Заявка'
-      const body: Record<string, unknown> = {
+      const payload: PortalRequestCreateBody = {
         title: titleResolved,
         description: description.trim(),
         amount,
@@ -238,13 +245,13 @@ export function RequestCreatePage({ requestsBasePath = '/requests' }: RequestCre
         status: 'DRAFT',
       }
       if (isTenantAdmin && requesterId != null) {
-        body.requester = requesterId
+        payload.requester = requesterId
       }
-      if (paymentPurpose) body.payment_purpose = paymentPurpose
-      if (vendorRefId) body.vendor_ref = vendorRefId
-      const res = await createRequestViaUpsert(body)
+      if (paymentPurpose) payload.payment_purpose = paymentPurpose
+      if (vendorRefId) payload.vendor_ref = vendorRefId
+      const res: CreatedPortalRequest = await createPortalRequest(payload)
       message.success('Заявка создана')
-      const id = res.request?.id
+      const id = res.id
       if (typeof id === 'number') navigate(`${requestsBasePath}/${id}`)
       else navigate(requestsBasePath)
     } catch (e: unknown) {
@@ -289,14 +296,20 @@ export function RequestCreatePage({ requestsBasePath = '/requests' }: RequestCre
   }
 
   return (
-    <Card>
-      <Space direction="vertical" size="large" style={{ display: 'flex' }}>
-        <Button type="link" icon={<ArrowLeftOutlined />} onClick={() => navigate(requestsBasePath)} style={{ padding: 0 }}>
-          К списку заявок
-        </Button>
-        <Typography.Title level={4} style={{ margin: 0 }}>
-          Новая заявка
-        </Typography.Title>
+    <div className={isTg ? 'tg-create-page' : undefined}>
+      <Card className={isTg ? 'tg-create-card' : undefined} styles={{ body: isTg ? { padding: '16px 16px 24px' } : undefined }}>
+        <Space direction="vertical" size={isTg ? 'middle' : 'large'} style={{ display: 'flex' }}>
+          <Button
+            type="link"
+            icon={<ArrowLeftOutlined />}
+            onClick={() => navigate(requestsBasePath)}
+            style={{ padding: isTg ? '8px 0' : 0, minHeight: isTg ? 44 : undefined, alignSelf: 'flex-start' }}
+          >
+            К списку заявок
+          </Button>
+          <Typography.Title level={4} style={{ margin: 0, fontSize: isTg ? 20 : undefined }}>
+            Новая заявка
+          </Typography.Title>
         {optionsError ? <Alert type="error" showIcon message={optionsError} /> : null}
         {!loading && !optionsError && formOptions.length === 0 ? (
           <Alert
@@ -310,17 +323,20 @@ export function RequestCreatePage({ requestsBasePath = '/requests' }: RequestCre
         <Steps
           size="small"
           current={step}
-          items={[{ title: 'Тип оплаты' }, { title: 'Заявитель' }, { title: 'Детали' }]}
+          items={stepItems}
+          direction={isTg ? 'vertical' : 'horizontal'}
+          className={isTg ? 'tg-steps' : undefined}
         />
 
         {step === 0 ? (
-          <div>
+          <div className={isTg ? 'tg-field-block' : undefined}>
             <Typography.Text strong style={labelBlockAboveField}>
               Тип оплаты
             </Typography.Text>
             <Select
               placeholder="Выберите тип оплаты"
-              style={{ width: '100%', maxWidth: 400 }}
+              size={isTg ? 'large' : undefined}
+              style={{ width: '100%', maxWidth: isTg ? undefined : 400 }}
               value={paymentType || undefined}
               onChange={(v) => {
                 setPaymentType(v)
@@ -329,12 +345,14 @@ export function RequestCreatePage({ requestsBasePath = '/requests' }: RequestCre
                 setPaymentPurpose(null)
               }}
               options={formOptions.map((p) => ({ value: p.payment_type, label: p.payment_type }))}
+              getPopupContainer={isTg ? tgPopupContainer : undefined}
+              popupMatchSelectWidth={isTg ? true : undefined}
             />
           </div>
         ) : null}
 
         {step === 1 && isTenantAdmin ? (
-          <div>
+          <div className={isTg ? 'tg-field-block' : undefined}>
             <Typography.Text strong style={labelBlockAboveField}>
               Заявитель
             </Typography.Text>
@@ -342,93 +360,164 @@ export function RequestCreatePage({ requestsBasePath = '/requests' }: RequestCre
               <Alert
                 type="warning"
                 showIcon
-                style={{ maxWidth: 560 }}
+                style={{ maxWidth: isTg ? undefined : 560, borderRadius: 12 }}
                 message="Нет кандидатов в роли заявителя"
                 description="Назначьте пользователям роль «Заявитель» в настройках тенанта."
               />
             ) : (
               <Select
                 placeholder="Выберите заявителя"
-                style={{ width: '100%', maxWidth: 400 }}
+                size={isTg ? 'large' : undefined}
+                style={{ width: '100%', maxWidth: isTg ? undefined : 400 }}
                 value={requesterId ?? undefined}
                 onChange={(v) => setRequesterId(v)}
                 options={requesterCandidates.map((r) => ({ value: r.id, label: r.username }))}
                 showSearch
                 optionFilterProp="label"
+                getPopupContainer={isTg ? tgPopupContainer : undefined}
+                popupMatchSelectWidth={isTg ? true : undefined}
               />
             )}
           </div>
         ) : null}
 
         {step === detailStep ? (
-          <Space direction="vertical" size="middle" style={{ display: 'flex' }}>
-            <Space wrap size={16}>
-              <div>
-                <Typography.Text strong style={labelBlockAboveField}>
-                  Сумма
-                </Typography.Text>
-                <InputNumber
-                  style={{ display: 'block', width: 160 }}
-                  min={0}
-                  value={amount ?? undefined}
-                  onChange={(v) => setAmount(typeof v === 'number' ? v : null)}
-                />
-              </div>
-              <div>
-                <Typography.Text strong style={labelBlockAboveField}>
-                  Валюта
-                </Typography.Text>
-                <Select
-                  style={{ display: 'block', width: 120 }}
-                  value={currency}
-                  onChange={setCurrency}
-                  options={['UZS', 'USD', 'EUR', 'RUB'].map((c) => ({ value: c, label: c }))}
-                />
-              </div>
-              <div>
-                <Typography.Text strong style={labelBlockAboveField}>
-                  Срочность
-                </Typography.Text>
-                <Select
-                  style={{ display: 'block', width: 180 }}
-                  value={urgency}
-                  onChange={setUrgency}
-                  options={[
-                    { value: 'Низко', label: 'Низко' },
-                    { value: 'Обычно', label: 'Обычно' },
-                    { value: 'Срочно', label: 'Срочно' },
-                  ]}
-                />
-              </div>
-              <div>
-                <Typography.Text strong style={labelBlockAboveField}>
-                  Месяц биллинга
-                </Typography.Text>
-                <DatePicker
-                  picker="month"
-                  style={{ display: 'block', maxWidth: 280 }}
-                  format="MMMM YYYY"
-                  value={billingDate}
-                  onChange={(v) => setBillingDate(v ? v.startOf('month') : null)}
-                  disabledDate={(current) => !current || !isAllowedBillingMonth(current)}
-                />
-              </div>
-            </Space>
+          <Space direction="vertical" size="middle" style={{ display: 'flex', width: '100%' }}>
+            {isTg ? (
+              <>
+                <div className="tg-field-block">
+                  <Typography.Text strong style={labelBlockAboveField}>
+                    Сумма
+                  </Typography.Text>
+                  <InputNumber
+                    size="large"
+                    style={{ display: 'block', width: '100%' }}
+                    min={0}
+                    value={amount ?? undefined}
+                    onChange={(v) => setAmount(typeof v === 'number' ? v : null)}
+                  />
+                </div>
+                <div className="tg-field-block">
+                  <Typography.Text strong style={labelBlockAboveField}>
+                    Валюта
+                  </Typography.Text>
+                  <Select
+                    size="large"
+                    style={{ display: 'block', width: '100%' }}
+                    value={currency}
+                    onChange={setCurrency}
+                    options={['UZS', 'USD', 'EUR', 'RUB'].map((c) => ({ value: c, label: c }))}
+                    getPopupContainer={tgPopupContainer}
+                    popupMatchSelectWidth
+                  />
+                </div>
+                <div className="tg-field-block">
+                  <Typography.Text strong style={labelBlockAboveField}>
+                    Срочность
+                  </Typography.Text>
+                  <Select
+                    size="large"
+                    style={{ display: 'block', width: '100%' }}
+                    value={urgency}
+                    onChange={setUrgency}
+                    options={[
+                      { value: 'Низко', label: 'Низко' },
+                      { value: 'Обычно', label: 'Обычно' },
+                      { value: 'Срочно', label: 'Срочно' },
+                    ]}
+                    getPopupContainer={tgPopupContainer}
+                    popupMatchSelectWidth
+                  />
+                </div>
+                <div className="tg-field-block">
+                  <Typography.Text strong style={labelBlockAboveField}>
+                    Месяц биллинга
+                  </Typography.Text>
+                  <DatePicker
+                    size="large"
+                    picker="month"
+                    style={{ display: 'block', width: '100%' }}
+                    format="MM.YYYY"
+                    value={billingDate}
+                    onChange={(v) => setBillingDate(v ? v.startOf('month') : null)}
+                    disabledDate={(current) => !current || !isAllowedBillingMonth(current)}
+                    getPopupContainer={tgPopupContainer}
+                    inputReadOnly
+                  />
+                </div>
+              </>
+            ) : (
+              <Space wrap size={16}>
+                <div>
+                  <Typography.Text strong style={labelBlockAboveField}>
+                    Сумма
+                  </Typography.Text>
+                  <InputNumber
+                    style={{ display: 'block', width: 160 }}
+                    min={0}
+                    value={amount ?? undefined}
+                    onChange={(v) => setAmount(typeof v === 'number' ? v : null)}
+                  />
+                </div>
+                <div>
+                  <Typography.Text strong style={labelBlockAboveField}>
+                    Валюта
+                  </Typography.Text>
+                  <Select
+                    style={{ display: 'block', width: 120 }}
+                    value={currency}
+                    onChange={setCurrency}
+                    options={['UZS', 'USD', 'EUR', 'RUB'].map((c) => ({ value: c, label: c }))}
+                  />
+                </div>
+                <div>
+                  <Typography.Text strong style={labelBlockAboveField}>
+                    Срочность
+                  </Typography.Text>
+                  <Select
+                    style={{ display: 'block', width: 180 }}
+                    value={urgency}
+                    onChange={setUrgency}
+                    options={[
+                      { value: 'Низко', label: 'Низко' },
+                      { value: 'Обычно', label: 'Обычно' },
+                      { value: 'Срочно', label: 'Срочно' },
+                    ]}
+                  />
+                </div>
+                <div>
+                  <Typography.Text strong style={labelBlockAboveField}>
+                    Месяц биллинга
+                  </Typography.Text>
+                  <DatePicker
+                    picker="month"
+                    style={{ display: 'block', maxWidth: 280 }}
+                    format="MMMM YYYY"
+                    value={billingDate}
+                    onChange={(v) => setBillingDate(v ? v.startOf('month') : null)}
+                    disabledDate={(current) => !current || !isAllowedBillingMonth(current)}
+                  />
+                </div>
+              </Space>
+            )}
             {purposeOptions.length > 0 ? (
-              <div>
+              <div className={isTg ? 'tg-field-block' : undefined}>
                 <Typography.Text strong style={labelBlockAboveField}>
                   Назначение платежа
                 </Typography.Text>
                 <Select
                   placeholder="Выберите назначение"
-                  style={{ display: 'block', maxWidth: 560 }}
+                  size={isTg ? 'large' : undefined}
+                  style={{ display: 'block', width: '100%', maxWidth: isTg ? undefined : 560 }}
                   value={paymentPurpose || undefined}
                   onChange={setPaymentPurpose}
                   options={purposeOptions}
+                  getPopupContainer={isTg ? tgPopupContainer : undefined}
+                  popupMatchSelectWidth={isTg ? true : undefined}
                 />
               </div>
             ) : null}
-            <div>
+            <div className={isTg ? 'tg-field-block' : undefined}>
               <Space align="center" size="middle" wrap style={{ marginBottom: 8 }}>
                 <Typography.Text strong>Поставщик</Typography.Text>
                 <Button type="link" icon={<PlusOutlined />} onClick={() => setNewVendorOpen(true)} style={{ paddingInline: 0 }}>
@@ -437,7 +526,8 @@ export function RequestCreatePage({ requestsBasePath = '/requests' }: RequestCre
               </Space>
               <Select
                 placeholder="Поиск по названию / ИНН"
-                style={{ display: 'block', maxWidth: 560 }}
+                size={isTg ? 'large' : undefined}
+                style={{ display: 'block', width: '100%', maxWidth: isTg ? undefined : 560 }}
                 showSearch
                 filterOption={false}
                 loading={vendorSearchLoading}
@@ -446,29 +536,38 @@ export function RequestCreatePage({ requestsBasePath = '/requests' }: RequestCre
                 onSearch={onVendorSearch}
                 options={vendorOptions}
                 allowClear
+                getPopupContainer={isTg ? tgPopupContainer : undefined}
+                popupMatchSelectWidth={isTg ? true : undefined}
               />
             </div>
-            <div>
+            <div className={isTg ? 'tg-field-block' : undefined}>
               <Typography.Text strong style={labelBlockAboveField}>
                 Описание
               </Typography.Text>
-              <Input.TextArea style={{ maxWidth: 560 }} rows={3} value={description} onChange={(e) => setDescription(e.target.value)} />
+              <Input.TextArea
+                style={{ maxWidth: isTg ? undefined : 560 }}
+                rows={isTg ? 4 : 3}
+                value={description}
+                onChange={(e) => setDescription(e.target.value)}
+              />
             </div>
           </Space>
         ) : null}
 
-        <Space>
-          {step > 0 ? <Button onClick={goBack}>Назад</Button> : null}
-          {step < detailStep ? (
-            <Button type="primary" onClick={goNext} disabled={loading || formOptions.length === 0}>
-              Далее
-            </Button>
-          ) : (
-            <Button type="primary" loading={submitting} onClick={() => void submit()}>
-              Создать заявку
-            </Button>
-          )}
-        </Space>
+        {!isTg ? (
+          <Space>
+            {step > 0 ? <Button onClick={goBack}>Назад</Button> : null}
+            {step < detailStep ? (
+              <Button type="primary" onClick={goNext} disabled={loading || formOptions.length === 0}>
+                Далее
+              </Button>
+            ) : (
+              <Button type="primary" loading={submitting} onClick={() => void submit()}>
+                Создать заявку
+              </Button>
+            )}
+          </Space>
+        ) : null}
       </Space>
 
       <Modal
@@ -478,6 +577,16 @@ export function RequestCreatePage({ requestsBasePath = '/requests' }: RequestCre
         onOk={() => void saveNewVendor()}
         confirmLoading={newVendorSaving}
         okText="Сохранить"
+        centered
+        width={isTg ? 'min(calc(100vw - 24px), 400px)' : undefined}
+        styles={
+          isTg
+            ? {
+                body: { maxHeight: 'min(72dvh, 520px)', overflowY: 'auto' },
+              }
+            : undefined
+        }
+        getContainer={isTg ? () => document.body : undefined}
       >
         <Typography.Paragraph type="secondary">
           Тип: {paymentType === 'Наличные' ? 'наличные' : 'перечисление'} (по выбранному типу оплаты заявки).
@@ -497,5 +606,27 @@ export function RequestCreatePage({ requestsBasePath = '/requests' }: RequestCre
         </Form>
       </Modal>
     </Card>
+
+      {isTg ? (
+        <div className="tg-sticky-actions">
+          {step > 0 ? (
+            <Button size="large" onClick={goBack}>
+              Назад
+            </Button>
+          ) : (
+            <span style={{ width: 88, flexShrink: 0 }} aria-hidden />
+          )}
+          {step < detailStep ? (
+            <Button type="primary" size="large" onClick={goNext} disabled={loading || formOptions.length === 0}>
+              Далее
+            </Button>
+          ) : (
+            <Button type="primary" size="large" loading={submitting} onClick={() => void submit()}>
+              Создать заявку
+            </Button>
+          )}
+        </div>
+      ) : null}
+    </div>
   )
 }

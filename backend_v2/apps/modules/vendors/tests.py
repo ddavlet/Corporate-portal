@@ -8,7 +8,7 @@ from apps.tenants.models import Tenant, TenantMembership, TenantModuleConfig, Te
 User = get_user_model()
 
 
-@override_settings(BASE_DOMAIN="example.com")
+@override_settings(BASE_DOMAIN="example.com", ALLOWED_HOSTS=["*"])
 class VendorApiTests(APITestCase):
     def setUp(self):
         self.tenant = Tenant.objects.create(name="Acme", subdomain="acme", is_active=True)

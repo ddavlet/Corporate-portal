@@ -1,0 +1,331 @@
+/* Telegram Mini App: safe areas, no horizontal scroll, touch, light/dark */
+
+.tg-webapp-root {
+  --tg-divider: rgba(0, 0, 0, 0.09);
+  --tg-sticky-bg: color-mix(in srgb, var(--tg-row-bg, #fff) 92%, transparent);
+
+  width: 100%;
+  max-width: 100vw;
+  min-height: 100vh;
+  min-height: 100dvh;
+  min-height: 100svh;
+  box-sizing: border-box;
+  padding-left: max(0px, env(safe-area-inset-left));
+  padding-right: max(0px, env(safe-area-inset-right));
+  padding-top: max(0px, env(safe-area-inset-top));
+  padding-bottom: max(8px, env(safe-area-inset-bottom));
+  overflow-x: clip;
+  background: var(--tg-bg, var(--tg-secondary-bg, #eef2f6));
+  color: var(--tg-text, rgba(0, 0, 0, 0.88));
+  -webkit-tap-highlight-color: transparent;
+}
+
+html.tg-twa-dark .tg-webapp-root {
+  --tg-divider: rgba(255, 255, 255, 0.12);
+  --tg-sticky-bg: color-mix(in srgb, var(--tg-row-bg, #1e1e1e) 94%, transparent);
+}
+
+.tg-webapp-inner {
+  width: 100%;
+  max-width: min(720px, 100%);
+  margin: 0 auto;
+  padding: 10px min(16px, max(12px, env(safe-area-inset-left))) 20px
+    min(16px, max(12px, env(safe-area-inset-right)));
+  box-sizing: border-box;
+}
+
+.tg-list-search {
+  margin-bottom: 12px;
+}
+
+.tg-list-search .ant-input-affix-wrapper,
+.tg-list-search .ant-input {
+  min-height: 46px;
+  font-size: 16px;
+  border-radius: 12px;
+}
+
+.tg-request-row {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+  text-align: left;
+  padding: 14px 16px;
+  margin: 0 0 10px;
+  border: 1px solid var(--tg-divider);
+  border-radius: 14px;
+  background: var(--tg-row-bg, #fff);
+  box-shadow: none;
+  cursor: pointer;
+  color: inherit;
+  font: inherit;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.tg-request-row:active {
+  opacity: 0.92;
+  filter: brightness(0.98);
+}
+
+.tg-request-row.tg-request-row--payed-no-expense {
+  background: rgba(255, 77, 79, 0.1);
+  border-color: rgba(255, 77, 79, 0.28);
+}
+
+html.tg-twa-dark .tg-request-row.tg-request-row--payed-no-expense {
+  background: rgba(255, 99, 99, 0.14);
+  border-color: rgba(255, 120, 120, 0.35);
+}
+
+.tg-request-row-title {
+  font-weight: 600;
+  font-size: clamp(15px, 4.2vw, 17px);
+  line-height: 1.35;
+  margin: 0 0 8px;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  word-break: break-word;
+}
+
+.tg-request-row-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 10px;
+  font-size: 13px;
+  color: var(--tg-hint, rgba(0, 0, 0, 0.55));
+}
+
+.tg-request-row-meta .ant-tag {
+  margin: 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tg-request-row-amount {
+  font-weight: 600;
+  font-size: 15px;
+  color: var(--tg-text, rgba(0, 0, 0, 0.88));
+  flex: 1 1 100%;
+}
+
+@media (min-width: 360px) {
+  .tg-request-row-amount {
+    flex: 0 1 auto;
+  }
+}
+
+/* Список: на узком экране — широкая нижняя кнопка вместо «пилюли» у края */
+.tg-fab-new {
+  position: fixed;
+  z-index: 100;
+  height: 50px;
+  padding: 0 20px;
+  border: none;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  color: var(--tg-button-text, #fff);
+  background: var(--tg-button, #1677ff);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  -webkit-tap-highlight-color: transparent;
+}
+
+@media (max-width: 420px) {
+  .tg-fab-new {
+    left: max(12px, env(safe-area-inset-left));
+    right: max(12px, env(safe-area-inset-right));
+    bottom: max(14px, calc(12px + env(safe-area-inset-bottom)));
+    width: auto;
+    border-radius: 14px;
+  }
+}
+
+@media (min-width: 421px) {
+  .tg-fab-new {
+    right: max(16px, calc(16px + env(safe-area-inset-right)));
+    bottom: max(18px, calc(16px + env(safe-area-inset-bottom)));
+    left: auto;
+    border-radius: 25px;
+  }
+}
+
+.tg-fab-new:active {
+  transform: scale(0.98);
+}
+
+.tg-requests-page {
+  padding-bottom: calc(88px + env(safe-area-inset-bottom));
+}
+
+.tg-create-page,
+.tg-detail-page {
+  padding-bottom: calc(100px + env(safe-area-inset-bottom));
+}
+
+.tg-create-card.ant-card,
+.tg-detail-card.ant-card {
+  max-width: 100%;
+  border-radius: 16px;
+  border: 1px solid var(--tg-divider);
+  box-shadow: none;
+  background: var(--tg-row-bg, #fff);
+}
+
+.tg-create-card .ant-card-body,
+.tg-detail-card .ant-card-body {
+  overflow-x: clip;
+}
+
+.tg-sticky-actions {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 200;
+  display: flex;
+  align-items: stretch;
+  gap: 10px;
+  padding: 10px max(12px, env(safe-area-inset-right)) max(10px, env(safe-area-inset-bottom))
+    max(12px, env(safe-area-inset-left));
+  background: var(--tg-sticky-bg);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border-top: 1px solid var(--tg-divider);
+  box-sizing: border-box;
+}
+
+.tg-sticky-actions .ant-btn {
+  min-height: 48px;
+  border-radius: 12px;
+  font-size: 16px;
+}
+
+.tg-sticky-actions .ant-btn-primary {
+  flex: 1;
+  width: auto !important;
+}
+
+.tg-field-block {
+  margin-bottom: 18px;
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+.tg-field-block .ant-select,
+.tg-field-block .ant-picker {
+  width: 100% !important;
+  max-width: 100% !important;
+}
+
+.tg-field-block .ant-input-number {
+  width: 100% !important;
+  max-width: 100% !important;
+}
+
+.tg-field-block .ant-input-number .ant-input-number-input-wrap,
+.tg-field-block .ant-input-number .ant-input-number-input {
+  width: 100%;
+}
+
+.tg-field-block .ant-select-selector,
+.tg-field-block .ant-input,
+.tg-field-block .ant-input-number-input,
+.tg-field-block .ant-picker {
+  min-height: 48px !important;
+  border-radius: 12px !important;
+  font-size: 16px !important;
+}
+
+.tg-field-block .ant-input-number-input {
+  height: 46px !important;
+}
+
+.tg-field-block .ant-select-selection-item,
+.tg-field-block .ant-select-selection-placeholder {
+  line-height: 46px !important;
+}
+
+.tg-field-block textarea.ant-input {
+  min-height: 96px !important;
+  font-size: 16px !important;
+  line-height: 1.45;
+}
+
+.tg-steps.ant-steps-vertical {
+  padding: 4px 0 8px;
+}
+
+.tg-steps.ant-steps-vertical .ant-steps-item-title {
+  font-size: 14px;
+  line-height: 1.4;
+  padding-inline-end: 0;
+}
+
+.tg-detail-hero {
+  padding: 4px 0 16px;
+  margin-bottom: 8px;
+  border-bottom: 1px solid var(--tg-divider);
+}
+
+.tg-detail-amount {
+  font-size: clamp(1.15rem, 5vw, 1.5rem);
+  font-weight: 700;
+  margin-top: 8px;
+  letter-spacing: -0.02em;
+  word-break: break-word;
+}
+
+.tg-detail-row {
+  padding: 12px 0;
+  border-bottom: 1px solid var(--tg-divider);
+}
+
+.tg-detail-row:last-child {
+  border-bottom: none;
+}
+
+.tg-detail-label {
+  display: block;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--tg-hint, rgba(0, 0, 0, 0.45));
+  margin-bottom: 4px;
+}
+
+.tg-detail-value {
+  font-size: 15px;
+  line-height: 1.45;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+}
+
+.tg-actions-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.tg-actions-stack .ant-btn {
+  min-height: 48px;
+  border-radius: 12px;
+  font-size: 15px;
+  width: 100%;
+}
+
+/* Выпадающие Ant в WebView не обрезаем контейнером карточки */
+.ant-select-dropdown,
+.ant-picker-dropdown {
+  z-index: 3000 !important;
+}

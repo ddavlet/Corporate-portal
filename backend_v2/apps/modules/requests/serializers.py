@@ -7,15 +7,24 @@ from urllib.parse import quote
 from apps.modules.requests.models import (
     Approval,
     Request,
+    UserRequestApproval,
     RequestFormConfig,
     RequestFormPaymentTypeConfig,
     RequestFormPaymentTypeRequester,
     RequestFormPaymentTypeVendor,
     RequestPaymentPurposeConfig,
+    RequestApprovalConfig,
+    RequestApprovalPaymentTypeConfig,
+    RequestApprovalStepConfig,
+    RequestApprovalStepApproverConfig,
 )
 from apps.modules.vendors.models import Vendor
 from apps.modules.cashier.models import CashExpense
 from apps.modules.bank_expenses.models import BankExpense
+from apps.modules.payroll.constants import MODULE_KEY as PAYROLL_MODULE_KEY, SALARY_CATEGORY
+from apps.modules.payroll.models import PayrollDocument
+from apps.modules.payroll.utils import tenant_has_payroll_module_enabled
+from apps.modules.serializers_guard import reject_client_pk_on_create
 from apps.tenants.permissions import has_effective_module_access
 from apps.tenants.models import TenantMembership, TenantUserRole
 
@@ -29,11 +38,16 @@ def payment_type_to_vendor_kind(payment_type: str) -> str:
 
 
 class PortalRequestSerializer(serializers.ModelSerializer):
-    id = serializers.IntegerField(required=False)
+    id = serializers.IntegerField(read_only=True)
     expense_link = serializers.SerializerMethodField()
-    requester = serializers.PrimaryKeyRelatedField(queryset=User.objects.all(), allow_null=True)
+    # For non-admins we always derive `requester` from `request.user` in `validate()`.
+    # So `requester` must be optional at serializer level.
+    requester = serializers.PrimaryKeyRelatedField(queryset=User.objects.all(), allow_null=True, required=False)
     requester_username = serializers.SerializerMethodField()
     vendor_ref = serializers.PrimaryKeyRelatedField(queryset=Vendor.objects.all(), allow_null=True, required=False)
+    # `accounts/User` sends empty descriptions from UI/tests; model does not set `blank=True`,
+    # so we allow blank explicitly at serializer level.
+    description = serializers.CharField(allow_blank=True, required=False, default="")
 
     class Meta:
         model = Request
@@ -75,6 +89,7 @@ class PortalRequestSerializer(serializers.ModelSerializer):
             self.fields["vendor_ref"].queryset = Vendor.objects.filter(tenant=tenant)
 
     def validate(self, attrs):
+        reject_client_pk_on_create(self)
         request_obj = self.context.get("request")
         tenant = getattr(request_obj, "tenant", None)
         actor = getattr(request_obj, "user", None)
@@ -215,6 +230,29 @@ class PortalRequestSerializer(serializers.ModelSerializer):
         elif "vendor_ref" in attrs and attrs.get("vendor_ref") is None:
             attrs["vendor"] = (attrs.get("vendor") or "") if attrs.get("vendor") is not None else ""
 
+        effective_pt = attrs.get("payment_type")
+        if effective_pt is None and self.instance is not None:
+            effective_pt = self.instance.payment_type
+        effective_cat = attrs.get("category")
+        if effective_cat is None and self.instance is not None:
+            effective_cat = self.instance.category
+        expense_id_val = attrs.get("expense_id")
+        if expense_id_val is None and self.instance is not None and "expense_id" not in attrs:
+            expense_id_val = self.instance.expense_id
+        elif "expense_id" in attrs:
+            expense_id_val = attrs.get("expense_id")
+        eid = str(expense_id_val or "").strip()
+        if (
+            eid
+            and effective_pt == Request.PAYMENT_TYPE_CASH
+            and (effective_cat or "").strip() == SALARY_CATEGORY
+            and tenant_has_payroll_module_enabled(tenant)
+        ):
+            if not PayrollDocument.objects.filter(tenant=tenant, doc_id=eid).exists():
+                raise serializers.ValidationError(
+                    {"expense_id": "No payroll accrual document with this doc_id for this tenant."}
+                )
+
         return attrs
 
     def get_requester_username(self, obj):
@@ -229,14 +267,34 @@ class PortalRequestSerializer(serializers.ModelSerializer):
             return None
         raw_expense_id = str(obj.expense_id).strip()
 
-        # expense_id is stored as varchar(20) and is expected to be numeric for local modules.
         try:
             numeric_id = int(raw_expense_id)
         except (TypeError, ValueError):
             numeric_id = None
 
-        # If cash module is effectively enabled, resolve `expense_id` by PK or by external_id.
-        if has_effective_module_access(user=user, tenant=tenant, module_key="cash"):
+        pt = obj.payment_type
+
+        # Наличные + зарплатная категория + модуль начислений: связь с документом ЗП по doc_id (не касса).
+        if pt == Request.PAYMENT_TYPE_CASH and (obj.category or "").strip() == SALARY_CATEGORY:
+            if has_effective_module_access(user=user, tenant=tenant, module_key=PAYROLL_MODULE_KEY):
+                payroll_doc = PayrollDocument.objects.filter(tenant=tenant, doc_id=raw_expense_id).first()
+                if payroll_doc:
+                    rel = reverse("payroll-documents-detail", kwargs={"pk": payroll_doc.pk})
+                    url = request.build_absolute_uri(rel) if request else rel
+                    return {
+                        "module": "payroll",
+                        "expense_type": "payroll",
+                        "id": payroll_doc.pk,
+                        "doc_id": raw_expense_id,
+                        "url": url,
+                    }
+                # Не искать в кассе по тому же id — возможен ложный матч с external_id.
+                return {"module": "external", "expense_type": "unknown", "id": raw_expense_id, "url": None}
+
+        # Касса: только заявки «Наличные» (не перехватывать doc_no перечисления по совпадению id).
+        if pt == Request.PAYMENT_TYPE_CASH and has_effective_module_access(
+            user=user, tenant=tenant, module_key="cash"
+        ):
             cash_expense = CashExpense.objects.filter(tenant=tenant, external_id=raw_expense_id).first()
             if not cash_expense and numeric_id is not None:
                 cash_expense = CashExpense.objects.filter(tenant=tenant, id=numeric_id).first()
@@ -250,18 +308,39 @@ class PortalRequestSerializer(serializers.ModelSerializer):
                     "url": url,
                 }
 
-        # If cashier didn't match, try bank module (independent via module toggles).
-        if numeric_id is not None and has_effective_module_access(user=user, tenant=tenant, module_key="bank"):
-            bank_expense = BankExpense.objects.filter(tenant=tenant, id=numeric_id).first()
-            if bank_expense:
-                rel = reverse("bank-expenses-detail", kwargs={"pk": bank_expense.id})
-                url = request.build_absolute_uri(rel) if request else rel
-                return {
-                    "module": "bank",
-                    "expense_type": "bank",
-                    "id": bank_expense.id,
-                    "url": url,
-                }
+        # Банк: «Перечисление» / «Пополнение» — связь по номеру документа и году (номера обновляются ежегодно).
+        if pt in (Request.PAYMENT_TYPE_TRANSFER, Request.PAYMENT_TYPE_TOPUP) and has_effective_module_access(
+            user=user, tenant=tenant, module_key="bank"
+        ):
+            if obj.expense_year is not None:
+                bank_expense = (
+                    BankExpense.objects.filter(
+                        tenant=tenant, doc_no=raw_expense_id, expense_year=obj.expense_year
+                    )
+                    .order_by("-doc_date", "-id")
+                    .first()
+                )
+                if bank_expense:
+                    rel = reverse("bank-expenses-detail", kwargs={"pk": bank_expense.id})
+                    url = request.build_absolute_uri(rel) if request else rel
+                    return {
+                        "module": "bank",
+                        "expense_type": "bank",
+                        "id": bank_expense.id,
+                        "url": url,
+                    }
+            # Старые данные: в expense_id могли записать PK строки банка без года.
+            if numeric_id is not None:
+                bank_expense = BankExpense.objects.filter(tenant=tenant, id=numeric_id).first()
+                if bank_expense:
+                    rel = reverse("bank-expenses-detail", kwargs={"pk": bank_expense.id})
+                    url = request.build_absolute_uri(rel) if request else rel
+                    return {
+                        "module": "bank",
+                        "expense_type": "bank",
+                        "id": bank_expense.id,
+                        "url": url,
+                    }
 
         # Fallback: only return raw external id (frontend can decide how to render).
         return {"module": "external", "expense_type": "unknown", "id": raw_expense_id, "url": None}
@@ -271,14 +350,38 @@ class PortalRequestSerializer(serializers.ModelSerializer):
         file_link = data.get("file_link")
         request = self.context.get("request")
         if file_link and request:
-            gateway_rel = f"/api/files/gateway/?path={quote(str(file_link), safe='')}"
-            data["file_link"] = request.build_absolute_uri(gateway_rel)
+            raw = str(file_link).strip()
+            if not raw:
+                return data
+
+            # If the DB record already stores our backend endpoints, keep it as-is.
+            if "/api/files/gateway/" in raw or "/api/files/download/" in raw:
+                data["file_link"] = (
+                    raw
+                    if raw.startswith("http://") or raw.startswith("https://")
+                    else request.build_absolute_uri(raw)
+                )
+                return data
+
+            # Backward compatibility:
+            # - absolute URLs (from N8N) go through the gateway
+            # - storage-relative paths (we will store as `requests/<...>`) go through download
+            if raw.startswith("http://") or raw.startswith("https://"):
+                gateway_rel = f"/api/files/gateway/?path={quote(raw, safe='')}"
+                data["file_link"] = request.build_absolute_uri(gateway_rel)
+            else:
+                download_rel = f"/api/files/download/?path={quote(raw, safe='')}"
+                data["file_link"] = request.build_absolute_uri(download_rel)
         return data
 
 
 class ApprovalSerializer(serializers.ModelSerializer):
-    id = serializers.IntegerField(required=False)
+    id = serializers.IntegerField(read_only=True)
     approver_username = serializers.SerializerMethodField()
+
+    def validate(self, attrs):
+        reject_client_pk_on_create(self)
+        return attrs
 
     class Meta:
         model = Approval
@@ -292,6 +395,7 @@ class ApprovalSerializer(serializers.ModelSerializer):
             "approver_user",
             "approver_username",
             "approver_tg_id",
+            "approver_tg_from_id",
             "message_id",
             "message_sent",
         ]
@@ -313,6 +417,38 @@ class PortalRequestDetailSerializer(PortalRequestSerializer):
             return []
         queryset = Approval.objects.filter(request=obj).select_related("approver_user").order_by("step", "id")
         return ApprovalSerializer(queryset, many=True).data
+
+
+class MyApprovalsRequestSummarySerializer(serializers.ModelSerializer):
+    requester_username = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Request
+        fields = [
+            "id",
+            "title",
+            "vendor",
+            "category",
+            "amount",
+            "currency",
+            "payment_type",
+            "urgency",
+            "status",
+            "submitted_at",
+            "billing_date",
+            "requester",
+            "requester_username",
+        ]
+        read_only_fields = fields
+
+    def get_requester_username(self, obj):
+        return getattr(obj.requester, "username", None) if obj.requester_id else None
+
+
+class UserRequestApprovalStepSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = UserRequestApproval
+        fields = ["step", "step_type", "decision", "comment", "decided_at"]
 
 
 class RequestPaymentPurposeConfigItemSerializer(serializers.Serializer):
@@ -454,4 +590,67 @@ def build_request_form_config_response(*, tenant) -> dict:
         "vendor_candidates": VendorCandidateSerializer(vendor_candidates, many=True).data,
         "category_candidates": categories,
     }
+
+
+class RequestApprovalStepPayloadSerializer(serializers.Serializer):
+    step = serializers.IntegerField()
+    step_type = serializers.ChoiceField(choices=Approval.STEP_TYPE_CHOICES)
+    is_enabled = serializers.BooleanField(required=False, default=True)
+    approver_user_ids = serializers.ListField(child=serializers.IntegerField(), required=False, default=list)
+
+
+class RequestApprovalPaymentTypePayloadSerializer(serializers.Serializer):
+    payment_type = serializers.ChoiceField(choices=Request.PAYMENT_TYPE_CHOICES)
+    is_enabled = serializers.BooleanField(required=False, default=True)
+    steps = serializers.ListField(child=RequestApprovalStepPayloadSerializer(), required=False, default=list)
+
+
+class RequestApprovalConfigPayloadSerializer(serializers.Serializer):
+    payment_types = serializers.ListField(child=RequestApprovalPaymentTypePayloadSerializer())
+
+
+class ApproverCandidateSerializer(serializers.Serializer):
+    id = serializers.IntegerField()
+    username = serializers.CharField()
+
+
+def build_request_approval_config_response(*, tenant) -> dict:
+    """
+    Returns config + candidates for admin UI.
+    """
+    cfg = RequestApprovalConfig.objects.filter(tenant=tenant).first()
+
+    approver_user_ids = list(
+        TenantUserRole.objects.filter(
+            tenant=tenant,
+            role=TenantUserRole.ROLE_APPROVER,
+        ).values_list("user_id", flat=True)
+    )
+    active_approver_ids = TenantMembership.objects.filter(
+        tenant=tenant, is_active=True, user_id__in=approver_user_ids
+    ).values_list("user_id", flat=True)
+    approver_candidates_qs = User.objects.filter(id__in=active_approver_ids).order_by("username")
+
+    approver_candidates = ApproverCandidateSerializer(approver_candidates_qs, many=True).data
+
+    payment_types_rows: list[dict] = []
+    for pt_value, _ in Request.PAYMENT_TYPE_CHOICES:
+        row = {"payment_type": pt_value, "is_enabled": False, "steps": []}
+        if cfg:
+            pt_cfg = RequestApprovalPaymentTypeConfig.objects.filter(config=cfg, payment_type=pt_value).first()
+            if pt_cfg:
+                row["is_enabled"] = bool(pt_cfg.is_enabled)
+                step_qs = pt_cfg.steps.order_by("step", "id").all()
+                for step in step_qs:
+                    row["steps"].append(
+                        {
+                            "step": step.step,
+                            "step_type": step.step_type,
+                            "is_enabled": bool(step.is_enabled),
+                            "approver_user_ids": list(step.approvers.values_list("approver_user_id", flat=True)),
+                        }
+                    )
+        payment_types_rows.append(row)
+
+    return {"payment_types": payment_types_rows, "approver_candidates": approver_candidates}
 

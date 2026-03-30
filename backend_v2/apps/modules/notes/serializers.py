@@ -1,6 +1,7 @@
 from django.contrib.auth import get_user_model
 from rest_framework import serializers
 
+from apps.modules.serializers_guard import reject_client_pk_on_create
 from apps.modules.bank_expenses.models import BankExpense
 from apps.modules.cashier.models import CashExpense
 from apps.modules.notes.models import Note
@@ -49,6 +50,7 @@ class NoteSerializer(serializers.ModelSerializer):
             "recipient_full_name",
         ]
         read_only_fields = [
+            "id",
             "delivery_status",
             "delivery_error",
             "sent_at",
@@ -71,6 +73,10 @@ class NoteCreateSerializer(serializers.ModelSerializer):
     class Meta:
         model = Note
         fields = ["recipient_user", "target_type", "target_id", "message"]
+
+    def validate(self, attrs):
+        reject_client_pk_on_create(self)
+        return attrs
 
     def validate_recipient_user(self, value):
         request = self.context["request"]

@@ -18,4 +18,11 @@ export const SETTINGS_MODULES: SettingsModuleItem[] = [
     path: '/settings/request-form-config',
     icon: <FileTextOutlined />,
   },
+  {
+    key: 'requests-approvals',
+    title: 'Заявки — этапы согласования',
+    description: 'Очередность и пользователи, которые согласуют заявку.',
+    path: '/settings/request-approval-config',
+    icon: <FileTextOutlined />,
+  },
 ]

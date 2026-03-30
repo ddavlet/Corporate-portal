@@ -10,6 +10,10 @@ from django.db.models import Exists, OuterRef, Q, Subquery
 
 from apps.modules.bank_expenses.models import BankExpense, BankRevenue
 from apps.modules.bank_expenses.serializers import BankExpenseSerializer, BankRevenueSerializer
+from apps.modules.bank_expenses.tashkent_dates import (
+    TashkentFlexibleDateField,
+    doc_date_candidates_for_composite_lookup,
+)
 from apps.modules.requests.models import Request
 from apps.tenants.permissions import HasEffectiveModuleAccess
 
@@ -26,6 +30,11 @@ class BankExpenseViewSet(viewsets.ModelViewSet):
         request_subquery = Request.objects.filter(
             tenant=tenant,
             expense_id=OuterRef("doc_no"),
+            expense_year=OuterRef("expense_year"),
+            payment_type__in=(
+                Request.PAYMENT_TYPE_TRANSFER,
+                Request.PAYMENT_TYPE_TOPUP,
+            ),
         )
         paid_request_subquery = request_subquery.filter(status=Request.STATUS_PAYED)
         qs = BankExpense.objects.filter(tenant=tenant).annotate(
@@ -45,50 +54,6 @@ class BankExpenseViewSet(viewsets.ModelViewSet):
     def perform_create(self, serializer):
         serializer.save(tenant=self.request.tenant, created_by=self.request.user)
 
-    def create(self, request, *args, **kwargs):
-        tenant = getattr(request, "tenant", None)
-        if not tenant:
-            raise ValidationError({"detail": "Unknown tenant."})
-
-        incoming_id = request.data.get("id")
-        if incoming_id in (None, ""):
-            serializer = self.get_serializer(data=request.data)
-            serializer.is_valid(raise_exception=True)
-            try:
-                serializer.save(tenant=tenant, created_by=request.user)
-            except IntegrityError as exc:
-                raise ValidationError({"detail": "Could not create bank expense with this payload."}) from exc
-            headers = self.get_success_headers(serializer.data)
-            return Response(serializer.data, status=status.HTTP_201_CREATED, headers=headers)
-
-        try:
-            normalized_id = int(incoming_id)
-        except (TypeError, ValueError):
-            raise ValidationError({"id": "ID must be an integer."})
-
-        instance = BankExpense.objects.filter(tenant=tenant, id=normalized_id).first()
-        if instance:
-            # Full replace of editable fields on POST when id is provided.
-            serializer = self.get_serializer(instance=instance, data=request.data, partial=False)
-            serializer.is_valid(raise_exception=True)
-            try:
-                serializer.save()
-            except IntegrityError as exc:
-                raise ValidationError({"detail": "Could not update bank expense with this payload."}) from exc
-            return Response(serializer.data, status=status.HTTP_200_OK)
-
-        if BankExpense.objects.filter(id=normalized_id).exists():
-            raise ValidationError({"id": "This ID already exists in another tenant."})
-
-        serializer = self.get_serializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        try:
-            serializer.save(id=normalized_id, tenant=tenant, created_by=request.user)
-        except IntegrityError as exc:
-            raise ValidationError({"id": "Could not create bank expense with this ID."}) from exc
-        headers = self.get_success_headers(serializer.data)
-        return Response(serializer.data, status=status.HTTP_201_CREATED, headers=headers)
-
     @action(detail=False, methods=["post", "patch"], url_path="by-composite-key")
     def by_composite_key(self, request, *args, **kwargs):
         """
@@ -100,7 +65,7 @@ class BankExpenseViewSet(viewsets.ModelViewSet):
 
         class _CompositeKeySerializer(serializers.Serializer):
             doc_no = serializers.CharField(allow_blank=False)
-            doc_date = serializers.DateField()
+            doc_date = TashkentFlexibleDateField()
             debit_turnover = serializers.DecimalField(max_digits=18, decimal_places=2)
             payment_purpose = serializers.CharField(allow_blank=False)
 
@@ -112,13 +77,22 @@ class BankExpenseViewSet(viewsets.ModelViewSet):
         key_ser.is_valid(raise_exception=True)
         key = key_ser.validated_data
 
-        instance = BankExpense.objects.filter(
-            tenant=tenant,
-            doc_no=key["doc_no"],
-            doc_date=key["doc_date"],
-            debit_turnover=key["debit_turnover"],
-            payment_purpose=key["payment_purpose"],
-        ).first()
+        raw_doc_date = request.data.get("doc_date")
+        doc_dates = doc_date_candidates_for_composite_lookup(raw_doc_date)
+        if not doc_dates:
+            doc_dates = [key["doc_date"]]
+
+        instance = None
+        for doc_d in doc_dates:
+            instance = BankExpense.objects.filter(
+                tenant=tenant,
+                doc_no=key["doc_no"],
+                doc_date=doc_d,
+                debit_turnover=key["debit_turnover"],
+                payment_purpose=key["payment_purpose"],
+            ).first()
+            if instance:
+                break
 
         if request.method == "PATCH":
             if not instance:
