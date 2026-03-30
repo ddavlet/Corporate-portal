@@ -22,8 +22,8 @@ import {
   type RequestFormConfigPaymentTypeItem,
   type RequestFormConfigPurposeItem,
   type RequestFormConfigResponse,
-} from '../lib/api'
-import { labelBlockAboveField } from './formSpacing'
+} from '../../lib/api'
+import { labelBlockAboveField } from '../formSpacing'
 
 const PAYMENT_TYPES = ['Наличные', 'Перечисление', 'Пополнение', 'Платежная карта'] as const
 

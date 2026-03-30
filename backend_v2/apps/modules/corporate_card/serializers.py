@@ -1,11 +1,16 @@
 from rest_framework import serializers
 
+from apps.modules.serializers_guard import reject_client_pk_on_create
 from apps.modules.bank_expenses.models import BankExpense
 from apps.modules.corporate_card.models import CardExpense, CardRevenue
 from apps.tenants.permissions import has_effective_module_access
 
 
 class CardExpenseSerializer(serializers.ModelSerializer):
+    def validate(self, attrs):
+        reject_client_pk_on_create(self)
+        return attrs
+
     class Meta:
         model = CardExpense
         fields = [
@@ -57,6 +62,7 @@ class CardRevenueSerializer(serializers.ModelSerializer):
         read_only_fields = ["id", "created_at", "created_by", "bank_expense_exists"]
 
     def validate(self, attrs):
+        reject_client_pk_on_create(self)
         attrs = super().validate(attrs)
         revenue_date = attrs.get("revenue_date")
         revenue_at = attrs.get("revenue_at")

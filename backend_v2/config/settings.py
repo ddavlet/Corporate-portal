@@ -38,6 +38,8 @@ INSTALLED_APPS = [
     "apps.modules.bank_expenses",
     "apps.modules.corporate_card",
     "apps.modules.notes",
+    "apps.modules.n8n_integration",
+    "apps.modules.payroll",
 ]
 
 MIDDLEWARE = [
@@ -49,7 +51,8 @@ MIDDLEWARE = [
     "django.contrib.messages.middleware.MessageMiddleware",
     "django.middleware.clickjacking.XFrameOptionsMiddleware",
 
-    # Attaches `request.tenant` based on subdomain.
+    # n8n internal API: tenant from Host subdomain (before TenantSubdomainMiddleware).
+    "apps.modules.n8n_integration.middleware.N8nIntegrationTenantMiddleware",
     "apps.tenants.middleware.TenantSubdomainMiddleware",
 ]
 
@@ -118,6 +121,15 @@ STATIC_DIR = BASE_DIR / "static"
 STATICFILES_DIRS = [STATIC_DIR] if STATIC_DIR.exists() else []
 STATIC_ROOT = BASE_DIR / "staticfiles"
 
+#
+# User-uploaded files (served via auth-protected DRF endpoints).
+#
+MEDIA_URL = os.getenv("DJANGO_MEDIA_URL", "/media/")
+MEDIA_ROOT = BASE_DIR / os.getenv("DJANGO_MEDIA_ROOT", "media")
+
+# Keep filesystem-based storage so the download endpoint can stream files via `FileResponse`.
+DEFAULT_FILE_STORAGE = "django.core.files.storage.FileSystemStorage"
+
 
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 AUTH_USER_MODEL = "accounts.User"
@@ -132,4 +144,29 @@ REST_FRAMEWORK = {
         "rest_framework.permissions.IsAuthenticated",
     ),
 }
+
+# n8n integration API (path prefix + shared secret)
+def _normalize_n8n_url_path(raw: str) -> str:
+    """Single URL segment or multi-segment path; no leading/trailing slashes (env may use e.g. n8n/ or /n8n/)."""
+    s = (raw or "").strip().strip("/")
+    parts = [p for p in s.split("/") if p and p != "."]
+    if not parts or any(p == ".." for p in parts):
+        return "n8n"
+    return "/".join(parts)
+
+
+N8N_INTEGRATION_URL_PATH = _normalize_n8n_url_path(os.getenv("N8N_INTEGRATION_URL_PATH", "n8n"))
+N8N_INTEGRATION_URL_PREFIX = f"/api/{N8N_INTEGRATION_URL_PATH}/"
+# When env keeps a legacy path, also mount at /api/n8n/ so clients and Traefik can use one URL.
+_n8n_mount = [N8N_INTEGRATION_URL_PATH]
+if N8N_INTEGRATION_URL_PATH != "n8n":
+    _n8n_mount.append("n8n")
+N8N_INTEGRATION_MOUNT_PATHS = list(dict.fromkeys(_n8n_mount))
+N8N_INTEGRATION_URL_PREFIXES = frozenset(
+    f"/api/{seg}".rstrip("/") for seg in N8N_INTEGRATION_MOUNT_PATHS
+)
+N8N_INTEGRATION_TOKEN = os.getenv("N8N_INTEGRATION_TOKEN", "").strip()
+
+# Outbound authorization token for calling n8n webhooks (X-N8N-Token header).
+N8N_TOKEN = os.getenv("N8N_TOKEN", "").strip()
 

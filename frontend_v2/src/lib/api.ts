@@ -41,10 +41,12 @@ export function setTgTokens(tokens: Tokens | null) {
 }
 
 function getTokens(): Tokens | null {
+  const tg = readTgTokens()
+  const portal = readPortalTokens()
   if (pathIsTgWebApp()) {
-    return readTgTokens()
+    return tg ?? portal
   }
-  return readPortalTokens()
+  return portal ?? tg
 }
 
 function setTokens(tokens: Tokens | null) {
@@ -85,17 +87,26 @@ export async function apiFetch(input: string, init: RequestInit = {}) {
     const newAccess = await refreshAccess(tokens.refresh)
     if (newAccess) {
       const next = { access: newAccess, refresh: tokens.refresh }
-      if (pathIsTgWebApp()) setTgTokens(next)
-      else setTokens(next)
+      if (readTgTokens()?.refresh === tokens.refresh) setTgTokens(next)
+      if (readPortalTokens()?.refresh === tokens.refresh) setTokens(next)
       headers.set('Authorization', `Bearer ${newAccess}`)
       res = await doFetch()
     } else {
-      if (pathIsTgWebApp()) setTgTokens(null)
-      else setTokens(null)
+      if (readTgTokens()?.refresh === tokens.refresh) setTgTokens(null)
+      if (readPortalTokens()?.refresh === tokens.refresh) setTokens(null)
     }
   }
 
   return res
+}
+
+/** Повторная отправка заявки (endpoint на том же origin, например n8n за прокси). */
+export async function triggerResendRequest(requestId: number): Promise<{ ok: boolean; message: string }> {
+  const url = new URL('/resend_request', window.location.origin)
+  url.searchParams.set('request_id', String(requestId))
+  const res = await fetch(url.toString(), { method: 'GET' })
+  const text = await res.text().catch(() => '')
+  return { ok: res.ok, message: text || `HTTP ${res.status}` }
 }
 
 export type CorporateCardExpense = {
@@ -309,6 +320,59 @@ export async function updateRequestFormConfig(payload: RequestFormConfigUpdatePa
   return json
 }
 
+export type RequestApprovalConfigStepItem = {
+  step: number
+  step_type: string
+  is_enabled: boolean
+  approver_user_ids: number[]
+}
+
+export type RequestApprovalConfigPaymentTypeItem = {
+  payment_type: string
+  is_enabled: boolean
+  steps: RequestApprovalConfigStepItem[]
+}
+
+export type RequestApprovalConfigResponse = {
+  payment_types: RequestApprovalConfigPaymentTypeItem[]
+  approver_candidates: Array<{ id: number; username: string }>
+}
+
+export type RequestApprovalConfigUpdatePayload = {
+  payment_types: Array<{
+    payment_type: string
+    is_enabled: boolean
+    steps: Array<{
+      step: number
+      step_type: string
+      is_enabled: boolean
+      approver_user_ids: number[]
+    }>
+  }>
+}
+
+export async function getRequestApprovalConfig(): Promise<RequestApprovalConfigResponse> {
+  const res = await apiFetch('/api/requests/approval-config/')
+  if (!res.ok) throw new Error(await parseErrorBody(res))
+  const json = (await res.json().catch(() => null)) as RequestApprovalConfigResponse | null
+  if (!json) throw new Error('Empty response')
+  return json
+}
+
+export async function updateRequestApprovalConfig(
+  payload: RequestApprovalConfigUpdatePayload,
+): Promise<RequestApprovalConfigResponse> {
+  const res = await apiFetch('/api/requests/approval-config/', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+  if (!res.ok) throw new Error(await parseErrorBody(res))
+  const json = (await res.json().catch(() => null)) as RequestApprovalConfigResponse | null
+  if (!json) throw new Error('Empty response')
+  return json
+}
+
 export type RequestFormOptionsRequester = {
   id: number
   username: string
@@ -394,19 +458,35 @@ export async function createVendor(body: CreateVendorBody): Promise<VendorDirect
   return json
 }
 
-export type CreateRequestUpsertResponse = {
-  action: string
-  request: Record<string, unknown>
+/** Response from POST /api/requests/ (create). */
+export interface CreatedPortalRequest {
+  id: number
 }
 
-export async function createRequestViaUpsert(body: Record<string, unknown>): Promise<CreateRequestUpsertResponse> {
-  const res = await apiFetch('/api/requests/upsert/', {
+/** Body for POST /api/requests/ (portal create). */
+export interface PortalRequestCreateBody {
+  title: string
+  description: string
+  amount: number
+  currency: string
+  payment_type: string
+  urgency: string
+  billing_date: string
+  status: string
+  requester?: number
+  payment_purpose?: string
+  vendor_ref?: number
+}
+
+/** Insert a new request only (POST create). No update. */
+export async function createPortalRequest(body: PortalRequestCreateBody): Promise<CreatedPortalRequest> {
+  const res = await apiFetch('/api/requests/', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   })
   if (!res.ok) throw new Error(await parseErrorBody(res))
-  const json = (await res.json().catch(() => null)) as CreateRequestUpsertResponse | null
+  const json = (await res.json().catch(() => null)) as CreatedPortalRequest | null
   if (!json) throw new Error('Empty response')
   return json
 }

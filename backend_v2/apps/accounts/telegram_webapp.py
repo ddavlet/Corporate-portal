@@ -43,27 +43,35 @@ def validate_webapp_init_data(
         flat[k] = v
 
     received_hash = flat.pop("hash", None)
-    flat.pop("signature", None)  # third-party / Ed25519 flow; not used for hash check
-
     if not received_hash:
         raise TelegramWebAppDataError("missing hash")
 
-    data_check_string = "\n".join(f"{k}={flat[k]}" for k in sorted(flat.keys()))
+    # Новые клиенты добавляют `signature` (Ed25519). Для поля `hash` (HMAC) встречаются оба варианта:
+    # — data-check-string без `signature` (классика);
+    # — со всеми полями кроме `hash`, включая `signature` (как @tma.js/init-data-node).
+    without_sig = {k: v for k, v in flat.items() if k != "signature"}
+
+    def _data_check(fields: dict[str, str]) -> str:
+        return "\n".join(f"{k}={fields[k]}" for k in sorted(fields.keys()))
+
     secret_key = hmac.new(
         b"WebAppData",
         token.encode("utf-8"),
         hashlib.sha256,
     ).digest()
-    calculated_hash = hmac.new(
-        secret_key,
-        data_check_string.encode("utf-8"),
-        hashlib.sha256,
-    ).hexdigest()
 
-    if not hmac.compare_digest(calculated_hash, received_hash):
+    def _hex_hmac(data_check: str) -> str:
+        return hmac.new(secret_key, data_check.encode("utf-8"), hashlib.sha256).hexdigest()
+
+    h_no_sig = _hex_hmac(_data_check(without_sig))
+    h_with_sig = _hex_hmac(_data_check(flat))
+    if not (
+        hmac.compare_digest(h_no_sig, received_hash)
+        or hmac.compare_digest(h_with_sig, received_hash)
+    ):
         raise TelegramWebAppDataError("invalid init_data signature")
 
-    auth_raw = flat.get("auth_date")
+    auth_raw = without_sig.get("auth_date")
     if not auth_raw:
         raise TelegramWebAppDataError("missing auth_date")
     try:
@@ -73,10 +81,10 @@ def validate_webapp_init_data(
     if auth_ts <= 0 or (time.time() - auth_ts) > max_age_seconds:
         raise TelegramWebAppDataError("auth_date expired or invalid")
 
-    if "user" not in flat:
+    if "user" not in without_sig:
         raise TelegramWebAppDataError("missing user")
 
-    return flat
+    return without_sig
 
 
 def parse_telegram_user_json(user_field: str) -> dict[str, Any]:

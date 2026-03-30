@@ -100,8 +100,8 @@ class Request(models.Model):
 
     payed_at = models.IntegerField(null=True, blank=True)
 
-    # Polymorphic string id pointing to expenses modules (cash/bank) or external systems.
-    expense_id = models.CharField(max_length=20, null=True, blank=True)
+    # Polymorphic: cash/bank doc ids, payroll doc_id (text), or external refs (up to 200 chars).
+    expense_id = models.CharField(max_length=200, null=True, blank=True)
     file_link = models.TextField(null=True, blank=True)
 
     expense_year = models.IntegerField(null=True, blank=True)
@@ -138,6 +138,8 @@ class Approval(models.Model):
         related_name="request_approvals",
     )
     approver_tg_id = models.BigIntegerField(null=True, blank=True)
+    # telegram_from_id is an alternative Telegram identifier (used by webapp/OTP flows).
+    approver_tg_from_id = models.BigIntegerField(null=True, blank=True)
     message_id = models.BigIntegerField(null=True, blank=True)
     message_sent = models.BooleanField(default=False)
     step = models.IntegerField(default=1)
@@ -158,6 +160,8 @@ class Approval(models.Model):
             models.Index(fields=["request"], name="approvals_request_id_idx"),
             models.Index(fields=["decision"], name="approvals_decision_idx"),
             models.Index(fields=["approver_tg_id"], name="approvals_approver_tg_id_idx"),
+            # Postgres index name must be <= 30 chars.
+            models.Index(fields=["approver_tg_from_id"], name="approvals_tg_from_idx"),
             models.Index(fields=["message_sent"], name="approvals_message_sent_idx"),
         ]
 
@@ -289,3 +293,109 @@ class RequestPaymentPurposeConfig(models.Model):
             models.Index(fields=["payment_type_config"], name="req_form_purpose_cfg_idx"),
             models.Index(fields=["is_active"], name="req_form_purpose_active_idx"),
         ]
+
+
+class RequestApprovalConfig(models.Model):
+    """
+    Tenant-level configuration of request approvals.
+
+    Design goal:
+    - config depends only on `Request.payment_type`
+    - approval steps depend on config and contain explicit approver user list
+    """
+
+    tenant = models.OneToOneField(Tenant, on_delete=models.CASCADE, related_name="request_approval_config")
+    updated_at = models.DateTimeField(auto_now=True)
+    updated_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="updated_request_approval_configs",
+        null=True,
+        blank=True,
+    )
+
+    class Meta:
+        db_table = "request_approval_configs"
+
+
+class RequestApprovalPaymentTypeConfig(models.Model):
+    config = models.ForeignKey(RequestApprovalConfig, on_delete=models.CASCADE, related_name="payment_types")
+    payment_type = models.CharField(max_length=50, choices=Request.PAYMENT_TYPE_CHOICES)
+    is_enabled = models.BooleanField(default=True)
+
+    class Meta:
+        db_table = "request_approval_payment_type_configs"
+        constraints = [
+            models.UniqueConstraint(fields=["config", "payment_type"], name="req_appr_pt_cfg_uniq"),
+        ]
+        indexes = [
+            models.Index(fields=["config", "payment_type"], name="req_appr_pt_cfg_idx"),
+            models.Index(fields=["is_enabled"], name="req_appr_pt_enabled_idx"),
+        ]
+
+
+class RequestApprovalStepConfig(models.Model):
+    payment_type_config = models.ForeignKey(
+        RequestApprovalPaymentTypeConfig, on_delete=models.CASCADE, related_name="steps"
+    )
+    step = models.IntegerField()
+    step_type = models.CharField(max_length=10, choices=Approval.STEP_TYPE_CHOICES, default=Approval.STEP_TYPE_SERIAL)
+    is_enabled = models.BooleanField(default=True)
+
+    class Meta:
+        db_table = "request_approval_step_configs"
+        constraints = [
+            models.UniqueConstraint(fields=["payment_type_config", "step"], name="req_appr_step_uniq"),
+        ]
+        indexes = [
+            models.Index(fields=["payment_type_config", "step"], name="req_appr_step_idx"),
+            models.Index(fields=["payment_type_config"], name="req_appr_steps_by_pt_idx"),
+        ]
+
+
+class RequestApprovalStepApproverConfig(models.Model):
+    step_config = models.ForeignKey(RequestApprovalStepConfig, on_delete=models.CASCADE, related_name="approvers")
+    approver_user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="request_approval_step_approver_configs",
+    )
+
+    class Meta:
+        db_table = "request_approval_step_approver_configs"
+        constraints = [
+            models.UniqueConstraint(fields=["step_config", "approver_user"], name="req_appr_step_approver_uniq"),
+        ]
+        indexes = [
+            models.Index(fields=["step_config"], name="req_appr_step_approvers_idx"),
+        ]
+
+
+class UserRequestApproval(models.Model):
+    """
+    Inbox model for current approver.
+
+    Implementation detail:
+    - It maps to the same DB table as `Approval` (`db_table="approvals"`),
+      so there is no duplicated projection table.
+    """
+
+    request = models.ForeignKey(Request, on_delete=models.CASCADE, related_name="user_request_approvals")
+    approver_user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="user_request_approvals",
+    )
+    approver_tg_id = models.BigIntegerField(null=True, blank=True)
+    approver_tg_from_id = models.BigIntegerField(null=True, blank=True)
+    message_id = models.BigIntegerField(null=True, blank=True)
+    message_sent = models.BooleanField(default=False)
+    step = models.IntegerField(default=1)
+    step_type = models.CharField(max_length=10, default=Approval.STEP_TYPE_SERIAL, choices=Approval.STEP_TYPE_CHOICES)
+    decision = models.CharField(max_length=12, default=Approval.DECISION_PENDING, choices=Approval.DECISION_CHOICES)
+    comment = models.TextField(null=True, blank=True)
+    decided_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        db_table = "approvals"
+        managed = False

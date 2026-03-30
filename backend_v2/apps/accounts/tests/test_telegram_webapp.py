@@ -27,6 +27,23 @@ def _signed_init_data(*, bot_token: str, user_id: int, auth_date: int | None = N
     return urlencode(fields)
 
 
+def _signed_init_data_with_signature_field(*, bot_token: str, user_id: int, auth_date: int | None = None) -> str:
+    """initData как у новых клиентов: есть `signature`, а HMAC `hash` считается по всем полям кроме hash."""
+    if auth_date is None:
+        auth_date = int(time.time())
+    user_json = json.dumps({"id": user_id, "first_name": "Test"})
+    fields = {
+        "auth_date": str(auth_date),
+        "user": user_json,
+        "signature": "dGVzdC1zaWduYXR1cmU",
+    }
+    data_check_string = "\n".join(f"{k}={fields[k]}" for k in sorted(fields.keys()))
+    secret_key = hmac.new(b"WebAppData", bot_token.encode("utf-8"), hashlib.sha256).digest()
+    sig_hash = hmac.new(secret_key, data_check_string.encode("utf-8"), hashlib.sha256).hexdigest()
+    fields["hash"] = sig_hash
+    return urlencode(fields)
+
+
 class ValidateWebappInitDataTests(TestCase):
     def test_valid_round_trip(self):
         token = "123456:ABC-DEF_fake_token_for_tests"
@@ -43,6 +60,13 @@ class ValidateWebappInitDataTests(TestCase):
         with self.assertRaises(TelegramWebAppDataError):
             validate_webapp_init_data(init, "other_token")
 
+    def test_valid_when_hash_includes_signature_field(self):
+        token = "123456:ABC-DEF_fake_token_for_tests"
+        init = _signed_init_data_with_signature_field(bot_token=token, user_id=999002)
+        flat = validate_webapp_init_data(init, token)
+        self.assertNotIn("signature", flat)
+        self.assertEqual(json.loads(flat["user"])["id"], 999002)
+
     def test_expired_auth_date(self):
         token = "123456:ABC-DEF_fake_token_for_tests"
         old = int(time.time()) - 200_000
@@ -51,7 +75,7 @@ class ValidateWebappInitDataTests(TestCase):
             validate_webapp_init_data(init, token, max_age_seconds=86400)
 
 
-@override_settings(BASE_DOMAIN="example.com")
+@override_settings(BASE_DOMAIN="example.com", ALLOWED_HOSTS=["*"])
 class TelegramWebAppAuthViewTests(APITestCase):
     def setUp(self):
         self.tenant = Tenant.objects.create(name="Acme", subdomain="acme", is_active=True)

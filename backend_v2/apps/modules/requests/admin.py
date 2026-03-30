@@ -1,7 +1,15 @@
 from django.contrib import admin
 from django import forms
 
-from apps.modules.requests.models import Approval, Request
+from apps.modules.requests.models import (
+    Approval,
+    Request,
+    RequestApprovalConfig,
+    RequestApprovalPaymentTypeConfig,
+    RequestApprovalStepConfig,
+    RequestApprovalStepApproverConfig,
+    UserRequestApproval,
+)
 from apps.tenants.models import TenantUserRole
 
 
@@ -59,4 +67,52 @@ class ApprovalAdmin(admin.ModelAdmin):
     )
     list_filter = ("decision", "step_type", "message_sent")
     search_fields = ("request__id", "approver_user__username", "comment")
+
+
+class RequestApprovalStepApproverConfigInline(admin.TabularInline):
+    model = RequestApprovalStepApproverConfig
+    extra = 0
+
+
+class RequestApprovalStepConfigInline(admin.TabularInline):
+    model = RequestApprovalStepConfig
+    extra = 0
+    inlines = [RequestApprovalStepApproverConfigInline]
+
+
+class RequestApprovalPaymentTypeConfigInline(admin.TabularInline):
+    model = RequestApprovalPaymentTypeConfig
+    extra = 0
+    inlines = [RequestApprovalStepConfigInline]
+
+
+@admin.register(RequestApprovalConfig)
+class RequestApprovalConfigAdmin(admin.ModelAdmin):
+    list_display = ("id", "tenant", "updated_at", "updated_by")
+    search_fields = ("tenant__subdomain",)
+    inlines = [RequestApprovalPaymentTypeConfigInline]
+
+
+@admin.register(UserRequestApproval)
+class UserRequestApprovalAdmin(admin.ModelAdmin):
+    list_display = (
+        "id",
+        "approver_user",
+        "request",
+        "step",
+        "step_type",
+        "decision",
+        "decided_at",
+    )
+    list_filter = ("decision", "step_type", "step")
+    search_fields = ("approver_user__username", "request__id")
+
+    def has_add_permission(self, request, obj=None):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
 

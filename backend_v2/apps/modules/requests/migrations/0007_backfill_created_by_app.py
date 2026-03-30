@@ -3,10 +3,17 @@ from django.db import migrations
 
 def _get_or_create_app_user(apps):
     User = apps.get_model("accounts", "User")
+    # `accounts.User` historically used `name`, but now it uses `full_name`.
+    # In migration execution state can include later renames, so detect dynamically.
+    field_names = {f.name for f in User._meta.fields}
+    name_field = "name" if "name" in field_names else ("full_name" if "full_name" in field_names else None)
+    if not name_field:
+        raise RuntimeError("accounts.User must have either 'name' or 'full_name' field.")
+
     user, created = User.objects.get_or_create(
         username="app",
         defaults={
-            "name": "Система",
+            name_field: "Система",
             # In migrations we cannot call User methods (historical model). Use unusable password marker.
             "password": "!",
             "is_active": True,
@@ -14,9 +21,10 @@ def _get_or_create_app_user(apps):
             "is_superuser": False,
         },
     )
-    if user.name != "Система":
-        user.name = "Система"
-        user.save(update_fields=["name"])
+    current_name = getattr(user, name_field, None)
+    if current_name != "Система":
+        setattr(user, name_field, "Система")
+        user.save(update_fields=[name_field])
     if created:
         # Ensure unusable password even if model default differs.
         User.objects.filter(pk=user.pk).update(password="!")

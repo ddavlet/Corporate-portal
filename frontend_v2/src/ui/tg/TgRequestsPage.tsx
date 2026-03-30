@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Alert, Button, Card, Input, Skeleton, Space, Table, Tag, Typography } from 'antd'
-import type { ColumnsType } from 'antd/es/table'
+import { Alert, Input, Skeleton, Tag, Typography } from 'antd'
 import { useNavigate } from 'react-router-dom'
-import { FileAddOutlined } from '@ant-design/icons'
+import { FileAddOutlined, SearchOutlined } from '@ant-design/icons'
 import { apiFetch } from '../../lib/api'
+import { isPayedMissingLinkedExpense, type RequestExpenseLink } from '../../lib/requestExpense'
 
 type RequestRow = {
   id: number
@@ -14,6 +14,7 @@ type RequestRow = {
   urgency: string
   payment_type: string
   billing_date: string
+  expense_link?: RequestExpenseLink
 }
 
 function normalizeRows(payload: unknown): RequestRow[] {
@@ -33,10 +34,18 @@ const dateFormatter = new Intl.DateTimeFormat('ru-RU', {
 })
 
 function formatDate(value?: string | null): string {
-  if (!value) return '-'
+  if (!value) return '—'
   const d = new Date(value)
-  if (Number.isNaN(d.getTime())) return '-'
+  if (Number.isNaN(d.getTime())) return '—'
   return dateFormatter.format(d)
+}
+
+function statusTone(status: string): string | undefined {
+  const u = String(status || '').toUpperCase()
+  if (u === 'DRAFT') return 'default'
+  if (u === 'REJECTED') return 'red'
+  if (u === 'APPROVED' || u === 'PAYED') return 'green'
+  return 'blue'
 }
 
 export function TgRequestsPage() {
@@ -75,52 +84,59 @@ export function TgRequestsPage() {
     return rows.filter((r) => `${r.title} ${r.status} ${r.payment_type}`.toLowerCase().includes(q))
   }, [rows, search])
 
-  const columns: ColumnsType<RequestRow> = [
-    { title: 'ID', dataIndex: 'id', width: 72 },
-    { title: 'Название', dataIndex: 'title', ellipsis: true },
-    {
-      title: 'Сумма',
-      dataIndex: 'amount',
-      width: 120,
-      render: (_, r) => `${Number(r.amount).toLocaleString('ru-RU')} ${r.currency || ''}`.trim(),
-    },
-    {
-      title: 'Статус',
-      dataIndex: 'status',
-      width: 100,
-      render: (v: string) => <Tag>{v}</Tag>,
-    },
-    { title: 'Биллинг', dataIndex: 'billing_date', width: 110, render: (v: string) => formatDate(v) },
-  ]
-
   return (
-    <Card styles={{ body: { padding: 12 } }}>
-      <Space direction="vertical" size="middle" style={{ display: 'flex' }}>
-        <Space align="center" style={{ justifyContent: 'space-between', width: '100%', flexWrap: 'wrap' }}>
-          <Typography.Title level={5} style={{ margin: 0 }}>
-            Заявки
-          </Typography.Title>
-          <Button type="primary" size="small" icon={<FileAddOutlined />} onClick={() => navigate('/tg/requests/new')}>
-            Новая
-          </Button>
-        </Space>
-        <Input placeholder="Поиск по названию, статусу, типу оплаты" value={search} onChange={(e) => setSearch(e.target.value)} allowClear />
-        {error ? <Alert type="error" showIcon message={error} /> : null}
-        {loading ? <Skeleton active /> : null}
-        {!loading && !error ? (
-          <Table<RequestRow>
-            rowKey="id"
-            size="small"
-            columns={columns}
-            dataSource={filtered}
-            pagination={{ pageSize: 15, showSizeChanger: true, pageSizeOptions: [15, 30, 50] }}
-            onRow={(record) => ({
-              onClick: () => navigate(`/tg/requests/${record.id}`),
-              style: { cursor: 'pointer' },
-            })}
-          />
-        ) : null}
-      </Space>
-    </Card>
+    <div className="tg-requests-page">
+      <Typography.Title level={4} style={{ margin: '0 0 16px', fontWeight: 700 }}>
+        Заявки
+      </Typography.Title>
+
+      <div className="tg-list-search">
+        <Input
+          size="large"
+          placeholder="Поиск…"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          allowClear
+          prefix={<SearchOutlined style={{ color: 'var(--tg-hint, #999)' }} />}
+        />
+      </div>
+
+      {error ? (
+        <Alert type="error" showIcon message={error} style={{ marginBottom: 12, borderRadius: 12 }} />
+      ) : null}
+      {loading ? <Skeleton active paragraph={{ rows: 6 }} /> : null}
+
+      {!loading && !error && filtered.length === 0 ? (
+        <Typography.Paragraph type="secondary" style={{ textAlign: 'center', padding: '24px 8px' }}>
+          {rows.length === 0 ? 'Пока нет заявок.' : 'Ничего не найдено.'}
+        </Typography.Paragraph>
+      ) : null}
+
+      {!loading && !error
+        ? filtered.map((r) => (
+            <button
+              key={r.id}
+              type="button"
+              className={`tg-request-row${isPayedMissingLinkedExpense(r) ? ' tg-request-row--payed-no-expense' : ''}`}
+              onClick={() => navigate(`/tg/requests/${r.id}`)}
+            >
+              <div className="tg-request-row-title">{r.title || `Заявка #${r.id}`}</div>
+              <div className="tg-request-row-meta">
+                <span className="tg-request-row-amount">
+                  {Number(r.amount).toLocaleString('ru-RU')} {r.currency || ''}
+                </span>
+                <Tag color={statusTone(r.status)}>{r.status}</Tag>
+                <span>{r.payment_type}</span>
+                <span>Биллинг {formatDate(r.billing_date)}</span>
+              </div>
+            </button>
+          ))
+        : null}
+
+      <button type="button" className="tg-fab-new" onClick={() => navigate('/tg/requests/new')}>
+        <FileAddOutlined style={{ marginRight: 8 }} />
+        Новая заявка
+      </button>
+    </div>
   )
 }

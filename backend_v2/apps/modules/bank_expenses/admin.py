@@ -12,6 +12,9 @@ class BankExpenseAdmin(admin.ModelAdmin):
         "created_by",
         "doc_date",
         "process_date",
+        "expense_year",
+        "expense_month",
+        "expense_day",
         "doc_no",
         "account_name",
         "inn",
@@ -25,6 +28,10 @@ class BankExpenseAdmin(admin.ModelAdmin):
     def save_model(self, request, obj, form, change):
         if not obj.created_by_id:
             obj.created_by = request.user
+        d = obj.doc_date
+        obj.expense_year = d.year
+        obj.expense_month = d.month
+        obj.expense_day = d.day
         super().save_model(request, obj, form, change)
 
 

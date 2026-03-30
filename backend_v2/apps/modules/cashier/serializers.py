@@ -1,6 +1,7 @@
 from collections.abc import Mapping
 from rest_framework import serializers
 
+from apps.modules.serializers_guard import reject_client_pk_on_create
 from apps.modules.cashier.models import CashExpense, CashRevenue
 from apps.modules.vendors.models import Vendor
 
@@ -52,6 +53,7 @@ class CashExpenseSerializer(serializers.ModelSerializer):
         return super().to_internal_value(data)
 
     def validate(self, attrs):
+        reject_client_pk_on_create(self)
         attrs = super().validate(attrs)
 
         vendor = attrs.get("vendor")
@@ -82,7 +84,11 @@ class CashExpenseSerializer(serializers.ModelSerializer):
 
 
 class CashRevenueSerializer(serializers.ModelSerializer):
-    id = serializers.IntegerField(required=False)
+    id = serializers.IntegerField(read_only=True)
+
+    def validate(self, attrs):
+        reject_client_pk_on_create(self)
+        return attrs
 
     class Meta:
         model = CashRevenue

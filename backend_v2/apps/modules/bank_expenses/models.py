@@ -16,6 +16,9 @@ class BankExpense(models.Model):
     row_no = models.IntegerField()
     doc_date = models.DateField()
     process_date = models.DateField()
+    expense_year = models.PositiveIntegerField()
+    expense_month = models.PositiveSmallIntegerField()
+    expense_day = models.PositiveSmallIntegerField()
 
     doc_no = models.CharField(max_length=50)
     account_name = models.CharField(max_length=255)

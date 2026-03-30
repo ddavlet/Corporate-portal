@@ -9,6 +9,7 @@ import {
   FileTextOutlined,
   LogoutOutlined,
   SettingOutlined,
+  TeamOutlined,
 } from '@ant-design/icons'
 import { useAuth } from './auth'
 
@@ -29,6 +30,7 @@ export function AppShell() {
           { path: '/cash', name: 'Касса', icon: <DollarOutlined /> },
           { path: '/bank', name: 'Банк', icon: <BankOutlined /> },
           { path: '/corporate-card', name: 'Корпоративная карта', icon: <CreditCardOutlined /> },
+          { path: '/payroll', name: 'Начисления ЗП', icon: <TeamOutlined /> },
           { path: '/settings', name: 'Настройки', icon: <SettingOutlined /> },
         ],
       }}
