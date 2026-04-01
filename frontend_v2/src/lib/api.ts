@@ -2,6 +2,7 @@ type Tokens = { access: string; refresh: string }
 
 const STORAGE_KEY = 'kolberg_v2_tokens'
 const TG_STORAGE_KEY = 'kolberg_v2_tg_tokens'
+let unauthorizedHandler: (() => void) | null = null
 
 function pathIsTgWebApp(): boolean {
   if (typeof window === 'undefined') return false
@@ -38,6 +39,10 @@ export function setTgTokens(tokens: Tokens | null) {
     return
   }
   sessionStorage.setItem(TG_STORAGE_KEY, JSON.stringify(tokens))
+}
+
+export function setUnauthorizedHandler(handler: (() => void) | null) {
+  unauthorizedHandler = handler
 }
 
 function getTokens(): Tokens | null {
@@ -97,16 +102,85 @@ export async function apiFetch(input: string, init: RequestInit = {}) {
     }
   }
 
+  if ((res.status === 401 || res.status === 403) && tokens?.access) {
+    if (readTgTokens()?.refresh === tokens.refresh) setTgTokens(null)
+    if (readPortalTokens()?.refresh === tokens.refresh) setTokens(null)
+    unauthorizedHandler?.()
+  }
+
   return res
 }
 
-/** Повторная отправка заявки (endpoint на том же origin, например n8n за прокси). */
-export async function triggerResendRequest(requestId: number): Promise<{ ok: boolean; message: string }> {
-  const url = new URL('/resend_request', window.location.origin)
-  url.searchParams.set('request_id', String(requestId))
-  const res = await fetch(url.toString(), { method: 'GET' })
-  const text = await res.text().catch(() => '')
-  return { ok: res.ok, message: text || `HTTP ${res.status}` }
+export async function resendRequestApprovals(requestId: number): Promise<{ resent: number; pendingCurrentStep: number }> {
+  const res = await apiFetch(`/api/requests/${requestId}/approvals/resend/`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({}),
+  })
+  if (!res.ok) throw new Error(await parseErrorBody(res))
+  const json = (await res.json().catch(() => null)) as { resent?: number; pending_current_step?: number } | null
+  return {
+    resent: Number(json?.resent ?? 0),
+    pendingCurrentStep: Number(json?.pending_current_step ?? 0),
+  }
+}
+
+export type TenantIntegrationConfigResponse = {
+  telegram_bot_token: string
+  telegram_approvals_bridge_dispatch_url: string
+  telegram_approvals_send_action: string
+  telegram_approvals_edit_action: string
+  telegram_approvals_message_template: string
+  telegram_approvals_header_new_template: string
+  telegram_approvals_header_step_approved_template: string
+  telegram_approvals_header_fully_approved_template: string
+  telegram_approvals_header_closed_template: string
+  telegram_approvals_header_rejected_template: string
+  telegram_approvals_subheader_payment_responsible_template: string
+  telegram_approvals_subheader_rejected_by_template: string
+  telegram_approvals_bridge_token: string
+  n8n_integration_token: string
+  requests_file_gateway_token: string
+}
+
+export type TenantIntegrationConfigUpdatePayload = Partial<{
+  telegram_bot_token: string
+  telegram_approvals_bridge_dispatch_url: string
+  telegram_approvals_send_action: string
+  telegram_approvals_edit_action: string
+  telegram_approvals_message_template: string
+  telegram_approvals_header_new_template: string
+  telegram_approvals_header_step_approved_template: string
+  telegram_approvals_header_fully_approved_template: string
+  telegram_approvals_header_closed_template: string
+  telegram_approvals_header_rejected_template: string
+  telegram_approvals_subheader_payment_responsible_template: string
+  telegram_approvals_subheader_rejected_by_template: string
+  telegram_approvals_bridge_token: string
+  n8n_integration_token: string
+  requests_file_gateway_token: string
+}>
+
+export async function getTenantIntegrationConfig(): Promise<TenantIntegrationConfigResponse> {
+  const res = await apiFetch('/api/tenant-integration-config/')
+  if (!res.ok) throw new Error(await parseErrorBody(res))
+  const json = (await res.json().catch(() => null)) as TenantIntegrationConfigResponse | null
+  if (!json) throw new Error('Empty response')
+  return json
+}
+
+export async function updateTenantIntegrationConfig(
+  payload: TenantIntegrationConfigUpdatePayload,
+): Promise<TenantIntegrationConfigResponse> {
+  const res = await apiFetch('/api/tenant-integration-config/', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+  if (!res.ok) throw new Error(await parseErrorBody(res))
+  const json = (await res.json().catch(() => null)) as TenantIntegrationConfigResponse | null
+  if (!json) throw new Error('Empty response')
+  return json
 }
 
 export type CorporateCardExpense = {
@@ -252,6 +326,49 @@ export type RequestFormConfigCandidateVendor = {
   account_number?: string | null
 }
 
+export type AutoRequestTemplateItem = {
+  id?: number
+  is_enabled: boolean
+  name: string
+  payment_type: string
+  day_of_month: number
+  title_template: string
+  description_template: string
+  company_payer: string
+  amount: string | null
+  currency: string
+  urgency: string
+  payment_purpose: string
+  vendor_ref_id: number | null
+  requester_id: number
+  last_run_month?: string | null
+}
+
+export type AutoRequestConfigResponse = {
+  templates: AutoRequestTemplateItem[]
+  requester_candidates: RequestFormConfigCandidateUser[]
+  vendor_candidates: RequestFormConfigCandidateVendor[]
+}
+
+export type AutoRequestConfigUpdatePayload = {
+  templates: Array<{
+    id?: number
+    is_enabled: boolean
+    name: string
+    payment_type: string
+    day_of_month: number
+    title_template: string
+    description_template: string
+    company_payer?: string
+    amount?: string | number | null
+    currency?: string
+    urgency?: string
+    payment_purpose?: string
+    vendor_ref_id?: number | null
+    requester_id: number
+  }>
+}
+
 export type RequestFormConfigPurposeItem = {
   id?: number
   name: string
@@ -320,11 +437,33 @@ export async function updateRequestFormConfig(payload: RequestFormConfigUpdatePa
   return json
 }
 
+export async function getAutoRequestConfig(): Promise<AutoRequestConfigResponse> {
+  const res = await apiFetch('/api/requests/auto-config/')
+  if (!res.ok) throw new Error(await parseErrorBody(res))
+  const json = (await res.json().catch(() => null)) as AutoRequestConfigResponse | null
+  if (!json) throw new Error('Empty response')
+  return json
+}
+
+export async function updateAutoRequestConfig(payload: AutoRequestConfigUpdatePayload): Promise<AutoRequestConfigResponse> {
+  const res = await apiFetch('/api/requests/auto-config/', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+  if (!res.ok) throw new Error(await parseErrorBody(res))
+  const json = (await res.json().catch(() => null)) as AutoRequestConfigResponse | null
+  if (!json) throw new Error('Empty response')
+  return json
+}
+
 export type RequestApprovalConfigStepItem = {
   step: number
   step_type: string
   is_enabled: boolean
   approver_user_ids: number[]
+  payment_action_mode?: 'callback' | 'webapp'
+  payment_webapp_url?: string
 }
 
 export type RequestApprovalConfigPaymentTypeItem = {
@@ -336,6 +475,21 @@ export type RequestApprovalConfigPaymentTypeItem = {
 export type RequestApprovalConfigResponse = {
   payment_types: RequestApprovalConfigPaymentTypeItem[]
   approver_candidates: Array<{ id: number; username: string }>
+  integration_settings?: {
+    telegram_approvals_bridge_dispatch_url?: string
+    telegram_approvals_send_action?: string
+    telegram_approvals_edit_action?: string
+    telegram_approvals_bridge_token?: string
+    telegram_approvals_message_template?: string
+    telegram_approvals_header_new_template?: string
+    telegram_approvals_header_step_approved_template?: string
+    telegram_approvals_header_fully_approved_template?: string
+    telegram_approvals_header_closed_template?: string
+    telegram_approvals_header_rejected_template?: string
+    telegram_approvals_subheader_payment_responsible_template?: string
+    telegram_approvals_subheader_rejected_by_template?: string
+    n8n_integration_token?: string
+  }
 }
 
 export type RequestApprovalConfigUpdatePayload = {
@@ -347,8 +501,25 @@ export type RequestApprovalConfigUpdatePayload = {
       step_type: string
       is_enabled: boolean
       approver_user_ids: number[]
+      payment_action_mode?: 'callback' | 'webapp'
+      payment_webapp_url?: string
     }>
   }>
+  integration_settings?: {
+    telegram_approvals_bridge_dispatch_url?: string
+    telegram_approvals_send_action?: string
+    telegram_approvals_edit_action?: string
+    telegram_approvals_bridge_token?: string
+    telegram_approvals_message_template?: string
+    telegram_approvals_header_new_template?: string
+    telegram_approvals_header_step_approved_template?: string
+    telegram_approvals_header_fully_approved_template?: string
+    telegram_approvals_header_closed_template?: string
+    telegram_approvals_header_rejected_template?: string
+    telegram_approvals_subheader_payment_responsible_template?: string
+    telegram_approvals_subheader_rejected_by_template?: string
+    n8n_integration_token?: string
+  }
 }
 
 export async function getRequestApprovalConfig(): Promise<RequestApprovalConfigResponse> {
@@ -371,6 +542,23 @@ export async function updateRequestApprovalConfig(
   const json = (await res.json().catch(() => null)) as RequestApprovalConfigResponse | null
   if (!json) throw new Error('Empty response')
   return json
+}
+
+export async function confirmPaymentViaWebApp(payload: {
+  approval_id: number
+  expense_id: string
+}): Promise<{
+  request: { id: number; status: string }
+}> {
+  const res = await apiFetch('/api/requests/approvals/payment-webapp/confirm/', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+  if (!res.ok) throw new Error(await parseErrorBody(res))
+  const json = (await res.json().catch(() => null)) as { request?: { id: number; status: string } } | null
+  if (!json?.request) throw new Error('Empty response')
+  return { request: json.request }
 }
 
 export type RequestFormOptionsRequester = {

@@ -39,6 +39,7 @@ INSTALLED_APPS = [
     "apps.modules.corporate_card",
     "apps.modules.notes",
     "apps.modules.n8n_integration",
+    "apps.modules.telegram_approvals",
     "apps.modules.payroll",
 ]
 
@@ -169,4 +170,7 @@ N8N_INTEGRATION_TOKEN = os.getenv("N8N_INTEGRATION_TOKEN", "").strip()
 
 # Outbound authorization token for calling n8n webhooks (X-N8N-Token header).
 N8N_TOKEN = os.getenv("N8N_TOKEN", "").strip()
+
+TELEGRAM_APPROVALS_BRIDGE_DISPATCH_URL = os.getenv("TELEGRAM_APPROVALS_BRIDGE_DISPATCH_URL", "").strip()
+TELEGRAM_APPROVALS_BRIDGE_TOKEN = os.getenv("TELEGRAM_APPROVALS_BRIDGE_TOKEN", "").strip()
 

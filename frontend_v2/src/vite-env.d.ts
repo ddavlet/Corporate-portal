@@ -23,6 +23,7 @@ interface TelegramWebApp {
   initDataUnsafe: Record<string, unknown>
   ready: () => void
   expand?: () => void
+  close?: () => void
   themeParams?: TelegramThemeParams
   colorScheme?: 'light' | 'dark'
   setHeaderColor?: (color: string) => void

@@ -7,7 +7,7 @@ from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 from apps.accounts.views_otp import OtpRequestView, OtpVerifyView
 from apps.accounts.views_telegram_webapp import TelegramWebAppAuthView
 from apps.modules.requests.views import FileGatewayView, FileDownloadView
-from apps.tenants.views import ModuleCatalogView, TenantModuleConfigView
+from apps.tenants.views import ModuleCatalogView, TenantIntegrationConfigView, TenantModuleConfigView
 
 
 urlpatterns = [
@@ -25,6 +25,7 @@ urlpatterns = [
     # Tenants + module config/permissions
     path("api/modules/", ModuleCatalogView.as_view(), name="module_catalog"),
     path("api/tenant-module-config/", TenantModuleConfigView.as_view(), name="tenant_module_config"),
+    path("api/tenant-integration-config/", TenantIntegrationConfigView.as_view(), name="tenant_integration_config"),
 
     # Requests module (first module to scaffold)
     path("api/requests/", include("apps.modules.requests.urls")),
@@ -45,6 +46,9 @@ urlpatterns = [
 
     # Payroll accruals module
     path("api/payroll/", include("apps.modules.payroll.urls")),
+
+    # Telegram approvals bridge webhook
+    path("api/telegram-approvals/", include("apps.modules.telegram_approvals.urls")),
 ]
 
 for _n8n_seg in settings.N8N_INTEGRATION_MOUNT_PATHS:

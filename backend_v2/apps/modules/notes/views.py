@@ -8,6 +8,7 @@ import requests
 
 from apps.modules.notes.models import Note
 from apps.modules.notes.serializers import NoteCreateSerializer, NoteSerializer, RecipientOptionSerializer
+from apps.tenants.integration_settings import get_notes_integration_settings
 from apps.tenants.permissions import HasEffectiveModuleAccess
 
 User = get_user_model()
@@ -21,17 +22,20 @@ def _target_label(target_type: str, target_id: int) -> str:
     return f"Банковский расход #{target_id}"
 
 
-def _target_path(target_type: str, target_id: int) -> str:
+def _target_path(*, target_type: str, target_id: int, tenant) -> str:
+    cfg = get_notes_integration_settings(tenant=tenant)
+    template = cfg.target_path_bank
     if target_type == Note.TARGET_REQUEST:
-        return f"/app/requests/{target_id}"
-    if target_type == Note.TARGET_CASH:
-        return f"/app/cash/{target_id}"
-    return f"/app/bank/{target_id}"
+        template = cfg.target_path_request
+    elif target_type == Note.TARGET_CASH:
+        template = cfg.target_path_cash
+    return template.replace("{id}", str(target_id))
 
 
-def _send_telegram_message(bot_token: str, chat_id: int, text: str):
+def _send_telegram_message(*, bot_token: str, chat_id: int, text: str, tenant):
+    cfg = get_notes_integration_settings(tenant=tenant)
     resp = requests.post(
-        f"https://api.telegram.org/bot{bot_token}/sendMessage",
+        f"{cfg.telegram_api_base_url}/bot{bot_token}/sendMessage",
         json={"chat_id": chat_id, "text": text},
         timeout=10,
     )
@@ -76,7 +80,7 @@ class NotesCreateView(APIView):
         sender_name = (request.user.full_name or "").strip() or request.user.username
         recipient_name = (recipient.full_name or "").strip() or recipient.username
         target_label = _target_label(note.target_type, note.target_id)
-        target_url = request.build_absolute_uri(_target_path(note.target_type, note.target_id))
+        target_url = request.build_absolute_uri(_target_path(target_type=note.target_type, target_id=note.target_id, tenant=tenant))
         text = (
             "Новая заметка\n\n"
             f"От: {sender_name}\n"
@@ -90,14 +94,19 @@ class NotesCreateView(APIView):
         delivery_error = ""
         sent = False
         if not bot_token:
-            delivery_error = "Tenant telegram bot token is not configured."
+            delivery_error = "Токен Telegram-бота не настроен для компании."
         elif not recipient.telegram_chat_id:
-            delivery_error = "Recipient has no telegram_chat_id."
+            delivery_error = "У получателя не настроен telegram_chat_id."
         else:
             try:
-                sent = _send_telegram_message(bot_token=bot_token, chat_id=recipient.telegram_chat_id, text=text)
+                sent = _send_telegram_message(
+                    bot_token=bot_token,
+                    chat_id=recipient.telegram_chat_id,
+                    text=text,
+                    tenant=tenant,
+                )
                 if not sent:
-                    delivery_error = "Telegram API returned non-OK response."
+                    delivery_error = "Telegram API вернул ошибку при отправке."
             except Exception as exc:  # noqa: BLE001
                 delivery_error = str(exc)
                 sent = False

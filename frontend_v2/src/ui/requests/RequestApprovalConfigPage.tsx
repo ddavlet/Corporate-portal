@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Alert, Button, Card, Checkbox, Divider, InputNumber, Select, Skeleton, Space, Tabs, Typography, message } from 'antd'
+import { Alert, Button, Card, Checkbox, Divider, Input, InputNumber, Select, Skeleton, Space, Tabs, Typography, message } from 'antd'
 import { ArrowLeftOutlined, PlusOutlined, DeleteOutlined } from '@ant-design/icons'
 import { useNavigate } from 'react-router-dom'
 import {
@@ -19,6 +19,10 @@ const STEP_TYPES: Array<{ value: string; label: string }> = [
   { value: 'serial', label: 'serial' },
   { value: 'payment', label: 'payment' },
 ]
+const PAYMENT_ACTION_MODES: Array<{ value: 'callback' | 'webapp'; label: string }> = [
+  { value: 'callback', label: 'callback' },
+  { value: 'webapp', label: 'webapp' },
+]
 
 function emptyStep(step: number): RequestApprovalConfigStepItem {
   return {
@@ -26,6 +30,8 @@ function emptyStep(step: number): RequestApprovalConfigStepItem {
     step_type: 'serial',
     is_enabled: true,
     approver_user_ids: [],
+    payment_action_mode: 'callback',
+    payment_webapp_url: '',
   }
 }
 
@@ -140,8 +146,13 @@ export function RequestApprovalConfigPage() {
             step_type: s.step_type,
             is_enabled: s.is_enabled,
             approver_user_ids: s.approver_user_ids,
+            payment_action_mode: s.payment_action_mode ?? 'callback',
+            payment_webapp_url: s.payment_webapp_url ?? '',
           })),
         })),
+        integration_settings: {
+          ...(data.integration_settings ?? {}),
+        },
       }
 
       setData(normalizeConfig(await updateRequestApprovalConfig(payload)))
@@ -188,6 +199,202 @@ export function RequestApprovalConfigPage() {
                 </Checkbox>
               ))}
             </Space>
+          </Space>
+
+          <Divider />
+
+          <Space direction="vertical" size={12} style={{ display: 'flex' }}>
+            <Typography.Text strong style={labelBlockAboveField}>
+              Интеграция заявок с Telegram/n8n (настройки модуля)
+            </Typography.Text>
+            <Input
+              placeholder="Dispatch URL"
+              value={data.integration_settings?.telegram_approvals_bridge_dispatch_url ?? ''}
+              onChange={(e) =>
+                setData((prev) =>
+                  prev
+                    ? {
+                        ...prev,
+                        integration_settings: {
+                          ...(prev.integration_settings ?? {}),
+                          telegram_approvals_bridge_dispatch_url: e.target.value,
+                        },
+                      }
+                    : prev,
+                )
+              }
+            />
+            <Input
+              placeholder="Send action"
+              value={data.integration_settings?.telegram_approvals_send_action ?? ''}
+              onChange={(e) =>
+                setData((prev) =>
+                  prev
+                    ? {
+                        ...prev,
+                        integration_settings: {
+                          ...(prev.integration_settings ?? {}),
+                          telegram_approvals_send_action: e.target.value,
+                        },
+                      }
+                    : prev,
+                )
+              }
+            />
+            <Input
+              placeholder="Edit action"
+              value={data.integration_settings?.telegram_approvals_edit_action ?? ''}
+              onChange={(e) =>
+                setData((prev) =>
+                  prev
+                    ? {
+                        ...prev,
+                        integration_settings: {
+                          ...(prev.integration_settings ?? {}),
+                          telegram_approvals_edit_action: e.target.value,
+                        },
+                      }
+                    : prev,
+                )
+              }
+            />
+            <Input.Password
+              placeholder="Bridge token"
+              value={data.integration_settings?.telegram_approvals_bridge_token ?? ''}
+              onChange={(e) =>
+                setData((prev) =>
+                  prev
+                    ? {
+                        ...prev,
+                        integration_settings: {
+                          ...(prev.integration_settings ?? {}),
+                          telegram_approvals_bridge_token: e.target.value,
+                        },
+                      }
+                    : prev,
+                )
+              }
+            />
+            <Input.Password
+              placeholder="N8N integration token"
+              value={data.integration_settings?.n8n_integration_token ?? ''}
+              onChange={(e) =>
+                setData((prev) =>
+                  prev
+                    ? {
+                        ...prev,
+                        integration_settings: {
+                          ...(prev.integration_settings ?? {}),
+                          n8n_integration_token: e.target.value,
+                        },
+                      }
+                    : prev,
+                )
+              }
+            />
+            <Input.TextArea
+              placeholder="Telegram message template (HTML)"
+              value={data.integration_settings?.telegram_approvals_message_template ?? ''}
+              onChange={(e) =>
+                setData((prev) =>
+                  prev
+                    ? {
+                        ...prev,
+                        integration_settings: {
+                          ...(prev.integration_settings ?? {}),
+                          telegram_approvals_message_template: e.target.value,
+                        },
+                      }
+                    : prev,
+                )
+              }
+              autoSize={{ minRows: 8, maxRows: 16 }}
+            />
+            <Input
+              placeholder="Header: new"
+              value={data.integration_settings?.telegram_approvals_header_new_template ?? ''}
+              onChange={(e) =>
+                setData((prev) =>
+                  prev
+                    ? {
+                        ...prev,
+                        integration_settings: {
+                          ...(prev.integration_settings ?? {}),
+                          telegram_approvals_header_new_template: e.target.value,
+                        },
+                      }
+                    : prev,
+                )
+              }
+            />
+            <Input
+              placeholder="Header: step approved"
+              value={data.integration_settings?.telegram_approvals_header_step_approved_template ?? ''}
+              onChange={(e) =>
+                setData((prev) =>
+                  prev
+                    ? {
+                        ...prev,
+                        integration_settings: {
+                          ...(prev.integration_settings ?? {}),
+                          telegram_approvals_header_step_approved_template: e.target.value,
+                        },
+                      }
+                    : prev,
+                )
+              }
+            />
+            <Input
+              placeholder="Header: fully approved"
+              value={data.integration_settings?.telegram_approvals_header_fully_approved_template ?? ''}
+              onChange={(e) =>
+                setData((prev) =>
+                  prev
+                    ? {
+                        ...prev,
+                        integration_settings: {
+                          ...(prev.integration_settings ?? {}),
+                          telegram_approvals_header_fully_approved_template: e.target.value,
+                        },
+                      }
+                    : prev,
+                )
+              }
+            />
+            <Input
+              placeholder="Header: closed"
+              value={data.integration_settings?.telegram_approvals_header_closed_template ?? ''}
+              onChange={(e) =>
+                setData((prev) =>
+                  prev
+                    ? {
+                        ...prev,
+                        integration_settings: {
+                          ...(prev.integration_settings ?? {}),
+                          telegram_approvals_header_closed_template: e.target.value,
+                        },
+                      }
+                    : prev,
+                )
+              }
+            />
+            <Input
+              placeholder="Header: rejected"
+              value={data.integration_settings?.telegram_approvals_header_rejected_template ?? ''}
+              onChange={(e) =>
+                setData((prev) =>
+                  prev
+                    ? {
+                        ...prev,
+                        integration_settings: {
+                          ...(prev.integration_settings ?? {}),
+                          telegram_approvals_header_rejected_template: e.target.value,
+                        },
+                      }
+                    : prev,
+                )
+              }
+            />
           </Space>
 
           <Divider />
@@ -280,6 +487,43 @@ export function RequestApprovalConfigPage() {
                                   style={{ width: '100%' }}
                                 />
                               </div>
+                              {step.step_type === 'payment' ? (
+                                <>
+                                  <div>
+                                    <Typography.Text strong style={labelBlockAboveField}>
+                                      Режим кнопки Выплатить
+                                    </Typography.Text>
+                                    <div style={{ height: 8 }} />
+                                    <Select
+                                      value={step.payment_action_mode ?? 'callback'}
+                                      onChange={(v) =>
+                                        updateStep(pt.payment_type, idx, {
+                                          payment_action_mode: v as 'callback' | 'webapp',
+                                        })
+                                      }
+                                      options={PAYMENT_ACTION_MODES}
+                                      style={{ width: 220 }}
+                                    />
+                                  </div>
+                                  {(step.payment_action_mode ?? 'callback') === 'webapp' ? (
+                                    <div>
+                                      <Typography.Text strong style={labelBlockAboveField}>
+                                        Ссылка WebApp
+                                      </Typography.Text>
+                                      <div style={{ height: 8 }} />
+                                      <Input
+                                        value={step.payment_webapp_url ?? ''}
+                                        onChange={(e) =>
+                                          updateStep(pt.payment_type, idx, {
+                                            payment_webapp_url: e.target.value,
+                                          })
+                                        }
+                                        placeholder="https://.../tg/payment?approval_id={approval_id}"
+                                      />
+                                    </div>
+                                  ) : null}
+                                </>
+                              ) : null}
                             </Space>
                           </Card>
                         )

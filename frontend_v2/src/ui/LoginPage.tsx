@@ -32,7 +32,7 @@ export function LoginPage() {
       }
       const data = (await res.json()) as { access: string; refresh: string }
       login({ tokens: { access: data.access, refresh: data.refresh }, username })
-      navigate('/', { replace: true })
+      navigate('/requests', { replace: true })
     } catch (err: any) {
       setError(err?.message || 'Не удалось выполнить вход')
     } finally {
@@ -79,7 +79,7 @@ export function LoginPage() {
         throw new Error((payload && payload.detail) || `Ошибка проверки OTP (${res.status})`)
       }
       login({ tokens: { access: payload.access, refresh: payload.refresh }, username })
-      navigate('/', { replace: true })
+      navigate('/requests', { replace: true })
     } catch (err: any) {
       setError(err?.message || 'Не удалось выполнить вход по OTP')
     } finally {

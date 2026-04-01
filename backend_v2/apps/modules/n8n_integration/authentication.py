@@ -5,6 +5,8 @@ from django.conf import settings
 from rest_framework.exceptions import APIException, AuthenticationFailed
 from rest_framework_simplejwt.authentication import JWTAuthentication
 
+from apps.tenants.integration_settings import get_n8n_integration_settings
+
 
 class IntegrationNotConfigured(APIException):
     status_code = 503
@@ -18,7 +20,10 @@ class N8nIntegrationAuthentication(JWTAuthentication):
     """
 
     def authenticate(self, request):
-        expected = (getattr(settings, "N8N_INTEGRATION_TOKEN", None) or "").strip()
+        tenant = getattr(request, "tenant", None)
+        expected = get_n8n_integration_settings(tenant=tenant).integration_token
+        if not expected:
+            expected = (getattr(settings, "N8N_INTEGRATION_TOKEN", None) or "").strip()
         if not expected:
             raise IntegrationNotConfigured()
         got = request.META.get("HTTP_X_N8N_INTEGRATION_TOKEN", "") or ""
