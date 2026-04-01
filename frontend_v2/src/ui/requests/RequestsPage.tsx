@@ -4,7 +4,7 @@ import type { ColumnsType, TableProps } from 'antd/es/table'
 import type { Dayjs } from 'dayjs'
 import { useNavigate } from 'react-router-dom'
 import { FileAddOutlined, FileSearchOutlined, MessageOutlined, ReloadOutlined } from '@ant-design/icons'
-import { apiFetch, triggerResendRequest } from '../../lib/api'
+import { apiFetch, resendRequestApprovals } from '../../lib/api'
 import { isPayedMissingLinkedExpense, type RequestExpenseLink } from '../../lib/requestExpense'
 import { RequestDetailModal, type RequestDetail } from './RequestDetailModal'
 import { NoteCreateModal } from '../NoteCreateModal'
@@ -85,6 +85,12 @@ function formatDateDDMMYYYY(value?: string | null): string {
   return formatted
 }
 
+function canResendByStatus(status?: string | null): boolean {
+  const raw = String(status || '').trim()
+  const numeric = Number(raw)
+  return Number.isFinite(numeric) && numeric >= 1 && numeric <= 5
+}
+
 export function RequestsPage() {
   const navigate = useNavigate()
   const [loading, setLoading] = useState(true)
@@ -160,7 +166,10 @@ export function RequestsPage() {
           })
         }
       } catch (e: any) {
-        if (!cancelled) setError(e?.message || 'Ошибка запроса')
+        if (!cancelled) {
+          setRows([])
+          setError(e?.message || 'Ошибка запроса')
+        }
       } finally {
         if (!cancelled) setLoading(false)
       }
@@ -321,14 +330,18 @@ export function RequestsPage() {
   const resendRequest = async (requestId: number) => {
     setResendLoading(true)
     try {
-      const { ok, message: msg } = await triggerResendRequest(requestId)
-      if (ok) {
-        message.success(`✅ Сообщение отправлено. ${msg}`)
+      const { resent, pendingCurrentStep } = await resendRequestApprovals(requestId)
+      if (resent > 0) {
+        message.success(`Заявки отправлены повторно: ${resent}`)
+      } else if (pendingCurrentStep > 0) {
+        message.warning(
+          `На текущем этапе есть pending-согласования (${pendingCurrentStep}), но отправка не удалась. Проверьте bridge URL/token.`,
+        )
       } else {
-        message.error(`❌ Ошибка отправки. ${msg}`)
+        message.info('Нет pending-согласований для повторной отправки')
       }
     } catch (e: any) {
-      message.error(`❌ Ошибка отправки. ${e?.message || 'Не удалось отправить запрос повторно'}`)
+      message.error(e?.message || 'Не удалось отправить запрос повторно')
     } finally {
       setResendLoading(false)
     }
@@ -340,9 +353,12 @@ export function RequestsPage() {
         <Typography.Title level={4} style={{ marginTop: 0 }}>
           Список заявок
         </Typography.Title>
-        <Button type="primary" icon={<FileAddOutlined />} onClick={() => navigate('/requests/new')}>
-          Новая заявка
-        </Button>
+        <Space>
+          <Button onClick={() => navigate('/requests/auto-config')}>Автозаявки</Button>
+          <Button type="primary" icon={<FileAddOutlined />} onClick={() => navigate('/requests/new')}>
+            Новая заявка
+          </Button>
+        </Space>
       </Space>
       <Space direction="vertical" size={12} style={{ display: 'flex', marginTop: 12, marginBottom: 12 }}>
         <Input
@@ -483,6 +499,12 @@ export function RequestsPage() {
                 type="primary"
                 icon={<ReloadOutlined />}
                 loading={resendLoading}
+                disabled={!canResendByStatus(selectedRow.status)}
+                title={
+                  canResendByStatus(selectedRow.status)
+                    ? 'Повторно отправить pending-согласования текущего этапа'
+                    : 'Доступно только для заявок в статусах 1-5'
+                }
                 onClick={() => resendRequest(selectedRow.id)}
               >
                 Отправить запрос(ы) повторно

@@ -226,15 +226,24 @@ services:
       - N8N_CORS_ALLOW_ORIGIN=https://neuron.kolberg.uz,https://construction.kolberg.uz,https://lemonfit.kolberg.uz,https://main.kolberg.uz
 
       - EXECUTIONS_DATA_PRUNE=true
-      - EXECUTIONS_DATA_MAX_AGE=720
+      - EXECUTIONS_DATA_MAX_AGE=24
       - EXECUTIONS_DATA_PRUNE_MAX_COUNT=10000
       - EXECUTIONS_TIMEOUT=300
       - EXECUTIONS_TIMEOUT_MAX=432000
 
+      - DB_TYPE=postgresdb
+      - DB_POSTGRESDB_HOST=db
+      - DB_POSTGRESDB_PORT=5432
+      - DB_POSTGRESDB_DATABASE=${POSTGRES_N8N_DB}
+      - DB_POSTGRESDB_USER=${POSTGRES_N8N_USER}
+      - DB_POSTGRESDB_PASSWORD=${POSTGRES_N8N_PASSWORD}
+      - DB_POSTGRESDB_SCHEMA=public
+      - N8N_LOG_LEVEL=debug
+
     volumes:
       - n8n_data:/home/node/.n8n
       - ./local-files:/files
-    # >>> CHANGE: n8n в public (для traefik) и backend (т.к. ходит в db)
+    # >>> CHANGE: n8n в public (для trmakeaefik) и backend (т.к. ходит в db)
     networks:
       - traefik-public
       - backend
@@ -288,29 +297,29 @@ services:
     networks:
       - backend
 
-  n8n_backup:
-    image: alpine:3.20
-    container_name: n8n_backup
-    restart: always
-    depends_on:
-      - n8n
-    volumes:
-      - n8n_data:/source:ro
-      - /opt/backups/n8n:/backups
-    command: >
-      sh -c "
-      while true; do
-        now_hm=$$(date +%H:%M) ;
-        today=$$(date +%F) ;
-        last_backup=$$(cat /tmp/last_n8n_backup_date 2>/dev/null || true) ;
-        if [ \"$$now_hm\" = \"01:00\" ] && [ \"$$today\" != \"$$last_backup\" ]; then
-          ts=$$(date +%F-%H%M) ;
-          tar -czf /backups/n8n-backup-$$ts.tar.gz -C /source . ;
-          find /backups -type f -name 'n8n-backup-*.tar.gz' -mtime +7 -delete ;
-          echo \"$$today\" > /tmp/last_n8n_backup_date ;
-        fi ;
-        sleep 30 ;
-      done"
+  # n8n_backup:
+  #   image: alpine:3.20
+  #   container_name: n8n_backup
+  #   restart: always
+  #   depends_on:
+  #     - n8n
+  #   volumes:
+  #     - n8n_data:/source:ro
+  #     - /opt/backups/n8n:/backups
+  #   command: >
+  #     sh -c "
+  #     while true; do
+  #       now_hm=$$(date +%H:%M) ;
+  #       today=$$(date +%F) ;
+  #       last_backup=$$(cat /tmp/last_n8n_backup_date 2>/dev/null || true) ;
+  #       if [ \"$$now_hm\" = \"01:00\" ] && [ \"$$today\" != \"$$last_backup\" ]; then
+  #         ts=$$(date +%F-%H%M) ;
+  #         tar -czf /backups/n8n-backup-$$ts.tar.gz -C /source . ;
+  #         find /backups -type f -name 'n8n-backup-*.tar.gz' -mtime +7 -delete ;
+  #         echo \"$$today\" > /tmp/last_n8n_backup_date ;
+  #       fi ;
+  #       sleep 30 ;
+  #     done"
 
   gdrive_backup_sync:
     image: rclone/rclone:latest
@@ -416,7 +425,7 @@ services:
       POSTGRES_PASSWORD: ${POSTGRES_WEB_PASSWORD}
       POSTGRES_HOST: "db"
       POSTGRES_PORT: 5432
-      DJANGO_SECRET_KEY: "1111"
+      DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:-change-me-to-a-long-random-secret-key-32-plus-bytes}
       DJANGO_DEBUG: "True"
       N8N_TOKEN: ${N8N_TOKEN}
       CORPORATE_INVESTMENTS_ALLOWED_USER: ddavlet, r.davletyarov
@@ -467,7 +476,7 @@ services:
       POSTGRES_PORT: 5432
 
       BASE_DOMAIN: ${DOMAIN_NAME}
-      DJANGO_SECRET_KEY: "v2-change-me"
+      DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:-change-me-to-a-long-random-secret-key-32-plus-bytes}
       DJANGO_DEBUG: "True"
       DJANGO_ALLOWED_HOSTS: "lemonfit.kolberg.uz,lemonfit2.kolberg.uz,neuron.kolberg.uz"
       # No leading/trailing slashes (e.g. n8n). Slashes break Traefik labels: /api/${VAR}/ → /api/n8n//
@@ -573,32 +582,6 @@ services:
       - NET_ADMIN
       - SYS_MODULE
     restart: unless-stopped
-
-  claude-code:
-    build: ./claude-code
-    container_name: claude-code
-    restart: always
-    environment:
-      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
-      WEBHOOK_TOKEN: ${CLAUDE_WEBHOOK_TOKEN}
-      PROJECTS_ROOT: /projects
-    volumes:
-      # Mount your project codebases (same host paths as the django containers)
-      - ./backend_v2:/projects/backend_v2
-      - ./frontend_v2:/projects/frontend_v2
-      # Persistent volume for Claude Code session memory / config
-      - claude_sessions:/home/node
-      # Shared context at workspace root for cross-project reasoning
-      - ./claude-code/CLAUDE.md:/projects/CLAUDE.md
-    healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:3001/health"]
-      interval: 30s
-      timeout: 5s
-      retries: 3
-    # Internal only — n8n reaches it via backend network
-    # No Traefik labels needed
-    networks:
-      - backend
 
 volumes:
   n8n_data:

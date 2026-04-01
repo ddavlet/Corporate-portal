@@ -5,6 +5,8 @@ REMOTE_DIR := ~/n8n
 
 # Files/folders to exclude from upload
 EXCLUDES := \
+	--exclude .git \
+	--exclude .cursor \
 	--exclude Makefile \
 	--exclude .DS_Store \
 	--exclude node_modules/ \

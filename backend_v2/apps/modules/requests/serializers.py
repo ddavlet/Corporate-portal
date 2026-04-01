@@ -17,6 +17,8 @@ from apps.modules.requests.models import (
     RequestApprovalPaymentTypeConfig,
     RequestApprovalStepConfig,
     RequestApprovalStepApproverConfig,
+    RequestCategory,
+    AutoRequestTemplate,
 )
 from apps.modules.vendors.models import Vendor
 from apps.modules.cashier.models import CashExpense
@@ -147,6 +149,12 @@ class PortalRequestSerializer(serializers.ModelSerializer):
                 raise serializers.ValidationError(
                     {"payment_type": "This payment type is disabled by request form configuration."}
                 )
+
+            company_payer = attrs.get("company_payer")
+            if company_payer is None and self.instance is not None:
+                company_payer = self.instance.company_payer
+            if not str(company_payer or "").strip() and pt_cfg.default_company_payer:
+                attrs["company_payer"] = pt_cfg.default_company_payer
 
             # Requester must be in configured subset if subset is defined.
             allowed_requester_ids = list(
@@ -398,6 +406,7 @@ class ApprovalSerializer(serializers.ModelSerializer):
             "approver_tg_from_id",
             "message_id",
             "message_sent",
+            "message_sent_at",
         ]
         read_only_fields = ["approver_username"]
 
@@ -451,6 +460,12 @@ class UserRequestApprovalStepSerializer(serializers.ModelSerializer):
         fields = ["step", "step_type", "decision", "comment", "decided_at"]
 
 
+class ApprovalFullContextSerializer(serializers.Serializer):
+    request = PortalRequestDetailSerializer()
+    trigger_approval = ApprovalSerializer(allow_null=True)
+    approvals = ApprovalSerializer(many=True)
+
+
 class RequestPaymentPurposeConfigItemSerializer(serializers.Serializer):
     id = serializers.IntegerField(required=False)
     name = serializers.CharField()
@@ -477,6 +492,7 @@ class RequestFormPaymentTypeConfigSerializer(serializers.Serializer):
         default=list,
     )
     default_title = serializers.CharField(required=False, allow_blank=True, max_length=200, default="")
+    default_company_payer = serializers.CharField(required=False, allow_blank=True, max_length=100, default="")
     default_description = serializers.CharField(required=False, allow_blank=True, default="")
     default_amount = serializers.DecimalField(
         required=False,
@@ -502,6 +518,10 @@ class RequestFormPaymentTypeConfigSerializer(serializers.Serializer):
 
 class RequestFormConfigPayloadSerializer(serializers.Serializer):
     payment_types = serializers.ListField(child=RequestFormPaymentTypeConfigSerializer())
+    category_candidates = serializers.ListField(
+        child=serializers.CharField(allow_blank=True),
+        required=False,
+    )
 
 
 class RequesterCandidateSerializer(serializers.Serializer):
@@ -532,20 +552,11 @@ def build_request_form_config_response(*, tenant) -> dict:
 
     vendor_candidates = Vendor.objects.filter(tenant=tenant).order_by("name")
 
-    # "Predefined categories" source (current codebase stores category as text).
-    categories_from_requests = (
-        Request.objects.filter(tenant=tenant)
-        .exclude(category="")
-        .values_list("category", flat=True)
-        .distinct()
+    categories = list(
+        RequestCategory.objects.filter(tenant=tenant, is_active=True)
+        .order_by("name")
+        .values_list("name", flat=True)
     )
-    categories_from_purposes = (
-        RequestPaymentPurposeConfig.objects.filter(payment_type_config__config__tenant=tenant)
-        .exclude(category="")
-        .values_list("category", flat=True)
-        .distinct()
-    )
-    categories = sorted({*list(categories_from_requests), *list(categories_from_purposes)})
 
     payment_type_rows: list[dict] = []
     if cfg:
@@ -572,6 +583,7 @@ def build_request_form_config_response(*, tenant) -> dict:
                         for p in pt.payment_purposes.all().order_by("name", "id")
                     ],
                     "default_title": pt.default_title,
+                    "default_company_payer": pt.default_company_payer,
                     "default_description": pt.default_description,
                     "default_amount": str(amt) if amt is not None else None,
                     "default_currency": pt.default_currency,
@@ -597,6 +609,12 @@ class RequestApprovalStepPayloadSerializer(serializers.Serializer):
     step_type = serializers.ChoiceField(choices=Approval.STEP_TYPE_CHOICES)
     is_enabled = serializers.BooleanField(required=False, default=True)
     approver_user_ids = serializers.ListField(child=serializers.IntegerField(), required=False, default=list)
+    payment_action_mode = serializers.ChoiceField(
+        choices=RequestApprovalStepConfig.PAYMENT_ACTION_MODE_CHOICES,
+        required=False,
+        default=RequestApprovalStepConfig.PAYMENT_ACTION_MODE_CALLBACK,
+    )
+    payment_webapp_url = serializers.CharField(required=False, allow_blank=True, default="")
 
 
 class RequestApprovalPaymentTypePayloadSerializer(serializers.Serializer):
@@ -606,7 +624,23 @@ class RequestApprovalPaymentTypePayloadSerializer(serializers.Serializer):
 
 
 class RequestApprovalConfigPayloadSerializer(serializers.Serializer):
+    class IntegrationSettingsPayloadSerializer(serializers.Serializer):
+        telegram_approvals_bridge_dispatch_url = serializers.CharField(required=False, allow_blank=True, default="")
+        telegram_approvals_send_action = serializers.CharField(required=False, allow_blank=True, default="")
+        telegram_approvals_edit_action = serializers.CharField(required=False, allow_blank=True, default="")
+        telegram_approvals_bridge_token = serializers.CharField(required=False, allow_blank=True, default="")
+        telegram_approvals_message_template = serializers.CharField(required=False, allow_blank=True, default="")
+        telegram_approvals_header_new_template = serializers.CharField(required=False, allow_blank=True, default="")
+        telegram_approvals_header_step_approved_template = serializers.CharField(required=False, allow_blank=True, default="")
+        telegram_approvals_header_fully_approved_template = serializers.CharField(required=False, allow_blank=True, default="")
+        telegram_approvals_header_closed_template = serializers.CharField(required=False, allow_blank=True, default="")
+        telegram_approvals_header_rejected_template = serializers.CharField(required=False, allow_blank=True, default="")
+        telegram_approvals_subheader_payment_responsible_template = serializers.CharField(required=False, allow_blank=True, default="")
+        telegram_approvals_subheader_rejected_by_template = serializers.CharField(required=False, allow_blank=True, default="")
+        n8n_integration_token = serializers.CharField(required=False, allow_blank=True, default="")
+
     payment_types = serializers.ListField(child=RequestApprovalPaymentTypePayloadSerializer())
+    integration_settings = IntegrationSettingsPayloadSerializer(required=False, default=dict)
 
 
 class ApproverCandidateSerializer(serializers.Serializer):
@@ -620,16 +654,8 @@ def build_request_approval_config_response(*, tenant) -> dict:
     """
     cfg = RequestApprovalConfig.objects.filter(tenant=tenant).first()
 
-    approver_user_ids = list(
-        TenantUserRole.objects.filter(
-            tenant=tenant,
-            role=TenantUserRole.ROLE_APPROVER,
-        ).values_list("user_id", flat=True)
-    )
-    active_approver_ids = TenantMembership.objects.filter(
-        tenant=tenant, is_active=True, user_id__in=approver_user_ids
-    ).values_list("user_id", flat=True)
-    approver_candidates_qs = User.objects.filter(id__in=active_approver_ids).order_by("username")
+    active_member_ids = TenantMembership.objects.filter(tenant=tenant, is_active=True).values_list("user_id", flat=True)
+    approver_candidates_qs = User.objects.filter(id__in=active_member_ids).order_by("username")
 
     approver_candidates = ApproverCandidateSerializer(approver_candidates_qs, many=True).data
 
@@ -648,9 +674,97 @@ def build_request_approval_config_response(*, tenant) -> dict:
                             "step_type": step.step_type,
                             "is_enabled": bool(step.is_enabled),
                             "approver_user_ids": list(step.approvers.values_list("approver_user_id", flat=True)),
+                            "payment_action_mode": step.payment_action_mode,
+                            "payment_webapp_url": step.payment_webapp_url or "",
                         }
                     )
         payment_types_rows.append(row)
 
-    return {"payment_types": payment_types_rows, "approver_candidates": approver_candidates}
+    integration_settings = {
+        "telegram_approvals_bridge_dispatch_url": cfg.telegram_approvals_bridge_dispatch_url if cfg else "",
+        "telegram_approvals_send_action": cfg.telegram_approvals_send_action if cfg else "",
+        "telegram_approvals_edit_action": cfg.telegram_approvals_edit_action if cfg else "",
+        "telegram_approvals_bridge_token": cfg.telegram_approvals_bridge_token if cfg else "",
+        "telegram_approvals_message_template": cfg.telegram_approvals_message_template if cfg else "",
+        "telegram_approvals_header_new_template": cfg.telegram_approvals_header_new_template if cfg else "",
+        "telegram_approvals_header_step_approved_template": cfg.telegram_approvals_header_step_approved_template if cfg else "",
+        "telegram_approvals_header_fully_approved_template": cfg.telegram_approvals_header_fully_approved_template if cfg else "",
+        "telegram_approvals_header_closed_template": cfg.telegram_approvals_header_closed_template if cfg else "",
+        "telegram_approvals_header_rejected_template": cfg.telegram_approvals_header_rejected_template if cfg else "",
+        "telegram_approvals_subheader_payment_responsible_template": cfg.telegram_approvals_subheader_payment_responsible_template if cfg else "",
+        "telegram_approvals_subheader_rejected_by_template": cfg.telegram_approvals_subheader_rejected_by_template if cfg else "",
+        "n8n_integration_token": cfg.n8n_integration_token if cfg else "",
+    }
+    return {
+        "payment_types": payment_types_rows,
+        "approver_candidates": approver_candidates,
+        "integration_settings": integration_settings,
+    }
+
+
+class AutoRequestTemplatePayloadSerializer(serializers.Serializer):
+    id = serializers.IntegerField(required=False)
+    is_enabled = serializers.BooleanField(required=False, default=False)
+    name = serializers.CharField(required=False, allow_blank=True, max_length=150, default="")
+    payment_type = serializers.ChoiceField(choices=Request.PAYMENT_TYPE_CHOICES)
+    day_of_month = serializers.IntegerField(min_value=1, max_value=31)
+    title_template = serializers.CharField(required=False, allow_blank=True, max_length=200, default="")
+    description_template = serializers.CharField(required=False, allow_blank=True, default="")
+    company_payer = serializers.CharField(required=False, allow_blank=True, max_length=100, default="")
+    amount = serializers.DecimalField(
+        required=False,
+        allow_null=True,
+        max_digits=12,
+        decimal_places=2,
+        default=None,
+    )
+    currency = serializers.ChoiceField(
+        choices=Request.CURRENCY_CHOICES, required=False, default=Request.CURRENCY_UZS
+    )
+    urgency = serializers.ChoiceField(
+        choices=Request.URGENCY_CHOICES, required=False, default=Request.URGENCY_NORMAL
+    )
+    payment_purpose = serializers.CharField(required=False, allow_blank=True, max_length=200, default="")
+    vendor_ref_id = serializers.IntegerField(required=False, allow_null=True, default=None)
+    requester_id = serializers.IntegerField()
+
+
+class AutoRequestConfigPayloadSerializer(serializers.Serializer):
+    templates = serializers.ListField(child=AutoRequestTemplatePayloadSerializer(), default=list)
+
+
+def build_auto_request_config_response(*, tenant) -> dict:
+    requester_user_ids = list(
+        TenantUserRole.objects.filter(
+            tenant=tenant,
+            role=TenantUserRole.ROLE_REQUESTER,
+        ).values_list("user_id", flat=True)
+    )
+    requester_candidates = User.objects.filter(id__in=requester_user_ids).order_by("username")
+    vendor_candidates = Vendor.objects.filter(tenant=tenant).order_by("name")
+    templates = AutoRequestTemplate.objects.filter(tenant=tenant).order_by("id")
+    return {
+        "templates": [
+            {
+                "id": row.id,
+                "is_enabled": bool(row.is_enabled),
+                "name": row.name,
+                "payment_type": row.payment_type,
+                "day_of_month": row.day_of_month,
+                "title_template": row.title_template,
+                "description_template": row.description_template,
+                "company_payer": row.company_payer,
+                "amount": str(row.amount) if row.amount is not None else None,
+                "currency": row.currency,
+                "urgency": row.urgency,
+                "payment_purpose": row.payment_purpose,
+                "vendor_ref_id": row.vendor_ref_id,
+                "requester_id": row.requester_id,
+                "last_run_month": row.last_run_month.isoformat() if row.last_run_month else None,
+            }
+            for row in templates
+        ],
+        "requester_candidates": RequesterCandidateSerializer(requester_candidates, many=True).data,
+        "vendor_candidates": VendorCandidateSerializer(vendor_candidates, many=True).data,
+    }
 

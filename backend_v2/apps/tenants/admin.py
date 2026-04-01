@@ -3,7 +3,7 @@ from django.contrib import admin
 from django.db import transaction
 
 from apps.modules.registry import list_modules
-from apps.tenants.models import Tenant, TenantMembership, TenantModuleConfig, TenantUserRole
+from apps.tenants.models import Tenant, TenantIntegrationConfig, TenantMembership, TenantModuleConfig, TenantUserRole
 
 
 def _module_choices():
@@ -113,4 +113,11 @@ class TenantUserRoleAdmin(admin.ModelAdmin):
     list_filter = ("tenant", "role")
     search_fields = ("tenant__subdomain", "user__username", "role")
     autocomplete_fields = ("tenant", "user")
+
+
+@admin.register(TenantIntegrationConfig)
+class TenantIntegrationConfigAdmin(admin.ModelAdmin):
+    list_display = ("id", "tenant", "updated_at", "updated_by")
+    search_fields = ("tenant__subdomain", "tenant__name")
+    autocomplete_fields = ("tenant", "updated_by")
 

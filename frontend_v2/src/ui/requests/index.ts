@@ -4,3 +4,4 @@ export { RequestDetailModal, RequestDetailContent, type RequestDetail, type Appr
 export { RequestsPage } from './RequestsPage'
 export { RequestFormConfigPage } from './RequestFormConfigPage'
 export { RequestApprovalConfigPage } from './RequestApprovalConfigPage'
+export { AutoRequestsConfigPage } from './AutoRequestsConfigPage'

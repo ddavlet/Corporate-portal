@@ -1,4 +1,6 @@
 
+from datetime import date
+
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.test import override_settings
@@ -138,3 +140,4 @@ class N8nIntegrationAuthTests(APITestCase):
         line.refresh_from_db()
         self.assertEqual(str(line.sum), "1100.00")
         self.assertEqual(line.employee, "Ivan I.")
+

@@ -1,0 +1,353 @@
+import json
+from datetime import date
+from unittest.mock import patch
+
+from django.contrib.auth import get_user_model
+from django.test import override_settings
+from rest_framework.test import APITestCase
+
+from apps.modules.requests.models import (
+    Approval,
+    Request,
+    RequestApprovalConfig,
+    RequestApprovalPaymentTypeConfig,
+    RequestApprovalStepApproverConfig,
+    RequestApprovalStepConfig,
+    RequestFormConfig,
+    RequestFormPaymentTypeConfig,
+)
+from apps.modules.telegram_approvals.services import build_approval_message
+from apps.tenants.models import Tenant, TenantMembership, TenantModuleConfig, TenantUserRole
+
+User = get_user_model()
+
+
+@override_settings(
+    BASE_DOMAIN="example.com",
+    TELEGRAM_APPROVALS_BRIDGE_DISPATCH_URL="https://acme.example.com/n8n/telegram/dispatch",
+    N8N_INTEGRATION_TOKEN="test-n8n-token",
+    ALLOWED_HOSTS=["*"],
+)
+class TelegramApprovalsTests(APITestCase):
+    def setUp(self):
+        self.tenant = Tenant.objects.create(name="Acme", subdomain="acme", is_active=True)
+        self.admin = User.objects.create_user(username="admin", password="x")
+        self.requester = User.objects.create_user(username="req", password="x")
+        self.approver = User.objects.create_user(
+            username="appr", password="x", telegram_chat_id=555001, telegram_from_id=777001
+        )
+        for user in (self.admin, self.requester, self.approver):
+            TenantMembership.objects.create(tenant=self.tenant, user=user, is_active=True)
+
+        TenantUserRole.objects.create(tenant=self.tenant, user=self.admin, role=TenantUserRole.ROLE_ADMIN, step=1)
+        TenantUserRole.objects.create(
+            tenant=self.tenant, user=self.requester, role=TenantUserRole.ROLE_REQUESTER, step=1
+        )
+        TenantUserRole.objects.create(
+            tenant=self.tenant, user=self.approver, role=TenantUserRole.ROLE_APPROVER, step=1
+        )
+        TenantModuleConfig.objects.create(tenant=self.tenant, module_key="requests", is_enabled=True)
+
+        req_form_cfg = RequestFormConfig.objects.create(tenant=self.tenant, updated_by=self.admin)
+        RequestFormPaymentTypeConfig.objects.create(config=req_form_cfg, payment_type="Наличные", is_enabled=True)
+        RequestFormPaymentTypeConfig.objects.create(config=req_form_cfg, payment_type="Перечисление", is_enabled=True)
+
+        appr_cfg = RequestApprovalConfig.objects.create(tenant=self.tenant, updated_by=self.admin)
+        pt_cfg = RequestApprovalPaymentTypeConfig.objects.create(
+            config=appr_cfg, payment_type="Наличные", is_enabled=True
+        )
+        step_cfg = RequestApprovalStepConfig.objects.create(
+            payment_type_config=pt_cfg,
+            step=1,
+            step_type=Approval.STEP_TYPE_SERIAL,
+            is_enabled=True,
+        )
+        RequestApprovalStepApproverConfig.objects.create(step_config=step_cfg, approver_user=self.approver)
+        self.host = "acme.example.com"
+        self.webhook_token = "test-n8n-token"
+
+    @patch("apps.modules.telegram_approvals.services.requests.post")
+    def test_request_create_dispatches_telegram_message_and_saves_message_id(self, mocked_post):
+        mocked_post.return_value.status_code = 200
+        mocked_post.return_value.content = b'{"result":{"message_id":9001}}'
+        mocked_post.return_value.json.return_value = {"result": {"message_id": 9001}}
+        self.client.force_authenticate(self.requester)
+
+        res = self.client.post(
+            "/api/requests/",
+            {
+                "title": "Lemonfit",
+                "description": "TEST",
+                "amount": 100,
+                "currency": "UZS",
+                "payment_type": "Наличные",
+                "urgency": "Обычно",
+                "requester": self.requester.id,
+                "billing_date": "2026-03-31",
+            },
+            format="json",
+            HTTP_HOST=self.host,
+        )
+        self.assertEqual(res.status_code, 201, res.content)
+
+        approval = Approval.objects.get(request_id=res.data["id"], approver_user=self.approver)
+        self.assertEqual(approval.message_id, 9001)
+        self.assertTrue(approval.message_sent)
+
+        self.assertTrue(mocked_post.called)
+        payload = mocked_post.call_args.kwargs.get("json", {})
+        self.assertEqual(payload.get("action"), "send_approval_message")
+        self.assertEqual(payload.get("chat_id"), 555001)
+        self.assertIn("inline_keyboard", payload)
+        self.assertEqual(payload.get("company"), "")
+        self.assertIn("message", payload)
+
+    @patch("apps.modules.telegram_approvals.services.requests.post")
+    def test_resend_pending_step_deactivates_old_and_sends_new_message(self, mocked_post):
+        send_response = type("Resp", (), {"status_code": 200, "content": b'{"result":{"message_id":9999}}'})()
+        send_response.json = lambda: {"result": {"message_id": 9999}}
+        edit_response = type("Resp", (), {"status_code": 200, "content": b"{}"})()
+        edit_response.json = lambda: {}
+        mocked_post.side_effect = [edit_response, send_response]
+
+        request_row = Request.objects.create(
+            tenant=self.tenant,
+            created_by=self.admin,
+            requester=self.requester,
+            title="Needs resend",
+            status=Request.STATUS_PROGRESS_1,
+            billing_date=date(2026, 3, 31),
+        )
+        approval = Approval.objects.create(
+            request=request_row,
+            approver_user=self.approver,
+            approver_tg_id=555001,
+            approver_tg_from_id=777001,
+            message_id=4321,
+            message_sent=True,
+            step=1,
+            step_type=Approval.STEP_TYPE_SERIAL,
+            decision=Approval.DECISION_PENDING,
+        )
+
+        self.client.force_authenticate(self.admin)
+        res = self.client.post(
+            f"/api/requests/{request_row.id}/approvals/resend/",
+            {},
+            format="json",
+            HTTP_HOST=self.host,
+        )
+        self.assertEqual(res.status_code, 200, res.content)
+        self.assertEqual(res.data.get("resent"), 1)
+
+        approval.refresh_from_db()
+        self.assertEqual(approval.message_id, 9999)
+        self.assertEqual(mocked_post.call_count, 2)
+        first_payload = mocked_post.call_args_list[0].kwargs.get("json", {})
+        second_payload = mocked_post.call_args_list[1].kwargs.get("json", {})
+        self.assertEqual(first_payload.get("action"), "edit_approval_message")
+        self.assertEqual(first_payload.get("inline_keyboard"), [])
+        self.assertEqual(second_payload.get("action"), "send_approval_message")
+        self.assertTrue(second_payload.get("inline_keyboard"))
+
+    @patch("apps.modules.telegram_approvals.services.requests.post")
+    def test_webhook_callback_confirms_approval_with_identity_checks(self, mocked_post):
+        mocked_post.return_value.status_code = 200
+        mocked_post.return_value.content = b"{}"
+        mocked_post.return_value.json.return_value = {}
+        request_row = Request.objects.create(
+            tenant=self.tenant,
+            created_by=self.admin,
+            requester=self.requester,
+            title="Needs approval",
+            status=Request.STATUS_PROGRESS_1,
+            billing_date=date(2026, 3, 31),
+        )
+        approval = Approval.objects.create(
+            request=request_row,
+            approver_user=self.approver,
+            approver_tg_id=555001,
+            approver_tg_from_id=777001,
+            message_id=4321,
+            message_sent=True,
+            step=1,
+            step_type=Approval.STEP_TYPE_SERIAL,
+            decision=Approval.DECISION_PENDING,
+        )
+
+        payload = {
+            "callback_query": {
+                "id": "cbq1",
+                "from": {"id": 777001},
+                "message": {"message_id": 4321, "chat": {"id": 555001}},
+                "data": json.dumps(
+                    {
+                        "approval_id": approval.id,
+                        "request_id": request_row.id,
+                        "step": 1,
+                        "decision": "approved",
+                    }
+                ),
+            }
+        }
+        res = self.client.post(
+            "/api/telegram-approvals/webhook/",
+            payload,
+            format="json",
+            HTTP_HOST=self.host,
+            HTTP_X_N8N_INTEGRATION_TOKEN=self.webhook_token,
+        )
+        self.assertEqual(res.status_code, 200, res.content)
+
+        approval.refresh_from_db()
+        request_row.refresh_from_db()
+        self.assertEqual(approval.decision, Approval.DECISION_APPROVED)
+        self.assertEqual(request_row.status, Request.STATUS_APPROVED)
+
+    @patch("apps.modules.telegram_approvals.services.requests.post")
+    def test_webhook_callback_rejects_wrong_chat(self, mocked_post):
+        mocked_post.return_value.status_code = 200
+        mocked_post.return_value.content = b"{}"
+        mocked_post.return_value.json.return_value = {}
+        request_row = Request.objects.create(
+            tenant=self.tenant,
+            created_by=self.admin,
+            requester=self.requester,
+            title="Needs approval",
+            status=Request.STATUS_PROGRESS_1,
+            billing_date=date(2026, 3, 31),
+        )
+        approval = Approval.objects.create(
+            request=request_row,
+            approver_user=self.approver,
+            approver_tg_id=555001,
+            approver_tg_from_id=777001,
+            message_id=4321,
+            message_sent=True,
+            step=1,
+            step_type=Approval.STEP_TYPE_SERIAL,
+            decision=Approval.DECISION_PENDING,
+        )
+
+        payload = {
+            "callback_query": {
+                "from": {"id": 777001},
+                "message": {"message_id": 4321, "chat": {"id": 888888}},
+                "data": json.dumps({"approval_id": approval.id, "decision": "approved"}),
+            }
+        }
+        res = self.client.post(
+            "/api/telegram-approvals/webhook/",
+            payload,
+            format="json",
+            HTTP_HOST=self.host,
+            HTTP_X_N8N_INTEGRATION_TOKEN=self.webhook_token,
+        )
+        self.assertEqual(res.status_code, 400)
+        approval.refresh_from_db()
+        self.assertEqual(approval.decision, Approval.DECISION_PENDING)
+
+    @patch("apps.modules.telegram_approvals.services.requests.post")
+    def test_payment_callback_mode_buttons_use_vyplatit_otmenit(self, mocked_post):
+        mocked_post.return_value.status_code = 200
+        mocked_post.return_value.content = b"{}"
+        mocked_post.return_value.json.return_value = {}
+        appr_cfg = RequestApprovalConfig.objects.get(tenant=self.tenant)
+        pt_cfg = RequestApprovalPaymentTypeConfig.objects.create(
+            config=appr_cfg, payment_type="Перечисление", is_enabled=True
+        )
+        step_cfg = RequestApprovalStepConfig.objects.create(
+            payment_type_config=pt_cfg,
+            step=1,
+            step_type=Approval.STEP_TYPE_PAYMENT,
+            is_enabled=True,
+            payment_action_mode=RequestApprovalStepConfig.PAYMENT_ACTION_MODE_CALLBACK,
+        )
+        RequestApprovalStepApproverConfig.objects.create(step_config=step_cfg, approver_user=self.approver)
+        self.client.force_authenticate(self.requester)
+        res = self.client.post(
+            "/api/requests/",
+            {
+                "title": "Payment request",
+                "description": "TEST",
+                "amount": 100,
+                "currency": "UZS",
+                "payment_type": "Перечисление",
+                "urgency": "Обычно",
+                "requester": self.requester.id,
+                "billing_date": "2026-03-31",
+            },
+            format="json",
+            HTTP_HOST=self.host,
+        )
+        self.assertEqual(res.status_code, 201, res.content)
+        payload = mocked_post.call_args.kwargs.get("json", {})
+        row = payload.get("inline_keyboard", [[{}, {}]])[0]
+        self.assertEqual(row[0]["text"], "Выплатить")
+        self.assertIn("callback_data", row[0])
+        self.assertEqual(row[1]["text"], "Отменить")
+
+    @patch("apps.modules.telegram_approvals.services.requests.post")
+    def test_payment_webapp_mode_uses_url_button(self, mocked_post):
+        mocked_post.return_value.status_code = 200
+        mocked_post.return_value.content = b"{}"
+        mocked_post.return_value.json.return_value = {}
+        appr_cfg = RequestApprovalConfig.objects.get(tenant=self.tenant)
+        pt_cfg = RequestApprovalPaymentTypeConfig.objects.create(
+            config=appr_cfg, payment_type="Перечисление", is_enabled=True
+        )
+        step_cfg = RequestApprovalStepConfig.objects.create(
+            payment_type_config=pt_cfg,
+            step=2,
+            step_type=Approval.STEP_TYPE_PAYMENT,
+            is_enabled=True,
+            payment_action_mode=RequestApprovalStepConfig.PAYMENT_ACTION_MODE_WEBAPP,
+            payment_webapp_url="https://acme.example.com/tg/payment?approval_id={approval_id}&request_id={request_id}",
+        )
+        RequestApprovalStepApproverConfig.objects.create(step_config=step_cfg, approver_user=self.approver)
+        self.client.force_authenticate(self.requester)
+        res = self.client.post(
+            "/api/requests/",
+            {
+                "title": "Payment request",
+                "description": "TEST",
+                "amount": 100,
+                "currency": "UZS",
+                "payment_type": "Перечисление",
+                "urgency": "Обычно",
+                "requester": self.requester.id,
+                "billing_date": "2026-03-31",
+            },
+            format="json",
+            HTTP_HOST=self.host,
+        )
+        self.assertEqual(res.status_code, 201, res.content)
+        payload = mocked_post.call_args.kwargs.get("json", {})
+        row = payload.get("inline_keyboard", [[{}, {}]])[0]
+        self.assertEqual(row[0]["text"], "Выплатить")
+        self.assertIn("url", row[0])
+        self.assertIn("approval_id=", row[0]["url"])
+        self.assertEqual(row[1]["text"], "Отменить")
+
+    def test_message_headers_for_statuses(self):
+        request_row = Request.objects.create(
+            tenant=self.tenant,
+            created_by=self.admin,
+            requester=self.requester,
+            title="Needs approval",
+            status=Request.STATUS_APPROVED,
+            billing_date=date(2026, 3, 31),
+        )
+        approval = Approval.objects.create(
+            request=request_row,
+            approver_user=self.approver,
+            approver_tg_id=555001,
+            approver_tg_from_id=777001,
+            step=1,
+            step_type=Approval.STEP_TYPE_PAYMENT,
+            decision=Approval.DECISION_APPROVED,
+        )
+        txt = build_approval_message(request_obj=request_row, approval=approval)
+        self.assertIn("✅ Заявка №", txt)
+        self.assertIn("полностью одобрена", txt)
+

@@ -142,6 +142,7 @@ class Approval(models.Model):
     approver_tg_from_id = models.BigIntegerField(null=True, blank=True)
     message_id = models.BigIntegerField(null=True, blank=True)
     message_sent = models.BooleanField(default=False)
+    message_sent_at = models.DateTimeField(null=True, blank=True)
     step = models.IntegerField(default=1)
     step_type = models.CharField(max_length=10, default=STEP_TYPE_SERIAL, choices=STEP_TYPE_CHOICES)
     decision = models.CharField(max_length=12, default=DECISION_PENDING, choices=DECISION_CHOICES)
@@ -185,12 +186,34 @@ class RequestFormConfig(models.Model):
         db_table = "request_form_configs"
 
 
+class RequestCategory(models.Model):
+    tenant = models.ForeignKey(Tenant, on_delete=models.CASCADE, related_name="request_categories")
+    name = models.CharField(max_length=100)
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "request_categories"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["tenant", "name"],
+                name="request_category_tenant_name_uniq",
+            )
+        ]
+        indexes = [
+            models.Index(fields=["tenant", "is_active"], name="req_cat_tenant_active_idx"),
+            models.Index(fields=["tenant", "name"], name="req_cat_tenant_name_idx"),
+        ]
+
+
 class RequestFormPaymentTypeConfig(models.Model):
     config = models.ForeignKey(RequestFormConfig, on_delete=models.CASCADE, related_name="payment_types")
     payment_type = models.CharField(max_length=50, choices=Request.PAYMENT_TYPE_CHOICES)
     is_enabled = models.BooleanField(default=True)
 
     default_title = models.CharField(max_length=200, default="")
+    default_company_payer = models.CharField(max_length=100, default="")
     default_description = models.TextField(default="")
     default_amount = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
     default_currency = models.CharField(max_length=10, default=Request.CURRENCY_UZS)
@@ -313,6 +336,19 @@ class RequestApprovalConfig(models.Model):
         null=True,
         blank=True,
     )
+    telegram_approvals_bridge_dispatch_url = models.TextField(blank=True, default="")
+    telegram_approvals_send_action = models.CharField(max_length=100, blank=True, default="")
+    telegram_approvals_edit_action = models.CharField(max_length=100, blank=True, default="")
+    telegram_approvals_bridge_token = models.TextField(blank=True, default="")
+    telegram_approvals_message_template = models.TextField(blank=True, default="")
+    telegram_approvals_header_new_template = models.TextField(blank=True, default="")
+    telegram_approvals_header_step_approved_template = models.TextField(blank=True, default="")
+    telegram_approvals_header_fully_approved_template = models.TextField(blank=True, default="")
+    telegram_approvals_header_closed_template = models.TextField(blank=True, default="")
+    telegram_approvals_header_rejected_template = models.TextField(blank=True, default="")
+    telegram_approvals_subheader_payment_responsible_template = models.TextField(blank=True, default="")
+    telegram_approvals_subheader_rejected_by_template = models.TextField(blank=True, default="")
+    n8n_integration_token = models.TextField(blank=True, default="")
 
     class Meta:
         db_table = "request_approval_configs"
@@ -335,12 +371,25 @@ class RequestApprovalPaymentTypeConfig(models.Model):
 
 
 class RequestApprovalStepConfig(models.Model):
+    PAYMENT_ACTION_MODE_CALLBACK = "callback"
+    PAYMENT_ACTION_MODE_WEBAPP = "webapp"
+    PAYMENT_ACTION_MODE_CHOICES = [
+        (PAYMENT_ACTION_MODE_CALLBACK, PAYMENT_ACTION_MODE_CALLBACK),
+        (PAYMENT_ACTION_MODE_WEBAPP, PAYMENT_ACTION_MODE_WEBAPP),
+    ]
+
     payment_type_config = models.ForeignKey(
         RequestApprovalPaymentTypeConfig, on_delete=models.CASCADE, related_name="steps"
     )
     step = models.IntegerField()
     step_type = models.CharField(max_length=10, choices=Approval.STEP_TYPE_CHOICES, default=Approval.STEP_TYPE_SERIAL)
     is_enabled = models.BooleanField(default=True)
+    payment_action_mode = models.CharField(
+        max_length=12,
+        choices=PAYMENT_ACTION_MODE_CHOICES,
+        default=PAYMENT_ACTION_MODE_CALLBACK,
+    )
+    payment_webapp_url = models.TextField(blank=True, default="")
 
     class Meta:
         db_table = "request_approval_step_configs"
@@ -399,3 +448,51 @@ class UserRequestApproval(models.Model):
     class Meta:
         db_table = "approvals"
         managed = False
+
+
+class AutoRequestTemplate(models.Model):
+    tenant = models.ForeignKey(Tenant, on_delete=models.CASCADE, related_name="auto_request_templates")
+    is_enabled = models.BooleanField(default=False)
+    name = models.CharField(max_length=150, default="")
+    payment_type = models.CharField(max_length=50, choices=Request.PAYMENT_TYPE_CHOICES)
+    day_of_month = models.IntegerField(default=1)
+
+    title_template = models.CharField(max_length=200, default="")
+    description_template = models.TextField(default="")
+
+    company_payer = models.CharField(max_length=100, default="", blank=True)
+    amount = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
+    currency = models.CharField(max_length=10, default=Request.CURRENCY_UZS, choices=Request.CURRENCY_CHOICES)
+    urgency = models.CharField(max_length=50, default=Request.URGENCY_NORMAL, choices=Request.URGENCY_CHOICES)
+    payment_purpose = models.CharField(max_length=200, default="", blank=True)
+    vendor_ref = models.ForeignKey(
+        "vendors.Vendor",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="auto_request_templates",
+    )
+    requester = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="auto_request_templates",
+    )
+
+    # First day of month (YYYY-MM-01) of latest successful run.
+    last_run_month = models.DateField(null=True, blank=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    updated_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="updated_auto_request_templates",
+        null=True,
+        blank=True,
+    )
+
+    class Meta:
+        db_table = "auto_request_templates"
+        indexes = [
+            models.Index(fields=["tenant", "is_enabled"], name="auto_req_tenant_enabled_idx"),
+            models.Index(fields=["tenant", "payment_type"], name="auto_req_tenant_payment_idx"),
+            models.Index(fields=["tenant", "last_run_month"], name="auto_req_tenant_run_month_idx"),
+        ]

@@ -1,9 +1,0 @@
-{
-  "name": "claude-code-webhook",
-  "version": "1.0.0",
-  "description": "Webhook server to trigger Claude Code from n8n",
-  "main": "server.js",
-  "dependencies": {
-    "express": "^4.18.2"
-  }
-}

@@ -1,4 +1,4 @@
-import { FileTextOutlined } from '@ant-design/icons'
+import { FileTextOutlined, SettingOutlined } from '@ant-design/icons'
 import type { ReactNode } from 'react'
 
 export type SettingsModuleItem = {
@@ -24,5 +24,12 @@ export const SETTINGS_MODULES: SettingsModuleItem[] = [
     description: 'Очередность и пользователи, которые согласуют заявку.',
     path: '/settings/request-approval-config',
     icon: <FileTextOutlined />,
+  },
+  {
+    key: 'tenant-integrations',
+    title: 'Интеграции tenant',
+    description: 'URL, actions и секреты интеграций по модулям компании.',
+    path: '/settings/tenant-integration-config',
+    icon: <SettingOutlined />,
   },
 ]

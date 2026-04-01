@@ -11,11 +11,9 @@ from apps.modules.payroll.models import PayrollLine
 from apps.modules.cashier.models import CashExpense, CashRevenue
 from apps.modules.corporate_card.models import CardExpense, CardRevenue
 from apps.modules.notes.models import Note
-from apps.modules.requests.models import Approval, Request
 from apps.modules.vendors.models import Vendor
 from apps.modules.n8n_integration.authentication import N8nIntegrationAuthentication
 from apps.modules.n8n_integration.serializers import (
-    N8nApprovalImportSerializer,
     N8nBankExpenseImportSerializer,
     N8nBankRevenueImportSerializer,
     N8nCardExpenseImportSerializer,
@@ -24,7 +22,6 @@ from apps.modules.n8n_integration.serializers import (
     N8nCashRevenueImportSerializer,
     N8nNoteImportSerializer,
     N8nPayrollLineImportSerializer,
-    N8nRequestImportSerializer,
     N8nVendorImportSerializer,
 )
 from apps.tenants.permissions import IsTenantAdmin
@@ -77,52 +74,6 @@ def _n8n_upsert(request, *, serializer_class, get_instance, other_tenant_conflic
 class _N8nBaseView(APIView):
     authentication_classes = [N8nIntegrationAuthentication]
     permission_classes = [IsAuthenticated, IsTenantAdmin]
-
-
-class N8nRequestUpsertView(_N8nBaseView):
-    def post(self, request):
-        tenant = request.tenant
-
-        def get_instance(pk):
-            return Request.objects.filter(pk=pk, tenant=tenant).first()
-
-        def other_tenant_conflict(pk):
-            o = Request.objects.filter(pk=pk).first()
-            return o is not None and o.tenant_id != tenant.id
-
-        def build_create_kwargs(req, su):
-            return {"tenant": req.tenant, "created_by": su}
-
-        return _n8n_upsert(
-            request,
-            serializer_class=N8nRequestImportSerializer,
-            get_instance=get_instance,
-            other_tenant_conflict=other_tenant_conflict,
-            build_create_kwargs=build_create_kwargs,
-        )
-
-
-class N8nApprovalUpsertView(_N8nBaseView):
-    def post(self, request):
-        tenant = request.tenant
-
-        def get_instance(pk):
-            return Approval.objects.filter(pk=pk, request__tenant=tenant).first()
-
-        def other_tenant_conflict(pk):
-            o = Approval.objects.filter(pk=pk).select_related("request").first()
-            return o is not None and o.request.tenant_id != tenant.id
-
-        def build_create_kwargs(req, su):
-            return {}
-
-        return _n8n_upsert(
-            request,
-            serializer_class=N8nApprovalImportSerializer,
-            get_instance=get_instance,
-            other_tenant_conflict=other_tenant_conflict,
-            build_create_kwargs=build_create_kwargs,
-        )
 
 
 class N8nVendorUpsertView(_N8nBaseView):

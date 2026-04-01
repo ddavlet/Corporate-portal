@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { Alert, Button, Card, DatePicker, Input, InputNumber, Modal, Select, Space, Typography, message } from 'antd'
 import { ReloadOutlined } from '@ant-design/icons'
 import { useNavigate, useParams } from 'react-router-dom'
-import { apiFetch, triggerResendRequest } from '../../lib/api'
+import { apiFetch, resendRequestApprovals } from '../../lib/api'
 import { RequestDetailContent, type RequestDetail } from './RequestDetailModal'
 import { NoteCreateModal } from '../NoteCreateModal'
 import { useAuth } from '../auth'
@@ -20,6 +20,12 @@ export type RequestDetailPageProps = {
 function canOpenLinkedExpense(link: RequestDetail['expense_link'] | null | undefined): boolean {
   if (!link || link.id == null || link.id === '') return false
   return link.module === 'cash' || link.module === 'bank' || link.module === 'payroll'
+}
+
+function canResendByStatus(status?: string | null): boolean {
+  const raw = String(status || '').trim()
+  const numeric = Number(raw)
+  return Number.isFinite(numeric) && numeric >= 1 && numeric <= 5
 }
 
 export function RequestDetailPage({ listPath = '/requests', variant = 'portal' }: RequestDetailPageProps) {
@@ -149,12 +155,13 @@ export function RequestDetailPage({ listPath = '/requests', variant = 'portal' }
     if (!detail?.id) return
     setResendLoading(true)
     try {
-      const { ok, message: msg } = await triggerResendRequest(detail.id)
-      if (ok) {
-        message.success(`Сообщение отправлено. ${msg}`)
+      const { resent } = await resendRequestApprovals(detail.id)
+      if (resent > 0) {
+        message.success(`Заявки отправлены повторно: ${resent}`)
       } else {
-        message.error(`Ошибка отправки. ${msg}`)
+        message.info('Нет pending-согласований для повторной отправки')
       }
+      await refreshDetail()
     } catch (e: unknown) {
       message.error(e instanceof Error ? e.message : 'Не удалось отправить запрос повторно')
     } finally {
@@ -165,6 +172,7 @@ export function RequestDetailPage({ listPath = '/requests', variant = 'portal' }
   const link = detail?.expense_link
   const showExpenseButton = canOpenLinkedExpense(link)
   const showExternalExpenseHint = link?.module === 'external' && link.id != null && String(link.id) !== ''
+  const resendAllowed = canResendByStatus(detail?.status)
 
   const setDecision = async (step: number, decision: 'approved' | 'rejected') => {
     if (!detail?.id) return
@@ -277,10 +285,21 @@ export function RequestDetailPage({ listPath = '/requests', variant = 'portal' }
                   block
                   icon={<ReloadOutlined />}
                   loading={resendLoading}
+                  disabled={!resendAllowed}
+                  title={
+                    resendAllowed
+                      ? 'Повторно отправить pending-согласования текущего этапа'
+                      : 'Доступно только для заявок в статусах 1-5'
+                  }
                   onClick={() => void resendRequest()}
                 >
                   Отправить запрос повторно
                 </Button>
+              ) : null}
+              {detail?.id && !resendAllowed ? (
+                <Typography.Text type="secondary" style={{ display: 'block', textAlign: 'center' }}>
+                  Повторная отправка доступна только на этапах согласования (статусы 1-5).
+                </Typography.Text>
               ) : null}
               {canEditDraft ? (
                 <Button size="large" block onClick={() => setEditOpen(true)}>
@@ -344,7 +363,17 @@ export function RequestDetailPage({ listPath = '/requests', variant = 'portal' }
               <Button onClick={() => navigate(listPath)}>Назад к списку</Button>
               {detail?.id ? <Button onClick={() => setOpenNoteModal(true)}>Добавить заметку</Button> : null}
               {detail?.id ? (
-                <Button icon={<ReloadOutlined />} loading={resendLoading} onClick={() => void resendRequest()}>
+                <Button
+                  icon={<ReloadOutlined />}
+                  loading={resendLoading}
+                  disabled={!resendAllowed}
+                  title={
+                    resendAllowed
+                      ? 'Повторно отправить pending-согласования текущего этапа'
+                      : 'Доступно только для заявок в статусах 1-5'
+                  }
+                  onClick={() => void resendRequest()}
+                >
                   Отправить запрос повторно
                 </Button>
               ) : null}

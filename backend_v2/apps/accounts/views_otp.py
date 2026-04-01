@@ -16,6 +16,7 @@ from rest_framework.views import APIView
 from rest_framework_simplejwt.tokens import RefreshToken
 
 from apps.accounts.models import OtpChallenge
+from apps.tenants.integration_settings import get_notes_integration_settings
 from apps.tenants.models import TenantMembership, TenantUserRole
 
 User = get_user_model()
@@ -55,10 +56,11 @@ def _check_code(code: str, code_hash: str):
     return check_password(raw, code_hash)
 
 
-def _send_telegram_message(bot_token: str, chat_id: int, text: str):
+def _send_telegram_message(*, tenant, bot_token: str, chat_id: int, text: str):
+    base_url = get_notes_integration_settings(tenant=tenant).telegram_api_base_url
     try:
         resp = requests.post(
-            f"https://api.telegram.org/bot{bot_token}/sendMessage",
+            f"{base_url}/bot{bot_token}/sendMessage",
             json={
                 "chat_id": chat_id,
                 "text": text,
@@ -100,7 +102,7 @@ def _notify_tenant_admins(*, tenant, bot_token: str, text: str) -> None:
 
     for admin in admins.iterator():
         try:
-            _send_telegram_message(bot_token=bot_token, chat_id=int(admin.telegram_chat_id), text=clipped)
+            _send_telegram_message(tenant=tenant, bot_token=bot_token, chat_id=int(admin.telegram_chat_id), text=clipped)
         except Exception:
             # Do not let diagnostics break auth flow.
             pass
@@ -154,7 +156,10 @@ class OtpRequestView(APIView):
             "Срок действия — 5 минут."
         )
         sent, tg_status, tg_body = _send_telegram_message(
-            bot_token=bot_token, chat_id=user.telegram_chat_id, text=message
+            tenant=tenant,
+            bot_token=bot_token,
+            chat_id=user.telegram_chat_id,
+            text=message,
         )
         cache.set(key, "1", timeout=OTP_RESEND_COOLDOWN_SECONDS)
 
