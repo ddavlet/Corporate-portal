@@ -426,13 +426,14 @@ def current_pending_step_approvals_count(*, request_obj: Request) -> int:
 
 @transaction.atomic
 def dispatch_pending_approvals(*, request_obj: Request) -> int:
-    current_step = _current_pending_step(request_obj)
+    locked = Request.objects.select_for_update().get(pk=request_obj.pk)
+    current_step = _current_pending_step(locked)
     if current_step is None:
         return 0
     approvals = list(
         Approval.objects.select_for_update()
         .filter(
-            request=request_obj,
+            request_id=locked.pk,
             step=current_step,
             decision=Approval.DECISION_PENDING,
             message_sent=False,
@@ -445,14 +446,14 @@ def dispatch_pending_approvals(*, request_obj: Request) -> int:
         return 0
     sent_count = 0
     for approval in approvals:
-        message_text = build_approval_message(request_obj=request_obj, approval=approval)
+        message_text = build_approval_message(request_obj=locked, approval=approval)
         payload = _dispatch_payload(
-            action=get_requests_telegram_integration_settings(tenant=request_obj.tenant).send_action,
-            request_obj=request_obj,
+            action=get_requests_telegram_integration_settings(tenant=locked.tenant).send_action,
+            request_obj=locked,
             approval=approval,
             message_text=message_text,
         )
-        response_data = _post_to_bridge(request_obj=request_obj, payload=payload)
+        response_data = _post_to_bridge(request_obj=locked, payload=payload)
         if response_data is None:
             continue
         _mark_approval_message_sent(approval=approval)
@@ -461,38 +462,39 @@ def dispatch_pending_approvals(*, request_obj: Request) -> int:
     return sent_count
 
 
-def edit_approval_message(*, approval: Approval) -> bool:
+def edit_approval_message(*, approval: Approval, request_context: Request | None = None) -> bool:
     if not approval.message_id or approval.approver_tg_id is None:
         return False
-    request_obj = approval.request
+    req = request_context or approval.request
     payload = _dispatch_payload(
-        action=get_requests_telegram_integration_settings(tenant=request_obj.tenant).edit_action,
-        request_obj=request_obj,
+        action=get_requests_telegram_integration_settings(tenant=req.tenant).edit_action,
+        request_obj=req,
         approval=approval,
-        message_text=build_approval_message(request_obj=request_obj, approval=approval),
+        message_text=build_approval_message(request_obj=req, approval=approval),
     )
-    response_data = _post_to_bridge(request_obj=request_obj, payload=payload)
+    response_data = _post_to_bridge(request_obj=req, payload=payload)
     _maybe_set_message_id(approval=approval, response_data=response_data)
     return response_data is not None
 
 
-def deactivate_approval_message_buttons(*, approval: Approval) -> bool:
+def deactivate_approval_message_buttons(*, approval: Approval, request_context: Request | None = None) -> bool:
     if not approval.message_id or approval.approver_tg_id is None:
         return False
-    request_obj = approval.request
+    req = request_context or approval.request
     payload = _dispatch_payload(
-        action=get_requests_telegram_integration_settings(tenant=request_obj.tenant).edit_action,
-        request_obj=request_obj,
+        action=get_requests_telegram_integration_settings(tenant=req.tenant).edit_action,
+        request_obj=req,
         approval=approval,
-        message_text=build_approval_message(request_obj=request_obj, approval=approval),
+        message_text=build_approval_message(request_obj=req, approval=approval),
         include_buttons=False,
     )
-    response_data = _post_to_bridge(request_obj=request_obj, payload=payload)
+    response_data = _post_to_bridge(request_obj=req, payload=payload)
     _maybe_set_message_id(approval=approval, response_data=response_data)
     return response_data is not None
 
 
 def refresh_request_messages(*, request_obj: Request) -> int:
+    request_obj.refresh_from_db()
     approvals = list(
         Approval.objects.filter(request=request_obj, message_id__isnull=False)
         .select_related("request", "request__tenant", "approver_user")
@@ -500,20 +502,24 @@ def refresh_request_messages(*, request_obj: Request) -> int:
     )
     updated = 0
     for approval in approvals:
-        if edit_approval_message(approval=approval):
+        if request_obj.status == Request.STATUS_REJECTED:
+            if deactivate_approval_message_buttons(approval=approval, request_context=request_obj):
+                updated += 1
+        elif edit_approval_message(approval=approval, request_context=request_obj):
             updated += 1
     return updated
 
 
 @transaction.atomic
 def resend_current_pending_step(*, request_obj: Request) -> int:
-    current_step = _current_pending_step(request_obj)
+    locked = Request.objects.select_for_update().get(pk=request_obj.pk)
+    current_step = _current_pending_step(locked)
     if current_step is None:
         return 0
     approvals = list(
         Approval.objects.select_for_update()
         .filter(
-            request=request_obj,
+            request_id=locked.pk,
             step=current_step,
             decision=Approval.DECISION_PENDING,
             approver_tg_id__isnull=False,
@@ -526,17 +532,17 @@ def resend_current_pending_step(*, request_obj: Request) -> int:
 
     resent = 0
     for approval in approvals:
-        message_text = build_approval_message(request_obj=request_obj, approval=approval)
+        message_text = build_approval_message(request_obj=locked, approval=approval)
         if approval.message_id:
-            deactivate_approval_message_buttons(approval=approval)
+            deactivate_approval_message_buttons(approval=approval, request_context=locked)
         payload = _dispatch_payload(
-            action=get_requests_telegram_integration_settings(tenant=request_obj.tenant).send_action,
-            request_obj=request_obj,
+            action=get_requests_telegram_integration_settings(tenant=locked.tenant).send_action,
+            request_obj=locked,
             approval=approval,
             message_text=message_text,
             include_buttons=True,
         )
-        response_data = _post_to_bridge(request_obj=request_obj, payload=payload)
+        response_data = _post_to_bridge(request_obj=locked, payload=payload)
         if response_data is None:
             continue
         # Resend flow: old message is edited first, then new one is sent.

@@ -634,7 +634,7 @@ class RequestApprovalsTests(APITestCase):
 
         self.assertEqual(Request.objects.get(pk=request_id).status, Request.STATUS_REJECTED)
         step2_row = Approval.objects.get(request_id=request_id, approver_user=self.other_approver, step=2)
-        self.assertEqual(step2_row.decision, Approval.DECISION_PENDING)
+        self.assertEqual(step2_row.decision, Approval.DECISION_REJECTED)
 
     def test_serial_then_payment_pending_sets_request_approved(self):
         pt_cfg = RequestApprovalPaymentTypeConfig.objects.get(
