@@ -326,49 +326,6 @@ export type RequestFormConfigCandidateVendor = {
   account_number?: string | null
 }
 
-export type AutoRequestTemplateItem = {
-  id?: number
-  is_enabled: boolean
-  name: string
-  payment_type: string
-  day_of_month: number
-  title_template: string
-  description_template: string
-  company_payer: string
-  amount: string | null
-  currency: string
-  urgency: string
-  payment_purpose: string
-  vendor_ref_id: number | null
-  requester_id: number
-  last_run_month?: string | null
-}
-
-export type AutoRequestConfigResponse = {
-  templates: AutoRequestTemplateItem[]
-  requester_candidates: RequestFormConfigCandidateUser[]
-  vendor_candidates: RequestFormConfigCandidateVendor[]
-}
-
-export type AutoRequestConfigUpdatePayload = {
-  templates: Array<{
-    id?: number
-    is_enabled: boolean
-    name: string
-    payment_type: string
-    day_of_month: number
-    title_template: string
-    description_template: string
-    company_payer?: string
-    amount?: string | number | null
-    currency?: string
-    urgency?: string
-    payment_purpose?: string
-    vendor_ref_id?: number | null
-    requester_id: number
-  }>
-}
-
 export type RequestFormConfigPurposeItem = {
   id?: number
   name: string
@@ -383,6 +340,7 @@ export type RequestFormConfigPaymentTypeItem = {
   vendor_ids: number[]
   payment_purposes: RequestFormConfigPurposeItem[]
   default_title: string
+  default_company_payer?: string
   default_description: string
   default_amount: string | null
   default_currency: string
@@ -390,6 +348,49 @@ export type RequestFormConfigPaymentTypeItem = {
   default_billing_days_offset: number
   default_payment_purpose: string
   default_vendor_id: number | null
+}
+
+export type AutoRequestTemplateItem = {
+  id?: number
+  is_enabled: boolean
+  name: string
+  payment_type: string
+  day_of_month: number
+  title_template: string
+  description_template: string
+  amount: string | null
+  currency: string
+  urgency: string
+  payment_purpose: string
+  vendor_ref_id: number | null
+  requester_id: number
+  last_run_month?: string | null
+}
+
+export type AutoRequestConfigResponse = {
+  templates: AutoRequestTemplateItem[]
+  requester_candidates: RequestFormConfigCandidateUser[]
+  vendor_candidates: RequestFormConfigCandidateVendor[]
+  /** Same shape as form-config payment_types: purposes, vendor_ids, default_company_payer per type */
+  form_payment_types: RequestFormConfigPaymentTypeItem[]
+}
+
+export type AutoRequestConfigUpdatePayload = {
+  templates: Array<{
+    id?: number
+    is_enabled: boolean
+    name: string
+    payment_type: string
+    day_of_month: number
+    title_template: string
+    description_template: string
+    amount?: string | number | null
+    currency?: string
+    urgency?: string
+    payment_purpose?: string
+    vendor_ref_id?: number | null
+    requester_id: number
+  }>
 }
 
 export type RequestFormConfigResponse = {

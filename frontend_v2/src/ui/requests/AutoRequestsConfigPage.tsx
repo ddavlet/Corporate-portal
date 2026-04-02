@@ -5,22 +5,69 @@ import { useNavigate } from 'react-router-dom'
 import {
   getAutoRequestConfig,
   updateAutoRequestConfig,
-  type AutoRequestTemplateItem,
   type AutoRequestConfigResponse,
+  type AutoRequestTemplateItem,
+  type RequestFormConfigPaymentTypeItem,
 } from '../../lib/api'
 import { labelBlockAboveField } from '../formSpacing'
 
-const PAYMENT_TYPES = ['Наличные', 'Перечисление', 'Пополнение', 'Платежная карта'] as const
+const PAYMENT_TYPES_FALLBACK = ['Наличные', 'Перечисление', 'Пополнение', 'Платежная карта'] as const
 
-function emptyTemplate(): AutoRequestTemplateItem {
+function vendorKindForPaymentType(paymentType: string): 'cash' | 'transfer' {
+  return paymentType === 'Наличные' ? 'cash' : 'transfer'
+}
+
+function paymentTypeSelectOptions(data: AutoRequestConfigResponse | null) {
+  const pts = (data?.form_payment_types || []).filter((p) => p.is_enabled)
+  if (pts.length) return pts.map((p) => ({ value: p.payment_type, label: p.payment_type }))
+  return PAYMENT_TYPES_FALLBACK.map((v) => ({ value: v, label: v }))
+}
+
+function defaultPaymentTypeForNew(data: AutoRequestConfigResponse | null): string {
+  const pts = (data?.form_payment_types || []).filter((p) => p.is_enabled)
+  return pts[0]?.payment_type || 'Наличные'
+}
+
+function formPtForPaymentType(
+  data: AutoRequestConfigResponse | null,
+  paymentType: string,
+): RequestFormConfigPaymentTypeItem | undefined {
+  return data?.form_payment_types?.find((p) => p.payment_type === paymentType && p.is_enabled)
+}
+
+function vendorSelectOptions(row: AutoRequestTemplateItem, data: AutoRequestConfigResponse | null) {
+  const kind = vendorKindForPaymentType(row.payment_type)
+  const pt = formPtForPaymentType(data, row.payment_type)
+  let list = (data?.vendor_candidates || []).filter((v) => v.kind === kind)
+  if (pt?.vendor_ids?.length) {
+    const allow = new Set(pt.vendor_ids)
+    list = list.filter((v) => allow.has(v.id))
+  }
+  return list.map((v) => {
+    const bits = [v.kind === 'cash' ? 'Наличные' : 'Перечисление', v.name]
+    if (v.inn) bits.push(`ИНН ${v.inn}`)
+    return { value: v.id, label: bits.join(' · ') }
+  })
+}
+
+function purposeSelectOptions(row: AutoRequestTemplateItem, data: AutoRequestConfigResponse | null) {
+  const pt = formPtForPaymentType(data, row.payment_type)
+  return (pt?.payment_purposes || [])
+    .filter((p) => p.is_active !== false)
+    .map((p) => ({
+      value: p.name,
+      label: p.category ? `${p.name} (${p.category})` : p.name,
+    }))
+}
+
+function emptyTemplate(paymentType: string): AutoRequestTemplateItem {
   return {
     is_enabled: false,
     name: '',
-    payment_type: 'Наличные',
+    payment_type: paymentType,
     day_of_month: 1,
     title_template: '',
     description_template: '',
-    company_payer: '',
     amount: null,
     currency: 'UZS',
     urgency: 'Обычно',
@@ -44,7 +91,12 @@ export function AutoRequestsConfigPage() {
       setError(null)
       try {
         const resp = await getAutoRequestConfig()
-        if (!cancelled) setData(resp)
+        if (!cancelled) {
+          setData({
+            ...resp,
+            form_payment_types: resp.form_payment_types ?? [],
+          })
+        }
       } catch (e: any) {
         if (!cancelled) setError(e?.message || 'Ошибка загрузки')
       } finally {
@@ -61,6 +113,8 @@ export function AutoRequestsConfigPage() {
     [data],
   )
 
+  const hasFormConfig = Boolean(data?.form_payment_types?.length)
+
   const updateRow = (idx: number, patch: Partial<AutoRequestTemplateItem>) => {
     setData((prev) => {
       if (!prev) return prev
@@ -74,7 +128,8 @@ export function AutoRequestsConfigPage() {
   const addTemplate = () => {
     setData((prev) => {
       if (!prev) return prev
-      return { ...prev, templates: [...prev.templates, emptyTemplate()] }
+      const pt = defaultPaymentTypeForNew(prev)
+      return { ...prev, templates: [...prev.templates, emptyTemplate(pt)] }
     })
   }
 
@@ -99,7 +154,6 @@ export function AutoRequestsConfigPage() {
           day_of_month: row.day_of_month || 1,
           title_template: String(row.title_template || ''),
           description_template: String(row.description_template || ''),
-          company_payer: String(row.company_payer || ''),
           amount: row.amount == null || row.amount === '' ? null : row.amount,
           currency: row.currency || 'UZS',
           urgency: row.urgency || 'Обычно',
@@ -108,7 +162,8 @@ export function AutoRequestsConfigPage() {
           requester_id: row.requester_id,
         })),
       }
-      setData(await updateAutoRequestConfig(payload))
+      const next = await updateAutoRequestConfig(payload)
+      setData({ ...next, form_payment_types: next.form_payment_types ?? [] })
       message.success('Сохранено')
     } catch (e: any) {
       setError(e?.message || 'Ошибка сохранения')
@@ -126,10 +181,20 @@ export function AutoRequestsConfigPage() {
         Автозаявки
       </Typography.Title>
       <Typography.Paragraph type="secondary" style={{ marginBottom: 0 }}>
-        Автоматическое создание заявок в выбранный день каждого месяца по шаблону.
+        Один раз настраиваете поля как в обычной заявке: тип оплаты, поставщик, назначение, сумма и т.д. В выбранный день
+        месяца система создаёт заявку. Компания-плательщик подставляется автоматически из настроек формы заявки для
+        выбранного типа оплаты (раздел «Настройка формы заявки»).
       </Typography.Paragraph>
       <Divider />
       {error ? <Alert type="error" showIcon message={error} style={{ marginBottom: 12 }} /> : null}
+      {!loading && !hasFormConfig ? (
+        <Alert
+          type="warning"
+          showIcon
+          style={{ marginBottom: 12 }}
+          message="Сначала настройте форму заявки (типы оплаты, поставщики, назначения), иначе сохранение шаблонов может быть недоступно."
+        />
+      ) : null}
       {loading ? (
         <Typography.Text type="secondary">Загрузка...</Typography.Text>
       ) : (
@@ -137,96 +202,149 @@ export function AutoRequestsConfigPage() {
           <Button icon={<PlusOutlined />} onClick={addTemplate}>
             Добавить автозаявку
           </Button>
-          {(data?.templates || []).map((row, idx) => (
-            <Card key={row.id ?? `new-${idx}`} size="small">
-              <Space direction="vertical" size={10} style={{ display: 'flex' }}>
-                <Space align="center" wrap>
-                  <Typography.Text strong>Шаблон #{idx + 1}</Typography.Text>
-                  <Checkbox checked={row.is_enabled} onChange={(e) => updateRow(idx, { is_enabled: e.target.checked })}>
-                    Активно
-                  </Checkbox>
-                  <Button danger onClick={() => removeTemplate(idx)}>
-                    Удалить
-                  </Button>
-                </Space>
-                <Input
-                  placeholder="Название шаблона"
-                  value={row.name}
-                  onChange={(e) => updateRow(idx, { name: e.target.value })}
-                />
-                <Space wrap size={12}>
-                  <Select
-                    style={{ width: 180 }}
-                    value={row.payment_type}
-                    onChange={(v) => updateRow(idx, { payment_type: v })}
-                    options={PAYMENT_TYPES.map((v) => ({ value: v, label: v }))}
-                  />
-                  <InputNumber
-                    min={1}
-                    max={31}
-                    value={row.day_of_month}
-                    onChange={(v) => updateRow(idx, { day_of_month: typeof v === 'number' ? v : 1 })}
-                    addonBefore="День месяца"
-                  />
-                  <Select
-                    style={{ width: 220 }}
-                    value={row.requester_id || undefined}
-                    placeholder="Заявитель"
-                    onChange={(v) => updateRow(idx, { requester_id: v })}
-                    options={requesterOptions}
-                    showSearch
-                    optionFilterProp="label"
-                  />
-                </Space>
-                <Input
-                  placeholder="Заголовок (поддержка токенов {{billing_month_ru}}, {{billing_month:%B %Y}}, {{now:%d.%m.%Y}})"
-                  value={row.title_template}
-                  onChange={(e) => updateRow(idx, { title_template: e.target.value })}
-                />
-                <Input.TextArea
-                  rows={3}
-                  placeholder="Описание шаблона с токенами даты"
-                  value={row.description_template}
-                  onChange={(e) => updateRow(idx, { description_template: e.target.value })}
-                />
-                <Space wrap size={12}>
+          {(data?.templates || []).map((row, idx) => {
+            const pt = formPtForPaymentType(data, row.payment_type)
+            const purposeOpts = purposeSelectOptions(row, data)
+            const vendorOpts = vendorSelectOptions(row, data)
+            return (
+              <Card key={row.id ?? `new-${idx}`} size="small">
+                <Space direction="vertical" size={10} style={{ display: 'flex' }}>
+                  <Space align="center" wrap>
+                    <Typography.Text strong>Шаблон #{idx + 1}</Typography.Text>
+                    <Checkbox checked={row.is_enabled} onChange={(e) => updateRow(idx, { is_enabled: e.target.checked })}>
+                      Активно
+                    </Checkbox>
+                    <Button danger onClick={() => removeTemplate(idx)}>
+                      Удалить
+                    </Button>
+                  </Space>
                   <Input
-                    style={{ width: 220 }}
-                    placeholder="Компания-плательщик"
-                    value={row.company_payer}
-                    onChange={(e) => updateRow(idx, { company_payer: e.target.value })}
+                    placeholder="Название шаблона (для себя)"
+                    value={row.name}
+                    onChange={(e) => updateRow(idx, { name: e.target.value })}
                   />
-                  <InputNumber
-                    style={{ width: 150 }}
-                    min={0}
-                    placeholder="Сумма"
-                    value={row.amount == null ? undefined : Number(row.amount)}
-                    onChange={(v) => updateRow(idx, { amount: v == null ? null : String(v) })}
+                  <Space wrap size={12}>
+                    <div>
+                      <Typography.Text type="secondary" style={{ display: 'block', marginBottom: 4 }}>
+                        Тип оплаты
+                      </Typography.Text>
+                      <Select
+                        style={{ width: 200 }}
+                        value={row.payment_type}
+                        onChange={(v) =>
+                          updateRow(idx, {
+                            payment_type: v,
+                            vendor_ref_id: null,
+                            payment_purpose: '',
+                          })
+                        }
+                        options={paymentTypeSelectOptions(data)}
+                      />
+                    </div>
+                    <InputNumber
+                      min={1}
+                      max={31}
+                      value={row.day_of_month}
+                      onChange={(v) => updateRow(idx, { day_of_month: typeof v === 'number' ? v : 1 })}
+                      addonBefore="День месяца"
+                    />
+                    <div>
+                      <Typography.Text type="secondary" style={{ display: 'block', marginBottom: 4 }}>
+                        Заявитель
+                      </Typography.Text>
+                      <Select
+                        style={{ width: 220 }}
+                        value={row.requester_id || undefined}
+                        placeholder="Заявитель"
+                        onChange={(v) => updateRow(idx, { requester_id: v })}
+                        options={requesterOptions}
+                        showSearch
+                        optionFilterProp="label"
+                      />
+                    </div>
+                  </Space>
+                  {pt?.default_company_payer ? (
+                    <Typography.Text type="secondary">
+                      Плательщик в заявке: «{pt.default_company_payer}» (из настроек формы для этого типа оплаты)
+                    </Typography.Text>
+                  ) : null}
+                  <div>
+                    <Typography.Text strong style={labelBlockAboveField}>
+                      Поставщик
+                    </Typography.Text>
+                    <Select
+                      style={{ width: '100%' }}
+                      placeholder="Выберите из справочника"
+                      value={row.vendor_ref_id ?? undefined}
+                      onChange={(v) => updateRow(idx, { vendor_ref_id: v })}
+                      options={vendorOpts}
+                      allowClear
+                      showSearch
+                      optionFilterProp="label"
+                    />
+                  </div>
+                  <div>
+                    <Typography.Text strong style={labelBlockAboveField}>
+                      Назначение платежа
+                    </Typography.Text>
+                    {purposeOpts.length > 0 ? (
+                      <Select
+                        style={{ width: '100%' }}
+                        placeholder="Выберите назначение"
+                        value={row.payment_purpose || undefined}
+                        onChange={(v) => updateRow(idx, { payment_purpose: v })}
+                        options={purposeOpts}
+                        allowClear
+                        showSearch
+                        optionFilterProp="label"
+                      />
+                    ) : (
+                      <Input
+                        placeholder="Назначение (в настройках формы нет списка — ввод вручную)"
+                        value={row.payment_purpose}
+                        onChange={(e) => updateRow(idx, { payment_purpose: e.target.value })}
+                      />
+                    )}
+                  </div>
+                  <Input
+                    placeholder="Заголовок (токены {{billing_month_ru}}, {{billing_month:%B %Y}}, {{now:%d.%m.%Y}})"
+                    value={row.title_template}
+                    onChange={(e) => updateRow(idx, { title_template: e.target.value })}
                   />
-                  <Select
-                    style={{ width: 120 }}
-                    value={row.currency}
-                    onChange={(v) => updateRow(idx, { currency: v })}
-                    options={['UZS', 'USD', 'EUR', 'RUB'].map((v) => ({ value: v, label: v }))}
+                  <Input.TextArea
+                    rows={3}
+                    placeholder="Описание шаблона с токенами даты"
+                    value={row.description_template}
+                    onChange={(e) => updateRow(idx, { description_template: e.target.value })}
                   />
-                  <Select
-                    style={{ width: 140 }}
-                    value={row.urgency}
-                    onChange={(v) => updateRow(idx, { urgency: v })}
-                    options={['Низко', 'Обычно', 'Срочно'].map((v) => ({ value: v, label: v }))}
-                  />
+                  <Space wrap size={12}>
+                    <InputNumber
+                      style={{ width: 150 }}
+                      min={0}
+                      placeholder="Сумма"
+                      value={row.amount == null ? undefined : Number(row.amount)}
+                      onChange={(v) => updateRow(idx, { amount: v == null ? null : String(v) })}
+                    />
+                    <Select
+                      style={{ width: 120 }}
+                      value={row.currency}
+                      onChange={(v) => updateRow(idx, { currency: v })}
+                      options={['UZS', 'USD', 'EUR', 'RUB'].map((v) => ({ value: v, label: v }))}
+                    />
+                    <Select
+                      style={{ width: 140 }}
+                      value={row.urgency}
+                      onChange={(v) => updateRow(idx, { urgency: v })}
+                      options={['Низко', 'Обычно', 'Срочно'].map((v) => ({ value: v, label: v }))}
+                    />
+                  </Space>
+                  <Typography.Text type="secondary" style={labelBlockAboveField}>
+                    Последний запуск: {row.last_run_month || 'еще не запускалось'}
+                  </Typography.Text>
                 </Space>
-                <Input
-                  placeholder="Назначение платежа"
-                  value={row.payment_purpose}
-                  onChange={(e) => updateRow(idx, { payment_purpose: e.target.value })}
-                />
-                <Typography.Text type="secondary" style={labelBlockAboveField}>
-                  Последний запуск: {row.last_run_month || 'еще не запускалось'}
-                </Typography.Text>
-              </Space>
-            </Card>
-          ))}
+              </Card>
+            )
+          })}
           <Button type="primary" icon={<SaveOutlined />} loading={saving} onClick={save}>
             Сохранить
           </Button>

@@ -721,6 +721,54 @@ def build_request_approval_config_response(*, tenant) -> dict:
     }
 
 
+def validate_auto_template_against_form_config(*, tenant, item: dict) -> None:
+    """
+    When tenant has request form config, auto-templates must follow the same rules as portal creates:
+    enabled payment type, requester subset, vendor from allowed list / kind match, purpose from list when configured.
+    """
+    cfg = RequestFormConfig.objects.filter(tenant=tenant).first()
+    if not cfg:
+        return
+    payment_type = item["payment_type"]
+    pt_cfg = RequestFormPaymentTypeConfig.objects.filter(config=cfg, payment_type=payment_type).first()
+    if not pt_cfg or not pt_cfg.is_enabled:
+        raise serializers.ValidationError(
+            f'Тип оплаты «{payment_type}» должен быть включён в настройках формы заявки (settings/request-form-config).'
+        )
+    requester_id = int(item["requester_id"])
+    allowed_requester_ids = list(
+        RequestFormPaymentTypeRequester.objects.filter(payment_type_config=pt_cfg).values_list(
+            "user_id", flat=True
+        )
+    )
+    if allowed_requester_ids and requester_id not in set(allowed_requester_ids):
+        raise serializers.ValidationError("Выбранный заявитель не разрешён для этого типа оплаты в настройках формы.")
+
+    vendor_ref_id = item.get("vendor_ref_id")
+    if not vendor_ref_id:
+        raise serializers.ValidationError("Выберите поставщика из справочника.")
+    vendor = Vendor.objects.filter(tenant=tenant, id=int(vendor_ref_id)).first()
+    if not vendor:
+        raise serializers.ValidationError("Поставщик не найден.")
+    if vendor.kind != payment_type_to_vendor_kind(payment_type):
+        raise serializers.ValidationError("Вид поставщика не соответствует типу оплаты.")
+    allowed_vendor_ids = list(
+        RequestFormPaymentTypeVendor.objects.filter(payment_type_config=pt_cfg).values_list("vendor_id", flat=True)
+    )
+    if allowed_vendor_ids and vendor.id not in set(allowed_vendor_ids):
+        raise serializers.ValidationError("Поставщик не разрешён для этого типа оплаты в настройках формы.")
+
+    purpose_value = str(item.get("payment_purpose") or "").strip()
+    purpose_rows = list(
+        RequestPaymentPurposeConfig.objects.filter(payment_type_config=pt_cfg, is_active=True)
+    )
+    if purpose_rows:
+        if not purpose_value:
+            raise serializers.ValidationError("Выберите назначение платежа.")
+        if not any(p.name == purpose_value for p in purpose_rows):
+            raise serializers.ValidationError("Назначение платежа не входит в список для этого типа оплаты.")
+
+
 class AutoRequestTemplatePayloadSerializer(serializers.Serializer):
     id = serializers.IntegerField(required=False)
     is_enabled = serializers.BooleanField(required=False, default=False)
@@ -729,7 +777,6 @@ class AutoRequestTemplatePayloadSerializer(serializers.Serializer):
     day_of_month = serializers.IntegerField(min_value=1, max_value=31)
     title_template = serializers.CharField(required=False, allow_blank=True, max_length=200, default="")
     description_template = serializers.CharField(required=False, allow_blank=True, default="")
-    company_payer = serializers.CharField(required=False, allow_blank=True, max_length=100, default="")
     amount = serializers.DecimalField(
         required=False,
         allow_null=True,
@@ -762,6 +809,7 @@ def build_auto_request_config_response(*, tenant) -> dict:
     requester_candidates = User.objects.filter(id__in=requester_user_ids).order_by("username")
     vendor_candidates = Vendor.objects.filter(tenant=tenant).order_by("name")
     templates = AutoRequestTemplate.objects.filter(tenant=tenant).order_by("id")
+    form_cfg = build_request_form_config_response(tenant=tenant)
     return {
         "templates": [
             {
@@ -772,7 +820,6 @@ def build_auto_request_config_response(*, tenant) -> dict:
                 "day_of_month": row.day_of_month,
                 "title_template": row.title_template,
                 "description_template": row.description_template,
-                "company_payer": row.company_payer,
                 "amount": str(row.amount) if row.amount is not None else None,
                 "currency": row.currency,
                 "urgency": row.urgency,
@@ -785,5 +832,6 @@ def build_auto_request_config_response(*, tenant) -> dict:
         ],
         "requester_candidates": RequesterCandidateSerializer(requester_candidates, many=True).data,
         "vendor_candidates": VendorCandidateSerializer(vendor_candidates, many=True).data,
+        "form_payment_types": form_cfg["payment_types"],
     }
 

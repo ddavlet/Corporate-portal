@@ -13,6 +13,7 @@ from apps.modules.requests.models import (
     RequestFormConfig,
     RequestFormPaymentTypeConfig,
     RequestFormPaymentTypeRequester,
+    RequestFormPaymentTypeVendor,
     RequestPaymentPurposeConfig,
     RequestApprovalConfig,
     RequestApprovalPaymentTypeConfig,
@@ -22,6 +23,7 @@ from apps.modules.requests.models import (
     AutoRequestTemplate,
 )
 from apps.modules.requests.auto_requests import process_due_auto_requests, render_auto_request_template
+from apps.modules.vendors.models import Vendor
 
 User = get_user_model()
 
@@ -887,6 +889,22 @@ class AutoRequestTests(APITestCase):
         TenantModuleConfig.objects.create(tenant=self.tenant, module_key="requests", is_enabled=True)
         self.host = "auto.example.com"
 
+    def _ensure_request_form_for_auto(self) -> Vendor:
+        req_form_cfg = RequestFormConfig.objects.create(tenant=self.tenant, updated_by=self.admin)
+        pt_cfg = RequestFormPaymentTypeConfig.objects.create(
+            config=req_form_cfg,
+            payment_type=Request.PAYMENT_TYPE_CASH,
+            is_enabled=True,
+            default_company_payer="PayCo LLC",
+        )
+        RequestFormPaymentTypeRequester.objects.create(payment_type_config=pt_cfg, user=self.requester)
+        v = Vendor.objects.create(tenant=self.tenant, kind="cash", name="Auto Vendor")
+        RequestFormPaymentTypeVendor.objects.create(payment_type_config=pt_cfg, vendor=v)
+        RequestPaymentPurposeConfig.objects.create(
+            payment_type_config=pt_cfg, name="Office", category="Admin", is_active=True
+        )
+        return v
+
     def test_template_render_month_ru(self):
         out = render_auto_request_template(
             "Отчет за {{billing_month_ru}}",
@@ -896,6 +914,7 @@ class AutoRequestTests(APITestCase):
         self.assertEqual(out, "Отчет за Февраль 2026")
 
     def test_process_due_auto_requests_creates_once_per_month(self):
+        v = self._ensure_request_form_for_auto()
         AutoRequestTemplate.objects.create(
             tenant=self.tenant,
             is_enabled=True,
@@ -906,14 +925,21 @@ class AutoRequestTests(APITestCase):
             description_template="Дата {{now:%d.%m.%Y}}",
             requester=self.requester,
             updated_by=self.admin,
+            vendor_ref=v,
+            payment_purpose="Office",
         )
         n1 = process_due_auto_requests(now_dt=timezone.make_aware(datetime(2026, 2, 2, 10, 0, 0)))
         n2 = process_due_auto_requests(now_dt=timezone.make_aware(datetime(2026, 2, 20, 10, 0, 0)))
         self.assertEqual(n1, 1)
         self.assertEqual(n2, 0)
         self.assertEqual(Request.objects.filter(tenant=self.tenant).count(), 1)
+        req = Request.objects.get(tenant=self.tenant)
+        self.assertEqual(req.company_payer, "PayCo LLC")
+        self.assertEqual(req.category, "Admin")
+        self.assertEqual(req.vendor_ref_id, v.id)
 
     def test_auto_config_put_and_get(self):
+        v = self._ensure_request_form_for_auto()
         self.client.force_authenticate(self.admin)
         payload = {
             "templates": [
@@ -925,6 +951,8 @@ class AutoRequestTests(APITestCase):
                     "title_template": "Аренда {{billing_month_ru}}",
                     "description_template": "Платеж за {{billing_month:%B %Y}}",
                     "requester_id": self.requester.id,
+                    "vendor_ref_id": v.id,
+                    "payment_purpose": "Office",
                 }
             ]
         }
@@ -934,5 +962,6 @@ class AutoRequestTests(APITestCase):
         get_res = self.client.get("/api/requests/auto-config/", HTTP_HOST=self.host)
         self.assertEqual(get_res.status_code, 200)
         self.assertEqual(get_res.data["templates"][0]["name"], "Rent")
+        self.assertIn("form_payment_types", get_res.data)
 
 
