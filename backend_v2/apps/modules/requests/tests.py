@@ -898,7 +898,9 @@ class AutoRequestTests(APITestCase):
             default_company_payer="PayCo LLC",
         )
         RequestFormPaymentTypeRequester.objects.create(payment_type_config=pt_cfg, user=self.requester)
-        v = Vendor.objects.create(tenant=self.tenant, kind="cash", name="Auto Vendor")
+        v = Vendor.objects.create(
+            tenant=self.tenant, kind="cash", name="Auto Vendor", created_by=self.admin
+        )
         RequestFormPaymentTypeVendor.objects.create(payment_type_config=pt_cfg, vendor=v)
         RequestPaymentPurposeConfig.objects.create(
             payment_type_config=pt_cfg, name="Office", category="Admin", is_active=True
