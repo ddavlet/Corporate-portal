@@ -150,9 +150,6 @@ export function RequestApprovalConfigPage() {
             payment_webapp_url: s.payment_webapp_url ?? '',
           })),
         })),
-        integration_settings: {
-          ...(data.integration_settings ?? {}),
-        },
       }
 
       setData(normalizeConfig(await updateRequestApprovalConfig(payload)))
@@ -175,6 +172,13 @@ export function RequestApprovalConfigPage() {
       </Typography.Title>
       <Typography.Paragraph type="secondary" style={{ marginBottom: 0 }}>
         Укажите для каждого типа оплаты шаги и approver-ов, которые согласуют заявку.
+      </Typography.Paragraph>
+      <Typography.Paragraph type="secondary" style={{ marginBottom: 0 }}>
+        Параметры Telegram и n8n для заявок настраиваются в разделе{' '}
+        <Button type="link" onClick={() => navigate('/settings/tenant-integration-config')} style={{ padding: 0, height: 'auto' }}>
+          Интеграции tenant
+        </Button>
+        .
       </Typography.Paragraph>
 
       <Divider />
@@ -200,204 +204,6 @@ export function RequestApprovalConfigPage() {
               ))}
             </Space>
           </Space>
-
-          <Divider />
-
-          <Space direction="vertical" size={12} style={{ display: 'flex' }}>
-            <Typography.Text strong style={labelBlockAboveField}>
-              Интеграция заявок с Telegram/n8n (настройки модуля)
-            </Typography.Text>
-            <Input
-              placeholder="Dispatch URL"
-              value={data.integration_settings?.telegram_approvals_bridge_dispatch_url ?? ''}
-              onChange={(e) =>
-                setData((prev) =>
-                  prev
-                    ? {
-                        ...prev,
-                        integration_settings: {
-                          ...(prev.integration_settings ?? {}),
-                          telegram_approvals_bridge_dispatch_url: e.target.value,
-                        },
-                      }
-                    : prev,
-                )
-              }
-            />
-            <Input
-              placeholder="Send action"
-              value={data.integration_settings?.telegram_approvals_send_action ?? ''}
-              onChange={(e) =>
-                setData((prev) =>
-                  prev
-                    ? {
-                        ...prev,
-                        integration_settings: {
-                          ...(prev.integration_settings ?? {}),
-                          telegram_approvals_send_action: e.target.value,
-                        },
-                      }
-                    : prev,
-                )
-              }
-            />
-            <Input
-              placeholder="Edit action"
-              value={data.integration_settings?.telegram_approvals_edit_action ?? ''}
-              onChange={(e) =>
-                setData((prev) =>
-                  prev
-                    ? {
-                        ...prev,
-                        integration_settings: {
-                          ...(prev.integration_settings ?? {}),
-                          telegram_approvals_edit_action: e.target.value,
-                        },
-                      }
-                    : prev,
-                )
-              }
-            />
-            <Input.Password
-              placeholder="Bridge token"
-              value={data.integration_settings?.telegram_approvals_bridge_token ?? ''}
-              onChange={(e) =>
-                setData((prev) =>
-                  prev
-                    ? {
-                        ...prev,
-                        integration_settings: {
-                          ...(prev.integration_settings ?? {}),
-                          telegram_approvals_bridge_token: e.target.value,
-                        },
-                      }
-                    : prev,
-                )
-              }
-            />
-            <Input.Password
-              placeholder="N8N integration token"
-              value={data.integration_settings?.n8n_integration_token ?? ''}
-              onChange={(e) =>
-                setData((prev) =>
-                  prev
-                    ? {
-                        ...prev,
-                        integration_settings: {
-                          ...(prev.integration_settings ?? {}),
-                          n8n_integration_token: e.target.value,
-                        },
-                      }
-                    : prev,
-                )
-              }
-            />
-            <Input.TextArea
-              placeholder="Telegram message template (HTML)"
-              value={data.integration_settings?.telegram_approvals_message_template ?? ''}
-              onChange={(e) =>
-                setData((prev) =>
-                  prev
-                    ? {
-                        ...prev,
-                        integration_settings: {
-                          ...(prev.integration_settings ?? {}),
-                          telegram_approvals_message_template: e.target.value,
-                        },
-                      }
-                    : prev,
-                )
-              }
-              autoSize={{ minRows: 8, maxRows: 16 }}
-            />
-            <Input
-              placeholder="Header: new"
-              value={data.integration_settings?.telegram_approvals_header_new_template ?? ''}
-              onChange={(e) =>
-                setData((prev) =>
-                  prev
-                    ? {
-                        ...prev,
-                        integration_settings: {
-                          ...(prev.integration_settings ?? {}),
-                          telegram_approvals_header_new_template: e.target.value,
-                        },
-                      }
-                    : prev,
-                )
-              }
-            />
-            <Input
-              placeholder="Header: step approved"
-              value={data.integration_settings?.telegram_approvals_header_step_approved_template ?? ''}
-              onChange={(e) =>
-                setData((prev) =>
-                  prev
-                    ? {
-                        ...prev,
-                        integration_settings: {
-                          ...(prev.integration_settings ?? {}),
-                          telegram_approvals_header_step_approved_template: e.target.value,
-                        },
-                      }
-                    : prev,
-                )
-              }
-            />
-            <Input
-              placeholder="Header: fully approved"
-              value={data.integration_settings?.telegram_approvals_header_fully_approved_template ?? ''}
-              onChange={(e) =>
-                setData((prev) =>
-                  prev
-                    ? {
-                        ...prev,
-                        integration_settings: {
-                          ...(prev.integration_settings ?? {}),
-                          telegram_approvals_header_fully_approved_template: e.target.value,
-                        },
-                      }
-                    : prev,
-                )
-              }
-            />
-            <Input
-              placeholder="Header: closed"
-              value={data.integration_settings?.telegram_approvals_header_closed_template ?? ''}
-              onChange={(e) =>
-                setData((prev) =>
-                  prev
-                    ? {
-                        ...prev,
-                        integration_settings: {
-                          ...(prev.integration_settings ?? {}),
-                          telegram_approvals_header_closed_template: e.target.value,
-                        },
-                      }
-                    : prev,
-                )
-              }
-            />
-            <Input
-              placeholder="Header: rejected"
-              value={data.integration_settings?.telegram_approvals_header_rejected_template ?? ''}
-              onChange={(e) =>
-                setData((prev) =>
-                  prev
-                    ? {
-                        ...prev,
-                        integration_settings: {
-                          ...(prev.integration_settings ?? {}),
-                          telegram_approvals_header_rejected_template: e.target.value,
-                        },
-                      }
-                    : prev,
-                )
-              }
-            />
-          </Space>
-
-          <Divider />
 
           <Tabs
             activeKey={activeTab}
