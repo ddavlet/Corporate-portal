@@ -16,10 +16,13 @@ type CashExpenseDetail = {
   expense_month: number
   expense_day: number
   note: string
+  payload?: unknown
+  vendor?: number | null
   has_request?: boolean
   has_paid_request?: boolean
   matched_request_id?: number | null
   created_at: string
+  created_by?: number | null
 }
 
 const dateTimeFormatterTashkent = new Intl.DateTimeFormat('ru-RU', {
@@ -36,6 +39,25 @@ function formatDateTime(value?: string | null): string {
   const parsed = new Date(value)
   if (Number.isNaN(parsed.getTime())) return '-'
   return dateTimeFormatterTashkent.format(parsed)
+}
+
+function formatPayload(payload: unknown): string {
+  if (payload == null || payload === '') return '-'
+  if (typeof payload === 'string') return payload || '-'
+  try {
+    return JSON.stringify(payload, null, 2)
+  } catch {
+    return String(payload)
+  }
+}
+
+function formatExpenseCalendar(y: number, m: number, d: number): string {
+  if (!Number.isFinite(y) && !Number.isFinite(m) && !Number.isFinite(d)) return '-'
+  return [
+    Number.isFinite(y) ? String(y) : '—',
+    Number.isFinite(m) ? String(m).padStart(2, '0') : '—',
+    Number.isFinite(d) ? String(d).padStart(2, '0') : '—',
+  ].join('.')
 }
 
 export function CashExpenseDetailPage() {
@@ -91,8 +113,12 @@ export function CashExpenseDetailPage() {
         {!loading && detail ? (
           <>
             <Descriptions bordered size="small" column={1}>
-              <Descriptions.Item label="PK">{detail.id}</Descriptions.Item>
-              <Descriptions.Item label="ID">{detail.external_id || '-'}</Descriptions.Item>
+              <Descriptions.Item label="PK (id)">{detail.id}</Descriptions.Item>
+              <Descriptions.Item label="Внешний ID (external_id)">{detail.external_id || '-'}</Descriptions.Item>
+              <Descriptions.Item label="Создано">{formatDateTime(detail.created_at)}</Descriptions.Item>
+              <Descriptions.Item label="Кем создано (user id)">
+                {detail.created_by != null && detail.created_by !== undefined ? detail.created_by : '-'}
+              </Descriptions.Item>
               <Descriptions.Item label="Подтверждено">
                 {detail.confirmed === false ? <Tag color="default">Нет</Tag> : <Tag color="processing">Да</Tag>}
               </Descriptions.Item>
@@ -101,7 +127,27 @@ export function CashExpenseDetailPage() {
                 {`${Number(detail.amount).toLocaleString('ru-RU')} ${detail.currency || ''}`.trim()}
               </Descriptions.Item>
               <Descriptions.Item label="Дата/время расхода">{formatDateTime(detail.expense_at)}</Descriptions.Item>
+              <Descriptions.Item label="Календарь расхода (год · мес · день)">
+                {formatExpenseCalendar(detail.expense_year, detail.expense_month, detail.expense_day)}
+              </Descriptions.Item>
+              <Descriptions.Item label="Поставщик (vendor id)">
+                {detail.vendor != null && detail.vendor !== undefined ? detail.vendor : '-'}
+              </Descriptions.Item>
+              <Descriptions.Item label="Есть заявка">
+                {detail.has_request === false ? <Tag color="default">Нет</Tag> : <Tag color="processing">Да</Tag>}
+              </Descriptions.Item>
+              <Descriptions.Item label="Связь с PAYED">
+                {detail.has_paid_request === false ? <Tag color="gold">Без PAYED request</Tag> : <Tag color="success">OK</Tag>}
+              </Descriptions.Item>
               <Descriptions.Item label="Примечание">{detail.note || '-'}</Descriptions.Item>
+              <Descriptions.Item label="Payload (сырые данные)">
+                <Typography.Paragraph
+                  copyable={formatPayload(detail.payload) !== '-'}
+                  style={{ marginBottom: 0, whiteSpace: 'pre-wrap', fontFamily: 'monospace', fontSize: 12 }}
+                >
+                  {formatPayload(detail.payload)}
+                </Typography.Paragraph>
+              </Descriptions.Item>
             </Descriptions>
             <Typography.Text type="secondary">
               {detail.matched_request_id

@@ -12,6 +12,11 @@ export type ApprovalItem = {
   decided_at?: string | null
   approver_user?: number
   approver_username?: string | null
+  approver_tg_id?: string | number | null
+  approver_tg_from_id?: string | number | null
+  message_id?: number | null
+  message_sent?: boolean
+  message_sent_at?: string | null
 }
 
 export type RequestDetail = {
@@ -26,17 +31,25 @@ export type RequestDetail = {
   category: string
   vendor: string
   vendor_ref?: number | null
+  company_payer?: string
   payment_purpose?: string
   file_link?: string | null
   requester: number | null
   requester_username?: string | null
+  created_at?: string
+  created_by?: number | null
   submitted_at: string
   billing_date: string
+  payed_at?: number | null
   expense_id?: string | null
+  expense_year?: number | null
+  expense_month?: number | null
+  expense_day?: number | null
   expense_link?: {
     module?: string
     expense_type?: string
     id?: number | string
+    doc_id?: string
     url?: string | null
   } | null
   approvals: ApprovalItem[]
@@ -49,11 +62,63 @@ const dateFormatterTashkent = new Intl.DateTimeFormat('ru-RU', {
   timeZone: 'Asia/Tashkent',
 })
 
+const dateTimeFormatterTashkent = new Intl.DateTimeFormat('ru-RU', {
+  day: '2-digit',
+  month: '2-digit',
+  year: 'numeric',
+  hour: '2-digit',
+  minute: '2-digit',
+  timeZone: 'Asia/Tashkent',
+})
+
 function formatDateDDMMYYYY(value?: string | null): string {
   if (!value) return '-'
   const parsed = new Date(value)
   if (Number.isNaN(parsed.getTime())) return '-'
   return dateFormatterTashkent.format(parsed)
+}
+
+function formatDateTime(value?: string | null): string {
+  if (!value) return '-'
+  const parsed = new Date(value)
+  if (Number.isNaN(parsed.getTime())) return '-'
+  return dateTimeFormatterTashkent.format(parsed)
+}
+
+/** В БД часто хранится как YYYYMMDD (например 20260103). */
+function formatPayedAt(value?: number | null): string {
+  if (value == null) return '-'
+  const n = Number(value)
+  if (!Number.isFinite(n)) return String(value)
+  const s = String(Math.abs(Math.trunc(n)))
+  if (s.length === 8 && /^\d{8}$/.test(s)) {
+    const y = s.slice(0, 4)
+    const mo = s.slice(4, 6)
+    const d = s.slice(6, 8)
+    return `${d}.${mo}.${y}`
+  }
+  return String(value)
+}
+
+function formatExpenseCalendar(
+  y?: number | null,
+  m?: number | null,
+  d?: number | null,
+): string {
+  if (y == null && m == null && d == null) return '-'
+  return [y ?? '—', m != null ? String(m).padStart(2, '0') : '—', d != null ? String(d).padStart(2, '0') : '—'].join(
+    '.',
+  )
+}
+
+function expenseLinkSummary(link: RequestDetail['expense_link']): string {
+  if (!link) return '-'
+  const parts: string[] = []
+  if (link.module) parts.push(`модуль: ${link.module}`)
+  if (link.expense_type) parts.push(`тип: ${link.expense_type}`)
+  if (link.doc_id != null && String(link.doc_id).trim() !== '') parts.push(`doc_id: ${link.doc_id}`)
+  if (link.id != null && link.id !== '') parts.push(`связанный id: ${link.id}`)
+  return parts.length ? parts.join(' · ') : '-'
 }
 
 function getStatusColor(value: string): string | undefined {
@@ -92,10 +157,25 @@ function renderApprovalGroup(title: string, items: ApprovalItem[]) {
               <Space wrap>
                 <Typography.Text>{`S${item.step}/${item.step_type}`}</Typography.Text>
                 <Typography.Text>{item.approver_username || 'Unknown approver'}</Typography.Text>
+                {item.approver_user != null ? (
+                  <Typography.Text type="secondary">user #{item.approver_user}</Typography.Text>
+                ) : null}
                 <Tag color={getDecisionColor(item.decision)}>{String(item.decision || '').toUpperCase()}</Tag>
               </Space>
               <Typography.Text type="secondary">{item.comment || 'without comment'}</Typography.Text>
-              <Typography.Text type="secondary">{formatDateDDMMYYYY(item.decided_at)}</Typography.Text>
+              <Typography.Text type="secondary">Решение: {formatDateDDMMYYYY(item.decided_at)}</Typography.Text>
+              <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                approval id: {item.id}
+                {item.message_id != null ? ` · message_id: ${item.message_id}` : ''}
+                {item.message_sent != null ? ` · message_sent: ${item.message_sent ? 'да' : 'нет'}` : ''}
+                {item.message_sent_at ? ` · message_sent_at: ${formatDateTime(item.message_sent_at)}` : ''}
+                {item.approver_tg_id != null && item.approver_tg_id !== ''
+                  ? ` · tg_id: ${item.approver_tg_id}`
+                  : ''}
+                {item.approver_tg_from_id != null && item.approver_tg_from_id !== ''
+                  ? ` · tg_from: ${item.approver_tg_from_id}`
+                  : ''}
+              </Typography.Text>
             </Space>
           </Card>
         ))
@@ -204,17 +284,32 @@ export function RequestDetailContent({
               {`${Number(detail.amount).toLocaleString('ru-RU')} ${detail.currency}`}
             </div>
           </div>
+          <TgDetailRow label="ID заявки">{detail.id}</TgDetailRow>
+          <TgDetailRow label="Создано">{formatDateTime(detail.created_at)}</TgDetailRow>
+          <TgDetailRow label="Кем создано">
+            {detail.created_by != null && detail.created_by !== undefined ? `User #${detail.created_by}` : '—'}
+          </TgDetailRow>
+          <TgDetailRow label="Компания-плательщик">{detail.company_payer?.trim() || '—'}</TgDetailRow>
           <TgDetailRow label="Тип оплаты">{detail.payment_type || '—'}</TgDetailRow>
           <TgDetailRow label="Срочность">{detail.urgency || '—'}</TgDetailRow>
           <TgDetailRow label="Категория">{detail.category || '—'}</TgDetailRow>
           <TgDetailRow label="Поставщик">{detail.vendor || '—'}</TgDetailRow>
+          <TgDetailRow label="ID поставщика (справочник)">
+            {detail.vendor_ref != null && detail.vendor_ref !== undefined ? String(detail.vendor_ref) : '—'}
+          </TgDetailRow>
           <TgDetailRow label="Назначение платежа">{detail.payment_purpose || '—'}</TgDetailRow>
           <TgDetailRow label="Описание">{detail.description || '—'}</TgDetailRow>
           <TgDetailRow label="Заявитель">
             {detail.requester_username || (detail.requester ? `User #${detail.requester}` : '—')}
           </TgDetailRow>
-          <TgDetailRow label="Отправлено">{formatDateDDMMYYYY(detail.submitted_at)}</TgDetailRow>
+          <TgDetailRow label="Отправлено">{formatDateTime(detail.submitted_at)}</TgDetailRow>
           <TgDetailRow label="Дата биллинга">{formatDateDDMMYYYY(detail.billing_date)}</TgDetailRow>
+          <TgDetailRow label="ID расхода (expense_id)">{detail.expense_id?.trim() || '—'}</TgDetailRow>
+          <TgDetailRow label="Календарь расхода (год.мес.день)">
+            {formatExpenseCalendar(detail.expense_year, detail.expense_month, detail.expense_day)}
+          </TgDetailRow>
+          <TgDetailRow label="Связь с расходом">{expenseLinkSummary(detail.expense_link)}</TgDetailRow>
+          <TgDetailRow label="Дата оплаты (payed_at)">{formatPayedAt(detail.payed_at)}</TgDetailRow>
           <TgDetailRow label="Файл">
             {detail.file_link ? (
               <Button type="link" onClick={() => void openFileViaAuthBlob(detail.file_link!)} disabled={fileBusy} loading={fileBusy}>
@@ -228,20 +323,46 @@ export function RequestDetailContent({
       ) : null}
       {detail && variant !== 'telegram' ? (
         <Descriptions bordered size="small" column={1}>
+          <Descriptions.Item label="ID заявки">{detail.id}</Descriptions.Item>
+          <Descriptions.Item label="Создано">{formatDateTime(detail.created_at)}</Descriptions.Item>
+          <Descriptions.Item label="Кем создано (user id)">
+            {detail.created_by != null && detail.created_by !== undefined ? detail.created_by : '-'}
+          </Descriptions.Item>
           <Descriptions.Item label="Название">{detail.title || '-'}</Descriptions.Item>
           <Descriptions.Item label="Статус">
             <Tag color={getStatusColor(detail.status)}>{detail.status}</Tag>
           </Descriptions.Item>
+          <Descriptions.Item label="Компания-плательщик">{detail.company_payer?.trim() || '-'}</Descriptions.Item>
           <Descriptions.Item label="Сумма">{`${Number(detail.amount).toLocaleString('ru-RU')} ${detail.currency}`}</Descriptions.Item>
+          <Descriptions.Item label="Тип оплаты">{detail.payment_type || '-'}</Descriptions.Item>
+          <Descriptions.Item label="Срочность">{detail.urgency || '-'}</Descriptions.Item>
           <Descriptions.Item label="Категория">{detail.category || '-'}</Descriptions.Item>
           <Descriptions.Item label="Поставщик">{detail.vendor || '-'}</Descriptions.Item>
+          <Descriptions.Item label="ID поставщика (справочник)">
+            {detail.vendor_ref != null && detail.vendor_ref !== undefined ? detail.vendor_ref : '-'}
+          </Descriptions.Item>
           <Descriptions.Item label="Назначение платежа">{detail.payment_purpose || '-'}</Descriptions.Item>
           <Descriptions.Item label="Описание">{detail.description || '-'}</Descriptions.Item>
           <Descriptions.Item label="Заявитель">
             {detail.requester_username || (detail.requester ? `User #${detail.requester}` : '-')}
           </Descriptions.Item>
-          <Descriptions.Item label="Отправлено">{formatDateDDMMYYYY(detail.submitted_at)}</Descriptions.Item>
+          <Descriptions.Item label="Отправлено">{formatDateTime(detail.submitted_at)}</Descriptions.Item>
           <Descriptions.Item label="Дата биллинга">{formatDateDDMMYYYY(detail.billing_date)}</Descriptions.Item>
+          <Descriptions.Item label="ID расхода (expense_id)">{detail.expense_id?.trim() || '-'}</Descriptions.Item>
+          <Descriptions.Item label="Календарь расхода (год · мес · день)">
+            {formatExpenseCalendar(detail.expense_year, detail.expense_month, detail.expense_day)}
+          </Descriptions.Item>
+          <Descriptions.Item label="Связь с расходом">
+            <Space direction="vertical" size={4}>
+              <Typography.Text>{expenseLinkSummary(detail.expense_link)}</Typography.Text>
+              {detail.expense_link?.url ? (
+                <Typography.Link href={detail.expense_link.url} target="_blank" rel="noopener noreferrer">
+                  Ссылка API
+                </Typography.Link>
+              ) : null}
+            </Space>
+          </Descriptions.Item>
+          <Descriptions.Item label="Дата оплаты (payed_at)">{formatPayedAt(detail.payed_at)}</Descriptions.Item>
           <Descriptions.Item label="Файл">
             {detail.file_link ? (
               <Button type="link" onClick={() => void openFileViaAuthBlob(detail.file_link!)} disabled={fileBusy} loading={fileBusy}>
