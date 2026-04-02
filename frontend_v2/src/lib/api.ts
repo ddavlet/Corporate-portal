@@ -437,6 +437,35 @@ export async function updateRequestFormConfig(payload: RequestFormConfigUpdatePa
   return json
 }
 
+export type CreateRequesterUserPayload = {
+  username: string
+  full_name: string
+  telegram_chat_id?: number | null
+  telegram_from_id?: number | null
+}
+
+export async function createRequesterUser(payload: CreateRequesterUserPayload): Promise<RequestFormConfigResponse> {
+  const body: Record<string, unknown> = {
+    username: payload.username,
+    full_name: payload.full_name,
+  }
+  if (payload.telegram_chat_id != null) {
+    body.telegram_chat_id = payload.telegram_chat_id
+  }
+  if (payload.telegram_from_id != null) {
+    body.telegram_from_id = payload.telegram_from_id
+  }
+  const res = await apiFetch('/api/requests/form-config/requesters/', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+  if (!res.ok) throw new Error(await parseErrorBody(res))
+  const json = (await res.json().catch(() => null)) as RequestFormConfigResponse | null
+  if (!json) throw new Error('Empty response')
+  return json
+}
+
 export async function getAutoRequestConfig(): Promise<AutoRequestConfigResponse> {
   const res = await apiFetch('/api/requests/auto-config/')
   if (!res.ok) throw new Error(await parseErrorBody(res))

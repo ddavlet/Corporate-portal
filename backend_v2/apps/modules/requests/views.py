@@ -44,6 +44,7 @@ from apps.modules.requests.serializers import (
     MyApprovalsRequestSummarySerializer,
     UserRequestApprovalStepSerializer,
     RequestFormConfigPayloadSerializer,
+    CreateTenantRequesterSerializer,
     build_request_form_config_response,
     payment_type_to_vendor_kind,
     RequestApprovalConfigPayloadSerializer,
@@ -59,6 +60,7 @@ from apps.modules.requests.approval_workflow import (
 from apps.modules.telegram_approvals.services import (
     current_pending_step_approvals_count,
     dispatch_pending_approvals,
+    refresh_request_messages,
     resend_current_pending_step,
 )
 from apps.tenants.integration_settings import get_requests_gateway_settings
@@ -299,26 +301,33 @@ class PortalRequestViewSet(viewsets.ModelViewSet):
         if comment is not None and isinstance(comment, str):
             comment = comment.strip() or None
 
-        approval = (
-            Approval.objects.filter(
-                request=request_obj,
-                approver_user=request.user,
-                step=step,
-            )
-            .select_related("approver_user")
-            .first()
-        )
-
-        if not approval:
-            return Response(
-                {"detail": "Approval row not found for this step and approver."},
-                status=status.HTTP_404_NOT_FOUND,
+        with transaction.atomic():
+            approval = (
+                Approval.objects.select_for_update()
+                .filter(
+                    request=request_obj,
+                    approver_user=request.user,
+                    step=step,
+                )
+                .select_related("approver_user")
+                .first()
             )
 
-        approval.decision = decision
-        approval.comment = comment
-        approval.decided_at = timezone.now()
-        approval.save(update_fields=["decision", "comment", "decided_at"])
+            if not approval:
+                return Response(
+                    {"detail": "Approval row not found for this step and approver."},
+                    status=status.HTTP_404_NOT_FOUND,
+                )
+
+            approval.decision = decision
+            approval.comment = comment
+            approval.decided_at = timezone.now()
+            approval.save(update_fields=["decision", "comment", "decided_at"])
+
+            locked_request = Request.objects.select_for_update().get(pk=request_obj.pk)
+            _recalculate_request_status(locked_request)
+            refresh_request_messages(request_obj=locked_request)
+            dispatch_pending_approvals(request_obj=locked_request)
 
         ser = ApprovalSerializer(approval, context={"request": request})
         return Response(ser.data, status=status.HTTP_200_OK)
@@ -792,6 +801,53 @@ class RequestFormConfigView(APIView):
                     pt_cfg.save(update_fields=["is_enabled"])
 
         return Response(build_request_form_config_response(tenant=tenant))
+
+
+class RequestFormConfigRequestersView(APIView):
+    module_key = "requests"
+    permission_classes = [IsAuthenticated, HasEffectiveModuleAccess, IsTenantAdmin]
+
+    def post(self, request):
+        tenant = getattr(request, "tenant", None)
+        if not tenant:
+            raise ValidationError({"detail": "Unknown tenant."})
+
+        payload = CreateTenantRequesterSerializer(data=request.data)
+        payload.is_valid(raise_exception=True)
+        username = payload.validated_data["username"]
+        full_name = payload.validated_data["full_name"]
+        telegram_chat_id = payload.validated_data.get("telegram_chat_id")
+        telegram_from_id = payload.validated_data.get("telegram_from_id")
+
+        if User.objects.filter(username=username).exists():
+            raise ValidationError(
+                {"username": "A user with this username already exists."}
+            )
+
+        with transaction.atomic():
+            user = User(username=username)
+            user.set_unusable_password()
+            user.full_name = full_name
+            user.is_active = True
+            if telegram_chat_id is not None:
+                user.telegram_chat_id = telegram_chat_id
+            if telegram_from_id is not None:
+                user.telegram_from_id = telegram_from_id
+            user.save()
+
+            TenantMembership.objects.update_or_create(
+                tenant=tenant,
+                user=user,
+                defaults={"is_active": True},
+            )
+            TenantUserRole.objects.update_or_create(
+                tenant=tenant,
+                user=user,
+                role=TenantUserRole.ROLE_REQUESTER,
+                defaults={"step": 1},
+            )
+
+        return Response(build_request_form_config_response(tenant=tenant), status=status.HTTP_200_OK)
 
 
 class RequestFormOptionsView(APIView):

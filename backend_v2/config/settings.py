@@ -172,5 +172,7 @@ N8N_INTEGRATION_TOKEN = os.getenv("N8N_INTEGRATION_TOKEN", "").strip()
 N8N_TOKEN = os.getenv("N8N_TOKEN", "").strip()
 
 TELEGRAM_APPROVALS_BRIDGE_DISPATCH_URL = os.getenv("TELEGRAM_APPROVALS_BRIDGE_DISPATCH_URL", "").strip()
+# Optional override for bridge failure notifications; default is derived from dispatch URL or tenant host + /n8n/error/
+TELEGRAM_APPROVALS_BRIDGE_ERROR_URL = os.getenv("TELEGRAM_APPROVALS_BRIDGE_ERROR_URL", "").strip()
 TELEGRAM_APPROVALS_BRIDGE_TOKEN = os.getenv("TELEGRAM_APPROVALS_BRIDGE_TOKEN", "").strip()
 

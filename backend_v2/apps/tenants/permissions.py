@@ -3,7 +3,9 @@ from rest_framework.permissions import BasePermission
 from django.contrib.auth.models import AnonymousUser
 
 from apps.tenants.models import TenantMembership, TenantModuleConfig, TenantUserRole
-
+# ROLE_REQUESTER is intentionally limited to request-related modules (requests, vendors, notes).
+# Do not add ROLE_REQUESTER to cash, bank, payroll, corporate_card, or similar unless a real
+# request workflow needs it; prefer other roles for finance surfaces.
 
 ROLE_MODULE_ACCESS: dict[str, set[str]] = {
     "requests": {
