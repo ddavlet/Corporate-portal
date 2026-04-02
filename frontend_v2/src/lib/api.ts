@@ -408,6 +408,7 @@ export type RequestFormConfigUpdatePayload = {
     vendor_ids: number[]
     payment_purposes: Array<{ name: string; category: string; is_active: boolean }>
     default_title?: string
+    default_company_payer?: string
     default_description?: string
     default_amount?: string | number | null
     default_currency?: string
