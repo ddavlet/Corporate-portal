@@ -52,6 +52,7 @@ from apps.modules.requests.serializers import (
     build_auto_request_config_response,
 )
 from apps.modules.requests.approval_workflow import (
+    _recalculate_request_status,
     confirm_approval_by_id,
     lookup_approval_by_message_id,
 )
@@ -212,8 +213,7 @@ class PortalRequestViewSet(viewsets.ModelViewSet):
                     if approval_rows:
                         Approval.objects.bulk_create(approval_rows)
                         if obj and obj.status == Request.STATUS_DRAFT:
-                            obj.status = Request.STATUS_PROGRESS_1
-                            obj.save(update_fields=["status"])
+                            _recalculate_request_status(obj)
 
         if obj is not None:
             dispatch_pending_approvals(request_obj=obj)

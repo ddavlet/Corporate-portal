@@ -483,6 +483,44 @@ class RequestApprovalsTests(APITestCase):
         self.assertEqual(res.data["trigger_approval"]["id"], approval.id)
         self.assertEqual(len(res.data["approvals"]), 1)
 
+    def test_serial_then_payment_pending_sets_request_approved(self):
+        pt_cfg = RequestApprovalPaymentTypeConfig.objects.get(
+            config__tenant=self.tenant, payment_type="Наличные"
+        )
+        step2 = RequestApprovalStepConfig.objects.create(
+            payment_type_config=pt_cfg,
+            step=2,
+            step_type=Approval.STEP_TYPE_PAYMENT,
+            is_enabled=True,
+            payment_action_mode=RequestApprovalStepConfig.PAYMENT_ACTION_MODE_WEBAPP,
+            payment_webapp_url="https://acme.example.com/tg/payment?approval_id={approval_id}",
+        )
+        RequestApprovalStepApproverConfig.objects.create(step_config=step2, approver_user=self.other_approver)
+
+        req_data = self._create_request()
+        request_id = req_data["id"]
+        approval_step1 = Approval.objects.get(
+            request_id=request_id, approver_user=self.approver, step=1
+        )
+        self.assertEqual(Request.objects.get(pk=request_id).status, Request.STATUS_PROGRESS_1)
+
+        self.client.force_authenticate(self.approver)
+        res = self.client.post(
+            f"/api/requests/{request_id}/approvals/confirm/",
+            {"approval_id": approval_step1.id, "comment": "ok"},
+            format="json",
+            HTTP_HOST=self.host,
+        )
+        self.assertEqual(res.status_code, 200, res.content)
+
+        request_row = Request.objects.get(pk=request_id)
+        self.assertEqual(request_row.status, Request.STATUS_APPROVED)
+        payment_approval = Approval.objects.get(
+            request_id=request_id, approver_user=self.other_approver, step=2
+        )
+        self.assertEqual(payment_approval.decision, Approval.DECISION_PENDING)
+        self.assertEqual(payment_approval.step_type, Approval.STEP_TYPE_PAYMENT)
+
     def test_approvals_confirm_fails_for_non_assigned_approver(self):
         req_data = self._create_request()
         request_id = req_data["id"]
@@ -593,6 +631,7 @@ class RequestApprovalsTests(APITestCase):
         self.assertEqual(created.status_code, 201, created.content)
         request_id = created.data["id"]
         approval = Approval.objects.get(request_id=request_id, approver_user=self.approver, step_type=Approval.STEP_TYPE_PAYMENT)
+        self.assertEqual(Request.objects.get(pk=request_id).status, Request.STATUS_APPROVED)
 
         self.client.force_authenticate(self.approver)
         res = self.client.post(

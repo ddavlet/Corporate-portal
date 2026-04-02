@@ -36,7 +36,14 @@ def _recalculate_request_status(request_obj: Request) -> str:
             approvals_qs.filter(decision=Approval.DECISION_PENDING).values_list("step", flat=True)
         )
         if pending_steps:
-            next_status = _status_for_progress_step(min(pending_steps)) or request_obj.status
+            pending_qs = approvals_qs.filter(decision=Approval.DECISION_PENDING)
+            only_payment_pending = pending_qs.exists() and not pending_qs.exclude(
+                step_type=Approval.STEP_TYPE_PAYMENT
+            ).exists()
+            if only_payment_pending:
+                next_status = Request.STATUS_APPROVED
+            else:
+                next_status = _status_for_progress_step(min(pending_steps)) or request_obj.status
         else:
             has_payment_steps = approvals_qs.filter(step_type=Approval.STEP_TYPE_PAYMENT).exists()
             next_status = Request.STATUS_PAYED if has_payment_steps else Request.STATUS_APPROVED

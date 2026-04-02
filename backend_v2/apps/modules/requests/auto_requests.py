@@ -10,6 +10,7 @@ from django.db import connection, transaction
 from django.db.utils import ProgrammingError
 from django.utils import timezone
 
+from apps.modules.requests.approval_workflow import _recalculate_request_status
 from apps.modules.requests.models import (
     Approval,
     AutoRequestTemplate,
@@ -158,8 +159,7 @@ def _run_approvals_for_request(request_obj: Request) -> None:
     if approval_rows:
         Approval.objects.bulk_create(approval_rows)
         if request_obj.status == Request.STATUS_DRAFT:
-            request_obj.status = Request.STATUS_PROGRESS_1
-            request_obj.save(update_fields=["status"])
+            _recalculate_request_status(request_obj)
         dispatch_pending_approvals(request_obj=request_obj)
 
 
