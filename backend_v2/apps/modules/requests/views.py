@@ -51,6 +51,7 @@ from apps.modules.requests.serializers import (
     build_request_approval_config_response,
     AutoRequestConfigPayloadSerializer,
     build_auto_request_config_response,
+    validate_auto_template_against_form_config,
 )
 from apps.modules.requests.approval_workflow import (
     _recalculate_request_status,
@@ -1064,6 +1065,19 @@ class AutoRequestConfigView(APIView):
         payload.is_valid(raise_exception=True)
         template_items = payload.validated_data.get("templates", [])
 
+        for idx, item in enumerate(template_items):
+            try:
+                validate_auto_template_against_form_config(tenant=tenant, item=item)
+            except ValidationError as exc:
+                d = exc.detail
+                if isinstance(d, list) and d:
+                    msg = str(d[0])
+                elif isinstance(d, dict):
+                    msg = str(next(iter(d.values())))
+                else:
+                    msg = str(d)
+                raise ValidationError({"detail": f"Шаблон {idx + 1}: {msg}"}) from exc
+
         with transaction.atomic():
             existing = {row.id: row for row in AutoRequestTemplate.objects.select_for_update().filter(tenant=tenant)}
             seen_ids: set[int] = set()
@@ -1089,7 +1103,7 @@ class AutoRequestConfigView(APIView):
                     "day_of_month": int(item["day_of_month"]),
                     "title_template": str(item.get("title_template") or "")[:200],
                     "description_template": str(item.get("description_template") or ""),
-                    "company_payer": str(item.get("company_payer") or "")[:100],
+                    "company_payer": "",
                     "amount": item.get("amount"),
                     "currency": item.get("currency", Request.CURRENCY_UZS),
                     "urgency": item.get("urgency", Request.URGENCY_NORMAL),

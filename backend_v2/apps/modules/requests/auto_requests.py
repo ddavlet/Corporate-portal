@@ -16,6 +16,9 @@ from apps.modules.requests.models import (
     AutoRequestTemplate,
     Request,
     RequestApprovalConfig,
+    RequestFormConfig,
+    RequestFormPaymentTypeConfig,
+    RequestPaymentPurposeConfig,
 )
 from apps.modules.telegram_approvals.services import dispatch_pending_approvals
 from apps.tenants.models import TenantMembership
@@ -175,11 +178,33 @@ def _maybe_create_request_for_template(template: AutoRequestTemplate, *, today: 
     title = render_auto_request_template(template.title_template, now_dt=now_dt, billing_month=month_start).strip()
     description = render_auto_request_template(template.description_template, now_dt=now_dt, billing_month=month_start)
     amount: Decimal = template.amount if template.amount is not None else Decimal("0")
+
+    company_payer = ""
+    category = ""
+    cfg = RequestFormConfig.objects.filter(tenant=template.tenant).first()
+    if cfg:
+        pt_cfg = RequestFormPaymentTypeConfig.objects.filter(
+            config=cfg, payment_type=template.payment_type
+        ).first()
+        if pt_cfg:
+            company_payer = (pt_cfg.default_company_payer or "").strip()
+            purpose_value = (template.payment_purpose or "").strip()
+            if purpose_value:
+                matched = RequestPaymentPurposeConfig.objects.filter(
+                    payment_type_config=pt_cfg,
+                    name=purpose_value,
+                    is_active=True,
+                ).first()
+                if matched:
+                    category = (matched.category or "").strip()
+    if not company_payer:
+        company_payer = (template.company_payer or "").strip()
+
     request_obj = Request.objects.create(
         tenant=template.tenant,
         created_by=template.updated_by or template.requester,
-        company_payer=template.company_payer or "",
-        category="",
+        company_payer=company_payer,
+        category=category,
         vendor=template.vendor_ref.name if template.vendor_ref else "",
         vendor_ref=template.vendor_ref,
         title=title or "Автозаявка",
