@@ -36,6 +36,7 @@ function emptyPaymentTypeRow(pt: string): RequestFormConfigPaymentTypeItem {
     vendor_ids: [],
     payment_purposes: [],
     default_title: '',
+    default_company_payer: '',
     default_description: '',
     default_amount: null,
     default_currency: 'UZS',
@@ -209,6 +210,7 @@ export function RequestFormConfigPage() {
             }))
             .filter((p) => p.name),
           default_title: String(pt.default_title ?? ''),
+          default_company_payer: String(pt.default_company_payer ?? '').trim(),
           default_description: String(pt.default_description ?? ''),
           default_amount: pt.default_amount === '' || pt.default_amount == null ? null : pt.default_amount,
           default_currency: pt.default_currency ?? 'UZS',
@@ -237,7 +239,9 @@ export function RequestFormConfigPage() {
         Настройка формы заявки
       </Typography.Title>
       <Typography.Paragraph type="secondary" style={{ marginBottom: 0 }}>
-        Админ-конфигурация доступных типов оплаты, заявителей, поставщиков и назначений платежа.
+        Админ-конфигурация доступных типов оплаты, заявителей, поставщиков и назначений платежа. Компания-плательщик
+        задаётся здесь для каждого типа оплаты (блок «Значения по умолчанию» на вкладке типа) и подставляется при
+        создании заявки и в автозаявках.
       </Typography.Paragraph>
 
       <Divider />
@@ -452,8 +456,22 @@ export function RequestFormConfigPage() {
                     </Typography.Text>
                     <Typography.Paragraph type="secondary" style={{ marginTop: 0, marginBottom: 12 }}>
                       Эти поля подставляются на шаге «Детали»; пользователь может их изменить перед отправкой.
+                      Компания-плательщик также используется для автозаявок с этим типом оплаты.
                     </Typography.Paragraph>
                     <Space direction="vertical" size={12} style={{ display: 'flex' }}>
+                      <div>
+                        <Typography.Text type="secondary" style={labelBlockAboveField}>
+                          Компания-плательщик
+                        </Typography.Text>
+                        <Input
+                          style={{ display: 'block', maxWidth: 560 }}
+                          placeholder="Например, ООО «Рога и копыта»"
+                          value={pt.default_company_payer ?? ''}
+                          onChange={(e) =>
+                            updatePaymentType(pt.payment_type, { default_company_payer: e.target.value })
+                          }
+                        />
+                      </div>
                       <div>
                         <Typography.Text type="secondary" style={labelBlockAboveField}>
                           Название заявки

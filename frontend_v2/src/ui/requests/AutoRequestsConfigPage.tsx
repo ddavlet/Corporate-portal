@@ -182,8 +182,9 @@ export function AutoRequestsConfigPage() {
       </Typography.Title>
       <Typography.Paragraph type="secondary" style={{ marginBottom: 0 }}>
         Один раз настраиваете поля как в обычной заявке: тип оплаты, поставщик, назначение, сумма и т.д. В выбранный день
-        месяца система создаёт заявку. Компания-плательщик подставляется автоматически из настроек формы заявки для
-        выбранного типа оплаты (раздел «Настройка формы заявки»).
+        месяца система создаёт заявку. Компания-плательщик не задаётся здесь: она настраивается только в разделе{' '}
+        <Typography.Text strong>Настройка формы заявки</Typography.Text> (поле «Компания-плательщик» для соответствующего
+        типа оплаты на вкладке типа).
       </Typography.Paragraph>
       <Divider />
       {error ? <Alert type="error" showIcon message={error} style={{ marginBottom: 12 }} /> : null}
@@ -265,9 +266,15 @@ export function AutoRequestsConfigPage() {
                   </Space>
                   {pt?.default_company_payer ? (
                     <Typography.Text type="secondary">
-                      Плательщик в заявке: «{pt.default_company_payer}» (из настроек формы для этого типа оплаты)
+                      В создаваемой заявке плательщик будет: «{pt.default_company_payer}» — задано в «Настройка формы
+                      заявки» для типа «{row.payment_type}»
                     </Typography.Text>
-                  ) : null}
+                  ) : (
+                    <Typography.Text type="secondary">
+                      Для типа «{row.payment_type}» в «Настройка формы заявки» не задана компания-плательщик — в заявке
+                      поле может остаться пустым.
+                    </Typography.Text>
+                  )}
                   <div>
                     <Typography.Text strong style={labelBlockAboveField}>
                       Поставщик
