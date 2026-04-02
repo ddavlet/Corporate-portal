@@ -524,6 +524,25 @@ class RequestFormConfigPayloadSerializer(serializers.Serializer):
     )
 
 
+class CreateTenantRequesterSerializer(serializers.Serializer):
+    username = serializers.CharField(max_length=150)
+    full_name = serializers.CharField(max_length=255)
+    telegram_chat_id = serializers.IntegerField(required=False, allow_null=True, default=None)
+    telegram_from_id = serializers.IntegerField(required=False, allow_null=True, default=None)
+
+    def validate_username(self, value: str) -> str:
+        cleaned = (value or "").strip()
+        if not cleaned:
+            raise serializers.ValidationError("Username is required.")
+        return cleaned
+
+    def validate_full_name(self, value: str) -> str:
+        cleaned = (value or "").strip()
+        if not cleaned:
+            raise serializers.ValidationError("Full name is required.")
+        return cleaned
+
+
 class RequesterCandidateSerializer(serializers.Serializer):
     id = serializers.IntegerField()
     username = serializers.CharField()

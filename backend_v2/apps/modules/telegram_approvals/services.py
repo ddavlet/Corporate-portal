@@ -25,6 +25,83 @@ def _bridge_dispatch_url(*, tenant_subdomain: str | None) -> str:
     return f"https://{tenant_subdomain}.{settings.BASE_DOMAIN}/{n8n_path}/telegram/dispatch"
 
 
+def _normalize_trailing_slash(url: str) -> str:
+    u = url.rstrip("/")
+    return f"{u}/" if u else ""
+
+
+def _error_url_from_dispatch_url(dispatch_url: str) -> str:
+    d = (dispatch_url or "").strip()
+    if not d:
+        return ""
+    if "/telegram/dispatch" in d:
+        return _normalize_trailing_slash(d.replace("/telegram/dispatch", "/error"))
+    return ""
+
+
+def _resolve_error_webhook_url(*, request_obj: Request) -> str:
+    explicit = (getattr(settings, "TELEGRAM_APPROVALS_BRIDGE_ERROR_URL", "") or "").strip()
+    if explicit:
+        return _normalize_trailing_slash(explicit)
+    tenant = getattr(request_obj, "tenant", None)
+    if tenant is not None:
+        cfg = get_requests_telegram_integration_settings(tenant=tenant)
+        derived = _error_url_from_dispatch_url(cfg.dispatch_url or "")
+        if derived:
+            return derived
+    fallback = (getattr(settings, "TELEGRAM_APPROVALS_BRIDGE_DISPATCH_URL", "") or "").strip()
+    derived = _error_url_from_dispatch_url(fallback)
+    if derived:
+        return derived
+    sub = getattr(tenant, "subdomain", None) if tenant is not None else None
+    if sub:
+        n8n_path = (getattr(settings, "N8N_INTEGRATION_URL_PATH", "n8n") or "n8n").strip("/")
+        return f"https://{sub}.{settings.BASE_DOMAIN}/{n8n_path}/error/"
+    return ""
+
+
+def _report_bridge_error(
+    *,
+    request_obj: Request,
+    payload: dict,
+    error_kind: str,
+    status_code: int | None = None,
+    response_body: str | None = None,
+    detail: str | None = None,
+) -> None:
+    error_url = _resolve_error_webhook_url(request_obj=request_obj)
+    if not error_url:
+        return
+    tenant = getattr(request_obj, "tenant", None)
+    body: dict = {
+        "source": "telegram_approvals_bridge",
+        "error_kind": error_kind,
+        "payload_action": payload.get("action"),
+        "request_id": payload.get("request_id"),
+        "approval_id": payload.get("approval_id"),
+        "chat_id": payload.get("chat_id"),
+    }
+    if getattr(request_obj, "tenant_id", None):
+        body["tenant_id"] = request_obj.tenant_id
+    if tenant is not None and getattr(tenant, "subdomain", None):
+        body["tenant_subdomain"] = tenant.subdomain
+    if status_code is not None:
+        body["http_status"] = status_code
+    if response_body is not None:
+        body["response_body"] = response_body[:8000]
+    if detail is not None:
+        body["detail"] = detail[:8000]
+    try:
+        requests.post(
+            error_url,
+            json=body,
+            headers=_bridge_headers(tenant=tenant),
+            timeout=5,
+        )
+    except Exception:
+        logger.exception("Failed to POST Telegram bridge error to n8n error webhook")
+
+
 def _bridge_headers(*, tenant=None) -> dict:
     cfg = get_requests_telegram_integration_settings(tenant=tenant) if tenant is not None else None
     token = (cfg.n8n_integration_token if cfg is not None else "") or ""
@@ -264,6 +341,13 @@ def _post_to_bridge(*, request_obj: Request, payload: dict) -> dict | None:
         resp = requests.post(url, json=payload, headers=_bridge_headers(tenant=tenant), timeout=10)
         if resp.status_code >= 400:
             logger.warning("Telegram bridge returned HTTP %s for payload action=%s", resp.status_code, payload.get("action"))
+            _report_bridge_error(
+                request_obj=request_obj,
+                payload=payload,
+                error_kind="http_error",
+                status_code=resp.status_code,
+                response_body=getattr(resp, "text", None) or "",
+            )
             return None
         if not resp.content:
             return {}
@@ -275,8 +359,14 @@ def _post_to_bridge(*, request_obj: Request, payload: dict) -> dict | None:
             first = data[0]
             return first if isinstance(first, dict) else {}
         return data if isinstance(data, dict) else {}
-    except Exception:
+    except Exception as exc:
         logger.exception("Failed to call Telegram bridge")
+        _report_bridge_error(
+            request_obj=request_obj,
+            payload=payload,
+            error_kind="exception",
+            detail=repr(exc),
+        )
         return None
 
 
@@ -308,6 +398,12 @@ def _mark_approval_message_sent(*, approval: Approval) -> None:
 
 
 def _current_pending_step(request_obj: Request) -> int | None:
+    # Rejected (or cancelled via reject decision): do not advance to later steps even if
+    # those Approval rows were never created as rejected and remain pending in DB.
+    if request_obj.status == Request.STATUS_REJECTED:
+        return None
+    if Approval.objects.filter(request=request_obj, decision=Approval.DECISION_REJECTED).exists():
+        return None
     pending_steps = (
         Approval.objects.filter(request=request_obj, decision=Approval.DECISION_PENDING)
         .order_by("step")

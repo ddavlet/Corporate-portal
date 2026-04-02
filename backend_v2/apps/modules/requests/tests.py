@@ -76,6 +76,108 @@ class RequestFormConfigTests(APITestCase):
         res = self.client.put("/api/requests/form-config/", payload, format="json", HTTP_HOST=self.host)
         self.assertIn(res.status_code, (403, 401))
 
+    def test_admin_can_create_requester_via_form_config_requesters(self):
+        self.client.force_authenticate(self.admin)
+        res = self.client.post(
+            "/api/requests/form-config/requesters/",
+            {"username": "new_req", "full_name": "New Requester"},
+            format="json",
+            HTTP_HOST=self.host,
+        )
+        self.assertEqual(res.status_code, 200)
+        u = User.objects.get(username="new_req")
+        self.assertEqual(u.full_name, "New Requester")
+        self.assertFalse(u.has_usable_password())
+        self.assertTrue(
+            TenantMembership.objects.filter(tenant=self.tenant, user=u, is_active=True).exists()
+        )
+        self.assertTrue(
+            TenantUserRole.objects.filter(
+                tenant=self.tenant,
+                user=u,
+                role=TenantUserRole.ROLE_REQUESTER,
+                step=1,
+            ).exists()
+        )
+        self.assertIn("payment_types", res.data)
+        ids = {c["id"] for c in res.data.get("requester_candidates", [])}
+        self.assertIn(u.id, ids)
+
+    def test_create_requester_with_telegram_ids(self):
+        self.client.force_authenticate(self.admin)
+        res = self.client.post(
+            "/api/requests/form-config/requesters/",
+            {
+                "username": "tg_req",
+                "full_name": "TG User",
+                "telegram_chat_id": 111,
+                "telegram_from_id": 222,
+            },
+            format="json",
+            HTTP_HOST=self.host,
+        )
+        self.assertEqual(res.status_code, 200)
+        u = User.objects.get(username="tg_req")
+        self.assertEqual(u.telegram_chat_id, 111)
+        self.assertEqual(u.telegram_from_id, 222)
+
+    def test_create_requester_rejects_blank_full_name(self):
+        self.client.force_authenticate(self.admin)
+        res = self.client.post(
+            "/api/requests/form-config/requesters/",
+            {"username": "x", "full_name": "   "},
+            format="json",
+            HTTP_HOST=self.host,
+        )
+        self.assertEqual(res.status_code, 400)
+
+    def test_create_requester_rejects_duplicate_username(self):
+        self.client.force_authenticate(self.admin)
+        res = self.client.post(
+            "/api/requests/form-config/requesters/",
+            {"username": "req_a", "full_name": "Dup"},
+            format="json",
+            HTTP_HOST=self.host,
+        )
+        self.assertEqual(res.status_code, 400)
+
+    def test_non_admin_cannot_post_form_config_requesters(self):
+        self.client.force_authenticate(self.requester_a)
+        res = self.client.post(
+            "/api/requests/form-config/requesters/",
+            {"username": "hack", "full_name": "H"},
+            format="json",
+            HTTP_HOST=self.host,
+        )
+        self.assertIn(res.status_code, (403, 401))
+
+    def test_requester_module_catalog_excludes_finance_modules(self):
+        """Requester-only user: allowed requests/vendors/notes; not cash/bank/payroll/corporate_card."""
+        TenantModuleConfig.objects.update_or_create(
+            tenant=self.tenant, module_key="notes", defaults={"is_enabled": True}
+        )
+        for key in ("cash", "bank", "payroll", "corporate_card"):
+            TenantModuleConfig.objects.update_or_create(
+                tenant=self.tenant, module_key=key, defaults={"is_enabled": True}
+            )
+
+        solo = User.objects.create_user(username="solo_req", password="x")
+        TenantMembership.objects.create(tenant=self.tenant, user=solo, is_active=True)
+        TenantUserRole.objects.create(
+            tenant=self.tenant, user=solo, role=TenantUserRole.ROLE_REQUESTER, step=1
+        )
+
+        self.client.force_authenticate(solo)
+        res = self.client.get("/api/modules/", HTTP_HOST=self.host)
+        self.assertEqual(res.status_code, 200)
+        by_key = {m["module_key"]: m for m in res.data["modules"]}
+        for k in ("requests", "vendors", "notes"):
+            self.assertTrue(by_key[k]["tenant_enabled"], k)
+            self.assertTrue(by_key[k]["user_allowed"], k)
+        for k in ("cash", "bank", "payroll", "corporate_card"):
+            self.assertTrue(by_key[k]["tenant_enabled"], k)
+            self.assertFalse(by_key[k]["user_allowed"], k)
+
     def test_disabled_payment_type_rejected_on_create(self):
         cfg = RequestFormConfig.objects.create(tenant=self.tenant, updated_by=self.admin)
         RequestFormPaymentTypeConfig.objects.create(config=cfg, payment_type="Наличные", is_enabled=False)
@@ -482,6 +584,57 @@ class RequestApprovalsTests(APITestCase):
         self.assertEqual(res.data["request"]["id"], request_id)
         self.assertEqual(res.data["trigger_approval"]["id"], approval.id)
         self.assertEqual(len(res.data["approvals"]), 1)
+
+    def test_reject_does_not_dispatch_pending_later_steps(self):
+        pt_cfg = RequestApprovalPaymentTypeConfig.objects.get(
+            config__tenant=self.tenant, payment_type="Наличные"
+        )
+        step2 = RequestApprovalStepConfig.objects.create(
+            payment_type_config=pt_cfg,
+            step=2,
+            step_type=Approval.STEP_TYPE_SERIAL,
+            is_enabled=True,
+        )
+        self.other_approver.telegram_chat_id = 333
+        self.other_approver.telegram_from_id = 444
+        self.other_approver.save(update_fields=["telegram_chat_id", "telegram_from_id"])
+        RequestApprovalStepApproverConfig.objects.create(step_config=step2, approver_user=self.other_approver)
+
+        from unittest.mock import patch
+
+        from apps.modules.requests.approval_workflow import confirm_approval_by_id
+
+        with patch(
+            "apps.modules.telegram_approvals.services._post_to_bridge",
+            return_value={"message_id": 1},
+        ) as mock_bridge:
+            req_data = self._create_request()
+            mock_bridge.reset_mock()
+            request_id = req_data["id"]
+            step1_approval = Approval.objects.get(
+                request_id=request_id, approver_user=self.approver, step=1
+            )
+            confirm_approval_by_id(
+                tenant=self.tenant,
+                approval_id=step1_approval.id,
+                request_id=request_id,
+                approver_user_id=self.approver.id,
+                decision=Approval.DECISION_REJECTED,
+                comment="no",
+            )
+            step2_chat = self.other_approver.telegram_chat_id
+            notified_step2 = any(
+                (getattr(c, "kwargs", None) or {}).get("payload", {}).get("chat_id") == step2_chat
+                for c in mock_bridge.call_args_list
+            )
+            self.assertFalse(
+                notified_step2,
+                "Rejected request must not trigger Telegram dispatch to later-step approvers.",
+            )
+
+        self.assertEqual(Request.objects.get(pk=request_id).status, Request.STATUS_REJECTED)
+        step2_row = Approval.objects.get(request_id=request_id, approver_user=self.other_approver, step=2)
+        self.assertEqual(step2_row.decision, Approval.DECISION_PENDING)
 
     def test_serial_then_payment_pending_sets_request_approved(self):
         pt_cfg = RequestApprovalPaymentTypeConfig.objects.get(

@@ -103,6 +103,45 @@ class TelegramApprovalsTests(APITestCase):
         self.assertIn("message", payload)
 
     @patch("apps.modules.telegram_approvals.services.requests.post")
+    def test_bridge_http_error_notifies_n8n_error_webhook(self, mocked_post):
+        err_resp = type("R", (), {})()
+        err_resp.status_code = 502
+        err_resp.text = "bad gateway"
+        err_resp.content = b"bad gateway"
+        ok_resp = type("R", (), {})()
+        ok_resp.status_code = 200
+        ok_resp.content = b"{}"
+        ok_resp.json = lambda: {}
+        mocked_post.side_effect = [err_resp, ok_resp]
+
+        self.client.force_authenticate(self.requester)
+        res = self.client.post(
+            "/api/requests/",
+            {
+                "title": "Lemonfit",
+                "description": "TEST",
+                "amount": 100,
+                "currency": "UZS",
+                "payment_type": "Наличные",
+                "urgency": "Обычно",
+                "requester": self.requester.id,
+                "billing_date": "2026-03-31",
+            },
+            format="json",
+            HTTP_HOST=self.host,
+        )
+        self.assertEqual(res.status_code, 201, res.content)
+        self.assertEqual(mocked_post.call_count, 2)
+        error_call = mocked_post.call_args_list[1]
+        self.assertIn("/n8n/error", error_call[0][0])
+        err_payload = error_call[1].get("json", {})
+        self.assertEqual(err_payload.get("source"), "telegram_approvals_bridge")
+        self.assertEqual(err_payload.get("error_kind"), "http_error")
+        self.assertEqual(err_payload.get("http_status"), 502)
+        self.assertEqual(err_payload.get("payload_action"), "send_approval_message")
+        self.assertIn("bad gateway", err_payload.get("response_body", ""))
+
+    @patch("apps.modules.telegram_approvals.services.requests.post")
     def test_resend_pending_step_deactivates_old_and_sends_new_message(self, mocked_post):
         send_response = type("Resp", (), {"status_code": 200, "content": b'{"result":{"message_id":9999}}'})()
         send_response.json = lambda: {"result": {"message_id": 9999}}

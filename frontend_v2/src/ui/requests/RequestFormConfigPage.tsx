@@ -17,6 +17,7 @@ import {
 import { ArrowLeftOutlined, PlusOutlined, SaveOutlined } from '@ant-design/icons'
 import { useNavigate } from 'react-router-dom'
 import {
+  createRequesterUser,
   getRequestFormConfig,
   updateRequestFormConfig,
   type RequestFormConfigPaymentTypeItem,
@@ -61,6 +62,11 @@ export function RequestFormConfigPage() {
   const [error, setError] = useState<string | null>(null)
   const [activeTab, setActiveTab] = useState<string>(PAYMENT_TYPES[0])
   const [data, setData] = useState<RequestFormConfigResponse | null>(null)
+  const [creatingRequester, setCreatingRequester] = useState(false)
+  const [newReqUsername, setNewReqUsername] = useState('')
+  const [newReqFullName, setNewReqFullName] = useState('')
+  const [newReqTgChat, setNewReqTgChat] = useState<number | null>(null)
+  const [newReqTgFrom, setNewReqTgFrom] = useState<number | null>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -155,6 +161,35 @@ export function RequestFormConfigPage() {
     })
   }
 
+  const addRequester = async () => {
+    if (!data) return
+    const u = newReqUsername.trim()
+    const fn = newReqFullName.trim()
+    if (!u || !fn) {
+      message.warning('Укажите логин и полное имя')
+      return
+    }
+    setCreatingRequester(true)
+    try {
+      const next = await createRequesterUser({
+        username: u,
+        full_name: fn,
+        ...(newReqTgChat != null ? { telegram_chat_id: newReqTgChat } : {}),
+        ...(newReqTgFrom != null ? { telegram_from_id: newReqTgFrom } : {}),
+      })
+      setData(normalizeConfig(next))
+      setNewReqUsername('')
+      setNewReqFullName('')
+      setNewReqTgChat(null)
+      setNewReqTgFrom(null)
+      message.success('Заявитель добавлен')
+    } catch (e: any) {
+      message.error(e?.message || 'Не удалось создать заявителя')
+    } finally {
+      setCreatingRequester(false)
+    }
+  }
+
   const save = async () => {
     if (!data) return
     setSaving(true)
@@ -212,6 +247,66 @@ export function RequestFormConfigPage() {
 
       {!loading && data ? (
         <>
+          <Space direction="vertical" size={12} style={{ display: 'flex' }}>
+            <Typography.Text strong style={labelBlockAboveField}>
+              Новый заявитель
+            </Typography.Text>
+            <Typography.Paragraph type="secondary" style={{ marginBottom: 0 }}>
+              Создаётся пользователь с ролью заявителя: доступ к заявкам и связанным разделам (поставщики, заметки в
+              рамках модуля заявок). Без кассы, банка, зарплаты и корпоративной карты.
+            </Typography.Paragraph>
+            <Space wrap align="start" style={{ width: '100%' }}>
+              <div style={{ minWidth: 200, flex: '1 1 200px' }}>
+                <Typography.Text type="secondary" style={{ display: 'block', marginBottom: 4 }}>
+                  Логин (username)
+                </Typography.Text>
+                <Input
+                  value={newReqUsername}
+                  onChange={(e) => setNewReqUsername(e.target.value)}
+                  placeholder="login"
+                  autoComplete="off"
+                />
+              </div>
+              <div style={{ minWidth: 200, flex: '1 1 200px' }}>
+                <Typography.Text type="secondary" style={{ display: 'block', marginBottom: 4 }}>
+                  Полное имя
+                </Typography.Text>
+                <Input
+                  value={newReqFullName}
+                  onChange={(e) => setNewReqFullName(e.target.value)}
+                  placeholder="Иван Иванов"
+                />
+              </div>
+              <div style={{ minWidth: 160, flex: '0 1 160px' }}>
+                <Typography.Text type="secondary" style={{ display: 'block', marginBottom: 4 }}>
+                  Telegram chat id (необяз.)
+                </Typography.Text>
+                <InputNumber
+                  style={{ width: '100%' }}
+                  value={newReqTgChat}
+                  onChange={(v) => setNewReqTgChat(typeof v === 'number' ? v : null)}
+                  placeholder="—"
+                />
+              </div>
+              <div style={{ minWidth: 160, flex: '0 1 160px' }}>
+                <Typography.Text type="secondary" style={{ display: 'block', marginBottom: 4 }}>
+                  Telegram from id (необяз.)
+                </Typography.Text>
+                <InputNumber
+                  style={{ width: '100%' }}
+                  value={newReqTgFrom}
+                  onChange={(v) => setNewReqTgFrom(typeof v === 'number' ? v : null)}
+                  placeholder="—"
+                />
+              </div>
+              <Button type="primary" loading={creatingRequester} onClick={addRequester} style={{ alignSelf: 'flex-end' }}>
+                Создать заявителя
+              </Button>
+            </Space>
+          </Space>
+
+          <Divider />
+
           <Space direction="vertical" size={12} style={{ display: 'flex' }}>
             <Typography.Text strong style={labelBlockAboveField}>
               Типы оплаты
