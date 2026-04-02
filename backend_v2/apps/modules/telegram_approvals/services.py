@@ -190,6 +190,23 @@ def _message_header(*, request_obj: Request, approval: Approval | None) -> tuple
     return _fmt(settings_obj.header_new_template), None
 
 
+def _telegram_card_should_be_readonly(*, request_obj: Request, approval: Approval) -> bool:
+    """
+    Milestone request statuses: everyone who already got a Telegram card should see the new header,
+    without action buttons — except the cashier row while payment is still pending (APPROVED).
+    """
+    st = request_obj.status
+    if st == Request.STATUS_REJECTED:
+        return True
+    if st == Request.STATUS_PAYED:
+        return True
+    if st == Request.STATUS_APPROVED:
+        if approval.decision == Approval.DECISION_PENDING and approval.step_type == Approval.STEP_TYPE_PAYMENT:
+            return False
+        return True
+    return False
+
+
 def build_approval_message(*, request_obj: Request, approval: Approval | None = None) -> str:
     header, subheader = _message_header(request_obj=request_obj, approval=approval)
     vendor_name = (request_obj.vendor_ref.name if request_obj.vendor_ref_id and request_obj.vendor_ref else request_obj.vendor) or "-"
@@ -494,15 +511,25 @@ def deactivate_approval_message_buttons(*, approval: Approval, request_context: 
 
 
 def refresh_request_messages(*, request_obj: Request) -> int:
+    """
+    Notify everyone who was sent a Telegram card (message_sent) and can be edited (message_id + chat).
+    Call after status/decision changes so headers match APPROVED / REJECTED / PAYED and buttons drop
+    where the step is no longer actionable.
+    """
     request_obj.refresh_from_db()
     approvals = list(
-        Approval.objects.filter(request=request_obj, message_id__isnull=False)
+        Approval.objects.filter(
+            request=request_obj,
+            message_sent=True,
+            message_id__isnull=False,
+            approver_tg_id__isnull=False,
+        )
         .select_related("request", "request__tenant", "approver_user")
         .order_by("id")
     )
     updated = 0
     for approval in approvals:
-        if request_obj.status == Request.STATUS_REJECTED:
+        if _telegram_card_should_be_readonly(request_obj=request_obj, approval=approval):
             if deactivate_approval_message_buttons(approval=approval, request_context=request_obj):
                 updated += 1
         elif edit_approval_message(approval=approval, request_context=request_obj):
