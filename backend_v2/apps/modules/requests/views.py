@@ -326,6 +326,7 @@ class PortalRequestViewSet(viewsets.ModelViewSet):
 
             locked_request = Request.objects.select_for_update().get(pk=request_obj.pk)
             _recalculate_request_status(locked_request)
+            locked_request.refresh_from_db()
             refresh_request_messages(request_obj=locked_request)
             dispatch_pending_approvals(request_obj=locked_request)
 

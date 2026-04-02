@@ -6,6 +6,9 @@ from rest_framework.exceptions import APIException, NotFound, PermissionDenied, 
 
 from apps.modules.requests.models import Approval, Request
 
+# Set on remaining pending rows when another step already rejected the request.
+_STOPPED_BY_OTHER_STEP_COMMENT = "Автоматически: заявка отклонена на другом этапе."
+
 
 class ApprovalDecisionAlreadyMade(APIException):
     status_code = 409
@@ -31,6 +34,13 @@ def _recalculate_request_status(request_obj: Request) -> str:
 
     if approvals_qs.filter(decision=Approval.DECISION_REJECTED).exists():
         next_status = Request.STATUS_REJECTED
+        # Close out every still-pending row so nothing (Telegram, resend, n8n) can treat
+        # downstream steps as active. Also avoids stale FK caches on approval.request.status.
+        Approval.objects.filter(request=request_obj, decision=Approval.DECISION_PENDING).update(
+            decision=Approval.DECISION_REJECTED,
+            decided_at=timezone.now(),
+            comment=_STOPPED_BY_OTHER_STEP_COMMENT,
+        )
     else:
         pending_steps = list(
             approvals_qs.filter(decision=Approval.DECISION_PENDING).values_list("step", flat=True)
@@ -143,6 +153,7 @@ def confirm_approval_by_id(
         approval.save(update_fields=["decision", "comment", "decided_at"])
 
         _recalculate_request_status(request_obj)
+        request_obj.refresh_from_db()
         # Keep Telegram cards in sync and deliver next step approvals.
         from apps.modules.telegram_approvals.services import dispatch_pending_approvals, refresh_request_messages
 
