@@ -288,15 +288,15 @@ def _inline_keyboard(*, approval: Approval) -> list[list[dict]]:
         if mode == RequestApprovalStepConfig.PAYMENT_ACTION_MODE_WEBAPP:
             webapp_url = _resolve_payment_webapp_url(approval=approval)
             if webapp_url:
-                first_btn = {"text": "Выплатить", "url": webapp_url}
+                first_btn = {"text": "💰 Выплатить", "url": webapp_url}
             else:
-                first_btn = {"text": "Выплатить", "callback_data": _button_data(approval=approval, decision="approved")}
+                first_btn = {"text": "💰 Выплатить", "callback_data": _button_data(approval=approval, decision="approved")}
         else:
-            first_btn = {"text": "Выплатить", "callback_data": _button_data(approval=approval, decision="approved")}
+            first_btn = {"text": "💰 Выплатить", "callback_data": _button_data(approval=approval, decision="approved")}
         return [
             [
                 first_btn,
-                {"text": "Отменить", "callback_data": _button_data(approval=approval, decision="rejected")},
+                {"text": "❌ Отменить", "callback_data": _button_data(approval=approval, decision="rejected")},
             ]
         ]
     return [

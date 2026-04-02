@@ -322,9 +322,9 @@ class TelegramApprovalsTests(APITestCase):
         self.assertEqual(res.status_code, 201, res.content)
         payload = mocked_post.call_args.kwargs.get("json", {})
         row = payload.get("inline_keyboard", [[{}, {}]])[0]
-        self.assertEqual(row[0]["text"], "Выплатить")
+        self.assertEqual(row[0]["text"], "💰 Выплатить")
         self.assertIn("callback_data", row[0])
-        self.assertEqual(row[1]["text"], "Отменить")
+        self.assertEqual(row[1]["text"], "❌ Отменить")
 
     @patch("apps.modules.telegram_approvals.services.requests.post")
     def test_payment_webapp_mode_uses_url_button(self, mocked_post):
@@ -363,10 +363,10 @@ class TelegramApprovalsTests(APITestCase):
         self.assertEqual(res.status_code, 201, res.content)
         payload = mocked_post.call_args.kwargs.get("json", {})
         row = payload.get("inline_keyboard", [[{}, {}]])[0]
-        self.assertEqual(row[0]["text"], "Выплатить")
+        self.assertEqual(row[0]["text"], "💰 Выплатить")
         self.assertIn("url", row[0])
         self.assertIn("approval_id=", row[0]["url"])
-        self.assertEqual(row[1]["text"], "Отменить")
+        self.assertEqual(row[1]["text"], "❌ Отменить")
 
     def test_message_headers_for_statuses(self):
         request_row = Request.objects.create(
