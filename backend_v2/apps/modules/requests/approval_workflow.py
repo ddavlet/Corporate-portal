@@ -28,6 +28,12 @@ def _status_for_progress_step(step: int) -> str | None:
 
 
 def _recalculate_request_status(request_obj: Request) -> str:
+    """
+    Derive Request.status from Approval rows.
+
+    If any step is rejected, the request becomes REJECTED and every remaining pending
+    approval is closed so nothing is routed further (Telegram / resend / next step).
+    """
     approvals_qs = Approval.objects.filter(request=request_obj)
     if not approvals_qs.exists():
         return request_obj.status
