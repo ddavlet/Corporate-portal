@@ -2,8 +2,8 @@ import { useEffect, useState } from 'react'
 import { Alert, Button, Card, DatePicker, Input, InputNumber, Modal, Select, Space, Typography, message } from 'antd'
 import { ReloadOutlined } from '@ant-design/icons'
 import { useNavigate, useParams } from 'react-router-dom'
-import { apiFetch, resendRequestApprovals } from '../../lib/api'
-import { RequestDetailContent, type RequestDetail } from './RequestDetailModal'
+import { apiFetch, confirmPaymentViaWebApp, resendRequestApprovals } from '../../lib/api'
+import { RequestDetailContent, type ApprovalItem, type RequestDetail } from './RequestDetailModal'
 import { NoteCreateModal } from '../NoteCreateModal'
 import { useAuth } from '../auth'
 import dayjs from 'dayjs'
@@ -29,6 +29,10 @@ function canResendByStatus(status?: string | null): boolean {
   return Number.isFinite(numeric) && numeric >= 1 && numeric <= 5
 }
 
+function isPaymentApprovalStep(a: ApprovalItem): boolean {
+  return String(a.step_type || '').toLowerCase() === 'payment'
+}
+
 export function RequestDetailPage({ listPath = '/requests', variant = 'portal' }: RequestDetailPageProps) {
   const navigate = useNavigate()
   const { id } = useParams<{ id: string }>()
@@ -52,6 +56,8 @@ export function RequestDetailPage({ listPath = '/requests', variant = 'portal' }
   const [uploadOpen, setUploadOpen] = useState(false)
   const [uploadBusy, setUploadBusy] = useState(false)
   const [uploadFile, setUploadFile] = useState<File | null>(null)
+  /** Номер платежа для шагов payment (webapp) по id одобрения */
+  const [paymentExpenseInputs, setPaymentExpenseInputs] = useState<Record<number, string>>({})
 
   const decodeJwtUserId = (token: string | null): number | null => {
     if (!token) return null
@@ -197,6 +203,33 @@ export function RequestDetailPage({ listPath = '/requests', variant = 'portal' }
     }
   }
 
+  const confirmPaymentStep = async (approval: ApprovalItem) => {
+    const expenseId = (paymentExpenseInputs[approval.id] ?? '').trim()
+    if (!expenseId) {
+      message.warning('Введите номер платежа')
+      return
+    }
+    setApprovalBusy(true)
+    try {
+      await confirmPaymentViaWebApp({ approval_id: approval.id, expense_id: expenseId })
+      message.success('Выплата подтверждена')
+      setPaymentExpenseInputs((prev) => {
+        const next = { ...prev }
+        delete next[approval.id]
+        return next
+      })
+      await refreshDetail()
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : 'Ошибка подтверждения выплаты'
+      message.error(msg)
+      if (/callback/i.test(msg)) {
+        message.info('Этот шаг настроен на подтверждение в Telegram — используйте бота.')
+      }
+    } finally {
+      setApprovalBusy(false)
+    }
+  }
+
   const submitEditDraft = async () => {
     if (!detail?.id) return
     if (!editTitle.trim()) {
@@ -266,6 +299,77 @@ export function RequestDetailPage({ listPath = '/requests', variant = 'portal' }
     }
   }
 
+  const approvalBtnSize = isTg ? ('large' as const) : undefined
+
+  const pendingApprovalsEl =
+    pendingApprovalsForMe.length > 0 ? (
+      <div style={{ width: '100%', marginTop: isTg ? 4 : 12 }}>
+        <Typography.Text strong style={{ display: 'block', marginBottom: 8 }}>
+          На рассмотрении
+        </Typography.Text>
+        <Space direction="vertical" size={8} style={{ width: '100%' }}>
+          {pendingApprovalsForMe.map((a) => (
+            <div key={String(a.id)} style={{ width: '100%' }}>
+              <Typography.Text type="secondary" style={{ display: 'block', marginBottom: 6 }}>
+                Шаг {a.step}
+                {isPaymentApprovalStep(a) ? ' (выплата)' : ''}
+              </Typography.Text>
+              {isPaymentApprovalStep(a) ? (
+                <Space direction="vertical" size={8} style={{ width: '100%' }}>
+                  <Input
+                    value={paymentExpenseInputs[a.id] ?? ''}
+                    onChange={(e) =>
+                      setPaymentExpenseInputs((prev) => ({ ...prev, [a.id]: e.target.value }))
+                    }
+                    placeholder="Номер платежа"
+                  />
+                  <Button
+                    type="primary"
+                    size={approvalBtnSize}
+                    block
+                    loading={approvalBusy}
+                    onClick={() => void confirmPaymentStep(a)}
+                  >
+                    Подтвердить выплату
+                  </Button>
+                  <Button
+                    type="default"
+                    size={approvalBtnSize}
+                    block
+                    loading={approvalBusy}
+                    onClick={() => void setDecision(a.step, 'rejected')}
+                  >
+                    Отклонить
+                  </Button>
+                </Space>
+              ) : (
+                <Space direction="vertical" size={8} style={{ width: '100%' }}>
+                  <Button
+                    type="primary"
+                    size={approvalBtnSize}
+                    block
+                    loading={approvalBusy}
+                    onClick={() => void setDecision(a.step, 'approved')}
+                  >
+                    Одобрить
+                  </Button>
+                  <Button
+                    type="default"
+                    size={approvalBtnSize}
+                    block
+                    loading={approvalBusy}
+                    onClick={() => void setDecision(a.step, 'rejected')}
+                  >
+                    Отклонить
+                  </Button>
+                </Space>
+              )}
+            </div>
+          ))}
+        </Space>
+      </div>
+    ) : null
+
   return (
     <Card className={isTg ? 'tg-detail-card' : undefined} styles={{ body: isTg ? { padding: '16px 16px 24px' } : undefined }}>
       <div className={isTg ? 'tg-detail-page' : undefined}>
@@ -312,42 +416,7 @@ export function RequestDetailPage({ listPath = '/requests', variant = 'portal' }
                   Прикрепить файл
                 </Button>
               ) : null}
-              {pendingApprovalsForMe.length > 0 ? (
-                <div style={{ width: '100%', marginTop: 4 }}>
-                  <Typography.Text strong style={{ display: 'block', marginBottom: 8 }}>
-                    На рассмотрении
-                  </Typography.Text>
-                  <Space direction="vertical" size={8} style={{ width: '100%' }}>
-                    {pendingApprovalsForMe.map((a) => (
-                      <div key={String(a.id)} style={{ width: '100%' }}>
-                        <Typography.Text type="secondary" style={{ display: 'block', marginBottom: 6 }}>
-                          Шаг {a.step}
-                        </Typography.Text>
-                        <Space direction="vertical" size={8} style={{ width: '100%' }}>
-                          <Button
-                            type="primary"
-                            size="large"
-                            block
-                            loading={approvalBusy}
-                            onClick={() => void setDecision(a.step, 'approved')}
-                          >
-                            Одобрить
-                          </Button>
-                          <Button
-                            type="default"
-                            size="large"
-                            block
-                            loading={approvalBusy}
-                            onClick={() => void setDecision(a.step, 'rejected')}
-                          >
-                            Отклонить
-                          </Button>
-                        </Space>
-                      </div>
-                    ))}
-                  </Space>
-                </div>
-              ) : null}
+              {pendingApprovalsEl}
               {showExpenseButton ? (
                 <Button type="primary" size="large" block onClick={openLinkedExpense}>
                   Связанный расход
@@ -360,33 +429,36 @@ export function RequestDetailPage({ listPath = '/requests', variant = 'portal' }
               ) : null}
             </div>
           ) : (
-            <Space wrap align="start">
-              <Button onClick={() => navigate(listPath)}>Назад к списку</Button>
-              {detail?.id ? <Button onClick={() => setOpenNoteModal(true)}>Добавить заметку</Button> : null}
-              {detail?.id ? (
-                <Button
-                  icon={<ReloadOutlined />}
-                  loading={resendLoading}
-                  disabled={!resendAllowed}
-                  title={
-                    resendAllowed
-                      ? 'Повторно отправить pending-согласования текущего этапа'
-                      : 'Доступно для этапов согласования (1–5) и для заявок со статусом APPROVED'
-                  }
-                  onClick={() => void resendRequest()}
-                >
-                  Отправить запрос повторно
-                </Button>
-              ) : null}
-              {showExpenseButton ? (
-                <Button type="primary" onClick={openLinkedExpense}>
-                  Открыть связанный расход
-                </Button>
-              ) : showExternalExpenseHint ? (
-                <Typography.Text type="secondary">Внешний расход (ID {String(link?.id)})</Typography.Text>
-              ) : (
-                <Typography.Text type="secondary">Связанный расход не найден</Typography.Text>
-              )}
+            <Space direction="vertical" size={12} style={{ display: 'flex', width: '100%' }}>
+              <Space wrap align="start">
+                <Button onClick={() => navigate(listPath)}>Назад к списку</Button>
+                {detail?.id ? <Button onClick={() => setOpenNoteModal(true)}>Добавить заметку</Button> : null}
+                {detail?.id ? (
+                  <Button
+                    icon={<ReloadOutlined />}
+                    loading={resendLoading}
+                    disabled={!resendAllowed}
+                    title={
+                      resendAllowed
+                        ? 'Повторно отправить pending-согласования текущего этапа'
+                        : 'Доступно для этапов согласования (1–5) и для заявок со статусом APPROVED'
+                    }
+                    onClick={() => void resendRequest()}
+                  >
+                    Отправить запрос повторно
+                  </Button>
+                ) : null}
+                {showExpenseButton ? (
+                  <Button type="primary" onClick={openLinkedExpense}>
+                    Открыть связанный расход
+                  </Button>
+                ) : showExternalExpenseHint ? (
+                  <Typography.Text type="secondary">Внешний расход (ID {String(link?.id)})</Typography.Text>
+                ) : (
+                  <Typography.Text type="secondary">Связанный расход не найден</Typography.Text>
+                )}
+              </Space>
+              {pendingApprovalsEl}
             </Space>
           )}
           {error && !loading ? <Alert type="error" showIcon message={error} /> : null}
