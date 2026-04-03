@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import { Alert, Button, Card, Input, Typography, message } from 'antd'
 import { useSearchParams } from 'react-router-dom'
 import { confirmPaymentViaWebApp } from '../../lib/api'
+import { resolvePaymentApprovalId } from './tgPaymentApprovalId'
 
 export function TgPaymentConfirmPage() {
   const [searchParams] = useSearchParams()
@@ -9,13 +10,15 @@ export function TgPaymentConfirmPage() {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  const approvalId = useMemo(() => Number(searchParams.get('approval_id') || 0), [searchParams])
+  const approvalId = useMemo(() => resolvePaymentApprovalId(searchParams), [searchParams])
   const isApprovalValid = Number.isInteger(approvalId) && approvalId > 0
 
   const submit = async () => {
     const trimmed = expenseId.trim()
     if (!isApprovalValid) {
-      setError('Не найден approval_id в ссылке WebApp.')
+      setError(
+        'Не найден approval_id: укажите ?approval_id= в URL кнопки или откройте приложение с startapp (start_param / tgWebAppStartParam).',
+      )
       return
     }
     if (!trimmed) {

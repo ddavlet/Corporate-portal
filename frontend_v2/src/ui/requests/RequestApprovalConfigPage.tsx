@@ -324,7 +324,7 @@ export function RequestApprovalConfigPage() {
                                             payment_webapp_url: e.target.value,
                                           })
                                         }
-                                        placeholder="https://.../tg/payment?approval_id={approval_id}"
+                                        placeholder="https://t.me/ВашБот/ИмяПриложения (добавится startapp с id одобрения)"
                                       />
                                     </div>
                                   ) : null}

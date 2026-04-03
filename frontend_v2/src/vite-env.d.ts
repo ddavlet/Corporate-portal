@@ -18,9 +18,15 @@ interface TelegramThemeParams {
   secondary_bg_color?: string
 }
 
+interface TelegramWebAppInitDataUnsafe {
+  start_param?: string
+  user?: TelegramWebAppUser
+  [key: string]: unknown
+}
+
 interface TelegramWebApp {
   initData: string
-  initDataUnsafe: Record<string, unknown>
+  initDataUnsafe: TelegramWebAppInitDataUnsafe
   ready: () => void
   expand?: () => void
   close?: () => void
