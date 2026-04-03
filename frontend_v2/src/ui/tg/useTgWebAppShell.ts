@@ -52,23 +52,30 @@ function applyTelegramTheme() {
   }
 }
 
-/** CSS-переменные темы Telegram + класс тёмной темы + смена темы в клиенте */
-export function useTgWebAppShell() {
+/** CSS-переменные темы Telegram + класс тёмной темы + смена темы в клиенте. После применения CSS вызывается onThemeApplied (например обновление ConfigProvider Ant Design). */
+export function useTgWebAppShell(onThemeApplied?: () => void) {
   useEffect(() => {
     const tw = typeof window !== 'undefined' ? window.Telegram?.WebApp : undefined
-    if (!tw) return
 
-    applyTelegramTheme()
+    const run = () => {
+      applyTelegramTheme()
+      onThemeApplied?.()
+    }
 
-    const onTheme = () => applyTelegramTheme()
-    tw.onEvent?.('themeChanged', onTheme)
+    if (!tw) {
+      run()
+      return
+    }
+
+    run()
+    tw.onEvent?.('themeChanged', run)
 
     return () => {
-      tw.offEvent?.('themeChanged', onTheme)
+      tw.offEvent?.('themeChanged', run)
       const root = document.documentElement
       root.classList.remove('tg-twa-dark')
       root.style.removeProperty('color-scheme')
       CSS_VARS.forEach((k) => root.style.removeProperty(k))
     }
-  }, [])
+  }, [onThemeApplied])
 }

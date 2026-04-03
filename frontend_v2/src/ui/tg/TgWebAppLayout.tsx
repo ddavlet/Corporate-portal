@@ -1,14 +1,17 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import { Alert, ConfigProvider, Skeleton } from 'antd'
 import { Outlet } from 'react-router-dom'
 import { exchangeTelegramWebApp, setTgTokens } from '../../lib/api'
 import { useAuth } from '../auth'
+import { getTgAntdTheme } from './tgAntdTheme'
 import { useTgWebAppShell } from './useTgWebAppShell'
 import './tgWebApp.css'
 
 export function TgWebAppLayout() {
   const { login } = useAuth()
-  useTgWebAppShell()
+  const [antdTheme, setAntdTheme] = useState(() => getTgAntdTheme())
+  const syncAntdTheme = useCallback(() => setAntdTheme(getTgAntdTheme()), [])
+  useTgWebAppShell(syncAntdTheme)
   const [ready, setReady] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -42,43 +45,21 @@ export function TgWebAppLayout() {
     }
   }, [login])
 
-  if (error) {
-    return (
+  const shell = (node: ReactNode) => (
+    <ConfigProvider theme={antdTheme}>
       <div className="tg-webapp-root">
-        <div className="tg-webapp-inner">
-          <Alert type="error" showIcon message="Нет доступа" description={error} />
-        </div>
-      </div>
-    )
-  }
-
-  if (!ready) {
-    return (
-      <div className="tg-webapp-root">
-        <div className="tg-webapp-inner">
-          <Skeleton active title paragraph={{ rows: 4 }} />
-        </div>
-      </div>
-    )
-  }
-
-  return (
-    <ConfigProvider
-      theme={{
-        token: {
-          borderRadius: 12,
-          borderRadiusLG: 14,
-          controlHeight: 44,
-          controlHeightLG: 48,
-          fontSize: 15,
-        },
-      }}
-    >
-      <div className="tg-webapp-root">
-        <div className="tg-webapp-inner">
-          <Outlet />
-        </div>
+        <div className="tg-webapp-inner">{node}</div>
       </div>
     </ConfigProvider>
   )
+
+  if (error) {
+    return shell(<Alert type="error" showIcon message="Нет доступа" description={error} />)
+  }
+
+  if (!ready) {
+    return shell(<Skeleton active title paragraph={{ rows: 4 }} />)
+  }
+
+  return shell(<Outlet />)
 }
