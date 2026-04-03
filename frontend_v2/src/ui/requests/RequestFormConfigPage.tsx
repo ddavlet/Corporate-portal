@@ -53,7 +53,11 @@ function normalizeConfig(resp: RequestFormConfigResponse): RequestFormConfigResp
     const row = existing.get(pt)
     return row ? { ...emptyPaymentTypeRow(pt), ...row, payment_type: pt } : emptyPaymentTypeRow(pt)
   })
-  return { ...resp, payment_types: normalized }
+  return {
+    ...resp,
+    payment_types: normalized,
+    category_candidates: resp.category_candidates ?? [],
+  }
 }
 
 export function RequestFormConfigPage() {
@@ -103,6 +107,10 @@ export function RequestFormConfigPage() {
     [data],
   )
   const categoryOptions = useMemo(() => (data?.category_candidates || []).map((c) => ({ label: c, value: c })), [data])
+
+  const updateCategoryCandidates = (names: string[]) => {
+    setData((prev) => (prev ? { ...prev, category_candidates: names } : prev))
+  }
 
   const updatePaymentType = (paymentType: string, patch: Partial<RequestFormConfigPaymentTypeItem>) => {
     setData((prev) => {
@@ -196,7 +204,20 @@ export function RequestFormConfigPage() {
     setSaving(true)
     setError(null)
     try {
+      const categoriesFromPurposes = new Set<string>()
+      for (const pt of data.payment_types) {
+        for (const p of pt.payment_purposes) {
+          const c = String(p.category || '').trim()
+          if (c) categoriesFromPurposes.add(c)
+        }
+      }
+      const manual = (data.category_candidates || []).map((c) => String(c).trim()).filter(Boolean)
+      const category_candidates = [...new Set([...manual, ...categoriesFromPurposes])].sort((a, b) =>
+        a.localeCompare(b, 'ru'),
+      )
+
       const payload = {
+        category_candidates,
         payment_types: data.payment_types.map((pt) => ({
           payment_type: pt.payment_type,
           is_enabled: pt.is_enabled,
@@ -326,6 +347,26 @@ export function RequestFormConfigPage() {
                 </Checkbox>
               ))}
             </Space>
+          </Space>
+
+          <Divider />
+
+          <Space direction="vertical" size={12} style={{ display: 'flex' }}>
+            <Typography.Text strong style={labelBlockAboveField}>
+              Категории (для назначений платежа)
+            </Typography.Text>
+            <Typography.Paragraph type="secondary" style={{ marginBottom: 0 }}>
+              Добавьте названия вручную (теги) или задайте категорию только в строках назначений ниже — при сохранении
+              списки объединяются. Категории из заявок и назначений не удаляются этим списком автоматически.
+            </Typography.Paragraph>
+            <Select
+              mode="tags"
+              style={{ width: '100%', maxWidth: 720 }}
+              placeholder="Введите категорию и нажмите Enter"
+              value={data.category_candidates || []}
+              onChange={(vals) => updateCategoryCandidates(vals.map((v) => String(v).trim()).filter(Boolean))}
+              tokenSeparators={[',']}
+            />
           </Space>
 
           <Divider />
