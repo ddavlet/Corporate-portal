@@ -2,6 +2,7 @@ from __future__ import annotations
 import logging
 from datetime import datetime
 from html import escape
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 import requests
 from django.conf import settings
@@ -277,13 +278,34 @@ def _step_config_for_approval(*, approval: Approval) -> RequestApprovalStepConfi
     )
 
 
+def _ensure_tme_miniapp_startapp(url: str, approval_id: int) -> str:
+    """
+    Direct Link Mini App: https://t.me/<bot>/<app>?startapp=...
+    Если в настройке указан только базовый t.me/telegram.me URL без startapp,
+    подставляем startapp=<approval_id>, чтобы в WebApp пришёл start_param (см. фронт tgPaymentApprovalId).
+    """
+    u = (url or "").strip()
+    if not u:
+        return u
+    parts = urlsplit(u)
+    host = (parts.hostname or "").lower()
+    if host not in ("t.me", "www.t.me", "telegram.me", "www.telegram.me"):
+        return u
+    pairs = list(parse_qsl(parts.query, keep_blank_values=True))
+    if any(k.lower() == "startapp" for k, _ in pairs):
+        return u
+    pairs.append(("startapp", str(approval_id)))
+    new_query = urlencode(pairs)
+    return urlunsplit((parts.scheme, parts.netloc, parts.path, new_query, parts.fragment))
+
+
 def _resolve_payment_webapp_url(*, approval: Approval) -> str:
     step_cfg = _step_config_for_approval(approval=approval)
     template = (step_cfg.payment_webapp_url if step_cfg else "") or ""
     if not template.strip():
         return ""
     try:
-        return template.format(
+        resolved = template.format(
             request_id=approval.request_id,
             approval_id=approval.id,
             step=approval.step,
@@ -291,6 +313,7 @@ def _resolve_payment_webapp_url(*, approval: Approval) -> str:
     except Exception:
         logger.warning("Invalid payment_webapp_url template for approval step config id=%s", step_cfg.id if step_cfg else None)
         return template
+    return _ensure_tme_miniapp_startapp(resolved, approval.id)
 
 
 def _inline_keyboard(*, approval: Approval) -> list[list[dict]]:
