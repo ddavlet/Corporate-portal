@@ -406,6 +406,8 @@ export type RequestFormConfigResponse = {
 }
 
 export type RequestFormConfigUpdatePayload = {
+  /** Справочник категорий для назначений платежа; объединяется на бэкенде с целями из payment_purposes при сохранении из UI. */
+  category_candidates?: string[]
   payment_types: Array<{
     payment_type: string
     is_enabled: boolean
