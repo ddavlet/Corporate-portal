@@ -363,13 +363,13 @@ export type AutoRequestTemplateItem = {
   urgency: string
   payment_purpose: string
   vendor_ref_id: number | null
-  requester_id: number
+  /** Всегда пользователь `app` (сервер подставляет при сохранении). */
+  requester_id?: number
   last_run_month?: string | null
 }
 
 export type AutoRequestConfigResponse = {
   templates: AutoRequestTemplateItem[]
-  requester_candidates: RequestFormConfigCandidateUser[]
   vendor_candidates: RequestFormConfigCandidateVendor[]
   /** Same shape as form-config payment_types: purposes, vendor_ids, default_company_payer per type */
   form_payment_types: RequestFormConfigPaymentTypeItem[]
@@ -389,7 +389,6 @@ export type AutoRequestConfigUpdatePayload = {
     urgency?: string
     payment_purpose?: string
     vendor_ref_id?: number | null
-    requester_id: number
   }>
 }
 

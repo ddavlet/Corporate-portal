@@ -260,7 +260,7 @@ class RequestFormConfigTests(APITestCase):
         self.assertEqual(res.status_code, 201)
         self.assertEqual(res.data["company_payer"], "ACME LLC")
 
-    def test_admin_can_assign_requester_outside_form_subset(self):
+    def test_admin_cannot_assign_requester_outside_form_subset(self):
         cfg = RequestFormConfig.objects.create(tenant=self.tenant, updated_by=self.admin)
         pt_cfg = RequestFormPaymentTypeConfig.objects.create(config=cfg, payment_type="Наличные", is_enabled=True)
         RequestFormPaymentTypeRequester.objects.create(payment_type_config=pt_cfg, user=self.requester_a)
@@ -281,8 +281,8 @@ class RequestFormConfigTests(APITestCase):
             format="json",
             HTTP_HOST=self.host,
         )
-        self.assertEqual(res.status_code, 201)
-        self.assertEqual(res.data["requester"], self.requester_b.id)
+        self.assertEqual(res.status_code, 400)
+        self.assertIn("requester", res.data)
 
     def test_non_admin_rejected_when_self_not_in_requester_subset(self):
         cfg = RequestFormConfig.objects.create(tenant=self.tenant, updated_by=self.admin)
@@ -886,6 +886,17 @@ class AutoRequestTests(APITestCase):
         TenantUserRole.objects.create(
             tenant=self.tenant, user=self.requester, role=TenantUserRole.ROLE_REQUESTER, step=1
         )
+        self.app_user, app_created = User.objects.get_or_create(
+            username="app",
+            defaults={"full_name": "Система", "is_active": True},
+        )
+        if app_created:
+            self.app_user.set_unusable_password()
+            self.app_user.save(update_fields=["password"])
+        TenantMembership.objects.get_or_create(tenant=self.tenant, user=self.app_user, defaults={"is_active": True})
+        TenantUserRole.objects.get_or_create(
+            tenant=self.tenant, user=self.app_user, role=TenantUserRole.ROLE_REQUESTER, defaults={"step": 1}
+        )
         TenantModuleConfig.objects.create(tenant=self.tenant, module_key="requests", is_enabled=True)
         self.host = "auto.example.com"
 
@@ -925,7 +936,7 @@ class AutoRequestTests(APITestCase):
             day_of_month=1,
             title_template="Заявка {{billing_month_ru}}",
             description_template="Дата {{now:%d.%m.%Y}}",
-            requester=self.requester,
+            requester=self.app_user,
             updated_by=self.admin,
             vendor_ref=v,
             payment_purpose="Office",
@@ -939,6 +950,7 @@ class AutoRequestTests(APITestCase):
         self.assertEqual(req.company_payer, "PayCo LLC")
         self.assertEqual(req.category, "Admin")
         self.assertEqual(req.vendor_ref_id, v.id)
+        self.assertEqual(req.requester_id, self.app_user.id)
 
     def test_auto_config_put_and_get(self):
         v = self._ensure_request_form_for_auto()
@@ -952,7 +964,6 @@ class AutoRequestTests(APITestCase):
                     "day_of_month": 5,
                     "title_template": "Аренда {{billing_month_ru}}",
                     "description_template": "Платеж за {{billing_month:%B %Y}}",
-                    "requester_id": self.requester.id,
                     "vendor_ref_id": v.id,
                     "payment_purpose": "Office",
                 }
@@ -961,9 +972,11 @@ class AutoRequestTests(APITestCase):
         put_res = self.client.put("/api/requests/auto-config/", payload, format="json", HTTP_HOST=self.host)
         self.assertEqual(put_res.status_code, 200)
         self.assertEqual(len(put_res.data["templates"]), 1)
+        self.assertEqual(put_res.data["templates"][0]["requester_id"], self.app_user.id)
         get_res = self.client.get("/api/requests/auto-config/", HTTP_HOST=self.host)
         self.assertEqual(get_res.status_code, 200)
         self.assertEqual(get_res.data["templates"][0]["name"], "Rent")
+        self.assertEqual(get_res.data["templates"][0]["requester_id"], self.app_user.id)
         self.assertIn("form_payment_types", get_res.data)
 
 
