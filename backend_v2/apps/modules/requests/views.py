@@ -242,6 +242,12 @@ class PortalRequestViewSet(viewsets.ModelViewSet):
         if obj is not None:
             dispatch_pending_approvals(request_obj=obj)
 
+    def perform_update(self, serializer):
+        super().perform_update(serializer)
+        obj = serializer.instance
+        refresh_request_messages(request_obj=obj)
+        dispatch_pending_approvals(request_obj=obj)
+
     @action(detail=True, methods=["get", "post"], url_path="approvals")
     def approvals(self, request, pk=None):
         request_obj = self.get_object()
@@ -263,6 +269,9 @@ class PortalRequestViewSet(viewsets.ModelViewSet):
         serializer = ApprovalSerializer(data=request.data, context={"request": request})
         serializer.is_valid(raise_exception=True)
         serializer.save(request=request_obj)
+        request_obj.refresh_from_db()
+        refresh_request_messages(request_obj=request_obj)
+        dispatch_pending_approvals(request_obj=request_obj)
         return Response(serializer.data, status=status.HTTP_201_CREATED)
 
     class ApprovalDecisionPayloadSerializer(serializers.Serializer):

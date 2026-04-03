@@ -560,6 +560,58 @@ class RequestApprovalsTests(APITestCase):
         self.assertEqual(res.status_code, 200)
         self.assertEqual(res.data[0]["approvals"][0]["decision"], Approval.DECISION_APPROVED)
 
+    def test_patch_request_calls_telegram_refresh_and_dispatch(self):
+        from unittest.mock import patch
+
+        req_data = self._create_request()
+        request_id = req_data["id"]
+        self.client.force_authenticate(self.requester)
+        with patch(
+            "apps.modules.requests.views.refresh_request_messages",
+            return_value=0,
+        ) as mock_refresh:
+            with patch(
+                "apps.modules.requests.views.dispatch_pending_approvals",
+                return_value=0,
+            ) as mock_dispatch:
+                res = self.client.patch(
+                    f"/api/requests/{request_id}/",
+                    {"title": "Updated title"},
+                    format="json",
+                    HTTP_HOST=self.host,
+                )
+        self.assertEqual(res.status_code, 200, res.content)
+        mock_refresh.assert_called_once()
+        mock_dispatch.assert_called_once()
+
+    def test_post_manual_approval_calls_telegram_refresh_and_dispatch(self):
+        from unittest.mock import patch
+
+        req_data = self._create_request()
+        request_id = req_data["id"]
+        self.client.force_authenticate(self.admin)
+        with patch(
+            "apps.modules.requests.views.refresh_request_messages",
+            return_value=0,
+        ) as mock_refresh:
+            with patch(
+                "apps.modules.requests.views.dispatch_pending_approvals",
+                return_value=0,
+            ) as mock_dispatch:
+                res = self.client.post(
+                    f"/api/requests/{request_id}/approvals/",
+                    {
+                        "step": 2,
+                        "step_type": Approval.STEP_TYPE_SERIAL,
+                        "decision": Approval.DECISION_PENDING,
+                        "approver_user": self.other_approver.id,
+                    },
+                    format="json",
+                    HTTP_HOST=self.host,
+                )
+        self.assertEqual(res.status_code, 201, res.content)
+        mock_refresh.assert_called_once()
+        mock_dispatch.assert_called_once()
 
     def test_approvals_confirm_current_step_sets_request_approved(self):
         req_data = self._create_request()
