@@ -79,6 +79,14 @@ services:
     networks:
       - traefik-public
 
+  browserless:
+    image: browserless/chrome:latest
+    restart: unless-stopped
+    environment:
+      - TOKEN=${BROWSERLESS_TOKEN}
+      - MAX_CONCURRENT_SESSIONS=2
+    networks:
+      - chromium
 
   n8n:
     image: docker.n8n.io/n8nio/n8n
@@ -247,6 +255,7 @@ services:
     networks:
       - traefik-public
       - backend
+      - chromium
 
   error-pages:
     image: nginx:alpine
@@ -593,3 +602,4 @@ volumes:
 networks:
   traefik-public:
   backend:
+  chromium:

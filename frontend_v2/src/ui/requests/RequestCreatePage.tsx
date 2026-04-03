@@ -26,7 +26,6 @@ import {
   type CreatedPortalRequest,
   type PortalRequestCreateBody,
   type RequestFormOptionsPaymentType,
-  type RequestFormOptionsRequester,
 } from '../../lib/api'
 import { labelBlockAboveField } from '../formSpacing'
 import { clampToAllowedBillingMonth, isAllowedBillingMonth } from '../../lib/billingMonth'
@@ -51,7 +50,6 @@ export function RequestCreatePage({ requestsBasePath = '/requests', variant = 'p
   const [optionsError, setOptionsError] = useState<string | null>(null)
   const [formOptions, setFormOptions] = useState<RequestFormOptionsPaymentType[]>([])
   const [isTenantAdmin, setIsTenantAdmin] = useState(false)
-  const [requesterCandidates, setRequesterCandidates] = useState<RequestFormOptionsRequester[]>([])
   const [step, setStep] = useState(0)
 
   const detailStep = isTenantAdmin ? 2 : 1
@@ -81,6 +79,9 @@ export function RequestCreatePage({ requestsBasePath = '/requests', variant = 'p
     [formOptions, paymentType],
   )
 
+  /** Заявители, разрешённые настройками формы для выбранного типа оплаты (не все роли заявителя в тенанте). */
+  const allowedRequesters = useMemo(() => activePt?.requesters ?? [], [activePt])
+
   useEffect(() => {
     let cancelled = false
     ;(async () => {
@@ -91,7 +92,6 @@ export function RequestCreatePage({ requestsBasePath = '/requests', variant = 'p
         if (!cancelled) {
           setFormOptions(opts.payment_types)
           setIsTenantAdmin(opts.is_tenant_admin ?? false)
-          setRequesterCandidates(opts.requester_candidates ?? [])
         }
       } catch (e: unknown) {
         if (!cancelled) setOptionsError(e instanceof Error ? e.message : 'Не удалось загрузить настройки формы')
@@ -188,12 +188,18 @@ export function RequestCreatePage({ requestsBasePath = '/requests', variant = 'p
       return
     }
     if (step === 1 && isTenantAdmin) {
+      if (!paymentType || !activePt) {
+        message.warning('Выберите тип оплаты')
+        return
+      }
+      if (allowedRequesters.length === 0) {
+        message.warning(
+          'Для выбранного типа оплаты не настроены заявители. Укажите их в Настройки → Заявки — форма создания.',
+        )
+        return
+      }
       if (requesterId == null) {
-        if (requesterCandidates.length === 0) {
-          message.warning('В тенанте нет пользователей с ролью «Заявитель».')
-        } else {
-          message.warning('Выберите заявителя')
-        }
+        message.warning('Выберите заявителя')
         return
       }
     }
@@ -207,9 +213,15 @@ export function RequestCreatePage({ requestsBasePath = '/requests', variant = 'p
       message.error('Выберите тип оплаты')
       return
     }
-    if (isTenantAdmin && requesterId == null) {
-      message.error('Выберите заявителя')
-      return
+    if (isTenantAdmin) {
+      if ((activePt?.requesters?.length ?? 0) === 0) {
+        message.error('Для выбранного типа оплаты не настроены заявители.')
+        return
+      }
+      if (requesterId == null) {
+        message.error('Выберите заявителя')
+        return
+      }
     }
     if (amount == null || amount <= 0) {
       message.warning('Укажите сумму')
@@ -356,13 +368,13 @@ export function RequestCreatePage({ requestsBasePath = '/requests', variant = 'p
             <Typography.Text strong style={labelBlockAboveField}>
               Заявитель
             </Typography.Text>
-            {requesterCandidates.length === 0 ? (
+            {allowedRequesters.length === 0 ? (
               <Alert
                 type="warning"
                 showIcon
                 style={{ maxWidth: isTg ? undefined : 560, borderRadius: 12 }}
-                message="Нет кандидатов в роли заявителя"
-                description="Назначьте пользователям роль «Заявитель» в настройках тенанта."
+                message="Для этого типа оплаты не выбраны заявители"
+                description="Укажите заявителей для типа оплаты в Настройки → Заявки — форма создания."
               />
             ) : (
               <Select
@@ -371,7 +383,7 @@ export function RequestCreatePage({ requestsBasePath = '/requests', variant = 'p
                 style={{ width: '100%', maxWidth: isTg ? undefined : 400 }}
                 value={requesterId ?? undefined}
                 onChange={(v) => setRequesterId(v)}
-                options={requesterCandidates.map((r) => ({ value: r.id, label: r.username }))}
+                options={allowedRequesters.map((r) => ({ value: r.id, label: r.username }))}
                 showSearch
                 optionFilterProp="label"
                 getPopupContainer={isTg ? tgPopupContainer : undefined}
