@@ -5,6 +5,7 @@ import { useNavigate } from 'react-router-dom'
 import {
   getAutoRequestConfig,
   updateAutoRequestConfig,
+  type AutoRequestBillingMonthMode,
   type AutoRequestConfigResponse,
   type AutoRequestTemplateItem,
   type RequestFormConfigPaymentTypeItem,
@@ -12,6 +13,12 @@ import {
 import { labelBlockAboveField } from '../formSpacing'
 
 const PAYMENT_TYPES_FALLBACK = ['Наличные', 'Перечисление', 'Пополнение', 'Платежная карта'] as const
+
+const BILLING_MONTH_OPTIONS: { value: AutoRequestBillingMonthMode; label: string }[] = [
+  { value: 'previous', label: 'Предыдущий месяц' },
+  { value: 'current', label: 'Этот месяц' },
+  { value: 'next', label: 'Следующий месяц' },
+]
 
 function vendorKindForPaymentType(paymentType: string): 'cash' | 'transfer' {
   return paymentType === 'Наличные' ? 'cash' : 'transfer'
@@ -73,6 +80,7 @@ function emptyTemplate(paymentType: string): AutoRequestTemplateItem {
     urgency: 'Обычно',
     payment_purpose: '',
     vendor_ref_id: null,
+    billing_month_mode: 'current',
   }
 }
 
@@ -153,6 +161,7 @@ export function AutoRequestsConfigPage() {
           urgency: row.urgency || 'Обычно',
           payment_purpose: String(row.payment_purpose || ''),
           vendor_ref_id: row.vendor_ref_id ?? null,
+          billing_month_mode: (row.billing_month_mode ?? 'current') as AutoRequestBillingMonthMode,
         })),
       }
       const next = await updateAutoRequestConfig(payload)
@@ -175,7 +184,10 @@ export function AutoRequestsConfigPage() {
       </Typography.Title>
       <Typography.Paragraph type="secondary" style={{ marginBottom: 0 }}>
         Один раз настраиваете поля как в обычной заявке: тип оплаты, поставщик, назначение, сумма и т.д. В выбранный день
-        месяца система создаёт заявку; заявитель в таких заявках всегда системный пользователь{' '}
+        месяца система создаёт заявку. Месяц начисления в заявке задаётся отдельно (предыдущий / текущий / следующий
+        относительно этого календарного месяца); токены вроде{' '}
+        <Typography.Text code>{'{{billing_month_ru}}'}</Typography.Text> в заголовке и описании используют выбранный
+        месяц. Заявитель в таких заявках всегда системный пользователь{' '}
         <Typography.Text code>app</Typography.Text>. Компания-плательщик не задаётся здесь: она настраивается только в
         разделе{' '}
         <Typography.Text strong>Настройка формы заявки</Typography.Text> (поле «Компания-плательщик» для соответствующего
@@ -244,6 +256,17 @@ export function AutoRequestsConfigPage() {
                       onChange={(v) => updateRow(idx, { day_of_month: typeof v === 'number' ? v : 1 })}
                       addonBefore="День месяца"
                     />
+                    <div>
+                      <Typography.Text type="secondary" style={{ display: 'block', marginBottom: 4 }}>
+                        Месяц начисления
+                      </Typography.Text>
+                      <Select
+                        style={{ width: 220 }}
+                        value={(row.billing_month_mode ?? 'current') as AutoRequestBillingMonthMode}
+                        onChange={(v) => updateRow(idx, { billing_month_mode: v })}
+                        options={BILLING_MONTH_OPTIONS}
+                      />
+                    </div>
                   </Space>
                   {pt?.default_company_payer ? (
                     <Typography.Text type="secondary">

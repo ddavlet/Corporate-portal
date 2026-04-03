@@ -451,11 +451,27 @@ class UserRequestApproval(models.Model):
 
 
 class AutoRequestTemplate(models.Model):
+    """Месяц начисления в заявке относительно календарного месяца дня запуска шаблона."""
+
+    BILLING_MONTH_PREVIOUS = "previous"
+    BILLING_MONTH_CURRENT = "current"
+    BILLING_MONTH_NEXT = "next"
+    BILLING_MONTH_MODE_CHOICES = [
+        (BILLING_MONTH_PREVIOUS, "Предыдущий месяц"),
+        (BILLING_MONTH_CURRENT, "Этот месяц"),
+        (BILLING_MONTH_NEXT, "Следующий месяц"),
+    ]
+
     tenant = models.ForeignKey(Tenant, on_delete=models.CASCADE, related_name="auto_request_templates")
     is_enabled = models.BooleanField(default=False)
     name = models.CharField(max_length=150, default="")
     payment_type = models.CharField(max_length=50, choices=Request.PAYMENT_TYPE_CHOICES)
     day_of_month = models.IntegerField(default=1)
+    billing_month_mode = models.CharField(
+        max_length=20,
+        choices=BILLING_MONTH_MODE_CHOICES,
+        default=BILLING_MONTH_CURRENT,
+    )
 
     title_template = models.CharField(max_length=200, default="")
     description_template = models.TextField(default="")

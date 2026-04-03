@@ -350,12 +350,17 @@ export type RequestFormConfigPaymentTypeItem = {
   default_vendor_id: number | null
 }
 
+/** Месяц начисления относительно календарного месяца дня срабатывания шаблона. */
+export type AutoRequestBillingMonthMode = 'previous' | 'current' | 'next'
+
 export type AutoRequestTemplateItem = {
   id?: number
   is_enabled: boolean
   name: string
   payment_type: string
   day_of_month: number
+  /** Предыдущий / этот / следующий месяц — подставляется в заявку и в токены шаблона заголовка/описания. */
+  billing_month_mode?: AutoRequestBillingMonthMode
   title_template: string
   description_template: string
   amount: string | null
@@ -382,6 +387,7 @@ export type AutoRequestConfigUpdatePayload = {
     name: string
     payment_type: string
     day_of_month: number
+    billing_month_mode?: AutoRequestBillingMonthMode
     title_template: string
     description_template: string
     amount?: string | number | null

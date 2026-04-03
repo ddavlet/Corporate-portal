@@ -79,6 +79,27 @@ def _month_start(day: dt.date) -> dt.date:
     return day.replace(day=1)
 
 
+def _first_day_add_months(month_start: dt.date, delta: int) -> dt.date:
+    """month_start must be the first day of a month. Returns the first day of month_start + delta months."""
+    y, m = month_start.year, month_start.month + delta
+    while m < 1:
+        m += 12
+        y -= 1
+    while m > 12:
+        m -= 12
+        y += 1
+    return dt.date(y, m, 1)
+
+
+def _billing_month_first_day(*, run_month_start: dt.date, mode: str) -> dt.date:
+    """Месяц начисления заявки относительно календарного месяца дня запуска (run_month_start)."""
+    if mode == AutoRequestTemplate.BILLING_MONTH_PREVIOUS:
+        return _first_day_add_months(run_month_start, -1)
+    if mode == AutoRequestTemplate.BILLING_MONTH_NEXT:
+        return _first_day_add_months(run_month_start, 1)
+    return run_month_start
+
+
 def _replace_month_names_to_ru(value: str, date_value: dt.datetime) -> str:
     full_en = _EN_MONTHS_FULL[date_value.month]
     short_en = _EN_MONTHS_SHORT[date_value.month]
@@ -167,16 +188,23 @@ def _run_approvals_for_request(request_obj: Request) -> None:
 
 
 def _maybe_create_request_for_template(template: AutoRequestTemplate, *, today: dt.date, now_dt: dt.datetime) -> bool:
-    month_start = _month_start(today)
-    if template.last_run_month == month_start:
+    run_month_start = _month_start(today)
+    if template.last_run_month == run_month_start:
         return False
     max_day = calendar.monthrange(today.year, today.month)[1]
     run_day = min(max(1, int(template.day_of_month)), max_day)
     if today.day < run_day:
         return False
 
-    title = render_auto_request_template(template.title_template, now_dt=now_dt, billing_month=month_start).strip()
-    description = render_auto_request_template(template.description_template, now_dt=now_dt, billing_month=month_start)
+    billing_month = _billing_month_first_day(
+        run_month_start=run_month_start,
+        mode=template.billing_month_mode,
+    )
+
+    title = render_auto_request_template(template.title_template, now_dt=now_dt, billing_month=billing_month).strip()
+    description = render_auto_request_template(
+        template.description_template, now_dt=now_dt, billing_month=billing_month
+    )
     amount: Decimal = template.amount if template.amount is not None else Decimal("0")
 
     company_payer = ""
@@ -217,10 +245,10 @@ def _maybe_create_request_for_template(template: AutoRequestTemplate, *, today: 
         payment_purpose=template.payment_purpose or "",
         submitted_at=timezone.now(),
         status=Request.STATUS_DRAFT,
-        billing_date=month_start,
+        billing_date=billing_month,
     )
     _run_approvals_for_request(request_obj)
-    template.last_run_month = month_start
+    template.last_run_month = run_month_start
     template.save(update_fields=["last_run_month", "updated_at"])
     return True
 
