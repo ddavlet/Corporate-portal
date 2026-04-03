@@ -794,6 +794,11 @@ class AutoRequestTemplatePayloadSerializer(serializers.Serializer):
     )
     payment_purpose = serializers.CharField(required=False, allow_blank=True, max_length=200, default="")
     vendor_ref_id = serializers.IntegerField(required=False, allow_null=True, default=None)
+    billing_month_mode = serializers.ChoiceField(
+        choices=AutoRequestTemplate.BILLING_MONTH_MODE_CHOICES,
+        required=False,
+        default=AutoRequestTemplate.BILLING_MONTH_CURRENT,
+    )
 
 
 class AutoRequestConfigPayloadSerializer(serializers.Serializer):
@@ -820,6 +825,7 @@ def build_auto_request_config_response(*, tenant) -> dict:
                 "payment_purpose": row.payment_purpose,
                 "vendor_ref_id": row.vendor_ref_id,
                 "requester_id": row.requester_id,
+                "billing_month_mode": row.billing_month_mode,
                 "last_run_month": row.last_run_month.isoformat() if row.last_run_month else None,
             }
             for row in templates

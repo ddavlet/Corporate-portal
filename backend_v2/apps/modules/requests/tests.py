@@ -951,6 +951,50 @@ class AutoRequestTests(APITestCase):
         self.assertEqual(req.category, "Admin")
         self.assertEqual(req.vendor_ref_id, v.id)
         self.assertEqual(req.requester_id, self.app_user.id)
+        self.assertEqual(req.billing_date, date(2026, 2, 1))
+
+    def test_process_due_billing_month_previous(self):
+        v = self._ensure_request_form_for_auto()
+        AutoRequestTemplate.objects.create(
+            tenant=self.tenant,
+            is_enabled=True,
+            name="Prev",
+            payment_type=Request.PAYMENT_TYPE_CASH,
+            day_of_month=5,
+            billing_month_mode=AutoRequestTemplate.BILLING_MONTH_PREVIOUS,
+            title_template="{{billing_month_ru}}",
+            description_template="",
+            requester=self.app_user,
+            updated_by=self.admin,
+            vendor_ref=v,
+            payment_purpose="Office",
+        )
+        n = process_due_auto_requests(now_dt=timezone.make_aware(datetime(2026, 3, 5, 10, 0, 0)))
+        self.assertEqual(n, 1)
+        req = Request.objects.get(tenant=self.tenant)
+        self.assertEqual(req.billing_date, date(2026, 2, 1))
+        self.assertIn("Февраль", req.title)
+
+    def test_process_due_billing_month_next(self):
+        v = self._ensure_request_form_for_auto()
+        AutoRequestTemplate.objects.create(
+            tenant=self.tenant,
+            is_enabled=True,
+            name="Next",
+            payment_type=Request.PAYMENT_TYPE_CASH,
+            day_of_month=5,
+            billing_month_mode=AutoRequestTemplate.BILLING_MONTH_NEXT,
+            title_template="T",
+            description_template="",
+            requester=self.app_user,
+            updated_by=self.admin,
+            vendor_ref=v,
+            payment_purpose="Office",
+        )
+        n = process_due_auto_requests(now_dt=timezone.make_aware(datetime(2026, 3, 5, 10, 0, 0)))
+        self.assertEqual(n, 1)
+        req = Request.objects.get(tenant=self.tenant)
+        self.assertEqual(req.billing_date, date(2026, 4, 1))
 
     def test_auto_config_put_and_get(self):
         v = self._ensure_request_form_for_auto()
@@ -977,6 +1021,7 @@ class AutoRequestTests(APITestCase):
         self.assertEqual(get_res.status_code, 200)
         self.assertEqual(get_res.data["templates"][0]["name"], "Rent")
         self.assertEqual(get_res.data["templates"][0]["requester_id"], self.app_user.id)
+        self.assertEqual(get_res.data["templates"][0]["billing_month_mode"], AutoRequestTemplate.BILLING_MONTH_CURRENT)
         self.assertIn("form_payment_types", get_res.data)
 
 

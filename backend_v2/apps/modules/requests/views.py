@@ -1118,6 +1118,9 @@ class AutoRequestConfigView(APIView):
                     "name": str(item.get("name") or "")[:150],
                     "payment_type": item["payment_type"],
                     "day_of_month": int(item["day_of_month"]),
+                    "billing_month_mode": item.get(
+                        "billing_month_mode", AutoRequestTemplate.BILLING_MONTH_CURRENT
+                    ),
                     "title_template": str(item.get("title_template") or "")[:200],
                     "description_template": str(item.get("description_template") or ""),
                     "company_payer": "",
