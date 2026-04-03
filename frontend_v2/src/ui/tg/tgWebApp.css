@@ -25,6 +25,28 @@ html.tg-twa-dark .tg-webapp-root {
   --tg-sticky-bg: color-mix(in srgb, var(--tg-row-bg, #1e1e1e) 94%, transparent);
 }
 
+/* Skeleton при загрузке TG layout: дефолтный серый Ant плохо читается на тёмном фоне */
+html.tg-twa-dark .tg-webapp-root .ant-skeleton .ant-skeleton-title,
+html.tg-twa-dark .tg-webapp-root .ant-skeleton .ant-skeleton-paragraph > li,
+html.tg-twa-dark .tg-webapp-root .ant-skeleton .ant-skeleton-header .ant-skeleton-avatar {
+  background: rgba(255, 255, 255, 0.1) !important;
+}
+
+html.tg-twa-dark .tg-webapp-root .ant-skeleton.ant-skeleton-active .ant-skeleton-title,
+html.tg-twa-dark .tg-webapp-root .ant-skeleton.ant-skeleton-active .ant-skeleton-paragraph > li,
+html.tg-twa-dark .tg-webapp-root .ant-skeleton.ant-skeleton-active .ant-skeleton-header .ant-skeleton-avatar,
+html.tg-twa-dark .tg-webapp-root .ant-skeleton.ant-skeleton-active .ant-skeleton-button,
+html.tg-twa-dark .tg-webapp-root .ant-skeleton.ant-skeleton-active .ant-skeleton-input {
+  background: linear-gradient(
+      90deg,
+      rgba(255, 255, 255, 0.08) 25%,
+      rgba(255, 255, 255, 0.22) 37%,
+      rgba(255, 255, 255, 0.08) 63%
+    )
+    !important;
+  background-size: 400% 100% !important;
+}
+
 .tg-webapp-inner {
   width: 100%;
   max-width: min(720px, 100%);
