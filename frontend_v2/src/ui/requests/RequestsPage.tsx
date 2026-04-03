@@ -87,6 +87,7 @@ function formatDateDDMMYYYY(value?: string | null): string {
 
 function canResendByStatus(status?: string | null): boolean {
   const raw = String(status || '').trim()
+  if (raw.toUpperCase() === 'APPROVED') return true
   const numeric = Number(raw)
   return Number.isFinite(numeric) && numeric >= 1 && numeric <= 5
 }
@@ -503,7 +504,7 @@ export function RequestsPage() {
                 title={
                   canResendByStatus(selectedRow.status)
                     ? 'Повторно отправить pending-согласования текущего этапа'
-                    : 'Доступно только для заявок в статусах 1-5'
+                    : 'Доступно для этапов согласования (1–5) и для заявок со статусом APPROVED'
                 }
                 onClick={() => resendRequest(selectedRow.id)}
               >

@@ -24,6 +24,7 @@ function canOpenLinkedExpense(link: RequestDetail['expense_link'] | null | undef
 
 function canResendByStatus(status?: string | null): boolean {
   const raw = String(status || '').trim()
+  if (raw.toUpperCase() === 'APPROVED') return true
   const numeric = Number(raw)
   return Number.isFinite(numeric) && numeric >= 1 && numeric <= 5
 }
@@ -289,7 +290,7 @@ export function RequestDetailPage({ listPath = '/requests', variant = 'portal' }
                   title={
                     resendAllowed
                       ? 'Повторно отправить pending-согласования текущего этапа'
-                      : 'Доступно только для заявок в статусах 1-5'
+                      : 'Доступно для этапов согласования (1–5) и для заявок со статусом APPROVED'
                   }
                   onClick={() => void resendRequest()}
                 >
@@ -298,7 +299,7 @@ export function RequestDetailPage({ listPath = '/requests', variant = 'portal' }
               ) : null}
               {detail?.id && !resendAllowed ? (
                 <Typography.Text type="secondary" style={{ display: 'block', textAlign: 'center' }}>
-                  Повторная отправка доступна только на этапах согласования (статусы 1-5).
+                  Повторная отправка доступна на этапах согласования (1–5) и для заявок со статусом APPROVED.
                 </Typography.Text>
               ) : null}
               {canEditDraft ? (
@@ -370,7 +371,7 @@ export function RequestDetailPage({ listPath = '/requests', variant = 'portal' }
                   title={
                     resendAllowed
                       ? 'Повторно отправить pending-согласования текущего этапа'
-                      : 'Доступно только для заявок в статусах 1-5'
+                      : 'Доступно для этапов согласования (1–5) и для заявок со статусом APPROVED'
                   }
                   onClick={() => void resendRequest()}
                 >
