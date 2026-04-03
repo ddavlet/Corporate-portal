@@ -368,6 +368,51 @@ class TelegramApprovalsTests(APITestCase):
         self.assertIn("approval_id=", row[0]["url"])
         self.assertEqual(row[1]["text"], "❌ Отменить")
 
+    @patch("apps.modules.telegram_approvals.services.requests.post")
+    def test_payment_webapp_tme_base_url_appends_startapp(self, mocked_post):
+        mocked_post.return_value.status_code = 200
+        mocked_post.return_value.content = b"{}"
+        mocked_post.return_value.json.return_value = {}
+        appr_cfg = RequestApprovalConfig.objects.get(tenant=self.tenant)
+        pt_cfg = RequestApprovalPaymentTypeConfig.objects.create(
+            config=appr_cfg, payment_type="Перечисление", is_enabled=True
+        )
+        step_cfg = RequestApprovalStepConfig.objects.create(
+            payment_type_config=pt_cfg,
+            step=2,
+            step_type=Approval.STEP_TYPE_PAYMENT,
+            is_enabled=True,
+            payment_action_mode=RequestApprovalStepConfig.PAYMENT_ACTION_MODE_WEBAPP,
+            payment_webapp_url="https://t.me/kolberg_requests_bot/payment",
+        )
+        RequestApprovalStepApproverConfig.objects.create(step_config=step_cfg, approver_user=self.approver)
+        self.client.force_authenticate(self.requester)
+        res = self.client.post(
+            "/api/requests/",
+            {
+                "title": "Payment request",
+                "description": "TEST",
+                "amount": 100,
+                "currency": "UZS",
+                "payment_type": "Перечисление",
+                "urgency": "Обычно",
+                "requester": self.requester.id,
+                "billing_date": "2026-03-31",
+            },
+            format="json",
+            HTTP_HOST=self.host,
+        )
+        self.assertEqual(res.status_code, 201, res.content)
+        payload = mocked_post.call_args.kwargs.get("json", {})
+        aid = payload.get("approval_id")
+        self.assertIsNotNone(aid)
+        row = payload.get("inline_keyboard", [[{}, {}]])[0]
+        self.assertEqual(row[0]["text"], "💰 Выплатить")
+        url = row[0]["url"]
+        self.assertTrue(url.startswith("https://t.me/kolberg_requests_bot/payment"))
+        self.assertIn("startapp=", url)
+        self.assertIn(f"startapp={aid}", url)
+
     def test_message_headers_for_statuses(self):
         request_row = Request.objects.create(
             tenant=self.tenant,
