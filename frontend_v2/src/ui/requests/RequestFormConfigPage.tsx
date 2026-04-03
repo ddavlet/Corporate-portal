@@ -11,6 +11,7 @@ import {
   Skeleton,
   Space,
   Tabs,
+  Tag,
   Typography,
   message,
 } from 'antd'
@@ -72,6 +73,7 @@ export function RequestFormConfigPage() {
   const [newReqFullName, setNewReqFullName] = useState('')
   const [newReqTgChat, setNewReqTgChat] = useState<number | null>(null)
   const [newReqTgFrom, setNewReqTgFrom] = useState<number | null>(null)
+  const [newCategoryName, setNewCategoryName] = useState('')
 
   useEffect(() => {
     let cancelled = false
@@ -110,6 +112,27 @@ export function RequestFormConfigPage() {
 
   const updateCategoryCandidates = (names: string[]) => {
     setData((prev) => (prev ? { ...prev, category_candidates: names } : prev))
+  }
+
+  const addCategory = () => {
+    if (!data) return
+    const name = newCategoryName.trim()
+    if (!name) {
+      message.warning('Введите название категории')
+      return
+    }
+    const current = data.category_candidates || []
+    if (current.includes(name)) {
+      message.info('Такая категория уже в списке')
+      return
+    }
+    updateCategoryCandidates([...current, name])
+    setNewCategoryName('')
+  }
+
+  const removeCategory = (name: string) => {
+    if (!data) return
+    updateCategoryCandidates((data.category_candidates || []).filter((c) => c !== name))
   }
 
   const updatePaymentType = (paymentType: string, patch: Partial<RequestFormConfigPaymentTypeItem>) => {
@@ -353,20 +376,37 @@ export function RequestFormConfigPage() {
 
           <Space direction="vertical" size={12} style={{ display: 'flex' }}>
             <Typography.Text strong style={labelBlockAboveField}>
-              Категории (для назначений платежа)
+              Новые категории (для назначений платежа)
             </Typography.Text>
             <Typography.Paragraph type="secondary" style={{ marginBottom: 0 }}>
-              Добавьте названия вручную (теги) или задайте категорию только в строках назначений ниже — при сохранении
-              списки объединяются. Категории из заявок и назначений не удаляются этим списком автоматически.
+              Добавляйте названия по одному — они появятся в списке категорий в строках «Назначение платежа» ниже. Категорию,
+              убранную из списка и сохранённую так, больше не показываем в подсказках (в справочнике она становится
+              неактивной).
             </Typography.Paragraph>
-            <Select
-              mode="tags"
-              style={{ width: '100%', maxWidth: 720 }}
-              placeholder="Введите категорию и нажмите Enter"
-              value={data.category_candidates || []}
-              onChange={(vals) => updateCategoryCandidates(vals.map((v) => String(v).trim()).filter(Boolean))}
-              tokenSeparators={[',']}
-            />
+            <Space wrap align="end" style={{ width: '100%' }}>
+              <Input
+                style={{ minWidth: 220, maxWidth: 400, flex: '1 1 220px' }}
+                placeholder="Название категории"
+                value={newCategoryName}
+                onChange={(e) => setNewCategoryName(e.target.value)}
+                onPressEnter={() => addCategory()}
+                autoComplete="off"
+              />
+              <Button type="primary" onClick={addCategory}>
+                Добавить категорию
+              </Button>
+            </Space>
+            {(data.category_candidates || []).length > 0 ? (
+              <Space wrap size={[8, 8]}>
+                {(data.category_candidates || []).map((c) => (
+                  <Tag key={c} closable onClose={() => removeCategory(c)}>
+                    {c}
+                  </Tag>
+                ))}
+              </Space>
+            ) : (
+              <Typography.Text type="secondary">Пока нет добавленных категорий.</Typography.Text>
+            )}
           </Space>
 
           <Divider />
