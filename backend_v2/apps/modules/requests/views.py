@@ -72,6 +72,27 @@ from apps.tenants.models import TenantMembership, TenantUserRole
 User = get_user_model()
 
 
+def _ensure_app_user_for_auto_requests(tenant):
+    """
+    Системный пользователь `app` — заявитель создаваемых по расписанию заявок.
+    Для каждого тенанта обеспечивается членство и роль заявителя (как у обычного requester).
+    """
+    app_user, created = User.objects.get_or_create(
+        username="app",
+        defaults={
+            "full_name": "Система",
+            "is_active": True,
+        },
+    )
+    if created:
+        app_user.set_unusable_password()
+        app_user.save(update_fields=["password"])
+    TenantMembership.objects.get_or_create(tenant=tenant, user=app_user, defaults={"is_active": True})
+    TenantUserRole.objects.get_or_create(
+        tenant=tenant, user=app_user, role=TenantUserRole.ROLE_REQUESTER, defaults={"step": 1}
+    )
+    return app_user
+
 
 
 def _requester_candidates_for_options(tenant) -> list[dict]:
@@ -1064,8 +1085,10 @@ class AutoRequestConfigView(APIView):
         payload = AutoRequestConfigPayloadSerializer(data=request.data)
         payload.is_valid(raise_exception=True)
         template_items = payload.validated_data.get("templates", [])
+        app_user = _ensure_app_user_for_auto_requests(tenant)
 
         for idx, item in enumerate(template_items):
+            item = {**item, "requester_id": app_user.id}
             try:
                 validate_auto_template_against_form_config(tenant=tenant, item=item)
             except ValidationError as exc:
@@ -1084,13 +1107,7 @@ class AutoRequestConfigView(APIView):
 
             for item in template_items:
                 row_id = item.get("id")
-                requester_id = int(item["requester_id"])
-                if not TenantMembership.objects.filter(tenant=tenant, user_id=requester_id, is_active=True).exists():
-                    raise ValidationError({"requester_id": "Requester must be an active tenant member."})
-                if not TenantUserRole.objects.filter(
-                    tenant=tenant, user_id=requester_id, role=TenantUserRole.ROLE_REQUESTER
-                ).exists():
-                    raise ValidationError({"requester_id": "Requester must have role 'requester'."})
+                requester_id = app_user.id
 
                 vendor_ref_id = item.get("vendor_ref_id")
                 if vendor_ref_id and not Vendor.objects.filter(tenant=tenant, id=vendor_ref_id).exists():

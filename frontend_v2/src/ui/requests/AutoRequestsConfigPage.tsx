@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Alert, Button, Card, Checkbox, Divider, Input, InputNumber, Select, Space, Typography, message } from 'antd'
 import { ArrowLeftOutlined, PlusOutlined, SaveOutlined } from '@ant-design/icons'
 import { useNavigate } from 'react-router-dom'
@@ -73,7 +73,6 @@ function emptyTemplate(paymentType: string): AutoRequestTemplateItem {
     urgency: 'Обычно',
     payment_purpose: '',
     vendor_ref_id: null,
-    requester_id: 0,
   }
 }
 
@@ -107,11 +106,6 @@ export function AutoRequestsConfigPage() {
       cancelled = true
     }
   }, [])
-
-  const requesterOptions = useMemo(
-    () => (data?.requester_candidates || []).map((u) => ({ value: u.id, label: u.username })),
-    [data],
-  )
 
   const hasFormConfig = Boolean(data?.form_payment_types?.length)
 
@@ -159,7 +153,6 @@ export function AutoRequestsConfigPage() {
           urgency: row.urgency || 'Обычно',
           payment_purpose: String(row.payment_purpose || ''),
           vendor_ref_id: row.vendor_ref_id ?? null,
-          requester_id: row.requester_id,
         })),
       }
       const next = await updateAutoRequestConfig(payload)
@@ -182,7 +175,9 @@ export function AutoRequestsConfigPage() {
       </Typography.Title>
       <Typography.Paragraph type="secondary" style={{ marginBottom: 0 }}>
         Один раз настраиваете поля как в обычной заявке: тип оплаты, поставщик, назначение, сумма и т.д. В выбранный день
-        месяца система создаёт заявку. Компания-плательщик не задаётся здесь: она настраивается только в разделе{' '}
+        месяца система создаёт заявку; заявитель в таких заявках всегда системный пользователь{' '}
+        <Typography.Text code>app</Typography.Text>. Компания-плательщик не задаётся здесь: она настраивается только в
+        разделе{' '}
         <Typography.Text strong>Настройка формы заявки</Typography.Text> (поле «Компания-плательщик» для соответствующего
         типа оплаты на вкладке типа).
       </Typography.Paragraph>
@@ -249,20 +244,6 @@ export function AutoRequestsConfigPage() {
                       onChange={(v) => updateRow(idx, { day_of_month: typeof v === 'number' ? v : 1 })}
                       addonBefore="День месяца"
                     />
-                    <div>
-                      <Typography.Text type="secondary" style={{ display: 'block', marginBottom: 4 }}>
-                        Заявитель
-                      </Typography.Text>
-                      <Select
-                        style={{ width: 220 }}
-                        value={row.requester_id || undefined}
-                        placeholder="Заявитель"
-                        onChange={(v) => updateRow(idx, { requester_id: v })}
-                        options={requesterOptions}
-                        showSearch
-                        optionFilterProp="label"
-                      />
-                    </div>
                   </Space>
                   {pt?.default_company_payer ? (
                     <Typography.Text type="secondary">
