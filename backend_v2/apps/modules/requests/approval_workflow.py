@@ -27,6 +27,22 @@ def _status_for_progress_step(step: int) -> str | None:
     return mapping.get(step)
 
 
+def min_pending_approval_step(*, request_id: int) -> int | None:
+    """
+    Smallest `step` among pending approvals for the request.
+
+    All approval rows are created up front; only rows at this step may be acted on
+    until earlier steps are fully resolved (matches Request.status / workflow).
+    """
+    steps = list(
+        Approval.objects.filter(
+            request_id=request_id,
+            decision=Approval.DECISION_PENDING,
+        ).values_list("step", flat=True)
+    )
+    return min(steps) if steps else None
+
+
 def _recalculate_request_status(request_obj: Request) -> str:
     """
     Derive Request.status from Approval rows.
@@ -152,6 +168,12 @@ def confirm_approval_by_id(
             raise NotFound("Request not found.")
         if request_id is not None and request_obj.id != request_id:
             raise ValidationError({"approval_id": "Approval does not belong to this request."})
+
+        active_step = min_pending_approval_step(request_id=request_obj.id)
+        if active_step is None or approval.step != active_step:
+            raise ValidationError(
+                {"detail": "Этот этап согласования ещё не активен. Сначала завершите предыдущие шаги."}
+            )
 
         approval.decision = decision
         approval.comment = comment

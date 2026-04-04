@@ -13,6 +13,7 @@ class TelegramApprovalsSettings:
     bridge_token: str
     send_action: str
     edit_action: str
+    draft_notification_action: str
     message_template: str
     header_new_template: str
     header_step_approved_template: str
@@ -86,6 +87,7 @@ def get_telegram_approvals_settings(*, tenant: Tenant | None) -> TelegramApprova
     ).strip()
     send_action = (cfg_get("telegram_approvals_send_action").strip()) or "send_approval_message"
     edit_action = (cfg_get("telegram_approvals_edit_action").strip()) or "edit_approval_message"
+    draft_notification_action = (cfg_get("telegram_approvals_draft_notification_action").strip()) or "send_draft_notification"
     message_template = cfg_get("telegram_approvals_message_template") or DEFAULT_TELEGRAM_APPROVALS_MESSAGE_TEMPLATE
     header_new_template = cfg_get("telegram_approvals_header_new_template") or DEFAULT_TELEGRAM_APPROVALS_HEADER_NEW_TEMPLATE
     header_step_approved_template = (
@@ -111,6 +113,7 @@ def get_telegram_approvals_settings(*, tenant: Tenant | None) -> TelegramApprova
         bridge_token=bridge_token,
         send_action=send_action,
         edit_action=edit_action,
+        draft_notification_action=draft_notification_action,
         message_template=message_template,
         header_new_template=header_new_template,
         header_step_approved_template=header_step_approved_template,

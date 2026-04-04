@@ -130,6 +130,7 @@ export type TenantIntegrationConfigResponse = {
   telegram_approvals_bridge_dispatch_url: string
   telegram_approvals_send_action: string
   telegram_approvals_edit_action: string
+  telegram_approvals_draft_notification_action: string
   telegram_approvals_message_template: string
   telegram_approvals_header_new_template: string
   telegram_approvals_header_step_approved_template: string
@@ -148,6 +149,7 @@ export type TenantIntegrationConfigUpdatePayload = Partial<{
   telegram_approvals_bridge_dispatch_url: string
   telegram_approvals_send_action: string
   telegram_approvals_edit_action: string
+  telegram_approvals_draft_notification_action: string
   telegram_approvals_message_template: string
   telegram_approvals_header_new_template: string
   telegram_approvals_header_step_approved_template: string
@@ -517,6 +519,7 @@ export type RequestApprovalConfigResponse = {
     telegram_approvals_bridge_dispatch_url?: string
     telegram_approvals_send_action?: string
     telegram_approvals_edit_action?: string
+    telegram_approvals_draft_notification_action?: string
     telegram_approvals_bridge_token?: string
     telegram_approvals_message_template?: string
     telegram_approvals_header_new_template?: string
@@ -547,6 +550,7 @@ export type RequestApprovalConfigUpdatePayload = {
     telegram_approvals_bridge_dispatch_url?: string
     telegram_approvals_send_action?: string
     telegram_approvals_edit_action?: string
+    telegram_approvals_draft_notification_action?: string
     telegram_approvals_bridge_token?: string
     telegram_approvals_message_template?: string
     telegram_approvals_header_new_template?: string

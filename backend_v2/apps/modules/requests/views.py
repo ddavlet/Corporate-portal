@@ -53,10 +53,12 @@ from apps.modules.requests.serializers import (
     build_auto_request_config_response,
     validate_auto_template_against_form_config,
 )
+from apps.modules.requests.approval_bootstrap import create_approval_rows_for_request
 from apps.modules.requests.approval_workflow import (
     _recalculate_request_status,
     confirm_approval_by_id,
     lookup_approval_by_message_id,
+    min_pending_approval_step,
 )
 from apps.modules.telegram_approvals.services import (
     current_pending_step_approvals_count,
@@ -190,63 +192,85 @@ class PortalRequestViewSet(viewsets.ModelViewSet):
 
         with transaction.atomic():
             obj = serializer.save(tenant=tenant, created_by=self.request.user)
-
-            cfg = RequestApprovalConfig.objects.filter(tenant=tenant).first()
-            if cfg:
-                pt_cfg = cfg.payment_types.filter(payment_type=obj.payment_type, is_enabled=True).first()
-                if pt_cfg:
-                    step_cfgs = list(
-                        pt_cfg.steps.filter(is_enabled=True)
-                        .order_by("step", "id")
-                        .prefetch_related("approvers__approver_user")
-                    )
-
-                    approver_ids: set[int] = set()
-                    for step_cfg in step_cfgs:
-                        approver_ids.update(
-                            step_cfg.approvers.values_list("approver_user_id", flat=True).distinct()
-                        )
-                    active_approver_ids = set(
-                        TenantMembership.objects.filter(
-                            tenant=tenant, is_active=True, user_id__in=approver_ids
-                        ).values_list("user_id", flat=True)
-                    )
-
-                    approval_rows: list[Approval] = []
-                    for step_cfg in step_cfgs:
-                        approvers = step_cfg.approvers.all()
-                        for row in approvers:
-                            if row.approver_user_id not in active_approver_ids:
-                                continue
-                            approval_rows.append(
-                                Approval(
-                                    request=obj,
-                                    approver_user=row.approver_user,
-                                    approver_tg_id=row.approver_user.telegram_chat_id,
-                                    approver_tg_from_id=row.approver_user.telegram_from_id,
-                                    message_id=None,
-                                    message_sent=False,
-                                    step=step_cfg.step,
-                                    step_type=step_cfg.step_type,
-                                    decision=Approval.DECISION_PENDING,
-                                    comment=None,
-                                    decided_at=None,
-                                )
-                            )
-
-                    if approval_rows:
-                        Approval.objects.bulk_create(approval_rows)
-                        if obj and obj.status == Request.STATUS_DRAFT:
-                            _recalculate_request_status(obj)
+            n = create_approval_rows_for_request(obj)
+            if n and obj and obj.status == Request.STATUS_DRAFT:
+                _recalculate_request_status(obj)
 
         if obj is not None:
             dispatch_pending_approvals(request_obj=obj)
+
+    def _user_can_patch_draft_request(self, user, request_obj: Request) -> bool:
+        tenant = request_obj.tenant
+        if not user or not getattr(user, "is_authenticated", False):
+            return False
+        if self._has_role(tenant, TenantUserRole.ROLE_ADMIN):
+            return True
+        if request_obj.created_by_id == user.id:
+            return True
+        if request_obj.requester_id == user.id:
+            return True
+        return False
+
+    def update(self, request, *args, **kwargs):
+        partial = kwargs.pop("partial", False)
+        instance = self.get_object()
+        if instance.status != Request.STATUS_DRAFT:
+            raise ValidationError({"detail": "Only DRAFT requests can be updated."})
+        if not self._user_can_patch_draft_request(request.user, instance):
+            raise PermissionDenied("You cannot edit this draft.")
+        serializer = self.get_serializer(
+            instance,
+            data=request.data,
+            partial=partial,
+            context={**self.get_serializer_context(), "draft_save": True},
+        )
+        serializer.is_valid(raise_exception=True)
+        self.perform_update(serializer)
+        return Response(serializer.data)
 
     def perform_update(self, serializer):
         super().perform_update(serializer)
         obj = serializer.instance
         refresh_request_messages(request_obj=obj)
         dispatch_pending_approvals(request_obj=obj)
+
+    @action(detail=True, methods=["post"], url_path="submit-for-approval")
+    def submit_for_approval(self, request, pk=None):
+        tenant = self.request.tenant
+        if not tenant:
+            raise ValidationError({"detail": "Unknown tenant."})
+        with transaction.atomic():
+            request_obj = Request.objects.select_for_update().get(pk=pk, tenant=tenant)
+            if request_obj.status != Request.STATUS_DRAFT:
+                return Response(
+                    {"detail": "Request already submitted for approval."},
+                    status=status.HTTP_409_CONFLICT,
+                )
+            if Approval.objects.filter(request=request_obj).exists():
+                return Response(
+                    {"detail": "Request already has approvals."},
+                    status=status.HTTP_409_CONFLICT,
+                )
+            if not self._user_can_patch_draft_request(request.user, request_obj):
+                raise PermissionDenied("You cannot submit this draft.")
+            serializer = self.get_serializer(
+                request_obj,
+                data=request.data or {},
+                partial=True,
+                context={**self.get_serializer_context(), "submit_for_approval": True},
+            )
+            serializer.is_valid(raise_exception=True)
+            serializer.save()
+            n = create_approval_rows_for_request(request_obj)
+            if n and request_obj.status == Request.STATUS_DRAFT:
+                _recalculate_request_status(request_obj)
+        dispatch_pending_approvals(request_obj=request_obj)
+        detail_qs = self.get_queryset().filter(pk=request_obj.pk)
+        obj = detail_qs.get()
+        return Response(
+            PortalRequestDetailSerializer(obj, context=self.get_serializer_context()).data,
+            status=status.HTTP_200_OK,
+        )
 
     @action(detail=True, methods=["get", "post"], url_path="approvals")
     def approvals(self, request, pk=None):
@@ -333,10 +357,11 @@ class PortalRequestViewSet(viewsets.ModelViewSet):
             comment = comment.strip() or None
 
         with transaction.atomic():
+            locked_request = Request.objects.select_for_update().get(pk=request_obj.pk)
             approval = (
                 Approval.objects.select_for_update()
                 .filter(
-                    request=request_obj,
+                    request_id=locked_request.pk,
                     approver_user=request.user,
                     step=step,
                 )
@@ -350,12 +375,19 @@ class PortalRequestViewSet(viewsets.ModelViewSet):
                     status=status.HTTP_404_NOT_FOUND,
                 )
 
+            active_step = min_pending_approval_step(request_id=locked_request.pk)
+            if active_step is None or approval.step != active_step:
+                raise ValidationError(
+                    {
+                        "detail": "Этот этап согласования ещё не активен. Сначала завершите предыдущие шаги.",
+                    }
+                )
+
             approval.decision = decision
             approval.comment = comment
             approval.decided_at = timezone.now()
             approval.save(update_fields=["decision", "comment", "decided_at"])
 
-            locked_request = Request.objects.select_for_update().get(pk=request_obj.pk)
             _recalculate_request_status(locked_request)
             locked_request.refresh_from_db()
             refresh_request_messages(request_obj=locked_request)
@@ -991,6 +1023,7 @@ class RequestApprovalConfigView(APIView):
                 "telegram_approvals_bridge_dispatch_url",
                 "telegram_approvals_send_action",
                 "telegram_approvals_edit_action",
+                "telegram_approvals_draft_notification_action",
                 "telegram_approvals_bridge_token",
                 "telegram_approvals_message_template",
                 "telegram_approvals_header_new_template",

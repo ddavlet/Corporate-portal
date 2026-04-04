@@ -1,4 +1,7 @@
 from datetime import date, datetime
+from decimal import Decimal
+from unittest.mock import patch
+
 from django.contrib.auth import get_user_model
 from django.test import override_settings
 from django.utils import timezone
@@ -563,8 +566,21 @@ class RequestApprovalsTests(APITestCase):
     def test_patch_request_calls_telegram_refresh_and_dispatch(self):
         from unittest.mock import patch
 
-        req_data = self._create_request()
-        request_id = req_data["id"]
+        req = Request.objects.create(
+            tenant=self.tenant,
+            created_by=self.requester,
+            requester=self.requester,
+            title="D",
+            description="",
+            amount=Decimal("1"),
+            currency="UZS",
+            payment_type="Наличные",
+            urgency="Обычно",
+            billing_date=date(2026, 1, 1),
+            status=Request.STATUS_DRAFT,
+            submitted_at=timezone.now(),
+            company_payer="",
+        )
         self.client.force_authenticate(self.requester)
         with patch(
             "apps.modules.requests.views.refresh_request_messages",
@@ -575,7 +591,7 @@ class RequestApprovalsTests(APITestCase):
                 return_value=0,
             ) as mock_dispatch:
                 res = self.client.patch(
-                    f"/api/requests/{request_id}/",
+                    f"/api/requests/{req.id}/",
                     {"title": "Updated title"},
                     format="json",
                     HTTP_HOST=self.host,
@@ -638,6 +654,47 @@ class RequestApprovalsTests(APITestCase):
         self.assertEqual(res.data["request"]["id"], request_id)
         self.assertEqual(res.data["trigger_approval"]["id"], approval.id)
         self.assertEqual(len(res.data["approvals"]), 1)
+
+    def test_cannot_confirm_or_decide_inactive_step_while_earlier_step_pending(self):
+        pt_cfg = RequestApprovalPaymentTypeConfig.objects.get(
+            config__tenant=self.tenant, payment_type="Наличные"
+        )
+        step2 = RequestApprovalStepConfig.objects.create(
+            payment_type_config=pt_cfg,
+            step=2,
+            step_type=Approval.STEP_TYPE_SERIAL,
+            is_enabled=True,
+        )
+        self.other_approver.telegram_chat_id = 333
+        self.other_approver.telegram_from_id = 444
+        self.other_approver.save(update_fields=["telegram_chat_id", "telegram_from_id"])
+        RequestApprovalStepApproverConfig.objects.create(step_config=step2, approver_user=self.other_approver)
+
+        req_data = self._create_request()
+        request_id = req_data["id"]
+        step2_approval = Approval.objects.get(
+            request_id=request_id, approver_user=self.other_approver, step=2
+        )
+
+        self.client.force_authenticate(self.other_approver)
+        res_confirm = self.client.post(
+            f"/api/requests/{request_id}/approvals/confirm/",
+            {"approval_id": step2_approval.id},
+            format="json",
+            HTTP_HOST=self.host,
+        )
+        self.assertEqual(res_confirm.status_code, 400, res_confirm.content)
+
+        res_decision = self.client.post(
+            f"/api/requests/{request_id}/approvals/decision/",
+            {"step": 2, "decision": Approval.DECISION_APPROVED},
+            format="json",
+            HTTP_HOST=self.host,
+        )
+        self.assertEqual(res_decision.status_code, 400, res_decision.content)
+
+        step2_approval.refresh_from_db()
+        self.assertEqual(step2_approval.decision, Approval.DECISION_PENDING)
 
     def test_reject_does_not_dispatch_pending_later_steps(self):
         pt_cfg = RequestApprovalPaymentTypeConfig.objects.get(
@@ -1075,5 +1132,216 @@ class AutoRequestTests(APITestCase):
         self.assertEqual(get_res.data["templates"][0]["requester_id"], self.app_user.id)
         self.assertEqual(get_res.data["templates"][0]["billing_month_mode"], AutoRequestTemplate.BILLING_MONTH_CURRENT)
         self.assertIn("form_payment_types", get_res.data)
+
+    @patch("apps.modules.requests.auto_requests.dispatch_draft_request_notification")
+    def test_process_due_auto_without_amount_stays_draft_and_notifies(self, mock_dispatch):
+        v = self._ensure_request_form_for_auto()
+        self.requester.telegram_chat_id = 900_001
+        self.requester.save(update_fields=["telegram_chat_id"])
+        AutoRequestTemplate.objects.create(
+            tenant=self.tenant,
+            is_enabled=True,
+            name="NoAmt",
+            payment_type=Request.PAYMENT_TYPE_CASH,
+            day_of_month=1,
+            title_template="Черновик {{billing_month_ru}}",
+            description_template="",
+            requester=self.requester,
+            updated_by=self.admin,
+            vendor_ref=v,
+            payment_purpose="Office",
+            amount=None,
+        )
+        n = process_due_auto_requests(now_dt=timezone.make_aware(datetime(2026, 2, 2, 10, 0, 0)))
+        self.assertEqual(n, 1)
+        req = Request.objects.get(tenant=self.tenant)
+        self.assertEqual(req.status, Request.STATUS_DRAFT)
+        self.assertEqual(req.amount, Decimal("0"))
+        self.assertEqual(Approval.objects.filter(request=req).count(), 0)
+        mock_dispatch.assert_called_once()
+        call_kw = mock_dispatch.call_args.kwargs
+        self.assertEqual(call_kw["request_obj"].id, req.id)
+        self.assertEqual(call_kw["chat_id"], 900_001)
+
+    def test_process_due_auto_with_amount_still_creates_approvals(self):
+        v = self._ensure_request_form_for_auto()
+        self.approver = User.objects.create_user(username="auto_appr", password="x")
+        TenantMembership.objects.create(tenant=self.tenant, user=self.approver, is_active=True)
+        TenantUserRole.objects.create(
+            tenant=self.tenant, user=self.approver, role=TenantUserRole.ROLE_APPROVER, step=1
+        )
+        self.approver.telegram_chat_id = 111
+        self.approver.save(update_fields=["telegram_chat_id"])
+        appr_cfg = RequestApprovalConfig.objects.create(tenant=self.tenant, updated_by=self.admin)
+        pt_cfg = RequestApprovalPaymentTypeConfig.objects.create(
+            config=appr_cfg, payment_type=Request.PAYMENT_TYPE_CASH, is_enabled=True
+        )
+        step_cfg = RequestApprovalStepConfig.objects.create(
+            payment_type_config=pt_cfg, step=1, step_type=Approval.STEP_TYPE_SERIAL, is_enabled=True
+        )
+        RequestApprovalStepApproverConfig.objects.create(step_config=step_cfg, approver_user=self.approver)
+
+        AutoRequestTemplate.objects.create(
+            tenant=self.tenant,
+            is_enabled=True,
+            name="WithAmt",
+            payment_type=Request.PAYMENT_TYPE_CASH,
+            day_of_month=1,
+            title_template="Сумма",
+            description_template="",
+            requester=self.requester,
+            updated_by=self.admin,
+            vendor_ref=v,
+            payment_purpose="Office",
+            amount=Decimal("5000"),
+        )
+        process_due_auto_requests(now_dt=timezone.make_aware(datetime(2026, 2, 2, 10, 0, 0)))
+        req = Request.objects.get(tenant=self.tenant)
+        self.assertNotEqual(req.status, Request.STATUS_DRAFT)
+        self.assertGreaterEqual(Approval.objects.filter(request=req).count(), 1)
+
+
+@override_settings(BASE_DOMAIN="example.com", N8N_TOKEN="", N8N_INTEGRATION_TOKEN="", ALLOWED_HOSTS=["*"])
+class DraftRequestPatchSubmitTests(APITestCase):
+    """DRAFT-only PATCH and submit-for-approval."""
+
+    def setUp(self):
+        self.tenant = Tenant.objects.create(name="DraftCo", subdomain="draftco", is_active=True)
+        self.admin = User.objects.create_user(username="d_admin", password="x")
+        self.requester = User.objects.create_user(username="d_req", password="x")
+        self.other = User.objects.create_user(username="d_other", password="x")
+        self.approver = User.objects.create_user(username="d_appr", password="x")
+        self.approver.telegram_chat_id = 222
+        self.approver.save(update_fields=["telegram_chat_id"])
+        for u in (self.admin, self.requester, self.other, self.approver):
+            TenantMembership.objects.create(tenant=self.tenant, user=u, is_active=True)
+        TenantUserRole.objects.create(tenant=self.tenant, user=self.admin, role=TenantUserRole.ROLE_ADMIN, step=1)
+        TenantUserRole.objects.create(
+            tenant=self.tenant, user=self.requester, role=TenantUserRole.ROLE_REQUESTER, step=1
+        )
+        TenantUserRole.objects.create(
+            tenant=self.tenant, user=self.other, role=TenantUserRole.ROLE_REQUESTER, step=1
+        )
+        TenantUserRole.objects.create(
+            tenant=self.tenant, user=self.approver, role=TenantUserRole.ROLE_APPROVER, step=1
+        )
+        TenantModuleConfig.objects.create(tenant=self.tenant, module_key="requests", is_enabled=True)
+        self.host = "draftco.example.com"
+
+        req_form_cfg = RequestFormConfig.objects.create(tenant=self.tenant, updated_by=self.admin)
+        pt_cfg = RequestFormPaymentTypeConfig.objects.create(
+            config=req_form_cfg, payment_type="Наличные", is_enabled=True
+        )
+        RequestFormPaymentTypeRequester.objects.create(payment_type_config=pt_cfg, user=self.requester)
+
+        appr_cfg = RequestApprovalConfig.objects.create(tenant=self.tenant, updated_by=self.admin)
+        apt = RequestApprovalPaymentTypeConfig.objects.create(
+            config=appr_cfg, payment_type="Наличные", is_enabled=True
+        )
+        step_cfg = RequestApprovalStepConfig.objects.create(
+            payment_type_config=apt, step=1, step_type=Approval.STEP_TYPE_SERIAL, is_enabled=True
+        )
+        RequestApprovalStepApproverConfig.objects.create(step_config=step_cfg, approver_user=self.approver)
+
+    def _draft_request(self):
+        return Request.objects.create(
+            tenant=self.tenant,
+            created_by=self.requester,
+            requester=self.requester,
+            title="Черновик",
+            description="",
+            amount=Decimal("0"),
+            currency="UZS",
+            payment_type="Наличные",
+            urgency="Обычно",
+            billing_date=date(2026, 1, 1),
+            status=Request.STATUS_DRAFT,
+            submitted_at=timezone.now(),
+            company_payer="Co",
+        )
+
+    def test_cannot_patch_non_draft(self):
+        self.client.force_authenticate(self.requester)
+        res = self.client.post(
+            "/api/requests/",
+            {
+                "title": "T",
+                "description": "",
+                "amount": 10,
+                "currency": "UZS",
+                "payment_type": "Наличные",
+                "urgency": "Обычно",
+                "billing_date": "2026-01-01",
+            },
+            format="json",
+            HTTP_HOST=self.host,
+        )
+        self.assertEqual(res.status_code, 201)
+        rid = res.data["id"]
+        res2 = self.client.patch(
+            f"/api/requests/{rid}/",
+            {"title": "X"},
+            format="json",
+            HTTP_HOST=self.host,
+        )
+        self.assertEqual(res2.status_code, 400, res2.content)
+
+    def test_cannot_patch_draft_as_unrelated_user(self):
+        req = self._draft_request()
+        # Approver видит все заявки в tenant, но не может править чужой черновик
+        self.client.force_authenticate(self.approver)
+        res = self.client.patch(
+            f"/api/requests/{req.id}/",
+            {"title": "Stolen"},
+            format="json",
+            HTTP_HOST=self.host,
+        )
+        self.assertEqual(res.status_code, 403, res.content)
+
+    @patch("apps.modules.requests.views.dispatch_pending_approvals", return_value=0)
+    def test_submit_for_approval_creates_approvals(self, _mock_dispatch):
+        req = self._draft_request()
+        self.client.force_authenticate(self.requester)
+        res = self.client.post(
+            f"/api/requests/{req.id}/submit-for-approval/",
+            {"amount": "150.00", "title": "Готово"},
+            format="json",
+            HTTP_HOST=self.host,
+        )
+        self.assertEqual(res.status_code, 200, res.content)
+        req.refresh_from_db()
+        self.assertNotEqual(req.status, Request.STATUS_DRAFT)
+        self.assertGreaterEqual(Approval.objects.filter(request=req).count(), 1)
+
+    def test_submit_for_approval_twice_returns_409(self):
+        req = self._draft_request()
+        self.client.force_authenticate(self.requester)
+        r1 = self.client.post(
+            f"/api/requests/{req.id}/submit-for-approval/",
+            {"amount": "50"},
+            format="json",
+            HTTP_HOST=self.host,
+        )
+        self.assertEqual(r1.status_code, 200, r1.content)
+        r2 = self.client.post(
+            f"/api/requests/{req.id}/submit-for-approval/",
+            {"amount": "60"},
+            format="json",
+            HTTP_HOST=self.host,
+        )
+        self.assertEqual(r2.status_code, 409, r2.content)
+
+    @patch("apps.modules.telegram_approvals.services._post_to_bridge", return_value={"message_id": 1})
+    def test_dispatch_draft_notification_payload(self, mock_post):
+        from apps.modules.telegram_approvals.services import dispatch_draft_request_notification
+
+        req = self._draft_request()
+        ok = dispatch_draft_request_notification(request_obj=req, chat_id=123)
+        self.assertTrue(ok)
+        mock_post.assert_called_once()
+        payload = mock_post.call_args.kwargs["payload"]
+        self.assertEqual(payload["action"], "send_draft_notification")
+        self.assertEqual(payload["notification_kind"], "draft_needs_amount")
+        self.assertEqual(payload["chat_id"], 123)
 
 

@@ -1,3 +1,5 @@
+from decimal import Decimal
+
 from rest_framework import serializers
 from django.urls import reverse
 from django.contrib.auth import get_user_model
@@ -81,7 +83,7 @@ class PortalRequestSerializer(serializers.ModelSerializer):
             "expense_day",
             "billing_date",
         ]
-        read_only_fields = ["expense_link", "created_at", "created_by"]
+        read_only_fields = ["expense_link", "created_at", "created_by", "status"]
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -258,6 +260,19 @@ class PortalRequestSerializer(serializers.ModelSerializer):
             if not PayrollDocument.objects.filter(tenant=tenant, doc_id=eid).exists():
                 raise serializers.ValidationError(
                     {"expense_id": "No payroll accrual document with this doc_id for this tenant."}
+                )
+
+        if self.context.get("submit_for_approval"):
+            amt = attrs.get("amount")
+            if amt is None and self.instance is not None:
+                amt = self.instance.amount
+            try:
+                dec = Decimal(str(amt)) if amt is not None else Decimal("0")
+            except Exception:
+                dec = Decimal("0")
+            if dec <= 0:
+                raise serializers.ValidationError(
+                    {"amount": "Amount must be greater than zero to submit for approval."}
                 )
 
         return attrs
@@ -646,6 +661,9 @@ class RequestApprovalConfigPayloadSerializer(serializers.Serializer):
         telegram_approvals_bridge_dispatch_url = serializers.CharField(required=False, allow_blank=True, default="")
         telegram_approvals_send_action = serializers.CharField(required=False, allow_blank=True, default="")
         telegram_approvals_edit_action = serializers.CharField(required=False, allow_blank=True, default="")
+        telegram_approvals_draft_notification_action = serializers.CharField(
+            required=False, allow_blank=True, default=""
+        )
         telegram_approvals_bridge_token = serializers.CharField(required=False, allow_blank=True, default="")
         telegram_approvals_message_template = serializers.CharField(required=False, allow_blank=True, default="")
         telegram_approvals_header_new_template = serializers.CharField(required=False, allow_blank=True, default="")
@@ -702,6 +720,7 @@ def build_request_approval_config_response(*, tenant) -> dict:
         "telegram_approvals_bridge_dispatch_url": cfg.telegram_approvals_bridge_dispatch_url if cfg else "",
         "telegram_approvals_send_action": cfg.telegram_approvals_send_action if cfg else "",
         "telegram_approvals_edit_action": cfg.telegram_approvals_edit_action if cfg else "",
+        "telegram_approvals_draft_notification_action": cfg.telegram_approvals_draft_notification_action if cfg else "",
         "telegram_approvals_bridge_token": cfg.telegram_approvals_bridge_token if cfg else "",
         "telegram_approvals_message_template": cfg.telegram_approvals_message_template if cfg else "",
         "telegram_approvals_header_new_template": cfg.telegram_approvals_header_new_template if cfg else "",
