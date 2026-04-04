@@ -185,12 +185,12 @@ def movements_net_full_year_card(*, wallet: Wallet, year: int) -> Decimal:
 def wallet_balance_payload(*, wallet: Wallet) -> dict[str, Any]:
     start_utc, end_utc, y = ytd_bounds()
     now_t = _now_tashkent()
-    end_d = now_t.date()
 
     if wallet.wallet_type == Wallet.Type.CASH:
         net = movements_net_cash_ytd(wallet=wallet, start_utc=start_utc, end_utc=end_utc)
     elif wallet.wallet_type == Wallet.Type.BANK:
-        net = movements_net_bank_ytd(wallet=wallet, year=y, end_date=end_d)
+        # Upper bound for bank YTD: «сегодня» по календарю Ташкента (doc_date — date).
+        net = movements_net_bank_ytd(wallet=wallet, year=y, end_date=now_t.date())
     else:
         net = movements_net_card_ytd(wallet=wallet, start_utc=start_utc, end_utc=end_utc)
 
