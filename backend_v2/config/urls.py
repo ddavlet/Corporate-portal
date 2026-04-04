@@ -5,6 +5,7 @@ from django.urls import path, include
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 
 from apps.accounts.views_otp import OtpRequestView, OtpVerifyView
+from apps.accounts.views_password import ChangePasswordView
 from apps.accounts.views_telegram_webapp import TelegramWebAppAuthView
 from apps.modules.requests.views import FileGatewayView, FileDownloadView
 from apps.tenants.views import ModuleCatalogView, TenantIntegrationConfigView, TenantModuleConfigView
@@ -19,6 +20,7 @@ urlpatterns = [
     path("api/auth/otp/request/", OtpRequestView.as_view(), name="otp_request"),
     path("api/auth/otp/verify/", OtpVerifyView.as_view(), name="otp_verify"),
     path("api/auth/telegram/webapp/", TelegramWebAppAuthView.as_view(), name="telegram_webapp_auth"),
+    path("api/auth/password/change/", ChangePasswordView.as_view(), name="password_change"),
     path("api/files/gateway/", FileGatewayView.as_view(), name="files_gateway"),
     path("api/files/download/", FileDownloadView.as_view(), name="files_download"),
 
