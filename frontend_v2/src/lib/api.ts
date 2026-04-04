@@ -73,7 +73,12 @@ async function refreshAccess(refresh: string): Promise<string | null> {
   return data.access ?? null
 }
 
-export async function apiFetch(input: string, init: RequestInit = {}) {
+export type ApiFetchOptions = {
+  /** When false, 401/403 do not clear tokens or call unauthorizedHandler (e.g. optional module endpoints). */
+  treatAuthErrorsAsGlobal?: boolean
+}
+
+export async function apiFetch(input: string, init: RequestInit = {}, options?: ApiFetchOptions) {
   const tokens = getTokens()
   const headers = new Headers(init.headers || {})
   headers.set('Accept', 'application/json')
@@ -102,7 +107,8 @@ export async function apiFetch(input: string, init: RequestInit = {}) {
     }
   }
 
-  if ((res.status === 401 || res.status === 403) && tokens?.access) {
+  const globalAuth = options?.treatAuthErrorsAsGlobal !== false
+  if (globalAuth && (res.status === 401 || res.status === 403) && tokens?.access) {
     if (readTgTokens()?.refresh === tokens.refresh) setTgTokens(null)
     if (readPortalTokens()?.refresh === tokens.refresh) setTokens(null)
     unauthorizedHandler?.()
@@ -376,6 +382,134 @@ export async function getCashRevenues(): Promise<CashRevenue[]> {
   if (!res.ok) throw new Error(await parseErrorBody(res))
   const json = await res.json().catch(() => null)
   return normalizeListPayload<CashRevenue>(json)
+}
+
+/** Row from GET /api/cash|bank|corporate-card/balances/ */
+export type ChannelBalanceRow = {
+  wallet_id: number
+  opening_balance: string
+  movements_net: string
+  current_balance: string
+  currency: string
+  prior_calendar_year?: number
+  prior_calendar_year_net?: string
+  cash_register_id?: number | null
+  bank_account_id?: number | null
+  corporate_card_account_id?: number | null
+  display_name: string
+  anchor_is_active: boolean
+}
+
+export async function getCashBalances(): Promise<ChannelBalanceRow[]> {
+  const res = await apiFetch('/api/cash/balances/', {}, { treatAuthErrorsAsGlobal: false })
+  if (res.status === 403) return []
+  if (!res.ok) throw new Error(await parseErrorBody(res))
+  const json = await res.json().catch(() => null)
+  return Array.isArray(json) ? (json as ChannelBalanceRow[]) : []
+}
+
+export async function getBankBalances(): Promise<ChannelBalanceRow[]> {
+  const res = await apiFetch('/api/bank/balances/', {}, { treatAuthErrorsAsGlobal: false })
+  if (res.status === 403) return []
+  if (!res.ok) throw new Error(await parseErrorBody(res))
+  const json = await res.json().catch(() => null)
+  return Array.isArray(json) ? (json as ChannelBalanceRow[]) : []
+}
+
+export async function getCorporateCardBalances(): Promise<ChannelBalanceRow[]> {
+  const res = await apiFetch('/api/corporate-card/balances/', {}, { treatAuthErrorsAsGlobal: false })
+  if (res.status === 403) return []
+  if (!res.ok) throw new Error(await parseErrorBody(res))
+  const json = await res.json().catch(() => null)
+  return Array.isArray(json) ? (json as ChannelBalanceRow[]) : []
+}
+
+export type CashRegisterDto = {
+  id: number
+  tenant: number
+  currency: string
+  name: string
+  code: string
+  description: string
+  is_active: boolean
+  sort_order: number
+  is_default_for_currency: boolean
+  wallet_id: number
+}
+
+export async function getCashRegisters(): Promise<CashRegisterDto[]> {
+  const res = await apiFetch('/api/wallets/cash-registers/')
+  if (!res.ok) throw new Error(await parseErrorBody(res))
+  const json = await res.json().catch(() => null)
+  return normalizeListPayload<CashRegisterDto>(json)
+}
+
+export async function createCashRegister(payload: {
+  currency: string
+  name?: string
+  code?: string
+  description?: string
+  is_active?: boolean
+  sort_order?: number
+  is_default_for_currency?: boolean
+}): Promise<CashRegisterDto> {
+  const res = await apiFetch('/api/wallets/cash-registers/', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+  if (!res.ok) throw new Error(await parseErrorBody(res))
+  return (await res.json()) as CashRegisterDto
+}
+
+export async function patchCashRegister(
+  id: number,
+  payload: Partial<{
+    name: string
+    code: string
+    description: string
+    is_active: boolean
+    sort_order: number
+    is_default_for_currency: boolean
+  }>,
+): Promise<CashRegisterDto> {
+  const res = await apiFetch(`/api/wallets/cash-registers/${id}/`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+  if (!res.ok) throw new Error(await parseErrorBody(res))
+  return (await res.json()) as CashRegisterDto
+}
+
+export async function deleteCashRegister(id: number): Promise<void> {
+  const res = await apiFetch(`/api/wallets/cash-registers/${id}/`, { method: 'DELETE' })
+  if (!res.ok) throw new Error(await parseErrorBody(res))
+}
+
+export type WalletDto = {
+  id: number
+  tenant: number
+  wallet_type: string
+  currency: string
+  opening_balance: string
+  opening_balance_at: string | null
+  cash_register_id: number | null
+  bank_account_id: number | null
+  corporate_card_account_id: number | null
+}
+
+export async function patchWallet(
+  id: number,
+  payload: { opening_balance?: string; opening_balance_at?: string | null },
+): Promise<WalletDto> {
+  const res = await apiFetch(`/api/wallets/wallets/${id}/`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+  if (!res.ok) throw new Error(await parseErrorBody(res))
+  return (await res.json()) as WalletDto
 }
 
 export async function getBankRevenues(): Promise<BankRevenue[]> {

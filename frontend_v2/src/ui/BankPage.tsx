@@ -7,6 +7,7 @@ import { apiFetch, getBankRevenues, type BankRevenue } from '../lib/api'
 import { RequestDetailModal, type RequestDetail } from './requests/RequestDetailModal'
 import { NoteCreateModal } from './NoteCreateModal'
 import { labelBlockAboveField } from './formSpacing'
+import { ChannelBalancesSummary } from './ChannelBalancesSummary'
 
 type BankExpenseRow = {
   id: number
@@ -267,6 +268,7 @@ export function BankPage() {
       <Typography.Title level={4} style={{ marginTop: 0 }}>
         Банк
       </Typography.Title>
+      <ChannelBalancesSummary channel="bank" />
       <div style={{ marginTop: 12, marginBottom: 12 }}>
         <Typography.Text type="secondary" style={labelBlockAboveField}>
           Расходы и доходы

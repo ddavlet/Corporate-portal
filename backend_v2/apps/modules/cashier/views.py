@@ -2,6 +2,7 @@ from rest_framework import viewsets
 from rest_framework import status
 from rest_framework.exceptions import ValidationError
 from rest_framework.permissions import IsAuthenticated
+from rest_framework.views import APIView
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from django.db import IntegrityError
@@ -16,6 +17,21 @@ from apps.modules.payroll.constants import SALARY_CATEGORY
 from apps.modules.payroll.utils import tenant_has_payroll_module_enabled
 from apps.modules.requests.models import Request
 from apps.tenants.permissions import HasEffectiveModuleAccess
+from apps.modules.wallets.models import Wallet
+from apps.modules.wallets.services import balances_for_tenant_channel
+
+
+class CashBalancesView(APIView):
+    module_key = "cash"
+    permission_classes = [IsAuthenticated, HasEffectiveModuleAccess]
+
+    def get(self, request):
+        tenant = getattr(request, "tenant", None)
+        if not tenant:
+            return Response([])
+        return Response(
+            balances_for_tenant_channel(tenant_id=tenant.id, wallet_type=Wallet.Type.CASH)
+        )
 
 
 class CashExpenseViewSet(viewsets.ModelViewSet):

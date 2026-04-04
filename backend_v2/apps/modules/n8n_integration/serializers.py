@@ -8,8 +8,10 @@ from apps.modules.cashier.serializers import CashExpenseSerializer, CashRevenueS
 from apps.modules.corporate_card.models import CardExpense, CardRevenue
 from apps.modules.corporate_card.serializers import CardExpenseSerializer, CardRevenueSerializer
 from apps.modules.notes.models import Note
+from apps.modules.requests.models import Request
 from apps.modules.vendors.models import Vendor
 from apps.modules.vendors.serializers import VendorSerializer
+from apps.tenants.permissions import has_effective_module_access
 
 
 class N8nVendorImportSerializer(VendorSerializer):

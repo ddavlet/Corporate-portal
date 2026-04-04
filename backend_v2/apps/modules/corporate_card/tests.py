@@ -4,6 +4,7 @@ from django.utils import timezone
 
 from apps.tenants.models import Tenant
 from apps.modules.corporate_card.models import CardExpense, CardRevenue
+from apps.modules.wallets.resolution import get_or_create_corporate_wallet
 
 
 User = get_user_model()
@@ -16,11 +17,13 @@ class CorporateCardSmokeTests(TestCase):
 
     def test_can_create_card_expense(self):
         dt = timezone.now()
+        w = get_or_create_corporate_wallet(tenant=self.tenant, currency="UZS")
         obj = CardExpense.objects.create(
             tenant=self.tenant,
             title="Taxi",
             amount=5,
             currency="UZS",
+            wallet=w,
             expense_at=dt,
             note="",
             payload={},
@@ -31,6 +34,7 @@ class CorporateCardSmokeTests(TestCase):
 
     def test_can_create_card_revenue(self):
         dt = timezone.now()
+        w = get_or_create_corporate_wallet(tenant=self.tenant, currency="UZS")
         obj = CardRevenue.objects.create(
             tenant=self.tenant,
             external_id="rev-1",
@@ -39,6 +43,7 @@ class CorporateCardSmokeTests(TestCase):
             amount=7,
             currency="UZS",
             total_sum=7,
+            wallet=w,
             revenue_at=dt,
             note="",
             payload={},

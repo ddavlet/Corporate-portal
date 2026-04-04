@@ -1,6 +1,7 @@
 from django.contrib import admin
 
 from apps.modules.cashier.models import CashExpense, CashRevenue
+from apps.modules.wallets.resolution import get_or_create_cash_wallet
 
 
 @admin.register(CashExpense)
@@ -25,6 +26,8 @@ class CashExpenseAdmin(admin.ModelAdmin):
     def save_model(self, request, obj, form, change):
         if not obj.created_by_id:
             obj.created_by = request.user
+        if not obj.wallet_id:
+            obj.wallet = get_or_create_cash_wallet(tenant=obj.tenant, currency=obj.currency)
         super().save_model(request, obj, form, change)
 
 
@@ -51,5 +54,7 @@ class CashRevenueAdmin(admin.ModelAdmin):
     def save_model(self, request, obj, form, change):
         if not obj.created_by_id:
             obj.created_by = request.user
+        if not obj.wallet_id:
+            obj.wallet = get_or_create_cash_wallet(tenant=obj.tenant, currency=obj.currency)
         super().save_model(request, obj, form, change)
 

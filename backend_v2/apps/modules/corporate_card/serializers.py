@@ -3,12 +3,33 @@ from rest_framework import serializers
 from apps.modules.serializers_guard import reject_client_pk_on_create
 from apps.modules.bank_expenses.models import BankExpense
 from apps.modules.corporate_card.models import CardExpense, CardRevenue
+from apps.modules.wallets.models import Wallet
+from apps.modules.wallets.serializer_integration import assign_wallet_for_corporate_movement
 from apps.tenants.permissions import has_effective_module_access
 
 
 class CardExpenseSerializer(serializers.ModelSerializer):
+    wallet_id = serializers.PrimaryKeyRelatedField(
+        source="wallet",
+        queryset=Wallet.objects.none(),
+        required=False,
+        allow_null=True,
+    )
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        request_obj = self.context.get("request")
+        tenant = getattr(request_obj, "tenant", None)
+        if tenant and "wallet_id" in self.fields:
+            self.fields["wallet_id"].queryset = Wallet.objects.filter(
+                tenant=tenant, wallet_type=Wallet.Type.CORPORATE_CARD
+            )
+
     def validate(self, attrs):
         reject_client_pk_on_create(self)
+        tenant = getattr(self.context.get("request"), "tenant", None)
+        if tenant:
+            attrs = assign_wallet_for_corporate_movement(instance=self.instance, tenant=tenant, attrs=attrs)
         return attrs
 
     class Meta:
@@ -21,6 +42,7 @@ class CardExpenseSerializer(serializers.ModelSerializer):
             "expense_at",
             "note",
             "payload",
+            "wallet_id",
             "created_at",
             "created_by",
         ]
@@ -29,6 +51,21 @@ class CardExpenseSerializer(serializers.ModelSerializer):
 
 class CardRevenueSerializer(serializers.ModelSerializer):
     bank_expense_exists = serializers.SerializerMethodField(read_only=True)
+    wallet_id = serializers.PrimaryKeyRelatedField(
+        source="wallet",
+        queryset=Wallet.objects.none(),
+        required=False,
+        allow_null=True,
+    )
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        request_obj = self.context.get("request")
+        tenant = getattr(request_obj, "tenant", None)
+        if tenant and "wallet_id" in self.fields:
+            self.fields["wallet_id"].queryset = Wallet.objects.filter(
+                tenant=tenant, wallet_type=Wallet.Type.CORPORATE_CARD
+            )
 
     class Meta:
         model = CardRevenue
@@ -55,6 +92,7 @@ class CardRevenueSerializer(serializers.ModelSerializer):
             "note",
             "payload",
             "bank_expense_id",
+            "wallet_id",
             "bank_expense_exists",
             "created_at",
             "created_by",
@@ -85,6 +123,10 @@ class CardRevenueSerializer(serializers.ModelSerializer):
 
         if "comment" in attrs and "note" not in attrs:
             attrs["note"] = attrs["comment"]
+
+        tenant = getattr(self.context.get("request"), "tenant", None)
+        if tenant:
+            attrs = assign_wallet_for_corporate_movement(instance=self.instance, tenant=tenant, attrs=attrs)
         return attrs
 
     def validate_bank_expense_id(self, value):

@@ -1,6 +1,7 @@
 from django.contrib import admin
 
 from apps.modules.bank_expenses.models import BankExpense, BankRevenue
+from apps.modules.wallets.resolution import get_or_create_bank_wallet
 
 
 @admin.register(BankExpense)
@@ -32,6 +33,8 @@ class BankExpenseAdmin(admin.ModelAdmin):
         obj.expense_year = d.year
         obj.expense_month = d.month
         obj.expense_day = d.day
+        if not obj.wallet_id:
+            obj.wallet = get_or_create_bank_wallet(tenant=obj.tenant)
         super().save_model(request, obj, form, change)
 
 
@@ -65,5 +68,7 @@ class BankRevenueAdmin(admin.ModelAdmin):
     def save_model(self, request, obj, form, change):
         if not obj.created_by_id:
             obj.created_by = request.user
+        if not obj.wallet_id:
+            obj.wallet = get_or_create_bank_wallet(tenant=obj.tenant)
         super().save_model(request, obj, form, change)
 

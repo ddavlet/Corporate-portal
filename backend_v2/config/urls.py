@@ -51,6 +51,8 @@ urlpatterns = [
     # Payroll accruals module
     path("api/payroll/", include("apps.modules.payroll.urls")),
 
+    path("api/wallets/", include("apps.modules.wallets.urls")),
+
     # Telegram approvals bridge webhook
     path("api/telegram-approvals/", include("apps.modules.telegram_approvals.urls")),
 ]
