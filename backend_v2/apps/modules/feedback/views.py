@@ -50,7 +50,7 @@ class FeedbackAiRefineView(APIView):
             },
         }
         try:
-            feedback_text = post_feedback_ai_refine(tenant_subdomain=tenant.subdomain, body=payload)
+            feedback_text = post_feedback_ai_refine(tenant=tenant, body=payload)
         except ValueError as exc:
             return Response({"detail": str(exc)}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
         except requests.HTTPError as exc:

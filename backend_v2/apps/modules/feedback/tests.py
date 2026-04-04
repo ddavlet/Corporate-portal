@@ -56,7 +56,7 @@ class FeedbackApiTests(APITestCase):
         self.assertEqual(res.data["feedback"], "Refined text.")
         mocked_refine.assert_called_once()
         call_kw = mocked_refine.call_args.kwargs
-        self.assertEqual(call_kw["tenant_subdomain"], "acme")
+        self.assertEqual(call_kw["tenant"].pk, self.tenant.pk)
         self.assertEqual(
             call_kw["body"],
             {"type": "feedback_former", "payload": {"kind": "error", "text": "broken"}},

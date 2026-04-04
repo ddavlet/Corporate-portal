@@ -6,6 +6,8 @@ from html import escape
 import requests
 from django.conf import settings
 
+from apps.modules.telegram_approvals.services import _bridge_headers
+
 logger = logging.getLogger(__name__)
 
 
@@ -42,17 +44,15 @@ def feedback_ai_webhook_url(*, tenant_subdomain: str) -> str:
     return u if u.endswith("/") else f"{u}/"
 
 
-def post_feedback_ai_refine(*, tenant_subdomain: str, body: dict) -> str:
+def post_feedback_ai_refine(*, tenant, body: dict) -> str:
     """
-    POST to tenant-scoped n8n webhook. Returns refined feedback text or raises RequestException/ValueError.
+    POST to tenant-scoped n8n webhook with X-N8N-Integration-Token (same resolution as Telegram dispatch).
     """
-    url = feedback_ai_webhook_url(tenant_subdomain=tenant_subdomain)
+    url = feedback_ai_webhook_url(tenant_subdomain=tenant.subdomain)
     logger.info("Feedback AI POST %s", url)
 
-    headers = {"Content-Type": "application/json", "Accept": "application/json"}
-    token = (getattr(settings, "N8N_TOKEN", "") or "").strip()
-    if token:
-        headers["Authorization"] = f"Bearer {token}"
+    headers = dict(_bridge_headers(tenant=tenant))
+    headers["Accept"] = "application/json"
 
     try:
         resp = requests.post(url, json=body, headers=headers, timeout=60)
