@@ -32,14 +32,18 @@ def feedback_ai_webhook_url(*, tenant_subdomain: str) -> str:
     Internal: N8N_INTERNAL_BASE_URL/webhook/<tenant>/<path> (direct to n8n in Docker).
     """
     sub = (tenant_subdomain or "").strip()
-    path = (getattr(settings, "N8N_FEEDBACK_AI_WEBHOOK_PATH", "ai") or "ai").strip().strip("/")
+    path = (getattr(settings, "N8N_FEEDBACK_AI_WEBHOOK_PATH", "n8n/ai/dispatch") or "n8n/ai/dispatch").strip().strip(
+        "/"
+    )
     internal = (getattr(settings, "N8N_INTERNAL_BASE_URL", "") or "").strip().rstrip("/")
     if internal:
-        return f"{internal}/webhook/{sub}/{path}"
-    base_domain = (getattr(settings, "BASE_DOMAIN", "") or "").strip().lower().lstrip(".")
-    if not base_domain or not sub:
-        raise ValueError("BASE_DOMAIN or tenant subdomain is not configured.")
-    return f"https://{sub}.{base_domain}/{path}"
+        u = f"{internal}/webhook/{sub}/{path}"
+    else:
+        base_domain = (getattr(settings, "BASE_DOMAIN", "") or "").strip().lower().lstrip(".")
+        if not base_domain or not sub:
+            raise ValueError("BASE_DOMAIN or tenant subdomain is not configured.")
+        u = f"https://{sub}.{base_domain}/{path}"
+    return u if u.endswith("/") else f"{u}/"
 
 
 def post_feedback_ai_refine(*, tenant_subdomain: str, body: dict) -> str:
