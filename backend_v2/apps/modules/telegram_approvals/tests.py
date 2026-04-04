@@ -435,3 +435,49 @@ class TelegramApprovalsTests(APITestCase):
         self.assertIn("✅ Заявка №", txt)
         self.assertIn("полностью одобрена", txt)
 
+    def test_build_approval_message_billing_month_from_billing_date_without_expense(self):
+        request_row = Request.objects.create(
+            tenant=self.tenant,
+            created_by=self.admin,
+            requester=self.requester,
+            title="No expense fields",
+            status=Request.STATUS_APPROVED,
+            billing_date=date(2026, 3, 31),
+        )
+        approval = Approval.objects.create(
+            request=request_row,
+            approver_user=self.approver,
+            approver_tg_id=555001,
+            step=1,
+            step_type=Approval.STEP_TYPE_SERIAL,
+            decision=Approval.DECISION_APPROVED,
+        )
+        txt = build_approval_message(request_obj=request_row, approval=approval)
+        self.assertIn("Месяц начисления", txt)
+        self.assertIn("March 2026", txt)
+        self.assertNotIn("2026-03-31", txt)
+        self.assertNotIn("31.03", txt)
+
+    def test_build_approval_message_billing_month_prefers_expense_over_billing_date(self):
+        request_row = Request.objects.create(
+            tenant=self.tenant,
+            created_by=self.admin,
+            requester=self.requester,
+            title="Expense vs billing",
+            status=Request.STATUS_PROGRESS_1,
+            billing_date=date(2026, 2, 1),
+            expense_year=2026,
+            expense_month=4,
+        )
+        approval = Approval.objects.create(
+            request=request_row,
+            approver_user=self.approver,
+            approver_tg_id=555001,
+            step=1,
+            step_type=Approval.STEP_TYPE_SERIAL,
+            decision=Approval.DECISION_PENDING,
+        )
+        txt = build_approval_message(request_obj=request_row, approval=approval)
+        self.assertIn("April 2026", txt)
+        self.assertNotIn("February 2026", txt)
+

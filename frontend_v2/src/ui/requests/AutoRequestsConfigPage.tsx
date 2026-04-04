@@ -8,6 +8,7 @@ import {
   type AutoRequestBillingMonthMode,
   type AutoRequestConfigResponse,
   type AutoRequestTemplateItem,
+  type RequestFormConfigCandidateUser,
   type RequestFormConfigPaymentTypeItem,
 } from '../../lib/api'
 import { labelBlockAboveField } from '../formSpacing'
@@ -67,7 +68,26 @@ function purposeSelectOptions(row: AutoRequestTemplateItem, data: AutoRequestCon
     }))
 }
 
-function emptyTemplate(paymentType: string): AutoRequestTemplateItem {
+function firstRequesterIdForPaymentType(
+  data: AutoRequestConfigResponse | null,
+  paymentType: string,
+): number | undefined {
+  const pt = formPtForPaymentType(data, paymentType)
+  const ids = pt?.requester_ids ?? []
+  if (ids.length) return ids[0]
+  const c = data?.requester_candidates?.[0]
+  return c?.id
+}
+
+function requesterSelectOptions(row: AutoRequestTemplateItem, data: AutoRequestConfigResponse | null) {
+  const pt = formPtForPaymentType(data, row.payment_type)
+  const subset = pt?.requester_ids ?? []
+  const all: RequestFormConfigCandidateUser[] = data?.requester_candidates ?? []
+  const list = subset.length ? all.filter((u) => subset.includes(u.id)) : all
+  return list.map((u) => ({ value: u.id, label: u.username }))
+}
+
+function emptyTemplate(data: AutoRequestConfigResponse | null, paymentType: string): AutoRequestTemplateItem {
   return {
     is_enabled: false,
     name: '',
@@ -81,6 +101,7 @@ function emptyTemplate(paymentType: string): AutoRequestTemplateItem {
     payment_purpose: '',
     vendor_ref_id: null,
     billing_month_mode: 'current',
+    requester_id: firstRequesterIdForPaymentType(data, paymentType),
   }
 }
 
@@ -102,6 +123,7 @@ export function AutoRequestsConfigPage() {
           setData({
             ...resp,
             form_payment_types: resp.form_payment_types ?? [],
+            requester_candidates: resp.requester_candidates ?? [],
           })
         }
       } catch (e: any) {
@@ -131,7 +153,7 @@ export function AutoRequestsConfigPage() {
     setData((prev) => {
       if (!prev) return prev
       const pt = defaultPaymentTypeForNew(prev)
-      return { ...prev, templates: [...prev.templates, emptyTemplate(pt)] }
+      return { ...prev, templates: [...prev.templates, emptyTemplate(prev, pt)] }
     })
   }
 
@@ -144,6 +166,13 @@ export function AutoRequestsConfigPage() {
 
   const save = async () => {
     if (!data) return
+    for (let i = 0; i < data.templates.length; i++) {
+      const row = data.templates[i]
+      if (row.requester_id == null || !Number.isFinite(Number(row.requester_id))) {
+        message.warning(`Укажите заявителя для шаблона №${i + 1}`)
+        return
+      }
+    }
     setSaving(true)
     setError(null)
     try {
@@ -162,10 +191,15 @@ export function AutoRequestsConfigPage() {
           payment_purpose: String(row.payment_purpose || ''),
           vendor_ref_id: row.vendor_ref_id ?? null,
           billing_month_mode: (row.billing_month_mode ?? 'current') as AutoRequestBillingMonthMode,
+          requester_id: Number(row.requester_id),
         })),
       }
       const next = await updateAutoRequestConfig(payload)
-      setData({ ...next, form_payment_types: next.form_payment_types ?? [] })
+      setData({
+        ...next,
+        form_payment_types: next.form_payment_types ?? [],
+        requester_candidates: next.requester_candidates ?? [],
+      })
       message.success('Сохранено')
     } catch (e: any) {
       setError(e?.message || 'Ошибка сохранения')
@@ -183,13 +217,14 @@ export function AutoRequestsConfigPage() {
         Автозаявки
       </Typography.Title>
       <Typography.Paragraph type="secondary" style={{ marginBottom: 0 }}>
-        Один раз настраиваете поля как в обычной заявке: тип оплаты, поставщик, назначение, сумма и т.д. В выбранный день
-        месяца система создаёт заявку. Месяц начисления в заявке задаётся отдельно (предыдущий / текущий / следующий
-        относительно этого календарного месяца); токены вроде{' '}
+        Один раз настраиваете поля как в обычной заявке: тип оплаты, заявитель, поставщик, назначение, сумма и т.д. В
+        выбранный день месяца система создаёт заявку. Месяц начисления в заявке задаётся отдельно (предыдущий / текущий /
+        следующий относительно этого календарного месяца); токены вроде{' '}
         <Typography.Text code>{'{{billing_month_ru}}'}</Typography.Text> в заголовке и описании используют выбранный
-        месяц. Заявитель в таких заявках всегда системный пользователь{' '}
-        <Typography.Text code>app</Typography.Text>. Компания-плательщик не задаётся здесь: она настраивается только в
-        разделе{' '}
+        месяц. Заявитель — из списка, разрешённого для типа оплаты в «Настройка формы заявки» (при уведомлении в Telegram
+        о черновике без суммы используется{' '}
+        <Typography.Text code>telegram_chat_id</Typography.Text> выбранного пользователя). Компания-плательщик не
+        задаётся здесь: она настраивается только в разделе{' '}
         <Typography.Text strong>Настройка формы заявки</Typography.Text> (поле «Компания-плательщик» для соответствующего
         типа оплаты на вкладке типа).
       </Typography.Paragraph>
@@ -231,7 +266,32 @@ export function AutoRequestsConfigPage() {
                     value={row.name}
                     onChange={(e) => updateRow(idx, { name: e.target.value })}
                   />
-                  <Space wrap size={12}>
+                  <Space wrap size={12} align="start">
+                    <div>
+                      <Typography.Text type="secondary" style={{ display: 'block', marginBottom: 4 }}>
+                        День месяца
+                      </Typography.Text>
+                      <InputNumber
+                        min={1}
+                        max={31}
+                        style={{ width: 120 }}
+                        value={row.day_of_month}
+                        onChange={(v) => updateRow(idx, { day_of_month: typeof v === 'number' ? v : 1 })}
+                      />
+                    </div>
+                    <div>
+                      <Typography.Text type="secondary" style={{ display: 'block', marginBottom: 4 }}>
+                        Месяц начисления
+                      </Typography.Text>
+                      <Select
+                        style={{ width: 220 }}
+                        value={(row.billing_month_mode ?? 'current') as AutoRequestBillingMonthMode}
+                        onChange={(v) => updateRow(idx, { billing_month_mode: v })}
+                        options={BILLING_MONTH_OPTIONS}
+                      />
+                    </div>
+                  </Space>
+                  <Space wrap size={12} align="start">
                     <div>
                       <Typography.Text type="secondary" style={{ display: 'block', marginBottom: 4 }}>
                         Тип оплаты
@@ -244,27 +304,24 @@ export function AutoRequestsConfigPage() {
                             payment_type: v,
                             vendor_ref_id: null,
                             payment_purpose: '',
+                            requester_id: firstRequesterIdForPaymentType(data, v),
                           })
                         }
                         options={paymentTypeSelectOptions(data)}
                       />
                     </div>
-                    <InputNumber
-                      min={1}
-                      max={31}
-                      value={row.day_of_month}
-                      onChange={(v) => updateRow(idx, { day_of_month: typeof v === 'number' ? v : 1 })}
-                      addonBefore="День месяца"
-                    />
                     <div>
                       <Typography.Text type="secondary" style={{ display: 'block', marginBottom: 4 }}>
-                        Месяц начисления
+                        Заявитель
                       </Typography.Text>
                       <Select
                         style={{ width: 220 }}
-                        value={(row.billing_month_mode ?? 'current') as AutoRequestBillingMonthMode}
-                        onChange={(v) => updateRow(idx, { billing_month_mode: v })}
-                        options={BILLING_MONTH_OPTIONS}
+                        placeholder="Выберите заявителя"
+                        value={row.requester_id}
+                        onChange={(v) => updateRow(idx, { requester_id: v })}
+                        options={requesterSelectOptions(row, data)}
+                        showSearch
+                        optionFilterProp="label"
                       />
                     </div>
                   </Space>

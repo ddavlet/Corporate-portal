@@ -1127,10 +1127,9 @@ class AutoRequestConfigView(APIView):
         payload = AutoRequestConfigPayloadSerializer(data=request.data)
         payload.is_valid(raise_exception=True)
         template_items = payload.validated_data.get("templates", [])
-        app_user = _ensure_app_user_for_auto_requests(tenant)
+        _ensure_app_user_for_auto_requests(tenant)
 
         for idx, item in enumerate(template_items):
-            item = {**item, "requester_id": app_user.id}
             try:
                 validate_auto_template_against_form_config(tenant=tenant, item=item)
             except ValidationError as exc:
@@ -1149,7 +1148,7 @@ class AutoRequestConfigView(APIView):
 
             for item in template_items:
                 row_id = item.get("id")
-                requester_id = app_user.id
+                requester_id = int(item["requester_id"])
 
                 vendor_ref_id = item.get("vendor_ref_id")
                 if vendor_ref_id and not Vendor.objects.filter(tenant=tenant, id=vendor_ref_id).exists():

@@ -1119,17 +1119,19 @@ class AutoRequestTests(APITestCase):
                     "description_template": "Платеж за {{billing_month:%B %Y}}",
                     "vendor_ref_id": v.id,
                     "payment_purpose": "Office",
+                    "requester_id": self.requester.id,
                 }
             ]
         }
         put_res = self.client.put("/api/requests/auto-config/", payload, format="json", HTTP_HOST=self.host)
         self.assertEqual(put_res.status_code, 200)
         self.assertEqual(len(put_res.data["templates"]), 1)
-        self.assertEqual(put_res.data["templates"][0]["requester_id"], self.app_user.id)
+        self.assertEqual(put_res.data["templates"][0]["requester_id"], self.requester.id)
         get_res = self.client.get("/api/requests/auto-config/", HTTP_HOST=self.host)
         self.assertEqual(get_res.status_code, 200)
         self.assertEqual(get_res.data["templates"][0]["name"], "Rent")
-        self.assertEqual(get_res.data["templates"][0]["requester_id"], self.app_user.id)
+        self.assertEqual(get_res.data["templates"][0]["requester_id"], self.requester.id)
+        self.assertIn("requester_candidates", get_res.data)
         self.assertEqual(get_res.data["templates"][0]["billing_month_mode"], AutoRequestTemplate.BILLING_MONTH_CURRENT)
         self.assertIn("form_payment_types", get_res.data)
 
