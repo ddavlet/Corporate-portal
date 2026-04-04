@@ -59,7 +59,7 @@ class FeedbackApiTests(APITestCase):
         self.assertEqual(call_kw["tenant"].pk, self.tenant.pk)
         self.assertEqual(
             call_kw["body"],
-            {"type": "feedback_former", "payload": {"kind": "error", "text": "broken"}},
+            {"action": "feedback_former", "kind": "error", "text": "broken"},
         )
 
     @patch("apps.modules.feedback.views.post_telegram_bridge")
