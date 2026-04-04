@@ -7,7 +7,11 @@ from rest_framework.test import APITestCase
 from rest_framework_simplejwt.tokens import RefreshToken
 
 from apps.modules.cashier.models import CashExpense
-from apps.modules.wallets.resolution import get_or_create_bank_wallet, get_or_create_cash_wallet
+from apps.modules.wallets.resolution import (
+    get_or_create_bank_wallet,
+    get_or_create_cash_wallet,
+    get_or_create_corporate_wallet,
+)
 from apps.modules.wallets.services import wallet_balance_payload
 from apps.tenants.models import Tenant, TenantMembership, TenantModuleConfig, TenantUserRole
 
@@ -62,11 +66,12 @@ class WalletsApiTests(APITestCase):
         TenantUserRole.objects.create(
             tenant=self.tenant, user=self.admin, role=TenantUserRole.ROLE_ADMIN, step=1
         )
-        for key in ("cash", "bank", "wallets"):
+        for key in ("cash", "bank", "corporate_card", "wallets"):
             TenantModuleConfig.objects.create(tenant=self.tenant, module_key=key, is_enabled=True)
 
         self.wallet_cash = get_or_create_cash_wallet(tenant=self.tenant, currency="UZS")
-        get_or_create_bank_wallet(tenant=self.tenant)
+        self.wallet_bank = get_or_create_bank_wallet(tenant=self.tenant)
+        self.wallet_corp = get_or_create_corporate_wallet(tenant=self.tenant, currency="UZS")
 
     def _headers(self, user):
         token = str(RefreshToken.for_user(user).access_token)
@@ -82,9 +87,35 @@ class WalletsApiTests(APITestCase):
         self.assertIsInstance(data, list)
         self.assertTrue(any(row["wallet_id"] == self.wallet_cash.id for row in data))
 
+    def test_cash_balances_requires_cash_module(self):
+        TenantModuleConfig.objects.filter(tenant=self.tenant, module_key="cash").update(is_enabled=False)
+        res = self.client.get("/api/cash/balances/", **self._headers(self.admin))
+        self.assertEqual(res.status_code, 403)
+
+    def test_bank_balances_returns_wallet_row(self):
+        res = self.client.get("/api/bank/balances/", **self._headers(self.admin))
+        self.assertEqual(res.status_code, 200)
+        data = res.json()
+        self.assertIsInstance(data, list)
+        self.assertTrue(any(row["wallet_id"] == self.wallet_bank.id for row in data))
+
     def test_bank_balances_requires_bank_module(self):
         TenantModuleConfig.objects.filter(tenant=self.tenant, module_key="bank").update(is_enabled=False)
         res = self.client.get("/api/bank/balances/", **self._headers(self.admin))
+        self.assertEqual(res.status_code, 403)
+
+    def test_corporate_card_balances_returns_wallet_row(self):
+        res = self.client.get("/api/corporate-card/balances/", **self._headers(self.admin))
+        self.assertEqual(res.status_code, 200)
+        data = res.json()
+        self.assertIsInstance(data, list)
+        self.assertTrue(any(row["wallet_id"] == self.wallet_corp.id for row in data))
+
+    def test_corporate_card_balances_requires_corporate_card_module(self):
+        TenantModuleConfig.objects.filter(tenant=self.tenant, module_key="corporate_card").update(
+            is_enabled=False
+        )
+        res = self.client.get("/api/corporate-card/balances/", **self._headers(self.admin))
         self.assertEqual(res.status_code, 403)
 
     def test_duplicate_cash_register_currency_validation(self):

@@ -83,7 +83,7 @@ def movements_net_bank_ytd(*, wallet: Wallet, year: int, end_date: date) -> Deci
         BankExpense.objects.filter(
             wallet=wallet,
             doc_date__gte=start_d,
-            doc_date__lte=end_d,
+            doc_date__lte=end_date,
         ).aggregate(s=Sum("debit_turnover"))["s"]
         or Decimal("0")
     )
@@ -91,7 +91,7 @@ def movements_net_bank_ytd(*, wallet: Wallet, year: int, end_date: date) -> Deci
         BankRevenue.objects.filter(
             wallet=wallet,
             doc_date__gte=start_d,
-            doc_date__lte=end_d,
+            doc_date__lte=end_date,
         ).aggregate(s=Sum("kredit_turnover"))["s"]
         or Decimal("0")
     )
