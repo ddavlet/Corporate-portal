@@ -76,4 +76,7 @@ class WalletViewSet(
         )
 
     def update(self, request, *args, **kwargs):
-        return Response(status=status.HTTP_405_METHOD_NOT_ALLOWED)
+        # partial_update() delegates here with request.method PATCH; disallow PUT only.
+        if request.method.upper() == "PUT":
+            return Response(status=status.HTTP_405_METHOD_NOT_ALLOWED)
+        return super().update(request, *args, **kwargs)
