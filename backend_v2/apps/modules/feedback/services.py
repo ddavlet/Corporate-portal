@@ -26,16 +26,28 @@ def extract_feedback_text_from_response(data) -> str | None:
     return None
 
 
+def feedback_ai_webhook_url(*, tenant_subdomain: str) -> str:
+    """
+    Public: https://<tenant>.<BASE_DOMAIN>/<path> (Traefik → /webhook/<tenant>/<path>).
+    Internal: N8N_INTERNAL_BASE_URL/webhook/<tenant>/<path> (direct to n8n in Docker).
+    """
+    sub = (tenant_subdomain or "").strip()
+    path = (getattr(settings, "N8N_FEEDBACK_AI_WEBHOOK_PATH", "ai") or "ai").strip().strip("/")
+    internal = (getattr(settings, "N8N_INTERNAL_BASE_URL", "") or "").strip().rstrip("/")
+    if internal:
+        return f"{internal}/webhook/{sub}/{path}"
+    base_domain = (getattr(settings, "BASE_DOMAIN", "") or "").strip().lower().lstrip(".")
+    if not base_domain or not sub:
+        raise ValueError("BASE_DOMAIN or tenant subdomain is not configured.")
+    return f"https://{sub}.{base_domain}/{path}"
+
+
 def post_feedback_ai_refine(*, tenant_subdomain: str, body: dict) -> str:
     """
     POST to tenant-scoped n8n webhook. Returns refined feedback text or raises RequestException/ValueError.
     """
-    base_domain = (getattr(settings, "BASE_DOMAIN", "") or "").strip().lower().lstrip(".")
-    if not base_domain or not tenant_subdomain:
-        raise ValueError("BASE_DOMAIN or tenant subdomain is not configured.")
-
-    path = getattr(settings, "N8N_FEEDBACK_AI_WEBHOOK_PATH", "ai") or "ai"
-    url = f"https://{tenant_subdomain}.{base_domain}/{path}"
+    url = feedback_ai_webhook_url(tenant_subdomain=tenant_subdomain)
+    logger.info("Feedback AI POST %s", url)
 
     headers = {"Content-Type": "application/json", "Accept": "application/json"}
     token = (getattr(settings, "N8N_TOKEN", "") or "").strip()

@@ -1,15 +1,32 @@
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
-from django.test import override_settings
+from django.test import TestCase, override_settings
 from rest_framework import status
 from rest_framework.test import APITestCase
 from rest_framework_simplejwt.tokens import RefreshToken
 
 from apps.modules.feedback.models import PortalFeedback
+from apps.modules.feedback.services import feedback_ai_webhook_url
 from apps.tenants.models import Tenant, TenantMembership, TenantUserRole
 
 User = get_user_model()
+
+
+@override_settings(N8N_INTERNAL_BASE_URL="http://n8n:5678", N8N_FEEDBACK_AI_WEBHOOK_PATH="ai")
+class FeedbackWebhookUrlTests(TestCase):
+    def test_internal_url_matches_n8n_webhook_path(self):
+        self.assertEqual(
+            feedback_ai_webhook_url(tenant_subdomain="lemonfit"),
+            "http://n8n:5678/webhook/lemonfit/ai",
+        )
+
+    @override_settings(N8N_INTERNAL_BASE_URL="", BASE_DOMAIN="example.com", N8N_FEEDBACK_AI_WEBHOOK_PATH="x")
+    def test_public_https_when_internal_unset(self):
+        self.assertEqual(
+            feedback_ai_webhook_url(tenant_subdomain="acme"),
+            "https://acme.example.com/x",
+        )
 
 
 @override_settings(BASE_DOMAIN="example.com", ALLOWED_HOSTS=["*"])

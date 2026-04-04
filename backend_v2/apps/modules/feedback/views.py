@@ -55,7 +55,19 @@ class FeedbackAiRefineView(APIView):
             return Response({"detail": str(exc)}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
         except requests.HTTPError as exc:
             resp = exc.response
-            detail = f"AI webhook HTTP {resp.status_code}." if resp is not None else str(exc)
+            req_url = getattr(getattr(exc, "request", None), "url", None)
+            if resp is not None:
+                logger.warning(
+                    "Feedback AI webhook HTTP %s url=%s body_prefix=%r",
+                    resp.status_code,
+                    req_url,
+                    (resp.text or "")[:500],
+                )
+            detail = (
+                f"Вебхук n8n для ИИ вернул HTTP {resp.status_code}. Проверьте workflow на пути webhook/{tenant.subdomain}/…"
+                if resp is not None
+                else str(exc)
+            )
             return Response({"detail": detail}, status=status.HTTP_502_BAD_GATEWAY)
         except requests.RequestException as exc:
             logger.exception("Feedback AI refine failed")
