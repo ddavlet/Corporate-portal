@@ -142,8 +142,8 @@ class BankRevenueViewSet(viewsets.ModelViewSet):
         tenant = getattr(self.request, "tenant", None)
         if not tenant:
             return BankRevenue.objects.none()
-        return BankRevenue.objects.filter(tenant_subdomain=tenant.subdomain)
+        return BankRevenue.objects.filter(tenant=tenant)
 
     def perform_create(self, serializer):
-        serializer.save(tenant_subdomain=self.request.tenant.subdomain, created_by=self.request.user)
+        serializer.save(tenant=self.request.tenant, created_by=self.request.user)
 

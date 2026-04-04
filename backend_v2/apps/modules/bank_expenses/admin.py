@@ -39,7 +39,7 @@ class BankExpenseAdmin(admin.ModelAdmin):
 class BankRevenueAdmin(admin.ModelAdmin):
     list_display = (
         "id",
-        "tenant_subdomain",
+        "tenant",
         "created_at",
         "created_by",
         "doc_date",
@@ -51,8 +51,16 @@ class BankRevenueAdmin(admin.ModelAdmin):
         "mfo",
         "kredit_turnover",
     )
-    list_filter = ("tenant_subdomain", "doc_date", "process_date", "mfo")
-    search_fields = ("doc_no", "account_name", "inn", "account_no", "payment_purpose")
+    list_filter = ("tenant", "doc_date", "process_date", "mfo")
+    search_fields = (
+        "doc_no",
+        "account_name",
+        "inn",
+        "account_no",
+        "payment_purpose",
+        "tenant__subdomain",
+        "tenant__name",
+    )
 
     def save_model(self, request, obj, form, change):
         if not obj.created_by_id:

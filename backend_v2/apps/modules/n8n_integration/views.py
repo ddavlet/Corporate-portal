@@ -171,17 +171,16 @@ class N8nBankExpenseUpsertView(_N8nBaseView):
 class N8nBankRevenueUpsertView(_N8nBaseView):
     def post(self, request):
         tenant = request.tenant
-        sub = tenant.subdomain
 
         def get_instance(pk):
-            return BankRevenue.objects.filter(pk=pk, tenant_subdomain=sub).first()
+            return BankRevenue.objects.filter(pk=pk, tenant=tenant).first()
 
         def other_tenant_conflict(pk):
             o = BankRevenue.objects.filter(pk=pk).first()
-            return o is not None and o.tenant_subdomain != sub
+            return o is not None and o.tenant_id != tenant.id
 
         def build_create_kwargs(req, su):
-            return {"tenant_subdomain": req.tenant.subdomain, "created_by": su}
+            return {"tenant": req.tenant, "created_by": su}
 
         return _n8n_upsert(
             request,

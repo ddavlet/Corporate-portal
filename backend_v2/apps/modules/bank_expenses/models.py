@@ -47,8 +47,7 @@ class BankExpense(models.Model):
 
 
 class BankRevenue(models.Model):
-    # NOTE: "No foreign keys" requirement — we store tenant as plain subdomain.
-    tenant_subdomain = models.SlugField(max_length=60)
+    tenant = models.ForeignKey(Tenant, on_delete=models.CASCADE, related_name="bank_revenues")
     created_at = models.DateTimeField(default=timezone.now)
     created_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
@@ -73,8 +72,8 @@ class BankRevenue(models.Model):
         db_table = "bank_revenues"
         constraints = [
             models.UniqueConstraint(
-                fields=["doc_no", "doc_date", "kredit_turnover"],
-                name="uniq_bank_revenue_doc_no_doc_date_kredit_turnover",
+                fields=["tenant", "doc_no", "doc_date", "kredit_turnover"],
+                name="uniq_bank_revenue_tenant_doc_no_doc_date_kredit_turnover",
             )
         ]
 
