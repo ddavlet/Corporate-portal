@@ -42,15 +42,13 @@ class FeedbackAiRefineView(APIView):
         if not tenant:
             return Response({"detail": "Unknown tenant."}, status=status.HTTP_404_NOT_FOUND)
 
-        payload = {
-            "type": "feedback_former",
-            "payload": {
-                "kind": ser.validated_data["kind"],
-                "text": ser.validated_data["text"],
-            },
+        body = {
+            "action": "feedback_former",
+            "kind": ser.validated_data["kind"],
+            "text": ser.validated_data["text"],
         }
         try:
-            feedback_text = post_feedback_ai_refine(tenant=tenant, body=payload)
+            feedback_text = post_feedback_ai_refine(tenant=tenant, body=body)
         except ValueError as exc:
             return Response({"detail": str(exc)}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
         except requests.HTTPError as exc:
