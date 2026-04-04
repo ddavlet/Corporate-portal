@@ -37,7 +37,7 @@ DEFAULT_TELEGRAM_APPROVALS_MESSAGE_TEMPLATE = (
     "<b>📌 Назначение</b>\n"
     "• Назначение платежа: {payment_purpose}\n"
     "• Описание: {description}\n"
-    "• Месяц начисления: {accrual_month}\n\n"
+    "• Месяц начисления: {billing_month}\n\n"
     "<b>⏱ Статус</b>\n"
     "• Срочность: {urgency}\n"
     "• Заявитель: {requester}\n\n"
@@ -148,4 +148,18 @@ def get_notes_integration_settings(*, tenant: Tenant | None) -> NotesIntegration
         target_path_cash="/app/cash/{id}",
         target_path_bank="/app/bank/{id}",
     )
+
+
+@dataclass(frozen=True)
+class PortalFeedbackSettings:
+    telegram_chat_id: int | None
+    telegram_action: str
+
+
+def get_portal_feedback_settings(*, tenant: Tenant | None) -> PortalFeedbackSettings:
+    cfg = _integration_config(tenant)
+    chat_id = cfg.portal_feedback_telegram_chat_id if cfg else None
+    raw_action = (cfg.portal_feedback_telegram_action.strip() if cfg else "") or ""
+    action = raw_action or "send_portal_feedback"
+    return PortalFeedbackSettings(telegram_chat_id=chat_id, telegram_action=action)
 

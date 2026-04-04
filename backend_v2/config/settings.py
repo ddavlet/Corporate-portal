@@ -41,6 +41,7 @@ INSTALLED_APPS = [
     "apps.modules.n8n_integration",
     "apps.modules.telegram_approvals",
     "apps.modules.payroll",
+    "apps.modules.feedback",
 ]
 
 MIDDLEWARE = [
@@ -170,6 +171,9 @@ N8N_INTEGRATION_TOKEN = os.getenv("N8N_INTEGRATION_TOKEN", "").strip()
 
 # Outbound authorization token for calling n8n webhooks (X-N8N-Token header).
 N8N_TOKEN = os.getenv("N8N_TOKEN", "").strip()
+
+# Portal feedback: POST from backend to https://<tenant>.<BASE_DOMAIN>/<path> (Traefik → n8n webhook).
+N8N_FEEDBACK_AI_WEBHOOK_PATH = (os.getenv("N8N_FEEDBACK_AI_WEBHOOK_PATH", "ai") or "ai").strip().strip("/")
 
 TELEGRAM_APPROVALS_BRIDGE_DISPATCH_URL = os.getenv("TELEGRAM_APPROVALS_BRIDGE_DISPATCH_URL", "").strip()
 # Optional override for bridge failure notifications; default is derived from dispatch URL or tenant host + /n8n/error/

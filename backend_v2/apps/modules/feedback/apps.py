@@ -1,0 +1,8 @@
+from django.apps import AppConfig
+
+
+class FeedbackModuleConfig(AppConfig):
+    default_auto_field = "django.db.models.BigAutoField"
+    name = "apps.modules.feedback"
+    label = "feedback"
+    verbose_name = "Portal feedback"

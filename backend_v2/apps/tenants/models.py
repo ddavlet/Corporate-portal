@@ -102,6 +102,9 @@ class TenantIntegrationConfig(models.Model):
     n8n_integration_token_enc = models.TextField(blank=True, default="")
     requests_file_gateway_token_enc = models.TextField(blank=True, default="")
 
+    portal_feedback_telegram_chat_id = models.BigIntegerField(null=True, blank=True)
+    portal_feedback_telegram_action = models.CharField(max_length=100, blank=True, default="")
+
     class Meta:
         db_table = "tenant_integration_configs"
 
