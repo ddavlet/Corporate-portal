@@ -228,6 +228,33 @@ export async function submitFeedback(payload: {
   }
 }
 
+export async function changePassword(payload: {
+  old_password?: string
+  new_password: string
+}): Promise<{ detail: string }> {
+  const body: { old_password?: string; new_password: string } = { new_password: payload.new_password }
+  if (payload.old_password != null && payload.old_password !== '') {
+    body.old_password = payload.old_password
+  }
+  const res = await apiFetch('/api/auth/password/change/', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+  const raw = await res.json().catch(() => null)
+  if (!res.ok) {
+    const detail =
+      raw && typeof raw === 'object' && typeof (raw as { detail?: unknown }).detail === 'string'
+        ? (raw as { detail: string }).detail
+        : `HTTP ${res.status}`
+    throw new Error(detail)
+  }
+  if (!raw || typeof raw !== 'object' || typeof (raw as { detail?: unknown }).detail !== 'string') {
+    throw new Error('Пустой ответ от сервера')
+  }
+  return { detail: (raw as { detail: string }).detail }
+}
+
 export type CorporateCardExpense = {
   id: number
   title: string
