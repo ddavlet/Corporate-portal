@@ -13,16 +13,16 @@ from apps.tenants.models import Tenant, TenantMembership, TenantUserRole
 User = get_user_model()
 
 
-@override_settings(N8N_INTERNAL_BASE_URL="http://n8n:5678", N8N_FEEDBACK_AI_WEBHOOK_PATH="n8n/ai/dispatch")
+@override_settings(BASE_DOMAIN="kolberg.uz", N8N_FEEDBACK_AI_WEBHOOK_PATH="n8n/ai/dispatch")
 class FeedbackWebhookUrlTests(TestCase):
-    def test_internal_url_matches_n8n_webhook_path(self):
+    def test_public_https_tenant_url(self):
         self.assertEqual(
             feedback_ai_webhook_url(tenant_subdomain="lemonfit"),
-            "http://n8n:5678/webhook/lemonfit/n8n/ai/dispatch/",
+            "https://lemonfit.kolberg.uz/n8n/ai/dispatch/",
         )
 
-    @override_settings(N8N_INTERNAL_BASE_URL="", BASE_DOMAIN="example.com", N8N_FEEDBACK_AI_WEBHOOK_PATH="n8n/ai/dispatch")
-    def test_public_https_when_internal_unset(self):
+    @override_settings(BASE_DOMAIN="example.com", N8N_FEEDBACK_AI_WEBHOOK_PATH="n8n/ai/dispatch")
+    def test_public_https_other_tenant(self):
         self.assertEqual(
             feedback_ai_webhook_url(tenant_subdomain="acme"),
             "https://acme.example.com/n8n/ai/dispatch/",
