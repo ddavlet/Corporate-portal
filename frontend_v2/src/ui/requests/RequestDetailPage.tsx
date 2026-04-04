@@ -33,6 +33,16 @@ function isPaymentApprovalStep(a: ApprovalItem): boolean {
   return String(a.step_type || '').toLowerCase() === 'payment'
 }
 
+/** Smallest step number that still has pending approvals (matches backend workflow). */
+function minPendingApprovalStep(approvals: ApprovalItem[] | undefined): number | null {
+  if (!approvals?.length) return null
+  const pendingSteps = approvals
+    .filter((a) => String(a.decision || '').toLowerCase() === 'pending')
+    .map((a) => a.step)
+  if (!pendingSteps.length) return null
+  return Math.min(...pendingSteps)
+}
+
 export function RequestDetailPage({ listPath = '/requests', variant = 'portal' }: RequestDetailPageProps) {
   const navigate = useNavigate()
   const { id } = useParams<{ id: string }>()
@@ -132,12 +142,22 @@ export function RequestDetailPage({ listPath = '/requests', variant = 'portal' }
     }
   }
 
+  const activeApprovalStep = minPendingApprovalStep(detail?.approvals)
   const pendingApprovalsForMe =
-    detail?.approvals?.filter((a) => String(a.decision || '').toLowerCase() === 'pending' && a.approver_user === currentUserId) ||
-    []
+    detail?.approvals?.filter(
+      (a) =>
+        String(a.decision || '').toLowerCase() === 'pending' &&
+        a.approver_user === currentUserId &&
+        activeApprovalStep != null &&
+        a.step === activeApprovalStep,
+    ) || []
 
   const isTg = variant === 'telegram'
-  const canEditDraft = isTg && detail?.status === 'DRAFT' && currentUserId != null && detail.requester === currentUserId
+  const canEditDraft =
+    detail?.status === 'DRAFT' &&
+    currentUserId != null &&
+    (detail.requester === currentUserId ||
+      (detail.created_by != null && detail.created_by === currentUserId))
 
   useEffect(() => {
     if (!editOpen || !detail) return
@@ -230,14 +250,19 @@ export function RequestDetailPage({ listPath = '/requests', variant = 'portal' }
     }
   }
 
-  const submitEditDraft = async () => {
+  const buildDraftPayload = () => ({
+    title: editTitle.trim(),
+    description: editDescription.trim(),
+    amount: editAmount ?? 0,
+    currency: editCurrency,
+    urgency: editUrgency,
+    billing_date: (editBillingDate ?? clampToAllowedBillingMonth(dayjs())).startOf('month').format('YYYY-MM-DD'),
+  })
+
+  const saveDraftOnly = async () => {
     if (!detail?.id) return
     if (!editTitle.trim()) {
       message.warning('Введите название заявки')
-      return
-    }
-    if (editAmount == null || editAmount <= 0) {
-      message.warning('Укажите корректную сумму')
       return
     }
     if (!editBillingDate || !isAllowedBillingMonth(editBillingDate)) {
@@ -247,28 +272,56 @@ export function RequestDetailPage({ listPath = '/requests', variant = 'portal' }
 
     setEditSaving(true)
     try {
-      const payload = {
-        title: editTitle.trim(),
-        description: editDescription.trim(),
-        amount: editAmount,
-        currency: editCurrency,
-        urgency: editUrgency,
-        billing_date: editBillingDate.startOf('month').format('YYYY-MM-DD'),
-      }
       const res = await apiFetch(`/api/requests/${detail.id}/`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
+        body: JSON.stringify(buildDraftPayload()),
       })
       if (!res.ok) {
         const text = await res.text().catch(() => '')
         throw new Error(text || `HTTP ${res.status}`)
       }
-      message.success('Заявка обновлена')
+      message.success('Черновик сохранён')
       setEditOpen(false)
       await refreshDetail()
     } catch (e: unknown) {
-      message.error(e instanceof Error ? e.message : 'Не удалось сохранить изменения')
+      message.error(e instanceof Error ? e.message : 'Не удалось сохранить черновик')
+    } finally {
+      setEditSaving(false)
+    }
+  }
+
+  const submitDraftForApproval = async () => {
+    if (!detail?.id) return
+    if (!editTitle.trim()) {
+      message.warning('Введите название заявки')
+      return
+    }
+    if (editAmount == null || editAmount <= 0) {
+      message.warning('Укажите сумму больше нуля для отправки на согласование')
+      return
+    }
+    if (!editBillingDate || !isAllowedBillingMonth(editBillingDate)) {
+      message.warning('Выберите допустимый месяц биллинга')
+      return
+    }
+
+    setEditSaving(true)
+    try {
+      const res = await apiFetch(`/api/requests/${detail.id}/submit-for-approval/`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(buildDraftPayload()),
+      })
+      if (!res.ok) {
+        const text = await res.text().catch(() => '')
+        throw new Error(text || `HTTP ${res.status}`)
+      }
+      message.success('Заявка отправлена на согласование')
+      setEditOpen(false)
+      await refreshDetail()
+    } catch (e: unknown) {
+      message.error(e instanceof Error ? e.message : 'Не удалось отправить на согласование')
     } finally {
       setEditSaving(false)
     }
@@ -432,6 +485,12 @@ export function RequestDetailPage({ listPath = '/requests', variant = 'portal' }
             <Space direction="vertical" size={12} style={{ display: 'flex', width: '100%' }}>
               <Space wrap align="start">
                 <Button onClick={() => navigate(listPath)}>Назад к списку</Button>
+                {canEditDraft ? (
+                  <>
+                    <Button onClick={() => setEditOpen(true)}>Редактировать черновик</Button>
+                    <Button onClick={() => setUploadOpen(true)}>Прикрепить файл</Button>
+                  </>
+                ) : null}
                 {detail?.id ? <Button onClick={() => setOpenNoteModal(true)}>Добавить заметку</Button> : null}
                 {detail?.id ? (
                   <Button
@@ -557,8 +616,11 @@ export function RequestDetailPage({ listPath = '/requests', variant = 'portal' }
             />
           </div>
 
-          <Button type="primary" block loading={editSaving} disabled={loading} onClick={() => void submitEditDraft()}>
+          <Button loading={editSaving} disabled={loading} block onClick={() => void saveDraftOnly()}>
             Сохранить
+          </Button>
+          <Button type="primary" block loading={editSaving} disabled={loading} onClick={() => void submitDraftForApproval()}>
+            Отправить на согласование
           </Button>
         </Space>
       </Modal>

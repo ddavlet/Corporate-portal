@@ -88,6 +88,7 @@ class TenantIntegrationConfig(models.Model):
     telegram_approvals_bridge_dispatch_url = models.TextField(blank=True, default="")
     telegram_approvals_send_action = models.CharField(max_length=100, blank=True, default="send_approval_message")
     telegram_approvals_edit_action = models.CharField(max_length=100, blank=True, default="edit_approval_message")
+    telegram_approvals_draft_notification_action = models.CharField(max_length=100, blank=True, default="")
     telegram_approvals_message_template = models.TextField(blank=True, default="")
     telegram_approvals_header_new_template = models.TextField(blank=True, default="")
     telegram_approvals_header_step_approved_template = models.TextField(blank=True, default="")

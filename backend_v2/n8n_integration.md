@@ -81,6 +81,8 @@ Telegram-согласования вынесены в модуль `apps.modules
 - inbound webhook: `/api/telegram-approvals/webhook/`
 - outbound dispatch: `https://<subdomain>.<base_domain>/n8n/telegram/dispatch`
 
+**Уведомление о черновике автозаявки (без суммы в шаблоне):** backend шлёт POST на тот же dispatch URL с полем `action`, равным значению настройки `telegram_approvals_draft_notification_action` (по умолчанию логика в коде — **`send_draft_notification`**). В теле JSON помимо `message`, `parse_mode`, `chat_id` передаются `request_id`, **`draft_url`** (если задан env **`REQUESTS_PORTAL_PUBLIC_BASE_URL`**, иначе пустая строка), **`notification_kind`**: `draft_needs_amount`, **`inline_keyboard`**: `[]`. Ветка n8n должна отправлять обычное сообщение (без кнопок согласования), при желании добавить URL-кнопку с `draft_url`.
+
 ### Requests upsert + read
 
 - **POST** `<base>requests/`

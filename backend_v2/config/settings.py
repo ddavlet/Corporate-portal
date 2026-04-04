@@ -176,3 +176,6 @@ TELEGRAM_APPROVALS_BRIDGE_DISPATCH_URL = os.getenv("TELEGRAM_APPROVALS_BRIDGE_DI
 TELEGRAM_APPROVALS_BRIDGE_ERROR_URL = os.getenv("TELEGRAM_APPROVALS_BRIDGE_ERROR_URL", "").strip()
 TELEGRAM_APPROVALS_BRIDGE_TOKEN = os.getenv("TELEGRAM_APPROVALS_BRIDGE_TOKEN", "").strip()
 
+# Absolute base URL of the requests portal (no trailing slash), for links in draft Telegram notifications.
+REQUESTS_PORTAL_PUBLIC_BASE_URL = os.getenv("REQUESTS_PORTAL_PUBLIC_BASE_URL", "").strip()
+

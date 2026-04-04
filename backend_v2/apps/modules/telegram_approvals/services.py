@@ -103,6 +103,47 @@ def _report_bridge_error(
         logger.exception("Failed to POST Telegram bridge error to n8n error webhook")
 
 
+def build_request_draft_public_url(*, request_obj: Request) -> str:
+    base = (getattr(settings, "REQUESTS_PORTAL_PUBLIC_BASE_URL", "") or "").strip().rstrip("/")
+    if not base:
+        return ""
+    return f"{base.rstrip('/')}/requests/{request_obj.pk}"
+
+
+def dispatch_draft_request_notification(*, request_obj: Request, chat_id: int | None) -> bool:
+    """
+    Outbound n8n/Telegram: action from settings (default send_draft_notification), no Approval row.
+    """
+    if chat_id is None:
+        logger.info("draft notification skipped: no chat_id for request_id=%s", request_obj.pk)
+        return False
+    settings_obj = get_requests_telegram_integration_settings(tenant=request_obj.tenant)
+    action = (settings_obj.draft_notification_action or "").strip() or "send_draft_notification"
+    draft_url = build_request_draft_public_url(request_obj=request_obj)
+    title = escape(str(request_obj.title or ""))
+    url_part = ""
+    if draft_url:
+        url_part = f'\n<a href="{escape(draft_url)}">{escape(draft_url)}</a>'
+    message_text = (
+        f"<b>Черновик заявки № {request_obj.pk}</b>\n"
+        f"{title}\n\n"
+        f"Укажите сумму в портале и отправьте заявку на согласование.{url_part}"
+    )
+    payload = {
+        "action": action,
+        "message": message_text,
+        "parse_mode": "HTML",
+        "chat_id": chat_id,
+        "company": request_obj.company_payer or "",
+        "request_id": request_obj.pk,
+        "draft_url": draft_url,
+        "notification_kind": "draft_needs_amount",
+        "inline_keyboard": [],
+    }
+    response_data = _post_to_bridge(request_obj=request_obj, payload=payload)
+    return response_data is not None
+
+
 def _bridge_headers(*, tenant=None) -> dict:
     cfg = get_requests_telegram_integration_settings(tenant=tenant) if tenant is not None else None
     token = (cfg.n8n_integration_token if cfg is not None else "") or ""

@@ -11,6 +11,7 @@ type FormState = {
   telegram_approvals_bridge_dispatch_url: string
   telegram_approvals_send_action: string
   telegram_approvals_edit_action: string
+  telegram_approvals_draft_notification_action: string
   telegram_approvals_message_template: string
   telegram_approvals_header_new_template: string
   telegram_approvals_header_step_approved_template: string
@@ -37,6 +38,7 @@ function toFormState(data: TenantIntegrationConfigResponse): FormState {
     telegram_approvals_bridge_dispatch_url: data.telegram_approvals_bridge_dispatch_url || '',
     telegram_approvals_send_action: data.telegram_approvals_send_action || '',
     telegram_approvals_edit_action: data.telegram_approvals_edit_action || '',
+    telegram_approvals_draft_notification_action: data.telegram_approvals_draft_notification_action || '',
     telegram_approvals_message_template: data.telegram_approvals_message_template || '',
     telegram_approvals_header_new_template: data.telegram_approvals_header_new_template || '',
     telegram_approvals_header_step_approved_template: data.telegram_approvals_header_step_approved_template || '',
@@ -96,6 +98,7 @@ export function TenantIntegrationConfigPage() {
         telegram_approvals_bridge_dispatch_url: form.telegram_approvals_bridge_dispatch_url.trim(),
         telegram_approvals_send_action: form.telegram_approvals_send_action.trim(),
         telegram_approvals_edit_action: form.telegram_approvals_edit_action.trim(),
+        telegram_approvals_draft_notification_action: form.telegram_approvals_draft_notification_action.trim(),
         telegram_approvals_message_template: form.telegram_approvals_message_template,
         telegram_approvals_header_new_template: form.telegram_approvals_header_new_template,
         telegram_approvals_header_step_approved_template: form.telegram_approvals_header_step_approved_template,
@@ -173,6 +176,11 @@ export function TenantIntegrationConfigPage() {
               placeholder="Edit action"
               value={form.telegram_approvals_edit_action}
               onChange={(e) => setField('telegram_approvals_edit_action', e.target.value)}
+            />
+            <Input
+              placeholder="Draft notification action (n8n), напр. send_draft_notification"
+              value={form.telegram_approvals_draft_notification_action}
+              onChange={(e) => setField('telegram_approvals_draft_notification_action', e.target.value)}
             />
             <Input.TextArea
               placeholder="Telegram message template (HTML)"

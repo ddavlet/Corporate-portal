@@ -28,6 +28,9 @@ class TenantIntegrationConfigSerializer(serializers.Serializer):
     telegram_approvals_bridge_dispatch_url = serializers.CharField(required=False, allow_blank=True)
     telegram_approvals_send_action = serializers.CharField(required=False, allow_blank=True, max_length=100)
     telegram_approvals_edit_action = serializers.CharField(required=False, allow_blank=True, max_length=100)
+    telegram_approvals_draft_notification_action = serializers.CharField(
+        required=False, allow_blank=True, max_length=100
+    )
     telegram_approvals_message_template = serializers.CharField(required=False, allow_blank=True)
     telegram_approvals_header_new_template = serializers.CharField(required=False, allow_blank=True)
     telegram_approvals_header_step_approved_template = serializers.CharField(required=False, allow_blank=True)

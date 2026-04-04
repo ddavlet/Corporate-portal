@@ -339,6 +339,7 @@ class RequestApprovalConfig(models.Model):
     telegram_approvals_bridge_dispatch_url = models.TextField(blank=True, default="")
     telegram_approvals_send_action = models.CharField(max_length=100, blank=True, default="")
     telegram_approvals_edit_action = models.CharField(max_length=100, blank=True, default="")
+    telegram_approvals_draft_notification_action = models.CharField(max_length=100, blank=True, default="")
     telegram_approvals_bridge_token = models.TextField(blank=True, default="")
     telegram_approvals_message_template = models.TextField(blank=True, default="")
     telegram_approvals_header_new_template = models.TextField(blank=True, default="")
