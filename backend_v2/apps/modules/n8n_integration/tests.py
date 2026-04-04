@@ -16,7 +16,7 @@ User = get_user_model()
 @override_settings(
     BASE_DOMAIN="example.com",
     N8N_INTEGRATION_TOKEN="integ-test-secret",
-    ALLOWED_HOSTS=["acme.example.com", "testserver"],
+    ALLOWED_HOSTS=["acme.example.com", "beta.example.com", "testserver"],
 )
 class N8nIntegrationAuthTests(APITestCase):
     def setUp(self):
@@ -44,9 +44,9 @@ class N8nIntegrationAuthTests(APITestCase):
         self.n8n_prefix = settings.N8N_INTEGRATION_URL_PREFIX.rstrip("/")
         self.vendor_url = f"{self.n8n_prefix}/vendors/"
 
-    def _headers(self, user=None, integration=True):
+    def _headers(self, user=None, integration=True, host="acme.example.com"):
         h = {
-            "HTTP_HOST": "acme.example.com",
+            "HTTP_HOST": host,
         }
         if integration:
             h["HTTP_X_N8N_INTEGRATION_TOKEN"] = "integ-test-secret"
@@ -140,4 +140,49 @@ class N8nIntegrationAuthTests(APITestCase):
         line.refresh_from_db()
         self.assertEqual(str(line.sum), "1100.00")
         self.assertEqual(line.employee, "Ivan I.")
+
+    def test_bank_revenue_upsert_tenant_isolation(self):
+        from apps.modules.bank_expenses.models import BankRevenue
+
+        tenant_b = Tenant.objects.create(name="Beta Corp", subdomain="beta", is_active=True)
+        admin_b = User.objects.create_user(username="admin_beta", password="pass12345")
+        TenantMembership.objects.create(tenant=tenant_b, user=admin_b, is_active=True)
+        TenantUserRole.objects.create(
+            tenant=tenant_b, user=admin_b, role=TenantUserRole.ROLE_ADMIN, step=1
+        )
+
+        url = f"{self.n8n_prefix}/bank/revenues/"
+        body = {
+            "id": 92001,
+            "row_no": 1,
+            "doc_date": "2026-03-30",
+            "process_date": "2026-03-30",
+            "doc_no": "BREV-N8N-1",
+            "account_name": "Плательщик",
+            "inn": "111222333",
+            "account_no": "20208000999999999999",
+            "mfo": "01001",
+            "kredit_turnover": "500.00",
+            "payment_purpose": "Поступление",
+        }
+        res = self.client.post(url, body, format="json", **self._headers(self.admin))
+        self.assertEqual(res.status_code, 201, res.content)
+        row = BankRevenue.objects.get(pk=92001)
+        self.assertEqual(row.tenant_id, self.tenant.id)
+
+        res_conflict = self.client.post(
+            url, body, format="json", **self._headers(admin_b, host="beta.example.com")
+        )
+        self.assertEqual(res_conflict.status_code, 400)
+        self.assertIn("id", res_conflict.json())
+
+        res2 = self.client.post(
+            url,
+            {**body, "kredit_turnover": "600.00", "payment_purpose": "Поступление 2"},
+            format="json",
+            **self._headers(self.admin),
+        )
+        self.assertEqual(res2.status_code, 200)
+        row.refresh_from_db()
+        self.assertEqual(str(row.kredit_turnover), "600.00")
 

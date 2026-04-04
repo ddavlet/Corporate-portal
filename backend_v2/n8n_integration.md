@@ -450,7 +450,7 @@ Webhook-уведомления по новым правилам:
 - **POST** `<base>bank/revenues/`
 
 Особенность:
-- `BankRevenue` привязан к тенанту через `tenant_subdomain` (из Host subdomain).
+- `BankRevenue` хранит тенант как `ForeignKey` на `Tenant`; при запросе тенант берётся из `Host` (subdomain), как и для остальных n8n upsert — отдельное поле `tenant_subdomain` в теле не передаётся.
 
 Схема `POST <base>bank/revenues/`:
 
