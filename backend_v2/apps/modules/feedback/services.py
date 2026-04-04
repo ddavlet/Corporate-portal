@@ -46,7 +46,7 @@ def feedback_ai_webhook_url(*, tenant_subdomain: str) -> str:
 
 def post_feedback_ai_refine(*, tenant, body: dict) -> str:
     """
-    POST JSON to n8n (e.g. action=feedback_former, kind, text) with X-N8N-Integration-Token like telegram/dispatch.
+    POST JSON to n8n (action + payload.kind/text) with X-N8N-Integration-Token like telegram/dispatch.
     """
     url = feedback_ai_webhook_url(tenant_subdomain=tenant.subdomain)
     logger.info("Feedback AI POST %s", url)

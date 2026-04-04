@@ -44,8 +44,10 @@ class FeedbackAiRefineView(APIView):
 
         body = {
             "action": "feedback_former",
-            "kind": ser.validated_data["kind"],
-            "text": ser.validated_data["text"],
+            "payload": {
+                "kind": ser.validated_data["kind"],
+                "text": ser.validated_data["text"],
+            },
         }
         try:
             feedback_text = post_feedback_ai_refine(tenant=tenant, body=body)
