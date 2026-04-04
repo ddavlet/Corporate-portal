@@ -8,6 +8,7 @@ import {
   type CorporateCardRevenue,
 } from '../lib/api'
 import { labelBlockAboveField } from './formSpacing'
+import { ChannelBalancesSummary } from './ChannelBalancesSummary'
 
 const dateTimeFormatterTashkent = new Intl.DateTimeFormat('ru-RU', {
   day: '2-digit',
@@ -221,6 +222,7 @@ export function CorporateCardPage() {
       <Typography.Title level={4} style={{ marginTop: 0 }}>
         Corporate Card
       </Typography.Title>
+      <ChannelBalancesSummary channel="corporate_card" />
       <div style={{ marginTop: 8, marginBottom: 12 }}>
         <Typography.Text type="secondary" style={labelBlockAboveField}>
           Расходы и пополнения корпоративной карты

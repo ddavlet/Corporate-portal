@@ -1,4 +1,4 @@
-from rest_framework.permissions import BasePermission
+from rest_framework.permissions import SAFE_METHODS, BasePermission
 
 from django.contrib.auth.models import AnonymousUser
 
@@ -33,6 +33,11 @@ ROLE_MODULE_ACCESS: dict[str, set[str]] = {
         TenantUserRole.ROLE_ACCOUNTANT,
     },
     "corporate_card": {
+        TenantUserRole.ROLE_ADMIN,
+        TenantUserRole.ROLE_ACCOUNTANT,
+        TenantUserRole.ROLE_CASHIER,
+    },
+    "wallets": {
         TenantUserRole.ROLE_ADMIN,
         TenantUserRole.ROLE_ACCOUNTANT,
         TenantUserRole.ROLE_CASHIER,
@@ -83,6 +88,32 @@ class IsTenantAdmin(BasePermission):
             tenant=tenant,
             user=user,
             role=TenantUserRole.ROLE_ADMIN,
+        ).exists()
+
+
+WALLETS_FINANCIAL_WRITE_ROLES = frozenset(
+    {
+        TenantUserRole.ROLE_ADMIN,
+        TenantUserRole.ROLE_ACCOUNTANT,
+    }
+)
+
+
+class HasWalletsFinancialWriteAccess(BasePermission):
+    """
+    Within the wallets module: GET/HEAD/OPTIONS always allowed (after HasEffectiveModuleAccess).
+    Mutations require admin or accountant (cashier is read-only for cash registers / wallet metadata).
+    """
+
+    def has_permission(self, request, view) -> bool:
+        if request.method in SAFE_METHODS:
+            return True
+        user = request.user
+        tenant = getattr(request, "tenant", None)
+        if not user.is_authenticated or not tenant:
+            return False
+        return TenantUserRole.objects.filter(
+            tenant=tenant, user=user, role__in=WALLETS_FINANCIAL_WRITE_ROLES
         ).exists()
 
 

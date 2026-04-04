@@ -4,6 +4,8 @@ from apps.modules.serializers_guard import reject_client_pk_on_create
 from apps.modules.bank_expenses.models import BankExpense, BankRevenue
 from apps.modules.bank_expenses.tashkent_dates import TashkentFlexibleDateField
 from apps.modules.vendors.models import Vendor
+from apps.modules.wallets.models import Wallet
+from apps.modules.wallets.serializer_integration import assign_wallet_for_bank_movement
 
 
 def _apply_expense_calendar_from_doc_date(attrs: dict, instance) -> None:
@@ -32,6 +34,12 @@ class BankExpenseSerializer(serializers.ModelSerializer):
     has_paid_request = serializers.BooleanField(read_only=True)
     matched_request_id = serializers.IntegerField(read_only=True, allow_null=True)
     vendor = serializers.PrimaryKeyRelatedField(queryset=Vendor.objects.all(), allow_null=True, required=False)
+    wallet_id = serializers.PrimaryKeyRelatedField(
+        source="wallet",
+        queryset=Wallet.objects.none(),
+        required=False,
+        allow_null=True,
+    )
 
     class Meta:
         model = BankExpense
@@ -53,6 +61,7 @@ class BankExpenseSerializer(serializers.ModelSerializer):
             "debit_turnover",
             "payment_purpose",
             "vendor",
+            "wallet_id",
             "has_request",
             "has_paid_request",
             "matched_request_id",
@@ -65,6 +74,10 @@ class BankExpenseSerializer(serializers.ModelSerializer):
         tenant = getattr(request_obj, "tenant", None)
         if tenant and "vendor" in self.fields:
             self.fields["vendor"].queryset = Vendor.objects.filter(tenant=tenant, kind=Vendor.KIND_TRANSFER)
+        if tenant and "wallet_id" in self.fields:
+            self.fields["wallet_id"].queryset = Wallet.objects.filter(
+                tenant=tenant, wallet_type=Wallet.Type.BANK
+            )
 
     def validate(self, attrs):
         reject_client_pk_on_create(self)
@@ -84,15 +97,37 @@ class BankExpenseSerializer(serializers.ModelSerializer):
                 if vendor.account_number:
                     attrs.setdefault("account_no", vendor.account_number)
         _apply_expense_calendar_from_doc_date(attrs, self.instance)
+        tenant = getattr(self.context.get("request"), "tenant", None)
+        if tenant:
+            attrs = assign_wallet_for_bank_movement(instance=self.instance, tenant=tenant, attrs=attrs)
         return attrs
 
 
 class BankRevenueSerializer(serializers.ModelSerializer):
     doc_date = TashkentFlexibleDateField()
     process_date = TashkentFlexibleDateField()
+    wallet_id = serializers.PrimaryKeyRelatedField(
+        source="wallet",
+        queryset=Wallet.objects.none(),
+        required=False,
+        allow_null=True,
+    )
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        request_obj = self.context.get("request")
+        tenant = getattr(request_obj, "tenant", None)
+        if tenant and "wallet_id" in self.fields:
+            self.fields["wallet_id"].queryset = Wallet.objects.filter(
+                tenant=tenant, wallet_type=Wallet.Type.BANK
+            )
 
     def validate(self, attrs):
         reject_client_pk_on_create(self)
+        attrs = super().validate(attrs)
+        tenant = getattr(self.context.get("request"), "tenant", None)
+        if tenant:
+            attrs = assign_wallet_for_bank_movement(instance=self.instance, tenant=tenant, attrs=attrs)
         return attrs
 
     class Meta:
@@ -111,6 +146,7 @@ class BankRevenueSerializer(serializers.ModelSerializer):
             "mfo",
             "kredit_turnover",
             "payment_purpose",
+            "wallet_id",
         ]
         read_only_fields = ["id", "created_at", "created_by"]
 

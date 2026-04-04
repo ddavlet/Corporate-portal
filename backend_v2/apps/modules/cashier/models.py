@@ -30,6 +30,11 @@ class CashExpense(models.Model):
         on_delete=models.PROTECT,
         related_name="created_cash_expenses",
     )
+    wallet = models.ForeignKey(
+        "wallets.Wallet",
+        on_delete=models.PROTECT,
+        related_name="cash_expenses",
+    )
 
     class Meta:
         db_table = "cash_expenses"
@@ -65,6 +70,11 @@ class CashRevenue(models.Model):
         settings.AUTH_USER_MODEL,
         on_delete=models.PROTECT,
         related_name="created_cash_revenues",
+    )
+    wallet = models.ForeignKey(
+        "wallets.Wallet",
+        on_delete=models.PROTECT,
+        related_name="cash_revenues",
     )
 
     class Meta:

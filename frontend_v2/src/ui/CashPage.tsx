@@ -7,6 +7,7 @@ import { apiFetch, getCashRevenues, type CashRevenue } from '../lib/api'
 import { RequestDetailModal, type RequestDetail } from './requests/RequestDetailModal'
 import { NoteCreateModal } from './NoteCreateModal'
 import { labelBlockAboveField } from './formSpacing'
+import { ChannelBalancesSummary } from './ChannelBalancesSummary'
 
 type CashExpenseRow = {
   id: number
@@ -329,6 +330,7 @@ export function CashPage() {
       <Typography.Title level={4} style={{ marginTop: 0 }}>
         Касса
       </Typography.Title>
+      <ChannelBalancesSummary channel="cash" />
       <div style={{ marginTop: 12, marginBottom: 12 }}>
         <Typography.Text type="secondary" style={labelBlockAboveField}>
           Расходы и доходы

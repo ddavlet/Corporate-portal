@@ -34,6 +34,7 @@ INSTALLED_APPS = [
     "apps.tenants",
     "apps.modules.requests",
     "apps.modules.vendors",
+    "apps.modules.wallets",
     "apps.modules.cashier",
     "apps.modules.bank_expenses",
     "apps.modules.corporate_card",

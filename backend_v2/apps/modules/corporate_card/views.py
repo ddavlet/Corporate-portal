@@ -1,9 +1,28 @@
 from rest_framework import viewsets
 from rest_framework.permissions import IsAuthenticated
+from rest_framework.response import Response
+from rest_framework.views import APIView
 
 from apps.modules.corporate_card.models import CardExpense, CardRevenue
 from apps.modules.corporate_card.serializers import CardExpenseSerializer, CardRevenueSerializer
 from apps.tenants.permissions import HasEffectiveModuleAccess
+from apps.modules.wallets.models import Wallet
+from apps.modules.wallets.services import balances_for_tenant_channel
+
+
+class CorporateCardBalancesView(APIView):
+    module_key = "corporate_card"
+    permission_classes = [IsAuthenticated, HasEffectiveModuleAccess]
+
+    def get(self, request):
+        tenant = getattr(request, "tenant", None)
+        if not tenant:
+            return Response([])
+        return Response(
+            balances_for_tenant_channel(
+                tenant_id=tenant.id, wallet_type=Wallet.Type.CORPORATE_CARD
+            )
+        )
 
 
 class CardExpenseViewSet(viewsets.ModelViewSet):

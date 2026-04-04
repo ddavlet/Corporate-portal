@@ -5,6 +5,7 @@ from rest_framework.exceptions import ValidationError
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.decorators import action
 from rest_framework import serializers
+from rest_framework.views import APIView
 from django.db import IntegrityError
 from django.db.models import Exists, OuterRef, Q, Subquery
 
@@ -16,6 +17,21 @@ from apps.modules.bank_expenses.tashkent_dates import (
 )
 from apps.modules.requests.models import Request
 from apps.tenants.permissions import HasEffectiveModuleAccess
+from apps.modules.wallets.models import Wallet
+from apps.modules.wallets.services import balances_for_tenant_channel
+
+
+class BankBalancesView(APIView):
+    module_key = "bank"
+    permission_classes = [IsAuthenticated, HasEffectiveModuleAccess]
+
+    def get(self, request):
+        tenant = getattr(request, "tenant", None)
+        if not tenant:
+            return Response([])
+        return Response(
+            balances_for_tenant_channel(tenant_id=tenant.id, wallet_type=Wallet.Type.BANK)
+        )
 
 
 class BankExpenseViewSet(viewsets.ModelViewSet):

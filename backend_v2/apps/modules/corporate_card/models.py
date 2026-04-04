@@ -18,6 +18,11 @@ class CardExpense(models.Model):
         on_delete=models.PROTECT,
         related_name="created_card_expenses",
     )
+    wallet = models.ForeignKey(
+        "wallets.Wallet",
+        on_delete=models.PROTECT,
+        related_name="card_expenses",
+    )
 
     class Meta:
         db_table = "corporate_card_expenses"
@@ -56,6 +61,11 @@ class CardRevenue(models.Model):
         settings.AUTH_USER_MODEL,
         on_delete=models.PROTECT,
         related_name="created_card_revenues",
+    )
+    wallet = models.ForeignKey(
+        "wallets.Wallet",
+        on_delete=models.PROTECT,
+        related_name="card_revenues",
     )
 
     class Meta:

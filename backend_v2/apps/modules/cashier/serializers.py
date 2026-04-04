@@ -4,6 +4,8 @@ from rest_framework import serializers
 from apps.modules.serializers_guard import reject_client_pk_on_create
 from apps.modules.cashier.models import CashExpense, CashRevenue
 from apps.modules.vendors.models import Vendor
+from apps.modules.wallets.models import Wallet
+from apps.modules.wallets.serializer_integration import assign_wallet_for_cash_movement
 
 
 class CashExpenseSerializer(serializers.ModelSerializer):
@@ -12,6 +14,12 @@ class CashExpenseSerializer(serializers.ModelSerializer):
     has_paid_request = serializers.BooleanField(read_only=True)
     matched_request_id = serializers.IntegerField(read_only=True, allow_null=True)
     vendor = serializers.PrimaryKeyRelatedField(queryset=Vendor.objects.all(), allow_null=True, required=False)
+    wallet_id = serializers.PrimaryKeyRelatedField(
+        source="wallet",
+        queryset=Wallet.objects.none(),
+        required=False,
+        allow_null=True,
+    )
 
     class Meta:
         model = CashExpense
@@ -29,6 +37,7 @@ class CashExpenseSerializer(serializers.ModelSerializer):
             "note",
             "payload",
             "vendor",
+            "wallet_id",
             "has_request",
             "has_paid_request",
             "matched_request_id",
@@ -43,6 +52,10 @@ class CashExpenseSerializer(serializers.ModelSerializer):
         tenant = getattr(request_obj, "tenant", None)
         if tenant and "vendor" in self.fields:
             self.fields["vendor"].queryset = Vendor.objects.filter(tenant=tenant, kind=Vendor.KIND_CASH)
+        if tenant and "wallet_id" in self.fields:
+            self.fields["wallet_id"].queryset = Wallet.objects.filter(
+                tenant=tenant, wallet_type=Wallet.Type.CASH
+            )
 
     def to_internal_value(self, data):
         if isinstance(data, Mapping):
@@ -80,14 +93,37 @@ class CashExpenseSerializer(serializers.ModelSerializer):
         attrs["expense_year"] = expense_at.year
         attrs["expense_month"] = expense_at.month
         attrs["expense_day"] = expense_at.day
+
+        tenant = getattr(self.context.get("request"), "tenant", None)
+        if tenant:
+            attrs = assign_wallet_for_cash_movement(instance=self.instance, tenant=tenant, attrs=attrs)
         return attrs
 
 
 class CashRevenueSerializer(serializers.ModelSerializer):
     id = serializers.IntegerField(read_only=True)
+    wallet_id = serializers.PrimaryKeyRelatedField(
+        source="wallet",
+        queryset=Wallet.objects.none(),
+        required=False,
+        allow_null=True,
+    )
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        request_obj = self.context.get("request")
+        tenant = getattr(request_obj, "tenant", None)
+        if tenant and "wallet_id" in self.fields:
+            self.fields["wallet_id"].queryset = Wallet.objects.filter(
+                tenant=tenant, wallet_type=Wallet.Type.CASH
+            )
 
     def validate(self, attrs):
         reject_client_pk_on_create(self)
+        attrs = super().validate(attrs)
+        tenant = getattr(self.context.get("request"), "tenant", None)
+        if tenant:
+            attrs = assign_wallet_for_cash_movement(instance=self.instance, tenant=tenant, attrs=attrs)
         return attrs
 
     class Meta:
@@ -106,6 +142,7 @@ class CashRevenueSerializer(serializers.ModelSerializer):
             "tags",
             "note",
             "payload",
+            "wallet_id",
             "created_at",
             "created_by",
         ]

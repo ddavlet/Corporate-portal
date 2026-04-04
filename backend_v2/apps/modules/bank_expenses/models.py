@@ -35,6 +35,11 @@ class BankExpense(models.Model):
         blank=True,
         related_name="bank_expenses",
     )
+    wallet = models.ForeignKey(
+        "wallets.Wallet",
+        on_delete=models.PROTECT,
+        related_name="bank_expenses",
+    )
 
     class Meta:
         db_table = "bank_expenses"
@@ -67,6 +72,11 @@ class BankRevenue(models.Model):
 
     kredit_turnover = models.DecimalField(max_digits=18, decimal_places=2, default=0)
     payment_purpose = models.TextField()
+    wallet = models.ForeignKey(
+        "wallets.Wallet",
+        on_delete=models.PROTECT,
+        related_name="bank_revenues",
+    )
 
     class Meta:
         db_table = "bank_revenues"

@@ -13,6 +13,7 @@ def list_modules():
     from apps.modules.n8n_integration.registry import MODULE_KEY as N8N_KEY, display_name as N8N_NAME
     from apps.modules.telegram_approvals.registry import MODULE_KEY as TG_APPROVALS_KEY, display_name as TG_APPROVALS_NAME
     from apps.modules.payroll.registry import MODULE_KEY as PAYROLL_KEY, display_name as PAYROLL_NAME
+    from apps.modules.wallets.registry import MODULE_KEY as WALLETS_KEY, display_name as WALLETS_NAME
 
     return [
         {"module_key": REQUESTS_KEY, "display_name": REQUESTS_NAME},
@@ -24,5 +25,6 @@ def list_modules():
         {"module_key": N8N_KEY, "display_name": N8N_NAME},
         {"module_key": TG_APPROVALS_KEY, "display_name": TG_APPROVALS_NAME},
         {"module_key": PAYROLL_KEY, "display_name": PAYROLL_NAME},
+        {"module_key": WALLETS_KEY, "display_name": WALLETS_NAME},
     ]
 

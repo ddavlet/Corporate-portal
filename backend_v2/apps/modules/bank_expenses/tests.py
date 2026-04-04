@@ -6,6 +6,7 @@ from rest_framework.test import APITestCase
 from rest_framework_simplejwt.tokens import RefreshToken
 
 from apps.modules.bank_expenses.models import BankRevenue
+from apps.modules.wallets.resolution import get_or_create_bank_wallet
 from apps.tenants.models import Tenant, TenantMembership, TenantModuleConfig, TenantUserRole
 
 User = get_user_model()
@@ -35,9 +36,12 @@ class BankRevenueApiTenantIsolationTests(APITestCase):
             TenantModuleConfig.objects.create(tenant=t, module_key="bank", is_enabled=True)
 
         d = date(2026, 4, 1)
+        wa = get_or_create_bank_wallet(tenant=self.tenant_a)
+        wb = get_or_create_bank_wallet(tenant=self.tenant_b)
         BankRevenue.objects.create(
             tenant=self.tenant_a,
             created_by=su,
+            wallet=wa,
             row_no=1,
             doc_date=d,
             process_date=d,
@@ -52,6 +56,7 @@ class BankRevenueApiTenantIsolationTests(APITestCase):
         BankRevenue.objects.create(
             tenant=self.tenant_b,
             created_by=su,
+            wallet=wb,
             row_no=1,
             doc_date=d,
             process_date=d,
