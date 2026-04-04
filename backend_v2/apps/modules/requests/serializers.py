@@ -759,11 +759,8 @@ def validate_auto_template_against_form_config(*, tenant, item: dict) -> None:
             "user_id", flat=True
         )
     )
-    app_id = User.objects.filter(username="app").values_list("id", flat=True).first()
     if allowed_requester_ids and requester_id not in set(allowed_requester_ids):
-        # Автозаявки всегда идут от системного пользователя `app` — не требуем его в списке формы.
-        if app_id is None or requester_id != app_id:
-            raise serializers.ValidationError("Выбранный заявитель не разрешён для этого типа оплаты в настройках формы.")
+        raise serializers.ValidationError("Выбранный заявитель не разрешён для этого типа оплаты в настройках формы.")
 
     vendor_ref_id = item.get("vendor_ref_id")
     if not vendor_ref_id:
@@ -813,6 +810,7 @@ class AutoRequestTemplatePayloadSerializer(serializers.Serializer):
     )
     payment_purpose = serializers.CharField(required=False, allow_blank=True, max_length=200, default="")
     vendor_ref_id = serializers.IntegerField(required=False, allow_null=True, default=None)
+    requester_id = serializers.IntegerField()
     billing_month_mode = serializers.ChoiceField(
         choices=AutoRequestTemplate.BILLING_MONTH_MODE_CHOICES,
         required=False,
@@ -851,5 +849,6 @@ def build_auto_request_config_response(*, tenant) -> dict:
         ],
         "vendor_candidates": VendorCandidateSerializer(vendor_candidates, many=True).data,
         "form_payment_types": form_cfg["payment_types"],
+        "requester_candidates": form_cfg["requester_candidates"],
     }
 
