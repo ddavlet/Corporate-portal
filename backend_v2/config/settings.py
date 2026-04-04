@@ -172,13 +172,10 @@ N8N_INTEGRATION_TOKEN = os.getenv("N8N_INTEGRATION_TOKEN", "").strip()
 # Outbound authorization token for calling n8n webhooks (X-N8N-Token header).
 N8N_TOKEN = os.getenv("N8N_TOKEN", "").strip()
 
-# Portal feedback: path on tenant host (Traefik → /webhook/<tenant>/<path>), e.g. lemonfit.kolberg.uz/n8n/ai/dispatch
+# Portal feedback: path on tenant host, e.g. https://lemonfit.kolberg.uz/n8n/ai/dispatch/
 N8N_FEEDBACK_AI_WEBHOOK_PATH = (
     os.getenv("N8N_FEEDBACK_AI_WEBHOOK_PATH", "n8n/ai/dispatch") or "n8n/ai/dispatch"
 ).strip().strip("/")
-# When set (e.g. http://n8n:5678), backend calls n8n inside Docker: {base}/webhook/<tenant>/<path>.
-# Avoids hairpin/HTTPS issues when posting from backend_v2 to the tenant public host.
-N8N_INTERNAL_BASE_URL = os.getenv("N8N_INTERNAL_BASE_URL", "").strip().rstrip("/")
 
 TELEGRAM_APPROVALS_BRIDGE_DISPATCH_URL = os.getenv("TELEGRAM_APPROVALS_BRIDGE_DISPATCH_URL", "").strip()
 # Optional override for bridge failure notifications; default is derived from dispatch URL or tenant host + /n8n/error/
