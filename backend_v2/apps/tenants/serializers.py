@@ -42,6 +42,8 @@ class TenantIntegrationConfigSerializer(serializers.Serializer):
     telegram_approvals_bridge_token = serializers.CharField(required=False, allow_blank=True, write_only=True)
     n8n_integration_token = serializers.CharField(required=False, allow_blank=True, write_only=True)
     requests_file_gateway_token = serializers.CharField(required=False, allow_blank=True, write_only=True)
+    portal_feedback_telegram_chat_id = serializers.IntegerField(required=False, allow_null=True)
+    portal_feedback_telegram_action = serializers.CharField(required=False, allow_blank=True, max_length=100)
 
     def validate(self, attrs):
         raw = attrs.get("telegram_approvals_bridge_dispatch_url")

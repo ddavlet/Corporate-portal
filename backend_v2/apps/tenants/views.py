@@ -11,6 +11,7 @@ from apps.tenants.serializers import (
 )
 from apps.tenants.integration_settings import (
     get_n8n_integration_settings,
+    get_portal_feedback_settings,
     get_requests_gateway_settings,
     get_telegram_approvals_settings,
 )
@@ -92,6 +93,7 @@ class TenantIntegrationConfigView(APIView):
         tg = get_telegram_approvals_settings(tenant=tenant)
         n8n = get_n8n_integration_settings(tenant=tenant)
         req = get_requests_gateway_settings(tenant=tenant)
+        pf = get_portal_feedback_settings(tenant=tenant)
         return Response(
             {
                 "telegram_bot_token": self._masked(tenant.get_telegram_bot_token()),
@@ -110,6 +112,8 @@ class TenantIntegrationConfigView(APIView):
                 "telegram_approvals_bridge_token": self._masked(tg.bridge_token),
                 "n8n_integration_token": self._masked(n8n.integration_token),
                 "requests_file_gateway_token": self._masked(req.bearer_token),
+                "portal_feedback_telegram_chat_id": pf.telegram_chat_id,
+                "portal_feedback_telegram_action": pf.telegram_action,
             }
         )
 
@@ -144,6 +148,10 @@ class TenantIntegrationConfigView(APIView):
             cfg.set_n8n_integration_token(data["n8n_integration_token"])
         if "requests_file_gateway_token" in data:
             cfg.set_requests_file_gateway_token(data["requests_file_gateway_token"])
+        if "portal_feedback_telegram_chat_id" in data:
+            cfg.portal_feedback_telegram_chat_id = data["portal_feedback_telegram_chat_id"]
+        if "portal_feedback_telegram_action" in data:
+            cfg.portal_feedback_telegram_action = data["portal_feedback_telegram_action"]
         if "telegram_bot_token" in data:
             tenant.set_telegram_bot_token(data["telegram_bot_token"])
         cfg.save()

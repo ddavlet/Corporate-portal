@@ -44,6 +44,8 @@ urlpatterns = [
     # Notes module
     path("api/notes/", include("apps.modules.notes.urls")),
 
+    path("api/feedback/", include("apps.modules.feedback.urls")),
+
     # Payroll accruals module
     path("api/payroll/", include("apps.modules.payroll.urls")),
 

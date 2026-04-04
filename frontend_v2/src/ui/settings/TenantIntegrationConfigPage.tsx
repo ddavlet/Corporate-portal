@@ -3,6 +3,7 @@ import { Alert, Button, Card, Divider, Input, Space, Typography, message } from 
 import {
   getTenantIntegrationConfig,
   type TenantIntegrationConfigResponse,
+  type TenantIntegrationConfigUpdatePayload,
   updateTenantIntegrationConfig,
 } from '../../lib/api'
 
@@ -23,6 +24,8 @@ type FormState = {
   telegram_approvals_bridge_token: string
   n8n_integration_token: string
   requests_file_gateway_token: string
+  portal_feedback_telegram_chat_id: string
+  portal_feedback_telegram_action: string
 }
 
 const MASK = '********'
@@ -51,6 +54,9 @@ function toFormState(data: TenantIntegrationConfigResponse): FormState {
     telegram_approvals_bridge_token: data.telegram_approvals_bridge_token || '',
     n8n_integration_token: data.n8n_integration_token || '',
     requests_file_gateway_token: data.requests_file_gateway_token || '',
+    portal_feedback_telegram_chat_id:
+      data.portal_feedback_telegram_chat_id != null ? String(data.portal_feedback_telegram_chat_id) : '',
+    portal_feedback_telegram_action: data.portal_feedback_telegram_action || '',
   }
 }
 
@@ -94,7 +100,7 @@ export function TenantIntegrationConfigPage() {
     setSaving(true)
     setError(null)
     try {
-      const payload: Record<string, string> = {
+      const payload: TenantIntegrationConfigUpdatePayload = {
         telegram_approvals_bridge_dispatch_url: form.telegram_approvals_bridge_dispatch_url.trim(),
         telegram_approvals_send_action: form.telegram_approvals_send_action.trim(),
         telegram_approvals_edit_action: form.telegram_approvals_edit_action.trim(),
@@ -122,6 +128,19 @@ export function TenantIntegrationConfigPage() {
       if (form.requests_file_gateway_token && form.requests_file_gateway_token !== MASK) {
         payload.requests_file_gateway_token = form.requests_file_gateway_token
       }
+      const chatRaw = form.portal_feedback_telegram_chat_id.trim()
+      if (chatRaw === '') {
+        payload.portal_feedback_telegram_chat_id = null
+      } else {
+        const n = Number(chatRaw)
+        if (!Number.isFinite(n)) {
+          setError('Chat ID для фидбека должен быть числом.')
+          setSaving(false)
+          return
+        }
+        payload.portal_feedback_telegram_chat_id = Math.trunc(n)
+      }
+      payload.portal_feedback_telegram_action = form.portal_feedback_telegram_action.trim()
 
       const data = await updateTenantIntegrationConfig(payload)
       setForm(toFormState(data))
@@ -221,6 +240,23 @@ export function TenantIntegrationConfigPage() {
               placeholder="Requests file gateway token"
               value={form.requests_file_gateway_token}
               onChange={(e) => setField('requests_file_gateway_token', e.target.value)}
+            />
+
+            <Divider style={{ margin: '4px 0' }} />
+            <Typography.Text strong>Обратная связь портала (Telegram)</Typography.Text>
+            <Typography.Text type="secondary">
+              Сообщения с кнопки «Обратная связь» уходят в n8n через тот же dispatch URL, что и заявки. Укажите chat_id
+              получателя и при необходимости action (по умолчанию send_portal_feedback — ветка в workflow dispatch).
+            </Typography.Text>
+            <Input
+              placeholder="Telegram chat_id получателя фидбека (число)"
+              value={form.portal_feedback_telegram_chat_id}
+              onChange={(e) => setField('portal_feedback_telegram_chat_id', e.target.value)}
+            />
+            <Input
+              placeholder="Action n8n, напр. send_portal_feedback"
+              value={form.portal_feedback_telegram_action}
+              onChange={(e) => setField('portal_feedback_telegram_action', e.target.value)}
             />
 
             <Space>

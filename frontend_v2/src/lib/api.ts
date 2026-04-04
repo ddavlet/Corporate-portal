@@ -142,6 +142,8 @@ export type TenantIntegrationConfigResponse = {
   telegram_approvals_bridge_token: string
   n8n_integration_token: string
   requests_file_gateway_token: string
+  portal_feedback_telegram_chat_id: number | null
+  portal_feedback_telegram_action: string
 }
 
 export type TenantIntegrationConfigUpdatePayload = Partial<{
@@ -161,6 +163,8 @@ export type TenantIntegrationConfigUpdatePayload = Partial<{
   telegram_approvals_bridge_token: string
   n8n_integration_token: string
   requests_file_gateway_token: string
+  portal_feedback_telegram_chat_id: number | null
+  portal_feedback_telegram_action: string
 }>
 
 export async function getTenantIntegrationConfig(): Promise<TenantIntegrationConfigResponse> {
@@ -183,6 +187,45 @@ export async function updateTenantIntegrationConfig(
   const json = (await res.json().catch(() => null)) as TenantIntegrationConfigResponse | null
   if (!json) throw new Error('Empty response')
   return json
+}
+
+export type FeedbackKind = 'error' | 'improvement'
+
+export async function refineFeedbackWithAi(payload: { kind: FeedbackKind; text: string }): Promise<{ feedback: string }> {
+  const res = await apiFetch('/api/feedback/ai-refine/', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ kind: payload.kind, text: payload.text }),
+  })
+  if (!res.ok) throw new Error(await parseErrorBody(res))
+  const json = (await res.json().catch(() => null)) as { feedback?: string } | null
+  if (!json?.feedback) throw new Error('Пустой ответ от сервера')
+  return { feedback: json.feedback }
+}
+
+export async function submitFeedback(payload: {
+  kind: FeedbackKind
+  body: string
+  page_path?: string
+}): Promise<{ id: number; delivery: { status: string; error: string | null } }> {
+  const res = await apiFetch('/api/feedback/submissions/', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      kind: payload.kind,
+      body: payload.body,
+      page_path: payload.page_path ?? '',
+    }),
+  })
+  if (!res.ok) throw new Error(await parseErrorBody(res))
+  const json = (await res.json().catch(() => null)) as
+    | { id?: number; delivery?: { status?: string; error?: string | null } }
+    | null
+  if (json?.id == null || !json.delivery?.status) throw new Error('Пустой ответ от сервера')
+  return {
+    id: json.id,
+    delivery: { status: json.delivery.status, error: json.delivery.error ?? null },
+  }
 }
 
 export type CorporateCardExpense = {
@@ -370,7 +413,7 @@ export type AutoRequestTemplateItem = {
   urgency: string
   payment_purpose: string
   vendor_ref_id: number | null
-  /** Всегда пользователь `app` (сервер подставляет при сохранении). */
+  /** Заявитель в создаваемых заявках; должен быть из списка формы для выбранного типа оплаты. */
   requester_id?: number
   last_run_month?: string | null
 }
@@ -380,6 +423,7 @@ export type AutoRequestConfigResponse = {
   vendor_candidates: RequestFormConfigCandidateVendor[]
   /** Same shape as form-config payment_types: purposes, vendor_ids, default_company_payer per type */
   form_payment_types: RequestFormConfigPaymentTypeItem[]
+  requester_candidates?: RequestFormConfigCandidateUser[]
 }
 
 export type AutoRequestConfigUpdatePayload = {
@@ -397,6 +441,7 @@ export type AutoRequestConfigUpdatePayload = {
     urgency?: string
     payment_purpose?: string
     vendor_ref_id?: number | null
+    requester_id: number
   }>
 }
 

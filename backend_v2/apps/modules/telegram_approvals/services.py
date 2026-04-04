@@ -1,6 +1,6 @@
 from __future__ import annotations
 import logging
-from datetime import datetime
+from datetime import date, datetime
 from html import escape
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
@@ -121,12 +121,14 @@ def dispatch_draft_request_notification(*, request_obj: Request, chat_id: int | 
     action = (settings_obj.draft_notification_action or "").strip() or "send_draft_notification"
     draft_url = build_request_draft_public_url(request_obj=request_obj)
     title = escape(str(request_obj.title or ""))
+    billing_month = escape(_format_billing_month(request_obj))
     url_part = ""
     if draft_url:
         url_part = f'\n<a href="{escape(draft_url)}">{escape(draft_url)}</a>'
     message_text = (
         f"<b>Черновик заявки № {request_obj.pk}</b>\n"
         f"{title}\n\n"
+        f"Месяц начисления: {billing_month}\n\n"
         f"Укажите сумму в портале и отправьте заявку на согласование.{url_part}"
     )
     payload = {
@@ -159,14 +161,25 @@ def _bridge_headers(*, tenant=None) -> dict:
     return headers
 
 
-def _format_month(request_obj: Request) -> str:
-    if request_obj.expense_year is None or request_obj.expense_month is None:
-        return "-"
-    try:
-        dt = datetime(request_obj.expense_year, request_obj.expense_month, 1)
-    except ValueError:
-        return "-"
-    return date_format(dt, "F Y", use_l10n=True)
+def _format_billing_month(request_obj: Request) -> str:
+    """
+    Month + year only (no calendar day): accrual from expense_year/month, else from billing_date.
+    """
+    if request_obj.expense_year is not None and request_obj.expense_month is not None:
+        try:
+            dt = datetime(request_obj.expense_year, request_obj.expense_month, 1)
+        except ValueError:
+            dt = None
+        if dt is not None:
+            return date_format(dt, "F Y", use_l10n=True)
+    bd = getattr(request_obj, "billing_date", None)
+    if isinstance(bd, date):
+        try:
+            dt = datetime(bd.year, bd.month, 1)
+        except ValueError:
+            return "-"
+        return date_format(dt, "F Y", use_l10n=True)
+    return "-"
 
 
 def _format_submitted_at(request_obj: Request) -> str:
@@ -254,6 +267,7 @@ def build_approval_message(*, request_obj: Request, approval: Approval | None = 
     vendor_name = (request_obj.vendor_ref.name if request_obj.vendor_ref_id and request_obj.vendor_ref else request_obj.vendor) or "-"
     requester_name = request_obj.requester.username if request_obj.requester_id and request_obj.requester else "-"
     template = get_requests_telegram_integration_settings(tenant=request_obj.tenant).message_template
+    billing_month_escaped = escape(_format_billing_month(request_obj))
     context = {
         "header": escape(header),
         "subheader": escape(subheader or ""),
@@ -267,7 +281,8 @@ def build_approval_message(*, request_obj: Request, approval: Approval | None = 
         "payment_type": escape(str(request_obj.payment_type or "-")),
         "payment_purpose": escape(str(request_obj.payment_purpose or "-")),
         "description": escape(str(request_obj.description or "-")),
-        "accrual_month": escape(_format_month(request_obj)),
+        "billing_month": billing_month_escaped,
+        "accrual_month": billing_month_escaped,
         "urgency": escape(str(request_obj.urgency or "-")),
         "requester": escape(str(requester_name)),
         "submitted_at": escape(_format_submitted_at(request_obj)),
@@ -290,7 +305,7 @@ def build_approval_message(*, request_obj: Request, approval: Approval | None = 
             f"<b>📌 Назначение</b>\n"
             f"• Назначение платежа: {context['payment_purpose']}\n"
             f"• Описание: {context['description']}\n"
-            f"• Месяц начисления: {context['accrual_month']}\n\n"
+            f"• Месяц начисления: {context['billing_month']}\n\n"
             f"<b>⏱ Статус</b>\n"
             f"• Срочность: {context['urgency']}\n"
             f"• Заявитель: {context['requester']}\n\n"
@@ -411,17 +426,64 @@ def _dispatch_payload(
     return payload
 
 
+def _resolve_dispatch_url_for_tenant(tenant) -> str:
+    url = ""
+    if tenant is not None:
+        url = (get_requests_telegram_integration_settings(tenant=tenant).dispatch_url or "").strip()
+    if not url:
+        url = _bridge_dispatch_url(tenant_subdomain=getattr(tenant, "subdomain", None) if tenant else None)
+    return url or ""
+
+
+def _parse_bridge_response(resp: requests.Response) -> dict | None:
+    if not resp.content:
+        return {}
+    data = resp.json()
+    # Some n8n flows return a one-item list with telegram response object.
+    if isinstance(data, list):
+        if not data:
+            return {}
+        first = data[0]
+        return first if isinstance(first, dict) else {}
+    return data if isinstance(data, dict) else {}
+
+
+def post_telegram_bridge(*, tenant, payload: dict) -> dict | None:
+    """
+    POST JSON to the tenant Telegram dispatch webhook (n8n). Failures are logged only.
+    """
+    url = _resolve_dispatch_url_for_tenant(tenant)
+    if not url:
+        logger.warning("Telegram bridge: no dispatch URL for tenant=%s", getattr(tenant, "pk", None))
+        return None
+    try:
+        resp = requests.post(url, json=payload, headers=_bridge_headers(tenant=tenant), timeout=10)
+        if resp.status_code >= 400:
+            logger.warning(
+                "Telegram bridge returned HTTP %s for payload action=%s",
+                resp.status_code,
+                payload.get("action"),
+            )
+            return None
+        return _parse_bridge_response(resp)
+    except Exception:
+        logger.exception("Failed to call Telegram bridge")
+        return None
+
+
 def _post_to_bridge(*, request_obj: Request, payload: dict) -> dict | None:
     tenant = getattr(request_obj, "tenant", None)
-    url = get_requests_telegram_integration_settings(tenant=tenant).dispatch_url
-    if not url:
-        url = _bridge_dispatch_url(tenant_subdomain=getattr(tenant, "subdomain", None))
+    url = _resolve_dispatch_url_for_tenant(tenant)
     if not url:
         return None
     try:
         resp = requests.post(url, json=payload, headers=_bridge_headers(tenant=tenant), timeout=10)
         if resp.status_code >= 400:
-            logger.warning("Telegram bridge returned HTTP %s for payload action=%s", resp.status_code, payload.get("action"))
+            logger.warning(
+                "Telegram bridge returned HTTP %s for payload action=%s",
+                resp.status_code,
+                payload.get("action"),
+            )
             _report_bridge_error(
                 request_obj=request_obj,
                 payload=payload,
@@ -430,16 +492,7 @@ def _post_to_bridge(*, request_obj: Request, payload: dict) -> dict | None:
                 response_body=getattr(resp, "text", None) or "",
             )
             return None
-        if not resp.content:
-            return {}
-        data = resp.json()
-        # Some n8n flows return a one-item list with telegram response object.
-        if isinstance(data, list):
-            if not data:
-                return {}
-            first = data[0]
-            return first if isinstance(first, dict) else {}
-        return data if isinstance(data, dict) else {}
+        return _parse_bridge_response(resp)
     except Exception as exc:
         logger.exception("Failed to call Telegram bridge")
         _report_bridge_error(

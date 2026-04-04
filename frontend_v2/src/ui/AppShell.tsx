@@ -1,8 +1,10 @@
+import { useState } from 'react'
 import { Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { ProLayout } from '@ant-design/pro-layout'
 import { Button, Space, Typography } from 'antd'
 import {
   BankOutlined,
+  CommentOutlined,
   CreditCardOutlined,
   DashboardOutlined,
   DollarOutlined,
@@ -12,11 +14,13 @@ import {
   TeamOutlined,
 } from '@ant-design/icons'
 import { useAuth } from './auth'
+import { FeedbackModal } from './feedback/FeedbackModal'
 
 export function AppShell() {
   const location = useLocation()
   const navigate = useNavigate()
   const { logout, username } = useAuth()
+  const [feedbackOpen, setFeedbackOpen] = useState(false)
 
   return (
     <ProLayout
@@ -47,6 +51,9 @@ export function AppShell() {
       rightContentRender={() => (
         <Space size="middle">
           {username ? <Typography.Text type="secondary">{username}</Typography.Text> : null}
+          <Button icon={<CommentOutlined />} onClick={() => setFeedbackOpen(true)}>
+            Обратная связь
+          </Button>
           <Button
             icon={<LogoutOutlined />}
             onClick={() => {
@@ -63,6 +70,7 @@ export function AppShell() {
       layout="mix"
       contentStyle={{ padding: 24 }}
     >
+      <FeedbackModal open={feedbackOpen} onClose={() => setFeedbackOpen(false)} pagePath={location.pathname} />
       <Outlet />
     </ProLayout>
   )

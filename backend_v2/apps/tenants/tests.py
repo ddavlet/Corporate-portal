@@ -83,6 +83,8 @@ class TenantIntegrationConfigApiTests(APITestCase):
                 "telegram_approvals_header_new_template": "💰 Новая заявка на расход № {request_id}",
                 "n8n_integration_token": "secret-2",
                 "requests_file_gateway_token": "secret-3",
+                "portal_feedback_telegram_chat_id": -1001234567890,
+                "portal_feedback_telegram_action": "send_portal_feedback",
             },
             format="json",
             **self._auth_headers(self.admin),
@@ -100,12 +102,16 @@ class TenantIntegrationConfigApiTests(APITestCase):
         self.assertEqual(cfg.telegram_approvals_header_new_template, "💰 Новая заявка на расход № {request_id}")
         self.assertEqual(cfg.get_n8n_integration_token(), "secret-2")
         self.assertEqual(cfg.get_requests_file_gateway_token(), "secret-3")
+        self.assertEqual(cfg.portal_feedback_telegram_chat_id, -1001234567890)
+        self.assertEqual(cfg.portal_feedback_telegram_action, "send_portal_feedback")
 
         get = self.client.get(self.url, **self._auth_headers(self.admin))
         self.assertEqual(get.status_code, 200, get.content)
         self.assertEqual(get.data["telegram_approvals_bridge_token"], "********")
         self.assertEqual(get.data["requests_file_gateway_token"], "********")
         self.assertIn("telegram_approvals_message_template", get.data)
+        self.assertEqual(get.data["portal_feedback_telegram_chat_id"], -1001234567890)
+        self.assertEqual(get.data["portal_feedback_telegram_action"], "send_portal_feedback")
 
     def test_non_admin_forbidden(self):
         res = self.client.get(self.url, **self._auth_headers(self.user))
