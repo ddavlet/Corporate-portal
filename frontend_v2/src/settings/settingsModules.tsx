@@ -34,8 +34,8 @@ export const SETTINGS_MODULES: SettingsModuleItem[] = [
   },
   {
     key: 'cash-registers',
-    title: 'Кассы',
-    description: 'Справочник касс и остаток на начало года по кошельку.',
+    title: 'Кошельки',
+    description: 'Касса, банк (выписка), корпкарта: счета, остаток на 1 янв, безопасное удаление.',
     path: '/settings/cash-registers',
     icon: <ShopOutlined />,
   },

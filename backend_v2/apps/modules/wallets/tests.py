@@ -152,3 +152,35 @@ class WalletsApiTests(APITestCase):
             **self._headers(cashier),
         )
         self.assertEqual(res.status_code, 403)
+
+    def test_bank_accounts_list_includes_existing(self):
+        res = self.client.get("/api/wallets/bank-accounts/", **self._headers(self.admin))
+        self.assertEqual(res.status_code, 200)
+        payload = res.json()
+        rows = payload if isinstance(payload, list) else payload.get("results", [])
+        ids = {r["wallet_id"] for r in rows}
+        self.assertIn(self.wallet_bank.id, ids)
+
+    def test_bank_account_second_create_rejected(self):
+        res = self.client.post(
+            "/api/wallets/bank-accounts/",
+            {"label": "Дубликат"},
+            format="json",
+            **self._headers(self.admin),
+        )
+        self.assertEqual(res.status_code, 400)
+
+    def test_corporate_card_accounts_list_and_duplicate_currency(self):
+        res = self.client.get("/api/wallets/corporate-card-accounts/", **self._headers(self.admin))
+        self.assertEqual(res.status_code, 200)
+        payload = res.json()
+        rows = payload if isinstance(payload, list) else payload.get("results", [])
+        self.assertTrue(any(r["wallet_id"] == self.wallet_corp.id for r in rows))
+
+        dup = self.client.post(
+            "/api/wallets/corporate-card-accounts/",
+            {"currency": "UZS", "label": "Другой"},
+            format="json",
+            **self._headers(self.admin),
+        )
+        self.assertEqual(dup.status_code, 400)

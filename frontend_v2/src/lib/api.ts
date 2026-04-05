@@ -487,6 +487,102 @@ export async function deleteCashRegister(id: number): Promise<void> {
   if (!res.ok) throw new Error(await parseErrorBody(res))
 }
 
+export type BankAccountDto = {
+  id: number
+  tenant: number
+  label: string
+  account_no: string
+  mfo: string
+  wallet_id: number
+}
+
+export async function getBankAccounts(): Promise<BankAccountDto[]> {
+  const res = await apiFetch('/api/wallets/bank-accounts/')
+  if (!res.ok) throw new Error(await parseErrorBody(res))
+  const json = await res.json().catch(() => null)
+  return normalizeListPayload<BankAccountDto>(json)
+}
+
+export async function createBankAccount(payload: {
+  label?: string
+  account_no?: string
+  mfo?: string
+}): Promise<BankAccountDto> {
+  const res = await apiFetch('/api/wallets/bank-accounts/', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+  if (!res.ok) throw new Error(await parseErrorBody(res))
+  return (await res.json()) as BankAccountDto
+}
+
+export async function patchBankAccount(
+  id: number,
+  payload: Partial<{ label: string; account_no: string; mfo: string }>,
+): Promise<BankAccountDto> {
+  const res = await apiFetch(`/api/wallets/bank-accounts/${id}/`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+  if (!res.ok) throw new Error(await parseErrorBody(res))
+  return (await res.json()) as BankAccountDto
+}
+
+export async function deleteBankAccount(id: number): Promise<void> {
+  const res = await apiFetch(`/api/wallets/bank-accounts/${id}/`, { method: 'DELETE' })
+  if (!res.ok) throw new Error(await parseErrorBody(res))
+}
+
+export type CorporateCardAccountDto = {
+  id: number
+  tenant: number
+  currency: string
+  label: string
+  external_ref: string
+  wallet_id: number
+}
+
+export async function getCorporateCardAccounts(): Promise<CorporateCardAccountDto[]> {
+  const res = await apiFetch('/api/wallets/corporate-card-accounts/')
+  if (!res.ok) throw new Error(await parseErrorBody(res))
+  const json = await res.json().catch(() => null)
+  return normalizeListPayload<CorporateCardAccountDto>(json)
+}
+
+export async function createCorporateCardAccount(payload: {
+  currency: string
+  label?: string
+  external_ref?: string
+}): Promise<CorporateCardAccountDto> {
+  const res = await apiFetch('/api/wallets/corporate-card-accounts/', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+  if (!res.ok) throw new Error(await parseErrorBody(res))
+  return (await res.json()) as CorporateCardAccountDto
+}
+
+export async function patchCorporateCardAccount(
+  id: number,
+  payload: Partial<{ label: string; external_ref: string }>,
+): Promise<CorporateCardAccountDto> {
+  const res = await apiFetch(`/api/wallets/corporate-card-accounts/${id}/`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+  if (!res.ok) throw new Error(await parseErrorBody(res))
+  return (await res.json()) as CorporateCardAccountDto
+}
+
+export async function deleteCorporateCardAccount(id: number): Promise<void> {
+  const res = await apiFetch(`/api/wallets/corporate-card-accounts/${id}/`, { method: 'DELETE' })
+  if (!res.ok) throw new Error(await parseErrorBody(res))
+}
+
 export type WalletDto = {
   id: number
   tenant: number
