@@ -6,6 +6,7 @@ import {
   Input,
   InputNumber,
   Modal,
+  Tabs,
   message,
   Space,
   Switch,
@@ -14,15 +15,25 @@ import {
 } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
 import {
+  createBankAccount,
   createCashRegister,
+  createCorporateCardAccount,
+  deleteBankAccount,
   deleteCashRegister,
+  deleteCorporateCardAccount,
+  getBankAccounts,
   getCashRegisters,
+  getCorporateCardAccounts,
+  patchBankAccount,
   patchCashRegister,
+  patchCorporateCardAccount,
   patchWallet,
+  type BankAccountDto,
   type CashRegisterDto,
+  type CorporateCardAccountDto,
 } from '../../lib/api'
 
-export function CashRegistersSettingsPage() {
+function CashTab() {
   const [loading, setLoading] = useState(true)
   const [rows, setRows] = useState<CashRegisterDto[]>([])
   const [error, setError] = useState<string | null>(null)
@@ -36,8 +47,7 @@ export function CashRegistersSettingsPage() {
     setLoading(true)
     setError(null)
     try {
-      const data = await getCashRegisters()
-      setRows(data)
+      setRows(await getCashRegisters())
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Ошибка загрузки')
     } finally {
@@ -158,6 +168,7 @@ export function CashRegistersSettingsPage() {
             onClick={() => {
               Modal.confirm({
                 title: 'Удалить кассу?',
+                content: 'Без операций по этой кассе. Иначе удаление будет отклонено.',
                 onOk: async () => {
                   try {
                     await deleteCashRegister(r.id)
@@ -178,12 +189,9 @@ export function CashRegistersSettingsPage() {
   ]
 
   return (
-    <div style={{ maxWidth: 1100 }}>
-      <Typography.Title level={4} style={{ marginTop: 0 }}>
-        Кассы
-      </Typography.Title>
+    <>
       <Typography.Paragraph type="secondary">
-        Одна касса на валюту. Для остатка на начало года используйте кошелёк (поле opening_balance).
+        Одна касса на валюту. Остаток на 1 января — в кошельке (opening_balance).
       </Typography.Paragraph>
       <Button type="primary" onClick={openCreate} style={{ marginBottom: 16 }}>
         Добавить кассу
@@ -205,11 +213,7 @@ export function CashRegistersSettingsPage() {
         destroyOnClose
       >
         <Form form={form} layout="vertical">
-          <Form.Item
-            name="currency"
-            label="Валюта"
-            rules={[{ required: true, message: 'Укажите валюту' }]}
-          >
+          <Form.Item name="currency" label="Валюта" rules={[{ required: true, message: 'Укажите валюту' }]}>
             <Input disabled={!!editing} maxLength={10} />
           </Form.Item>
           <Form.Item name="name" label="Название">
@@ -244,24 +248,407 @@ export function CashRegistersSettingsPage() {
         destroyOnClose
       >
         {openingModalFor ? (
-          <Form
-            form={openingForm}
-            layout="vertical"
-            initialValues={{ opening_balance: '' }}
-          >
+          <Form form={openingForm} layout="vertical" initialValues={{ opening_balance: '' }}>
             <Typography.Text type="secondary">
               Кошелёк #{openingModalFor.wallet_id}, валюта {openingModalFor.currency}
             </Typography.Text>
-            <Form.Item
-              name="opening_balance"
-              label="Остаток"
-              rules={[{ required: true, message: 'Введите сумму' }]}
-            >
+            <Form.Item name="opening_balance" label="Остаток" rules={[{ required: true, message: 'Введите сумму' }]}>
               <Input />
             </Form.Item>
           </Form>
         ) : null}
       </Modal>
+    </>
+  )
+}
+
+function BankTab() {
+  const [loading, setLoading] = useState(true)
+  const [rows, setRows] = useState<BankAccountDto[]>([])
+  const [error, setError] = useState<string | null>(null)
+  const [modalOpen, setModalOpen] = useState(false)
+  const [editing, setEditing] = useState<BankAccountDto | null>(null)
+  const [openingFor, setOpeningFor] = useState<BankAccountDto | null>(null)
+  const [form] = Form.useForm()
+  const [openingForm] = Form.useForm()
+
+  const load = useCallback(async () => {
+    setLoading(true)
+    setError(null)
+    try {
+      setRows(await getBankAccounts())
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Ошибка загрузки')
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    void load()
+  }, [load])
+
+  const openCreate = () => {
+    setEditing(null)
+    form.resetFields()
+    form.setFieldsValue({ label: 'Основной', account_no: '', mfo: '' })
+    setModalOpen(true)
+  }
+
+  const openEdit = (r: BankAccountDto) => {
+    setEditing(r)
+    form.setFieldsValue({ label: r.label, account_no: r.account_no, mfo: r.mfo })
+    setModalOpen(true)
+  }
+
+  const submitModal = async () => {
+    try {
+      const v = await form.validateFields()
+      if (editing) {
+        await patchBankAccount(editing.id, {
+          label: v.label,
+          account_no: v.account_no,
+          mfo: v.mfo,
+        })
+        message.success('Сохранено')
+      } else {
+        await createBankAccount({
+          label: v.label,
+          account_no: v.account_no || '',
+          mfo: v.mfo || '',
+        })
+        message.success('Банковский кошелёк создан')
+      }
+      setModalOpen(false)
+      void load()
+    } catch (e: unknown) {
+      if (e && typeof e === 'object' && 'errorFields' in e) return
+      message.error(e instanceof Error ? e.message : 'Ошибка')
+    }
+  }
+
+  const submitOpening = async () => {
+    if (!openingFor) return
+    try {
+      const v = await openingForm.validateFields()
+      await patchWallet(openingFor.wallet_id, { opening_balance: String(v.opening_balance) })
+      message.success('Остаток на 1 янв обновлён')
+      setOpeningFor(null)
+      openingForm.resetFields()
+    } catch (e: unknown) {
+      if (e && typeof e === 'object' && 'errorFields' in e) return
+      message.error(e instanceof Error ? e.message : 'Ошибка')
+    }
+  }
+
+  const columns: ColumnsType<BankAccountDto> = [
+    { title: 'Название', dataIndex: 'label' },
+    { title: 'Счёт (справочно)', dataIndex: 'account_no' },
+    { title: 'МФО', dataIndex: 'mfo', width: 100 },
+    { title: 'Валюта кошелька', key: 'cur', width: 120, render: () => 'UZS' },
+    {
+      title: '',
+      key: 'actions',
+      width: 220,
+      render: (_, r) => (
+        <Space>
+          <Button size="small" onClick={() => openEdit(r)}>
+            Изменить
+          </Button>
+          <Button size="small" onClick={() => setOpeningFor(r)}>
+            Остаток 1 янв
+          </Button>
+          <Button
+            size="small"
+            danger
+            onClick={() => {
+              Modal.confirm({
+                title: 'Удалить банковский кошелёк?',
+                content: 'Только если нет операций по выписке.',
+                onOk: async () => {
+                  try {
+                    await deleteBankAccount(r.id)
+                    message.success('Удалено')
+                    void load()
+                  } catch (e: unknown) {
+                    message.error(e instanceof Error ? e.message : 'Ошибка')
+                  }
+                },
+              })
+            }}
+          >
+            Удалить
+          </Button>
+        </Space>
+      ),
+    },
+  ]
+
+  return (
+    <>
+      <Typography.Paragraph type="secondary">
+        Один банковский кошелёк на компанию (UZS). Поля счёта/МФО — справочные, не реквизиты контрагента из
+        выписки.
+      </Typography.Paragraph>
+      {rows.length === 0 ? (
+        <Button type="primary" onClick={openCreate} style={{ marginBottom: 16 }}>
+          Создать банковский кошелёк
+        </Button>
+      ) : null}
+      {error ? <Alert type="error" showIcon message={error} style={{ marginBottom: 16 }} /> : null}
+      <Table<BankAccountDto>
+        rowKey="id"
+        loading={loading}
+        columns={columns}
+        dataSource={rows}
+        pagination={false}
+      />
+
+      <Modal
+        title={editing ? 'Банк (выписка)' : 'Новый банковский кошелёк'}
+        open={modalOpen}
+        onCancel={() => setModalOpen(false)}
+        onOk={() => void submitModal()}
+        destroyOnClose
+      >
+        <Form form={form} layout="vertical">
+          <Form.Item name="label" label="Название" rules={[{ required: true, message: 'Укажите название' }]}>
+            <Input />
+          </Form.Item>
+          <Form.Item name="account_no" label="Расчётный счёт (справочно)">
+            <Input />
+          </Form.Item>
+          <Form.Item name="mfo" label="МФО (справочно)">
+            <Input maxLength={10} />
+          </Form.Item>
+        </Form>
+      </Modal>
+
+      <Modal
+        title="Остаток на 1 января (кошелёк банка)"
+        open={!!openingFor}
+        onCancel={() => {
+          setOpeningFor(null)
+          openingForm.resetFields()
+        }}
+        onOk={() => void submitOpening()}
+        destroyOnClose
+      >
+        {openingFor ? (
+          <Form form={openingForm} layout="vertical" initialValues={{ opening_balance: '' }}>
+            <Typography.Text type="secondary">Кошелёк #{openingFor.wallet_id}, валюта UZS</Typography.Text>
+            <Form.Item name="opening_balance" label="Остаток" rules={[{ required: true, message: 'Введите сумму' }]}>
+              <Input />
+            </Form.Item>
+          </Form>
+        ) : null}
+      </Modal>
+    </>
+  )
+}
+
+function CorpCardTab() {
+  const [loading, setLoading] = useState(true)
+  const [rows, setRows] = useState<CorporateCardAccountDto[]>([])
+  const [error, setError] = useState<string | null>(null)
+  const [modalOpen, setModalOpen] = useState(false)
+  const [editing, setEditing] = useState<CorporateCardAccountDto | null>(null)
+  const [openingModalFor, setOpeningModalFor] = useState<CorporateCardAccountDto | null>(null)
+  const [form] = Form.useForm()
+  const [openingForm] = Form.useForm()
+
+  const load = useCallback(async () => {
+    setLoading(true)
+    setError(null)
+    try {
+      setRows(await getCorporateCardAccounts())
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Ошибка загрузки')
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    void load()
+  }, [load])
+
+  const openCreate = () => {
+    setEditing(null)
+    form.resetFields()
+    form.setFieldsValue({ label: '', external_ref: '' })
+    setModalOpen(true)
+  }
+
+  const openEdit = (r: CorporateCardAccountDto) => {
+    setEditing(r)
+    form.setFieldsValue({ label: r.label, external_ref: r.external_ref })
+    setModalOpen(true)
+  }
+
+  const submitModal = async () => {
+    try {
+      const v = await form.validateFields()
+      if (editing) {
+        await patchCorporateCardAccount(editing.id, {
+          label: v.label,
+          external_ref: v.external_ref,
+        })
+        message.success('Сохранено')
+      } else {
+        await createCorporateCardAccount({
+          currency: v.currency,
+          label: v.label,
+          external_ref: v.external_ref,
+        })
+        message.success('Счёт корпкарты создан')
+      }
+      setModalOpen(false)
+      void load()
+    } catch (e: unknown) {
+      if (e && typeof e === 'object' && 'errorFields' in e) return
+      message.error(e instanceof Error ? e.message : 'Ошибка')
+    }
+  }
+
+  const submitOpening = async () => {
+    if (!openingModalFor) return
+    try {
+      const v = await openingForm.validateFields()
+      await patchWallet(openingModalFor.wallet_id, { opening_balance: String(v.opening_balance) })
+      message.success('Остаток на 1 янв обновлён')
+      setOpeningModalFor(null)
+      openingForm.resetFields()
+    } catch (e: unknown) {
+      if (e && typeof e === 'object' && 'errorFields' in e) return
+      message.error(e instanceof Error ? e.message : 'Ошибка')
+    }
+  }
+
+  const columns: ColumnsType<CorporateCardAccountDto> = [
+    { title: 'Название', dataIndex: 'label', render: (v, r) => (v || '').trim() || r.currency },
+    { title: 'Валюта', dataIndex: 'currency', width: 90 },
+    { title: 'Внешний код', dataIndex: 'external_ref' },
+    {
+      title: '',
+      key: 'actions',
+      width: 220,
+      render: (_, r) => (
+        <Space>
+          <Button size="small" onClick={() => openEdit(r)}>
+            Изменить
+          </Button>
+          <Button size="small" onClick={() => setOpeningModalFor(r)}>
+            Остаток 1 янв
+          </Button>
+          <Button
+            size="small"
+            danger
+            onClick={() => {
+              Modal.confirm({
+                title: 'Удалить счёт корпкарты?',
+                content: 'Только если нет операций по карте.',
+                onOk: async () => {
+                  try {
+                    await deleteCorporateCardAccount(r.id)
+                    message.success('Удалено')
+                    void load()
+                  } catch (e: unknown) {
+                    message.error(e instanceof Error ? e.message : 'Ошибка')
+                  }
+                },
+              })
+            }}
+          >
+            Удалить
+          </Button>
+        </Space>
+      ),
+    },
+  ]
+
+  return (
+    <>
+      <Typography.Paragraph type="secondary">
+        Один счёт корпоративной карты на валюту. Остаток на 1 января — в кошельке.
+      </Typography.Paragraph>
+      <Button type="primary" onClick={openCreate} style={{ marginBottom: 16 }}>
+        Добавить счёт
+      </Button>
+      {error ? <Alert type="error" showIcon message={error} style={{ marginBottom: 16 }} /> : null}
+      <Table<CorporateCardAccountDto>
+        rowKey="id"
+        loading={loading}
+        columns={columns}
+        dataSource={rows}
+        pagination={false}
+      />
+
+      <Modal
+        title={editing ? 'Корпоративная карта' : 'Новый счёт'}
+        open={modalOpen}
+        onCancel={() => setModalOpen(false)}
+        onOk={() => void submitModal()}
+        destroyOnClose
+      >
+        <Form form={form} layout="vertical">
+          {!editing ? (
+            <Form.Item name="currency" label="Валюта" rules={[{ required: true, message: 'Укажите валюту' }]}>
+              <Input maxLength={10} />
+            </Form.Item>
+          ) : null}
+          <Form.Item name="label" label="Название">
+            <Input />
+          </Form.Item>
+          <Form.Item name="external_ref" label="Внешний код / примечание">
+            <Input />
+          </Form.Item>
+        </Form>
+      </Modal>
+
+      <Modal
+        title="Остаток на 1 января (кошелёк)"
+        open={!!openingModalFor}
+        onCancel={() => {
+          setOpeningModalFor(null)
+          openingForm.resetFields()
+        }}
+        onOk={() => void submitOpening()}
+        destroyOnClose
+      >
+        {openingModalFor ? (
+          <Form form={openingForm} layout="vertical" initialValues={{ opening_balance: '' }}>
+            <Typography.Text type="secondary">
+              Кошелёк #{openingModalFor.wallet_id}, валюта {openingModalFor.currency}
+            </Typography.Text>
+            <Form.Item name="opening_balance" label="Остаток" rules={[{ required: true, message: 'Введите сумму' }]}>
+              <Input />
+            </Form.Item>
+          </Form>
+        ) : null}
+      </Modal>
+    </>
+  )
+}
+
+export function CashRegistersSettingsPage() {
+  return (
+    <div style={{ maxWidth: 1100 }}>
+      <Typography.Title level={4} style={{ marginTop: 0 }}>
+        Кошельки и счета
+      </Typography.Title>
+      <Typography.Paragraph type="secondary" style={{ marginBottom: 16 }}>
+        Наличные, банк (выписка) и корпоративная карта: создание, правка, безопасное удаление (без движений) и
+        остаток на начало года.
+      </Typography.Paragraph>
+      <Tabs
+        defaultActiveKey="cash"
+        items={[
+          { key: 'cash', label: 'Наличные (касса)', children: <CashTab /> },
+          { key: 'bank', label: 'Банк (выписка)', children: <BankTab /> },
+          { key: 'corp', label: 'Корпоративная карта', children: <CorpCardTab /> },
+        ]}
+      />
     </div>
   )
 }

@@ -1,10 +1,19 @@
+from django.db import transaction
 from django.db.models import ProtectedError
 from rest_framework import mixins, status, viewsets
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
-from apps.modules.wallets.models import CashRegister, Wallet
-from apps.modules.wallets.serializers import CashRegisterSerializer, WalletSerializer
+from apps.modules.bank_expenses.models import BankExpense, BankRevenue
+from apps.modules.cashier.models import CashExpense, CashRevenue
+from apps.modules.corporate_card.models import CardExpense, CardRevenue
+from apps.modules.wallets.models import BankAccount, CashRegister, CorporateCardAccount, Wallet
+from apps.modules.wallets.serializers import (
+    BankAccountSerializer,
+    CashRegisterSerializer,
+    CorporateCardAccountSerializer,
+    WalletSerializer,
+)
 from apps.tenants.permissions import (
     HasEffectiveModuleAccess,
     HasWalletsFinancialWriteAccess,
@@ -43,13 +52,121 @@ class CashRegisterViewSet(viewsets.ModelViewSet):
         serializer.save(tenant=self.request.tenant)
 
     def destroy(self, request, *args, **kwargs):
-        try:
-            return super().destroy(request, *args, **kwargs)
-        except ProtectedError:
-            return Response(
-                {"detail": "Нельзя удалить кассу: есть связанные операции."},
-                status=status.HTTP_409_CONFLICT,
-            )
+        instance = self.get_object()
+        wallet = Wallet.objects.filter(cash_register=instance).first()
+        if wallet:
+            if CashExpense.objects.filter(wallet=wallet).exists() or CashRevenue.objects.filter(
+                wallet=wallet
+            ).exists():
+                return Response(
+                    {"detail": "Нельзя удалить кассу: есть кассовые операции."},
+                    status=status.HTTP_409_CONFLICT,
+                )
+            try:
+                with transaction.atomic():
+                    wallet.delete()
+                    instance.delete()
+            except ProtectedError:
+                return Response(
+                    {"detail": "Нельзя удалить кассу: есть связанные данные."},
+                    status=status.HTTP_409_CONFLICT,
+                )
+        else:
+            instance.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class BankAccountViewSet(viewsets.ModelViewSet):
+    module_key = "wallets"
+    serializer_class = BankAccountSerializer
+
+    def get_permissions(self):
+        perms = [IsAuthenticated(), HasEffectiveModuleAccess()]
+        if self.action in ("create", "update", "partial_update", "destroy"):
+            perms.append(HasWalletsFinancialWriteAccess())
+        return perms
+
+    def get_queryset(self):
+        tenant = getattr(self.request, "tenant", None)
+        if not tenant:
+            return BankAccount.objects.none()
+        return BankAccount.objects.filter(tenant=tenant).select_related("wallet").order_by("id")
+
+    def perform_create(self, serializer):
+        serializer.save(tenant=self.request.tenant)
+
+    def destroy(self, request, *args, **kwargs):
+        instance = self.get_object()
+        wallet = Wallet.objects.filter(bank_account=instance).first()
+        if wallet:
+            if BankExpense.objects.filter(wallet=wallet).exists() or BankRevenue.objects.filter(
+                wallet=wallet
+            ).exists():
+                return Response(
+                    {"detail": "Нельзя удалить банковский счёт: есть операции по выписке."},
+                    status=status.HTTP_409_CONFLICT,
+                )
+            try:
+                with transaction.atomic():
+                    wallet.delete()
+                    instance.delete()
+            except ProtectedError:
+                return Response(
+                    {"detail": "Нельзя удалить: есть связанные данные."},
+                    status=status.HTTP_409_CONFLICT,
+                )
+        else:
+            instance.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class CorporateCardAccountViewSet(viewsets.ModelViewSet):
+    module_key = "wallets"
+    serializer_class = CorporateCardAccountSerializer
+
+    def get_permissions(self):
+        perms = [IsAuthenticated(), HasEffectiveModuleAccess()]
+        if self.action in ("create", "update", "partial_update", "destroy"):
+            perms.append(HasWalletsFinancialWriteAccess())
+        return perms
+
+    def get_queryset(self):
+        tenant = getattr(self.request, "tenant", None)
+        if not tenant:
+            return CorporateCardAccount.objects.none()
+        qs = CorporateCardAccount.objects.filter(tenant=tenant).select_related("wallet").order_by(
+            "currency", "id"
+        )
+        if cur := (self.request.query_params.get("currency") or "").strip():
+            qs = qs.filter(currency=cur)
+        return qs
+
+    def perform_create(self, serializer):
+        serializer.save(tenant=self.request.tenant)
+
+    def destroy(self, request, *args, **kwargs):
+        instance = self.get_object()
+        wallet = Wallet.objects.filter(corporate_card_account=instance).first()
+        if wallet:
+            if CardExpense.objects.filter(wallet=wallet).exists() or CardRevenue.objects.filter(
+                wallet=wallet
+            ).exists():
+                return Response(
+                    {"detail": "Нельзя удалить счёт корпкарты: есть операции по карте."},
+                    status=status.HTTP_409_CONFLICT,
+                )
+            try:
+                with transaction.atomic():
+                    wallet.delete()
+                    instance.delete()
+            except ProtectedError:
+                return Response(
+                    {"detail": "Нельзя удалить счёт корпкарты: есть связанные данные."},
+                    status=status.HTTP_409_CONFLICT,
+                )
+        else:
+            instance.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 class WalletViewSet(
