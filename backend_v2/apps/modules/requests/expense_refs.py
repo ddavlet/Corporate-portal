@@ -1,3 +1,5 @@
+from rest_framework import serializers
+
 from apps.modules.bank_expenses.models import BankExpense
 from apps.modules.cashier.models import CashExpense
 from apps.modules.corporate_card.models import CardExpense
@@ -5,6 +7,40 @@ from apps.modules.payroll.constants import SALARY_CATEGORY
 from apps.modules.payroll.models import PayrollDocument
 from apps.modules.payroll.utils import tenant_has_payroll_module_enabled
 from apps.modules.requests.models import Request
+
+
+def expense_ref_target_for(*, payment_type: str, category: str) -> str | None:
+    if payment_type == Request.PAYMENT_TYPE_CASH and (category or "").strip() == SALARY_CATEGORY:
+        return Request.EXPENSE_REF_TARGET_PAYROLL
+    if payment_type == Request.PAYMENT_TYPE_CASH:
+        return Request.EXPENSE_REF_TARGET_CASH
+    if payment_type in (Request.PAYMENT_TYPE_TRANSFER, Request.PAYMENT_TYPE_TOPUP):
+        return Request.EXPENSE_REF_TARGET_BANK
+    if payment_type == Request.PAYMENT_TYPE_CARD:
+        return Request.EXPENSE_REF_TARGET_CARD
+    return None
+
+
+def raise_if_expense_ref_taken(
+    *,
+    tenant,
+    target: str | None,
+    ref_id: int | None,
+    exclude_request_pk: int | None = None,
+):
+    if ref_id is None or not target:
+        return
+    qs = Request.objects.filter(
+        tenant=tenant,
+        expense_ref_target=target,
+        expense_ref_id=ref_id,
+    )
+    if exclude_request_pk is not None:
+        qs = qs.exclude(pk=exclude_request_pk)
+    if qs.exists():
+        raise serializers.ValidationError(
+            {"expense_id": "Этот расход уже привязан к другой заявке."}
+        )
 
 
 def try_resolve_request_expense_ref_id(
@@ -65,8 +101,8 @@ def try_resolve_request_expense_ref_id(
 
 def maybe_persist_request_expense_ref(*, request_obj: Request, tenant) -> int | None:
     """
-    Try resolve from current `expense_id` / context; if found, persist `expense_ref_id`.
-    Returns the effective ref id for building links (resolved or already stored).
+    Try resolve from current `expense_id` / context; if found, persist `expense_ref_id`
+    (+ `expense_ref_target`) when no other request already owns this ref.
     """
     raw = str(request_obj.expense_id or "").strip()
     resolved: int | None = None
@@ -78,9 +114,30 @@ def maybe_persist_request_expense_ref(*, request_obj: Request, tenant) -> int | 
             expense_id_raw=raw,
             expense_year=request_obj.expense_year,
         )
-    if resolved is not None:
-        if request_obj.expense_ref_id != resolved:
-            Request.objects.filter(pk=request_obj.pk, tenant_id=tenant.id).update(expense_ref_id=resolved)
+    target = expense_ref_target_for(
+        payment_type=request_obj.payment_type,
+        category=request_obj.category,
+    )
+
+    if resolved is not None and target:
+        taken = (
+            Request.objects.filter(
+                tenant=tenant,
+                expense_ref_target=target,
+                expense_ref_id=resolved,
+            )
+            .exclude(pk=request_obj.pk)
+            .exists()
+        )
+        if taken:
+            return request_obj.expense_ref_id or None
+        if request_obj.expense_ref_id != resolved or request_obj.expense_ref_target != target:
+            Request.objects.filter(pk=request_obj.pk, tenant_id=tenant.id).update(
+                expense_ref_id=resolved,
+                expense_ref_target=target,
+            )
             request_obj.expense_ref_id = resolved
+            request_obj.expense_ref_target = target
         return resolved
+
     return request_obj.expense_ref_id or None

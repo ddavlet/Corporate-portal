@@ -387,6 +387,57 @@ class N8nIntegrationAuthTests(APITestCase):
         req = Request.objects.get(pk=5011)
         self.assertEqual(req.expense_ref_id, cash_expense.id)
 
+    def test_request_upsert_rejects_second_request_same_resolved_cash_expense(self):
+        cash_register = CashRegister.objects.create(tenant=self.tenant, currency="UZS", name="Dup cash")
+        cash_wallet = Wallet.objects.create(
+            tenant=self.tenant,
+            wallet_type=Wallet.Type.CASH,
+            currency="UZS",
+            cash_register=cash_register,
+        )
+        cash_expense = CashExpense.objects.create(
+            tenant=self.tenant,
+            external_id="CASH-DUP-1",
+            confirmed=True,
+            title="Shared expense",
+            amount="900.00",
+            currency="UZS",
+            expense_at=datetime(2026, 4, 2, 11, 0, 0),
+            expense_year=2026,
+            expense_month=4,
+            expense_day=2,
+            created_by=self.admin,
+            wallet=cash_wallet,
+        )
+        url = f"{self.n8n_prefix}/requests/"
+        body_a = {
+            "id": 5020,
+            "title": "First request",
+            "description": "from n8n",
+            "amount": "900.00",
+            "currency": "UZS",
+            "payment_type": "Наличные",
+            "urgency": "Обычно",
+            "requester": self.requester.id,
+            "status": "DRAFT",
+            "billing_date": "2026-04-02",
+            "expense_id": "CASH-DUP-1",
+            "expense_year": 2026,
+        }
+        res1 = self.client.post(url, body_a, format="json", **self._headers(self.admin))
+        self.assertEqual(res1.status_code, 201, res1.content)
+        req1 = Request.objects.get(pk=5020)
+        self.assertEqual(req1.expense_ref_id, cash_expense.id)
+
+        body_b = {
+            **body_a,
+            "id": 5021,
+            "title": "Second request",
+        }
+        res2 = self.client.post(url, body_b, format="json", **self._headers(self.admin))
+        self.assertEqual(res2.status_code, 400, res2.content)
+        self.assertIn("expense_id", res2.data)
+
     def test_request_upsert_keeps_expense_id_when_expense_not_yet_imported(self):
         url = f"{self.n8n_prefix}/requests/"
         body = {

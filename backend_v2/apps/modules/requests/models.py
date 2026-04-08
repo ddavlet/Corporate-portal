@@ -60,6 +60,18 @@ class Request(models.Model):
         (STATUS_REJECTED, STATUS_REJECTED),
     ]
 
+    # Distinguishes which table `expense_ref_id` points to (PKs can collide across modules).
+    EXPENSE_REF_TARGET_CASH = "cash"
+    EXPENSE_REF_TARGET_PAYROLL = "payroll"
+    EXPENSE_REF_TARGET_BANK = "bank"
+    EXPENSE_REF_TARGET_CARD = "card"
+    EXPENSE_REF_TARGET_CHOICES = [
+        (EXPENSE_REF_TARGET_CASH, EXPENSE_REF_TARGET_CASH),
+        (EXPENSE_REF_TARGET_PAYROLL, EXPENSE_REF_TARGET_PAYROLL),
+        (EXPENSE_REF_TARGET_BANK, EXPENSE_REF_TARGET_BANK),
+        (EXPENSE_REF_TARGET_CARD, EXPENSE_REF_TARGET_CARD),
+    ]
+
     tenant = models.ForeignKey(Tenant, on_delete=models.CASCADE, related_name="requests")
     created_at = models.DateTimeField(default=timezone.now)
     created_by = models.ForeignKey(
@@ -106,6 +118,12 @@ class Request(models.Model):
     expense_id = models.CharField(max_length=200, null=True, blank=True)
     # Canonical reference to expense document primary key across payment modules.
     expense_ref_id = models.BigIntegerField(null=True, blank=True)
+    expense_ref_target = models.CharField(
+        max_length=16,
+        null=True,
+        blank=True,
+        choices=EXPENSE_REF_TARGET_CHOICES,
+    )
     file_link = models.TextField(null=True, blank=True)
 
     expense_year = models.IntegerField(null=True, blank=True)
@@ -118,6 +136,13 @@ class Request(models.Model):
 
     class Meta:
         db_table = "requests"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["tenant", "expense_ref_target", "expense_ref_id"],
+                condition=models.Q(expense_ref_id__isnull=False, expense_ref_target__isnull=False),
+                name="req_tenant_exp_ref_target_id_uniq",
+            ),
+        ]
 
 
 class Approval(models.Model):

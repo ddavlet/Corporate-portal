@@ -9,7 +9,11 @@ from apps.modules.cashier.serializers import CashExpenseSerializer, CashRevenueS
 from apps.modules.corporate_card.models import CardExpense, CardRevenue
 from apps.modules.corporate_card.serializers import CardExpenseSerializer, CardRevenueSerializer
 from apps.modules.notes.models import Note
-from apps.modules.requests.expense_refs import try_resolve_request_expense_ref_id
+from apps.modules.requests.expense_refs import (
+    expense_ref_target_for,
+    raise_if_expense_ref_taken,
+    try_resolve_request_expense_ref_id,
+)
 from apps.modules.requests.models import Approval, Request
 from apps.modules.vendors.models import Vendor
 from apps.modules.vendors.serializers import VendorSerializer
@@ -253,14 +257,25 @@ class N8nRequestImportSerializer(serializers.ModelSerializer):
         eid = str(expense_id_val or "").strip()
         if not eid:
             attrs["expense_ref_id"] = None
+            attrs["expense_ref_target"] = None
         else:
-            attrs["expense_ref_id"] = try_resolve_request_expense_ref_id(
+            ref = try_resolve_request_expense_ref_id(
                 tenant=tenant,
                 payment_type=effective_payment_type,
                 category=effective_category,
                 expense_id_raw=expense_id_val,
                 expense_year=effective_expense_year,
             )
+            tgt = expense_ref_target_for(payment_type=effective_payment_type, category=effective_category) if ref else None
+            if ref:
+                raise_if_expense_ref_taken(
+                    tenant=tenant,
+                    target=tgt,
+                    ref_id=ref,
+                    exclude_request_pk=self.instance.pk if self.instance else None,
+                )
+            attrs["expense_ref_id"] = ref
+            attrs["expense_ref_target"] = tgt
         return attrs
 
 
