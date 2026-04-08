@@ -29,27 +29,6 @@ type CashExpenseRow = {
 
 type CashRevenueRow = CashRevenue
 
-let __agentLogCountCash = 0
-function __agentDebugCash(hypothesisId: string, location: string, message: string, data: Record<string, unknown>) {
-  if (__agentLogCountCash >= 8) return
-  __agentLogCountCash += 1
-  // #region agent log
-  fetch('http://127.0.0.1:7881/ingest/65e49d6f-5b21-403c-b9fe-96d5e00b64d7', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': 'f6d40b' },
-    body: JSON.stringify({
-      sessionId: 'f6d40b',
-      runId: 'pre-fix-cash',
-      hypothesisId,
-      location,
-      message,
-      data,
-      timestamp: Date.now(),
-    }),
-  }).catch(() => {})
-  // #endregion
-}
-
 function normalizeRows(payload: unknown): CashExpenseRow[] {
   if (Array.isArray(payload)) return payload as CashExpenseRow[]
   if (payload && typeof payload === 'object' && 'results' in payload) {
@@ -86,14 +65,7 @@ function formatDateTime(value?: string | null): string {
   if (!value) return '-'
   const parsed = new Date(value)
   if (Number.isNaN(parsed.getTime())) return '-'
-  const formatted = dateTimeFormatterTashkent.format(parsed)
-  __agentDebugCash('H1', 'CashPage.formatDateTime', 'Formatted datetime in cash table', {
-    input: value,
-    parsedIso: parsed.toISOString(),
-    formatted,
-    timezone: 'Asia/Tashkent',
-  })
-  return formatted
+  return dateTimeFormatterTashkent.format(parsed)
 }
 
 export function CashPage() {
@@ -126,12 +98,6 @@ export function CashPage() {
           const normalized = normalizeRows(json)
           setRows(normalized)
           setRevenues(revenueRows)
-          const first = normalized[0]
-          __agentDebugCash('H2', 'CashPage.fetchList', 'Sample cash row date fields from API', {
-            count: normalized.length,
-            expense_at: first?.expense_at ?? null,
-            created_at: first?.created_at ?? null,
-          })
         }
       } catch (e: any) {
         if (!cancelled) setError(e?.message || 'Ошибка запроса')
@@ -159,12 +125,12 @@ export function CashPage() {
     const revenueRows = revenues.map((r) => ({
       kind: 'revenue' as const,
       id: r.id,
-      displayId: String(r.id),
-      title: r.title,
-      amount: r.amount,
+      displayId: r.external_id || String(r.id),
+      title: r.operation || '-',
+      amount: r.total_sum ?? 0,
       currency: r.currency,
-      at: r.revenue_date,
-      note: r.note,
+      at: r.revenue_at || r.created_at,
+      note: r.comment || '',
       raw: r,
     }))
     return [...expenseRows, ...revenueRows].sort((a, b) => String(b.at || '').localeCompare(String(a.at || '')))
@@ -183,7 +149,7 @@ export function CashPage() {
     const normalized = search.trim().toLowerCase()
     return revenues.filter((row) => {
       if (!normalized) return true
-      const haystack = `${row.title || ''} ${row.received_from || ''} ${row.note || ''} ${row.reference_no || ''}`.toLowerCase()
+      const haystack = `${row.external_id || ''} ${row.operation || ''} ${row.account || ''} ${row.counterparty || ''} ${row.comment || ''}`.toLowerCase()
       return haystack.includes(normalized)
     })
   }, [revenues, search])
@@ -279,18 +245,31 @@ export function CashPage() {
 
   const revenueColumns: ColumnsType<CashRevenueRow> = [
     { title: 'ID', dataIndex: 'id', width: 90, sorter: (a, b) => a.id - b.id },
-    { title: 'Название', dataIndex: 'title', sorter: (a, b) => String(a.title || '').localeCompare(String(b.title || '')) },
+    {
+      title: 'External ID',
+      dataIndex: 'external_id',
+      width: 140,
+      sorter: (a, b) => String(a.external_id || '').localeCompare(String(b.external_id || '')),
+      render: (value: string | undefined) => value || '-',
+    },
+    { title: 'Операция', dataIndex: 'operation', sorter: (a, b) => String(a.operation || '').localeCompare(String(b.operation || '')) },
     {
       title: 'Сумма',
-      dataIndex: 'amount',
-      sorter: (a, b) => Number(a.amount) - Number(b.amount),
-      render: (_, row) => `${Number(row.amount).toLocaleString('ru-RU')} ${row.currency || ''}`.trim(),
+      dataIndex: 'total_sum',
+      sorter: (a, b) => Number(a.total_sum || 0) - Number(b.total_sum || 0),
+      render: (_, row) => `${Number(row.total_sum || 0).toLocaleString('ru-RU')} ${row.currency || ''}`.trim(),
     },
-    { title: 'Дата', dataIndex: 'revenue_date', render: (value: string | null) => formatDateTime(value ? `${value}T00:00:00.000Z` : null) },
-    { title: 'От кого', dataIndex: 'received_from' },
-    { title: 'Метод', dataIndex: 'payment_method' },
-    { title: 'Статус', dataIndex: 'status' },
-    { title: 'Примечание', dataIndex: 'note' },
+    { title: 'Дата/время', dataIndex: 'revenue_at', render: (value: string | null | undefined) => formatDateTime(value || null) },
+    { title: 'Счет', dataIndex: 'account' },
+    { title: 'Контрагент', dataIndex: 'counterparty' },
+    {
+      title: 'Подтверждено',
+      dataIndex: 'confirmed',
+      width: 130,
+      render: (value: boolean | undefined) =>
+        value === false ? <Tag color="default">Нет</Tag> : <Tag color="processing">Да</Tag>,
+    },
+    { title: 'Комментарий', dataIndex: 'comment' },
   ]
 
   type AllRow = (typeof allRows)[number]
@@ -300,7 +279,7 @@ export function CashPage() {
       dataIndex: 'kind',
       width: 100,
       render: (value: 'expense' | 'revenue') =>
-        value === 'expense' ? <Tag color="gold">Expense</Tag> : <Tag color="green">Revenue</Tag>,
+        value === 'expense' ? <Tag color="gold">Расход</Tag> : <Tag color="green">Доход</Tag>,
       sorter: (a, b) => String(a.kind).localeCompare(String(b.kind)),
     },
     {
@@ -350,7 +329,7 @@ export function CashPage() {
           items={[
             {
               key: 'all',
-              label: 'All',
+              label: 'Все',
               children: (
                 <Table<AllRow>
                   rowKey={(r) => `${r.kind}:${r.id}`}
@@ -371,7 +350,7 @@ export function CashPage() {
             },
             {
               key: 'expenses',
-              label: 'Expenses',
+              label: 'Расходы',
               children: (
                 <Table<CashExpenseRow>
                   rowKey="id"
@@ -403,7 +382,7 @@ export function CashPage() {
             },
             {
               key: 'revenues',
-              label: 'Revenues',
+              label: 'Доходы',
               children: (
                 <Table<CashRevenueRow>
                   rowKey="id"
@@ -424,7 +403,7 @@ export function CashPage() {
       ) : null}
       <Modal
         open={Boolean(selectedExpense)}
-        title={selectedExpense ? `Cash expense #${selectedExpense.id}` : 'Cash expense'}
+        title={selectedExpense ? `Кассовый расход #${selectedExpense.id}` : 'Кассовый расход'}
         footer={null}
         onCancel={() => {
           setSelectedExpense(null)
@@ -489,7 +468,7 @@ export function CashPage() {
 
       <Modal
         open={Boolean(selectedRevenue)}
-        title={selectedRevenue ? `Cash revenue #${selectedRevenue.id}` : 'Cash revenue'}
+        title={selectedRevenue ? `Кассовый доход #${selectedRevenue.id}` : 'Кассовый доход'}
         footer={null}
         onCancel={() => setSelectedRevenue(null)}
         width={760}
@@ -497,15 +476,18 @@ export function CashPage() {
         {selectedRevenue ? (
           <Descriptions bordered size="small" column={1}>
             <Descriptions.Item label="ID">{selectedRevenue.id}</Descriptions.Item>
-            <Descriptions.Item label="Название">{selectedRevenue.title || '-'}</Descriptions.Item>
+            <Descriptions.Item label="Внешний ID">{selectedRevenue.external_id || '-'}</Descriptions.Item>
+            <Descriptions.Item label="Операция">{selectedRevenue.operation || '-'}</Descriptions.Item>
             <Descriptions.Item label="Сумма">
-              {`${Number(selectedRevenue.amount).toLocaleString('ru-RU')} ${selectedRevenue.currency || ''}`.trim()}
+              {`${Number(selectedRevenue.total_sum || 0).toLocaleString('ru-RU')} ${selectedRevenue.currency || ''}`.trim()}
             </Descriptions.Item>
-            <Descriptions.Item label="Дата">{selectedRevenue.revenue_date || '-'}</Descriptions.Item>
-            <Descriptions.Item label="От кого">{selectedRevenue.received_from || '-'}</Descriptions.Item>
-            <Descriptions.Item label="Метод">{selectedRevenue.payment_method || '-'}</Descriptions.Item>
-            <Descriptions.Item label="Статус">{selectedRevenue.status || '-'}</Descriptions.Item>
-            <Descriptions.Item label="Примечание">{selectedRevenue.note || '-'}</Descriptions.Item>
+            <Descriptions.Item label="Дата/время">{formatDateTime(selectedRevenue.revenue_at || null)}</Descriptions.Item>
+            <Descriptions.Item label="Счет">{selectedRevenue.account || '-'}</Descriptions.Item>
+            <Descriptions.Item label="Контрагент">{selectedRevenue.counterparty || '-'}</Descriptions.Item>
+            <Descriptions.Item label="Подтверждено">
+              {selectedRevenue.confirmed === false ? <Tag color="default">Нет</Tag> : <Tag color="processing">Да</Tag>}
+            </Descriptions.Item>
+            <Descriptions.Item label="Комментарий">{selectedRevenue.comment || '-'}</Descriptions.Item>
           </Descriptions>
         ) : null}
       </Modal>

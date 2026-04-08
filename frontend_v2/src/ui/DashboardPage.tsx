@@ -153,11 +153,9 @@ export function DashboardPage() {
     <Space direction="vertical" size="middle" style={{ width: '100%' }}>
       <Card>
         <Typography.Title level={4} style={{ marginTop: 0 }}>
-          Панель модулей
+          Рабочая панель
         </Typography.Title>
-        <Typography.Text type="secondary">
-          Текущий хост: <span className="mono">{location.host}</span>
-        </Typography.Text>
+        <Typography.Text type="secondary">Ключевые показатели и задачи на сегодня.</Typography.Text>
         <Divider style={{ margin: '12px 0' }} />
         <Space wrap>
           <Typography.Text strong>Виджеты:</Typography.Text>
@@ -245,17 +243,11 @@ export function DashboardPage() {
               title={m.display_name}
               extra={<Tag color={m.effective_enabled ? 'green' : 'default'}>{m.effective_enabled ? 'Доступен' : 'Отключен'}</Tag>}
             >
-              <Space direction="vertical" size={4}>
-                <Typography.Text type="secondary">
-                  Ключ: <span className="mono">{m.module_key}</span>
-                </Typography.Text>
-                <Typography.Text type="secondary">
-                  Включен у тенанта: <span className="mono">{String(m.tenant_enabled)}</span>
-                </Typography.Text>
-                <Typography.Text type="secondary">
-                  Разрешен пользователю: <span className="mono">{String(m.user_allowed)}</span>
-                </Typography.Text>
-              </Space>
+              <Typography.Text type="secondary">
+                {m.effective_enabled
+                  ? 'Модуль включен и доступен для работы.'
+                  : 'Модуль недоступен. Обратитесь к администратору при необходимости доступа.'}
+              </Typography.Text>
             </Card>
           </Col>
         ))}

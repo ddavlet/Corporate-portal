@@ -28,27 +28,6 @@ type BankExpenseRow = {
 
 type BankRevenueRow = BankRevenue
 
-let __agentLogCountBank = 0
-function __agentDebugBank(hypothesisId: string, location: string, message: string, data: Record<string, unknown>) {
-  if (__agentLogCountBank >= 8) return
-  __agentLogCountBank += 1
-  // #region agent log
-  fetch('http://127.0.0.1:7881/ingest/65e49d6f-5b21-403c-b9fe-96d5e00b64d7', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': 'f6d40b' },
-    body: JSON.stringify({
-      sessionId: 'f6d40b',
-      runId: 'pre-fix-bank',
-      hypothesisId,
-      location,
-      message,
-      data,
-      timestamp: Date.now(),
-    }),
-  }).catch(() => {})
-  // #endregion
-}
-
 function normalizeRows(payload: unknown): BankExpenseRow[] {
   if (Array.isArray(payload)) return payload as BankExpenseRow[]
   if (payload && typeof payload === 'object' && 'results' in payload) {
@@ -69,14 +48,7 @@ function formatDate(value?: string | null): string {
   if (!value) return '-'
   const parsed = new Date(value)
   if (Number.isNaN(parsed.getTime())) return '-'
-  const formatted = dateFormatterTashkent.format(parsed)
-  __agentDebugBank('H1', 'BankPage.formatDate', 'Formatted date in bank table', {
-    input: value,
-    parsedIso: parsed.toISOString(),
-    formatted,
-    timezone: 'Asia/Tashkent',
-  })
-  return formatted
+  return dateFormatterTashkent.format(parsed)
 }
 
 export function BankPage() {
@@ -109,12 +81,6 @@ export function BankPage() {
           const normalized = normalizeRows(json)
           setRows(normalized)
           setRevenues(revenueRows)
-          const first = normalized[0]
-          __agentDebugBank('H2', 'BankPage.fetchList', 'Sample bank row date fields from API', {
-            count: normalized.length,
-            doc_date: first?.doc_date ?? null,
-            process_date: first?.process_date ?? null,
-          })
         }
       } catch (e: any) {
         if (!cancelled) setError(e?.message || 'Ошибка запроса')
@@ -249,7 +215,7 @@ export function BankPage() {
       dataIndex: 'kind',
       width: 100,
       render: (value: 'expense' | 'revenue') =>
-        value === 'expense' ? <Tag color="gold">Expense</Tag> : <Tag color="green">Revenue</Tag>,
+        value === 'expense' ? <Tag color="gold">Расход</Tag> : <Tag color="green">Доход</Tag>,
       sorter: (a, b) => String(a.kind).localeCompare(String(b.kind)),
     },
     { title: 'ID', dataIndex: 'doc_no', width: 140, sorter: (a, b) => String(a.doc_no || '').localeCompare(String(b.doc_no || '')) },
@@ -288,7 +254,7 @@ export function BankPage() {
           items={[
             {
               key: 'all',
-              label: 'All',
+              label: 'Все',
               children: (
                 <Table<AllRow>
                   rowKey={(r) => `${r.kind}:${r.id}`}
@@ -309,7 +275,7 @@ export function BankPage() {
             },
             {
               key: 'expenses',
-              label: 'Expenses',
+              label: 'Расходы',
               children: (
                 <Table<BankExpenseRow>
                   rowKey="id"
@@ -327,7 +293,7 @@ export function BankPage() {
             },
             {
               key: 'revenues',
-              label: 'Revenues',
+              label: 'Доходы',
               children: (
                 <Table<BankRevenueRow>
                   rowKey="id"
@@ -349,7 +315,7 @@ export function BankPage() {
 
       <Modal
         open={Boolean(selectedExpense)}
-        title={selectedExpense ? `Bank expense #${selectedExpense.id}` : 'Bank expense'}
+        title={selectedExpense ? `Банковский расход #${selectedExpense.id}` : 'Банковский расход'}
         footer={null}
         onCancel={() => {
           setSelectedExpense(null)
@@ -410,7 +376,7 @@ export function BankPage() {
 
       <Modal
         open={Boolean(selectedRevenue)}
-        title={selectedRevenue ? `Bank revenue #${selectedRevenue.id}` : 'Bank revenue'}
+        title={selectedRevenue ? `Банковский доход #${selectedRevenue.id}` : 'Банковский доход'}
         footer={null}
         onCancel={() => setSelectedRevenue(null)}
         width={760}
