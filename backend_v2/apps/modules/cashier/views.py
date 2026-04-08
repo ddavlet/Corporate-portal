@@ -8,8 +8,6 @@ from rest_framework.response import Response
 from django.db import IntegrityError
 from django.db.models import Exists, OuterRef, Subquery
 from django.db.models import Q
-from django.db.models.functions import Cast
-from django.db.models.fields import CharField
 
 from apps.modules.cashier.models import CashExpense, CashRevenue
 from apps.modules.cashier.serializers import CashExpenseSerializer, CashRevenueSerializer
@@ -45,9 +43,8 @@ class CashExpenseViewSet(viewsets.ModelViewSet):
             return CashExpense.objects.none()
         request_subquery = Request.objects.filter(
             tenant=tenant,
-        ).filter(
-            Q(expense_id=Cast(OuterRef("id"), CharField())) | Q(expense_id=OuterRef("external_id"))
-        )
+            payment_type=Request.PAYMENT_TYPE_CASH,
+        ).filter(Q(expense_ref_id=OuterRef("id")) | Q(expense_id=OuterRef("external_id")))
         if tenant_has_payroll_module_enabled(tenant):
             request_subquery = request_subquery.exclude(
                 payment_type=Request.PAYMENT_TYPE_CASH,

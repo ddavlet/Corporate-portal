@@ -26,7 +26,9 @@ from apps.modules.requests.models import (
     AutoRequestTemplate,
 )
 from apps.modules.requests.auto_requests import process_due_auto_requests, render_auto_request_template
+from apps.modules.bank_expenses.models import BankExpense
 from apps.modules.vendors.models import Vendor
+from apps.modules.wallets.models import BankAccount, Wallet
 
 User = get_user_model()
 
@@ -594,11 +596,11 @@ class RequestApprovalsTests(APITestCase):
         )
         self.client.force_authenticate(self.requester)
         with patch(
-            "apps.modules.requests.views.refresh_request_messages",
+            "apps.modules.telegram_approvals.services.refresh_request_messages",
             return_value=0,
         ) as mock_refresh:
             with patch(
-                "apps.modules.requests.views.dispatch_pending_approvals",
+                "apps.modules.telegram_approvals.services.dispatch_pending_approvals",
                 return_value=0,
             ) as mock_dispatch:
                 res = self.client.patch(
@@ -609,7 +611,8 @@ class RequestApprovalsTests(APITestCase):
                 )
         self.assertEqual(res.status_code, 200, res.content)
         mock_refresh.assert_called_once()
-        mock_dispatch.assert_called_once()
+        # DRAFT has no approval step in progress: workflow refreshes state only.
+        mock_dispatch.assert_not_called()
 
     def test_post_manual_approval_calls_telegram_refresh_and_dispatch(self):
         from unittest.mock import patch
@@ -618,11 +621,11 @@ class RequestApprovalsTests(APITestCase):
         request_id = req_data["id"]
         self.client.force_authenticate(self.admin)
         with patch(
-            "apps.modules.requests.views.refresh_request_messages",
+            "apps.modules.telegram_approvals.services.refresh_request_messages",
             return_value=0,
         ) as mock_refresh:
             with patch(
-                "apps.modules.requests.views.dispatch_pending_approvals",
+                "apps.modules.telegram_approvals.services.dispatch_pending_approvals",
                 return_value=0,
             ) as mock_dispatch:
                 res = self.client.post(
@@ -889,6 +892,27 @@ class RequestApprovalsTests(APITestCase):
         )
 
         self.client.force_authenticate(self.requester)
+        bank_account = BankAccount.objects.create(tenant=self.tenant, label="Main")
+        bank_wallet = Wallet.objects.create(
+            tenant=self.tenant,
+            wallet_type=Wallet.Type.BANK,
+            currency="UZS",
+            bank_account=bank_account,
+        )
+        bank_expense = BankExpense.objects.create(
+            tenant=self.tenant,
+            created_by=self.admin,
+            row_no=1,
+            doc_date=date(2026, 1, 2),
+            process_date=date(2026, 1, 2),
+            expense_year=2026,
+            expense_month=1,
+            expense_day=2,
+            doc_no="INV-2026-001",
+            debit_turnover=Decimal("10.00"),
+            payment_purpose="x",
+            wallet=bank_wallet,
+        )
         created = self.client.post(
             "/api/requests/",
             {
@@ -899,6 +923,7 @@ class RequestApprovalsTests(APITestCase):
                 "payment_type": "Перечисление",
                 "urgency": "Обычно",
                 "billing_date": "2026-01-01",
+                "expense_year": 2026,
             },
             format="json",
             HTTP_HOST=self.host,
@@ -920,6 +945,7 @@ class RequestApprovalsTests(APITestCase):
         req = Request.objects.get(id=request_id)
         approval.refresh_from_db()
         self.assertEqual(req.expense_id, "INV-2026-001")
+        self.assertEqual(req.expense_ref_id, bank_expense.id)
         self.assertEqual(req.status, Request.STATUS_PAYED)
         self.assertEqual(approval.decision, Approval.DECISION_APPROVED)
 
@@ -1310,6 +1336,66 @@ class DraftRequestPatchSubmitTests(APITestCase):
             HTTP_HOST=self.host,
         )
         self.assertEqual(res.status_code, 403, res.content)
+
+    def test_create_sets_amortization_defaults_from_billing_date(self):
+        self.client.force_authenticate(self.requester)
+        res = self.client.post(
+            "/api/requests/",
+            {
+                "title": "Оборудование",
+                "description": "",
+                "amount": 100,
+                "currency": "UZS",
+                "payment_type": "Наличные",
+                "urgency": "Обычно",
+                "billing_date": "2026-02-20",
+            },
+            format="json",
+            HTTP_HOST=self.host,
+        )
+        self.assertEqual(res.status_code, 201, res.content)
+        self.assertEqual(res.data["amortization_months"], 1)
+        self.assertEqual(res.data["amortization_start_date"], "2026-02-01")
+        req = Request.objects.get(pk=res.data["id"])
+        self.assertEqual(req.amortization_months, 1)
+        self.assertEqual(req.amortization_start_date, date(2026, 2, 1))
+
+    def test_create_allows_custom_amortization_months(self):
+        self.client.force_authenticate(self.requester)
+        res = self.client.post(
+            "/api/requests/",
+            {
+                "title": "Оборудование",
+                "description": "",
+                "amount": 100,
+                "currency": "UZS",
+                "payment_type": "Наличные",
+                "urgency": "Обычно",
+                "billing_date": "2026-02-20",
+                "amortization_months": 6,
+            },
+            format="json",
+            HTTP_HOST=self.host,
+        )
+        self.assertEqual(res.status_code, 201, res.content)
+        self.assertEqual(res.data["amortization_months"], 6)
+        req = Request.objects.get(pk=res.data["id"])
+        self.assertEqual(req.amortization_months, 6)
+
+    def test_patch_billing_date_recalculates_amortization_start_date(self):
+        req = self._draft_request()
+        self.client.force_authenticate(self.requester)
+        res = self.client.patch(
+            f"/api/requests/{req.id}/",
+            {"billing_date": "2026-03-20"},
+            format="json",
+            HTTP_HOST=self.host,
+        )
+        self.assertEqual(res.status_code, 200, res.content)
+        self.assertEqual(res.data["amortization_start_date"], "2026-03-01")
+        req.refresh_from_db()
+        self.assertEqual(req.billing_date, date(2026, 3, 20))
+        self.assertEqual(req.amortization_start_date, date(2026, 3, 1))
 
     @patch("apps.modules.requests.views.dispatch_pending_approvals", return_value=0)
     def test_submit_for_approval_creates_approvals(self, _mock_dispatch):

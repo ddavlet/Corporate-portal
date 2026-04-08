@@ -1,5 +1,5 @@
 
-from datetime import date
+from datetime import date, datetime
 
 from django.conf import settings
 from django.contrib.auth import get_user_model
@@ -9,9 +9,11 @@ from rest_framework_simplejwt.tokens import RefreshToken
 
 from apps.tenants.models import Tenant, TenantMembership, TenantModuleConfig, TenantUserRole
 from apps.modules.bank_expenses.models import BankExpense
+from apps.modules.cashier.models import CashExpense
 from apps.modules.cashier.models import CashRevenue
 from apps.modules.requests.models import Approval, Request
 from apps.modules.vendors.models import Vendor
+from apps.modules.wallets.models import CashRegister, Wallet
 
 User = get_user_model()
 
@@ -342,6 +344,70 @@ class N8nIntegrationAuthTests(APITestCase):
         self.assertEqual(res2.status_code, 200, res2.content)
         req.refresh_from_db()
         self.assertEqual(req.title, "Imported request updated")
+
+    def test_request_upsert_resolves_expense_ref_id_for_cash(self):
+        cash_register = CashRegister.objects.create(tenant=self.tenant, currency="UZS", name="Main cash")
+        cash_wallet = Wallet.objects.create(
+            tenant=self.tenant,
+            wallet_type=Wallet.Type.CASH,
+            currency="UZS",
+            cash_register=cash_register,
+        )
+        cash_expense = CashExpense.objects.create(
+            tenant=self.tenant,
+            external_id="CASH-1",
+            confirmed=True,
+            title="Imported expense",
+            amount="1200.00",
+            currency="UZS",
+            expense_at=datetime(2026, 4, 1, 10, 0, 0),
+            expense_year=2026,
+            expense_month=4,
+            expense_day=1,
+            created_by=self.admin,
+            wallet=cash_wallet,
+        )
+        url = f"{self.n8n_prefix}/requests/"
+        body = {
+            "id": 5011,
+            "title": "Imported request",
+            "description": "from n8n",
+            "amount": "1200.00",
+            "currency": "UZS",
+            "payment_type": "Наличные",
+            "urgency": "Обычно",
+            "requester": self.requester.id,
+            "status": "DRAFT",
+            "billing_date": "2026-04-01",
+            "expense_id": "CASH-1",
+            "expense_year": 2026,
+        }
+        res = self.client.post(url, body, format="json", **self._headers(self.admin))
+        self.assertEqual(res.status_code, 201, res.content)
+        req = Request.objects.get(pk=5011)
+        self.assertEqual(req.expense_ref_id, cash_expense.id)
+
+    def test_request_upsert_keeps_expense_id_when_expense_not_yet_imported(self):
+        url = f"{self.n8n_prefix}/requests/"
+        body = {
+            "id": 5012,
+            "title": "Pending link",
+            "description": "",
+            "amount": "500.00",
+            "currency": "UZS",
+            "payment_type": "Наличные",
+            "urgency": "Обычно",
+            "requester": self.requester.id,
+            "status": "DRAFT",
+            "billing_date": "2026-04-01",
+            "expense_id": "NOT-IMPORTED-YET",
+            "expense_year": 2026,
+        }
+        res = self.client.post(url, body, format="json", **self._headers(self.admin))
+        self.assertEqual(res.status_code, 201, res.content)
+        req = Request.objects.get(pk=5012)
+        self.assertEqual(req.expense_id, "NOT-IMPORTED-YET")
+        self.assertIsNone(req.expense_ref_id)
 
     def test_approval_upsert_with_client_id(self):
         req = Request.objects.create(

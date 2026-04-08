@@ -19,7 +19,12 @@ export type RequestDetailPageProps = {
 
 function canOpenLinkedExpense(link: RequestDetail['expense_link'] | null | undefined): boolean {
   if (!link || link.id == null || link.id === '') return false
-  return link.module === 'cash' || link.module === 'bank' || link.module === 'payroll'
+  return (
+    link.module === 'cash' ||
+    link.module === 'bank' ||
+    link.module === 'payroll' ||
+    link.module === 'corporate_card'
+  )
 }
 
 function canResendByStatus(status?: string | null): boolean {

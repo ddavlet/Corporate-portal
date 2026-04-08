@@ -61,6 +61,11 @@ const dateFormatterTashkent = new Intl.DateTimeFormat('ru-RU', {
   year: 'numeric',
   timeZone: 'Asia/Tashkent',
 })
+const billingMonthFormatterTashkent = new Intl.DateTimeFormat('ru-RU', {
+  month: 'long',
+  year: 'numeric',
+  timeZone: 'Asia/Tashkent',
+})
 
 const dateTimeFormatterTashkent = new Intl.DateTimeFormat('ru-RU', {
   day: '2-digit',
@@ -76,6 +81,13 @@ function formatDateDDMMYYYY(value?: string | null): string {
   const parsed = new Date(value)
   if (Number.isNaN(parsed.getTime())) return '-'
   return dateFormatterTashkent.format(parsed)
+}
+
+function formatBillingMonthYear(value?: string | null): string {
+  if (!value) return '-'
+  const parsed = new Date(value)
+  if (Number.isNaN(parsed.getTime())) return '-'
+  return billingMonthFormatterTashkent.format(parsed)
 }
 
 function formatDateTime(value?: string | null): string {
@@ -303,7 +315,7 @@ export function RequestDetailContent({
             {detail.requester_username || (detail.requester ? `User #${detail.requester}` : '—')}
           </TgDetailRow>
           <TgDetailRow label="Отправлено">{formatDateTime(detail.submitted_at)}</TgDetailRow>
-          <TgDetailRow label="Дата биллинга">{formatDateDDMMYYYY(detail.billing_date)}</TgDetailRow>
+          <TgDetailRow label="Дата биллинга">{formatBillingMonthYear(detail.billing_date)}</TgDetailRow>
           <TgDetailRow label="ID расхода (expense_id)">{detail.expense_id?.trim() || '—'}</TgDetailRow>
           <TgDetailRow label="Календарь расхода (год.мес.день)">
             {formatExpenseCalendar(detail.expense_year, detail.expense_month, detail.expense_day)}
@@ -347,7 +359,7 @@ export function RequestDetailContent({
             {detail.requester_username || (detail.requester ? `User #${detail.requester}` : '-')}
           </Descriptions.Item>
           <Descriptions.Item label="Отправлено">{formatDateTime(detail.submitted_at)}</Descriptions.Item>
-          <Descriptions.Item label="Дата биллинга">{formatDateDDMMYYYY(detail.billing_date)}</Descriptions.Item>
+          <Descriptions.Item label="Дата биллинга">{formatBillingMonthYear(detail.billing_date)}</Descriptions.Item>
           <Descriptions.Item label="ID расхода (expense_id)">{detail.expense_id?.trim() || '-'}</Descriptions.Item>
           <Descriptions.Item label="Календарь расхода (год · мес · день)">
             {formatExpenseCalendar(detail.expense_year, detail.expense_month, detail.expense_day)}

@@ -45,12 +45,13 @@ class BankExpenseViewSet(viewsets.ModelViewSet):
             return BankExpense.objects.none()
         request_subquery = Request.objects.filter(
             tenant=tenant,
-            expense_id=OuterRef("doc_no"),
-            expense_year=OuterRef("expense_year"),
             payment_type__in=(
                 Request.PAYMENT_TYPE_TRANSFER,
                 Request.PAYMENT_TYPE_TOPUP,
             ),
+        ).filter(
+            Q(expense_ref_id=OuterRef("id"))
+            | (Q(expense_id=OuterRef("doc_no")) & Q(expense_year=OuterRef("expense_year")))
         )
         paid_request_subquery = request_subquery.filter(status=Request.STATUS_PAYED)
         qs = BankExpense.objects.filter(tenant=tenant).annotate(
