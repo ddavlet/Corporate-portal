@@ -55,7 +55,6 @@ from apps.modules.requests.serializers import (
 )
 from apps.modules.requests.expense_refs import (
     expense_ref_target_for,
-    raise_if_expense_ref_taken,
     try_resolve_request_expense_ref_id,
 )
 from apps.modules.requests.approval_bootstrap import create_approval_rows_for_request
@@ -507,13 +506,6 @@ class PortalRequestViewSet(viewsets.ModelViewSet):
             payment_type=request_obj.payment_type,
             category=request_obj.category,
         ) if ref else None
-        if ref:
-            raise_if_expense_ref_taken(
-                tenant=tenant,
-                target=tgt,
-                ref_id=ref,
-                exclude_request_pk=request_obj.pk,
-            )
         request_obj.expense_ref_id = ref
         request_obj.expense_ref_target = tgt
         request_obj.save(update_fields=["expense_id", "expense_ref_id", "expense_ref_target"])
