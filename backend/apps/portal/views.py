@@ -1,3 +1,5 @@
+import logging
+
 import requests
 from django.shortcuts import render, redirect
 from django.http import JsonResponse, StreamingHttpResponse, HttpResponseForbidden, HttpResponseServerError
@@ -5,6 +7,25 @@ from django.conf import settings
 from django.contrib.auth.decorators import login_required
 
 from apps.portal.decorator import require_finance_report_access
+
+logger = logging.getLogger(__name__)
+
+
+def _preview_n8n_error_body(resp, *, stream: bool) -> str:
+    """Read a short UTF-8 preview of an error response; close stream responses."""
+    try:
+        if stream:
+            chunk = next(resp.iter_content(chunk_size=1024), b"") or b""
+            return chunk[:1000].decode("utf-8", errors="replace")
+        return (resp.text or "")[:1000]
+    except Exception:
+        return ""
+    finally:
+        if stream:
+            try:
+                resp.close()
+            except Exception:
+                pass
 
 
 
@@ -54,12 +75,35 @@ def _proxy_n8n_json(request, endpoint: str):
         )
 
         if resp.status_code in (401, 403):
+            preview = _preview_n8n_error_body(resp, stream=False)
+            logger.warning(
+                "n8n JSON proxy forbidden: tenant=%s endpoint=%s status=%s preview=%r",
+                tenant.subdomain,
+                endpoint,
+                resp.status_code,
+                preview,
+            )
             return HttpResponseForbidden("Forbidden by n8n")
         if resp.status_code >= 400:
+            preview = _preview_n8n_error_body(resp, stream=False)
+            logger.warning(
+                "n8n JSON proxy error: tenant=%s endpoint=%s status=%s preview=%r",
+                tenant.subdomain,
+                endpoint,
+                resp.status_code,
+                preview,
+            )
             return HttpResponseServerError(f"n8n error {resp.status_code}")
 
         return JsonResponse(resp.json(), safe=False)
     except requests.RequestException as e:
+        logger.warning(
+            "n8n JSON proxy request failed: tenant=%s endpoint=%s error=%s",
+            getattr(tenant, "subdomain", None),
+            endpoint,
+            e,
+            exc_info=True,
+        )
         return HttpResponseServerError(f"n8n request failed: {e}")
 
 
@@ -133,8 +177,24 @@ def _proxy_n8n_file(request):
         )
 
         if resp.status_code in (401, 403):
+            preview = _preview_n8n_error_body(resp, stream=True)
+            logger.warning(
+                "n8n getfile forbidden: tenant=%s filename=%r status=%s preview=%r",
+                tenant.subdomain,
+                filename,
+                resp.status_code,
+                preview,
+            )
             return HttpResponseForbidden("Forbidden by n8n")
         if resp.status_code >= 400:
+            preview = _preview_n8n_error_body(resp, stream=True)
+            logger.warning(
+                "n8n getfile error: tenant=%s filename=%r status=%s preview=%r",
+                tenant.subdomain,
+                filename,
+                resp.status_code,
+                preview,
+            )
             return HttpResponseServerError(f"n8n error {resp.status_code}")
 
         # Stream back to user
@@ -176,6 +236,13 @@ def _proxy_n8n_file(request):
         return proxy
 
     except requests.RequestException as e:
+        logger.warning(
+            "n8n getfile request failed: tenant=%s filename=%r error=%s",
+            getattr(tenant, "subdomain", None),
+            filename,
+            e,
+            exc_info=True,
+        )
         return HttpResponseServerError(f"n8n request failed: {e}")
 
 def get_file(request):

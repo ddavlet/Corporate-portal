@@ -129,3 +129,28 @@ class TelegramWebAppAuthViewTests(APITestCase):
         self.assertIn("access", res.data)
         self.assertIn("refresh", res.data)
         self.assertEqual(res.data.get("username"), "tg_user")
+
+    def test_409_when_telegram_id_linked_to_multiple_users(self):
+        duplicate = User.objects.create_user(username="tg_user_duplicate", password="x")
+        duplicate.telegram_from_id = 424242
+        duplicate.save(update_fields=["telegram_from_id"])
+        TenantMembership.objects.create(tenant=self.tenant, user=duplicate, is_active=True)
+        TenantUserRole.objects.create(
+            tenant=self.tenant, user=duplicate, role=TenantUserRole.ROLE_REQUESTER, step=1
+        )
+
+        init = _signed_init_data(
+            bot_token=self.tenant.get_telegram_bot_token(),
+            user_id=424242,
+        )
+        res = self.client.post(
+            "/api/auth/telegram/webapp/",
+            {"init_data": init},
+            format="json",
+            HTTP_HOST=self.host,
+        )
+        self.assertEqual(res.status_code, 409)
+        self.assertEqual(
+            res.data.get("detail"),
+            "Telegram account is linked to multiple users in this organization.",
+        )

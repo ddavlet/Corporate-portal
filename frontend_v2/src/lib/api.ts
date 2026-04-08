@@ -345,6 +345,114 @@ async function parseErrorBody(res: Response): Promise<string> {
   return typeof json === 'object' && json ? JSON.stringify(json) : `HTTP ${res.status}`
 }
 
+export type ApprovalDecision = 'approved' | 'rejected'
+
+export type MyApprovalRequestSummary = {
+  id: number
+  title: string
+  vendor?: string | null
+  category?: string | null
+  amount?: string | number | null
+  currency?: string | null
+  payment_type?: string | null
+  urgency?: string | null
+  status?: string | null
+  submitted_at?: string | null
+  billing_date?: string | null
+  requester?: number | null
+  requester_username?: string | null
+}
+
+export type MyApprovalStep = {
+  step: number
+  step_type?: string | null
+  decision: string
+  comment?: string | null
+  decided_at?: string | null
+}
+
+export type MyApprovalGroup = {
+  request: MyApprovalRequestSummary
+  approvals: MyApprovalStep[]
+}
+
+export async function getMyApprovals(): Promise<MyApprovalGroup[]> {
+  const res = await apiFetch('/api/requests/my-approvals/')
+  if (!res.ok) throw new Error(await parseErrorBody(res))
+  const json = (await res.json().catch(() => null)) as unknown
+  return Array.isArray(json) ? (json as MyApprovalGroup[]) : []
+}
+
+export async function setRequestApprovalDecision(payload: {
+  requestId: number
+  step: number
+  decision: ApprovalDecision
+  comment?: string
+}): Promise<void> {
+  const res = await apiFetch(`/api/requests/${payload.requestId}/approvals/decision/`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      step: payload.step,
+      decision: payload.decision,
+      comment: payload.comment?.trim() || undefined,
+    }),
+  })
+  if (!res.ok) throw new Error(await parseErrorBody(res))
+}
+
+export type LegacyReportItem = {
+  id?: number | string
+  date?: string
+  amount?: number | string
+  source?: string
+  details?: string
+  category?: string
+  cathegory?: string
+  cat?: string
+  cat_name?: string
+  article?: string
+  item?: string
+}
+
+export type LegacyReportPayload = {
+  revenue: LegacyReportItem[]
+  expense: LegacyReportItem[]
+  metadata?: Record<string, unknown>
+}
+
+function normalizeLegacyReportPayload(payload: unknown): LegacyReportPayload {
+  const list = Array.isArray(payload) ? payload : []
+  const revenue = list.find((x) => x && typeof x === 'object' && 'revenue' in x) as
+    | { revenue?: LegacyReportItem[] }
+    | undefined
+  const expense = list.find((x) => x && typeof x === 'object' && 'expense' in x) as
+    | { expense?: LegacyReportItem[] }
+    | undefined
+  const metadata = list.find((x) => x && typeof x === 'object' && 'metadata' in x) as
+    | { metadata?: Record<string, unknown> }
+    | undefined
+  return {
+    revenue: Array.isArray(revenue?.revenue) ? revenue.revenue : [],
+    expense: Array.isArray(expense?.expense) ? expense.expense : [],
+    metadata: metadata?.metadata ?? {},
+  }
+}
+
+export async function getPnlReportData(): Promise<LegacyReportPayload> {
+  const res = await apiFetch('/web/pnl-data')
+  if (!res.ok) throw new Error(await parseErrorBody(res))
+  const json = await res.json().catch(() => null)
+  return normalizeLegacyReportPayload(json)
+}
+
+export async function getCashflowReportData(): Promise<LegacyReportPayload> {
+  const res = await apiFetch('/web/cashflow-data')
+  if (!res.ok) throw new Error(await parseErrorBody(res))
+  const json = await res.json().catch(() => null)
+  return normalizeLegacyReportPayload(json)
+}
+
 export type TelegramWebAppAuthResponse = {
   access: string
   refresh: string

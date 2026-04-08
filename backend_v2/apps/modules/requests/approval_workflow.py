@@ -27,6 +27,37 @@ def _status_for_progress_step(step: int) -> str | None:
     return mapping.get(step)
 
 
+def _progress_step_from_status(status: str) -> int | None:
+    mapping = {
+        Request.STATUS_PROGRESS_1: 1,
+        Request.STATUS_PROGRESS_2: 2,
+        Request.STATUS_PROGRESS_3: 3,
+        Request.STATUS_PROGRESS_4: 4,
+        Request.STATUS_PROGRESS_5: 5,
+    }
+    return mapping.get(status)
+
+
+def find_approvals(
+    *,
+    request_obj: Request,
+    step: int | None = None,
+    message_sent: bool | None = None,
+    decision: str | None = None,
+    step_type: str | None = None,
+):
+    qs = Approval.objects.filter(request=request_obj)
+    if step is not None:
+        qs = qs.filter(step=step)
+    if message_sent is not None:
+        qs = qs.filter(message_sent=message_sent)
+    if decision is not None:
+        qs = qs.filter(decision=decision)
+    if step_type is not None:
+        qs = qs.filter(step_type=step_type)
+    return qs
+
+
 def min_pending_approval_step(*, request_id: int) -> int | None:
     """
     Smallest `step` among pending approvals for the request.
@@ -59,7 +90,7 @@ def _recalculate_request_status(request_obj: Request) -> str:
         # Close out every still-pending row so nothing (Telegram, resend, n8n) can treat
         # downstream steps as active. Also avoids stale FK caches on approval.request.status.
         Approval.objects.filter(request=request_obj, decision=Approval.DECISION_PENDING).update(
-            decision=Approval.DECISION_REJECTED,
+            decision=Approval.DECISION_CANCELED,
             decided_at=timezone.now(),
             comment=_STOPPED_BY_OTHER_STEP_COMMENT,
         )
@@ -84,6 +115,51 @@ def _recalculate_request_status(request_obj: Request) -> str:
         request_obj.status = next_status
         request_obj.save(update_fields=["status"])
     return request_obj.status
+
+
+def route_request_approvals(*, request_obj: Request) -> None:
+    """
+    Status-driven orchestration:
+    - work only on approvals for current request.status step,
+    - send only pending + unsent rows for that step,
+    - move status forward when the current step has no pending rows.
+    """
+    from apps.modules.telegram_approvals.services import dispatch_pending_approvals, refresh_request_messages
+
+    with transaction.atomic():
+        locked = Request.objects.select_for_update().get(pk=request_obj.pk)
+        refresh_request_messages(request_obj=locked)
+
+        while True:
+            locked.refresh_from_db()
+            if locked.status in {Request.STATUS_REJECTED, Request.STATUS_PAYED}:
+                return
+
+            if locked.status == Request.STATUS_APPROVED:
+                dispatch_pending_approvals(
+                    request_obj=locked,
+                    step_type=Approval.STEP_TYPE_PAYMENT,
+                )
+                return
+
+            current_step = _progress_step_from_status(locked.status)
+            if current_step is None:
+                return
+
+            has_pending_on_step = find_approvals(
+                request_obj=locked,
+                step=current_step,
+                decision=Approval.DECISION_PENDING,
+            ).exists()
+            if has_pending_on_step:
+                dispatch_pending_approvals(request_obj=locked, step=current_step)
+                return
+
+            next_status = _status_for_progress_step(current_step + 1) or Request.STATUS_APPROVED
+            if locked.status == next_status:
+                return
+            locked.status = next_status
+            locked.save(update_fields=["status"])
 
 
 def _approval_match_queryset(
@@ -144,7 +220,7 @@ def confirm_approval_by_id(
 ) -> dict:
     if approver_user_id is None and approver_tg_id is None and approver_tg_from_id is None:
         raise ValidationError({"detail": "Approver identity is required."})
-    if decision not in {Approval.DECISION_PENDING, Approval.DECISION_APPROVED, Approval.DECISION_REJECTED}:
+    if decision not in {Approval.DECISION_APPROVED, Approval.DECISION_REJECTED}:
         raise ValidationError({"decision": "Unsupported decision value."})
 
     with transaction.atomic():
@@ -182,9 +258,5 @@ def confirm_approval_by_id(
 
         _recalculate_request_status(request_obj)
         request_obj.refresh_from_db()
-        # Keep Telegram cards in sync and deliver next step approvals.
-        from apps.modules.telegram_approvals.services import dispatch_pending_approvals, refresh_request_messages
-
-        refresh_request_messages(request_obj=request_obj)
-        dispatch_pending_approvals(request_obj=request_obj)
+        route_request_approvals(request_obj=request_obj)
         return get_approval_full_context(request_obj=request_obj, trigger_approval=approval)

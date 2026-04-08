@@ -9,6 +9,7 @@ from django.conf import settings
 from django.db import transaction
 from django.utils.formats import date_format
 from django.utils import timezone
+from rest_framework.exceptions import ValidationError
 
 from apps.modules.requests.integration_settings import get_requests_telegram_integration_settings
 from apps.modules.requests.models import Approval, Request, RequestApprovalStepConfig
@@ -251,6 +252,8 @@ def _telegram_card_should_be_readonly(*, request_obj: Request, approval: Approva
     without action buttons — except the cashier row while payment is still pending (APPROVED).
     """
     st = request_obj.status
+    if approval.decision != Approval.DECISION_PENDING:
+        return True
     if st == Request.STATUS_REJECTED:
         return True
     if st == Request.STATUS_PAYED:
@@ -532,18 +535,27 @@ def _mark_approval_message_sent(*, approval: Approval) -> None:
 
 
 def _current_pending_step(request_obj: Request) -> int | None:
-    # Rejected (or cancelled via reject decision): do not advance to later steps even if
-    # those Approval rows were never created as rejected and remain pending in DB.
-    if request_obj.status == Request.STATUS_REJECTED:
+    if request_obj.status in {Request.STATUS_REJECTED, Request.STATUS_PAYED}:
         return None
-    if Approval.objects.filter(request=request_obj, decision=Approval.DECISION_REJECTED).exists():
-        return None
-    pending_steps = (
-        Approval.objects.filter(request=request_obj, decision=Approval.DECISION_PENDING)
-        .order_by("step")
-        .values_list("step", flat=True)
-    )
-    return next(iter(pending_steps), None)
+    if request_obj.status == Request.STATUS_APPROVED:
+        pending_payment_steps = (
+            Approval.objects.filter(
+                request=request_obj,
+                step_type=Approval.STEP_TYPE_PAYMENT,
+                decision=Approval.DECISION_PENDING,
+            )
+            .order_by("step")
+            .values_list("step", flat=True)
+        )
+        return next(iter(pending_payment_steps), None)
+    status_to_step = {
+        Request.STATUS_PROGRESS_1: 1,
+        Request.STATUS_PROGRESS_2: 2,
+        Request.STATUS_PROGRESS_3: 3,
+        Request.STATUS_PROGRESS_4: 4,
+        Request.STATUS_PROGRESS_5: 5,
+    }
+    return status_to_step.get(request_obj.status)
 
 
 def current_pending_step_approvals_count(*, request_obj: Request) -> int:
@@ -559,23 +571,21 @@ def current_pending_step_approvals_count(*, request_obj: Request) -> int:
 
 
 @transaction.atomic
-def dispatch_pending_approvals(*, request_obj: Request) -> int:
+def dispatch_pending_approvals(*, request_obj: Request, step: int | None = None, step_type: str | None = None) -> int:
     locked = Request.objects.select_for_update().get(pk=request_obj.pk)
-    current_step = _current_pending_step(locked)
+    current_step = step or _current_pending_step(locked)
     if current_step is None:
         return 0
-    approvals = list(
-        Approval.objects.select_for_update()
-        .filter(
-            request_id=locked.pk,
-            step=current_step,
-            decision=Approval.DECISION_PENDING,
-            message_sent=False,
-            approver_tg_id__isnull=False,
-        )
-        .select_related("approver_user")
-        .order_by("id")
+    approvals_qs = Approval.objects.select_for_update().filter(
+        request_id=locked.pk,
+        step=current_step,
+        decision=Approval.DECISION_PENDING,
+        message_sent=False,
+        approver_tg_id__isnull=False,
     )
+    if step_type is not None:
+        approvals_qs = approvals_qs.filter(step_type=step_type)
+    approvals = list(approvals_qs.select_related("approver_user").order_by("id"))
     if not approvals:
         return 0
     sent_count = 0
@@ -655,11 +665,22 @@ def refresh_request_messages(*, request_obj: Request) -> int:
 
 
 @transaction.atomic
-def resend_current_pending_step(*, request_obj: Request) -> int:
+def resend_current_pending_step(*, request_obj: Request, idempotency_key: str | None = None) -> int:
     locked = Request.objects.select_for_update().get(pk=request_obj.pk)
     current_step = _current_pending_step(locked)
     if current_step is None:
-        return 0
+        raise ValidationError({"detail": "Current request status has no active approval step."})
+
+    if idempotency_key:
+        existing = Approval.objects.filter(
+            request_id=locked.pk,
+            step=current_step,
+            decision=Approval.DECISION_PENDING,
+            resend_key=idempotency_key,
+        ).count()
+        if existing:
+            return existing
+
     approvals = list(
         Approval.objects.select_for_update()
         .filter(
@@ -672,27 +693,29 @@ def resend_current_pending_step(*, request_obj: Request) -> int:
         .order_by("id")
     )
     if not approvals:
-        return 0
+        raise ValidationError({"detail": "No pending approvals on current step for resend."})
 
-    resent = 0
+    created = 0
     for approval in approvals:
-        message_text = build_approval_message(request_obj=locked, approval=approval)
         if approval.message_id:
             deactivate_approval_message_buttons(approval=approval, request_context=locked)
-        payload = _dispatch_payload(
-            action=get_requests_telegram_integration_settings(tenant=locked.tenant).send_action,
-            request_obj=locked,
-            approval=approval,
-            message_text=message_text,
-            include_buttons=True,
+        approval.decision = Approval.DECISION_CANCELED
+        approval.decided_at = timezone.now()
+        approval.comment = "Автоматически: отменено повторной отправкой шага."
+        approval.save(update_fields=["decision", "decided_at", "comment"])
+        Approval.objects.create(
+            request=locked,
+            approver_user=approval.approver_user,
+            approver_tg_id=approval.approver_tg_id,
+            approver_tg_from_id=approval.approver_tg_from_id,
+            step=approval.step,
+            step_type=approval.step_type,
+            decision=Approval.DECISION_PENDING,
+            message_sent=False,
+            message_id=None,
+            resend_key=idempotency_key,
+            replaced_approval=approval,
         )
-        response_data = _post_to_bridge(request_obj=locked, payload=payload)
-        if response_data is None:
-            continue
-        # Resend flow: old message is edited first, then new one is sent.
-        # On successful send we always refresh send timestamp and message id.
-        _mark_approval_message_sent(approval=approval)
-        _maybe_set_message_id(approval=approval, response_data=response_data)
-        resent += 1
-    return resent
+        created += 1
+    return created
 
