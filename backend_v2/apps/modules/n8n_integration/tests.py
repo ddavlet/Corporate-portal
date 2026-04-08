@@ -387,7 +387,7 @@ class N8nIntegrationAuthTests(APITestCase):
         req = Request.objects.get(pk=5011)
         self.assertEqual(req.expense_ref_id, cash_expense.id)
 
-    def test_request_upsert_rejects_second_request_same_resolved_cash_expense(self):
+    def test_request_upsert_allows_two_requests_same_resolved_cash_expense(self):
         cash_register = CashRegister.objects.create(tenant=self.tenant, currency="UZS", name="Dup cash")
         cash_wallet = Wallet.objects.create(
             tenant=self.tenant,
@@ -435,8 +435,9 @@ class N8nIntegrationAuthTests(APITestCase):
             "title": "Second request",
         }
         res2 = self.client.post(url, body_b, format="json", **self._headers(self.admin))
-        self.assertEqual(res2.status_code, 400, res2.content)
-        self.assertIn("expense_id", res2.data)
+        self.assertEqual(res2.status_code, 201, res2.content)
+        req2 = Request.objects.get(pk=5021)
+        self.assertEqual(req2.expense_ref_id, cash_expense.id)
 
     def test_request_upsert_keeps_expense_id_when_expense_not_yet_imported(self):
         url = f"{self.n8n_prefix}/requests/"

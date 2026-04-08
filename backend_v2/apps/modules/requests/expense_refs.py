@@ -1,5 +1,3 @@
-from rest_framework import serializers
-
 from apps.modules.bank_expenses.models import BankExpense
 from apps.modules.cashier.models import CashExpense
 from apps.modules.corporate_card.models import CardExpense
@@ -19,28 +17,6 @@ def expense_ref_target_for(*, payment_type: str, category: str) -> str | None:
     if payment_type == Request.PAYMENT_TYPE_CARD:
         return Request.EXPENSE_REF_TARGET_CARD
     return None
-
-
-def raise_if_expense_ref_taken(
-    *,
-    tenant,
-    target: str | None,
-    ref_id: int | None,
-    exclude_request_pk: int | None = None,
-):
-    if ref_id is None or not target:
-        return
-    qs = Request.objects.filter(
-        tenant=tenant,
-        expense_ref_target=target,
-        expense_ref_id=ref_id,
-    )
-    if exclude_request_pk is not None:
-        qs = qs.exclude(pk=exclude_request_pk)
-    if qs.exists():
-        raise serializers.ValidationError(
-            {"expense_id": "Этот расход уже привязан к другой заявке."}
-        )
 
 
 def try_resolve_request_expense_ref_id(
@@ -102,7 +78,7 @@ def try_resolve_request_expense_ref_id(
 def maybe_persist_request_expense_ref(*, request_obj: Request, tenant) -> int | None:
     """
     Try resolve from current `expense_id` / context; if found, persist `expense_ref_id`
-    (+ `expense_ref_target`) when no other request already owns this ref.
+    and `expense_ref_target`. Multiple requests may reference the same expense row.
     """
     raw = str(request_obj.expense_id or "").strip()
     resolved: int | None = None
@@ -120,17 +96,6 @@ def maybe_persist_request_expense_ref(*, request_obj: Request, tenant) -> int | 
     )
 
     if resolved is not None and target:
-        taken = (
-            Request.objects.filter(
-                tenant=tenant,
-                expense_ref_target=target,
-                expense_ref_id=resolved,
-            )
-            .exclude(pk=request_obj.pk)
-            .exists()
-        )
-        if taken:
-            return request_obj.expense_ref_id or None
         if request_obj.expense_ref_id != resolved or request_obj.expense_ref_target != target:
             Request.objects.filter(pk=request_obj.pk, tenant_id=tenant.id).update(
                 expense_ref_id=resolved,

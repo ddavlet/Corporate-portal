@@ -136,13 +136,6 @@ class Request(models.Model):
 
     class Meta:
         db_table = "requests"
-        constraints = [
-            models.UniqueConstraint(
-                fields=["tenant", "expense_ref_target", "expense_ref_id"],
-                condition=models.Q(expense_ref_id__isnull=False, expense_ref_target__isnull=False),
-                name="req_tenant_exp_ref_target_id_uniq",
-            ),
-        ]
 
 
 class Approval(models.Model):
