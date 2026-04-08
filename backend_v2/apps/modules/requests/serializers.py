@@ -1,3 +1,4 @@
+from datetime import date
 from decimal import Decimal
 
 from rest_framework import serializers
@@ -27,9 +28,13 @@ from apps.modules.requests.models import (
 from apps.modules.vendors.models import Vendor
 from apps.modules.cashier.models import CashExpense
 from apps.modules.bank_expenses.models import BankExpense
+from apps.modules.corporate_card.models import CardExpense
 from apps.modules.payroll.constants import MODULE_KEY as PAYROLL_MODULE_KEY, SALARY_CATEGORY
 from apps.modules.payroll.models import PayrollDocument
-from apps.modules.payroll.utils import tenant_has_payroll_module_enabled
+from apps.modules.requests.expense_refs import (
+    maybe_persist_request_expense_ref,
+    try_resolve_request_expense_ref_id,
+)
 from apps.modules.serializers_guard import reject_client_pk_on_create
 from apps.tenants.permissions import has_effective_module_access
 from apps.tenants.models import TenantMembership, TenantUserRole
@@ -92,6 +97,8 @@ class PortalRequestSerializer(serializers.ModelSerializer):
             "expense_month",
             "expense_day",
             "billing_date",
+            "amortization_months",
+            "amortization_start_date",
         ]
         read_only_fields = ["expense_link", "created_at", "created_by", "status"]
 
@@ -272,16 +279,19 @@ class PortalRequestSerializer(serializers.ModelSerializer):
         elif "expense_id" in attrs:
             expense_id_val = attrs.get("expense_id")
         eid = str(expense_id_val or "").strip()
-        if (
-            eid
-            and effective_pt == Request.PAYMENT_TYPE_CASH
-            and (effective_cat or "").strip() == SALARY_CATEGORY
-            and tenant_has_payroll_module_enabled(tenant)
-        ):
-            if not PayrollDocument.objects.filter(tenant=tenant, doc_id=eid).exists():
-                raise serializers.ValidationError(
-                    {"expense_id": "No payroll accrual document with this doc_id for this tenant."}
-                )
+        effective_expense_year = attrs.get("expense_year")
+        if effective_expense_year is None and self.instance is not None:
+            effective_expense_year = self.instance.expense_year
+        if not eid:
+            attrs["expense_ref_id"] = None
+        else:
+            attrs["expense_ref_id"] = try_resolve_request_expense_ref_id(
+                tenant=tenant,
+                payment_type=effective_pt,
+                category=effective_cat,
+                expense_id_raw=eid,
+                expense_year=effective_expense_year,
+            )
 
         if self.context.get("submit_for_approval"):
             amt = attrs.get("amount")
@@ -296,6 +306,12 @@ class PortalRequestSerializer(serializers.ModelSerializer):
                     {"amount": "Amount must be greater than zero to submit for approval."}
                 )
 
+        billing_date = attrs.get("billing_date")
+        if billing_date is None and self.instance is not None:
+            billing_date = self.instance.billing_date
+        if isinstance(billing_date, date):
+            attrs["amortization_start_date"] = billing_date.replace(day=1)
+
         return attrs
 
     def get_requester_username(self, obj):
@@ -306,21 +322,19 @@ class PortalRequestSerializer(serializers.ModelSerializer):
         tenant = getattr(request, "tenant", None)
         user = getattr(request, "user", None)
 
-        if not getattr(obj, "expense_id", None):
-            return None
-        raw_expense_id = str(obj.expense_id).strip()
-
-        try:
-            numeric_id = int(raw_expense_id)
-        except (TypeError, ValueError):
-            numeric_id = None
+        raw = str(getattr(obj, "expense_id", None) or "").strip()
+        ref_id = None
+        if tenant:
+            ref_id = maybe_persist_request_expense_ref(request_obj=obj, tenant=tenant)
+        else:
+            ref_id = obj.expense_ref_id or None
 
         pt = obj.payment_type
 
         # Наличные + зарплатная категория + модуль начислений: связь с документом ЗП по doc_id (не касса).
-        if pt == Request.PAYMENT_TYPE_CASH and (obj.category or "").strip() == SALARY_CATEGORY:
+        if ref_id is not None and pt == Request.PAYMENT_TYPE_CASH and (obj.category or "").strip() == SALARY_CATEGORY:
             if has_effective_module_access(user=user, tenant=tenant, module_key=PAYROLL_MODULE_KEY):
-                payroll_doc = PayrollDocument.objects.filter(tenant=tenant, doc_id=raw_expense_id).first()
+                payroll_doc = PayrollDocument.objects.filter(tenant=tenant, id=ref_id).first()
                 if payroll_doc:
                     rel = reverse("payroll-documents-detail", kwargs={"pk": payroll_doc.pk})
                     url = request.build_absolute_uri(rel) if request else rel
@@ -328,19 +342,14 @@ class PortalRequestSerializer(serializers.ModelSerializer):
                         "module": "payroll",
                         "expense_type": "payroll",
                         "id": payroll_doc.pk,
-                        "doc_id": raw_expense_id,
+                        "doc_id": payroll_doc.doc_id,
                         "url": url,
                     }
-                # Не искать в кассе по тому же id — возможен ложный матч с external_id.
-                return {"module": "external", "expense_type": "unknown", "id": raw_expense_id, "url": None}
 
-        # Касса: только заявки «Наличные» (не перехватывать doc_no перечисления по совпадению id).
-        if pt == Request.PAYMENT_TYPE_CASH and has_effective_module_access(
+        if ref_id is not None and pt == Request.PAYMENT_TYPE_CASH and has_effective_module_access(
             user=user, tenant=tenant, module_key="cash"
         ):
-            cash_expense = CashExpense.objects.filter(tenant=tenant, external_id=raw_expense_id).first()
-            if not cash_expense and numeric_id is not None:
-                cash_expense = CashExpense.objects.filter(tenant=tenant, id=numeric_id).first()
+            cash_expense = CashExpense.objects.filter(tenant=tenant, id=ref_id).first()
             if cash_expense:
                 rel = reverse("cash-expenses-detail", kwargs={"pk": cash_expense.id})
                 url = request.build_absolute_uri(rel) if request else rel
@@ -351,42 +360,37 @@ class PortalRequestSerializer(serializers.ModelSerializer):
                     "url": url,
                 }
 
-        # Банк: «Перечисление» / «Пополнение» — связь по номеру документа и году (номера обновляются ежегодно).
-        if pt in (Request.PAYMENT_TYPE_TRANSFER, Request.PAYMENT_TYPE_TOPUP) and has_effective_module_access(
+        if ref_id is not None and pt in (Request.PAYMENT_TYPE_TRANSFER, Request.PAYMENT_TYPE_TOPUP) and has_effective_module_access(
             user=user, tenant=tenant, module_key="bank"
         ):
-            if obj.expense_year is not None:
-                bank_expense = (
-                    BankExpense.objects.filter(
-                        tenant=tenant, doc_no=raw_expense_id, expense_year=obj.expense_year
-                    )
-                    .order_by("-doc_date", "-id")
-                    .first()
-                )
-                if bank_expense:
-                    rel = reverse("bank-expenses-detail", kwargs={"pk": bank_expense.id})
-                    url = request.build_absolute_uri(rel) if request else rel
-                    return {
-                        "module": "bank",
-                        "expense_type": "bank",
-                        "id": bank_expense.id,
-                        "url": url,
-                    }
-            # Старые данные: в expense_id могли записать PK строки банка без года.
-            if numeric_id is not None:
-                bank_expense = BankExpense.objects.filter(tenant=tenant, id=numeric_id).first()
-                if bank_expense:
-                    rel = reverse("bank-expenses-detail", kwargs={"pk": bank_expense.id})
-                    url = request.build_absolute_uri(rel) if request else rel
-                    return {
-                        "module": "bank",
-                        "expense_type": "bank",
-                        "id": bank_expense.id,
-                        "url": url,
-                    }
+            bank_expense = BankExpense.objects.filter(tenant=tenant, id=ref_id).first()
+            if bank_expense:
+                rel = reverse("bank-expenses-detail", kwargs={"pk": bank_expense.id})
+                url = request.build_absolute_uri(rel) if request else rel
+                return {
+                    "module": "bank",
+                    "expense_type": "bank",
+                    "id": bank_expense.id,
+                    "url": url,
+                }
 
-        # Fallback: only return raw external id (frontend can decide how to render).
-        return {"module": "external", "expense_type": "unknown", "id": raw_expense_id, "url": None}
+        if ref_id is not None and pt == Request.PAYMENT_TYPE_CARD and has_effective_module_access(
+            user=user, tenant=tenant, module_key="corporate_card"
+        ):
+            card_expense = CardExpense.objects.filter(tenant=tenant, id=ref_id).first()
+            if card_expense:
+                rel = reverse("corporate-card-expenses-detail", kwargs={"pk": card_expense.id})
+                url = request.build_absolute_uri(rel) if request else rel
+                return {
+                    "module": "corporate_card",
+                    "expense_type": "card",
+                    "id": card_expense.id,
+                    "url": url,
+                }
+
+        if raw:
+            return {"module": "external", "expense_type": "unknown", "id": raw, "url": None}
+        return None
 
     def to_representation(self, instance):
         data = super().to_representation(instance)

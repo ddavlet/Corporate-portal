@@ -27,8 +27,7 @@ function normalizeRows(payload: unknown): RequestRow[] {
 }
 
 const dateFormatter = new Intl.DateTimeFormat('ru-RU', {
-  day: '2-digit',
-  month: '2-digit',
+  month: 'long',
   year: 'numeric',
   timeZone: 'Asia/Tashkent',
 })

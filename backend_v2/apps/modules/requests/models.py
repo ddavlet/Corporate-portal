@@ -102,8 +102,10 @@ class Request(models.Model):
 
     payed_at = models.IntegerField(null=True, blank=True)
 
-    # Polymorphic: cash/bank doc ids, payroll doc_id (text), or external refs (up to 200 chars).
+    # Transport/business key from external payloads (kept for backward-compatible API contracts).
     expense_id = models.CharField(max_length=200, null=True, blank=True)
+    # Canonical reference to expense document primary key across payment modules.
+    expense_ref_id = models.BigIntegerField(null=True, blank=True)
     file_link = models.TextField(null=True, blank=True)
 
     expense_year = models.IntegerField(null=True, blank=True)
@@ -111,6 +113,8 @@ class Request(models.Model):
     expense_day = models.IntegerField(null=True, blank=True)
 
     billing_date = models.DateField()
+    amortization_months = models.PositiveIntegerField(default=1)
+    amortization_start_date = models.DateField(null=True, blank=True)
 
     class Meta:
         db_table = "requests"

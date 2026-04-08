@@ -1,4 +1,4 @@
-from django.db.models import Count, Exists, OuterRef, Prefetch, Subquery, Sum
+from django.db.models import Count, Exists, OuterRef, Prefetch, Q, Subquery, Sum
 from django.db.models.functions import Coalesce
 from django.db.models import DecimalField, Value
 from decimal import Decimal
@@ -30,8 +30,7 @@ class PayrollDocumentViewSet(viewsets.ReadOnlyModelViewSet):
             tenant=tenant,
             payment_type=Request.PAYMENT_TYPE_CASH,
             category=SALARY_CATEGORY,
-            expense_id=OuterRef("doc_id"),
-        )
+        ).filter(Q(expense_ref_id=OuterRef("pk")) | Q(expense_id=OuterRef("doc_id")))
         paid_request_subquery = request_subquery.filter(status=Request.STATUS_PAYED)
 
         qs = (

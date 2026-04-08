@@ -49,12 +49,24 @@ const dateFormatterTashkent = new Intl.DateTimeFormat('ru-RU', {
   year: 'numeric',
   timeZone: 'Asia/Tashkent',
 })
+const billingMonthFormatterTashkent = new Intl.DateTimeFormat('ru-RU', {
+  month: 'long',
+  year: 'numeric',
+  timeZone: 'Asia/Tashkent',
+})
 
 function formatDateDDMMYYYY(value?: string | null): string {
   if (!value) return '-'
   const parsed = new Date(value)
   if (Number.isNaN(parsed.getTime())) return '-'
   return dateFormatterTashkent.format(parsed)
+}
+
+function formatBillingMonthYear(value?: string | null): string {
+  if (!value) return '-'
+  const parsed = new Date(value)
+  if (Number.isNaN(parsed.getTime())) return '-'
+  return billingMonthFormatterTashkent.format(parsed)
 }
 
 function canResendByStatus(status?: string | null): boolean {
@@ -274,7 +286,7 @@ export function RequestsPage() {
       title: 'Дата биллинга',
       dataIndex: 'billing_date',
       sorter: true,
-      render: (value: string) => formatDateDDMMYYYY(value),
+      render: (value: string) => formatBillingMonthYear(value),
     },
   ]
 

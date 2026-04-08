@@ -9,6 +9,7 @@ from apps.modules.cashier.serializers import CashExpenseSerializer, CashRevenueS
 from apps.modules.corporate_card.models import CardExpense, CardRevenue
 from apps.modules.corporate_card.serializers import CardExpenseSerializer, CardRevenueSerializer
 from apps.modules.notes.models import Note
+from apps.modules.requests.expense_refs import try_resolve_request_expense_ref_id
 from apps.modules.requests.models import Approval, Request
 from apps.modules.vendors.models import Vendor
 from apps.modules.vendors.serializers import VendorSerializer
@@ -146,6 +147,7 @@ class N8nRequestImportSerializer(serializers.ModelSerializer):
     requester = serializers.PrimaryKeyRelatedField(queryset=User.objects.all(), required=False, allow_null=True)
     vendor_ref = serializers.PrimaryKeyRelatedField(queryset=Vendor.objects.all(), required=False, allow_null=True)
     billing_date = serializers.DateField(required=False)
+    description = serializers.CharField(allow_blank=True, required=False, default="")
 
     class Meta:
         model = Request
@@ -236,6 +238,29 @@ class N8nRequestImportSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError({"billing_date": "This field is required."})
         if self.instance is None and "requester" not in attrs:
             raise serializers.ValidationError({"requester": "This field is required."})
+        effective_payment_type = attrs.get("payment_type")
+        if effective_payment_type is None and self.instance is not None:
+            effective_payment_type = self.instance.payment_type
+        effective_category = attrs.get("category")
+        if effective_category is None and self.instance is not None:
+            effective_category = self.instance.category
+        expense_id_val = attrs.get("expense_id")
+        if expense_id_val is None and self.instance is not None and "expense_id" not in attrs:
+            expense_id_val = self.instance.expense_id
+        effective_expense_year = attrs.get("expense_year")
+        if effective_expense_year is None and self.instance is not None:
+            effective_expense_year = self.instance.expense_year
+        eid = str(expense_id_val or "").strip()
+        if not eid:
+            attrs["expense_ref_id"] = None
+        else:
+            attrs["expense_ref_id"] = try_resolve_request_expense_ref_id(
+                tenant=tenant,
+                payment_type=effective_payment_type,
+                category=effective_category,
+                expense_id_raw=expense_id_val,
+                expense_year=effective_expense_year,
+            )
         return attrs
 
 

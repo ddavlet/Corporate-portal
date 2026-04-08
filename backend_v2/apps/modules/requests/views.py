@@ -53,6 +53,7 @@ from apps.modules.requests.serializers import (
     build_auto_request_config_response,
     validate_auto_template_against_form_config,
 )
+from apps.modules.requests.expense_refs import try_resolve_request_expense_ref_id
 from apps.modules.requests.approval_bootstrap import create_approval_rows_for_request
 from apps.modules.requests.approval_workflow import (
     _recalculate_request_status,
@@ -491,7 +492,14 @@ class PortalRequestViewSet(viewsets.ModelViewSet):
 
         request_obj = approval.request
         request_obj.expense_id = expense_id
-        request_obj.save(update_fields=["expense_id"])
+        request_obj.expense_ref_id = try_resolve_request_expense_ref_id(
+            tenant=tenant,
+            payment_type=request_obj.payment_type,
+            category=request_obj.category,
+            expense_id_raw=expense_id,
+            expense_year=request_obj.expense_year,
+        )
+        request_obj.save(update_fields=["expense_id", "expense_ref_id"])
 
         data = confirm_approval_by_id(
             tenant=tenant,

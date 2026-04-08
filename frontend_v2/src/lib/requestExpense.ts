@@ -8,7 +8,7 @@ export type RequestExpenseLink = {
 /**
  * Статус PAYED, но связь не на кассу/банк/начисления ЗП:
  * нет expense_link, или только внешний fallback (module === "external").
- * module payroll считается валидной связью.
+ * module payroll / corporate_card считаются валидной связью.
  */
 export function isPayedMissingLinkedExpense(row: {
   status: string
@@ -18,5 +18,6 @@ export function isPayedMissingLinkedExpense(row: {
   const link = row.expense_link
   if (link == null) return true
   if (link.module === 'external') return true
-  return false
+  if (['cash', 'bank', 'payroll', 'corporate_card'].includes(String(link.module || ''))) return false
+  return true
 }
