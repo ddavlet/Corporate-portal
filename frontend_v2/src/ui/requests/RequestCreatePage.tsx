@@ -15,7 +15,6 @@ import {
   message,
 } from 'antd'
 import type { Dayjs } from 'dayjs'
-import dayjs from 'dayjs'
 import { ArrowLeftOutlined, PlusOutlined } from '@ant-design/icons'
 import { useNavigate } from 'react-router-dom'
 import {
@@ -29,6 +28,7 @@ import {
 } from '../../lib/api'
 import { labelBlockAboveField } from '../formSpacing'
 import { clampToAllowedBillingMonth, isAllowedBillingMonth } from '../../lib/billingMonth'
+import { monthStartTashkent } from '../../lib/tashkentTime'
 
 function vendorKindForPaymentType(paymentType: string): 'cash' | 'transfer' {
   return paymentType === 'Наличные' ? 'cash' : 'transfer'
@@ -65,7 +65,7 @@ export function RequestCreatePage({ requestsBasePath = '/requests', variant = 'p
   const [currency, setCurrency] = useState('UZS')
   const [urgency, setUrgency] = useState('Обычно')
   const [paymentPurpose, setPaymentPurpose] = useState<string | null>(null)
-  const [billingDate, setBillingDate] = useState<Dayjs | null>(() => dayjs().startOf('month'))
+  const [billingDate, setBillingDate] = useState<Dayjs | null>(() => monthStartTashkent())
 
   const [submitting, setSubmitting] = useState(false)
   const [newVendorOpen, setNewVendorOpen] = useState(false)
@@ -152,12 +152,12 @@ export function RequestCreatePage({ requestsBasePath = '/requests', variant = 'p
       setCurrency(d.currency || 'UZS')
       setUrgency(d.urgency || 'Обычно')
       const monthShift = d.billing_days_offset ?? 0
-      const target = dayjs().startOf('month').add(monthShift, 'month')
+      const target = monthStartTashkent().add(monthShift, 'month')
       setBillingDate(clampToAllowedBillingMonth(target))
       setPaymentPurpose(d.payment_purpose ?? null)
       setVendorRefId(d.vendor_ref ?? null)
     } else {
-      setBillingDate((prev) => clampToAllowedBillingMonth(prev ?? dayjs().startOf('month')))
+      setBillingDate((prev) => clampToAllowedBillingMonth(prev ?? monthStartTashkent()))
     }
   }, [step, paymentType, formOptions, detailStep])
 

@@ -6,9 +6,9 @@ import { apiFetch, confirmPaymentViaWebApp, resendRequestApprovals } from '../..
 import { RequestDetailContent, type ApprovalItem, type RequestDetail } from './RequestDetailModal'
 import { NoteCreateModal } from '../NoteCreateModal'
 import { useAuth } from '../auth'
-import dayjs from 'dayjs'
 import { clampToAllowedBillingMonth, isAllowedBillingMonth } from '../../lib/billingMonth'
 import type { Dayjs } from 'dayjs'
+import { monthStartTashkent } from '../../lib/tashkentTime'
 
 export type RequestDetailPageProps = {
   /** Путь к списку заявок для кнопки «Назад» */
@@ -166,7 +166,7 @@ export function RequestDetailPage({ listPath = '/requests', variant = 'portal' }
     setEditAmount(detail.amount ?? null)
     setEditCurrency(detail.currency || 'UZS')
     setEditUrgency(detail.urgency || 'Обычно')
-    setEditBillingDate(detail.billing_date ? dayjs(detail.billing_date) : clampToAllowedBillingMonth(dayjs()))
+    setEditBillingDate(detail.billing_date ? monthStartTashkent(detail.billing_date) : clampToAllowedBillingMonth(monthStartTashkent()))
   }, [editOpen, detail])
 
   const openLinkedExpense = () => {
@@ -256,7 +256,7 @@ export function RequestDetailPage({ listPath = '/requests', variant = 'portal' }
     amount: editAmount ?? 0,
     currency: editCurrency,
     urgency: editUrgency,
-    billing_date: (editBillingDate ?? clampToAllowedBillingMonth(dayjs())).startOf('month').format('YYYY-MM-DD'),
+    billing_date: (editBillingDate ?? clampToAllowedBillingMonth(monthStartTashkent())).startOf('month').format('YYYY-MM-DD'),
   })
 
   const saveDraftOnly = async () => {
