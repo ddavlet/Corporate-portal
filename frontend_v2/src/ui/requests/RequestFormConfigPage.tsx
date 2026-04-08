@@ -201,6 +201,10 @@ export function RequestFormConfigPage() {
       message.warning('Укажите логин и полное имя')
       return
     }
+    if (/\s/.test(u)) {
+      message.warning('Логин не должен содержать пробелы')
+      return
+    }
     setCreatingRequester(true)
     try {
       const next = await createRequesterUser({

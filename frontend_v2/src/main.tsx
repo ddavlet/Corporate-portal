@@ -5,8 +5,13 @@ import { ConfigProvider } from 'antd'
 import ruRU from 'antd/locale/ru_RU'
 import dayjs from 'dayjs'
 import 'dayjs/locale/ru'
+import utc from 'dayjs/plugin/utc'
+import timezone from 'dayjs/plugin/timezone'
 
 dayjs.locale('ru')
+dayjs.extend(utc)
+dayjs.extend(timezone)
+dayjs.tz.setDefault('Asia/Tashkent')
 import { App } from './routes/App'
 import { AuthProvider } from './ui/auth'
 import 'antd/dist/reset.css'
