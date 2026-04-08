@@ -133,7 +133,7 @@ export function CorporateCardPage() {
       dataIndex: 'kind',
       width: 100,
       render: (value: 'expense' | 'revenue') =>
-        value === 'expense' ? <Tag color="gold">Expense</Tag> : <Tag color="green">Revenue</Tag>,
+        value === 'expense' ? <Tag color="gold">Расход</Tag> : <Tag color="green">Доход</Tag>,
       sorter: (a, b) => String(a.kind).localeCompare(String(b.kind)),
     },
     { title: 'ID', dataIndex: 'id', width: 90, sorter: (a, b) => a.id - b.id },
@@ -173,7 +173,12 @@ export function CorporateCardPage() {
 
   const revenueColumns: ColumnsType<CorporateCardRevenue> = [
     { title: 'ID', dataIndex: 'id', width: 90, sorter: (a, b) => a.id - b.id },
-    { title: 'id', dataIndex: 'external_id', width: 120, sorter: (a, b) => String(a.external_id || '').localeCompare(String(b.external_id || '')) },
+    {
+      title: 'Внешний ID',
+      dataIndex: 'external_id',
+      width: 120,
+      sorter: (a, b) => String(a.external_id || '').localeCompare(String(b.external_id || '')),
+    },
     {
       title: 'Дата',
       dataIndex: 'revenue_date',
@@ -205,7 +210,7 @@ export function CorporateCardPage() {
       dataIndex: 'counterparty',
     },
     {
-      title: 'Bank link',
+      title: 'Связь с банком',
       dataIndex: 'bank_expense_id',
       render: (_, row) =>
         row.bank_expense_id ? (
@@ -220,7 +225,7 @@ export function CorporateCardPage() {
   return (
     <Card>
       <Typography.Title level={4} style={{ marginTop: 0 }}>
-        Corporate Card
+        Корпоративная карта
       </Typography.Title>
       <ChannelBalancesSummary channel="corporate_card" />
       <div style={{ marginTop: 8, marginBottom: 12 }}>
@@ -228,7 +233,7 @@ export function CorporateCardPage() {
           Расходы и пополнения корпоративной карты
         </Typography.Text>
         <Input
-          placeholder="Поиск: id, организация, сотрудник, операция, комментарий, bank_expense_id"
+          placeholder="Поиск: ID, организация, сотрудник, операция, комментарий, ID расхода банка"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           allowClear
@@ -244,7 +249,7 @@ export function CorporateCardPage() {
           items={[
             {
               key: 'all',
-              label: 'All',
+              label: 'Все',
               children: (
                 <Table<AllRow>
                   rowKey={(r) => `${r.kind}:${r.id}`}
@@ -265,7 +270,7 @@ export function CorporateCardPage() {
             },
             {
               key: 'expenses',
-              label: 'Expenses',
+              label: 'Расходы',
               children: (
                 <Table<CorporateCardExpense>
                   rowKey="id"
@@ -292,7 +297,7 @@ export function CorporateCardPage() {
             },
             {
               key: 'revenues',
-              label: 'Revenues',
+              label: 'Доходы',
               children: (
                 <Table<CorporateCardRevenue>
                   rowKey="id"
@@ -323,7 +328,7 @@ export function CorporateCardPage() {
 
       <Modal
         open={Boolean(selectedExpense)}
-        title={selectedExpense ? `Card expense #${selectedExpense.id}` : 'Card expense'}
+        title={selectedExpense ? `Расход по карте #${selectedExpense.id}` : 'Расход по карте'}
         footer={null}
         onCancel={() => setSelectedExpense(null)}
       >
@@ -343,14 +348,14 @@ export function CorporateCardPage() {
 
       <Modal
         open={Boolean(selectedRevenue)}
-        title={selectedRevenue ? `Card revenue #${selectedRevenue.id}` : 'Card revenue'}
+        title={selectedRevenue ? `Доход по карте #${selectedRevenue.id}` : 'Доход по карте'}
         footer={null}
         onCancel={() => setSelectedRevenue(null)}
       >
         {selectedRevenue ? (
           <Descriptions bordered size="small" column={1}>
             <Descriptions.Item label="ID">{selectedRevenue.id}</Descriptions.Item>
-            <Descriptions.Item label="id">{selectedRevenue.external_id || '-'}</Descriptions.Item>
+            <Descriptions.Item label="Внешний ID">{selectedRevenue.external_id || '-'}</Descriptions.Item>
             <Descriptions.Item label="Дата">{formatDate(selectedRevenue.revenue_date || selectedRevenue.revenue_at)}</Descriptions.Item>
             <Descriptions.Item label="Подтверждено">
               {selectedRevenue.confirmed === false ? <Tag color="default">Нет</Tag> : <Tag color="processing">Да</Tag>}
@@ -366,8 +371,8 @@ export function CorporateCardPage() {
             <Descriptions.Item label="Сумма">
               {`${Number(selectedRevenue.total_sum ?? selectedRevenue.amount).toLocaleString('ru-RU')} ${selectedRevenue.currency || ''}`.trim()}
             </Descriptions.Item>
-            <Descriptions.Item label="source_year">{selectedRevenue.source_year ?? '-'}</Descriptions.Item>
-            <Descriptions.Item label="bank_expense_id">{selectedRevenue.bank_expense_id ?? '-'}</Descriptions.Item>
+            <Descriptions.Item label="Год источника">{selectedRevenue.source_year ?? '-'}</Descriptions.Item>
+            <Descriptions.Item label="ID расхода банка">{selectedRevenue.bank_expense_id ?? '-'}</Descriptions.Item>
             <Descriptions.Item label="Связь найдена">
               {selectedRevenue.bank_expense_exists ? <Tag color="success">Да</Tag> : <Tag>Нет</Tag>}
             </Descriptions.Item>

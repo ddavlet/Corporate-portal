@@ -301,17 +301,15 @@ export type CorporateCardRevenue = {
 
 export type CashRevenue = {
   id: number
-  title: string
-  amount: string | number
+  external_id?: string
+  revenue_at?: string | null
   currency: string
-  revenue_date: string | null
-  category: string
-  received_from: string
-  payment_method: string
-  reference_no: string
-  status: string
-  tags: unknown[]
-  note: string
+  confirmed?: boolean
+  operation?: string
+  account?: string
+  counterparty?: string
+  total_sum?: string | number
+  comment?: string
   payload?: Record<string, unknown>
   created_at: string
 }

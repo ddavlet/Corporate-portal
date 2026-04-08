@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Alert, Button, Card, DatePicker, Input, InputNumber, Select, Skeleton, Space, Table, Tag, Typography, message } from 'antd'
+import { Alert, Button, Card, Collapse, DatePicker, Input, InputNumber, Select, Skeleton, Space, Table, Tag, Typography, message } from 'antd'
 import type { ColumnsType, TableProps } from 'antd/es/table'
 import type { Dayjs } from 'dayjs'
 import { useNavigate } from 'react-router-dom'
@@ -34,27 +34,6 @@ type SortState = {
   order: 'ascend' | 'descend' | null
 }
 
-let __agentLogCountRequests = 0
-function __agentDebugRequests(hypothesisId: string, location: string, message: string, data: Record<string, unknown>) {
-  if (__agentLogCountRequests >= 8) return
-  __agentLogCountRequests += 1
-  // #region agent log
-  fetch('http://127.0.0.1:7881/ingest/65e49d6f-5b21-403c-b9fe-96d5e00b64d7', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'X-Debug-Session-Id': 'f6d40b' },
-    body: JSON.stringify({
-      sessionId: 'f6d40b',
-      runId: 'pre-fix-requests',
-      hypothesisId,
-      location,
-      message,
-      data,
-      timestamp: Date.now(),
-    }),
-  }).catch(() => {})
-  // #endregion
-}
-
 function normalizeRows(payload: unknown): RequestRow[] {
   if (Array.isArray(payload)) return payload as RequestRow[]
   if (payload && typeof payload === 'object' && 'results' in payload) {
@@ -75,14 +54,7 @@ function formatDateDDMMYYYY(value?: string | null): string {
   if (!value) return '-'
   const parsed = new Date(value)
   if (Number.isNaN(parsed.getTime())) return '-'
-  const formatted = dateFormatterTashkent.format(parsed)
-  __agentDebugRequests('H1', 'RequestsPage.formatDateDDMMYYYY', 'Formatted date in requests table', {
-    input: value,
-    parsedIso: parsed.toISOString(),
-    formatted,
-    timezone: 'Asia/Tashkent',
-  })
-  return formatted
+  return dateFormatterTashkent.format(parsed)
 }
 
 function canResendByStatus(status?: string | null): boolean {
@@ -159,12 +131,6 @@ export function RequestsPage() {
         if (!cancelled) {
           const normalized = normalizeRows(json)
           setRows(normalized)
-          const first = normalized[0]
-          __agentDebugRequests('H2', 'RequestsPage.fetchList', 'Sample request row date fields from API', {
-            count: normalized.length,
-            submitted_at: first?.submitted_at ?? null,
-            billing_date: first?.billing_date ?? null,
-          })
         }
       } catch (e: any) {
         if (!cancelled) {
@@ -348,6 +314,24 @@ export function RequestsPage() {
     }
   }
 
+  const resetFilters = () => {
+    setSearch('')
+    setVendorSearchApi('')
+    setStatus(undefined)
+    setUrgency(undefined)
+    setPaymentType(undefined)
+    setCurrency(undefined)
+    setCategory(undefined)
+    setVendor(undefined)
+    setRequester(undefined)
+    setAmountMin(null)
+    setAmountMax(null)
+    setSubmittedRange(null)
+    setBillingRange(null)
+    setSort({ field: null, order: null })
+    setCurrentPage(1)
+  }
+
   return (
     <Card>
       <Space align="center" style={{ justifyContent: 'space-between', width: '100%', flexWrap: 'wrap' }}>
@@ -362,20 +346,14 @@ export function RequestsPage() {
         </Space>
       </Space>
       <Space direction="vertical" size={12} style={{ display: 'flex', marginTop: 12, marginBottom: 12 }}>
-        <Input
-          placeholder="Поиск: категория, поставщик, назначение, описание"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          allowClear
-        />
-        <Input
-          placeholder="Поставщик: поиск на сервере (название)"
-          value={vendorSearchApi}
-          onChange={(e) => setVendorSearchApi(e.target.value)}
-          allowClear
-          style={{ maxWidth: 360 }}
-        />
-        <Space wrap size={[12, 12]}>
+        <Space wrap>
+          <Input
+            placeholder="Поиск: категория, поставщик, назначение, описание"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            allowClear
+            style={{ minWidth: 320 }}
+          />
           <Select
             placeholder="Статус"
             allowClear
@@ -385,14 +363,6 @@ export function RequestsPage() {
             options={optionize(rows.map((r) => r.status))}
           />
           <Select
-            placeholder="Срочность"
-            allowClear
-            style={{ width: 180 }}
-            value={urgency}
-            onChange={(value) => setUrgency(value)}
-            options={optionize(rows.map((r) => r.urgency))}
-          />
-          <Select
             placeholder="Тип оплаты"
             allowClear
             style={{ width: 200 }}
@@ -400,63 +370,94 @@ export function RequestsPage() {
             onChange={(value) => setPaymentType(value)}
             options={optionize(rows.map((r) => r.payment_type))}
           />
-          <Select
-            placeholder="Валюта"
-            allowClear
-            style={{ width: 140 }}
-            value={currency}
-            onChange={(value) => setCurrency(value)}
-            options={optionize(rows.map((r) => r.currency))}
-          />
-          <Select
-            placeholder="Категория"
-            allowClear
-            style={{ width: 220 }}
-            value={category}
-            onChange={(value) => setCategory(value)}
-            options={optionize(rows.map((r) => r.category))}
-          />
-          <Select
-            placeholder="Поставщик"
-            allowClear
-            style={{ width: 220 }}
-            value={vendor}
-            onChange={(value) => setVendor(value)}
-            options={optionize(rows.map((r) => r.vendor))}
-          />
-          <Select
-            placeholder="Заявитель"
-            allowClear
-            style={{ width: 200 }}
-            value={requester}
-            onChange={(value) => setRequester(value)}
-            options={requesterOptions}
-          />
+          <Button onClick={resetFilters}>Сбросить фильтры</Button>
         </Space>
-        <Space wrap>
-          <DatePicker.RangePicker
-            value={submittedRange}
-            onChange={(value) => setSubmittedRange(value)}
-            placeholder={['submitted_from', 'submitted_to']}
-          />
-          <DatePicker.RangePicker
-            value={billingRange}
-            onChange={(value) => setBillingRange(value)}
-            placeholder={['billing_from', 'billing_to']}
-          />
-          <InputNumber
-            placeholder="Мин. сумма"
-            value={amountMin}
-            onChange={(value) => setAmountMin(value)}
-            min={0}
-          />
-          <InputNumber
-            placeholder="Макс. сумма"
-            value={amountMax}
-            onChange={(value) => setAmountMax(value)}
-            min={0}
-          />
-        </Space>
+        <Collapse
+          size="small"
+          items={[
+            {
+              key: 'advanced',
+              label: 'Расширенные фильтры',
+              children: (
+                <Space direction="vertical" size={12} style={{ display: 'flex' }}>
+                  <Input
+                    placeholder="Поставщик: поиск на сервере (название)"
+                    value={vendorSearchApi}
+                    onChange={(e) => setVendorSearchApi(e.target.value)}
+                    allowClear
+                    style={{ maxWidth: 360 }}
+                  />
+                  <Space wrap size={[12, 12]}>
+                    <Select
+                      placeholder="Срочность"
+                      allowClear
+                      style={{ width: 180 }}
+                      value={urgency}
+                      onChange={(value) => setUrgency(value)}
+                      options={optionize(rows.map((r) => r.urgency))}
+                    />
+                    <Select
+                      placeholder="Валюта"
+                      allowClear
+                      style={{ width: 140 }}
+                      value={currency}
+                      onChange={(value) => setCurrency(value)}
+                      options={optionize(rows.map((r) => r.currency))}
+                    />
+                    <Select
+                      placeholder="Категория"
+                      allowClear
+                      style={{ width: 220 }}
+                      value={category}
+                      onChange={(value) => setCategory(value)}
+                      options={optionize(rows.map((r) => r.category))}
+                    />
+                    <Select
+                      placeholder="Поставщик"
+                      allowClear
+                      style={{ width: 220 }}
+                      value={vendor}
+                      onChange={(value) => setVendor(value)}
+                      options={optionize(rows.map((r) => r.vendor))}
+                    />
+                    <Select
+                      placeholder="Заявитель"
+                      allowClear
+                      style={{ width: 200 }}
+                      value={requester}
+                      onChange={(value) => setRequester(value)}
+                      options={requesterOptions}
+                    />
+                  </Space>
+                  <Space wrap>
+                    <DatePicker.RangePicker
+                      value={submittedRange}
+                      onChange={(value) => setSubmittedRange(value)}
+                      placeholder={['submitted_from', 'submitted_to']}
+                    />
+                    <DatePicker.RangePicker
+                      value={billingRange}
+                      onChange={(value) => setBillingRange(value)}
+                      placeholder={['billing_from', 'billing_to']}
+                    />
+                    <InputNumber
+                      placeholder="Мин. сумма"
+                      value={amountMin}
+                      onChange={(value) => setAmountMin(value)}
+                      min={0}
+                    />
+                    <InputNumber
+                      placeholder="Макс. сумма"
+                      value={amountMax}
+                      onChange={(value) => setAmountMax(value)}
+                      min={0}
+                    />
+                  </Space>
+                </Space>
+              ),
+            },
+          ]}
+        />
       </Space>
       {loading ? <Skeleton active style={{ marginTop: 16 }} /> : null}
       {error ? <Alert type="error" showIcon message={error} style={{ marginTop: 16 }} /> : null}
