@@ -33,18 +33,26 @@ class VendorSerializer(serializers.ModelSerializer):
         if inn is serializers.empty:
             inn = None
         inn = (str(inn).strip() if inn else "") or None
+        account_number = attrs.get("account_number", serializers.empty)
+        if account_number is serializers.empty and self.instance is not None:
+            account_number = self.instance.account_number
+        if account_number is serializers.empty:
+            account_number = None
+        account_number = (str(account_number).strip() if account_number else "") or None
+        attrs["account_number"] = account_number
 
         if kind == Vendor.KIND_TRANSFER:
             if not inn:
                 raise serializers.ValidationError({"inn": "ИНН обязателен для поставщиков с типом «перечисление»."})
             attrs["inn"] = inn
-            # Pre-validate unique constraint to return 400 instead of IntegrityError.
-            if tenant and inn:
-                qs = Vendor.objects.filter(tenant=tenant, kind=Vendor.KIND_TRANSFER, inn=inn)
-                if self.instance is not None:
-                    qs = qs.exclude(pk=self.instance.pk)
-                if qs.exists():
-                    raise serializers.ValidationError({"inn": "ИНН уже используется у другого поставщика."})
         elif kind == Vendor.KIND_CASH:
-            attrs["inn"] = None
+            attrs["inn"] = inn
+
+        # Pre-validate unique constraint to return 400 instead of IntegrityError.
+        if tenant and account_number:
+            qs = Vendor.objects.filter(tenant=tenant, account_number=account_number)
+            if self.instance is not None:
+                qs = qs.exclude(pk=self.instance.pk)
+            if qs.exists():
+                raise serializers.ValidationError({"account_number": "Расчетный счет уже используется у другого поставщика."})
         return attrs

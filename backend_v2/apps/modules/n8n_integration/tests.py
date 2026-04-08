@@ -8,6 +8,9 @@ from rest_framework.test import APITestCase
 from rest_framework_simplejwt.tokens import RefreshToken
 
 from apps.tenants.models import Tenant, TenantMembership, TenantModuleConfig, TenantUserRole
+from apps.modules.bank_expenses.models import BankExpense
+from apps.modules.cashier.models import CashRevenue
+from apps.modules.requests.models import Approval, Request
 from apps.modules.vendors.models import Vendor
 
 User = get_user_model()
@@ -31,13 +34,23 @@ class N8nIntegrationAuthTests(APITestCase):
         self.tenant = Tenant.objects.create(name="Acme", subdomain="acme", is_active=True)
         self.admin = User.objects.create_user(username="admin", password="pass12345")
         self.other = User.objects.create_user(username="member", password="pass12345")
+        self.requester = User.objects.create_user(username="requester", password="pass12345")
+        self.approver = User.objects.create_user(username="approver", password="pass12345")
         TenantMembership.objects.create(tenant=self.tenant, user=self.admin, is_active=True)
         TenantMembership.objects.create(tenant=self.tenant, user=self.other, is_active=True)
+        TenantMembership.objects.create(tenant=self.tenant, user=self.requester, is_active=True)
+        TenantMembership.objects.create(tenant=self.tenant, user=self.approver, is_active=True)
         TenantUserRole.objects.create(
             tenant=self.tenant, user=self.admin, role=TenantUserRole.ROLE_ADMIN, step=1
         )
         TenantUserRole.objects.create(
             tenant=self.tenant, user=self.other, role=TenantUserRole.ROLE_REQUESTER, step=1
+        )
+        TenantUserRole.objects.create(
+            tenant=self.tenant, user=self.requester, role=TenantUserRole.ROLE_REQUESTER, step=1
+        )
+        TenantUserRole.objects.create(
+            tenant=self.tenant, user=self.approver, role=TenantUserRole.ROLE_APPROVER, step=1
         )
         TenantModuleConfig.objects.create(tenant=self.tenant, module_key="vendors", is_enabled=True)
 
@@ -104,6 +117,25 @@ class N8nIntegrationAuthTests(APITestCase):
         self.assertEqual(res2.status_code, 200)
         v.refresh_from_db()
         self.assertEqual(v.name, "Updated")
+
+    def test_vendor_upsert_by_account_no_when_id_missing(self):
+        Vendor.objects.create(
+            tenant=self.tenant,
+            kind=Vendor.KIND_TRANSFER,
+            name="Imported by Account",
+            inn="987654321",
+            account_number="20208000999999999999",
+            created_by=self.admin,
+        )
+        res = self.client.post(
+            self.vendor_url,
+            {"kind": Vendor.KIND_TRANSFER, "name": "Renamed Vendor", "account_no": "20208000999999999999"},
+            format="json",
+            **self._headers(self.admin),
+        )
+        self.assertEqual(res.status_code, 200, res.content)
+        v = Vendor.objects.get(tenant=self.tenant, account_number="20208000999999999999")
+        self.assertEqual(v.name, "Renamed Vendor")
 
     def test_payroll_line_upsert(self):
         from apps.modules.payroll.models import PayrollLine
@@ -185,4 +217,166 @@ class N8nIntegrationAuthTests(APITestCase):
         self.assertEqual(res2.status_code, 200)
         row.refresh_from_db()
         self.assertEqual(str(row.kredit_turnover), "600.00")
+
+    def test_bank_expense_resolves_vendor_by_account_no(self):
+        vendor = Vendor.objects.create(
+            tenant=self.tenant,
+            kind=Vendor.KIND_TRANSFER,
+            name="Bank Supplier",
+            inn="123456789",
+            account_number="20208000999999999999",
+            created_by=self.admin,
+        )
+        url = f"{self.n8n_prefix}/bank/expenses/"
+        body = {
+            "id": 93001,
+            "row_no": 1,
+            "doc_date": "2026-03-30",
+            "process_date": "2026-03-30",
+            "doc_no": "BEXP-N8N-1",
+            "account_no": "20208000999999999999",
+            "debit_turnover": "500.00",
+            "payment_purpose": "Оплата поставки",
+        }
+        res = self.client.post(url, body, format="json", **self._headers(self.admin))
+        self.assertEqual(res.status_code, 201, res.content)
+        row = BankExpense.objects.get(pk=93001)
+        self.assertEqual(row.vendor_id, vendor.id)
+
+    def test_cash_revenue_import_fields_supported(self):
+        url = f"{self.n8n_prefix}/cash/revenues/"
+        body = {
+            "id": 94001,
+            "external_id": "1-000004435",
+            "date": "2026-03-19T19:00:00.000Z",
+            "confirmed": True,
+            "direction": "in",
+            "organization": "LEMONFIT",
+            "unit": "LEMONFIT",
+            "employee": "",
+            "cash_type": "Наличные",
+            "operation": "Взнос на лицевой счет",
+            "account": "Основная касса (касса)",
+            "counterparty": "Encarnacion Jose",
+            "contract": "",
+            "total_sum": "20000",
+            "comment": "",
+            "source_year": 2026,
+        }
+        res = self.client.post(url, body, format="json", **self._headers(self.admin))
+        self.assertEqual(res.status_code, 201, res.content)
+        row = CashRevenue.objects.get(pk=94001)
+        self.assertEqual(row.external_id, "1-000004435")
+        self.assertEqual(str(row.total_sum), "20000.00")
+        self.assertEqual(row.payload.get("direction"), "in")
+        self.assertEqual(row.payload.get("source_year"), 2026)
+
+    def test_cash_revenue_string_id_maps_to_external_id(self):
+        url = f"{self.n8n_prefix}/cash/revenues/"
+        body = {
+            "id": "1-000004435",
+            "date": "2026-03-19T19:00:00.000Z",
+            "confirmed": True,
+            "direction": "in",
+            "organization": "LEMONFIT",
+            "unit": "LEMONFIT",
+            "total_sum": "20000",
+        }
+        res = self.client.post(url, body, format="json", **self._headers(self.admin))
+        self.assertEqual(res.status_code, 201, res.content)
+        row = CashRevenue.objects.get(tenant=self.tenant, external_id="1-000004435")
+        self.assertEqual(str(row.total_sum), "20000.00")
+
+        res2 = self.client.post(
+            url,
+            {**body, "total_sum": "21000"},
+            format="json",
+            **self._headers(self.admin),
+        )
+        self.assertEqual(res2.status_code, 200, res2.content)
+        row.refresh_from_db()
+        self.assertEqual(str(row.total_sum), "21000.00")
+
+    def test_cash_revenue_pk_as_id_and_id_as_external(self):
+        url = f"{self.n8n_prefix}/cash/revenues/"
+        body = {
+            "pk": "95001",
+            "id": "1-000009999",
+            "date": "2026-03-19T19:00:00.000Z",
+            "confirmed": True,
+            "direction": "in",
+            "total_sum": "30000",
+        }
+        res = self.client.post(url, body, format="json", **self._headers(self.admin))
+        self.assertEqual(res.status_code, 201, res.content)
+        row = CashRevenue.objects.get(pk=95001)
+        self.assertEqual(row.external_id, "1-000009999")
+
+    def test_request_upsert_with_client_id(self):
+        url = f"{self.n8n_prefix}/requests/"
+        body = {
+            "id": 5010,
+            "title": "Imported request",
+            "description": "from n8n",
+            "amount": "1200.00",
+            "currency": "UZS",
+            "payment_type": "Наличные",
+            "urgency": "Обычно",
+            "requester": self.requester.id,
+            "status": "DRAFT",
+            "billing_date": "2026-04-01",
+        }
+        res = self.client.post(url, body, format="json", **self._headers(self.admin))
+        self.assertEqual(res.status_code, 201, res.content)
+        req = Request.objects.get(pk=5010)
+        self.assertEqual(req.tenant_id, self.tenant.id)
+        self.assertEqual(req.created_by_id, 1)
+        self.assertEqual(req.requester_id, self.requester.id)
+
+        res2 = self.client.post(
+            url,
+            {**body, "title": "Imported request updated"},
+            format="json",
+            **self._headers(self.admin),
+        )
+        self.assertEqual(res2.status_code, 200, res2.content)
+        req.refresh_from_db()
+        self.assertEqual(req.title, "Imported request updated")
+
+    def test_approval_upsert_with_client_id(self):
+        req = Request.objects.create(
+            id=6010,
+            tenant=self.tenant,
+            created_by=self.admin,
+            requester=self.requester,
+            title="Seed request",
+            billing_date=date(2026, 4, 1),
+        )
+        url = f"{self.n8n_prefix}/approvals/"
+        body = {
+            "id": 7010,
+            "request": req.id,
+            "approver_user": self.approver.id,
+            "approver_tg_id": 555001,
+            "step": 1,
+            "step_type": "serial",
+            "decision": "pending",
+            "message_sent": True,
+        }
+        res = self.client.post(url, body, format="json", **self._headers(self.admin))
+        self.assertEqual(res.status_code, 201, res.content)
+        appr = Approval.objects.get(pk=7010)
+        self.assertEqual(appr.request_id, req.id)
+        self.assertEqual(appr.approver_user_id, self.approver.id)
+        self.assertEqual(appr.approver_tg_id, 555001)
+
+        res2 = self.client.post(
+            url,
+            {**body, "decision": "approved"},
+            format="json",
+            **self._headers(self.admin),
+        )
+        self.assertEqual(res2.status_code, 200, res2.content)
+        appr.refresh_from_db()
+        self.assertEqual(appr.decision, "approved")
 

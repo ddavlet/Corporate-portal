@@ -9,7 +9,7 @@ from apps.tenants.models import Tenant
 class Vendor(models.Model):
     """
     Tenant vendor directory: наличные (CASH) or перечисление (TRANSFER).
-    ИНН обязателен для TRANSFER и уникален в пределах тенанта.
+    ИНН обязателен для TRANSFER. Расчетный счет уникален в пределах тенанта.
     """
 
     KIND_CASH = "cash"
@@ -36,14 +36,9 @@ class Vendor(models.Model):
         db_table = "vendors_directory"
         constraints = [
             models.UniqueConstraint(
-                fields=["tenant", "inn"],
-                condition=Q(kind="transfer") & ~Q(inn="") & Q(inn__isnull=False),
-                name="vendors_directory_tenant_inn_transfer_uniq",
-            ),
-            models.UniqueConstraint(
-                fields=["tenant", "name", "kind"],
-                condition=Q(kind="cash"),
-                name="vendors_directory_tenant_name_kind_cash_uniq",
+                fields=["tenant", "account_number"],
+                condition=~Q(account_number="") & Q(account_number__isnull=False),
+                name="vendors_directory_tenant_account_number_uniq",
             ),
         ]
         indexes = [

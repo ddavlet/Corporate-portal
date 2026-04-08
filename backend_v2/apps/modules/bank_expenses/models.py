@@ -21,10 +21,6 @@ class BankExpense(models.Model):
     expense_day = models.PositiveSmallIntegerField()
 
     doc_no = models.CharField(max_length=50)
-    account_name = models.CharField(max_length=255)
-    inn = models.CharField(max_length=20, null=True, blank=True)
-    account_no = models.CharField(max_length=34)
-    mfo = models.CharField(max_length=10)
 
     debit_turnover = models.DecimalField(max_digits=18, decimal_places=2, default=0)
     payment_purpose = models.TextField()

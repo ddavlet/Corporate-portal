@@ -17,14 +17,11 @@ class BankExpenseAdmin(admin.ModelAdmin):
         "expense_month",
         "expense_day",
         "doc_no",
-        "account_name",
-        "inn",
-        "account_no",
-        "mfo",
+        "vendor",
         "debit_turnover",
     )
-    list_filter = ("tenant", "doc_date", "process_date", "mfo")
-    search_fields = ("doc_no", "account_name", "inn", "account_no", "payment_purpose")
+    list_filter = ("tenant", "doc_date", "process_date")
+    search_fields = ("doc_no", "vendor__name", "vendor__inn", "vendor__account_number", "payment_purpose")
 
     def save_model(self, request, obj, form, change):
         if not obj.created_by_id:

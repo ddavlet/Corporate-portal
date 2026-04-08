@@ -1,3 +1,4 @@
+from django.contrib.auth import get_user_model
 from rest_framework import serializers
 
 from apps.modules.bank_expenses.models import BankExpense
@@ -8,21 +9,32 @@ from apps.modules.cashier.serializers import CashExpenseSerializer, CashRevenueS
 from apps.modules.corporate_card.models import CardExpense, CardRevenue
 from apps.modules.corporate_card.serializers import CardExpenseSerializer, CardRevenueSerializer
 from apps.modules.notes.models import Note
-from apps.modules.requests.models import Request
+from apps.modules.requests.models import Approval, Request
 from apps.modules.vendors.models import Vendor
 from apps.modules.vendors.serializers import VendorSerializer
 from apps.tenants.permissions import has_effective_module_access
+from apps.tenants.models import TenantMembership, TenantUserRole
+
+User = get_user_model()
 
 
 class N8nVendorImportSerializer(VendorSerializer):
-    id = serializers.IntegerField(required=True)
+    id = serializers.IntegerField(required=False)
+
+    def to_internal_value(self, data):
+        from collections.abc import Mapping
+        if isinstance(data, Mapping):
+            data = dict(data)
+            if "account_number" not in data and "account_no" in data:
+                data["account_number"] = data.get("account_no")
+        return serializers.ModelSerializer.to_internal_value(self, data)
 
     class Meta(VendorSerializer.Meta):
         read_only_fields = ["tenant", "created_at", "created_by"]
 
 
 class N8nCashExpenseImportSerializer(CashExpenseSerializer):
-    id = serializers.IntegerField(required=True)
+    id = serializers.IntegerField(required=False)
 
     def to_internal_value(self, data):
         from collections.abc import Mapping
@@ -44,7 +56,7 @@ class N8nCashExpenseImportSerializer(CashExpenseSerializer):
 
 
 class N8nCashRevenueImportSerializer(CashRevenueSerializer):
-    id = serializers.IntegerField(required=True)
+    id = serializers.IntegerField(required=False)
 
     class Meta(CashRevenueSerializer.Meta):
         read_only_fields = ["created_at", "created_by"]
@@ -53,7 +65,7 @@ class N8nCashRevenueImportSerializer(CashRevenueSerializer):
 class N8nPayrollLineImportSerializer(serializers.ModelSerializer):
     """Upsert payroll line by id; doc_id ties to PayrollDocument (auto-created)."""
 
-    id = serializers.IntegerField(required=True)
+    id = serializers.IntegerField(required=False)
     doc_id = serializers.CharField(write_only=True)
 
     class Meta:
@@ -96,7 +108,7 @@ class N8nPayrollLineImportSerializer(serializers.ModelSerializer):
 
 
 class N8nBankExpenseImportSerializer(BankExpenseSerializer):
-    id = serializers.IntegerField(required=True)
+    id = serializers.IntegerField(required=False)
 
     class Meta(BankExpenseSerializer.Meta):
         read_only_fields = [
@@ -109,24 +121,184 @@ class N8nBankExpenseImportSerializer(BankExpenseSerializer):
 
 
 class N8nBankRevenueImportSerializer(BankRevenueSerializer):
-    id = serializers.IntegerField(required=True)
+    id = serializers.IntegerField(required=False)
 
     class Meta(BankRevenueSerializer.Meta):
         read_only_fields = ["created_at", "created_by"]
 
 
 class N8nCardExpenseImportSerializer(CardExpenseSerializer):
-    id = serializers.IntegerField(required=True)
+    id = serializers.IntegerField(required=False)
 
     class Meta(CardExpenseSerializer.Meta):
         read_only_fields = ["created_at", "created_by"]
 
 
 class N8nCardRevenueImportSerializer(CardRevenueSerializer):
-    id = serializers.IntegerField(required=True)
+    id = serializers.IntegerField(required=False)
 
     class Meta(CardRevenueSerializer.Meta):
         read_only_fields = ["created_at", "created_by", "bank_expense_exists"]
+
+
+class N8nRequestImportSerializer(serializers.ModelSerializer):
+    id = serializers.IntegerField(required=False)
+    requester = serializers.PrimaryKeyRelatedField(queryset=User.objects.all(), required=False, allow_null=True)
+    vendor_ref = serializers.PrimaryKeyRelatedField(queryset=Vendor.objects.all(), required=False, allow_null=True)
+    billing_date = serializers.DateField(required=False)
+
+    class Meta:
+        model = Request
+        fields = [
+            "id",
+            "company_payer",
+            "category",
+            "vendor",
+            "vendor_ref",
+            "title",
+            "description",
+            "amount",
+            "currency",
+            "payment_type",
+            "urgency",
+            "requester",
+            "payment_purpose",
+            "submitted_at",
+            "status",
+            "payed_at",
+            "expense_id",
+            "file_link",
+            "expense_year",
+            "expense_month",
+            "expense_day",
+            "billing_date",
+        ]
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        tenant = getattr(self.context.get("request"), "tenant", None)
+        if tenant:
+            self.fields["vendor_ref"].queryset = Vendor.objects.filter(tenant=tenant)
+
+    def validate_requester(self, value):
+        tenant = getattr(self.context.get("request"), "tenant", None)
+        if value is None or tenant is None:
+            return value
+        is_member = TenantMembership.objects.filter(tenant=tenant, user=value, is_active=True).exists()
+        roles = list(
+            TenantUserRole.objects.filter(tenant=tenant, user=value).values_list("role", flat=True).distinct()
+        )
+        if not is_member:
+            raise serializers.ValidationError(
+                (
+                    f"Requester must be an active tenant member. "
+                    f"tenant_id={tenant.id}, tenant_subdomain={tenant.subdomain}, "
+                    f"requester_id={value.id}, requester_username={value.username}, roles={roles}"
+                )
+            )
+        if not TenantUserRole.objects.filter(
+            tenant=tenant, user=value, role=TenantUserRole.ROLE_REQUESTER
+        ).exists():
+            raise serializers.ValidationError(
+                (
+                    f"Requester must have role 'requester' in this tenant. "
+                    f"tenant_id={tenant.id}, tenant_subdomain={tenant.subdomain}, "
+                    f"requester_id={value.id}, requester_username={value.username}, roles={roles}"
+                )
+            )
+        return value
+
+    def validate_vendor_ref(self, value):
+        tenant = getattr(self.context.get("request"), "tenant", None)
+        if value is None or tenant is None:
+            return value
+        if value.tenant_id != tenant.id:
+            raise serializers.ValidationError("Vendor must belong to this tenant.")
+        return value
+
+    def validate(self, attrs):
+        tenant = getattr(self.context.get("request"), "tenant", None)
+        vendor_ref = attrs.get("vendor_ref")
+        payment_type = attrs.get("payment_type")
+        if self.instance is not None:
+            if vendor_ref is None and "vendor_ref" not in attrs:
+                vendor_ref = self.instance.vendor_ref
+            if payment_type is None:
+                payment_type = self.instance.payment_type
+        if vendor_ref and payment_type:
+            expected_kind = Vendor.KIND_CASH if payment_type == Request.PAYMENT_TYPE_CASH else Vendor.KIND_TRANSFER
+            if vendor_ref.kind != expected_kind:
+                raise serializers.ValidationError(
+                    {"vendor_ref": "Vendor payment type does not match request payment type."}
+                )
+            attrs["vendor"] = vendor_ref.name
+        if self.instance is None and "billing_date" not in attrs:
+            raise serializers.ValidationError({"billing_date": "This field is required."})
+        if self.instance is None and "requester" not in attrs:
+            raise serializers.ValidationError({"requester": "This field is required."})
+        return attrs
+
+
+class N8nApprovalImportSerializer(serializers.ModelSerializer):
+    id = serializers.IntegerField(required=False)
+    approver_user = serializers.PrimaryKeyRelatedField(queryset=User.objects.all(), required=False, allow_null=True)
+    request = serializers.PrimaryKeyRelatedField(queryset=Request.objects.all())
+
+    class Meta:
+        model = Approval
+        fields = [
+            "id",
+            "request",
+            "approver_user",
+            "approver_tg_id",
+            "approver_tg_from_id",
+            "message_id",
+            "message_sent",
+            "message_sent_at",
+            "step",
+            "step_type",
+            "decision",
+            "comment",
+            "decided_at",
+            "resend_batch_id",
+            "resend_key",
+            "replaced_approval",
+        ]
+        extra_kwargs = {
+            "step": {"required": False},
+            "step_type": {"required": False},
+            "decision": {"required": False},
+            "message_sent": {"required": False},
+        }
+
+    def validate_request(self, value):
+        tenant = getattr(self.context.get("request"), "tenant", None)
+        if tenant and value.tenant_id != tenant.id:
+            raise serializers.ValidationError("Request must belong to this tenant.")
+        return value
+
+    def validate_approver_user(self, value):
+        tenant = getattr(self.context.get("request"), "tenant", None)
+        if value is None or tenant is None:
+            return value
+        is_member = TenantMembership.objects.filter(tenant=tenant, user=value, is_active=True).exists()
+        roles = list(
+            TenantUserRole.objects.filter(tenant=tenant, user=value).values_list("role", flat=True).distinct()
+        )
+        if not is_member:
+            raise serializers.ValidationError(
+                (
+                    f"Approver user must be an active tenant member. "
+                    f"tenant_id={tenant.id}, tenant_subdomain={tenant.subdomain}, "
+                    f"approver_user_id={value.id}, approver_username={value.username}, roles={roles}"
+                )
+            )
+        return value
+
+    def validate(self, attrs):
+        if self.instance is None and "approver_user" not in attrs:
+            raise serializers.ValidationError({"approver_user": "This field is required."})
+        return attrs
 
 
 TARGET_TO_MODULE = {
@@ -137,7 +309,7 @@ TARGET_TO_MODULE = {
 
 
 class N8nNoteImportSerializer(serializers.ModelSerializer):
-    id = serializers.IntegerField(required=True)
+    id = serializers.IntegerField(required=False)
 
     class Meta:
         model = Note

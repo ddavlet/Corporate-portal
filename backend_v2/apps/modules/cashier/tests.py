@@ -42,11 +42,11 @@ class CashierSmokeTests(TestCase):
         w = get_or_create_cash_wallet(tenant=self.tenant, currency="UZS")
         obj = CashRevenue.objects.create(
             tenant=self.tenant,
-            title="Sale",
-            amount=100,
-            currency="UZS",
+            external_id="rev-1",
+            total_sum=100,
+            confirmed=True,
             wallet=w,
-            note="",
+            operation="Sale",
             payload={},
             created_by=self.user,
         )

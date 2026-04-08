@@ -61,9 +61,9 @@ class BankExpenseViewSet(viewsets.ModelViewSet):
         vendor_search = (self.request.query_params.get("vendor_search") or "").strip()
         if vendor_search:
             qs = qs.filter(
-                Q(account_name__icontains=vendor_search)
-                | Q(vendor__name__icontains=vendor_search)
-                | Q(inn__icontains=vendor_search)
+                Q(vendor__name__icontains=vendor_search)
+                | Q(vendor__inn__icontains=vendor_search)
+                | Q(vendor__account_number__icontains=vendor_search)
             )
         return qs
 

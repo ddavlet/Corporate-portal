@@ -34,6 +34,7 @@ class BankExpenseSerializer(serializers.ModelSerializer):
     has_paid_request = serializers.BooleanField(read_only=True)
     matched_request_id = serializers.IntegerField(read_only=True, allow_null=True)
     vendor = serializers.PrimaryKeyRelatedField(queryset=Vendor.objects.all(), allow_null=True, required=False)
+    account_no = serializers.CharField(write_only=True, required=False, allow_blank=True)
     wallet_id = serializers.PrimaryKeyRelatedField(
         source="wallet",
         queryset=Wallet.objects.none(),
@@ -54,10 +55,7 @@ class BankExpenseSerializer(serializers.ModelSerializer):
             "expense_month",
             "expense_day",
             "doc_no",
-            "account_name",
-            "inn",
             "account_no",
-            "mfo",
             "debit_turnover",
             "payment_purpose",
             "vendor",
@@ -81,23 +79,33 @@ class BankExpenseSerializer(serializers.ModelSerializer):
 
     def validate(self, attrs):
         reject_client_pk_on_create(self)
+        tenant = getattr(self.context.get("request"), "tenant", None)
+        account_no = (attrs.pop("account_no", "") or "").strip()
+        if account_no and tenant:
+            resolved_vendor = (
+                Vendor.objects.filter(
+                    tenant=tenant,
+                    kind=Vendor.KIND_TRANSFER,
+                    account_number=account_no,
+                )
+                .order_by("id")
+                .first()
+            )
+            if resolved_vendor is None:
+                raise serializers.ValidationError(
+                    {"account_no": "No transfer vendor found for this account number in current tenant."}
+                )
+            attrs["vendor"] = resolved_vendor
+
         vendor = attrs.get("vendor")
         if vendor is None and self.instance is not None:
             vendor = self.instance.vendor
         if vendor:
             if vendor.kind != Vendor.KIND_TRANSFER:
                 raise serializers.ValidationError({"vendor": "Only vendors with type «перечисление» are allowed."})
-            tenant = getattr(self.context.get("request"), "tenant", None)
             if tenant and vendor.tenant_id != tenant.id:
                 raise serializers.ValidationError({"vendor": "Vendor must belong to this tenant."})
-            if "vendor" in attrs and attrs["vendor"] is not None:
-                attrs.setdefault("account_name", vendor.name)
-                if vendor.inn:
-                    attrs.setdefault("inn", vendor.inn)
-                if vendor.account_number:
-                    attrs.setdefault("account_no", vendor.account_number)
         _apply_expense_calendar_from_doc_date(attrs, self.instance)
-        tenant = getattr(self.context.get("request"), "tenant", None)
         if tenant:
             attrs = assign_wallet_for_bank_movement(instance=self.instance, tenant=tenant, attrs=attrs)
         return attrs

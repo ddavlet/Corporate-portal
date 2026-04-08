@@ -34,22 +34,29 @@ class VendorApiTests(APITestCase):
         )
         self.assertEqual(res.status_code, 400)
 
-    def test_transfer_inn_unique_per_tenant(self):
+    def test_vendor_account_number_unique_per_tenant(self):
         self.client.force_authenticate(self.admin)
         Vendor.objects.create(
             tenant=self.tenant,
             kind=Vendor.KIND_TRANSFER,
             name="A",
             inn="123456789",
+            account_number="20208000111111111111",
             created_by=self.admin,
         )
         res = self.client.post(
             "/api/vendors/",
-            {"kind": "transfer", "name": "B", "inn": "123456789"},
+            {
+                "kind": "transfer",
+                "name": "B",
+                "inn": "223456789",
+                "account_number": "20208000111111111111",
+            },
             format="json",
             HTTP_HOST=self.host,
         )
         self.assertGreaterEqual(res.status_code, 400)
+        self.assertIn("account_number", res.data)
 
     def test_cashier_can_create_cash_vendor(self):
         self.client.force_authenticate(self.cashier)

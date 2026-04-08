@@ -36,25 +36,23 @@ class CashRevenueAdmin(admin.ModelAdmin):
     list_display = (
         "id",
         "tenant",
-        "title",
-        "amount",
-        "currency",
-        "revenue_date",
-        "category",
-        "received_from",
-        "payment_method",
-        "reference_no",
-        "status",
+        "external_id",
+        "revenue_at",
+        "operation",
+        "account",
+        "counterparty",
+        "total_sum",
+        "confirmed",
         "created_at",
         "created_by",
     )
-    list_filter = ("tenant", "currency", "category", "payment_method", "status")
-    search_fields = ("title", "category", "received_from", "reference_no", "note")
+    list_filter = ("tenant", "confirmed")
+    search_fields = ("external_id", "operation", "account", "counterparty", "comment")
 
     def save_model(self, request, obj, form, change):
         if not obj.created_by_id:
             obj.created_by = request.user
         if not obj.wallet_id:
-            obj.wallet = get_or_create_cash_wallet(tenant=obj.tenant, currency=obj.currency)
+            obj.wallet = get_or_create_cash_wallet(tenant=obj.tenant, currency="UZS")
         super().save_model(request, obj, form, change)
 
