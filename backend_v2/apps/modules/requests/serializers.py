@@ -32,7 +32,9 @@ from apps.modules.corporate_card.models import CardExpense
 from apps.modules.payroll.constants import MODULE_KEY as PAYROLL_MODULE_KEY, SALARY_CATEGORY
 from apps.modules.payroll.models import PayrollDocument
 from apps.modules.requests.expense_refs import (
+    expense_ref_target_for,
     maybe_persist_request_expense_ref,
+    raise_if_expense_ref_taken,
     try_resolve_request_expense_ref_id,
 )
 from apps.modules.serializers_guard import reject_client_pk_on_create
@@ -284,14 +286,25 @@ class PortalRequestSerializer(serializers.ModelSerializer):
             effective_expense_year = self.instance.expense_year
         if not eid:
             attrs["expense_ref_id"] = None
+            attrs["expense_ref_target"] = None
         else:
-            attrs["expense_ref_id"] = try_resolve_request_expense_ref_id(
+            ref = try_resolve_request_expense_ref_id(
                 tenant=tenant,
                 payment_type=effective_pt,
                 category=effective_cat,
                 expense_id_raw=eid,
                 expense_year=effective_expense_year,
             )
+            tgt = expense_ref_target_for(payment_type=effective_pt, category=effective_cat) if ref else None
+            if ref:
+                raise_if_expense_ref_taken(
+                    tenant=tenant,
+                    target=tgt,
+                    ref_id=ref,
+                    exclude_request_pk=self.instance.pk if self.instance else None,
+                )
+            attrs["expense_ref_id"] = ref
+            attrs["expense_ref_target"] = tgt
 
         if self.context.get("submit_for_approval"):
             amt = attrs.get("amount")
