@@ -11,7 +11,7 @@ from django.db.utils import ProgrammingError
 from django.utils import timezone
 
 from apps.modules.requests.approval_bootstrap import create_approval_rows_for_request
-from apps.modules.requests.approval_workflow import _recalculate_request_status
+from apps.modules.requests.approval_workflow import _recalculate_request_status, route_request_approvals
 from apps.modules.requests.models import (
     AutoRequestTemplate,
     Request,
@@ -21,7 +21,6 @@ from apps.modules.requests.models import (
 )
 from apps.modules.telegram_approvals.services import (
     dispatch_draft_request_notification,
-    dispatch_pending_approvals,
 )
 
 logger = logging.getLogger(__name__)
@@ -148,7 +147,7 @@ def _run_approvals_for_request(request_obj: Request) -> None:
         return
     if request_obj.status == Request.STATUS_DRAFT:
         _recalculate_request_status(request_obj)
-    dispatch_pending_approvals(request_obj=request_obj)
+    route_request_approvals(request_obj=request_obj)
 
 
 def _maybe_create_request_for_template(template: AutoRequestTemplate, *, today: dt.date, now_dt: dt.datetime) -> bool:

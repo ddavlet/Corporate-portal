@@ -1,3 +1,5 @@
+import logging
+
 from django.contrib.auth import get_user_model
 from django.db.models import Q
 from rest_framework import status
@@ -11,6 +13,7 @@ from apps.tenants.models import TenantMembership
 from apps.tenants.permissions import has_effective_module_access
 
 User = get_user_model()
+logger = logging.getLogger(__name__)
 
 
 class TelegramWebAppAuthView(APIView):
@@ -50,16 +53,30 @@ class TelegramWebAppAuthView(APIView):
         member_ids = TenantMembership.objects.filter(tenant=tenant, is_active=True).values_list(
             "user_id", flat=True
         )
-        user = User.objects.filter(
+        matches = list(
+            User.objects.filter(
             Q(telegram_from_id=tg_uid) | Q(telegram_chat_id=tg_uid),
             pk__in=member_ids,
-        ).first()
+            ).order_by("id")[:2]
+        )
 
-        if not user:
+        if not matches:
             return Response(
                 {"detail": "No user linked to this Telegram account for this organization."},
                 status=status.HTTP_403_FORBIDDEN,
             )
+        if len(matches) > 1:
+            logger.warning(
+                "Telegram WebApp auth ambiguous mapping: tenant_id=%s tg_uid=%s sample_user_ids=%s",
+                getattr(tenant, "id", None),
+                tg_uid,
+                [u.id for u in matches],
+            )
+            return Response(
+                {"detail": "Telegram account is linked to multiple users in this organization."},
+                status=status.HTTP_409_CONFLICT,
+            )
+        user = matches[0]
 
         if not has_effective_module_access(user=user, tenant=tenant, module_key="requests"):
             return Response(

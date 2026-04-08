@@ -1,3 +1,5 @@
+import uuid
+
 from django.db import models
 from django.conf import settings
 from django.utils import timezone
@@ -125,10 +127,12 @@ class Approval(models.Model):
     DECISION_PENDING = "pending"
     DECISION_APPROVED = "approved"
     DECISION_REJECTED = "rejected"
+    DECISION_CANCELED = "canceled"
     DECISION_CHOICES = [
         (DECISION_PENDING, DECISION_PENDING),
         (DECISION_APPROVED, DECISION_APPROVED),
         (DECISION_REJECTED, DECISION_REJECTED),
+        (DECISION_CANCELED, DECISION_CANCELED),
     ]
 
     request = models.ForeignKey(Request, on_delete=models.CASCADE, related_name="approvals")
@@ -146,6 +150,11 @@ class Approval(models.Model):
     step = models.IntegerField(default=1)
     step_type = models.CharField(max_length=10, default=STEP_TYPE_SERIAL, choices=STEP_TYPE_CHOICES)
     decision = models.CharField(max_length=12, default=DECISION_PENDING, choices=DECISION_CHOICES)
+    resend_batch_id = models.UUIDField(default=uuid.uuid4, editable=False, db_index=True)
+    resend_key = models.CharField(max_length=128, null=True, blank=True, db_index=True)
+    replaced_approval = models.ForeignKey(
+        "self", null=True, blank=True, on_delete=models.SET_NULL, related_name="resend_children"
+    )
     comment = models.TextField(null=True, blank=True)
     decided_at = models.DateTimeField(null=True, blank=True)
 
@@ -153,8 +162,8 @@ class Approval(models.Model):
         db_table = "approvals"
         constraints = [
             models.UniqueConstraint(
-                fields=["request", "step", "approver_user"],
-                name="approvals_request_step_approver_user_uniq",
+                fields=["request", "step", "approver_user", "resend_batch_id"],
+                name="approvals_req_step_user_batch_uniq",
             ),
         ]
         indexes = [
@@ -443,6 +452,11 @@ class UserRequestApproval(models.Model):
     step = models.IntegerField(default=1)
     step_type = models.CharField(max_length=10, default=Approval.STEP_TYPE_SERIAL, choices=Approval.STEP_TYPE_CHOICES)
     decision = models.CharField(max_length=12, default=Approval.DECISION_PENDING, choices=Approval.DECISION_CHOICES)
+    resend_batch_id = models.UUIDField(default=uuid.uuid4, editable=False)
+    resend_key = models.CharField(max_length=128, null=True, blank=True)
+    replaced_approval = models.ForeignKey(
+        "self", null=True, blank=True, on_delete=models.SET_NULL, related_name="user_resend_children"
+    )
     comment = models.TextField(null=True, blank=True)
     decided_at = models.DateTimeField(null=True, blank=True)
 

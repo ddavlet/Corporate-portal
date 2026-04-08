@@ -180,7 +180,12 @@ class TelegramApprovalsTests(APITestCase):
         self.assertEqual(res.data.get("resent"), 1)
 
         approval.refresh_from_db()
-        self.assertEqual(approval.message_id, 9999)
+        self.assertEqual(approval.decision, Approval.DECISION_CANCELED)
+        self.assertEqual(approval.message_id, 4321)
+        new_approval = Approval.objects.filter(request=request_row, replaced_approval=approval).get()
+        self.assertEqual(new_approval.decision, Approval.DECISION_PENDING)
+        self.assertFalse(new_approval.message_sent)
+        self.assertEqual(new_approval.message_id, 9999)
         self.assertEqual(mocked_post.call_count, 2)
         first_payload = mocked_post.call_args_list[0].kwargs.get("json", {})
         second_payload = mocked_post.call_args_list[1].kwargs.get("json", {})
@@ -188,6 +193,137 @@ class TelegramApprovalsTests(APITestCase):
         self.assertEqual(first_payload.get("inline_keyboard"), [])
         self.assertEqual(second_payload.get("action"), "send_approval_message")
         self.assertTrue(second_payload.get("inline_keyboard"))
+
+    @patch("apps.modules.telegram_approvals.services.requests.post")
+    def test_resend_with_same_idempotency_key_is_noop(self, mocked_post):
+        send_response = type("Resp", (), {"status_code": 200, "content": b'{"result":{"message_id":9999}}'})()
+        send_response.json = lambda: {"result": {"message_id": 9999}}
+        edit_response = type("Resp", (), {"status_code": 200, "content": b"{}"})()
+        edit_response.json = lambda: {}
+        mocked_post.side_effect = [edit_response, send_response]
+
+        request_row = Request.objects.create(
+            tenant=self.tenant,
+            created_by=self.admin,
+            requester=self.requester,
+            title="Needs resend",
+            status=Request.STATUS_PROGRESS_1,
+            billing_date=date(2026, 3, 31),
+        )
+        Approval.objects.create(
+            request=request_row,
+            approver_user=self.approver,
+            approver_tg_id=555001,
+            approver_tg_from_id=777001,
+            message_id=4321,
+            message_sent=True,
+            step=1,
+            step_type=Approval.STEP_TYPE_SERIAL,
+            decision=Approval.DECISION_PENDING,
+        )
+        self.client.force_authenticate(self.admin)
+
+        payload = {"idempotency_key": "r-1"}
+        res1 = self.client.post(
+            f"/api/requests/{request_row.id}/approvals/resend/",
+            payload,
+            format="json",
+            HTTP_HOST=self.host,
+        )
+        self.assertEqual(res1.status_code, 200, res1.content)
+        self.assertEqual(Approval.objects.filter(request=request_row, decision=Approval.DECISION_PENDING).count(), 1)
+
+        mocked_post.reset_mock()
+        res2 = self.client.post(
+            f"/api/requests/{request_row.id}/approvals/resend/",
+            payload,
+            format="json",
+            HTTP_HOST=self.host,
+        )
+        self.assertEqual(res2.status_code, 200, res2.content)
+        self.assertEqual(res2.data.get("resent"), 1)
+        self.assertEqual(Approval.objects.filter(request=request_row, decision=Approval.DECISION_PENDING).count(), 1)
+        self.assertEqual(
+            Approval.objects.filter(request=request_row, resend_key="r-1", decision=Approval.DECISION_PENDING).count(),
+            1,
+        )
+
+    def test_resend_fails_when_no_pending_on_current_step(self):
+        request_row = Request.objects.create(
+            tenant=self.tenant,
+            created_by=self.admin,
+            requester=self.requester,
+            title="No pending",
+            status=Request.STATUS_PROGRESS_1,
+            billing_date=date(2026, 3, 31),
+        )
+        Approval.objects.create(
+            request=request_row,
+            approver_user=self.approver,
+            approver_tg_id=555001,
+            approver_tg_from_id=777001,
+            message_id=4321,
+            message_sent=True,
+            step=1,
+            step_type=Approval.STEP_TYPE_SERIAL,
+            decision=Approval.DECISION_APPROVED,
+        )
+        self.client.force_authenticate(self.admin)
+        res = self.client.post(
+            f"/api/requests/{request_row.id}/approvals/resend/",
+            {},
+            format="json",
+            HTTP_HOST=self.host,
+        )
+        self.assertEqual(res.status_code, 400, res.content)
+
+    @patch("apps.modules.telegram_approvals.services.requests.post")
+    def test_resend_works_for_approved_status_with_pending_payment(self, mocked_post):
+        send_response = type("Resp", (), {"status_code": 200, "content": b'{"result":{"message_id":10001}}'})()
+        send_response.json = lambda: {"result": {"message_id": 10001}}
+        edit_response = type("Resp", (), {"status_code": 200, "content": b"{}"})()
+        edit_response.json = lambda: {}
+        mocked_post.side_effect = [edit_response, send_response]
+
+        request_row = Request.objects.create(
+            tenant=self.tenant,
+            created_by=self.admin,
+            requester=self.requester,
+            title="Payment pending",
+            status=Request.STATUS_APPROVED,
+            payment_type="Перечисление",
+            billing_date=date(2026, 3, 31),
+        )
+        old_payment = Approval.objects.create(
+            request=request_row,
+            approver_user=self.approver,
+            approver_tg_id=555001,
+            approver_tg_from_id=777001,
+            message_id=7654,
+            message_sent=True,
+            step=2,
+            step_type=Approval.STEP_TYPE_PAYMENT,
+            decision=Approval.DECISION_PENDING,
+        )
+
+        self.client.force_authenticate(self.admin)
+        res = self.client.post(
+            f"/api/requests/{request_row.id}/approvals/resend/",
+            {"idempotency_key": "payment-resend-1"},
+            format="json",
+            HTTP_HOST=self.host,
+        )
+        self.assertEqual(res.status_code, 200, res.content)
+        self.assertEqual(res.data.get("resent"), 1)
+
+        old_payment.refresh_from_db()
+        self.assertEqual(old_payment.decision, Approval.DECISION_CANCELED)
+        new_payment = Approval.objects.get(request=request_row, replaced_approval=old_payment)
+        self.assertEqual(new_payment.decision, Approval.DECISION_PENDING)
+        self.assertEqual(new_payment.step_type, Approval.STEP_TYPE_PAYMENT)
+        self.assertEqual(new_payment.message_id, 10001)
+        self.assertTrue(new_payment.message_sent)
+        self.assertEqual(mocked_post.call_count, 2)
 
     @patch("apps.modules.telegram_approvals.services.requests.post")
     def test_webhook_callback_confirms_approval_with_identity_checks(self, mocked_post):

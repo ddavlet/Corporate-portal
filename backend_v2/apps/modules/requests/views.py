@@ -59,6 +59,7 @@ from apps.modules.requests.approval_workflow import (
     confirm_approval_by_id,
     lookup_approval_by_message_id,
     min_pending_approval_step,
+    route_request_approvals,
 )
 from apps.modules.telegram_approvals.services import (
     current_pending_step_approvals_count,
@@ -197,7 +198,7 @@ class PortalRequestViewSet(viewsets.ModelViewSet):
                 _recalculate_request_status(obj)
 
         if obj is not None:
-            dispatch_pending_approvals(request_obj=obj)
+            route_request_approvals(request_obj=obj)
 
     def _user_can_patch_draft_request(self, user, request_obj: Request) -> bool:
         tenant = request_obj.tenant
@@ -231,8 +232,7 @@ class PortalRequestViewSet(viewsets.ModelViewSet):
     def perform_update(self, serializer):
         super().perform_update(serializer)
         obj = serializer.instance
-        refresh_request_messages(request_obj=obj)
-        dispatch_pending_approvals(request_obj=obj)
+        route_request_approvals(request_obj=obj)
 
     @action(detail=True, methods=["post"], url_path="submit-for-approval")
     def submit_for_approval(self, request, pk=None):
@@ -264,7 +264,7 @@ class PortalRequestViewSet(viewsets.ModelViewSet):
             n = create_approval_rows_for_request(request_obj)
             if n and request_obj.status == Request.STATUS_DRAFT:
                 _recalculate_request_status(request_obj)
-        dispatch_pending_approvals(request_obj=request_obj)
+        route_request_approvals(request_obj=request_obj)
         detail_qs = self.get_queryset().filter(pk=request_obj.pk)
         obj = detail_qs.get()
         return Response(
@@ -294,8 +294,7 @@ class PortalRequestViewSet(viewsets.ModelViewSet):
         serializer.is_valid(raise_exception=True)
         serializer.save(request=request_obj)
         request_obj.refresh_from_db()
-        refresh_request_messages(request_obj=request_obj)
-        dispatch_pending_approvals(request_obj=request_obj)
+        route_request_approvals(request_obj=request_obj)
         return Response(serializer.data, status=status.HTTP_201_CREATED)
 
     class ApprovalDecisionPayloadSerializer(serializers.Serializer):
@@ -313,6 +312,9 @@ class PortalRequestViewSet(viewsets.ModelViewSet):
         approval_id = serializers.IntegerField(min_value=1)
         expense_id = serializers.CharField()
 
+    class ApprovalResendPayloadSerializer(serializers.Serializer):
+        idempotency_key = serializers.CharField(required=False, allow_blank=False, max_length=128)
+
     @action(detail=True, methods=["post"], url_path="approvals/resend")
     def approvals_resend(self, request, pk=None):
         request_obj = self.get_object()
@@ -321,8 +323,12 @@ class PortalRequestViewSet(viewsets.ModelViewSet):
         )
         if not can_manage:
             raise PermissionDenied("Only admins or approvers can resend approvals.")
+        payload = self.ApprovalResendPayloadSerializer(data=request.data or {})
+        payload.is_valid(raise_exception=True)
+        idempotency_key = payload.validated_data.get("idempotency_key")
         pending_current_step = current_pending_step_approvals_count(request_obj=request_obj)
-        resent = resend_current_pending_step(request_obj=request_obj)
+        resent = resend_current_pending_step(request_obj=request_obj, idempotency_key=idempotency_key)
+        route_request_approvals(request_obj=request_obj)
         return Response(
             {
                 "resent": resent,
@@ -383,18 +389,19 @@ class PortalRequestViewSet(viewsets.ModelViewSet):
                     }
                 )
 
-            approval.decision = decision
-            approval.comment = comment
-            approval.decided_at = timezone.now()
-            approval.save(update_fields=["decision", "comment", "decided_at"])
+            data = confirm_approval_by_id(
+                tenant=locked_request.tenant,
+                approval_id=approval.id,
+                request_id=locked_request.id,
+                approver_user_id=request.user.id,
+                decision=decision,
+                comment=comment,
+            )
 
-            _recalculate_request_status(locked_request)
-            locked_request.refresh_from_db()
-            refresh_request_messages(request_obj=locked_request)
-            dispatch_pending_approvals(request_obj=locked_request)
-
-        ser = ApprovalSerializer(approval, context={"request": request})
-        return Response(ser.data, status=status.HTTP_200_OK)
+        return Response(
+            ApprovalFullContextSerializer(data, context={"request": request}).data,
+            status=status.HTTP_200_OK,
+        )
 
     @action(detail=True, methods=["post"], url_path="approvals/confirm")
     def approvals_confirm(self, request, pk=None):
