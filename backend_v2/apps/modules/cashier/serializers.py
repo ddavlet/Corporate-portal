@@ -1,4 +1,8 @@
 from collections.abc import Mapping
+from datetime import datetime
+from zoneinfo import ZoneInfo
+
+from django.utils import timezone
 from rest_framework import serializers
 
 from apps.modules.serializers_guard import reject_client_pk_on_create
@@ -6,6 +10,34 @@ from apps.modules.cashier.models import CashExpense, CashRevenue
 from apps.modules.vendors.models import Vendor
 from apps.modules.wallets.models import Wallet
 from apps.modules.wallets.serializer_integration import assign_wallet_for_cash_movement
+
+TASHKENT_TZ = ZoneInfo("Asia/Tashkent")
+
+
+def _normalize_datetime_input(value):
+    if value in (None, ""):
+        return value
+    if isinstance(value, datetime):
+        dt = value
+    else:
+        raw = str(value).strip()
+        if not raw:
+            return value
+        if raw.endswith("Z"):
+            raw = raw[:-1] + "+00:00"
+        try:
+            dt = datetime.fromisoformat(raw)
+        except ValueError:
+            return value
+    if timezone.is_naive(dt):
+        dt = timezone.make_aware(dt, TASHKENT_TZ)
+    return dt
+
+
+def _tashkent_date_from_datetime(dt: datetime):
+    if timezone.is_naive(dt):
+        dt = timezone.make_aware(dt, TASHKENT_TZ)
+    return timezone.localtime(dt, TASHKENT_TZ).date()
 
 
 class CashExpenseSerializer(serializers.ModelSerializer):
@@ -62,6 +94,8 @@ class CashExpenseSerializer(serializers.ModelSerializer):
             mutable = dict(data)
             if "external_id" not in mutable and "id" in mutable:
                 mutable["external_id"] = mutable.get("id")
+            if "expense_at" in mutable:
+                mutable["expense_at"] = _normalize_datetime_input(mutable.get("expense_at"))
             data = mutable
         return super().to_internal_value(data)
 
@@ -90,9 +124,10 @@ class CashExpenseSerializer(serializers.ModelSerializer):
         if expense_at is None:
             raise serializers.ValidationError({"expense_at": "This field is required."})
 
-        attrs["expense_year"] = expense_at.year
-        attrs["expense_month"] = expense_at.month
-        attrs["expense_day"] = expense_at.day
+        expense_tashkent_date = _tashkent_date_from_datetime(expense_at)
+        attrs["expense_year"] = expense_tashkent_date.year
+        attrs["expense_month"] = expense_tashkent_date.month
+        attrs["expense_day"] = expense_tashkent_date.day
 
         tenant = getattr(self.context.get("request"), "tenant", None)
         if tenant:
@@ -121,26 +156,47 @@ class CashRevenueSerializer(serializers.ModelSerializer):
     def validate(self, attrs):
         reject_client_pk_on_create(self)
         attrs = super().validate(attrs)
+
         tenant = getattr(self.context.get("request"), "tenant", None)
         if tenant:
             attrs = assign_wallet_for_cash_movement(instance=self.instance, tenant=tenant, attrs=attrs)
+        wallet = attrs.get("wallet") or (self.instance.wallet if self.instance is not None else None)
+        if wallet is None:
+            raise serializers.ValidationError({"wallet_id": "Cash wallet is required."})
         return attrs
+
+    def to_internal_value(self, data):
+        if isinstance(data, Mapping):
+            mutable = dict(data)
+            if "revenue_at" not in mutable and "date" in mutable:
+                mutable["revenue_at"] = mutable.get("date")
+            if "revenue_at" in mutable:
+                mutable["revenue_at"] = _normalize_datetime_input(mutable.get("revenue_at"))
+            # Keep compatibility with wider legacy payload shape: store unknown import fields in payload.
+            legacy_keys = ("direction", "organization", "unit", "employee", "cash_type", "contract", "source_year")
+            payload = mutable.get("payload")
+            payload_dict = dict(payload) if isinstance(payload, Mapping) else {}
+            for key in legacy_keys:
+                if key in mutable:
+                    payload_dict[key] = mutable.pop(key)
+            if payload_dict:
+                mutable["payload"] = payload_dict
+            data = mutable
+        return super().to_internal_value(data)
 
     class Meta:
         model = CashRevenue
         fields = [
             "id",
-            "title",
-            "amount",
+            "external_id",
+            "revenue_at",
             "currency",
-            "revenue_date",
-            "category",
-            "received_from",
-            "payment_method",
-            "reference_no",
-            "status",
-            "tags",
-            "note",
+            "confirmed",
+            "operation",
+            "account",
+            "counterparty",
+            "total_sum",
+            "comment",
             "payload",
             "wallet_id",
             "created_at",

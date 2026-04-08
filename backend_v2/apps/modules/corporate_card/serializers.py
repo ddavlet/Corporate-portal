@@ -1,3 +1,7 @@
+from datetime import datetime
+from zoneinfo import ZoneInfo
+
+from django.utils import timezone
 from rest_framework import serializers
 
 from apps.modules.serializers_guard import reject_client_pk_on_create
@@ -6,6 +10,34 @@ from apps.modules.corporate_card.models import CardExpense, CardRevenue
 from apps.modules.wallets.models import Wallet
 from apps.modules.wallets.serializer_integration import assign_wallet_for_corporate_movement
 from apps.tenants.permissions import has_effective_module_access
+
+TASHKENT_TZ = ZoneInfo("Asia/Tashkent")
+
+
+def _normalize_datetime_input(value):
+    if value in (None, ""):
+        return value
+    if isinstance(value, datetime):
+        dt = value
+    else:
+        raw = str(value).strip()
+        if not raw:
+            return value
+        if raw.endswith("Z"):
+            raw = raw[:-1] + "+00:00"
+        try:
+            dt = datetime.fromisoformat(raw)
+        except ValueError:
+            return value
+    if timezone.is_naive(dt):
+        dt = timezone.make_aware(dt, TASHKENT_TZ)
+    return dt
+
+
+def _tashkent_date_from_datetime(dt: datetime):
+    if timezone.is_naive(dt):
+        dt = timezone.make_aware(dt, TASHKENT_TZ)
+    return timezone.localtime(dt, TASHKENT_TZ).date()
 
 
 class CardExpenseSerializer(serializers.ModelSerializer):
@@ -31,6 +63,15 @@ class CardExpenseSerializer(serializers.ModelSerializer):
         if tenant:
             attrs = assign_wallet_for_corporate_movement(instance=self.instance, tenant=tenant, attrs=attrs)
         return attrs
+
+    def to_internal_value(self, data):
+        from collections.abc import Mapping
+        if isinstance(data, Mapping):
+            mutable = dict(data)
+            if "expense_at" in mutable:
+                mutable["expense_at"] = _normalize_datetime_input(mutable.get("expense_at"))
+            data = mutable
+        return super().to_internal_value(data)
 
     class Meta:
         model = CardExpense
@@ -111,7 +152,7 @@ class CardRevenueSerializer(serializers.ModelSerializer):
             revenue_at = self.instance.revenue_at
 
         if revenue_date is None and revenue_at is not None:
-            revenue_date = revenue_at.date()
+            revenue_date = _tashkent_date_from_datetime(revenue_at)
             attrs["revenue_date"] = revenue_date
 
         if revenue_date is not None:
@@ -128,6 +169,17 @@ class CardRevenueSerializer(serializers.ModelSerializer):
         if tenant:
             attrs = assign_wallet_for_corporate_movement(instance=self.instance, tenant=tenant, attrs=attrs)
         return attrs
+
+    def to_internal_value(self, data):
+        from collections.abc import Mapping
+        if isinstance(data, Mapping):
+            mutable = dict(data)
+            if "revenue_at" not in mutable and "date" in mutable:
+                mutable["revenue_at"] = mutable.get("date")
+            if "revenue_at" in mutable:
+                mutable["revenue_at"] = _normalize_datetime_input(mutable.get("revenue_at"))
+            data = mutable
+        return super().to_internal_value(data)
 
     def validate_bank_expense_id(self, value):
         if value in (None, ""):

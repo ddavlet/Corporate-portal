@@ -16,7 +16,7 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import Any
 
-from django.db.models import Sum
+from django.db.models import Q, Sum
 from django.utils import timezone
 
 from apps.modules.bank_expenses.models import BankExpense, BankRevenue
@@ -68,10 +68,13 @@ def movements_net_cash_ytd(*, wallet: Wallet, start_utc: datetime, end_utc: date
     rev = (
         CashRevenue.objects.filter(
             wallet=wallet,
-            status="posted",
-            created_at__gte=start_utc,
-            created_at__lte=end_utc,
-        ).aggregate(s=Sum("amount"))["s"]
+            confirmed=True,
+        )
+        .filter(
+            Q(revenue_at__gte=start_utc, revenue_at__lte=end_utc)
+            | Q(revenue_at__isnull=True, created_at__gte=start_utc, created_at__lte=end_utc)
+        )
+        .aggregate(s=Sum("total_sum"))["s"]
         or Decimal("0")
     )
     return rev - exp
@@ -133,10 +136,13 @@ def movements_net_full_year_cash(*, wallet: Wallet, year: int) -> Decimal:
     rev = (
         CashRevenue.objects.filter(
             wallet=wallet,
-            status="posted",
-            created_at__gte=start,
-            created_at__lte=end,
-        ).aggregate(s=Sum("amount"))["s"]
+            confirmed=True,
+        )
+        .filter(
+            Q(revenue_at__gte=start, revenue_at__lte=end)
+            | Q(revenue_at__isnull=True, created_at__gte=start, created_at__lte=end)
+        )
+        .aggregate(s=Sum("total_sum"))["s"]
         or Decimal("0")
     )
     return rev - exp
