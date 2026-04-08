@@ -3,6 +3,8 @@ from decimal import Decimal
 from rest_framework import serializers
 from django.urls import reverse
 from django.contrib.auth import get_user_model
+from django.contrib.auth.validators import UnicodeUsernameValidator
+from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import connection
 from urllib.parse import quote
 
@@ -33,6 +35,14 @@ from apps.tenants.permissions import has_effective_module_access
 from apps.tenants.models import TenantMembership, TenantUserRole
 
 User = get_user_model()
+_username_validator = UnicodeUsernameValidator()
+
+
+def _display_user_name(user) -> str | None:
+    if not user:
+        return None
+    full = (getattr(user, "full_name", "") or "").strip()
+    return full or getattr(user, "username", None)
 
 
 def payment_type_to_vendor_kind(payment_type: str) -> str:
@@ -136,8 +146,19 @@ class PortalRequestSerializer(serializers.ModelSerializer):
             tenant=tenant, user=requester, role=TenantUserRole.ROLE_REQUESTER
         ).exists()
         if not has_requester_role:
+            roles = list(
+                TenantUserRole.objects.filter(tenant=tenant, user=requester)
+                .values_list("role", flat=True)
+                .distinct()
+            )
             raise serializers.ValidationError(
-                {"requester": "Requester must have role 'requester' in this tenant."}
+                {
+                    "requester": (
+                        "Requester must have role 'requester' in this tenant. "
+                        f"tenant_id={tenant.id}, tenant_subdomain={tenant.subdomain}, "
+                        f"requester_id={requester.id}, requester_username={requester.username}, roles={roles}"
+                    )
+                }
             )
 
         # Adaptive request-form config validation (tenant-level, optional).
@@ -278,7 +299,7 @@ class PortalRequestSerializer(serializers.ModelSerializer):
         return attrs
 
     def get_requester_username(self, obj):
-        return obj.requester.username if obj.requester else None
+        return _display_user_name(obj.requester)
 
     def get_expense_link(self, obj):
         request = self.context.get("request")
@@ -425,7 +446,7 @@ class ApprovalSerializer(serializers.ModelSerializer):
         read_only_fields = ["approver_username"]
 
     def get_approver_username(self, obj):
-        return getattr(obj.approver_user, "username", None)
+        return _display_user_name(getattr(obj, "approver_user", None))
 
 
 class PortalRequestDetailSerializer(PortalRequestSerializer):
@@ -465,7 +486,7 @@ class MyApprovalsRequestSummarySerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
     def get_requester_username(self, obj):
-        return getattr(obj.requester, "username", None) if obj.requester_id else None
+        return _display_user_name(getattr(obj, "requester", None)) if obj.requester_id else None
 
 
 class UserRequestApprovalStepSerializer(serializers.ModelSerializer):
@@ -548,6 +569,10 @@ class CreateTenantRequesterSerializer(serializers.Serializer):
         cleaned = (value or "").strip()
         if not cleaned:
             raise serializers.ValidationError("Username is required.")
+        try:
+            _username_validator(cleaned)
+        except DjangoValidationError as exc:
+            raise serializers.ValidationError(exc.messages[0] if exc.messages else "Enter a valid username.") from exc
         return cleaned
 
     def validate_full_name(self, value: str) -> str:
@@ -557,9 +582,15 @@ class CreateTenantRequesterSerializer(serializers.Serializer):
         return cleaned
 
 
-class RequesterCandidateSerializer(serializers.Serializer):
-    id = serializers.IntegerField()
-    username = serializers.CharField()
+class RequesterCandidateSerializer(serializers.ModelSerializer):
+    username = serializers.SerializerMethodField()
+
+    class Meta:
+        model = User
+        fields = ["id", "username"]
+
+    def get_username(self, obj):
+        return _display_user_name(obj)
 
 
 class VendorCandidateSerializer(serializers.ModelSerializer):
@@ -679,9 +710,15 @@ class RequestApprovalConfigPayloadSerializer(serializers.Serializer):
     integration_settings = IntegrationSettingsPayloadSerializer(required=False, default=dict)
 
 
-class ApproverCandidateSerializer(serializers.Serializer):
-    id = serializers.IntegerField()
-    username = serializers.CharField()
+class ApproverCandidateSerializer(serializers.ModelSerializer):
+    username = serializers.SerializerMethodField()
+
+    class Meta:
+        model = User
+        fields = ["id", "username"]
+
+    def get_username(self, obj):
+        return _display_user_name(obj)
 
 
 def build_request_approval_config_response(*, tenant) -> dict:

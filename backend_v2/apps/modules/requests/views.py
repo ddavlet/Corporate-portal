@@ -75,6 +75,11 @@ from apps.tenants.models import TenantMembership, TenantUserRole
 User = get_user_model()
 
 
+def _display_user_name(user) -> str:
+    full = (getattr(user, "full_name", "") or "").strip()
+    return full or user.username
+
+
 def _ensure_app_user_for_auto_requests(tenant):
     """
     Системный пользователь `app` — заявитель создаваемых по расписанию заявок.
@@ -109,7 +114,7 @@ def _requester_candidates_for_options(tenant) -> list[dict]:
         tenant=tenant, is_active=True, user_id__in=requester_user_ids
     ).values_list("user_id", flat=True)
     return [
-        {"id": u.id, "username": u.username}
+        {"id": u.id, "username": _display_user_name(u)}
         for u in User.objects.filter(id__in=active_ids).order_by("username")
     ]
 
@@ -959,7 +964,7 @@ class RequestFormOptionsView(APIView):
             if not rids:
                 return []
             qs_users = User.objects.filter(id__in=rids).order_by("username")
-            return [{"id": u.id, "username": u.username} for u in qs_users]
+            return [{"id": u.id, "username": _display_user_name(u)} for u in qs_users]
 
         def form_defaults(pt_cfg: RequestFormPaymentTypeConfig) -> dict:
             amt = pt_cfg.default_amount

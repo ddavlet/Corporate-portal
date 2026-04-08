@@ -146,6 +146,17 @@ class RequestFormConfigTests(APITestCase):
         )
         self.assertEqual(res.status_code, 400)
 
+    def test_create_requester_rejects_invalid_username(self):
+        self.client.force_authenticate(self.admin)
+        res = self.client.post(
+            "/api/requests/form-config/requesters/",
+            {"username": "bad username", "full_name": "Valid Full Name"},
+            format="json",
+            HTTP_HOST=self.host,
+        )
+        self.assertEqual(res.status_code, 400)
+        self.assertIn("username", res.data)
+
     def test_non_admin_cannot_post_form_config_requesters(self):
         self.client.force_authenticate(self.requester_a)
         res = self.client.post(
