@@ -17,9 +17,9 @@ class VendorApiTests(APITestCase):
         self.requester = User.objects.create_user(username="req1", password="x")
         for u in (self.admin, self.cashier, self.requester):
             TenantMembership.objects.create(tenant=self.tenant, user=u, is_active=True)
-        TenantUserRole.objects.create(tenant=self.tenant, user=self.admin, role=TenantUserRole.ROLE_ADMIN, step=1)
-        TenantUserRole.objects.create(tenant=self.tenant, user=self.cashier, role=TenantUserRole.ROLE_CASHIER, step=1)
-        TenantUserRole.objects.create(tenant=self.tenant, user=self.requester, role=TenantUserRole.ROLE_REQUESTER, step=1)
+        TenantUserRole.objects.create(tenant=self.tenant, user=self.admin, role=TenantUserRole.ROLE_ADMIN)
+        TenantUserRole.objects.create(tenant=self.tenant, user=self.cashier, role=TenantUserRole.ROLE_CASHIER)
+        TenantUserRole.objects.create(tenant=self.tenant, user=self.requester, role=TenantUserRole.ROLE_REQUESTER)
         for key in ("vendors", "cash", "requests"):
             TenantModuleConfig.objects.create(tenant=self.tenant, module_key=key, is_enabled=True)
         self.host = "acme.example.com"

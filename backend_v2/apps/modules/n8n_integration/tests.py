@@ -42,18 +42,10 @@ class N8nIntegrationAuthTests(APITestCase):
         TenantMembership.objects.create(tenant=self.tenant, user=self.other, is_active=True)
         TenantMembership.objects.create(tenant=self.tenant, user=self.requester, is_active=True)
         TenantMembership.objects.create(tenant=self.tenant, user=self.approver, is_active=True)
-        TenantUserRole.objects.create(
-            tenant=self.tenant, user=self.admin, role=TenantUserRole.ROLE_ADMIN, step=1
-        )
-        TenantUserRole.objects.create(
-            tenant=self.tenant, user=self.other, role=TenantUserRole.ROLE_REQUESTER, step=1
-        )
-        TenantUserRole.objects.create(
-            tenant=self.tenant, user=self.requester, role=TenantUserRole.ROLE_REQUESTER, step=1
-        )
-        TenantUserRole.objects.create(
-            tenant=self.tenant, user=self.approver, role=TenantUserRole.ROLE_APPROVER, step=1
-        )
+        TenantUserRole.objects.create(tenant=self.tenant, user=self.admin, role=TenantUserRole.ROLE_ADMIN)
+        TenantUserRole.objects.create(tenant=self.tenant, user=self.other, role=TenantUserRole.ROLE_REQUESTER)
+        TenantUserRole.objects.create(tenant=self.tenant, user=self.requester, role=TenantUserRole.ROLE_REQUESTER)
+        TenantUserRole.objects.create(tenant=self.tenant, user=self.approver, role=TenantUserRole.ROLE_APPROVER)
         TenantModuleConfig.objects.create(tenant=self.tenant, module_key="vendors", is_enabled=True)
 
         self.n8n_prefix = settings.N8N_INTEGRATION_URL_PREFIX.rstrip("/")
@@ -181,9 +173,7 @@ class N8nIntegrationAuthTests(APITestCase):
         tenant_b = Tenant.objects.create(name="Beta Corp", subdomain="beta", is_active=True)
         admin_b = User.objects.create_user(username="admin_beta", password="pass12345")
         TenantMembership.objects.create(tenant=tenant_b, user=admin_b, is_active=True)
-        TenantUserRole.objects.create(
-            tenant=tenant_b, user=admin_b, role=TenantUserRole.ROLE_ADMIN, step=1
-        )
+        TenantUserRole.objects.create(tenant=tenant_b, user=admin_b, role=TenantUserRole.ROLE_ADMIN)
 
         url = f"{self.n8n_prefix}/bank/revenues/"
         body = {

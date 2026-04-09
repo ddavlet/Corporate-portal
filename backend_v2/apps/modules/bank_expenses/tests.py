@@ -32,7 +32,7 @@ class BankRevenueApiTenantIsolationTests(APITestCase):
             (self.tenant_b, self.admin_b),
         ):
             TenantMembership.objects.create(tenant=t, user=u, is_active=True)
-            TenantUserRole.objects.create(tenant=t, user=u, role=TenantUserRole.ROLE_ADMIN, step=1)
+            TenantUserRole.objects.create(tenant=t, user=u, role=TenantUserRole.ROLE_ADMIN)
             TenantModuleConfig.objects.create(tenant=t, module_key="bank", is_enabled=True)
 
         d = date(2026, 4, 1)

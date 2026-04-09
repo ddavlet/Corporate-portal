@@ -39,13 +39,9 @@ class TelegramApprovalsTests(APITestCase):
         for user in (self.admin, self.requester, self.approver):
             TenantMembership.objects.create(tenant=self.tenant, user=user, is_active=True)
 
-        TenantUserRole.objects.create(tenant=self.tenant, user=self.admin, role=TenantUserRole.ROLE_ADMIN, step=1)
-        TenantUserRole.objects.create(
-            tenant=self.tenant, user=self.requester, role=TenantUserRole.ROLE_REQUESTER, step=1
-        )
-        TenantUserRole.objects.create(
-            tenant=self.tenant, user=self.approver, role=TenantUserRole.ROLE_APPROVER, step=1
-        )
+        TenantUserRole.objects.create(tenant=self.tenant, user=self.admin, role=TenantUserRole.ROLE_ADMIN)
+        TenantUserRole.objects.create(tenant=self.tenant, user=self.requester, role=TenantUserRole.ROLE_REQUESTER)
+        TenantUserRole.objects.create(tenant=self.tenant, user=self.approver, role=TenantUserRole.ROLE_APPROVER)
         TenantModuleConfig.objects.create(tenant=self.tenant, module_key="requests", is_enabled=True)
 
         req_form_cfg = RequestFormConfig.objects.create(tenant=self.tenant, updated_by=self.admin)
