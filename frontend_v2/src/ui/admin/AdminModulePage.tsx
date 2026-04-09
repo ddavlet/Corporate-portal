@@ -1,0 +1,450 @@
+import { useEffect, useMemo, useState } from 'react'
+import { Alert, Button, Card, Col, Form, Input, InputNumber, Modal, Popconfirm, Row, Select, Space, Switch, Table, Typography, message } from 'antd'
+import type { ColumnsType } from 'antd/es/table'
+import { apiFetch, getAccessMatrix, getSettingsAccess, type AccessMatrixUserRow } from '../../lib/api'
+
+type AnyRow = Record<string, unknown> & { id?: number | string }
+
+type Source = {
+  key: string
+  label: string
+  endpoint: string
+}
+
+const SOURCES: Source[] = [
+  { key: 'vendors', label: 'Поставщики', endpoint: '/api/vendors/' },
+  { key: 'requests', label: 'Заявки', endpoint: '/api/requests/' },
+  { key: 'cash-expenses', label: 'Касса: расходы', endpoint: '/api/cash/expenses/' },
+  { key: 'cash-revenues', label: 'Касса: доходы', endpoint: '/api/cash/revenues/' },
+  { key: 'bank-expenses', label: 'Банк: расходы', endpoint: '/api/bank/expenses/' },
+  { key: 'bank-revenues', label: 'Банк: доходы', endpoint: '/api/bank/revenues/' },
+  { key: 'card-expenses', label: 'Корпкарта: расходы', endpoint: '/api/corporate-card/expenses/' },
+  { key: 'card-revenues', label: 'Корпкарта: доходы', endpoint: '/api/corporate-card/revenues/' },
+]
+
+function normalizeRows(payload: unknown): AnyRow[] {
+  if (Array.isArray(payload)) return payload as AnyRow[]
+  if (payload && typeof payload === 'object' && 'results' in payload) {
+    const results = (payload as { results?: unknown }).results
+    return Array.isArray(results) ? (results as AnyRow[]) : []
+  }
+  return []
+}
+
+type MatrixRow = {
+  key: number
+  user_id: number
+  username: string
+  full_name: string
+  roles: string[]
+  tenant_settings_access: boolean
+  module_access: Record<string, boolean>
+}
+
+type AdminSectionKey = 'matrix' | 'crud'
+
+function isPrimitive(value: unknown): value is string | number | boolean | null {
+  return (
+    value === null ||
+    typeof value === 'string' ||
+    typeof value === 'number' ||
+    typeof value === 'boolean'
+  )
+}
+
+function rowCaption(row: AnyRow): string {
+  return String(
+    row.title ??
+      row.name ??
+      row.label ??
+      row.external_id ??
+      row.doc_no ??
+      row.operation ??
+      row.id ??
+      'Запись',
+  )
+}
+
+export function AdminModulePage() {
+  const [form] = Form.useForm<Record<string, unknown>>()
+  const [canOpenAdmin, setCanOpenAdmin] = useState<boolean | null>(null)
+  const [activeSection, setActiveSection] = useState<AdminSectionKey>('matrix')
+  const [sourceKey, setSourceKey] = useState<string>(SOURCES[0].key)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [rows, setRows] = useState<AnyRow[]>([])
+  const [search, setSearch] = useState('')
+  const [crudPage, setCrudPage] = useState(1)
+  const [crudPageSize, setCrudPageSize] = useState(20)
+  const [editing, setEditing] = useState<AnyRow | null>(null)
+  const [editableFields, setEditableFields] = useState<Array<{ key: string; type: 'string' | 'number' | 'boolean' | 'null' }>>([])
+  const [nonEditableFields, setNonEditableFields] = useState<Array<{ key: string; value: unknown }>>([])
+  const [saving, setSaving] = useState(false)
+
+  const [mxLoading, setMxLoading] = useState(false)
+  const [mxError, setMxError] = useState<string | null>(null)
+  const [mxRows, setMxRows] = useState<AccessMatrixUserRow[]>([])
+  const [mxModules, setMxModules] = useState<Array<{ module_key: string; display_name: string }>>([])
+  const [matrixPage, setMatrixPage] = useState(1)
+  const [matrixPageSize, setMatrixPageSize] = useState(20)
+
+  const currentSource = SOURCES.find((s) => s.key === sourceKey) || SOURCES[0]
+
+  const loadRows = async () => {
+    setLoading(true)
+    setError(null)
+    try {
+      const res = await apiFetch(currentSource.endpoint)
+      const json = await res.json().catch(() => null)
+      if (!res.ok) throw new Error(typeof json === 'object' && json ? JSON.stringify(json) : `HTTP ${res.status}`)
+      setRows(normalizeRows(json))
+    } catch (e: unknown) {
+      setRows([])
+      setError(e instanceof Error ? e.message : 'Не удалось загрузить данные')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const loadMatrix = async () => {
+    setMxLoading(true)
+    setMxError(null)
+    try {
+      const data = await getAccessMatrix()
+      setMxRows(data.users)
+      setMxModules(data.modules)
+    } catch (e: unknown) {
+      setMxRows([])
+      setMxModules([])
+      setMxError(e instanceof Error ? e.message : 'Не удалось загрузить матрицу доступов')
+    } finally {
+      setMxLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    void (async () => {
+      try {
+        const data = await getSettingsAccess()
+        setCanOpenAdmin(Boolean(data.can_open_admin))
+      } catch {
+        setCanOpenAdmin(false)
+      }
+    })()
+  }, [])
+
+  useEffect(() => {
+    if (!canOpenAdmin) return
+    void loadRows()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sourceKey, canOpenAdmin])
+
+  useEffect(() => {
+    setCrudPage(1)
+  }, [sourceKey, search])
+
+  useEffect(() => {
+    if (!canOpenAdmin) return
+    void loadMatrix()
+  }, [canOpenAdmin])
+
+  const filteredRows = useMemo(() => {
+    const q = search.trim().toLowerCase()
+    if (!q) return rows
+    return rows.filter((row) => rowCaption(row).toLowerCase().includes(q) || JSON.stringify(row).toLowerCase().includes(q))
+  }, [rows, search])
+
+  const columns: ColumnsType<AnyRow> = [
+    { title: 'ID', dataIndex: 'id', width: 100, render: (v: unknown) => String(v ?? '-') },
+    {
+      title: 'Название',
+      key: 'summary',
+      render: (_, row) => <Typography.Text ellipsis style={{ maxWidth: 520 }}>{rowCaption(row)}</Typography.Text>,
+    },
+    {
+      title: 'Кратко',
+      key: 'short',
+      render: (_, row) => {
+        const parts: string[] = []
+        if (typeof row.status === 'string' && row.status) parts.push(`Статус: ${row.status}`)
+        if (typeof row.currency === 'string' && row.currency) parts.push(`Валюта: ${row.currency}`)
+        if (row.amount !== undefined) parts.push(`Сумма: ${String(row.amount)}`)
+        if (row.total_sum !== undefined) parts.push(`Сумма: ${String(row.total_sum)}`)
+        return <Typography.Text type="secondary">{parts.join(' | ') || '—'}</Typography.Text>
+      },
+    },
+    {
+      title: 'Действия',
+      key: 'actions',
+      width: 210,
+      render: (_, row) => (
+        <Space>
+          <Button
+            size="small"
+            onClick={() => {
+              setEditing(row)
+              const initial: Record<string, unknown> = {}
+              const nonEditable: Array<{ key: string; value: unknown }> = []
+              for (const [key, value] of Object.entries(row)) {
+                if (key === 'id') continue
+                if (key === 'created_at' || key === 'created_by' || key === 'tenant') continue
+                if (isPrimitive(value)) initial[key] = value
+                else nonEditable.push({ key, value })
+              }
+              const fields = Object.entries(initial)
+                .sort(([a], [b]) => a.localeCompare(b))
+                .map(([key, value]) => ({
+                  key,
+                  type:
+                    value === null
+                      ? ('null' as const)
+                      : typeof value === 'boolean'
+                        ? ('boolean' as const)
+                        : typeof value === 'number'
+                          ? ('number' as const)
+                          : ('string' as const),
+                }))
+              setEditableFields(fields)
+              setNonEditableFields(nonEditable)
+              form.setFieldsValue(initial as any)
+            }}
+          >
+            Изменить
+          </Button>
+          <Popconfirm title="Удалить запись?" description={rowCaption(row)} onConfirm={() => void handleDelete(row)}>
+            <Button size="small" danger>
+              Удалить
+            </Button>
+          </Popconfirm>
+        </Space>
+      ),
+    },
+  ]
+
+  const matrixRows: MatrixRow[] = mxRows.map((r) => ({ key: r.user_id, ...r }))
+  const matrixColumns: ColumnsType<MatrixRow> = useMemo(() => {
+    const base: ColumnsType<MatrixRow> = [
+      { title: 'User ID', dataIndex: 'user_id', width: 90 },
+      { title: 'Username', dataIndex: 'username', width: 180 },
+      { title: 'ФИО', dataIndex: 'full_name', width: 220, render: (v: string) => v || '—' },
+      {
+        title: 'Роли',
+        dataIndex: 'roles',
+        width: 260,
+        render: (roles: string[]) => (roles?.length ? roles.join(', ') : '—'),
+      },
+      {
+        title: 'Tenant настройки',
+        dataIndex: 'tenant_settings_access',
+        width: 150,
+        render: (v: boolean) => (v ? 'Да' : 'Нет'),
+      },
+    ]
+    const mods: ColumnsType<MatrixRow> = mxModules.map((m) => ({
+      title: m.display_name,
+      key: `mod_${m.module_key}`,
+      width: 140,
+      render: (_, row) => (row.module_access?.[m.module_key] ? 'Да' : 'Нет'),
+    }))
+    return [...base, ...mods]
+  }, [mxModules])
+
+  const handleDelete = async (row: AnyRow) => {
+    const id = row.id
+    if (id === undefined || id === null || id === '') {
+      message.error('У записи отсутствует id')
+      return
+    }
+    const res = await apiFetch(`${currentSource.endpoint}${id}/`, { method: 'DELETE' })
+    if (!res.ok) {
+      const json = await res.json().catch(() => null)
+      message.error(typeof json === 'object' && json ? JSON.stringify(json) : `HTTP ${res.status}`)
+      return
+    }
+    message.success('Удалено')
+    await loadRows()
+  }
+
+  const handleSave = async () => {
+    if (!editing) return
+    const id = editing.id
+    if (id === undefined || id === null || id === '') {
+      message.error('У записи отсутствует id')
+      return
+    }
+    const payload = (await form.validateFields()) as Record<string, unknown>
+    setSaving(true)
+    try {
+      const res = await apiFetch(`${currentSource.endpoint}${id}/`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      })
+      const json = await res.json().catch(() => null)
+      if (!res.ok) throw new Error(typeof json === 'object' && json ? JSON.stringify(json) : `HTTP ${res.status}`)
+      message.success('Сохранено')
+      setEditing(null)
+      await loadRows()
+    } catch (e: unknown) {
+      message.error(e instanceof Error ? e.message : 'Не удалось сохранить')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div style={{ maxWidth: 1500 }}>
+      <Typography.Title level={4} style={{ marginTop: 0 }}>
+        Админка
+      </Typography.Title>
+      <Typography.Paragraph type="secondary">
+        Вне настроек: отдельный модуль для управления доступами и данными.
+      </Typography.Paragraph>
+      {canOpenAdmin === false ? <Alert type="warning" showIcon message="Доступ к админке только у роли admin." /> : null}
+      {canOpenAdmin === null ? <Card loading style={{ marginTop: 12 }} /> : null}
+      {canOpenAdmin ? (
+        <>
+          <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
+            <Col xs={24} sm={12} lg={8}>
+              <Card
+                hoverable
+                title="Матрица доступов"
+                onClick={() => setActiveSection('matrix')}
+                style={{ borderColor: activeSection === 'matrix' ? '#1677ff' : undefined }}
+              >
+                <Typography.Paragraph type="secondary" style={{ marginBottom: 0 }}>
+                  Роли пользователей и эффективный доступ к модулям.
+                </Typography.Paragraph>
+              </Card>
+            </Col>
+            <Col xs={24} sm={12} lg={8}>
+              <Card
+                hoverable
+                title="Данные модулей"
+                onClick={() => setActiveSection('crud')}
+                style={{ borderColor: activeSection === 'crud' ? '#1677ff' : undefined }}
+              >
+                <Typography.Paragraph type="secondary" style={{ marginBottom: 0 }}>
+                  User-friendly редактирование и удаление записей.
+                </Typography.Paragraph>
+              </Card>
+            </Col>
+          </Row>
+
+          {activeSection === 'matrix' ? (
+            <Card>
+              {mxError ? <Alert type="error" showIcon message={mxError} style={{ marginBottom: 12 }} /> : null}
+              <Table<MatrixRow>
+                loading={mxLoading}
+                columns={matrixColumns}
+                dataSource={matrixRows}
+                pagination={{
+                  current: matrixPage,
+                  pageSize: matrixPageSize,
+                  showSizeChanger: true,
+                }}
+                onChange={(pagination) => {
+                  if (pagination.current) setMatrixPage(pagination.current)
+                  if (pagination.pageSize) setMatrixPageSize(pagination.pageSize)
+                }}
+                scroll={{ x: 1200 }}
+              />
+            </Card>
+          ) : (
+            <Card>
+              <Space wrap style={{ marginBottom: 12 }}>
+                <Select
+                  style={{ width: 320 }}
+                  value={sourceKey}
+                  options={SOURCES.map((s) => ({ value: s.key, label: s.label }))}
+                  onChange={(v) => setSourceKey(v)}
+                />
+                <Input
+                  placeholder="Поиск: id, название, номер, статус"
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  allowClear
+                  style={{ width: 300 }}
+                />
+                <Button onClick={() => void loadRows()}>Обновить</Button>
+              </Space>
+              {error ? <Alert type="error" showIcon message={error} style={{ marginBottom: 12 }} /> : null}
+              <Table<AnyRow>
+                rowKey={(row) => String(row.id ?? JSON.stringify(row))}
+                loading={loading}
+                columns={columns}
+                dataSource={filteredRows}
+                pagination={{
+                  current: crudPage,
+                  pageSize: crudPageSize,
+                  showSizeChanger: true,
+                }}
+                onChange={(pagination) => {
+                  if (pagination.current) setCrudPage(pagination.current)
+                  if (pagination.pageSize) setCrudPageSize(pagination.pageSize)
+                }}
+                scroll={{ x: 1200 }}
+              />
+            </Card>
+          )}
+        </>
+      ) : null}
+
+      <Modal
+        open={Boolean(editing)}
+        title={editing ? `Изменить: ${rowCaption(editing)}` : 'Изменить запись'}
+        okText="Сохранить"
+        onOk={() => void handleSave()}
+        confirmLoading={saving}
+        onCancel={() => {
+          setEditing(null)
+          setEditableFields([])
+          setNonEditableFields([])
+          form.resetFields()
+        }}
+        width={920}
+      >
+        <Form form={form} layout="vertical">
+          {editableFields.map(({ key, type }) => {
+              if (type === 'boolean') {
+                return (
+                  <Form.Item key={key} label={key} name={key} valuePropName="checked">
+                    <Switch />
+                  </Form.Item>
+                )
+              }
+              if (type === 'number') {
+                return (
+                  <Form.Item key={key} label={key} name={key}>
+                    <InputNumber style={{ width: '100%' }} />
+                  </Form.Item>
+                )
+              }
+              return (
+                <Form.Item key={key} label={key} name={key}>
+                  <Input allowClear />
+                </Form.Item>
+              )
+            })}
+        </Form>
+        {nonEditableFields.length ? (
+          <Alert
+            type="info"
+            showIcon
+            message="Часть полей недоступна для редактирования в упрощенной форме"
+            description={
+              <Space direction="vertical">
+                {nonEditableFields.map((f) => (
+                  <Typography.Text key={f.key} type="secondary">
+                    {f.key}: {JSON.stringify(f.value)}
+                  </Typography.Text>
+                ))}
+              </Space>
+            }
+          />
+        ) : null}
+      </Modal>
+    </div>
+  )
+}
+

@@ -40,7 +40,7 @@ export function SettingsPage() {
   const visibleModules = useMemo(() => {
     if (!access) return []
     return SETTINGS_MODULES.filter((m) => {
-      if (m.path === '/settings/tenant-integration-config' || m.path === '/settings/admin-access-matrix') {
+      if (m.path === '/settings/tenant-integration-config') {
         return access.can_manage_tenant_settings
       }
       if (m.path === '/settings/request-form-config' || m.path === '/settings/request-approval-config') {
