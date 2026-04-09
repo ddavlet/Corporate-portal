@@ -173,7 +173,7 @@ class CashRevenueSerializer(serializers.ModelSerializer):
             if "revenue_at" in mutable:
                 mutable["revenue_at"] = _normalize_datetime_input(mutable.get("revenue_at"))
             # Keep compatibility with wider legacy payload shape: store unknown import fields in payload.
-            legacy_keys = ("direction", "organization", "unit", "employee", "cash_type", "contract", "source_year")
+            legacy_keys = ("direction", "organization", "unit", "employee", "cash_type", "contract", "source_year", "account")
             payload = mutable.get("payload")
             payload_dict = dict(payload) if isinstance(payload, Mapping) else {}
             for key in legacy_keys:
@@ -193,7 +193,6 @@ class CashRevenueSerializer(serializers.ModelSerializer):
             "currency",
             "confirmed",
             "operation",
-            "account",
             "counterparty",
             "total_sum",
             "comment",

@@ -58,7 +58,6 @@ class CashRevenue(models.Model):
     currency = models.CharField(max_length=10, blank=True, default="UZS")
     confirmed = models.BooleanField(default=True)
     operation = models.CharField(max_length=255, blank=True, default="")
-    account = models.CharField(max_length=255, blank=True, default="")
     counterparty = models.CharField(max_length=255, blank=True, default="")
     total_sum = models.DecimalField(max_digits=18, decimal_places=2, default=0)
     comment = models.TextField(blank=True, default="")

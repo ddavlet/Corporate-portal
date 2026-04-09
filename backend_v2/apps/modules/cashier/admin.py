@@ -39,7 +39,6 @@ class CashRevenueAdmin(admin.ModelAdmin):
         "external_id",
         "revenue_at",
         "operation",
-        "account",
         "counterparty",
         "total_sum",
         "confirmed",
@@ -47,7 +46,7 @@ class CashRevenueAdmin(admin.ModelAdmin):
         "created_by",
     )
     list_filter = ("tenant", "confirmed")
-    search_fields = ("external_id", "operation", "account", "counterparty", "comment")
+    search_fields = ("external_id", "operation", "counterparty", "comment")
 
     def save_model(self, request, obj, form, change):
         if not obj.created_by_id:
