@@ -74,7 +74,7 @@ async function refreshAccess(refresh: string): Promise<string | null> {
 }
 
 export type ApiFetchOptions = {
-  /** When false, 401/403 do not clear tokens or call unauthorizedHandler (e.g. optional module endpoints). */
+  /** When false, 401 does not clear tokens or call unauthorizedHandler (e.g. optional module endpoints). */
   treatAuthErrorsAsGlobal?: boolean
 }
 
@@ -108,7 +108,7 @@ export async function apiFetch(input: string, init: RequestInit = {}, options?: 
   }
 
   const globalAuth = options?.treatAuthErrorsAsGlobal !== false
-  if (globalAuth && (res.status === 401 || res.status === 403) && tokens?.access) {
+  if (globalAuth && res.status === 401 && tokens?.access) {
     if (readTgTokens()?.refresh === tokens.refresh) setTgTokens(null)
     if (readPortalTokens()?.refresh === tokens.refresh) setTokens(null)
     unauthorizedHandler?.()
@@ -172,6 +172,21 @@ export type TenantIntegrationConfigUpdatePayload = Partial<{
   portal_feedback_telegram_chat_id: number | null
   portal_feedback_telegram_action: string
 }>
+
+export type ModuleCatalogRow = {
+  module_key: string
+  display_name: string
+  tenant_enabled: boolean
+  user_allowed: boolean
+  effective_enabled: boolean
+}
+
+export async function getModuleCatalog(): Promise<ModuleCatalogRow[]> {
+  const res = await apiFetch('/api/modules/')
+  if (!res.ok) throw new Error(await parseErrorBody(res))
+  const json = (await res.json().catch(() => null)) as { modules?: ModuleCatalogRow[] } | null
+  return Array.isArray(json?.modules) ? json.modules : []
+}
 
 export async function getTenantIntegrationConfig(): Promise<TenantIntegrationConfigResponse> {
   const res = await apiFetch('/api/tenant-integration-config/')
