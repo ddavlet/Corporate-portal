@@ -80,7 +80,7 @@ export function TgRequestsPage() {
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase()
     if (!q) return rows
-    return rows.filter((r) => `${r.title} ${r.status} ${r.payment_type}`.toLowerCase().includes(q))
+    return rows.filter((r) => JSON.stringify(r).toLowerCase().includes(q))
   }, [rows, search])
 
   return (
