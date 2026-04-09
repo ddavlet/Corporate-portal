@@ -8,7 +8,13 @@ from apps.accounts.views_otp import OtpRequestView, OtpVerifyView
 from apps.accounts.views_password import ChangePasswordView
 from apps.accounts.views_telegram_webapp import TelegramWebAppAuthView
 from apps.modules.requests.views import FileGatewayView, FileDownloadView
-from apps.tenants.views import ModuleCatalogView, TenantIntegrationConfigView, TenantModuleConfigView
+from apps.tenants.views import (
+    AccessMatrixView,
+    ModuleCatalogView,
+    SettingsAccessView,
+    TenantIntegrationConfigView,
+    TenantModuleConfigView,
+)
 
 
 urlpatterns = [
@@ -28,6 +34,8 @@ urlpatterns = [
     path("api/modules/", ModuleCatalogView.as_view(), name="module_catalog"),
     path("api/tenant-module-config/", TenantModuleConfigView.as_view(), name="tenant_module_config"),
     path("api/tenant-integration-config/", TenantIntegrationConfigView.as_view(), name="tenant_integration_config"),
+    path("api/access-matrix/", AccessMatrixView.as_view(), name="admin_access_matrix"),
+    path("api/settings-access/", SettingsAccessView.as_view(), name="settings_access"),
 
     # Requests module (first module to scaffold)
     path("api/requests/", include("apps.modules.requests.urls")),

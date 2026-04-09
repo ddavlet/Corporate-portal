@@ -38,15 +38,17 @@ class RequestFormConfigTests(APITestCase):
     def setUp(self):
         self.tenant = Tenant.objects.create(name="Acme", subdomain="acme", is_active=True)
         self.admin = User.objects.create_user(username="admin", password="x")
+        self.director = User.objects.create_user(username="director", password="x")
         self.requester_a = User.objects.create_user(username="req_a", password="x")
         self.requester_b = User.objects.create_user(username="req_b", password="x")
 
-        for u in (self.admin, self.requester_a, self.requester_b):
+        for u in (self.admin, self.director, self.requester_a, self.requester_b):
             TenantMembership.objects.create(tenant=self.tenant, user=u, is_active=True)
 
-        TenantUserRole.objects.create(tenant=self.tenant, user=self.admin, role=TenantUserRole.ROLE_ADMIN, step=1)
-        TenantUserRole.objects.create(tenant=self.tenant, user=self.requester_a, role=TenantUserRole.ROLE_REQUESTER, step=1)
-        TenantUserRole.objects.create(tenant=self.tenant, user=self.requester_b, role=TenantUserRole.ROLE_REQUESTER, step=1)
+        TenantUserRole.objects.create(tenant=self.tenant, user=self.admin, role=TenantUserRole.ROLE_ADMIN)
+        TenantUserRole.objects.create(tenant=self.tenant, user=self.director, role=TenantUserRole.ROLE_DIRECTOR)
+        TenantUserRole.objects.create(tenant=self.tenant, user=self.requester_a, role=TenantUserRole.ROLE_REQUESTER)
+        TenantUserRole.objects.create(tenant=self.tenant, user=self.requester_b, role=TenantUserRole.ROLE_REQUESTER)
 
         TenantModuleConfig.objects.create(tenant=self.tenant, module_key="requests", is_enabled=True)
         TenantModuleConfig.objects.create(tenant=self.tenant, module_key="vendors", is_enabled=True)
@@ -76,6 +78,14 @@ class RequestFormConfigTests(APITestCase):
         self.assertTrue(any(pt["payment_type"] == "Наличные" for pt in res2.data.get("payment_types", [])))
         cash_pt = next(pt for pt in res2.data["payment_types"] if pt["payment_type"] == "Наличные")
         self.assertEqual(cash_pt.get("default_company_payer"), "ACME LLC")
+
+    def test_director_can_get_and_put_form_config(self):
+        self.client.force_authenticate(self.director)
+        res = self.client.get("/api/requests/form-config/", HTTP_HOST=self.host)
+        self.assertEqual(res.status_code, 200)
+        payload = {"payment_types": [{"payment_type": "Наличные", "is_enabled": True}]}
+        res2 = self.client.put("/api/requests/form-config/", payload, format="json", HTTP_HOST=self.host)
+        self.assertEqual(res2.status_code, 200)
 
     def test_non_admin_cannot_put_form_config(self):
         self.client.force_authenticate(self.requester_a)
@@ -169,6 +179,16 @@ class RequestFormConfigTests(APITestCase):
         )
         self.assertIn(res.status_code, (403, 401))
 
+    def test_director_can_post_form_config_requesters(self):
+        self.client.force_authenticate(self.director)
+        res = self.client.post(
+            "/api/requests/form-config/requesters/",
+            {"username": "dir_req", "full_name": "Director Requester"},
+            format="json",
+            HTTP_HOST=self.host,
+        )
+        self.assertEqual(res.status_code, 200, res.content)
+
     def test_requester_module_catalog_excludes_finance_modules(self):
         """Requester-only user: allowed requests/vendors/notes; not cash/bank/payroll/corporate_card."""
         TenantModuleConfig.objects.update_or_create(
@@ -181,9 +201,7 @@ class RequestFormConfigTests(APITestCase):
 
         solo = User.objects.create_user(username="solo_req", password="x")
         TenantMembership.objects.create(tenant=self.tenant, user=solo, is_active=True)
-        TenantUserRole.objects.create(
-            tenant=self.tenant, user=solo, role=TenantUserRole.ROLE_REQUESTER, step=1
-        )
+        TenantUserRole.objects.create(tenant=self.tenant, user=solo, role=TenantUserRole.ROLE_REQUESTER)
 
         self.client.force_authenticate(solo)
         res = self.client.get("/api/modules/", HTTP_HOST=self.host)
@@ -462,6 +480,7 @@ class RequestApprovalsTests(APITestCase):
 
         self.tenant = Tenant.objects.create(name="Acme", subdomain="acme", is_active=True)
         self.admin = User.objects.create_user(username="admin", password="x")
+        self.director = User.objects.create_user(username="appr_director", password="x")
         self.requester = User.objects.create_user(username="req", password="x")
         self.approver = User.objects.create_user(username="appr", password="x")
         self.other_approver = User.objects.create_user(username="appr_other", password="x")
@@ -471,19 +490,14 @@ class RequestApprovalsTests(APITestCase):
         self.approver.telegram_from_id = 222
         self.approver.save(update_fields=["telegram_chat_id", "telegram_from_id"])
 
-        for u in (self.admin, self.requester, self.approver, self.other_approver, self.member_no_approver_role):
+        for u in (self.admin, self.director, self.requester, self.approver, self.other_approver, self.member_no_approver_role):
             TenantMembership.objects.create(tenant=self.tenant, user=u, is_active=True)
 
-        TenantUserRole.objects.create(tenant=self.tenant, user=self.admin, role=TenantUserRole.ROLE_ADMIN, step=1)
-        TenantUserRole.objects.create(
-            tenant=self.tenant, user=self.requester, role=TenantUserRole.ROLE_REQUESTER, step=1
-        )
-        TenantUserRole.objects.create(
-            tenant=self.tenant, user=self.approver, role=TenantUserRole.ROLE_APPROVER, step=1
-        )
-        TenantUserRole.objects.create(
-            tenant=self.tenant, user=self.other_approver, role=TenantUserRole.ROLE_APPROVER, step=1
-        )
+        TenantUserRole.objects.create(tenant=self.tenant, user=self.admin, role=TenantUserRole.ROLE_ADMIN)
+        TenantUserRole.objects.create(tenant=self.tenant, user=self.director, role=TenantUserRole.ROLE_DIRECTOR)
+        TenantUserRole.objects.create(tenant=self.tenant, user=self.requester, role=TenantUserRole.ROLE_REQUESTER)
+        TenantUserRole.objects.create(tenant=self.tenant, user=self.approver, role=TenantUserRole.ROLE_APPROVER)
+        TenantUserRole.objects.create(tenant=self.tenant, user=self.other_approver, role=TenantUserRole.ROLE_APPROVER)
 
         TenantModuleConfig.objects.create(tenant=self.tenant, module_key="requests", is_enabled=True)
 
@@ -555,6 +569,52 @@ class RequestApprovalsTests(APITestCase):
         self.assertEqual(res.data[0]["request"]["id"], request_id)
         self.assertEqual(len(res.data[0]["approvals"]), 1)
         self.assertEqual(res.data[0]["approvals"][0]["decision"], Approval.DECISION_PENDING)
+
+    def test_approver_list_shows_only_participating_or_requester_requests(self):
+        req_data = self._create_request()
+        visible_request_id = req_data["id"]
+
+        hidden_request = Request.objects.create(
+            tenant=self.tenant,
+            created_by=self.requester,
+            requester=self.requester,
+            title="Hidden from approver",
+            description="",
+            amount=Decimal("15"),
+            currency="UZS",
+            payment_type="Наличные",
+            urgency="Обычно",
+            billing_date=date(2026, 1, 1),
+            status=Request.STATUS_DRAFT,
+            submitted_at=timezone.now(),
+            company_payer="",
+        )
+        Approval.objects.filter(request=hidden_request).delete()
+        UserRequestApproval.objects.filter(request=hidden_request).delete()
+
+        own_request = Request.objects.create(
+            tenant=self.tenant,
+            created_by=self.approver,
+            requester=self.approver,
+            title="Own requester draft",
+            description="",
+            amount=Decimal("20"),
+            currency="UZS",
+            payment_type="Наличные",
+            urgency="Обычно",
+            billing_date=date(2026, 1, 1),
+            status=Request.STATUS_DRAFT,
+            submitted_at=timezone.now(),
+            company_payer="",
+        )
+
+        self.client.force_authenticate(self.approver)
+        res = self.client.get("/api/requests/", HTTP_HOST=self.host)
+        self.assertEqual(res.status_code, 200, res.content)
+        ids = {row["id"] for row in res.data}
+        self.assertIn(visible_request_id, ids)
+        self.assertIn(own_request.id, ids)
+        self.assertNotIn(hidden_request.id, ids)
 
     def test_inbox_updates_on_approval_decision_change(self):
         req_data = self._create_request()
@@ -799,6 +859,39 @@ class RequestApprovalsTests(APITestCase):
         self.assertEqual(payment_approval.decision, Approval.DECISION_PENDING)
         self.assertEqual(payment_approval.step_type, Approval.STEP_TYPE_PAYMENT)
 
+    def test_request_detail_exposes_payment_action_mode_for_payment_step(self):
+        pt_cfg = RequestApprovalPaymentTypeConfig.objects.get(
+            config__tenant=self.tenant, payment_type="Наличные"
+        )
+        step2 = RequestApprovalStepConfig.objects.create(
+            payment_type_config=pt_cfg,
+            step=2,
+            step_type=Approval.STEP_TYPE_PAYMENT,
+            is_enabled=True,
+            payment_action_mode=RequestApprovalStepConfig.PAYMENT_ACTION_MODE_WEBAPP,
+            payment_webapp_url="https://acme.example.com/tg/payment?approval_id={approval_id}",
+        )
+        RequestApprovalStepApproverConfig.objects.create(step_config=step2, approver_user=self.other_approver)
+
+        req_data = self._create_request()
+        request_id = req_data["id"]
+        approval_step1 = Approval.objects.get(request_id=request_id, approver_user=self.approver, step=1)
+        self.client.force_authenticate(self.approver)
+        approve_res = self.client.post(
+            f"/api/requests/{request_id}/approvals/confirm/",
+            {"approval_id": approval_step1.id, "comment": "ok"},
+            format="json",
+            HTTP_HOST=self.host,
+        )
+        self.assertEqual(approve_res.status_code, 200, approve_res.content)
+
+        self.client.force_authenticate(self.other_approver)
+        res = self.client.get(f"/api/requests/{request_id}/", HTTP_HOST=self.host)
+        self.assertEqual(res.status_code, 200, res.content)
+        payment_rows = [a for a in res.data.get("approvals", []) if a.get("step_type") == Approval.STEP_TYPE_PAYMENT]
+        self.assertEqual(len(payment_rows), 1)
+        self.assertEqual(payment_rows[0].get("payment_action_mode"), RequestApprovalStepConfig.PAYMENT_ACTION_MODE_WEBAPP)
+
     def test_approvals_confirm_fails_for_non_assigned_approver(self):
         req_data = self._create_request()
         request_id = req_data["id"]
@@ -870,6 +963,27 @@ class RequestApprovalsTests(APITestCase):
             self.member_no_approver_role.id,
             [row["id"] for row in res.data["approver_candidates"]],
         )
+
+    def test_director_can_put_approval_config(self):
+        self.client.force_authenticate(self.director)
+        payload = {
+            "payment_types": [
+                {
+                    "payment_type": "Наличные",
+                    "is_enabled": True,
+                    "steps": [
+                        {
+                            "step": 1,
+                            "step_type": "serial",
+                            "is_enabled": True,
+                            "approver_user_ids": [self.member_no_approver_role.id],
+                        }
+                    ],
+                }
+            ]
+        }
+        res = self.client.put("/api/requests/approval-config/", payload, format="json", HTTP_HOST=self.host)
+        self.assertEqual(res.status_code, 200, res.content)
 
     def test_payment_webapp_confirm_sets_expense_id_and_marks_paid(self):
         appr_cfg = RequestApprovalConfig.objects.get(tenant=self.tenant)
@@ -956,9 +1070,7 @@ class RequestFileLinkRewriteTests(APITestCase):
         self.requester = User.objects.create_user(username="req", password="x")
 
         TenantMembership.objects.create(tenant=self.tenant, user=self.requester, is_active=True)
-        TenantUserRole.objects.create(
-            tenant=self.tenant, user=self.requester, role=TenantUserRole.ROLE_REQUESTER, step=1
-        )
+        TenantUserRole.objects.create(tenant=self.tenant, user=self.requester, role=TenantUserRole.ROLE_REQUESTER)
 
         TenantModuleConfig.objects.create(tenant=self.tenant, module_key="requests", is_enabled=True)
 
@@ -1025,13 +1137,15 @@ class AutoRequestTests(APITestCase):
     def setUp(self):
         self.tenant = Tenant.objects.create(name="Auto", subdomain="auto", is_active=True)
         self.admin = User.objects.create_user(username="auto_admin", password="x")
+        self.director = User.objects.create_user(username="auto_director", password="x")
+        self.approver = User.objects.create_user(username="auto_appr_cfg", password="x")
         self.requester = User.objects.create_user(username="auto_req", password="x")
-        for u in (self.admin, self.requester):
+        for u in (self.admin, self.director, self.approver, self.requester):
             TenantMembership.objects.create(tenant=self.tenant, user=u, is_active=True)
-        TenantUserRole.objects.create(tenant=self.tenant, user=self.admin, role=TenantUserRole.ROLE_ADMIN, step=1)
-        TenantUserRole.objects.create(
-            tenant=self.tenant, user=self.requester, role=TenantUserRole.ROLE_REQUESTER, step=1
-        )
+        TenantUserRole.objects.create(tenant=self.tenant, user=self.admin, role=TenantUserRole.ROLE_ADMIN)
+        TenantUserRole.objects.create(tenant=self.tenant, user=self.director, role=TenantUserRole.ROLE_DIRECTOR)
+        TenantUserRole.objects.create(tenant=self.tenant, user=self.approver, role=TenantUserRole.ROLE_APPROVER)
+        TenantUserRole.objects.create(tenant=self.tenant, user=self.requester, role=TenantUserRole.ROLE_REQUESTER)
         self.app_user, app_created = User.objects.get_or_create(
             username="app",
             defaults={"full_name": "Система", "is_active": True},
@@ -1040,9 +1154,7 @@ class AutoRequestTests(APITestCase):
             self.app_user.set_unusable_password()
             self.app_user.save(update_fields=["password"])
         TenantMembership.objects.get_or_create(tenant=self.tenant, user=self.app_user, defaults={"is_active": True})
-        TenantUserRole.objects.get_or_create(
-            tenant=self.tenant, user=self.app_user, role=TenantUserRole.ROLE_REQUESTER, defaults={"step": 1}
-        )
+        TenantUserRole.objects.get_or_create(tenant=self.tenant, user=self.app_user, role=TenantUserRole.ROLE_REQUESTER)
         TenantModuleConfig.objects.create(tenant=self.tenant, module_key="requests", is_enabled=True)
         self.host = "auto.example.com"
 
@@ -1172,6 +1284,57 @@ class AutoRequestTests(APITestCase):
         self.assertEqual(get_res.data["templates"][0]["billing_month_mode"], AutoRequestTemplate.BILLING_MONTH_CURRENT)
         self.assertIn("form_payment_types", get_res.data)
 
+    def test_auto_config_director_allowed(self):
+        v = self._ensure_request_form_for_auto()
+        self.client.force_authenticate(self.director)
+        payload = {
+            "templates": [
+                {
+                    "is_enabled": True,
+                    "name": "Director template",
+                    "payment_type": "Наличные",
+                    "day_of_month": 7,
+                    "title_template": "Director {{billing_month_ru}}",
+                    "description_template": "",
+                    "vendor_ref_id": v.id,
+                    "payment_purpose": "Office",
+                    "requester_id": self.requester.id,
+                }
+            ]
+        }
+        put_res = self.client.put("/api/requests/auto-config/", payload, format="json", HTTP_HOST=self.host)
+        self.assertEqual(put_res.status_code, 200, put_res.content)
+        get_res = self.client.get("/api/requests/auto-config/", HTTP_HOST=self.host)
+        self.assertEqual(get_res.status_code, 200, get_res.content)
+
+    def test_auto_config_approver_forbidden(self):
+        v = self._ensure_request_form_for_auto()
+        self.client.force_authenticate(self.approver)
+        payload = {
+            "templates": [
+                {
+                    "is_enabled": True,
+                    "name": "Approver template",
+                    "payment_type": "Наличные",
+                    "day_of_month": 10,
+                    "title_template": "Шаблон {{billing_month_ru}}",
+                    "description_template": "",
+                    "vendor_ref_id": v.id,
+                    "payment_purpose": "Office",
+                    "requester_id": self.requester.id,
+                }
+            ]
+        }
+        put_res = self.client.put("/api/requests/auto-config/", payload, format="json", HTTP_HOST=self.host)
+        self.assertEqual(put_res.status_code, 403, put_res.content)
+        get_res = self.client.get("/api/requests/auto-config/", HTTP_HOST=self.host)
+        self.assertEqual(get_res.status_code, 403, get_res.content)
+
+    def test_auto_config_requester_forbidden(self):
+        self.client.force_authenticate(self.requester)
+        get_res = self.client.get("/api/requests/auto-config/", HTTP_HOST=self.host)
+        self.assertEqual(get_res.status_code, 403, get_res.content)
+
     @patch("apps.modules.requests.auto_requests.dispatch_draft_request_notification")
     def test_process_due_auto_without_amount_stays_draft_and_notifies(self, mock_dispatch):
         v = self._ensure_request_form_for_auto()
@@ -1206,9 +1369,7 @@ class AutoRequestTests(APITestCase):
         v = self._ensure_request_form_for_auto()
         self.approver = User.objects.create_user(username="auto_appr", password="x")
         TenantMembership.objects.create(tenant=self.tenant, user=self.approver, is_active=True)
-        TenantUserRole.objects.create(
-            tenant=self.tenant, user=self.approver, role=TenantUserRole.ROLE_APPROVER, step=1
-        )
+        TenantUserRole.objects.create(tenant=self.tenant, user=self.approver, role=TenantUserRole.ROLE_APPROVER)
         self.approver.telegram_chat_id = 111
         self.approver.save(update_fields=["telegram_chat_id"])
         appr_cfg = RequestApprovalConfig.objects.create(tenant=self.tenant, updated_by=self.admin)
@@ -1241,6 +1402,145 @@ class AutoRequestTests(APITestCase):
 
 
 @override_settings(BASE_DOMAIN="example.com", N8N_TOKEN="", N8N_INTEGRATION_TOKEN="", ALLOWED_HOSTS=["*"])
+class RequestRoleVisibilityTests(APITestCase):
+    def setUp(self):
+        self.tenant = Tenant.objects.create(name="Roles", subdomain="roles", is_active=True)
+        self.admin = User.objects.create_user(username="rv_admin", password="x")
+        self.director = User.objects.create_user(username="rv_dir", password="x")
+        self.accountant = User.objects.create_user(username="rv_acc", password="x")
+        self.cashier = User.objects.create_user(username="rv_cash", password="x")
+        for u in (self.admin, self.director, self.accountant, self.cashier):
+            TenantMembership.objects.create(tenant=self.tenant, user=u, is_active=True)
+        TenantUserRole.objects.create(tenant=self.tenant, user=self.admin, role=TenantUserRole.ROLE_ADMIN)
+        TenantUserRole.objects.create(tenant=self.tenant, user=self.director, role=TenantUserRole.ROLE_DIRECTOR)
+        TenantUserRole.objects.create(tenant=self.tenant, user=self.accountant, role=TenantUserRole.ROLE_ACCOUNTANT)
+        TenantUserRole.objects.create(tenant=self.tenant, user=self.cashier, role=TenantUserRole.ROLE_CASHIER)
+        TenantModuleConfig.objects.create(tenant=self.tenant, module_key="requests", is_enabled=True)
+        self.host = "roles.example.com"
+
+        for idx, pt in enumerate(
+            [
+                Request.PAYMENT_TYPE_CASH,
+                Request.PAYMENT_TYPE_TRANSFER,
+                Request.PAYMENT_TYPE_TOPUP,
+                Request.PAYMENT_TYPE_CARD,
+            ],
+            start=1,
+        ):
+            Request.objects.create(
+                tenant=self.tenant,
+                created_by=self.admin,
+                requester=self.admin,
+                title=f"Req {idx}",
+                description="",
+                amount=Decimal("100"),
+                currency="UZS",
+                payment_type=pt,
+                urgency=Request.URGENCY_NORMAL,
+                billing_date=date(2026, 1, 1),
+                status=Request.STATUS_DRAFT,
+                submitted_at=timezone.now(),
+                company_payer="",
+            )
+
+    def test_accountant_sees_only_transfer_topup_and_card_requests(self):
+        self.client.force_authenticate(self.accountant)
+        res = self.client.get("/api/requests/", HTTP_HOST=self.host)
+        self.assertEqual(res.status_code, 200, res.content)
+        visible_types = {row["payment_type"] for row in res.data}
+        self.assertEqual(
+            visible_types,
+            {
+                Request.PAYMENT_TYPE_TRANSFER,
+                Request.PAYMENT_TYPE_TOPUP,
+                Request.PAYMENT_TYPE_CARD,
+            },
+        )
+
+    def test_cashier_sees_only_cash_requests(self):
+        self.client.force_authenticate(self.cashier)
+        res = self.client.get("/api/requests/", HTTP_HOST=self.host)
+        self.assertEqual(res.status_code, 200, res.content)
+        visible_types = {row["payment_type"] for row in res.data}
+        self.assertEqual(visible_types, {Request.PAYMENT_TYPE_CASH})
+
+    def test_admin_sees_all_requests(self):
+        self.client.force_authenticate(self.admin)
+        res = self.client.get("/api/requests/", HTTP_HOST=self.host)
+        self.assertEqual(res.status_code, 200, res.content)
+        visible_types = {row["payment_type"] for row in res.data}
+        self.assertEqual(
+            visible_types,
+            {
+                Request.PAYMENT_TYPE_CASH,
+                Request.PAYMENT_TYPE_TRANSFER,
+                Request.PAYMENT_TYPE_TOPUP,
+                Request.PAYMENT_TYPE_CARD,
+            },
+        )
+
+    def test_director_sees_all_requests(self):
+        self.client.force_authenticate(self.director)
+        res = self.client.get("/api/requests/", HTTP_HOST=self.host)
+        self.assertEqual(res.status_code, 200, res.content)
+        visible_types = {row["payment_type"] for row in res.data}
+        self.assertEqual(
+            visible_types,
+            {
+                Request.PAYMENT_TYPE_CASH,
+                Request.PAYMENT_TYPE_TRANSFER,
+                Request.PAYMENT_TYPE_TOPUP,
+                Request.PAYMENT_TYPE_CARD,
+            },
+        )
+
+    def test_requester_sees_only_where_he_is_requester(self):
+        requester = User.objects.create_user(username="rv_req", password="x")
+        created_only = User.objects.create_user(username="rv_created_only", password="x")
+        for u in (requester, created_only):
+            TenantMembership.objects.create(tenant=self.tenant, user=u, is_active=True)
+            TenantUserRole.objects.create(tenant=self.tenant, user=u, role=TenantUserRole.ROLE_REQUESTER)
+
+        visible = Request.objects.create(
+            tenant=self.tenant,
+            created_by=self.admin,
+            requester=requester,
+            title="Visible requester row",
+            description="",
+            amount=Decimal("100"),
+            currency="UZS",
+            payment_type=Request.PAYMENT_TYPE_CASH,
+            urgency=Request.URGENCY_NORMAL,
+            billing_date=date(2026, 1, 1),
+            status=Request.STATUS_DRAFT,
+            submitted_at=timezone.now(),
+            company_payer="",
+        )
+        hidden = Request.objects.create(
+            tenant=self.tenant,
+            created_by=requester,
+            requester=created_only,
+            title="Hidden created_by row",
+            description="",
+            amount=Decimal("100"),
+            currency="UZS",
+            payment_type=Request.PAYMENT_TYPE_CASH,
+            urgency=Request.URGENCY_NORMAL,
+            billing_date=date(2026, 1, 1),
+            status=Request.STATUS_DRAFT,
+            submitted_at=timezone.now(),
+            company_payer="",
+        )
+
+        self.client.force_authenticate(requester)
+        res = self.client.get("/api/requests/", HTTP_HOST=self.host)
+        self.assertEqual(res.status_code, 200, res.content)
+        ids = {row["id"] for row in res.data}
+        self.assertIn(visible.id, ids)
+        self.assertNotIn(hidden.id, ids)
+
+
+@override_settings(BASE_DOMAIN="example.com", N8N_TOKEN="", N8N_INTEGRATION_TOKEN="", ALLOWED_HOSTS=["*"])
 class DraftRequestPatchSubmitTests(APITestCase):
     """DRAFT-only PATCH and submit-for-approval."""
 
@@ -1254,16 +1554,10 @@ class DraftRequestPatchSubmitTests(APITestCase):
         self.approver.save(update_fields=["telegram_chat_id"])
         for u in (self.admin, self.requester, self.other, self.approver):
             TenantMembership.objects.create(tenant=self.tenant, user=u, is_active=True)
-        TenantUserRole.objects.create(tenant=self.tenant, user=self.admin, role=TenantUserRole.ROLE_ADMIN, step=1)
-        TenantUserRole.objects.create(
-            tenant=self.tenant, user=self.requester, role=TenantUserRole.ROLE_REQUESTER, step=1
-        )
-        TenantUserRole.objects.create(
-            tenant=self.tenant, user=self.other, role=TenantUserRole.ROLE_REQUESTER, step=1
-        )
-        TenantUserRole.objects.create(
-            tenant=self.tenant, user=self.approver, role=TenantUserRole.ROLE_APPROVER, step=1
-        )
+        TenantUserRole.objects.create(tenant=self.tenant, user=self.admin, role=TenantUserRole.ROLE_ADMIN)
+        TenantUserRole.objects.create(tenant=self.tenant, user=self.requester, role=TenantUserRole.ROLE_REQUESTER)
+        TenantUserRole.objects.create(tenant=self.tenant, user=self.other, role=TenantUserRole.ROLE_REQUESTER)
+        TenantUserRole.objects.create(tenant=self.tenant, user=self.approver, role=TenantUserRole.ROLE_APPROVER)
         TenantModuleConfig.objects.create(tenant=self.tenant, module_key="requests", is_enabled=True)
         self.host = "draftco.example.com"
 
