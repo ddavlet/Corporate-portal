@@ -237,6 +237,7 @@ export async function getAccessMatrix(): Promise<AccessMatrixResponse> {
 
 export type SettingsAccessResponse = {
   can_open_settings: boolean
+  can_open_admin: boolean
   can_manage_tenant_settings: boolean
   can_manage_requests_settings: boolean
   can_manage_wallet_settings: boolean
@@ -249,6 +250,7 @@ export async function getSettingsAccess(): Promise<SettingsAccessResponse> {
   const json = (await res.json().catch(() => null)) as Partial<SettingsAccessResponse> | null
   return {
     can_open_settings: Boolean(json?.can_open_settings),
+    can_open_admin: Boolean(json?.can_open_admin),
     can_manage_tenant_settings: Boolean(json?.can_manage_tenant_settings),
     can_manage_requests_settings: Boolean(json?.can_manage_requests_settings),
     can_manage_wallet_settings: Boolean(json?.can_manage_wallet_settings),
@@ -367,7 +369,7 @@ export type CashRevenue = {
   currency: string
   confirmed?: boolean
   operation?: string
-  account?: string
+  wallet_id?: number | null
   counterparty?: string
   total_sum?: string | number
   comment?: string

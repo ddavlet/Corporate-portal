@@ -260,6 +260,7 @@ class N8nIntegrationAuthTests(APITestCase):
         row = CashRevenue.objects.get(pk=94001)
         self.assertEqual(row.external_id, "1-000004435")
         self.assertEqual(str(row.total_sum), "20000.00")
+        self.assertEqual(row.payload.get("account"), "Основная касса (касса)")
         self.assertEqual(row.payload.get("direction"), "in")
         self.assertEqual(row.payload.get("source_year"), 2026)
 
@@ -304,6 +305,28 @@ class N8nIntegrationAuthTests(APITestCase):
         row = CashRevenue.objects.get(pk=95001)
         self.assertEqual(row.external_id, "1-000009999")
 
+    def test_cash_revenue_can_bind_wallet_by_cash_register_name(self):
+        cash_register = CashRegister.objects.create(tenant=self.tenant, currency="UZS", name="Main cash")
+        cash_wallet = Wallet.objects.create(
+            tenant=self.tenant,
+            wallet_type=Wallet.Type.CASH,
+            currency="UZS",
+            cash_register=cash_register,
+        )
+        url = f"{self.n8n_prefix}/cash/revenues/"
+        body = {
+            "id": 95011,
+            "date": "2026-03-19T19:00:00.000Z",
+            "confirmed": True,
+            "total_sum": "30000",
+            "currency": "UZS",
+            "cash_register_name": "Main cash",
+        }
+        res = self.client.post(url, body, format="json", **self._headers(self.admin))
+        self.assertEqual(res.status_code, 201, res.content)
+        row = CashRevenue.objects.get(pk=95011)
+        self.assertEqual(row.wallet_id, cash_wallet.id)
+
     def test_request_upsert_with_client_id(self):
         url = f"{self.n8n_prefix}/requests/"
         body = {
@@ -334,6 +357,30 @@ class N8nIntegrationAuthTests(APITestCase):
         self.assertEqual(res2.status_code, 200, res2.content)
         req.refresh_from_db()
         self.assertEqual(req.title, "Imported request updated")
+
+    def test_cash_expense_can_bind_wallet_by_cash_register_name(self):
+        cash_register = CashRegister.objects.create(tenant=self.tenant, currency="UZS", name="Main cash")
+        cash_wallet = Wallet.objects.create(
+            tenant=self.tenant,
+            wallet_type=Wallet.Type.CASH,
+            currency="UZS",
+            cash_register=cash_register,
+        )
+        url = f"{self.n8n_prefix}/cash/expenses/"
+        body = {
+            "id": 96011,
+            "external_id": "CASH-NAME-1",
+            "confirmed": True,
+            "title": "By cash name",
+            "amount": "1200.00",
+            "currency": "UZS",
+            "expense_at": "2026-04-01T10:00:00.000Z",
+            "cash_register_name": "Main cash",
+        }
+        res = self.client.post(url, body, format="json", **self._headers(self.admin))
+        self.assertEqual(res.status_code, 201, res.content)
+        row = CashExpense.objects.get(pk=96011)
+        self.assertEqual(row.wallet_id, cash_wallet.id)
 
     def test_request_upsert_resolves_expense_ref_id_for_cash(self):
         cash_register = CashRegister.objects.create(tenant=self.tenant, currency="UZS", name="Main cash")

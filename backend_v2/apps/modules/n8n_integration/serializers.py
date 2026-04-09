@@ -6,6 +6,7 @@ from apps.modules.payroll.models import PayrollDocument, PayrollLine
 from apps.modules.bank_expenses.serializers import BankExpenseSerializer, BankRevenueSerializer
 from apps.modules.cashier.models import CashExpense, CashRevenue
 from apps.modules.cashier.serializers import CashExpenseSerializer, CashRevenueSerializer
+from apps.modules.wallets.models import CashRegister
 from apps.modules.corporate_card.models import CardExpense, CardRevenue
 from apps.modules.corporate_card.serializers import CardExpenseSerializer, CardRevenueSerializer
 from apps.modules.notes.models import Note
@@ -20,6 +21,50 @@ from apps.tenants.permissions import has_effective_module_access
 from apps.tenants.models import TenantMembership, TenantUserRole
 
 User = get_user_model()
+
+
+def _bind_cash_wallet_by_register_name(*, attrs: dict, tenant, instance) -> dict:
+    """
+    Optional n8n helper:
+    allow `cash_register_name` in payload and map it to `wallet`.
+    """
+    raw_name = attrs.pop("cash_register_name", None)
+    if raw_name is None:
+        return attrs
+
+    name = str(raw_name or "").strip()
+    if not name:
+        raise serializers.ValidationError({"cash_register_name": "Название кассы не может быть пустым."})
+
+    matches = list(
+        CashRegister.objects.filter(tenant=tenant, name=name)
+        .select_related("wallet")
+        .order_by("id")[:2]
+    )
+    if not matches:
+        raise serializers.ValidationError({"cash_register_name": "Касса с таким названием не найдена."})
+    if len(matches) > 1:
+        raise serializers.ValidationError(
+            {"cash_register_name": "Найдено несколько касс с таким названием. Укажите wallet_id."}
+        )
+
+    reg = matches[0]
+    wallet = getattr(reg, "wallet", None)
+    if wallet is None:
+        raise serializers.ValidationError({"cash_register_name": "Для выбранной кассы не найден wallet."})
+
+    # Keep currency consistency when payload explicitly provides currency.
+    payload_currency = attrs.get("currency")
+    effective_currency = payload_currency
+    if effective_currency is None and instance is not None:
+        effective_currency = getattr(instance, "currency", None)
+    if effective_currency and str(effective_currency).strip() != str(reg.currency).strip():
+        raise serializers.ValidationError(
+            {"cash_register_name": "Валюта кассы не совпадает с валютой операции."}
+        )
+
+    attrs["wallet"] = wallet
+    return attrs
 
 
 class N8nVendorImportSerializer(VendorSerializer):
@@ -39,6 +84,7 @@ class N8nVendorImportSerializer(VendorSerializer):
 
 class N8nCashExpenseImportSerializer(CashExpenseSerializer):
     id = serializers.IntegerField(required=False)
+    cash_register_name = serializers.CharField(required=False, allow_blank=True)
 
     def to_internal_value(self, data):
         from collections.abc import Mapping
@@ -47,6 +93,7 @@ class N8nCashExpenseImportSerializer(CashExpenseSerializer):
         return serializers.ModelSerializer.to_internal_value(self, data)
 
     class Meta(CashExpenseSerializer.Meta):
+        fields = CashExpenseSerializer.Meta.fields + ["cash_register_name"]
         read_only_fields = [
             "expense_year",
             "expense_month",
@@ -58,12 +105,30 @@ class N8nCashExpenseImportSerializer(CashExpenseSerializer):
             "matched_request_id",
         ]
 
+    def validate(self, attrs):
+        attrs = _bind_cash_wallet_by_register_name(
+            attrs=attrs,
+            tenant=getattr(self.context.get("request"), "tenant", None),
+            instance=self.instance,
+        )
+        return super().validate(attrs)
+
 
 class N8nCashRevenueImportSerializer(CashRevenueSerializer):
     id = serializers.IntegerField(required=False)
+    cash_register_name = serializers.CharField(required=False, allow_blank=True)
 
     class Meta(CashRevenueSerializer.Meta):
+        fields = CashRevenueSerializer.Meta.fields + ["cash_register_name"]
         read_only_fields = ["created_at", "created_by"]
+
+    def validate(self, attrs):
+        attrs = _bind_cash_wallet_by_register_name(
+            attrs=attrs,
+            tenant=getattr(self.context.get("request"), "tenant", None),
+            instance=self.instance,
+        )
+        return super().validate(attrs)
 
 
 class N8nPayrollLineImportSerializer(serializers.ModelSerializer):
