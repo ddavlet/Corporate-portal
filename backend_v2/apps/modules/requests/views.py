@@ -190,10 +190,13 @@ class PortalRequestViewSet(viewsets.ModelViewSet):
             qs = qs.filter(payment_type__in=allowed_payment_types)
 
         if is_approver and not (is_admin or is_director):
-            qs = qs.filter(
-                Q(approvals__approver_user=self.request.user)
-                | Q(requester=self.request.user)
-            ).distinct()
+            # Keep approver list scoped, but allow detail permission checks to return 403
+            # for non-assigned users instead of queryset-level 404.
+            if self.action not in {"approvals_confirm", "update", "partial_update"}:
+                qs = qs.filter(
+                    Q(approvals__approver_user=self.request.user)
+                    | Q(requester=self.request.user)
+                ).distinct()
 
         if is_requester and not (is_admin or is_director or is_approver):
             if self.action in {"approvals_decision", "approvals_confirm"}:
