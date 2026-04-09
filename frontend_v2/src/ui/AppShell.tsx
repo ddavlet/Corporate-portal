@@ -12,6 +12,7 @@ import {
   FileTextOutlined,
   LogoutOutlined,
   SettingOutlined,
+  SafetyOutlined,
   TeamOutlined,
   UserOutlined,
 } from '@ant-design/icons'
@@ -29,15 +30,22 @@ export function AppShell() {
   const [feedbackOpen, setFeedbackOpen] = useState(false)
   const [passwordModalOpen, setPasswordModalOpen] = useState(false)
   const [canOpenSettings, setCanOpenSettings] = useState(false)
+  const [canOpenAdmin, setCanOpenAdmin] = useState(false)
 
   useEffect(() => {
     let cancelled = false
     void (async () => {
       try {
         const data = await getSettingsAccess()
-        if (!cancelled) setCanOpenSettings(Boolean(data.can_open_settings))
+        if (!cancelled) {
+          setCanOpenSettings(Boolean(data.can_open_settings))
+          setCanOpenAdmin(Boolean(data.can_open_admin))
+        }
       } catch {
-        if (!cancelled) setCanOpenSettings(false)
+        if (!cancelled) {
+          setCanOpenSettings(false)
+          setCanOpenAdmin(false)
+        }
       }
     })()
     return () => {
@@ -61,9 +69,10 @@ export function AppShell() {
         { path: '/bank', name: 'Банк', icon: <BankOutlined />, moduleKey: 'bank' },
         { path: '/corporate-card', name: 'Корпоративная карта', icon: <CreditCardOutlined />, moduleKey: 'corporate_card' },
         { path: '/payroll', name: 'Начисления ЗП', icon: <TeamOutlined />, moduleKey: 'payroll' },
+        ...(canOpenAdmin ? [{ path: '/admin', name: 'Админка', icon: <SafetyOutlined /> }] : []),
         ...(canOpenSettings ? [{ path: '/settings', name: 'Настройки', icon: <SettingOutlined /> }] : []),
       ] as MenuRoute[]).filter((r) => !r.moduleKey || hasAccess(r.moduleKey)),
-    [hasAccess, canOpenSettings],
+    [hasAccess, canOpenSettings, canOpenAdmin],
   )
 
   const profileMenu: MenuProps['items'] = [

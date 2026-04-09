@@ -39,11 +39,4 @@ export const SETTINGS_MODULES: SettingsModuleItem[] = [
     path: '/settings/cash-registers',
     icon: <ShopOutlined />,
   },
-  {
-    key: 'admin-access-matrix',
-    title: 'Админка — матрица доступов',
-    description: 'Пользователи тенанта, их роли и доступ к модулям.',
-    path: '/settings/admin-access-matrix',
-    icon: <SettingOutlined />,
-  },
 ]

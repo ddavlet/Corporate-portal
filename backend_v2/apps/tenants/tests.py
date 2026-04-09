@@ -140,6 +140,7 @@ class TenantIntegrationConfigApiTests(APITestCase):
         requester_res = self.client.get(url, **self._auth_headers(self.user))
         self.assertEqual(requester_res.status_code, 200, requester_res.content)
         self.assertFalse(requester_res.data["can_open_settings"])
+        self.assertFalse(requester_res.data["can_open_admin"])
         self.assertFalse(requester_res.data["can_manage_tenant_settings"])
 
         director = User.objects.create_user(username="director", password="x")
@@ -148,10 +149,12 @@ class TenantIntegrationConfigApiTests(APITestCase):
         director_res = self.client.get(url, **self._auth_headers(director))
         self.assertEqual(director_res.status_code, 200, director_res.content)
         self.assertTrue(director_res.data["can_open_settings"])
+        self.assertFalse(director_res.data["can_open_admin"])
         self.assertFalse(director_res.data["can_manage_tenant_settings"])
 
         admin_res = self.client.get(url, **self._auth_headers(self.admin))
         self.assertEqual(admin_res.status_code, 200, admin_res.content)
         self.assertTrue(admin_res.data["can_open_settings"])
+        self.assertTrue(admin_res.data["can_open_admin"])
         self.assertTrue(admin_res.data["can_manage_tenant_settings"])
 
