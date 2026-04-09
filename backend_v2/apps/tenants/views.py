@@ -1,4 +1,5 @@
 from django.contrib.auth import get_user_model
+from rest_framework.permissions import IsAuthenticated
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
@@ -157,4 +158,77 @@ class TenantIntegrationConfigView(APIView):
         cfg.save()
         tenant.save(update_fields=["telegram_bot_token_enc"])
         return self.get(request)
+
+
+class AccessMatrixView(APIView):
+    """
+    Admin-facing matrix of tenant users and their effective access.
+    """
+
+    permission_classes = [IsTenantAdmin]
+
+    def get(self, request):
+        tenant = request.tenant
+        modules = list_modules()
+        module_keys = [m["module_key"] for m in modules]
+
+        memberships = (
+            TenantMembership.objects.filter(tenant=tenant, is_active=True)
+            .select_related("user")
+            .order_by("user__username", "user_id")
+        )
+        roles_by_user: dict[int, list[str]] = {}
+        for row in TenantUserRole.objects.filter(tenant=tenant).order_by("role"):
+            roles_by_user.setdefault(row.user_id, []).append(row.role)
+
+        users_payload = []
+        for membership in memberships:
+            user = membership.user
+            roles = roles_by_user.get(user.id, [])
+            module_access = {key: role_allows_module(user=user, tenant=tenant, module_key=key) for key in module_keys}
+            users_payload.append(
+                {
+                    "user_id": user.id,
+                    "username": user.username,
+                    "full_name": (getattr(user, "full_name", "") or "").strip(),
+                    "roles": roles,
+                    "module_access": module_access,
+                    # Tenant settings remain admin-only even if user has broad module access.
+                    "tenant_settings_access": TenantUserRole.ROLE_ADMIN in roles,
+                }
+            )
+
+        return Response(
+            {
+                "modules": modules,
+                "users": users_payload,
+            }
+        )
+
+
+class SettingsAccessView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        tenant = getattr(request, "tenant", None)
+        if not tenant:
+            return Response({"detail": "Unknown tenant"}, status=status.HTTP_404_NOT_FOUND)
+
+        user = request.user
+        roles = set(
+            TenantUserRole.objects.filter(tenant=tenant, user=user).values_list("role", flat=True)
+        )
+        can_open_settings = (
+            TenantUserRole.ROLE_ADMIN in roles
+            or TenantUserRole.ROLE_DIRECTOR in roles
+        )
+        return Response(
+            {
+                "can_open_settings": can_open_settings,
+                "can_manage_tenant_settings": TenantUserRole.ROLE_ADMIN in roles,
+                "can_manage_requests_settings": can_open_settings,
+                "can_manage_wallet_settings": can_open_settings,
+                "roles": sorted(list(roles)),
+            }
+        )
 

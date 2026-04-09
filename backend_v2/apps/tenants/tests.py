@@ -63,8 +63,8 @@ class TenantIntegrationConfigApiTests(APITestCase):
         self.user = User.objects.create_user(username="user", password="x")
         TenantMembership.objects.create(tenant=self.tenant, user=self.admin, is_active=True)
         TenantMembership.objects.create(tenant=self.tenant, user=self.user, is_active=True)
-        TenantUserRole.objects.create(tenant=self.tenant, user=self.admin, role=TenantUserRole.ROLE_ADMIN, step=1)
-        TenantUserRole.objects.create(tenant=self.tenant, user=self.user, role=TenantUserRole.ROLE_REQUESTER, step=1)
+        TenantUserRole.objects.create(tenant=self.tenant, user=self.admin, role=TenantUserRole.ROLE_ADMIN)
+        TenantUserRole.objects.create(tenant=self.tenant, user=self.user, role=TenantUserRole.ROLE_REQUESTER)
         TenantModuleConfig.objects.create(tenant=self.tenant, module_key="requests", is_enabled=True)
         self.url = "/api/tenant-integration-config/"
 
@@ -116,4 +116,42 @@ class TenantIntegrationConfigApiTests(APITestCase):
     def test_non_admin_forbidden(self):
         res = self.client.get(self.url, **self._auth_headers(self.user))
         self.assertEqual(res.status_code, 403)
+
+    def test_access_matrix_admin_only(self):
+        matrix_url = "/api/access-matrix/"
+
+        # Non-admin forbidden
+        denied = self.client.get(matrix_url, **self._auth_headers(self.user))
+        self.assertEqual(denied.status_code, 403)
+
+        # Admin allowed
+        ok = self.client.get(matrix_url, **self._auth_headers(self.admin))
+        self.assertEqual(ok.status_code, 200, ok.content)
+        self.assertIn("modules", ok.data)
+        self.assertIn("users", ok.data)
+        usernames = {row["username"] for row in ok.data["users"]}
+        self.assertIn("admin", usernames)
+        self.assertIn("user", usernames)
+
+    def test_settings_access_flags_for_roles(self):
+        url = "/api/settings-access/"
+
+        # requester: no settings
+        requester_res = self.client.get(url, **self._auth_headers(self.user))
+        self.assertEqual(requester_res.status_code, 200, requester_res.content)
+        self.assertFalse(requester_res.data["can_open_settings"])
+        self.assertFalse(requester_res.data["can_manage_tenant_settings"])
+
+        director = User.objects.create_user(username="director", password="x")
+        TenantMembership.objects.create(tenant=self.tenant, user=director, is_active=True)
+        TenantUserRole.objects.create(tenant=self.tenant, user=director, role=TenantUserRole.ROLE_DIRECTOR)
+        director_res = self.client.get(url, **self._auth_headers(director))
+        self.assertEqual(director_res.status_code, 200, director_res.content)
+        self.assertTrue(director_res.data["can_open_settings"])
+        self.assertFalse(director_res.data["can_manage_tenant_settings"])
+
+        admin_res = self.client.get(url, **self._auth_headers(self.admin))
+        self.assertEqual(admin_res.status_code, 200, admin_res.content)
+        self.assertTrue(admin_res.data["can_open_settings"])
+        self.assertTrue(admin_res.data["can_manage_tenant_settings"])
 

@@ -10,11 +10,15 @@ from apps.tenants.models import TenantMembership, TenantModuleConfig, TenantUser
 ROLE_MODULE_ACCESS: dict[str, set[str]] = {
     "requests": {
         TenantUserRole.ROLE_ADMIN,
+        TenantUserRole.ROLE_DIRECTOR,
         TenantUserRole.ROLE_APPROVER,
         TenantUserRole.ROLE_REQUESTER,
+        TenantUserRole.ROLE_ACCOUNTANT,
+        TenantUserRole.ROLE_CASHIER,
     },
     "vendors": {
         TenantUserRole.ROLE_ADMIN,
+        TenantUserRole.ROLE_DIRECTOR,
         TenantUserRole.ROLE_APPROVER,
         TenantUserRole.ROLE_REQUESTER,
         TenantUserRole.ROLE_CASHIER,
@@ -22,28 +26,34 @@ ROLE_MODULE_ACCESS: dict[str, set[str]] = {
     },
     "cash": {
         TenantUserRole.ROLE_ADMIN,
+        TenantUserRole.ROLE_DIRECTOR,
         TenantUserRole.ROLE_CASHIER,
     },
     "bank": {
         TenantUserRole.ROLE_ADMIN,
+        TenantUserRole.ROLE_DIRECTOR,
         TenantUserRole.ROLE_ACCOUNTANT,
     },
     "payroll": {
         TenantUserRole.ROLE_ADMIN,
+        TenantUserRole.ROLE_DIRECTOR,
         TenantUserRole.ROLE_ACCOUNTANT,
     },
     "corporate_card": {
         TenantUserRole.ROLE_ADMIN,
+        TenantUserRole.ROLE_DIRECTOR,
         TenantUserRole.ROLE_ACCOUNTANT,
         TenantUserRole.ROLE_CASHIER,
     },
     "wallets": {
         TenantUserRole.ROLE_ADMIN,
+        TenantUserRole.ROLE_DIRECTOR,
         TenantUserRole.ROLE_ACCOUNTANT,
         TenantUserRole.ROLE_CASHIER,
     },
     "notes": {
         TenantUserRole.ROLE_ADMIN,
+        TenantUserRole.ROLE_DIRECTOR,
         TenantUserRole.ROLE_APPROVER,
         TenantUserRole.ROLE_REQUESTER,
         TenantUserRole.ROLE_CASHIER,
@@ -88,6 +98,36 @@ class IsTenantAdmin(BasePermission):
             tenant=tenant,
             user=user,
             role=TenantUserRole.ROLE_ADMIN,
+        ).exists()
+
+
+class IsTenantAdminOrDirector(BasePermission):
+    def has_permission(self, request, view) -> bool:
+        user = request.user
+        tenant = getattr(request, "tenant", None)
+        if not user or not user.is_authenticated or not tenant:
+            return False
+        if not _has_active_membership(user=user, tenant=tenant):
+            return False
+        return TenantUserRole.objects.filter(
+            tenant=tenant,
+            user=user,
+            role__in=[TenantUserRole.ROLE_ADMIN, TenantUserRole.ROLE_DIRECTOR],
+        ).exists()
+
+
+class IsTenantAdminOrApprover(BasePermission):
+    def has_permission(self, request, view) -> bool:
+        user = request.user
+        tenant = getattr(request, "tenant", None)
+        if not user or not user.is_authenticated or not tenant:
+            return False
+        if not _has_active_membership(user=user, tenant=tenant):
+            return False
+        return TenantUserRole.objects.filter(
+            tenant=tenant,
+            user=user,
+            role__in=[TenantUserRole.ROLE_ADMIN, TenantUserRole.ROLE_APPROVER],
         ).exists()
 
 

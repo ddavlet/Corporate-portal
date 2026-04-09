@@ -73,7 +73,7 @@ from apps.modules.telegram_approvals.services import (
 )
 from apps.tenants.integration_settings import get_requests_gateway_settings
 
-from apps.tenants.permissions import HasEffectiveModuleAccess, IsTenantAdmin
+from apps.tenants.permissions import HasEffectiveModuleAccess, IsTenantAdmin, IsTenantAdminOrDirector
 from apps.tenants.models import TenantMembership, TenantUserRole
 
 User = get_user_model()
@@ -101,7 +101,9 @@ def _ensure_app_user_for_auto_requests(tenant):
         app_user.save(update_fields=["password"])
     TenantMembership.objects.get_or_create(tenant=tenant, user=app_user, defaults={"is_active": True})
     TenantUserRole.objects.get_or_create(
-        tenant=tenant, user=app_user, role=TenantUserRole.ROLE_REQUESTER, defaults={"step": 1}
+        tenant=tenant,
+        user=app_user,
+        role=TenantUserRole.ROLE_REQUESTER,
     )
     return app_user
 
@@ -163,14 +165,41 @@ class PortalRequestViewSet(viewsets.ModelViewSet):
 
         # Requesters can only see items they created.
         is_admin = self._has_role(tenant, TenantUserRole.ROLE_ADMIN)
+        is_director = self._has_role(tenant, TenantUserRole.ROLE_DIRECTOR)
         is_approver = self._has_role(tenant, TenantUserRole.ROLE_APPROVER)
         is_requester = self._has_role(tenant, TenantUserRole.ROLE_REQUESTER)
+        is_accountant = self._has_role(tenant, TenantUserRole.ROLE_ACCOUNTANT)
+        is_cashier = self._has_role(tenant, TenantUserRole.ROLE_CASHIER)
 
-        if is_requester and not (is_admin or is_approver):
+        # Finance role visibility rules:
+        # - accountant: transfer/topup/corporate-card requests
+        # - cashier: cash requests
+        # Admin keeps full visibility.
+        if not (is_admin or is_director) and (is_accountant or is_cashier):
+            allowed_payment_types: set[str] = set()
+            if is_accountant:
+                allowed_payment_types.update(
+                    {
+                        Request.PAYMENT_TYPE_TRANSFER,
+                        Request.PAYMENT_TYPE_TOPUP,
+                        Request.PAYMENT_TYPE_CARD,
+                    }
+                )
+            if is_cashier:
+                allowed_payment_types.add(Request.PAYMENT_TYPE_CASH)
+            qs = qs.filter(payment_type__in=allowed_payment_types)
+
+        if is_approver and not (is_admin or is_director):
+            qs = qs.filter(
+                Q(approvals__approver_user=self.request.user)
+                | Q(requester=self.request.user)
+            ).distinct()
+
+        if is_requester and not (is_admin or is_director or is_approver):
             if self.action in {"approvals_decision", "approvals_confirm"}:
                 qs = qs.filter(approvals__approver_user=self.request.user).distinct()
             else:
-                qs = qs.filter(created_by=self.request.user)
+                qs = qs.filter(requester=self.request.user)
 
         submitted_from = self._parse_date_query("submitted_from")
         submitted_to = self._parse_date_query("submitted_to")
@@ -697,7 +726,7 @@ class FileDownloadView(APIView):
 
 class RequestFormConfigView(APIView):
     module_key = "requests"
-    permission_classes = [IsAuthenticated, HasEffectiveModuleAccess, IsTenantAdmin]
+    permission_classes = [IsAuthenticated, HasEffectiveModuleAccess, IsTenantAdminOrDirector]
 
     def get(self, request):
         tenant = getattr(request, "tenant", None)
@@ -907,7 +936,7 @@ class RequestFormConfigView(APIView):
 
 class RequestFormConfigRequestersView(APIView):
     module_key = "requests"
-    permission_classes = [IsAuthenticated, HasEffectiveModuleAccess, IsTenantAdmin]
+    permission_classes = [IsAuthenticated, HasEffectiveModuleAccess, IsTenantAdminOrDirector]
 
     def post(self, request):
         tenant = getattr(request, "tenant", None)
@@ -946,7 +975,6 @@ class RequestFormConfigRequestersView(APIView):
                 tenant=tenant,
                 user=user,
                 role=TenantUserRole.ROLE_REQUESTER,
-                defaults={"step": 1},
             )
 
         return Response(build_request_form_config_response(tenant=tenant), status=status.HTTP_200_OK)
@@ -1030,7 +1058,7 @@ class RequestFormOptionsView(APIView):
 
 class RequestApprovalConfigView(APIView):
     module_key = "requests"
-    permission_classes = [IsAuthenticated, HasEffectiveModuleAccess, IsTenantAdmin]
+    permission_classes = [IsAuthenticated, HasEffectiveModuleAccess, IsTenantAdminOrDirector]
 
     def get(self, request):
         tenant = getattr(request, "tenant", None)
@@ -1150,7 +1178,7 @@ class RequestApprovalConfigView(APIView):
 
 class AutoRequestConfigView(APIView):
     module_key = "requests"
-    permission_classes = [IsAuthenticated, HasEffectiveModuleAccess, IsTenantAdmin]
+    permission_classes = [IsAuthenticated, HasEffectiveModuleAccess, IsTenantAdminOrDirector]
 
     def get(self, request):
         tenant = getattr(request, "tenant", None)
