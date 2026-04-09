@@ -113,7 +113,6 @@ class RequestFormConfigTests(APITestCase):
                 tenant=self.tenant,
                 user=u,
                 role=TenantUserRole.ROLE_REQUESTER,
-                step=1,
             ).exists()
         )
         self.assertIn("payment_types", res.data)

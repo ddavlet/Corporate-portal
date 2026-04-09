@@ -4,7 +4,12 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
 
-from apps.tenants.models import TenantIntegrationConfig, TenantModuleConfig
+from apps.tenants.models import (
+    TenantIntegrationConfig,
+    TenantMembership,
+    TenantModuleConfig,
+    TenantUserRole,
+)
 from apps.tenants.permissions import IsTenantAdmin, role_allows_module
 from apps.tenants.serializers import (
     TenantIntegrationConfigSerializer,
