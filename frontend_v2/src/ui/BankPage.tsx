@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Alert, Button, Card, Descriptions, Input, Modal, Skeleton, Space, Table, Tabs, Tag, Typography } from 'antd'
+import { Alert, Button, Card, Collapse, DatePicker, Descriptions, Input, InputNumber, Select, Modal, Skeleton, Space, Table, Tabs, Tag, Typography } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
+import type { Dayjs } from 'dayjs'
 import { useNavigate } from 'react-router-dom'
 import { FileSearchOutlined, MessageOutlined } from '@ant-design/icons'
 import { apiFetch, getBankRevenues, type BankRevenue } from '../lib/api'
@@ -58,6 +59,16 @@ export function BankPage() {
   const [revenues, setRevenues] = useState<BankRevenueRow[]>([])
   const [error, setError] = useState<string | null>(null)
   const [search, setSearch] = useState('')
+  const [counterpartyFilter, setCounterpartyFilter] = useState<string | undefined>(undefined)
+  const [amountMin, setAmountMin] = useState<number | null>(null)
+  const [amountMax, setAmountMax] = useState<number | null>(null)
+  const [docDateRange, setDocDateRange] = useState<[Dayjs | null, Dayjs | null] | null>(null)
+  const [currentAllPage, setCurrentAllPage] = useState(1)
+  const [allPageSize, setAllPageSize] = useState(20)
+  const [currentExpensePage, setCurrentExpensePage] = useState(1)
+  const [expensePageSize, setExpensePageSize] = useState(20)
+  const [currentRevenuePage, setCurrentRevenuePage] = useState(1)
+  const [revenuePageSize, setRevenuePageSize] = useState(20)
   const [selectedExpense, setSelectedExpense] = useState<BankExpenseRow | null>(null)
   const [selectedRevenue, setSelectedRevenue] = useState<BankRevenueRow | null>(null)
   const [requestDetail, setRequestDetail] = useState<RequestDetail | null>(null)
@@ -146,32 +157,65 @@ export function BankPage() {
     }
   }, [selectedExpense?.matched_request_id])
 
+  const optionize = (values: string[]) =>
+    [...new Set(values.filter(Boolean))].sort((a, b) => a.localeCompare(b)).map((value) => ({ label: value, value }))
+
   const filteredRows = useMemo(() => {
     const normalized = search.trim().toLowerCase()
     return rows.filter((row) => {
+      if (counterpartyFilter && row.account_name !== counterpartyFilter) return false
+      if (amountMin !== null && Number(row.debit_turnover) < amountMin) return false
+      if (amountMax !== null && Number(row.debit_turnover) > amountMax) return false
+      const from = docDateRange?.[0]?.format('YYYY-MM-DD')
+      const to = docDateRange?.[1]?.format('YYYY-MM-DD')
+      const current = String(row.doc_date || '').slice(0, 10)
+      if (from && (!current || current < from)) return false
+      if (to && (!current || current > to)) return false
       if (!normalized) return true
-      const haystack = `${row.doc_no || ''} ${row.account_name || ''} ${row.payment_purpose || ''}`.toLowerCase()
+      const haystack = JSON.stringify(row).toLowerCase()
       return haystack.includes(normalized)
     })
-  }, [rows, search])
+  }, [rows, search, counterpartyFilter, amountMin, amountMax, docDateRange])
 
   const filteredRevenueRows = useMemo(() => {
     const normalized = search.trim().toLowerCase()
     return revenues.filter((row) => {
+      if (counterpartyFilter && row.account_name !== counterpartyFilter) return false
+      if (amountMin !== null && Number(row.kredit_turnover) < amountMin) return false
+      if (amountMax !== null && Number(row.kredit_turnover) > amountMax) return false
+      const from = docDateRange?.[0]?.format('YYYY-MM-DD')
+      const to = docDateRange?.[1]?.format('YYYY-MM-DD')
+      const current = String(row.doc_date || '').slice(0, 10)
+      if (from && (!current || current < from)) return false
+      if (to && (!current || current > to)) return false
       if (!normalized) return true
-      const haystack = `${row.doc_no || ''} ${row.account_name || ''} ${row.payment_purpose || ''}`.toLowerCase()
+      const haystack = JSON.stringify(row).toLowerCase()
       return haystack.includes(normalized)
     })
-  }, [revenues, search])
+  }, [revenues, search, counterpartyFilter, amountMin, amountMax, docDateRange])
 
   const filteredAllRows = useMemo(() => {
     const normalized = search.trim().toLowerCase()
-    if (!normalized) return allRows
     return allRows.filter((row) => {
-      const haystack = `${row.kind} ${row.doc_no || ''} ${row.account_name || ''} ${row.purpose || ''}`.toLowerCase()
+      if (counterpartyFilter && row.account_name !== counterpartyFilter) return false
+      if (amountMin !== null && Number(row.amount) < amountMin) return false
+      if (amountMax !== null && Number(row.amount) > amountMax) return false
+      const from = docDateRange?.[0]?.format('YYYY-MM-DD')
+      const to = docDateRange?.[1]?.format('YYYY-MM-DD')
+      const current = String(row.at || '').slice(0, 10)
+      if (from && (!current || current < from)) return false
+      if (to && (!current || current > to)) return false
+      if (!normalized) return true
+      const haystack = JSON.stringify(row).toLowerCase()
       return haystack.includes(normalized)
     })
-  }, [allRows, search])
+  }, [allRows, search, counterpartyFilter, amountMin, amountMax, docDateRange])
+
+  useEffect(() => {
+    setCurrentAllPage(1)
+    setCurrentExpensePage(1)
+    setCurrentRevenuePage(1)
+  }, [search, counterpartyFilter, amountMin, amountMax, docDateRange])
 
   const columns: ColumnsType<BankExpenseRow> = [
     { title: 'PK', dataIndex: 'id', width: 80, sorter: (a, b) => a.id - b.id },
@@ -246,6 +290,41 @@ export function BankPage() {
           allowClear
           style={{ width: 360 }}
         />
+        <Collapse
+          size="small"
+          style={{ marginTop: 8 }}
+          items={[
+            {
+              key: 'advanced',
+              label: 'Расширенные фильтры',
+              children: (
+                <Space wrap size={[12, 12]}>
+                  <Select
+                    placeholder="Контрагент"
+                    allowClear
+                    style={{ width: 260 }}
+                    value={counterpartyFilter}
+                    onChange={setCounterpartyFilter}
+                    options={optionize(allRows.map((r) => r.account_name || ''))}
+                  />
+                  <DatePicker.RangePicker value={docDateRange} onChange={setDocDateRange} placeholder={['Дата док. от', 'Дата док. до']} />
+                  <InputNumber placeholder="Мин. сумма" min={0} value={amountMin} onChange={setAmountMin} />
+                  <InputNumber placeholder="Макс. сумма" min={0} value={amountMax} onChange={setAmountMax} />
+                  <Button
+                    onClick={() => {
+                      setCounterpartyFilter(undefined)
+                      setAmountMin(null)
+                      setAmountMax(null)
+                      setDocDateRange(null)
+                    }}
+                  >
+                    Сбросить фильтры
+                  </Button>
+                </Space>
+              ),
+            },
+          ]}
+        />
       </div>
       {loading ? <Skeleton active style={{ marginTop: 16 }} /> : null}
       {error ? <Alert type="error" showIcon message={error} style={{ marginTop: 16 }} /> : null}
@@ -268,7 +347,16 @@ export function BankPage() {
                     },
                     style: { cursor: 'pointer' },
                   })}
-                  pagination={{ showSizeChanger: true, pageSizeOptions: [20, 50, 100, 200] }}
+                  pagination={{
+                    current: currentAllPage,
+                    pageSize: allPageSize,
+                    showSizeChanger: true,
+                    pageSizeOptions: [20, 50, 100, 200],
+                  }}
+                  onChange={(pagination) => {
+                    if (pagination.current) setCurrentAllPage(pagination.current)
+                    if (pagination.pageSize) setAllPageSize(pagination.pageSize)
+                  }}
                   scroll={{ x: 1100 }}
                 />
               ),
@@ -286,7 +374,16 @@ export function BankPage() {
                     onClick: () => setSelectedExpense(record),
                     style: { cursor: 'pointer' },
                   })}
-                  pagination={{ showSizeChanger: true, pageSizeOptions: [20, 50, 100, 200] }}
+                  pagination={{
+                    current: currentExpensePage,
+                    pageSize: expensePageSize,
+                    showSizeChanger: true,
+                    pageSizeOptions: [20, 50, 100, 200],
+                  }}
+                  onChange={(pagination) => {
+                    if (pagination.current) setCurrentExpensePage(pagination.current)
+                    if (pagination.pageSize) setExpensePageSize(pagination.pageSize)
+                  }}
                   scroll={{ x: 1100 }}
                 />
               ),
@@ -304,7 +401,16 @@ export function BankPage() {
                     onClick: () => setSelectedRevenue(record),
                     style: { cursor: 'pointer' },
                   })}
-                  pagination={{ showSizeChanger: true, pageSizeOptions: [20, 50, 100, 200] }}
+                  pagination={{
+                    current: currentRevenuePage,
+                    pageSize: revenuePageSize,
+                    showSizeChanger: true,
+                    pageSizeOptions: [20, 50, 100, 200],
+                  }}
+                  onChange={(pagination) => {
+                    if (pagination.current) setCurrentRevenuePage(pagination.current)
+                    if (pagination.pageSize) setRevenuePageSize(pagination.pageSize)
+                  }}
                   scroll={{ x: 1100 }}
                 />
               ),

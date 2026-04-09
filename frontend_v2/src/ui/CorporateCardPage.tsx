@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Alert, Card, Descriptions, Input, Modal, Skeleton, Table, Tabs, Tag, Typography } from 'antd'
+import { Alert, Button, Card, Collapse, DatePicker, Descriptions, Input, InputNumber, Select, Modal, Skeleton, Space, Table, Tabs, Tag, Typography } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
+import type { Dayjs } from 'dayjs'
 import {
   getCorporateCardExpenses,
   getCorporateCardRevenues,
@@ -44,10 +45,19 @@ export function CorporateCardPage() {
   const [expenses, setExpenses] = useState<CorporateCardExpense[]>([])
   const [revenues, setRevenues] = useState<CorporateCardRevenue[]>([])
   const [search, setSearch] = useState('')
+  const [currencyFilter, setCurrencyFilter] = useState<string | undefined>(undefined)
+  const [confirmedFilter, setConfirmedFilter] = useState<string | undefined>(undefined)
+  const [operationFilter, setOperationFilter] = useState<string | undefined>(undefined)
+  const [counterpartyFilter, setCounterpartyFilter] = useState<string | undefined>(undefined)
+  const [amountMin, setAmountMin] = useState<number | null>(null)
+  const [amountMax, setAmountMax] = useState<number | null>(null)
+  const [dateRange, setDateRange] = useState<[Dayjs | null, Dayjs | null] | null>(null)
   const [currentExpensePage, setCurrentExpensePage] = useState(1)
   const [expensePageSize, setExpensePageSize] = useState(10)
   const [currentRevenuePage, setCurrentRevenuePage] = useState(1)
   const [revenuePageSize, setRevenuePageSize] = useState(10)
+  const [currentAllPage, setCurrentAllPage] = useState(1)
+  const [allPageSize, setAllPageSize] = useState(10)
   const [selectedExpense, setSelectedExpense] = useState<CorporateCardExpense | null>(null)
   const [selectedRevenue, setSelectedRevenue] = useState<CorporateCardRevenue | null>(null)
 
@@ -74,6 +84,8 @@ export function CorporateCardPage() {
   }, [])
 
   const normalizedSearch = search.trim().toLowerCase()
+  const optionize = (values: string[]) =>
+    [...new Set(values.filter(Boolean))].sort((a, b) => a.localeCompare(b)).map((value) => ({ label: value, value }))
 
   const allRows = useMemo(() => {
     const expenseRows = expenses.map((e) => ({
@@ -100,31 +112,70 @@ export function CorporateCardPage() {
   }, [expenses, revenues])
 
   const filteredAllRows = useMemo(() => {
-    if (!normalizedSearch) return allRows
     return allRows.filter((row) => {
-      const haystack = `${row.kind} ${row.id} ${row.title || ''} ${row.note || ''}`.toLowerCase()
+      const raw = row.raw as CorporateCardExpense | CorporateCardRevenue
+      const op = (raw as CorporateCardRevenue).operation || ''
+      const cp = (raw as CorporateCardRevenue).counterparty || ''
+      const confirmed = (raw as CorporateCardRevenue).confirmed
+      if (currencyFilter && row.currency !== currencyFilter) return false
+      if (operationFilter && op !== operationFilter) return false
+      if (counterpartyFilter && cp !== counterpartyFilter) return false
+      if (confirmedFilter === 'confirmed' && confirmed === false) return false
+      if (confirmedFilter === 'unconfirmed' && confirmed !== false) return false
+      if (amountMin !== null && Number(row.amount) < amountMin) return false
+      if (amountMax !== null && Number(row.amount) > amountMax) return false
+      const from = dateRange?.[0]?.format('YYYY-MM-DD')
+      const to = dateRange?.[1]?.format('YYYY-MM-DD')
+      const currentDate = String(row.at || '').slice(0, 10)
+      if (from && (!currentDate || currentDate < from)) return false
+      if (to && (!currentDate || currentDate > to)) return false
+      if (!normalizedSearch) return true
+      const haystack = JSON.stringify(row).toLowerCase()
       return haystack.includes(normalizedSearch)
     })
-  }, [allRows, normalizedSearch])
+  }, [allRows, normalizedSearch, currencyFilter, operationFilter, counterpartyFilter, confirmedFilter, amountMin, amountMax, dateRange])
 
   const filteredExpenses = useMemo(() => {
-    if (!normalizedSearch) return expenses
     return expenses.filter((row) => {
-      const haystack = `${row.id} ${row.title || ''} ${row.note || ''}`.toLowerCase()
+      if (currencyFilter && row.currency !== currencyFilter) return false
+      if (amountMin !== null && Number(row.amount) < amountMin) return false
+      if (amountMax !== null && Number(row.amount) > amountMax) return false
+      const from = dateRange?.[0]?.format('YYYY-MM-DD')
+      const to = dateRange?.[1]?.format('YYYY-MM-DD')
+      const currentDate = String(row.expense_at || '').slice(0, 10)
+      if (from && (!currentDate || currentDate < from)) return false
+      if (to && (!currentDate || currentDate > to)) return false
+      if (!normalizedSearch) return true
+      const haystack = JSON.stringify(row).toLowerCase()
       return haystack.includes(normalizedSearch)
     })
-  }, [expenses, normalizedSearch])
+  }, [expenses, normalizedSearch, currencyFilter, amountMin, amountMax, dateRange])
 
   const filteredRevenues = useMemo(() => {
-    if (!normalizedSearch) return revenues
     return revenues.filter((row) => {
-      const haystack =
-        `${row.id} ${row.external_id || ''} ${row.organization || ''} ${row.employee || ''} ` +
-        `${row.operation || ''} ${row.account || ''} ${row.counterparty || ''} ` +
-        `${row.comment || row.note || ''} ${row.bank_expense_id ?? ''}`.toLowerCase()
+      if (currencyFilter && row.currency !== currencyFilter) return false
+      if (operationFilter && (row.operation || '') !== operationFilter) return false
+      if (counterpartyFilter && (row.counterparty || '') !== counterpartyFilter) return false
+      if (confirmedFilter === 'confirmed' && row.confirmed === false) return false
+      if (confirmedFilter === 'unconfirmed' && row.confirmed !== false) return false
+      if (amountMin !== null && Number(row.total_sum ?? row.amount) < amountMin) return false
+      if (amountMax !== null && Number(row.total_sum ?? row.amount) > amountMax) return false
+      const from = dateRange?.[0]?.format('YYYY-MM-DD')
+      const to = dateRange?.[1]?.format('YYYY-MM-DD')
+      const currentDate = String(row.revenue_at || row.revenue_date || '').slice(0, 10)
+      if (from && (!currentDate || currentDate < from)) return false
+      if (to && (!currentDate || currentDate > to)) return false
+      if (!normalizedSearch) return true
+      const haystack = JSON.stringify(row).toLowerCase()
       return haystack.includes(normalizedSearch)
     })
-  }, [revenues, normalizedSearch])
+  }, [revenues, normalizedSearch, currencyFilter, operationFilter, counterpartyFilter, confirmedFilter, amountMin, amountMax, dateRange])
+
+  useEffect(() => {
+    setCurrentAllPage(1)
+    setCurrentExpensePage(1)
+    setCurrentRevenuePage(1)
+  }, [search, currencyFilter, confirmedFilter, operationFilter, counterpartyFilter, amountMin, amountMax, dateRange])
 
   type AllRow = (typeof allRows)[number]
   const allColumns: ColumnsType<AllRow> = [
@@ -239,6 +290,71 @@ export function CorporateCardPage() {
           allowClear
           style={{ width: 420 }}
         />
+        <Collapse
+          size="small"
+          style={{ marginTop: 8 }}
+          items={[
+            {
+              key: 'advanced',
+              label: 'Расширенные фильтры',
+              children: (
+                <Space wrap size={[12, 12]}>
+                  <Select
+                    placeholder="Подтверждение"
+                    allowClear
+                    style={{ width: 180 }}
+                    value={confirmedFilter}
+                    onChange={setConfirmedFilter}
+                    options={[
+                      { value: 'confirmed', label: 'Подтверждено' },
+                      { value: 'unconfirmed', label: 'Не подтверждено' },
+                    ]}
+                  />
+                  <Select
+                    placeholder="Валюта"
+                    allowClear
+                    style={{ width: 140 }}
+                    value={currencyFilter}
+                    onChange={setCurrencyFilter}
+                    options={optionize(allRows.map((r) => r.currency || ''))}
+                  />
+                  <Select
+                    placeholder="Операция"
+                    allowClear
+                    style={{ width: 220 }}
+                    value={operationFilter}
+                    onChange={setOperationFilter}
+                    options={optionize(revenues.map((r) => r.operation || ''))}
+                  />
+                  <Select
+                    placeholder="Контрагент"
+                    allowClear
+                    style={{ width: 220 }}
+                    value={counterpartyFilter}
+                    onChange={setCounterpartyFilter}
+                    options={optionize(revenues.map((r) => r.counterparty || ''))}
+                  />
+                  <DatePicker.RangePicker value={dateRange} onChange={setDateRange} placeholder={['Дата от', 'Дата до']} />
+                  <InputNumber placeholder="Мин. сумма" min={0} value={amountMin} onChange={setAmountMin} />
+                  <InputNumber placeholder="Макс. сумма" min={0} value={amountMax} onChange={setAmountMax} />
+                  <Button
+                    onClick={() => {
+                      setCurrencyFilter(undefined)
+                      setConfirmedFilter(undefined)
+                      setOperationFilter(undefined)
+                      setCounterpartyFilter(undefined)
+                      setAmountMin(null)
+                      setAmountMax(null)
+                      setDateRange(null)
+                    }}
+                  >
+                    Сбросить фильтры
+                  </Button>
+                </Space>
+              ),
+            },
+          ]}
+        />
       </div>
 
       {loading ? <Skeleton active style={{ marginTop: 16 }} /> : null}
@@ -263,7 +379,16 @@ export function CorporateCardPage() {
                     },
                     style: { cursor: 'pointer' },
                   })}
-                  pagination={{ defaultPageSize: 10, showSizeChanger: true, pageSizeOptions: [10, 20, 50, 100, 200] }}
+                  pagination={{
+                    current: currentAllPage,
+                    pageSize: allPageSize,
+                    showSizeChanger: true,
+                    pageSizeOptions: [10, 20, 50, 100, 200],
+                  }}
+                  onChange={(pagination) => {
+                    if (pagination.current) setCurrentAllPage(pagination.current)
+                    if (pagination.pageSize) setAllPageSize(pagination.pageSize)
+                  }}
                   scroll={{ x: 1100 }}
                 />
               ),

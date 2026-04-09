@@ -187,7 +187,7 @@ export function RequestsPage() {
       if (amountMin !== null && Number(row.amount) < amountMin) return false
       if (amountMax !== null && Number(row.amount) > amountMax) return false
       if (!normalizedSearch) return true
-      const haystack = `${row.title || ''} ${row.category || ''} ${row.vendor || ''} ${row.payment_purpose || ''} ${row.description || ''}`.toLowerCase()
+      const haystack = JSON.stringify(row).toLowerCase()
       return haystack.includes(normalizedSearch)
     })
 
@@ -210,6 +210,10 @@ export function RequestsPage() {
     }
     return data
   }, [rows, debouncedSearch, status, urgency, paymentType, currency, category, vendor, requester, amountMin, amountMax, sort])
+
+  useEffect(() => {
+    setCurrentPage(1)
+  }, [debouncedSearch, status, urgency, paymentType, currency, category, vendor, requester, amountMin, amountMax, submittedRange, billingRange, debouncedVendorSearchApi])
 
   const getStatusColor = (value: string): string | undefined => {
     const normalized = String(value || '').trim().toUpperCase()
