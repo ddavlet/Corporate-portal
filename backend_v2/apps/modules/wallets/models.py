@@ -11,7 +11,7 @@ from apps.tenants.models import Tenant
 
 
 class CashRegister(models.Model):
-    """One row per (tenant, currency) in v1."""
+    """Cash anchors. Multiple registers per currency are allowed."""
 
     tenant = models.ForeignKey(Tenant, on_delete=models.CASCADE, related_name="cash_registers")
     currency = models.CharField(max_length=10)
@@ -25,9 +25,6 @@ class CashRegister(models.Model):
     class Meta:
         db_table = "wallets_cash_registers"
         ordering = ["sort_order", "id"]
-        constraints = [
-            models.UniqueConstraint(fields=["tenant", "currency"], name="wallets_cashreg_tenant_currency_uniq"),
-        ]
 
 
 class BankAccount(models.Model):
@@ -49,7 +46,7 @@ class BankAccount(models.Model):
 
 
 class CorporateCardAccount(models.Model):
-    """One row per (tenant, currency) in v1."""
+    """Corporate card anchors. Multiple accounts per currency are allowed."""
 
     tenant = models.ForeignKey(Tenant, on_delete=models.CASCADE, related_name="corporate_card_accounts")
     currency = models.CharField(max_length=10)
@@ -58,12 +55,6 @@ class CorporateCardAccount(models.Model):
 
     class Meta:
         db_table = "wallets_corporate_card_accounts"
-        constraints = [
-            models.UniqueConstraint(
-                fields=["tenant", "currency"],
-                name="wallets_corpacct_tenant_currency_uniq",
-            ),
-        ]
 
 
 class Wallet(models.Model):

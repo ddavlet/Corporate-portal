@@ -14,15 +14,19 @@ def normalized_currency(code: str | None) -> str:
 
 def get_or_create_cash_wallet(*, tenant: Tenant, currency: str | None) -> Wallet:
     cur = normalized_currency(currency)
-    reg, _ = CashRegister.objects.get_or_create(
-        tenant=tenant,
-        currency=cur,
-        defaults={
-            "name": "Основная",
-            "is_active": True,
-            "is_default_for_currency": True,
-        },
+    reg = (
+        CashRegister.objects.filter(tenant=tenant, currency=cur)
+        .order_by("-is_default_for_currency", "sort_order", "id")
+        .first()
     )
+    if reg is None:
+        reg = CashRegister.objects.create(
+            tenant=tenant,
+            currency=cur,
+            name="Основная",
+            is_active=True,
+            is_default_for_currency=True,
+        )
     w, _ = Wallet.objects.get_or_create(
         cash_register=reg,
         defaults={
@@ -37,11 +41,17 @@ def get_or_create_cash_wallet(*, tenant: Tenant, currency: str | None) -> Wallet
 
 def get_or_create_corporate_wallet(*, tenant: Tenant, currency: str | None) -> Wallet:
     cur = normalized_currency(currency)
-    acc, _ = CorporateCardAccount.objects.get_or_create(
-        tenant=tenant,
-        currency=cur,
-        defaults={"label": "Основная"},
+    acc = (
+        CorporateCardAccount.objects.filter(tenant=tenant, currency=cur)
+        .order_by("id")
+        .first()
     )
+    if acc is None:
+        acc = CorporateCardAccount.objects.create(
+            tenant=tenant,
+            currency=cur,
+            label="Основная",
+        )
     w, _ = Wallet.objects.get_or_create(
         corporate_card_account=acc,
         defaults={

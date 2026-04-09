@@ -116,15 +116,15 @@ class WalletsApiTests(APITestCase):
         res = self.client.get("/api/corporate-card/balances/", **self._headers(self.admin))
         self.assertEqual(res.status_code, 403)
 
-    def test_duplicate_cash_register_currency_validation(self):
+    def test_duplicate_cash_register_currency_allowed(self):
         res = self.client.post(
             "/api/wallets/cash-registers/",
             {"currency": "UZS", "name": "Second"},
             format="json",
             **self._headers(self.admin),
         )
-        self.assertEqual(res.status_code, 400)
-        self.assertIn("currency", res.json())
+        self.assertEqual(res.status_code, 201, res.content)
+        self.assertEqual(res.json().get("currency"), "UZS")
 
     def test_patch_wallet_opening_balance(self):
         res = self.client.patch(
@@ -166,7 +166,7 @@ class WalletsApiTests(APITestCase):
         )
         self.assertEqual(res.status_code, 400)
 
-    def test_corporate_card_accounts_list_and_duplicate_currency(self):
+    def test_corporate_card_accounts_list_and_duplicate_currency_allowed(self):
         res = self.client.get("/api/wallets/corporate-card-accounts/", **self._headers(self.admin))
         self.assertEqual(res.status_code, 200)
         payload = res.json()
@@ -179,4 +179,4 @@ class WalletsApiTests(APITestCase):
             format="json",
             **self._headers(self.admin),
         )
-        self.assertEqual(dup.status_code, 400)
+        self.assertEqual(dup.status_code, 201, dup.content)
