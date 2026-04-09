@@ -167,7 +167,10 @@ class PortalRequestViewSet(viewsets.ModelViewSet):
         is_requester = self._has_role(tenant, TenantUserRole.ROLE_REQUESTER)
 
         if is_requester and not (is_admin or is_approver):
-            qs = qs.filter(created_by=self.request.user)
+            if self.action in {"approvals_decision", "approvals_confirm"}:
+                qs = qs.filter(approvals__approver_user=self.request.user).distinct()
+            else:
+                qs = qs.filter(created_by=self.request.user)
 
         submitted_from = self._parse_date_query("submitted_from")
         submitted_to = self._parse_date_query("submitted_to")
@@ -356,12 +359,6 @@ class PortalRequestViewSet(viewsets.ModelViewSet):
         """
         request_obj = self.get_object()
 
-        can_manage = self._has_role(request_obj.tenant, TenantUserRole.ROLE_ADMIN) or self._has_role(
-            request_obj.tenant, TenantUserRole.ROLE_APPROVER
-        )
-        if not can_manage:
-            raise PermissionDenied("Only admins or approvers can set approval decisions.")
-
         payload = self.ApprovalDecisionPayloadSerializer(data=request.data)
         payload.is_valid(raise_exception=True)
 
@@ -370,6 +367,18 @@ class PortalRequestViewSet(viewsets.ModelViewSet):
         comment = payload.validated_data.get("comment")
         if comment is not None and isinstance(comment, str):
             comment = comment.strip() or None
+
+        can_manage = self._has_role(request_obj.tenant, TenantUserRole.ROLE_ADMIN) or self._has_role(
+            request_obj.tenant, TenantUserRole.ROLE_APPROVER
+        )
+        if not can_manage:
+            can_manage = Approval.objects.filter(
+                request_id=request_obj.id,
+                approver_user=request.user,
+                step=step,
+            ).exists()
+        if not can_manage:
+            raise PermissionDenied("Only assigned approvers can set approval decisions.")
 
         with transaction.atomic():
             locked_request = Request.objects.select_for_update().get(pk=request_obj.pk)

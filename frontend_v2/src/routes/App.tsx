@@ -27,6 +27,7 @@ import { TgRequestCreatePage } from '../ui/tg/TgRequestCreatePage'
 import { TgRequestDetailPage } from '../ui/tg/TgRequestDetailPage'
 import { TgPaymentConfirmPage } from '../ui/tg/TgPaymentConfirmPage'
 import { useAuth } from '../ui/auth'
+import { ModuleAccessProvider } from '../ui/moduleAccess'
 import { setUnauthorizedHandler } from '../lib/api'
 
 export function App() {
@@ -57,7 +58,9 @@ export function App() {
         path="/"
         element={
           accessToken ? (
-            <AppShell />
+            <ModuleAccessProvider>
+              <AppShell />
+            </ModuleAccessProvider>
           ) : (
             <Navigate to="/login" replace />
           )

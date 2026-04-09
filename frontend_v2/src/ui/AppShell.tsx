@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { ProLayout } from '@ant-design/pro-layout'
 import type { MenuProps } from 'antd'
@@ -18,13 +18,36 @@ import {
 import { useAuth } from './auth'
 import { FeedbackModal } from './feedback/FeedbackModal'
 import { ChangePasswordModal } from './user/ChangePasswordModal'
+import { useModuleAccess } from './moduleAccess'
 
 export function AppShell() {
   const location = useLocation()
   const navigate = useNavigate()
   const { logout, username } = useAuth()
+  const { hasAccess } = useModuleAccess()
   const [feedbackOpen, setFeedbackOpen] = useState(false)
   const [passwordModalOpen, setPasswordModalOpen] = useState(false)
+
+  type MenuRoute = {
+    path: string
+    name: string
+    icon: JSX.Element
+    moduleKey?: string
+  }
+
+  const menuRoutes = useMemo(
+    () =>
+      ([
+        { path: '/', name: 'Панель', icon: <DashboardOutlined /> },
+        { path: '/requests', name: 'Заявки', icon: <FileTextOutlined />, moduleKey: 'requests' },
+        { path: '/cash', name: 'Касса', icon: <DollarOutlined />, moduleKey: 'cash' },
+        { path: '/bank', name: 'Банк', icon: <BankOutlined />, moduleKey: 'bank' },
+        { path: '/corporate-card', name: 'Корпоративная карта', icon: <CreditCardOutlined />, moduleKey: 'corporate_card' },
+        { path: '/payroll', name: 'Начисления ЗП', icon: <TeamOutlined />, moduleKey: 'payroll' },
+        { path: '/settings', name: 'Настройки', icon: <SettingOutlined /> },
+      ] as MenuRoute[]).filter((r) => !r.moduleKey || hasAccess(r.moduleKey)),
+    [hasAccess],
+  )
 
   const profileMenu: MenuProps['items'] = [
     {
@@ -40,15 +63,7 @@ export function AppShell() {
       logo={false}
       location={{ pathname: location.pathname }}
       route={{
-        routes: [
-          { path: '/', name: 'Панель', icon: <DashboardOutlined /> },
-          { path: '/requests', name: 'Заявки', icon: <FileTextOutlined /> },
-          { path: '/cash', name: 'Касса', icon: <DollarOutlined /> },
-          { path: '/bank', name: 'Банк', icon: <BankOutlined /> },
-          { path: '/corporate-card', name: 'Корпоративная карта', icon: <CreditCardOutlined /> },
-          { path: '/payroll', name: 'Начисления ЗП', icon: <TeamOutlined /> },
-          { path: '/settings', name: 'Настройки', icon: <SettingOutlined /> },
-        ],
+        routes: menuRoutes,
       }}
       menuItemRender={(item, dom) => (
         <a
