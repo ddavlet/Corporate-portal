@@ -17,6 +17,13 @@ from apps.modules.requests.models import Approval, Request, RequestApprovalStepC
 logger = logging.getLogger(__name__)
 
 
+def _display_user_name(user) -> str:
+    if not user:
+        return "-"
+    full = (getattr(user, "full_name", "") or "").strip()
+    return full or (getattr(user, "username", "") or "-")
+
+
 def _bridge_dispatch_url(*, tenant_subdomain: str | None) -> str:
     configured = (getattr(settings, "TELEGRAM_APPROVALS_BRIDGE_DISPATCH_URL", "") or "").strip()
     if configured:
@@ -268,7 +275,7 @@ def _telegram_card_should_be_readonly(*, request_obj: Request, approval: Approva
 def build_approval_message(*, request_obj: Request, approval: Approval | None = None) -> str:
     header, subheader = _message_header(request_obj=request_obj, approval=approval)
     vendor_name = (request_obj.vendor_ref.name if request_obj.vendor_ref_id and request_obj.vendor_ref else request_obj.vendor) or "-"
-    requester_name = request_obj.requester.username if request_obj.requester_id and request_obj.requester else "-"
+    requester_name = _display_user_name(request_obj.requester if request_obj.requester_id else None)
     template = get_requests_telegram_integration_settings(tenant=request_obj.tenant).message_template
     billing_month_escaped = escape(_format_billing_month(request_obj))
     context = {

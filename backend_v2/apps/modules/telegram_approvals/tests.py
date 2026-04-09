@@ -32,7 +32,11 @@ class TelegramApprovalsTests(APITestCase):
     def setUp(self):
         self.tenant = Tenant.objects.create(name="Acme", subdomain="acme", is_active=True)
         self.admin = User.objects.create_user(username="admin", password="x")
-        self.requester = User.objects.create_user(username="req", password="x")
+        self.requester = User.objects.create_user(
+            username="req",
+            password="x",
+            full_name="Иван Иванов",
+        )
         self.approver = User.objects.create_user(
             username="appr", password="x", telegram_chat_id=555001, telegram_from_id=777001
         )
@@ -97,6 +101,8 @@ class TelegramApprovalsTests(APITestCase):
         self.assertIn("inline_keyboard", payload)
         self.assertEqual(payload.get("company"), "")
         self.assertIn("message", payload)
+        self.assertIn("Иван Иванов", payload.get("message", ""))
+        self.assertNotIn("• Заявитель: req", payload.get("message", ""))
 
     @patch("apps.modules.telegram_approvals.services.requests.post")
     def test_bridge_http_error_notifies_n8n_error_webhook(self, mocked_post):
