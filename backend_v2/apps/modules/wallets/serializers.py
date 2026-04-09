@@ -27,6 +27,15 @@ class CashRegisterSerializer(serializers.ModelSerializer):
         tenant = validated_data["tenant"]
         try:
             with transaction.atomic():
+                if (
+                    validated_data.get("is_default_for_currency")
+                    and validated_data.get("currency")
+                ):
+                    CashRegister.objects.filter(
+                        tenant=tenant,
+                        currency=validated_data["currency"],
+                        is_default_for_currency=True,
+                    ).update(is_default_for_currency=False)
                 reg = CashRegister.objects.create(**validated_data)
                 Wallet.objects.create(
                     tenant=tenant,
@@ -37,9 +46,7 @@ class CashRegisterSerializer(serializers.ModelSerializer):
                 )
                 return reg
         except IntegrityError as exc:
-            raise serializers.ValidationError(
-                {"currency": "Касса с этой валютой уже существует."}
-            ) from exc
+            raise serializers.ValidationError({"detail": "Не удалось создать кассу."}) from exc
 
 
 class BankAccountSerializer(serializers.ModelSerializer):
