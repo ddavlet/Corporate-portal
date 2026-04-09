@@ -10,12 +10,14 @@ export type DashboardWidgetKey =
 export type WidgetVisibility = Record<DashboardWidgetKey, boolean>
 
 export type PendingApprovalItem = {
+  approvalId: number
   requestId: number
   title: string
   amountText: string
   currency: string | null
   step: number
   stepType: string
+  paymentActionMode?: string | null
 }
 
 export type CategorySlice = {

@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { ProLayout } from '@ant-design/pro-layout'
 import type { MenuProps } from 'antd'
@@ -19,6 +19,7 @@ import { useAuth } from './auth'
 import { FeedbackModal } from './feedback/FeedbackModal'
 import { ChangePasswordModal } from './user/ChangePasswordModal'
 import { useModuleAccess } from './moduleAccess'
+import { getSettingsAccess } from '../lib/api'
 
 export function AppShell() {
   const location = useLocation()
@@ -27,6 +28,22 @@ export function AppShell() {
   const { hasAccess } = useModuleAccess()
   const [feedbackOpen, setFeedbackOpen] = useState(false)
   const [passwordModalOpen, setPasswordModalOpen] = useState(false)
+  const [canOpenSettings, setCanOpenSettings] = useState(false)
+
+  useEffect(() => {
+    let cancelled = false
+    void (async () => {
+      try {
+        const data = await getSettingsAccess()
+        if (!cancelled) setCanOpenSettings(Boolean(data.can_open_settings))
+      } catch {
+        if (!cancelled) setCanOpenSettings(false)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   type MenuRoute = {
     path: string
@@ -44,9 +61,9 @@ export function AppShell() {
         { path: '/bank', name: 'Банк', icon: <BankOutlined />, moduleKey: 'bank' },
         { path: '/corporate-card', name: 'Корпоративная карта', icon: <CreditCardOutlined />, moduleKey: 'corporate_card' },
         { path: '/payroll', name: 'Начисления ЗП', icon: <TeamOutlined />, moduleKey: 'payroll' },
-        { path: '/settings', name: 'Настройки', icon: <SettingOutlined /> },
+        ...(canOpenSettings ? [{ path: '/settings', name: 'Настройки', icon: <SettingOutlined /> }] : []),
       ] as MenuRoute[]).filter((r) => !r.moduleKey || hasAccess(r.moduleKey)),
-    [hasAccess],
+    [hasAccess, canOpenSettings],
   )
 
   const profileMenu: MenuProps['items'] = [

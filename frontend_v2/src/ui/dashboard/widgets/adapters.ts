@@ -45,19 +45,28 @@ function categoryFromItem(item: LegacyReportItem): string {
 export function toPendingApprovals(groups: MyApprovalGroup[]): PendingApprovalItem[] {
   const result: PendingApprovalItem[] = []
   for (const group of groups) {
-    const pendingSteps = (group.approvals || []).filter((x) => String(x.decision || '').toLowerCase() === 'pending')
+    const requestStatus = String(group.request.status || '').trim().toUpperCase()
+    const pendingSteps = (group.approvals || []).filter((x) => {
+      if (String(x.decision || '').toLowerCase() !== 'pending') return false
+      const isPayment = String(x.step_type || '').toLowerCase() === 'payment'
+      // Active step rule for dashboard actions:
+      // - serial steps: request status equals step number ("1".."5")
+      // - payment step: request is already APPROVED and waits for payout confirmation
+      return requestStatus === String(x.step) || (isPayment && requestStatus === 'APPROVED')
+    })
     if (!pendingSteps.length) continue
-    const activeStep = Math.min(...pendingSteps.map((x) => x.step))
-    const step = pendingSteps.find((x) => x.step === activeStep)
+    const step = pendingSteps[0]
     if (!step) continue
     const amount = parseAmount(group.request.amount)
     result.push({
+      approvalId: step.id,
       requestId: group.request.id,
       title: group.request.title || `Заявка #${group.request.id}`,
       amountText: new Intl.NumberFormat('ru-RU').format(amount || 0),
       currency: group.request.currency || null,
       step: step.step,
       stepType: String(step.step_type || '').toLowerCase(),
+      paymentActionMode: step.payment_action_mode ?? null,
     })
   }
   return result

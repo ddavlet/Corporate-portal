@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Alert, Button, Card, Col, Divider, Row, Skeleton, Space, Switch, Tag, Typography, message } from 'antd'
+import { Alert, Button, Card, Col, Divider, Input, Modal, Row, Skeleton, Space, Switch, Tag, Typography, message } from 'antd'
 import {
-  apiFetch,
+  confirmPaymentViaWebApp,
   getCashflowReportData,
   getMyApprovals,
   getPnlReportData,
@@ -14,20 +14,9 @@ import { PendingApprovalsWidget } from './dashboard/widgets/PendingApprovalsWidg
 import { PnlNetProfitPrevMonthWidget } from './dashboard/widgets/PnlNetProfitPrevMonthWidget'
 import { CashflowProfitCurrentMonthWidget } from './dashboard/widgets/CashflowProfitCurrentMonthWidget'
 import { buildCategorySlices, getCurrentMonthRef, getPreviousMonthRef, toPendingApprovals, totalsFromReport } from './dashboard/widgets/adapters'
-import type { DashboardWidgetKey, WidgetVisibility } from './dashboard/widgets/types'
-
-type ModuleRow = {
-  module_key: string
-  display_name: string
-  tenant_enabled: boolean
-  user_allowed: boolean
-  effective_enabled: boolean
-}
+import type { DashboardWidgetKey, PendingApprovalItem, WidgetVisibility } from './dashboard/widgets/types'
 
 export function DashboardPage() {
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
-  const [modules, setModules] = useState<ModuleRow[]>([])
   const [approvalsLoading, setApprovalsLoading] = useState(true)
   const [reportsLoading, setReportsLoading] = useState(true)
   const [approvalsBusy, setApprovalsBusy] = useState(false)
@@ -36,6 +25,9 @@ export function DashboardPage() {
   const [cashflowPayload, setCashflowPayload] = useState<LegacyReportPayload | null>(null)
   const [reportsError, setReportsError] = useState<string | null>(null)
   const [approvalsError, setApprovalsError] = useState<string | null>(null)
+  const [paymentModalOpen, setPaymentModalOpen] = useState(false)
+  const [paymentModalItem, setPaymentModalItem] = useState<PendingApprovalItem | null>(null)
+  const [paymentExpenseId, setPaymentExpenseId] = useState('')
 
   const WIDGET_STORAGE_KEY = 'dashboard.widgets.v1'
   const defaultVisibility: WidgetVisibility = {
@@ -59,27 +51,6 @@ export function DashboardPage() {
   useEffect(() => {
     localStorage.setItem(WIDGET_STORAGE_KEY, JSON.stringify(widgetVisibility))
   }, [widgetVisibility])
-
-  useEffect(() => {
-    let cancelled = false
-    ;(async () => {
-      setLoading(true)
-      setError(null)
-      try {
-        const res = await apiFetch('/api/modules/')
-        if (!res.ok) throw new Error(`Ошибка HTTP ${res.status}`)
-        const data = (await res.json()) as { modules: ModuleRow[] }
-        if (!cancelled) setModules(data.modules || [])
-      } catch (e: any) {
-        if (!cancelled) setError(e?.message || 'Не удалось загрузить модули')
-      } finally {
-        if (!cancelled) setLoading(false)
-      }
-    })()
-    return () => {
-      cancelled = true
-    }
-  }, [])
 
   const loadApprovals = async () => {
     setApprovalsLoading(true)
@@ -149,6 +120,39 @@ export function DashboardPage() {
     setWidgetVisibility((prev) => ({ ...prev, [key]: value }))
   }
 
+  const openPayoutModal = (item: PendingApprovalItem) => {
+    setPaymentModalItem(item)
+    setPaymentExpenseId('')
+    setPaymentModalOpen(true)
+  }
+
+  const closePayoutModal = () => {
+    setPaymentModalOpen(false)
+    setPaymentModalItem(null)
+    setPaymentExpenseId('')
+  }
+
+  const confirmPayout = async () => {
+    const item = paymentModalItem
+    if (!item) return
+    const expenseId = paymentExpenseId.trim()
+    if (!expenseId) {
+      message.warning('Введите номер платежа')
+      return
+    }
+    setApprovalsBusy(true)
+    try {
+      await confirmPaymentViaWebApp({ approval_id: item.approvalId, expense_id: expenseId })
+      message.success('Выплата подтверждена')
+      closePayoutModal()
+      await loadApprovals()
+    } catch (e: unknown) {
+      message.error(e instanceof Error ? e.message : 'Не удалось подтвердить выплату')
+    } finally {
+      setApprovalsBusy(false)
+    }
+  }
+
   return (
     <Space direction="vertical" size="middle" style={{ width: '100%' }}>
       <Card>
@@ -205,6 +209,7 @@ export function DashboardPage() {
               busy={approvalsBusy}
               onApprove={(item) => handleDecision(item.requestId, item.step, 'approved')}
               onReject={(item) => handleDecision(item.requestId, item.step, 'rejected')}
+              onPayout={openPayoutModal}
             />
           </Col>
         ) : null}
@@ -233,27 +238,27 @@ export function DashboardPage() {
         ) : null}
       </Row>
 
-      {loading ? <Skeleton active /> : null}
-      {error ? <Alert type="error" showIcon message="Не удалось загрузить модули" description={error} /> : null}
+      <Modal
+        open={paymentModalOpen}
+        title="Выплатить"
+        onCancel={closePayoutModal}
+        footer={null}
+        destroyOnClose
+      >
+        <Space direction="vertical" size={12} style={{ display: 'flex' }}>
+          <Typography.Text type="secondary">Введите `expense_id` для подтверждения выплаты.</Typography.Text>
+          <Input
+            value={paymentExpenseId}
+            onChange={(e) => setPaymentExpenseId(e.target.value)}
+            placeholder="Номер платежа"
+            onPressEnter={() => void confirmPayout()}
+          />
+          <Button type="primary" block loading={approvalsBusy} onClick={() => void confirmPayout()}>
+            Выплатить
+          </Button>
+        </Space>
+      </Modal>
 
-      <Row gutter={[16, 16]}>
-        {(modules || []).map((m) => (
-          <Col key={m.module_key} xs={24} md={12}>
-            <Card
-              title={m.display_name}
-              extra={<Tag color={m.effective_enabled ? 'green' : 'default'}>{m.effective_enabled ? 'Доступен' : 'Отключен'}</Tag>}
-            >
-              <Typography.Text type="secondary">
-                {m.effective_enabled
-                  ? 'Модуль включен и доступен для работы.'
-                  : 'Модуль недоступен. Обратитесь к администратору при необходимости доступа.'}
-              </Typography.Text>
-            </Card>
-          </Col>
-        ))}
-      </Row>
-
-      {!loading && !modules.length ? <Alert type="info" showIcon message="Список модулей пуст." /> : null}
     </Space>
   )
 }

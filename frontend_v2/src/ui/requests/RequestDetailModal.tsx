@@ -7,6 +7,8 @@ export type ApprovalItem = {
   id: number
   step: number
   step_type: string
+  payment_action_mode?: 'callback' | 'webapp' | string | null
+  payment_webapp_url?: string | null
   decision: string
   comment?: string | null
   decided_at?: string | null

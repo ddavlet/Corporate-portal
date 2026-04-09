@@ -71,8 +71,9 @@ export function RequestDetailPage({ listPath = '/requests', variant = 'portal' }
   const [uploadOpen, setUploadOpen] = useState(false)
   const [uploadBusy, setUploadBusy] = useState(false)
   const [uploadFile, setUploadFile] = useState<File | null>(null)
-  /** Номер платежа для шагов payment (webapp) по id одобрения */
-  const [paymentExpenseInputs, setPaymentExpenseInputs] = useState<Record<number, string>>({})
+  const [paymentModalOpen, setPaymentModalOpen] = useState(false)
+  const [paymentModalApproval, setPaymentModalApproval] = useState<ApprovalItem | null>(null)
+  const [paymentExpenseId, setPaymentExpenseId] = useState('')
 
   const decodeJwtUserId = (token: string | null): number | null => {
     if (!token) return null
@@ -228,8 +229,22 @@ export function RequestDetailPage({ listPath = '/requests', variant = 'portal' }
     }
   }
 
-  const confirmPaymentStep = async (approval: ApprovalItem) => {
-    const expenseId = (paymentExpenseInputs[approval.id] ?? '').trim()
+  const openPaymentConfirmModal = (approval: ApprovalItem) => {
+    setPaymentModalApproval(approval)
+    setPaymentExpenseId((detail?.expense_id || '').trim())
+    setPaymentModalOpen(true)
+  }
+
+  const closePaymentConfirmModal = () => {
+    setPaymentModalOpen(false)
+    setPaymentModalApproval(null)
+    setPaymentExpenseId('')
+  }
+
+  const confirmPaymentStep = async () => {
+    const approval = paymentModalApproval
+    if (!approval) return
+    const expenseId = paymentExpenseId.trim()
     if (!expenseId) {
       message.warning('Введите номер платежа')
       return
@@ -238,11 +253,7 @@ export function RequestDetailPage({ listPath = '/requests', variant = 'portal' }
     try {
       await confirmPaymentViaWebApp({ approval_id: approval.id, expense_id: expenseId })
       message.success('Выплата подтверждена')
-      setPaymentExpenseInputs((prev) => {
-        const next = { ...prev }
-        delete next[approval.id]
-        return next
-      })
+      closePaymentConfirmModal()
       await refreshDetail()
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : 'Ошибка подтверждения выплаты'
@@ -374,22 +385,21 @@ export function RequestDetailPage({ listPath = '/requests', variant = 'portal' }
               </Typography.Text>
               {isPaymentApprovalStep(a) ? (
                 <Space direction="vertical" size={8} style={{ width: '100%' }}>
-                  <Input
-                    value={paymentExpenseInputs[a.id] ?? ''}
-                    onChange={(e) =>
-                      setPaymentExpenseInputs((prev) => ({ ...prev, [a.id]: e.target.value }))
-                    }
-                    placeholder="Номер платежа"
-                  />
-                  <Button
-                    type="primary"
-                    size={approvalBtnSize}
-                    block
-                    loading={approvalBusy}
-                    onClick={() => void confirmPaymentStep(a)}
-                  >
-                    Подтвердить выплату
-                  </Button>
+                  {String(a.payment_action_mode || '').toLowerCase() === 'webapp' ? (
+                    <Button
+                      type="primary"
+                      size={approvalBtnSize}
+                      block
+                      loading={approvalBusy}
+                      onClick={() => openPaymentConfirmModal(a)}
+                    >
+                      Подтвердить выплату
+                    </Button>
+                  ) : (
+                    <Typography.Text type="secondary">
+                      Подтверждение выплаты выполняется через callback-интеграцию.
+                    </Typography.Text>
+                  )}
                   <Button
                     type="default"
                     size={approvalBtnSize}
@@ -540,6 +550,29 @@ export function RequestDetailPage({ listPath = '/requests', variant = 'portal' }
         targetType="request"
         targetId={detail?.id || null}
       />
+      <Modal
+        open={paymentModalOpen}
+        title="Подтверждение выплаты"
+        onCancel={closePaymentConfirmModal}
+        footer={null}
+        destroyOnClose
+      >
+        <Space direction="vertical" size={12} style={{ display: 'flex' }}>
+          <Typography.Text type="secondary">
+            Укажите номер платежа (`expense_id`) для подтверждения payment-шага.
+          </Typography.Text>
+          <Input
+            value={paymentExpenseId}
+            onChange={(e) => setPaymentExpenseId(e.target.value)}
+            placeholder="Номер платежа"
+            onPressEnter={() => void confirmPaymentStep()}
+          />
+          <Button type="primary" block loading={approvalBusy} onClick={() => void confirmPaymentStep()}>
+            Подтвердить выплату
+          </Button>
+        </Space>
+      </Modal>
+
       <Modal
         open={editOpen}
         title="Редактировать DRAFT"
