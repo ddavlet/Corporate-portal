@@ -72,7 +72,7 @@ class TenantUserRoleInline(admin.TabularInline):
     model = TenantUserRole
     extra = 0
     autocomplete_fields = ("user",)
-    fields = ("user", "role", "step")
+    fields = ("user", "role")
 
 
 @admin.register(Tenant)
@@ -109,7 +109,7 @@ class TenantModuleConfigAdmin(admin.ModelAdmin):
 
 @admin.register(TenantUserRole)
 class TenantUserRoleAdmin(admin.ModelAdmin):
-    list_display = ("id", "tenant", "user", "role", "step")
+    list_display = ("id", "tenant", "user", "role")
     list_filter = ("tenant", "role")
     search_fields = ("tenant__subdomain", "user__username", "role")
     autocomplete_fields = ("tenant", "user")

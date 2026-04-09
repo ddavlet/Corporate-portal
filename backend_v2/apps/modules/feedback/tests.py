@@ -35,9 +35,7 @@ class FeedbackApiTests(APITestCase):
         self.tenant = Tenant.objects.create(name="Acme", subdomain="acme", is_active=True)
         self.user = User.objects.create_user(username="u1", password="x", full_name="User One")
         TenantMembership.objects.create(tenant=self.tenant, user=self.user, is_active=True)
-        TenantUserRole.objects.create(
-            tenant=self.tenant, user=self.user, role=TenantUserRole.ROLE_REQUESTER, step=1
-        )
+        TenantUserRole.objects.create(tenant=self.tenant, user=self.user, role=TenantUserRole.ROLE_REQUESTER)
 
     def _auth(self):
         token = str(RefreshToken.for_user(self.user).access_token)

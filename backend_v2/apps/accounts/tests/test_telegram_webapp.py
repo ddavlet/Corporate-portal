@@ -91,12 +91,8 @@ class TelegramWebAppAuthViewTests(APITestCase):
         for u in (self.user_linked, self.user_no_tg):
             TenantMembership.objects.create(tenant=self.tenant, user=u, is_active=True)
 
-        TenantUserRole.objects.create(
-            tenant=self.tenant, user=self.user_linked, role=TenantUserRole.ROLE_REQUESTER, step=1
-        )
-        TenantUserRole.objects.create(
-            tenant=self.tenant, user=self.user_no_tg, role=TenantUserRole.ROLE_REQUESTER, step=1
-        )
+        TenantUserRole.objects.create(tenant=self.tenant, user=self.user_linked, role=TenantUserRole.ROLE_REQUESTER)
+        TenantUserRole.objects.create(tenant=self.tenant, user=self.user_no_tg, role=TenantUserRole.ROLE_REQUESTER)
         TenantModuleConfig.objects.create(tenant=self.tenant, module_key="requests", is_enabled=True)
 
         self.host = "acme.example.com"
@@ -135,9 +131,7 @@ class TelegramWebAppAuthViewTests(APITestCase):
         duplicate.telegram_from_id = 424242
         duplicate.save(update_fields=["telegram_from_id"])
         TenantMembership.objects.create(tenant=self.tenant, user=duplicate, is_active=True)
-        TenantUserRole.objects.create(
-            tenant=self.tenant, user=duplicate, role=TenantUserRole.ROLE_REQUESTER, step=1
-        )
+        TenantUserRole.objects.create(tenant=self.tenant, user=duplicate, role=TenantUserRole.ROLE_REQUESTER)
 
         init = _signed_init_data(
             bot_token=self.tenant.get_telegram_bot_token(),

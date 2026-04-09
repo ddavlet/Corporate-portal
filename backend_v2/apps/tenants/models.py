@@ -65,13 +65,12 @@ class TenantUserRole(models.Model):
     tenant = models.ForeignKey(Tenant, on_delete=models.CASCADE, related_name="tenant_user_roles")
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="tenant_roles")
     role = models.CharField(max_length=30, choices=ROLE_CHOICES)
-    step = models.IntegerField()
 
     class Meta:
         unique_together = [("tenant", "user", "role")]
 
     def __str__(self) -> str:
-        return f"{self.tenant_id}::{self.user_id}::{self.role} (step={self.step})"
+        return f"{self.tenant_id}::{self.user_id}::{self.role}"
 
 
 class TenantIntegrationConfig(models.Model):

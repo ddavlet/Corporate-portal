@@ -63,9 +63,7 @@ class WalletsApiTests(APITestCase):
         self.tenant = Tenant.objects.create(name="Acme", subdomain="wallets", is_active=True)
         self.admin = User.objects.create_user(username="admin_wallets", password="x")
         TenantMembership.objects.create(tenant=self.tenant, user=self.admin, is_active=True)
-        TenantUserRole.objects.create(
-            tenant=self.tenant, user=self.admin, role=TenantUserRole.ROLE_ADMIN, step=1
-        )
+        TenantUserRole.objects.create(tenant=self.tenant, user=self.admin, role=TenantUserRole.ROLE_ADMIN)
         for key in ("cash", "bank", "corporate_card", "wallets"):
             TenantModuleConfig.objects.create(tenant=self.tenant, module_key=key, is_enabled=True)
 
@@ -142,9 +140,7 @@ class WalletsApiTests(APITestCase):
     def test_cashier_cannot_create_cash_register(self):
         cashier = User.objects.create_user(username="cashier_w", password="x")
         TenantMembership.objects.create(tenant=self.tenant, user=cashier, is_active=True)
-        TenantUserRole.objects.create(
-            tenant=self.tenant, user=cashier, role=TenantUserRole.ROLE_CASHIER, step=1
-        )
+        TenantUserRole.objects.create(tenant=self.tenant, user=cashier, role=TenantUserRole.ROLE_CASHIER)
         res = self.client.post(
             "/api/wallets/cash-registers/",
             {"currency": "EUR", "name": "EUR desk"},

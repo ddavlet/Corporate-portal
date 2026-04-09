@@ -10,56 +10,48 @@ SEED_ROWS = [
         "name": "Дильшод Давлетьяров",
         "role": "admin",
         "telegram_chat_id": 1387986,
-        "step": 100,
         "telegram_from_id": 1387986,
     },
     {
         "name": "Руслан Бухгалтер",
         "role": "accountant",
         "telegram_chat_id": 5333994857,
-        "step": 100,
         "telegram_from_id": 5333994857,
     },
     {
         "name": "Наталья Сумина",
         "role": "cashier",
         "telegram_chat_id": 208686785,
-        "step": 100,
         "telegram_from_id": 208686785,
     },
     {
         "name": "Наталья Сумина",
         "role": "approver",
         "telegram_chat_id": 208686785,
-        "step": 1,
         "telegram_from_id": 208686785,
     },
     {
         "name": "Руслан Элманов",
         "role": "approver",
         "telegram_chat_id": 2715877,
-        "step": 2,
         "telegram_from_id": 2715877,
     },
     {
         "name": "Давлетьяров Сардор",
         "role": "approver",
         "telegram_chat_id": 291875946,
-        "step": 4,
         "telegram_from_id": 291875946,
     },
     {
         "name": "Бухгалтер Гузаль",
         "role": "approver",
         "telegram_chat_id": 5239578766,
-        "step": 3,
         "telegram_from_id": 5239578766,
     },
     {
         "name": "Бухгалтер Гузаль",
         "role": "accountant",
         "telegram_chat_id": 5239578766,
-        "step": 100,
         "telegram_from_id": 5239578766,
     },
 ]
@@ -121,7 +113,6 @@ class Command(BaseCommand):
                 tenant=tenant,
                 user=user,
                 role=row["role"],
-                defaults={"step": row["step"]},
             )
             roles_upserted += 1
 
