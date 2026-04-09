@@ -7,9 +7,10 @@ type PendingApprovalsWidgetProps = {
   busy?: boolean
   onApprove: (item: PendingApprovalItem) => void | Promise<void>
   onReject: (item: PendingApprovalItem) => void | Promise<void>
+  onPayout: (item: PendingApprovalItem) => void | Promise<void>
 }
 
-export function PendingApprovalsWidget({ items, loading, busy, onApprove, onReject }: PendingApprovalsWidgetProps) {
+export function PendingApprovalsWidget({ items, loading, busy, onApprove, onReject, onPayout }: PendingApprovalsWidgetProps) {
   return (
     <Card title="Ожидающие мое согласование" loading={loading}>
       {!items.length ? (
@@ -25,9 +26,15 @@ export function PendingApprovalsWidget({ items, loading, busy, onApprove, onReje
                 </Typography.Text>
                 <Typography.Text type="secondary">Шаг: {item.step}</Typography.Text>
                 <Space wrap>
-                  <Button type="primary" loading={busy} onClick={() => void onApprove(item)}>
-                    Одобрить
-                  </Button>
+                  {item.stepType === 'payment' && String(item.paymentActionMode || '').toLowerCase() === 'webapp' ? (
+                    <Button type="primary" loading={busy} onClick={() => void onPayout(item)}>
+                      Выплатить
+                    </Button>
+                  ) : (
+                    <Button type="primary" loading={busy} onClick={() => void onApprove(item)}>
+                      Одобрить
+                    </Button>
+                  )}
                   <Button danger loading={busy} onClick={() => void onReject(item)}>
                     Отклонить
                   </Button>

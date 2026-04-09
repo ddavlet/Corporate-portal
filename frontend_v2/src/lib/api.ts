@@ -210,6 +210,52 @@ export async function updateTenantIntegrationConfig(
   return json
 }
 
+export type AccessMatrixUserRow = {
+  user_id: number
+  username: string
+  full_name: string
+  roles: string[]
+  module_access: Record<string, boolean>
+  tenant_settings_access: boolean
+}
+
+export type AccessMatrixResponse = {
+  modules: Array<{ module_key: string; display_name: string }>
+  users: AccessMatrixUserRow[]
+}
+
+export async function getAccessMatrix(): Promise<AccessMatrixResponse> {
+  const res = await apiFetch('/api/access-matrix/')
+  if (!res.ok) throw new Error(await parseErrorBody(res))
+  const json = (await res.json().catch(() => null)) as AccessMatrixResponse | null
+  if (!json) throw new Error('Empty response')
+  return {
+    modules: Array.isArray(json.modules) ? json.modules : [],
+    users: Array.isArray(json.users) ? json.users : [],
+  }
+}
+
+export type SettingsAccessResponse = {
+  can_open_settings: boolean
+  can_manage_tenant_settings: boolean
+  can_manage_requests_settings: boolean
+  can_manage_wallet_settings: boolean
+  roles: string[]
+}
+
+export async function getSettingsAccess(): Promise<SettingsAccessResponse> {
+  const res = await apiFetch('/api/settings-access/')
+  if (!res.ok) throw new Error(await parseErrorBody(res))
+  const json = (await res.json().catch(() => null)) as Partial<SettingsAccessResponse> | null
+  return {
+    can_open_settings: Boolean(json?.can_open_settings),
+    can_manage_tenant_settings: Boolean(json?.can_manage_tenant_settings),
+    can_manage_requests_settings: Boolean(json?.can_manage_requests_settings),
+    can_manage_wallet_settings: Boolean(json?.can_manage_wallet_settings),
+    roles: Array.isArray(json?.roles) ? (json?.roles as string[]) : [],
+  }
+}
+
 export type FeedbackKind = 'error' | 'improvement'
 
 export async function refineFeedbackWithAi(payload: { kind: FeedbackKind; text: string }): Promise<{ feedback: string }> {
@@ -377,8 +423,10 @@ export type MyApprovalRequestSummary = {
 }
 
 export type MyApprovalStep = {
+  id: number
   step: number
   step_type?: string | null
+  payment_action_mode?: 'callback' | 'webapp' | string | null
   decision: string
   comment?: string | null
   decided_at?: string | null

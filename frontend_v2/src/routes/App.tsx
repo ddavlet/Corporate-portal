@@ -21,6 +21,7 @@ import {
 import { SettingsPage } from '../ui/SettingsPage'
 import { TenantIntegrationConfigPage } from '../ui/settings/TenantIntegrationConfigPage'
 import { CashRegistersSettingsPage } from '../ui/settings/CashRegistersSettingsPage'
+import { AdminAccessMatrixPage } from '../ui/settings/AdminAccessMatrixPage'
 import { TgWebAppLayout } from '../ui/tg/TgWebAppLayout'
 import { TgRequestsPage } from '../ui/tg/TgRequestsPage'
 import { TgRequestCreatePage } from '../ui/tg/TgRequestCreatePage'
@@ -83,6 +84,7 @@ export function App() {
         <Route path="settings/request-approval-config" element={<RequestApprovalConfigPage />} />
         <Route path="settings/tenant-integration-config" element={<TenantIntegrationConfigPage />} />
         <Route path="settings/cash-registers" element={<CashRegistersSettingsPage />} />
+        <Route path="settings/admin-access-matrix" element={<AdminAccessMatrixPage />} />
       </Route>
 
       <Route path="*" element={<Navigate to="/requests" replace />} />

@@ -430,6 +430,8 @@ class PortalRequestSerializer(serializers.ModelSerializer):
 class ApprovalSerializer(serializers.ModelSerializer):
     id = serializers.IntegerField(read_only=True)
     approver_username = serializers.SerializerMethodField()
+    payment_action_mode = serializers.SerializerMethodField()
+    payment_webapp_url = serializers.SerializerMethodField()
 
     def validate(self, attrs):
         reject_client_pk_on_create(self)
@@ -441,6 +443,8 @@ class ApprovalSerializer(serializers.ModelSerializer):
             "id",
             "step",
             "step_type",
+            "payment_action_mode",
+            "payment_webapp_url",
             "decision",
             "comment",
             "decided_at",
@@ -456,6 +460,39 @@ class ApprovalSerializer(serializers.ModelSerializer):
 
     def get_approver_username(self, obj):
         return _display_user_name(getattr(obj, "approver_user", None))
+
+    def _get_payment_step_cfg(self, obj):
+        if getattr(obj, "step_type", None) != Approval.STEP_TYPE_PAYMENT:
+            return None
+        req = getattr(obj, "request", None)
+        if req is None:
+            req = Request.objects.filter(pk=obj.request_id).only("tenant_id", "payment_type").first()
+        if req is None:
+            return None
+        cache = self.context.setdefault("_approval_step_cfg_cache", {})
+        key = (req.tenant_id, req.payment_type, obj.step, obj.step_type)
+        if key in cache:
+            return cache[key]
+        cfg = (
+            RequestApprovalStepConfig.objects.filter(
+                payment_type_config__config__tenant_id=req.tenant_id,
+                payment_type_config__payment_type=req.payment_type,
+                step=obj.step,
+                step_type=obj.step_type,
+            )
+            .order_by("id")
+            .first()
+        )
+        cache[key] = cfg
+        return cfg
+
+    def get_payment_action_mode(self, obj):
+        cfg = self._get_payment_step_cfg(obj)
+        return cfg.payment_action_mode if cfg else None
+
+    def get_payment_webapp_url(self, obj):
+        cfg = self._get_payment_step_cfg(obj)
+        return (cfg.payment_webapp_url or "") if cfg else ""
 
 
 class PortalRequestDetailSerializer(PortalRequestSerializer):
@@ -499,9 +536,35 @@ class MyApprovalsRequestSummarySerializer(serializers.ModelSerializer):
 
 
 class UserRequestApprovalStepSerializer(serializers.ModelSerializer):
+    payment_action_mode = serializers.SerializerMethodField()
+
     class Meta:
         model = UserRequestApproval
-        fields = ["step", "step_type", "decision", "comment", "decided_at"]
+        fields = ["id", "step", "step_type", "payment_action_mode", "decision", "comment", "decided_at"]
+
+    def get_payment_action_mode(self, obj):
+        if getattr(obj, "step_type", None) != Approval.STEP_TYPE_PAYMENT:
+            return None
+        req = getattr(obj, "request", None)
+        if req is None:
+            return None
+        cache = self.context.setdefault("_user_approval_step_cfg_cache", {})
+        key = (req.tenant_id, req.payment_type, obj.step, obj.step_type)
+        if key in cache:
+            cfg = cache[key]
+        else:
+            cfg = (
+                RequestApprovalStepConfig.objects.filter(
+                    payment_type_config__config__tenant_id=req.tenant_id,
+                    payment_type_config__payment_type=req.payment_type,
+                    step=obj.step,
+                    step_type=obj.step_type,
+                )
+                .order_by("id")
+                .first()
+            )
+            cache[key] = cfg
+        return cfg.payment_action_mode if cfg else None
 
 
 class ApprovalFullContextSerializer(serializers.Serializer):

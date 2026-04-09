@@ -129,6 +129,7 @@ function CashTab() {
 
   const columns: ColumnsType<CashRegisterDto> = [
     { title: 'Название', dataIndex: 'name', render: (v, r) => (v || '').trim() || r.currency },
+    { title: 'ID кошелька', dataIndex: 'wallet_id', width: 110 },
     { title: 'Код', dataIndex: 'code' },
     { title: 'Валюта', dataIndex: 'currency', width: 90 },
     {
@@ -343,6 +344,7 @@ function BankTab() {
 
   const columns: ColumnsType<BankAccountDto> = [
     { title: 'Название', dataIndex: 'label' },
+    { title: 'ID кошелька', dataIndex: 'wallet_id', width: 110 },
     { title: 'Счёт (справочно)', dataIndex: 'account_no' },
     { title: 'МФО', dataIndex: 'mfo', width: 100 },
     { title: 'Валюта кошелька', key: 'cur', width: 120, render: () => 'UZS' },
@@ -527,6 +529,7 @@ function CorpCardTab() {
 
   const columns: ColumnsType<CorporateCardAccountDto> = [
     { title: 'Название', dataIndex: 'label', render: (v, r) => (v || '').trim() || r.currency },
+    { title: 'ID кошелька', dataIndex: 'wallet_id', width: 110 },
     { title: 'Валюта', dataIndex: 'currency', width: 90 },
     { title: 'Внешний код', dataIndex: 'external_ref' },
     {
