@@ -21,7 +21,7 @@ type MatrixRow = {
   emphasize?: boolean
 }
 
-const moneyFmt = new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 2 })
+const moneyFmt = new Intl.NumberFormat('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 const REPORT_TZ = 'Asia/Tashkent'
 const MONTH_LABELS = ['Янв', 'Фев', 'Мар', 'Апр', 'Май', 'Июн', 'Июл', 'Авг', 'Сен', 'Окт', 'Ноя', 'Дек']
 
@@ -35,14 +35,20 @@ function currentReportCalendarYear(date = new Date()): number {
   return Number.isFinite(y) ? y : date.getFullYear()
 }
 
+function roundToCents(value: number): number {
+  if (!Number.isFinite(value)) return 0
+  return Math.round(value * 100) / 100
+}
+
 function money(value: string | number): string {
-  const n = typeof value === 'number' ? value : Number(String(value).replace(',', '.'))
-  return Number.isFinite(n) ? moneyFmt.format(n) : '0'
+  const raw = typeof value === 'number' ? value : Number(String(value).replace(/\s+/g, '').replace(',', '.'))
+  if (!Number.isFinite(raw)) return moneyFmt.format(0)
+  return moneyFmt.format(roundToCents(raw))
 }
 
 /** Длина строки как в ячейке матрицы (скобки для отрицательных). */
 function matrixCellMoneyDisplayLength(value: number): number {
-  if (Math.abs(value) < 0.000001) return 3
+  if (roundToCents(value) === 0) return money(0).length
   const t = money(Math.abs(value))
   return value < 0 ? t.length + 2 : t.length
 }
@@ -189,22 +195,22 @@ function buildLegacyMatrix(report: StructuredReportPayload | null, year: number 
   for (const row of report.revenue ?? []) {
     const ref = parseMonthRef(row.date)
     if (!ref || ref.year !== effectiveYear) continue
-    const amount = Math.abs(parseAmount(row.amount ?? row.kredit))
+    const amount = roundToCents(Math.abs(parseAmount(row.amount ?? row.kredit)))
     const category = categoryFromItem(row)
     const bucket = revByCat.get(category) ?? Array(12).fill(0)
-    bucket[ref.monthIndex] += amount
-    revTotals[ref.monthIndex] += amount
+    bucket[ref.monthIndex] = roundToCents(bucket[ref.monthIndex] + amount)
+    revTotals[ref.monthIndex] = roundToCents(revTotals[ref.monthIndex] + amount)
     revByCat.set(category, bucket)
   }
 
   for (const row of report.expense ?? []) {
     const ref = parseMonthRef(row.date)
     if (!ref || ref.year !== effectiveYear) continue
-    const amount = Math.abs(parseAmount(row.amount ?? row.kredit))
+    const amount = roundToCents(Math.abs(parseAmount(row.amount ?? row.kredit)))
     const category = categoryFromItem(row)
     const bucket = expByCat.get(category) ?? Array(12).fill(0)
-    bucket[ref.monthIndex] -= amount
-    expTotals[ref.monthIndex] -= amount
+    bucket[ref.monthIndex] = roundToCents(bucket[ref.monthIndex] - amount)
+    expTotals[ref.monthIndex] = roundToCents(expTotals[ref.monthIndex] - amount)
     expByCat.set(category, bucket)
   }
 
@@ -225,9 +231,9 @@ function buildLegacyMatrix(report: StructuredReportPayload | null, year: number 
     .sort(sortCategoryAz)
     .map(([label, values]) => ({ key: `exp:${label}`, label, kind: 'expense', values }))
 
-  const net = revTotals.map((v, idx) => v + expTotals[idx])
+  const net = revTotals.map((v, idx) => roundToCents(v + expTotals[idx]))
   const cumulative = net.reduce((acc: number[], current, idx) => {
-    acc[idx] = (acc[idx - 1] ?? 0) + current
+    acc[idx] = roundToCents((acc[idx - 1] ?? 0) + current)
     return acc
   }, Array(12).fill(0))
 
@@ -427,7 +433,7 @@ export function ReportsPage() {
       render: (_: unknown, row: MatrixRow) => {
         if (row.kind === 'section') return ''
         const value = row.values[monthIndex] ?? 0
-        if (Math.abs(value) < 0.000001) return <Typography.Text type="secondary">0.0</Typography.Text>
+        if (roundToCents(value) === 0) return <Typography.Text type="secondary">{money(0)}</Typography.Text>
         const text = money(Math.abs(value))
         const clickMonth = { year: effectiveYear, monthIndex }
 
