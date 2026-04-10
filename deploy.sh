@@ -1,5 +1,30 @@
 #!/bin/bash
 set -e                    # если любая команда упала — стоп, не идём дальше
+
+DEPLOY_AT="${1:-}"
+
+if [ -n "$DEPLOY_AT" ]; then
+  if [[ ! "$DEPLOY_AT" =~ ^([01][0-9]|2[0-3]):[0-5][0-9]$ ]]; then
+    echo "Неверный формат времени: '$DEPLOY_AT'. Используй HH:MM"
+    exit 1
+  fi
+
+  sleep_seconds=$(python3 - "$DEPLOY_AT" <<'PY'
+import datetime
+import sys
+
+hh, mm = map(int, sys.argv[1].split(":"))
+now = datetime.datetime.now()
+target = now.replace(hour=hh, minute=mm, second=0, microsecond=0)
+if target <= now:
+    target += datetime.timedelta(days=1)
+print(int((target - now).total_seconds()))
+PY
+)
+  echo "Ожидание до $DEPLOY_AT (через ${sleep_seconds} сек.) перед деплоем..."
+  sleep "$sleep_seconds"
+fi
+
 cd ~/n8n                  # переходим в папку проекта
 
 git pull                  # скачиваем новый код с GitHub
