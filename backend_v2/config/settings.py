@@ -43,6 +43,7 @@ INSTALLED_APPS = [
     "apps.modules.telegram_approvals",
     "apps.modules.payroll",
     "apps.modules.feedback",
+    "apps.modules.clients_debt",
 ]
 
 MIDDLEWARE = [

@@ -4,6 +4,8 @@ from django.urls import path
 from apps.modules.n8n_integration import views
 
 urlpatterns = [
+    path("pnl-data/", views.N8nPnlDataView.as_view(), name="n8n-pnl-data"),
+    path("cashflow-data/", views.N8nCashflowDataView.as_view(), name="n8n-cashflow-data"),
     path("requests/", views.N8nRequestUpsertView.as_view(), name="n8n-requests-upsert"),
     path("approvals/", views.N8nApprovalUpsertView.as_view(), name="n8n-approvals-upsert"),
     path("vendors/", views.N8nVendorUpsertView.as_view(), name="n8n-vendors-upsert"),
@@ -13,6 +15,7 @@ urlpatterns = [
     path("bank/revenues/", views.N8nBankRevenueUpsertView.as_view(), name="n8n-bank-revenues-upsert"),
     path("corporate-card/expenses/", views.N8nCardExpenseUpsertView.as_view(), name="n8n-card-expenses-upsert"),
     path("corporate-card/revenues/", views.N8nCardRevenueUpsertView.as_view(), name="n8n-card-revenues-upsert"),
+    path("clients-debt/", views.N8nClientsDebtUpsertView.as_view(), name="n8n-clients-debt-upsert"),
     path("notes/", views.N8nNoteUpsertView.as_view(), name="n8n-notes-upsert"),
     path("payroll/lines/", views.N8nPayrollLineUpsertView.as_view(), name="n8n-payroll-lines-upsert"),
 ]

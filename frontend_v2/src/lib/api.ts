@@ -377,6 +377,21 @@ export type CashRevenue = {
   created_at: string
 }
 
+export type ClientDebtSnapshot = {
+  id: number
+  snapshot_at: string
+  doc_type: string
+  organization: string
+  client: string
+  client_id: string
+  debt_sum: string | number
+  quantity: string | number
+  cert_discount: string | number
+  payload?: Record<string, unknown>
+  created_at: string
+  created_by: number
+}
+
 export type BankRevenue = {
   id: number
   row_no: number | null
@@ -468,8 +483,11 @@ export type LegacyReportItem = {
   id?: number | string
   date?: string
   amount?: number | string
+  kredit?: number | string
   source?: string
   details?: string
+  purpose?: string
+  description?: string
   category?: string
   cathegory?: string
   cat?: string
@@ -485,16 +503,10 @@ export type LegacyReportPayload = {
 }
 
 function normalizeLegacyReportPayload(payload: unknown): LegacyReportPayload {
-  const list = Array.isArray(payload) ? payload : []
-  const revenue = list.find((x) => x && typeof x === 'object' && 'revenue' in x) as
-    | { revenue?: LegacyReportItem[] }
-    | undefined
-  const expense = list.find((x) => x && typeof x === 'object' && 'expense' in x) as
-    | { expense?: LegacyReportItem[] }
-    | undefined
-  const metadata = list.find((x) => x && typeof x === 'object' && 'metadata' in x) as
-    | { metadata?: Record<string, unknown> }
-    | undefined
+  const list = Array.isArray(payload) ? payload : payload && typeof payload === 'object' ? [payload] : []
+  const revenue = list.find((x) => x && typeof x === 'object' && 'revenue' in x) as { revenue?: LegacyReportItem[] } | undefined
+  const expense = list.find((x) => x && typeof x === 'object' && 'expense' in x) as { expense?: LegacyReportItem[] } | undefined
+  const metadata = list.find((x) => x && typeof x === 'object' && 'metadata' in x) as { metadata?: Record<string, unknown> } | undefined
   return {
     revenue: Array.isArray(revenue?.revenue) ? revenue.revenue : [],
     expense: Array.isArray(expense?.expense) ? expense.expense : [],
@@ -503,17 +515,97 @@ function normalizeLegacyReportPayload(payload: unknown): LegacyReportPayload {
 }
 
 export async function getPnlReportData(): Promise<LegacyReportPayload> {
-  const res = await apiFetch('/web/pnl-data')
+  const res = await apiFetch('/api/reports/pnl/')
   if (!res.ok) throw new Error(await parseErrorBody(res))
   const json = await res.json().catch(() => null)
   return normalizeLegacyReportPayload(json)
 }
 
 export async function getCashflowReportData(): Promise<LegacyReportPayload> {
-  const res = await apiFetch('/web/cashflow-data')
+  const res = await apiFetch('/api/reports/cashflow/')
   if (!res.ok) throw new Error(await parseErrorBody(res))
   const json = await res.json().catch(() => null)
   return normalizeLegacyReportPayload(json)
+}
+
+export type StructuredReportRow = {
+  id: string
+  date: string | null
+  amount: string
+  direction: 'revenue' | 'expense'
+  category?: string
+  purpose: string
+  description: string
+  channel: string
+  raw: Record<string, unknown>
+}
+
+export type StructuredMonthlyRow = {
+  month: string
+  revenue: string
+  expense: string
+  net: string
+}
+
+export type StructuredReportPayload = {
+  report: 'pnl' | 'cashflow'
+  metadata: {
+    company_name?: string | null
+    start_month?: string | null
+    source?: string
+    endpoint?: string
+  }
+  totals: {
+    revenue: string
+    expense: string
+    net: string
+  }
+  monthly: StructuredMonthlyRow[]
+  rows: StructuredReportRow[]
+  revenue: LegacyReportItem[]
+  expense: LegacyReportItem[]
+}
+
+function normalizeStructuredReportPayload(payload: unknown, report: 'pnl' | 'cashflow'): StructuredReportPayload {
+  const obj = payload && typeof payload === 'object' ? (payload as Record<string, unknown>) : {}
+  const metadata = obj.metadata && typeof obj.metadata === 'object' ? (obj.metadata as Record<string, unknown>) : {}
+  const totals = obj.totals && typeof obj.totals === 'object' ? (obj.totals as Record<string, unknown>) : {}
+  const monthly = Array.isArray(obj.monthly) ? (obj.monthly as StructuredMonthlyRow[]) : []
+  const rows = Array.isArray(obj.rows) ? (obj.rows as StructuredReportRow[]) : []
+  const revenue = Array.isArray(obj.revenue) ? (obj.revenue as LegacyReportItem[]) : []
+  const expense = Array.isArray(obj.expense) ? (obj.expense as LegacyReportItem[]) : []
+  return {
+    report,
+    metadata: {
+      company_name: typeof metadata.company_name === 'string' ? metadata.company_name : null,
+      start_month: typeof metadata.start_month === 'string' ? metadata.start_month : null,
+      source: typeof metadata.source === 'string' ? metadata.source : undefined,
+      endpoint: typeof metadata.endpoint === 'string' ? metadata.endpoint : undefined,
+    },
+    totals: {
+      revenue: String(totals.revenue ?? '0'),
+      expense: String(totals.expense ?? '0'),
+      net: String(totals.net ?? '0'),
+    },
+    monthly,
+    rows,
+    revenue,
+    expense,
+  }
+}
+
+export async function getStructuredPnlReport(): Promise<StructuredReportPayload> {
+  const res = await apiFetch('/api/reports/pnl/')
+  if (!res.ok) throw new Error(await parseErrorBody(res))
+  const json = await res.json().catch(() => null)
+  return normalizeStructuredReportPayload(json, 'pnl')
+}
+
+export async function getStructuredCashflowReport(): Promise<StructuredReportPayload> {
+  const res = await apiFetch('/api/reports/cashflow/')
+  if (!res.ok) throw new Error(await parseErrorBody(res))
+  const json = await res.json().catch(() => null)
+  return normalizeStructuredReportPayload(json, 'cashflow')
 }
 
 export type TelegramWebAppAuthResponse = {
@@ -553,6 +645,13 @@ export async function getCashRevenues(): Promise<CashRevenue[]> {
   if (!res.ok) throw new Error(await parseErrorBody(res))
   const json = await res.json().catch(() => null)
   return normalizeListPayload<CashRevenue>(json)
+}
+
+export async function getClientsDebtSnapshots(): Promise<ClientDebtSnapshot[]> {
+  const res = await apiFetch('/api/clients-debt/')
+  if (!res.ok) throw new Error(await parseErrorBody(res))
+  const json = await res.json().catch(() => null)
+  return normalizeListPayload<ClientDebtSnapshot>(json)
 }
 
 /** Row from GET /api/cash|bank|corporate-card/balances/ */
