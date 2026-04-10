@@ -157,6 +157,17 @@ class CashRevenueSerializer(serializers.ModelSerializer):
         reject_client_pk_on_create(self)
         attrs = super().validate(attrs)
 
+        source_year = attrs.get("source_year")
+        if source_year is None and self.instance is not None:
+            source_year = self.instance.source_year
+        if source_year is None:
+            revenue_at = attrs.get("revenue_at")
+            if revenue_at is None and self.instance is not None:
+                revenue_at = self.instance.revenue_at
+            if revenue_at is not None:
+                source_year = _tashkent_date_from_datetime(revenue_at).year
+                attrs["source_year"] = source_year
+
         tenant = getattr(self.context.get("request"), "tenant", None)
         if tenant:
             attrs = assign_wallet_for_cash_movement(instance=self.instance, tenant=tenant, attrs=attrs)
@@ -172,13 +183,20 @@ class CashRevenueSerializer(serializers.ModelSerializer):
                 mutable["revenue_at"] = mutable.get("date")
             if "revenue_at" in mutable:
                 mutable["revenue_at"] = _normalize_datetime_input(mutable.get("revenue_at"))
+            if "source_year" in mutable and mutable.get("source_year") not in (None, ""):
+                try:
+                    mutable["source_year"] = int(mutable.get("source_year"))
+                except (TypeError, ValueError):
+                    pass
             # Keep compatibility with wider legacy payload shape: store unknown import fields in payload.
-            legacy_keys = ("direction", "organization", "unit", "employee", "cash_type", "contract", "source_year", "account")
+            legacy_keys = ("direction", "organization", "unit", "employee", "cash_type", "contract", "account")
             payload = mutable.get("payload")
             payload_dict = dict(payload) if isinstance(payload, Mapping) else {}
             for key in legacy_keys:
                 if key in mutable:
                     payload_dict[key] = mutable.pop(key)
+            if "source_year" in mutable:
+                payload_dict["source_year"] = mutable["source_year"]
             if payload_dict:
                 mutable["payload"] = payload_dict
             data = mutable
@@ -189,6 +207,7 @@ class CashRevenueSerializer(serializers.ModelSerializer):
         fields = [
             "id",
             "external_id",
+            "source_year",
             "revenue_at",
             "currency",
             "confirmed",

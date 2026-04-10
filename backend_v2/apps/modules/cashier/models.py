@@ -54,6 +54,7 @@ class CashExpense(models.Model):
 class CashRevenue(models.Model):
     tenant = models.ForeignKey(Tenant, on_delete=models.CASCADE, related_name="cash_revenues")
     external_id = models.CharField(max_length=20, blank=True, default="")
+    source_year = models.PositiveIntegerField(null=True, blank=True)
     revenue_at = models.DateTimeField(null=True, blank=True)
     currency = models.CharField(max_length=10, blank=True, default="UZS")
     confirmed = models.BooleanField(default=True)
@@ -76,4 +77,10 @@ class CashRevenue(models.Model):
 
     class Meta:
         ordering = ["-created_at"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["tenant", "external_id", "source_year"],
+                name="cash_rev_tenant_external_source_year_uniq",
+            )
+        ]
 
