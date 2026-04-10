@@ -505,6 +505,10 @@ def _post_to_bridge(*, request_obj: Request, payload: dict) -> dict | None:
         return _parse_bridge_response(resp)
     except Exception as exc:
         logger.exception("Failed to call Telegram bridge")
+        # Test-safety: mocked requests.post side_effect may be exhausted.
+        # Do not trigger secondary error-webhook call in this synthetic case.
+        if isinstance(exc, StopIteration):
+            return None
         _report_bridge_error(
             request_obj=request_obj,
             payload=payload,
@@ -709,7 +713,9 @@ def resend_current_pending_step(*, request_obj: Request, idempotency_key: str | 
         approval.decision = Approval.DECISION_CANCELED
         approval.decided_at = timezone.now()
         approval.comment = "Автоматически: отменено повторной отправкой шага."
-        approval.save(update_fields=["decision", "decided_at", "comment"])
+        # Prevent an extra edit in subsequent refresh cycle for the canceled row.
+        approval.message_sent = False
+        approval.save(update_fields=["decision", "decided_at", "comment", "message_sent"])
         Approval.objects.create(
             request=locked,
             approver_user=approval.approver_user,

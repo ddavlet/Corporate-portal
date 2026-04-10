@@ -647,8 +647,12 @@ class N8nClientsDebtUpsertView(_N8nBaseView):
         tenant = request.tenant
         raw_snapshot_at = request.data.get("snapshot_at", request.data.get("date"))
         client_name = str(request.data.get("client") or "").strip()
+        client_id = str(request.data.get("client_id") or "").strip()
+        doc_type = str(request.data.get("doc_type") or "client_debt_total").strip() or "client_debt_total"
         snapshot_date = None
+        snapshot_at_exact = None
         if isinstance(raw_snapshot_at, datetime):
+            snapshot_at_exact = raw_snapshot_at
             snapshot_date = raw_snapshot_at.date()
         elif isinstance(raw_snapshot_at, date):
             snapshot_date = raw_snapshot_at
@@ -657,7 +661,9 @@ class N8nClientsDebtUpsertView(_N8nBaseView):
             if raw.endswith("Z"):
                 raw = raw[:-1] + "+00:00"
             try:
-                snapshot_date = datetime.fromisoformat(raw).date()
+                parsed_dt = datetime.fromisoformat(raw)
+                snapshot_at_exact = parsed_dt
+                snapshot_date = parsed_dt.date()
             except ValueError:
                 try:
                     snapshot_date = date.fromisoformat(raw)
@@ -665,12 +671,28 @@ class N8nClientsDebtUpsertView(_N8nBaseView):
                     snapshot_date = None
 
         # Support upsert by natural key (snapshot_at date, client) when id is omitted.
-        if request.data.get("id") in (None, "") and snapshot_date is not None and client_name:
-            existing = ClientDebtSnapshot.objects.filter(
-                tenant=tenant,
-                snapshot_at__date=snapshot_date,
-                client=client_name,
-            ).first()
+        if request.data.get("id") in (None, "") and snapshot_date is not None:
+            existing = None
+            if snapshot_at_exact is not None and client_id:
+                existing = ClientDebtSnapshot.objects.filter(
+                    tenant=tenant,
+                    snapshot_at=snapshot_at_exact,
+                    doc_type=doc_type,
+                    client_id=client_id,
+                ).first()
+            if existing is None and client_id:
+                existing = ClientDebtSnapshot.objects.filter(
+                    tenant=tenant,
+                    snapshot_at__date=snapshot_date,
+                    doc_type=doc_type,
+                    client_id=client_id,
+                ).first()
+            if existing is None and client_name:
+                existing = ClientDebtSnapshot.objects.filter(
+                    tenant=tenant,
+                    snapshot_at__date=snapshot_date,
+                    client=client_name,
+                ).first()
             if existing is not None:
                 ser = N8nClientDebtImportSerializer(
                     instance=existing,
