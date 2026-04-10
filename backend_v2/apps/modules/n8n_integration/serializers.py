@@ -1,3 +1,5 @@
+import logging
+
 from django.contrib.auth import get_user_model
 from rest_framework import serializers
 
@@ -17,10 +19,12 @@ from apps.modules.requests.expense_refs import (
 from apps.modules.requests.models import Approval, Request
 from apps.modules.vendors.models import Vendor
 from apps.modules.vendors.serializers import VendorSerializer
+from apps.modules.clients_debt.serializers import ClientDebtSnapshotSerializer
 from apps.tenants.permissions import has_effective_module_access
 from apps.tenants.models import TenantMembership, TenantUserRole
 
 User = get_user_model()
+logger = logging.getLogger(__name__)
 
 
 def _bind_cash_wallet_by_register_name(*, attrs: dict, tenant, instance) -> dict:
@@ -33,6 +37,12 @@ def _bind_cash_wallet_by_register_name(*, attrs: dict, tenant, instance) -> dict
         return attrs
 
     name = str(raw_name or "").strip()
+    logger.info(
+        "n8n cash register lookup started tenant_id=%s raw_name=%r normalized_name=%r",
+        getattr(tenant, "id", None),
+        raw_name,
+        name,
+    )
     if not name:
         raise serializers.ValidationError({"cash_register_name": "Название кассы не может быть пустым."})
 
@@ -42,7 +52,23 @@ def _bind_cash_wallet_by_register_name(*, attrs: dict, tenant, instance) -> dict
         .order_by("id")[:2]
     )
     if not matches:
-        raise serializers.ValidationError({"cash_register_name": "Касса с таким названием не найдена."})
+        available = list(
+            CashRegister.objects.filter(tenant=tenant)
+            .order_by("id")
+            .values_list("id", "name")
+        )
+        logger.warning(
+            "n8n cash register lookup failed tenant_id=%s normalized_name=%r available=%r",
+            getattr(tenant, "id", None),
+            name,
+            available,
+        )
+        available_names = [row_name for _, row_name in available if str(row_name or "").strip()]
+        details = (
+            f"Касса с названием '{name}' не найдена."
+            + (f" Доступные кассы: {', '.join(available_names)}." if available_names else "")
+        )
+        raise serializers.ValidationError({"cash_register_name": details})
     if len(matches) > 1:
         raise serializers.ValidationError(
             {"cash_register_name": "Найдено несколько касс с таким названием. Укажите wallet_id."}
@@ -208,6 +234,13 @@ class N8nCardRevenueImportSerializer(CardRevenueSerializer):
 
     class Meta(CardRevenueSerializer.Meta):
         read_only_fields = ["created_at", "created_by", "bank_expense_exists"]
+
+
+class N8nClientDebtImportSerializer(ClientDebtSnapshotSerializer):
+    id = serializers.IntegerField(required=False)
+
+    class Meta(ClientDebtSnapshotSerializer.Meta):
+        read_only_fields = ["created_at", "created_by"]
 
 
 class N8nRequestImportSerializer(serializers.ModelSerializer):

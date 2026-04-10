@@ -11,6 +11,7 @@ from apps.tenants.models import Tenant, TenantMembership, TenantModuleConfig, Te
 from apps.modules.bank_expenses.models import BankExpense
 from apps.modules.cashier.models import CashExpense
 from apps.modules.cashier.models import CashRevenue
+from apps.modules.clients_debt.models import ClientDebtSnapshot
 from apps.modules.requests.models import Approval, Request
 from apps.modules.vendors.models import Vendor
 from apps.modules.wallets.models import CashRegister, Wallet
@@ -497,6 +498,37 @@ class N8nIntegrationAuthTests(APITestCase):
         req = Request.objects.get(pk=5012)
         self.assertEqual(req.expense_id, "NOT-IMPORTED-YET")
         self.assertIsNone(req.expense_ref_id)
+
+    def test_clients_debt_upsert_with_client_id(self):
+        url = f"{self.n8n_prefix}/clients-debt/"
+        body = {
+            "id": 98001,
+            "date": "2026-04-10T00:00:00.000+05:00",
+            "doc_type": "client_debt_total",
+            "organization": "LEMONFIT",
+            "client": "Тураев Артур Таштемирович",
+            "client_id": "000000006",
+            "debt_sum": "8000",
+            "quantity": "0",
+            "cert_discount": "0",
+            "payload": {"source": "n8n"},
+        }
+        res = self.client.post(url, body, format="json", **self._headers(self.admin))
+        self.assertEqual(res.status_code, 201, res.content)
+        row = ClientDebtSnapshot.objects.get(pk=98001)
+        self.assertEqual(row.tenant_id, self.tenant.id)
+        self.assertEqual(row.created_by_id, 1)
+        self.assertEqual(row.client_id, "000000006")
+
+        res2 = self.client.post(
+            url,
+            {**body, "debt_sum": "9000"},
+            format="json",
+            **self._headers(self.admin),
+        )
+        self.assertEqual(res2.status_code, 200, res2.content)
+        row.refresh_from_db()
+        self.assertEqual(str(row.debt_sum), "9000.00")
 
     def test_approval_upsert_with_client_id(self):
         req = Request.objects.create(

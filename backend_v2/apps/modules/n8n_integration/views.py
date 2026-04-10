@@ -1,4 +1,7 @@
+import logging
 
+import requests
+from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.db import IntegrityError
 from rest_framework import status
@@ -7,6 +10,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.modules.bank_expenses.models import BankExpense, BankRevenue
+from apps.modules.clients_debt.models import ClientDebtSnapshot
 from apps.modules.payroll.models import PayrollLine
 from apps.modules.cashier.models import CashExpense, CashRevenue
 from apps.modules.corporate_card.models import CardExpense, CardRevenue
@@ -20,6 +24,7 @@ from apps.modules.n8n_integration.serializers import (
     N8nBankRevenueImportSerializer,
     N8nCardExpenseImportSerializer,
     N8nCardRevenueImportSerializer,
+    N8nClientDebtImportSerializer,
     N8nCashExpenseImportSerializer,
     N8nCashRevenueImportSerializer,
     N8nNoteImportSerializer,
@@ -27,9 +32,11 @@ from apps.modules.n8n_integration.serializers import (
     N8nRequestImportSerializer,
     N8nVendorImportSerializer,
 )
+from apps.tenants.integration_settings import get_n8n_integration_settings
 from apps.tenants.permissions import IsTenantAdmin
 
 User = get_user_model()
+logger = logging.getLogger(__name__)
 
 
 def _system_user():
@@ -88,6 +95,71 @@ def _n8n_upsert(request, *, serializer_class, get_instance, other_tenant_conflic
 class _N8nBaseView(APIView):
     authentication_classes = [N8nIntegrationAuthentication]
     permission_classes = [IsAuthenticated, IsTenantAdmin]
+
+
+def _proxy_n8n_json(request, endpoint: str):
+    tenant = getattr(request, "tenant", None)
+    if not tenant:
+        return Response({"detail": "No tenant."}, status=status.HTTP_400_BAD_REQUEST)
+    if not settings.BASE_DOMAIN:
+        return Response({"detail": "BASE_DOMAIN is not configured."}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+
+    token = get_n8n_integration_settings(tenant=tenant).integration_token
+    if not token:
+        token = (getattr(settings, "N8N_INTEGRATION_TOKEN", None) or "").strip()
+    if not token:
+        return Response({"detail": "N8N_INTEGRATION_TOKEN is not configured."}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+
+    url = f"https://{tenant.subdomain}.{settings.BASE_DOMAIN}/{endpoint.lstrip('/')}"
+    try:
+        resp = requests.get(
+            url,
+            params=request.GET,
+            timeout=20,
+            headers={
+                "Accept": "application/json",
+                "X-N8N-Integration-Token": token,
+                "X-Tenant": tenant.subdomain,
+                "X-User-Id": str(request.user.id),
+            },
+        )
+    except requests.RequestException as exc:
+        logger.warning("n8n report proxy request failed: tenant=%s endpoint=%s error=%s", tenant.subdomain, endpoint, exc)
+        return Response({"detail": f"n8n request failed: {exc}"}, status=status.HTTP_502_BAD_GATEWAY)
+
+    if resp.status_code in (401, 403):
+        return Response({"detail": "Forbidden by n8n."}, status=status.HTTP_403_FORBIDDEN)
+    if resp.status_code >= 400:
+        return Response({"detail": f"n8n error {resp.status_code}"}, status=status.HTTP_502_BAD_GATEWAY)
+
+    try:
+        return Response(resp.json(), status=status.HTTP_200_OK)
+    except ValueError:
+        return Response({"detail": "Invalid JSON returned by n8n."}, status=status.HTTP_502_BAD_GATEWAY)
+
+
+class N8nPnlDataView(_N8nBaseView):
+    def get(self, request):
+        return _proxy_n8n_json(request, "/pnl-data")
+
+
+class N8nCashflowDataView(_N8nBaseView):
+    def get(self, request):
+        return _proxy_n8n_json(request, "/n8n/cashflow-data")
+
+
+class PnlDataProxyView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        return _proxy_n8n_json(request, "/n8n/pnl-data")
+
+
+class CashflowDataProxyView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        return _proxy_n8n_json(request, "/n8n/cashflow-data")
 
 
 class N8nVendorUpsertView(_N8nBaseView):
@@ -372,6 +444,29 @@ class N8nCardRevenueUpsertView(_N8nBaseView):
         return _n8n_upsert(
             request,
             serializer_class=N8nCardRevenueImportSerializer,
+            get_instance=get_instance,
+            other_tenant_conflict=other_tenant_conflict,
+            build_create_kwargs=build_create_kwargs,
+        )
+
+
+class N8nClientsDebtUpsertView(_N8nBaseView):
+    def post(self, request):
+        tenant = request.tenant
+
+        def get_instance(pk):
+            return ClientDebtSnapshot.objects.filter(pk=pk, tenant=tenant).first()
+
+        def other_tenant_conflict(pk):
+            o = ClientDebtSnapshot.objects.filter(pk=pk).first()
+            return o is not None and o.tenant_id != tenant.id
+
+        def build_create_kwargs(req, su):
+            return {"tenant": req.tenant, "created_by": su}
+
+        return _n8n_upsert(
+            request,
+            serializer_class=N8nClientDebtImportSerializer,
             get_instance=get_instance,
             other_tenant_conflict=other_tenant_conflict,
             build_create_kwargs=build_create_kwargs,

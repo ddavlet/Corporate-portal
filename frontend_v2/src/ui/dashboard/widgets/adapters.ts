@@ -13,7 +13,8 @@ function parseAmount(value: unknown): number {
 
 function parseReportDate(input: unknown): Date | null {
   if (typeof input !== 'string' || !input.trim()) return null
-  const parsed = new Date(input)
+  const normalized = input.trim().replace(/^"+|"+$/g, '')
+  const parsed = new Date(normalized)
   return Number.isNaN(parsed.getTime()) ? null : parsed
 }
 
@@ -32,6 +33,8 @@ function getMonthRef(date: Date): ReportMonthRef {
 
 function categoryFromItem(item: LegacyReportItem): string {
   return (
+    item.purpose ||
+    item.description ||
     item.category ||
     item.cathegory ||
     item.cat ||
@@ -94,13 +97,15 @@ export function totalsFromReport(revenueItems: LegacyReportItem[], expenseItems:
     const date = parseReportDate(row.date)
     if (!date) continue
     const { monthIndex } = getMonthRef(date)
-    incomeByMonth[monthIndex] += parseAmount(row.amount)
+    incomeByMonth[monthIndex] += parseAmount(row.amount ?? row.kredit)
   }
   for (const row of expenseItems) {
     const date = parseReportDate(row.date)
     if (!date) continue
     const { monthIndex } = getMonthRef(date)
-    expenseByMonth[monthIndex] += parseAmount(row.amount)
+    // Expenses are rendered as negative to preserve net-profit arithmetic used by widgets.
+    const amount = parseAmount(row.amount ?? row.kredit)
+    expenseByMonth[monthIndex] -= Math.abs(amount)
   }
   return { incomeByMonth, expenseByMonth }
 }
@@ -109,7 +114,7 @@ export function buildCategorySlices(items: LegacyReportItem[]): CategorySlice[] 
   const map = new Map<string, number>()
   for (const item of items) {
     const label = categoryFromItem(item)
-    const amount = Math.abs(parseAmount(item.amount))
+    const amount = Math.abs(parseAmount(item.amount ?? item.kredit))
     map.set(label, (map.get(label) ?? 0) + amount)
   }
   return Array.from(map.entries())

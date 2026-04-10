@@ -5,11 +5,13 @@ import type { MenuProps } from 'antd'
 import { Button, Dropdown, Space, Typography } from 'antd'
 import {
   BankOutlined,
+  ContactsOutlined,
   CommentOutlined,
   CreditCardOutlined,
   DashboardOutlined,
   DollarOutlined,
   FileTextOutlined,
+  BarChartOutlined,
   LogoutOutlined,
   SettingOutlined,
   SafetyOutlined,
@@ -69,6 +71,8 @@ export function AppShell() {
         { path: '/bank', name: 'Банк', icon: <BankOutlined />, moduleKey: 'bank' },
         { path: '/corporate-card', name: 'Корпоративная карта', icon: <CreditCardOutlined />, moduleKey: 'corporate_card' },
         { path: '/payroll', name: 'Начисления ЗП', icon: <TeamOutlined />, moduleKey: 'payroll' },
+        { path: '/reports', name: 'Отчеты', icon: <BarChartOutlined />, moduleKey: 'reports' },
+        { path: '/clients-debt', name: 'Долги клиентов', icon: <ContactsOutlined />, moduleKey: 'clients_debt' },
         ...(canOpenAdmin ? [{ path: '/admin', name: 'Админка', icon: <SafetyOutlined /> }] : []),
         ...(canOpenSettings ? [{ path: '/settings', name: 'Настройки', icon: <SettingOutlined /> }] : []),
       ] as MenuRoute[]).filter((r) => !r.moduleKey || hasAccess(r.moduleKey)),

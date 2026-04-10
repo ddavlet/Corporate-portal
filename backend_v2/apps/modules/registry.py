@@ -14,6 +14,8 @@ def list_modules():
     from apps.modules.telegram_approvals.registry import MODULE_KEY as TG_APPROVALS_KEY, display_name as TG_APPROVALS_NAME
     from apps.modules.payroll.registry import MODULE_KEY as PAYROLL_KEY, display_name as PAYROLL_NAME
     from apps.modules.wallets.registry import MODULE_KEY as WALLETS_KEY, display_name as WALLETS_NAME
+    from apps.modules.reports.registry import MODULE_KEY as REPORTS_KEY, display_name as REPORTS_NAME
+    from apps.modules.clients_debt.registry import MODULE_KEY as CLIENTS_DEBT_KEY, display_name as CLIENTS_DEBT_NAME
 
     return [
         {"module_key": REQUESTS_KEY, "display_name": REQUESTS_NAME},
@@ -26,5 +28,7 @@ def list_modules():
         {"module_key": TG_APPROVALS_KEY, "display_name": TG_APPROVALS_NAME},
         {"module_key": PAYROLL_KEY, "display_name": PAYROLL_NAME},
         {"module_key": WALLETS_KEY, "display_name": WALLETS_NAME},
+        {"module_key": REPORTS_KEY, "display_name": REPORTS_NAME},
+        {"module_key": CLIENTS_DEBT_KEY, "display_name": CLIENTS_DEBT_NAME},
     ]
 
