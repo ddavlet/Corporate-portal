@@ -1,4 +1,4 @@
-import { Alert, Anchor, Card, Col, Divider, List, Row, Space, Typography } from 'antd'
+import { Alert, Anchor, Button, Card, Col, Divider, List, Row, Space, Typography } from 'antd'
 import { trainingErrorInfo, trainingFeedbackInfo, trainingSections } from './trainingContent'
 
 export function TrainingPage() {
@@ -43,6 +43,20 @@ export function TrainingPage() {
                   renderItem={(item, index) => <List.Item>{`${index + 1}. ${item}`}</List.Item>}
                   style={{ marginTop: 8, marginBottom: 8 }}
                 />
+                {section.visualButtons?.length ? (
+                  <>
+                    <Typography.Text strong>Кнопки на экране (как в интерфейсе)</Typography.Text>
+                    <div style={{ marginTop: 8, marginBottom: 12 }}>
+                      <Space wrap>
+                        {section.visualButtons.map((buttonText) => (
+                          <Button key={buttonText} disabled>
+                            {buttonText}
+                          </Button>
+                        ))}
+                      </Space>
+                    </div>
+                  </>
+                ) : null}
                 <Typography.Text strong>Что должно получиться</Typography.Text>
                 <Typography.Paragraph>{section.expectedResult}</Typography.Paragraph>
                 <Typography.Text strong>Если возникла ошибка</Typography.Text>
