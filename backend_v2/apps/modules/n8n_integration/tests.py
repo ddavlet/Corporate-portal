@@ -410,6 +410,43 @@ class N8nIntegrationAuthTests(APITestCase):
         row = CashExpense.objects.get(pk=96011)
         self.assertEqual(row.wallet_id, cash_wallet.id)
 
+    def test_cash_expense_without_id_upserts_by_external_id_and_expense_year(self):
+        cash_register = CashRegister.objects.create(tenant=self.tenant, currency="UZS", name="Main cash")
+        Wallet.objects.create(
+            tenant=self.tenant,
+            wallet_type=Wallet.Type.CASH,
+            currency="UZS",
+            cash_register=cash_register,
+        )
+        url = f"{self.n8n_prefix}/cash/expenses/"
+        body = {
+            "external_id": "1-000000329",
+            "title": "Зарплата по ведомости",
+            "amount": "8536000",
+            "currency": "UZS",
+            "expense_at": "2026-04-09T00:00:00.000+05:00",
+            "note": "рецепция",
+            "confirmed": True,
+            "cash_register_name": "Main cash",
+            "payload": {"id": "1-000000329"},
+        }
+
+        res = self.client.post(url, body, format="json", **self._headers(self.admin))
+        self.assertEqual(res.status_code, 201, res.content)
+        row = CashExpense.objects.get(tenant=self.tenant, external_id="1-000000329", expense_year=2026)
+        self.assertEqual(str(row.amount), "8536000.00")
+
+        res2 = self.client.post(
+            url,
+            {**body, "amount": "8537000", "note": "обновление"},
+            format="json",
+            **self._headers(self.admin),
+        )
+        self.assertEqual(res2.status_code, 200, res2.content)
+        row.refresh_from_db()
+        self.assertEqual(str(row.amount), "8537000.00")
+        self.assertEqual(row.note, "обновление")
+
     def test_request_upsert_resolves_expense_ref_id_for_cash(self):
         cash_register = CashRegister.objects.create(tenant=self.tenant, currency="UZS", name="Main cash")
         cash_wallet = Wallet.objects.create(

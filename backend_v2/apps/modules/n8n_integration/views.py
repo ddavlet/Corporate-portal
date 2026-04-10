@@ -257,6 +257,53 @@ class N8nApprovalUpsertView(_N8nBaseView):
 class N8nCashExpenseUpsertView(_N8nBaseView):
     def post(self, request):
         tenant = request.tenant
+        su = _system_user()
+        if su is None:
+            return Response({"detail": "System user (pk=1) is missing."}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+
+        payload = dict(request.data)
+        raw_id = payload.get("id")
+        if raw_id not in (None, ""):
+            try:
+                int(raw_id)
+            except (TypeError, ValueError):
+                external_id = str(raw_id).strip()
+                if not external_id:
+                    return Response({"id": ["Must be an integer."]}, status=status.HTTP_400_BAD_REQUEST)
+                payload.pop("id", None)
+                payload.setdefault("external_id", external_id)
+
+        if payload.get("id") in (None, "") and payload.get("external_id") not in (None, ""):
+            create_ser = N8nCashExpenseImportSerializer(data=payload, context={"request": request})
+            create_ser.is_valid(raise_exception=True)
+
+            expense_year = create_ser.validated_data.get("expense_year")
+            external_id = str(create_ser.validated_data.get("external_id") or "").strip()
+            if external_id and expense_year is not None:
+                existing = CashExpense.objects.filter(
+                    tenant=tenant,
+                    external_id=external_id,
+                    expense_year=expense_year,
+                ).first()
+                if existing is not None:
+                    update_ser = N8nCashExpenseImportSerializer(
+                        instance=existing,
+                        data=payload,
+                        partial=True,
+                        context={"request": request},
+                    )
+                    update_ser.is_valid(raise_exception=True)
+                    try:
+                        update_ser.save()
+                    except IntegrityError:
+                        return Response({"detail": "Could not update with this payload."}, status=status.HTTP_400_BAD_REQUEST)
+                    return Response(update_ser.data, status=status.HTTP_200_OK)
+
+            try:
+                create_ser.save(tenant=request.tenant, created_by=su)
+            except IntegrityError:
+                return Response({"detail": "Could not create with this payload."}, status=status.HTTP_400_BAD_REQUEST)
+            return Response(create_ser.data, status=status.HTTP_201_CREATED)
 
         def get_instance(pk):
             return CashExpense.objects.filter(pk=pk, tenant=tenant).first()
@@ -268,8 +315,16 @@ class N8nCashExpenseUpsertView(_N8nBaseView):
         def build_create_kwargs(req, su):
             return {"tenant": req.tenant, "created_by": su}
 
+        class _Req:
+            data = payload
+            tenant = request.tenant
+            META = request.META
+            method = request.method
+            user = request.user
+            path = request.path
+
         return _n8n_upsert(
-            request,
+            _Req(),
             serializer_class=N8nCashExpenseImportSerializer,
             get_instance=get_instance,
             other_tenant_conflict=other_tenant_conflict,
