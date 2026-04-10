@@ -405,9 +405,11 @@ class RequestApprovalPaymentTypeConfig(models.Model):
 class RequestApprovalStepConfig(models.Model):
     PAYMENT_ACTION_MODE_CALLBACK = "callback"
     PAYMENT_ACTION_MODE_WEBAPP = "webapp"
+    PAYMENT_ACTION_MODE_CREATE = "create"
     PAYMENT_ACTION_MODE_CHOICES = [
         (PAYMENT_ACTION_MODE_CALLBACK, PAYMENT_ACTION_MODE_CALLBACK),
         (PAYMENT_ACTION_MODE_WEBAPP, PAYMENT_ACTION_MODE_WEBAPP),
+        (PAYMENT_ACTION_MODE_CREATE, PAYMENT_ACTION_MODE_CREATE),
     ]
 
     payment_type_config = models.ForeignKey(

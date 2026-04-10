@@ -2,6 +2,8 @@
 set -e                    # если любая команда упала — стоп, не идём дальше
 
 DEPLOY_AT="${1:-}"
+DEPLOY_RUN_TESTS="${DEPLOY_RUN_TESTS:-1}"
+DEPLOY_TEST_PATH="${DEPLOY_TEST_PATH:-apps}"
 
 if [ -n "$DEPLOY_AT" ]; then
   if [[ ! "$DEPLOY_AT" =~ ^([01][0-9]|2[0-3]):[0-5][0-9]$ ]]; then
@@ -39,4 +41,11 @@ docker compose --env-file ./.env up -d --no-deps backend_v2 frontend_v2
                           # перезапускаем только backend_v2 и frontend_v2
                           # --no-deps = не трогать db, n8n и остальные
                           # -d = в фоне
-			 
+
+if [ "$DEPLOY_RUN_TESTS" = "1" ]; then
+  echo "Запускаю тесты после перезапуска: ${DEPLOY_TEST_PATH}"
+  docker compose --env-file ./.env exec -T backend_v2 \
+    python manage.py test "$DEPLOY_TEST_PATH" --keepdb -v 2
+else
+  echo "Тесты после деплоя отключены (DEPLOY_RUN_TESTS=${DEPLOY_RUN_TESTS})"
+fi
