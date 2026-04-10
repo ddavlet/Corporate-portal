@@ -12,9 +12,18 @@ dist/
 # Editor / tooling
 .cursor/
 diagrams/
-localfiles/
 
 # Env
 .env
 env/
 n8n_dev/
+
+# Секреты и конфиги окружения — только на сервере
+wg/
+rclone/
+local-files/
+
+# Генерируемое
+staticfiles/
+frontend_v2/dist/
+frontend_v2/tsconfig.tsbuildinfo
