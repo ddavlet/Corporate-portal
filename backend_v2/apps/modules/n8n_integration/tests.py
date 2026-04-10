@@ -637,6 +637,40 @@ class N8nIntegrationAuthTests(APITestCase):
         row.refresh_from_db()
         self.assertEqual(str(row.debt_sum), "9000.00")
 
+    def test_clients_debt_upsert_by_date_and_client_without_id(self):
+        url = f"{self.n8n_prefix}/clients-debt/"
+        body = {
+            "date": "2026-04-10T00:00:00.000+05:00",
+            "doc_type": "client_debt_total",
+            "organization": "LEMONFIT",
+            "client": "Тураев Артур Таштемирович",
+            "client_id": "000000006",
+            "debt_sum": "8000",
+            "quantity": "0",
+            "cert_discount": "0",
+            "payload": {"source": "n8n"},
+        }
+        res = self.client.post(url, body, format="json", **self._headers(self.admin))
+        self.assertEqual(res.status_code, 201, res.content)
+        row = ClientDebtSnapshot.objects.get(
+            tenant=self.tenant,
+            client="Тураев Артур Таштемирович",
+            client_id="000000006",
+        )
+        first_id = row.id
+        self.assertEqual(str(row.debt_sum), "8000.00")
+
+        res2 = self.client.post(
+            url,
+            {**body, "debt_sum": "9000"},
+            format="json",
+            **self._headers(self.admin),
+        )
+        self.assertEqual(res2.status_code, 200, res2.content)
+        row.refresh_from_db()
+        self.assertEqual(row.id, first_id)
+        self.assertEqual(str(row.debt_sum), "9000.00")
+
     def test_approval_upsert_with_client_id(self):
         req = Request.objects.create(
             id=6010,

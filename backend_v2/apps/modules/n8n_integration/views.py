@@ -1,4 +1,5 @@
 import logging
+from datetime import date, datetime
 
 import requests
 from django.conf import settings
@@ -549,6 +550,45 @@ class N8nCardRevenueUpsertView(_N8nBaseView):
 class N8nClientsDebtUpsertView(_N8nBaseView):
     def post(self, request):
         tenant = request.tenant
+        raw_snapshot_at = request.data.get("snapshot_at", request.data.get("date"))
+        client_name = str(request.data.get("client") or "").strip()
+        snapshot_date = None
+        if isinstance(raw_snapshot_at, datetime):
+            snapshot_date = raw_snapshot_at.date()
+        elif isinstance(raw_snapshot_at, date):
+            snapshot_date = raw_snapshot_at
+        elif raw_snapshot_at not in (None, ""):
+            raw = str(raw_snapshot_at).strip()
+            if raw.endswith("Z"):
+                raw = raw[:-1] + "+00:00"
+            try:
+                snapshot_date = datetime.fromisoformat(raw).date()
+            except ValueError:
+                try:
+                    snapshot_date = date.fromisoformat(raw)
+                except ValueError:
+                    snapshot_date = None
+
+        # Support upsert by natural key (snapshot_at date, client) when id is omitted.
+        if request.data.get("id") in (None, "") and snapshot_date is not None and client_name:
+            existing = ClientDebtSnapshot.objects.filter(
+                tenant=tenant,
+                snapshot_at__date=snapshot_date,
+                client=client_name,
+            ).first()
+            if existing is not None:
+                ser = N8nClientDebtImportSerializer(
+                    instance=existing,
+                    data=request.data,
+                    partial=True,
+                    context={"request": request},
+                )
+                ser.is_valid(raise_exception=True)
+                try:
+                    ser.save()
+                except IntegrityError:
+                    return Response({"detail": "Could not update with this payload."}, status=status.HTTP_400_BAD_REQUEST)
+                return Response(ser.data, status=status.HTTP_200_OK)
 
         def get_instance(pk):
             return ClientDebtSnapshot.objects.filter(pk=pk, tenant=tenant).first()
