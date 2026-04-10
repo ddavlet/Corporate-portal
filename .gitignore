@@ -11,7 +11,10 @@ dist/
 
 # Editor / tooling
 .cursor/
+diagrams/
+localfiles/
 
 # Env
 .env
 env/
+n8n_dev/

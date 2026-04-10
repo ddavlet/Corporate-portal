@@ -11,7 +11,8 @@ EXCLUDES := \
 	--exclude __pycache__/ \
 	--exclude "*.pyc" \
 	--exclude env \
-	--exclude .env
+	--exclude .env \
+	--exclude n8n_dev
 
 .PHONY: send-files migrate-v2 makemigrations-v2 deploy-v2 rollback-v2 check-garbage
 
