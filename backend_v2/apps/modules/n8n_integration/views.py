@@ -369,9 +369,29 @@ class N8nCashExpenseUpsertView(_N8nBaseView):
                 payload.pop("id", None)
                 payload.setdefault("external_id", external_id)
 
+        # Prefer natural-key target when external_id/expense_year points to an existing row,
+        # even if upstream sent a different numeric id.
+        ser_probe = None
+        if payload.get("external_id") not in (None, ""):
+            ser_probe = N8nCashExpenseImportSerializer(data=payload, context={"request": request})
+            ser_probe.is_valid(raise_exception=True)
+            expense_year = ser_probe.validated_data.get("expense_year")
+            external_id = str(ser_probe.validated_data.get("external_id") or "").strip()
+            if external_id and expense_year is not None:
+                existing_by_natural_key = CashExpense.objects.filter(
+                    tenant=tenant,
+                    external_id=external_id,
+                    expense_year=expense_year,
+                ).first()
+                if existing_by_natural_key is not None and payload.get("id") not in (None, ""):
+                    payload["id"] = existing_by_natural_key.id
+
         if payload.get("id") in (None, "") and payload.get("external_id") not in (None, ""):
-            create_ser = N8nCashExpenseImportSerializer(data=payload, context={"request": request})
-            create_ser.is_valid(raise_exception=True)
+            if ser_probe is None:
+                create_ser = N8nCashExpenseImportSerializer(data=payload, context={"request": request})
+                create_ser.is_valid(raise_exception=True)
+            else:
+                create_ser = ser_probe
 
             expense_year = create_ser.validated_data.get("expense_year")
             external_id = str(create_ser.validated_data.get("external_id") or "").strip()
