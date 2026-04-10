@@ -572,6 +572,36 @@ class N8nClientsDebtUpsertView(_N8nBaseView):
 class N8nPayrollLineUpsertView(_N8nBaseView):
     def post(self, request):
         tenant = request.tenant
+        raw_doc_id = request.data.get("doc_id")
+        raw_line_no = request.data.get("line_no")
+        doc_id = str(raw_doc_id or "").strip()
+        line_no = None
+        if raw_line_no not in (None, ""):
+            try:
+                line_no = int(raw_line_no)
+            except (TypeError, ValueError):
+                line_no = None
+
+        # Support upsert by natural key (doc_id, line_no) when id is omitted.
+        if request.data.get("id") in (None, "") and doc_id and line_no is not None:
+            existing = PayrollLine.objects.filter(
+                document__tenant=tenant,
+                document__doc_id=doc_id,
+                line_no=line_no,
+            ).first()
+            if existing is not None:
+                ser = N8nPayrollLineImportSerializer(
+                    instance=existing,
+                    data=request.data,
+                    partial=True,
+                    context={"request": request},
+                )
+                ser.is_valid(raise_exception=True)
+                try:
+                    ser.save()
+                except IntegrityError:
+                    return Response({"detail": "Could not update with this payload."}, status=status.HTTP_400_BAD_REQUEST)
+                return Response(ser.data, status=status.HTTP_200_OK)
 
         def get_instance(pk):
             return PayrollLine.objects.filter(pk=pk, document__tenant=tenant).first()
