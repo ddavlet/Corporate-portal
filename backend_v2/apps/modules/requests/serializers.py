@@ -38,7 +38,7 @@ from apps.modules.requests.expense_refs import (
 )
 from apps.modules.serializers_guard import reject_client_pk_on_create
 from apps.tenants.permissions import has_effective_module_access
-from apps.tenants.models import TenantMembership, TenantUserRole
+from apps.tenants.models import TenantMembership, TenantModuleConfig, TenantUserRole
 
 User = get_user_model()
 _username_validator = UnicodeUsernameValidator()
@@ -55,6 +55,31 @@ def payment_type_to_vendor_kind(payment_type: str) -> str:
     if payment_type == Request.PAYMENT_TYPE_CASH:
         return Vendor.KIND_CASH
     return Vendor.KIND_TRANSFER
+
+
+def payment_type_to_create_module_key(payment_type: str) -> str | None:
+    if payment_type == Request.PAYMENT_TYPE_CASH:
+        return "cash"
+    if payment_type in (Request.PAYMENT_TYPE_TRANSFER, Request.PAYMENT_TYPE_TOPUP):
+        return "bank"
+    if payment_type == Request.PAYMENT_TYPE_CARD:
+        return "corporate_card"
+    return None
+
+
+def payment_action_mode_choices_for_payment_type(*, tenant, payment_type: str) -> list[str]:
+    options = [
+        RequestApprovalStepConfig.PAYMENT_ACTION_MODE_CALLBACK,
+        RequestApprovalStepConfig.PAYMENT_ACTION_MODE_WEBAPP,
+    ]
+    module_key = payment_type_to_create_module_key(payment_type)
+    if module_key and TenantModuleConfig.objects.filter(
+        tenant=tenant,
+        module_key=module_key,
+        is_enabled=True,
+    ).exists():
+        options.append(RequestApprovalStepConfig.PAYMENT_ACTION_MODE_CREATE)
+    return options
 
 
 class PortalRequestSerializer(serializers.ModelSerializer):
@@ -781,6 +806,38 @@ class RequestApprovalConfigPayloadSerializer(serializers.Serializer):
     payment_types = serializers.ListField(child=RequestApprovalPaymentTypePayloadSerializer())
     integration_settings = IntegrationSettingsPayloadSerializer(required=False, default=dict)
 
+    def validate(self, attrs):
+        attrs = super().validate(attrs)
+        request_obj = self.context.get("request")
+        tenant = getattr(request_obj, "tenant", None)
+        if not tenant:
+            return attrs
+        for pt_item in attrs.get("payment_types", []):
+            payment_type = pt_item.get("payment_type")
+            allowed_modes = set(
+                payment_action_mode_choices_for_payment_type(
+                    tenant=tenant,
+                    payment_type=payment_type,
+                )
+            )
+            for step_item in list(pt_item.get("steps") or []):
+                if step_item.get("step_type") != Approval.STEP_TYPE_PAYMENT:
+                    continue
+                mode = step_item.get(
+                    "payment_action_mode",
+                    RequestApprovalStepConfig.PAYMENT_ACTION_MODE_CALLBACK,
+                )
+                if mode not in allowed_modes:
+                    raise serializers.ValidationError(
+                        {
+                            "payment_types": (
+                                f"Payment action mode '{mode}' is not available for "
+                                f"payment_type '{payment_type}'."
+                            )
+                        }
+                    )
+        return attrs
+
 
 class ApproverCandidateSerializer(serializers.ModelSerializer):
     username = serializers.SerializerMethodField()
@@ -807,6 +864,10 @@ def build_request_approval_config_response(*, tenant) -> dict:
     payment_types_rows: list[dict] = []
     for pt_value, _ in Request.PAYMENT_TYPE_CHOICES:
         row = {"payment_type": pt_value, "is_enabled": False, "steps": []}
+        row["payment_action_mode_options"] = payment_action_mode_choices_for_payment_type(
+            tenant=tenant,
+            payment_type=pt_value,
+        )
         if cfg:
             pt_cfg = RequestApprovalPaymentTypeConfig.objects.filter(config=cfg, payment_type=pt_value).first()
             if pt_cfg:

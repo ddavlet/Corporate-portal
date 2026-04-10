@@ -4,7 +4,8 @@ from django.db import transaction
 from django.utils import timezone
 from rest_framework.exceptions import APIException, NotFound, PermissionDenied, ValidationError
 
-from apps.modules.requests.models import Approval, Request
+from apps.modules.requests.models import Approval, Request, RequestApprovalStepConfig
+from apps.modules.requests.services import create_expense_for_request_payment
 
 # Set on remaining pending rows when another step already rejected the request.
 _STOPPED_BY_OTHER_STEP_COMMENT = "Автоматически: заявка отклонена на другом этапе."
@@ -250,6 +251,34 @@ def confirm_approval_by_id(
             raise ValidationError(
                 {"detail": "Этот этап согласования ещё не активен. Сначала завершите предыдущие шаги."}
             )
+
+        if (
+            decision == Approval.DECISION_APPROVED
+            and approval.step_type == Approval.STEP_TYPE_PAYMENT
+        ):
+            step_cfg = (
+                RequestApprovalStepConfig.objects.filter(
+                    payment_type_config__config__tenant=tenant,
+                    payment_type_config__payment_type=request_obj.payment_type,
+                    step=approval.step,
+                    step_type=approval.step_type,
+                )
+                .order_by("id")
+                .first()
+            )
+            mode = (
+                step_cfg.payment_action_mode
+                if step_cfg
+                else RequestApprovalStepConfig.PAYMENT_ACTION_MODE_CALLBACK
+            )
+            if mode == RequestApprovalStepConfig.PAYMENT_ACTION_MODE_CREATE:
+                actor_user = approval.approver_user
+                if actor_user is None:
+                    raise ValidationError({"detail": "Approver user is required for create mode."})
+                create_expense_for_request_payment(
+                    request_obj=request_obj,
+                    actor_user=actor_user,
+                )
 
         approval.decision = decision
         approval.comment = comment

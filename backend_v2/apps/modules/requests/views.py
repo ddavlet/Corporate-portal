@@ -354,7 +354,7 @@ class PortalRequestViewSet(viewsets.ModelViewSet):
 
     class PaymentWebAppConfirmPayloadSerializer(serializers.Serializer):
         approval_id = serializers.IntegerField(min_value=1)
-        expense_id = serializers.CharField()
+        expense_id = serializers.CharField(required=False, allow_blank=True, allow_null=True)
 
     class ApprovalResendPayloadSerializer(serializers.Serializer):
         idempotency_key = serializers.CharField(required=False, allow_blank=False, max_length=128)
@@ -504,10 +504,6 @@ class PortalRequestViewSet(viewsets.ModelViewSet):
         payload = self.PaymentWebAppConfirmPayloadSerializer(data=request.data)
         payload.is_valid(raise_exception=True)
         approval_id = payload.validated_data["approval_id"]
-        expense_id = str(payload.validated_data["expense_id"] or "").strip()
-        if not expense_id:
-            raise ValidationError({"expense_id": "Expense id is required."})
-
         approval = (
             Approval.objects.select_related("request", "request__tenant")
             .filter(id=approval_id, request__tenant=tenant, approver_user=request.user)
@@ -534,22 +530,31 @@ class PortalRequestViewSet(viewsets.ModelViewSet):
         ):
             raise ValidationError({"approval_id": "Payment step is configured for callback mode."})
 
+        expense_id = str(payload.validated_data.get("expense_id") or "").strip()
+        if (
+            step_cfg
+            and step_cfg.payment_action_mode == RequestApprovalStepConfig.PAYMENT_ACTION_MODE_WEBAPP
+            and not expense_id
+        ):
+            raise ValidationError({"expense_id": "Expense id is required for webapp mode."})
+
         request_obj = approval.request
-        request_obj.expense_id = expense_id
-        ref = try_resolve_request_expense_ref_id(
-            tenant=tenant,
-            payment_type=request_obj.payment_type,
-            category=request_obj.category,
-            expense_id_raw=expense_id,
-            expense_year=request_obj.expense_year,
-        )
-        tgt = expense_ref_target_for(
-            payment_type=request_obj.payment_type,
-            category=request_obj.category,
-        ) if ref else None
-        request_obj.expense_ref_id = ref
-        request_obj.expense_ref_target = tgt
-        request_obj.save(update_fields=["expense_id", "expense_ref_id", "expense_ref_target"])
+        if expense_id:
+            request_obj.expense_id = expense_id
+            ref = try_resolve_request_expense_ref_id(
+                tenant=tenant,
+                payment_type=request_obj.payment_type,
+                category=request_obj.category,
+                expense_id_raw=expense_id,
+                expense_year=request_obj.expense_year,
+            )
+            tgt = expense_ref_target_for(
+                payment_type=request_obj.payment_type,
+                category=request_obj.category,
+            ) if ref else None
+            request_obj.expense_ref_id = ref
+            request_obj.expense_ref_target = tgt
+            request_obj.save(update_fields=["expense_id", "expense_ref_id", "expense_ref_target"])
 
         data = confirm_approval_by_id(
             tenant=tenant,
@@ -1074,7 +1079,7 @@ class RequestApprovalConfigView(APIView):
         if not tenant:
             raise ValidationError({"detail": "Unknown tenant."})
 
-        payload = RequestApprovalConfigPayloadSerializer(data=request.data)
+        payload = RequestApprovalConfigPayloadSerializer(data=request.data, context={"request": request})
         payload.is_valid(raise_exception=True)
         payment_types = payload.validated_data.get("payment_types", [])
         integration_settings = payload.validated_data.get("integration_settings", {})
