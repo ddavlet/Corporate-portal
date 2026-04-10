@@ -168,6 +168,42 @@ class N8nIntegrationAuthTests(APITestCase):
         self.assertEqual(str(line.sum), "1100.00")
         self.assertEqual(line.employee, "Ivan I.")
 
+    def test_payroll_line_upsert_by_doc_id_and_line_no_without_id(self):
+        from apps.modules.payroll.models import PayrollLine
+
+        TenantModuleConfig.objects.create(tenant=self.tenant, module_key="payroll", is_enabled=True)
+        url = f"{self.n8n_prefix}/payroll/lines/"
+        body = {
+            "doc_id": "DOC-PAY-NATURAL-1",
+            "line_no": 3,
+            "employee": "Ivan",
+            "item": "Зарплата",
+            "description": "",
+            "sum": "1000.00",
+            "days_plan": 22,
+            "days_fact": 20,
+            "period_start": "2025-01-01",
+            "period_end": "2025-01-31",
+            "approval": False,
+        }
+        res = self.client.post(url, body, format="json", **self._headers(self.admin))
+        self.assertEqual(res.status_code, 201, res.content)
+        line = PayrollLine.objects.get(document__tenant=self.tenant, document__doc_id="DOC-PAY-NATURAL-1", line_no=3)
+        first_id = line.id
+        self.assertEqual(str(line.sum), "1000.00")
+
+        res2 = self.client.post(
+            url,
+            {**body, "sum": "1100.00", "employee": "Ivan I."},
+            format="json",
+            **self._headers(self.admin),
+        )
+        self.assertEqual(res2.status_code, 200, res2.content)
+        line.refresh_from_db()
+        self.assertEqual(line.id, first_id)
+        self.assertEqual(str(line.sum), "1100.00")
+        self.assertEqual(line.employee, "Ivan I.")
+
     def test_bank_revenue_upsert_tenant_isolation(self):
         from apps.modules.bank_expenses.models import BankRevenue
 

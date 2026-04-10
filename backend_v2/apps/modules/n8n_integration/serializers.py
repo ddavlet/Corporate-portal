@@ -186,10 +186,12 @@ class N8nPayrollLineImportSerializer(serializers.ModelSerializer):
         return ret
 
     def create(self, validated_data):
-        line_id = validated_data.pop("id")
+        line_id = validated_data.pop("id", None)
         doc_id = validated_data.pop("doc_id")
         tenant = self.context["request"].tenant
         doc, _ = PayrollDocument.objects.get_or_create(tenant=tenant, doc_id=doc_id)
+        if line_id is None:
+            return PayrollLine.objects.create(document=doc, **validated_data)
         return PayrollLine.objects.create(id=line_id, document=doc, **validated_data)
 
     def update(self, instance, validated_data):
