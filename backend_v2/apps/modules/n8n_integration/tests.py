@@ -376,6 +376,68 @@ class N8nIntegrationAuthTests(APITestCase):
         row = CashRevenue.objects.get(pk=95001)
         self.assertEqual(row.external_id, "1-000009999")
 
+    def test_cash_revenue_prefers_natural_key_when_numeric_id_conflicts(self):
+        cash_register = CashRegister.objects.create(tenant=self.tenant, currency="UZS", name="Сейф (касса)")
+        cash_wallet = Wallet.objects.create(
+            tenant=self.tenant,
+            wallet_type=Wallet.Type.CASH,
+            currency="UZS",
+            cash_register=cash_register,
+        )
+        target = CashRevenue.objects.create(
+            id=97001,
+            tenant=self.tenant,
+            external_id="1-000005033",
+            source_year=2026,
+            revenue_at=datetime(2026, 3, 29, 19, 0, 0),
+            currency="UZS",
+            total_sum="18000.00",
+            wallet=cash_wallet,
+            created_by=self.admin,
+        )
+        other_by_id = CashRevenue.objects.create(
+            id=1335922,
+            tenant=self.tenant,
+            external_id="OTHER-ROW",
+            source_year=2026,
+            revenue_at=datetime(2026, 3, 28, 19, 0, 0),
+            currency="UZS",
+            total_sum="999.00",
+            wallet=cash_wallet,
+            created_by=self.admin,
+        )
+
+        url = f"{self.n8n_prefix}/cash/revenues/"
+        body = {
+            "id": 1335922,
+            "external_id": "1-000005033",
+            "date": "2026-03-29T19:00:00.000Z",
+            "confirmed": True,
+            "direction": "in",
+            "organization": "LEMONFIT",
+            "unit": "LEMONFIT",
+            "employee": "Сумина Наталья",
+            "cash_type": "Наличные",
+            "operation": "Поступление розничной выручки из операционной кассы",
+            "counterparty": "",
+            "contract": "",
+            "total_sum": "18786000",
+            "comment": "",
+            "source_year": 2026,
+            "currency": "UZS",
+            "cash_register_name": "Сейф (касса)",
+        }
+        res = self.client.post(url, body, format="json", **self._headers(self.admin))
+        self.assertEqual(res.status_code, 200, res.content)
+
+        target.refresh_from_db()
+        self.assertEqual(str(target.total_sum), "18786000.00")
+        self.assertEqual(target.external_id, "1-000005033")
+
+        other_by_id.refresh_from_db()
+        self.assertEqual(other_by_id.external_id, "OTHER-ROW")
+        self.assertEqual(str(other_by_id.total_sum), "999.00")
+
     def test_cash_revenue_can_bind_wallet_by_cash_register_name(self):
         cash_register = CashRegister.objects.create(tenant=self.tenant, currency="UZS", name="Main cash")
         cash_wallet = Wallet.objects.create(
