@@ -13,13 +13,63 @@ import {
 
 type ReportKind = 'pnl' | 'cashflow'
 
+type MatrixRow = {
+  key: string
+  label: string
+  kind: 'section' | 'revenue' | 'expense' | 'summary'
+  values: number[]
+  emphasize?: boolean
+}
+
 const moneyFmt = new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 2 })
 const REPORT_TZ = 'Asia/Tashkent'
 const MONTH_LABELS = ['Янв', 'Фев', 'Мар', 'Апр', 'Май', 'Июн', 'Июл', 'Авг', 'Сен', 'Окт', 'Ноя', 'Дек']
 
+/** Календарный год в зоне отчёта (как у дат операций). */
+function currentReportCalendarYear(date = new Date()): number {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: REPORT_TZ,
+    year: 'numeric',
+  }).formatToParts(date)
+  const y = Number(parts.find((p) => p.type === 'year')?.value ?? '')
+  return Number.isFinite(y) ? y : date.getFullYear()
+}
+
 function money(value: string | number): string {
   const n = typeof value === 'number' ? value : Number(String(value).replace(',', '.'))
   return Number.isFinite(n) ? moneyFmt.format(n) : '0'
+}
+
+/** Длина строки как в ячейке матрицы (скобки для отрицательных). */
+function matrixCellMoneyDisplayLength(value: number): number {
+  if (Math.abs(value) < 0.000001) return 3
+  const t = money(Math.abs(value))
+  return value < 0 ? t.length + 2 : t.length
+}
+
+function maxMatrixMonthMoneyDisplayLen(matrixRows: MatrixRow[]): number {
+  let maxLen = 4
+  for (const row of matrixRows) {
+    if (row.kind === 'section') continue
+    for (let m = 0; m < 12; m++) {
+      maxLen = Math.max(maxLen, matrixCellMoneyDisplayLength(row.values[m] ?? 0))
+    }
+  }
+  return maxLen
+}
+
+/** Ширина колонки месяца в px: вмещает форматированную сумму без переноса. */
+function moneyColumnWidthFromMaxChars(maxChars: number): number {
+  return Math.min(Math.max(Math.ceil(maxChars * 7.2) + 36, 92), 280)
+}
+
+function maxAmountStringLen(rows: StructuredReportRow[]): number {
+  let maxLen = 5
+  for (const row of rows) {
+    const t = money(row.amount)
+    maxLen = Math.max(maxLen, t.length)
+  }
+  return maxLen
 }
 
 function dateText(value?: string | null): string {
@@ -69,14 +119,6 @@ function categoryFromItem(item: LegacyReportItem): string {
     item.description ||
     'Без категории'
   )
-}
-
-type MatrixRow = {
-  key: string
-  label: string
-  kind: 'section' | 'revenue' | 'expense' | 'summary'
-  values: number[]
-  emphasize?: boolean
 }
 
 type MonthSelection = {
@@ -136,7 +178,7 @@ function buildLegacyMatrix(report: StructuredReportPayload | null, year: number 
     if (ref) yearsSet.add(ref.year)
   }
   const years = Array.from(yearsSet).sort((a, b) => a - b)
-  const effectiveYear = year ?? years[years.length - 1] ?? new Date().getFullYear()
+  const effectiveYear = year ?? currentReportCalendarYear()
   const months = Array.from({ length: 12 }, (_, i) => i)
 
   const revByCat = new Map<string, number[]>()
@@ -243,12 +285,40 @@ export function ReportsPage() {
   const report = active === 'pnl' ? pnl : cashflow
   const rows = report?.rows ?? []
   const matrix = useMemo(() => buildLegacyMatrix(report, year), [report, year])
-  const effectiveYear = year ?? matrix.years[matrix.years.length - 1] ?? new Date().getFullYear()
+  const effectiveYear = year ?? currentReportCalendarYear()
+
+  const yearSegmentOptions = useMemo(() => {
+    const cy = currentReportCalendarYear()
+    const merged = new Set<number>([cy, ...matrix.years])
+    return Array.from(merged).sort((a, b) => a - b)
+  }, [matrix.years])
+
+  const matrixMonthColumnWidthPx = useMemo(
+    () => moneyColumnWidthFromMaxChars(maxMatrixMonthMoneyDisplayLen(matrix.rows)),
+    [matrix.rows],
+  )
+
+  const matrixScrollX = useMemo(() => 340 + 12 * matrixMonthColumnWidthPx, [matrixMonthColumnWidthPx])
+
+  const amountColumnWidthPx = useMemo(
+    () => moneyColumnWidthFromMaxChars(maxAmountStringLen(rows)),
+    [rows],
+  )
+
+  const operationsScrollX = useMemo(
+    () => Math.max(1180, 140 + 110 + amountColumnWidthPx + 200 + 150 + 380 + 360),
+    [amountColumnWidthPx],
+  )
 
   useEffect(() => {
-    if (!matrix.years.length) return
-    if (year && matrix.years.includes(year)) return
-    setYear(matrix.years[matrix.years.length - 1] ?? null)
+    const cy = currentReportCalendarYear()
+    if (year === null) {
+      setYear(cy)
+      return
+    }
+    if (matrix.years.length > 0 && !matrix.years.includes(year)) {
+      setYear(cy)
+    }
   }, [matrix.years, year])
 
   const filteredRows = useMemo(() => {
@@ -282,31 +352,49 @@ export function ReportsPage() {
     return filtered
   }, [rows, search, range, selectedDirection, selectedCategory, selectedMonth])
 
-  const rowColumns: ColumnsType<StructuredReportRow> = [
-    { title: 'Дата', dataIndex: 'date', width: 140, render: (v: string | null) => dateText(v), sorter: (a, b) => String(a.date || '').localeCompare(String(b.date || '')) },
-    {
-      title: 'Тип',
-      dataIndex: 'direction',
-      width: 110,
-      render: (v: 'revenue' | 'expense') => (v === 'revenue' ? <Tag color="green">Доход</Tag> : <Tag color="gold">Расход</Tag>),
-      filters: [
-        { text: 'Доход', value: 'revenue' },
-        { text: 'Расход', value: 'expense' },
-      ],
-      onFilter: (value, record) => record.direction === value,
-    },
-    { title: 'Сумма', dataIndex: 'amount', width: 150, align: 'right', render: (v: string) => money(v), sorter: (a, b) => Number(a.amount) - Number(b.amount) },
-    {
-      title: 'Категория',
-      dataIndex: 'category',
-      width: 160,
-      render: (_v: string | undefined, row) => categoryFromStructuredRow(row),
-      sorter: (a, b) => categoryFromStructuredRow(a).localeCompare(categoryFromStructuredRow(b)),
-    },
-    { title: 'Канал', dataIndex: 'channel', width: 140, sorter: (a, b) => a.channel.localeCompare(b.channel) },
-    { title: 'Назначение', dataIndex: 'purpose', ellipsis: true },
-    { title: 'Описание', dataIndex: 'description', ellipsis: true },
-  ]
+  const rowColumns: ColumnsType<StructuredReportRow> = useMemo(
+    () => [
+      {
+        title: 'Дата',
+        dataIndex: 'date',
+        width: 140,
+        render: (v: string | null) => dateText(v),
+        sorter: (a, b) => String(a.date || '').localeCompare(String(b.date || '')),
+      },
+      {
+        title: 'Тип',
+        dataIndex: 'direction',
+        width: 110,
+        render: (v: 'revenue' | 'expense') => (v === 'revenue' ? <Tag color="green">Доход</Tag> : <Tag color="gold">Расход</Tag>),
+        filters: [
+          { text: 'Доход', value: 'revenue' },
+          { text: 'Расход', value: 'expense' },
+        ],
+        onFilter: (value, record) => record.direction === value,
+      },
+      {
+        title: 'Сумма',
+        dataIndex: 'amount',
+        width: amountColumnWidthPx,
+        align: 'right' as const,
+        render: (v: string) => <span style={{ whiteSpace: 'nowrap' }}>{money(v)}</span>,
+        sorter: (a, b) => Number(a.amount) - Number(b.amount),
+        onHeaderCell: () => ({ style: { whiteSpace: 'nowrap' } }),
+        onCell: () => ({ style: { whiteSpace: 'nowrap' } }),
+      },
+      {
+        title: 'Категория',
+        dataIndex: 'category',
+        width: 160,
+        render: (_v: string | undefined, row) => categoryFromStructuredRow(row),
+        sorter: (a, b) => categoryFromStructuredRow(a).localeCompare(categoryFromStructuredRow(b)),
+      },
+      { title: 'Канал', dataIndex: 'channel', width: 140, sorter: (a, b) => a.channel.localeCompare(b.channel) },
+      { title: 'Назначение', dataIndex: 'purpose', ellipsis: true },
+      { title: 'Описание', dataIndex: 'description', ellipsis: true },
+    ],
+    [amountColumnWidthPx],
+  )
 
   const openFilteredOperations = (
     direction: 'revenue' | 'expense' | null,
@@ -332,8 +420,10 @@ export function ReportsPage() {
     ...matrix.months.map((monthIndex) => ({
       title: MONTH_LABELS[monthIndex],
       key: `m:${monthIndex}`,
-      width: 120,
+      width: matrixMonthColumnWidthPx,
       align: 'right' as const,
+      onHeaderCell: () => ({ style: { whiteSpace: 'nowrap' as const } }),
+      onCell: () => ({ style: { whiteSpace: 'nowrap' as const } }),
       render: (_: unknown, row: MatrixRow) => {
         if (row.kind === 'section') return ''
         const value = row.values[monthIndex] ?? 0
@@ -360,7 +450,7 @@ export function ReportsPage() {
               event.stopPropagation()
               openFilteredOperations(direction, category, clickMonth)
             }}
-            style={{ paddingInline: 4, minWidth: 0 }}
+            style={{ paddingInline: 6, whiteSpace: 'nowrap', height: 'auto' }}
           >
             {content}
           </Button>
@@ -393,7 +483,7 @@ export function ReportsPage() {
           />
           <DatePicker.RangePicker value={range} onChange={(v) => setRange(v as [Dayjs | null, Dayjs | null])} />
           <Segmented
-            options={(matrix.years.length ? matrix.years : [effectiveYear]).map((y) => ({ label: String(y), value: y }))}
+            options={yearSegmentOptions.map((y) => ({ label: String(y), value: y }))}
             value={effectiveYear}
             onChange={(v) => setYear(Number(v))}
           />
@@ -426,7 +516,7 @@ export function ReportsPage() {
               dataSource={matrix.rows}
               size="small"
               pagination={false}
-              scroll={{ x: 1500 }}
+              scroll={{ x: matrixScrollX }}
               onRow={(row) => ({
                 onClick: () => {
                   if (row.kind === 'revenue' || row.kind === 'expense') {
@@ -473,7 +563,7 @@ export function ReportsPage() {
               columns={rowColumns}
               dataSource={filteredRows}
               size="small"
-              scroll={{ x: 1200 }}
+              scroll={{ x: operationsScrollX }}
               pagination={{ pageSize: 50, showSizeChanger: true, pageSizeOptions: [20, 50, 100, 200] }}
               onRow={(row) => {
                 const requestId =
