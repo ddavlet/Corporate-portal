@@ -27,8 +27,15 @@ from apps.modules.requests.models import (
 )
 from apps.modules.requests.auto_requests import process_due_auto_requests, render_auto_request_template
 from apps.modules.bank_expenses.models import BankExpense
+from apps.modules.cashier.models import CashExpense
+from apps.modules.corporate_card.models import CardExpense
 from apps.modules.vendors.models import Vendor
-from apps.modules.wallets.models import BankAccount, Wallet
+from apps.modules.wallets.models import (
+    BankAccount,
+    CashRegister,
+    CorporateCardAccount,
+    Wallet,
+)
 
 User = get_user_model()
 
@@ -1061,6 +1068,211 @@ class RequestApprovalsTests(APITestCase):
         self.assertEqual(req.expense_ref_id, bank_expense.id)
         self.assertEqual(req.status, Request.STATUS_PAYED)
         self.assertEqual(approval.decision, Approval.DECISION_APPROVED)
+
+    def _configure_payment_step(self, *, payment_type: str, mode: str) -> None:
+        appr_cfg = RequestApprovalConfig.objects.get(tenant=self.tenant)
+        RequestApprovalPaymentTypeConfig.objects.filter(
+            config=appr_cfg,
+            payment_type=payment_type,
+        ).delete()
+        pt_cfg = RequestApprovalPaymentTypeConfig.objects.create(
+            config=appr_cfg,
+            payment_type=payment_type,
+            is_enabled=True,
+        )
+        step_cfg = RequestApprovalStepConfig.objects.create(
+            payment_type_config=pt_cfg,
+            step=1,
+            step_type=Approval.STEP_TYPE_PAYMENT,
+            is_enabled=True,
+            payment_action_mode=mode,
+        )
+        RequestApprovalStepApproverConfig.objects.create(step_config=step_cfg, approver_user=self.approver)
+        RequestFormPaymentTypeConfig.objects.update_or_create(
+            config=RequestFormConfig.objects.get(tenant=self.tenant),
+            payment_type=payment_type,
+            defaults={"is_enabled": True},
+        )
+
+    def _create_request_for_payment_type(self, payment_type: str) -> int:
+        self.client.force_authenticate(self.requester)
+        created = self.client.post(
+            "/api/requests/",
+            {
+                "title": f"{payment_type} request",
+                "description": "auto",
+                "amount": "10.00",
+                "currency": "UZS",
+                "payment_type": payment_type,
+                "urgency": "Обычно",
+                "billing_date": "2026-01-01",
+                "expense_year": 2026,
+                "expense_month": 1,
+                "expense_day": 2,
+            },
+            format="json",
+            HTTP_HOST=self.host,
+        )
+        self.assertEqual(created.status_code, 201, created.content)
+        return created.data["id"]
+
+    def test_payment_create_mode_creates_cash_expense_and_links_request(self):
+        TenantModuleConfig.objects.update_or_create(
+            tenant=self.tenant,
+            module_key="cash",
+            defaults={"is_enabled": True},
+        )
+        cash_register = CashRegister.objects.create(tenant=self.tenant, currency="UZS", name="Main")
+        Wallet.objects.create(
+            tenant=self.tenant,
+            wallet_type=Wallet.Type.CASH,
+            currency="UZS",
+            cash_register=cash_register,
+        )
+        self._configure_payment_step(
+            payment_type=Request.PAYMENT_TYPE_CASH,
+            mode=RequestApprovalStepConfig.PAYMENT_ACTION_MODE_CREATE,
+        )
+        request_id = self._create_request_for_payment_type(Request.PAYMENT_TYPE_CASH)
+        approval = Approval.objects.get(request_id=request_id, approver_user=self.approver, step_type=Approval.STEP_TYPE_PAYMENT)
+
+        self.client.force_authenticate(self.approver)
+        res = self.client.post(
+            f"/api/requests/{request_id}/approvals/confirm/",
+            {"approval_id": approval.id},
+            format="json",
+            HTTP_HOST=self.host,
+        )
+        self.assertEqual(res.status_code, 200, res.content)
+        req = Request.objects.get(pk=request_id)
+        self.assertEqual(req.status, Request.STATUS_PAYED)
+        self.assertEqual(req.expense_ref_target, Request.EXPENSE_REF_TARGET_CASH)
+        self.assertTrue(CashExpense.objects.filter(tenant=self.tenant, id=req.expense_ref_id).exists())
+
+    def test_payment_create_mode_creates_bank_expense_and_links_request(self):
+        TenantModuleConfig.objects.update_or_create(
+            tenant=self.tenant,
+            module_key="bank",
+            defaults={"is_enabled": True},
+        )
+        bank_account = BankAccount.objects.create(tenant=self.tenant, label="Main")
+        Wallet.objects.create(
+            tenant=self.tenant,
+            wallet_type=Wallet.Type.BANK,
+            currency="UZS",
+            bank_account=bank_account,
+        )
+        self._configure_payment_step(
+            payment_type=Request.PAYMENT_TYPE_TRANSFER,
+            mode=RequestApprovalStepConfig.PAYMENT_ACTION_MODE_CREATE,
+        )
+        request_id = self._create_request_for_payment_type(Request.PAYMENT_TYPE_TRANSFER)
+        approval = Approval.objects.get(request_id=request_id, approver_user=self.approver, step_type=Approval.STEP_TYPE_PAYMENT)
+
+        self.client.force_authenticate(self.approver)
+        res = self.client.post(
+            f"/api/requests/{request_id}/approvals/confirm/",
+            {"approval_id": approval.id},
+            format="json",
+            HTTP_HOST=self.host,
+        )
+        self.assertEqual(res.status_code, 200, res.content)
+        req = Request.objects.get(pk=request_id)
+        self.assertEqual(req.status, Request.STATUS_PAYED)
+        self.assertEqual(req.expense_ref_target, Request.EXPENSE_REF_TARGET_BANK)
+        self.assertTrue(BankExpense.objects.filter(tenant=self.tenant, id=req.expense_ref_id).exists())
+
+    def test_payment_create_mode_creates_card_expense_and_links_request(self):
+        TenantModuleConfig.objects.update_or_create(
+            tenant=self.tenant,
+            module_key="corporate_card",
+            defaults={"is_enabled": True},
+        )
+        card_account = CorporateCardAccount.objects.create(tenant=self.tenant, currency="UZS", label="Corp")
+        Wallet.objects.create(
+            tenant=self.tenant,
+            wallet_type=Wallet.Type.CORPORATE_CARD,
+            currency="UZS",
+            corporate_card_account=card_account,
+        )
+        self._configure_payment_step(
+            payment_type=Request.PAYMENT_TYPE_CARD,
+            mode=RequestApprovalStepConfig.PAYMENT_ACTION_MODE_CREATE,
+        )
+        request_id = self._create_request_for_payment_type(Request.PAYMENT_TYPE_CARD)
+        approval = Approval.objects.get(request_id=request_id, approver_user=self.approver, step_type=Approval.STEP_TYPE_PAYMENT)
+
+        self.client.force_authenticate(self.approver)
+        res = self.client.post(
+            f"/api/requests/{request_id}/approvals/confirm/",
+            {"approval_id": approval.id},
+            format="json",
+            HTTP_HOST=self.host,
+        )
+        self.assertEqual(res.status_code, 200, res.content)
+        req = Request.objects.get(pk=request_id)
+        self.assertEqual(req.status, Request.STATUS_PAYED)
+        self.assertEqual(req.expense_ref_target, Request.EXPENSE_REF_TARGET_CARD)
+        self.assertTrue(CardExpense.objects.filter(tenant=self.tenant, id=req.expense_ref_id).exists())
+
+    def test_payment_create_mode_disallowed_when_target_module_disabled(self):
+        self.client.force_authenticate(self.admin)
+        payload = {
+            "payment_types": [
+                {
+                    "payment_type": Request.PAYMENT_TYPE_TRANSFER,
+                    "is_enabled": True,
+                    "steps": [
+                        {
+                            "step": 1,
+                            "step_type": Approval.STEP_TYPE_PAYMENT,
+                            "is_enabled": True,
+                            "approver_user_ids": [self.approver.id],
+                            "payment_action_mode": RequestApprovalStepConfig.PAYMENT_ACTION_MODE_CREATE,
+                        }
+                    ],
+                }
+            ]
+        }
+        res = self.client.put("/api/requests/approval-config/", payload, format="json", HTTP_HOST=self.host)
+        self.assertEqual(res.status_code, 400, res.content)
+
+    def test_payment_create_mode_is_idempotent_on_repeat_confirm(self):
+        TenantModuleConfig.objects.update_or_create(
+            tenant=self.tenant,
+            module_key="bank",
+            defaults={"is_enabled": True},
+        )
+        bank_account = BankAccount.objects.create(tenant=self.tenant, label="Main")
+        Wallet.objects.create(
+            tenant=self.tenant,
+            wallet_type=Wallet.Type.BANK,
+            currency="UZS",
+            bank_account=bank_account,
+        )
+        self._configure_payment_step(
+            payment_type=Request.PAYMENT_TYPE_TRANSFER,
+            mode=RequestApprovalStepConfig.PAYMENT_ACTION_MODE_CREATE,
+        )
+        request_id = self._create_request_for_payment_type(Request.PAYMENT_TYPE_TRANSFER)
+        approval = Approval.objects.get(request_id=request_id, approver_user=self.approver, step_type=Approval.STEP_TYPE_PAYMENT)
+
+        self.client.force_authenticate(self.approver)
+        first = self.client.post(
+            f"/api/requests/{request_id}/approvals/confirm/",
+            {"approval_id": approval.id},
+            format="json",
+            HTTP_HOST=self.host,
+        )
+        self.assertEqual(first.status_code, 200, first.content)
+        second = self.client.post(
+            f"/api/requests/{request_id}/approvals/confirm/",
+            {"approval_id": approval.id},
+            format="json",
+            HTTP_HOST=self.host,
+        )
+        self.assertEqual(second.status_code, 409, second.content)
+        self.assertEqual(BankExpense.objects.filter(tenant=self.tenant).count(), 1)
 
 @override_settings(BASE_DOMAIN="example.com", N8N_INTEGRATION_TOKEN="", ALLOWED_HOSTS=["*"])
 class RequestFileLinkRewriteTests(APITestCase):

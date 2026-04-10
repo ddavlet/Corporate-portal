@@ -2,6 +2,8 @@ SERVER     := kolberg
 REMOTE_DIR := ~/n8n
 TEST_PATH  ?= apps
 DEPLOY_AT  ?=
+DEPLOY_RUN_TESTS ?= 1
+DEPLOY_TEST_PATH ?= $(TEST_PATH)
 BRANCH     := $(shell git rev-parse --abbrev-ref HEAD)
 
 .DEFAULT_GOAL := help
@@ -13,6 +15,8 @@ help:
 	@echo "  make test            — запустить тесты на сервере"
 	@echo "  make deploy          — задеплоить main в production"
 	@echo "  make deploy DEPLOY_AT=23:00 — задеплоить в указанное время"
+	@echo "  make deploy DEPLOY_RUN_TESTS=0 — деплой без пост-тестов"
+	@echo "  make deploy DEPLOY_TEST_PATH=apps.modules.requests.tests — деплой + таргетные тесты"
 	@echo "  make makemigrations  — создать миграции и скачать на локал"
 	@echo "  make rollback        — откатить production на предыдущий образ"
 	@echo ""
@@ -50,7 +54,7 @@ deploy:
 		echo "❌  Есть незакоммиченные изменения."; \
 		exit 1; \
 	fi
-	ssh $(SERVER) "bash $(REMOTE_DIR)/deploy.sh $(DEPLOY_AT)"
+	ssh $(SERVER) "DEPLOY_RUN_TESTS=$(DEPLOY_RUN_TESTS) DEPLOY_TEST_PATH='$(DEPLOY_TEST_PATH)' bash $(REMOTE_DIR)/deploy.sh $(DEPLOY_AT)"
 
 # ── 4. Миграции ───────────────────────────────────────────────────────────────
 makemigrations:
