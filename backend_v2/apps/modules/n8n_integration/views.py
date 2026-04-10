@@ -362,6 +362,35 @@ class N8nCashRevenueUpsertView(_N8nBaseView):
             except (TypeError, ValueError):
                 pass
 
+        # Upsert by (external_id, source_year) when id is absent.
+        if payload.get("id") in (None, "") and payload.get("external_id") not in (None, ""):
+            ser_probe = N8nCashRevenueImportSerializer(data=payload, context={"request": request})
+            ser_probe.is_valid(raise_exception=True)
+            external_id = str(ser_probe.validated_data.get("external_id") or "").strip()
+            effective_source_year = ser_probe.validated_data.get("source_year")
+            existing_qs = CashRevenue.objects.filter(tenant=tenant, external_id=external_id)
+            if effective_source_year is not None:
+                existing_qs = existing_qs.filter(source_year=effective_source_year)
+            existing = existing_qs.first()
+            if existing is not None:
+                update_ser = N8nCashRevenueImportSerializer(
+                    instance=existing,
+                    data=payload,
+                    partial=True,
+                    context={"request": request},
+                )
+                update_ser.is_valid(raise_exception=True)
+                try:
+                    update_ser.save()
+                except IntegrityError:
+                    return Response({"detail": "Could not update with this payload."}, status=status.HTTP_400_BAD_REQUEST)
+                return Response(update_ser.data, status=status.HTTP_200_OK)
+            try:
+                ser_probe.save(tenant=request.tenant, created_by=su)
+            except IntegrityError:
+                return Response({"detail": "Could not create with this payload."}, status=status.HTTP_400_BAD_REQUEST)
+            return Response(ser_probe.data, status=status.HTTP_201_CREATED)
+
         if raw_id not in (None, ""):
             try:
                 int(raw_id)
