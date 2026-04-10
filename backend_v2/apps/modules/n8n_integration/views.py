@@ -4,7 +4,7 @@ from datetime import date, datetime
 import requests
 from django.conf import settings
 from django.contrib.auth import get_user_model
-from django.db import IntegrityError
+from django.db import IntegrityError, transaction
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
@@ -96,6 +96,89 @@ def _n8n_upsert(request, *, serializer_class, get_instance, other_tenant_conflic
 class _N8nBaseView(APIView):
     authentication_classes = [N8nIntegrationAuthentication]
     permission_classes = [IsAuthenticated, IsTenantAdmin]
+
+
+class _N8nBatchBaseView(_N8nBaseView):
+    single_view_class = None
+
+    @staticmethod
+    def _item_request(base_request, item_data):
+        class _Req:
+            data = item_data
+            tenant = base_request.tenant
+            META = base_request.META
+            method = base_request.method
+            user = base_request.user
+            path = base_request.path
+            GET = getattr(base_request, "GET", {})
+
+        return _Req()
+
+    def post(self, request):
+        if not isinstance(request.data, list):
+            return Response({"detail": "Expected an array payload."}, status=status.HTTP_400_BAD_REQUEST)
+        if self.single_view_class is None:
+            return Response({"detail": "Batch view is not configured."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+        single_view = self.single_view_class()
+        results = []
+        with transaction.atomic():
+            for idx, item in enumerate(request.data):
+                if not isinstance(item, dict):
+                    transaction.set_rollback(True)
+                    return Response(
+                        {
+                            "detail": "Batch failed. All changes rolled back.",
+                            "failed_index": idx,
+                            "failed_status": status.HTTP_400_BAD_REQUEST,
+                            "failed_data": {"detail": "Each array item must be an object."},
+                        },
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+                item_request = self._item_request(request, item)
+                try:
+                    item_response = single_view.post(item_request)
+                except Exception as exc:
+                    logger.exception("n8n batch item processing failed: index=%s error=%s", idx, exc)
+                    transaction.set_rollback(True)
+                    return Response(
+                        {
+                            "detail": "Batch failed. All changes rolled back.",
+                            "failed_index": idx,
+                            "failed_status": status.HTTP_500_INTERNAL_SERVER_ERROR,
+                            "failed_data": {"detail": "Unhandled server error."},
+                        },
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+
+                code = int(getattr(item_response, "status_code", status.HTTP_500_INTERNAL_SERVER_ERROR))
+                if not 200 <= code < 300:
+                    transaction.set_rollback(True)
+                    return Response(
+                        {
+                            "detail": "Batch failed. All changes rolled back.",
+                            "failed_index": idx,
+                            "failed_status": code,
+                            "failed_data": item_response.data,
+                        },
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+
+                results.append(
+                    {
+                        "index": idx,
+                        "status": code,
+                        "data": item_response.data,
+                    }
+                )
+
+        return Response(
+            {
+                "count": len(results),
+                "results": results,
+            },
+            status=status.HTTP_200_OK,
+        )
 
 
 def _proxy_n8n_json(request, endpoint: str):
@@ -683,3 +766,51 @@ class N8nNoteUpsertView(_N8nBaseView):
             other_tenant_conflict=other_tenant_conflict,
             build_create_kwargs=build_create_kwargs,
         )
+
+
+class N8nVendorBatchUpsertView(_N8nBatchBaseView):
+    single_view_class = N8nVendorUpsertView
+
+
+class N8nRequestBatchUpsertView(_N8nBatchBaseView):
+    single_view_class = N8nRequestUpsertView
+
+
+class N8nApprovalBatchUpsertView(_N8nBatchBaseView):
+    single_view_class = N8nApprovalUpsertView
+
+
+class N8nCashExpenseBatchUpsertView(_N8nBatchBaseView):
+    single_view_class = N8nCashExpenseUpsertView
+
+
+class N8nCashRevenueBatchUpsertView(_N8nBatchBaseView):
+    single_view_class = N8nCashRevenueUpsertView
+
+
+class N8nBankExpenseBatchUpsertView(_N8nBatchBaseView):
+    single_view_class = N8nBankExpenseUpsertView
+
+
+class N8nBankRevenueBatchUpsertView(_N8nBatchBaseView):
+    single_view_class = N8nBankRevenueUpsertView
+
+
+class N8nCardExpenseBatchUpsertView(_N8nBatchBaseView):
+    single_view_class = N8nCardExpenseUpsertView
+
+
+class N8nCardRevenueBatchUpsertView(_N8nBatchBaseView):
+    single_view_class = N8nCardRevenueUpsertView
+
+
+class N8nClientsDebtBatchUpsertView(_N8nBatchBaseView):
+    single_view_class = N8nClientsDebtUpsertView
+
+
+class N8nPayrollLineBatchUpsertView(_N8nBatchBaseView):
+    single_view_class = N8nPayrollLineUpsertView
+
+
+class N8nNoteBatchUpsertView(_N8nBatchBaseView):
+    single_view_class = N8nNoteUpsertView

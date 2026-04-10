@@ -14,12 +14,22 @@ type Source = {
 const SOURCES: Source[] = [
   { key: 'vendors', label: 'Поставщики', endpoint: '/api/vendors/' },
   { key: 'requests', label: 'Заявки', endpoint: '/api/requests/' },
+  { key: 'notes', label: 'Заметки', endpoint: '/api/notes/' },
+  { key: 'payroll-documents', label: 'Начисления ЗП: документы', endpoint: '/api/payroll/documents/' },
+  { key: 'clients-debt', label: 'Долги клиентов', endpoint: '/api/clients-debt/' },
   { key: 'cash-expenses', label: 'Касса: расходы', endpoint: '/api/cash/expenses/' },
   { key: 'cash-revenues', label: 'Касса: доходы', endpoint: '/api/cash/revenues/' },
   { key: 'bank-expenses', label: 'Банк: расходы', endpoint: '/api/bank/expenses/' },
   { key: 'bank-revenues', label: 'Банк: доходы', endpoint: '/api/bank/revenues/' },
   { key: 'card-expenses', label: 'Корпкарта: расходы', endpoint: '/api/corporate-card/expenses/' },
   { key: 'card-revenues', label: 'Корпкарта: доходы', endpoint: '/api/corporate-card/revenues/' },
+  { key: 'wallets-cash-registers', label: 'Кошельки: кассы', endpoint: '/api/wallets/cash-registers/' },
+  { key: 'wallets-bank-accounts', label: 'Кошельки: счета', endpoint: '/api/wallets/bank-accounts/' },
+  {
+    key: 'wallets-corporate-card-accounts',
+    label: 'Кошельки: корпоративные карты',
+    endpoint: '/api/wallets/corporate-card-accounts/',
+  },
 ]
 
 function normalizeRows(payload: unknown): AnyRow[] {
@@ -63,6 +73,16 @@ function rowCaption(row: AnyRow): string {
       row.id ??
       'Запись',
   )
+}
+
+function formatAmount(value: unknown): string | null {
+  if (value === null || value === undefined || value === '') return null
+  const asNumber = typeof value === 'number' ? value : Number(String(value).replace(/\s+/g, '').replace(',', '.'))
+  if (!Number.isFinite(asNumber)) return null
+  return new Intl.NumberFormat('ru-RU', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(asNumber)
 }
 
 export function AdminModulePage() {
@@ -168,8 +188,9 @@ export function AdminModulePage() {
         const parts: string[] = []
         if (typeof row.status === 'string' && row.status) parts.push(`Статус: ${row.status}`)
         if (typeof row.currency === 'string' && row.currency) parts.push(`Валюта: ${row.currency}`)
-        if (row.amount !== undefined) parts.push(`Сумма: ${String(row.amount)}`)
-        if (row.total_sum !== undefined) parts.push(`Сумма: ${String(row.total_sum)}`)
+        const amountLike = row.debt_sum ?? row.amount ?? row.total_sum
+        const formattedAmount = formatAmount(amountLike)
+        if (formattedAmount !== null) parts.push(`Сумма: ${formattedAmount}`)
         return <Typography.Text type="secondary">{parts.join(' | ') || '—'}</Typography.Text>
       },
     },
