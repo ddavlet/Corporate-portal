@@ -1,10 +1,13 @@
 from datetime import datetime
+from zoneinfo import ZoneInfo
 
 from django.contrib.auth import get_user_model
 from django.test import override_settings
+from django.utils import timezone
 from rest_framework.test import APITestCase
 
 from apps.modules.clients_debt.models import ClientDebtSnapshot
+from apps.modules.clients_debt.serializers import ClientDebtSnapshotSerializer
 from apps.tenants.models import Tenant, TenantMembership, TenantModuleConfig, TenantUserRole
 
 User = get_user_model()
@@ -63,4 +66,25 @@ class ClientDebtApiTests(APITestCase):
         self.assertEqual(res.status_code, 200, res.content)
         self.assertEqual(len(res.data), 1)
         self.assertEqual(res.data[0]["id"], self.row.id)
+
+
+@override_settings(TIME_ZONE="Asia/Tashkent", USE_TZ=True)
+class ClientDebtSerializerTimezoneTests(APITestCase):
+    def test_naive_snapshot_at_is_interpreted_as_tashkent_time(self):
+        serializer = ClientDebtSnapshotSerializer(
+            data={
+                "snapshot_at": "2026-03-01T00:00:00",
+                "doc_type": "client_debt_total",
+                "organization": "LEMONFIT",
+                "client": "Test Client",
+                "client_id": "000000001",
+                "debt_sum": "100.00",
+                "quantity": "1.00",
+                "cert_discount": "0.00",
+            }
+        )
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+        snapshot_at = serializer.validated_data["snapshot_at"]
+        self.assertTrue(timezone.is_aware(snapshot_at))
+        self.assertEqual(snapshot_at.utcoffset(), ZoneInfo("Asia/Tashkent").utcoffset(snapshot_at))
 
