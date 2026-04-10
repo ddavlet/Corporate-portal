@@ -6,6 +6,7 @@ from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.db import IntegrityError, transaction
 from rest_framework import status
+from rest_framework.exceptions import ValidationError
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -138,6 +139,17 @@ class _N8nBatchBaseView(_N8nBaseView):
                 item_request = self._item_request(request, item)
                 try:
                     item_response = single_view.post(item_request)
+                except ValidationError as exc:
+                    transaction.set_rollback(True)
+                    return Response(
+                        {
+                            "detail": "Batch failed. All changes rolled back.",
+                            "failed_index": idx,
+                            "failed_status": status.HTTP_400_BAD_REQUEST,
+                            "failed_data": exc.detail,
+                        },
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
                 except Exception as exc:
                     logger.exception("n8n batch item processing failed: index=%s error=%s", idx, exc)
                     transaction.set_rollback(True)
