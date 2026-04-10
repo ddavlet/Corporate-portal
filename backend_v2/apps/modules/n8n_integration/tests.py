@@ -291,6 +291,33 @@ class N8nIntegrationAuthTests(APITestCase):
         row.refresh_from_db()
         self.assertEqual(str(row.total_sum), "21000.00")
 
+    def test_cash_revenue_without_id_respects_external_id_source_year_uniqueness(self):
+        url = f"{self.n8n_prefix}/cash/revenues/"
+        body = {
+            "external_id": "1-000004500",
+            "source_year": 2026,
+            "date": "2026-03-19T19:00:00.000Z",
+            "confirmed": True,
+            "direction": "in",
+            "organization": "LEMONFIT",
+            "unit": "LEMONFIT",
+            "total_sum": "20000",
+            "cash_register_name": "Main cash",
+        }
+        cash_register = CashRegister.objects.create(tenant=self.tenant, currency="UZS", name="Main cash")
+        Wallet.objects.create(
+            tenant=self.tenant,
+            wallet_type=Wallet.Type.CASH,
+            currency="UZS",
+            cash_register=cash_register,
+        )
+
+        res = self.client.post(url, body, format="json", **self._headers(self.admin))
+        self.assertEqual(res.status_code, 201, res.content)
+
+        res2 = self.client.post(url, body, format="json", **self._headers(self.admin))
+        self.assertEqual(res2.status_code, 400, res2.content)
+
     def test_cash_revenue_pk_as_id_and_id_as_external(self):
         url = f"{self.n8n_prefix}/cash/revenues/"
         body = {

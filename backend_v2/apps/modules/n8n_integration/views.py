@@ -287,6 +287,15 @@ class N8nCashRevenueUpsertView(_N8nBaseView):
         payload = dict(request.data)
         raw_id = payload.get("id")
         raw_pk = payload.get("pk")
+        source_year = payload.get("source_year")
+        if source_year in ("",):
+            source_year = None
+        if source_year is not None:
+            try:
+                source_year = int(source_year)
+                payload["source_year"] = source_year
+            except (TypeError, ValueError):
+                source_year = None
         # External source format support:
         # - pk: numeric DB id for upsert
         # - id: business external identifier
@@ -308,7 +317,10 @@ class N8nCashRevenueUpsertView(_N8nBaseView):
                 payload.pop("id", None)
                 payload.setdefault("external_id", external_id)
 
-                existing = CashRevenue.objects.filter(tenant=tenant, external_id=external_id).first()
+                existing_qs = CashRevenue.objects.filter(tenant=tenant, external_id=external_id)
+                if source_year is not None:
+                    existing_qs = existing_qs.filter(source_year=source_year)
+                existing = existing_qs.first()
                 if existing is not None:
                     ser = N8nCashRevenueImportSerializer(
                         instance=existing,
