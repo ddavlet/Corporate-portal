@@ -79,6 +79,11 @@ type MatrixRow = {
   emphasize?: boolean
 }
 
+type MonthSelection = {
+  year: number
+  monthIndex: number
+}
+
 function normalizeCategoryFromFields(source: {
   category?: unknown
   cathegory?: unknown
@@ -167,12 +172,15 @@ function buildLegacyMatrix(report: StructuredReportPayload | null, year: number 
     return sumB - sumA
   }
 
+  const sortCategoryAz = (a: [string, number[]], b: [string, number[]]) =>
+    a[0].localeCompare(b[0], 'ru', { sensitivity: 'base' })
+
   const revenueRows: MatrixRow[] = Array.from(revByCat.entries())
     .sort(sortByAbsTotalDesc)
     .map(([label, values]) => ({ key: `rev:${label}`, label, kind: 'revenue', values }))
 
   const expenseRows: MatrixRow[] = Array.from(expByCat.entries())
-    .sort(sortByAbsTotalDesc)
+    .sort(sortCategoryAz)
     .map(([label, values]) => ({ key: `exp:${label}`, label, kind: 'expense', values }))
 
   const net = revTotals.map((v, idx) => v + expTotals[idx])
@@ -208,6 +216,7 @@ export function ReportsPage() {
   const [year, setYear] = useState<number | null>(null)
   const [selectedDirection, setSelectedDirection] = useState<'revenue' | 'expense' | null>(null)
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null)
+  const [selectedMonth, setSelectedMonth] = useState<MonthSelection | null>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -246,7 +255,7 @@ export function ReportsPage() {
     const query = search.trim().toLowerCase()
     const from = range?.[0]?.format('YYYY-MM-DD')
     const to = range?.[1]?.format('YYYY-MM-DD')
-    return rows.filter((row) => {
+    const filtered = rows.filter((row) => {
       const dateOnly = String(row.date || '').slice(0, 10)
       if (from && (!dateOnly || dateOnly < from)) return false
       if (to && (!dateOnly || dateOnly > to)) return false
@@ -255,11 +264,23 @@ export function ReportsPage() {
         const rowCategory = categoryFromStructuredRow(row)
         if (rowCategory !== selectedCategory) return false
       }
+      if (selectedMonth) {
+        const ref = parseMonthRef(row.date)
+        if (!ref || ref.year !== selectedMonth.year || ref.monthIndex !== selectedMonth.monthIndex) return false
+      }
       if (!query) return true
       const hay = `${row.id} ${categoryFromStructuredRow(row)} ${row.purpose} ${row.description} ${row.channel}`.toLowerCase()
       return hay.includes(query)
     })
-  }, [rows, search, range, selectedDirection, selectedCategory])
+    if (selectedDirection === 'expense') {
+      return [...filtered].sort((a, b) => {
+        const c = categoryFromStructuredRow(a).localeCompare(categoryFromStructuredRow(b), 'ru', { sensitivity: 'base' })
+        if (c !== 0) return c
+        return String(b.date || '').localeCompare(String(a.date || ''))
+      })
+    }
+    return filtered
+  }, [rows, search, range, selectedDirection, selectedCategory, selectedMonth])
 
   const rowColumns: ColumnsType<StructuredReportRow> = [
     { title: 'Дата', dataIndex: 'date', width: 140, render: (v: string | null) => dateText(v), sorter: (a, b) => String(a.date || '').localeCompare(String(b.date || '')) },
@@ -287,6 +308,19 @@ export function ReportsPage() {
     { title: 'Описание', dataIndex: 'description', ellipsis: true },
   ]
 
+  const openFilteredOperations = (
+    direction: 'revenue' | 'expense' | null,
+    category: string | null,
+    month?: MonthSelection | null,
+  ) => {
+    setSelectedDirection(direction)
+    setSelectedCategory(category)
+    setSelectedMonth(month ?? null)
+    window.setTimeout(() => {
+      operationsCardRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    }, 0)
+  }
+
   const matrixColumns: ColumnsType<MatrixRow> = [
     {
       title: String(effectiveYear),
@@ -305,19 +339,35 @@ export function ReportsPage() {
         const value = row.values[monthIndex] ?? 0
         if (Math.abs(value) < 0.000001) return <Typography.Text type="secondary">0.0</Typography.Text>
         const text = money(Math.abs(value))
-        if (value < 0) return <Typography.Text type="danger">({text})</Typography.Text>
-        return text
+        const clickMonth = { year: effectiveYear, monthIndex }
+
+        const resolveCellFilter = (): { direction: 'revenue' | 'expense' | null; category: string | null } => {
+          if (row.kind === 'revenue') return { direction: 'revenue', category: row.label }
+          if (row.kind === 'expense') return { direction: 'expense', category: row.label }
+          if (row.key === 'sum:income') return { direction: 'revenue', category: null }
+          if (row.key === 'sum:expense') return { direction: 'expense', category: null }
+          return { direction: null, category: null }
+        }
+
+        const { direction, category } = resolveCellFilter()
+        const content =
+          value < 0 ? <Typography.Text type="danger">({text})</Typography.Text> : <Typography.Text>{text}</Typography.Text>
+        return (
+          <Button
+            type="text"
+            size="small"
+            onClick={(event) => {
+              event.stopPropagation()
+              openFilteredOperations(direction, category, clickMonth)
+            }}
+            style={{ paddingInline: 4, minWidth: 0 }}
+          >
+            {content}
+          </Button>
+        )
       },
     })),
   ]
-
-  const openFilteredOperations = (direction: 'revenue' | 'expense' | null, category: string | null) => {
-    setSelectedDirection(direction)
-    setSelectedCategory(category)
-    window.setTimeout(() => {
-      operationsCardRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-    }, 0)
-  }
 
   return (
     <Space direction="vertical" size="middle" style={{ width: '100%' }}>
@@ -347,11 +397,12 @@ export function ReportsPage() {
             value={effectiveYear}
             onChange={(v) => setYear(Number(v))}
           />
-          {selectedDirection || selectedCategory ? (
+          {selectedDirection || selectedCategory || selectedMonth ? (
             <Button
               onClick={() => {
                 setSelectedDirection(null)
                 setSelectedCategory(null)
+                setSelectedMonth(null)
               }}
             >
               Сбросить фильтр категории
@@ -408,10 +459,11 @@ export function ReportsPage() {
             <Card
             title={`${active === 'pnl' ? 'PnL' : 'Cashflow'}: операции`}
             extra={
-              selectedDirection || selectedCategory ? (
+              selectedDirection || selectedCategory || selectedMonth ? (
                 <Typography.Text type="secondary">
                   Фильтр: {selectedDirection === 'revenue' ? 'Доход' : selectedDirection === 'expense' ? 'Расход' : 'Все'}
                   {selectedCategory ? ` / ${selectedCategory}` : ''}
+                  {selectedMonth ? ` / ${MONTH_LABELS[selectedMonth.monthIndex]} ${selectedMonth.year}` : ''}
                 </Typography.Text>
               ) : null
             }
