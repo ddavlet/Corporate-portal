@@ -9,6 +9,7 @@ import { RequestDetailModal, type RequestDetail } from './requests/RequestDetail
 import { NoteCreateModal } from './NoteCreateModal'
 import { labelBlockAboveField } from './formSpacing'
 import { ChannelBalancesSummary } from './ChannelBalancesSummary'
+import { renderExpenseRequestStatusTag, shouldHighlightMissingRequiredRequest } from './expenseRequestStatus'
 
 type BankExpenseRow = {
   id: number
@@ -25,6 +26,7 @@ type BankExpenseRow = {
   has_request?: boolean
   has_paid_request?: boolean
   matched_request_id?: number | null
+  request_required?: boolean
 }
 
 type BankRevenueRow = BankRevenue
@@ -227,11 +229,10 @@ export function BankPage() {
       render: (value: string | number) => Number(value).toLocaleString('ru-RU'),
     },
     {
-      title: 'Связь с PAYED',
+      title: 'Статус заявки',
       dataIndex: 'has_paid_request',
       width: 150,
-      render: (value: boolean | undefined) =>
-        value === false ? <Tag color="gold">Без PAYED request</Tag> : <Tag color="success">OK</Tag>,
+      render: (_value: boolean | undefined, row) => renderExpenseRequestStatusTag(row),
     },
     { title: 'Контрагент', dataIndex: 'account_name' },
     { title: 'Дата док.', dataIndex: 'doc_date', render: (value: string) => formatDate(value) },
@@ -370,6 +371,7 @@ export function BankPage() {
                   size="small"
                   columns={columns}
                   dataSource={filteredRows}
+                  rowClassName={(record) => (shouldHighlightMissingRequiredRequest(record) ? 'bank-row-unmatched' : '')}
                   onRow={(record) => ({
                     onClick: () => setSelectedExpense(record),
                     style: { cursor: 'pointer' },
@@ -448,6 +450,7 @@ export function BankPage() {
             <Descriptions.Item label="Назначение">{selectedExpense.payment_purpose || '-'}</Descriptions.Item>
             <Descriptions.Item label="Дата док.">{formatDate(selectedExpense.doc_date)}</Descriptions.Item>
             <Descriptions.Item label="Дата проводки">{formatDate(selectedExpense.process_date)}</Descriptions.Item>
+            <Descriptions.Item label="Статус заявки">{renderExpenseRequestStatusTag(selectedExpense)}</Descriptions.Item>
           </Descriptions>
         ) : null}
 
@@ -513,6 +516,11 @@ export function BankPage() {
         targetType="bank"
         targetId={selectedExpense?.id || null}
       />
+      <style>{`
+        .bank-row-unmatched > td {
+          background: #fffbe6 !important;
+        }
+      `}</style>
     </Card>
   )
 }

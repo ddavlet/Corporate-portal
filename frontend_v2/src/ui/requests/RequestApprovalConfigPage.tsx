@@ -40,6 +40,8 @@ function normalizeConfig(resp: RequestApprovalConfigResponse): RequestApprovalCo
         payment_type: pt,
         is_enabled: false,
         payment_action_mode_options: ['callback', 'webapp'],
+        request_not_required_field_options: [],
+        request_not_required_rules: [],
         steps: [],
       }
     )
@@ -106,6 +108,23 @@ export function RequestApprovalConfigPage() {
     })
   }
 
+  const updateRequestNotRequiredRules = (
+    pt: string,
+    updater: (rules: Array<{ field: string; operator?: 'eq' | string; value: string }>) => Array<{ field: string; operator?: 'eq' | string; value: string }>,
+  ) => {
+    setData((prev) => {
+      if (!prev) return prev
+      return {
+        ...prev,
+        payment_types: prev.payment_types.map((p) => {
+          if (p.payment_type !== pt) return p
+          const current = p.request_not_required_rules ?? []
+          return { ...p, request_not_required_rules: updater(current) }
+        }),
+      }
+    })
+  }
+
   const addStep = (pt: string) => {
     setData((prev) => {
       if (!prev) return prev
@@ -138,6 +157,15 @@ export function RequestApprovalConfigPage() {
         payment_types: data.payment_types.map((pt) => ({
           payment_type: pt.payment_type,
           is_enabled: pt.is_enabled,
+          ...(data.is_tenant_admin
+            ? {
+                request_not_required_rules: (pt.request_not_required_rules ?? []).map((r) => ({
+                  field: r.field,
+                  operator: r.operator ?? 'eq',
+                  value: r.value,
+                })),
+              }
+            : {}),
           steps: pt.steps.map((s) => ({
             step: s.step,
             step_type: s.step_type,
@@ -213,6 +241,68 @@ export function RequestApprovalConfigPage() {
                   {!pt.is_enabled ? (
                     <Alert type="warning" showIcon message="Тип оплаты выключен." />
                   ) : null}
+
+                  <Space direction="vertical" size={12} style={{ display: 'flex' }}>
+                    <Typography.Text strong style={labelBlockAboveField}>
+                      Исключения обязательности заявки
+                    </Typography.Text>
+                    {data.is_tenant_admin ? null : (
+                      <Alert
+                        type="info"
+                        showIcon
+                        message="Управление исключениями доступно только admin."
+                      />
+                    )}
+                    {(pt.request_not_required_rules ?? []).length === 0 ? (
+                      <Alert type="info" showIcon message="Исключения не настроены. По умолчанию заявка обязательна." />
+                    ) : null}
+                    {(pt.request_not_required_rules ?? []).map((rule, ruleIdx) => (
+                      <Space key={`${pt.payment_type}-rule-${ruleIdx}`} wrap align="start">
+                        <Select
+                          value={rule.field}
+                          onChange={(value) =>
+                            updateRequestNotRequiredRules(pt.payment_type, (rules) =>
+                              rules.map((r, idx) => (idx === ruleIdx ? { ...r, field: value } : r)),
+                            )
+                          }
+                          options={(pt.request_not_required_field_options ?? []).map((value) => ({ value, label: value }))}
+                          style={{ width: 220 }}
+                          disabled={!data.is_tenant_admin}
+                        />
+                        <Input
+                          value={rule.value}
+                          onChange={(e) =>
+                            updateRequestNotRequiredRules(pt.payment_type, (rules) =>
+                              rules.map((r, idx) => (idx === ruleIdx ? { ...r, value: e.target.value } : r)),
+                            )
+                          }
+                          placeholder="Значение"
+                          style={{ width: 260 }}
+                          disabled={!data.is_tenant_admin}
+                        />
+                        <Button
+                          danger
+                          onClick={() =>
+                            updateRequestNotRequiredRules(pt.payment_type, (rules) => rules.filter((_, idx) => idx !== ruleIdx))
+                          }
+                          disabled={!data.is_tenant_admin}
+                        >
+                          Удалить
+                        </Button>
+                      </Space>
+                    ))}
+                    <Button
+                      onClick={() =>
+                        updateRequestNotRequiredRules(pt.payment_type, (rules) => [
+                          ...rules,
+                          { field: (pt.request_not_required_field_options ?? [])[0] ?? '', operator: 'eq', value: '' },
+                        ])
+                      }
+                      disabled={!data.is_tenant_admin}
+                    >
+                      Добавить исключение
+                    </Button>
+                  </Space>
 
                   <Space direction="vertical" size={12} style={{ display: 'flex' }}>
                     <Typography.Text strong style={labelBlockAboveField}>
