@@ -88,7 +88,7 @@ class CashExpenseRequestRequiredApiTests(APITestCase):
         dt = timezone.now()
         required_missing = CashExpense.objects.create(
             tenant=self.tenant,
-            external_id="cash-required-missing",
+            external_id="cash-req-miss",
             confirmed=True,
             title="Required missing",
             amount=10,
@@ -104,7 +104,7 @@ class CashExpenseRequestRequiredApiTests(APITestCase):
         )
         required_paid = CashExpense.objects.create(
             tenant=self.tenant,
-            external_id="cash-required-paid",
+            external_id="cash-req-paid",
             confirmed=True,
             title="Required paid",
             amount=20,
@@ -120,7 +120,7 @@ class CashExpenseRequestRequiredApiTests(APITestCase):
         )
         optional_missing = CashExpense.objects.create(
             tenant=self.tenant,
-            external_id="cash-optional-missing",
+            external_id="cash-opt-miss",
             confirmed=True,
             title="Optional by rule",
             amount=30,
@@ -131,11 +131,11 @@ class CashExpenseRequestRequiredApiTests(APITestCase):
             expense_month=dt.month,
             expense_day=dt.day,
             note="",
-            payload={},
+            payload={"category": "misc"},
             created_by=self.admin,
         )
         self.pt_cfg.request_not_required_rules = [
-            {"field": "title", "operator": "eq", "value": "Optional by rule"}
+            {"field": "category", "operator": "eq", "value": "misc"}
         ]
         self.pt_cfg.save(update_fields=["request_not_required_rules"])
 
