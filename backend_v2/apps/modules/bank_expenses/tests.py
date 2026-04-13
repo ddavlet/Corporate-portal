@@ -174,7 +174,7 @@ class BankExpenseRequestRequiredApiTests(APITestCase):
             payment_purpose="P3",
             vendor=self.vendor,
         )
-        self.pt_cfg.request_not_required_rules = [{"field": "vendor", "operator": "eq", "value": "Bank Vendor"}]
+        self.pt_cfg.request_not_required_rules = [{"field": "payment_purpose", "operator": "eq", "value": "P3"}]
         self.pt_cfg.save(update_fields=["request_not_required_rules"])
         Request.objects.create(
             tenant=self.tenant,
