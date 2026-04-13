@@ -66,17 +66,28 @@ export function SettingsPage() {
       <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
         {visibleModules.map((m) => (
           <Col xs={24} sm={12} lg={8} key={m.key}>
-            <Card
-              hoverable
-              title={m.title}
-              extra={m.icon}
-              onClick={() => navigate(m.path)}
-              style={{ height: '100%' }}
+            <a
+              href={m.path}
+              style={{ display: 'block', color: 'inherit' }}
+              onClick={(event) => {
+                if (
+                  event.button === 0 &&
+                  !event.metaKey &&
+                  !event.ctrlKey &&
+                  !event.shiftKey &&
+                  !event.altKey
+                ) {
+                  event.preventDefault()
+                  navigate(m.path)
+                }
+              }}
             >
-              <Typography.Paragraph type="secondary" style={{ marginBottom: 0 }}>
-                {m.description}
-              </Typography.Paragraph>
-            </Card>
+              <Card hoverable title={m.title} extra={m.icon} style={{ height: '100%' }}>
+                <Typography.Paragraph type="secondary" style={{ marginBottom: 0 }}>
+                  {m.description}
+                </Typography.Paragraph>
+              </Card>
+            </a>
           </Col>
         ))}
       </Row>
