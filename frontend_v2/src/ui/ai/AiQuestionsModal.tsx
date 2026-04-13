@@ -43,7 +43,7 @@ export function AiQuestionsModal({ open, onClose }: Props) {
         session_id: sessionId ?? undefined,
       })
       setSessionId(response.session_id)
-      setMessages((prev) => [...prev, { role: 'ai', text: response.reponse }])
+      setMessages((prev) => [...prev, { role: 'ai', text: response.response }])
       setQuestion('')
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Не удалось получить ответ ИИ')
