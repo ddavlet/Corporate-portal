@@ -525,9 +525,41 @@ class AiChatProxyView(APIView):
                 ),
                 status=status.HTTP_502_BAD_GATEWAY,
             )
-        if isinstance(data, dict) and not data.get("session_id"):
-            data["session_id"] = session_id
-        return Response(data, status=status.HTTP_200_OK)
+        payload = data
+        if isinstance(data, list):
+            payload = data[0] if data else {}
+        if isinstance(payload, dict) and isinstance(payload.get("output"), dict):
+            payload = payload.get("output")
+        if not isinstance(payload, dict):
+            return Response(
+                _n8n_error_payload(
+                    "Invalid JSON shape returned by n8n.",
+                    error_type="invalid_upstream_json_shape",
+                    error_location=endpoint,
+                    reason="Expected object payload, or [ { output: {...} } ] wrapper.",
+                ),
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+
+        response_text = payload.get("response")
+        if not isinstance(response_text, str):
+            response_text = payload.get("reponse")
+        if not isinstance(response_text, str):
+            return Response(
+                _n8n_error_payload(
+                    "Missing AI response text in n8n payload.",
+                    error_type="invalid_upstream_payload",
+                    error_location=endpoint,
+                    reason="Expected `response` (or legacy `reponse`) string field.",
+                ),
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+
+        normalized = dict(payload)
+        normalized["session_id"] = str(payload.get("session_id") or session_id)
+        normalized["response"] = response_text
+        normalized["reponse"] = response_text
+        return Response(normalized, status=status.HTTP_200_OK)
 
 
 class N8nVendorUpsertView(_N8nBaseView):

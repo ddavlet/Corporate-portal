@@ -118,7 +118,14 @@ class N8nIntegrationAuthTests(APITestCase):
     def test_ai_chat_proxy_generates_session_id_and_forwards_payload(self, mocked_post):
         mocked_response = Mock()
         mocked_response.status_code = 200
-        mocked_response.json.return_value = {"reponse": "AI says hello", "history": {"ai": "old", "user": "old"}}
+        mocked_response.json.return_value = [
+            {
+                "user_id": self.admin.id,
+                "session_id": "existing-session-id",
+                "response": "AI says hello",
+                "history": {"ai": "old", "user": "old"},
+            }
+        ]
         mocked_post.return_value = mocked_response
 
         res = self.client.post(
@@ -129,9 +136,10 @@ class N8nIntegrationAuthTests(APITestCase):
         )
         self.assertEqual(res.status_code, 200, res.content)
         payload = res.json()
+        self.assertEqual(payload["response"], "AI says hello")
         self.assertEqual(payload["reponse"], "AI says hello")
         self.assertIn("session_id", payload)
-        self.assertEqual(len(payload["session_id"]), 32)
+        self.assertEqual(payload["session_id"], "existing-session-id")
 
         called_kwargs = mocked_post.call_args.kwargs
         self.assertTrue(called_kwargs["url"].endswith("/n8n/aichat"))
