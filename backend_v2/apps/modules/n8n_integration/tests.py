@@ -272,6 +272,31 @@ class N8nIntegrationAuthTests(APITestCase):
         row = BankExpense.objects.get(pk=93001)
         self.assertEqual(row.vendor_id, vendor.id)
 
+    def test_bank_expense_resolves_vendor_by_account_name(self):
+        vendor = Vendor.objects.create(
+            tenant=self.tenant,
+            kind=Vendor.KIND_TRANSFER,
+            name="Vendor by Name",
+            inn="123456789",
+            account_number="20208000111111111111",
+            created_by=self.admin,
+        )
+        url = f"{self.n8n_prefix}/bank/expenses/"
+        body = {
+            "id": 93002,
+            "row_no": 1,
+            "doc_date": "2026-03-30",
+            "process_date": "2026-03-30",
+            "doc_no": "BEXP-N8N-2",
+            "account_name": "Vendor by Name",
+            "debit_turnover": "300.00",
+            "payment_purpose": "Оплата по названию",
+        }
+        res = self.client.post(url, body, format="json", **self._headers(self.admin))
+        self.assertEqual(res.status_code, 201, res.content)
+        row = BankExpense.objects.get(pk=93002)
+        self.assertEqual(row.vendor_id, vendor.id)
+
     def test_cash_revenue_import_fields_supported(self):
         url = f"{self.n8n_prefix}/cash/revenues/"
         body = {

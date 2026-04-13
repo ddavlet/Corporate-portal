@@ -206,8 +206,39 @@ class N8nPayrollLineImportSerializer(serializers.ModelSerializer):
 
 class N8nBankExpenseImportSerializer(BankExpenseSerializer):
     id = serializers.IntegerField(required=False)
+    vendor_name = serializers.CharField(required=False, allow_blank=True, write_only=True)
+    account_name = serializers.CharField(required=False, allow_blank=True, write_only=True)
+    counterparty = serializers.CharField(required=False, allow_blank=True, write_only=True)
+
+    def validate(self, attrs):
+        tenant = getattr(self.context.get("request"), "tenant", None)
+        vendor_name = str(attrs.pop("vendor_name", "") or "").strip()
+        account_name = str(attrs.pop("account_name", "") or "").strip()
+        counterparty = str(attrs.pop("counterparty", "") or "").strip()
+        lookup_name = vendor_name or account_name or counterparty
+
+        if attrs.get("vendor") is None and tenant and lookup_name:
+            matches = list(
+                Vendor.objects.filter(
+                    tenant=tenant,
+                    kind=Vendor.KIND_TRANSFER,
+                    name=lookup_name,
+                )
+                .order_by("id")[:2]
+            )
+            if not matches:
+                raise serializers.ValidationError(
+                    {"vendor_name": f"Transfer vendor with name '{lookup_name}' not found in current tenant."}
+                )
+            if len(matches) > 1:
+                raise serializers.ValidationError(
+                    {"vendor_name": f"Multiple transfer vendors found with name '{lookup_name}'."}
+                )
+            attrs["vendor"] = matches[0]
+        return super().validate(attrs)
 
     class Meta(BankExpenseSerializer.Meta):
+        fields = BankExpenseSerializer.Meta.fields + ["vendor_name", "account_name", "counterparty"]
         read_only_fields = [
             "created_at",
             "created_by",
