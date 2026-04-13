@@ -3,6 +3,7 @@ import { Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { ProLayout } from '@ant-design/pro-layout'
 import type { MenuProps } from 'antd'
 import { Button, Dropdown, Space, Typography } from 'antd'
+import { Grid } from 'antd'
 import {
   BankOutlined,
   ContactsOutlined,
@@ -26,6 +27,8 @@ import { useModuleAccess } from './moduleAccess'
 import { getSettingsAccess } from '../lib/api'
 
 export function AppShell() {
+  const screens = Grid.useBreakpoint()
+  const isMobile = !screens.md
   const location = useLocation()
   const navigate = useNavigate()
   const { logout, username } = useAuth()
@@ -109,7 +112,7 @@ export function AppShell() {
       )}
       rightContentRender={() => (
         <Space size="middle">
-          {username ? <Typography.Text type="secondary">{username}</Typography.Text> : null}
+          {!isMobile && username ? <Typography.Text type="secondary">{username}</Typography.Text> : null}
           <Button icon={<CommentOutlined />} onClick={() => setFeedbackOpen(true)}>
             Обратная связь
           </Button>
