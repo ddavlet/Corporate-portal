@@ -111,7 +111,9 @@ class UserRequestApprovalAdmin(admin.ModelAdmin):
         return False
 
     def has_change_permission(self, request, obj=None):
-        return False
+        # This proxy admin maps to the production approvals table.
+        # Allow full field editing only for superusers.
+        return request.user.is_active and request.user.is_superuser
 
     def has_delete_permission(self, request, obj=None):
         return False
