@@ -1109,10 +1109,6 @@ class RequestApprovalConfigView(APIView):
         if not tenant:
             raise ValidationError({"detail": "Unknown tenant."})
 
-        payload = RequestApprovalConfigPayloadSerializer(data=request.data, context={"request": request})
-        payload.is_valid(raise_exception=True)
-        payment_types = payload.validated_data.get("payment_types", [])
-        integration_settings = payload.validated_data.get("integration_settings", {})
         is_admin = self._is_tenant_admin(request)
         if not is_admin:
             has_rules_update = any(
@@ -1122,6 +1118,11 @@ class RequestApprovalConfigView(APIView):
             )
             if has_rules_update:
                 raise PermissionDenied("Only tenant admin can manage request-not-required rules.")
+
+        payload = RequestApprovalConfigPayloadSerializer(data=request.data, context={"request": request})
+        payload.is_valid(raise_exception=True)
+        payment_types = payload.validated_data.get("payment_types", [])
+        integration_settings = payload.validated_data.get("integration_settings", {})
 
         active_member_ids = set(
             TenantMembership.objects.filter(tenant=tenant, is_active=True).values_list("user_id", flat=True)
