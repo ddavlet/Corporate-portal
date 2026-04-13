@@ -37,6 +37,7 @@ class BankExpenseSerializer(serializers.ModelSerializer):
     matched_request_id = serializers.IntegerField(read_only=True, allow_null=True)
     request_required = serializers.SerializerMethodField()
     vendor = serializers.PrimaryKeyRelatedField(queryset=Vendor.objects.all(), allow_null=True, required=False)
+    vendor_name = serializers.CharField(source="vendor.name", read_only=True)
     account_no = serializers.CharField(write_only=True, required=False, allow_blank=True)
     wallet_id = serializers.PrimaryKeyRelatedField(
         source="wallet",
@@ -62,6 +63,7 @@ class BankExpenseSerializer(serializers.ModelSerializer):
             "debit_turnover",
             "payment_purpose",
             "vendor",
+            "vendor_name",
             "wallet_id",
             "has_request",
             "has_paid_request",
