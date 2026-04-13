@@ -114,10 +114,10 @@ class CorporateCardExpenseRequestRequiredApiTests(APITestCase):
             wallet=self.wallet,
             expense_at=dt,
             note="",
-            payload={},
+            payload={"category": "ops"},
             created_by=self.admin,
         )
-        self.pt_cfg.request_not_required_rules = [{"field": "title", "operator": "eq", "value": "Card optional"}]
+        self.pt_cfg.request_not_required_rules = [{"field": "category", "operator": "eq", "value": "ops"}]
         self.pt_cfg.save(update_fields=["request_not_required_rules"])
         Request.objects.create(
             tenant=self.tenant,

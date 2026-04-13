@@ -8,10 +8,10 @@ from apps.modules.requests.models import Request, RequestApprovalPaymentTypeConf
 RULE_OPERATOR_EQ = "eq"
 
 RULE_FIELD_OPTIONS: dict[str, tuple[str, ...]] = {
-    Request.PAYMENT_TYPE_CASH: ("title", "currency", "external_id", "expense_year"),
-    Request.PAYMENT_TYPE_TRANSFER: ("doc_no", "account_name", "payment_purpose", "expense_year"),
-    Request.PAYMENT_TYPE_TOPUP: ("doc_no", "account_name", "payment_purpose", "expense_year"),
-    Request.PAYMENT_TYPE_CARD: ("title", "currency"),
+    Request.PAYMENT_TYPE_CASH: ("payment_purpose", "category"),
+    Request.PAYMENT_TYPE_TRANSFER: ("payment_purpose", "category"),
+    Request.PAYMENT_TYPE_TOPUP: ("payment_purpose", "category"),
+    Request.PAYMENT_TYPE_CARD: ("payment_purpose", "category"),
 }
 
 
@@ -58,6 +58,23 @@ def _rule_matches_expense(*, rule: Any, expense_obj: Any, allowed_fields: set[st
     if operator != RULE_OPERATOR_EQ:
         return False
 
-    actual_raw = getattr(expense_obj, field, None)
+    actual_raw = _extract_expense_field_value(expense_obj=expense_obj, field=field)
     actual = str(actual_raw if actual_raw is not None else "").strip()
     return actual == value
+
+
+def _extract_expense_field_value(*, expense_obj: Any, field: str) -> Any:
+    payload = getattr(expense_obj, "payload", None)
+    payload_obj = payload if isinstance(payload, dict) else {}
+    if field == "payment_purpose":
+        if getattr(expense_obj, "payment_purpose", None) is not None:
+            return getattr(expense_obj, "payment_purpose")
+        return payload_obj.get("payment_purpose") or payload_obj.get("purpose")
+    if field == "category":
+        return (
+            payload_obj.get("category")
+            or payload_obj.get("cathegory")
+            or payload_obj.get("cat")
+            or payload_obj.get("cat_name")
+        )
+    return getattr(expense_obj, field, None)
