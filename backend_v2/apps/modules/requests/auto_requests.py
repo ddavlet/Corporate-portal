@@ -5,6 +5,7 @@ import re
 import threading
 import time
 from decimal import Decimal
+from zoneinfo import ZoneInfo
 
 from django.db import connection, transaction
 from django.db.utils import ProgrammingError
@@ -73,6 +74,8 @@ _EN_MONTHS_SHORT = [
 ]
 _poller_started = False
 _poller_lock = threading.Lock()
+TASHKENT_TZ = ZoneInfo("Asia/Tashkent")
+AUTO_REQUESTS_DAILY_HOUR = 8
 
 
 def _month_start(day: dt.date) -> dt.date:
@@ -248,13 +251,32 @@ def process_due_auto_requests(*, now_dt: dt.datetime | None = None) -> int:
     return created
 
 
+def _next_auto_requests_run_at(now_dt: dt.datetime) -> dt.datetime:
+    """
+    Возвращает следующий запуск в 08:00 по Ташкенту.
+    """
+    local_now = timezone.localtime(now_dt, TASHKENT_TZ)
+    run_at_local = local_now.replace(
+        hour=AUTO_REQUESTS_DAILY_HOUR,
+        minute=0,
+        second=0,
+        microsecond=0,
+    )
+    if local_now >= run_at_local:
+        run_at_local += dt.timedelta(days=1)
+    return run_at_local.astimezone(now_dt.tzinfo)
+
+
 def _poller_loop() -> None:
     while True:
+        now_dt = timezone.now()
+        next_run_at = _next_auto_requests_run_at(now_dt)
+        sleep_seconds = max((next_run_at - now_dt).total_seconds(), 0)
+        time.sleep(sleep_seconds)
         try:
             process_due_auto_requests()
         except Exception:
             logger.exception("Auto requests poller error")
-        time.sleep(60)
 
 
 def start_auto_requests_poller() -> None:
