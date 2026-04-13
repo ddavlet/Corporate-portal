@@ -4,6 +4,7 @@ from django.urls import path
 from apps.modules.n8n_integration import views
 
 urlpatterns = [
+    path("ai-questions/chat/", views.AiChatProxyView.as_view(), name="n8n-ai-questions-chat"),
     path("pnl-data/", views.N8nPnlDataView.as_view(), name="n8n-pnl-data"),
     path("cashflow-data/", views.N8nCashflowDataView.as_view(), name="n8n-cashflow-data"),
     path("requests/", views.N8nRequestUpsertView.as_view(), name="n8n-requests-upsert"),
