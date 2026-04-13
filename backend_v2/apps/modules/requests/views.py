@@ -149,6 +149,16 @@ class PortalRequestViewSet(viewsets.ModelViewSet):
         except ValueError as exc:
             raise ValidationError({key: "Use YYYY-MM-DD format."}) from exc
 
+    def _parse_bool_query(self, key: str):
+        raw = (self.request.query_params.get(key) or "").strip().lower()
+        if not raw:
+            return None
+        if raw in {"1", "true", "yes"}:
+            return True
+        if raw in {"0", "false", "no"}:
+            return False
+        raise ValidationError({key: "Use one of: 1,true,yes,0,false,no."})
+
     def _has_role(self, tenant, role: str) -> bool:
         return TenantUserRole.objects.filter(
             tenant=tenant,
@@ -223,6 +233,9 @@ class PortalRequestViewSet(viewsets.ModelViewSet):
             qs = qs.filter(
                 Q(vendor_ref__name__icontains=vendor_search) | Q(vendor__icontains=vendor_search)
             )
+        amortized_only = self._parse_bool_query("amortized_only")
+        if amortized_only:
+            qs = qs.filter(amortization_months__gt=1)
 
         if self.action == "retrieve":
             if "approvals" in connection.introspection.table_names():

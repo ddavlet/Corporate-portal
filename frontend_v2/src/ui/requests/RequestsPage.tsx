@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Alert, Button, Card, Collapse, DatePicker, Input, InputNumber, Select, Skeleton, Space, Table, Tag, Typography, message } from 'antd'
+import { Alert, Button, Card, Collapse, DatePicker, Input, InputNumber, Select, Skeleton, Space, Switch, Table, Tag, Typography, message } from 'antd'
 import type { ColumnsType, TableProps } from 'antd/es/table'
 import type { Dayjs } from 'dayjs'
 import { useNavigate } from 'react-router-dom'
@@ -27,6 +27,8 @@ type RequestRow = {
   submitted_at: string
   billing_date: string
   expense_link?: RequestExpenseLink
+  is_amortized?: boolean
+  amortization_months?: number
 }
 
 type SortState = {
@@ -105,6 +107,7 @@ export function RequestsPage() {
   const [resendLoading, setResendLoading] = useState(false)
   const [vendorSearchApi, setVendorSearchApi] = useState('')
   const [debouncedVendorSearchApi, setDebouncedVendorSearchApi] = useState('')
+  const [amortizedOnly, setAmortizedOnly] = useState(false)
 
   useEffect(() => {
     const id = window.setTimeout(() => setDebouncedSearch(search), 250)
@@ -132,6 +135,7 @@ export function RequestsPage() {
         if (billingFrom) params.set('billing_from', billingFrom)
         if (billingTo) params.set('billing_to', billingTo)
         if (debouncedVendorSearchApi) params.set('vendor_search', debouncedVendorSearchApi)
+        if (amortizedOnly) params.set('amortized_only', '1')
         const query = params.toString()
         const endpoint = query ? `/api/requests/?${query}` : '/api/requests/'
 
@@ -156,7 +160,7 @@ export function RequestsPage() {
     return () => {
       cancelled = true
     }
-  }, [submittedRange, billingRange, debouncedVendorSearchApi])
+  }, [submittedRange, billingRange, debouncedVendorSearchApi, amortizedOnly])
 
   const optionize = (values: string[]) =>
     [...new Set(values.filter(Boolean))].sort((a, b) => a.localeCompare(b)).map((value) => ({
@@ -213,7 +217,7 @@ export function RequestsPage() {
 
   useEffect(() => {
     setCurrentPage(1)
-  }, [debouncedSearch, status, urgency, paymentType, currency, category, vendor, requester, amountMin, amountMax, submittedRange, billingRange, debouncedVendorSearchApi])
+  }, [debouncedSearch, status, urgency, paymentType, currency, category, vendor, requester, amountMin, amountMax, submittedRange, billingRange, debouncedVendorSearchApi, amortizedOnly])
 
   const getStatusColor = (value: string): string | undefined => {
     const normalized = String(value || '').trim().toUpperCase()
@@ -292,6 +296,11 @@ export function RequestsPage() {
       sorter: true,
       render: (value: string) => formatBillingMonthYear(value),
     },
+    {
+      title: 'Амортизация',
+      key: 'is_amortized',
+      render: (_, row) => (row.is_amortized ? <Tag color="processing">{`${row.amortization_months || 0} мес.`}</Tag> : '—'),
+    },
   ]
 
   const onTableChange: TableProps<RequestRow>['onChange'] = (_, __, sorter) => {
@@ -344,6 +353,7 @@ export function RequestsPage() {
     setAmountMax(null)
     setSubmittedRange(null)
     setBillingRange(null)
+    setAmortizedOnly(false)
     setSort({ field: null, order: null })
     setCurrentPage(1)
   }
@@ -404,6 +414,10 @@ export function RequestsPage() {
                     style={{ maxWidth: 360 }}
                   />
                   <Space wrap size={[12, 12]}>
+                    <Space align="center">
+                      <Typography.Text style={{ marginBottom: 0 }}>Только с амортизацией</Typography.Text>
+                      <Switch checked={amortizedOnly} onChange={setAmortizedOnly} />
+                    </Space>
                     <Select
                       placeholder="Срочность"
                       allowClear

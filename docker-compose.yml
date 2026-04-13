@@ -435,7 +435,7 @@ services:
       POSTGRES_HOST: "db"
       POSTGRES_PORT: 5432
       DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:-change-me-to-a-long-random-secret-key-32-plus-bytes}
-      DJANGO_DEBUG: "True"
+      DJANGO_DEBUG: "False"
       N8N_TOKEN: ${N8N_TOKEN}
       CORPORATE_INVESTMENTS_ALLOWED_USER: ddavlet, r.davletyarov
     volumes:
@@ -486,7 +486,7 @@ services:
 
       BASE_DOMAIN: ${DOMAIN_NAME}
       DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:-change-me-to-a-long-random-secret-key-32-plus-bytes}
-      DJANGO_DEBUG: "True"
+      DJANGO_DEBUG: "False"
       DJANGO_ALLOWED_HOSTS: "lemonfit.kolberg.uz,lemonfit2.kolberg.uz,neuron.kolberg.uz"
       # No leading/trailing slashes (e.g. n8n). Slashes break Traefik labels: /api/${VAR}/ → /api/n8n//
       N8N_INTEGRATION_URL_PATH: ${N8N_INTEGRATION_URL_PATH:-n8n}

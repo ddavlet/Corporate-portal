@@ -18,6 +18,7 @@ from apps.modules.cashier.models import CashExpense, CashRevenue
 from apps.modules.corporate_card.models import CardExpense, CardRevenue
 from apps.modules.notes.models import Note
 from apps.modules.requests.models import Approval, Request
+from apps.modules.requests.amortization import build_amortization_schedule_rows, is_request_amortized
 from apps.modules.vendors.models import Vendor
 from apps.modules.n8n_integration.authentication import N8nIntegrationAuthentication
 from apps.modules.n8n_integration.serializers import (
@@ -475,6 +476,42 @@ class N8nRequestUpsertView(_N8nBaseView):
             other_tenant_conflict=other_tenant_conflict,
             build_create_kwargs=build_create_kwargs,
         )
+
+
+class N8nRequestAmortizationView(_N8nBaseView):
+    def get(self, request):
+        tenant = request.tenant
+        request_id_raw = (request.query_params.get("request_id") or "").strip()
+        amortized_only_raw = (request.query_params.get("amortized_only") or "1").strip().lower()
+        amortized_only = amortized_only_raw not in {"0", "false", "no"}
+
+        queryset = Request.objects.filter(tenant=tenant).order_by("-submitted_at")
+        if request_id_raw:
+            try:
+                request_id = int(request_id_raw)
+            except (TypeError, ValueError):
+                return Response({"request_id": ["Must be an integer."]}, status=status.HTTP_400_BAD_REQUEST)
+            queryset = queryset.filter(id=request_id)
+        if amortized_only:
+            queryset = queryset.filter(amortization_months__gt=1)
+
+        rows = []
+        for req in queryset:
+            rows.append(
+                {
+                    "id": req.id,
+                    "title": req.title,
+                    "status": req.status,
+                    "amount": str(req.amount),
+                    "currency": req.currency,
+                    "billing_date": req.billing_date.isoformat() if req.billing_date else None,
+                    "amortization_months": req.amortization_months,
+                    "amortization_start_date": req.amortization_start_date.isoformat() if req.amortization_start_date else None,
+                    "is_amortized": is_request_amortized(req),
+                    "amortization_schedule": build_amortization_schedule_rows(req),
+                }
+            )
+        return Response({"count": len(rows), "results": rows}, status=status.HTTP_200_OK)
 
 
 class N8nApprovalUpsertView(_N8nBaseView):
