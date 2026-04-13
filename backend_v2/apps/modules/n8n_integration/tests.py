@@ -141,8 +141,9 @@ class N8nIntegrationAuthTests(APITestCase):
         self.assertIn("session_id", payload)
         self.assertEqual(payload["session_id"], "existing-session-id")
 
+        called_args = mocked_post.call_args.args
         called_kwargs = mocked_post.call_args.kwargs
-        self.assertTrue(called_kwargs["url"].endswith("/n8n/aichat"))
+        self.assertTrue(called_args[0].endswith("/n8n/aichat"))
         self.assertEqual(called_kwargs["json"]["user"], self.admin.id)
         self.assertEqual(called_kwargs["json"]["question"], "Как дела?")
         self.assertEqual(called_kwargs["json"]["session_id"], payload["session_id"])
