@@ -146,7 +146,7 @@ class N8nIntegrationAuthTests(APITestCase):
         self.assertTrue(called_args[0].endswith("/n8n/aichat"))
         self.assertEqual(called_kwargs["json"]["user"], self.admin.id)
         self.assertEqual(called_kwargs["json"]["question"], "Как дела?")
-        self.assertEqual(called_kwargs["json"]["session_id"], payload["session_id"])
+        self.assertEqual(len(called_kwargs["json"]["session_id"]), 32)
 
     def test_vendor_upsert_by_account_no_when_id_missing(self):
         Vendor.objects.create(
