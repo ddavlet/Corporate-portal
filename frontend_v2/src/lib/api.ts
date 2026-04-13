@@ -21,6 +21,22 @@ function readPortalTokens(): Tokens | null {
   }
 }
 
+function readPortalAuthState(): (Tokens & { username?: string }) | null {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY)
+    if (!raw) return null
+    const parsed = JSON.parse(raw) as Partial<Tokens & { username: string }>
+    if (!parsed.access || !parsed.refresh) return null
+    return {
+      access: parsed.access,
+      refresh: parsed.refresh,
+      ...(parsed.username ? { username: parsed.username } : {}),
+    }
+  } catch {
+    return null
+  }
+}
+
 export function readTgTokens(): Tokens | null {
   try {
     const raw = sessionStorage.getItem(TG_STORAGE_KEY)
@@ -59,18 +75,26 @@ function setTokens(tokens: Tokens | null) {
     localStorage.removeItem(STORAGE_KEY)
     return
   }
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(tokens))
+  const prev = readPortalAuthState()
+  localStorage.setItem(
+    STORAGE_KEY,
+    JSON.stringify({
+      ...tokens,
+      ...(prev?.username ? { username: prev.username } : {}),
+    }),
+  )
 }
 
-async function refreshAccess(refresh: string): Promise<string | null> {
+async function refreshAccess(refresh: string): Promise<Tokens | null> {
   const res = await fetch('/api/auth/token/refresh/', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ refresh }),
   })
   if (!res.ok) return null
-  const data = (await res.json()) as { access?: string }
-  return data.access ?? null
+  const data = (await res.json()) as { access?: string; refresh?: string }
+  if (!data.access) return null
+  return { access: data.access, refresh: data.refresh ?? refresh }
 }
 
 export type ApiFetchOptions = {
@@ -94,12 +118,12 @@ export async function apiFetch(input: string, init: RequestInit = {}, options?: 
 
   // try refresh once
   if (res.status === 401 && tokens?.refresh) {
-    const newAccess = await refreshAccess(tokens.refresh)
-    if (newAccess) {
-      const next = { access: newAccess, refresh: tokens.refresh }
+    const refreshedTokens = await refreshAccess(tokens.refresh)
+    if (refreshedTokens) {
+      const next = refreshedTokens
       if (readTgTokens()?.refresh === tokens.refresh) setTgTokens(next)
       if (readPortalTokens()?.refresh === tokens.refresh) setTokens(next)
-      headers.set('Authorization', `Bearer ${newAccess}`)
+      headers.set('Authorization', `Bearer ${next.access}`)
       res = await doFetch()
     } else {
       if (readTgTokens()?.refresh === tokens.refresh) setTgTokens(null)
