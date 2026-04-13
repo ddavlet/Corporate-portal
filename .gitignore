@@ -28,3 +28,4 @@ staticfiles/
 frontend_v2/dist/
 frontend_v2/tsconfig.tsbuildinfo
 test_speed.sh
+.worktrees/
