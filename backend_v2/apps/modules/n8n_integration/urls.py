@@ -7,6 +7,7 @@ urlpatterns = [
     path("pnl-data/", views.N8nPnlDataView.as_view(), name="n8n-pnl-data"),
     path("cashflow-data/", views.N8nCashflowDataView.as_view(), name="n8n-cashflow-data"),
     path("requests/", views.N8nRequestUpsertView.as_view(), name="n8n-requests-upsert"),
+    path("requests/amortization/", views.N8nRequestAmortizationView.as_view(), name="n8n-requests-amortization"),
     path("requests/batch/", views.N8nRequestBatchUpsertView.as_view(), name="n8n-requests-batch-upsert"),
     path("approvals/", views.N8nApprovalUpsertView.as_view(), name="n8n-approvals-upsert"),
     path("approvals/batch/", views.N8nApprovalBatchUpsertView.as_view(), name="n8n-approvals-batch-upsert"),

@@ -36,6 +36,7 @@ from apps.modules.requests.expense_refs import (
     maybe_persist_request_expense_ref,
     try_resolve_request_expense_ref_id,
 )
+from apps.modules.requests.amortization import build_amortization_schedule_rows, is_request_amortized
 from apps.modules.serializers_guard import reject_client_pk_on_create
 from apps.tenants.permissions import has_effective_module_access
 from apps.tenants.models import TenantMembership, TenantModuleConfig, TenantUserRole
@@ -89,6 +90,8 @@ class PortalRequestSerializer(serializers.ModelSerializer):
     # So `requester` must be optional at serializer level.
     requester = serializers.PrimaryKeyRelatedField(queryset=User.objects.all(), allow_null=True, required=False)
     requester_username = serializers.SerializerMethodField()
+    is_amortized = serializers.SerializerMethodField()
+    amortization_schedule = serializers.SerializerMethodField()
     vendor_ref = serializers.PrimaryKeyRelatedField(queryset=Vendor.objects.all(), allow_null=True, required=False)
     # `accounts/User` sends empty descriptions from UI/tests; model does not set `blank=True`,
     # so we allow blank explicitly at serializer level.
@@ -125,6 +128,8 @@ class PortalRequestSerializer(serializers.ModelSerializer):
             "billing_date",
             "amortization_months",
             "amortization_start_date",
+            "is_amortized",
+            "amortization_schedule",
         ]
         read_only_fields = ["expense_link", "created_at", "created_by", "status"]
 
@@ -346,6 +351,12 @@ class PortalRequestSerializer(serializers.ModelSerializer):
 
     def get_requester_username(self, obj):
         return _display_user_name(obj.requester)
+
+    def get_is_amortized(self, obj):
+        return is_request_amortized(obj)
+
+    def get_amortization_schedule(self, obj):
+        return build_amortization_schedule_rows(obj)
 
     def get_expense_link(self, obj):
         request = self.context.get("request")
