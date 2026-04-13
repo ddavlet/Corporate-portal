@@ -162,7 +162,7 @@ class BankExpenseRequestRequiredApiTests(APITestCase):
             debit_turnover="30.00",
             payment_purpose="P3",
         )
-        self.pt_cfg.request_not_required_rules = [{"field": "doc_no", "operator": "eq", "value": "DOC-OPT-MISS"}]
+        self.pt_cfg.request_not_required_rules = [{"field": "payment_purpose", "operator": "eq", "value": "P3"}]
         self.pt_cfg.save(update_fields=["request_not_required_rules"])
         Request.objects.create(
             tenant=self.tenant,
