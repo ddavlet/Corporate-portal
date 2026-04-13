@@ -322,6 +322,42 @@ export async function setUserPreference(key: string, value: unknown): Promise<Us
 
 export type FeedbackKind = 'error' | 'improvement'
 
+export type AskAiQuestionPayload = {
+  question: string
+  session_id?: string
+}
+
+export type AskAiQuestionResponse = {
+  tenant_id?: number | string
+  session_id: string
+  reponse: string
+  history?: Record<string, string>
+}
+
+export async function askAiQuestion(payload: AskAiQuestionPayload): Promise<AskAiQuestionResponse> {
+  const question = String(payload.question || '').trim()
+  if (!question) throw new Error('Вопрос не может быть пустым')
+  const body: Record<string, string> = { question }
+  if (payload.session_id && String(payload.session_id).trim()) {
+    body.session_id = String(payload.session_id).trim()
+  }
+
+  const res = await apiFetch('/api/ai-questions/chat/', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+  if (!res.ok) throw new Error(await parseErrorBody(res))
+  const json = (await res.json().catch(() => null)) as Partial<AskAiQuestionResponse> | null
+  if (!json?.session_id || typeof json.reponse !== 'string') throw new Error('Пустой ответ от сервера')
+  return {
+    tenant_id: json.tenant_id,
+    session_id: json.session_id,
+    reponse: json.reponse,
+    history: json.history,
+  }
+}
+
 export async function refineFeedbackWithAi(payload: { kind: FeedbackKind; text: string }): Promise<{ feedback: string }> {
   const res = await apiFetch('/api/feedback/ai-refine/', {
     method: 'POST',

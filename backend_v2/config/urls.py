@@ -8,7 +8,7 @@ from apps.accounts.views_otp import OtpRequestView, OtpVerifyView
 from apps.accounts.views_password import ChangePasswordView
 from apps.accounts.views_telegram_webapp import TelegramWebAppAuthView
 from apps.modules.requests.views import FileGatewayView, FileDownloadView
-from apps.modules.n8n_integration.views import CashflowDataProxyView, PnlDataProxyView
+from apps.modules.n8n_integration.views import AiChatProxyView, CashflowDataProxyView, PnlDataProxyView
 from apps.tenants.views import (
     AccessMatrixView,
     ModuleCatalogView,
@@ -33,6 +33,7 @@ urlpatterns = [
     path("api/files/download/", FileDownloadView.as_view(), name="files_download"),
     path("api/pnl-data/", PnlDataProxyView.as_view(), name="api_pnl_data"),
     path("api/cashflow-data/", CashflowDataProxyView.as_view(), name="api_cashflow_data"),
+    path("api/ai-questions/chat/", AiChatProxyView.as_view(), name="api_ai_questions_chat"),
     path("api/reports/", include("apps.modules.reports.urls")),
 
     # Tenants + module config/permissions

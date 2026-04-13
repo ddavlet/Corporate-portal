@@ -6,6 +6,7 @@ import { Button, Dropdown, Space, Typography } from 'antd'
 import { Grid } from 'antd'
 import {
   BankOutlined,
+  BulbOutlined,
   ContactsOutlined,
   CommentOutlined,
   CreditCardOutlined,
@@ -23,6 +24,7 @@ import {
 import { useAuth } from './auth'
 import { FeedbackModal } from './feedback/FeedbackModal'
 import { ChangePasswordModal } from './user/ChangePasswordModal'
+import { AiQuestionsModal } from './ai/AiQuestionsModal'
 import { useModuleAccess } from './moduleAccess'
 import { getSettingsAccess } from '../lib/api'
 
@@ -34,6 +36,7 @@ export function AppShell() {
   const { logout, username } = useAuth()
   const { hasAccess } = useModuleAccess()
   const [feedbackOpen, setFeedbackOpen] = useState(false)
+  const [aiQuestionsOpen, setAiQuestionsOpen] = useState(false)
   const [passwordModalOpen, setPasswordModalOpen] = useState(false)
   const [canOpenSettings, setCanOpenSettings] = useState(false)
   const [canOpenAdmin, setCanOpenAdmin] = useState(false)
@@ -113,6 +116,9 @@ export function AppShell() {
       rightContentRender={() => (
         <Space size="middle">
           {!isMobile && username ? <Typography.Text type="secondary">{username}</Typography.Text> : null}
+          <Button icon={<BulbOutlined />} onClick={() => setAiQuestionsOpen(true)}>
+            Вопросы в ИИ
+          </Button>
           <Button icon={<CommentOutlined />} onClick={() => setFeedbackOpen(true)}>
             Обратная связь
           </Button>
@@ -136,6 +142,7 @@ export function AppShell() {
       contentStyle={{ padding: 24 }}
     >
       <FeedbackModal open={feedbackOpen} onClose={() => setFeedbackOpen(false)} pagePath={location.pathname} />
+      <AiQuestionsModal open={aiQuestionsOpen} onClose={() => setAiQuestionsOpen(false)} />
       <ChangePasswordModal open={passwordModalOpen} onClose={() => setPasswordModalOpen(false)} />
       <Outlet />
     </ProLayout>
