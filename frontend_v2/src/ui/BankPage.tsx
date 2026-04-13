@@ -17,7 +17,8 @@ type BankExpenseRow = {
   doc_date: string
   process_date: string
   doc_no: string
-  account_name: string
+  account_name?: string
+  vendor_name?: string | null
   inn?: string | null
   account_no: string
   mfo: string
@@ -52,6 +53,10 @@ function formatDate(value?: string | null): string {
   const parsed = new Date(value)
   if (Number.isNaN(parsed.getTime())) return '-'
   return dateFormatterTashkent.format(parsed)
+}
+
+function getExpenseCounterparty(row: BankExpenseRow): string {
+  return String(row.vendor_name || '').trim()
 }
 
 export function BankPage() {
@@ -111,7 +116,7 @@ export function BankPage() {
       kind: 'expense' as const,
       id: e.id,
       doc_no: e.doc_no,
-      account_name: e.account_name,
+      account_name: getExpenseCounterparty(e),
       amount: e.debit_turnover,
       at: e.doc_date,
       purpose: e.payment_purpose,
@@ -165,7 +170,7 @@ export function BankPage() {
   const filteredRows = useMemo(() => {
     const normalized = search.trim().toLowerCase()
     return rows.filter((row) => {
-      if (counterpartyFilter && row.account_name !== counterpartyFilter) return false
+      if (counterpartyFilter && getExpenseCounterparty(row) !== counterpartyFilter) return false
       if (amountMin !== null && Number(row.debit_turnover) < amountMin) return false
       if (amountMax !== null && Number(row.debit_turnover) > amountMax) return false
       const from = docDateRange?.[0]?.format('YYYY-MM-DD')
@@ -234,7 +239,7 @@ export function BankPage() {
       width: 150,
       render: (_value: boolean | undefined, row) => renderExpenseRequestStatusTag(row),
     },
-    { title: 'Контрагент', dataIndex: 'account_name' },
+    { title: 'Контрагент', key: 'counterparty', render: (_, row) => getExpenseCounterparty(row) || '-' },
     { title: 'Дата док.', dataIndex: 'doc_date', render: (value: string) => formatDate(value) },
     { title: 'Дата проводки', dataIndex: 'process_date', render: (value: string) => formatDate(value) },
   ]
@@ -445,7 +450,7 @@ export function BankPage() {
           <Descriptions bordered size="small" column={1}>
             <Descriptions.Item label="PK">{selectedExpense.id}</Descriptions.Item>
             <Descriptions.Item label="Док. №">{selectedExpense.doc_no || '-'}</Descriptions.Item>
-            <Descriptions.Item label="Контрагент">{selectedExpense.account_name || '-'}</Descriptions.Item>
+            <Descriptions.Item label="Контрагент">{getExpenseCounterparty(selectedExpense) || '-'}</Descriptions.Item>
             <Descriptions.Item label="Сумма">{Number(selectedExpense.debit_turnover).toLocaleString('ru-RU')}</Descriptions.Item>
             <Descriptions.Item label="Назначение">{selectedExpense.payment_purpose || '-'}</Descriptions.Item>
             <Descriptions.Item label="Дата док.">{formatDate(selectedExpense.doc_date)}</Descriptions.Item>

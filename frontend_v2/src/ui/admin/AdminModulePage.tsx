@@ -63,10 +63,12 @@ function isPrimitive(value: unknown): value is string | number | boolean | null 
 }
 
 function rowCaption(row: AnyRow): string {
+  const counterparty = String(row.vendor_name ?? '').trim()
   return String(
     row.title ??
       row.name ??
       row.label ??
+      (counterparty || undefined) ??
       row.external_id ??
       row.doc_no ??
       row.operation ??
@@ -186,6 +188,8 @@ export function AdminModulePage() {
       key: 'short',
       render: (_, row) => {
         const parts: string[] = []
+        const counterparty = String(row.vendor_name ?? '').trim()
+        if (counterparty) parts.push(`Контрагент: ${counterparty}`)
         if (typeof row.status === 'string' && row.status) parts.push(`Статус: ${row.status}`)
         if (typeof row.currency === 'string' && row.currency) parts.push(`Валюта: ${row.currency}`)
         const amountLike = row.debt_sum ?? row.amount ?? row.total_sum
