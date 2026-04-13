@@ -1,6 +1,7 @@
 from datetime import date, datetime
 from decimal import Decimal
 from unittest.mock import patch
+from zoneinfo import ZoneInfo
 
 from django.contrib.auth import get_user_model
 from django.test import override_settings
@@ -25,7 +26,11 @@ from apps.modules.requests.models import (
     UserRequestApproval,
     AutoRequestTemplate,
 )
-from apps.modules.requests.auto_requests import process_due_auto_requests, render_auto_request_template
+from apps.modules.requests.auto_requests import (
+    _next_auto_requests_run_at,
+    process_due_auto_requests,
+    render_auto_request_template,
+)
 from apps.modules.bank_expenses.models import BankExpense
 from apps.modules.cashier.models import CashExpense
 from apps.modules.corporate_card.models import CardExpense
@@ -1418,6 +1423,18 @@ class AutoRequestTests(APITestCase):
             billing_month=date(2026, 2, 1),
         )
         self.assertEqual(out, "Отчет за Февраль 2026")
+
+    def test_next_auto_requests_run_at_same_day_morning(self):
+        now_dt = timezone.make_aware(datetime(2026, 2, 3, 7, 15, 0), ZoneInfo("Asia/Tashkent"))
+        run_dt = _next_auto_requests_run_at(now_dt)
+        local_run_dt = timezone.localtime(run_dt, ZoneInfo("Asia/Tashkent"))
+        self.assertEqual(local_run_dt, datetime(2026, 2, 3, 8, 0, 0, tzinfo=ZoneInfo("Asia/Tashkent")))
+
+    def test_next_auto_requests_run_at_next_day_after_8am(self):
+        now_dt = timezone.make_aware(datetime(2026, 2, 3, 8, 1, 0), ZoneInfo("Asia/Tashkent"))
+        run_dt = _next_auto_requests_run_at(now_dt)
+        local_run_dt = timezone.localtime(run_dt, ZoneInfo("Asia/Tashkent"))
+        self.assertEqual(local_run_dt, datetime(2026, 2, 4, 8, 0, 0, tzinfo=ZoneInfo("Asia/Tashkent")))
 
     def test_process_due_auto_requests_creates_once_per_month(self):
         v = self._ensure_request_form_for_auto()
