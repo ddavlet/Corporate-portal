@@ -1,4 +1,5 @@
 import logging
+import uuid
 from datetime import date, datetime
 
 import requests
@@ -410,6 +411,123 @@ class CashflowDataProxyView(APIView):
 
     def get(self, request):
         return _proxy_n8n_json(request, "/n8n/cashflow-data")
+
+
+class AiChatProxyView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        tenant = getattr(request, "tenant", None)
+        endpoint = "/n8n/aichat"
+        if not tenant:
+            return Response(
+                _n8n_error_payload(
+                    "No tenant.",
+                    error_type="tenant_missing",
+                    error_location=endpoint,
+                    reason="Tenant could not be resolved from request host/context.",
+                ),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if not settings.BASE_DOMAIN:
+            return Response(
+                _n8n_error_payload(
+                    "BASE_DOMAIN is not configured.",
+                    error_type="config_error",
+                    error_location=endpoint,
+                    reason="Missing BASE_DOMAIN setting.",
+                ),
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+
+        question = str(request.data.get("question") or "").strip()
+        if not question:
+            return Response({"question": ["This field is required."]}, status=status.HTTP_400_BAD_REQUEST)
+
+        raw_session_id = str(request.data.get("session_id") or "").strip()
+        session_id = raw_session_id or uuid.uuid4().hex
+
+        token = get_n8n_integration_settings(tenant=tenant).integration_token
+        if not token:
+            token = (getattr(settings, "N8N_INTEGRATION_TOKEN", None) or "").strip()
+        if not token:
+            return Response(
+                _n8n_error_payload(
+                    "N8N_INTEGRATION_TOKEN is not configured.",
+                    error_type="config_error",
+                    error_location=endpoint,
+                    reason="Missing n8n integration token in tenant or global settings.",
+                ),
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+
+        url = f"https://{tenant.subdomain}.{settings.BASE_DOMAIN}/{endpoint.lstrip('/')}"
+        payload = {
+            "user": request.user.id,
+            "session_id": session_id,
+            "question": question,
+        }
+        try:
+            resp = requests.post(
+                url,
+                json=payload,
+                timeout=30,
+                headers={
+                    "Accept": "application/json",
+                    "Content-Type": "application/json",
+                    "X-N8N-Integration-Token": token,
+                    "X-Tenant": tenant.subdomain,
+                    "X-User-Id": str(request.user.id),
+                },
+            )
+        except requests.RequestException as exc:
+            logger.warning("n8n ai chat proxy request failed: tenant=%s endpoint=%s error=%s", tenant.subdomain, endpoint, exc)
+            return Response(
+                _n8n_error_payload(
+                    f"n8n request failed: {exc}",
+                    error_type="n8n_request_failed",
+                    error_location=endpoint,
+                    reason=exc.__class__.__name__,
+                ),
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+
+        if resp.status_code in (401, 403):
+            return Response(
+                _n8n_error_payload(
+                    "Forbidden by n8n.",
+                    error_type="n8n_forbidden",
+                    error_location=endpoint,
+                    reason=f"n8n returned HTTP {resp.status_code}.",
+                ),
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        if resp.status_code >= 400:
+            return Response(
+                _n8n_error_payload(
+                    f"n8n error {resp.status_code}",
+                    error_type="n8n_bad_response",
+                    error_location=endpoint,
+                    reason="Upstream n8n endpoint returned non-success status.",
+                ),
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+
+        try:
+            data = resp.json()
+        except ValueError:
+            return Response(
+                _n8n_error_payload(
+                    "Invalid JSON returned by n8n.",
+                    error_type="invalid_upstream_json",
+                    error_location=endpoint,
+                    reason="n8n response body is not valid JSON.",
+                ),
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+        if isinstance(data, dict) and not data.get("session_id"):
+            data["session_id"] = session_id
+        return Response(data, status=status.HTTP_200_OK)
 
 
 class N8nVendorUpsertView(_N8nBaseView):

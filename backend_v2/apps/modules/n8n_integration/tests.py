@@ -1,5 +1,6 @@
 
 from datetime import date, datetime
+from unittest.mock import Mock, patch
 
 from django.conf import settings
 from django.contrib.auth import get_user_model
@@ -112,6 +113,31 @@ class N8nIntegrationAuthTests(APITestCase):
         self.assertEqual(res2.status_code, 200)
         v.refresh_from_db()
         self.assertEqual(v.name, "Updated")
+
+    @patch("apps.modules.n8n_integration.views.requests.post")
+    def test_ai_chat_proxy_generates_session_id_and_forwards_payload(self, mocked_post):
+        mocked_response = Mock()
+        mocked_response.status_code = 200
+        mocked_response.json.return_value = {"reponse": "AI says hello", "history": {"ai": "old", "user": "old"}}
+        mocked_post.return_value = mocked_response
+
+        res = self.client.post(
+            "/api/ai-questions/chat/",
+            {"question": "Как дела?"},
+            format="json",
+            **self._headers(self.admin, integration=False),
+        )
+        self.assertEqual(res.status_code, 200, res.content)
+        payload = res.json()
+        self.assertEqual(payload["reponse"], "AI says hello")
+        self.assertIn("session_id", payload)
+        self.assertEqual(len(payload["session_id"]), 32)
+
+        called_kwargs = mocked_post.call_args.kwargs
+        self.assertTrue(called_kwargs["url"].endswith("/n8n/aichat"))
+        self.assertEqual(called_kwargs["json"]["user"], self.admin.id)
+        self.assertEqual(called_kwargs["json"]["question"], "Как дела?")
+        self.assertEqual(called_kwargs["json"]["session_id"], payload["session_id"])
 
     def test_vendor_upsert_by_account_no_when_id_missing(self):
         Vendor.objects.create(
