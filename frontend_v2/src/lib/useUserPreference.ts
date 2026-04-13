@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type SetStateAction } from 'react'
+import { useCallback, useEffect, useRef, useState, type SetStateAction } from 'react'
 import { getUserPreferences, setUserPreference } from './api'
 
 type UseUserPreferenceOptions<T> = {
@@ -16,22 +16,31 @@ export function useUserPreference<T>({
   normalize,
   onError,
 }: UseUserPreferenceOptions<T>) {
+  const fallbackNormalize = useCallback((raw: unknown, fallback: T) => {
+    if (raw === undefined) return fallback
+    return raw as T
+  }, [])
   const [value, setValue] = useState<T>(defaultValue)
   const [isLoading, setIsLoading] = useState(true)
   const [isReady, setIsReady] = useState(false)
   const writeSeqRef = useRef(0)
   const timerRef = useRef<number | null>(null)
   const hasLoadedRef = useRef(false)
+  const normalizeRef = useRef<typeof normalize>(normalize)
+  const defaultValueRef = useRef(defaultValue)
+  const onErrorRef = useRef<typeof onError>(onError)
 
-  const normalizeValue = useMemo(
-    () =>
-      normalize ??
-      ((raw: unknown, fallback: T) => {
-        if (raw === undefined) return fallback
-        return raw as T
-      }),
-    [normalize],
-  )
+  useEffect(() => {
+    normalizeRef.current = normalize
+  }, [normalize])
+
+  useEffect(() => {
+    defaultValueRef.current = defaultValue
+  }, [defaultValue])
+
+  useEffect(() => {
+    onErrorRef.current = onError
+  }, [onError])
 
   useEffect(() => {
     hasLoadedRef.current = false
@@ -42,9 +51,10 @@ export function useUserPreference<T>({
       try {
         const prefs = await getUserPreferences([key])
         if (cancelled) return
-        setValue(normalizeValue(prefs[key], defaultValue))
+        const normalizeValue = normalizeRef.current ?? fallbackNormalize
+        setValue(normalizeValue(prefs[key], defaultValueRef.current))
       } catch (error: unknown) {
-        if (!cancelled && onError && error instanceof Error) onError(error)
+        if (!cancelled && onErrorRef.current && error instanceof Error) onErrorRef.current(error)
       } finally {
         if (!cancelled) {
           hasLoadedRef.current = true
@@ -56,7 +66,7 @@ export function useUserPreference<T>({
     return () => {
       cancelled = true
     }
-  }, [key, defaultValue, normalizeValue, onError])
+  }, [key, fallbackNormalize])
 
   useEffect(() => {
     if (!isReady || !hasLoadedRef.current) return
@@ -71,7 +81,7 @@ export function useUserPreference<T>({
           await setUserPreference(key, value)
         } catch (error: unknown) {
           if (seq !== writeSeqRef.current) return
-          if (onError && error instanceof Error) onError(error)
+          if (onErrorRef.current && error instanceof Error) onErrorRef.current(error)
         }
       })()
     }, debounceMs)
@@ -81,7 +91,7 @@ export function useUserPreference<T>({
         timerRef.current = null
       }
     }
-  }, [key, value, debounceMs, isReady, onError])
+  }, [key, value, debounceMs, isReady])
 
   const updateValue = useCallback((next: SetStateAction<T>) => {
     setValue(next)
