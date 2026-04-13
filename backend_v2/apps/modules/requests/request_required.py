@@ -8,9 +8,9 @@ from apps.modules.requests.models import Request, RequestApprovalPaymentTypeConf
 RULE_OPERATOR_EQ = "eq"
 
 RULE_FIELD_OPTIONS: dict[str, tuple[str, ...]] = {
-    Request.PAYMENT_TYPE_CASH: ("payment_purpose", "category"),
-    Request.PAYMENT_TYPE_TRANSFER: ("payment_purpose", "category"),
-    Request.PAYMENT_TYPE_TOPUP: ("payment_purpose", "category"),
+    Request.PAYMENT_TYPE_CASH: ("title",),
+    Request.PAYMENT_TYPE_TRANSFER: ("payment_purpose", "category", "vendor"),
+    Request.PAYMENT_TYPE_TOPUP: ("payment_purpose", "category", "vendor"),
     Request.PAYMENT_TYPE_CARD: ("payment_purpose", "category"),
 }
 
@@ -77,4 +77,7 @@ def _extract_expense_field_value(*, expense_obj: Any, field: str) -> Any:
             or payload_obj.get("cat")
             or payload_obj.get("cat_name")
         )
+    if field == "vendor":
+        vendor = getattr(expense_obj, "vendor", None)
+        return getattr(vendor, "name", None)
     return getattr(expense_obj, field, None)

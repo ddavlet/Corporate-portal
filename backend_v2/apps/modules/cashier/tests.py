@@ -131,11 +131,11 @@ class CashExpenseRequestRequiredApiTests(APITestCase):
             expense_month=dt.month,
             expense_day=dt.day,
             note="",
-            payload={"category": "misc"},
+            payload={},
             created_by=self.admin,
         )
         self.pt_cfg.request_not_required_rules = [
-            {"field": "category", "operator": "eq", "value": "misc"}
+            {"field": "title", "operator": "eq", "value": "Optional by rule"}
         ]
         self.pt_cfg.save(update_fields=["request_not_required_rules"])
 
