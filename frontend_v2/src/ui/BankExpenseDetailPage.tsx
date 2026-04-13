@@ -16,7 +16,8 @@ type BankExpenseDetail = {
   expense_month?: number | null
   expense_day?: number | null
   doc_no: string
-  account_name: string
+  account_name?: string
+  vendor_name?: string | null
   inn?: string | null
   account_no: string
   mfo: string
@@ -68,6 +69,10 @@ function formatExpenseCalendar(
   return [y ?? '—', m != null ? String(m).padStart(2, '0') : '—', d != null ? String(d).padStart(2, '0') : '—'].join(
     '.',
   )
+}
+
+function getCounterparty(detail: BankExpenseDetail): string {
+  return String(detail.vendor_name || '').trim()
 }
 
 export function BankExpenseDetailPage() {
@@ -132,7 +137,7 @@ export function BankExpenseDetailPage() {
                 {detail.row_no != null && detail.row_no !== undefined ? detail.row_no : '-'}
               </Descriptions.Item>
               <Descriptions.Item label="Док. №">{detail.doc_no || '-'}</Descriptions.Item>
-              <Descriptions.Item label="Контрагент">{detail.account_name || '-'}</Descriptions.Item>
+              <Descriptions.Item label="Контрагент">{getCounterparty(detail) || '-'}</Descriptions.Item>
               <Descriptions.Item label="ИНН">{detail.inn?.trim() || '-'}</Descriptions.Item>
               <Descriptions.Item label="Расчётный счёт">{detail.account_no || '-'}</Descriptions.Item>
               <Descriptions.Item label="МФО">{detail.mfo || '-'}</Descriptions.Item>
