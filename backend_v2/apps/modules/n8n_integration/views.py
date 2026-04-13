@@ -6,6 +6,7 @@ from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.db import IntegrityError, transaction
 from rest_framework import status
+from rest_framework.exceptions import APIException
 from rest_framework.exceptions import ValidationError
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
@@ -173,6 +174,8 @@ class _N8nBaseView(APIView):
                 ),
                 status=status.HTTP_400_BAD_REQUEST,
             )
+        if isinstance(exc, APIException):
+            return super().handle_exception(exc)
 
         logger.exception("Unhandled n8n integration error at %s: %s", location, exc)
         return Response(
