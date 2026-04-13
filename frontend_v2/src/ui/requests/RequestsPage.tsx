@@ -260,8 +260,14 @@ export function RequestsPage() {
   }, [selectedRow])
 
   const columns: ColumnsType<RequestRow> = [
-    { title: 'ID', dataIndex: 'id', width: 80, sorter: true },
-    { title: 'Название', dataIndex: 'title', sorter: true },
+    { title: 'ID', dataIndex: 'id', width: 64, sorter: true },
+    { title: 'Название', dataIndex: 'title', width: 180, sorter: true },
+    {
+      title: 'Описание заявки',
+      dataIndex: 'description',
+      width: 280,
+      render: (value: string | undefined) => value || '—',
+    },
     { title: 'Категория', dataIndex: 'category', sorter: true },
     { title: 'Поставщик', dataIndex: 'vendor', sorter: true },
     {
@@ -276,7 +282,6 @@ export function RequestsPage() {
       sorter: true,
       render: (value: string) => <Tag color={getStatusColor(value)}>{value}</Tag>,
     },
-    { title: 'Срочность', dataIndex: 'urgency', sorter: true },
     { title: 'Тип оплаты', dataIndex: 'payment_type', sorter: true },
     {
       title: 'Заявитель',
