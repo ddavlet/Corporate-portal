@@ -2,9 +2,11 @@ from rest_framework import viewsets
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
+from django.db.models import Exists, OuterRef, Q, Subquery
 
 from apps.modules.corporate_card.models import CardExpense, CardRevenue
 from apps.modules.corporate_card.serializers import CardExpenseSerializer, CardRevenueSerializer
+from apps.modules.requests.models import Request
 from apps.tenants.permissions import HasEffectiveModuleAccess
 from apps.modules.wallets.models import Wallet
 from apps.modules.wallets.services import balances_for_tenant_channel
@@ -34,7 +36,16 @@ class CardExpenseViewSet(viewsets.ModelViewSet):
         tenant = getattr(self.request, "tenant", None)
         if not tenant:
             return CardExpense.objects.none()
-        return CardExpense.objects.filter(tenant=tenant)
+        request_subquery = Request.objects.filter(
+            tenant=tenant,
+            payment_type=Request.PAYMENT_TYPE_CARD,
+        ).filter(Q(expense_ref_id=OuterRef("id")))
+        paid_request_subquery = request_subquery.filter(status=Request.STATUS_PAYED)
+        return CardExpense.objects.filter(tenant=tenant).annotate(
+            has_request=Exists(request_subquery),
+            has_paid_request=Exists(paid_request_subquery),
+            matched_request_id=Subquery(request_subquery.order_by("-created_at").values("id")[:1]),
+        )
 
     def perform_create(self, serializer):
         serializer.save(tenant=self.request.tenant, created_by=self.request.user)

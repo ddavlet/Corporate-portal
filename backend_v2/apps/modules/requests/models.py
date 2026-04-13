@@ -390,6 +390,7 @@ class RequestApprovalPaymentTypeConfig(models.Model):
     config = models.ForeignKey(RequestApprovalConfig, on_delete=models.CASCADE, related_name="payment_types")
     payment_type = models.CharField(max_length=50, choices=Request.PAYMENT_TYPE_CHOICES)
     is_enabled = models.BooleanField(default=True)
+    request_not_required_rules = models.JSONField(default=list, blank=True)
 
     class Meta:
         db_table = "request_approval_payment_type_configs"

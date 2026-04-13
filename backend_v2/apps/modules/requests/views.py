@@ -1081,11 +1081,28 @@ class RequestApprovalConfigView(APIView):
     module_key = "requests"
     permission_classes = [IsAuthenticated, HasEffectiveModuleAccess, IsTenantAdminOrDirector]
 
+    def _is_tenant_admin(self, request) -> bool:
+        tenant = getattr(request, "tenant", None)
+        if not tenant or not request.user or not request.user.is_authenticated:
+            return False
+        return TenantUserRole.objects.filter(
+            tenant=tenant,
+            user=request.user,
+            role=TenantUserRole.ROLE_ADMIN,
+        ).exists()
+
     def get(self, request):
         tenant = getattr(request, "tenant", None)
         if not tenant:
             raise ValidationError({"detail": "Unknown tenant."})
-        return Response(build_request_approval_config_response(tenant=tenant))
+        is_admin = self._is_tenant_admin(request)
+        response = build_request_approval_config_response(tenant=tenant)
+        response["is_tenant_admin"] = is_admin
+        if not is_admin:
+            for pt in response.get("payment_types", []):
+                pt["request_not_required_field_options"] = []
+                pt["request_not_required_rules"] = []
+        return Response(response)
 
     def put(self, request):
         tenant = getattr(request, "tenant", None)
@@ -1096,6 +1113,15 @@ class RequestApprovalConfigView(APIView):
         payload.is_valid(raise_exception=True)
         payment_types = payload.validated_data.get("payment_types", [])
         integration_settings = payload.validated_data.get("integration_settings", {})
+        is_admin = self._is_tenant_admin(request)
+        if not is_admin:
+            has_rules_update = any(
+                "request_not_required_rules" in (item or {})
+                for item in list(request.data.get("payment_types") or [])
+                if isinstance(item, dict)
+            )
+            if has_rules_update:
+                raise PermissionDenied("Only tenant admin can manage request-not-required rules.")
 
         active_member_ids = set(
             TenantMembership.objects.filter(tenant=tenant, is_active=True).values_list("user_id", flat=True)
@@ -1146,7 +1172,11 @@ class RequestApprovalConfigView(APIView):
                 else:
                     pt_cfg.is_enabled = bool(item.get("is_enabled", True))
 
-                pt_cfg.save(update_fields=["is_enabled"])
+                update_fields = ["is_enabled"]
+                if is_admin:
+                    pt_cfg.request_not_required_rules = list(item.get("request_not_required_rules") or [])
+                    update_fields.append("request_not_required_rules")
+                pt_cfg.save(update_fields=update_fields)
                 RequestApprovalStepConfig.objects.filter(payment_type_config=pt_cfg).delete()
 
                 steps = list(item.get("steps") or [])
@@ -1194,7 +1224,13 @@ class RequestApprovalConfigView(APIView):
                     pt_cfg.is_enabled = False
                     pt_cfg.save(update_fields=["is_enabled"])
 
-        return Response(build_request_approval_config_response(tenant=tenant))
+        response = build_request_approval_config_response(tenant=tenant)
+        response["is_tenant_admin"] = is_admin
+        if not is_admin:
+            for pt in response.get("payment_types", []):
+                pt["request_not_required_field_options"] = []
+                pt["request_not_required_rules"] = []
+        return Response(response)
 
 
 class AutoRequestConfigView(APIView):

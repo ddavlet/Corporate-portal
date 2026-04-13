@@ -9,6 +9,7 @@ import { RequestDetailModal, type RequestDetail } from './requests/RequestDetail
 import { NoteCreateModal } from './NoteCreateModal'
 import { labelBlockAboveField } from './formSpacing'
 import { ChannelBalancesSummary } from './ChannelBalancesSummary'
+import { renderExpenseRequestStatusTag, shouldHighlightMissingRequiredRequest } from './expenseRequestStatus'
 
 type CashExpenseRow = {
   id: number
@@ -25,6 +26,7 @@ type CashExpenseRow = {
   has_request?: boolean
   has_paid_request?: boolean
   matched_request_id?: number | null
+  request_required?: boolean
   wallet_id?: number | null
   created_at: string
 }
@@ -289,11 +291,10 @@ export function CashPage() {
     },
     { title: 'Название', dataIndex: 'title', sorter: (a, b) => String(a.title).localeCompare(String(b.title)) },
     {
-      title: 'Связь с PAYED',
+      title: 'Статус заявки',
       dataIndex: 'has_paid_request',
       width: 150,
-      render: (value: boolean | undefined) =>
-        value === false ? <Tag color="gold">Без PAYED request</Tag> : <Tag color="success">OK</Tag>,
+      render: (_value: boolean | undefined, row) => renderExpenseRequestStatusTag(row),
     },
     {
       title: 'Подтверждено',
@@ -526,7 +527,7 @@ export function CashPage() {
                   }}
                   rowClassName={(record) => {
                     if (record.confirmed === false) return 'cash-row-unconfirmed'
-                    if (record.has_paid_request === false) return 'cash-row-unmatched'
+                    if (shouldHighlightMissingRequiredRequest(record)) return 'cash-row-unmatched'
                     return ''
                   }}
                   pagination={{
@@ -607,6 +608,9 @@ export function CashPage() {
             <Descriptions.Item label="Касса">{cashRegisterNameByWallet(selectedExpense.wallet_id)}</Descriptions.Item>
             <Descriptions.Item label="Дата/время расхода">{formatDateTime(selectedExpense.expense_at)}</Descriptions.Item>
             <Descriptions.Item label="Примечание">{selectedExpense.note || '-'}</Descriptions.Item>
+            <Descriptions.Item label="Статус заявки">
+              {renderExpenseRequestStatusTag(selectedExpense)}
+            </Descriptions.Item>
           </Descriptions>
         ) : null}
 

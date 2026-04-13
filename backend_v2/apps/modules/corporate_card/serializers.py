@@ -10,6 +10,8 @@ from apps.modules.corporate_card.models import CardExpense, CardRevenue
 from apps.modules.wallets.models import Wallet
 from apps.modules.wallets.serializer_integration import assign_wallet_for_corporate_movement
 from apps.tenants.permissions import has_effective_module_access
+from apps.modules.requests.models import Request
+from apps.modules.requests.request_required import is_request_required_for_expense
 
 TASHKENT_TZ = ZoneInfo("Asia/Tashkent")
 
@@ -41,6 +43,10 @@ def _tashkent_date_from_datetime(dt: datetime):
 
 
 class CardExpenseSerializer(serializers.ModelSerializer):
+    has_request = serializers.BooleanField(read_only=True)
+    has_paid_request = serializers.BooleanField(read_only=True)
+    matched_request_id = serializers.IntegerField(read_only=True, allow_null=True)
+    request_required = serializers.SerializerMethodField()
     wallet_id = serializers.PrimaryKeyRelatedField(
         source="wallet",
         queryset=Wallet.objects.none(),
@@ -84,10 +90,25 @@ class CardExpenseSerializer(serializers.ModelSerializer):
             "note",
             "payload",
             "wallet_id",
+            "has_request",
+            "has_paid_request",
+            "matched_request_id",
+            "request_required",
             "created_at",
             "created_by",
         ]
         read_only_fields = ["id", "created_at", "created_by"]
+
+    def get_request_required(self, obj) -> bool:
+        request_obj = self.context.get("request")
+        tenant = getattr(request_obj, "tenant", None)
+        if not tenant:
+            return True
+        return is_request_required_for_expense(
+            tenant=tenant,
+            payment_type=Request.PAYMENT_TYPE_CARD,
+            expense_obj=obj,
+        )
 
 
 class CardRevenueSerializer(serializers.ModelSerializer):

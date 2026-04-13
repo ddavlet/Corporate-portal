@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Alert, Button, Card, Collapse, DatePicker, Descriptions, Input, InputNumber, Select, Modal, Skeleton, Space, Table, Tabs, Tag, Typography } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
 import type { Dayjs } from 'dayjs'
+import { useNavigate } from 'react-router-dom'
 import {
   getCorporateCardExpenses,
   getCorporateCardRevenues,
@@ -10,6 +11,7 @@ import {
 } from '../lib/api'
 import { labelBlockAboveField } from './formSpacing'
 import { ChannelBalancesSummary } from './ChannelBalancesSummary'
+import { renderExpenseRequestStatusTag, shouldHighlightMissingRequiredRequest } from './expenseRequestStatus'
 
 const dateTimeFormatterTashkent = new Intl.DateTimeFormat('ru-RU', {
   day: '2-digit',
@@ -40,6 +42,7 @@ function formatDate(value?: string | null): string {
 }
 
 export function CorporateCardPage() {
+  const navigate = useNavigate()
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [expenses, setExpenses] = useState<CorporateCardExpense[]>([])
@@ -212,6 +215,12 @@ export function CorporateCardPage() {
       dataIndex: 'amount',
       sorter: (a, b) => Number(a.amount) - Number(b.amount),
       render: (_, row) => `${Number(row.amount).toLocaleString('ru-RU')} ${row.currency || ''}`.trim(),
+    },
+    {
+      title: 'Статус заявки',
+      dataIndex: 'has_paid_request',
+      width: 180,
+      render: (_value, row) => renderExpenseRequestStatusTag(row),
     },
     {
       title: 'Дата расхода',
@@ -402,6 +411,7 @@ export function CorporateCardPage() {
                   size="small"
                   columns={expenseColumns}
                   dataSource={filteredExpenses}
+                  rowClassName={(record) => (shouldHighlightMissingRequiredRequest(record) ? 'card-row-unmatched' : '')}
                   onChange={(pagination) => {
                     if (pagination.current) setCurrentExpensePage(pagination.current)
                     if (pagination.pageSize) setExpensePageSize(pagination.pageSize)
@@ -466,8 +476,19 @@ export function CorporateCardPage() {
             </Descriptions.Item>
             <Descriptions.Item label="Дата расхода">{formatDateTime(selectedExpense.expense_at)}</Descriptions.Item>
             <Descriptions.Item label="Примечание">{selectedExpense.note || '-'}</Descriptions.Item>
+            <Descriptions.Item label="Статус заявки">{renderExpenseRequestStatusTag(selectedExpense)}</Descriptions.Item>
+            <Descriptions.Item label="Связанная заявка">
+              {selectedExpense.matched_request_id ? `#${selectedExpense.matched_request_id}` : '-'}
+            </Descriptions.Item>
             <Descriptions.Item label="Создано">{formatDateTime(selectedExpense.created_at)}</Descriptions.Item>
           </Descriptions>
+        ) : null}
+        {selectedExpense?.matched_request_id ? (
+          <Space style={{ marginTop: 12 }}>
+            <Button type="primary" onClick={() => navigate(`/requests/${selectedExpense.matched_request_id}`)}>
+              Открыть связанную заявку
+            </Button>
+          </Space>
         ) : null}
       </Modal>
 
@@ -506,6 +527,11 @@ export function CorporateCardPage() {
           </Descriptions>
         ) : null}
       </Modal>
+      <style>{`
+        .card-row-unmatched > td {
+          background: #fffbe6 !important;
+        }
+      `}</style>
     </Card>
   )
 }

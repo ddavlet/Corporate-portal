@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react'
-import { Alert, Button, Card, Descriptions, Skeleton, Space, Tag, Typography } from 'antd'
+import { Alert, Button, Card, Descriptions, Skeleton, Space, Typography } from 'antd'
 import { useNavigate, useParams } from 'react-router-dom'
 import { apiFetch } from '../lib/api'
 import { NoteCreateModal } from './NoteCreateModal'
+import { renderExpenseRequestStatusTag } from './expenseRequestStatus'
 
 type BankExpenseDetail = {
   id: number
@@ -25,6 +26,7 @@ type BankExpenseDetail = {
   has_request?: boolean
   has_paid_request?: boolean
   matched_request_id?: number | null
+  request_required?: boolean
 }
 
 const dateFormatterTashkent = new Intl.DateTimeFormat('ru-RU', {
@@ -144,11 +146,8 @@ export function BankExpenseDetailPage() {
               <Descriptions.Item label="Поставщик (vendor id)">
                 {detail.vendor != null && detail.vendor !== undefined ? detail.vendor : '-'}
               </Descriptions.Item>
-              <Descriptions.Item label="Есть заявка">
-                {detail.has_request === false ? <Tag color="default">Нет</Tag> : <Tag color="processing">Да</Tag>}
-              </Descriptions.Item>
-              <Descriptions.Item label="Связь с PAYED">
-                {detail.has_paid_request === false ? <Tag color="gold">Без PAYED request</Tag> : <Tag color="success">OK</Tag>}
+              <Descriptions.Item label="Статус заявки">
+                {renderExpenseRequestStatusTag(detail)}
               </Descriptions.Item>
             </Descriptions>
             <Typography.Text type="secondary">

@@ -355,6 +355,10 @@ export type CorporateCardExpense = {
   currency: string
   expense_at: string
   note: string
+  has_request?: boolean
+  has_paid_request?: boolean
+  matched_request_id?: number | null
+  request_required?: boolean
   payload?: Record<string, unknown>
   created_at: string
 }
@@ -1106,10 +1110,13 @@ export type RequestApprovalConfigPaymentTypeItem = {
   payment_type: string
   is_enabled: boolean
   payment_action_mode_options?: Array<'callback' | 'webapp' | 'create' | string>
+  request_not_required_field_options?: string[]
+  request_not_required_rules?: Array<{ field: string; operator?: 'eq' | string; value: string }>
   steps: RequestApprovalConfigStepItem[]
 }
 
 export type RequestApprovalConfigResponse = {
+  is_tenant_admin?: boolean
   payment_types: RequestApprovalConfigPaymentTypeItem[]
   approver_candidates: Array<{ id: number; username: string }>
   integration_settings?: {
@@ -1134,6 +1141,7 @@ export type RequestApprovalConfigUpdatePayload = {
   payment_types: Array<{
     payment_type: string
     is_enabled: boolean
+    request_not_required_rules?: Array<{ field: string; operator?: 'eq' | string; value: string }>
     steps: Array<{
       step: number
       step_type: string

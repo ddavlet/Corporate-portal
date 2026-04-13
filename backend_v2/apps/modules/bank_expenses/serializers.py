@@ -6,6 +6,8 @@ from apps.modules.bank_expenses.tashkent_dates import TashkentFlexibleDateField
 from apps.modules.vendors.models import Vendor
 from apps.modules.wallets.models import Wallet
 from apps.modules.wallets.serializer_integration import assign_wallet_for_bank_movement
+from apps.modules.requests.models import Request
+from apps.modules.requests.request_required import is_request_required_for_expense
 
 
 def _apply_expense_calendar_from_doc_date(attrs: dict, instance) -> None:
@@ -33,6 +35,7 @@ class BankExpenseSerializer(serializers.ModelSerializer):
     has_request = serializers.BooleanField(read_only=True)
     has_paid_request = serializers.BooleanField(read_only=True)
     matched_request_id = serializers.IntegerField(read_only=True, allow_null=True)
+    request_required = serializers.SerializerMethodField()
     vendor = serializers.PrimaryKeyRelatedField(queryset=Vendor.objects.all(), allow_null=True, required=False)
     account_no = serializers.CharField(write_only=True, required=False, allow_blank=True)
     wallet_id = serializers.PrimaryKeyRelatedField(
@@ -63,6 +66,7 @@ class BankExpenseSerializer(serializers.ModelSerializer):
             "has_request",
             "has_paid_request",
             "matched_request_id",
+            "request_required",
         ]
         read_only_fields = ["created_at", "created_by"]
 
@@ -109,6 +113,18 @@ class BankExpenseSerializer(serializers.ModelSerializer):
         if tenant:
             attrs = assign_wallet_for_bank_movement(instance=self.instance, tenant=tenant, attrs=attrs)
         return attrs
+
+    def get_request_required(self, obj) -> bool:
+        request_obj = self.context.get("request")
+        tenant = getattr(request_obj, "tenant", None)
+        if not tenant:
+            return True
+        payment_type = Request.PAYMENT_TYPE_TRANSFER
+        return is_request_required_for_expense(
+            tenant=tenant,
+            payment_type=payment_type,
+            expense_obj=obj,
+        )
 
 
 class BankRevenueSerializer(serializers.ModelSerializer):

@@ -991,6 +991,30 @@ class RequestApprovalsTests(APITestCase):
         res = self.client.put("/api/requests/approval-config/", payload, format="json", HTTP_HOST=self.host)
         self.assertEqual(res.status_code, 200, res.content)
 
+    def test_director_cannot_manage_request_not_required_rules(self):
+        self.client.force_authenticate(self.director)
+        payload = {
+            "payment_types": [
+                {
+                    "payment_type": "Наличные",
+                    "is_enabled": True,
+                    "request_not_required_rules": [
+                        {"field": "title", "operator": "eq", "value": "Optional"}
+                    ],
+                    "steps": [
+                        {
+                            "step": 1,
+                            "step_type": "serial",
+                            "is_enabled": True,
+                            "approver_user_ids": [self.member_no_approver_role.id],
+                        }
+                    ],
+                }
+            ]
+        }
+        res = self.client.put("/api/requests/approval-config/", payload, format="json", HTTP_HOST=self.host)
+        self.assertEqual(res.status_code, 403, res.content)
+
     def test_payment_webapp_confirm_sets_expense_id_and_marks_paid(self):
         appr_cfg = RequestApprovalConfig.objects.get(tenant=self.tenant)
         pt_cfg = RequestApprovalPaymentTypeConfig.objects.create(

@@ -37,6 +37,10 @@ from apps.modules.requests.expense_refs import (
     try_resolve_request_expense_ref_id,
 )
 from apps.modules.requests.amortization import build_amortization_schedule_rows, is_request_amortized
+from apps.modules.requests.request_required import (
+    RULE_OPERATOR_EQ,
+    request_not_required_field_options_for_payment_type,
+)
 from apps.modules.serializers_guard import reject_client_pk_on_create
 from apps.tenants.permissions import has_effective_module_access
 from apps.tenants.models import TenantMembership, TenantModuleConfig, TenantUserRole
@@ -793,6 +797,11 @@ class RequestApprovalPaymentTypePayloadSerializer(serializers.Serializer):
     payment_type = serializers.ChoiceField(choices=Request.PAYMENT_TYPE_CHOICES)
     is_enabled = serializers.BooleanField(required=False, default=True)
     steps = serializers.ListField(child=RequestApprovalStepPayloadSerializer(), required=False, default=list)
+    request_not_required_rules = serializers.ListField(
+        child=serializers.DictField(),
+        required=False,
+        default=list,
+    )
 
 
 class RequestApprovalConfigPayloadSerializer(serializers.Serializer):
@@ -847,6 +856,28 @@ class RequestApprovalConfigPayloadSerializer(serializers.Serializer):
                             )
                         }
                     )
+            allowed_fields = set(request_not_required_field_options_for_payment_type(payment_type))
+            normalized_rules: list[dict] = []
+            for rule in list(pt_item.get("request_not_required_rules") or []):
+                if not isinstance(rule, dict):
+                    raise serializers.ValidationError({"payment_types": "request_not_required_rules must contain objects."})
+                field = str(rule.get("field") or "").strip()
+                operator = str(rule.get("operator") or RULE_OPERATOR_EQ).strip().lower() or RULE_OPERATOR_EQ
+                value = str(rule.get("value") or "").strip()
+                if not field or field not in allowed_fields:
+                    raise serializers.ValidationError(
+                        {"payment_types": f"Unknown rule field '{field}' for payment_type '{payment_type}'."}
+                    )
+                if operator != RULE_OPERATOR_EQ:
+                    raise serializers.ValidationError(
+                        {"payment_types": f"Unsupported operator '{operator}' for request_not_required_rules."}
+                    )
+                if not value:
+                    raise serializers.ValidationError(
+                        {"payment_types": "Rule value cannot be empty."}
+                    )
+                normalized_rules.append({"field": field, "operator": operator, "value": value})
+            pt_item["request_not_required_rules"] = normalized_rules
         return attrs
 
 
@@ -879,10 +910,21 @@ def build_request_approval_config_response(*, tenant) -> dict:
             tenant=tenant,
             payment_type=pt_value,
         )
+        row["request_not_required_field_options"] = request_not_required_field_options_for_payment_type(pt_value)
+        row["request_not_required_rules"] = []
         if cfg:
             pt_cfg = RequestApprovalPaymentTypeConfig.objects.filter(config=cfg, payment_type=pt_value).first()
             if pt_cfg:
                 row["is_enabled"] = bool(pt_cfg.is_enabled)
+                row["request_not_required_rules"] = [
+                    {
+                        "field": str(item.get("field") or "").strip(),
+                        "operator": str(item.get("operator") or RULE_OPERATOR_EQ).strip().lower() or RULE_OPERATOR_EQ,
+                        "value": str(item.get("value") or "").strip(),
+                    }
+                    for item in (pt_cfg.request_not_required_rules or [])
+                    if isinstance(item, dict)
+                ]
                 step_qs = pt_cfg.steps.order_by("step", "id").all()
                 for step in step_qs:
                     row["steps"].append(
