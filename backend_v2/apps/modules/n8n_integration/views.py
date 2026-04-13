@@ -41,6 +41,67 @@ User = get_user_model()
 logger = logging.getLogger(__name__)
 
 
+def _n8n_error_payload(detail, *, error_type, error_location, reason=None, extra=None):
+    payload = {
+        "detail": detail,
+        "error_type": error_type,
+        "error_location": error_location,
+    }
+    if reason:
+        payload["reason"] = reason
+    if isinstance(extra, dict):
+        payload.update(extra)
+    return payload
+
+
+def _n8n_integrity_error_payload(exc: IntegrityError) -> dict:
+    """Human-readable DB message for n8n operators (duplicate keys, FK violations, etc.)."""
+    raw = " ".join(str(a) for a in exc.args).strip() if exc.args else str(exc)
+    raw = raw.strip() or "Database integrity constraint failed."
+    return _n8n_error_payload(
+        raw,
+        error_type="integrity_error",
+        error_location="database",
+        reason="Database constraint violation",
+        extra={"integrity_error": {"message": raw}},
+    )
+
+
+def _n8n_batch_item_summary(item: dict) -> dict:
+    """Small stable subset of the failed batch row for logs and n8n expressions."""
+    keys = (
+        "external_id",
+        "id",
+        "pk",
+        "doc_id",
+        "line_no",
+        "title",
+        "expense_at",
+        "expense_year",
+        "revenue_date",
+        "snapshot_at",
+        "client",
+        "client_id",
+    )
+    return {k: item[k] for k in keys if k in item}
+
+
+def _n8n_batch_failure_response(idx, item, failed_status, failed_data, *, http_status=status.HTTP_400_BAD_REQUEST):
+    payload = {
+        "detail": "Batch failed. All changes rolled back.",
+        "error_type": "batch_item_failed",
+        "error_location": "batch",
+        "reason": "One of batch items failed validation or persistence.",
+        "failed_index": idx,
+        "failed_status": failed_status,
+        "failed_data": failed_data,
+    }
+    if isinstance(item, dict):
+        payload["failed_item"] = item
+        payload["failed_item_summary"] = _n8n_batch_item_summary(item)
+    return Response(payload, status=http_status)
+
+
 def _system_user():
     return User.objects.filter(pk=1).first()
 
@@ -66,8 +127,8 @@ def _n8n_upsert(request, *, serializer_class, get_instance, other_tenant_conflic
         ser.is_valid(raise_exception=True)
         try:
             ser.save(**build_create_kwargs(request, su))
-        except IntegrityError:
-            return Response({"detail": "Could not create with this payload."}, status=status.HTTP_400_BAD_REQUEST)
+        except IntegrityError as exc:
+            return Response(_n8n_integrity_error_payload(exc), status=status.HTTP_400_BAD_REQUEST)
         return Response(ser.data, status=status.HTTP_201_CREATED)
 
     instance = get_instance(pk)
@@ -79,7 +140,7 @@ def _n8n_upsert(request, *, serializer_class, get_instance, other_tenant_conflic
         try:
             ser.save()
         except IntegrityError as exc:
-            return Response({"detail": "Could not update with this payload."}, status=status.HTTP_400_BAD_REQUEST)
+            return Response(_n8n_integrity_error_payload(exc), status=status.HTTP_400_BAD_REQUEST)
         return Response(ser.data, status=status.HTTP_200_OK)
 
     if other_tenant_conflict(pk):
@@ -90,13 +151,38 @@ def _n8n_upsert(request, *, serializer_class, get_instance, other_tenant_conflic
     try:
         ser.save(id=pk, **build_create_kwargs(request, su))
     except IntegrityError as exc:
-        return Response({"detail": "Could not create with this ID."}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(_n8n_integrity_error_payload(exc), status=status.HTTP_400_BAD_REQUEST)
     return Response(ser.data, status=status.HTTP_201_CREATED)
 
 
 class _N8nBaseView(APIView):
     authentication_classes = [N8nIntegrationAuthentication]
     permission_classes = [IsAuthenticated, IsTenantAdmin]
+
+    def handle_exception(self, exc):
+        location = getattr(self.request, "path", "unknown")
+        if isinstance(exc, ValidationError):
+            return Response(
+                _n8n_error_payload(
+                    "Validation failed.",
+                    error_type="validation_error",
+                    error_location=location,
+                    reason="Request payload did not pass serializer validation.",
+                    extra={"errors": exc.detail},
+                ),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        logger.exception("Unhandled n8n integration error at %s: %s", location, exc)
+        return Response(
+            _n8n_error_payload(
+                "Unhandled server error.",
+                error_type=exc.__class__.__name__,
+                error_location=location,
+                reason=str(exc),
+            ),
+            status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        )
 
 
 class _N8nBatchBaseView(_N8nBaseView):
@@ -117,9 +203,25 @@ class _N8nBatchBaseView(_N8nBaseView):
 
     def post(self, request):
         if not isinstance(request.data, list):
-            return Response({"detail": "Expected an array payload."}, status=status.HTTP_400_BAD_REQUEST)
+            return Response(
+                _n8n_error_payload(
+                    "Expected an array payload.",
+                    error_type="invalid_payload_type",
+                    error_location=request.path,
+                    reason="Batch endpoint accepts only JSON array.",
+                ),
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         if self.single_view_class is None:
-            return Response({"detail": "Batch view is not configured."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            return Response(
+                _n8n_error_payload(
+                    "Batch view is not configured.",
+                    error_type="batch_not_configured",
+                    error_location=request.path,
+                    reason="single_view_class is missing for this batch endpoint.",
+                ),
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
 
         single_view = self.single_view_class()
         results = []
@@ -127,53 +229,45 @@ class _N8nBatchBaseView(_N8nBaseView):
             for idx, item in enumerate(request.data):
                 if not isinstance(item, dict):
                     transaction.set_rollback(True)
-                    return Response(
-                        {
-                            "detail": "Batch failed. All changes rolled back.",
-                            "failed_index": idx,
-                            "failed_status": status.HTTP_400_BAD_REQUEST,
-                            "failed_data": {"detail": "Each array item must be an object."},
-                        },
-                        status=status.HTTP_400_BAD_REQUEST,
+                    return _n8n_batch_failure_response(
+                        idx,
+                        item,
+                        status.HTTP_400_BAD_REQUEST,
+                        {"detail": "Each array item must be an object."},
                     )
                 item_request = self._item_request(request, item)
                 try:
                     item_response = single_view.post(item_request)
                 except ValidationError as exc:
                     transaction.set_rollback(True)
-                    return Response(
-                        {
-                            "detail": "Batch failed. All changes rolled back.",
-                            "failed_index": idx,
-                            "failed_status": status.HTTP_400_BAD_REQUEST,
-                            "failed_data": exc.detail,
-                        },
-                        status=status.HTTP_400_BAD_REQUEST,
+                    return _n8n_batch_failure_response(
+                        idx,
+                        item,
+                        status.HTTP_400_BAD_REQUEST,
+                        exc.detail,
                     )
                 except Exception as exc:
                     logger.exception("n8n batch item processing failed: index=%s error=%s", idx, exc)
                     transaction.set_rollback(True)
-                    return Response(
+                    return _n8n_batch_failure_response(
+                        idx,
+                        item,
+                        status.HTTP_500_INTERNAL_SERVER_ERROR,
                         {
-                            "detail": "Batch failed. All changes rolled back.",
-                            "failed_index": idx,
-                            "failed_status": status.HTTP_500_INTERNAL_SERVER_ERROR,
-                            "failed_data": {"detail": "Unhandled server error."},
+                            "detail": "Unhandled server error.",
+                            "error_type": exc.__class__.__name__,
+                            "error_message": str(exc),
                         },
-                        status=status.HTTP_400_BAD_REQUEST,
                     )
 
                 code = int(getattr(item_response, "status_code", status.HTTP_500_INTERNAL_SERVER_ERROR))
                 if not 200 <= code < 300:
                     transaction.set_rollback(True)
-                    return Response(
-                        {
-                            "detail": "Batch failed. All changes rolled back.",
-                            "failed_index": idx,
-                            "failed_status": code,
-                            "failed_data": item_response.data,
-                        },
-                        status=status.HTTP_400_BAD_REQUEST,
+                    return _n8n_batch_failure_response(
+                        idx,
+                        item,
+                        code,
+                        getattr(item_response, "data", None),
                     )
 
                 results.append(
@@ -196,15 +290,39 @@ class _N8nBatchBaseView(_N8nBaseView):
 def _proxy_n8n_json(request, endpoint: str):
     tenant = getattr(request, "tenant", None)
     if not tenant:
-        return Response({"detail": "No tenant."}, status=status.HTTP_400_BAD_REQUEST)
+        return Response(
+            _n8n_error_payload(
+                "No tenant.",
+                error_type="tenant_missing",
+                error_location=endpoint,
+                reason="Tenant could not be resolved from request host/context.",
+            ),
+            status=status.HTTP_400_BAD_REQUEST,
+        )
     if not settings.BASE_DOMAIN:
-        return Response({"detail": "BASE_DOMAIN is not configured."}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+        return Response(
+            _n8n_error_payload(
+                "BASE_DOMAIN is not configured.",
+                error_type="config_error",
+                error_location=endpoint,
+                reason="Missing BASE_DOMAIN setting.",
+            ),
+            status=status.HTTP_503_SERVICE_UNAVAILABLE,
+        )
 
     token = get_n8n_integration_settings(tenant=tenant).integration_token
     if not token:
         token = (getattr(settings, "N8N_INTEGRATION_TOKEN", None) or "").strip()
     if not token:
-        return Response({"detail": "N8N_INTEGRATION_TOKEN is not configured."}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+        return Response(
+            _n8n_error_payload(
+                "N8N_INTEGRATION_TOKEN is not configured.",
+                error_type="config_error",
+                error_location=endpoint,
+                reason="Missing n8n integration token in tenant or global settings.",
+            ),
+            status=status.HTTP_503_SERVICE_UNAVAILABLE,
+        )
 
     url = f"https://{tenant.subdomain}.{settings.BASE_DOMAIN}/{endpoint.lstrip('/')}"
     try:
@@ -221,17 +339,49 @@ def _proxy_n8n_json(request, endpoint: str):
         )
     except requests.RequestException as exc:
         logger.warning("n8n report proxy request failed: tenant=%s endpoint=%s error=%s", tenant.subdomain, endpoint, exc)
-        return Response({"detail": f"n8n request failed: {exc}"}, status=status.HTTP_502_BAD_GATEWAY)
+        return Response(
+            _n8n_error_payload(
+                f"n8n request failed: {exc}",
+                error_type="n8n_request_failed",
+                error_location=endpoint,
+                reason=exc.__class__.__name__,
+            ),
+            status=status.HTTP_502_BAD_GATEWAY,
+        )
 
     if resp.status_code in (401, 403):
-        return Response({"detail": "Forbidden by n8n."}, status=status.HTTP_403_FORBIDDEN)
+        return Response(
+            _n8n_error_payload(
+                "Forbidden by n8n.",
+                error_type="n8n_forbidden",
+                error_location=endpoint,
+                reason=f"n8n returned HTTP {resp.status_code}.",
+            ),
+            status=status.HTTP_403_FORBIDDEN,
+        )
     if resp.status_code >= 400:
-        return Response({"detail": f"n8n error {resp.status_code}"}, status=status.HTTP_502_BAD_GATEWAY)
+        return Response(
+            _n8n_error_payload(
+                f"n8n error {resp.status_code}",
+                error_type="n8n_bad_response",
+                error_location=endpoint,
+                reason="Upstream n8n endpoint returned non-success status.",
+            ),
+            status=status.HTTP_502_BAD_GATEWAY,
+        )
 
     try:
         return Response(resp.json(), status=status.HTTP_200_OK)
     except ValueError:
-        return Response({"detail": "Invalid JSON returned by n8n."}, status=status.HTTP_502_BAD_GATEWAY)
+        return Response(
+            _n8n_error_payload(
+                "Invalid JSON returned by n8n.",
+                error_type="invalid_upstream_json",
+                error_location=endpoint,
+                reason="n8n response body is not valid JSON.",
+            ),
+            status=status.HTTP_502_BAD_GATEWAY,
+        )
 
 
 class N8nPnlDataView(_N8nBaseView):
@@ -278,9 +428,9 @@ class N8nVendorUpsertView(_N8nBaseView):
                 ser.is_valid(raise_exception=True)
                 try:
                     ser.save()
-                except IntegrityError:
+                except IntegrityError as exc:
                     return Response(
-                        {"detail": "Could not update with this payload."},
+                        _n8n_integrity_error_payload(exc),
                         status=status.HTTP_400_BAD_REQUEST,
                     )
                 return Response(ser.data, status=status.HTTP_200_OK)
@@ -411,14 +561,14 @@ class N8nCashExpenseUpsertView(_N8nBaseView):
                     update_ser.is_valid(raise_exception=True)
                     try:
                         update_ser.save()
-                    except IntegrityError:
-                        return Response({"detail": "Could not update with this payload."}, status=status.HTTP_400_BAD_REQUEST)
+                    except IntegrityError as exc:
+                        return Response(_n8n_integrity_error_payload(exc), status=status.HTTP_400_BAD_REQUEST)
                     return Response(update_ser.data, status=status.HTTP_200_OK)
 
             try:
                 create_ser.save(tenant=request.tenant, created_by=su)
-            except IntegrityError:
-                return Response({"detail": "Could not create with this payload."}, status=status.HTTP_400_BAD_REQUEST)
+            except IntegrityError as exc:
+                return Response(_n8n_integrity_error_payload(exc), status=status.HTTP_400_BAD_REQUEST)
             return Response(create_ser.data, status=status.HTTP_201_CREATED)
 
         def get_instance(pk):
@@ -516,13 +666,13 @@ class N8nCashRevenueUpsertView(_N8nBaseView):
                 update_ser.is_valid(raise_exception=True)
                 try:
                     update_ser.save()
-                except IntegrityError:
-                    return Response({"detail": "Could not update with this payload."}, status=status.HTTP_400_BAD_REQUEST)
+                except IntegrityError as exc:
+                    return Response(_n8n_integrity_error_payload(exc), status=status.HTTP_400_BAD_REQUEST)
                 return Response(update_ser.data, status=status.HTTP_200_OK)
             try:
                 ser_probe.save(tenant=request.tenant, created_by=su)
-            except IntegrityError:
-                return Response({"detail": "Could not create with this payload."}, status=status.HTTP_400_BAD_REQUEST)
+            except IntegrityError as exc:
+                return Response(_n8n_integrity_error_payload(exc), status=status.HTTP_400_BAD_REQUEST)
             return Response(ser_probe.data, status=status.HTTP_201_CREATED)
 
         if raw_id not in (None, ""):
@@ -549,16 +699,16 @@ class N8nCashRevenueUpsertView(_N8nBaseView):
                     ser.is_valid(raise_exception=True)
                     try:
                         ser.save()
-                    except IntegrityError:
-                        return Response({"detail": "Could not update with this payload."}, status=status.HTTP_400_BAD_REQUEST)
+                    except IntegrityError as exc:
+                        return Response(_n8n_integrity_error_payload(exc), status=status.HTTP_400_BAD_REQUEST)
                     return Response(ser.data, status=status.HTTP_200_OK)
 
                 ser = N8nCashRevenueImportSerializer(data=payload, context={"request": request})
                 ser.is_valid(raise_exception=True)
                 try:
                     ser.save(tenant=request.tenant, created_by=su)
-                except IntegrityError:
-                    return Response({"detail": "Could not create with this payload."}, status=status.HTTP_400_BAD_REQUEST)
+                except IntegrityError as exc:
+                    return Response(_n8n_integrity_error_payload(exc), status=status.HTTP_400_BAD_REQUEST)
                 return Response(ser.data, status=status.HTTP_201_CREATED)
 
         def get_instance(pk):
@@ -741,8 +891,8 @@ class N8nClientsDebtUpsertView(_N8nBaseView):
                 ser.is_valid(raise_exception=True)
                 try:
                     ser.save()
-                except IntegrityError:
-                    return Response({"detail": "Could not update with this payload."}, status=status.HTTP_400_BAD_REQUEST)
+                except IntegrityError as exc:
+                    return Response(_n8n_integrity_error_payload(exc), status=status.HTTP_400_BAD_REQUEST)
                 return Response(ser.data, status=status.HTTP_200_OK)
 
         def get_instance(pk):
@@ -794,8 +944,8 @@ class N8nPayrollLineUpsertView(_N8nBaseView):
                 ser.is_valid(raise_exception=True)
                 try:
                     ser.save()
-                except IntegrityError:
-                    return Response({"detail": "Could not update with this payload."}, status=status.HTTP_400_BAD_REQUEST)
+                except IntegrityError as exc:
+                    return Response(_n8n_integrity_error_payload(exc), status=status.HTTP_400_BAD_REQUEST)
                 return Response(ser.data, status=status.HTTP_200_OK)
 
         def get_instance(pk):
