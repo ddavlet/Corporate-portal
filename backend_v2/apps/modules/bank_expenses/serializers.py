@@ -109,6 +109,8 @@ class BankExpenseSerializer(serializers.ModelSerializer):
                 raise serializers.ValidationError({"vendor": "Only vendors with type «перечисление» are allowed."})
             if tenant and vendor.tenant_id != tenant.id:
                 raise serializers.ValidationError({"vendor": "Vendor must belong to this tenant."})
+        else:
+            raise serializers.ValidationError({"vendor": "Vendor is required for bank expenses."})
         _apply_expense_calendar_from_doc_date(attrs, self.instance)
         if tenant:
             attrs = assign_wallet_for_bank_movement(instance=self.instance, tenant=tenant, attrs=attrs)

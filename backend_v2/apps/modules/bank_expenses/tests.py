@@ -8,6 +8,7 @@ from rest_framework_simplejwt.tokens import RefreshToken
 from apps.modules.bank_expenses.models import BankRevenue
 from apps.modules.bank_expenses.models import BankExpense
 from apps.modules.wallets.resolution import get_or_create_bank_wallet
+from apps.modules.vendors.models import Vendor
 from apps.modules.requests.models import Request, RequestApprovalConfig, RequestApprovalPaymentTypeConfig
 from apps.tenants.models import Tenant, TenantMembership, TenantModuleConfig, TenantUserRole
 
@@ -104,6 +105,14 @@ class BankExpenseRequestRequiredApiTests(APITestCase):
         TenantModuleConfig.objects.create(tenant=self.tenant, module_key="bank", is_enabled=True)
         TenantModuleConfig.objects.create(tenant=self.tenant, module_key="requests", is_enabled=True)
         self.wallet = get_or_create_bank_wallet(tenant=self.tenant)
+        self.vendor = Vendor.objects.create(
+            tenant=self.tenant,
+            kind=Vendor.KIND_TRANSFER,
+            name="Bank Vendor",
+            inn="123456789",
+            account_number="20208000999999999999",
+            created_by=self.admin,
+        )
         self.appr_cfg = RequestApprovalConfig.objects.create(tenant=self.tenant, updated_by=self.admin)
         self.pt_cfg = RequestApprovalPaymentTypeConfig.objects.create(
             config=self.appr_cfg,
@@ -133,6 +142,7 @@ class BankExpenseRequestRequiredApiTests(APITestCase):
             doc_no="DOC-REQ-MISS",
             debit_turnover="10.00",
             payment_purpose="P1",
+            vendor=self.vendor,
         )
         required_paid = BankExpense.objects.create(
             tenant=self.tenant,
@@ -147,6 +157,7 @@ class BankExpenseRequestRequiredApiTests(APITestCase):
             doc_no="DOC-REQ-PAID",
             debit_turnover="20.00",
             payment_purpose="P2",
+            vendor=self.vendor,
         )
         optional_missing = BankExpense.objects.create(
             tenant=self.tenant,
@@ -161,8 +172,9 @@ class BankExpenseRequestRequiredApiTests(APITestCase):
             doc_no="DOC-OPT-MISS",
             debit_turnover="30.00",
             payment_purpose="P3",
+            vendor=self.vendor,
         )
-        self.pt_cfg.request_not_required_rules = [{"field": "payment_purpose", "operator": "eq", "value": "P3"}]
+        self.pt_cfg.request_not_required_rules = [{"field": "vendor", "operator": "eq", "value": "Bank Vendor"}]
         self.pt_cfg.save(update_fields=["request_not_required_rules"])
         Request.objects.create(
             tenant=self.tenant,
@@ -192,3 +204,16 @@ class BankExpenseRequestRequiredApiTests(APITestCase):
         self.assertTrue(by_id[required_paid.id]["has_paid_request"])
         self.assertFalse(by_id[optional_missing.id]["request_required"])
         self.assertFalse(by_id[optional_missing.id]["has_paid_request"])
+
+    def test_create_requires_vendor(self):
+        payload = {
+            "row_no": 10,
+            "doc_date": "2026-04-01",
+            "process_date": "2026-04-01",
+            "doc_no": "REQ-NO-VENDOR",
+            "debit_turnover": "15.00",
+            "payment_purpose": "Purpose",
+        }
+        res = self.client.post("/api/bank/expenses/", payload, format="json", **self._headers())
+        self.assertEqual(res.status_code, 400, res.content)
+        self.assertIn("vendor", res.json())
