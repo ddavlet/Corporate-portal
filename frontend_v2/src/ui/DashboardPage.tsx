@@ -15,6 +15,24 @@ import { PnlNetProfitPrevMonthWidget } from './dashboard/widgets/PnlNetProfitPre
 import { CashflowProfitCurrentMonthWidget } from './dashboard/widgets/CashflowProfitCurrentMonthWidget'
 import { buildCategorySlices, getCurrentMonthRef, getPreviousMonthRef, toPendingApprovals, totalsFromReport } from './dashboard/widgets/adapters'
 import type { DashboardWidgetKey, PendingApprovalItem, WidgetVisibility } from './dashboard/widgets/types'
+import { useUserPreference } from '../lib/useUserPreference'
+
+const DASHBOARD_WIDGETS_PREF_KEY = 'dashboard.widgets.v1'
+const defaultVisibility: WidgetVisibility = {
+  pendingApprovals: true,
+  incomeBreakdown: true,
+  expenseBreakdown: true,
+  pnlNetPrevMonth: true,
+  cashflowNetCurrentMonth: true,
+}
+
+function normalizeWidgetVisibility(raw: unknown): WidgetVisibility {
+  if (!raw || typeof raw !== 'object') return defaultVisibility
+  return {
+    ...defaultVisibility,
+    ...(raw as Partial<WidgetVisibility>),
+  }
+}
 
 export function DashboardPage() {
   const [approvalsLoading, setApprovalsLoading] = useState(true)
@@ -29,28 +47,12 @@ export function DashboardPage() {
   const [paymentModalItem, setPaymentModalItem] = useState<PendingApprovalItem | null>(null)
   const [paymentExpenseId, setPaymentExpenseId] = useState('')
 
-  const WIDGET_STORAGE_KEY = 'dashboard.widgets.v1'
-  const defaultVisibility: WidgetVisibility = {
-    pendingApprovals: true,
-    incomeBreakdown: true,
-    expenseBreakdown: true,
-    pnlNetPrevMonth: true,
-    cashflowNetCurrentMonth: true,
-  }
-  const [widgetVisibility, setWidgetVisibility] = useState<WidgetVisibility>(() => {
-    try {
-      const raw = localStorage.getItem(WIDGET_STORAGE_KEY)
-      if (!raw) return defaultVisibility
-      const parsed = JSON.parse(raw) as Partial<WidgetVisibility>
-      return { ...defaultVisibility, ...parsed }
-    } catch {
-      return defaultVisibility
-    }
+  const { value: widgetVisibility, setValue: setWidgetVisibility } = useUserPreference<WidgetVisibility>({
+    key: DASHBOARD_WIDGETS_PREF_KEY,
+    defaultValue: defaultVisibility,
+    normalize: (raw) => normalizeWidgetVisibility(raw),
+    debounceMs: 250,
   })
-
-  useEffect(() => {
-    localStorage.setItem(WIDGET_STORAGE_KEY, JSON.stringify(widgetVisibility))
-  }, [widgetVisibility])
 
   const loadApprovals = async () => {
     setApprovalsLoading(true)

@@ -11,6 +11,7 @@ dist/
 
 # Editor / tooling
 .cursor/
+.worktrees/
 diagrams/
 
 # Env

@@ -2,12 +2,14 @@ import { useEffect, useMemo, useState } from 'react'
 import { Alert, Button, Card, Collapse, DatePicker, Input, InputNumber, Select, Skeleton, Space, Switch, Table, Tag, Typography, message } from 'antd'
 import type { ColumnsType, TableProps } from 'antd/es/table'
 import type { Dayjs } from 'dayjs'
+import dayjs from 'dayjs'
 import { useNavigate } from 'react-router-dom'
 import { FileAddOutlined, FileSearchOutlined, MessageOutlined, ReloadOutlined } from '@ant-design/icons'
 import { apiFetch, resendRequestApprovals } from '../../lib/api'
 import { isPayedMissingLinkedExpense, type RequestExpenseLink } from '../../lib/requestExpense'
 import { RequestDetailModal, type RequestDetail } from './RequestDetailModal'
 import { NoteCreateModal } from '../NoteCreateModal'
+import { useUserPreference } from '../../lib/useUserPreference'
 
 type RequestRow = {
   id: number
@@ -34,6 +36,54 @@ type RequestRow = {
 type SortState = {
   field: keyof RequestRow | null
   order: 'ascend' | 'descend' | null
+}
+
+type RequestsPagePreferences = {
+  search: string
+  status?: string
+  urgency?: string
+  paymentType?: string
+  currency?: string
+  category?: string
+  vendor?: string
+  requester?: string
+  amountMin: number | null
+  amountMax: number | null
+  submittedRange: [string | null, string | null] | null
+  billingRange: [string | null, string | null] | null
+  amortizedOnly: boolean
+}
+
+const REQUESTS_FILTER_PREF_KEY = 'requests.page.filters.v1'
+const defaultRequestsPreferences: RequestsPagePreferences = {
+  search: '',
+  status: undefined,
+  urgency: undefined,
+  paymentType: undefined,
+  currency: undefined,
+  category: undefined,
+  vendor: undefined,
+  requester: undefined,
+  amountMin: null,
+  amountMax: null,
+  submittedRange: null,
+  billingRange: null,
+  amortizedOnly: false,
+}
+
+function parseStoredRange(raw: [string | null, string | null] | null | undefined): [Dayjs | null, Dayjs | null] | null {
+  if (!raw || !Array.isArray(raw)) return null
+  const left = raw[0] ? dayjs(raw[0]) : null
+  const right = raw[1] ? dayjs(raw[1]) : null
+  return [left && left.isValid() ? left : null, right && right.isValid() ? right : null]
+}
+
+function serializeRange(value: [Dayjs | null, Dayjs | null] | null): [string | null, string | null] | null {
+  if (!value) return null
+  return [
+    value[0] ? value[0].format('YYYY-MM-DD') : null,
+    value[1] ? value[1].format('YYYY-MM-DD') : null,
+  ]
 }
 
 function normalizeRows(payload: unknown): RequestRow[] {
@@ -108,6 +158,61 @@ export function RequestsPage() {
   const [vendorSearchApi, setVendorSearchApi] = useState('')
   const [debouncedVendorSearchApi, setDebouncedVendorSearchApi] = useState('')
   const [amortizedOnly, setAmortizedOnly] = useState(false)
+  const { value: storedPrefs, setValue: setStoredPrefs } = useUserPreference<RequestsPagePreferences>({
+    key: REQUESTS_FILTER_PREF_KEY,
+    defaultValue: defaultRequestsPreferences,
+    normalize: (raw, fallback) => ({ ...fallback, ...(raw as Partial<RequestsPagePreferences>) }),
+    debounceMs: 300,
+  })
+
+  useEffect(() => {
+    setSearch(storedPrefs.search || '')
+    setStatus(storedPrefs.status)
+    setUrgency(storedPrefs.urgency)
+    setPaymentType(storedPrefs.paymentType)
+    setCurrency(storedPrefs.currency)
+    setCategory(storedPrefs.category)
+    setVendor(storedPrefs.vendor)
+    setRequester(storedPrefs.requester)
+    setAmountMin(storedPrefs.amountMin ?? null)
+    setAmountMax(storedPrefs.amountMax ?? null)
+    setSubmittedRange(parseStoredRange(storedPrefs.submittedRange))
+    setBillingRange(parseStoredRange(storedPrefs.billingRange))
+    setAmortizedOnly(Boolean(storedPrefs.amortizedOnly))
+  }, [storedPrefs])
+
+  useEffect(() => {
+    setStoredPrefs({
+      search,
+      status,
+      urgency,
+      paymentType,
+      currency,
+      category,
+      vendor,
+      requester,
+      amountMin,
+      amountMax,
+      submittedRange: serializeRange(submittedRange),
+      billingRange: serializeRange(billingRange),
+      amortizedOnly,
+    })
+  }, [
+    search,
+    status,
+    urgency,
+    paymentType,
+    currency,
+    category,
+    vendor,
+    requester,
+    amountMin,
+    amountMax,
+    submittedRange,
+    billingRange,
+    amortizedOnly,
+    setStoredPrefs,
+  ])
 
   useEffect(() => {
     const id = window.setTimeout(() => setDebouncedSearch(search), 250)

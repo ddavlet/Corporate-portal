@@ -1,9 +1,13 @@
 from django.contrib.auth import get_user_model
+import json
+import re
 from rest_framework import serializers
 
 from apps.tenants.models import TenantModuleConfig, TenantMembership, Tenant
 
 User = get_user_model()
+PREFERENCE_KEY_PATTERN = re.compile(r"^[a-z0-9]+(?:[._-][a-z0-9]+)*$")
+PREFERENCE_MAX_BYTES = 16_384
 
 
 class TenantModuleConfigSerializer(serializers.Serializer):
@@ -51,5 +55,21 @@ class TenantIntegrationConfigSerializer(serializers.Serializer):
             raise serializers.ValidationError({"telegram_approvals_bridge_dispatch_url": "Must be an absolute URL."})
         return attrs
 
+
+class TenantUserPreferenceSerializer(serializers.Serializer):
+    key = serializers.CharField(max_length=120)
+    value = serializers.JSONField()
+
+    def validate_key(self, value: str) -> str:
+        normalized = (value or "").strip().lower()
+        if not PREFERENCE_KEY_PATTERN.match(normalized):
+            raise serializers.ValidationError("Key must contain only lowercase letters, digits, dots, underscores, dashes.")
+        return normalized
+
+    def validate_value(self, value):
+        encoded = json.dumps(value, ensure_ascii=False)
+        if len(encoded.encode("utf-8")) > PREFERENCE_MAX_BYTES:
+            raise serializers.ValidationError("Value is too large.")
+        return value
 
 

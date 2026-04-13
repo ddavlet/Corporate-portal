@@ -15,6 +15,7 @@ from apps.tenants.views import (
     SettingsAccessView,
     TenantIntegrationConfigView,
     TenantModuleConfigView,
+    UserPreferencesView,
 )
 
 
@@ -40,6 +41,8 @@ urlpatterns = [
     path("api/tenant-integration-config/", TenantIntegrationConfigView.as_view(), name="tenant_integration_config"),
     path("api/access-matrix/", AccessMatrixView.as_view(), name="admin_access_matrix"),
     path("api/settings-access/", SettingsAccessView.as_view(), name="settings_access"),
+    path("api/user-preferences/", UserPreferencesView.as_view(), name="user_preferences_bulk"),
+    path("api/user-preferences/<str:key>/", UserPreferencesView.as_view(), name="user_preference_upsert"),
 
     # Requests module (first module to scaffold)
     path("api/requests/", include("apps.modules.requests.urls")),
