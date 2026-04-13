@@ -19,10 +19,6 @@ const STEP_TYPES: Array<{ value: string; label: string }> = [
   { value: 'serial', label: 'serial' },
   { value: 'payment', label: 'payment' },
 ]
-const PAYMENT_ACTION_MODES: Array<{ value: 'callback' | 'webapp'; label: string }> = [
-  { value: 'callback', label: 'callback' },
-  { value: 'webapp', label: 'webapp' },
-]
 
 function emptyStep(step: number): RequestApprovalConfigStepItem {
   return {
@@ -43,6 +39,7 @@ function normalizeConfig(resp: RequestApprovalConfigResponse): RequestApprovalCo
       row ?? {
         payment_type: pt,
         is_enabled: false,
+        payment_action_mode_options: ['callback', 'webapp'],
         steps: [],
       }
     )
@@ -304,10 +301,13 @@ export function RequestApprovalConfigPage() {
                                       value={step.payment_action_mode ?? 'callback'}
                                       onChange={(v) =>
                                         updateStep(pt.payment_type, idx, {
-                                          payment_action_mode: v as 'callback' | 'webapp',
+                                          payment_action_mode: v as RequestApprovalConfigStepItem['payment_action_mode'],
                                         })
                                       }
-                                      options={PAYMENT_ACTION_MODES}
+                                      options={(pt.payment_action_mode_options ?? ['callback', 'webapp']).map((mode) => ({
+                                        value: mode,
+                                        label: mode,
+                                      }))}
                                       style={{ width: 220 }}
                                     />
                                   </div>
