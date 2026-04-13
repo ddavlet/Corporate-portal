@@ -491,6 +491,75 @@ class N8nIntegrationAuthTests(APITestCase):
         req.refresh_from_db()
         self.assertEqual(req.title, "Imported request updated")
 
+    def test_requests_amortization_endpoint_requires_admin(self):
+        url = f"{self.n8n_prefix}/requests/amortization/"
+        self.client.force_authenticate(self.other)
+        res = self.client.get(url, **self._headers(self.other))
+        self.assertEqual(res.status_code, 403)
+
+    def test_requests_amortization_endpoint_returns_only_amortized_by_default(self):
+        Request.objects.create(
+            tenant=self.tenant,
+            created_by=self.admin,
+            requester=self.requester,
+            title="Amortized request",
+            description="",
+            amount="100.00",
+            currency="UZS",
+            payment_type=Request.PAYMENT_TYPE_CASH,
+            urgency=Request.URGENCY_NORMAL,
+            billing_date=date(2026, 4, 1),
+            amortization_months=3,
+            amortization_start_date=date(2026, 4, 1),
+            status=Request.STATUS_DRAFT,
+        )
+        Request.objects.create(
+            tenant=self.tenant,
+            created_by=self.admin,
+            requester=self.requester,
+            title="Plain request",
+            description="",
+            amount="50.00",
+            currency="UZS",
+            payment_type=Request.PAYMENT_TYPE_CASH,
+            urgency=Request.URGENCY_NORMAL,
+            billing_date=date(2026, 4, 1),
+            amortization_months=1,
+            amortization_start_date=date(2026, 4, 1),
+            status=Request.STATUS_DRAFT,
+        )
+        url = f"{self.n8n_prefix}/requests/amortization/"
+        res = self.client.get(url, **self._headers(self.admin))
+        self.assertEqual(res.status_code, 200, res.content)
+        self.assertEqual(res.data["count"], 1)
+        item = res.data["results"][0]
+        self.assertTrue(item["is_amortized"])
+        self.assertEqual(item["amortization_months"], 3)
+        self.assertEqual(len(item["amortization_schedule"]), 3)
+
+    def test_requests_amortization_endpoint_can_return_all(self):
+        req = Request.objects.create(
+            tenant=self.tenant,
+            created_by=self.admin,
+            requester=self.requester,
+            title="Plain request",
+            description="",
+            amount="50.00",
+            currency="UZS",
+            payment_type=Request.PAYMENT_TYPE_CASH,
+            urgency=Request.URGENCY_NORMAL,
+            billing_date=date(2026, 4, 1),
+            amortization_months=1,
+            amortization_start_date=date(2026, 4, 1),
+            status=Request.STATUS_DRAFT,
+        )
+        url = f"{self.n8n_prefix}/requests/amortization/?amortized_only=0&request_id={req.id}"
+        res = self.client.get(url, **self._headers(self.admin))
+        self.assertEqual(res.status_code, 200, res.content)
+        self.assertEqual(res.data["count"], 1)
+        self.assertEqual(res.data["results"][0]["id"], req.id)
+        self.assertFalse(res.data["results"][0]["is_amortized"])
+
     def test_cash_expense_can_bind_wallet_by_cash_register_name(self):
         cash_register = CashRegister.objects.create(tenant=self.tenant, currency="UZS", name="Main cash")
         cash_wallet = Wallet.objects.create(

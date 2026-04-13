@@ -54,6 +54,14 @@ export type RequestDetail = {
     doc_id?: string
     url?: string | null
   } | null
+  is_amortized?: boolean
+  amortization_months?: number
+  amortization_start_date?: string | null
+  amortization_schedule?: Array<{
+    period_index: number
+    period_month: string
+    monthly_amount: string
+  }>
   approvals: ApprovalItem[]
 }
 
@@ -248,6 +256,7 @@ export function RequestDetailContent({
   variant = 'default',
 }: RequestDetailContentProps) {
   const approvals = detail?.approvals || []
+  const amortizationSchedule = detail?.amortization_schedule || []
   const approvedApprovals = approvals.filter((a) => decisionKey(a.decision) === 'approved')
   const rejectedApprovals = approvals.filter((a) => decisionKey(a.decision) === 'rejected')
   const pendingApprovals = approvals.filter((a) => decisionKey(a.decision) === 'pending')
@@ -318,6 +327,19 @@ export function RequestDetailContent({
           </TgDetailRow>
           <TgDetailRow label="Отправлено">{formatDateTime(detail.submitted_at)}</TgDetailRow>
           <TgDetailRow label="Дата биллинга">{formatBillingMonthYear(detail.billing_date)}</TgDetailRow>
+          <TgDetailRow label="Амортизация">{detail.is_amortized ? `Да (${detail.amortization_months || 0} мес.)` : 'Нет'}</TgDetailRow>
+          <TgDetailRow label="Старт амортизации">{formatBillingMonthYear(detail.amortization_start_date || null)}</TgDetailRow>
+          {amortizationSchedule.length ? (
+            <TgDetailRow label="График амортизации">
+              <Space direction="vertical" size={4} style={{ display: 'flex' }}>
+                {amortizationSchedule.map((row) => (
+                  <Typography.Text key={row.period_index}>
+                    {`#${row.period_index}: ${formatBillingMonthYear(row.period_month)} · ${Number(row.monthly_amount).toLocaleString('ru-RU')} ${detail.currency}`}
+                  </Typography.Text>
+                ))}
+              </Space>
+            </TgDetailRow>
+          ) : null}
           <TgDetailRow label="ID расхода (expense_id)">{detail.expense_id?.trim() || '—'}</TgDetailRow>
           <TgDetailRow label="Календарь расхода (год.мес.день)">
             {formatExpenseCalendar(detail.expense_year, detail.expense_month, detail.expense_day)}
@@ -362,6 +384,23 @@ export function RequestDetailContent({
           </Descriptions.Item>
           <Descriptions.Item label="Отправлено">{formatDateTime(detail.submitted_at)}</Descriptions.Item>
           <Descriptions.Item label="Дата биллинга">{formatBillingMonthYear(detail.billing_date)}</Descriptions.Item>
+          <Descriptions.Item label="Амортизация">
+            {detail.is_amortized ? `Да (${detail.amortization_months || 0} мес.)` : 'Нет'}
+          </Descriptions.Item>
+          <Descriptions.Item label="Старт амортизации">
+            {formatBillingMonthYear(detail.amortization_start_date || null)}
+          </Descriptions.Item>
+          {amortizationSchedule.length ? (
+            <Descriptions.Item label="График амортизации">
+              <Space direction="vertical" size={4} style={{ display: 'flex' }}>
+                {amortizationSchedule.map((row) => (
+                  <Typography.Text key={row.period_index}>
+                    {`#${row.period_index}: ${formatBillingMonthYear(row.period_month)} · ${Number(row.monthly_amount).toLocaleString('ru-RU')} ${detail.currency}`}
+                  </Typography.Text>
+                ))}
+              </Space>
+            </Descriptions.Item>
+          ) : null}
           <Descriptions.Item label="ID расхода (expense_id)">{detail.expense_id?.trim() || '-'}</Descriptions.Item>
           <Descriptions.Item label="Календарь расхода (год · мес · день)">
             {formatExpenseCalendar(detail.expense_year, detail.expense_month, detail.expense_day)}

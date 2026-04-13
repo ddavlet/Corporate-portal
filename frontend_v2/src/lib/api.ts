@@ -1074,13 +1074,14 @@ export type RequestApprovalConfigStepItem = {
   step_type: string
   is_enabled: boolean
   approver_user_ids: number[]
-  payment_action_mode?: 'callback' | 'webapp'
+  payment_action_mode?: 'callback' | 'webapp' | 'create'
   payment_webapp_url?: string
 }
 
 export type RequestApprovalConfigPaymentTypeItem = {
   payment_type: string
   is_enabled: boolean
+  payment_action_mode_options?: Array<'callback' | 'webapp' | 'create' | string>
   steps: RequestApprovalConfigStepItem[]
 }
 
@@ -1114,7 +1115,7 @@ export type RequestApprovalConfigUpdatePayload = {
       step_type: string
       is_enabled: boolean
       approver_user_ids: number[]
-      payment_action_mode?: 'callback' | 'webapp'
+      payment_action_mode?: 'callback' | 'webapp' | 'create'
       payment_webapp_url?: string
     }>
   }>

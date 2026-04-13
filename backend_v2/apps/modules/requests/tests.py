@@ -1750,6 +1750,48 @@ class RequestRoleVisibilityTests(APITestCase):
         self.assertIn(visible.id, ids)
         self.assertNotIn(hidden.id, ids)
 
+    def test_list_can_filter_amortized_only(self):
+        amortized = Request.objects.create(
+            tenant=self.tenant,
+            created_by=self.admin,
+            requester=self.admin,
+            title="Amortized",
+            description="",
+            amount=Decimal("1200"),
+            currency="UZS",
+            payment_type=Request.PAYMENT_TYPE_CASH,
+            urgency=Request.URGENCY_NORMAL,
+            billing_date=date(2026, 1, 1),
+            amortization_months=6,
+            amortization_start_date=date(2026, 1, 1),
+            status=Request.STATUS_DRAFT,
+            submitted_at=timezone.now(),
+            company_payer="",
+        )
+        plain = Request.objects.create(
+            tenant=self.tenant,
+            created_by=self.admin,
+            requester=self.admin,
+            title="Plain",
+            description="",
+            amount=Decimal("100"),
+            currency="UZS",
+            payment_type=Request.PAYMENT_TYPE_CASH,
+            urgency=Request.URGENCY_NORMAL,
+            billing_date=date(2026, 1, 1),
+            amortization_months=1,
+            amortization_start_date=date(2026, 1, 1),
+            status=Request.STATUS_DRAFT,
+            submitted_at=timezone.now(),
+            company_payer="",
+        )
+        self.client.force_authenticate(self.admin)
+        res = self.client.get("/api/requests/?amortized_only=1", HTTP_HOST=self.host)
+        self.assertEqual(res.status_code, 200, res.content)
+        ids = {row["id"] for row in res.data}
+        self.assertIn(amortized.id, ids)
+        self.assertNotIn(plain.id, ids)
+
 
 @override_settings(BASE_DOMAIN="example.com", N8N_TOKEN="", N8N_INTEGRATION_TOKEN="", ALLOWED_HOSTS=["*"])
 class DraftRequestPatchSubmitTests(APITestCase):
@@ -1884,8 +1926,39 @@ class DraftRequestPatchSubmitTests(APITestCase):
         )
         self.assertEqual(res.status_code, 201, res.content)
         self.assertEqual(res.data["amortization_months"], 6)
+        self.assertTrue(res.data["is_amortized"])
+        self.assertEqual(len(res.data["amortization_schedule"]), 6)
         req = Request.objects.get(pk=res.data["id"])
         self.assertEqual(req.amortization_months, 6)
+
+    def test_retrieve_returns_amortization_schedule(self):
+        req = Request.objects.create(
+            tenant=self.tenant,
+            created_by=self.requester,
+            requester=self.requester,
+            title="Amortized schedule",
+            description="",
+            amount=Decimal("100"),
+            currency="UZS",
+            payment_type="Наличные",
+            urgency="Обычно",
+            billing_date=date(2026, 2, 20),
+            amortization_months=3,
+            amortization_start_date=date(2026, 2, 1),
+            status=Request.STATUS_DRAFT,
+            submitted_at=timezone.now(),
+            company_payer="Co",
+        )
+        self.client.force_authenticate(self.requester)
+        res = self.client.get(f"/api/requests/{req.id}/", HTTP_HOST=self.host)
+        self.assertEqual(res.status_code, 200, res.content)
+        self.assertTrue(res.data["is_amortized"])
+        schedule = res.data["amortization_schedule"]
+        self.assertEqual(len(schedule), 3)
+        self.assertEqual(schedule[0]["period_month"], "2026-02-01")
+        self.assertEqual(schedule[-1]["period_month"], "2026-04-01")
+        total = sum(Decimal(str(item["monthly_amount"])) for item in schedule)
+        self.assertEqual(total, Decimal("100"))
 
     def test_patch_billing_date_recalculates_amortization_start_date(self):
         req = self._draft_request()
