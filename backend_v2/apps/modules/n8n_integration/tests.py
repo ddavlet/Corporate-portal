@@ -515,6 +515,72 @@ class N8nIntegrationAuthTests(APITestCase):
         row = CashExpense.objects.get(pk=96011)
         self.assertEqual(row.wallet_id, cash_wallet.id)
 
+    def test_cash_expense_validation_error_has_reason_and_location(self):
+        cash_register = CashRegister.objects.create(tenant=self.tenant, currency="UZS", name="Main cash")
+        Wallet.objects.create(
+            tenant=self.tenant,
+            wallet_type=Wallet.Type.CASH,
+            currency="UZS",
+            cash_register=cash_register,
+        )
+        url = f"{self.n8n_prefix}/cash/expenses/"
+        body = {
+            "id": 96012,
+            "external_id": "CASH-NAME-2",
+            "confirmed": True,
+            "title": "Broken payload",
+            "amount": "1200.00",
+            "currency": "UZS",
+            "cash_register_name": "Main cash",
+        }
+        res = self.client.post(url, body, format="json", **self._headers(self.admin))
+        self.assertEqual(res.status_code, 400, res.content)
+        self.assertEqual(res.data.get("error_type"), "validation_error")
+        self.assertEqual(res.data.get("error_location"), url)
+        self.assertEqual(res.data.get("detail"), "Validation failed.")
+        self.assertIn("errors", res.data)
+        self.assertIn("expense_at", res.data["errors"])
+
+    def test_cash_expense_batch_error_has_failed_item_and_rollback(self):
+        cash_register = CashRegister.objects.create(tenant=self.tenant, currency="UZS", name="Main cash")
+        Wallet.objects.create(
+            tenant=self.tenant,
+            wallet_type=Wallet.Type.CASH,
+            currency="UZS",
+            cash_register=cash_register,
+        )
+        url = f"{self.n8n_prefix}/cash/expenses/batch/"
+        body = [
+            {
+                "id": 96013,
+                "external_id": "CASH-BATCH-1",
+                "confirmed": True,
+                "title": "Good item",
+                "amount": "1200.00",
+                "currency": "UZS",
+                "expense_at": "2026-04-01T10:00:00.000Z",
+                "cash_register_name": "Main cash",
+            },
+            {
+                "id": 96014,
+                "external_id": "CASH-BATCH-2",
+                "confirmed": True,
+                "title": "Bad item",
+                "amount": "1300.00",
+                "currency": "UZS",
+                "cash_register_name": "Main cash",
+            },
+        ]
+        res = self.client.post(url, body, format="json", **self._headers(self.admin))
+        self.assertEqual(res.status_code, 400, res.content)
+        self.assertEqual(res.data.get("error_type"), "batch_item_failed")
+        self.assertEqual(res.data.get("error_location"), "batch")
+        self.assertEqual(res.data.get("failed_index"), 1)
+        self.assertEqual(res.data.get("failed_item", {}).get("external_id"), "CASH-BATCH-2")
+        self.assertEqual(res.data.get("failed_item_summary", {}).get("external_id"), "CASH-BATCH-2")
+        self.assertIn("expense_at", res.data.get("failed_data", {}))
+        self.assertFalse(CashExpense.objects.filter(pk=96013).exists())
+
     def test_cash_expense_without_id_upserts_by_external_id_and_expense_year(self):
         cash_register = CashRegister.objects.create(tenant=self.tenant, currency="UZS", name="Main cash")
         Wallet.objects.create(
