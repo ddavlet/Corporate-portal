@@ -6,7 +6,14 @@ from django.contrib.auth import get_user_model
 from rest_framework_simplejwt.tokens import RefreshToken
 
 from apps.tenants.middleware import TenantSubdomainMiddleware
-from apps.tenants.models import Tenant, TenantIntegrationConfig, TenantMembership, TenantModuleConfig, TenantUserRole
+from apps.tenants.models import (
+    Tenant,
+    TenantIntegrationConfig,
+    TenantMembership,
+    TenantModuleConfig,
+    TenantUserPreference,
+    TenantUserRole,
+)
 
 User = get_user_model()
 
@@ -157,4 +164,76 @@ class TenantIntegrationConfigApiTests(APITestCase):
         self.assertTrue(admin_res.data["can_open_settings"])
         self.assertTrue(admin_res.data["can_open_admin"])
         self.assertTrue(admin_res.data["can_manage_tenant_settings"])
+
+
+@override_settings(BASE_DOMAIN="example.com", ALLOWED_HOSTS=["*"])
+class UserPreferencesApiTests(APITestCase):
+    def setUp(self):
+        self.tenant = Tenant.objects.create(name="Acme", subdomain="acme", is_active=True)
+        self.other_tenant = Tenant.objects.create(name="Beta", subdomain="beta", is_active=True)
+        self.user = User.objects.create_user(username="prefs_user", password="x")
+        self.other_user = User.objects.create_user(username="prefs_other", password="x")
+        TenantMembership.objects.create(tenant=self.tenant, user=self.user, is_active=True)
+        TenantMembership.objects.create(tenant=self.tenant, user=self.other_user, is_active=True)
+        TenantMembership.objects.create(tenant=self.other_tenant, user=self.user, is_active=True)
+        self.bulk_url = "/api/user-preferences/"
+        self.single_url = "/api/user-preferences/dashboard.widgets.v1/"
+
+    def _auth_headers(self, user, host="acme.example.com"):
+        token = str(RefreshToken.for_user(user).access_token)
+        return {"HTTP_HOST": host, "HTTP_AUTHORIZATION": f"Bearer {token}"}
+
+    def test_upsert_and_isolation_by_tenant_and_user(self):
+        put = self.client.put(
+            self.single_url,
+            {"value": {"pendingApprovals": False, "incomeBreakdown": True}},
+            format="json",
+            **self._auth_headers(self.user),
+        )
+        self.assertEqual(put.status_code, 200, put.content)
+        self.assertEqual(put.data["key"], "dashboard.widgets.v1")
+
+        row = TenantUserPreference.objects.get(
+            tenant=self.tenant,
+            user=self.user,
+            key="dashboard.widgets.v1",
+        )
+        self.assertEqual(row.value["pendingApprovals"], False)
+
+        TenantUserPreference.objects.create(
+            tenant=self.tenant,
+            user=self.other_user,
+            key="dashboard.widgets.v1",
+            value={"pendingApprovals": True},
+        )
+        TenantUserPreference.objects.create(
+            tenant=self.other_tenant,
+            user=self.user,
+            key="dashboard.widgets.v1",
+            value={"pendingApprovals": True},
+        )
+
+        acme_get = self.client.get(
+            f"{self.bulk_url}?keys=dashboard.widgets.v1",
+            **self._auth_headers(self.user, host="acme.example.com"),
+        )
+        self.assertEqual(acme_get.status_code, 200, acme_get.content)
+        self.assertEqual(len(acme_get.data["items"]), 1)
+        self.assertEqual(acme_get.data["items"][0]["value"]["pendingApprovals"], False)
+
+        beta_get = self.client.get(
+            f"{self.bulk_url}?keys=dashboard.widgets.v1",
+            **self._auth_headers(self.user, host="beta.example.com"),
+        )
+        self.assertEqual(beta_get.status_code, 200, beta_get.content)
+        self.assertEqual(len(beta_get.data["items"]), 1)
+        self.assertEqual(beta_get.data["items"][0]["value"]["pendingApprovals"], True)
+
+    def test_forbidden_without_membership(self):
+        stranger = User.objects.create_user(username="stranger", password="x")
+        denied = self.client.get(
+            f"{self.bulk_url}?keys=dashboard.widgets.v1",
+            **self._auth_headers(stranger, host="acme.example.com"),
+        )
+        self.assertEqual(denied.status_code, 403, denied.content)
 

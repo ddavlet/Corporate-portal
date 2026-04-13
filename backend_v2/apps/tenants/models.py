@@ -73,6 +73,21 @@ class TenantUserRole(models.Model):
         return f"{self.tenant_id}::{self.user_id}::{self.role}"
 
 
+class TenantUserPreference(models.Model):
+    tenant = models.ForeignKey(Tenant, on_delete=models.CASCADE, related_name="user_preferences")
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="tenant_preferences")
+    key = models.CharField(max_length=120)
+    value = models.JSONField(default=dict)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = [("tenant", "user", "key")]
+        indexes = [models.Index(fields=["tenant", "user", "key"])]
+
+    def __str__(self) -> str:
+        return f"{self.tenant_id}::{self.user_id}::{self.key}"
+
+
 class TenantIntegrationConfig(models.Model):
     tenant = models.OneToOneField(Tenant, on_delete=models.CASCADE, related_name="integration_config")
     updated_at = models.DateTimeField(auto_now=True)

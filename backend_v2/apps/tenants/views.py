@@ -8,12 +8,14 @@ from apps.tenants.models import (
     TenantIntegrationConfig,
     TenantMembership,
     TenantModuleConfig,
+    TenantUserPreference,
     TenantUserRole,
 )
 from apps.tenants.permissions import IsTenantAdmin, role_allows_module
 from apps.tenants.serializers import (
     TenantIntegrationConfigSerializer,
     TenantModuleConfigUpdateSerializer,
+    TenantUserPreferenceSerializer,
 )
 from apps.tenants.integration_settings import (
     get_n8n_integration_settings,
@@ -237,4 +239,54 @@ class SettingsAccessView(APIView):
                 "roles": sorted(list(roles)),
             }
         )
+
+
+class UserPreferencesView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def _ensure_membership(self, request):
+        tenant = getattr(request, "tenant", None)
+        if not tenant:
+            return None, Response({"detail": "Unknown tenant"}, status=status.HTTP_404_NOT_FOUND)
+        has_membership = TenantMembership.objects.filter(
+            tenant=tenant, user=request.user, is_active=True
+        ).exists()
+        if not has_membership:
+            return None, Response({"detail": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
+        return tenant, None
+
+    def get(self, request):
+        tenant, error_response = self._ensure_membership(request)
+        if error_response:
+            return error_response
+        raw_keys = request.query_params.getlist("keys")
+        keys: list[str] = []
+        for chunk in raw_keys:
+            for key in str(chunk or "").split(","):
+                normalized = key.strip().lower()
+                if normalized:
+                    keys.append(normalized)
+        if not keys:
+            return Response({"items": []})
+        rows = TenantUserPreference.objects.filter(
+            tenant=tenant,
+            user=request.user,
+            key__in=keys,
+        )
+        payload = [{"key": row.key, "value": row.value} for row in rows]
+        return Response({"items": payload})
+
+    def put(self, request, key: str):
+        tenant, error_response = self._ensure_membership(request)
+        if error_response:
+            return error_response
+        serializer = TenantUserPreferenceSerializer(data={"key": key, "value": request.data.get("value")})
+        serializer.is_valid(raise_exception=True)
+        pref, _ = TenantUserPreference.objects.update_or_create(
+            tenant=tenant,
+            user=request.user,
+            key=serializer.validated_data["key"],
+            defaults={"value": serializer.validated_data["value"]},
+        )
+        return Response({"key": pref.key, "value": pref.value})
 

@@ -268,6 +268,11 @@ export type SettingsAccessResponse = {
   roles: string[]
 }
 
+export type UserPreferencesResponseItem = {
+  key: string
+  value: unknown
+}
+
 export async function getSettingsAccess(): Promise<SettingsAccessResponse> {
   const res = await apiFetch('/api/settings-access/')
   if (!res.ok) throw new Error(await parseErrorBody(res))
@@ -280,6 +285,39 @@ export async function getSettingsAccess(): Promise<SettingsAccessResponse> {
     can_manage_wallet_settings: Boolean(json?.can_manage_wallet_settings),
     roles: Array.isArray(json?.roles) ? (json?.roles as string[]) : [],
   }
+}
+
+export async function getUserPreferences(keys: string[]): Promise<Record<string, unknown>> {
+  if (!Array.isArray(keys) || keys.length === 0) return {}
+  const params = new URLSearchParams()
+  for (const key of keys) {
+    const normalized = String(key || '').trim()
+    if (normalized) params.append('keys', normalized)
+  }
+  const query = params.toString()
+  const endpoint = query ? `/api/user-preferences/?${query}` : '/api/user-preferences/'
+  const res = await apiFetch(endpoint)
+  if (!res.ok) throw new Error(await parseErrorBody(res))
+  const json = (await res.json().catch(() => null)) as { items?: UserPreferencesResponseItem[] } | null
+  const out: Record<string, unknown> = {}
+  const items = Array.isArray(json?.items) ? json.items : []
+  for (const item of items) {
+    if (item && typeof item.key === 'string') out[item.key] = item.value
+  }
+  return out
+}
+
+export async function setUserPreference(key: string, value: unknown): Promise<UserPreferencesResponseItem> {
+  const normalized = String(key || '').trim()
+  const res = await apiFetch(`/api/user-preferences/${encodeURIComponent(normalized)}/`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ value }),
+  })
+  if (!res.ok) throw new Error(await parseErrorBody(res))
+  const json = (await res.json().catch(() => null)) as UserPreferencesResponseItem | null
+  if (!json?.key) throw new Error('Empty response')
+  return json
 }
 
 export type FeedbackKind = 'error' | 'improvement'
