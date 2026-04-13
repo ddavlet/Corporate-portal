@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Alert, Button, Card, Checkbox, Divider, Input, InputNumber, Select, Space, Typography, message } from 'antd'
+import { Alert, Button, Card, Checkbox, Collapse, Divider, Input, InputNumber, Select, Space, Typography, message } from 'antd'
 import { ArrowLeftOutlined, PlusOutlined, SaveOutlined } from '@ant-design/icons'
 import { useNavigate } from 'react-router-dom'
 import {
@@ -249,167 +249,187 @@ export function AutoRequestsConfigPage() {
             const pt = formPtForPaymentType(data, row.payment_type)
             const purposeOpts = purposeSelectOptions(row, data)
             const vendorOpts = vendorSelectOptions(row, data)
+            const templateTitle = String(row.name || '').trim() || `Шаблон #${idx + 1}`
             return (
               <Card key={row.id ?? `new-${idx}`} size="small">
-                <Space direction="vertical" size={10} style={{ display: 'flex' }}>
-                  <Space align="center" wrap>
-                    <Typography.Text strong>Шаблон #{idx + 1}</Typography.Text>
-                    <Checkbox checked={row.is_enabled} onChange={(e) => updateRow(idx, { is_enabled: e.target.checked })}>
-                      Активно
-                    </Checkbox>
-                    <Button danger onClick={() => removeTemplate(idx)}>
-                      Удалить
-                    </Button>
-                  </Space>
-                  <Input
-                    placeholder="Название шаблона (для себя)"
-                    value={row.name}
-                    onChange={(e) => updateRow(idx, { name: e.target.value })}
-                  />
-                  <Space wrap size={12} align="start">
-                    <div>
-                      <Typography.Text type="secondary" style={{ display: 'block', marginBottom: 4 }}>
-                        День месяца
-                      </Typography.Text>
-                      <InputNumber
-                        min={1}
-                        max={31}
-                        style={{ width: 120 }}
-                        value={row.day_of_month}
-                        onChange={(v) => updateRow(idx, { day_of_month: typeof v === 'number' ? v : 1 })}
-                      />
-                    </div>
-                    <div>
-                      <Typography.Text type="secondary" style={{ display: 'block', marginBottom: 4 }}>
-                        Месяц начисления
-                      </Typography.Text>
-                      <Select
-                        style={{ width: 220 }}
-                        value={(row.billing_month_mode ?? 'current') as AutoRequestBillingMonthMode}
-                        onChange={(v) => updateRow(idx, { billing_month_mode: v })}
-                        options={BILLING_MONTH_OPTIONS}
-                      />
-                    </div>
-                  </Space>
-                  <Space wrap size={12} align="start">
-                    <div>
-                      <Typography.Text type="secondary" style={{ display: 'block', marginBottom: 4 }}>
-                        Тип оплаты
-                      </Typography.Text>
-                      <Select
-                        style={{ width: 200 }}
-                        value={row.payment_type}
-                        onChange={(v) =>
-                          updateRow(idx, {
-                            payment_type: v,
-                            vendor_ref_id: null,
-                            payment_purpose: '',
-                            requester_id: firstRequesterIdForPaymentType(data, v),
-                          })
-                        }
-                        options={paymentTypeSelectOptions(data)}
-                      />
-                    </div>
-                    <div>
-                      <Typography.Text type="secondary" style={{ display: 'block', marginBottom: 4 }}>
-                        Заявитель
-                      </Typography.Text>
-                      <Select
-                        style={{ width: 220 }}
-                        placeholder="Выберите заявителя"
-                        value={row.requester_id}
-                        onChange={(v) => updateRow(idx, { requester_id: v })}
-                        options={requesterSelectOptions(row, data)}
-                        showSearch
-                        optionFilterProp="label"
-                      />
-                    </div>
-                  </Space>
-                  {pt?.default_company_payer ? (
-                    <Typography.Text type="secondary">
-                      В создаваемой заявке плательщик будет: «{pt.default_company_payer}» — задано в «Настройка формы
-                      заявки» для типа «{row.payment_type}»
-                    </Typography.Text>
-                  ) : (
-                    <Typography.Text type="secondary">
-                      Для типа «{row.payment_type}» в «Настройка формы заявки» не задана компания-плательщик — в заявке
-                      поле может остаться пустым.
-                    </Typography.Text>
-                  )}
-                  <div>
-                    <Typography.Text strong style={labelBlockAboveField}>
-                      Поставщик
-                    </Typography.Text>
-                    <Select
-                      style={{ width: '100%' }}
-                      placeholder="Выберите из справочника"
-                      value={row.vendor_ref_id ?? undefined}
-                      onChange={(v) => updateRow(idx, { vendor_ref_id: v })}
-                      options={vendorOpts}
-                      allowClear
-                      showSearch
-                      optionFilterProp="label"
-                    />
-                  </div>
-                  <div>
-                    <Typography.Text strong style={labelBlockAboveField}>
-                      Назначение платежа
-                    </Typography.Text>
-                    {purposeOpts.length > 0 ? (
-                      <Select
-                        style={{ width: '100%' }}
-                        placeholder="Выберите назначение"
-                        value={row.payment_purpose || undefined}
-                        onChange={(v) => updateRow(idx, { payment_purpose: v })}
-                        options={purposeOpts}
-                        allowClear
-                        showSearch
-                        optionFilterProp="label"
-                      />
-                    ) : (
-                      <Input
-                        placeholder="Назначение (в настройках формы нет списка — ввод вручную)"
-                        value={row.payment_purpose}
-                        onChange={(e) => updateRow(idx, { payment_purpose: e.target.value })}
-                      />
-                    )}
-                  </div>
-                  <Input
-                    placeholder="Заголовок (токены {{billing_month_ru}}, {{billing_month:%B %Y}}, {{now:%d.%m.%Y}})"
-                    value={row.title_template}
-                    onChange={(e) => updateRow(idx, { title_template: e.target.value })}
-                  />
-                  <Input.TextArea
-                    rows={3}
-                    placeholder="Описание шаблона с токенами даты"
-                    value={row.description_template}
-                    onChange={(e) => updateRow(idx, { description_template: e.target.value })}
-                  />
-                  <Space wrap size={12}>
-                    <InputNumber
-                      style={{ width: 150 }}
-                      min={0}
-                      placeholder="Сумма"
-                      value={row.amount == null ? undefined : Number(row.amount)}
-                      onChange={(v) => updateRow(idx, { amount: v == null ? null : String(v) })}
-                    />
-                    <Select
-                      style={{ width: 120 }}
-                      value={row.currency}
-                      onChange={(v) => updateRow(idx, { currency: v })}
-                      options={['UZS', 'USD', 'EUR', 'RUB'].map((v) => ({ value: v, label: v }))}
-                    />
-                    <Select
-                      style={{ width: 140 }}
-                      value={row.urgency}
-                      onChange={(v) => updateRow(idx, { urgency: v })}
-                      options={['Низко', 'Обычно', 'Срочно'].map((v) => ({ value: v, label: v }))}
-                    />
-                  </Space>
-                  <Typography.Text type="secondary" style={labelBlockAboveField}>
-                    Последний запуск: {row.last_run_month || 'еще не запускалось'}
-                  </Typography.Text>
-                </Space>
+                <Collapse
+                  items={[
+                    {
+                      key: 'fields',
+                      label: (
+                        <Space size={10} wrap>
+                          <Typography.Text strong>{templateTitle}</Typography.Text>
+                          <Typography.Text type="secondary">({row.payment_type})</Typography.Text>
+                        </Space>
+                      ),
+                      extra: (
+                        <Space onClick={(e) => e.stopPropagation()}>
+                          <Checkbox
+                            checked={row.is_enabled}
+                            onChange={(e) => updateRow(idx, { is_enabled: e.target.checked })}
+                          >
+                            Активно
+                          </Checkbox>
+                          <Button danger size="small" onClick={() => removeTemplate(idx)}>
+                            Удалить
+                          </Button>
+                        </Space>
+                      ),
+                      children: (
+                        <Space direction="vertical" size={10} style={{ display: 'flex' }}>
+                          <Input
+                            placeholder="Название шаблона (для себя)"
+                            value={row.name}
+                            onChange={(e) => updateRow(idx, { name: e.target.value })}
+                          />
+                          <Space wrap size={12} align="start">
+                            <div>
+                              <Typography.Text type="secondary" style={{ display: 'block', marginBottom: 4 }}>
+                                День месяца
+                              </Typography.Text>
+                              <InputNumber
+                                min={1}
+                                max={31}
+                                style={{ width: 120 }}
+                                value={row.day_of_month}
+                                onChange={(v) => updateRow(idx, { day_of_month: typeof v === 'number' ? v : 1 })}
+                              />
+                            </div>
+                            <div>
+                              <Typography.Text type="secondary" style={{ display: 'block', marginBottom: 4 }}>
+                                Месяц начисления
+                              </Typography.Text>
+                              <Select
+                                style={{ width: 220 }}
+                                value={(row.billing_month_mode ?? 'current') as AutoRequestBillingMonthMode}
+                                onChange={(v) => updateRow(idx, { billing_month_mode: v })}
+                                options={BILLING_MONTH_OPTIONS}
+                              />
+                            </div>
+                          </Space>
+                          <Space wrap size={12} align="start">
+                            <div>
+                              <Typography.Text type="secondary" style={{ display: 'block', marginBottom: 4 }}>
+                                Тип оплаты
+                              </Typography.Text>
+                              <Select
+                                style={{ width: 200 }}
+                                value={row.payment_type}
+                                onChange={(v) =>
+                                  updateRow(idx, {
+                                    payment_type: v,
+                                    vendor_ref_id: null,
+                                    payment_purpose: '',
+                                    requester_id: firstRequesterIdForPaymentType(data, v),
+                                  })
+                                }
+                                options={paymentTypeSelectOptions(data)}
+                              />
+                            </div>
+                            <div>
+                              <Typography.Text type="secondary" style={{ display: 'block', marginBottom: 4 }}>
+                                Заявитель
+                              </Typography.Text>
+                              <Select
+                                style={{ width: 220 }}
+                                placeholder="Выберите заявителя"
+                                value={row.requester_id}
+                                onChange={(v) => updateRow(idx, { requester_id: v })}
+                                options={requesterSelectOptions(row, data)}
+                                showSearch
+                                optionFilterProp="label"
+                              />
+                            </div>
+                          </Space>
+                          {pt?.default_company_payer ? (
+                            <Typography.Text type="secondary">
+                              В создаваемой заявке плательщик будет: «{pt.default_company_payer}» — задано в «Настройка
+                              формы заявки» для типа «{row.payment_type}»
+                            </Typography.Text>
+                          ) : (
+                            <Typography.Text type="secondary">
+                              Для типа «{row.payment_type}» в «Настройка формы заявки» не задана компания-плательщик — в
+                              заявке поле может остаться пустым.
+                            </Typography.Text>
+                          )}
+                          <div>
+                            <Typography.Text strong style={labelBlockAboveField}>
+                              Поставщик
+                            </Typography.Text>
+                            <Select
+                              style={{ width: '100%' }}
+                              placeholder="Выберите из справочника"
+                              value={row.vendor_ref_id ?? undefined}
+                              onChange={(v) => updateRow(idx, { vendor_ref_id: v })}
+                              options={vendorOpts}
+                              allowClear
+                              showSearch
+                              optionFilterProp="label"
+                            />
+                          </div>
+                          <div>
+                            <Typography.Text strong style={labelBlockAboveField}>
+                              Назначение платежа
+                            </Typography.Text>
+                            {purposeOpts.length > 0 ? (
+                              <Select
+                                style={{ width: '100%' }}
+                                placeholder="Выберите назначение"
+                                value={row.payment_purpose || undefined}
+                                onChange={(v) => updateRow(idx, { payment_purpose: v })}
+                                options={purposeOpts}
+                                allowClear
+                                showSearch
+                                optionFilterProp="label"
+                              />
+                            ) : (
+                              <Input
+                                placeholder="Назначение (в настройках формы нет списка — ввод вручную)"
+                                value={row.payment_purpose}
+                                onChange={(e) => updateRow(idx, { payment_purpose: e.target.value })}
+                              />
+                            )}
+                          </div>
+                          <Input
+                            placeholder="Заголовок (токены {{billing_month_ru}}, {{billing_month:%B %Y}}, {{now:%d.%m.%Y}})"
+                            value={row.title_template}
+                            onChange={(e) => updateRow(idx, { title_template: e.target.value })}
+                          />
+                          <Input.TextArea
+                            rows={3}
+                            placeholder="Описание шаблона с токенами даты"
+                            value={row.description_template}
+                            onChange={(e) => updateRow(idx, { description_template: e.target.value })}
+                          />
+                          <Space wrap size={12}>
+                            <InputNumber
+                              style={{ width: 150 }}
+                              min={0}
+                              placeholder="Сумма"
+                              value={row.amount == null ? undefined : Number(row.amount)}
+                              onChange={(v) => updateRow(idx, { amount: v == null ? null : String(v) })}
+                            />
+                            <Select
+                              style={{ width: 120 }}
+                              value={row.currency}
+                              onChange={(v) => updateRow(idx, { currency: v })}
+                              options={['UZS', 'USD', 'EUR', 'RUB'].map((v) => ({ value: v, label: v }))}
+                            />
+                            <Select
+                              style={{ width: 140 }}
+                              value={row.urgency}
+                              onChange={(v) => updateRow(idx, { urgency: v })}
+                              options={['Низко', 'Обычно', 'Срочно'].map((v) => ({ value: v, label: v }))}
+                            />
+                          </Space>
+                          <Typography.Text type="secondary" style={labelBlockAboveField}>
+                            Последний запуск: {row.last_run_month || 'еще не запускалось'}
+                          </Typography.Text>
+                        </Space>
+                      ),
+                    },
+                  ]}
+                />
               </Card>
             )
           })}
