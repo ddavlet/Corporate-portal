@@ -329,8 +329,10 @@ export type AskAiQuestionPayload = {
 
 export type AskAiQuestionResponse = {
   tenant_id?: number | string
+  user_id?: number | string
   session_id: string
-  reponse: string
+  response: string
+  reponse?: string
   history?: Record<string, string>
 }
 
@@ -349,11 +351,14 @@ export async function askAiQuestion(payload: AskAiQuestionPayload): Promise<AskA
   })
   if (!res.ok) throw new Error(await parseErrorBody(res))
   const json = (await res.json().catch(() => null)) as Partial<AskAiQuestionResponse> | null
-  if (!json?.session_id || typeof json.reponse !== 'string') throw new Error('Пустой ответ от сервера')
+  const responseText = typeof json?.response === 'string' ? json.response : typeof json?.reponse === 'string' ? json.reponse : null
+  if (!json?.session_id || !responseText) throw new Error('Пустой ответ от сервера')
   return {
     tenant_id: json.tenant_id,
+    user_id: json.user_id,
     session_id: json.session_id,
-    reponse: json.reponse,
+    response: responseText,
+    reponse: responseText,
     history: json.history,
   }
 }
