@@ -4,9 +4,12 @@ from collections import defaultdict
 from datetime import datetime
 from decimal import Decimal, InvalidOperation
 from typing import Any
+import hashlib
+import json
 
 import requests
 from django.conf import settings
+from django.core.cache import cache
 
 from apps.tenants.integration_settings import get_n8n_integration_settings
 
@@ -127,6 +130,22 @@ def _calc_monthly(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return result
 
 
+def _reports_cache_key(*, tenant_subdomain: str, user_id: int, endpoint: str, query_params: dict[str, Any]) -> str:
+    payload = json.dumps(
+        {
+            "tenant": tenant_subdomain,
+            "user_id": user_id,
+            "endpoint": endpoint,
+            "query_params": query_params,
+        },
+        sort_keys=True,
+        ensure_ascii=True,
+        default=str,
+    )
+    digest = hashlib.sha256(payload.encode("utf-8")).hexdigest()
+    return f"reports:payload:{digest}"
+
+
 def fetch_n8n_report_payload(*, tenant, user_id: int, endpoint: str, query_params: dict[str, Any]) -> dict[str, Any]:
     if not settings.BASE_DOMAIN:
         raise RuntimeError("BASE_DOMAIN is not configured.")
@@ -135,6 +154,16 @@ def fetch_n8n_report_payload(*, tenant, user_id: int, endpoint: str, query_param
         token = (getattr(settings, "N8N_INTEGRATION_TOKEN", None) or "").strip()
     if not token:
         raise RuntimeError("N8N_INTEGRATION_TOKEN is not configured.")
+
+    cache_key = _reports_cache_key(
+        tenant_subdomain=tenant.subdomain,
+        user_id=user_id,
+        endpoint=endpoint,
+        query_params=query_params,
+    )
+    cached_payload = cache.get(cache_key)
+    if cached_payload is not None:
+        return cached_payload
 
     url = f"https://{tenant.subdomain}.{settings.BASE_DOMAIN}/{endpoint.lstrip('/')}"
     response = requests.get(
@@ -183,7 +212,7 @@ def fetch_n8n_report_payload(*, tenant, user_id: int, endpoint: str, query_param
     total_revenue = sum((_to_decimal(x.get("amount")) for x in revenue_rows), start=Decimal("0"))
     total_expense = sum((_to_decimal(x.get("amount")) for x in expense_rows), start=Decimal("0"))
 
-    return {
+    result = {
         "metadata": {
             "company_name": metadata.get("company_name"),
             "start_month": metadata.get("start_month"),
@@ -202,3 +231,6 @@ def fetch_n8n_report_payload(*, tenant, user_id: int, endpoint: str, query_param
         # Best-practice table payload.
         "rows": table_rows,
     }
+    cache_ttl = int(getattr(settings, "REPORTS_CACHE_TTL_SECONDS", 60))
+    cache.set(cache_key, result, timeout=max(1, cache_ttl))
+    return result

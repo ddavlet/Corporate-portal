@@ -187,3 +187,6 @@ TELEGRAM_APPROVALS_BRIDGE_TOKEN = os.getenv("TELEGRAM_APPROVALS_BRIDGE_TOKEN", "
 # Absolute base URL of the requests portal (no trailing slash), for links in draft Telegram notifications.
 REQUESTS_PORTAL_PUBLIC_BASE_URL = os.getenv("REQUESTS_PORTAL_PUBLIC_BASE_URL", "").strip()
 
+# Reports payload cache (seconds). Keep short to reduce staleness while smoothing n8n latency spikes.
+REPORTS_CACHE_TTL_SECONDS = int(os.getenv("REPORTS_CACHE_TTL_SECONDS", "60"))
+
