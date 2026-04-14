@@ -6,7 +6,7 @@ import django.utils.timezone
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("tenants", "0012_tenantintegrationconfig_portal_feedback_telegram_action_and_more"),
+        ("tenants", "0012_remove_tenantuserrole_step"),
         ("requests", "0036_requestapprovalpaymenttypeconfig_request_not_required_rules"),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),
     ]
