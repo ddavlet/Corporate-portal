@@ -138,6 +138,28 @@ class Request(models.Model):
         db_table = "requests"
 
 
+class RequestAttachment(models.Model):
+    request = models.ForeignKey(Request, on_delete=models.CASCADE, related_name="attachments")
+    tenant = models.ForeignKey(Tenant, on_delete=models.CASCADE, related_name="request_attachments")
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="request_attachments",
+    )
+    file_path = models.TextField()
+    file_name = models.CharField(max_length=255)
+    content_type = models.CharField(max_length=255, blank=True, default="")
+    size_bytes = models.BigIntegerField(default=0)
+    created_at = models.DateTimeField(default=timezone.now)
+
+    class Meta:
+        db_table = "request_attachments"
+        indexes = [
+            models.Index(fields=["tenant", "request"], name="req_att_tenant_req_idx"),
+            models.Index(fields=["request", "created_at"], name="req_att_req_created_idx"),
+        ]
+
+
 class Approval(models.Model):
     STEP_TYPE_SERIAL = "serial"
     STEP_TYPE_PAYMENT = "payment"

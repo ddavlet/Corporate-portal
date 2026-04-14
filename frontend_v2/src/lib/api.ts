@@ -1377,6 +1377,30 @@ export interface CreatedPortalRequest {
   id: number
 }
 
+export type RequestAttachment = {
+  id: number
+  name: string
+  content_type: string
+  size_bytes: number
+  created_at?: string
+  url?: string | null
+}
+
+const REQUEST_ATTACHMENT_ALLOWED_EXT = new Set(['pdf', 'jpg', 'jpeg', 'png', 'doc', 'docx', 'xls', 'xlsx'])
+export const REQUEST_ATTACHMENT_MAX_BYTES = 10 * 1024 * 1024
+export const REQUEST_ATTACHMENT_MAX_FILES = 5
+
+export function validateRequestAttachment(file: File): string | null {
+  const ext = file.name.includes('.') ? file.name.split('.').pop()?.toLowerCase() || '' : ''
+  if (!REQUEST_ATTACHMENT_ALLOWED_EXT.has(ext)) {
+    return 'Недопустимый тип файла. Разрешены: pdf, jpg, jpeg, png, doc, docx, xls, xlsx.'
+  }
+  if (file.size > REQUEST_ATTACHMENT_MAX_BYTES) {
+    return 'Файл превышает 10 МБ.'
+  }
+  return null
+}
+
 /** Body for POST /api/requests/ (portal create). */
 export interface PortalRequestCreateBody {
   title: string
@@ -1403,5 +1427,31 @@ export async function createPortalRequest(body: PortalRequestCreateBody): Promis
   const json = (await res.json().catch(() => null)) as CreatedPortalRequest | null
   if (!json) throw new Error('Empty response')
   return json
+}
+
+export async function uploadRequestAttachment(requestId: number, file: File): Promise<RequestAttachment> {
+  const fd = new FormData()
+  fd.append('file', file)
+  const res = await apiFetch(`/api/requests/${requestId}/file-upload/`, {
+    method: 'POST',
+    body: fd,
+  })
+  if (!res.ok) throw new Error(await parseErrorBody(res))
+  const json = (await res.json().catch(() => null)) as Partial<RequestAttachment> | null
+  return {
+    id: Number(json?.id ?? 0),
+    name: String(json?.name ?? file.name),
+    content_type: String(json?.content_type ?? file.type ?? ''),
+    size_bytes: Number(json?.size_bytes ?? file.size),
+    created_at: typeof json?.created_at === 'string' ? json.created_at : undefined,
+    url: typeof json?.url === 'string' ? json.url : null,
+  }
+}
+
+export async function deleteRequestAttachment(requestId: number, attachmentId: number): Promise<void> {
+  const res = await apiFetch(`/api/requests/${requestId}/attachments/${attachmentId}/`, {
+    method: 'DELETE',
+  })
+  if (!res.ok) throw new Error(await parseErrorBody(res))
 }
 
