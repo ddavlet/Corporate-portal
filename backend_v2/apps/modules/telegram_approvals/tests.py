@@ -560,7 +560,7 @@ class TelegramApprovalsTests(APITestCase):
             tenant=self.tenant,
             created_by=self.admin,
             requester=self.requester,
-            title="Needs approval",
+            title="Need review",
             status=Request.STATUS_APPROVED,
             billing_date=date(2026, 3, 31),
         )
