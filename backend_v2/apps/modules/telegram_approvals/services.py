@@ -198,13 +198,18 @@ def _format_submitted_at(request_obj: Request) -> str:
 
 
 def _payment_responsible_text(*, request_obj: Request) -> str:
-    usernames = list(
+    approvals = (
         Approval.objects.filter(request=request_obj, step_type=Approval.STEP_TYPE_PAYMENT)
         .select_related("approver_user")
-        .values_list("approver_user__username", flat=True)
         .distinct()
     )
-    return ", ".join(u for u in usernames if u) if usernames else "-"
+    names = []
+    for row in approvals:
+        if not row.approver_user:
+            continue
+        names.append(_display_user_name(row.approver_user))
+    unique_names = list(dict.fromkeys(name for name in names if name and name != "-"))
+    return ", ".join(unique_names) if unique_names else "-"
 
 
 def _rejected_by_text(*, request_obj: Request) -> str:
@@ -216,7 +221,7 @@ def _rejected_by_text(*, request_obj: Request) -> str:
     )
     if not row or not row.approver_user:
         return "-"
-    return row.approver_user.username or "-"
+    return _display_user_name(row.approver_user)
 
 
 def _message_header(*, request_obj: Request, approval: Approval | None) -> tuple[str, str | None]:
