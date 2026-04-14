@@ -332,6 +332,40 @@ class N8nIntegrationAuthTests(APITestCase):
         row = BankExpense.objects.get(pk=93002)
         self.assertEqual(row.vendor_id, vendor.id)
 
+    def test_bank_expense_prefers_account_no_when_account_name_is_ambiguous(self):
+        vendor_by_account = Vendor.objects.create(
+            tenant=self.tenant,
+            kind=Vendor.KIND_TRANSFER,
+            name="ООО LEMON-SPORT-GROUP",
+            inn="308765632",
+            account_number="16401000505425326000",
+            created_by=self.admin,
+        )
+        Vendor.objects.create(
+            tenant=self.tenant,
+            kind=Vendor.KIND_TRANSFER,
+            name="ООО LEMON-SPORT-GROUP",
+            inn="308765632",
+            account_number="16401000505425326001",
+            created_by=self.admin,
+        )
+        url = f"{self.n8n_prefix}/bank/expenses/"
+        body = {
+            "id": 93003,
+            "row_no": 1,
+            "doc_date": "2026-03-30",
+            "process_date": "2026-03-30",
+            "doc_no": "BEXP-N8N-3",
+            "account_name": "ООО LEMON-SPORT-GROUP",
+            "account_no": "16401000505425326000",
+            "debit_turnover": "1000.00",
+            "payment_purpose": "Оплата по счету",
+        }
+        res = self.client.post(url, body, format="json", **self._headers(self.admin))
+        self.assertEqual(res.status_code, 201, res.content)
+        row = BankExpense.objects.get(pk=93003)
+        self.assertEqual(row.vendor_id, vendor_by_account.id)
+
     def test_cash_revenue_import_fields_supported(self):
         url = f"{self.n8n_prefix}/cash/revenues/"
         body = {
