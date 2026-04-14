@@ -22,9 +22,12 @@ import {
   createVendor,
   getRequestFormOptions,
   listVendors,
+  REQUEST_ATTACHMENT_MAX_FILES,
   type CreatedPortalRequest,
   type PortalRequestCreateBody,
   type RequestFormOptionsPaymentType,
+  uploadRequestAttachment,
+  validateRequestAttachment,
 } from '../../lib/api'
 import { labelBlockAboveField } from '../formSpacing'
 import { clampToAllowedBillingMonth, isAllowedBillingMonth } from '../../lib/billingMonth'
@@ -66,6 +69,7 @@ export function RequestCreatePage({ requestsBasePath = '/requests', variant = 'p
   const [urgency, setUrgency] = useState('Обычно')
   const [paymentPurpose, setPaymentPurpose] = useState<string | null>(null)
   const [billingDate, setBillingDate] = useState<Dayjs | null>(() => monthStartTashkent())
+  const [attachments, setAttachments] = useState<File[]>([])
 
   const [submitting, setSubmitting] = useState(false)
   const [newVendorOpen, setNewVendorOpen] = useState(false)
@@ -239,6 +243,17 @@ export function RequestCreatePage({ requestsBasePath = '/requests', variant = 'p
       message.warning('Выберите поставщика из списка')
       return
     }
+    if (attachments.length > REQUEST_ATTACHMENT_MAX_FILES) {
+      message.warning(`Можно прикрепить максимум ${REQUEST_ATTACHMENT_MAX_FILES} файлов`)
+      return
+    }
+    for (const file of attachments) {
+      const err = validateRequestAttachment(file)
+      if (err) {
+        message.warning(`${file.name}: ${err}`)
+        return
+      }
+    }
 
     setSubmitting(true)
     try {
@@ -262,6 +277,9 @@ export function RequestCreatePage({ requestsBasePath = '/requests', variant = 'p
       if (paymentPurpose) payload.payment_purpose = paymentPurpose
       if (vendorRefId) payload.vendor_ref = vendorRefId
       const res: CreatedPortalRequest = await createPortalRequest(payload)
+      for (const file of attachments) {
+        await uploadRequestAttachment(res.id, file)
+      }
       message.success('Заявка создана')
       const id = res.id
       if (typeof id === 'number') navigate(`${requestsBasePath}/${id}`)
@@ -562,6 +580,15 @@ export function RequestCreatePage({ requestsBasePath = '/requests', variant = 'p
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
               />
+            </div>
+            <div className={isTg ? 'tg-field-block' : undefined}>
+              <Typography.Text strong style={labelBlockAboveField}>
+                Вложения
+              </Typography.Text>
+              <input type="file" multiple onChange={(e) => setAttachments(Array.from(e.target.files || []))} style={{ width: '100%' }} />
+              <Typography.Text type="secondary" style={{ display: 'block', marginTop: 6 }}>
+                {attachments.length > 0 ? `Выбрано файлов: ${attachments.length}` : 'Файлы не выбраны'}
+              </Typography.Text>
             </div>
           </Space>
         ) : null}
