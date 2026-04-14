@@ -2,7 +2,15 @@ import { useEffect, useState } from 'react'
 import { Alert, Button, Card, DatePicker, Input, InputNumber, Modal, Select, Space, Typography, message } from 'antd'
 import { ReloadOutlined } from '@ant-design/icons'
 import { useNavigate, useParams } from 'react-router-dom'
-import { apiFetch, confirmPaymentViaWebApp, resendRequestApprovals } from '../../lib/api'
+import {
+  apiFetch,
+  confirmPaymentViaWebApp,
+  deleteRequestAttachment,
+  resendRequestApprovals,
+  REQUEST_ATTACHMENT_MAX_FILES,
+  uploadRequestAttachment,
+  validateRequestAttachment,
+} from '../../lib/api'
 import { RequestDetailContent, type ApprovalItem, type RequestDetail } from './RequestDetailModal'
 import { NoteCreateModal } from '../NoteCreateModal'
 import { useAuth } from '../auth'
@@ -70,7 +78,7 @@ export function RequestDetailPage({ listPath = '/requests', variant = 'portal' }
 
   const [uploadOpen, setUploadOpen] = useState(false)
   const [uploadBusy, setUploadBusy] = useState(false)
-  const [uploadFile, setUploadFile] = useState<File | null>(null)
+  const [uploadFiles, setUploadFiles] = useState<File[]>([])
   const [paymentModalOpen, setPaymentModalOpen] = useState(false)
   const [paymentModalApproval, setPaymentModalApproval] = useState<ApprovalItem | null>(null)
   const [paymentExpenseId, setPaymentExpenseId] = useState('')
@@ -344,25 +352,44 @@ export function RequestDetailPage({ listPath = '/requests', variant = 'portal' }
   }
 
   const submitUpload = async () => {
-    if (!detail?.id || !uploadFile) return
+    if (!detail?.id || uploadFiles.length === 0) return
+    const alreadyAttached = detail.attachments?.length ?? 0
+    if (alreadyAttached + uploadFiles.length > REQUEST_ATTACHMENT_MAX_FILES) {
+      message.warning(`Максимум ${REQUEST_ATTACHMENT_MAX_FILES} файлов на заявку`)
+      return
+    }
+    for (const file of uploadFiles) {
+      const err = validateRequestAttachment(file)
+      if (err) {
+        message.error(`${file.name}: ${err}`)
+        return
+      }
+    }
     setUploadBusy(true)
     try {
-      const fd = new FormData()
-      fd.append('file', uploadFile)
-      const res = await apiFetch(`/api/requests/${detail.id}/file-upload/`, {
-        method: 'POST',
-        body: fd,
-      })
-      if (!res.ok) {
-        const text = await res.text().catch(() => '')
-        throw new Error(text || `HTTP ${res.status}`)
+      for (const file of uploadFiles) {
+        await uploadRequestAttachment(detail.id, file)
       }
-      message.success('Файл прикреплён')
+      message.success('Файлы прикреплены')
       setUploadOpen(false)
-      setUploadFile(null)
+      setUploadFiles([])
       await refreshDetail()
     } catch (e: unknown) {
       message.error(e instanceof Error ? e.message : 'Не удалось загрузить файл')
+    } finally {
+      setUploadBusy(false)
+    }
+  }
+
+  const removeAttachment = async (attachmentId: number) => {
+    if (!detail?.id) return
+    setUploadBusy(true)
+    try {
+      await deleteRequestAttachment(detail.id, attachmentId)
+      message.success('Вложение удалено')
+      await refreshDetail()
+    } catch (e: unknown) {
+      message.error(e instanceof Error ? e.message : 'Не удалось удалить вложение')
     } finally {
       setUploadBusy(false)
     }
@@ -665,7 +692,7 @@ export function RequestDetailPage({ listPath = '/requests', variant = 'portal' }
 
       <Modal
         open={uploadOpen}
-        title="Прикрепить файл"
+        title="Прикрепить файлы"
         onCancel={() => {
           setUploadOpen(false)
         }}
@@ -675,15 +702,28 @@ export function RequestDetailPage({ listPath = '/requests', variant = 'portal' }
         <Space direction="vertical" size={12} style={{ display: 'flex' }}>
           <input
             type="file"
-            onChange={(e) => setUploadFile(e.target.files?.[0] ?? null)}
+            multiple
+            onChange={(e) => setUploadFiles(Array.from(e.target.files || []))}
             style={{ width: '100%' }}
           />
 
           <Typography.Text type="secondary" style={{ display: 'block' }}>
-            {uploadFile ? `Выбрано: ${uploadFile.name}` : 'Файл не выбран'}
+            {uploadFiles.length > 0 ? `Выбрано файлов: ${uploadFiles.length}` : 'Файлы не выбраны'}
           </Typography.Text>
+          {detail?.attachments?.length ? (
+            <Space direction="vertical" size={6} style={{ display: 'flex' }}>
+              {detail.attachments.map((attachment) => (
+                <Space key={attachment.id} style={{ justifyContent: 'space-between', width: '100%' }}>
+                  <Typography.Text>{attachment.name}</Typography.Text>
+                  <Button danger size="small" loading={uploadBusy} onClick={() => void removeAttachment(attachment.id)}>
+                    Удалить
+                  </Button>
+                </Space>
+              ))}
+            </Space>
+          ) : null}
 
-          <Button type="primary" block loading={uploadBusy} disabled={!uploadFile} onClick={() => void submitUpload()}>
+          <Button type="primary" block loading={uploadBusy} disabled={uploadFiles.length === 0} onClick={() => void submitUpload()}>
             Загрузить
           </Button>
         </Space>

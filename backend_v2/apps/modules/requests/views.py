@@ -22,6 +22,7 @@ from rest_framework.views import APIView
 from apps.modules.requests.models import (
     Approval,
     Request,
+    RequestAttachment,
     UserRequestApproval,
     RequestFormConfig,
     RequestFormPaymentTypeConfig,
@@ -77,6 +78,10 @@ from apps.tenants.permissions import HasEffectiveModuleAccess, IsTenantAdmin, Is
 from apps.tenants.models import TenantMembership, TenantUserRole
 
 User = get_user_model()
+
+ALLOWED_ATTACHMENT_EXTENSIONS = {"pdf", "jpg", "jpeg", "png", "doc", "docx", "xls", "xlsx"}
+MAX_ATTACHMENT_SIZE_BYTES = 10 * 1024 * 1024
+MAX_ATTACHMENTS_PER_REQUEST = 5
 
 
 def _display_user_name(user) -> str:
@@ -608,14 +613,76 @@ class PortalRequestViewSet(viewsets.ModelViewSet):
         filename = os.path.basename(upload.name or "file") or "file"
         filename = filename.replace("\x00", "").replace("/", "_").replace("\\", "_")
         filename = filename.strip() or "file"
+        ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
+        if ext not in ALLOWED_ATTACHMENT_EXTENSIONS:
+            raise ValidationError(
+                {"file": f"Unsupported file type. Allowed: {', '.join(sorted(ALLOWED_ATTACHMENT_EXTENSIONS))}."}
+            )
+        if int(getattr(upload, "size", 0) or 0) > MAX_ATTACHMENT_SIZE_BYTES:
+            raise ValidationError({"file": "File is too large. Max allowed size is 10 MB."})
+        if RequestAttachment.objects.filter(request=request_obj).count() >= MAX_ATTACHMENTS_PER_REQUEST:
+            raise ValidationError({"file": "Attachments limit reached (max 5 files per request)."})
 
         storage_rel_path = f"requests/{tenant_id}/{req_id}/{filename}"
         saved_name = default_storage.save(storage_rel_path, upload)
 
-        request_obj.file_link = saved_name
-        request_obj.save(update_fields=["file_link"])
+        attachment = RequestAttachment.objects.create(
+            request=request_obj,
+            tenant_id=request_obj.tenant_id,
+            created_by=request.user,
+            file_path=saved_name,
+            file_name=filename,
+            content_type=str(getattr(upload, "content_type", "") or ""),
+            size_bytes=int(getattr(upload, "size", 0) or 0),
+        )
+        if not request_obj.file_link:
+            request_obj.file_link = saved_name
+            request_obj.save(update_fields=["file_link"])
 
-        return Response({"file_link": saved_name}, status=status.HTTP_200_OK)
+        return Response(
+            {
+                "id": attachment.id,
+                "file_link": saved_name,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+    @action(detail=True, methods=["delete"], url_path=r"attachments/(?P<attachment_id>[^/.]+)")
+    def attachment_delete(self, request, pk=None, attachment_id=None):
+        request_obj = self.get_object()
+        if request_obj.status != Request.STATUS_DRAFT:
+            raise ValidationError({"detail": "Files can be deleted only for DRAFT requests."})
+        try:
+            attachment_id_int = int(str(attachment_id or "").strip())
+        except (TypeError, ValueError) as exc:
+            raise ValidationError({"attachment_id": "Invalid attachment id."}) from exc
+
+        attachment = RequestAttachment.objects.filter(
+            id=attachment_id_int,
+            request=request_obj,
+            tenant=request_obj.tenant,
+        ).first()
+        if not attachment:
+            return Response({"detail": "Attachment not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        file_path = attachment.file_path
+        attachment.delete()
+        if file_path and default_storage.exists(file_path):
+            try:
+                default_storage.delete(file_path)
+            except Exception:
+                pass
+
+        if request_obj.file_link and request_obj.file_link == file_path:
+            next_path = (
+                RequestAttachment.objects.filter(request=request_obj)
+                .order_by("created_at", "id")
+                .values_list("file_path", flat=True)
+                .first()
+            )
+            request_obj.file_link = next_path or None
+            request_obj.save(update_fields=["file_link"])
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
     @action(detail=False, methods=["get"], url_path="my-approvals")
     def my_approvals(self, request):

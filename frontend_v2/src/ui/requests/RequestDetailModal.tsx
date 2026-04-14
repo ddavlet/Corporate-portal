@@ -2,6 +2,7 @@ import { useState } from 'react'
 import type { ReactNode } from 'react'
 import { Alert, Button, Card, Descriptions, Divider, Modal, Skeleton, Space, Tag, Typography, message } from 'antd'
 import { apiFetch } from '../../lib/api'
+import type { RequestAttachment } from '../../lib/api'
 
 export type ApprovalItem = {
   id: number
@@ -36,6 +37,7 @@ export type RequestDetail = {
   company_payer?: string
   payment_purpose?: string
   file_link?: string | null
+  attachments?: RequestAttachment[]
   requester: number | null
   requester_username?: string | null
   created_at?: string
@@ -141,6 +143,14 @@ function expenseLinkSummary(link: RequestDetail['expense_link']): string {
   if (link.doc_id != null && String(link.doc_id).trim() !== '') parts.push(`doc_id: ${link.doc_id}`)
   if (link.id != null && link.id !== '') parts.push(`связанный id: ${link.id}`)
   return parts.length ? parts.join(' · ') : '-'
+}
+
+function formatAttachmentSize(sizeBytes?: number): string {
+  const size = Number(sizeBytes || 0)
+  if (!Number.isFinite(size) || size <= 0) return '-'
+  if (size < 1024) return `${size} B`
+  if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`
+  return `${(size / (1024 * 1024)).toFixed(1)} MB`
 }
 
 function getStatusColor(value: string): string | undefined {
@@ -355,6 +365,25 @@ export function RequestDetailContent({
               '—'
             )}
           </TgDetailRow>
+          <TgDetailRow label="Вложения">
+            {detail.attachments?.length ? (
+              <Space direction="vertical" size={6} style={{ display: 'flex' }}>
+                {detail.attachments.map((attachment) => (
+                  <Button
+                    key={attachment.id}
+                    type="link"
+                    onClick={() => attachment.url && void openFileViaAuthBlob(attachment.url)}
+                    disabled={fileBusy || !attachment.url}
+                    style={{ padding: 0, justifyContent: 'flex-start' }}
+                  >
+                    {`${attachment.name} (${formatAttachmentSize(attachment.size_bytes)})`}
+                  </Button>
+                ))}
+              </Space>
+            ) : (
+              '—'
+            )}
+          </TgDetailRow>
         </div>
       ) : null}
       {detail && variant !== 'telegram' ? (
@@ -421,6 +450,25 @@ export function RequestDetailContent({
               <Button type="link" onClick={() => void openFileViaAuthBlob(detail.file_link!)} disabled={fileBusy} loading={fileBusy}>
                 Открыть файл
               </Button>
+            ) : (
+              '-'
+            )}
+          </Descriptions.Item>
+          <Descriptions.Item label="Вложения">
+            {detail.attachments?.length ? (
+              <Space direction="vertical" size={4} style={{ display: 'flex' }}>
+                {detail.attachments.map((attachment) => (
+                  <Button
+                    key={attachment.id}
+                    type="link"
+                    onClick={() => attachment.url && void openFileViaAuthBlob(attachment.url)}
+                    disabled={fileBusy || !attachment.url}
+                    style={{ paddingInline: 0, justifyContent: 'flex-start' }}
+                  >
+                    {`${attachment.name} (${formatAttachmentSize(attachment.size_bytes)})`}
+                  </Button>
+                ))}
+              </Space>
             ) : (
               '-'
             )}
