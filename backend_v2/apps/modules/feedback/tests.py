@@ -72,13 +72,13 @@ class FeedbackApiTests(APITestCase):
 
         res = self.client.post(
             "/api/feedback/submissions/",
-            {"kind": "improvement", "body": "More filters", "page_path": "/requests"},
+            {"kind": "improvement", "body": "Лимит 1000000 сум", "page_path": "/requests"},
             format="json",
             **self._auth(),
         )
         self.assertEqual(res.status_code, status.HTTP_201_CREATED, res.content)
         fb = PortalFeedback.objects.get()
-        self.assertEqual(fb.body, "More filters")
+        self.assertEqual(fb.body, "Лимит 1000000 сум")
         self.assertEqual(fb.delivery_status, PortalFeedback.DELIVERY_SENT)
         mocked_bridge.assert_called_once()
         payload = mocked_bridge.call_args.kwargs["payload"]
@@ -86,6 +86,7 @@ class FeedbackApiTests(APITestCase):
         self.assertEqual(payload["chat_id"], 42424242)
         self.assertEqual(payload["notification_kind"], "portal_feedback")
         self.assertEqual(payload["feedback_id"], fb.id)
+        self.assertIn("1 000 000", payload["message"])
 
     @patch("apps.modules.feedback.views.post_telegram_bridge")
     def test_submit_skips_telegram_without_chat(self, mocked_bridge):
