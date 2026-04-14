@@ -38,7 +38,11 @@ class TelegramApprovalsTests(APITestCase):
             full_name="Иван Иванов",
         )
         self.approver = User.objects.create_user(
-            username="appr", password="x", telegram_chat_id=555001, telegram_from_id=777001
+            username="appr",
+            password="x",
+            full_name="Петр Петров",
+            telegram_chat_id=555001,
+            telegram_from_id=777001,
         )
         for user in (self.admin, self.requester, self.approver):
             TenantMembership.objects.create(tenant=self.tenant, user=user, is_active=True)
@@ -572,6 +576,30 @@ class TelegramApprovalsTests(APITestCase):
         txt = build_approval_message(request_obj=request_row, approval=approval)
         self.assertIn("✅ Заявка №", txt)
         self.assertIn("полностью одобрена", txt)
+        self.assertIn("Петр Петров", txt)
+        self.assertNotIn("appr", txt)
+
+    def test_rejected_subheader_uses_full_name(self):
+        request_row = Request.objects.create(
+            tenant=self.tenant,
+            created_by=self.admin,
+            requester=self.requester,
+            title="Rejected request",
+            status=Request.STATUS_REJECTED,
+            billing_date=date(2026, 3, 31),
+        )
+        Approval.objects.create(
+            request=request_row,
+            approver_user=self.approver,
+            approver_tg_id=555001,
+            approver_tg_from_id=777001,
+            step=1,
+            step_type=Approval.STEP_TYPE_SERIAL,
+            decision=Approval.DECISION_REJECTED,
+        )
+        txt = build_approval_message(request_obj=request_row, approval=None)
+        self.assertIn("Петр Петров", txt)
+        self.assertNotIn("appr", txt)
 
     def test_build_approval_message_billing_month_from_billing_date_without_expense(self):
         request_row = Request.objects.create(
