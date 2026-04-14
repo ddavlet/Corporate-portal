@@ -212,12 +212,15 @@ class N8nBankExpenseImportSerializer(BankExpenseSerializer):
 
     def validate(self, attrs):
         tenant = getattr(self.context.get("request"), "tenant", None)
+        raw_account_no = attrs.get("account_no")
+        account_no = str(raw_account_no or "").strip()
         vendor_name = str(attrs.pop("vendor_name", "") or "").strip()
         account_name = str(attrs.pop("account_name", "") or "").strip()
         counterparty = str(attrs.pop("counterparty", "") or "").strip()
         lookup_name = vendor_name or account_name or counterparty
 
-        if attrs.get("vendor") is None and tenant and lookup_name:
+        # When account_no is provided, let base BankExpenseSerializer resolve vendor by account.
+        if attrs.get("vendor") is None and tenant and lookup_name and not account_no:
             matches = list(
                 Vendor.objects.filter(
                     tenant=tenant,
