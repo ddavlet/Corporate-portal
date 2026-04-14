@@ -1990,6 +1990,35 @@ class DraftRequestPatchSubmitTests(APITestCase):
         )
         self.assertEqual(res2.status_code, 400, res2.content)
 
+    def test_admin_can_patch_non_draft(self):
+        self.client.force_authenticate(self.requester)
+        res = self.client.post(
+            "/api/requests/",
+            {
+                "title": "T",
+                "description": "",
+                "amount": 10,
+                "currency": "UZS",
+                "payment_type": "Наличные",
+                "urgency": "Обычно",
+                "billing_date": "2026-01-01",
+            },
+            format="json",
+            HTTP_HOST=self.host,
+        )
+        self.assertEqual(res.status_code, 201, res.content)
+        rid = res.data["id"]
+
+        self.client.force_authenticate(self.admin)
+        res2 = self.client.patch(
+            f"/api/requests/{rid}/",
+            {"title": "Updated by admin"},
+            format="json",
+            HTTP_HOST=self.host,
+        )
+        self.assertEqual(res2.status_code, 200, res2.content)
+        self.assertEqual(res2.data["title"], "Updated by admin")
+
     def test_cannot_patch_draft_as_unrelated_user(self):
         req = self._draft_request()
         # Approver видит все заявки в tenant, но не может править чужой черновик
