@@ -40,6 +40,16 @@ class Vendor(models.Model):
                 condition=~Q(account_number="") & Q(account_number__isnull=False),
                 name="vendors_directory_tenant_account_number_uniq",
             ),
+            models.UniqueConstraint(
+                fields=["tenant", "inn", "account_number"],
+                condition=(
+                    ~Q(inn="")
+                    & Q(inn__isnull=False)
+                    & ~Q(account_number="")
+                    & Q(account_number__isnull=False)
+                ),
+                name="vendors_directory_tenant_inn_account_number_uniq",
+            ),
         ]
         indexes = [
             models.Index(fields=["tenant", "kind"], name="vendors_dir_tenant_kind_idx"),
