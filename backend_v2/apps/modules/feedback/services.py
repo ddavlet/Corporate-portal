@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from html import escape
 
 import requests
@@ -9,6 +10,25 @@ from django.conf import settings
 from apps.modules.telegram_approvals.services import _bridge_headers
 
 logger = logging.getLogger(__name__)
+_THOUSANDS_NUMBER_RE = re.compile(r"(?<![\w])(?P<int>\d{4,})(?P<frac>[.,]\d+)?(?![\w])")
+
+
+def _format_number_with_spaces(raw_integer: str) -> str:
+    grouped = []
+    value = raw_integer
+    while value:
+        grouped.append(value[-3:])
+        value = value[:-3]
+    return " ".join(reversed(grouped))
+
+
+def format_financial_numbers(text: str) -> str:
+    def _replace(match: re.Match[str]) -> str:
+        integer = match.group("int")
+        fraction = match.group("frac") or ""
+        return f"{_format_number_with_spaces(integer)}{fraction}"
+
+    return _THOUSANDS_NUMBER_RE.sub(_replace, text)
 
 
 def _normalize_n8n_json_payload(data):
@@ -83,13 +103,14 @@ def build_portal_feedback_telegram_message(
     body: str,
 ) -> str:
     safe_page = page_path.strip() or "—"
+    safe_body = format_financial_numbers(body)
     return (
         f"<b>Обратная связь портала</b>\n"
         f"Тип: {escape(kind_label)}\n"
         f"От: {escape(author_display)}\n"
         f"ID: {feedback_id}\n"
         f"Страница: {escape(safe_page)}\n\n"
-        f"{escape(body)}"
+        f"{escape(safe_body)}"
     )
 
 
