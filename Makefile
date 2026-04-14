@@ -7,7 +7,7 @@ DEPLOY_TEST_PATH ?= $(TEST_PATH)
 BRANCH     := $(shell git rev-parse --abbrev-ref HEAD)
 
 .DEFAULT_GOAL := help
-.PHONY: help push test deploy makemigrations rollback
+.PHONY: help push test deploy makemigrations showmigrations rollback
 
 help:
 	@echo ""
@@ -18,6 +18,7 @@ help:
 	@echo "  make deploy DEPLOY_RUN_TESTS=0 — деплой без пост-тестов"
 	@echo "  make deploy DEPLOY_TEST_PATH=apps.modules.requests.tests — деплой + таргетные тесты"
 	@echo "  make makemigrations  — создать миграции и скачать на локал"
+	@echo "  make showmigrations  — показать tenants/requests/vendors миграции на сервере"
 	@echo "  make rollback        — откатить production на предыдущий образ"
 	@echo ""
 
@@ -66,6 +67,12 @@ makemigrations:
 		./backend_v2/migrations/
 
 # ── 5. Откат ──────────────────────────────────────────────────────────────────
+showmigrations:
+	ssh $(SERVER) "cd $(REMOTE_DIR) && \
+		docker compose --env-file ./.env exec -T backend_v2 \
+		python manage.py showmigrations tenants requests vendors"
+
+# ── 6. Откат ──────────────────────────────────────────────────────────────────
 rollback:
 	@echo "⚠️  Откат production на предыдущий образ..."
 	ssh $(SERVER) "cd $(REMOTE_DIR) && \
