@@ -3,6 +3,7 @@ import { Alert, Button, Card, DatePicker, Input, InputNumber, Modal, Select, Spa
 import { ReloadOutlined } from '@ant-design/icons'
 import { useNavigate, useParams } from 'react-router-dom'
 import { apiFetch, confirmPaymentViaWebApp, resendRequestApprovals } from '../../lib/api'
+import { getRequestFormOptions } from '../../lib/api'
 import { RequestDetailContent, type ApprovalItem, type RequestDetail } from './RequestDetailModal'
 import { NoteCreateModal } from '../NoteCreateModal'
 import { useAuth } from '../auth'
@@ -58,6 +59,7 @@ export function RequestDetailPage({ listPath = '/requests', variant = 'portal' }
   const [openNoteModal, setOpenNoteModal] = useState(false)
   const [resendLoading, setResendLoading] = useState(false)
   const [approvalBusy, setApprovalBusy] = useState(false)
+  const [isTenantAdmin, setIsTenantAdmin] = useState(false)
 
   const [editOpen, setEditOpen] = useState(false)
   const [editSaving, setEditSaving] = useState(false)
@@ -130,6 +132,25 @@ export function RequestDetailPage({ listPath = '/requests', variant = 'portal' }
     }
   }, [id])
 
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      try {
+        const opts = await getRequestFormOptions()
+        if (!cancelled) {
+          setIsTenantAdmin(Boolean(opts.is_tenant_admin))
+        }
+      } catch {
+        if (!cancelled) {
+          setIsTenantAdmin(false)
+        }
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
   const refreshDetail = async () => {
     if (!id) return
     setLoading(true)
@@ -162,7 +183,8 @@ export function RequestDetailPage({ listPath = '/requests', variant = 'portal' }
   const canEditDraft =
     detail?.status === 'DRAFT' &&
     currentUserId != null &&
-    (detail.requester === currentUserId ||
+    (isTenantAdmin ||
+      detail.requester === currentUserId ||
       (detail.created_by != null && detail.created_by === currentUserId))
 
   useEffect(() => {
