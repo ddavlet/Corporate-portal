@@ -12,6 +12,7 @@ from urllib.parse import quote
 from apps.modules.requests.models import (
     Approval,
     Request,
+    RequestAttachment,
     UserRequestApproval,
     RequestFormConfig,
     RequestFormPaymentTypeConfig,
@@ -100,6 +101,7 @@ class PortalRequestSerializer(serializers.ModelSerializer):
     # `accounts/User` sends empty descriptions from UI/tests; model does not set `blank=True`,
     # so we allow blank explicitly at serializer level.
     description = serializers.CharField(allow_blank=True, required=False, default="")
+    attachments = serializers.SerializerMethodField()
 
     class Meta:
         model = Request
@@ -126,6 +128,7 @@ class PortalRequestSerializer(serializers.ModelSerializer):
             "status",
             "payed_at",
             "file_link",
+            "attachments",
             "expense_year",
             "expense_month",
             "expense_day",
@@ -135,7 +138,7 @@ class PortalRequestSerializer(serializers.ModelSerializer):
             "is_amortized",
             "amortization_schedule",
         ]
-        read_only_fields = ["expense_link", "created_at", "created_by", "status"]
+        read_only_fields = ["expense_link", "created_at", "created_by", "status", "attachments"]
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -465,6 +468,33 @@ class PortalRequestSerializer(serializers.ModelSerializer):
                 download_rel = f"/api/files/download/?path={quote(raw, safe='')}"
                 data["file_link"] = request.build_absolute_uri(download_rel)
         return data
+
+    def get_attachments(self, obj):
+        request = self.context.get("request")
+        rows = list(
+            RequestAttachment.objects.filter(request=obj)
+            .order_by("created_at", "id")
+            .values("id", "file_name", "content_type", "size_bytes", "created_at", "file_path")
+        )
+        out: list[dict] = []
+        for row in rows:
+            file_path = str(row.get("file_path") or "").strip()
+            if request and file_path:
+                download_rel = f"/api/files/download/?path={quote(file_path, safe='')}"
+                url = request.build_absolute_uri(download_rel)
+            else:
+                url = None
+            out.append(
+                {
+                    "id": row["id"],
+                    "name": row.get("file_name") or "",
+                    "content_type": row.get("content_type") or "",
+                    "size_bytes": row.get("size_bytes") or 0,
+                    "created_at": row.get("created_at"),
+                    "url": url,
+                }
+            )
+        return out
 
 
 class ApprovalSerializer(serializers.ModelSerializer):

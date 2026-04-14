@@ -4,6 +4,7 @@ from unittest.mock import patch
 from zoneinfo import ZoneInfo
 
 from django.contrib.auth import get_user_model
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.test import override_settings
 from django.utils import timezone
 from rest_framework.test import APITestCase
@@ -25,6 +26,7 @@ from apps.modules.requests.models import (
     RequestApprovalStepApproverConfig,
     UserRequestApproval,
     AutoRequestTemplate,
+    RequestAttachment,
 )
 from apps.modules.requests.auto_requests import (
     _next_auto_requests_run_at,
@@ -1371,6 +1373,81 @@ class RequestFileLinkRewriteTests(APITestCase):
         qs = parse_qs(parsed.query)
         self.assertEqual(qs.get("path", [None])[0], raw)
 
+
+@override_settings(BASE_DOMAIN="example.com", N8N_INTEGRATION_TOKEN="", ALLOWED_HOSTS=["*"])
+class RequestAttachmentsTests(APITestCase):
+    def setUp(self):
+        self.tenant = Tenant.objects.create(name="Attach", subdomain="attach", is_active=True)
+        self.requester = User.objects.create_user(username="att_req", password="x")
+        TenantMembership.objects.create(tenant=self.tenant, user=self.requester, is_active=True)
+        TenantUserRole.objects.create(tenant=self.tenant, user=self.requester, role=TenantUserRole.ROLE_REQUESTER)
+        TenantModuleConfig.objects.create(tenant=self.tenant, module_key="requests", is_enabled=True)
+        cfg = RequestFormConfig.objects.create(tenant=self.tenant, updated_by=self.requester)
+        RequestFormPaymentTypeConfig.objects.create(config=cfg, payment_type="Наличные", is_enabled=True)
+        self.host = "attach.example.com"
+        self.client.force_authenticate(self.requester)
+        created = self.client.post(
+            "/api/requests/",
+            {
+                "title": "T",
+                "description": "",
+                "amount": 10,
+                "currency": "UZS",
+                "payment_type": "Наличные",
+                "urgency": "Обычно",
+                "billing_date": "2026-01-01",
+            },
+            format="json",
+            HTTP_HOST=self.host,
+        )
+        self.request_id = created.data["id"]
+
+    def _upload(self, name: str, content: bytes, content_type: str):
+        file_obj = SimpleUploadedFile(name=name, content=content, content_type=content_type)
+        return self.client.post(
+            f"/api/requests/{self.request_id}/file-upload/",
+            {"file": file_obj},
+            HTTP_HOST=self.host,
+        )
+
+    def test_upload_valid_attachment(self):
+        res = self._upload("ok.pdf", b"dummy", "application/pdf")
+        self.assertEqual(res.status_code, 200, res.content)
+        self.assertEqual(RequestAttachment.objects.filter(request_id=self.request_id).count(), 1)
+
+    def test_reject_unsupported_extension(self):
+        res = self._upload("bad.exe", b"dummy", "application/octet-stream")
+        self.assertEqual(res.status_code, 400, res.content)
+        self.assertIn("file", res.data)
+
+    def test_reject_file_too_large(self):
+        res = self._upload("big.pdf", b"a" * (10 * 1024 * 1024 + 1), "application/pdf")
+        self.assertEqual(res.status_code, 400, res.content)
+        self.assertIn("file", res.data)
+
+    def test_reject_more_than_five_attachments(self):
+        for idx in range(5):
+            ok = self._upload(f"ok-{idx}.pdf", b"ok", "application/pdf")
+            self.assertEqual(ok.status_code, 200, ok.content)
+        blocked = self._upload("blocked.pdf", b"ok", "application/pdf")
+        self.assertEqual(blocked.status_code, 400, blocked.content)
+        self.assertIn("file", blocked.data)
+
+    def test_delete_attachment_only_for_draft(self):
+        uploaded = self._upload("to-delete.pdf", b"ok", "application/pdf")
+        self.assertEqual(uploaded.status_code, 200, uploaded.content)
+        attachment_id = uploaded.data["id"]
+
+        req = Request.objects.get(pk=self.request_id)
+        req.status = Request.STATUS_APPROVED
+        req.save(update_fields=["status"])
+
+        res = self.client.delete(
+            f"/api/requests/{self.request_id}/attachments/{attachment_id}/",
+            HTTP_HOST=self.host,
+        )
+        self.assertEqual(res.status_code, 400, res.content)
+        self.assertTrue(RequestAttachment.objects.filter(id=attachment_id).exists())
 
 @override_settings(BASE_DOMAIN="example.com", N8N_INTEGRATION_TOKEN="", ALLOWED_HOSTS=["*"])
 class AutoRequestTests(APITestCase):
