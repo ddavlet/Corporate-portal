@@ -272,7 +272,8 @@ class PortalRequestViewSet(viewsets.ModelViewSet):
     def update(self, request, *args, **kwargs):
         partial = kwargs.pop("partial", False)
         instance = self.get_object()
-        if instance.status != Request.STATUS_DRAFT:
+        is_tenant_admin = self._has_role(instance.tenant, TenantUserRole.ROLE_ADMIN)
+        if instance.status != Request.STATUS_DRAFT and not is_tenant_admin:
             raise ValidationError({"detail": "Only DRAFT requests can be updated."})
         if not self._user_can_patch_draft_request(request.user, instance):
             raise PermissionDenied("You cannot edit this draft.")
