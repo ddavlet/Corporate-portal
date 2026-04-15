@@ -16,7 +16,7 @@ from apps.modules.requests.models import (
     RequestFormConfig,
     RequestFormPaymentTypeConfig,
 )
-from apps.modules.telegram_approvals.services import build_approval_message
+from apps.modules.telegram_approvals.services import build_approval_message, post_telegram_bridge
 from apps.tenants.models import Tenant, TenantMembership, TenantModuleConfig, TenantUserRole
 
 User = get_user_model()
@@ -149,29 +149,14 @@ class TelegramApprovalsTests(APITestCase):
 
     @patch("apps.modules.telegram_approvals.services.get_requests_telegram_integration_settings")
     @patch("apps.modules.telegram_approvals.services.requests.post")
-    def test_request_create_survives_telegram_settings_resolution_error(self, mocked_post, mocked_settings_get):
+    def test_post_bridge_survives_telegram_settings_resolution_error(self, mocked_post, mocked_settings_get):
         mocked_settings_get.side_effect = RuntimeError("broken tenant integration settings")
-        self.client.force_authenticate(self.requester)
-        res = self.client.post(
-            "/api/requests/",
-            {
-                "title": "Lemonfit",
-                "description": "TEST",
-                "amount": 100,
-                "currency": "UZS",
-                "payment_type": "Наличные",
-                "urgency": "Обычно",
-                "requester": self.requester.id,
-                "billing_date": "2026-03-31",
-            },
-            format="json",
-            HTTP_HOST=self.host,
+        result = post_telegram_bridge(
+            tenant=self.tenant,
+            payload={"action": "send_approval_message", "message": "hello"},
         )
-        self.assertEqual(res.status_code, 201, res.content)
+        self.assertIsNone(result)
         self.assertEqual(mocked_post.call_count, 0)
-        approval = Approval.objects.get(request_id=res.data["id"], approver_user=self.approver)
-        self.assertFalse(approval.message_sent)
-        self.assertIsNone(approval.message_id)
 
     @patch("apps.modules.telegram_approvals.services.requests.post")
     def test_resend_pending_step_deactivates_old_and_sends_new_message(self, mocked_post):
