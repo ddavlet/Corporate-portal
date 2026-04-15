@@ -63,8 +63,11 @@ makemigrations:
 		docker compose --env-file ./.env exec -T backend_v2 \
 		python manage.py makemigrations"
 	rsync -av --omit-dir-times \
-		$(SERVER):$(REMOTE_DIR)/backend_v2/migrations/ \
-		./backend_v2/migrations/
+		--include='*/' \
+		--include='migrations/***' \
+		--exclude='*' \
+		$(SERVER):$(REMOTE_DIR)/backend_v2/apps/ \
+		./backend_v2/apps/
 
 # ── 5. Откат ──────────────────────────────────────────────────────────────────
 showmigrations:
