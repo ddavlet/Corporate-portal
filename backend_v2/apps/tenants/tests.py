@@ -6,6 +6,7 @@ from django.contrib.auth import get_user_model
 from rest_framework_simplejwt.tokens import RefreshToken
 
 from apps.tenants.middleware import TenantSubdomainMiddleware
+from apps.tenants.admin import TenantAdminForm
 from apps.tenants.models import (
     Tenant,
     TenantIntegrationConfig,
@@ -16,6 +17,29 @@ from apps.tenants.models import (
 )
 
 User = get_user_model()
+
+
+class TenantAdminFormTests(TestCase):
+    def test_save_commit_false_persists_tenant_before_module_upserts(self):
+        form = TenantAdminForm(
+            data={
+                "name": "Admin Save Tenant",
+                "subdomain": "admin-save-tenant",
+                "is_active": "on",
+                "telegram_otp_enabled": "",
+                "telegram_bot_token": "",
+                "enabled_modules": ["requests"],
+            }
+        )
+        self.assertTrue(form.is_valid(), form.errors)
+
+        tenant = form.save(commit=False)
+
+        self.assertIsNotNone(tenant.pk)
+        self.assertTrue(Tenant.objects.filter(pk=tenant.pk).exists())
+        self.assertTrue(
+            TenantModuleConfig.objects.filter(tenant=tenant, module_key="requests").exists()
+        )
 
 
 @override_settings(BASE_DOMAIN="example.com", TENANT_SUBDOMAIN_FALLBACK=True, ALLOWED_HOSTS=["*"])
