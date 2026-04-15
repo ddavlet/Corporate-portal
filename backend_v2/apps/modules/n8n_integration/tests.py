@@ -887,6 +887,49 @@ class N8nIntegrationAuthTests(APITestCase):
         req = Request.objects.get(pk=5011)
         self.assertEqual(req.expense_ref_id, cash_expense.id)
 
+    def test_request_upsert_resolves_numeric_cash_expense_id_to_canonical(self):
+        cash_register = CashRegister.objects.create(tenant=self.tenant, currency="UZS", name="Main cash")
+        cash_wallet = Wallet.objects.create(
+            tenant=self.tenant,
+            wallet_type=Wallet.Type.CASH,
+            currency="UZS",
+            cash_register=cash_register,
+        )
+        cash_expense = CashExpense.objects.create(
+            tenant=self.tenant,
+            external_id="1-000000343",
+            confirmed=True,
+            title="Imported expense",
+            amount="1200.00",
+            currency="UZS",
+            expense_at=datetime(2026, 4, 1, 10, 0, 0),
+            expense_year=2026,
+            expense_month=4,
+            expense_day=1,
+            created_by=self.admin,
+            wallet=cash_wallet,
+        )
+        url = f"{self.n8n_prefix}/requests/"
+        body = {
+            "id": 5013,
+            "title": "Imported request canonicalize cash id",
+            "description": "from n8n",
+            "amount": "1200.00",
+            "currency": "UZS",
+            "payment_type": "Наличные",
+            "urgency": "Обычно",
+            "requester": self.requester.id,
+            "status": "DRAFT",
+            "billing_date": "2026-04-01",
+            "expense_id": "343",
+            "expense_year": 2026,
+        }
+        res = self.client.post(url, body, format="json", **self._headers(self.admin))
+        self.assertEqual(res.status_code, 201, res.content)
+        req = Request.objects.get(pk=5013)
+        self.assertEqual(req.expense_ref_id, cash_expense.id)
+        self.assertEqual(req.expense_id, "1-000000343")
+
     def test_request_upsert_allows_two_requests_same_resolved_cash_expense(self):
         cash_register = CashRegister.objects.create(tenant=self.tenant, currency="UZS", name="Dup cash")
         cash_wallet = Wallet.objects.create(
