@@ -1,6 +1,7 @@
 from __future__ import annotations
 import logging
 from datetime import date, datetime
+from decimal import Decimal, InvalidOperation
 from html import escape
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
@@ -197,6 +198,20 @@ def _format_submitted_at(request_obj: Request) -> str:
     return f"{date_format(dt, 'j E Y', use_l10n=True)} г. в {dt.strftime('%H:%M')}"
 
 
+def _format_amount_for_telegram(value) -> str:
+    """
+    Format numeric amount with space-grouped thousands and fixed 2 decimals.
+    Example: 1000000 -> "1 000 000.00"
+    """
+    if value is None:
+        return "-"
+    try:
+        amount = Decimal(str(value)).quantize(Decimal("0.01"))
+    except (InvalidOperation, ValueError, TypeError):
+        return str(value)
+    return format(amount, ",.2f").replace(",", " ")
+
+
 def _payment_responsible_text(*, request_obj: Request) -> str:
     approvals = (
         Approval.objects.filter(request=request_obj, step_type=Approval.STEP_TYPE_PAYMENT)
@@ -291,7 +306,7 @@ def build_approval_message(*, request_obj: Request, approval: Approval | None = 
         "project_title": escape(str(request_obj.title or "-")),
         "vendor": escape(str(vendor_name)),
         "category": escape(str(request_obj.category or "-")),
-        "amount": escape(str(request_obj.amount)),
+        "amount": escape(_format_amount_for_telegram(request_obj.amount)),
         "currency": escape(str(request_obj.currency or "-")),
         "payment_type": escape(str(request_obj.payment_type or "-")),
         "payment_purpose": escape(str(request_obj.payment_purpose or "-")),
