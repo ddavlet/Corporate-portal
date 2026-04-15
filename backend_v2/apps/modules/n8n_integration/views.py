@@ -18,6 +18,7 @@ from apps.modules.clients_debt.models import ClientDebtSnapshot
 from apps.modules.payroll.models import PayrollLine
 from apps.modules.cashier.models import CashExpense, CashRevenue
 from apps.modules.corporate_card.models import CardExpense, CardRevenue
+from apps.modules.investments.models import InvestReturn
 from apps.modules.notes.models import Note
 from apps.modules.requests.models import Approval, Request
 from apps.modules.requests.amortization import build_amortization_schedule_rows, is_request_amortized
@@ -34,6 +35,7 @@ from apps.modules.n8n_integration.serializers import (
     N8nCashRevenueImportSerializer,
     N8nNoteImportSerializer,
     N8nPayrollLineImportSerializer,
+    N8nInvestReturnImportSerializer,
     N8nRequestImportSerializer,
     N8nVendorImportSerializer,
 )
@@ -1180,6 +1182,29 @@ class N8nNoteUpsertView(_N8nBaseView):
         )
 
 
+class N8nInvestReturnUpsertView(_N8nBaseView):
+    def post(self, request):
+        tenant = request.tenant
+
+        def get_instance(pk):
+            return InvestReturn.objects.filter(pk=pk, tenant=tenant).first()
+
+        def other_tenant_conflict(pk):
+            o = InvestReturn.objects.filter(pk=pk).first()
+            return o is not None and o.tenant_id != tenant.id
+
+        def build_create_kwargs(req, su):
+            return {"tenant": req.tenant, "created_by": su}
+
+        return _n8n_upsert(
+            request,
+            serializer_class=N8nInvestReturnImportSerializer,
+            get_instance=get_instance,
+            other_tenant_conflict=other_tenant_conflict,
+            build_create_kwargs=build_create_kwargs,
+        )
+
+
 class N8nVendorBatchUpsertView(_N8nBatchBaseView):
     single_view_class = N8nVendorUpsertView
 
@@ -1226,3 +1251,7 @@ class N8nPayrollLineBatchUpsertView(_N8nBatchBaseView):
 
 class N8nNoteBatchUpsertView(_N8nBatchBaseView):
     single_view_class = N8nNoteUpsertView
+
+
+class N8nInvestReturnBatchUpsertView(_N8nBatchBaseView):
+    single_view_class = N8nInvestReturnUpsertView

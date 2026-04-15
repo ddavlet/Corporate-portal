@@ -69,6 +69,11 @@ ROLE_MODULE_ACCESS: dict[str, set[str]] = {
         TenantUserRole.ROLE_CASHIER,
         TenantUserRole.ROLE_ACCOUNTANT,
     },
+    "investments": {
+        TenantUserRole.ROLE_ADMIN,
+        TenantUserRole.ROLE_DIRECTOR,
+        TenantUserRole.ROLE_ACCOUNTANT,
+    },
 }
 
 

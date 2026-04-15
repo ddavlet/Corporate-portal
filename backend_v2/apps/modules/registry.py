@@ -16,6 +16,7 @@ def list_modules():
     from apps.modules.wallets.registry import MODULE_KEY as WALLETS_KEY, display_name as WALLETS_NAME
     from apps.modules.reports.registry import MODULE_KEY as REPORTS_KEY, display_name as REPORTS_NAME
     from apps.modules.clients_debt.registry import MODULE_KEY as CLIENTS_DEBT_KEY, display_name as CLIENTS_DEBT_NAME
+    from apps.modules.investments.registry import MODULE_KEY as INVESTMENTS_KEY, display_name as INVESTMENTS_NAME
 
     return [
         {"module_key": REQUESTS_KEY, "display_name": REQUESTS_NAME},
@@ -30,5 +31,6 @@ def list_modules():
         {"module_key": WALLETS_KEY, "display_name": WALLETS_NAME},
         {"module_key": REPORTS_KEY, "display_name": REPORTS_NAME},
         {"module_key": CLIENTS_DEBT_KEY, "display_name": CLIENTS_DEBT_NAME},
+        {"module_key": INVESTMENTS_KEY, "display_name": INVESTMENTS_NAME},
     ]
 
