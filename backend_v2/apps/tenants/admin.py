@@ -42,6 +42,10 @@ class TenantAdminForm(forms.ModelForm):
     @transaction.atomic
     def save(self, commit=True):
         tenant = super().save(commit=commit)
+        if tenant.pk is None:
+            # Django admin calls ModelForm.save(commit=False) first; module upserts
+            # below require a persisted tenant FK.
+            tenant.save()
         token = (self.cleaned_data.get("telegram_bot_token") or "").strip()
         if token:
             tenant.set_telegram_bot_token(token)
