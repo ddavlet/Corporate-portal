@@ -647,3 +647,26 @@ class TelegramApprovalsTests(APITestCase):
         self.assertIn("April 2026", txt)
         self.assertNotIn("February 2026", txt)
 
+    def test_build_approval_message_formats_amount_with_thousands_and_two_decimals(self):
+        request_row = Request.objects.create(
+            tenant=self.tenant,
+            created_by=self.admin,
+            requester=self.requester,
+            title="Amount formatting",
+            status=Request.STATUS_PROGRESS_1,
+            amount=1000000,
+            currency="UZS",
+            payment_type="Наличные",
+            billing_date=date(2026, 3, 31),
+        )
+        approval = Approval.objects.create(
+            request=request_row,
+            approver_user=self.approver,
+            approver_tg_id=555001,
+            step=1,
+            step_type=Approval.STEP_TYPE_SERIAL,
+            decision=Approval.DECISION_PENDING,
+        )
+        txt = build_approval_message(request_obj=request_row, approval=approval)
+        self.assertIn("• Сумма: 1 000 000.00 UZS", txt)
+
