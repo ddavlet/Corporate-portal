@@ -56,7 +56,7 @@ from apps.modules.requests.serializers import (
 )
 from apps.modules.requests.expense_refs import (
     expense_ref_target_for,
-    try_resolve_request_expense_ref_id,
+    resolve_request_expense_ref,
 )
 from apps.modules.requests.approval_bootstrap import create_approval_rows_for_request
 from apps.modules.requests.approval_workflow import (
@@ -560,13 +560,15 @@ class PortalRequestViewSet(viewsets.ModelViewSet):
         request_obj = approval.request
         if expense_id:
             request_obj.expense_id = expense_id
-            ref = try_resolve_request_expense_ref_id(
+            ref, normalized_expense_id = resolve_request_expense_ref(
                 tenant=tenant,
                 payment_type=request_obj.payment_type,
                 category=request_obj.category,
                 expense_id_raw=expense_id,
                 expense_year=request_obj.expense_year,
             )
+            if normalized_expense_id and request_obj.payment_type == Request.PAYMENT_TYPE_CASH:
+                request_obj.expense_id = normalized_expense_id
             tgt = expense_ref_target_for(
                 payment_type=request_obj.payment_type,
                 category=request_obj.category,
