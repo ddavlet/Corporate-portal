@@ -12,6 +12,7 @@ from apps.modules.wallets.models import CashRegister
 from apps.modules.corporate_card.models import CardExpense, CardRevenue
 from apps.modules.corporate_card.serializers import CardExpenseSerializer, CardRevenueSerializer
 from apps.modules.notes.models import Note
+from apps.modules.investments.serializers import InvestReturnSerializer
 from apps.modules.requests.expense_refs import (
     expense_ref_target_for,
     resolve_request_expense_ref,
@@ -277,6 +278,13 @@ class N8nClientDebtImportSerializer(ClientDebtSnapshotSerializer):
 
     class Meta(ClientDebtSnapshotSerializer.Meta):
         read_only_fields = ["created_at", "created_by"]
+
+
+class N8nInvestReturnImportSerializer(InvestReturnSerializer):
+    id = serializers.IntegerField(required=False)
+
+    class Meta(InvestReturnSerializer.Meta):
+        read_only_fields = ["tenant", "created_at", "created_by"]
 
 
 class N8nRequestImportSerializer(serializers.ModelSerializer):

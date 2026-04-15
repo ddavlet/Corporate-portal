@@ -44,6 +44,7 @@ INSTALLED_APPS = [
     "apps.modules.payroll",
     "apps.modules.feedback",
     "apps.modules.clients_debt",
+    "apps.modules.investments",
 ]
 
 MIDDLEWARE = [

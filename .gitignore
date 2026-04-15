@@ -31,6 +31,7 @@ frontend_v2/tsconfig.tsbuildinfo
 test_speed.sh
 .worktrees/
 V2_FULL_SPEC.md
-
+V2_FULL_SPEC_RU.md
 
 backend_v2/media/
+
