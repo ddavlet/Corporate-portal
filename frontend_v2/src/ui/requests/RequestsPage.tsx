@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useState, type MouseEvent } from 'react'
-import { Alert, Button, Card, Collapse, DatePicker, Input, InputNumber, Select, Skeleton, Space, Switch, Table, Tag, Typography, message } from 'antd'
+import { useEffect, useMemo, useState } from 'react'
+import { Alert, Button, Card, Collapse, DatePicker, Input, InputNumber, Modal, Select, Skeleton, Space, Switch, Table, Tag, Typography, message } from 'antd'
 import type { ColumnsType, TableProps } from 'antd/es/table'
 import type { Dayjs } from 'dayjs'
 import dayjs from 'dayjs'
@@ -38,7 +38,7 @@ type SortState = {
   order: 'ascend' | 'descend' | null
 }
 
-type RequestInlineEditDraft = {
+type RequestModalEditDraft = {
   title: string
   description: string
   amount: number | null
@@ -171,9 +171,9 @@ export function RequestsPage() {
   const [openNoteModal, setOpenNoteModal] = useState(false)
   const [resendLoading, setResendLoading] = useState(false)
   const [isTenantAdmin, setIsTenantAdmin] = useState(false)
-  const [editingRowId, setEditingRowId] = useState<number | null>(null)
-  const [editDraft, setEditDraft] = useState<RequestInlineEditDraft | null>(null)
-  const [saveLoading, setSaveLoading] = useState(false)
+  const [editOpen, setEditOpen] = useState(false)
+  const [editSaving, setEditSaving] = useState(false)
+  const [editDraft, setEditDraft] = useState<RequestModalEditDraft | null>(null)
   const [vendorSearchApi, setVendorSearchApi] = useState('')
   const [debouncedVendorSearchApi, setDebouncedVendorSearchApi] = useState('')
   const [amortizedOnly, setAmortizedOnly] = useState(false)
@@ -373,38 +373,14 @@ export function RequestsPage() {
     return undefined
   }
 
-  const initEditDraft = (row: RequestRow): RequestInlineEditDraft => ({
-    title: row.title || '',
-    description: row.description || '',
-    amount: Number.isFinite(Number(row.amount)) ? Number(row.amount) : null,
-    currency: row.currency || 'UZS',
-    status: row.status || '',
-    urgency: row.urgency || '',
-    payment_type: row.payment_type || '',
-    category: row.category || '',
-    vendor: row.vendor || '',
-    payment_purpose: row.payment_purpose || '',
-    billing_date: row.billing_date ? dayjs(row.billing_date) : null,
-    requester: row.requester != null ? String(row.requester) : '',
-  })
-
-  const startRowEdit = (row: RequestRow) => {
-    setEditingRowId(row.id)
-    setEditDraft(initEditDraft(row))
-  }
-
-  const cancelRowEdit = () => {
-    setEditingRowId(null)
-    setEditDraft(null)
-  }
-
-  const saveRowEdit = async (rowId: number) => {
+  const saveDetailEdit = async () => {
+    if (!selectedRow || !selectedDetail || !editDraft) return
     if (!editDraft) return
     if (!editDraft.title.trim()) {
       message.warning('Введите название заявки')
       return
     }
-    setSaveLoading(true)
+    setEditSaving(true)
     try {
       const payload = {
         title: editDraft.title.trim(),
@@ -420,7 +396,7 @@ export function RequestsPage() {
         requester: editDraft.requester ? Number(editDraft.requester) : null,
         billing_date: editDraft.billing_date ? editDraft.billing_date.startOf('month').format('YYYY-MM-DD') : undefined,
       }
-      const res = await apiFetch(`/api/requests/${rowId}/`, {
+      const res = await apiFetch(`/api/requests/${selectedRow.id}/`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
@@ -429,9 +405,44 @@ export function RequestsPage() {
       if (!res.ok) {
         throw new Error(typeof json === 'object' && json ? JSON.stringify(json) : `HTTP ${res.status}`)
       }
+      const nextDetail: RequestDetail = {
+        ...selectedDetail,
+        title: payload.title,
+        description: payload.description,
+        amount: payload.amount,
+        currency: payload.currency,
+        status: payload.status,
+        urgency: payload.urgency,
+        payment_type: payload.payment_type,
+        category: payload.category,
+        vendor: payload.vendor,
+        payment_purpose: payload.payment_purpose || '',
+        requester: payload.requester,
+        billing_date: payload.billing_date || selectedDetail.billing_date,
+      }
+      setSelectedDetail(nextDetail)
+      setSelectedRow((prev) =>
+        prev
+          ? {
+              ...prev,
+              title: payload.title,
+              description: payload.description,
+              amount: payload.amount,
+              currency: payload.currency,
+              status: payload.status,
+              urgency: payload.urgency,
+              payment_type: payload.payment_type,
+              category: payload.category,
+              vendor: payload.vendor,
+              payment_purpose: payload.payment_purpose || '',
+              requester: payload.requester,
+              billing_date: payload.billing_date || prev.billing_date,
+            }
+          : prev,
+      )
       setRows((prev) =>
         prev.map((row) =>
-          row.id === rowId
+          row.id === selectedRow.id
             ? {
                 ...row,
                 title: payload.title,
@@ -451,25 +462,12 @@ export function RequestsPage() {
         ),
       )
       message.success('Заявка обновлена')
-      cancelRowEdit()
+      setEditOpen(false)
     } catch (e: any) {
       message.error(e?.message || 'Не удалось сохранить заявку')
     } finally {
-      setSaveLoading(false)
+      setEditSaving(false)
     }
-  }
-
-  const stopRowOpen = (e: MouseEvent<HTMLElement>) => {
-    e.stopPropagation()
-  }
-
-  const renderMaybeEditableText = (row: RequestRow, value: string, onChange: (next: string) => void) => {
-    if (!isTenantAdmin || editingRowId !== row.id) return value || '—'
-    return (
-      <div onClick={stopRowOpen}>
-        <Input value={value} onChange={(e) => onChange(e.target.value)} />
-      </div>
-    )
   }
 
   useEffect(() => {
@@ -503,153 +501,33 @@ export function RequestsPage() {
 
   const columns: ColumnsType<RequestRow> = [
     { title: 'ID', dataIndex: 'id', width: 64, sorter: true },
-    {
-      title: 'Название',
-      dataIndex: 'title',
-      width: 220,
-      sorter: true,
-      render: (_, row) =>
-        renderMaybeEditableText(row, editDraft?.title ?? row.title, (next) =>
-          setEditDraft((prev) => (prev ? { ...prev, title: next } : prev)),
-        ),
-    },
+    { title: 'Название', dataIndex: 'title', width: 180, sorter: true },
     {
       title: 'Описание заявки',
       dataIndex: 'description',
       width: 280,
-      render: (_, row) =>
-        renderMaybeEditableText(row, editDraft?.description ?? row.description, (next) =>
-          setEditDraft((prev) => (prev ? { ...prev, description: next } : prev)),
-        ),
+      render: (value: string | undefined) => value || '—',
     },
-    {
-      title: 'Категория',
-      dataIndex: 'category',
-      sorter: true,
-      render: (_, row) =>
-        renderMaybeEditableText(row, editDraft?.category ?? row.category, (next) =>
-          setEditDraft((prev) => (prev ? { ...prev, category: next } : prev)),
-        ),
-    },
-    {
-      title: 'Поставщик',
-      dataIndex: 'vendor',
-      sorter: true,
-      render: (_, row) =>
-        renderMaybeEditableText(row, editDraft?.vendor ?? row.vendor, (next) =>
-          setEditDraft((prev) => (prev ? { ...prev, vendor: next } : prev)),
-        ),
-    },
+    { title: 'Категория', dataIndex: 'category', sorter: true },
+    { title: 'Поставщик', dataIndex: 'vendor', sorter: true },
     {
       title: 'Сумма',
       dataIndex: 'amount',
       sorter: true,
-      render: (_, row) => {
-        if (!isTenantAdmin || editingRowId !== row.id) {
-          return `${Number(row.amount).toLocaleString('ru-RU')} ${row.currency}`
-        }
-        return (
-          <Space size={8} onClick={stopRowOpen}>
-            <InputNumber
-              min={0}
-              value={editDraft?.amount ?? undefined}
-              onChange={(value) => setEditDraft((prev) => (prev ? { ...prev, amount: typeof value === 'number' ? value : null } : prev))}
-            />
-            <Select
-              style={{ width: 100 }}
-              value={editDraft?.currency}
-              onChange={(value) => setEditDraft((prev) => (prev ? { ...prev, currency: value } : prev))}
-              options={optionize(rows.map((r) => r.currency))}
-            />
-          </Space>
-        )
-      },
+      render: (_, row) => `${Number(row.amount).toLocaleString('ru-RU')} ${row.currency}`,
     },
     {
       title: 'Статус',
       dataIndex: 'status',
       sorter: true,
-      render: (value: string, row) => {
-        if (!isTenantAdmin || editingRowId !== row.id) return <Tag color={getStatusColor(value)}>{value}</Tag>
-        return (
-          <div onClick={stopRowOpen}>
-            <Select
-              style={{ minWidth: 140 }}
-              value={editDraft?.status}
-              onChange={(next) => setEditDraft((prev) => (prev ? { ...prev, status: next } : prev))}
-              options={optionize(rows.map((r) => r.status))}
-              showSearch
-            />
-          </div>
-        )
-      },
+      render: (value: string) => <Tag color={getStatusColor(value)}>{value}</Tag>,
     },
-    {
-      title: 'Срочность',
-      dataIndex: 'urgency',
-      sorter: true,
-      render: (_, row) => {
-        if (!isTenantAdmin || editingRowId !== row.id) return row.urgency || '—'
-        return (
-          <div onClick={stopRowOpen}>
-            <Select
-              style={{ minWidth: 150 }}
-              value={editDraft?.urgency}
-              onChange={(next) => setEditDraft((prev) => (prev ? { ...prev, urgency: next } : prev))}
-              options={optionize(rows.map((r) => r.urgency))}
-              showSearch
-            />
-          </div>
-        )
-      },
-    },
-    {
-      title: 'Тип оплаты',
-      dataIndex: 'payment_type',
-      sorter: true,
-      render: (_, row) => {
-        if (!isTenantAdmin || editingRowId !== row.id) return row.payment_type
-        return (
-          <div onClick={stopRowOpen}>
-            <Select
-              style={{ minWidth: 180 }}
-              value={editDraft?.payment_type}
-              onChange={(next) => setEditDraft((prev) => (prev ? { ...prev, payment_type: next } : prev))}
-              options={optionize(rows.map((r) => r.payment_type))}
-              showSearch
-            />
-          </div>
-        )
-      },
-    },
-    {
-      title: 'Назначение платежа',
-      dataIndex: 'payment_purpose',
-      width: 240,
-      render: (_, row) =>
-        renderMaybeEditableText(row, editDraft?.payment_purpose ?? row.payment_purpose ?? '', (next) =>
-          setEditDraft((prev) => (prev ? { ...prev, payment_purpose: next } : prev)),
-        ),
-    },
+    { title: 'Тип оплаты', dataIndex: 'payment_type', sorter: true },
     {
       title: 'Заявитель',
       key: 'requester_label',
       sorter: true,
-      render: (_, row) => {
-        if (!isTenantAdmin || editingRowId !== row.id) return row.requester_username || (row.requester ? `User #${row.requester}` : '-')
-        return (
-          <div onClick={stopRowOpen}>
-            <Select
-              style={{ minWidth: 180 }}
-              value={editDraft?.requester || undefined}
-              onChange={(next) => setEditDraft((prev) => (prev ? { ...prev, requester: next } : prev))}
-              options={requesterOptions}
-              allowClear
-              showSearch
-            />
-          </div>
-        )
-      },
+      render: (_, row) => row.requester_username || (row.requester ? `User #${row.requester}` : '-'),
     },
     {
       title: 'Отправлено',
@@ -661,57 +539,13 @@ export function RequestsPage() {
       title: 'Дата биллинга',
       dataIndex: 'billing_date',
       sorter: true,
-      render: (_, row) => {
-        if (!isTenantAdmin || editingRowId !== row.id) return formatBillingMonthYear(row.billing_date)
-        return (
-          <div onClick={stopRowOpen}>
-            <DatePicker
-              picker="month"
-              format="MM.YYYY"
-              value={editDraft?.billing_date}
-              onChange={(next) => setEditDraft((prev) => (prev ? { ...prev, billing_date: next } : prev))}
-              inputReadOnly
-            />
-          </div>
-        )
-      },
+      render: (value: string) => formatBillingMonthYear(value),
     },
     {
       title: 'Амортизация',
       key: 'is_amortized',
       render: (_, row) => (row.is_amortized ? <Tag color="processing">{`${row.amortization_months || 0} мес.`}</Tag> : '—'),
     },
-    ...(isTenantAdmin
-      ? [
-          {
-            title: 'Действия',
-            key: 'actions',
-            fixed: 'right' as const,
-            width: 180,
-            render: (_: unknown, row: RequestRow) => {
-              const isEditing = editingRowId === row.id
-              return (
-                <Space onClick={stopRowOpen}>
-                  {isEditing ? (
-                    <>
-                      <Button type="primary" size="small" loading={saveLoading} onClick={() => void saveRowEdit(row.id)}>
-                        Сохранить
-                      </Button>
-                      <Button size="small" onClick={cancelRowEdit}>
-                        Отмена
-                      </Button>
-                    </>
-                  ) : (
-                    <Button size="small" onClick={() => startRowEdit(row)}>
-                      Редактировать
-                    </Button>
-                  )}
-                </Space>
-              )
-            },
-          },
-        ]
-      : []),
   ]
 
   const onTableChange: TableProps<RequestRow>['onChange'] = (_, __, sorter) => {
@@ -910,10 +744,7 @@ export function RequestsPage() {
           dataSource={filteredRows}
           onChange={onTableChange}
           onRow={(record) => ({
-            onClick: () => {
-              if (editingRowId === record.id) return
-              setSelectedRow(record)
-            },
+            onClick: () => setSelectedRow(record),
             className: isPayedMissingLinkedExpense(record) ? 'requests-row--payed-no-expense' : undefined,
             style: { cursor: 'pointer' },
           })}
@@ -923,7 +754,7 @@ export function RequestsPage() {
             showSizeChanger: true,
             pageSizeOptions: [20, 50, 100, 200],
           }}
-          scroll={{ x: 1600 }}
+          scroll={{ x: 1200 }}
         />
       ) : null}
       <RequestDetailModal
@@ -941,6 +772,30 @@ export function RequestsPage() {
               <Button icon={<MessageOutlined />} onClick={() => setOpenNoteModal(true)}>
                 Добавить заметку
               </Button>
+              {isTenantAdmin ? (
+                <Button
+                  onClick={() => {
+                    if (!selectedDetail) return
+                    setEditDraft({
+                      title: selectedDetail.title || '',
+                      description: selectedDetail.description || '',
+                      amount: Number.isFinite(Number(selectedDetail.amount)) ? Number(selectedDetail.amount) : null,
+                      currency: selectedDetail.currency || 'UZS',
+                      status: selectedDetail.status || '',
+                      urgency: selectedDetail.urgency || '',
+                      payment_type: selectedDetail.payment_type || '',
+                      category: selectedDetail.category || '',
+                      vendor: selectedDetail.vendor || '',
+                      payment_purpose: selectedDetail.payment_purpose || '',
+                      billing_date: selectedDetail.billing_date ? dayjs(selectedDetail.billing_date) : null,
+                      requester: selectedDetail.requester != null ? String(selectedDetail.requester) : '',
+                    })
+                    setEditOpen(true)
+                  }}
+                >
+                  Редактировать
+                </Button>
+              ) : null}
               <Button
                 type="primary"
                 icon={<ReloadOutlined />}
@@ -965,6 +820,110 @@ export function RequestsPage() {
         targetType="request"
         targetId={selectedRow?.id || null}
       />
+      <Modal
+        open={editOpen}
+        title={selectedRow ? `Редактировать заявку #${selectedRow.id}` : 'Редактировать заявку'}
+        onCancel={() => setEditOpen(false)}
+        footer={null}
+        destroyOnClose
+      >
+        <Space direction="vertical" size={12} style={{ display: 'flex' }}>
+          <Input
+            placeholder="Название"
+            value={editDraft?.title || ''}
+            onChange={(e) => setEditDraft((prev) => (prev ? { ...prev, title: e.target.value } : prev))}
+          />
+          <Input.TextArea
+            rows={4}
+            placeholder="Описание"
+            value={editDraft?.description || ''}
+            onChange={(e) => setEditDraft((prev) => (prev ? { ...prev, description: e.target.value } : prev))}
+          />
+          <Space wrap>
+            <InputNumber
+              min={0}
+              placeholder="Сумма"
+              value={editDraft?.amount ?? undefined}
+              onChange={(value) => setEditDraft((prev) => (prev ? { ...prev, amount: typeof value === 'number' ? value : null } : prev))}
+            />
+            <Select
+              style={{ width: 120 }}
+              placeholder="Валюта"
+              value={editDraft?.currency}
+              onChange={(value) => setEditDraft((prev) => (prev ? { ...prev, currency: value } : prev))}
+              options={optionize(rows.map((r) => r.currency))}
+            />
+            <Select
+              style={{ width: 160 }}
+              placeholder="Статус"
+              value={editDraft?.status}
+              onChange={(value) => setEditDraft((prev) => (prev ? { ...prev, status: value } : prev))}
+              options={optionize(rows.map((r) => r.status))}
+              showSearch
+            />
+            <Select
+              style={{ width: 180 }}
+              placeholder="Срочность"
+              value={editDraft?.urgency}
+              onChange={(value) => setEditDraft((prev) => (prev ? { ...prev, urgency: value } : prev))}
+              options={optionize(rows.map((r) => r.urgency))}
+              showSearch
+            />
+          </Space>
+          <Space wrap>
+            <Select
+              style={{ minWidth: 220 }}
+              placeholder="Тип оплаты"
+              value={editDraft?.payment_type}
+              onChange={(value) => setEditDraft((prev) => (prev ? { ...prev, payment_type: value } : prev))}
+              options={optionize(rows.map((r) => r.payment_type))}
+              showSearch
+            />
+            <Select
+              style={{ minWidth: 220 }}
+              placeholder="Категория"
+              value={editDraft?.category}
+              onChange={(value) => setEditDraft((prev) => (prev ? { ...prev, category: value } : prev))}
+              options={optionize(rows.map((r) => r.category))}
+              showSearch
+            />
+            <Select
+              style={{ minWidth: 220 }}
+              placeholder="Поставщик"
+              value={editDraft?.vendor}
+              onChange={(value) => setEditDraft((prev) => (prev ? { ...prev, vendor: value } : prev))}
+              options={optionize(rows.map((r) => r.vendor))}
+              showSearch
+            />
+          </Space>
+          <Input
+            placeholder="Назначение платежа"
+            value={editDraft?.payment_purpose || ''}
+            onChange={(e) => setEditDraft((prev) => (prev ? { ...prev, payment_purpose: e.target.value } : prev))}
+          />
+          <Space wrap>
+            <DatePicker
+              picker="month"
+              format="MM.YYYY"
+              value={editDraft?.billing_date ?? null}
+              onChange={(value) => setEditDraft((prev) => (prev ? { ...prev, billing_date: value } : prev))}
+              inputReadOnly
+            />
+            <Select
+              style={{ minWidth: 220 }}
+              placeholder="Заявитель"
+              value={editDraft?.requester || undefined}
+              onChange={(value) => setEditDraft((prev) => (prev ? { ...prev, requester: value } : prev))}
+              options={requesterOptions}
+              allowClear
+              showSearch
+            />
+          </Space>
+          <Button type="primary" loading={editSaving} onClick={() => void saveDetailEdit()}>
+            Сохранить
+          </Button>
+        </Space>
+      </Modal>
     </Card>
   )
 }
