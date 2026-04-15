@@ -156,7 +156,15 @@ def dispatch_draft_request_notification(*, request_obj: Request, chat_id: int | 
 
 
 def _bridge_headers(*, tenant=None) -> dict:
-    cfg = get_requests_telegram_integration_settings(tenant=tenant) if tenant is not None else None
+    cfg = None
+    if tenant is not None:
+        try:
+            cfg = get_requests_telegram_integration_settings(tenant=tenant)
+        except Exception:
+            logger.exception(
+                "Failed to resolve telegram integration settings for headers tenant=%s",
+                getattr(tenant, "pk", None),
+            )
     token = (cfg.n8n_integration_token if cfg is not None else "") or ""
     if not token and cfg is not None:
         token = cfg.bridge_token
@@ -459,7 +467,14 @@ def _dispatch_payload(
 def _resolve_dispatch_url_for_tenant(tenant) -> str:
     url = ""
     if tenant is not None:
-        url = (get_requests_telegram_integration_settings(tenant=tenant).dispatch_url or "").strip()
+        try:
+            url = (get_requests_telegram_integration_settings(tenant=tenant).dispatch_url or "").strip()
+        except Exception:
+            logger.exception(
+                "Failed to resolve telegram dispatch URL from tenant settings tenant=%s",
+                getattr(tenant, "pk", None),
+            )
+            return ""
     if not url:
         url = _bridge_dispatch_url(tenant_subdomain=getattr(tenant, "subdomain", None) if tenant else None)
     return url or ""
