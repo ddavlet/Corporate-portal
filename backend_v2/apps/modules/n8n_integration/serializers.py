@@ -14,7 +14,7 @@ from apps.modules.corporate_card.serializers import CardExpenseSerializer, CardR
 from apps.modules.notes.models import Note
 from apps.modules.requests.expense_refs import (
     expense_ref_target_for,
-    try_resolve_request_expense_ref_id,
+    resolve_request_expense_ref,
 )
 from apps.modules.requests.models import Approval, Request
 from apps.modules.vendors.models import Vendor
@@ -392,7 +392,7 @@ class N8nRequestImportSerializer(serializers.ModelSerializer):
             attrs["expense_ref_id"] = None
             attrs["expense_ref_target"] = None
         else:
-            ref = try_resolve_request_expense_ref_id(
+            ref, normalized_expense_id = resolve_request_expense_ref(
                 tenant=tenant,
                 payment_type=effective_payment_type,
                 category=effective_category,
@@ -402,6 +402,8 @@ class N8nRequestImportSerializer(serializers.ModelSerializer):
             tgt = expense_ref_target_for(payment_type=effective_payment_type, category=effective_category) if ref else None
             attrs["expense_ref_id"] = ref
             attrs["expense_ref_target"] = tgt
+            if normalized_expense_id and effective_payment_type == Request.PAYMENT_TYPE_CASH:
+                attrs["expense_id"] = normalized_expense_id
         return attrs
 
 

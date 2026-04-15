@@ -35,7 +35,7 @@ from apps.modules.payroll.models import PayrollDocument
 from apps.modules.requests.expense_refs import (
     expense_ref_target_for,
     maybe_persist_request_expense_ref,
-    try_resolve_request_expense_ref_id,
+    resolve_request_expense_ref,
 )
 from apps.modules.requests.amortization import build_amortization_schedule_rows, is_request_amortized
 from apps.modules.requests.request_required import (
@@ -324,7 +324,7 @@ class PortalRequestSerializer(serializers.ModelSerializer):
             attrs["expense_ref_id"] = None
             attrs["expense_ref_target"] = None
         else:
-            ref = try_resolve_request_expense_ref_id(
+            ref, normalized_expense_id = resolve_request_expense_ref(
                 tenant=tenant,
                 payment_type=effective_pt,
                 category=effective_cat,
@@ -334,6 +334,8 @@ class PortalRequestSerializer(serializers.ModelSerializer):
             tgt = expense_ref_target_for(payment_type=effective_pt, category=effective_cat) if ref else None
             attrs["expense_ref_id"] = ref
             attrs["expense_ref_target"] = tgt
+            if normalized_expense_id and effective_pt == Request.PAYMENT_TYPE_CASH:
+                attrs["expense_id"] = normalized_expense_id
 
         if self.context.get("submit_for_approval"):
             amt = attrs.get("amount")
