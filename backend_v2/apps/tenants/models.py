@@ -52,6 +52,7 @@ class TenantUserRole(models.Model):
     ROLE_DIRECTOR = "director"
     ROLE_CASHIER = "cashier"
     ROLE_ACCOUNTANT = "accountant"
+    ROLE_INVESTOR = "investor"
 
     ROLE_CHOICES = [
         (ROLE_REQUESTER, ROLE_REQUESTER),
@@ -60,6 +61,7 @@ class TenantUserRole(models.Model):
         (ROLE_DIRECTOR, ROLE_DIRECTOR),
         (ROLE_CASHIER, ROLE_CASHIER),
         (ROLE_ACCOUNTANT, ROLE_ACCOUNTANT),
+        (ROLE_INVESTOR, ROLE_INVESTOR),
     ]
 
     tenant = models.ForeignKey(Tenant, on_delete=models.CASCADE, related_name="tenant_user_roles")

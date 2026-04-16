@@ -165,6 +165,53 @@ class TenantIntegrationConfigApiTests(APITestCase):
         self.assertTrue(admin_res.data["can_open_admin"])
         self.assertTrue(admin_res.data["can_manage_tenant_settings"])
 
+    def test_investor_gets_only_reports_effective_access(self):
+        investor = User.objects.create_user(username="investor", password="x")
+        TenantMembership.objects.create(tenant=self.tenant, user=investor, is_active=True)
+        TenantUserRole.objects.create(tenant=self.tenant, user=investor, role=TenantUserRole.ROLE_INVESTOR)
+        TenantModuleConfig.objects.update_or_create(
+            tenant=self.tenant, module_key="reports", defaults={"is_enabled": True}
+        )
+        TenantModuleConfig.objects.update_or_create(
+            tenant=self.tenant, module_key="requests", defaults={"is_enabled": True}
+        )
+
+        catalog = self.client.get("/api/modules/", **self._auth_headers(investor))
+        self.assertEqual(catalog.status_code, 200, catalog.content)
+        by_key = {row["module_key"]: row for row in catalog.data["modules"]}
+        self.assertTrue(by_key["reports"]["effective_enabled"])
+        self.assertFalse(by_key["requests"]["effective_enabled"])
+
+    def test_investor_cannot_open_admin_or_settings_endpoints(self):
+        investor = User.objects.create_user(username="investor2", password="x")
+        TenantMembership.objects.create(tenant=self.tenant, user=investor, is_active=True)
+        TenantUserRole.objects.create(tenant=self.tenant, user=investor, role=TenantUserRole.ROLE_INVESTOR)
+
+        settings_res = self.client.get("/api/settings-access/", **self._auth_headers(investor))
+        self.assertEqual(settings_res.status_code, 200, settings_res.content)
+        self.assertFalse(settings_res.data["can_open_settings"])
+        self.assertFalse(settings_res.data["can_open_admin"])
+
+        admin_res = self.client.get("/api/access-matrix/", **self._auth_headers(investor))
+        self.assertEqual(admin_res.status_code, 403)
+
+    def test_investor_can_reach_reports_but_not_requests_module(self):
+        investor = User.objects.create_user(username="investor3", password="x")
+        TenantMembership.objects.create(tenant=self.tenant, user=investor, is_active=True)
+        TenantUserRole.objects.create(tenant=self.tenant, user=investor, role=TenantUserRole.ROLE_INVESTOR)
+        TenantModuleConfig.objects.update_or_create(
+            tenant=self.tenant, module_key="reports", defaults={"is_enabled": True}
+        )
+        TenantModuleConfig.objects.update_or_create(
+            tenant=self.tenant, module_key="requests", defaults={"is_enabled": True}
+        )
+
+        reports_res = self.client.get("/api/reports/pnl/", **self._auth_headers(investor))
+        self.assertNotEqual(reports_res.status_code, 403)
+
+        requests_res = self.client.get("/api/requests/", **self._auth_headers(investor))
+        self.assertEqual(requests_res.status_code, 403)
+
 
 @override_settings(BASE_DOMAIN="example.com", ALLOWED_HOSTS=["*"])
 class UserPreferencesApiTests(APITestCase):
