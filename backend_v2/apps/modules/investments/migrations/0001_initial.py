@@ -68,10 +68,10 @@ class Migration(migrations.Migration):
         ),
         migrations.AddIndex(
             model_name="investreturn",
-            index=models.Index(fields=["tenant", "date"], name="invest_returns_tenant_date_idx"),
+            index=models.Index(fields=["tenant", "date"], name="invret_tenant_date_idx"),
         ),
         migrations.AddIndex(
             model_name="investreturn",
-            index=models.Index(fields=["tenant", "confirmed"], name="invest_returns_tenant_confirmed_idx"),
+            index=models.Index(fields=["tenant", "confirmed"], name="invret_tenant_conf_idx"),
         ),
     ]
