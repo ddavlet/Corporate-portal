@@ -1605,7 +1605,7 @@ class AutoRequestTests(APITestCase):
         self.assertEqual(n, 1)
         req = Request.objects.get(tenant=self.tenant)
         self.assertEqual(req.billing_date, date(2026, 2, 1))
-        self.assertIn("Февраль", req.title)
+        self.assertEqual(req.title, self.tenant.name)
 
     def test_process_due_billing_month_next(self):
         v = self._ensure_request_form_for_auto()
@@ -2062,7 +2062,7 @@ class DraftRequestPatchSubmitTests(APITestCase):
             HTTP_HOST=self.host,
         )
         self.assertEqual(res2.status_code, 200, res2.content)
-        self.assertEqual(res2.data["title"], "Updated by admin")
+        self.assertEqual(res2.data["title"], self.tenant.name)
 
     def test_cannot_patch_draft_as_unrelated_user(self):
         req = self._draft_request()
@@ -2098,6 +2098,36 @@ class DraftRequestPatchSubmitTests(APITestCase):
         req = Request.objects.get(pk=res.data["id"])
         self.assertEqual(req.amortization_months, 1)
         self.assertEqual(req.amortization_start_date, date(2026, 2, 1))
+
+    def test_title_is_always_derived_from_tenant_name(self):
+        self.client.force_authenticate(self.requester)
+        created = self.client.post(
+            "/api/requests/",
+            {
+                "title": "Пользовательский заголовок",
+                "description": "",
+                "amount": 100,
+                "currency": "UZS",
+                "payment_type": "Наличные",
+                "urgency": "Обычно",
+                "billing_date": "2026-02-20",
+            },
+            format="json",
+            HTTP_HOST=self.host,
+        )
+        self.assertEqual(created.status_code, 201, created.content)
+        self.assertEqual(created.data["title"], self.tenant.name)
+
+        req = self._draft_request()
+        patched = self.client.patch(
+            f"/api/requests/{req.id}/",
+            {"title": "Новый заголовок"},
+            format="json",
+            HTTP_HOST=self.host,
+        )
+        self.assertEqual(patched.status_code, 200, patched.content)
+        self.assertEqual(patched.data["title"], self.tenant.name)
+        self.assertEqual(Request.objects.get(pk=req.id).title, self.tenant.name)
 
     def test_create_allows_custom_amortization_months(self):
         self.client.force_authenticate(self.requester)
