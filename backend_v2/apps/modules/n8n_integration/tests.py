@@ -345,7 +345,9 @@ class N8nIntegrationAuthTests(APITestCase):
             tenant=self.tenant,
             kind=Vendor.KIND_TRANSFER,
             name="ООО LEMON-SPORT-GROUP",
-            inn="308765632",
+            # Use a different INN to avoid DB-level uniqueness conflicts in CI databases
+            # that still enforce tenant+inn uniqueness for transfer vendors.
+            inn="308765633",
             account_number="16401000505425326001",
             created_by=self.admin,
         )

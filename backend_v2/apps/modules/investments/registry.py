@@ -1,5 +1,4 @@
 MODULE_KEY = "investments"
 
 
-def display_name():
-    return "Инвестиции"
+display_name = "Инвестиции"
