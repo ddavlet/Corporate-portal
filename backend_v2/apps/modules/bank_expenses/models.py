@@ -41,8 +41,8 @@ class BankExpense(models.Model):
         db_table = "bank_expenses"
         constraints = [
             models.UniqueConstraint(
-                fields=["doc_date", "doc_no", "debit_turnover", "payment_purpose"],
-                name="uniq_bank_expense_doc_date_doc_no_turnover_purpose",
+                fields=["tenant", "doc_date", "doc_no", "debit_turnover", "payment_purpose"],
+                name="uniq_bank_expense_tenant_doc_date_doc_no_turnover_purpose",
             )
         ]
 
