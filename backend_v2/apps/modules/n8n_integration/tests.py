@@ -585,7 +585,8 @@ class N8nIntegrationAuthTests(APITestCase):
         )
         self.assertEqual(res2.status_code, 200, res2.content)
         req.refresh_from_db()
-        self.assertEqual(req.title, "Imported request updated")
+        # Title is derived from tenant name at model-level.
+        self.assertEqual(req.title, self.tenant.name)
 
     def test_requests_amortization_endpoint_requires_admin(self):
         url = f"{self.n8n_prefix}/requests/amortization/"
