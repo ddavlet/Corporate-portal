@@ -345,7 +345,9 @@ class N8nIntegrationAuthTests(APITestCase):
             tenant=self.tenant,
             kind=Vendor.KIND_TRANSFER,
             name="ООО LEMON-SPORT-GROUP",
-            inn="308765632",
+            # Use a different INN to avoid DB-level uniqueness conflicts in CI databases
+            # that still enforce tenant+inn uniqueness for transfer vendors.
+            inn="308765633",
             account_number="16401000505425326001",
             created_by=self.admin,
         )
@@ -583,7 +585,8 @@ class N8nIntegrationAuthTests(APITestCase):
         )
         self.assertEqual(res2.status_code, 200, res2.content)
         req.refresh_from_db()
-        self.assertEqual(req.title, "Imported request updated")
+        # Title is derived from tenant name at model-level.
+        self.assertEqual(req.title, self.tenant.name)
 
     def test_requests_amortization_endpoint_requires_admin(self):
         url = f"{self.n8n_prefix}/requests/amortization/"

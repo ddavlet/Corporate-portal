@@ -30,6 +30,12 @@ urlpatterns = [
     path("clients-debt/batch/", views.N8nClientsDebtBatchUpsertView.as_view(), name="n8n-clients-debt-batch-upsert"),
     path("notes/", views.N8nNoteUpsertView.as_view(), name="n8n-notes-upsert"),
     path("notes/batch/", views.N8nNoteBatchUpsertView.as_view(), name="n8n-notes-batch-upsert"),
+    path("investments/returns/", views.N8nInvestReturnUpsertView.as_view(), name="n8n-invest-returns-upsert"),
+    path(
+        "investments/returns/batch/",
+        views.N8nInvestReturnBatchUpsertView.as_view(),
+        name="n8n-invest-returns-batch-upsert",
+    ),
     path("payroll/lines/", views.N8nPayrollLineUpsertView.as_view(), name="n8n-payroll-lines-upsert"),
     path("payroll/lines/batch/", views.N8nPayrollLineBatchUpsertView.as_view(), name="n8n-payroll-lines-batch-upsert"),
 ]

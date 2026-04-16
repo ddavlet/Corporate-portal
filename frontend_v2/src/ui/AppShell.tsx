@@ -26,6 +26,7 @@ import { FeedbackModal } from './feedback/FeedbackModal'
 import { ChangePasswordModal } from './user/ChangePasswordModal'
 import { AiQuestionsModal } from './ai/AiQuestionsModal'
 import { useModuleAccess } from './moduleAccess'
+import { filterInvestorMenuRoutes, type ShellMenuRoute } from './investorMenu'
 import { getSettingsAccess } from '../lib/api'
 
 export function AppShell() {
@@ -40,6 +41,7 @@ export function AppShell() {
   const [passwordModalOpen, setPasswordModalOpen] = useState(false)
   const [canOpenSettings, setCanOpenSettings] = useState(false)
   const [canOpenAdmin, setCanOpenAdmin] = useState(false)
+  const [roles, setRoles] = useState<string[]>([])
 
   useEffect(() => {
     let cancelled = false
@@ -49,11 +51,13 @@ export function AppShell() {
         if (!cancelled) {
           setCanOpenSettings(Boolean(data.can_open_settings))
           setCanOpenAdmin(Boolean(data.can_open_admin))
+          setRoles(Array.isArray(data.roles) ? data.roles : [])
         }
       } catch {
         if (!cancelled) {
           setCanOpenSettings(false)
           setCanOpenAdmin(false)
+          setRoles([])
         }
       }
     })()
@@ -62,12 +66,7 @@ export function AppShell() {
     }
   }, [])
 
-  type MenuRoute = {
-    path: string
-    name: string
-    icon: JSX.Element
-    moduleKey?: string
-  }
+  const isInvestor = roles.includes('investor')
 
   const menuRoutes = useMemo(
     () =>
@@ -83,8 +82,10 @@ export function AppShell() {
         { path: '/training', name: 'Обучалка', icon: <ReadOutlined /> },
         ...(canOpenAdmin ? [{ path: '/admin', name: 'Админка', icon: <SafetyOutlined /> }] : []),
         ...(canOpenSettings ? [{ path: '/settings', name: 'Настройки', icon: <SettingOutlined /> }] : []),
-      ] as MenuRoute[]).filter((r) => !r.moduleKey || hasAccess(r.moduleKey)),
-    [hasAccess, canOpenSettings, canOpenAdmin],
+      ] as ShellMenuRoute[])
+        .filter((r) => !r.moduleKey || hasAccess(r.moduleKey))
+        .filter((r) => filterInvestorMenuRoutes({ isInvestor, path: r.path })),
+    [hasAccess, canOpenSettings, canOpenAdmin, isInvestor],
   )
 
   const profileMenu: MenuProps['items'] = [
