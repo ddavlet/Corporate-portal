@@ -34,6 +34,6 @@ class InvestReturn(models.Model):
         db_table = "invest_returns"
         ordering = ["-date", "-created_at", "-id"]
         indexes = [
-            models.Index(fields=["tenant", "date"], name="invest_returns_tenant_date_idx"),
-            models.Index(fields=["tenant", "confirmed"], name="invest_returns_tenant_confirmed_idx"),
+            models.Index(fields=["tenant", "date"], name="invret_tenant_date_idx"),
+            models.Index(fields=["tenant", "confirmed"], name="invret_tenant_conf_idx"),
         ]
