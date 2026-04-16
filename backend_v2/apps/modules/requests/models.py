@@ -137,6 +137,26 @@ class Request(models.Model):
     class Meta:
         db_table = "requests"
 
+    def _resolve_title_from_tenant(self) -> str:
+        tenant_name = ""
+        tenant_obj = getattr(self, "tenant", None)
+        if tenant_obj is not None:
+            tenant_name = str(getattr(tenant_obj, "name", "") or "").strip()
+        if not tenant_name and self.tenant_id:
+            tenant_name = (
+                Tenant.objects.filter(id=self.tenant_id).values_list("name", flat=True).first() or ""
+            ).strip()
+        return tenant_name[:200]
+
+    def save(self, *args, **kwargs):
+        self.title = self._resolve_title_from_tenant()
+        update_fields = kwargs.get("update_fields")
+        if update_fields is not None:
+            update_fields_set = set(update_fields)
+            update_fields_set.add("title")
+            kwargs["update_fields"] = list(update_fields_set)
+        return super().save(*args, **kwargs)
+
 
 class RequestAttachment(models.Model):
     request = models.ForeignKey(Request, on_delete=models.CASCADE, related_name="attachments")
