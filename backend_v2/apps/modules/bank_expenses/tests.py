@@ -217,3 +217,51 @@ class BankExpenseRequestRequiredApiTests(APITestCase):
         res = self.client.post("/api/bank/expenses/", payload, format="json", **self._headers())
         self.assertEqual(res.status_code, 400, res.content)
         self.assertIn("vendor", res.json())
+
+
+@override_settings(BASE_DOMAIN="example.com", ALLOWED_HOSTS=["*"])
+class BankExpenseUniquePerTenantTests(APITestCase):
+    def test_two_tenants_can_have_same_composite_bank_expense_key(self):
+        su, _ = User.objects.update_or_create(pk=1, defaults={"username": "n8n_system"})
+        if not su.has_usable_password():
+            su.set_unusable_password()
+            su.save(update_fields=["password"])
+
+        tenant_a = Tenant.objects.create(name="Acme", subdomain="acme", is_active=True)
+        tenant_b = Tenant.objects.create(name="Beta", subdomain="beta", is_active=True)
+
+        wa = get_or_create_bank_wallet(tenant=tenant_a)
+        wb = get_or_create_bank_wallet(tenant=tenant_b)
+        d = date(2026, 4, 1)
+
+        key = {
+            "doc_date": d,
+            "doc_no": "DOC-1",
+            "debit_turnover": "10.00",
+            "payment_purpose": "same-purpose",
+        }
+
+        BankExpense.objects.create(
+            tenant=tenant_a,
+            created_by=su,
+            wallet=wa,
+            row_no=1,
+            process_date=d,
+            expense_year=2026,
+            expense_month=4,
+            expense_day=1,
+            **key,
+        )
+        BankExpense.objects.create(
+            tenant=tenant_b,
+            created_by=su,
+            wallet=wb,
+            row_no=1,
+            process_date=d,
+            expense_year=2026,
+            expense_month=4,
+            expense_day=1,
+            **key,
+        )
+
+        self.assertEqual(BankExpense.objects.filter(doc_no="DOC-1").count(), 2)
