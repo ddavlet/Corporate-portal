@@ -167,7 +167,6 @@ def _maybe_create_request_for_template(template: AutoRequestTemplate, *, today: 
         mode=template.billing_month_mode,
     )
 
-    title = render_auto_request_template(template.title_template, now_dt=now_dt, billing_month=billing_month).strip()
     description = render_auto_request_template(
         template.description_template, now_dt=now_dt, billing_month=billing_month
     )
@@ -202,7 +201,7 @@ def _maybe_create_request_for_template(template: AutoRequestTemplate, *, today: 
         category=category,
         vendor=template.vendor_ref.name if template.vendor_ref else "",
         vendor_ref=template.vendor_ref,
-        title=title or "Автозаявка",
+        title=(template.tenant.name or "").strip()[:200],
         description=description,
         amount=amount,
         currency=template.currency,
