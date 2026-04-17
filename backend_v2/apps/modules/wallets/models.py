@@ -68,6 +68,7 @@ class Wallet(models.Model):
     currency = models.CharField(max_length=10)
     opening_balance = models.DecimalField(max_digits=18, decimal_places=2, default=0)
     opening_balance_at = models.DateTimeField(null=True, blank=True)
+    is_visible_in_cash_section = models.BooleanField(default=True)
 
     cash_register = models.OneToOneField(
         CashRegister,

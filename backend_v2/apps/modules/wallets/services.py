@@ -226,6 +226,8 @@ def balances_for_tenant_channel(*, tenant_id: int, wallet_type: str) -> list[dic
         "bank_account",
         "corporate_card_account",
     )
+    if wallet_type == Wallet.Type.CASH:
+        qs = qs.filter(is_visible_in_cash_section=True)
     out: list[dict[str, Any]] = []
     for w in qs:
         base = wallet_balance_payload(wallet=w)

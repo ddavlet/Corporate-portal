@@ -885,6 +885,7 @@ export type CashRegisterDto = {
   sort_order: number
   is_default_for_currency: boolean
   wallet_id: number
+  wallet_is_visible_in_cash_section?: boolean
 }
 
 export async function getCashRegisters(): Promise<CashRegisterDto[]> {
@@ -1040,6 +1041,7 @@ export type WalletDto = {
   currency: string
   opening_balance: string
   opening_balance_at: string | null
+  is_visible_in_cash_section: boolean
   cash_register_id: number | null
   bank_account_id: number | null
   corporate_card_account_id: number | null
@@ -1047,7 +1049,11 @@ export type WalletDto = {
 
 export async function patchWallet(
   id: number,
-  payload: { opening_balance?: string; opening_balance_at?: string | null },
+  payload: {
+    opening_balance?: string
+    opening_balance_at?: string | null
+    is_visible_in_cash_section?: boolean
+  },
 ): Promise<WalletDto> {
   const res = await apiFetch(`/api/wallets/wallets/${id}/`, {
     method: 'PATCH',

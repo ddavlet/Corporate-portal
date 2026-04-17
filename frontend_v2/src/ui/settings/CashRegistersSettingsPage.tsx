@@ -150,6 +150,24 @@ function CashTab() {
         />
       ),
     },
+    {
+      title: 'Показывать в разделе "Касса"',
+      dataIndex: 'wallet_is_visible_in_cash_section',
+      width: 220,
+      render: (v: boolean | undefined, r) => (
+        <Switch
+          checked={v !== false}
+          onChange={async (checked) => {
+            try {
+              await patchWallet(r.wallet_id, { is_visible_in_cash_section: checked })
+              void load()
+            } catch (e: unknown) {
+              message.error(e instanceof Error ? e.message : 'Ошибка')
+            }
+          }}
+        />
+      ),
+    },
     { title: 'Порядок', dataIndex: 'sort_order', width: 90 },
     {
       title: '',
@@ -192,7 +210,8 @@ function CashTab() {
   return (
     <>
       <Typography.Paragraph type="secondary">
-        Одна касса на валюту. Остаток на 1 января — в кошельке (opening_balance).
+        Можно отключить показ отдельного кошелька в разделе "Касса" (остатки, доходы и расходы), не блокируя
+        операции по нему.
       </Typography.Paragraph>
       <Button type="primary" onClick={openCreate} style={{ marginBottom: 16 }}>
         Добавить кассу

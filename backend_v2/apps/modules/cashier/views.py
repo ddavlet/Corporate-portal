@@ -56,6 +56,8 @@ class CashExpenseViewSet(viewsets.ModelViewSet):
             has_paid_request=Exists(paid_request_subquery),
             matched_request_id=Subquery(request_subquery.order_by("-created_at").values("id")[:1]),
         )
+        if self.action == "list":
+            qs = qs.filter(wallet__is_visible_in_cash_section=True)
         vendor_search = (self.request.query_params.get("vendor_search") or "").strip()
         if vendor_search:
             qs = qs.filter(Q(title__icontains=vendor_search) | Q(vendor__name__icontains=vendor_search))
@@ -122,7 +124,10 @@ class CashRevenueViewSet(viewsets.ModelViewSet):
         tenant = getattr(self.request, "tenant", None)
         if not tenant:
             return CashRevenue.objects.none()
-        return CashRevenue.objects.filter(tenant=tenant)
+        qs = CashRevenue.objects.filter(tenant=tenant)
+        if self.action == "list":
+            qs = qs.filter(wallet__is_visible_in_cash_section=True)
+        return qs
 
     def perform_create(self, serializer):
         serializer.save(tenant=self.request.tenant, created_by=self.request.user)
