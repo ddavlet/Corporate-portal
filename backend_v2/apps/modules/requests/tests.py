@@ -1956,6 +1956,118 @@ class RequestRoleVisibilityTests(APITestCase):
         self.assertNotIn(plain.id, ids)
 
 
+@override_settings(BASE_DOMAIN="example.com", N8N_INTEGRATION_TOKEN="", ALLOWED_HOSTS=["*"])
+class AuditMonthShiftsTests(APITestCase):
+    def setUp(self):
+        self.tenant = Tenant.objects.create(name="AuditCo", subdomain="auditco", is_active=True)
+        self.admin = User.objects.create_user(username="audit_admin", password="x")
+        TenantMembership.objects.create(tenant=self.tenant, user=self.admin, is_active=True)
+        TenantUserRole.objects.create(tenant=self.tenant, user=self.admin, role=TenantUserRole.ROLE_ADMIN)
+        TenantModuleConfig.objects.create(tenant=self.tenant, module_key="requests", is_enabled=True)
+        self.host = "auditco.example.com"
+
+        # Minimal request-form config so `payment_type` is allowed.
+        req_form_cfg = RequestFormConfig.objects.create(tenant=self.tenant, updated_by=self.admin)
+        RequestFormPaymentTypeConfig.objects.create(config=req_form_cfg, payment_type=Request.PAYMENT_TYPE_CASH, is_enabled=True)
+
+        self.client.force_authenticate(self.admin)
+
+    def test_audit_month_shifts_returns_only_shifted_or_amortized(self):
+        shifted_posted_in_march = Request.objects.create(
+            tenant=self.tenant,
+            created_by=self.admin,
+            requester=self.admin,
+            title="Shifted A",
+            description="",
+            amount=Decimal("100"),
+            currency="UZS",
+            payment_type=Request.PAYMENT_TYPE_CASH,
+            urgency=Request.URGENCY_NORMAL,
+            billing_date=date(2026, 2, 1),
+            expense_year=2026,
+            expense_month=3,
+            expense_day=1,
+            amortization_months=1,
+            amortization_start_date=date(2026, 2, 1),
+            status=Request.STATUS_DRAFT,
+            submitted_at=timezone.now(),
+            company_payer="",
+        )
+        shifted_billed_in_march = Request.objects.create(
+            tenant=self.tenant,
+            created_by=self.admin,
+            requester=self.admin,
+            title="Shifted B",
+            description="",
+            amount=Decimal("200"),
+            currency="UZS",
+            payment_type=Request.PAYMENT_TYPE_CASH,
+            urgency=Request.URGENCY_NORMAL,
+            billing_date=date(2026, 3, 1),
+            expense_year=2026,
+            expense_month=2,
+            expense_day=1,
+            amortization_months=1,
+            amortization_start_date=date(2026, 3, 1),
+            status=Request.STATUS_DRAFT,
+            submitted_at=timezone.now(),
+            company_payer="",
+        )
+        plain = Request.objects.create(
+            tenant=self.tenant,
+            created_by=self.admin,
+            requester=self.admin,
+            title="Plain",
+            description="",
+            amount=Decimal("300"),
+            currency="UZS",
+            payment_type=Request.PAYMENT_TYPE_CASH,
+            urgency=Request.URGENCY_NORMAL,
+            billing_date=date(2026, 3, 1),
+            expense_year=2026,
+            expense_month=3,
+            expense_day=1,
+            amortization_months=1,
+            amortization_start_date=date(2026, 3, 1),
+            status=Request.STATUS_DRAFT,
+            submitted_at=timezone.now(),
+            company_payer="",
+        )
+        amortized = Request.objects.create(
+            tenant=self.tenant,
+            created_by=self.admin,
+            requester=self.admin,
+            title="Amortized",
+            description="",
+            amount=Decimal("600"),
+            currency="UZS",
+            payment_type=Request.PAYMENT_TYPE_CASH,
+            urgency=Request.URGENCY_NORMAL,
+            billing_date=date(2026, 1, 1),
+            expense_year=2026,
+            expense_month=1,
+            expense_day=1,
+            amortization_months=6,
+            amortization_start_date=date(2026, 1, 1),
+            status=Request.STATUS_DRAFT,
+            submitted_at=timezone.now(),
+            company_payer="",
+        )
+
+        res = self.client.get("/api/requests/audit-month-shifts/?month=2026-03", HTTP_HOST=self.host)
+        self.assertEqual(res.status_code, 200, res.content)
+        self.assertEqual(res.data["months"]["current"], "2026-03")
+        row_ids = {row["request_id"] for row in res.data.get("rows", [])}
+        self.assertIn(shifted_posted_in_march.id, row_ids)
+        self.assertIn(shifted_billed_in_march.id, row_ids)
+        self.assertIn(amortized.id, row_ids)
+        self.assertNotIn(plain.id, row_ids)
+
+        amort_row = next(r for r in res.data["rows"] if r["request_id"] == amortized.id)
+        self.assertEqual(amort_row["amortization_months"], 6)
+        self.assertIsNotNone(amort_row["amort_current"])
+
+
 @override_settings(BASE_DOMAIN="example.com", N8N_TOKEN="", N8N_INTEGRATION_TOKEN="", ALLOWED_HOSTS=["*"])
 class DraftRequestPatchSubmitTests(APITestCase):
     """DRAFT-only PATCH and submit-for-approval."""

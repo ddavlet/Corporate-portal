@@ -568,6 +568,43 @@ export async function getMyApprovals(): Promise<MyApprovalGroup[]> {
   return Array.isArray(json) ? (json as MyApprovalGroup[]) : []
 }
 
+export type RequestAuditMonthShiftsRow = {
+  request_id: number
+  vendor: string
+  vendor_ref_id?: number | null
+  category: string
+  amount: string
+  currency?: string | null
+  payment_type?: string | null
+  status?: string | null
+  submitted_at?: string | null
+  billing_month?: string | null
+  expense_month?: string | null
+  is_month_shifted: boolean
+  amortization_months: number
+  amortization_start_month?: string | null
+  amort_prev?: string | null
+  amort_current?: string | null
+  amort_next?: string | null
+}
+
+export type RequestAuditMonthShiftsResponse = {
+  months: { prev: string; current: string; next: string }
+  rows: RequestAuditMonthShiftsRow[]
+}
+
+export async function getRequestAuditMonthShifts(month: string): Promise<RequestAuditMonthShiftsResponse> {
+  const key = String(month || '').trim()
+  const res = await apiFetch(`/api/requests/audit-month-shifts/?month=${encodeURIComponent(key)}`)
+  if (!res.ok) throw new Error(await parseErrorBody(res))
+  const json = (await res.json().catch(() => null)) as RequestAuditMonthShiftsResponse | null
+  if (!json) throw new Error('Empty response')
+  return {
+    months: json.months,
+    rows: Array.isArray(json.rows) ? json.rows : [],
+  }
+}
+
 export async function setRequestApprovalDecision(payload: {
   requestId: number
   step: number
