@@ -18,6 +18,7 @@ import {
   RequestFormConfigPage,
   RequestApprovalConfigPage,
   AutoRequestsConfigPage,
+  RequestMonthAuditPage,
   RequestsPage,
 } from '../ui/requests'
 import { SettingsPage } from '../ui/SettingsPage'
@@ -73,6 +74,7 @@ export function App() {
         <Route index element={<DashboardPage />} />
         <Route path="requests" element={<RequestsPage />} />
         <Route path="requests/new" element={<RequestCreatePage />} />
+        <Route path="requests/audit" element={<RequestMonthAuditPage />} />
         <Route path="requests/auto-config" element={<AutoRequestsConfigPage />} />
         <Route path="requests/:id" element={<RequestDetailPage />} />
         <Route path="cash" element={<CashPage />} />

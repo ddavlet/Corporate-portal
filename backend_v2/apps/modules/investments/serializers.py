@@ -12,6 +12,7 @@ class InvestReturnSerializer(serializers.ModelSerializer):
             "tenant",
             "date",
             "sum",
+            "sum_uzs",
             "comment",
             "confirmed",
             "currency",

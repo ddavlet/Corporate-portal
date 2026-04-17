@@ -6,7 +6,7 @@ from django.utils import timezone
 from rest_framework.test import APITestCase
 from rest_framework_simplejwt.tokens import RefreshToken
 
-from apps.modules.cashier.models import CashExpense
+from apps.modules.cashier.models import CashExpense, CashRevenue
 from apps.modules.wallets.resolution import (
     get_or_create_bank_wallet,
     get_or_create_cash_wallet,
@@ -148,6 +148,64 @@ class WalletsApiTests(APITestCase):
             **self._headers(cashier),
         )
         self.assertEqual(res.status_code, 403)
+
+    def test_hidden_cash_wallet_is_excluded_from_cash_section_lists(self):
+        self.wallet_cash.is_visible_in_cash_section = False
+        self.wallet_cash.save(update_fields=["is_visible_in_cash_section"])
+        dt = timezone.now()
+        CashExpense.objects.create(
+            tenant=self.tenant,
+            external_id="hidden-exp-1",
+            confirmed=True,
+            title="Hidden expense",
+            amount=Decimal("10.00"),
+            currency="UZS",
+            wallet=self.wallet_cash,
+            expense_at=dt,
+            expense_year=dt.year,
+            expense_month=dt.month,
+            expense_day=dt.day,
+            note="",
+            payload={},
+            created_by=self.admin,
+        )
+        CashRevenue.objects.create(
+            tenant=self.tenant,
+            external_id="hidden-rev-1",
+            confirmed=True,
+            total_sum=Decimal("25.00"),
+            currency="UZS",
+            wallet=self.wallet_cash,
+            operation="Hidden revenue",
+            payload={},
+            created_by=self.admin,
+        )
+
+        balances_res = self.client.get("/api/cash/balances/", **self._headers(self.admin))
+        expenses_res = self.client.get("/api/cash/expenses/", **self._headers(self.admin))
+        revenues_res = self.client.get("/api/cash/revenues/", **self._headers(self.admin))
+
+        self.assertEqual(balances_res.status_code, 200)
+        self.assertEqual(expenses_res.status_code, 200)
+        self.assertEqual(revenues_res.status_code, 200)
+
+        balances_rows = balances_res.json()
+        expenses_payload = expenses_res.json()
+        revenues_payload = revenues_res.json()
+        expense_rows = (
+            expenses_payload
+            if isinstance(expenses_payload, list)
+            else expenses_payload.get("results", [])
+        )
+        revenue_rows = (
+            revenues_payload
+            if isinstance(revenues_payload, list)
+            else revenues_payload.get("results", [])
+        )
+
+        self.assertFalse(any(row["wallet_id"] == self.wallet_cash.id for row in balances_rows))
+        self.assertFalse(any(row["wallet_id"] == self.wallet_cash.id for row in expense_rows))
+        self.assertFalse(any(row["wallet_id"] == self.wallet_cash.id for row in revenue_rows))
 
     def test_bank_accounts_list_includes_existing(self):
         res = self.client.get("/api/wallets/bank-accounts/", **self._headers(self.admin))

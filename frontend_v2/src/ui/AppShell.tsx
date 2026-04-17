@@ -42,6 +42,7 @@ export function AppShell() {
   const [canOpenSettings, setCanOpenSettings] = useState(false)
   const [canOpenAdmin, setCanOpenAdmin] = useState(false)
   const [roles, setRoles] = useState<string[]>([])
+  const [tenantName, setTenantName] = useState<string>('')
 
   useEffect(() => {
     let cancelled = false
@@ -49,12 +50,14 @@ export function AppShell() {
       try {
         const data = await getSettingsAccess()
         if (!cancelled) {
+          setTenantName(String(data.tenant_name || '').trim())
           setCanOpenSettings(Boolean(data.can_open_settings))
           setCanOpenAdmin(Boolean(data.can_open_admin))
           setRoles(Array.isArray(data.roles) ? data.roles : [])
         }
       } catch {
         if (!cancelled) {
+          setTenantName('')
           setCanOpenSettings(false)
           setCanOpenAdmin(false)
           setRoles([])
@@ -96,9 +99,15 @@ export function AppShell() {
     },
   ]
 
+  const appTitle = tenantName || 'Portal'
+
+  useEffect(() => {
+    document.title = appTitle
+  }, [appTitle])
+
   return (
     <ProLayout
-      title="Kolberg v2"
+      title={appTitle}
       logo={false}
       location={{ pathname: location.pathname }}
       route={{

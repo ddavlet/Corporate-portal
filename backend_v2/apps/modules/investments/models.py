@@ -21,6 +21,7 @@ class InvestReturn(models.Model):
     comment = models.TextField(blank=True, default="")
     confirmed = models.BooleanField(default=False)
     currency = models.CharField(max_length=3, default="USD")
+    sum_uzs = models.DecimalField(max_digits=18, decimal_places=2, null=True, blank=True)
     type = models.CharField(max_length=25, choices=ReturnType.choices)
     recipient = models.CharField(max_length=20, choices=Recipient.choices)
     created_at = models.DateTimeField(auto_now_add=True)

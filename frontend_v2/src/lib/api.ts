@@ -260,6 +260,7 @@ export async function getAccessMatrix(): Promise<AccessMatrixResponse> {
 }
 
 export type SettingsAccessResponse = {
+  tenant_name?: string
   can_open_settings: boolean
   can_open_admin: boolean
   can_manage_tenant_settings: boolean
@@ -278,6 +279,7 @@ export async function getSettingsAccess(): Promise<SettingsAccessResponse> {
   if (!res.ok) throw new Error(await parseErrorBody(res))
   const json = (await res.json().catch(() => null)) as Partial<SettingsAccessResponse> | null
   return {
+    tenant_name: typeof json?.tenant_name === 'string' ? json.tenant_name : undefined,
     can_open_settings: Boolean(json?.can_open_settings),
     can_open_admin: Boolean(json?.can_open_admin),
     can_manage_tenant_settings: Boolean(json?.can_manage_tenant_settings),
@@ -568,6 +570,43 @@ export async function getMyApprovals(): Promise<MyApprovalGroup[]> {
   return Array.isArray(json) ? (json as MyApprovalGroup[]) : []
 }
 
+export type RequestAuditMonthShiftsRow = {
+  request_id: number
+  vendor: string
+  vendor_ref_id?: number | null
+  category: string
+  amount: string
+  currency?: string | null
+  payment_type?: string | null
+  status?: string | null
+  submitted_at?: string | null
+  billing_month?: string | null
+  expense_month?: string | null
+  is_month_shifted: boolean
+  amortization_months: number
+  amortization_start_month?: string | null
+  amort_prev?: string | null
+  amort_current?: string | null
+  amort_next?: string | null
+}
+
+export type RequestAuditMonthShiftsResponse = {
+  months: { prev: string; current: string; next: string }
+  rows: RequestAuditMonthShiftsRow[]
+}
+
+export async function getRequestAuditMonthShifts(month: string): Promise<RequestAuditMonthShiftsResponse> {
+  const key = String(month || '').trim()
+  const res = await apiFetch(`/api/requests/audit-month-shifts/?month=${encodeURIComponent(key)}`)
+  if (!res.ok) throw new Error(await parseErrorBody(res))
+  const json = (await res.json().catch(() => null)) as RequestAuditMonthShiftsResponse | null
+  if (!json) throw new Error('Empty response')
+  return {
+    months: json.months,
+    rows: Array.isArray(json.rows) ? json.rows : [],
+  }
+}
+
 export async function setRequestApprovalDecision(payload: {
   requestId: number
   step: number
@@ -605,18 +644,33 @@ export type LegacyReportItem = {
 
 export type LegacyReportPayload = {
   revenue: LegacyReportItem[]
+  operational_expenses: LegacyReportItem[]
+  other_expenses: LegacyReportItem[]
   expense: LegacyReportItem[]
+  invest_returns: LegacyReportItem[]
   metadata?: Record<string, unknown>
 }
 
 function normalizeLegacyReportPayload(payload: unknown): LegacyReportPayload {
   const list = Array.isArray(payload) ? payload : payload && typeof payload === 'object' ? [payload] : []
   const revenue = list.find((x) => x && typeof x === 'object' && 'revenue' in x) as { revenue?: LegacyReportItem[] } | undefined
+  const operationalExpenses = list.find((x) => x && typeof x === 'object' && 'operational_expenses' in x) as
+    | { operational_expenses?: LegacyReportItem[] }
+    | undefined
+  const otherExpenses = list.find((x) => x && typeof x === 'object' && 'other_expenses' in x) as
+    | { other_expenses?: LegacyReportItem[] }
+    | undefined
   const expense = list.find((x) => x && typeof x === 'object' && 'expense' in x) as { expense?: LegacyReportItem[] } | undefined
+  const investReturns = list.find((x) => x && typeof x === 'object' && 'invest_returns' in x) as
+    | { invest_returns?: LegacyReportItem[] }
+    | undefined
   const metadata = list.find((x) => x && typeof x === 'object' && 'metadata' in x) as { metadata?: Record<string, unknown> } | undefined
   return {
     revenue: Array.isArray(revenue?.revenue) ? revenue.revenue : [],
+    operational_expenses: Array.isArray(operationalExpenses?.operational_expenses) ? operationalExpenses.operational_expenses : [],
+    other_expenses: Array.isArray(otherExpenses?.other_expenses) ? otherExpenses.other_expenses : [],
     expense: Array.isArray(expense?.expense) ? expense.expense : [],
+    invest_returns: Array.isArray(investReturns?.invest_returns) ? investReturns.invest_returns : [],
     metadata: metadata?.metadata ?? {},
   }
 }
@@ -664,13 +718,21 @@ export type StructuredReportPayload = {
   }
   totals: {
     revenue: string
+    operational_expense?: string
+    other_expense?: string
     expense: string
+    ebit?: string
     net: string
+    invest_returns?: string
+    balance?: string
   }
   monthly: StructuredMonthlyRow[]
   rows: StructuredReportRow[]
   revenue: LegacyReportItem[]
+  operational_expenses: LegacyReportItem[]
+  other_expenses: LegacyReportItem[]
   expense: LegacyReportItem[]
+  invest_returns: LegacyReportItem[]
 }
 
 function normalizeStructuredReportPayload(payload: unknown, report: 'pnl' | 'cashflow'): StructuredReportPayload {
@@ -680,7 +742,10 @@ function normalizeStructuredReportPayload(payload: unknown, report: 'pnl' | 'cas
   const monthly = Array.isArray(obj.monthly) ? (obj.monthly as StructuredMonthlyRow[]) : []
   const rows = Array.isArray(obj.rows) ? (obj.rows as StructuredReportRow[]) : []
   const revenue = Array.isArray(obj.revenue) ? (obj.revenue as LegacyReportItem[]) : []
+  const operationalExpenses = Array.isArray(obj.operational_expenses) ? (obj.operational_expenses as LegacyReportItem[]) : []
+  const otherExpenses = Array.isArray(obj.other_expenses) ? (obj.other_expenses as LegacyReportItem[]) : []
   const expense = Array.isArray(obj.expense) ? (obj.expense as LegacyReportItem[]) : []
+  const investReturns = Array.isArray(obj.invest_returns) ? (obj.invest_returns as LegacyReportItem[]) : []
   return {
     report,
     metadata: {
@@ -691,13 +756,21 @@ function normalizeStructuredReportPayload(payload: unknown, report: 'pnl' | 'cas
     },
     totals: {
       revenue: String(totals.revenue ?? '0'),
+      operational_expense: totals.operational_expense != null ? String(totals.operational_expense) : undefined,
+      other_expense: totals.other_expense != null ? String(totals.other_expense) : undefined,
       expense: String(totals.expense ?? '0'),
+      ebit: totals.ebit != null ? String(totals.ebit) : undefined,
       net: String(totals.net ?? '0'),
+      invest_returns: totals.invest_returns != null ? String(totals.invest_returns) : undefined,
+      balance: totals.balance != null ? String(totals.balance) : undefined,
     },
     monthly,
     rows,
     revenue,
+    operational_expenses: operationalExpenses,
+    other_expenses: otherExpenses,
     expense,
+    invest_returns: investReturns,
   }
 }
 
@@ -812,6 +885,7 @@ export type CashRegisterDto = {
   sort_order: number
   is_default_for_currency: boolean
   wallet_id: number
+  wallet_is_visible_in_cash_section?: boolean
 }
 
 export async function getCashRegisters(): Promise<CashRegisterDto[]> {
@@ -967,6 +1041,7 @@ export type WalletDto = {
   currency: string
   opening_balance: string
   opening_balance_at: string | null
+  is_visible_in_cash_section: boolean
   cash_register_id: number | null
   bank_account_id: number | null
   corporate_card_account_id: number | null
@@ -974,7 +1049,11 @@ export type WalletDto = {
 
 export async function patchWallet(
   id: number,
-  payload: { opening_balance?: string; opening_balance_at?: string | null },
+  payload: {
+    opening_balance?: string
+    opening_balance_at?: string | null
+    is_visible_in_cash_section?: boolean
+  },
 ): Promise<WalletDto> {
   const res = await apiFetch(`/api/wallets/wallets/${id}/`, {
     method: 'PATCH',
