@@ -285,7 +285,7 @@ function buildLegacyMatrix(report: StructuredReportPayload | null, year: number 
     { key: 'section:operational-expense', label: 'Операционные расходы', kind: 'section', values: Array(12).fill(0), emphasize: true },
     ...operationalExpenseRows,
     { key: 'sum:operational-expense', label: 'Итого операционные расходы', kind: 'summary', values: operationalExpTotals, emphasize: true },
-    { key: 'sum:ebit', label: 'EBITDA', kind: 'summary', values: ebit, emphasize: true },
+    { key: 'sum:ebit', label: 'EBIT', kind: 'summary', values: ebit, emphasize: true },
     { key: 'section:other-expense', label: 'Прочие расходы', kind: 'section', values: Array(12).fill(0), emphasize: true },
     ...otherExpenseRows,
     { key: 'sum:other-expense', label: 'Итого прочие расходы', kind: 'summary', values: otherExpTotals, emphasize: true },
