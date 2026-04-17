@@ -193,24 +193,50 @@ def fetch_n8n_report_payload(*, tenant, user_id: int, endpoint: str, query_param
 
     revenue = payload_obj.get("revenue")
     expense = payload_obj.get("expense")
+    operational_expenses = payload_obj.get("operational_expenses")
+    other_expenses = payload_obj.get("other_expenses")
+    invest_returns = payload_obj.get("invest_returns")
     metadata = payload_obj.get("metadata")
     if not isinstance(revenue, list):
         revenue = []
     if not isinstance(expense, list):
         expense = []
+    if not isinstance(operational_expenses, list):
+        operational_expenses = []
+    if not isinstance(other_expenses, list):
+        other_expenses = []
+    if not isinstance(invest_returns, list):
+        invest_returns = []
     if not isinstance(metadata, dict):
         metadata = {}
 
+    # Backward compatibility with old n8n shape where all expenses were in one array.
+    if not operational_expenses and not other_expenses and expense:
+        other_expenses = expense
+
     revenue_rows = _normalize_rows(revenue, "revenue")
-    expense_rows = _normalize_rows(expense, "expense")
+    operational_expense_rows = _normalize_rows(operational_expenses, "expense")
+    other_expense_rows = _normalize_rows(other_expenses, "expense")
+    expense_rows = operational_expense_rows + other_expense_rows
+    invest_return_rows = _normalize_rows(invest_returns, "expense")
+    for row in invest_return_rows:
+        # Keep these rows distinguishable in UI while preserving source payload in `raw`.
+        row["category"] = "Выплаты по инвестициям"
     table_rows = sorted(
-        revenue_rows + expense_rows,
+        revenue_rows + expense_rows + invest_return_rows,
         key=lambda row: (row.get("date") or "", row.get("id") or ""),
         reverse=True,
     )
+    pnl_rows = revenue_rows + expense_rows
 
     total_revenue = sum((_to_decimal(x.get("amount")) for x in revenue_rows), start=Decimal("0"))
-    total_expense = sum((_to_decimal(x.get("amount")) for x in expense_rows), start=Decimal("0"))
+    total_operational_expense = sum((_to_decimal(x.get("amount")) for x in operational_expense_rows), start=Decimal("0"))
+    total_other_expense = sum((_to_decimal(x.get("amount")) for x in other_expense_rows), start=Decimal("0"))
+    total_expense = total_operational_expense + total_other_expense
+    total_invest_returns = sum((_to_decimal(x.get("amount")) for x in invest_return_rows), start=Decimal("0"))
+    total_ebit = total_revenue - total_operational_expense
+    total_net = total_ebit - total_other_expense
+    total_balance = total_net - total_invest_returns
 
     result = {
         "metadata": {
@@ -221,13 +247,21 @@ def fetch_n8n_report_payload(*, tenant, user_id: int, endpoint: str, query_param
         },
         "totals": {
             "revenue": str(total_revenue),
+            "operational_expense": str(total_operational_expense),
+            "other_expense": str(total_other_expense),
             "expense": str(total_expense),
-            "net": str(total_revenue - total_expense),
+            "ebit": str(total_ebit),
+            "net": str(total_net),
+            "invest_returns": str(total_invest_returns),
+            "balance": str(total_balance),
         },
-        "monthly": _calc_monthly(table_rows),
+        "monthly": _calc_monthly(pnl_rows),
         # Legacy-compatible fields for existing dashboard adapters.
         "revenue": revenue,
+        "operational_expenses": operational_expenses,
+        "other_expenses": other_expenses,
         "expense": expense,
+        "invest_returns": invest_returns,
         # Best-practice table payload.
         "rows": table_rows,
     }

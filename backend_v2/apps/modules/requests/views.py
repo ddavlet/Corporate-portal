@@ -37,6 +37,7 @@ from apps.modules.requests.models import (
     AutoRequestTemplate,
 )
 from apps.modules.vendors.models import Vendor
+from apps.modules.requests.amortization import build_amortization_schedule_rows
 from apps.modules.requests.serializers import (
     ApprovalSerializer,
     ApprovalFullContextSerializer,
@@ -711,6 +712,144 @@ class PortalRequestViewSet(viewsets.ModelViewSet):
             grouped[rid]["approvals"].append(UserRequestApprovalStepSerializer(row).data)
 
         return Response(list(grouped.values()))
+
+    def _parse_month_query(self, key: str) -> date | None:
+        raw = (self.request.query_params.get(key) or "").strip()
+        if not raw:
+            return None
+        # Accept YYYY-MM or YYYY-MM-DD
+        if len(raw) == 7:
+            raw = f"{raw}-01"
+        try:
+            d = date.fromisoformat(raw)
+        except ValueError as exc:
+            raise ValidationError({key: "Use YYYY-MM or YYYY-MM-DD format."}) from exc
+        return date(d.year, d.month, 1)
+
+    def _month_shift(self, month_anchor: date, delta_months: int) -> date:
+        total_months = month_anchor.year * 12 + (month_anchor.month - 1) + int(delta_months)
+        year, month_zero_based = divmod(total_months, 12)
+        return date(year, month_zero_based + 1, 1)
+
+    @action(detail=False, methods=["get"], url_path="audit-month-shifts")
+    def audit_month_shifts(self, request):
+        """
+        Audit "non-standard" request expenses:
+        - billing (accrual) month != expense (posting) month
+        - or amortized requests (amortization_months > 1) touching selected/neighbor months.
+        """
+        tenant = getattr(request, "tenant", None)
+        if not tenant:
+            raise ValidationError({"detail": "Unknown tenant."})
+
+        month = self._parse_month_query("month")
+        if not month:
+            raise ValidationError({"month": "This query param is required. Use YYYY-MM."})
+
+        prev_month = self._month_shift(month, -1)
+        next_month = self._month_shift(month, +1)
+        after_next = self._month_shift(month, +2)
+
+        window_months = (prev_month, month, next_month)
+        window_keys = {(m.year, m.month) for m in window_months}
+
+        # Candidate selection (DB-level): anything billed in window, posted in window, or amortized.
+        month_billing_q = Q(billing_date__gte=prev_month, billing_date__lt=after_next)
+        month_expense_q = Q()
+        for y, m in sorted(window_keys):
+            month_expense_q |= Q(expense_year=y, expense_month=m)
+        amortized_q = Q(amortization_months__gt=1, amortization_start_date__lt=after_next)
+
+        qs = (
+            self.get_queryset()
+            .filter(month_billing_q | month_expense_q | amortized_q)
+            .select_related("requester", "vendor_ref")
+            .order_by("-submitted_at", "-id")
+        )
+
+        def ym_key(d: date | None) -> str | None:
+            if not d:
+                return None
+            return f"{d.year:04d}-{d.month:02d}"
+
+        def expense_month_of(req: Request) -> date | None:
+            y = getattr(req, "expense_year", None)
+            m = getattr(req, "expense_month", None)
+            if not y or not m:
+                return None
+            try:
+                return date(int(y), int(m), 1)
+            except ValueError:
+                return None
+
+        def billing_month_of(req: Request) -> date | None:
+            bd = getattr(req, "billing_date", None)
+            if not isinstance(bd, date):
+                return None
+            return date(bd.year, bd.month, 1)
+
+        def amort_amount_for(req: Request, month_first: date) -> str | None:
+            if int(getattr(req, "amortization_months", 1) or 1) <= 1:
+                return None
+            mkey = ym_key(month_first)
+            for row in build_amortization_schedule_rows(req):
+                if (row.get("period_month") or "")[:7] == mkey:
+                    return row.get("monthly_amount")
+            return None
+
+        rows: list[dict] = []
+        for req in qs:
+            b_month = billing_month_of(req)
+            e_month = expense_month_of(req)
+            is_amortized = int(getattr(req, "amortization_months", 1) or 1) > 1
+
+            shifted = bool(b_month and e_month and b_month != e_month)
+            touches_window = False
+            if shifted:
+                touches_window = (b_month in window_months) or (e_month in window_months)
+            if is_amortized:
+                touches_window = touches_window or any(
+                    amort_amount_for(req, m) is not None for m in window_months
+                )
+
+            if not touches_window:
+                continue
+            if not shifted and not is_amortized:
+                continue
+
+            rows.append(
+                {
+                    "request_id": req.id,
+                    "vendor": (getattr(req, "vendor", "") or "").strip(),
+                    "vendor_ref_id": getattr(req, "vendor_ref_id", None),
+                    "category": (getattr(req, "category", "") or "").strip(),
+                    "amount": str(getattr(req, "amount", "") or "0"),
+                    "currency": getattr(req, "currency", None),
+                    "payment_type": getattr(req, "payment_type", None),
+                    "status": getattr(req, "status", None),
+                    "submitted_at": getattr(req, "submitted_at", None),
+                    "billing_month": ym_key(b_month),
+                    "expense_month": ym_key(e_month),
+                    "is_month_shifted": shifted,
+                    "amortization_months": int(getattr(req, "amortization_months", 1) or 1),
+                    "amortization_start_month": ym_key(getattr(req, "amortization_start_date", None)),
+                    "amort_prev": amort_amount_for(req, prev_month),
+                    "amort_current": amort_amount_for(req, month),
+                    "amort_next": amort_amount_for(req, next_month),
+                }
+            )
+
+        return Response(
+            {
+                "months": {
+                    "prev": ym_key(prev_month),
+                    "current": ym_key(month),
+                    "next": ym_key(next_month),
+                },
+                "rows": rows,
+            },
+            status=status.HTTP_200_OK,
+        )
 
 
 class FileGatewayView(APIView):

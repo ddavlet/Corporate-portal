@@ -610,6 +610,7 @@ export function RequestsPage() {
           Список заявок
         </Typography.Title>
         <Space>
+          <Button onClick={() => navigate('/requests/audit')}>Аудит месяцев</Button>
           <Button onClick={() => navigate('/requests/auto-config')}>Автозаявки</Button>
           <Button type="primary" icon={<FileAddOutlined />} onClick={() => navigate('/requests/new')}>
             Новая заявка

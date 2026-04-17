@@ -231,6 +231,7 @@ class SettingsAccessView(APIView):
         )
         return Response(
             {
+                "tenant_name": tenant.name,
                 "can_open_settings": can_open_settings,
                 "can_open_admin": TenantUserRole.ROLE_ADMIN in roles,
                 "can_manage_tenant_settings": TenantUserRole.ROLE_ADMIN in roles,

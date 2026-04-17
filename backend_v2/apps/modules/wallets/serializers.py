@@ -6,6 +6,9 @@ from apps.modules.wallets.models import BankAccount, CashRegister, CorporateCard
 
 class CashRegisterSerializer(serializers.ModelSerializer):
     wallet_id = serializers.IntegerField(source="wallet.id", read_only=True)
+    wallet_is_visible_in_cash_section = serializers.BooleanField(
+        source="wallet.is_visible_in_cash_section", read_only=True
+    )
 
     class Meta:
         model = CashRegister
@@ -20,6 +23,7 @@ class CashRegisterSerializer(serializers.ModelSerializer):
             "sort_order",
             "is_default_for_currency",
             "wallet_id",
+            "wallet_is_visible_in_cash_section",
         ]
         read_only_fields = ["id", "tenant", "wallet_id"]
 
@@ -126,6 +130,7 @@ class WalletSerializer(serializers.ModelSerializer):
             "currency",
             "opening_balance",
             "opening_balance_at",
+            "is_visible_in_cash_section",
             "cash_register_id",
             "bank_account_id",
             "corporate_card_account_id",
@@ -141,7 +146,7 @@ class WalletSerializer(serializers.ModelSerializer):
         ]
 
     def update(self, instance, validated_data):
-        allowed = {"opening_balance", "opening_balance_at"}
+        allowed = {"opening_balance", "opening_balance_at", "is_visible_in_cash_section"}
         extra = set(validated_data.keys()) - allowed
         if extra:
             raise serializers.ValidationError({k: "Read-only field." for k in extra})

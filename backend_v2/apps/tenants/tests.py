@@ -170,6 +170,7 @@ class TenantIntegrationConfigApiTests(APITestCase):
         # requester: no settings
         requester_res = self.client.get(url, **self._auth_headers(self.user))
         self.assertEqual(requester_res.status_code, 200, requester_res.content)
+        self.assertEqual(requester_res.data["tenant_name"], self.tenant.name)
         self.assertFalse(requester_res.data["can_open_settings"])
         self.assertFalse(requester_res.data["can_open_admin"])
         self.assertFalse(requester_res.data["can_manage_tenant_settings"])
