@@ -179,7 +179,13 @@ function resolveRequestIdFromPnlExpenseRow(row: StructuredReportRow): number | n
 function buildLegacyMatrix(report: StructuredReportPayload | null, year: number | null): { months: number[]; rows: MatrixRow[]; years: number[] } {
   if (!report) return { months: [], rows: [], years: [] }
   const yearsSet = new Set<number>()
-  for (const row of [...(report.revenue ?? []), ...(report.expense ?? [])]) {
+  for (const row of [
+    ...(report.revenue ?? []),
+    ...(report.operational_expenses ?? []),
+    ...(report.other_expenses ?? []),
+    ...(report.expense ?? []),
+    ...(report.invest_returns ?? []),
+  ]) {
     const ref = parseMonthRef(row.date)
     if (ref) yearsSet.add(ref.year)
   }
@@ -188,9 +194,12 @@ function buildLegacyMatrix(report: StructuredReportPayload | null, year: number 
   const months = Array.from({ length: 12 }, (_, i) => i)
 
   const revByCat = new Map<string, number[]>()
-  const expByCat = new Map<string, number[]>()
+  const operationalExpByCat = new Map<string, number[]>()
+  const otherExpByCat = new Map<string, number[]>()
   const revTotals = Array(12).fill(0) as number[]
-  const expTotals = Array(12).fill(0) as number[]
+  const operationalExpTotals = Array(12).fill(0) as number[]
+  const otherExpTotals = Array(12).fill(0) as number[]
+  const investReturnsTotals = Array(12).fill(0) as number[]
 
   for (const row of report.revenue ?? []) {
     const ref = parseMonthRef(row.date)
@@ -203,15 +212,41 @@ function buildLegacyMatrix(report: StructuredReportPayload | null, year: number 
     revByCat.set(category, bucket)
   }
 
-  for (const row of report.expense ?? []) {
+  const operationalSource = (report.operational_expenses?.length ?? 0) > 0 ? report.operational_expenses : []
+  const otherSource =
+    (report.other_expenses?.length ?? 0) > 0
+      ? report.other_expenses
+      : (report.operational_expenses?.length ?? 0) === 0 && (report.expense?.length ?? 0) > 0
+        ? report.expense
+        : []
+
+  for (const row of operationalSource) {
     const ref = parseMonthRef(row.date)
     if (!ref || ref.year !== effectiveYear) continue
     const amount = roundToCents(Math.abs(parseAmount(row.amount ?? row.kredit)))
     const category = categoryFromItem(row)
-    const bucket = expByCat.get(category) ?? Array(12).fill(0)
+    const bucket = operationalExpByCat.get(category) ?? Array(12).fill(0)
     bucket[ref.monthIndex] = roundToCents(bucket[ref.monthIndex] - amount)
-    expTotals[ref.monthIndex] = roundToCents(expTotals[ref.monthIndex] - amount)
-    expByCat.set(category, bucket)
+    operationalExpTotals[ref.monthIndex] = roundToCents(operationalExpTotals[ref.monthIndex] - amount)
+    operationalExpByCat.set(category, bucket)
+  }
+
+  for (const row of otherSource) {
+    const ref = parseMonthRef(row.date)
+    if (!ref || ref.year !== effectiveYear) continue
+    const amount = roundToCents(Math.abs(parseAmount(row.amount ?? row.kredit)))
+    const category = categoryFromItem(row)
+    const bucket = otherExpByCat.get(category) ?? Array(12).fill(0)
+    bucket[ref.monthIndex] = roundToCents(bucket[ref.monthIndex] - amount)
+    otherExpTotals[ref.monthIndex] = roundToCents(otherExpTotals[ref.monthIndex] - amount)
+    otherExpByCat.set(category, bucket)
+  }
+
+  for (const row of report.invest_returns ?? []) {
+    const ref = parseMonthRef(row.date)
+    if (!ref || ref.year !== effectiveYear) continue
+    const amount = roundToCents(Math.abs(parseAmount(row.amount ?? row.kredit)))
+    investReturnsTotals[ref.monthIndex] = roundToCents(investReturnsTotals[ref.monthIndex] - amount)
   }
 
   const sortByAbsTotalDesc = (a: [string, number[]], b: [string, number[]]) => {
@@ -227,12 +262,18 @@ function buildLegacyMatrix(report: StructuredReportPayload | null, year: number 
     .sort(sortByAbsTotalDesc)
     .map(([label, values]) => ({ key: `rev:${label}`, label, kind: 'revenue', values }))
 
-  const expenseRows: MatrixRow[] = Array.from(expByCat.entries())
+  const operationalExpenseRows: MatrixRow[] = Array.from(operationalExpByCat.entries())
     .sort(sortCategoryAz)
-    .map(([label, values]) => ({ key: `exp:${label}`, label, kind: 'expense', values }))
+    .map(([label, values]) => ({ key: `exp:op:${label}`, label, kind: 'expense', values }))
 
-  const net = revTotals.map((v, idx) => roundToCents(v + expTotals[idx]))
-  const cumulative = net.reduce((acc: number[], current, idx) => {
+  const otherExpenseRows: MatrixRow[] = Array.from(otherExpByCat.entries())
+    .sort(sortCategoryAz)
+    .map(([label, values]) => ({ key: `exp:other:${label}`, label, kind: 'expense', values }))
+
+  const ebit = revTotals.map((v, idx) => roundToCents(v + operationalExpTotals[idx]))
+  const net = ebit.map((v, idx) => roundToCents(v + otherExpTotals[idx]))
+  const balance = net.map((v, idx) => roundToCents(v + investReturnsTotals[idx]))
+  const cumulative = balance.reduce((acc: number[], current, idx) => {
     acc[idx] = roundToCents((acc[idx - 1] ?? 0) + current)
     return acc
   }, Array(12).fill(0))
@@ -241,11 +282,23 @@ function buildLegacyMatrix(report: StructuredReportPayload | null, year: number 
     { key: 'section:income', label: 'Доходы', kind: 'section', values: Array(12).fill(0), emphasize: true },
     ...revenueRows,
     { key: 'sum:income', label: 'Итого доходы', kind: 'summary', values: revTotals, emphasize: true },
-    { key: 'section:expense', label: 'Расходы', kind: 'section', values: Array(12).fill(0), emphasize: true },
-    ...expenseRows,
-    { key: 'sum:expense', label: 'Итого расходы', kind: 'summary', values: expTotals, emphasize: true },
+    { key: 'section:operational-expense', label: 'Операционные расходы', kind: 'section', values: Array(12).fill(0), emphasize: true },
+    ...operationalExpenseRows,
+    { key: 'sum:operational-expense', label: 'Итого операционные расходы', kind: 'summary', values: operationalExpTotals, emphasize: true },
+    { key: 'sum:ebit', label: 'EBITDA', kind: 'summary', values: ebit, emphasize: true },
+    { key: 'section:other-expense', label: 'Прочие расходы', kind: 'section', values: Array(12).fill(0), emphasize: true },
+    ...otherExpenseRows,
+    { key: 'sum:other-expense', label: 'Итого прочие расходы', kind: 'summary', values: otherExpTotals, emphasize: true },
     { key: 'sum:net', label: 'Чистая прибыль', kind: 'summary', values: net, emphasize: true },
-    { key: 'sum:cumulative', label: 'Суммарная прибыль (с стартового месяца)', kind: 'summary', values: cumulative, emphasize: true },
+    {
+      key: 'sum:invest_returns',
+      label: 'Выплаты по инвестициям',
+      kind: 'summary',
+      values: investReturnsTotals,
+      emphasize: true,
+    },
+    { key: 'sum:balance', label: 'Остаток', kind: 'summary', values: balance, emphasize: true },
+    { key: 'sum:cumulative', label: 'Суммарный остаток (с стартового месяца)', kind: 'summary', values: cumulative, emphasize: true },
   ]
 
   return { months, rows, years }
@@ -441,7 +494,9 @@ export function ReportsPage() {
           if (row.kind === 'revenue') return { direction: 'revenue', category: row.label }
           if (row.kind === 'expense') return { direction: 'expense', category: row.label }
           if (row.key === 'sum:income') return { direction: 'revenue', category: null }
-          if (row.key === 'sum:expense') return { direction: 'expense', category: null }
+          if (row.key === 'sum:operational-expense') return { direction: 'expense', category: null }
+          if (row.key === 'sum:other-expense') return { direction: 'expense', category: null }
+          if (row.key === 'sum:invest_returns') return { direction: null, category: 'Выплаты по инвестициям' }
           return { direction: null, category: null }
         }
 
@@ -533,7 +588,11 @@ export function ReportsPage() {
                     openFilteredOperations('revenue', null)
                     return
                   }
-                  if (row.kind === 'section' && row.label === 'Расходы') {
+                  if (row.kind === 'section' && row.label === 'Операционные расходы') {
+                    openFilteredOperations('expense', null)
+                    return
+                  }
+                  if (row.kind === 'section' && row.label === 'Прочие расходы') {
                     openFilteredOperations('expense', null)
                     return
                   }
@@ -541,8 +600,16 @@ export function ReportsPage() {
                     openFilteredOperations('revenue', null)
                     return
                   }
-                  if (row.key === 'sum:expense') {
+                  if (row.key === 'sum:operational-expense') {
                     openFilteredOperations('expense', null)
+                    return
+                  }
+                  if (row.key === 'sum:other-expense') {
+                    openFilteredOperations('expense', null)
+                    return
+                  }
+                  if (row.key === 'sum:invest_returns') {
+                    openFilteredOperations(null, 'Выплаты по инвестициям')
                     return
                   }
                 },

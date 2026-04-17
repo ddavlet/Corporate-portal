@@ -642,18 +642,33 @@ export type LegacyReportItem = {
 
 export type LegacyReportPayload = {
   revenue: LegacyReportItem[]
+  operational_expenses: LegacyReportItem[]
+  other_expenses: LegacyReportItem[]
   expense: LegacyReportItem[]
+  invest_returns: LegacyReportItem[]
   metadata?: Record<string, unknown>
 }
 
 function normalizeLegacyReportPayload(payload: unknown): LegacyReportPayload {
   const list = Array.isArray(payload) ? payload : payload && typeof payload === 'object' ? [payload] : []
   const revenue = list.find((x) => x && typeof x === 'object' && 'revenue' in x) as { revenue?: LegacyReportItem[] } | undefined
+  const operationalExpenses = list.find((x) => x && typeof x === 'object' && 'operational_expenses' in x) as
+    | { operational_expenses?: LegacyReportItem[] }
+    | undefined
+  const otherExpenses = list.find((x) => x && typeof x === 'object' && 'other_expenses' in x) as
+    | { other_expenses?: LegacyReportItem[] }
+    | undefined
   const expense = list.find((x) => x && typeof x === 'object' && 'expense' in x) as { expense?: LegacyReportItem[] } | undefined
+  const investReturns = list.find((x) => x && typeof x === 'object' && 'invest_returns' in x) as
+    | { invest_returns?: LegacyReportItem[] }
+    | undefined
   const metadata = list.find((x) => x && typeof x === 'object' && 'metadata' in x) as { metadata?: Record<string, unknown> } | undefined
   return {
     revenue: Array.isArray(revenue?.revenue) ? revenue.revenue : [],
+    operational_expenses: Array.isArray(operationalExpenses?.operational_expenses) ? operationalExpenses.operational_expenses : [],
+    other_expenses: Array.isArray(otherExpenses?.other_expenses) ? otherExpenses.other_expenses : [],
     expense: Array.isArray(expense?.expense) ? expense.expense : [],
+    invest_returns: Array.isArray(investReturns?.invest_returns) ? investReturns.invest_returns : [],
     metadata: metadata?.metadata ?? {},
   }
 }
@@ -701,13 +716,21 @@ export type StructuredReportPayload = {
   }
   totals: {
     revenue: string
+    operational_expense?: string
+    other_expense?: string
     expense: string
+    ebit?: string
     net: string
+    invest_returns?: string
+    balance?: string
   }
   monthly: StructuredMonthlyRow[]
   rows: StructuredReportRow[]
   revenue: LegacyReportItem[]
+  operational_expenses: LegacyReportItem[]
+  other_expenses: LegacyReportItem[]
   expense: LegacyReportItem[]
+  invest_returns: LegacyReportItem[]
 }
 
 function normalizeStructuredReportPayload(payload: unknown, report: 'pnl' | 'cashflow'): StructuredReportPayload {
@@ -717,7 +740,10 @@ function normalizeStructuredReportPayload(payload: unknown, report: 'pnl' | 'cas
   const monthly = Array.isArray(obj.monthly) ? (obj.monthly as StructuredMonthlyRow[]) : []
   const rows = Array.isArray(obj.rows) ? (obj.rows as StructuredReportRow[]) : []
   const revenue = Array.isArray(obj.revenue) ? (obj.revenue as LegacyReportItem[]) : []
+  const operationalExpenses = Array.isArray(obj.operational_expenses) ? (obj.operational_expenses as LegacyReportItem[]) : []
+  const otherExpenses = Array.isArray(obj.other_expenses) ? (obj.other_expenses as LegacyReportItem[]) : []
   const expense = Array.isArray(obj.expense) ? (obj.expense as LegacyReportItem[]) : []
+  const investReturns = Array.isArray(obj.invest_returns) ? (obj.invest_returns as LegacyReportItem[]) : []
   return {
     report,
     metadata: {
@@ -728,13 +754,21 @@ function normalizeStructuredReportPayload(payload: unknown, report: 'pnl' | 'cas
     },
     totals: {
       revenue: String(totals.revenue ?? '0'),
+      operational_expense: totals.operational_expense != null ? String(totals.operational_expense) : undefined,
+      other_expense: totals.other_expense != null ? String(totals.other_expense) : undefined,
       expense: String(totals.expense ?? '0'),
+      ebit: totals.ebit != null ? String(totals.ebit) : undefined,
       net: String(totals.net ?? '0'),
+      invest_returns: totals.invest_returns != null ? String(totals.invest_returns) : undefined,
+      balance: totals.balance != null ? String(totals.balance) : undefined,
     },
     monthly,
     rows,
     revenue,
+    operational_expenses: operationalExpenses,
+    other_expenses: otherExpenses,
     expense,
+    invest_returns: investReturns,
   }
 }
 
