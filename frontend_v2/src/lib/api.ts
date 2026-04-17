@@ -260,6 +260,7 @@ export async function getAccessMatrix(): Promise<AccessMatrixResponse> {
 }
 
 export type SettingsAccessResponse = {
+  tenant_name?: string
   can_open_settings: boolean
   can_open_admin: boolean
   can_manage_tenant_settings: boolean
@@ -278,6 +279,7 @@ export async function getSettingsAccess(): Promise<SettingsAccessResponse> {
   if (!res.ok) throw new Error(await parseErrorBody(res))
   const json = (await res.json().catch(() => null)) as Partial<SettingsAccessResponse> | null
   return {
+    tenant_name: typeof json?.tenant_name === 'string' ? json.tenant_name : undefined,
     can_open_settings: Boolean(json?.can_open_settings),
     can_open_admin: Boolean(json?.can_open_admin),
     can_manage_tenant_settings: Boolean(json?.can_manage_tenant_settings),
