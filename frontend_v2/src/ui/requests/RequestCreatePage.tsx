@@ -11,6 +11,7 @@ import {
   Select,
   Space,
   Steps,
+  Switch,
   Typography,
   message,
 } from 'antd'
@@ -69,6 +70,8 @@ export function RequestCreatePage({ requestsBasePath = '/requests', variant = 'p
   const [urgency, setUrgency] = useState('Обычно')
   const [paymentPurpose, setPaymentPurpose] = useState<string | null>(null)
   const [billingDate, setBillingDate] = useState<Dayjs | null>(() => monthStartTashkent())
+  const [amortizationEnabled, setAmortizationEnabled] = useState(false)
+  const [amortizationMonths, setAmortizationMonths] = useState(2)
   const [attachments, setAttachments] = useState<File[]>([])
 
   const [submitting, setSubmitting] = useState(false)
@@ -270,6 +273,7 @@ export function RequestCreatePage({ requestsBasePath = '/requests', variant = 'p
         urgency,
         billing_date: billingDate.startOf('month').format('YYYY-MM-DD'),
         status: 'DRAFT',
+        amortization_months: amortizationEnabled ? amortizationMonths : 1,
       }
       if (isTenantAdmin && requesterId != null) {
         payload.requester = requesterId
@@ -373,6 +377,8 @@ export function RequestCreatePage({ requestsBasePath = '/requests', variant = 'p
                 setRequesterId(null)
                 setVendorRefId(null)
                 setPaymentPurpose(null)
+                setAmortizationEnabled(false)
+                setAmortizationMonths(2)
               }}
               options={formOptions.map((p) => ({ value: p.payment_type, label: p.payment_type }))}
               getPopupContainer={isTg ? tgPopupContainer : undefined}
@@ -475,6 +481,34 @@ export function RequestCreatePage({ requestsBasePath = '/requests', variant = 'p
                     inputReadOnly
                   />
                 </div>
+                <div className="tg-field-block">
+                  <Space align="center" size="middle">
+                    <Typography.Text strong>Амортизировать расход</Typography.Text>
+                    <Switch
+                      checked={amortizationEnabled}
+                      onChange={(checked) => {
+                        setAmortizationEnabled(checked)
+                        if (!checked) setAmortizationMonths(2)
+                      }}
+                    />
+                  </Space>
+                </div>
+                {amortizationEnabled ? (
+                  <div className="tg-field-block">
+                    <Typography.Text strong style={labelBlockAboveField}>
+                      Срок амортизации (мес.)
+                    </Typography.Text>
+                    <Select
+                      size="large"
+                      style={{ display: 'block', width: '100%' }}
+                      value={amortizationMonths}
+                      onChange={setAmortizationMonths}
+                      options={[2, 3, 4, 5, 6].map((m) => ({ value: m, label: `${m}` }))}
+                      getPopupContainer={tgPopupContainer}
+                      popupMatchSelectWidth
+                    />
+                  </div>
+                ) : null}
               </>
             ) : (
               <Space wrap size={16}>
@@ -528,6 +562,31 @@ export function RequestCreatePage({ requestsBasePath = '/requests', variant = 'p
                     disabledDate={(current) => !current || !isAllowedBillingMonth(current)}
                   />
                 </div>
+                <div>
+                  <Typography.Text strong style={labelBlockAboveField}>
+                    Амортизировать расход
+                  </Typography.Text>
+                  <Switch
+                    checked={amortizationEnabled}
+                    onChange={(checked) => {
+                      setAmortizationEnabled(checked)
+                      if (!checked) setAmortizationMonths(2)
+                    }}
+                  />
+                </div>
+                {amortizationEnabled ? (
+                  <div>
+                    <Typography.Text strong style={labelBlockAboveField}>
+                      Срок амортизации (мес.)
+                    </Typography.Text>
+                    <Select
+                      style={{ display: 'block', width: 180 }}
+                      value={amortizationMonths}
+                      onChange={setAmortizationMonths}
+                      options={[2, 3, 4, 5, 6].map((m) => ({ value: m, label: `${m}` }))}
+                    />
+                  </div>
+                ) : null}
               </Space>
             )}
             {purposeOptions.length > 0 ? (

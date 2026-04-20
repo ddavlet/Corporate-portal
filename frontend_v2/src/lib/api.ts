@@ -1493,6 +1493,7 @@ export interface PortalRequestCreateBody {
   requester?: number
   payment_purpose?: string
   vendor_ref?: number
+  amortization_months?: number
 }
 
 /** Insert a new request only (POST create). No update. */

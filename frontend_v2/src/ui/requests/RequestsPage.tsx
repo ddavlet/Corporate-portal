@@ -51,6 +51,8 @@ type RequestModalEditDraft = {
   payment_purpose: string
   billing_date: Dayjs | null
   requester: string
+  amortization_enabled: boolean
+  amortization_months: number
 }
 
 type RequestsPagePreferences = {
@@ -395,6 +397,7 @@ export function RequestsPage() {
         payment_purpose: editDraft.payment_purpose.trim() || undefined,
         requester: editDraft.requester ? Number(editDraft.requester) : null,
         billing_date: editDraft.billing_date ? editDraft.billing_date.startOf('month').format('YYYY-MM-DD') : undefined,
+        amortization_months: editDraft.amortization_enabled ? editDraft.amortization_months : 1,
       }
       const res = await apiFetch(`/api/requests/${selectedRow.id}/`, {
         method: 'PATCH',
@@ -419,6 +422,8 @@ export function RequestsPage() {
         payment_purpose: payload.payment_purpose || '',
         requester: payload.requester,
         billing_date: payload.billing_date || selectedDetail.billing_date,
+        amortization_months: payload.amortization_months,
+        is_amortized: payload.amortization_months > 1,
       }
       setSelectedDetail(nextDetail)
       setSelectedRow((prev) =>
@@ -437,6 +442,8 @@ export function RequestsPage() {
               payment_purpose: payload.payment_purpose || '',
               requester: payload.requester,
               billing_date: payload.billing_date || prev.billing_date,
+              amortization_months: payload.amortization_months,
+              is_amortized: payload.amortization_months > 1,
             }
           : prev,
       )
@@ -457,6 +464,8 @@ export function RequestsPage() {
                 payment_purpose: payload.payment_purpose || '',
                 requester: payload.requester,
                 billing_date: payload.billing_date || row.billing_date,
+                amortization_months: payload.amortization_months,
+                is_amortized: payload.amortization_months > 1,
               }
             : row,
         ),
@@ -790,6 +799,11 @@ export function RequestsPage() {
                       payment_purpose: selectedDetail.payment_purpose || '',
                       billing_date: selectedDetail.billing_date ? dayjs(selectedDetail.billing_date) : null,
                       requester: selectedDetail.requester != null ? String(selectedDetail.requester) : '',
+                      amortization_enabled: Number(selectedDetail.amortization_months || 1) > 1,
+                      amortization_months:
+                        Number(selectedDetail.amortization_months || 1) > 1
+                          ? Number(selectedDetail.amortization_months || 2)
+                          : 2,
                     })
                     setEditOpen(true)
                   }}
@@ -919,6 +933,33 @@ export function RequestsPage() {
               allowClear
               showSearch
             />
+          </Space>
+          <Space wrap align="center">
+            <Typography.Text style={{ marginBottom: 0 }}>Амортизировать расход</Typography.Text>
+            <Switch
+              checked={Boolean(editDraft?.amortization_enabled)}
+              onChange={(checked) =>
+                setEditDraft((prev) =>
+                  prev
+                    ? {
+                        ...prev,
+                        amortization_enabled: checked,
+                        amortization_months: checked ? prev.amortization_months : 2,
+                      }
+                    : prev,
+                )
+              }
+            />
+            {editDraft?.amortization_enabled ? (
+              <Select
+                style={{ width: 180 }}
+                value={editDraft.amortization_months}
+                onChange={(value) =>
+                  setEditDraft((prev) => (prev ? { ...prev, amortization_months: value } : prev))
+                }
+                options={[2, 3, 4, 5, 6].map((m) => ({ value: m, label: `${m}` }))}
+              />
+            ) : null}
           </Space>
           <Button type="primary" loading={editSaving} onClick={() => void saveDetailEdit()}>
             Сохранить
