@@ -2265,6 +2265,26 @@ class DraftRequestPatchSubmitTests(APITestCase):
         req = Request.objects.get(pk=res.data["id"])
         self.assertEqual(req.amortization_months, 6)
 
+    def test_create_rejects_amortization_months_above_six(self):
+        self.client.force_authenticate(self.requester)
+        res = self.client.post(
+            "/api/requests/",
+            {
+                "title": "Оборудование",
+                "description": "",
+                "amount": 100,
+                "currency": "UZS",
+                "payment_type": "Наличные",
+                "urgency": "Обычно",
+                "billing_date": "2026-02-20",
+                "amortization_months": 7,
+            },
+            format="json",
+            HTTP_HOST=self.host,
+        )
+        self.assertEqual(res.status_code, 400, res.content)
+        self.assertIn("amortization_months", res.data)
+
     def test_retrieve_returns_amortization_schedule(self):
         req = Request.objects.create(
             tenant=self.tenant,
@@ -2308,6 +2328,37 @@ class DraftRequestPatchSubmitTests(APITestCase):
         req.refresh_from_db()
         self.assertEqual(req.billing_date, date(2026, 3, 20))
         self.assertEqual(req.amortization_start_date, date(2026, 3, 1))
+
+    def test_patch_can_disable_amortization_by_setting_one_month(self):
+        req = Request.objects.create(
+            tenant=self.tenant,
+            created_by=self.requester,
+            requester=self.requester,
+            title="Amortized request",
+            description="",
+            amount=Decimal("300"),
+            currency="UZS",
+            payment_type="Наличные",
+            urgency="Обычно",
+            billing_date=date(2026, 2, 20),
+            amortization_months=6,
+            amortization_start_date=date(2026, 2, 1),
+            status=Request.STATUS_DRAFT,
+            submitted_at=timezone.now(),
+            company_payer="Co",
+        )
+        self.client.force_authenticate(self.requester)
+        res = self.client.patch(
+            f"/api/requests/{req.id}/",
+            {"amortization_months": 1},
+            format="json",
+            HTTP_HOST=self.host,
+        )
+        self.assertEqual(res.status_code, 200, res.content)
+        self.assertEqual(res.data["amortization_months"], 1)
+        self.assertFalse(res.data["is_amortized"])
+        req.refresh_from_db()
+        self.assertEqual(req.amortization_months, 1)
 
     @patch("apps.modules.requests.views.dispatch_pending_approvals", return_value=0)
     def test_submit_for_approval_creates_approvals(self, _mock_dispatch):
