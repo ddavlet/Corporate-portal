@@ -19,6 +19,7 @@ class CanWriteVendorDirectory(BasePermission):
             user=request.user,
             role__in=(
                 TenantUserRole.ROLE_ADMIN,
+                TenantUserRole.ROLE_DIRECTOR,
                 TenantUserRole.ROLE_CASHIER,
                 TenantUserRole.ROLE_ACCOUNTANT,
             ),
