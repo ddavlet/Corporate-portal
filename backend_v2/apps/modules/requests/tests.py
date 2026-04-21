@@ -2433,7 +2433,11 @@ class DraftRequestPatchSubmitTests(APITestCase):
         self.assertEqual(payload["notification_kind"], "draft_needs_amount")
         self.assertEqual(payload["chat_id"], 123)
         self.assertEqual(payload["template_id"], 77)
-        self.assertIn("/requests/auto-config?template_id=77", payload["template_url"])
+        self.assertEqual(
+            payload["template_url"],
+            f"https://{self.tenant.subdomain}.example.com/requests/auto-config?template_id=77",
+        )
         self.assertIn("кнопкой в этом сообщении", payload["message"])
+        self.assertEqual(payload["draft_url"], f"https://{self.tenant.subdomain}.example.com/requests/{req.id}")
 
 

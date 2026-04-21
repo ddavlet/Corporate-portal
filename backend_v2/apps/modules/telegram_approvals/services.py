@@ -113,16 +113,22 @@ def _report_bridge_error(
 
 
 def build_request_draft_public_url(*, request_obj: Request) -> str:
-    base = (getattr(settings, "REQUESTS_PORTAL_PUBLIC_BASE_URL", "") or "").strip().rstrip("/")
+    tenant = getattr(request_obj, "tenant", None)
+    subdomain = (getattr(tenant, "subdomain", "") or "").strip()
+    base_domain = (getattr(settings, "BASE_DOMAIN", "") or "").strip().lower().lstrip(".")
+    base = f"https://{subdomain}.{base_domain}" if subdomain and base_domain else ""
     if not base:
         return ""
-    return f"{base.rstrip('/')}/requests/{request_obj.pk}"
+    return f"{base}/requests/{request_obj.pk}"
 
 
-def build_auto_request_template_public_url(*, template_id: int | None) -> str:
+def build_auto_request_template_public_url(*, request_obj: Request, template_id: int | None) -> str:
     if not template_id:
         return ""
-    base = (getattr(settings, "REQUESTS_PORTAL_PUBLIC_BASE_URL", "") or "").strip().rstrip("/")
+    tenant = getattr(request_obj, "tenant", None)
+    subdomain = (getattr(tenant, "subdomain", "") or "").strip()
+    base_domain = (getattr(settings, "BASE_DOMAIN", "") or "").strip().lower().lstrip(".")
+    base = f"https://{subdomain}.{base_domain}" if subdomain and base_domain else ""
     if not base:
         return ""
     return f"{base}/requests/auto-config?template_id={template_id}"
@@ -140,7 +146,7 @@ def dispatch_draft_request_notification(
     settings_obj = get_requests_telegram_integration_settings(tenant=request_obj.tenant)
     action = (settings_obj.draft_notification_action or "").strip() or "send_draft_notification"
     draft_url = build_request_draft_public_url(request_obj=request_obj)
-    template_url = build_auto_request_template_public_url(template_id=template_id)
+    template_url = build_auto_request_template_public_url(request_obj=request_obj, template_id=template_id)
     title = escape(str(request_obj.title or ""))
     billing_month = escape(_format_billing_month(request_obj))
     url_part = ""
