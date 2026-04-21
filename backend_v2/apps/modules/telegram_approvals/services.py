@@ -119,7 +119,18 @@ def build_request_draft_public_url(*, request_obj: Request) -> str:
     return f"{base.rstrip('/')}/requests/{request_obj.pk}"
 
 
-def dispatch_draft_request_notification(*, request_obj: Request, chat_id: int | None) -> bool:
+def build_auto_request_template_public_url(*, template_id: int | None) -> str:
+    if not template_id:
+        return ""
+    base = (getattr(settings, "REQUESTS_PORTAL_PUBLIC_BASE_URL", "") or "").strip().rstrip("/")
+    if not base:
+        return ""
+    return f"{base}/requests/auto-config?template_id={template_id}"
+
+
+def dispatch_draft_request_notification(
+    *, request_obj: Request, chat_id: int | None, template_id: int | None = None
+) -> bool:
     """
     Outbound n8n/Telegram: action from settings (default send_draft_notification), no Approval row.
     """
@@ -129,16 +140,20 @@ def dispatch_draft_request_notification(*, request_obj: Request, chat_id: int | 
     settings_obj = get_requests_telegram_integration_settings(tenant=request_obj.tenant)
     action = (settings_obj.draft_notification_action or "").strip() or "send_draft_notification"
     draft_url = build_request_draft_public_url(request_obj=request_obj)
+    template_url = build_auto_request_template_public_url(template_id=template_id)
     title = escape(str(request_obj.title or ""))
     billing_month = escape(_format_billing_month(request_obj))
     url_part = ""
     if draft_url:
         url_part = f'\n<a href="{escape(draft_url)}">{escape(draft_url)}</a>'
+    template_part = ""
+    if template_url:
+        template_part = f'\n\nШаблон автозаявки:\n<a href="{escape(template_url)}">{escape(template_url)}</a>'
     message_text = (
         f"<b>Черновик заявки № {request_obj.pk}</b>\n"
         f"{title}\n\n"
         f"Месяц начисления: {billing_month}\n\n"
-        f"Укажите сумму в портале и отправьте заявку на согласование.{url_part}"
+        f"Укажите сумму и отправьте заявку на согласование кнопкой в этом сообщении.{url_part}{template_part}"
     )
     payload = {
         "action": action,
@@ -147,7 +162,9 @@ def dispatch_draft_request_notification(*, request_obj: Request, chat_id: int | 
         "chat_id": chat_id,
         "company": request_obj.company_payer or "",
         "request_id": request_obj.pk,
+        "template_id": template_id,
         "draft_url": draft_url,
+        "template_url": template_url,
         "notification_kind": "draft_needs_amount",
         "inline_keyboard": [],
     }
