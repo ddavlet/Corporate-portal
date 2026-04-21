@@ -350,6 +350,19 @@ class PortalRequestSerializer(serializers.ModelSerializer):
                     {"amount": "Amount must be greater than zero to submit for approval."}
                 )
 
+        amortization_months = attrs.get("amortization_months")
+        if amortization_months is None and self.instance is not None:
+            amortization_months = self.instance.amortization_months
+        if amortization_months is None:
+            amortization_months = 1
+        try:
+            months_value = int(amortization_months)
+        except (TypeError, ValueError):
+            raise serializers.ValidationError({"amortization_months": "Use an integer from 1 to 6."})
+        if months_value < 1 or months_value > 6:
+            raise serializers.ValidationError({"amortization_months": "Value must be between 1 and 6."})
+        attrs["amortization_months"] = months_value
+
         billing_date = attrs.get("billing_date")
         if billing_date is None and self.instance is not None:
             billing_date = self.instance.billing_date

@@ -2265,6 +2265,26 @@ class DraftRequestPatchSubmitTests(APITestCase):
         req = Request.objects.get(pk=res.data["id"])
         self.assertEqual(req.amortization_months, 6)
 
+    def test_create_rejects_amortization_months_above_six(self):
+        self.client.force_authenticate(self.requester)
+        res = self.client.post(
+            "/api/requests/",
+            {
+                "title": "Оборудование",
+                "description": "",
+                "amount": 100,
+                "currency": "UZS",
+                "payment_type": "Наличные",
+                "urgency": "Обычно",
+                "billing_date": "2026-02-20",
+                "amortization_months": 7,
+            },
+            format="json",
+            HTTP_HOST=self.host,
+        )
+        self.assertEqual(res.status_code, 400, res.content)
+        self.assertIn("amortization_months", res.data)
+
     def test_retrieve_returns_amortization_schedule(self):
         req = Request.objects.create(
             tenant=self.tenant,
@@ -2309,6 +2329,37 @@ class DraftRequestPatchSubmitTests(APITestCase):
         self.assertEqual(req.billing_date, date(2026, 3, 20))
         self.assertEqual(req.amortization_start_date, date(2026, 3, 1))
 
+    def test_patch_can_disable_amortization_by_setting_one_month(self):
+        req = Request.objects.create(
+            tenant=self.tenant,
+            created_by=self.requester,
+            requester=self.requester,
+            title="Amortized request",
+            description="",
+            amount=Decimal("300"),
+            currency="UZS",
+            payment_type="Наличные",
+            urgency="Обычно",
+            billing_date=date(2026, 2, 20),
+            amortization_months=6,
+            amortization_start_date=date(2026, 2, 1),
+            status=Request.STATUS_DRAFT,
+            submitted_at=timezone.now(),
+            company_payer="Co",
+        )
+        self.client.force_authenticate(self.requester)
+        res = self.client.patch(
+            f"/api/requests/{req.id}/",
+            {"amortization_months": 1},
+            format="json",
+            HTTP_HOST=self.host,
+        )
+        self.assertEqual(res.status_code, 200, res.content)
+        self.assertEqual(res.data["amortization_months"], 1)
+        self.assertFalse(res.data["is_amortized"])
+        req.refresh_from_db()
+        self.assertEqual(req.amortization_months, 1)
+
     @patch("apps.modules.requests.views.dispatch_pending_approvals", return_value=0)
     def test_submit_for_approval_creates_approvals(self, _mock_dispatch):
         req = self._draft_request()
@@ -2342,17 +2393,51 @@ class DraftRequestPatchSubmitTests(APITestCase):
         )
         self.assertEqual(r2.status_code, 409, r2.content)
 
+    @patch("apps.modules.requests.views.dispatch_pending_approvals", return_value=0)
+    def test_auto_draft_submit_amount_updates_and_submits(self, _mock_dispatch):
+        req = self._draft_request()
+        self.client.force_authenticate(self.requester)
+        res = self.client.post(
+            "/api/requests/auto-draft/submit-amount/",
+            {"request_id": req.id, "amount": "250.00"},
+            format="json",
+            HTTP_HOST=self.host,
+        )
+        self.assertEqual(res.status_code, 200, res.content)
+        req.refresh_from_db()
+        self.assertEqual(req.amount, Decimal("250.00"))
+        self.assertNotEqual(req.status, Request.STATUS_DRAFT)
+        self.assertGreaterEqual(Approval.objects.filter(request=req).count(), 1)
+
+    def test_auto_draft_submit_amount_forbidden_for_unrelated_user(self):
+        req = self._draft_request()
+        self.client.force_authenticate(self.other)
+        res = self.client.post(
+            "/api/requests/auto-draft/submit-amount/",
+            {"request_id": req.id, "amount": "250.00"},
+            format="json",
+            HTTP_HOST=self.host,
+        )
+        self.assertEqual(res.status_code, 403, res.content)
+
     @patch("apps.modules.telegram_approvals.services._post_to_bridge", return_value={"message_id": 1})
     def test_dispatch_draft_notification_payload(self, mock_post):
         from apps.modules.telegram_approvals.services import dispatch_draft_request_notification
 
         req = self._draft_request()
-        ok = dispatch_draft_request_notification(request_obj=req, chat_id=123)
+        ok = dispatch_draft_request_notification(request_obj=req, chat_id=123, template_id=77)
         self.assertTrue(ok)
         mock_post.assert_called_once()
         payload = mock_post.call_args.kwargs["payload"]
         self.assertEqual(payload["action"], "send_draft_notification")
         self.assertEqual(payload["notification_kind"], "draft_needs_amount")
         self.assertEqual(payload["chat_id"], 123)
+        self.assertEqual(payload["template_id"], 77)
+        self.assertEqual(
+            payload["template_url"],
+            f"https://{self.tenant.subdomain}.example.com/requests/auto-config?template_id=77",
+        )
+        self.assertIn("кнопкой в этом сообщении", payload["message"])
+        self.assertEqual(payload["draft_url"], f"https://{self.tenant.subdomain}.example.com/requests/{req.id}")
 
 
