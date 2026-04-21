@@ -155,10 +155,28 @@ def dispatch_draft_request_notification(
     template_part = ""
     if template_url:
         template_part = f'\n\nШаблон автозаявки:\n<a href="{escape(template_url)}">{escape(template_url)}</a>'
+    vendor_name = (request_obj.vendor_ref.name if request_obj.vendor_ref_id and request_obj.vendor_ref else request_obj.vendor) or "-"
+    requester_name = _display_user_name(request_obj.requester if request_obj.requester_id else None)
+    amount_text = _format_amount_for_telegram(request_obj.amount)
+    currency_text = str(request_obj.currency or "-")
+    payment_type_text = str(request_obj.payment_type or "-")
+    payment_purpose_text = str(request_obj.payment_purpose or "-")
+    description_text = str(request_obj.description or "-")
+    urgency_text = str(request_obj.urgency or "-")
     message_text = (
-        f"<b>Черновик заявки № {request_obj.pk}</b>\n"
+        f"<b>📝 Черновик заявки № {request_obj.pk}</b>\n"
         f"{title}\n\n"
-        f"Месяц начисления: {billing_month}\n\n"
+        f"<b>💰 Финансы</b>\n"
+        f"• Поставщик: {escape(str(vendor_name))}\n"
+        f"• Сумма: {escape(amount_text)} {escape(currency_text)}\n"
+        f"• Тип оплаты: {escape(payment_type_text)}\n\n"
+        f"<b>📌 Назначение</b>\n"
+        f"• Назначение платежа: {escape(payment_purpose_text)}\n"
+        f"• Описание: {escape(description_text)}\n"
+        f"• Месяц начисления: {billing_month}\n\n"
+        f"<b>⏱ Статус</b>\n"
+        f"• Срочность: {escape(urgency_text)}\n"
+        f"• Заявитель: {escape(requester_name)}\n\n"
         f"Укажите сумму и отправьте заявку на согласование кнопкой в этом сообщении.{url_part}{template_part}"
     )
     payload = {
