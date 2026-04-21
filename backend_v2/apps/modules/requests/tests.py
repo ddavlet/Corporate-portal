@@ -2438,6 +2438,10 @@ class DraftRequestPatchSubmitTests(APITestCase):
             f"https://{self.tenant.subdomain}.example.com/requests/auto-config?template_id=77",
         )
         self.assertIn("кнопкой в этом сообщении", payload["message"])
+        self.assertIn("📝 Черновик заявки", payload["message"])
+        self.assertIn("💰 Финансы", payload["message"])
+        self.assertIn("📌 Назначение", payload["message"])
+        self.assertIn("⏱ Статус", payload["message"])
         self.assertEqual(payload["draft_url"], f"https://{self.tenant.subdomain}.example.com/requests/{req.id}")
 
 
