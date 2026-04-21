@@ -13,11 +13,13 @@ class VendorApiTests(APITestCase):
     def setUp(self):
         self.tenant = Tenant.objects.create(name="Acme", subdomain="acme", is_active=True)
         self.admin = User.objects.create_user(username="admin", password="x")
+        self.director = User.objects.create_user(username="director1", password="x")
         self.cashier = User.objects.create_user(username="cashier1", password="x")
         self.requester = User.objects.create_user(username="req1", password="x")
-        for u in (self.admin, self.cashier, self.requester):
+        for u in (self.admin, self.director, self.cashier, self.requester):
             TenantMembership.objects.create(tenant=self.tenant, user=u, is_active=True)
         TenantUserRole.objects.create(tenant=self.tenant, user=self.admin, role=TenantUserRole.ROLE_ADMIN)
+        TenantUserRole.objects.create(tenant=self.tenant, user=self.director, role=TenantUserRole.ROLE_DIRECTOR)
         TenantUserRole.objects.create(tenant=self.tenant, user=self.cashier, role=TenantUserRole.ROLE_CASHIER)
         TenantUserRole.objects.create(tenant=self.tenant, user=self.requester, role=TenantUserRole.ROLE_REQUESTER)
         for key in ("vendors", "cash", "requests"):
@@ -88,6 +90,16 @@ class VendorApiTests(APITestCase):
         res = self.client.post(
             "/api/vendors/",
             {"kind": "cash", "name": "Kiosk"},
+            format="json",
+            HTTP_HOST=self.host,
+        )
+        self.assertEqual(res.status_code, 201)
+
+    def test_director_can_create_cash_vendor(self):
+        self.client.force_authenticate(self.director)
+        res = self.client.post(
+            "/api/vendors/",
+            {"kind": "cash", "name": "Director kiosk"},
             format="json",
             HTTP_HOST=self.host,
         )

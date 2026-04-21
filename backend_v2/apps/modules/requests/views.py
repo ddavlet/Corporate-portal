@@ -353,8 +353,10 @@ class PortalRequestViewSet(viewsets.ModelViewSet):
         if request.method == "GET":
             return Response(ApprovalSerializer(queryset, many=True).data)
 
-        can_manage = self._has_role(request_obj.tenant, TenantUserRole.ROLE_ADMIN) or self._has_role(
-            request_obj.tenant, TenantUserRole.ROLE_APPROVER
+        can_manage = (
+            self._has_role(request_obj.tenant, TenantUserRole.ROLE_ADMIN)
+            or self._has_role(request_obj.tenant, TenantUserRole.ROLE_DIRECTOR)
+            or self._has_role(request_obj.tenant, TenantUserRole.ROLE_APPROVER)
         )
         if not can_manage:
             raise PermissionDenied("Only admins or approvers can add approvals.")
@@ -391,8 +393,10 @@ class PortalRequestViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=["post"], url_path="approvals/resend")
     def approvals_resend(self, request, pk=None):
         request_obj = self.get_object()
-        can_manage = self._has_role(request_obj.tenant, TenantUserRole.ROLE_ADMIN) or self._has_role(
-            request_obj.tenant, TenantUserRole.ROLE_APPROVER
+        can_manage = (
+            self._has_role(request_obj.tenant, TenantUserRole.ROLE_ADMIN)
+            or self._has_role(request_obj.tenant, TenantUserRole.ROLE_DIRECTOR)
+            or self._has_role(request_obj.tenant, TenantUserRole.ROLE_APPROVER)
         )
         if not can_manage:
             raise PermissionDenied("Only admins or approvers can resend approvals.")
@@ -429,8 +433,10 @@ class PortalRequestViewSet(viewsets.ModelViewSet):
         if comment is not None and isinstance(comment, str):
             comment = comment.strip() or None
 
-        can_manage = self._has_role(request_obj.tenant, TenantUserRole.ROLE_ADMIN) or self._has_role(
-            request_obj.tenant, TenantUserRole.ROLE_APPROVER
+        can_manage = (
+            self._has_role(request_obj.tenant, TenantUserRole.ROLE_ADMIN)
+            or self._has_role(request_obj.tenant, TenantUserRole.ROLE_DIRECTOR)
+            or self._has_role(request_obj.tenant, TenantUserRole.ROLE_APPROVER)
         )
         if not can_manage:
             can_manage = Approval.objects.filter(
