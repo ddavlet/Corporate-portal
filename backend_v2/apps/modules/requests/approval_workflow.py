@@ -4,6 +4,7 @@ from django.db import transaction
 from django.utils import timezone
 from rest_framework.exceptions import APIException, NotFound, PermissionDenied, ValidationError
 
+from apps.modules.requests.approval_config_resolver import resolve_effective_payment_step_config_for_request
 from apps.modules.requests.models import Approval, Request, RequestApprovalStepConfig
 from apps.modules.requests.services import create_expense_for_request_payment
 
@@ -256,15 +257,10 @@ def confirm_approval_by_id(
             decision == Approval.DECISION_APPROVED
             and approval.step_type == Approval.STEP_TYPE_PAYMENT
         ):
-            step_cfg = (
-                RequestApprovalStepConfig.objects.filter(
-                    payment_type_config__config__tenant=tenant,
-                    payment_type_config__payment_type=request_obj.payment_type,
-                    step=approval.step,
-                    step_type=approval.step_type,
-                )
-                .order_by("id")
-                .first()
+            step_cfg = resolve_effective_payment_step_config_for_request(
+                request_obj=request_obj,
+                step=approval.step,
+                step_type=approval.step_type,
             )
             mode = (
                 step_cfg.payment_action_mode

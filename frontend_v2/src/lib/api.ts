@@ -1264,12 +1264,22 @@ export type RequestApprovalConfigStepItem = {
   payment_webapp_url?: string
 }
 
+export type RequestApprovalPurposeExceptionItem = {
+  id?: number
+  name?: string
+  is_enabled: boolean
+  payment_purpose_ids: number[]
+  steps: RequestApprovalConfigStepItem[]
+}
+
 export type RequestApprovalConfigPaymentTypeItem = {
   payment_type: string
   is_enabled: boolean
   payment_action_mode_options?: Array<'callback' | 'webapp' | 'create' | string>
   request_not_required_field_options?: string[]
   request_not_required_rules?: Array<{ field: string; operator?: 'eq' | string; value: string }>
+  purpose_candidates?: Array<{ id: number; name: string }>
+  purpose_exceptions?: RequestApprovalPurposeExceptionItem[]
   steps: RequestApprovalConfigStepItem[]
 }
 
@@ -1300,6 +1310,20 @@ export type RequestApprovalConfigUpdatePayload = {
     payment_type: string
     is_enabled: boolean
     request_not_required_rules?: Array<{ field: string; operator?: 'eq' | string; value: string }>
+    purpose_exceptions?: Array<{
+      id?: number
+      name?: string
+      is_enabled?: boolean
+      payment_purpose_ids: number[]
+      steps: Array<{
+        step: number
+        step_type: string
+        is_enabled: boolean
+        approver_user_ids: number[]
+        payment_action_mode?: 'callback' | 'webapp' | 'create'
+        payment_webapp_url?: string
+      }>
+    }>
     steps: Array<{
       step: number
       step_type: string
