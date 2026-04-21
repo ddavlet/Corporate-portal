@@ -155,11 +155,9 @@ def _run_approvals_for_request(request_obj: Request) -> None:
 
 def _maybe_create_request_for_template(template: AutoRequestTemplate, *, today: dt.date, now_dt: dt.datetime) -> bool:
     run_month_start = _month_start(today)
-    if template.last_run_month == run_month_start:
-        return False
     max_day = calendar.monthrange(today.year, today.month)[1]
     run_day = min(max(1, int(template.day_of_month)), max_day)
-    if today.day < run_day:
+    if today.day != run_day:
         return False
 
     billing_month = _billing_month_first_day(
@@ -221,8 +219,6 @@ def _maybe_create_request_for_template(template: AutoRequestTemplate, *, today: 
             chat_id=template.requester.telegram_chat_id,
             template_id=template.id,
         )
-    template.last_run_month = run_month_start
-    template.save(update_fields=["last_run_month", "updated_at"])
     return True
 
 
