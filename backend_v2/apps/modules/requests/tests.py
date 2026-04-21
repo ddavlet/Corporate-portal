@@ -742,6 +742,22 @@ class RequestApprovalsTests(APITestCase):
         self.assertEqual(res.data["trigger_approval"]["id"], approval.id)
         self.assertEqual(len(res.data["approvals"]), 1)
 
+    def test_director_can_resend_approvals(self):
+        req_data = self._create_request()
+        request_id = req_data["id"]
+
+        self.client.force_authenticate(self.director)
+        with patch("apps.modules.requests.views.resend_current_pending_step", return_value=1):
+            with patch("apps.modules.requests.views.route_request_approvals", return_value=None):
+                res = self.client.post(
+                    f"/api/requests/{request_id}/approvals/resend/",
+                    {},
+                    format="json",
+                    HTTP_HOST=self.host,
+                )
+        self.assertEqual(res.status_code, 200, res.content)
+        self.assertEqual(res.data["resent"], 1)
+
     def test_cannot_confirm_or_decide_inactive_step_while_earlier_step_pending(self):
         pt_cfg = RequestApprovalPaymentTypeConfig.objects.get(
             config__tenant=self.tenant, payment_type="Наличные"
