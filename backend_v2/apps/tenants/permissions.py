@@ -150,6 +150,7 @@ class IsTenantAdminOrApprover(BasePermission):
 WALLETS_FINANCIAL_WRITE_ROLES = frozenset(
     {
         TenantUserRole.ROLE_ADMIN,
+        TenantUserRole.ROLE_DIRECTOR,
         TenantUserRole.ROLE_ACCOUNTANT,
     }
 )

@@ -742,6 +742,22 @@ class RequestApprovalsTests(APITestCase):
         self.assertEqual(res.data["trigger_approval"]["id"], approval.id)
         self.assertEqual(len(res.data["approvals"]), 1)
 
+    def test_director_can_resend_approvals(self):
+        req_data = self._create_request()
+        request_id = req_data["id"]
+
+        self.client.force_authenticate(self.director)
+        with patch("apps.modules.requests.views.resend_current_pending_step", return_value=1):
+            with patch("apps.modules.requests.views.route_request_approvals", return_value=None):
+                res = self.client.post(
+                    f"/api/requests/{request_id}/approvals/resend/",
+                    {},
+                    format="json",
+                    HTTP_HOST=self.host,
+                )
+        self.assertEqual(res.status_code, 200, res.content)
+        self.assertEqual(res.data["resent"], 1)
+
     def test_cannot_confirm_or_decide_inactive_step_while_earlier_step_pending(self):
         pt_cfg = RequestApprovalPaymentTypeConfig.objects.get(
             config__tenant=self.tenant, payment_type="Наличные"
@@ -1744,7 +1760,7 @@ class AutoRequestTests(APITestCase):
             vendor_ref=v,
             payment_purpose="Office",
         )
-        n1 = process_due_auto_requests(now_dt=timezone.make_aware(datetime(2026, 2, 2, 10, 0, 0)))
+        n1 = process_due_auto_requests(now_dt=timezone.make_aware(datetime(2026, 2, 1, 10, 0, 0)))
         n2 = process_due_auto_requests(now_dt=timezone.make_aware(datetime(2026, 2, 20, 10, 0, 0)))
         self.assertEqual(n1, 1)
         self.assertEqual(n2, 0)
@@ -1755,6 +1771,50 @@ class AutoRequestTests(APITestCase):
         self.assertEqual(req.vendor_ref_id, v.id)
         self.assertEqual(req.requester_id, self.app_user.id)
         self.assertEqual(req.billing_date, date(2026, 2, 1))
+
+    def test_process_due_auto_requests_runs_only_on_exact_run_day(self):
+        v = self._ensure_request_form_for_auto()
+        AutoRequestTemplate.objects.create(
+            tenant=self.tenant,
+            is_enabled=True,
+            name="ExactDayOnly",
+            payment_type=Request.PAYMENT_TYPE_CASH,
+            day_of_month=10,
+            title_template="Exact",
+            description_template="",
+            requester=self.app_user,
+            updated_by=self.admin,
+            vendor_ref=v,
+            payment_purpose="Office",
+        )
+        before_day = process_due_auto_requests(now_dt=timezone.make_aware(datetime(2026, 2, 9, 10, 0, 0)))
+        run_day = process_due_auto_requests(now_dt=timezone.make_aware(datetime(2026, 2, 10, 10, 0, 0)))
+        after_day = process_due_auto_requests(now_dt=timezone.make_aware(datetime(2026, 2, 11, 10, 0, 0)))
+        self.assertEqual(before_day, 0)
+        self.assertEqual(run_day, 1)
+        self.assertEqual(after_day, 0)
+        self.assertEqual(Request.objects.filter(tenant=self.tenant).count(), 1)
+
+    def test_process_due_auto_requests_day_31_runs_on_short_month_last_day(self):
+        v = self._ensure_request_form_for_auto()
+        AutoRequestTemplate.objects.create(
+            tenant=self.tenant,
+            is_enabled=True,
+            name="Day31",
+            payment_type=Request.PAYMENT_TYPE_CASH,
+            day_of_month=31,
+            title_template="ShortMonth",
+            description_template="",
+            requester=self.app_user,
+            updated_by=self.admin,
+            vendor_ref=v,
+            payment_purpose="Office",
+        )
+        before_last_day = process_due_auto_requests(now_dt=timezone.make_aware(datetime(2026, 2, 27, 10, 0, 0)))
+        last_day = process_due_auto_requests(now_dt=timezone.make_aware(datetime(2026, 2, 28, 10, 0, 0)))
+        self.assertEqual(before_last_day, 0)
+        self.assertEqual(last_day, 1)
+        self.assertEqual(Request.objects.filter(tenant=self.tenant).count(), 1)
 
     def test_process_due_billing_month_previous(self):
         v = self._ensure_request_form_for_auto()
@@ -1899,7 +1959,7 @@ class AutoRequestTests(APITestCase):
             payment_purpose="Office",
             amount=None,
         )
-        n = process_due_auto_requests(now_dt=timezone.make_aware(datetime(2026, 2, 2, 10, 0, 0)))
+        n = process_due_auto_requests(now_dt=timezone.make_aware(datetime(2026, 2, 1, 10, 0, 0)))
         self.assertEqual(n, 1)
         req = Request.objects.get(tenant=self.tenant)
         self.assertEqual(req.status, Request.STATUS_DRAFT)
@@ -1940,7 +2000,7 @@ class AutoRequestTests(APITestCase):
             payment_purpose="Office",
             amount=Decimal("5000"),
         )
-        process_due_auto_requests(now_dt=timezone.make_aware(datetime(2026, 2, 2, 10, 0, 0)))
+        process_due_auto_requests(now_dt=timezone.make_aware(datetime(2026, 2, 1, 10, 0, 0)))
         req = Request.objects.get(tenant=self.tenant)
         self.assertNotEqual(req.status, Request.STATUS_DRAFT)
         self.assertGreaterEqual(Approval.objects.filter(request=req).count(), 1)
