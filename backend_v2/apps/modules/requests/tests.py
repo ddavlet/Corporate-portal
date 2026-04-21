@@ -1760,7 +1760,7 @@ class AutoRequestTests(APITestCase):
             vendor_ref=v,
             payment_purpose="Office",
         )
-        n1 = process_due_auto_requests(now_dt=timezone.make_aware(datetime(2026, 2, 2, 10, 0, 0)))
+        n1 = process_due_auto_requests(now_dt=timezone.make_aware(datetime(2026, 2, 1, 10, 0, 0)))
         n2 = process_due_auto_requests(now_dt=timezone.make_aware(datetime(2026, 2, 20, 10, 0, 0)))
         self.assertEqual(n1, 1)
         self.assertEqual(n2, 0)
@@ -1959,7 +1959,7 @@ class AutoRequestTests(APITestCase):
             payment_purpose="Office",
             amount=None,
         )
-        n = process_due_auto_requests(now_dt=timezone.make_aware(datetime(2026, 2, 2, 10, 0, 0)))
+        n = process_due_auto_requests(now_dt=timezone.make_aware(datetime(2026, 2, 1, 10, 0, 0)))
         self.assertEqual(n, 1)
         req = Request.objects.get(tenant=self.tenant)
         self.assertEqual(req.status, Request.STATUS_DRAFT)
@@ -2000,7 +2000,7 @@ class AutoRequestTests(APITestCase):
             payment_purpose="Office",
             amount=Decimal("5000"),
         )
-        process_due_auto_requests(now_dt=timezone.make_aware(datetime(2026, 2, 2, 10, 0, 0)))
+        process_due_auto_requests(now_dt=timezone.make_aware(datetime(2026, 2, 1, 10, 0, 0)))
         req = Request.objects.get(tenant=self.tenant)
         self.assertNotEqual(req.status, Request.STATUS_DRAFT)
         self.assertGreaterEqual(Approval.objects.filter(request=req).count(), 1)
