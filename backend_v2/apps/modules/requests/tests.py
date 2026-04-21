@@ -1772,6 +1772,50 @@ class AutoRequestTests(APITestCase):
         self.assertEqual(req.requester_id, self.app_user.id)
         self.assertEqual(req.billing_date, date(2026, 2, 1))
 
+    def test_process_due_auto_requests_runs_only_on_exact_run_day(self):
+        v = self._ensure_request_form_for_auto()
+        AutoRequestTemplate.objects.create(
+            tenant=self.tenant,
+            is_enabled=True,
+            name="ExactDayOnly",
+            payment_type=Request.PAYMENT_TYPE_CASH,
+            day_of_month=10,
+            title_template="Exact",
+            description_template="",
+            requester=self.app_user,
+            updated_by=self.admin,
+            vendor_ref=v,
+            payment_purpose="Office",
+        )
+        before_day = process_due_auto_requests(now_dt=timezone.make_aware(datetime(2026, 2, 9, 10, 0, 0)))
+        run_day = process_due_auto_requests(now_dt=timezone.make_aware(datetime(2026, 2, 10, 10, 0, 0)))
+        after_day = process_due_auto_requests(now_dt=timezone.make_aware(datetime(2026, 2, 11, 10, 0, 0)))
+        self.assertEqual(before_day, 0)
+        self.assertEqual(run_day, 1)
+        self.assertEqual(after_day, 0)
+        self.assertEqual(Request.objects.filter(tenant=self.tenant).count(), 1)
+
+    def test_process_due_auto_requests_day_31_runs_on_short_month_last_day(self):
+        v = self._ensure_request_form_for_auto()
+        AutoRequestTemplate.objects.create(
+            tenant=self.tenant,
+            is_enabled=True,
+            name="Day31",
+            payment_type=Request.PAYMENT_TYPE_CASH,
+            day_of_month=31,
+            title_template="ShortMonth",
+            description_template="",
+            requester=self.app_user,
+            updated_by=self.admin,
+            vendor_ref=v,
+            payment_purpose="Office",
+        )
+        before_last_day = process_due_auto_requests(now_dt=timezone.make_aware(datetime(2026, 2, 27, 10, 0, 0)))
+        last_day = process_due_auto_requests(now_dt=timezone.make_aware(datetime(2026, 2, 28, 10, 0, 0)))
+        self.assertEqual(before_last_day, 0)
+        self.assertEqual(last_day, 1)
+        self.assertEqual(Request.objects.filter(tenant=self.tenant).count(), 1)
+
     def test_process_due_billing_month_previous(self):
         v = self._ensure_request_form_for_auto()
         AutoRequestTemplate.objects.create(
