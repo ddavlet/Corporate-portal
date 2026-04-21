@@ -1131,6 +1131,7 @@ class RequestApprovalsTests(APITestCase):
         res = self.client.put("/api/requests/approval-config/", payload, format="json", HTTP_HOST=self.host)
         self.assertEqual(res.status_code, 200, res.content)
 
+        self.client.force_authenticate(self.requester)
         created = self.client.post(
             "/api/requests/",
             {
