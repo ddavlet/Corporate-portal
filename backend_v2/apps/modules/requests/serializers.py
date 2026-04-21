@@ -23,6 +23,7 @@ from apps.modules.requests.models import (
     RequestApprovalPaymentTypeConfig,
     RequestApprovalStepConfig,
     RequestApprovalStepApproverConfig,
+    RequestApprovalPurposeExceptionConfig,
     RequestCategory,
     AutoRequestTemplate,
 )
@@ -38,6 +39,7 @@ from apps.modules.requests.expense_refs import (
     resolve_request_expense_ref,
 )
 from apps.modules.requests.amortization import build_amortization_schedule_rows, is_request_amortized
+from apps.modules.requests.approval_config_resolver import resolve_effective_payment_step_config_for_request
 from apps.modules.requests.request_required import (
     RULE_OPERATOR_EQ,
     request_not_required_field_options_for_payment_type,
@@ -558,15 +560,10 @@ class ApprovalSerializer(serializers.ModelSerializer):
         key = (req.tenant_id, req.payment_type, obj.step, obj.step_type)
         if key in cache:
             return cache[key]
-        cfg = (
-            RequestApprovalStepConfig.objects.filter(
-                payment_type_config__config__tenant_id=req.tenant_id,
-                payment_type_config__payment_type=req.payment_type,
-                step=obj.step,
-                step_type=obj.step_type,
-            )
-            .order_by("id")
-            .first()
+        cfg = resolve_effective_payment_step_config_for_request(
+            request_obj=req,
+            step=obj.step,
+            step_type=obj.step_type,
         )
         cache[key] = cfg
         return cfg
@@ -638,15 +635,10 @@ class UserRequestApprovalStepSerializer(serializers.ModelSerializer):
         if key in cache:
             cfg = cache[key]
         else:
-            cfg = (
-                RequestApprovalStepConfig.objects.filter(
-                    payment_type_config__config__tenant_id=req.tenant_id,
-                    payment_type_config__payment_type=req.payment_type,
-                    step=obj.step,
-                    step_type=obj.step_type,
-                )
-                .order_by("id")
-                .first()
+            cfg = resolve_effective_payment_step_config_for_request(
+                request_obj=req,
+                step=obj.step,
+                step_type=obj.step_type,
             )
             cache[key] = cfg
         return cfg.payment_action_mode if cfg else None
@@ -838,12 +830,29 @@ class RequestApprovalStepPayloadSerializer(serializers.Serializer):
     payment_webapp_url = serializers.CharField(required=False, allow_blank=True, default="")
 
 
+class RequestApprovalPurposeExceptionPayloadSerializer(serializers.Serializer):
+    id = serializers.IntegerField(required=False)
+    name = serializers.CharField(required=False, allow_blank=True, default="")
+    is_enabled = serializers.BooleanField(required=False, default=True)
+    payment_purpose_ids = serializers.ListField(
+        child=serializers.IntegerField(),
+        required=False,
+        default=list,
+    )
+    steps = serializers.ListField(child=RequestApprovalStepPayloadSerializer(), required=False, default=list)
+
+
 class RequestApprovalPaymentTypePayloadSerializer(serializers.Serializer):
     payment_type = serializers.ChoiceField(choices=Request.PAYMENT_TYPE_CHOICES)
     is_enabled = serializers.BooleanField(required=False, default=True)
     steps = serializers.ListField(child=RequestApprovalStepPayloadSerializer(), required=False, default=list)
     request_not_required_rules = serializers.ListField(
         child=serializers.DictField(),
+        required=False,
+        default=list,
+    )
+    purpose_exceptions = serializers.ListField(
+        child=RequestApprovalPurposeExceptionPayloadSerializer(),
         required=False,
         default=list,
     )
@@ -901,6 +910,35 @@ class RequestApprovalConfigPayloadSerializer(serializers.Serializer):
                             )
                         }
                     )
+            seen_purpose_ids: set[int] = set()
+            for exc_item in list(pt_item.get("purpose_exceptions") or []):
+                for step_item in list(exc_item.get("steps") or []):
+                    if step_item.get("step_type") != Approval.STEP_TYPE_PAYMENT:
+                        continue
+                    mode = step_item.get(
+                        "payment_action_mode",
+                        RequestApprovalStepConfig.PAYMENT_ACTION_MODE_CALLBACK,
+                    )
+                    if mode not in allowed_modes:
+                        raise serializers.ValidationError(
+                            {
+                                "payment_types": (
+                                    f"Payment action mode '{mode}' is not available for "
+                                    f"payment_type '{payment_type}'."
+                                )
+                            }
+                        )
+                for purpose_id in [int(x) for x in list(exc_item.get("payment_purpose_ids") or [])]:
+                    if purpose_id in seen_purpose_ids:
+                        raise serializers.ValidationError(
+                            {
+                                "payment_types": (
+                                    f"Payment purpose id {purpose_id} is used in multiple exceptions "
+                                    f"for payment_type '{payment_type}'."
+                                )
+                            }
+                        )
+                    seen_purpose_ids.add(purpose_id)
             allowed_fields = set(request_not_required_field_options_for_payment_type(payment_type))
             normalized_rules: list[dict] = []
             for rule in list(pt_item.get("request_not_required_rules") or []):
@@ -950,7 +988,13 @@ def build_request_approval_config_response(*, tenant) -> dict:
 
     payment_types_rows: list[dict] = []
     for pt_value, _ in Request.PAYMENT_TYPE_CHOICES:
-        row = {"payment_type": pt_value, "is_enabled": False, "steps": []}
+        row = {
+            "payment_type": pt_value,
+            "is_enabled": False,
+            "steps": [],
+            "purpose_exceptions": [],
+            "purpose_candidates": [],
+        }
         row["payment_action_mode_options"] = payment_action_mode_choices_for_payment_type(
             tenant=tenant,
             payment_type=pt_value,
@@ -980,6 +1024,46 @@ def build_request_approval_config_response(*, tenant) -> dict:
                             "approver_user_ids": list(step.approvers.values_list("approver_user_id", flat=True)),
                             "payment_action_mode": step.payment_action_mode,
                             "payment_webapp_url": step.payment_webapp_url or "",
+                        }
+                    )
+                row["purpose_candidates"] = [
+                    {"id": purpose.id, "name": purpose.name}
+                    for purpose in RequestPaymentPurposeConfig.objects.filter(
+                        payment_type_config__config__tenant=tenant,
+                        payment_type_config__payment_type=pt_value,
+                        is_active=True,
+                    )
+                    .order_by("name", "id")
+                    .all()
+                ]
+                exc_qs = (
+                    RequestApprovalPurposeExceptionConfig.objects.filter(payment_type_config=pt_cfg)
+                    .prefetch_related("purposes", "steps", "steps__approvers")
+                    .order_by("id")
+                    .all()
+                )
+                for exc in exc_qs:
+                    row["purpose_exceptions"].append(
+                        {
+                            "id": exc.id,
+                            "name": exc.name or "",
+                            "is_enabled": bool(exc.is_enabled),
+                            "payment_purpose_ids": list(
+                                exc.purposes.order_by("id").values_list("payment_purpose_id", flat=True)
+                            ),
+                            "steps": [
+                                {
+                                    "step": step.step,
+                                    "step_type": step.step_type,
+                                    "is_enabled": bool(step.is_enabled),
+                                    "approver_user_ids": list(
+                                        step.approvers.values_list("approver_user_id", flat=True)
+                                    ),
+                                    "payment_action_mode": step.payment_action_mode,
+                                    "payment_webapp_url": step.payment_webapp_url or "",
+                                }
+                                for step in exc.steps.order_by("step", "id").all()
+                            ],
                         }
                     )
         payment_types_rows.append(row)

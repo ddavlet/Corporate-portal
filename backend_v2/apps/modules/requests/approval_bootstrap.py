@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from apps.modules.requests.models import Approval, Request, RequestApprovalConfig
+from apps.modules.requests.approval_config_resolver import resolve_effective_step_configs_for_request
+from apps.modules.requests.models import Approval, Request
 from apps.tenants.models import TenantMembership
 
 
@@ -13,15 +14,9 @@ def create_approval_rows_for_request(request_obj: Request) -> int:
     Returns number of rows created.
     """
     tenant = request_obj.tenant
-    cfg = RequestApprovalConfig.objects.filter(tenant=tenant).first()
-    if not cfg:
+    step_cfgs = resolve_effective_step_configs_for_request(request_obj)
+    if not step_cfgs:
         return 0
-    pt_cfg = cfg.payment_types.filter(payment_type=request_obj.payment_type, is_enabled=True).first()
-    if not pt_cfg:
-        return 0
-    step_cfgs = list(
-        pt_cfg.steps.filter(is_enabled=True).order_by("step", "id").prefetch_related("approvers__approver_user")
-    )
     approver_ids: set[int] = set()
     for step_cfg in step_cfgs:
         approver_ids.update(step_cfg.approvers.values_list("approver_user_id", flat=True).distinct())
