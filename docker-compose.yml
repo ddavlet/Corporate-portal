@@ -306,30 +306,6 @@ services:
     networks:
       - backend
 
-  # n8n_backup:
-  #   image: alpine:3.20
-  #   container_name: n8n_backup
-  #   restart: always
-  #   depends_on:
-  #     - n8n
-  #   volumes:
-  #     - n8n_data:/source:ro
-  #     - /opt/backups/n8n:/backups
-  #   command: >
-  #     sh -c "
-  #     while true; do
-  #       now_hm=$$(date +%H:%M) ;
-  #       today=$$(date +%F) ;
-  #       last_backup=$$(cat /tmp/last_n8n_backup_date 2>/dev/null || true) ;
-  #       if [ \"$$now_hm\" = \"01:00\" ] && [ \"$$today\" != \"$$last_backup\" ]; then
-  #         ts=$$(date +%F-%H%M) ;
-  #         tar -czf /backups/n8n-backup-$$ts.tar.gz -C /source . ;
-  #         find /backups -type f -name 'n8n-backup-*.tar.gz' -mtime +7 -delete ;
-  #         echo \"$$today\" > /tmp/last_n8n_backup_date ;
-  #       fi ;
-  #       sleep 30 ;
-  #     done"
-
   gdrive_backup_sync:
     image: rclone/rclone:latest
     container_name: gdrive_backup_sync
