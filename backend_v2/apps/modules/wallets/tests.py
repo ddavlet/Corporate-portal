@@ -62,8 +62,11 @@ class WalletsApiTests(APITestCase):
 
         self.tenant = Tenant.objects.create(name="Acme", subdomain="wallets", is_active=True)
         self.admin = User.objects.create_user(username="admin_wallets", password="x")
+        self.director = User.objects.create_user(username="director_wallets", password="x")
         TenantMembership.objects.create(tenant=self.tenant, user=self.admin, is_active=True)
+        TenantMembership.objects.create(tenant=self.tenant, user=self.director, is_active=True)
         TenantUserRole.objects.create(tenant=self.tenant, user=self.admin, role=TenantUserRole.ROLE_ADMIN)
+        TenantUserRole.objects.create(tenant=self.tenant, user=self.director, role=TenantUserRole.ROLE_DIRECTOR)
         for key in ("cash", "bank", "corporate_card", "wallets"):
             TenantModuleConfig.objects.create(tenant=self.tenant, module_key=key, is_enabled=True)
 
@@ -148,6 +151,15 @@ class WalletsApiTests(APITestCase):
             **self._headers(cashier),
         )
         self.assertEqual(res.status_code, 403)
+
+    def test_director_can_create_cash_register(self):
+        res = self.client.post(
+            "/api/wallets/cash-registers/",
+            {"currency": "EUR", "name": "Director EUR desk"},
+            format="json",
+            **self._headers(self.director),
+        )
+        self.assertEqual(res.status_code, 201, res.content)
 
     def test_hidden_cash_wallet_is_excluded_from_cash_section_lists(self):
         self.wallet_cash.is_visible_in_cash_section = False
