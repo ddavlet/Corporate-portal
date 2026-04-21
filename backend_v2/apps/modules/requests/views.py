@@ -32,6 +32,10 @@ from apps.modules.requests.models import (
     RequestApprovalPaymentTypeConfig,
     RequestApprovalStepConfig,
     RequestApprovalStepApproverConfig,
+    RequestApprovalPurposeExceptionConfig,
+    RequestApprovalPurposeExceptionPurpose,
+    RequestApprovalPurposeExceptionStepConfig,
+    RequestApprovalPurposeExceptionStepApproverConfig,
     RequestPaymentPurposeConfig,
     RequestCategory,
     AutoRequestTemplate,
@@ -60,6 +64,7 @@ from apps.modules.requests.expense_refs import (
     resolve_request_expense_ref,
 )
 from apps.modules.requests.approval_bootstrap import create_approval_rows_for_request
+from apps.modules.requests.approval_config_resolver import resolve_effective_payment_step_config_for_request
 from apps.modules.requests.approval_workflow import (
     _recalculate_request_status,
     confirm_approval_by_id,
@@ -534,15 +539,10 @@ class PortalRequestViewSet(viewsets.ModelViewSet):
         if approval.step_type != Approval.STEP_TYPE_PAYMENT:
             raise ValidationError({"approval_id": "Approval is not a payment step."})
 
-        step_cfg = (
-            RequestApprovalStepConfig.objects.filter(
-                payment_type_config__config__tenant=tenant,
-                payment_type_config__payment_type=approval.request.payment_type,
-                step=approval.step,
-                step_type=approval.step_type,
-            )
-            .order_by("id")
-            .first()
+        step_cfg = resolve_effective_payment_step_config_for_request(
+            request_obj=approval.request,
+            step=approval.step,
+            step_type=approval.step_type,
         )
         if (
             step_cfg
@@ -1428,6 +1428,82 @@ class RequestApprovalConfigView(APIView):
                     ]
                     if rows:
                         RequestApprovalStepApproverConfig.objects.bulk_create(rows)
+
+                RequestApprovalPurposeExceptionConfig.objects.filter(payment_type_config=pt_cfg).delete()
+                valid_purpose_ids = set(
+                    RequestPaymentPurposeConfig.objects.filter(
+                        payment_type_config__config__tenant=tenant,
+                        payment_type_config__payment_type=pt,
+                        is_active=True,
+                    ).values_list("id", flat=True)
+                )
+                for exc_item in list(item.get("purpose_exceptions") or []):
+                    exc_row = RequestApprovalPurposeExceptionConfig.objects.create(
+                        payment_type_config=pt_cfg,
+                        name=str(exc_item.get("name") or "")[:200],
+                        is_enabled=bool(exc_item.get("is_enabled", True)),
+                    )
+                    exc_purpose_ids = sorted(set(int(x) for x in list(exc_item.get("payment_purpose_ids") or [])))
+                    invalid_purpose_ids = [pid for pid in exc_purpose_ids if pid not in valid_purpose_ids]
+                    if invalid_purpose_ids:
+                        raise ValidationError(
+                            {
+                                "payment_purpose_ids": (
+                                    f"Invalid payment purpose ids for payment_type '{pt}': {invalid_purpose_ids}."
+                                )
+                            }
+                        )
+                    purpose_rows = [
+                        RequestApprovalPurposeExceptionPurpose(
+                            exception_config=exc_row,
+                            payment_type_config=pt_cfg,
+                            payment_purpose_id=pid,
+                        )
+                        for pid in exc_purpose_ids
+                    ]
+                    if purpose_rows:
+                        RequestApprovalPurposeExceptionPurpose.objects.bulk_create(purpose_rows)
+
+                    exc_steps = list(exc_item.get("steps") or [])
+                    exc_step_rows: list[RequestApprovalPurposeExceptionStepConfig] = []
+                    for step_item in exc_steps:
+                        exc_step_rows.append(
+                            RequestApprovalPurposeExceptionStepConfig(
+                                exception_config=exc_row,
+                                step=int(step_item["step"]),
+                                step_type=step_item["step_type"],
+                                is_enabled=bool(step_item.get("is_enabled", True)),
+                                payment_action_mode=step_item.get(
+                                    "payment_action_mode",
+                                    RequestApprovalStepConfig.PAYMENT_ACTION_MODE_CALLBACK,
+                                ),
+                                payment_webapp_url=str(step_item.get("payment_webapp_url", "") or "").strip(),
+                            )
+                        )
+                    if exc_step_rows:
+                        RequestApprovalPurposeExceptionStepConfig.objects.bulk_create(exc_step_rows)
+
+                    created_exc_steps = (
+                        RequestApprovalPurposeExceptionStepConfig.objects.filter(exception_config=exc_row)
+                        .order_by("step", "id")
+                        .all()
+                    )
+                    for step_cfg in created_exc_steps:
+                        matched = next((s for s in exc_steps if int(s["step"]) == step_cfg.step), None)
+                        if not matched:
+                            continue
+                        unique_ids = sorted(set(int(x) for x in list(matched.get("approver_user_ids") or [])))
+                        invalid = [uid for uid in unique_ids if uid not in active_member_ids]
+                        if invalid:
+                            raise ValidationError(
+                                {"approver_user_ids": f"Invalid approver users for step {step_cfg.step}: {invalid}."}
+                            )
+                        rows = [
+                            RequestApprovalPurposeExceptionStepApproverConfig(step_config=step_cfg, approver_user_id=uid)
+                            for uid in unique_ids
+                        ]
+                        if rows:
+                            RequestApprovalPurposeExceptionStepApproverConfig.objects.bulk_create(rows)
 
             for pt, pt_cfg in existing_pt.items():
                 if pt not in seen_types and pt_cfg.is_enabled:
