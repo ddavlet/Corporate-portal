@@ -497,6 +497,118 @@ class RequestApprovalStepApproverConfig(models.Model):
         ]
 
 
+class RequestApprovalPurposeExceptionConfig(models.Model):
+    payment_type_config = models.ForeignKey(
+        RequestApprovalPaymentTypeConfig,
+        on_delete=models.CASCADE,
+        related_name="purpose_exceptions",
+    )
+    name = models.CharField(max_length=200, default="", blank=True)
+    is_enabled = models.BooleanField(default=True)
+
+    class Meta:
+        db_table = "request_approval_purpose_exception_configs"
+        indexes = [
+            models.Index(fields=["payment_type_config"], name="req_appr_exc_pt_idx"),
+            models.Index(fields=["payment_type_config", "is_enabled"], name="req_appr_exc_enabled_idx"),
+        ]
+
+
+class RequestApprovalPurposeExceptionPurpose(models.Model):
+    exception_config = models.ForeignKey(
+        RequestApprovalPurposeExceptionConfig,
+        on_delete=models.CASCADE,
+        related_name="purposes",
+    )
+    payment_type_config = models.ForeignKey(
+        RequestApprovalPaymentTypeConfig,
+        on_delete=models.CASCADE,
+        related_name="purpose_exception_purpose_links",
+    )
+    payment_purpose = models.ForeignKey(
+        RequestPaymentPurposeConfig,
+        on_delete=models.CASCADE,
+        related_name="approval_purpose_exceptions",
+    )
+
+    class Meta:
+        db_table = "request_approval_purpose_exception_purposes"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["exception_config", "payment_purpose"],
+                name="req_appr_exc_purpose_uniq",
+            ),
+            models.UniqueConstraint(
+                fields=["payment_type_config", "payment_purpose"],
+                name="req_appr_exc_pt_purpose_uniq",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["exception_config"], name="req_appr_exc_purpose_exc_idx"),
+            models.Index(fields=["payment_type_config"], name="req_appr_exc_purpose_pt_idx"),
+        ]
+
+    def save(self, *args, **kwargs):
+        if self.exception_config_id and not self.payment_type_config_id:
+            self.payment_type_config_id = self.exception_config.payment_type_config_id
+        return super().save(*args, **kwargs)
+
+
+class RequestApprovalPurposeExceptionStepConfig(models.Model):
+    exception_config = models.ForeignKey(
+        RequestApprovalPurposeExceptionConfig,
+        on_delete=models.CASCADE,
+        related_name="steps",
+    )
+    step = models.IntegerField()
+    step_type = models.CharField(max_length=10, choices=Approval.STEP_TYPE_CHOICES, default=Approval.STEP_TYPE_SERIAL)
+    is_enabled = models.BooleanField(default=True)
+    payment_action_mode = models.CharField(
+        max_length=12,
+        choices=RequestApprovalStepConfig.PAYMENT_ACTION_MODE_CHOICES,
+        default=RequestApprovalStepConfig.PAYMENT_ACTION_MODE_CALLBACK,
+    )
+    payment_webapp_url = models.TextField(blank=True, default="")
+
+    class Meta:
+        db_table = "request_approval_purpose_exception_step_configs"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["exception_config", "step"],
+                name="req_appr_exc_step_uniq",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["exception_config", "step"], name="req_appr_exc_step_idx"),
+            models.Index(fields=["exception_config"], name="req_appr_exc_steps_exc_idx"),
+        ]
+
+
+class RequestApprovalPurposeExceptionStepApproverConfig(models.Model):
+    step_config = models.ForeignKey(
+        RequestApprovalPurposeExceptionStepConfig,
+        on_delete=models.CASCADE,
+        related_name="approvers",
+    )
+    approver_user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="request_approval_purpose_exception_step_approver_configs",
+    )
+
+    class Meta:
+        db_table = "request_approval_purpose_exception_step_approver_configs"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["step_config", "approver_user"],
+                name="req_appr_exc_step_approver_uniq",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["step_config"], name="req_appr_exc_step_appr_idx"),
+        ]
+
+
 class UserRequestApproval(models.Model):
     """
     Inbox model for current approver.

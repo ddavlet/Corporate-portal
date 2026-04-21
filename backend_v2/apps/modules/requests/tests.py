@@ -1022,6 +1022,177 @@ class RequestApprovalsTests(APITestCase):
         res = self.client.put("/api/requests/approval-config/", payload, format="json", HTTP_HOST=self.host)
         self.assertEqual(res.status_code, 403, res.content)
 
+    def test_approval_purpose_exception_overrides_base_steps(self):
+        form_cfg = RequestFormConfig.objects.get(tenant=self.tenant)
+        pt_form_cfg = RequestFormPaymentTypeConfig.objects.get(config=form_cfg, payment_type=Request.PAYMENT_TYPE_CASH)
+        tax_purpose = RequestPaymentPurposeConfig.objects.create(
+            payment_type_config=pt_form_cfg,
+            name="Налог на прибыль",
+            category="Налоги",
+            is_active=True,
+        )
+        self.client.force_authenticate(self.admin)
+        payload = {
+            "payment_types": [
+                {
+                    "payment_type": Request.PAYMENT_TYPE_CASH,
+                    "is_enabled": True,
+                    "steps": [
+                        {
+                            "step": 1,
+                            "step_type": Approval.STEP_TYPE_SERIAL,
+                            "is_enabled": True,
+                            "approver_user_ids": [self.approver.id],
+                        }
+                    ],
+                    "purpose_exceptions": [
+                        {
+                            "name": "Налоги согласует директор",
+                            "is_enabled": True,
+                            "payment_purpose_ids": [tax_purpose.id],
+                            "steps": [
+                                {
+                                    "step": 1,
+                                    "step_type": Approval.STEP_TYPE_SERIAL,
+                                    "is_enabled": True,
+                                    "approver_user_ids": [self.other_approver.id],
+                                }
+                            ],
+                        }
+                    ],
+                }
+            ]
+        }
+        res = self.client.put("/api/requests/approval-config/", payload, format="json", HTTP_HOST=self.host)
+        self.assertEqual(res.status_code, 200, res.content)
+
+        self.client.force_authenticate(self.requester)
+        created = self.client.post(
+            "/api/requests/",
+            {
+                "title": "Tax request",
+                "description": "",
+                "amount": 10,
+                "currency": "UZS",
+                "payment_type": Request.PAYMENT_TYPE_CASH,
+                "urgency": "Обычно",
+                "billing_date": "2026-01-01",
+                "payment_purpose": "Налог на прибыль",
+            },
+            format="json",
+            HTTP_HOST=self.host,
+        )
+        self.assertEqual(created.status_code, 201, created.content)
+        request_id = created.data["id"]
+        self.assertTrue(Approval.objects.filter(request_id=request_id, approver_user=self.other_approver).exists())
+        self.assertFalse(Approval.objects.filter(request_id=request_id, approver_user=self.approver).exists())
+
+    def test_approval_purpose_exception_fallbacks_to_base_steps_when_not_matched(self):
+        form_cfg = RequestFormConfig.objects.get(tenant=self.tenant)
+        pt_form_cfg = RequestFormPaymentTypeConfig.objects.get(config=form_cfg, payment_type=Request.PAYMENT_TYPE_CASH)
+        tax_purpose = RequestPaymentPurposeConfig.objects.create(
+            payment_type_config=pt_form_cfg,
+            name="НДС",
+            category="Налоги",
+            is_active=True,
+        )
+        base_purpose = RequestPaymentPurposeConfig.objects.create(
+            payment_type_config=pt_form_cfg,
+            name="Офисные расходы",
+            category="Операционные",
+            is_active=True,
+        )
+        self.client.force_authenticate(self.admin)
+        payload = {
+            "payment_types": [
+                {
+                    "payment_type": Request.PAYMENT_TYPE_CASH,
+                    "is_enabled": True,
+                    "steps": [
+                        {
+                            "step": 1,
+                            "step_type": Approval.STEP_TYPE_SERIAL,
+                            "is_enabled": True,
+                            "approver_user_ids": [self.approver.id],
+                        }
+                    ],
+                    "purpose_exceptions": [
+                        {
+                            "name": "НДС",
+                            "is_enabled": True,
+                            "payment_purpose_ids": [tax_purpose.id],
+                            "steps": [
+                                {
+                                    "step": 1,
+                                    "step_type": Approval.STEP_TYPE_SERIAL,
+                                    "is_enabled": True,
+                                    "approver_user_ids": [self.other_approver.id],
+                                }
+                            ],
+                        }
+                    ],
+                }
+            ]
+        }
+        res = self.client.put("/api/requests/approval-config/", payload, format="json", HTTP_HOST=self.host)
+        self.assertEqual(res.status_code, 200, res.content)
+
+        self.client.force_authenticate(self.requester)
+        created = self.client.post(
+            "/api/requests/",
+            {
+                "title": "Base flow",
+                "description": "",
+                "amount": 10,
+                "currency": "UZS",
+                "payment_type": Request.PAYMENT_TYPE_CASH,
+                "urgency": "Обычно",
+                "billing_date": "2026-01-01",
+                "payment_purpose": base_purpose.name,
+            },
+            format="json",
+            HTTP_HOST=self.host,
+        )
+        self.assertEqual(created.status_code, 201, created.content)
+        request_id = created.data["id"]
+        self.assertTrue(Approval.objects.filter(request_id=request_id, approver_user=self.approver).exists())
+
+    def test_approval_purpose_exception_rejects_duplicate_purpose_in_multiple_exceptions(self):
+        form_cfg = RequestFormConfig.objects.get(tenant=self.tenant)
+        pt_form_cfg = RequestFormPaymentTypeConfig.objects.get(config=form_cfg, payment_type=Request.PAYMENT_TYPE_CASH)
+        tax_purpose = RequestPaymentPurposeConfig.objects.create(
+            payment_type_config=pt_form_cfg,
+            name="Соцналог",
+            category="Налоги",
+            is_active=True,
+        )
+        self.client.force_authenticate(self.admin)
+        payload = {
+            "payment_types": [
+                {
+                    "payment_type": Request.PAYMENT_TYPE_CASH,
+                    "is_enabled": True,
+                    "steps": [],
+                    "purpose_exceptions": [
+                        {
+                            "name": "E1",
+                            "is_enabled": True,
+                            "payment_purpose_ids": [tax_purpose.id],
+                            "steps": [],
+                        },
+                        {
+                            "name": "E2",
+                            "is_enabled": True,
+                            "payment_purpose_ids": [tax_purpose.id],
+                            "steps": [],
+                        },
+                    ],
+                }
+            ]
+        }
+        res = self.client.put("/api/requests/approval-config/", payload, format="json", HTTP_HOST=self.host)
+        self.assertEqual(res.status_code, 400, res.content)
+
     def test_payment_webapp_confirm_sets_expense_id_and_marks_paid(self):
         appr_cfg = RequestApprovalConfig.objects.get(tenant=self.tenant)
         pt_cfg = RequestApprovalPaymentTypeConfig.objects.create(
