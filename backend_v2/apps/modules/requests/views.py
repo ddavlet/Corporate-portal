@@ -376,6 +376,10 @@ class PortalRequestViewSet(viewsets.ModelViewSet):
         approval_id = serializers.IntegerField(min_value=1)
         expense_id = serializers.CharField(required=False, allow_blank=True, allow_null=True)
 
+    class AutoDraftSubmitAmountPayloadSerializer(serializers.Serializer):
+        request_id = serializers.IntegerField(min_value=1)
+        amount = serializers.DecimalField(max_digits=12, decimal_places=2, min_value=0.01)
+
     class ApprovalResendPayloadSerializer(serializers.Serializer):
         idempotency_key = serializers.CharField(required=False, allow_blank=False, max_length=128)
 
@@ -587,6 +591,54 @@ class PortalRequestViewSet(viewsets.ModelViewSet):
         )
         return Response(
             ApprovalFullContextSerializer(data, context={"request": request}).data,
+            status=status.HTTP_200_OK,
+        )
+
+    @action(detail=False, methods=["post"], url_path="auto-draft/submit-amount")
+    def auto_draft_submit_amount(self, request):
+        tenant = getattr(request, "tenant", None)
+        if not tenant:
+            raise ValidationError({"detail": "Unknown tenant."})
+
+        payload = self.AutoDraftSubmitAmountPayloadSerializer(data=request.data or {})
+        payload.is_valid(raise_exception=True)
+        request_id = payload.validated_data["request_id"]
+        amount = payload.validated_data["amount"]
+
+        with transaction.atomic():
+            request_obj = Request.objects.select_for_update().filter(id=request_id, tenant=tenant).first()
+            if request_obj is None:
+                raise ValidationError({"request_id": "Request not found."})
+            if request_obj.status != Request.STATUS_DRAFT:
+                return Response(
+                    {"detail": "Request already submitted for approval."},
+                    status=status.HTTP_409_CONFLICT,
+                )
+            if Approval.objects.filter(request=request_obj).exists():
+                return Response(
+                    {"detail": "Request already has approvals."},
+                    status=status.HTTP_409_CONFLICT,
+                )
+            if not self._user_can_patch_draft_request(request.user, request_obj):
+                raise PermissionDenied("You cannot submit this draft.")
+
+            serializer = self.get_serializer(
+                request_obj,
+                data={"amount": amount},
+                partial=True,
+                context={**self.get_serializer_context(), "submit_for_approval": True},
+            )
+            serializer.is_valid(raise_exception=True)
+            serializer.save()
+            n = create_approval_rows_for_request(request_obj)
+            if n and request_obj.status == Request.STATUS_DRAFT:
+                _recalculate_request_status(request_obj)
+
+        route_request_approvals(request_obj=request_obj)
+        detail_qs = self.get_queryset().filter(pk=request_obj.pk)
+        obj = detail_qs.get()
+        return Response(
+            PortalRequestDetailSerializer(obj, context=self.get_serializer_context()).data,
             status=status.HTTP_200_OK,
         )
 

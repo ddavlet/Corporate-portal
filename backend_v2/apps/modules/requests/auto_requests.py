@@ -219,6 +219,7 @@ def _maybe_create_request_for_template(template: AutoRequestTemplate, *, today: 
         dispatch_draft_request_notification(
             request_obj=request_obj,
             chat_id=template.requester.telegram_chat_id,
+            template_id=template.id,
         )
     template.last_run_month = run_month_start
     template.save(update_fields=["last_run_month", "updated_at"])

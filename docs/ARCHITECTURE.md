@@ -67,7 +67,7 @@
 | `/api/telegram-approvals/webhook/` | callback от Telegram (без JWT, проверка интеграционного токена) |
 | `/api/<n8n_prefix>/` | upsert из n8n (дублирование префикса при кастомном пути — см. settings) |
 
-Переменные окружения (фрагмент): [settings.py](../backend_v2/config/settings.py) — `BASE_DOMAIN`, `N8N_INTEGRATION_*`, `N8N_TOKEN`, webhooks для feedback и Telegram bridge, `REQUESTS_PORTAL_PUBLIC_BASE_URL`.
+Переменные окружения (фрагмент): [settings.py](../backend_v2/config/settings.py) — `BASE_DOMAIN`, `N8N_INTEGRATION_*`, `N8N_TOKEN`, webhooks для feedback и Telegram bridge.
 
 Подробный контракт n8n: [n8n_integration.md](../backend_v2/n8n_integration.md).
 
