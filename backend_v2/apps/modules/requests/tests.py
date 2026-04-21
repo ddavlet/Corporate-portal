@@ -1096,6 +1096,12 @@ class RequestApprovalsTests(APITestCase):
             category="Налоги",
             is_active=True,
         )
+        base_purpose = RequestPaymentPurposeConfig.objects.create(
+            payment_type_config=pt_form_cfg,
+            name="Офисные расходы",
+            category="Операционные",
+            is_active=True,
+        )
         self.client.force_authenticate(self.admin)
         payload = {
             "payment_types": [
@@ -1142,7 +1148,7 @@ class RequestApprovalsTests(APITestCase):
                 "payment_type": Request.PAYMENT_TYPE_CASH,
                 "urgency": "Обычно",
                 "billing_date": "2026-01-01",
-                "payment_purpose": "Другое назначение",
+                "payment_purpose": base_purpose.name,
             },
             format="json",
             HTTP_HOST=self.host,
