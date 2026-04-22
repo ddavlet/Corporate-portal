@@ -65,6 +65,7 @@ from apps.modules.requests.expense_refs import (
 )
 from apps.modules.requests.approval_bootstrap import create_approval_rows_for_request
 from apps.modules.requests.approval_config_resolver import resolve_effective_payment_step_config_for_request
+from apps.modules.requests.auto_requests import create_request_copy_for_template
 from apps.modules.requests.approval_workflow import (
     _recalculate_request_status,
     confirm_approval_by_id,
@@ -1657,4 +1658,38 @@ class AutoRequestConfigView(APIView):
                     row.delete()
 
         return Response(build_auto_request_config_response(tenant=tenant))
+
+    class CreateCopyPayloadSerializer(serializers.Serializer):
+        template_id = serializers.IntegerField(min_value=1)
+
+    def post(self, request):
+        tenant = getattr(request, "tenant", None)
+        if not tenant:
+            raise ValidationError({"detail": "Unknown tenant."})
+
+        payload = self.CreateCopyPayloadSerializer(data=request.data or {})
+        payload.is_valid(raise_exception=True)
+        template_id = payload.validated_data["template_id"]
+        template = (
+            AutoRequestTemplate.objects.select_related("requester", "vendor_ref")
+            .filter(tenant=tenant, id=template_id)
+            .first()
+        )
+        if template is None:
+            raise ValidationError({"template_id": "Template not found."})
+
+        validate_auto_template_against_form_config(
+            tenant=tenant,
+            item={
+                "payment_type": template.payment_type,
+                "payment_purpose": template.payment_purpose,
+                "vendor_ref_id": template.vendor_ref_id,
+                "requester_id": template.requester_id,
+            },
+        )
+
+        with transaction.atomic():
+            request_obj = create_request_copy_for_template(template)
+
+        return Response({"request_id": request_obj.id}, status=status.HTTP_201_CREATED)
 

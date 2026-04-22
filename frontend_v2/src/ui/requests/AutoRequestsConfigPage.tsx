@@ -3,6 +3,7 @@ import { Alert, Button, Card, Checkbox, Collapse, Divider, Input, InputNumber, S
 import { ArrowLeftOutlined, PlusOutlined, SaveOutlined } from '@ant-design/icons'
 import { useNavigate } from 'react-router-dom'
 import {
+  createAutoRequestCopy,
   getAutoRequestConfig,
   updateAutoRequestConfig,
   type AutoRequestBillingMonthMode,
@@ -109,6 +110,7 @@ export function AutoRequestsConfigPage() {
   const navigate = useNavigate()
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
+  const [creatingTemplateId, setCreatingTemplateId] = useState<number | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [data, setData] = useState<AutoRequestConfigResponse | null>(null)
 
@@ -208,6 +210,22 @@ export function AutoRequestsConfigPage() {
     }
   }
 
+  const createCopy = async (row: AutoRequestTemplateItem) => {
+    if (!row.id) {
+      message.warning('Сначала сохраните шаблон')
+      return
+    }
+    setCreatingTemplateId(row.id)
+    try {
+      const created = await createAutoRequestCopy(row.id)
+      message.success(`Копия создана: заявка #${created.request_id}`)
+    } catch (e: any) {
+      message.error(e?.message || 'Не удалось создать копию')
+    } finally {
+      setCreatingTemplateId(null)
+    }
+  }
+
   return (
     <Card>
       <Button type="link" icon={<ArrowLeftOutlined />} onClick={() => navigate('/requests')} style={{ padding: 0 }}>
@@ -270,6 +288,14 @@ export function AutoRequestsConfigPage() {
                           >
                             Активно
                           </Checkbox>
+                          <Button
+                            size="small"
+                            onClick={() => createCopy(row)}
+                            loading={creatingTemplateId === row.id}
+                            disabled={!row.id}
+                          >
+                            Создать копию
+                          </Button>
                           <Button danger size="small" onClick={() => removeTemplate(idx)}>
                             Удалить
                           </Button>

@@ -153,13 +153,12 @@ def _run_approvals_for_request(request_obj: Request) -> None:
     route_request_approvals(request_obj=request_obj)
 
 
-def _maybe_create_request_for_template(template: AutoRequestTemplate, *, today: dt.date, now_dt: dt.datetime) -> bool:
-    run_month_start = _month_start(today)
-    max_day = calendar.monthrange(today.year, today.month)[1]
-    run_day = min(max(1, int(template.day_of_month)), max_day)
-    if today.day != run_day:
-        return False
-
+def _create_request_for_template(
+    template: AutoRequestTemplate,
+    *,
+    run_month_start: dt.date,
+    now_dt: dt.datetime,
+) -> Request:
     billing_month = _billing_month_first_day(
         run_month_start=run_month_start,
         mode=template.billing_month_mode,
@@ -219,7 +218,27 @@ def _maybe_create_request_for_template(template: AutoRequestTemplate, *, today: 
             chat_id=template.requester.telegram_chat_id,
             template_id=template.id,
         )
+    return request_obj
+
+
+def _maybe_create_request_for_template(template: AutoRequestTemplate, *, today: dt.date, now_dt: dt.datetime) -> bool:
+    run_month_start = _month_start(today)
+    max_day = calendar.monthrange(today.year, today.month)[1]
+    run_day = min(max(1, int(template.day_of_month)), max_day)
+    if today.day != run_day:
+        return False
+    _create_request_for_template(template, run_month_start=run_month_start, now_dt=now_dt)
     return True
+
+
+def create_request_copy_for_template(
+    template: AutoRequestTemplate,
+    *,
+    now_dt: dt.datetime | None = None,
+) -> Request:
+    now_dt = now_dt or timezone.now()
+    run_month_start = _month_start(now_dt.date())
+    return _create_request_for_template(template, run_month_start=run_month_start, now_dt=now_dt)
 
 
 def process_due_auto_requests(*, now_dt: dt.datetime | None = None) -> int:

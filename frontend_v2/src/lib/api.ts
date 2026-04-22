@@ -1255,6 +1255,18 @@ export async function updateAutoRequestConfig(payload: AutoRequestConfigUpdatePa
   return json
 }
 
+export async function createAutoRequestCopy(templateId: number): Promise<{ request_id: number }> {
+  const res = await apiFetch('/api/requests/auto-config/', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ template_id: templateId }),
+  })
+  if (!res.ok) throw new Error(await parseErrorBody(res))
+  const json = (await res.json().catch(() => null)) as { request_id?: number } | null
+  if (!json?.request_id) throw new Error('Empty response')
+  return { request_id: Number(json.request_id) }
+}
+
 export type RequestApprovalConfigStepItem = {
   step: number
   step_type: string
