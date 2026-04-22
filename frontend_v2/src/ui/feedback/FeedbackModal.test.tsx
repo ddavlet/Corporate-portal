@@ -36,11 +36,10 @@ describe('FeedbackModal', () => {
     const onClose = vi.fn()
     refineFeedbackWithAiMock.mockResolvedValueOnce({ feedback: 'structured feedback' })
     submitFeedbackMock.mockResolvedValueOnce({ id: 1, delivery: { status: 'sent', error: null } })
-    const { container } = render(<FeedbackModal open onClose={onClose} pagePath="/requests" />)
+    render(<FeedbackModal open onClose={onClose} pagePath="/requests" />)
 
-    const radioInput = container.querySelector('input.ant-segmented-item-input')
-    if (!radioInput) throw new Error('Segmented input not found')
-    fireEvent.click(radioInput)
+    fireEvent.click(screen.getByTitle('Улучшение'))
+    fireEvent.click(screen.getByTitle('Ошибка'))
     fireEvent.change(screen.getByPlaceholderText('Текст комментария…'), { target: { value: 'raw feedback' } })
     fireEvent.click(screen.getByRole('button', { name: 'Сформировать' }))
 
@@ -62,10 +61,9 @@ describe('FeedbackModal', () => {
 
   it('renders refine error', async () => {
     refineFeedbackWithAiMock.mockRejectedValueOnce(new Error('n8n offline'))
-    const { container } = render(<FeedbackModal open onClose={() => undefined} pagePath="/requests" />)
-    const radioInput = container.querySelector('input.ant-segmented-item-input')
-    if (!radioInput) throw new Error('Segmented input not found')
-    fireEvent.click(radioInput)
+    render(<FeedbackModal open onClose={() => undefined} pagePath="/requests" />)
+    fireEvent.click(screen.getByTitle('Улучшение'))
+    fireEvent.click(screen.getByTitle('Ошибка'))
     fireEvent.change(screen.getByPlaceholderText('Текст комментария…'), { target: { value: 'raw feedback' } })
     fireEvent.click(screen.getByRole('button', { name: 'Сформировать' }))
     expect(await screen.findByText(/n8n offline/i)).toBeInTheDocument()
