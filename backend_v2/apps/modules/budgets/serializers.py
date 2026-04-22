@@ -1,5 +1,6 @@
-from datetime import date
 from decimal import Decimal
+
+from django.utils import timezone
 
 from django.db.models import Sum
 from rest_framework import serializers
@@ -14,6 +15,7 @@ def _period_date_range(period_type: str, year: int, period_index: int):
     period_index is always a month number (1-12) as sent by the frontend.
     For quarterly budgets it is mapped to the containing quarter internally.
     """
+    from datetime import date
     if period_type == Budget.PERIOD_MONTHLY:
         month = max(1, min(12, period_index))
         start = date(year, month, 1)
@@ -90,7 +92,7 @@ class BudgetSerializer(serializers.ModelSerializer):
 
     def _get_period_context(self):
         ctx = self.context
-        today = date.today()
+        today = timezone.localdate()
         year = int(ctx.get("year") or today.year)
         period_index = int(ctx.get("period_index") or today.month)
         return year, period_index
