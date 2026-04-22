@@ -38,12 +38,16 @@ describe('FeedbackModal', () => {
     submitFeedbackMock.mockResolvedValueOnce({ id: 1, delivery: { status: 'sent', error: null } })
     render(<FeedbackModal open onClose={onClose} pagePath="/requests" />)
 
-    fireEvent.click(screen.getByText('Ошибка'))
+    fireEvent.click(screen.getByRole('radio', { name: 'Ошибка' }))
     fireEvent.change(screen.getByPlaceholderText('Текст комментария…'), { target: { value: 'raw feedback' } })
     fireEvent.click(screen.getByRole('button', { name: 'Сформировать' }))
 
     await waitFor(() => {
       expect(refineFeedbackWithAiMock).toHaveBeenCalledWith({ kind: 'error', text: 'raw feedback' })
+    })
+
+    await waitFor(() => {
+      expect(screen.getByPlaceholderText('Текст комментария…')).toHaveValue('structured feedback')
     })
 
     fireEvent.click(screen.getByRole('button', { name: 'Отправить' }))
@@ -57,9 +61,9 @@ describe('FeedbackModal', () => {
   it('renders refine error', async () => {
     refineFeedbackWithAiMock.mockRejectedValueOnce(new Error('n8n offline'))
     render(<FeedbackModal open onClose={() => undefined} pagePath="/requests" />)
-    fireEvent.click(screen.getByText('Ошибка'))
+    fireEvent.click(screen.getByRole('radio', { name: 'Ошибка' }))
     fireEvent.change(screen.getByPlaceholderText('Текст комментария…'), { target: { value: 'raw feedback' } })
     fireEvent.click(screen.getByRole('button', { name: 'Сформировать' }))
-    expect(await screen.findByText('n8n offline')).toBeInTheDocument()
+    expect(await screen.findByRole('alert')).toHaveTextContent('n8n offline')
   })
 })
