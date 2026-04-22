@@ -207,7 +207,7 @@ class BudgetSpendComputeTests(APITestCase):
         self.req_wrong_currency = _make_request(date(2026, 1, 20), Decimal("100000"))
         self.req_wrong_currency.currency = "USD"
         self.req_wrong_currency.save(update_fields=["currency"])
-        self.req_draft = _make_request(date(2026, 1, 10), Decimal("50000"), status=Request.STATUS_DRAFT if hasattr(Request, 'STATUS_DRAFT') else "DRAFT")
+        self.req_draft = _make_request(date(2026, 1, 10), Decimal("50000"), status=Request.STATUS_DRAFT)
 
     def _headers(self):
         token = str(RefreshToken.for_user(self.admin).access_token)

@@ -1,4 +1,4 @@
-from datetime import date
+from django.utils import timezone
 
 from rest_framework import viewsets
 from rest_framework.decorators import action
@@ -28,7 +28,7 @@ class CanManageBudgets(BasePermission):
 
 
 def _parse_period_params(query_params):
-    today = date.today()
+    today = timezone.localdate()
     try:
         year = int(query_params.get("year") or today.year)
     except (ValueError, TypeError):
