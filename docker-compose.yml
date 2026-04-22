@@ -569,12 +569,32 @@ services:
       - SYS_MODULE
     restart: unless-stopped
 
+  garlic-hub:
+    image: sagiadinos/garlic-hub:latest
+    container_name: garlic-hub
+    restart: unless-stopped
+    volumes:
+      - garlic-hub-public-var:/var/www/public/var
+      - garlic-hub-var:/var/www/var
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=n8n_traefik-public
+      - traefik.http.routers.garlic-hub.rule=Host(`signage.kolberg.uz`)
+      - traefik.http.routers.garlic-hub.entrypoints=web,websecure
+      - traefik.http.routers.garlic-hub.tls=true
+      - traefik.http.routers.garlic-hub.tls.certresolver=mytlschallenge
+      - traefik.http.services.garlic-hub.loadbalancer.server.port=80
+    networks:
+      - traefik-public
+
 volumes:
   n8n_data:
   traefik_data:
   pg_data:
   portainer_data:
   claude_sessions:
+  garlic-hub-public-var:
+  garlic-hub-var:
 # >>> CHANGE: добавили сети
 networks:
   traefik-public:
