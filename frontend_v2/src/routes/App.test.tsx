@@ -1,6 +1,6 @@
 import { render, screen } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { MemoryRouter } from 'react-router-dom'
+import { MemoryRouter, Outlet } from 'react-router-dom'
 import type { ReactNode } from 'react'
 import { App } from './App'
 
@@ -19,7 +19,14 @@ vi.mock('../ui/moduleAccess', () => ({
   ModuleAccessProvider: ({ children }: { children: ReactNode }) => <>{children}</>,
 }))
 
-vi.mock('../ui/AppShell', () => ({ AppShell: () => <div>AppShell</div> }))
+vi.mock('../ui/AppShell', () => ({
+  AppShell: () => (
+    <div>
+      AppShell
+      <Outlet />
+    </div>
+  ),
+}))
 vi.mock('../ui/LoginPage', () => ({ LoginPage: () => <div>LoginPage</div> }))
 vi.mock('../ui/DashboardPage', () => ({ DashboardPage: () => <div>DashboardPage</div> }))
 vi.mock('../ui/CashPage', () => ({ CashPage: () => <div>CashPage</div> }))

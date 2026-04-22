@@ -31,10 +31,10 @@ describe('ChangePasswordModal', () => {
     changePasswordMock.mockResolvedValueOnce({ detail: 'ok' })
     render(<ChangePasswordModal open onClose={onClose} />)
 
-    const fields = screen.getAllByLabelText(/пароль/i)
-    fireEvent.change(fields[0], { target: { value: ' old-pass ' } })
-    fireEvent.change(fields[1], { target: { value: 'new-pass' } })
-    fireEvent.change(fields[2], { target: { value: 'new-pass' } })
+    const inputs = Array.from(document.querySelectorAll('input'))
+    fireEvent.change(inputs[0], { target: { value: ' old-pass ' } })
+    fireEvent.change(inputs[1], { target: { value: 'new-pass' } })
+    fireEvent.change(inputs[2], { target: { value: 'new-pass' } })
     fireEvent.click(screen.getByRole('button', { name: 'Сохранить' }))
 
     await waitFor(() => {
@@ -47,11 +47,11 @@ describe('ChangePasswordModal', () => {
   it('shows backend error', async () => {
     changePasswordMock.mockRejectedValueOnce(new Error('Старый пароль неверный'))
     render(<ChangePasswordModal open onClose={() => undefined} />)
-    const fields = screen.getAllByLabelText(/пароль/i)
-    fireEvent.change(fields[1], { target: { value: 'new-pass' } })
-    fireEvent.change(fields[2], { target: { value: 'new-pass' } })
+    const inputs = Array.from(document.querySelectorAll('input'))
+    fireEvent.change(inputs[1], { target: { value: 'new-pass' } })
+    fireEvent.change(inputs[2], { target: { value: 'new-pass' } })
     fireEvent.click(screen.getByRole('button', { name: 'Сохранить' }))
 
-    expect(await screen.findByText('Старый пароль неверный')).toBeInTheDocument()
+    expect(await screen.findByRole('alert')).toHaveTextContent('Старый пароль неверный')
   })
 })
