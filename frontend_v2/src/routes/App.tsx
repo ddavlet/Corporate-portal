@@ -9,6 +9,7 @@ import { CorporateCardPage } from '../ui/CorporateCardPage'
 import { PayrollPage } from '../ui/PayrollPage'
 import { ReportsPage } from '../ui/ReportsPage'
 import { ClientsDebtPage } from '../ui/ClientsDebtPage'
+import { BudgetsPage } from '../ui/BudgetsPage'
 import { PayrollDocumentDetailPage } from '../ui/PayrollDocumentDetailPage'
 import { CashExpenseDetailPage } from '../ui/CashExpenseDetailPage'
 import { BankExpenseDetailPage } from '../ui/BankExpenseDetailPage'
@@ -85,6 +86,7 @@ export function App() {
         <Route path="payroll" element={<PayrollPage />} />
         <Route path="reports" element={<ReportsPage />} />
         <Route path="clients-debt" element={<ClientsDebtPage />} />
+        <Route path="budgets" element={<BudgetsPage />} />
         <Route path="payroll/:id" element={<PayrollDocumentDetailPage />} />
         <Route path="settings" element={<SettingsPage />} />
         <Route path="settings/request-form-config" element={<RequestFormConfigPage />} />
