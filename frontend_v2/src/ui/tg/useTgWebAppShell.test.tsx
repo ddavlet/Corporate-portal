@@ -11,6 +11,15 @@ type TgMock = {
   setHeaderColor?: (color: string) => void
 }
 
+function createTelegramWebAppMock(overrides: TgMock = {}): TelegramWebApp & TgMock {
+  return {
+    initData: '',
+    initDataUnsafe: {},
+    ready: vi.fn(),
+    ...overrides,
+  }
+}
+
 function HookHost() {
   useTgWebAppShell()
   return null
@@ -27,8 +36,8 @@ describe('useTgWebAppShell', () => {
     const offEvent = vi.fn()
     const setBackgroundColor = vi.fn()
     const setHeaderColor = vi.fn()
-    ;(window as Window & { Telegram?: { WebApp: TgMock } }).Telegram = {
-      WebApp: {
+    ;(window as Window).Telegram = {
+      WebApp: createTelegramWebAppMock({
         themeParams: {
           bg_color: '#111',
           secondary_bg_color: '#222',
@@ -41,7 +50,7 @@ describe('useTgWebAppShell', () => {
         offEvent,
         setBackgroundColor,
         setHeaderColor,
-      },
+      }),
     }
 
     const { unmount } = render(<HookHost />)

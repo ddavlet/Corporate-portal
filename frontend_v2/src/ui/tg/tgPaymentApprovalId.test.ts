@@ -4,11 +4,7 @@ import { getTelegramWebAppStartParam, resolvePaymentApprovalId } from './tgPayme
 type MutableWindow = Window &
   typeof globalThis & {
     Telegram?: {
-      WebApp?: {
-        initDataUnsafe?: {
-          start_param?: string
-        }
-      }
+      WebApp?: TelegramWebApp
     }
   }
 
@@ -22,6 +18,14 @@ function setWindowLocationSearch(search: string) {
 
 function getWindow(): MutableWindow {
   return (globalThis as { window: MutableWindow }).window
+}
+
+function createTelegramWebApp(startParam?: string): TelegramWebApp {
+  return {
+    initData: '',
+    initDataUnsafe: startParam ? { start_param: startParam } : {},
+    ready: () => {},
+  }
 }
 
 describe('getTelegramWebAppStartParam', () => {
@@ -40,7 +44,7 @@ describe('getTelegramWebAppStartParam', () => {
 
   it('returns Telegram start_param with trimming', () => {
     const win = getWindow()
-    win.Telegram = { WebApp: { initDataUnsafe: { start_param: '  approval_42  ' } } }
+    win.Telegram = { WebApp: createTelegramWebApp('  approval_42  ') }
     setWindowLocationSearch('?tgWebAppStartParam=123')
 
     expect(getTelegramWebAppStartParam()).toBe('approval_42')
@@ -70,7 +74,7 @@ describe('resolvePaymentApprovalId', () => {
   it('prefers approval_id from query string', () => {
     const params = new URLSearchParams('approval_id=15')
     const win = getWindow()
-    win.Telegram = { WebApp: { initDataUnsafe: { start_param: 'approval_999' } } }
+    win.Telegram = { WebApp: createTelegramWebApp('approval_999') }
 
     expect(resolvePaymentApprovalId(params)).toBe(15)
   })
@@ -78,7 +82,7 @@ describe('resolvePaymentApprovalId', () => {
   it('parses numeric start_param when approval_id is missing', () => {
     const params = new URLSearchParams('')
     const win = getWindow()
-    win.Telegram = { WebApp: { initDataUnsafe: { start_param: '321' } } }
+    win.Telegram = { WebApp: createTelegramWebApp('321') }
 
     expect(resolvePaymentApprovalId(params)).toBe(321)
   })
@@ -86,7 +90,7 @@ describe('resolvePaymentApprovalId', () => {
   it('parses prefixed start_param in approval_<id> format', () => {
     const params = new URLSearchParams('')
     const win = getWindow()
-    win.Telegram = { WebApp: { initDataUnsafe: { start_param: 'approval-88' } } }
+    win.Telegram = { WebApp: createTelegramWebApp('approval-88') }
 
     expect(resolvePaymentApprovalId(params)).toBe(88)
   })
@@ -94,7 +98,7 @@ describe('resolvePaymentApprovalId', () => {
   it('returns 0 for invalid values', () => {
     const params = new URLSearchParams('approval_id=0')
     const win = getWindow()
-    win.Telegram = { WebApp: { initDataUnsafe: { start_param: 'not-an-id' } } }
+    win.Telegram = { WebApp: createTelegramWebApp('not-an-id') }
 
     expect(resolvePaymentApprovalId(params)).toBe(0)
   })
