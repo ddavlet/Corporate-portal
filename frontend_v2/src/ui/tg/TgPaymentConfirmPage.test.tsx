@@ -38,7 +38,14 @@ describe('TgPaymentConfirmPage', () => {
     confirmPaymentViaWebAppMock.mockReset()
     successMock.mockReset()
     closeMock.mockReset()
-    ;(window as Window & { Telegram?: unknown }).Telegram = { WebApp: { close: closeMock } }
+    ;(window as Window).Telegram = {
+      WebApp: {
+        initData: '',
+        initDataUnsafe: {},
+        ready: vi.fn(),
+        close: closeMock,
+      },
+    }
   })
 
   it('submits confirmation with approval_id and expense_id', async () => {

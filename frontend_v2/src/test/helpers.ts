@@ -1,15 +1,14 @@
 import { vi } from 'vitest'
 
-export type MockStorage = {
-  getItem: ReturnType<typeof vi.fn>
-  setItem: ReturnType<typeof vi.fn>
-  removeItem: ReturnType<typeof vi.fn>
-  clear: ReturnType<typeof vi.fn>
-}
+export type MockStorage = Storage
 
 export function createStorageMock(): MockStorage {
   const data = new Map<string, string>()
   return {
+    get length() {
+      return data.size
+    },
+    key: vi.fn((index: number) => Array.from(data.keys())[index] ?? null),
     getItem: vi.fn((key: string) => data.get(key) ?? null),
     setItem: vi.fn((key: string, value: string) => {
       data.set(key, value)
