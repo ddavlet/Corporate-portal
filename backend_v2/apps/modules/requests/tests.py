@@ -1889,6 +1889,39 @@ class AutoRequestTests(APITestCase):
         self.assertEqual(get_res.data["templates"][0]["billing_month_mode"], AutoRequestTemplate.BILLING_MONTH_CURRENT)
         self.assertIn("form_payment_types", get_res.data)
 
+    def test_auto_config_create_copy_ignores_template_run_day(self):
+        v = self._ensure_request_form_for_auto()
+        self.client.force_authenticate(self.admin)
+        today = timezone.localdate()
+        not_today_run_day = 1 if today.day != 1 else 2
+        template = AutoRequestTemplate.objects.create(
+            tenant=self.tenant,
+            is_enabled=False,
+            name="Manual copy",
+            payment_type=Request.PAYMENT_TYPE_CASH,
+            day_of_month=not_today_run_day,
+            title_template="Копия {{billing_month_ru}}",
+            description_template="",
+            requester=self.requester,
+            updated_by=self.admin,
+            vendor_ref=v,
+            payment_purpose="Office",
+        )
+
+        res = self.client.post(
+            "/api/requests/auto-config/",
+            {"template_id": template.id},
+            format="json",
+            HTTP_HOST=self.host,
+        )
+        self.assertEqual(res.status_code, 201, res.content)
+        self.assertIn("request_id", res.data)
+        self.assertEqual(Request.objects.filter(tenant=self.tenant).count(), 1)
+        req = Request.objects.get(tenant=self.tenant, id=res.data["request_id"])
+        self.assertEqual(req.requester_id, self.requester.id)
+        self.assertEqual(req.vendor_ref_id, v.id)
+        self.assertEqual(req.billing_date, today.replace(day=1))
+
     def test_auto_config_director_allowed(self):
         v = self._ensure_request_form_for_auto()
         self.client.force_authenticate(self.director)
