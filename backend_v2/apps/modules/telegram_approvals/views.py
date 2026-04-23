@@ -11,8 +11,9 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.modules.requests.models import Approval
-from apps.modules.requests.approval_workflow import confirm_approval_by_id
+from apps.modules.requests.approval_workflow import ApprovalDecisionAlreadyMade, confirm_approval_by_id
 from apps.modules.telegram_approvals.serializers import TelegramApprovalWebhookSerializer
+from apps.modules.telegram_approvals.services import deactivate_approval_message_buttons
 from apps.modules.requests.integration_settings import get_requests_telegram_integration_settings
 from apps.tenants.models import Tenant
 
@@ -148,14 +149,25 @@ class TelegramApprovalWebhookView(APIView):
         tenant: Tenant = approval.request.tenant
 
         with transaction.atomic():
-            confirm_approval_by_id(
-                tenant=tenant,
-                approval_id=approval.id,
-                request_id=approval.request_id,
-                approver_tg_id=chat_id,
-                approver_tg_from_id=from_id,
-                decision=decision,
-            )
+            try:
+                confirm_approval_by_id(
+                    tenant=tenant,
+                    approval_id=approval.id,
+                    request_id=approval.request_id,
+                    approver_tg_id=chat_id,
+                    approver_tg_from_id=from_id,
+                    decision=decision,
+                )
+            except ApprovalDecisionAlreadyMade:
+                # Keep HTTP 409, but still try to sync stale Telegram card to current
+                # state and remove action buttons.
+                approval.refresh_from_db()
+                approval.request.refresh_from_db()
+                deactivate_approval_message_buttons(
+                    approval=approval,
+                    request_context=approval.request,
+                )
+                raise
 
         return Response({"detail": "Callback processed."}, status=status.HTTP_200_OK)
 
