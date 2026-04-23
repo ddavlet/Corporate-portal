@@ -13,7 +13,11 @@ from rest_framework.views import APIView
 from apps.modules.requests.models import Approval
 from apps.modules.requests.approval_workflow import ApprovalDecisionAlreadyMade, confirm_approval_by_id
 from apps.modules.telegram_approvals.serializers import TelegramApprovalWebhookSerializer
-from apps.modules.telegram_approvals.services import deactivate_approval_message_buttons
+from apps.modules.telegram_approvals.services import (
+    build_approval_message,
+    deactivate_approval_message_buttons,
+    post_telegram_bridge,
+)
 from apps.modules.requests.integration_settings import get_requests_telegram_integration_settings
 from apps.tenants.models import Tenant
 
@@ -163,10 +167,25 @@ class TelegramApprovalWebhookView(APIView):
                 # state and remove action buttons.
                 approval.refresh_from_db()
                 approval.request.refresh_from_db()
-                deactivate_approval_message_buttons(
+                updated = deactivate_approval_message_buttons(
                     approval=approval,
                     request_context=approval.request,
                 )
+                if not updated and chat_id and message_id:
+                    # Fallback for legacy rows where approval.message_id was not persisted:
+                    # use callback message identifiers to force an edit attempt.
+                    payload = {
+                        "action": get_requests_telegram_integration_settings(tenant=tenant).edit_action,
+                        "message": build_approval_message(request_obj=approval.request, approval=approval),
+                        "parse_mode": "HTML",
+                        "chat_id": chat_id,
+                        "company": approval.request.company_payer or "",
+                        "approval_id": approval.id,
+                        "request_id": approval.request_id,
+                        "message_id": message_id,
+                        "inline_keyboard": [],
+                    }
+                    post_telegram_bridge(tenant=tenant, payload=payload)
                 raise
 
         return Response({"detail": "Callback processed."}, status=status.HTTP_200_OK)

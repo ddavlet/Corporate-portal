@@ -487,6 +487,53 @@ class TelegramApprovalsTests(APITestCase):
         self.assertIn("полностью одобрена", edit_payload.get("message", ""))
 
     @patch("apps.modules.telegram_approvals.services.requests.post")
+    def test_webhook_callback_conflict_uses_callback_message_id_when_missing_on_approval(self, mocked_post):
+        mocked_post.return_value.status_code = 200
+        mocked_post.return_value.content = b"{}"
+        mocked_post.return_value.json.return_value = {}
+        request_row = Request.objects.create(
+            tenant=self.tenant,
+            created_by=self.admin,
+            requester=self.requester,
+            title="Already decided without message_id",
+            status=Request.STATUS_APPROVED,
+            billing_date=date(2026, 3, 31),
+        )
+        approval = Approval.objects.create(
+            request=request_row,
+            approver_user=self.approver,
+            approver_tg_id=555001,
+            approver_tg_from_id=777001,
+            message_id=None,
+            message_sent=True,
+            step=1,
+            step_type=Approval.STEP_TYPE_SERIAL,
+            decision=Approval.DECISION_APPROVED,
+        )
+        payload = {
+            "callback_query": {
+                "id": "cbq-conflict-no-mid",
+                "from": {"id": 777001},
+                "message": {"message_id": 3694, "chat": {"id": 555001}},
+                "data": f"v2_{approval.id}:a",
+            }
+        }
+        res = self.client.post(
+            "/api/telegram-approvals/webhook/",
+            payload,
+            format="json",
+            HTTP_HOST=self.host,
+            HTTP_X_N8N_INTEGRATION_TOKEN=self.webhook_token,
+        )
+        self.assertEqual(res.status_code, 409, res.content)
+        self.assertEqual(mocked_post.call_count, 1)
+        edit_payload = mocked_post.call_args.kwargs.get("json", {})
+        self.assertEqual(edit_payload.get("action"), "edit_approval_message")
+        self.assertEqual(edit_payload.get("message_id"), 3694)
+        self.assertEqual(edit_payload.get("chat_id"), 555001)
+        self.assertEqual(edit_payload.get("inline_keyboard"), [])
+
+    @patch("apps.modules.telegram_approvals.services.requests.post")
     def test_payment_callback_mode_buttons_use_vyplatit_otmenit(self, mocked_post):
         mocked_post.return_value.status_code = 200
         mocked_post.return_value.content = b"{}"
