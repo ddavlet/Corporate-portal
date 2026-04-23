@@ -4,7 +4,12 @@ from decimal import Decimal
 from django.contrib.auth import get_user_model
 from django.test import TestCase
 
-from apps.modules.investments.serializers import InvestReturnSerializer
+from apps.modules.investments.models import InvestReturn
+from apps.modules.investments.serializers import (
+    InvestPayoutScheduleSerializer,
+    InvestReturnSerializer,
+    ProjectInvestmentSerializer,
+)
 from apps.tenants.models import Tenant
 
 
@@ -52,3 +57,64 @@ class InvestReturnSerializerTests(TestCase):
 
         obj = serializer.save(tenant=self.tenant, created_by=self.user)
         self.assertIsNone(obj.sum_uzs)
+        self.assertIsNotNone(obj.last_edit_at)
+
+    def test_investreturn_last_edit_at_updates_on_change(self):
+        ret = InvestReturn.objects.create(
+            tenant=self.tenant,
+            date=date(2026, 1, 1),
+            sum=Decimal("1.00"),
+            type="дивиденды",
+            recipient="инвестор",
+            created_by=self.user,
+        )
+        t1 = ret.last_edit_at
+        self.assertIsNotNone(t1)
+        ret.comment = "updated"
+        ret.save()
+        ret.refresh_from_db()
+        self.assertIsNotNone(ret.last_edit_at)
+        self.assertGreaterEqual(ret.last_edit_at, t1)
+
+
+class InvestPayoutScheduleSerializerTests(TestCase):
+    def setUp(self):
+        self.tenant = Tenant.objects.create(name="SchedCo", subdomain="schedco", is_active=True)
+        self.user = User.objects.create_user(username="sched-user", password="x")
+
+    def test_creates_payout_schedule(self):
+        serializer = InvestPayoutScheduleSerializer(
+            data={
+                "payout_date": date(2026, 6, 1),
+                "amount": "5000.00",
+                "currency": "eur",
+                "is_paid": True,
+                "payment_amount": "5000.00",
+                "comment": "Q2",
+            }
+        )
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+        obj = serializer.save(tenant=self.tenant, created_by=self.user)
+        self.assertEqual(obj.currency, "EUR")
+        self.assertIsNotNone(obj.created_at)
+        self.assertIsNotNone(obj.last_edit_at)
+
+
+class ProjectInvestmentSerializerTests(TestCase):
+    def setUp(self):
+        self.tenant = Tenant.objects.create(name="ProjCo", subdomain="projco", is_active=True)
+        self.user = User.objects.create_user(username="proj-user", password="x")
+
+    def test_creates_project_investment(self):
+        serializer = ProjectInvestmentSerializer(
+            data={
+                "date": date(2026, 3, 15),
+                "amount": "100000.00",
+                "currency": "usd",
+                "comment": "Round A",
+            }
+        )
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+        obj = serializer.save(tenant=self.tenant, created_by=self.user)
+        self.assertEqual(obj.currency, "USD")
+        self.assertIsNotNone(obj.last_edit_at)

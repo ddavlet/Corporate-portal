@@ -18,7 +18,7 @@ from apps.modules.clients_debt.models import ClientDebtSnapshot
 from apps.modules.payroll.models import PayrollLine
 from apps.modules.cashier.models import CashExpense, CashRevenue
 from apps.modules.corporate_card.models import CardExpense, CardRevenue
-from apps.modules.investments.models import InvestReturn
+from apps.modules.investments.models import InvestPayoutSchedule, InvestReturn, ProjectInvestment
 from apps.modules.notes.models import Note
 from apps.modules.requests.models import Approval, Request
 from apps.modules.requests.amortization import build_amortization_schedule_rows, is_request_amortized
@@ -35,7 +35,9 @@ from apps.modules.n8n_integration.serializers import (
     N8nCashRevenueImportSerializer,
     N8nNoteImportSerializer,
     N8nPayrollLineImportSerializer,
+    N8nInvestPayoutScheduleImportSerializer,
     N8nInvestReturnImportSerializer,
+    N8nProjectInvestmentImportSerializer,
     N8nRequestImportSerializer,
     N8nVendorImportSerializer,
 )
@@ -1255,3 +1257,57 @@ class N8nNoteBatchUpsertView(_N8nBatchBaseView):
 
 class N8nInvestReturnBatchUpsertView(_N8nBatchBaseView):
     single_view_class = N8nInvestReturnUpsertView
+
+
+class N8nInvestPayoutScheduleUpsertView(_N8nBaseView):
+    def post(self, request):
+        tenant = request.tenant
+
+        def get_instance(pk):
+            return InvestPayoutSchedule.objects.filter(pk=pk, tenant=tenant).first()
+
+        def other_tenant_conflict(pk):
+            o = InvestPayoutSchedule.objects.filter(pk=pk).first()
+            return o is not None and o.tenant_id != tenant.id
+
+        def build_create_kwargs(req, su):
+            return {"tenant": req.tenant, "created_by": su}
+
+        return _n8n_upsert(
+            request,
+            serializer_class=N8nInvestPayoutScheduleImportSerializer,
+            get_instance=get_instance,
+            other_tenant_conflict=other_tenant_conflict,
+            build_create_kwargs=build_create_kwargs,
+        )
+
+
+class N8nInvestPayoutScheduleBatchUpsertView(_N8nBatchBaseView):
+    single_view_class = N8nInvestPayoutScheduleUpsertView
+
+
+class N8nProjectInvestmentUpsertView(_N8nBaseView):
+    def post(self, request):
+        tenant = request.tenant
+
+        def get_instance(pk):
+            return ProjectInvestment.objects.filter(pk=pk, tenant=tenant).first()
+
+        def other_tenant_conflict(pk):
+            o = ProjectInvestment.objects.filter(pk=pk).first()
+            return o is not None and o.tenant_id != tenant.id
+
+        def build_create_kwargs(req, su):
+            return {"tenant": req.tenant, "created_by": su}
+
+        return _n8n_upsert(
+            request,
+            serializer_class=N8nProjectInvestmentImportSerializer,
+            get_instance=get_instance,
+            other_tenant_conflict=other_tenant_conflict,
+            build_create_kwargs=build_create_kwargs,
+        )
+
+
+class N8nProjectInvestmentBatchUpsertView(_N8nBatchBaseView):
+    single_view_class = N8nProjectInvestmentUpsertView
