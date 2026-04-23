@@ -45,6 +45,7 @@ INSTALLED_APPS = [
     "apps.modules.feedback",
     "apps.modules.clients_debt",
     "apps.modules.investments",
+    "apps.modules.budgets",
 ]
 
 MIDDLEWARE = [
@@ -87,11 +88,18 @@ TENANT_SUBDOMAIN_FALLBACK = True
 
 # Cookies / CSRF for subdomains (admin POST needs trusted origins)
 if BASE_DOMAIN:
-    SESSION_COOKIE_DOMAIN = "." + BASE_DOMAIN.lstrip(".")
-    CSRF_COOKIE_DOMAIN = "." + BASE_DOMAIN.lstrip(".")
+    _is_localhost = BASE_DOMAIN in ("localhost", "127.0.0.1")
+    if not _is_localhost:
+        SESSION_COOKIE_DOMAIN = "." + BASE_DOMAIN.lstrip(".")
+        CSRF_COOKIE_DOMAIN = "." + BASE_DOMAIN.lstrip(".")
     CSRF_TRUSTED_ORIGINS = [
         f"https://*.{BASE_DOMAIN.lstrip('.')}",
     ]
+    if DEBUG:
+        CSRF_TRUSTED_ORIGINS += [
+            f"http://*.{BASE_DOMAIN.lstrip('.')}",
+            f"http://{BASE_DOMAIN.lstrip('.')}",
+        ]
 
 
 # Database

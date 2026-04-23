@@ -73,6 +73,8 @@ urlpatterns = [
 
     path("api/investments/", include("apps.modules.investments.urls")),
 
+    path("api/budgets/", include("apps.modules.budgets.urls")),
+
     # Telegram approvals bridge webhook
     path("api/telegram-approvals/", include("apps.modules.telegram_approvals.urls")),
 ]

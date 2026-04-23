@@ -1571,3 +1571,118 @@ export async function deleteRequestAttachment(requestId: number, attachmentId: n
   if (!res.ok) throw new Error(await parseErrorBody(res))
 }
 
+// ─── Budgets module ───────────────────────────────────────────────────────────
+
+export type BudgetPeriodType = 'monthly' | 'quarterly' | 'yearly'
+
+export type Budget = {
+  id: number
+  tenant: number
+  name: string
+  category: number
+  category_name: string
+  period_type: BudgetPeriodType
+  limit_amount: string
+  currency: string
+  is_active: boolean
+  created_at: string
+  created_by: number | null
+  spent_amount: string
+  remaining_amount: string
+  utilization_pct: number
+}
+
+export type BudgetCategory = { id: number; name: string }
+
+export type BudgetCreatePayload = {
+  name: string
+  category: number
+  period_type: BudgetPeriodType
+  limit_amount: string
+  currency: string
+  is_active?: boolean
+}
+
+export type BudgetUpdatePayload = Partial<BudgetCreatePayload>
+
+export type BudgetSpendDetailItem = {
+  id: number
+  title: string
+  amount: string
+  currency: string
+  category: string
+  status: string
+  billing_date: string
+  payment_type: string
+}
+
+export type BudgetListParams = {
+  category?: string
+  is_active?: boolean
+  year?: number
+  period?: number
+}
+
+export async function getBudgetCategories(): Promise<BudgetCategory[]> {
+  const res = await apiFetch('/api/budgets/categories/')
+  if (!res.ok) throw new Error(await parseErrorBody(res))
+  const json = await res.json().catch(() => null)
+  return Array.isArray(json) ? (json as BudgetCategory[]) : []
+}
+
+export async function getBudgets(params?: BudgetListParams): Promise<Budget[]> {
+  const q = new URLSearchParams()
+  if (params?.category) q.set('category', params.category)
+  if (params?.is_active !== undefined) q.set('is_active', String(params.is_active))
+  if (params?.year) q.set('year', String(params.year))
+  if (params?.period) q.set('period', String(params.period))
+  const query = q.toString()
+  const res = await apiFetch(`/api/budgets/${query ? `?${query}` : ''}`)
+  if (!res.ok) throw new Error(await parseErrorBody(res))
+  const json = await res.json().catch(() => null)
+  return normalizeListPayload<Budget>(json)
+}
+
+export async function createBudget(payload: BudgetCreatePayload): Promise<Budget> {
+  const res = await apiFetch('/api/budgets/', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+  if (!res.ok) throw new Error(await parseErrorBody(res))
+  const json = (await res.json().catch(() => null)) as Budget | null
+  if (!json) throw new Error('Empty response')
+  return json
+}
+
+export async function updateBudget(id: number, payload: BudgetUpdatePayload): Promise<Budget> {
+  const res = await apiFetch(`/api/budgets/${id}/`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+  if (!res.ok) throw new Error(await parseErrorBody(res))
+  const json = (await res.json().catch(() => null)) as Budget | null
+  if (!json) throw new Error('Empty response')
+  return json
+}
+
+export async function deleteBudget(id: number): Promise<void> {
+  const res = await apiFetch(`/api/budgets/${id}/`, { method: 'DELETE' })
+  if (!res.ok) throw new Error(await parseErrorBody(res))
+}
+
+export async function getBudgetSpendDetail(
+  id: number,
+  params?: { year?: number; period?: number },
+): Promise<BudgetSpendDetailItem[]> {
+  const q = new URLSearchParams()
+  if (params?.year) q.set('year', String(params.year))
+  if (params?.period) q.set('period', String(params.period))
+  const query = q.toString()
+  const res = await apiFetch(`/api/budgets/${id}/spend-detail/${query ? `?${query}` : ''}`)
+  if (!res.ok) throw new Error(await parseErrorBody(res))
+  const json = (await res.json().catch(() => null)) as { results?: BudgetSpendDetailItem[] } | null
+  return Array.isArray(json?.results) ? json.results : []
+}
+
