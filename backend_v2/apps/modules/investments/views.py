@@ -1,8 +1,9 @@
 from rest_framework import viewsets
 from rest_framework.permissions import IsAuthenticated
 
-from apps.modules.investments.models import InvestPayoutSchedule, InvestReturn, ProjectInvestment
+from apps.modules.investments.models import InvestCompany, InvestPayoutSchedule, InvestReturn, ProjectInvestment
 from apps.modules.investments.serializers import (
+    InvestCompanySerializer,
     InvestPayoutScheduleSerializer,
     InvestReturnSerializer,
     ProjectInvestmentSerializer,
@@ -37,3 +38,8 @@ class InvestPayoutScheduleViewSet(_InvestmentsTenantViewSet):
 class ProjectInvestmentViewSet(_InvestmentsTenantViewSet):
     serializer_class = ProjectInvestmentSerializer
     queryset = ProjectInvestment.objects.all()
+
+
+class InvestCompanyViewSet(_InvestmentsTenantViewSet):
+    serializer_class = InvestCompanySerializer
+    queryset = InvestCompany.objects.all()

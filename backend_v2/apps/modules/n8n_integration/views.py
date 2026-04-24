@@ -18,7 +18,7 @@ from apps.modules.clients_debt.models import ClientDebtSnapshot
 from apps.modules.payroll.models import PayrollLine
 from apps.modules.cashier.models import CashExpense, CashRevenue
 from apps.modules.corporate_card.models import CardExpense, CardRevenue
-from apps.modules.investments.models import InvestPayoutSchedule, InvestReturn, ProjectInvestment
+from apps.modules.investments.models import InvestCompany, InvestPayoutSchedule, InvestReturn, ProjectInvestment
 from apps.modules.notes.models import Note
 from apps.modules.requests.models import Approval, Request
 from apps.modules.requests.amortization import build_amortization_schedule_rows, is_request_amortized
@@ -33,6 +33,7 @@ from apps.modules.n8n_integration.serializers import (
     N8nClientDebtImportSerializer,
     N8nCashExpenseImportSerializer,
     N8nCashRevenueImportSerializer,
+    N8nInvestCompanyImportSerializer,
     N8nNoteImportSerializer,
     N8nPayrollLineImportSerializer,
     N8nInvestPayoutScheduleImportSerializer,
@@ -1311,3 +1312,30 @@ class N8nProjectInvestmentUpsertView(_N8nBaseView):
 
 class N8nProjectInvestmentBatchUpsertView(_N8nBatchBaseView):
     single_view_class = N8nProjectInvestmentUpsertView
+
+
+class N8nInvestCompanyUpsertView(_N8nBaseView):
+    def post(self, request):
+        tenant = request.tenant
+
+        def get_instance(pk):
+            return InvestCompany.objects.filter(pk=pk, tenant=tenant).first()
+
+        def other_tenant_conflict(pk):
+            o = InvestCompany.objects.filter(pk=pk).first()
+            return o is not None and o.tenant_id != tenant.id
+
+        def build_create_kwargs(req, su):
+            return {"tenant": req.tenant, "created_by": su}
+
+        return _n8n_upsert(
+            request,
+            serializer_class=N8nInvestCompanyImportSerializer,
+            get_instance=get_instance,
+            other_tenant_conflict=other_tenant_conflict,
+            build_create_kwargs=build_create_kwargs,
+        )
+
+
+class N8nInvestCompanyBatchUpsertView(_N8nBatchBaseView):
+    single_view_class = N8nInvestCompanyUpsertView
