@@ -491,7 +491,7 @@ services:
       - traefik.http.routers.django-v2-api.priority=1100
 
       # Integration API: must beat Host-only n8n webhooks on the same hosts (priority > django-v2-api)
-      - traefik.http.routers.django-v2-n8n.rule=(Host(`lemonfit.kolberg.uz`) || Host(`lemonaqua.kolberg.uz`) || Host(`neuron.kolberg.uz`)) && PathPrefix(`/api/${N8N_INTEGRATION_URL_PATH:-n8n}/`)
+      - traefik.http.routers.django-v2-n8n.rule=(Host(`main.kolberg.uz`) || Host(`lemonfit.kolberg.uz`) || Host(`lemonaqua.kolberg.uz`) || Host(`neuron.kolberg.uz`)) && PathPrefix(`/api/${N8N_INTEGRATION_URL_PATH:-n8n}/`)
       - traefik.http.routers.django-v2-n8n.entrypoints=web,websecure
       - traefik.http.routers.django-v2-n8n.tls=true
       - traefik.http.routers.django-v2-n8n.tls.certresolver=mytlschallenge
