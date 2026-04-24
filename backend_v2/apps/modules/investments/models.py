@@ -18,6 +18,13 @@ class InvestReturn(models.Model):
         PARTNER = "партнер", "Партнер"
 
     tenant = models.ForeignKey(Tenant, on_delete=models.CASCADE, related_name="invest_returns")
+    company = models.ForeignKey(
+        "InvestCompany",
+        on_delete=models.SET_NULL,
+        related_name="returns",
+        null=True,
+        blank=True,
+    )
     date = models.DateField()
     sum = models.DecimalField(max_digits=18, decimal_places=2)
     comment = models.TextField(blank=True, default="")
@@ -47,6 +54,13 @@ class InvestPayoutSchedule(models.Model):
     """Planned investment payouts: due date, amounts, and payment status."""
 
     tenant = models.ForeignKey(Tenant, on_delete=models.CASCADE, related_name="invest_payout_schedules")
+    company = models.ForeignKey(
+        "InvestCompany",
+        on_delete=models.SET_NULL,
+        related_name="payout_schedules",
+        null=True,
+        blank=True,
+    )
     payout_date = models.DateField()
     amount = models.DecimalField(max_digits=18, decimal_places=2)
     currency = models.CharField(max_length=3, default="USD")
@@ -74,6 +88,13 @@ class ProjectInvestment(models.Model):
     """Registered capital investment amounts into a project (per tenant)."""
 
     tenant = models.ForeignKey(Tenant, on_delete=models.CASCADE, related_name="project_investments")
+    company = models.ForeignKey(
+        "InvestCompany",
+        on_delete=models.SET_NULL,
+        related_name="project_investments",
+        null=True,
+        blank=True,
+    )
     date = models.DateField()
     amount = models.DecimalField(max_digits=18, decimal_places=2)
     currency = models.CharField(max_length=3, default="USD")
@@ -90,3 +111,25 @@ class ProjectInvestment(models.Model):
         db_table = "project_investments"
         ordering = ["-date", "-id"]
         indexes = [models.Index(fields=["tenant", "date"], name="invproj_tenant_date_idx")]
+
+
+class InvestCompany(models.Model):
+    """Company/legal entity dimension for investments inside one tenant."""
+
+    tenant = models.ForeignKey(Tenant, on_delete=models.CASCADE, related_name="invest_companies")
+    name = models.CharField(max_length=255)
+    comment = models.TextField(blank=True, default="")
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    last_edit_at = models.DateTimeField(auto_now=True)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="created_invest_companies",
+    )
+
+    class Meta:
+        db_table = "invest_companies"
+        ordering = ["name", "id"]
+        unique_together = [("tenant", "name")]
+        indexes = [models.Index(fields=["tenant", "is_active"], name="invco_tenant_active_idx")]

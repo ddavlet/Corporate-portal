@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from apps.modules.investments.models import InvestPayoutSchedule, InvestReturn, ProjectInvestment
+from apps.modules.investments.models import InvestCompany, InvestPayoutSchedule, InvestReturn, ProjectInvestment
 
 
 @admin.register(InvestReturn)
@@ -8,6 +8,7 @@ class InvestReturnAdmin(admin.ModelAdmin):
     list_display = (
         "id",
         "tenant",
+        "company",
         "date",
         "type",
         "recipient",
@@ -27,6 +28,7 @@ class InvestPayoutScheduleAdmin(admin.ModelAdmin):
     list_display = (
         "id",
         "tenant",
+        "company",
         "payout_date",
         "amount",
         "currency",
@@ -41,6 +43,14 @@ class InvestPayoutScheduleAdmin(admin.ModelAdmin):
 
 @admin.register(ProjectInvestment)
 class ProjectInvestmentAdmin(admin.ModelAdmin):
-    list_display = ("id", "tenant", "date", "amount", "currency", "created_at", "last_edit_at")
+    list_display = ("id", "tenant", "company", "date", "amount", "currency", "created_at", "last_edit_at")
     list_filter = ("tenant",)
+    readonly_fields = ("created_at", "last_edit_at")
+
+
+@admin.register(InvestCompany)
+class InvestCompanyAdmin(admin.ModelAdmin):
+    list_display = ("id", "tenant", "name", "is_active", "created_at", "last_edit_at")
+    list_filter = ("tenant", "is_active")
+    search_fields = ("name",)
     readonly_fields = ("created_at", "last_edit_at")

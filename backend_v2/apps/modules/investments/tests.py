@@ -3,8 +3,9 @@ from decimal import Decimal
 
 from django.contrib.auth import get_user_model
 from django.test import TestCase
+from rest_framework.test import APIRequestFactory
 
-from apps.modules.investments.models import InvestReturn
+from apps.modules.investments.models import InvestCompany, InvestReturn
 from apps.modules.investments.serializers import (
     InvestPayoutScheduleSerializer,
     InvestReturnSerializer,
@@ -14,6 +15,7 @@ from apps.tenants.models import Tenant
 
 
 User = get_user_model()
+factory = APIRequestFactory()
 
 
 class InvestReturnSerializerTests(TestCase):
@@ -98,6 +100,7 @@ class InvestPayoutScheduleSerializerTests(TestCase):
         self.assertEqual(obj.currency, "EUR")
         self.assertIsNotNone(obj.created_at)
         self.assertIsNotNone(obj.last_edit_at)
+        self.assertIsNone(obj.company)
 
 
 class ProjectInvestmentSerializerTests(TestCase):
@@ -118,3 +121,50 @@ class ProjectInvestmentSerializerTests(TestCase):
         obj = serializer.save(tenant=self.tenant, created_by=self.user)
         self.assertEqual(obj.currency, "USD")
         self.assertIsNotNone(obj.last_edit_at)
+        self.assertIsNone(obj.company)
+
+
+class InvestCompanyScopeTests(TestCase):
+    def setUp(self):
+        self.tenant = Tenant.objects.create(name="ScopeCo", subdomain="scopeco", is_active=True)
+        self.other_tenant = Tenant.objects.create(name="Other", subdomain="otherco", is_active=True)
+        self.user = User.objects.create_user(username="scope-user", password="x")
+        self.company = InvestCompany.objects.create(
+            tenant=self.tenant,
+            name="Company A",
+            created_by=self.user,
+        )
+        self.other_company = InvestCompany.objects.create(
+            tenant=self.other_tenant,
+            name="Company B",
+            created_by=self.user,
+        )
+
+    def test_project_investment_allows_company_from_same_tenant(self):
+        request = factory.post("/api/investments/project-investments/")
+        request.tenant = self.tenant
+        serializer = ProjectInvestmentSerializer(
+            data={
+                "date": date(2026, 3, 15),
+                "amount": "100000.00",
+                "currency": "usd",
+                "company": self.company.id,
+            },
+            context={"request": request},
+        )
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+
+    def test_project_investment_rejects_company_from_other_tenant(self):
+        request = factory.post("/api/investments/project-investments/")
+        request.tenant = self.tenant
+        serializer = ProjectInvestmentSerializer(
+            data={
+                "date": date(2026, 3, 15),
+                "amount": "100000.00",
+                "currency": "usd",
+                "company": self.other_company.id,
+            },
+            context={"request": request},
+        )
+        self.assertFalse(serializer.is_valid())
+        self.assertIn("company", serializer.errors)
