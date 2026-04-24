@@ -463,7 +463,7 @@ services:
       BASE_DOMAIN: ${DOMAIN_NAME}
       DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:-change-me-to-a-long-random-secret-key-32-plus-bytes}
       DJANGO_DEBUG: "False"
-      DJANGO_ALLOWED_HOSTS: "lemonfit.kolberg.uz,lemonfit2.kolberg.uz,neuron.kolberg.uz,lemonaqua.kolberg.uz"
+      DJANGO_ALLOWED_HOSTS: "main.kolberg.uz,lemonfit.kolberg.uz,lemonfit2.kolberg.uz,neuron.kolberg.uz,lemonaqua.kolberg.uz"
       # No leading/trailing slashes (e.g. n8n). Slashes break Traefik labels: /api/${VAR}/ → /api/n8n//
       N8N_INTEGRATION_URL_PATH: ${N8N_INTEGRATION_URL_PATH:-n8n}
       N8N_INTEGRATION_TOKEN: ${N8N_INTEGRATION_TOKEN:-}
@@ -483,7 +483,7 @@ services:
       - traefik.http.services.django-v2.loadbalancer.server.port=8001
 
       # tenants: /api/* except n8n integration prefix (that prefix has its own router below)
-      - traefik.http.routers.django-v2-api.rule=(Host(`lemonfit.kolberg.uz`) || Host(`lemonfit2.kolberg.uz`) || Host(`neuron.kolberg.uz`) || Host(`lemonaqua.kolberg.uz`)) && PathPrefix(`/api`) && !PathPrefix(`/api/${N8N_INTEGRATION_URL_PATH:-n8n}/`)
+      - traefik.http.routers.django-v2-api.rule=(Host(`main.kolberg.uz`) || Host(`lemonfit.kolberg.uz`) || Host(`lemonfit2.kolberg.uz`) || Host(`neuron.kolberg.uz`) || Host(`lemonaqua.kolberg.uz`)) && PathPrefix(`/api`) && !PathPrefix(`/api/${N8N_INTEGRATION_URL_PATH:-n8n}/`)
       - traefik.http.routers.django-v2-api.entrypoints=web,websecure
       - traefik.http.routers.django-v2-api.tls=true
       - traefik.http.routers.django-v2-api.tls.certresolver=mytlschallenge
