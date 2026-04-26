@@ -788,6 +788,80 @@ export async function getStructuredCashflowReport(): Promise<StructuredReportPay
   return normalizeStructuredReportPayload(json, 'cashflow')
 }
 
+// ─── Investments module ──────────────────────────────────────────────────────
+
+export type InvestCompanyRow = {
+  id: number
+  name: string
+  comment: string
+  is_active: boolean
+  created_at: string
+}
+
+export type ProjectInvestmentRow = {
+  id: number
+  company: number | null
+  date: string
+  amount: string | number
+  currency: string
+  comment: string
+  created_at: string
+}
+
+export type InvestPayoutScheduleRow = {
+  id: number
+  company: number | null
+  payout_date: string
+  amount: string | number
+  currency: string
+  is_paid: boolean
+  payment_amount: string | number
+  comment: string
+  created_at: string
+}
+
+export type InvestReturnRow = {
+  id: number
+  company: number | null
+  date: string
+  sum: string | number
+  sum_uzs?: string | number | null
+  currency: string
+  confirmed: boolean
+  type: string
+  recipient: string
+  comment: string
+  created_at: string
+}
+
+export async function getInvestCompanies(): Promise<InvestCompanyRow[]> {
+  const res = await apiFetch('/api/investments/companies/')
+  if (!res.ok) throw new Error(await parseErrorBody(res))
+  const json = await res.json().catch(() => null)
+  return normalizeListPayload<InvestCompanyRow>(json)
+}
+
+export async function getProjectInvestments(): Promise<ProjectInvestmentRow[]> {
+  const res = await apiFetch('/api/investments/project-investments/')
+  if (!res.ok) throw new Error(await parseErrorBody(res))
+  const json = await res.json().catch(() => null)
+  return normalizeListPayload<ProjectInvestmentRow>(json)
+}
+
+export async function getInvestPayoutSchedule(): Promise<InvestPayoutScheduleRow[]> {
+  const res = await apiFetch('/api/investments/payout-schedule/')
+  if (!res.ok) throw new Error(await parseErrorBody(res))
+  const json = await res.json().catch(() => null)
+  return normalizeListPayload<InvestPayoutScheduleRow>(json)
+}
+
+export async function getInvestReturns(): Promise<InvestReturnRow[]> {
+  const res = await apiFetch('/api/investments/returns/')
+  if (!res.ok) throw new Error(await parseErrorBody(res))
+  const json = await res.json().catch(() => null)
+  return normalizeListPayload<InvestReturnRow>(json)
+}
+
 export type TelegramWebAppAuthResponse = {
   access: string
   refresh: string

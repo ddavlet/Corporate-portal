@@ -5,7 +5,7 @@ export type ShellMenuRoute = {
   moduleKey?: string
 }
 
-const INVESTOR_ALLOWED_PATHS = new Set<string>(['/', '/reports'])
+const INVESTOR_ALLOWED_PATHS = new Set<string>(['/', '/reports', '/investments'])
 
 export function filterInvestorMenuRoutes({
   isInvestor,

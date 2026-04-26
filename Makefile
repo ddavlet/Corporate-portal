@@ -7,7 +7,7 @@ DEPLOY_TEST_PATH ?= $(TEST_PATH)
 BRANCH     := $(shell git rev-parse --abbrev-ref HEAD)
 
 .DEFAULT_GOAL := help
-.PHONY: help push test deploy makemigrations showmigrations rollback
+.PHONY: help push test deploy makemigrations showmigrations rollback refresh-approval-messages
 
 help:
 	@echo ""
@@ -19,6 +19,7 @@ help:
 	@echo "  make deploy DEPLOY_TEST_PATH=apps.modules.requests.tests — деплой + таргетные тесты"
 	@echo "  make makemigrations  — создать миграции и скачать на локал"
 	@echo "  make showmigrations  — показать tenants/requests/vendors миграции на сервере"
+	@echo "  make refresh-approval-messages REQUEST_IDS='1 2' — актуализировать Telegram-карточки заявок на сервере"
 	@echo "  make rollback        — откатить production на предыдущий образ"
 	@echo ""
 
@@ -69,13 +70,26 @@ makemigrations:
 		$(SERVER):$(REMOTE_DIR)/backend_v2/apps/ \
 		./backend_v2/apps/
 
-# ── 5. Откат ──────────────────────────────────────────────────────────────────
+# ── 5. Миграции: статус ───────────────────────────────────────────────────────
 showmigrations:
 	ssh $(SERVER) "cd $(REMOTE_DIR) && \
 		docker compose --env-file ./.env exec -T backend_v2 \
 		python manage.py showmigrations tenants requests vendors"
 
-# ── 6. Откат ──────────────────────────────────────────────────────────────────
+# ── 6. Telegram: актуализация карточек согласований по ID заявок (на сервере) ─
+REQUEST_IDS ?=
+
+refresh-approval-messages:
+	@if [ -z "$(REQUEST_IDS)" ]; then \
+		echo "Usage: make refresh-approval-messages REQUEST_IDS='123'"; \
+		echo "  или: make refresh-approval-messages REQUEST_IDS='1 2 3'"; \
+		exit 1; \
+	fi
+	ssh $(SERVER) "cd $(REMOTE_DIR) && \
+		docker compose --env-file ./.env exec -T backend_v2 \
+		python manage.py refresh_telegram_approval_messages $(REQUEST_IDS)"
+
+# ── 7. Откат production ──────────────────────────────────────────────────────
 rollback:
 	@echo "⚠️  Откат production на предыдущий образ..."
 	ssh $(SERVER) "cd $(REMOTE_DIR) && \
