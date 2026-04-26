@@ -316,7 +316,7 @@ services:
     restart: always
     # Сколько дней держать архивы в Drive (имя файла + min-age по времени на remote). ~2.2–2.6 ГБ на дамп PG.
     environment:
-      - GDRIVE_RETENTION_DAYS=10
+      - GDRIVE_RETENTION_DAYS=4
     entrypoint:
       - /bin/sh
       - -lc
