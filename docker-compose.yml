@@ -306,6 +306,9 @@ services:
     networks:
       - backend
 
+  # RCLONE_CONFIG_DIR: каталог с rclone.conf на хосте (внутри → /config/rclone).
+  # Для rclone из Snap: /home/USER/snap/rclone/current/.config/rclone — «current» всегда на актуальную ревизию, reconnect обновляет тот же путь.
+  # Задать в .env, например: RCLONE_CONFIG_DIR=/home/ddavlet/snap/rclone/current/.config/rclone
   gdrive_backup_sync:
     image: rclone/rclone:latest
     container_name: gdrive_backup_sync
@@ -334,7 +337,7 @@ services:
     volumes:
       - /opt/backups/postgres:/backups/postgres:ro
       - /opt/backups/n8n:/backups/n8n:ro
-      - /opt/backups/rclone:/config/rclone:ro
+      - ${RCLONE_CONFIG_DIR:-/opt/backups/rclone}:/config/rclone:ro
 
   portainer:
     image: portainer/portainer-ce:latest
