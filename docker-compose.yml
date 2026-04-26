@@ -313,6 +313,9 @@ services:
     image: rclone/rclone:latest
     container_name: gdrive_backup_sync
     restart: always
+    # Сколько дней держать архивы в Drive (имя файла + min-age по времени на remote). ~2.2–2.6 ГБ на дамп PG.
+    environment:
+      - GDRIVE_RETENTION_DAYS=10
     entrypoint:
       - /bin/sh
       - -lc
@@ -325,10 +328,14 @@ services:
             latest_pg=$$(ls -1t /backups/postgres/postgres-all-*.sql.gz 2>/dev/null | sed -n '1p');
             if [ -n "$$latest_pg" ]; then
               rclone copyto "$$latest_pg" gdrive:kolberg-backups/postgres-latest.sql.gz;
+              rclone copyto "$$latest_pg" "gdrive:kolberg-backups/postgres-daily/$${today}.sql.gz";
+              rclone delete "gdrive:kolberg-backups/postgres-daily/" --include "*.sql.gz" --min-age "$${GDRIVE_RETENTION_DAYS}d" || true;
             fi;
             latest_n8n=$$(ls -1t /backups/n8n/n8n-backup-*.tar.gz 2>/dev/null | sed -n '1p');
             if [ -n "$$latest_n8n" ]; then
               rclone copyto "$$latest_n8n" gdrive:kolberg-backups/n8n-latest.tar.gz;
+              rclone copyto "$$latest_n8n" "gdrive:kolberg-backups/n8n-daily/$${today}.tar.gz";
+              rclone delete "gdrive:kolberg-backups/n8n-daily/" --include "*.tar.gz" --min-age "$${GDRIVE_RETENTION_DAYS}d" || true;
             fi;
             echo "$$today" > /tmp/last_sync_date;
           fi;
