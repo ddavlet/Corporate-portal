@@ -1,7 +1,9 @@
 import json
 from datetime import date
+from io import StringIO
 from unittest.mock import patch
 
+from django.core.management import call_command
 from django.contrib.auth import get_user_model
 from django.test import override_settings
 from rest_framework.test import APITestCase
@@ -774,4 +776,22 @@ class TelegramApprovalsTests(APITestCase):
         )
         txt = build_approval_message(request_obj=request_row, approval=approval)
         self.assertIn("• Сумма: 1 000 000.00 UZS", txt)
+
+    @patch("apps.modules.telegram_approvals.management.commands.refresh_telegram_approval_messages.refresh_request_messages")
+    def test_refresh_telegram_approval_messages_command(self, mock_refresh):
+        request_row = Request.objects.create(
+            tenant=self.tenant,
+            created_by=self.admin,
+            requester=self.requester,
+            title="Mgmt refresh",
+            status=Request.STATUS_PROGRESS_1,
+            billing_date=date(2026, 3, 31),
+        )
+        mock_refresh.return_value = 2
+        out = StringIO()
+        call_command("refresh_telegram_approval_messages", str(request_row.pk), stdout=out)
+        mock_refresh.assert_called_once()
+        _args, kwargs = mock_refresh.call_args
+        self.assertEqual(kwargs.get("request_obj").id, request_row.id)
+        self.assertIn("обновлено карточек: 2", out.getvalue())
 

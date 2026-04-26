@@ -9,9 +9,10 @@ describe('filterInvestorMenuRoutes', () => {
     expect(filterInvestorMenuRoutes({ isInvestor: false, path: '/settings' })).toBe(true)
   })
 
-  it('allows only dashboard and reports for investors', () => {
+  it('allows only dashboard, reports and investments for investors', () => {
     expect(filterInvestorMenuRoutes({ isInvestor: true, path: '/' })).toBe(true)
     expect(filterInvestorMenuRoutes({ isInvestor: true, path: '/reports' })).toBe(true)
+    expect(filterInvestorMenuRoutes({ isInvestor: true, path: '/investments' })).toBe(true)
     expect(filterInvestorMenuRoutes({ isInvestor: true, path: '/requests' })).toBe(false)
     expect(filterInvestorMenuRoutes({ isInvestor: true, path: '/admin' })).toBe(false)
   })
