@@ -4,7 +4,6 @@ from io import StringIO
 from unittest.mock import patch
 
 from django.core.management import call_command
-
 from django.contrib.auth import get_user_model
 from django.test import override_settings
 from rest_framework.test import APITestCase
@@ -786,6 +785,7 @@ class TelegramApprovalsTests(APITestCase):
             requester=self.requester,
             title="Mgmt refresh",
             status=Request.STATUS_PROGRESS_1,
+            billing_date=date(2026, 3, 31),
         )
         mock_refresh.return_value = 2
         out = StringIO()
