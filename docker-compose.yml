@@ -309,10 +309,14 @@ services:
   # RCLONE_CONFIG_DIR: каталог с rclone.conf на хосте (внутри → /config/rclone).
   # Для rclone из Snap: /home/USER/snap/rclone/current/.config/rclone — «current» всегда на актуальную ревизию, reconnect обновляет тот же путь.
   # Задать в .env, например: RCLONE_CONFIG_DIR=/home/ddavlet/snap/rclone/current/.config/rclone
+  # n8n в Postgres (см. сервис n8n: DB_*) — попадает в pg_dumpall у db_backup; отдельные tar больше не синкаем.
   gdrive_backup_sync:
     image: rclone/rclone:latest
     container_name: gdrive_backup_sync
     restart: always
+    # Сколько дней держать архивы в Drive (имя файла + min-age по времени на remote). ~2.2–2.6 ГБ на дамп PG.
+    environment:
+      - GDRIVE_RETENTION_DAYS=4
     entrypoint:
       - /bin/sh
       - -lc
@@ -325,10 +329,8 @@ services:
             latest_pg=$$(ls -1t /backups/postgres/postgres-all-*.sql.gz 2>/dev/null | sed -n '1p');
             if [ -n "$$latest_pg" ]; then
               rclone copyto "$$latest_pg" gdrive:kolberg-backups/postgres-latest.sql.gz;
-            fi;
-            latest_n8n=$$(ls -1t /backups/n8n/n8n-backup-*.tar.gz 2>/dev/null | sed -n '1p');
-            if [ -n "$$latest_n8n" ]; then
-              rclone copyto "$$latest_n8n" gdrive:kolberg-backups/n8n-latest.tar.gz;
+              rclone copyto "$$latest_pg" "gdrive:kolberg-backups/postgres-daily/$${today}.sql.gz";
+              rclone delete "gdrive:kolberg-backups/postgres-daily/" --include "*.sql.gz" --min-age "$${GDRIVE_RETENTION_DAYS}d" || true;
             fi;
             echo "$$today" > /tmp/last_sync_date;
           fi;
@@ -336,7 +338,6 @@ services:
         done
     volumes:
       - /opt/backups/postgres:/backups/postgres:ro
-      - /opt/backups/n8n:/backups/n8n:ro
       - ${RCLONE_CONFIG_DIR:-/opt/backups/rclone}:/config/rclone:ro
 
   portainer:
