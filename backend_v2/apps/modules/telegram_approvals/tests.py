@@ -111,6 +111,33 @@ class TelegramApprovalsTests(APITestCase):
         self.assertNotIn("• Заявитель: req", payload.get("message", ""))
 
     @patch("apps.modules.telegram_approvals.services.requests.post")
+    def test_request_create_fails_when_response_has_no_message_id(self, mocked_post):
+        mocked_post.return_value.status_code = 200
+        mocked_post.return_value.content = b'{"ok":true}'
+        mocked_post.return_value.json.return_value = {"ok": True}
+        self.client.force_authenticate(self.requester)
+
+        res = self.client.post(
+            "/api/requests/",
+            {
+                "title": "Lemonfit",
+                "description": "TEST",
+                "amount": 100,
+                "currency": "UZS",
+                "payment_type": "Наличные",
+                "urgency": "Обычно",
+                "requester": self.requester.id,
+                "billing_date": "2026-03-31",
+            },
+            format="json",
+            HTTP_HOST=self.host,
+        )
+        self.assertEqual(res.status_code, 400, res.content)
+        self.assertIn("telegram", res.data)
+        self.assertEqual(Request.objects.count(), 0)
+        self.assertEqual(Approval.objects.count(), 0)
+
+    @patch("apps.modules.telegram_approvals.services.requests.post")
     def test_bridge_http_error_notifies_n8n_error_webhook(self, mocked_post):
         err_resp = type("R", (), {})()
         err_resp.status_code = 502
@@ -534,6 +561,51 @@ class TelegramApprovalsTests(APITestCase):
         self.assertEqual(edit_payload.get("message_id"), 3694)
         self.assertEqual(edit_payload.get("chat_id"), 555001)
         self.assertEqual(edit_payload.get("inline_keyboard"), [])
+
+    @patch("apps.modules.telegram_approvals.services.requests.post")
+    def test_webhook_callback_persists_missing_message_id_from_callback(self, mocked_post):
+        mocked_post.return_value.status_code = 200
+        mocked_post.return_value.content = b"{}"
+        mocked_post.return_value.json.return_value = {}
+        request_row = Request.objects.create(
+            tenant=self.tenant,
+            created_by=self.admin,
+            requester=self.requester,
+            title="Needs approval",
+            status=Request.STATUS_PROGRESS_1,
+            billing_date=date(2026, 3, 31),
+        )
+        approval = Approval.objects.create(
+            request=request_row,
+            approver_user=self.approver,
+            approver_tg_id=555001,
+            approver_tg_from_id=777001,
+            message_id=None,
+            message_sent=False,
+            step=1,
+            step_type=Approval.STEP_TYPE_SERIAL,
+            decision=Approval.DECISION_PENDING,
+        )
+
+        payload = {
+            "callback_query": {
+                "id": "cbq-persist-mid",
+                "from": {"id": 777001},
+                "message": {"message_id": 4123, "chat": {"id": 555001}},
+                "data": f"v2_{approval.id}:a",
+            }
+        }
+        res = self.client.post(
+            "/api/telegram-approvals/webhook/",
+            payload,
+            format="json",
+            HTTP_HOST=self.host,
+            HTTP_X_N8N_INTEGRATION_TOKEN=self.webhook_token,
+        )
+        self.assertEqual(res.status_code, 200, res.content)
+        approval.refresh_from_db()
+        self.assertEqual(approval.message_id, 4123)
+        self.assertTrue(approval.message_sent)
 
     @patch("apps.modules.telegram_approvals.services.requests.post")
     def test_payment_callback_mode_buttons_use_vyplatit_otmenit(self, mocked_post):
