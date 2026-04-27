@@ -1,5 +1,7 @@
 from __future__ import annotations
 import logging
+import json
+import time
 from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
 from html import escape
@@ -20,6 +22,32 @@ logger = logging.getLogger(__name__)
 
 class TelegramDispatchMissingMessageId(ValidationError):
     pass
+
+
+def _debug_log(*, run_id: str, hypothesis_id: str, location: str, message: str, data: dict) -> None:
+    try:
+        with open(
+            "/Users/HP/Documents/Programming/repos/kolberg/.cursor/debug-625279.log",
+            "a",
+            encoding="utf-8",
+        ) as fp:
+            fp.write(
+                json.dumps(
+                    {
+                        "sessionId": "625279",
+                        "runId": run_id,
+                        "hypothesisId": hypothesis_id,
+                        "location": location,
+                        "message": message,
+                        "data": data,
+                        "timestamp": int(time.time() * 1000),
+                    },
+                    ensure_ascii=False,
+                )
+                + "\n"
+            )
+    except Exception:
+        pass
 
 
 def _display_user_name(user) -> str:
@@ -566,6 +594,21 @@ def _post_to_bridge(*, request_obj: Request, payload: dict) -> dict | None:
     url = _resolve_dispatch_url_for_tenant(tenant)
     if not url:
         return None
+    # #region agent log
+    _debug_log(
+        run_id=f"request:{request_obj.id}",
+        hypothesis_id="H4",
+        location="telegram_approvals/services.py:_post_to_bridge:before_post",
+        message="Calling n8n telegram dispatch",
+        data={
+            "request_id": request_obj.id,
+            "approval_id": payload.get("approval_id"),
+            "action": payload.get("action"),
+            "has_message_id": payload.get("message_id") is not None,
+            "chat_id_present": payload.get("chat_id") is not None,
+        },
+    )
+    # #endregion
     try:
         resp = requests.post(url, json=payload, headers=_bridge_headers(tenant=tenant), timeout=10)
         if resp.status_code >= 400:
@@ -582,9 +625,46 @@ def _post_to_bridge(*, request_obj: Request, payload: dict) -> dict | None:
                 response_body=getattr(resp, "text", None) or "",
             )
             return None
-        return _parse_bridge_response(resp)
+        parsed = _parse_bridge_response(resp)
+        # #region agent log
+        _debug_log(
+            run_id=f"request:{request_obj.id}",
+            hypothesis_id="H5",
+            location="telegram_approvals/services.py:_post_to_bridge:after_post",
+            message="Received n8n response for telegram dispatch",
+            data={
+                "request_id": request_obj.id,
+                "approval_id": payload.get("approval_id"),
+                "action": payload.get("action"),
+                "http_status": resp.status_code,
+                "parsed_type": type(parsed).__name__,
+                "parsed_has_result": isinstance(parsed, dict) and isinstance(parsed.get("result"), dict),
+                "parsed_message_id": (parsed or {}).get("message_id") if isinstance(parsed, dict) else None,
+                "parsed_result_message_id": (
+                    (parsed.get("result") or {}).get("message_id")
+                    if isinstance(parsed, dict) and isinstance(parsed.get("result"), dict)
+                    else None
+                ),
+            },
+        )
+        # #endregion
+        return parsed
     except Exception as exc:
         logger.exception("Failed to call Telegram bridge")
+        # #region agent log
+        _debug_log(
+            run_id=f"request:{request_obj.id}",
+            hypothesis_id="H4",
+            location="telegram_approvals/services.py:_post_to_bridge:exception",
+            message="n8n dispatch request failed",
+            data={
+                "request_id": request_obj.id,
+                "approval_id": payload.get("approval_id"),
+                "action": payload.get("action"),
+                "error_type": type(exc).__name__,
+            },
+        )
+        # #endregion
         # Test-safety: mocked requests.post side_effect may be exhausted.
         # Do not trigger secondary error-webhook call in this synthetic case.
         if isinstance(exc, StopIteration):
@@ -758,13 +838,67 @@ def refresh_request_messages(*, request_obj: Request) -> int:
         .select_related("request", "request__tenant", "approver_user")
         .order_by("id")
     )
+    # #region agent log
+    _debug_log(
+        run_id=f"request:{request_obj.id}",
+        hypothesis_id="H1",
+        location="telegram_approvals/services.py:refresh_request_messages:candidates",
+        message="Collected approvals eligible for telegram refresh",
+        data={
+            "request_id": request_obj.id,
+            "request_status": request_obj.status,
+            "eligible_count": len(approvals),
+            "eligible_approval_ids": [a.id for a in approvals],
+        },
+    )
+    # #endregion
     updated = 0
     for approval in approvals:
-        if _telegram_card_should_be_readonly(request_obj=request_obj, approval=approval):
-            if deactivate_approval_message_buttons(approval=approval, request_context=request_obj):
+        readonly = _telegram_card_should_be_readonly(request_obj=request_obj, approval=approval)
+        # #region agent log
+        _debug_log(
+            run_id=f"request:{request_obj.id}",
+            hypothesis_id="H2",
+            location="telegram_approvals/services.py:refresh_request_messages:per_approval",
+            message="Evaluating approval refresh branch",
+            data={
+                "request_id": request_obj.id,
+                "approval_id": approval.id,
+                "decision": approval.decision,
+                "step": approval.step,
+                "step_type": approval.step_type,
+                "message_sent": approval.message_sent,
+                "message_id": approval.message_id,
+                "readonly": readonly,
+            },
+        )
+        # #endregion
+        if readonly:
+            changed = deactivate_approval_message_buttons(approval=approval, request_context=request_obj)
+            # #region agent log
+            _debug_log(
+                run_id=f"request:{request_obj.id}",
+                hypothesis_id="H3",
+                location="telegram_approvals/services.py:refresh_request_messages:deactivate_result",
+                message="Tried to deactivate buttons for readonly approval",
+                data={"request_id": request_obj.id, "approval_id": approval.id, "updated": bool(changed)},
+            )
+            # #endregion
+            if changed:
                 updated += 1
-        elif edit_approval_message(approval=approval, request_context=request_obj):
-            updated += 1
+        else:
+            changed = edit_approval_message(approval=approval, request_context=request_obj)
+            # #region agent log
+            _debug_log(
+                run_id=f"request:{request_obj.id}",
+                hypothesis_id="H3",
+                location="telegram_approvals/services.py:refresh_request_messages:edit_result",
+                message="Tried to edit active approval message",
+                data={"request_id": request_obj.id, "approval_id": approval.id, "updated": bool(changed)},
+            )
+            # #endregion
+            if changed:
+                updated += 1
     return updated
 
 
