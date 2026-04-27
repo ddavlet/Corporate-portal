@@ -18,6 +18,10 @@ from apps.modules.requests.models import Approval, Request, RequestApprovalStepC
 logger = logging.getLogger(__name__)
 
 
+class TelegramDispatchMissingMessageId(ValidationError):
+    pass
+
+
 def _display_user_name(user) -> str:
     if not user:
         return "-"
@@ -615,12 +619,6 @@ def _maybe_set_message_id(*, approval: Approval, response_data: dict | None) -> 
         approval.save(update_fields=updates)
 
 
-def _mark_approval_message_sent(*, approval: Approval) -> None:
-    approval.message_sent = True
-    approval.message_sent_at = timezone.now()
-    approval.save(update_fields=["message_sent", "message_sent_at"])
-
-
 def _current_pending_step(request_obj: Request) -> int | None:
     if request_obj.status in {Request.STATUS_REJECTED, Request.STATUS_PAYED}:
         return None
@@ -687,8 +685,27 @@ def dispatch_pending_approvals(*, request_obj: Request, step: int | None = None,
         response_data = _post_to_bridge(request_obj=locked, payload=payload)
         if response_data is None:
             continue
-        _mark_approval_message_sent(approval=approval)
+        previous_message_id = approval.message_id
         _maybe_set_message_id(approval=approval, response_data=response_data)
+        # Keep invariant: message_sent=True is only allowed with message_id present.
+        if approval.message_id is None:
+            logger.error(
+                "Telegram bridge response missing message_id approval_id=%s request_id=%s payload_action=%s",
+                approval.id,
+                locked.id,
+                payload.get("action"),
+            )
+            raise TelegramDispatchMissingMessageId(
+                {
+                    "telegram": (
+                        "Bridge dispatch must return message_id for send action. "
+                        f"approval_id={approval.id} request_id={locked.id}"
+                    )
+                }
+            )
+        if previous_message_id is None and approval.message_sent_at is None:
+            approval.message_sent_at = timezone.now()
+            approval.save(update_fields=["message_sent_at"])
         sent_count += 1
     return sent_count
 

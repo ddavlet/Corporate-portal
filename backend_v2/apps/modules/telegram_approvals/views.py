@@ -153,6 +153,13 @@ class TelegramApprovalWebhookView(APIView):
         tenant: Tenant = approval.request.tenant
 
         with transaction.atomic():
+            if approval.message_id is None:
+                updates = ["message_id"]
+                approval.message_id = message_id
+                if not approval.message_sent:
+                    approval.message_sent = True
+                    updates.append("message_sent")
+                approval.save(update_fields=updates)
             try:
                 confirm_approval_by_id(
                     tenant=tenant,
