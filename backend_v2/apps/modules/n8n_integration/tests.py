@@ -368,6 +368,68 @@ class N8nIntegrationAuthTests(APITestCase):
         row = BankExpense.objects.get(pk=93003)
         self.assertEqual(row.vendor_id, vendor_by_account.id)
 
+    def test_bank_expense_upsert_relinks_matching_transfer_request(self):
+        req = Request.objects.create(
+            tenant=self.tenant,
+            created_by=self.admin,
+            requester=self.requester,
+            title="Bank relink request",
+            description="",
+            amount="500.00",
+            currency="UZS",
+            payment_type=Request.PAYMENT_TYPE_TRANSFER,
+            urgency=Request.URGENCY_NORMAL,
+            billing_date=date(2026, 3, 30),
+            expense_id="BEXP-REL-1",
+            expense_year=2026,
+            status=Request.STATUS_PAYED,
+        )
+        url = f"{self.n8n_prefix}/bank/expenses/"
+        body = {
+            "id": 93010,
+            "row_no": 1,
+            "doc_date": "2026-03-30",
+            "process_date": "2026-03-30",
+            "doc_no": "BEXP-REL-1",
+            "account_no": "20208000999999999999",
+            "debit_turnover": "500.00",
+            "payment_purpose": "Оплата поставки",
+        }
+        res = self.client.post(url, body, format="json", **self._headers(self.admin))
+        self.assertEqual(res.status_code, 201, res.content)
+        req.refresh_from_db()
+        self.assertEqual(req.expense_ref_target, Request.EXPENSE_REF_TARGET_BANK)
+        self.assertEqual(req.expense_ref_id, 93010)
+
+    @patch("apps.modules.n8n_integration.views._relink_requests_to_bank_expenses")
+    def test_bank_expense_batch_runs_relink_once(self, relink_mock):
+        url = f"{self.n8n_prefix}/bank/expenses/batch/"
+        body = [
+            {
+                "id": 93020,
+                "row_no": 1,
+                "doc_date": "2026-03-30",
+                "process_date": "2026-03-30",
+                "doc_no": "BEXP-BATCH-1",
+                "account_no": "20208000999999999991",
+                "debit_turnover": "500.00",
+                "payment_purpose": "Оплата 1",
+            },
+            {
+                "id": 93021,
+                "row_no": 2,
+                "doc_date": "2026-03-30",
+                "process_date": "2026-03-30",
+                "doc_no": "BEXP-BATCH-2",
+                "account_no": "20208000999999999992",
+                "debit_turnover": "600.00",
+                "payment_purpose": "Оплата 2",
+            },
+        ]
+        res = self.client.post(url, body, format="json", **self._headers(self.admin))
+        self.assertEqual(res.status_code, 200, res.content)
+        self.assertEqual(relink_mock.call_count, 1)
+
     def test_cash_revenue_import_fields_supported(self):
         url = f"{self.n8n_prefix}/cash/revenues/"
         body = {
