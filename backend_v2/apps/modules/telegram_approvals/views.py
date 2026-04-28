@@ -159,6 +159,9 @@ class TelegramApprovalWebhookView(APIView):
                 if not approval.message_sent:
                     approval.message_sent = True
                     updates.append("message_sent")
+                if approval.message_sent_at is None:
+                    approval.message_sent_at = timezone.now()
+                    updates.append("message_sent_at")
                 approval.save(update_fields=updates)
             try:
                 confirm_approval_by_id(

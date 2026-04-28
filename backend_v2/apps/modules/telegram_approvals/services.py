@@ -695,6 +695,9 @@ def _maybe_set_message_id(*, approval: Approval, response_data: dict | None) -> 
     if not approval.message_sent:
         approval.message_sent = True
         updates.append("message_sent")
+    if approval.message_sent_at is None:
+        approval.message_sent_at = timezone.now()
+        updates.append("message_sent_at")
     if updates:
         approval.save(update_fields=updates)
 
@@ -765,27 +768,44 @@ def dispatch_pending_approvals(*, request_obj: Request, step: int | None = None,
         response_data = _post_to_bridge(request_obj=locked, payload=payload)
         if response_data is None:
             continue
-        previous_message_id = approval.message_id
         _maybe_set_message_id(approval=approval, response_data=response_data)
         # Keep invariant: message_sent=True is only allowed with message_id present.
         if approval.message_id is None:
+            response_type = type(response_data).__name__
+            response_keys = list(response_data.keys()) if isinstance(response_data, dict) else []
             logger.error(
-                "Telegram bridge response missing message_id approval_id=%s request_id=%s payload_action=%s",
+                "Telegram bridge response missing message_id approval_id=%s request_id=%s payload_action=%s response_type=%s response_keys=%s",
                 approval.id,
                 locked.id,
                 payload.get("action"),
+                response_type,
+                response_keys,
             )
+            # #region agent log
+            _debug_log(
+                run_id=f"request:{locked.id}",
+                hypothesis_id="H5",
+                location="telegram_approvals/services.py:dispatch_pending_approvals:missing_message_id",
+                message="Bridge response missing message_id for send action",
+                data={
+                    "request_id": locked.id,
+                    "approval_id": approval.id,
+                    "action": payload.get("action"),
+                    "response_type": response_type,
+                    "response_keys": response_keys,
+                    "response_data_preview": response_data if isinstance(response_data, dict) else None,
+                },
+            )
+            # #endregion
             raise TelegramDispatchMissingMessageId(
                 {
                     "telegram": (
                         "Bridge dispatch must return message_id for send action. "
-                        f"approval_id={approval.id} request_id={locked.id}"
+                        f"approval_id={approval.id} request_id={locked.id} "
+                        f"(response_type={response_type}, response_keys={response_keys})"
                     )
                 }
             )
-        if previous_message_id is None and approval.message_sent_at is None:
-            approval.message_sent_at = timezone.now()
-            approval.save(update_fields=["message_sent_at"])
         sent_count += 1
     return sent_count
 

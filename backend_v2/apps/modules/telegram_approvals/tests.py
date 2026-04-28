@@ -99,6 +99,7 @@ class TelegramApprovalsTests(APITestCase):
         approval = Approval.objects.get(request_id=res.data["id"], approver_user=self.approver)
         self.assertEqual(approval.message_id, 9001)
         self.assertTrue(approval.message_sent)
+        self.assertIsNotNone(approval.message_sent_at)
 
         self.assertTrue(mocked_post.called)
         payload = mocked_post.call_args.kwargs.get("json", {})
@@ -606,6 +607,7 @@ class TelegramApprovalsTests(APITestCase):
         approval.refresh_from_db()
         self.assertEqual(approval.message_id, 4123)
         self.assertTrue(approval.message_sent)
+        self.assertIsNotNone(approval.message_sent_at)
 
     @patch("apps.modules.telegram_approvals.services.requests.post")
     def test_payment_callback_mode_buttons_use_vyplatit_otmenit(self, mocked_post):

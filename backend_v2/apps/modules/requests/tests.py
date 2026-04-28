@@ -2177,6 +2177,110 @@ class RequestRoleVisibilityTests(APITestCase):
         self.assertIn(visible.id, ids)
         self.assertNotIn(hidden.id, ids)
 
+    def test_requester_with_finance_role_still_sees_own_auto_like_draft(self):
+        requester = User.objects.create_user(username="rv_req_fin", password="x")
+        other = User.objects.create_user(username="rv_req_fin_other", password="x")
+        for u in (requester, other):
+            TenantMembership.objects.create(tenant=self.tenant, user=u, is_active=True)
+            TenantUserRole.objects.create(tenant=self.tenant, user=u, role=TenantUserRole.ROLE_REQUESTER)
+        TenantUserRole.objects.create(
+            tenant=self.tenant,
+            user=requester,
+            role=TenantUserRole.ROLE_ACCOUNTANT,
+        )
+
+        visible = Request.objects.create(
+            tenant=self.tenant,
+            created_by=self.admin,
+            requester=requester,
+            title="Own cash draft",
+            description="",
+            amount=Decimal("100"),
+            currency="UZS",
+            payment_type=Request.PAYMENT_TYPE_CASH,
+            urgency=Request.URGENCY_NORMAL,
+            billing_date=date(2026, 1, 1),
+            status=Request.STATUS_DRAFT,
+            submitted_at=timezone.now(),
+            company_payer="",
+        )
+        hidden = Request.objects.create(
+            tenant=self.tenant,
+            created_by=self.admin,
+            requester=other,
+            title="Other user cash draft",
+            description="",
+            amount=Decimal("100"),
+            currency="UZS",
+            payment_type=Request.PAYMENT_TYPE_CASH,
+            urgency=Request.URGENCY_NORMAL,
+            billing_date=date(2026, 1, 1),
+            status=Request.STATUS_DRAFT,
+            submitted_at=timezone.now(),
+            company_payer="",
+        )
+
+        self.client.force_authenticate(requester)
+        res = self.client.get("/api/requests/", HTTP_HOST=self.host)
+        self.assertEqual(res.status_code, 200, res.content)
+        ids = {row["id"] for row in res.data}
+        self.assertIn(visible.id, ids)
+        self.assertNotIn(hidden.id, ids)
+
+    def test_approver_with_finance_role_still_sees_assigned_request(self):
+        approver = User.objects.create_user(username="rv_appr_fin", password="x")
+        other = User.objects.create_user(username="rv_appr_fin_other", password="x")
+        for u in (approver, other):
+            TenantMembership.objects.create(tenant=self.tenant, user=u, is_active=True)
+        TenantUserRole.objects.create(tenant=self.tenant, user=approver, role=TenantUserRole.ROLE_APPROVER)
+        TenantUserRole.objects.create(tenant=self.tenant, user=approver, role=TenantUserRole.ROLE_ACCOUNTANT)
+        TenantUserRole.objects.create(tenant=self.tenant, user=other, role=TenantUserRole.ROLE_REQUESTER)
+
+        visible_req = Request.objects.create(
+            tenant=self.tenant,
+            created_by=self.admin,
+            requester=other,
+            title="Assigned cash request",
+            description="",
+            amount=Decimal("100"),
+            currency="UZS",
+            payment_type=Request.PAYMENT_TYPE_CASH,
+            urgency=Request.URGENCY_NORMAL,
+            billing_date=date(2026, 1, 1),
+            status=Request.STATUS_PROGRESS_1,
+            submitted_at=timezone.now(),
+            company_payer="",
+        )
+        hidden_req = Request.objects.create(
+            tenant=self.tenant,
+            created_by=self.admin,
+            requester=other,
+            title="Not assigned cash request",
+            description="",
+            amount=Decimal("100"),
+            currency="UZS",
+            payment_type=Request.PAYMENT_TYPE_CASH,
+            urgency=Request.URGENCY_NORMAL,
+            billing_date=date(2026, 1, 1),
+            status=Request.STATUS_PROGRESS_1,
+            submitted_at=timezone.now(),
+            company_payer="",
+        )
+        Approval.objects.create(
+            request=visible_req,
+            approver_user=approver,
+            step=1,
+            step_type=Approval.STEP_TYPE_SERIAL,
+            decision=Approval.DECISION_PENDING,
+        )
+
+        self.client.force_authenticate(approver)
+        res = self.client.get("/api/requests/", HTTP_HOST=self.host)
+        self.assertEqual(res.status_code, 200, res.content)
+        ids = {row["id"] for row in res.data}
+        self.assertIn(visible_req.id, ids)
+        self.assertNotIn(hidden_req.id, ids)
+
     def test_list_can_filter_amortized_only(self):
         amortized = Request.objects.create(
             tenant=self.tenant,
