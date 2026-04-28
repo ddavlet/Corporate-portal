@@ -197,7 +197,7 @@ class PortalRequestViewSet(viewsets.ModelViewSet):
         # - accountant: transfer/topup/corporate-card requests
         # - cashier: cash requests
         # Admin keeps full visibility.
-        if not (is_admin or is_director) and (is_accountant or is_cashier):
+        if not (is_admin or is_director or is_requester or is_approver) and (is_accountant or is_cashier):
             allowed_payment_types: set[str] = set()
             if is_accountant:
                 allowed_payment_types.update(
