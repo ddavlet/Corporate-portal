@@ -158,6 +158,7 @@ export async function resendRequestApprovals(requestId: number): Promise<{ resen
 
 export type TenantIntegrationConfigResponse = {
   telegram_bot_token: string
+  telegram_bot_username: string
   telegram_approvals_bridge_dispatch_url: string
   telegram_approvals_send_action: string
   telegram_approvals_edit_action: string
@@ -179,6 +180,7 @@ export type TenantIntegrationConfigResponse = {
 
 export type TenantIntegrationConfigUpdatePayload = Partial<{
   telegram_bot_token: string
+  telegram_bot_username: string
   telegram_approvals_bridge_dispatch_url: string
   telegram_approvals_send_action: string
   telegram_approvals_edit_action: string
@@ -821,6 +823,42 @@ export type InvestPayoutScheduleRow = {
   created_at: string
 }
 
+export type InvestPayoutScheduleShareLinkRow = {
+  id: number
+  token: string
+  company: number | null
+  paid_filter: 'all' | 'paid' | 'unpaid'
+  is_active: boolean
+  created_at: string
+  created_by: number
+}
+
+export type CreateInvestPayoutScheduleShareLinkPayload = {
+  company?: number | null
+  paid_filter: 'all' | 'paid' | 'unpaid'
+}
+
+export type PublicInvestPayoutScheduleRow = {
+  id: number
+  payout_date: string
+  amount: string | number
+  is_paid: boolean
+  payment_amount: string | number
+  comment: string
+  company: number | null
+  company_name: string
+  currency: string
+}
+
+export type PublicInvestPayoutScheduleResponse = {
+  filters: {
+    company: number | null
+    company_name: string
+    paid_filter: 'all' | 'paid' | 'unpaid'
+  }
+  rows: PublicInvestPayoutScheduleRow[]
+}
+
 export type InvestReturnRow = {
   id: number
   company: number | null
@@ -856,6 +894,47 @@ export async function getInvestPayoutSchedule(): Promise<InvestPayoutScheduleRow
   return normalizeListPayload<InvestPayoutScheduleRow>(json)
 }
 
+export async function getInvestPayoutScheduleShareLinks(): Promise<InvestPayoutScheduleShareLinkRow[]> {
+  const res = await apiFetch('/api/investments/payout-schedule-share-links/')
+  if (!res.ok) throw new Error(await parseErrorBody(res))
+  const json = await res.json().catch(() => null)
+  return normalizeListPayload<InvestPayoutScheduleShareLinkRow>(json)
+}
+
+export async function createInvestPayoutScheduleShareLink(
+  payload: CreateInvestPayoutScheduleShareLinkPayload,
+): Promise<InvestPayoutScheduleShareLinkRow> {
+  const body: Record<string, unknown> = { paid_filter: payload.paid_filter }
+  if (payload.company !== undefined) body.company = payload.company
+  const res = await apiFetch('/api/investments/payout-schedule-share-links/', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+  if (!res.ok) throw new Error(await parseErrorBody(res))
+  const json = (await res.json().catch(() => null)) as InvestPayoutScheduleShareLinkRow | null
+  if (!json) throw new Error('Empty response')
+  return json
+}
+
+export async function deleteInvestPayoutScheduleShareLink(id: number): Promise<void> {
+  const res = await apiFetch(`/api/investments/payout-schedule-share-links/${id}/`, { method: 'DELETE' })
+  if (!res.ok) throw new Error(await parseErrorBody(res))
+}
+
+export async function getPublicInvestPayoutSchedule(token: string): Promise<PublicInvestPayoutScheduleResponse> {
+  const res = await fetch(`/api/investments/public/payout-schedule/${encodeURIComponent(token)}/`, {
+    headers: { Accept: 'application/json' },
+  })
+  const json = (await res.json().catch(() => null)) as PublicInvestPayoutScheduleResponse | { detail?: string } | null
+  if (!res.ok) {
+    const detail = json && typeof json === 'object' && typeof json.detail === 'string' ? json.detail : `HTTP ${res.status}`
+    throw new Error(detail)
+  }
+  if (!json || !('rows' in json) || !Array.isArray(json.rows)) throw new Error('Empty response')
+  return json
+}
+
 export async function getInvestReturns(): Promise<InvestReturnRow[]> {
   const res = await apiFetch('/api/investments/returns/')
   if (!res.ok) throw new Error(await parseErrorBody(res))
@@ -869,6 +948,20 @@ export type TelegramWebAppAuthResponse = {
   username: string
 }
 
+export type TelegramLoginWidgetConfigResponse = {
+  bot_username: string
+}
+
+export type TelegramLoginWidgetAuthData = {
+  id: string
+  first_name?: string
+  last_name?: string
+  username?: string
+  photo_url?: string
+  auth_date: string
+  hash: string
+}
+
 export async function exchangeTelegramWebApp(initData: string): Promise<TelegramWebAppAuthResponse> {
   const res = await fetch('/api/auth/telegram/webapp/', {
     method: 'POST',
@@ -878,6 +971,30 @@ export async function exchangeTelegramWebApp(initData: string): Promise<Telegram
   if (!res.ok) throw new Error(await parseErrorBody(res))
   const json = (await res.json().catch(() => null)) as TelegramWebAppAuthResponse | null
   if (!json?.access || !json?.refresh) throw new Error('Empty auth response')
+  return json
+}
+
+export async function getTelegramLoginWidgetConfig(): Promise<TelegramLoginWidgetConfigResponse> {
+  const res = await fetch('/api/auth/telegram/login-widget/', {
+    method: 'GET',
+    headers: { Accept: 'application/json' },
+  })
+  if (!res.ok) throw new Error(await parseErrorBody(res))
+  const json = (await res.json().catch(() => null)) as TelegramLoginWidgetConfigResponse | null
+  return { bot_username: json?.bot_username || '' }
+}
+
+export async function exchangeTelegramLoginWidget(
+  authData: TelegramLoginWidgetAuthData,
+): Promise<TelegramWebAppAuthResponse> {
+  const res = await fetch('/api/auth/telegram/login-widget/', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+    body: JSON.stringify({ auth_data: authData }),
+  })
+  if (!res.ok) throw new Error(await parseErrorBody(res))
+  const json = (await res.json().catch(() => null)) as TelegramWebAppAuthResponse | null
+  if (!json?.access || !json?.refresh || !json?.username) throw new Error('Empty auth response')
   return json
 }
 
