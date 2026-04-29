@@ -43,7 +43,7 @@ export function PublicInvestmentsSchedulePage() {
         if (cancelled) return
         setRows(data.rows)
         setMeta({
-          company_name: data.filters.company_name || 'Все компании',
+          company_name: data.filters.company_name || '',
           tenant_name: data.filters.tenant_name || '',
           paid_filter: data.filters.paid_filter,
         })
