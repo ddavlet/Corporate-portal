@@ -6,9 +6,10 @@ import { getPublicInvestPayoutSchedule, type PublicInvestPayoutScheduleRow } fro
 
 const moneyFmt = new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 2 })
 
-function asMoney(value: string | number): string {
+function asMoney(value: string | number, currency?: string): string {
   const n = typeof value === 'number' ? value : Number(String(value).replace(',', '.'))
-  return Number.isFinite(n) ? moneyFmt.format(n) : '0'
+  const amountText = Number.isFinite(n) ? moneyFmt.format(n) : '0'
+  return currency ? `${amountText} ${currency}` : amountText
 }
 
 function dateText(value: string): string {
@@ -68,14 +69,26 @@ export function PublicInvestmentsSchedulePage() {
     { title: 'ID', dataIndex: 'id', width: 90 },
     { title: 'Дата', dataIndex: 'payout_date', width: 130, render: (v: string) => dateText(v) },
     { title: 'Компания', dataIndex: 'company_name', width: 240, render: (v: string) => v || 'Без компании' },
-    { title: 'Сумма', dataIndex: 'amount', width: 150, align: 'right', render: (v: string | number) => asMoney(v) },
+    {
+      title: 'Сумма',
+      dataIndex: 'amount',
+      width: 150,
+      align: 'right',
+      render: (v: string | number, row) => asMoney(v, row.currency),
+    },
     {
       title: 'Оплачено',
       dataIndex: 'is_paid',
       width: 120,
       render: (v: boolean) => <Tag color={v ? 'green' : 'orange'}>{v ? 'Да' : 'Нет'}</Tag>,
     },
-    { title: 'Оплаченная сумма', dataIndex: 'payment_amount', width: 170, align: 'right', render: (v) => asMoney(v) },
+    {
+      title: 'Оплаченная сумма',
+      dataIndex: 'payment_amount',
+      width: 170,
+      align: 'right',
+      render: (v, row) => asMoney(v, row.currency),
+    },
     { title: 'Комментарий/Назначение', dataIndex: 'comment', render: (v: string) => v || '-' },
   ]
 
