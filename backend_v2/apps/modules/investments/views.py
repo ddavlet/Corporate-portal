@@ -36,6 +36,7 @@ from apps.modules.investments.serializers import (
     PublicInvestPayoutScheduleShareViewSerializer,
     ProjectInvestmentSerializer,
 )
+from apps.tenants.models import TenantMembership
 from apps.tenants.permissions import HasEffectiveModuleAccess
 
 
@@ -152,8 +153,11 @@ class InvestmentApprovalConfigView(APIView):
         config = self._get_or_create(tenant)
         steps = list(config.steps.order_by("step", "id").prefetch_related("approver_users"))
         User = get_user_model()
+        member_ids = TenantMembership.objects.filter(tenant=tenant, is_active=True).values_list(
+            "user_id", flat=True
+        )
         approver_candidates = list(
-            User.objects.filter(tenant_memberships__tenant=tenant, is_active=True)
+            User.objects.filter(id__in=member_ids, is_active=True)
             .distinct()
             .order_by("username")
             .values("id", "username")
