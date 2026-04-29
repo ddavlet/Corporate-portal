@@ -146,8 +146,8 @@ class TelegramApprovalsTests(APITestCase):
         err_resp.content = b"bad gateway"
         ok_resp = type("R", (), {})()
         ok_resp.status_code = 200
-        ok_resp.content = b"{}"
-        ok_resp.json = lambda: {}
+        ok_resp.content = b'{"result":{"message_id":9002}}'
+        ok_resp.json = lambda: {"result": {"message_id": 9002}}
         mocked_post.side_effect = [err_resp, ok_resp]
 
         self.client.force_authenticate(self.requester)
@@ -192,8 +192,8 @@ class TelegramApprovalsTests(APITestCase):
     def test_resend_pending_step_deactivates_old_and_sends_new_message(self, mocked_post):
         send_response = type("Resp", (), {"status_code": 200, "content": b'{"result":{"message_id":9999}}'})()
         send_response.json = lambda: {"result": {"message_id": 9999}}
-        edit_response = type("Resp", (), {"status_code": 200, "content": b"{}"})()
-        edit_response.json = lambda: {}
+        edit_response = type("Resp", (), {"status_code": 200, "content": b'{"result":{"message_id":4321}}'})()
+        edit_response.json = lambda: {"result": {"message_id": 4321}}
         mocked_post.side_effect = [edit_response, send_response]
 
         request_row = Request.objects.create(
@@ -245,8 +245,8 @@ class TelegramApprovalsTests(APITestCase):
     def test_resend_with_same_idempotency_key_is_noop(self, mocked_post):
         send_response = type("Resp", (), {"status_code": 200, "content": b'{"result":{"message_id":9999}}'})()
         send_response.json = lambda: {"result": {"message_id": 9999}}
-        edit_response = type("Resp", (), {"status_code": 200, "content": b"{}"})()
-        edit_response.json = lambda: {}
+        edit_response = type("Resp", (), {"status_code": 200, "content": b'{"result":{"message_id":4321}}'})()
+        edit_response.json = lambda: {"result": {"message_id": 4321}}
         mocked_post.side_effect = [edit_response, send_response]
 
         request_row = Request.objects.create(
@@ -328,8 +328,8 @@ class TelegramApprovalsTests(APITestCase):
     def test_resend_works_for_approved_status_with_pending_payment(self, mocked_post):
         send_response = type("Resp", (), {"status_code": 200, "content": b'{"result":{"message_id":10001}}'})()
         send_response.json = lambda: {"result": {"message_id": 10001}}
-        edit_response = type("Resp", (), {"status_code": 200, "content": b"{}"})()
-        edit_response.json = lambda: {}
+        edit_response = type("Resp", (), {"status_code": 200, "content": b'{"result":{"message_id":7654}}'})()
+        edit_response.json = lambda: {"result": {"message_id": 7654}}
         mocked_post.side_effect = [edit_response, send_response]
 
         request_row = Request.objects.create(
@@ -375,8 +375,8 @@ class TelegramApprovalsTests(APITestCase):
     @patch("apps.modules.telegram_approvals.services.requests.post")
     def test_webhook_callback_confirms_approval_with_identity_checks(self, mocked_post):
         mocked_post.return_value.status_code = 200
-        mocked_post.return_value.content = b"{}"
-        mocked_post.return_value.json.return_value = {}
+        mocked_post.return_value.content = b'{"result":{"message_id":4321}}'
+        mocked_post.return_value.json.return_value = {"result": {"message_id": 4321}}
         request_row = Request.objects.create(
             tenant=self.tenant,
             created_by=self.admin,
@@ -429,8 +429,8 @@ class TelegramApprovalsTests(APITestCase):
     @patch("apps.modules.telegram_approvals.services.requests.post")
     def test_webhook_callback_rejects_wrong_chat(self, mocked_post):
         mocked_post.return_value.status_code = 200
-        mocked_post.return_value.content = b"{}"
-        mocked_post.return_value.json.return_value = {}
+        mocked_post.return_value.content = b'{"result":{"message_id":4321}}'
+        mocked_post.return_value.json.return_value = {"result": {"message_id": 4321}}
         request_row = Request.objects.create(
             tenant=self.tenant,
             created_by=self.admin,
@@ -472,8 +472,8 @@ class TelegramApprovalsTests(APITestCase):
     @patch("apps.modules.telegram_approvals.services.requests.post")
     def test_webhook_callback_conflict_refreshes_message_without_buttons(self, mocked_post):
         mocked_post.return_value.status_code = 200
-        mocked_post.return_value.content = b"{}"
-        mocked_post.return_value.json.return_value = {}
+        mocked_post.return_value.content = b'{"result":{"message_id":4321}}'
+        mocked_post.return_value.json.return_value = {"result": {"message_id": 4321}}
         request_row = Request.objects.create(
             tenant=self.tenant,
             created_by=self.admin,
@@ -519,8 +519,8 @@ class TelegramApprovalsTests(APITestCase):
     @patch("apps.modules.telegram_approvals.services.requests.post")
     def test_webhook_callback_conflict_uses_callback_message_id_when_missing_on_approval(self, mocked_post):
         mocked_post.return_value.status_code = 200
-        mocked_post.return_value.content = b"{}"
-        mocked_post.return_value.json.return_value = {}
+        mocked_post.return_value.content = b'{"result":{"message_id":3694}}'
+        mocked_post.return_value.json.return_value = {"result": {"message_id": 3694}}
         request_row = Request.objects.create(
             tenant=self.tenant,
             created_by=self.admin,
@@ -566,8 +566,8 @@ class TelegramApprovalsTests(APITestCase):
     @patch("apps.modules.telegram_approvals.services.requests.post")
     def test_webhook_callback_persists_missing_message_id_from_callback(self, mocked_post):
         mocked_post.return_value.status_code = 200
-        mocked_post.return_value.content = b"{}"
-        mocked_post.return_value.json.return_value = {}
+        mocked_post.return_value.content = b'{"result":{"message_id":5001}}'
+        mocked_post.return_value.json.return_value = {"result": {"message_id": 5001}}
         request_row = Request.objects.create(
             tenant=self.tenant,
             created_by=self.admin,
@@ -612,8 +612,8 @@ class TelegramApprovalsTests(APITestCase):
     @patch("apps.modules.telegram_approvals.services.requests.post")
     def test_payment_callback_mode_buttons_use_vyplatit_otmenit(self, mocked_post):
         mocked_post.return_value.status_code = 200
-        mocked_post.return_value.content = b"{}"
-        mocked_post.return_value.json.return_value = {}
+        mocked_post.return_value.content = b'{"result":{"message_id":5002}}'
+        mocked_post.return_value.json.return_value = {"result": {"message_id": 5002}}
         appr_cfg = RequestApprovalConfig.objects.get(tenant=self.tenant)
         pt_cfg = RequestApprovalPaymentTypeConfig.objects.create(
             config=appr_cfg, payment_type="Перечисление", is_enabled=True
@@ -652,8 +652,8 @@ class TelegramApprovalsTests(APITestCase):
     @patch("apps.modules.telegram_approvals.services.requests.post")
     def test_payment_webapp_mode_uses_url_button(self, mocked_post):
         mocked_post.return_value.status_code = 200
-        mocked_post.return_value.content = b"{}"
-        mocked_post.return_value.json.return_value = {}
+        mocked_post.return_value.content = b'{"result":{"message_id":5003}}'
+        mocked_post.return_value.json.return_value = {"result": {"message_id": 5003}}
         appr_cfg = RequestApprovalConfig.objects.get(tenant=self.tenant)
         pt_cfg = RequestApprovalPaymentTypeConfig.objects.create(
             config=appr_cfg, payment_type="Перечисление", is_enabled=True
@@ -694,8 +694,8 @@ class TelegramApprovalsTests(APITestCase):
     @patch("apps.modules.telegram_approvals.services.requests.post")
     def test_payment_webapp_tme_base_url_appends_startapp(self, mocked_post):
         mocked_post.return_value.status_code = 200
-        mocked_post.return_value.content = b"{}"
-        mocked_post.return_value.json.return_value = {}
+        mocked_post.return_value.content = b'{"result":{"message_id":5004}}'
+        mocked_post.return_value.json.return_value = {"result": {"message_id": 5004}}
         appr_cfg = RequestApprovalConfig.objects.get(tenant=self.tenant)
         pt_cfg = RequestApprovalPaymentTypeConfig.objects.create(
             config=appr_cfg, payment_type="Перечисление", is_enabled=True
