@@ -9,6 +9,7 @@ import {
 
 type FormState = {
   telegram_bot_token: string
+  telegram_bot_username: string
   telegram_approvals_bridge_dispatch_url: string
   telegram_approvals_send_action: string
   telegram_approvals_edit_action: string
@@ -38,6 +39,7 @@ function isAbsoluteUrl(v: string): boolean {
 function toFormState(data: TenantIntegrationConfigResponse): FormState {
   return {
     telegram_bot_token: data.telegram_bot_token || '',
+    telegram_bot_username: data.telegram_bot_username || '',
     telegram_approvals_bridge_dispatch_url: data.telegram_approvals_bridge_dispatch_url || '',
     telegram_approvals_send_action: data.telegram_approvals_send_action || '',
     telegram_approvals_edit_action: data.telegram_approvals_edit_action || '',
@@ -119,6 +121,7 @@ export function TenantIntegrationConfigPage() {
       if (form.telegram_bot_token && form.telegram_bot_token !== MASK) {
         payload.telegram_bot_token = form.telegram_bot_token
       }
+      payload.telegram_bot_username = form.telegram_bot_username.trim().replace(/^@+/, '')
       if (form.telegram_approvals_bridge_token && form.telegram_approvals_bridge_token !== MASK) {
         payload.telegram_approvals_bridge_token = form.telegram_approvals_bridge_token
       }
@@ -180,6 +183,11 @@ export function TenantIntegrationConfigPage() {
               placeholder="Telegram bot token (OTP + Notes)"
               value={form.telegram_bot_token}
               onChange={(e) => setField('telegram_bot_token', e.target.value)}
+            />
+            <Input
+              placeholder="Telegram bot username (for Login Widget)"
+              value={form.telegram_bot_username}
+              onChange={(e) => setField('telegram_bot_username', e.target.value)}
             />
             <Input
               placeholder="Bridge dispatch URL"

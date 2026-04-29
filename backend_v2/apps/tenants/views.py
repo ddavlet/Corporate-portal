@@ -105,6 +105,7 @@ class TenantIntegrationConfigView(APIView):
         return Response(
             {
                 "telegram_bot_token": self._masked(tenant.get_telegram_bot_token()),
+                "telegram_bot_username": tenant.telegram_bot_username or "",
                 "telegram_approvals_bridge_dispatch_url": tg.dispatch_url,
                 "telegram_approvals_send_action": tg.send_action,
                 "telegram_approvals_edit_action": tg.edit_action,
@@ -162,8 +163,10 @@ class TenantIntegrationConfigView(APIView):
             cfg.portal_feedback_telegram_action = data["portal_feedback_telegram_action"]
         if "telegram_bot_token" in data:
             tenant.set_telegram_bot_token(data["telegram_bot_token"])
+        if "telegram_bot_username" in data:
+            tenant.telegram_bot_username = data["telegram_bot_username"].strip().lstrip("@")
         cfg.save()
-        tenant.save(update_fields=["telegram_bot_token_enc"])
+        tenant.save(update_fields=["telegram_bot_token_enc", "telegram_bot_username"])
         return self.get(request)
 
 

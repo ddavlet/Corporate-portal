@@ -28,6 +28,7 @@ class TenantAdminFormTests(TestCase):
                 "is_active": "on",
                 "telegram_otp_enabled": "",
                 "telegram_bot_token": "",
+                "telegram_bot_username": "adminsavebot",
                 "enabled_modules": ["requests"],
             }
         )
@@ -108,6 +109,7 @@ class TenantIntegrationConfigApiTests(APITestCase):
             self.url,
             {
                 "telegram_bot_token": "bot-secret",
+                "telegram_bot_username": "@acme_login_bot",
                 "telegram_approvals_bridge_dispatch_url": "https://acme.example.com/n8n/telegram/dispatch",
                 "telegram_approvals_bridge_token": "secret-1",
                 "telegram_approvals_message_template": "<b>{header}</b>\nКомпания: {company_payer}",
@@ -128,6 +130,7 @@ class TenantIntegrationConfigApiTests(APITestCase):
         cfg = TenantIntegrationConfig.objects.get(tenant=self.tenant)
         self.tenant.refresh_from_db()
         self.assertEqual(self.tenant.get_telegram_bot_token(), "bot-secret")
+        self.assertEqual(self.tenant.telegram_bot_username, "acme_login_bot")
         self.assertEqual(cfg.get_telegram_approvals_bridge_token(), "secret-1")
         self.assertEqual(cfg.telegram_approvals_message_template, "<b>{header}</b>\nКомпания: {company_payer}")
         self.assertEqual(cfg.telegram_approvals_header_new_template, "💰 Новая заявка на расход № {request_id}")
@@ -140,6 +143,7 @@ class TenantIntegrationConfigApiTests(APITestCase):
         self.assertEqual(get.status_code, 200, get.content)
         self.assertEqual(get.data["telegram_approvals_bridge_token"], "********")
         self.assertEqual(get.data["requests_file_gateway_token"], "********")
+        self.assertEqual(get.data["telegram_bot_username"], "acme_login_bot")
         self.assertIn("telegram_approvals_message_template", get.data)
         self.assertEqual(get.data["portal_feedback_telegram_chat_id"], -1001234567890)
         self.assertEqual(get.data["portal_feedback_telegram_action"], "send_portal_feedback")
