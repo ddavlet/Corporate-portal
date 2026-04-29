@@ -129,6 +129,10 @@ export function LoginPage() {
       setError('OIDC code_verifier missing. Повторите вход.')
       return
     }
+    if (!code) {
+      setError('OIDC code missing. Повторите вход.')
+      return
+    }
 
     setLoading(true)
     void (async () => {
