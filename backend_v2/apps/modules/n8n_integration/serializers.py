@@ -218,6 +218,7 @@ class N8nBankExpenseImportSerializer(BankExpenseSerializer):
 
     def validate(self, attrs):
         tenant = getattr(self.context.get("request"), "tenant", None)
+        self.context["allow_missing_vendor"] = True
         raw_account_no = attrs.get("account_no")
         account_no = str(raw_account_no or "").strip()
         vendor_name = str(attrs.pop("vendor_name", "") or "").strip()
