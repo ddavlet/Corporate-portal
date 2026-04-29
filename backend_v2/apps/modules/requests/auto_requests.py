@@ -198,6 +198,7 @@ def _create_request_for_template(
         category=category,
         vendor=template.vendor_ref.name if template.vendor_ref else "",
         vendor_ref=template.vendor_ref,
+        contract_ref=getattr(template, "contract_ref", None),
         title=(template.tenant.name or "").strip()[:200],
         description=description,
         amount=amount,

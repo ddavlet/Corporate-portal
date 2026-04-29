@@ -41,6 +41,7 @@ from apps.modules.requests.models import (
     RequestCategory,
     AutoRequestTemplate,
 )
+from apps.modules.contracts.models import Contract
 from apps.modules.vendors.models import Vendor
 from apps.modules.requests.amortization import build_amortization_schedule_rows
 from apps.modules.requests.serializers import (
@@ -82,7 +83,12 @@ from apps.modules.telegram_approvals.services import (
 )
 from apps.tenants.integration_settings import get_requests_gateway_settings
 
-from apps.tenants.permissions import HasEffectiveModuleAccess, IsTenantAdmin, IsTenantAdminOrDirector
+from apps.tenants.permissions import (
+    HasEffectiveModuleAccess,
+    IsTenantAdmin,
+    IsTenantAdminOrDirector,
+    has_effective_module_access,
+)
 from apps.tenants.models import TenantMembership, TenantUserRole
 
 User = get_user_model()
@@ -1143,6 +1149,7 @@ class RequestFormConfigView(APIView):
                 pt_cfg.default_billing_days_offset = int(item.get("default_billing_days_offset", 0))
                 pt_cfg.default_payment_purpose = dp
                 pt_cfg.default_vendor_id = dvid if dvid else None
+                pt_cfg.contracts_required = bool(item.get("contracts_required", False))
                 pt_cfg.save(
                     update_fields=[
                         "is_enabled",
@@ -1155,6 +1162,7 @@ class RequestFormConfigView(APIView):
                         "default_billing_days_offset",
                         "default_payment_purpose",
                         "default_vendor",
+                        "contracts_required",
                     ]
                 )
 
@@ -1288,11 +1296,15 @@ class RequestFormOptionsView(APIView):
         requester_candidates = _requester_candidates_for_options(tenant)
 
         cfg = RequestFormConfig.objects.filter(tenant=tenant).first()
+        contracts_m_effective = has_effective_module_access(
+            user=request.user, tenant=tenant, module_key="contracts"
+        )
         if not cfg:
             return Response(
                 {
                     "is_tenant_admin": is_tenant_admin,
                     "requester_candidates": requester_candidates,
+                    "contracts_module_effective": contracts_m_effective,
                     "payment_types": [],
                 }
             )
@@ -1329,12 +1341,14 @@ class RequestFormOptionsView(APIView):
             {
                 "is_tenant_admin": is_tenant_admin,
                 "requester_candidates": requester_candidates,
+                "contracts_module_effective": contracts_m_effective,
                 "payment_types": [
                     {
                         "payment_type": pt.payment_type,
                         "requester_ids": list(pt.allowed_requesters.values_list("user_id", flat=True)),
                         "requesters": requesters_payload(pt),
                         "vendor_ids": list(pt.allowed_vendors.values_list("vendor_id", flat=True)),
+                        "contracts_required": bool(pt.contracts_required),
                         "payment_purposes": [
                             {"name": p.name, "category": p.category}
                             for p in pt.payment_purposes.filter(is_active=True).order_by("name", "id")
@@ -1624,6 +1638,10 @@ class AutoRequestConfigView(APIView):
                 if vendor_ref_id and not Vendor.objects.filter(tenant=tenant, id=vendor_ref_id).exists():
                     raise ValidationError({"vendor_ref_id": "Vendor must belong to this tenant."})
 
+                contract_ref_id = item.get("contract_ref_id")
+                if contract_ref_id and not Contract.objects.filter(tenant=tenant, id=contract_ref_id).exists():
+                    raise ValidationError({"contract_ref_id": "Договор не найден в этом тенанте."})
+
                 defaults = {
                     "is_enabled": bool(item.get("is_enabled", False)),
                     "name": str(item.get("name") or "")[:150],
@@ -1640,6 +1658,7 @@ class AutoRequestConfigView(APIView):
                     "urgency": item.get("urgency", Request.URGENCY_NORMAL),
                     "payment_purpose": str(item.get("payment_purpose") or "")[:200],
                     "vendor_ref_id": vendor_ref_id if vendor_ref_id else None,
+                    "contract_ref_id": contract_ref_id if contract_ref_id else None,
                     "requester_id": requester_id,
                     "updated_by": request.user,
                 }
@@ -1686,6 +1705,7 @@ class AutoRequestConfigView(APIView):
                 "payment_type": template.payment_type,
                 "payment_purpose": template.payment_purpose,
                 "vendor_ref_id": template.vendor_ref_id,
+                "contract_ref_id": template.contract_ref_id,
                 "requester_id": template.requester_id,
             },
         )

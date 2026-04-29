@@ -27,6 +27,8 @@ from apps.modules.requests.models import (
     RequestCategory,
     AutoRequestTemplate,
 )
+from apps.modules.contracts.models import Contract
+from apps.modules.contracts.services import tenant_has_contracts_module
 from apps.modules.vendors.models import Vendor
 from apps.modules.cashier.models import CashExpense
 from apps.modules.bank_expenses.models import BankExpense
@@ -100,6 +102,7 @@ class PortalRequestSerializer(serializers.ModelSerializer):
     is_amortized = serializers.SerializerMethodField()
     amortization_schedule = serializers.SerializerMethodField()
     vendor_ref = serializers.PrimaryKeyRelatedField(queryset=Vendor.objects.all(), allow_null=True, required=False)
+    contract_ref = serializers.PrimaryKeyRelatedField(queryset=Contract.objects.all(), allow_null=True, required=False)
     # `accounts/User` sends empty descriptions from UI/tests; model does not set `blank=True`,
     # so we allow blank explicitly at serializer level.
     description = serializers.CharField(allow_blank=True, required=False, default="")
@@ -117,6 +120,7 @@ class PortalRequestSerializer(serializers.ModelSerializer):
             "category",
             "vendor",
             "vendor_ref",
+            "contract_ref",
             "title",
             "description",
             "amount",
@@ -148,6 +152,8 @@ class PortalRequestSerializer(serializers.ModelSerializer):
         tenant = getattr(request_obj, "tenant", None)
         if tenant and "vendor_ref" in self.fields:
             self.fields["vendor_ref"].queryset = Vendor.objects.filter(tenant=tenant)
+        if tenant and "contract_ref" in self.fields:
+            self.fields["contract_ref"].queryset = Contract.objects.filter(tenant=tenant)
 
     def validate(self, attrs):
         reject_client_pk_on_create(self)
@@ -306,6 +312,39 @@ class PortalRequestSerializer(serializers.ModelSerializer):
             attrs["vendor"] = vref.name
         elif "vendor_ref" in attrs and attrs.get("vendor_ref") is None:
             attrs["vendor"] = (attrs.get("vendor") or "") if attrs.get("vendor") is not None else ""
+
+        cref = attrs.get("contract_ref")
+        if cref is None and "contract_ref" not in attrs and self.instance is not None:
+            cref = self.instance.contract_ref
+        contracts_active = tenant_has_contracts_module(tenant=tenant)
+        if not contracts_active:
+            attrs["contract_ref"] = None
+        else:
+            if cref:
+                if cref.tenant_id != tenant.id:
+                    raise serializers.ValidationError({"contract_ref": "Договор принадлежит другому тенанту."})
+                if vref and cref.vendor_id != vref.id:
+                    raise serializers.ValidationError(
+                        {"contract_ref": "Договор не соответствует выбранному поставщику."}
+                    )
+                if cref.contract_status != Contract.STATUS_ACCEPTED:
+                    raise serializers.ValidationError(
+                        {"contract_ref": "Договор не принят и не может использоваться."}
+                    )
+
+            if cfg and payment_type:
+                pt_cr = RequestFormPaymentTypeConfig.objects.filter(
+                    config=cfg, payment_type=payment_type
+                ).first()
+                if pt_cr and pt_cr.contracts_required:
+                    if not vref:
+                        raise serializers.ValidationError(
+                            {"contract_ref": "Сначала выберите поставщика."}
+                        )
+                    if not cref:
+                        raise serializers.ValidationError(
+                            {"contract_ref": "Договор обязателен для этого типа оплаты."}
+                        )
 
         effective_pt = attrs.get("payment_type")
         if effective_pt is None and self.instance is not None:
@@ -698,6 +737,7 @@ class RequestFormPaymentTypeConfigSerializer(serializers.Serializer):
         required=False, allow_blank=True, max_length=200, default=""
     )
     default_vendor_id = serializers.IntegerField(required=False, allow_null=True, default=None)
+    contracts_required = serializers.BooleanField(required=False, default=False)
 
 
 class RequestFormConfigPayloadSerializer(serializers.Serializer):
@@ -804,6 +844,7 @@ def build_request_form_config_response(*, tenant) -> dict:
                     "default_billing_days_offset": pt.default_billing_days_offset,
                     "default_payment_purpose": pt.default_payment_purpose,
                     "default_vendor_id": pt.default_vendor_id,
+                    "contracts_required": bool(pt.contracts_required),
                 }
             )
 
@@ -1138,6 +1179,18 @@ def validate_auto_template_against_form_config(*, tenant, item: dict) -> None:
         if not any(p.name == purpose_value for p in purpose_rows):
             raise serializers.ValidationError("Назначение платежа не входит в список для этого типа оплаты.")
 
+    if tenant_has_contracts_module(tenant=tenant) and pt_cfg.contracts_required:
+        contract_ref_id = item.get("contract_ref_id")
+        if not contract_ref_id:
+            raise serializers.ValidationError("Укажите договор для этого типа оплаты.")
+        c_obj = Contract.objects.filter(tenant=tenant, id=int(contract_ref_id)).first()
+        if not c_obj:
+            raise serializers.ValidationError("Договор не найден.")
+        if c_obj.vendor_id != vendor.id:
+            raise serializers.ValidationError("Договор не соответствует выбранному поставщику.")
+        if c_obj.contract_status != Contract.STATUS_ACCEPTED:
+            raise serializers.ValidationError("Договор не принят и не может использоваться.")
+
 
 class AutoRequestTemplatePayloadSerializer(serializers.Serializer):
     id = serializers.IntegerField(required=False)
@@ -1162,6 +1215,7 @@ class AutoRequestTemplatePayloadSerializer(serializers.Serializer):
     )
     payment_purpose = serializers.CharField(required=False, allow_blank=True, max_length=200, default="")
     vendor_ref_id = serializers.IntegerField(required=False, allow_null=True, default=None)
+    contract_ref_id = serializers.IntegerField(required=False, allow_null=True, default=None)
     requester_id = serializers.IntegerField()
     billing_month_mode = serializers.ChoiceField(
         choices=AutoRequestTemplate.BILLING_MONTH_MODE_CHOICES,
@@ -1193,6 +1247,7 @@ def build_auto_request_config_response(*, tenant) -> dict:
                 "urgency": row.urgency,
                 "payment_purpose": row.payment_purpose,
                 "vendor_ref_id": row.vendor_ref_id,
+                "contract_ref_id": row.contract_ref_id,
                 "requester_id": row.requester_id,
                 "billing_month_mode": row.billing_month_mode,
                 "last_run_month": row.last_run_month.isoformat() if row.last_run_month else None,
