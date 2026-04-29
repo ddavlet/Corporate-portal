@@ -1,11 +1,15 @@
 from datetime import date
 from decimal import Decimal
+from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
 from django.test import TestCase
+from django.test import override_settings
 from rest_framework.test import APIRequestFactory
+from rest_framework.test import APITestCase
 
 from apps.modules.investments.models import InvestCompany, InvestPayoutSchedule, InvestPayoutScheduleShareLink, InvestReturn
+from apps.tenants.models import TenantMembership, TenantModuleConfig, TenantUserRole
 from apps.modules.investments.serializers import (
     InvestPayoutScheduleSerializer,
     InvestPayoutScheduleShareLinkSerializer,
@@ -251,3 +255,182 @@ class InvestPayoutScheduleShareLinkTests(TestCase):
         request = factory.get(f"/api/investments/public/payout-schedule/{link.token}/")
         response = view(request, token=link.token)
         self.assertEqual(response.status_code, 404)
+
+
+@override_settings(BASE_DOMAIN="example.com", N8N_INTEGRATION_TOKEN="", ALLOWED_HOSTS=["*"])
+class InvestmentApprovalFlowTests(APITestCase):
+    def setUp(self):
+        self.tenant = Tenant.objects.create(name="InvestFlow", subdomain="investflow", is_active=True)
+        self.host = "investflow.example.com"
+        self.admin = User.objects.create_user(username="inv_admin", password="x")
+        self.approver1 = User.objects.create_user(
+            username="inv_appr_1",
+            password="x",
+            telegram_chat_id=555001,
+            telegram_from_id=777001,
+        )
+        self.approver2 = User.objects.create_user(
+            username="inv_appr_2",
+            password="x",
+            telegram_chat_id=555002,
+            telegram_from_id=777002,
+        )
+        self.intruder = User.objects.create_user(
+            username="intruder",
+            password="x",
+            telegram_chat_id=999001,
+            telegram_from_id=999002,
+        )
+        for user in (self.admin, self.approver1, self.approver2, self.intruder):
+            TenantMembership.objects.create(tenant=self.tenant, user=user, is_active=True)
+        TenantUserRole.objects.create(tenant=self.tenant, user=self.admin, role=TenantUserRole.ROLE_ADMIN)
+        TenantUserRole.objects.create(tenant=self.tenant, user=self.approver1, role=TenantUserRole.ROLE_DIRECTOR)
+        TenantUserRole.objects.create(tenant=self.tenant, user=self.approver2, role=TenantUserRole.ROLE_DIRECTOR)
+        TenantUserRole.objects.create(tenant=self.tenant, user=self.intruder, role=TenantUserRole.ROLE_DIRECTOR)
+        TenantModuleConfig.objects.create(tenant=self.tenant, module_key="investments", is_enabled=True)
+
+        self.client.force_authenticate(self.admin)
+        cfg_payload = {
+            "is_enabled": True,
+            "steps": [
+                {"step": 1, "is_enabled": True, "approver_user_ids": [self.approver1.id]},
+                {"step": 2, "is_enabled": True, "approver_user_ids": [self.approver2.id]},
+            ],
+        }
+        response = self.client.put("/api/investments/approval-config/", cfg_payload, format="json", HTTP_HOST=self.host)
+        self.assertEqual(response.status_code, 200)
+
+    @patch("apps.modules.investments.approval_services.post_telegram_bridge")
+    def test_create_return_creates_approvals_and_dispatches_first_step(self, bridge_mock):
+        bridge_mock.return_value = {"message_id": 101}
+        response = self.client.post(
+            "/api/investments/returns/",
+            {
+                "date": "2026-04-29",
+                "sum": "1200.00",
+                "currency": "USD",
+                "type": "дивиденды",
+                "recipient": "инвестор",
+                "comment": "Auto approval",
+            },
+            format="json",
+            HTTP_HOST=self.host,
+        )
+        self.assertEqual(response.status_code, 201)
+        created = InvestReturn.objects.get(id=response.data["id"])
+        self.assertFalse(created.confirmed)
+        self.assertEqual(created.approvals.count(), 2)
+        self.assertEqual(bridge_mock.call_count, 1)
+        self.assertIn("Новая выплата по InvestFlow", bridge_mock.call_args.kwargs["payload"]["message"])
+
+    @patch("apps.modules.investments.approval_services.post_telegram_bridge")
+    def test_callback_enforces_authorization_and_final_confirmation(self, bridge_mock):
+        bridge_mock.return_value = {"message_id": 202}
+        response = self.client.post(
+            "/api/investments/returns/",
+            {
+                "date": "2026-04-29",
+                "sum": "900.00",
+                "currency": "EUR",
+                "type": "проценты",
+                "recipient": "партнер",
+            },
+            format="json",
+            HTTP_HOST=self.host,
+        )
+        self.assertEqual(response.status_code, 201)
+        inv_return = InvestReturn.objects.get(id=response.data["id"])
+        first_step = inv_return.approvals.get(step=1)
+        second_step = inv_return.approvals.get(step=2)
+
+        bad_res = self.client.post(
+            "/api/investments/approvals/webhook/",
+            {
+                "callback_query": {
+                    "data": f"inv_{first_step.id}:a",
+                    "from": {"id": self.intruder.telegram_from_id},
+                    "message": {"message_id": first_step.message_id or 202, "chat": {"id": self.intruder.telegram_chat_id}},
+                }
+            },
+            format="json",
+            HTTP_HOST=self.host,
+        )
+        self.assertEqual(bad_res.status_code, 400)
+
+        ok_first = self.client.post(
+            "/api/investments/approvals/webhook/",
+            {
+                "callback_query": {
+                    "data": f"inv_{first_step.id}:a",
+                    "from": {"id": self.approver1.telegram_from_id},
+                    "message": {"message_id": first_step.message_id or 202, "chat": {"id": self.approver1.telegram_chat_id}},
+                }
+            },
+            format="json",
+            HTTP_HOST=self.host,
+        )
+        self.assertEqual(ok_first.status_code, 200)
+        first_step.refresh_from_db()
+        self.assertEqual(first_step.decision, "approved")
+
+        not_active = self.client.post(
+            f"/api/investments/approvals/{first_step.id}/decision/",
+            {"decision": "approved"},
+            format="json",
+            HTTP_HOST=self.host,
+        )
+        self.assertIn(not_active.status_code, (400, 409))
+
+        second_step.refresh_from_db()
+        self.assertIsNotNone(second_step.message_id)
+        ok_second = self.client.post(
+            "/api/investments/approvals/webhook/",
+            {
+                "callback_query": {
+                    "data": f"inv_{second_step.id}:a",
+                    "from": {"id": self.approver2.telegram_from_id},
+                    "message": {
+                        "message_id": second_step.message_id,
+                        "chat": {"id": self.approver2.telegram_chat_id},
+                    },
+                }
+            },
+            format="json",
+            HTTP_HOST=self.host,
+        )
+        self.assertEqual(ok_second.status_code, 200)
+        inv_return.refresh_from_db()
+        self.assertTrue(inv_return.confirmed)
+
+    @patch("apps.modules.investments.approval_services.post_telegram_bridge")
+    def test_reject_keeps_return_unconfirmed(self, bridge_mock):
+        bridge_mock.return_value = {"message_id": 404}
+        response = self.client.post(
+            "/api/investments/returns/",
+            {
+                "date": "2026-04-29",
+                "sum": "500.00",
+                "currency": "USD",
+                "type": "дивиденды",
+                "recipient": "инвестор",
+            },
+            format="json",
+            HTTP_HOST=self.host,
+        )
+        inv_return = InvestReturn.objects.get(id=response.data["id"])
+        first_step = inv_return.approvals.get(step=1)
+        reject_res = self.client.post(
+            "/api/investments/approvals/webhook/",
+            {
+                "callback_query": {
+                    "data": f"inv_{first_step.id}:r",
+                    "from": {"id": self.approver1.telegram_from_id},
+                    "message": {"message_id": first_step.message_id or 404, "chat": {"id": self.approver1.telegram_chat_id}},
+                }
+            },
+            format="json",
+            HTTP_HOST=self.host,
+        )
+        self.assertEqual(reject_res.status_code, 200)
+        inv_return.refresh_from_db()
+        self.assertFalse(inv_return.confirmed)

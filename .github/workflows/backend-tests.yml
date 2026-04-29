@@ -4,6 +4,8 @@ on:
   pull_request:
     branches:
       - main
+      - "dev/**"
+      - "fix/**"
     paths:
       - "backend_v2/**"
       - ".github/workflows/backend-tests.yml"

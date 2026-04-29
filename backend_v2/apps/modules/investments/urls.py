@@ -3,6 +3,9 @@ from rest_framework.routers import DefaultRouter
 
 from apps.modules.investments.views import (
     InvestCompanyViewSet,
+    InvestmentApprovalConfigView,
+    InvestmentApprovalDecisionView,
+    InvestmentApprovalWebhookView,
     InvestPayoutScheduleViewSet,
     InvestPayoutScheduleShareLinkViewSet,
     InvestReturnViewSet,
@@ -21,4 +24,7 @@ router.register(r"project-investments", ProjectInvestmentViewSet, basename="proj
 urlpatterns = [
     path("", include(router.urls)),
     path("public/payout-schedule/<str:token>/", PublicInvestPayoutScheduleByTokenView.as_view(), name="invest-public-payout-schedule"),
+    path("approval-config/", InvestmentApprovalConfigView.as_view(), name="invest-approval-config"),
+    path("approvals/<int:approval_id>/decision/", InvestmentApprovalDecisionView.as_view(), name="invest-approval-decision"),
+    path("approvals/webhook/", InvestmentApprovalWebhookView.as_view(), name="invest-approvals-webhook"),
 ]

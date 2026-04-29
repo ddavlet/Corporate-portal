@@ -174,3 +174,87 @@ class InvestPayoutScheduleShareLink(models.Model):
         if not self.token:
             self.token = secrets.token_urlsafe(24)
         super().save(*args, **kwargs)
+
+
+class InvestmentApprovalConfig(models.Model):
+    tenant = models.OneToOneField(Tenant, on_delete=models.CASCADE, related_name="investment_approval_config")
+    is_enabled = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "investment_approval_config"
+
+
+class InvestmentApprovalConfigStep(models.Model):
+    config = models.ForeignKey(InvestmentApprovalConfig, on_delete=models.CASCADE, related_name="steps")
+    step = models.PositiveIntegerField()
+    is_enabled = models.BooleanField(default=True)
+    approver_users = models.ManyToManyField(
+        settings.AUTH_USER_MODEL,
+        through="InvestmentApprovalConfigStepApprover",
+        related_name="investment_approval_steps",
+    )
+
+    class Meta:
+        db_table = "investment_approval_config_steps"
+        ordering = ["step", "id"]
+        unique_together = [("config", "step")]
+        indexes = [models.Index(fields=["config", "step"], name="invcfg_step_cfg_step_idx")]
+
+
+class InvestmentApprovalConfigStepApprover(models.Model):
+    step = models.ForeignKey(InvestmentApprovalConfigStep, on_delete=models.CASCADE, related_name="step_approvers")
+    approver_user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="investment_step_assignments",
+    )
+
+    class Meta:
+        db_table = "investment_approval_config_step_approvers"
+        unique_together = [("step", "approver_user")]
+        indexes = [
+            models.Index(fields=["step", "approver_user"], name="invcfg_step_appr_idx"),
+        ]
+
+
+class InvestmentReturnApproval(models.Model):
+    DECISION_PENDING = "pending"
+    DECISION_APPROVED = "approved"
+    DECISION_REJECTED = "rejected"
+    DECISION_CHOICES = [
+        (DECISION_PENDING, "Pending"),
+        (DECISION_APPROVED, "Approved"),
+        (DECISION_REJECTED, "Rejected"),
+    ]
+
+    tenant = models.ForeignKey(Tenant, on_delete=models.CASCADE, related_name="investment_return_approvals")
+    invest_return = models.ForeignKey(InvestReturn, on_delete=models.CASCADE, related_name="approvals")
+    step = models.PositiveIntegerField()
+    approver_user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="investment_return_approvals",
+    )
+    approver_tg_id = models.BigIntegerField(null=True, blank=True)
+    approver_tg_from_id = models.BigIntegerField(null=True, blank=True)
+    decision = models.CharField(max_length=20, choices=DECISION_CHOICES, default=DECISION_PENDING)
+    decision_comment = models.TextField(blank=True, default="")
+    decided_at = models.DateTimeField(null=True, blank=True)
+    message_id = models.BigIntegerField(null=True, blank=True)
+    message_sent = models.BooleanField(default=False)
+    message_sent_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "investment_return_approvals"
+        ordering = ["step", "id"]
+        unique_together = [("invest_return", "step", "approver_user")]
+        indexes = [
+            models.Index(fields=["tenant", "invest_return"], name="invrapp_tenant_ret_idx"),
+            models.Index(fields=["tenant", "decision"], name="invrapp_tenant_dec_idx"),
+            models.Index(fields=["approver_tg_id"], name="invrapp_tg_id_idx"),
+            models.Index(fields=["message_id"], name="invrapp_msg_id_idx"),
+        ]
