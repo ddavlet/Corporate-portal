@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Alert, Input, Skeleton, Tag, Typography } from 'antd'
+import { Alert, Button, Input, Skeleton, Tag, Typography } from 'antd'
 import { useNavigate } from 'react-router-dom'
-import { FileAddOutlined, SearchOutlined } from '@ant-design/icons'
+import { CalendarOutlined, FileAddOutlined, SearchOutlined } from '@ant-design/icons'
 import { apiFetch } from '../../lib/api'
 import { isPayedMissingLinkedExpense, type RequestExpenseLink } from '../../lib/requestExpense'
 
@@ -88,6 +88,15 @@ export function TgRequestsPage() {
       <Typography.Title level={4} style={{ margin: '0 0 16px', fontWeight: 700 }}>
         Заявки
       </Typography.Title>
+      <Button
+        block
+        size="large"
+        icon={<CalendarOutlined />}
+        style={{ marginBottom: 12, borderRadius: 12 }}
+        onClick={() => navigate('/tg/investments/schedule')}
+      >
+        Расписание выплат
+      </Button>
 
       <div className="tg-list-search">
         <Input

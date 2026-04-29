@@ -1,6 +1,12 @@
 from django.contrib import admin
 
-from apps.modules.investments.models import InvestCompany, InvestPayoutSchedule, InvestReturn, ProjectInvestment
+from apps.modules.investments.models import (
+    InvestCompany,
+    InvestPayoutSchedule,
+    InvestPayoutScheduleShareLink,
+    InvestReturn,
+    ProjectInvestment,
+)
 
 
 @admin.register(InvestReturn)
@@ -54,3 +60,11 @@ class InvestCompanyAdmin(admin.ModelAdmin):
     list_filter = ("tenant", "is_active")
     search_fields = ("name",)
     readonly_fields = ("created_at", "last_edit_at")
+
+
+@admin.register(InvestPayoutScheduleShareLink)
+class InvestPayoutScheduleShareLinkAdmin(admin.ModelAdmin):
+    list_display = ("id", "tenant", "company", "paid_filter", "is_active", "created_at")
+    list_filter = ("tenant", "paid_filter", "is_active")
+    search_fields = ("token",)
+    readonly_fields = ("token", "created_at")

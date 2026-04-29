@@ -188,6 +188,26 @@ html.tg-twa-dark .tg-request-row.tg-request-row--payed-no-expense {
   padding-bottom: calc(88px + env(safe-area-inset-bottom));
 }
 
+.tg-schedule-page {
+  padding-bottom: calc(20px + env(safe-area-inset-bottom));
+}
+
+.tg-filters-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.tg-filters-grid .ant-select {
+  width: 100%;
+}
+
+.tg-filters-grid .ant-select .ant-select-selector {
+  min-height: 46px;
+  border-radius: 12px;
+}
+
 .tg-create-page,
 .tg-detail-page {
   padding-bottom: calc(100px + env(safe-area-inset-bottom));

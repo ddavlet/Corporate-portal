@@ -9,6 +9,7 @@ import { CorporateCardPage } from '../ui/CorporateCardPage'
 import { PayrollPage } from '../ui/PayrollPage'
 import { ReportsPage } from '../ui/ReportsPage'
 import { InvestmentsPage } from '../ui/InvestmentsPage'
+import { PublicInvestmentsSchedulePage } from '../ui/PublicInvestmentsSchedulePage'
 import { ClientsDebtPage } from '../ui/ClientsDebtPage'
 import { BudgetsPage } from '../ui/BudgetsPage'
 import { PayrollDocumentDetailPage } from '../ui/PayrollDocumentDetailPage'
@@ -33,6 +34,7 @@ import { TgRequestsPage } from '../ui/tg/TgRequestsPage'
 import { TgRequestCreatePage } from '../ui/tg/TgRequestCreatePage'
 import { TgRequestDetailPage } from '../ui/tg/TgRequestDetailPage'
 import { TgPaymentConfirmPage } from '../ui/tg/TgPaymentConfirmPage'
+import { TgInvestmentsSchedulePage } from '../ui/tg/TgInvestmentsSchedulePage'
 import { useAuth } from '../ui/auth'
 import { ModuleAccessProvider } from '../ui/moduleAccess'
 import { setUnauthorizedHandler } from '../lib/api'
@@ -52,10 +54,12 @@ export function App() {
   return (
     <Routes>
       <Route path="/login" element={<LoginPage />} />
+      <Route path="/public/investments/schedule/:token" element={<PublicInvestmentsSchedulePage />} />
 
       <Route path="/tg/*" element={<TgWebAppLayout />}>
         <Route index element={<Navigate to="requests" replace />} />
         <Route path="requests" element={<TgRequestsPage />} />
+        <Route path="investments/schedule" element={<TgInvestmentsSchedulePage />} />
         <Route path="requests/new" element={<TgRequestCreatePage />} />
         <Route path="requests/:id" element={<TgRequestDetailPage />} />
         <Route path="payment" element={<TgPaymentConfirmPage />} />

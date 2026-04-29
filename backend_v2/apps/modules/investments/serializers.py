@@ -1,6 +1,12 @@
 from rest_framework import serializers
 
-from apps.modules.investments.models import InvestCompany, InvestPayoutSchedule, InvestReturn, ProjectInvestment
+from apps.modules.investments.models import (
+    InvestCompany,
+    InvestPayoutSchedule,
+    InvestPayoutScheduleShareLink,
+    InvestReturn,
+    ProjectInvestment,
+)
 from apps.modules.serializers_guard import reject_client_pk_on_create
 
 
@@ -122,3 +128,35 @@ class InvestCompanySerializer(serializers.ModelSerializer):
     def validate(self, attrs):
         reject_client_pk_on_create(self)
         return attrs
+
+
+class InvestPayoutScheduleShareLinkSerializer(_CompanyScopeMixin, serializers.ModelSerializer):
+    class Meta:
+        model = InvestPayoutScheduleShareLink
+        fields = [
+            "id",
+            "tenant",
+            "token",
+            "company",
+            "paid_filter",
+            "is_active",
+            "created_at",
+            "created_by",
+        ]
+        read_only_fields = ["id", "tenant", "token", "is_active", "created_at", "created_by"]
+
+    def validate(self, attrs):
+        reject_client_pk_on_create(self)
+        return attrs
+
+
+class PublicInvestPayoutScheduleShareViewSerializer(serializers.Serializer):
+    id = serializers.IntegerField()
+    payout_date = serializers.DateField()
+    amount = serializers.DecimalField(max_digits=18, decimal_places=2)
+    is_paid = serializers.BooleanField()
+    payment_amount = serializers.DecimalField(max_digits=18, decimal_places=2)
+    comment = serializers.CharField(allow_blank=True)
+    company = serializers.IntegerField(allow_null=True)
+    company_name = serializers.CharField(allow_blank=True)
+    currency = serializers.CharField()

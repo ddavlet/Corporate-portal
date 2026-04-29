@@ -5,12 +5,14 @@ from django.contrib.auth import get_user_model
 from django.test import TestCase
 from rest_framework.test import APIRequestFactory
 
-from apps.modules.investments.models import InvestCompany, InvestReturn
+from apps.modules.investments.models import InvestCompany, InvestPayoutSchedule, InvestPayoutScheduleShareLink, InvestReturn
 from apps.modules.investments.serializers import (
     InvestPayoutScheduleSerializer,
+    InvestPayoutScheduleShareLinkSerializer,
     InvestReturnSerializer,
     ProjectInvestmentSerializer,
 )
+from apps.modules.investments.views import PublicInvestPayoutScheduleByTokenView
 from apps.tenants.models import Tenant
 
 
@@ -168,3 +170,84 @@ class InvestCompanyScopeTests(TestCase):
         )
         self.assertFalse(serializer.is_valid())
         self.assertIn("company", serializer.errors)
+
+
+class InvestPayoutScheduleShareLinkTests(TestCase):
+    def setUp(self):
+        self.tenant = Tenant.objects.create(name="ShareTenant", subdomain="sharetenant", is_active=True)
+        self.user = User.objects.create_user(username="share-user", password="x")
+        self.company = InvestCompany.objects.create(tenant=self.tenant, name="Syrop", created_by=self.user)
+        self.other_company = InvestCompany.objects.create(tenant=self.tenant, name="Other", created_by=self.user)
+        self.paid_row = InvestPayoutSchedule.objects.create(
+            tenant=self.tenant,
+            company=self.company,
+            payout_date=date(2026, 6, 6),
+            amount=Decimal("1500.00"),
+            currency="USD",
+            is_paid=True,
+            payment_amount=Decimal("1500.00"),
+            comment="Monthly 3%",
+            created_by=self.user,
+        )
+        InvestPayoutSchedule.objects.create(
+            tenant=self.tenant,
+            company=self.company,
+            payout_date=date(2026, 7, 6),
+            amount=Decimal("1500.00"),
+            currency="USD",
+            is_paid=False,
+            payment_amount=Decimal("0.00"),
+            comment="Monthly 3%",
+            created_by=self.user,
+        )
+        InvestPayoutSchedule.objects.create(
+            tenant=self.tenant,
+            company=self.other_company,
+            payout_date=date(2026, 8, 6),
+            amount=Decimal("1800.00"),
+            currency="USD",
+            is_paid=False,
+            payment_amount=Decimal("0.00"),
+            comment="Other company",
+            created_by=self.user,
+        )
+
+    def test_serializer_creates_token(self):
+        request = factory.post("/api/investments/payout-schedule-share-links/")
+        request.tenant = self.tenant
+        serializer = InvestPayoutScheduleShareLinkSerializer(
+            data={"company": self.company.id, "paid_filter": "paid"},
+            context={"request": request},
+        )
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+        obj = serializer.save(tenant=self.tenant, created_by=self.user)
+        self.assertTrue(obj.token)
+        self.assertGreaterEqual(len(obj.token), 16)
+
+    def test_public_token_view_applies_saved_filters(self):
+        link = InvestPayoutScheduleShareLink.objects.create(
+            tenant=self.tenant,
+            company=self.company,
+            paid_filter=InvestPayoutScheduleShareLink.PaidFilter.PAID,
+            created_by=self.user,
+        )
+        view = PublicInvestPayoutScheduleByTokenView.as_view()
+        request = factory.get(f"/api/investments/public/payout-schedule/{link.token}/")
+        response = view(request, token=link.token)
+        self.assertEqual(response.status_code, 200)
+        rows = response.data["rows"]
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["id"], self.paid_row.id)
+
+    def test_public_token_view_rejects_inactive_link(self):
+        link = InvestPayoutScheduleShareLink.objects.create(
+            tenant=self.tenant,
+            company=self.company,
+            paid_filter=InvestPayoutScheduleShareLink.PaidFilter.ALL,
+            is_active=False,
+            created_by=self.user,
+        )
+        view = PublicInvestPayoutScheduleByTokenView.as_view()
+        request = factory.get(f"/api/investments/public/payout-schedule/{link.token}/")
+        response = view(request, token=link.token)
+        self.assertEqual(response.status_code, 404)
