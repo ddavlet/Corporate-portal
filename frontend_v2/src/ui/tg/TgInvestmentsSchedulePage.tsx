@@ -7,9 +7,10 @@ type PaidFilter = 'all' | 'paid' | 'unpaid'
 
 const moneyFmt = new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 2 })
 
-function asMoney(value: string | number): string {
+function asMoney(value: string | number, currency?: string): string {
   const n = typeof value === 'number' ? value : Number(String(value).replace(',', '.'))
-  return Number.isFinite(n) ? moneyFmt.format(n) : '0'
+  const amountText = Number.isFinite(n) ? moneyFmt.format(n) : '0'
+  return currency ? `${amountText} ${currency}` : amountText
 }
 
 function dateText(value: string): string {
@@ -120,9 +121,9 @@ export function TgInvestmentsSchedulePage() {
                 #{r.id} · {dateText(r.payout_date)}
               </div>
               <div className="tg-request-row-meta">
-                <span className="tg-request-row-amount">{asMoney(r.amount)}</span>
+                <span className="tg-request-row-amount">{asMoney(r.amount, r.currency)}</span>
                 <Tag color={r.is_paid ? 'green' : 'orange'}>{r.is_paid ? 'Оплачено' : 'Не оплачено'}</Tag>
-                <span>Оплаченная сумма: {asMoney(r.payment_amount)}</span>
+                <span>Оплаченная сумма: {asMoney(r.payment_amount, r.currency)}</span>
                 <span>{companyLabel(r.company)}</span>
                 <span>{r.comment || '-'}</span>
               </div>
