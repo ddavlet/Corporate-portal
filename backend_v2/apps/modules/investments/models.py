@@ -1,4 +1,5 @@
 from decimal import Decimal
+import secrets
 
 from django.conf import settings
 from django.db import models
@@ -133,3 +134,43 @@ class InvestCompany(models.Model):
         ordering = ["name", "id"]
         unique_together = [("tenant", "name")]
         indexes = [models.Index(fields=["tenant", "is_active"], name="invco_tenant_active_idx")]
+
+
+class InvestPayoutScheduleShareLink(models.Model):
+    """Public read-only link for filtered payout schedule viewing."""
+
+    class PaidFilter(models.TextChoices):
+        ALL = "all", "All"
+        PAID = "paid", "Paid"
+        UNPAID = "unpaid", "Unpaid"
+
+    tenant = models.ForeignKey(Tenant, on_delete=models.CASCADE, related_name="invest_schedule_share_links")
+    token = models.CharField(max_length=64, unique=True, db_index=True)
+    company = models.ForeignKey(
+        "InvestCompany",
+        on_delete=models.SET_NULL,
+        related_name="schedule_share_links",
+        null=True,
+        blank=True,
+    )
+    paid_filter = models.CharField(max_length=10, choices=PaidFilter.choices, default=PaidFilter.ALL)
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="created_invest_schedule_share_links",
+    )
+
+    class Meta:
+        db_table = "invest_payout_schedule_share_links"
+        ordering = ["-created_at", "-id"]
+        indexes = [
+            models.Index(fields=["tenant", "is_active"], name="invslink_tenant_active_idx"),
+            models.Index(fields=["tenant", "company"], name="invslink_tenant_comp_idx"),
+        ]
+
+    def save(self, *args, **kwargs):
+        if not self.token:
+            self.token = secrets.token_urlsafe(24)
+        super().save(*args, **kwargs)
