@@ -7,7 +7,7 @@ DEPLOY_TEST_PATH ?= $(TEST_PATH)
 BRANCH     := $(shell git rev-parse --abbrev-ref HEAD)
 
 .DEFAULT_GOAL := help
-.PHONY: help push test deploy makemigrations showmigrations rollback refresh-approval-messages
+.PHONY: help push test deploy makemigrations showmigrations rollback refresh-approval-messages local-up local-down local-logs
 
 help:
 	@echo ""
@@ -20,6 +20,9 @@ help:
 	@echo "  make makemigrations  — создать миграции и скачать на локал"
 	@echo "  make showmigrations  — показать tenants/requests/vendors миграции на сервере"
 	@echo "  make refresh-approval-messages REQUEST_IDS='1 2' — актуализировать Telegram-карточки заявок на сервере"
+	@echo "  make local-up        — поднять docker-compose.local.yml локально"
+	@echo "  make local-down      — остановить локальный compose (без удаления volumes)"
+	@echo "  make local-logs      — логи локального compose"
 	@echo "  make rollback        — откатить production на предыдущий образ"
 	@echo ""
 
@@ -97,3 +100,13 @@ rollback:
 		docker tag n8n-frontend_v2:previous n8n-frontend_v2:latest 2>/dev/null && \
 		docker compose --env-file ./.env up -d --no-deps backend_v2 frontend_v2"
 	@echo "✅  Откат выполнен."
+
+# ── 8. Локальный docker compose (docker-compose.local.yml) ────────────────
+local-up:
+	docker compose -f docker-compose.local.yml --env-file .env.local up -d --build
+
+local-down:
+	docker compose -f docker-compose.local.yml --env-file .env.local down
+
+local-logs:
+	docker compose -f docker-compose.local.yml --env-file .env.local logs -f --tail=200
