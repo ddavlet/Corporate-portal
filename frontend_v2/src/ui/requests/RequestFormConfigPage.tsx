@@ -45,6 +45,7 @@ function emptyPaymentTypeRow(pt: string): RequestFormConfigPaymentTypeItem {
     default_billing_days_offset: 0,
     default_payment_purpose: '',
     default_vendor_id: null,
+    contracts_required: false,
   }
 }
 
@@ -266,6 +267,7 @@ export function RequestFormConfigPage() {
           default_billing_days_offset: pt.default_billing_days_offset ?? 0,
           default_payment_purpose: String(pt.default_payment_purpose ?? '').trim(),
           default_vendor_id: pt.default_vendor_id ?? null,
+          contracts_required: Boolean(pt.contracts_required),
         })),
       }
 
@@ -472,6 +474,21 @@ export function RequestFormConfigPage() {
                         Если список пустой — ограничение не применяется (можно вводить любого поставщика).
                       </Typography.Paragraph>
                     </div>
+                  </div>
+
+                  <div>
+                    <Checkbox
+                      checked={Boolean(pt.contracts_required)}
+                      onChange={(e) =>
+                        updatePaymentType(pt.payment_type, { contracts_required: e.target.checked })
+                      }
+                    >
+                      Договор обязателен при активном модуле «Договоры»
+                    </Checkbox>
+                    <Typography.Paragraph type="secondary" style={{ marginTop: 6, marginBottom: 0 }}>
+                      Если включено: при включённом модуле договоров пользователь выберет договор после поставщика для
+                      этого типа оплаты.
+                    </Typography.Paragraph>
                   </div>
 
                   <div>

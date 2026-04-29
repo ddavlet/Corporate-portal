@@ -46,6 +46,7 @@ INSTALLED_APPS = [
     "apps.modules.clients_debt",
     "apps.modules.investments",
     "apps.modules.budgets",
+    "apps.modules.contracts",
 ]
 
 MIDDLEWARE = [

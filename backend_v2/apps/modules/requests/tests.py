@@ -37,6 +37,7 @@ from apps.modules.bank_expenses.models import BankExpense
 from apps.modules.cashier.models import CashExpense
 from apps.modules.corporate_card.models import CardExpense
 from apps.modules.vendors.models import Vendor
+from apps.modules.contracts.models import Contract
 from apps.modules.wallets.models import (
     BankAccount,
     CashRegister,
@@ -2811,5 +2812,138 @@ class DraftRequestPatchSubmitTests(APITestCase):
         self.assertIn("📌 Назначение", payload["message"])
         self.assertIn("⏱ Статус", payload["message"])
         self.assertEqual(payload["draft_url"], f"https://{self.tenant.subdomain}.example.com/requests/{req.id}")
+
+
+@override_settings(BASE_DOMAIN="example.com", N8N_TOKEN="", N8N_INTEGRATION_TOKEN="", ALLOWED_HOSTS=["*"])
+class RequestContractsRequiredTests(APITestCase):
+    """Portal request creation when contracts_required is enabled on the payment type."""
+
+    def setUp(self):
+        self.tenant = Tenant.objects.create(name="Acme", subdomain="acme", is_active=True)
+        self.admin = User.objects.create_user(username="cr_admin", password="x")
+        self.requester = User.objects.create_user(username="cr_req", password="x")
+        self.approver = User.objects.create_user(username="cr_appr", password="x")
+        self.approver.telegram_chat_id = 501
+        self.approver.telegram_from_id = 502
+        self.approver.save(update_fields=["telegram_chat_id", "telegram_from_id"])
+
+        for u in (self.admin, self.requester, self.approver):
+            TenantMembership.objects.create(tenant=self.tenant, user=u, is_active=True)
+
+        TenantUserRole.objects.create(tenant=self.tenant, user=self.admin, role=TenantUserRole.ROLE_ADMIN)
+        TenantUserRole.objects.create(tenant=self.tenant, user=self.requester, role=TenantUserRole.ROLE_REQUESTER)
+        TenantUserRole.objects.create(tenant=self.tenant, user=self.approver, role=TenantUserRole.ROLE_APPROVER)
+
+        TenantModuleConfig.objects.create(tenant=self.tenant, module_key="requests", is_enabled=True)
+        TenantModuleConfig.objects.create(tenant=self.tenant, module_key="vendors", is_enabled=True)
+        TenantModuleConfig.objects.create(tenant=self.tenant, module_key="contracts", is_enabled=True)
+
+        self.host = "acme.example.com"
+
+        req_form_cfg = RequestFormConfig.objects.create(tenant=self.tenant, updated_by=self.admin)
+        pt_form_cfg = RequestFormPaymentTypeConfig.objects.create(
+            config=req_form_cfg,
+            payment_type=Request.PAYMENT_TYPE_CASH,
+            is_enabled=True,
+            contracts_required=True,
+        )
+        self.vendor = Vendor.objects.create(
+            tenant=self.tenant,
+            kind=Vendor.KIND_CASH,
+            name="Contract Vendor",
+            created_by=self.admin,
+        )
+        RequestFormPaymentTypeVendor.objects.create(payment_type_config=pt_form_cfg, vendor=self.vendor)
+        RequestFormPaymentTypeRequester.objects.create(payment_type_config=pt_form_cfg, user=self.requester)
+
+        self.other_vendor = Vendor.objects.create(
+            tenant=self.tenant,
+            kind=Vendor.KIND_CASH,
+            name="Other Vendor",
+            created_by=self.admin,
+        )
+
+        self.contract = Contract.objects.create(
+            tenant=self.tenant,
+            vendor=self.vendor,
+            contract_number="CV-2026-1",
+            date_from=date(2026, 1, 10),
+            contract_amount=Decimal("1000.00"),
+            currency="UZS",
+            contract_status=Contract.STATUS_ACCEPTED,
+            created_by=self.admin,
+        )
+        self.contract_other_vendor = Contract.objects.create(
+            tenant=self.tenant,
+            vendor=self.other_vendor,
+            contract_number="OTHER-1",
+            date_from=date(2026, 1, 11),
+            contract_amount=Decimal("500.00"),
+            currency="UZS",
+            contract_status=Contract.STATUS_ACCEPTED,
+            created_by=self.admin,
+        )
+
+        appr_cfg = RequestApprovalConfig.objects.create(tenant=self.tenant, updated_by=self.admin)
+        pt_cfg = RequestApprovalPaymentTypeConfig.objects.create(
+            config=appr_cfg, payment_type=Request.PAYMENT_TYPE_CASH, is_enabled=True
+        )
+        step_cfg = RequestApprovalStepConfig.objects.create(
+            payment_type_config=pt_cfg,
+            step=1,
+            step_type=Approval.STEP_TYPE_SERIAL,
+            is_enabled=True,
+        )
+        RequestApprovalStepApproverConfig.objects.create(step_config=step_cfg, approver_user=self.approver)
+
+    def _payload(self, **extra):
+        base = {
+            "title": "With contract",
+            "description": "",
+            "amount": 10,
+            "currency": "UZS",
+            "payment_type": Request.PAYMENT_TYPE_CASH,
+            "urgency": "Обычно",
+            "billing_date": "2026-01-15",
+            "vendor_ref": self.vendor.id,
+        }
+        base.update(extra)
+        return base
+
+    def test_contract_required_rejects_missing_contract_ref(self):
+        self.client.force_authenticate(self.requester)
+        res = self.client.post("/api/requests/", self._payload(), format="json", HTTP_HOST=self.host)
+        self.assertEqual(res.status_code, 400, res.content)
+        self.assertIn("contract_ref", res.data)
+
+    def test_contract_required_accepts_matching_contract(self):
+        self.client.force_authenticate(self.requester)
+        res = self.client.post(
+            "/api/requests/",
+            self._payload(contract_ref=self.contract.id),
+            format="json",
+            HTTP_HOST=self.host,
+        )
+        self.assertEqual(res.status_code, 201, res.content)
+        req = Request.objects.get(id=res.data["id"])
+        self.assertEqual(req.contract_ref_id, self.contract.id)
+
+    def test_contract_must_match_vendor(self):
+        self.client.force_authenticate(self.requester)
+        res = self.client.post(
+            "/api/requests/",
+            self._payload(vendor_ref=self.vendor.id, contract_ref=self.contract_other_vendor.id),
+            format="json",
+            HTTP_HOST=self.host,
+        )
+        self.assertEqual(res.status_code, 400, res.content)
+
+    def test_contracts_module_disabled_skips_contract_requirement(self):
+        TenantModuleConfig.objects.filter(tenant=self.tenant, module_key="contracts").update(is_enabled=False)
+        self.client.force_authenticate(self.requester)
+        res = self.client.post("/api/requests/", self._payload(), format="json", HTTP_HOST=self.host)
+        self.assertEqual(res.status_code, 201, res.content)
+        req = Request.objects.get(id=res.data["id"])
+        self.assertIsNone(req.contract_ref_id)
 
 

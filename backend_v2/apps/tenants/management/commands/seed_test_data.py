@@ -18,7 +18,7 @@ User = get_user_model()
 TENANT_SUBDOMAIN = "test"
 MODULES = [
     "requests", "cash", "bank", "corporate_card", "payroll",
-    "reports", "clients_debt", "budgets", "vendors", "notes", "investments",
+    "reports", "clients_debt", "budgets", "vendors", "contracts", "notes", "investments",
 ]
 
 

@@ -90,6 +90,13 @@ class Request(models.Model):
         blank=True,
         related_name="requests",
     )
+    contract_ref = models.ForeignKey(
+        "contracts.Contract",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="requests",
+    )
 
     title = models.CharField(max_length=200, default="")
     description = models.TextField(default="")
@@ -300,6 +307,7 @@ class RequestFormPaymentTypeConfig(models.Model):
         blank=True,
         related_name="request_form_default_for_payment_types",
     )
+    contracts_required = models.BooleanField(default=False)
 
     class Meta:
         db_table = "request_form_payment_type_configs"
@@ -677,6 +685,13 @@ class AutoRequestTemplate(models.Model):
     payment_purpose = models.CharField(max_length=200, default="", blank=True)
     vendor_ref = models.ForeignKey(
         "vendors.Vendor",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="auto_request_templates",
+    )
+    contract_ref = models.ForeignKey(
+        "contracts.Contract",
         on_delete=models.SET_NULL,
         null=True,
         blank=True,

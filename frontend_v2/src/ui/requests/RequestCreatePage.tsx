@@ -13,15 +13,19 @@ import {
   Steps,
   Switch,
   Typography,
+  Upload,
   message,
 } from 'antd'
 import type { Dayjs } from 'dayjs'
+import type { UploadFile } from 'antd/es/upload/interface'
 import { ArrowLeftOutlined, PlusOutlined } from '@ant-design/icons'
 import { useNavigate } from 'react-router-dom'
 import {
+  createContract,
   createPortalRequest,
   createVendor,
   getRequestFormOptions,
+  listContracts,
   listVendors,
   REQUEST_ATTACHMENT_MAX_FILES,
   type CreatedPortalRequest,
@@ -53,6 +57,7 @@ export function RequestCreatePage({ requestsBasePath = '/requests', variant = 'p
   const [loading, setLoading] = useState(true)
   const [optionsError, setOptionsError] = useState<string | null>(null)
   const [formOptions, setFormOptions] = useState<RequestFormOptionsPaymentType[]>([])
+  const [contractsModuleEffective, setContractsModuleEffective] = useState(false)
   const [isTenantAdmin, setIsTenantAdmin] = useState(false)
   const [step, setStep] = useState(0)
 
@@ -63,6 +68,9 @@ export function RequestCreatePage({ requestsBasePath = '/requests', variant = 'p
   const [vendorRefId, setVendorRefId] = useState<number | null>(null)
   const [vendorOptions, setVendorOptions] = useState<{ label: string; value: number }[]>([])
   const [vendorSearchLoading, setVendorSearchLoading] = useState(false)
+  const [contractRefId, setContractRefId] = useState<number | null>(null)
+  const [contractOptions, setContractOptions] = useState<{ label: string; value: number }[]>([])
+  const [contractLoading, setContractLoading] = useState(false)
 
   const [description, setDescription] = useState('')
   const [amount, setAmount] = useState<number | null>(null)
@@ -80,6 +88,16 @@ export function RequestCreatePage({ requestsBasePath = '/requests', variant = 'p
   const [newVendorInn, setNewVendorInn] = useState('')
   const [newVendorAccount, setNewVendorAccount] = useState('')
   const [newVendorSaving, setNewVendorSaving] = useState(false)
+  const [newContractOpen, setNewContractOpen] = useState(false)
+  const [newContractSaving, setNewContractSaving] = useState(false)
+  const [ncNumber, setNcNumber] = useState('')
+  const [ncDateFrom, setNcDateFrom] = useState('')
+  const [ncDateTo, setNcDateTo] = useState('')
+  const [ncAmount, setNcAmount] = useState<number | null>(null)
+  const [ncCurrency, setNcCurrency] = useState('UZS')
+  const [ncTerms, setNcTerms] = useState('')
+  const [ncAcc, setNcAcc] = useState('')
+  const [ncFileList, setNcFileList] = useState<UploadFile[]>([])
 
   const activePt = useMemo(
     () => formOptions.find((p) => p.payment_type === paymentType) || null,
@@ -98,6 +116,7 @@ export function RequestCreatePage({ requestsBasePath = '/requests', variant = 'p
         const opts = await getRequestFormOptions()
         if (!cancelled) {
           setFormOptions(opts.payment_types)
+          setContractsModuleEffective(opts.contracts_module_effective ?? false)
           setIsTenantAdmin(opts.is_tenant_admin ?? false)
         }
       } catch (e: unknown) {
@@ -174,6 +193,45 @@ export function RequestCreatePage({ requestsBasePath = '/requests', variant = 'p
     searchTimer = setTimeout(() => void loadVendors(value), 300)
   }
 
+  const contractsRequiredForPt = Boolean(contractsModuleEffective && activePt?.contracts_required)
+
+  useEffect(() => {
+    if (!contractsRequiredForPt || !vendorRefId) {
+      setContractOptions([])
+      setContractRefId(null)
+      return
+    }
+    let cancelled = false
+    setContractLoading(true)
+    listContracts({ vendor: vendorRefId })
+      .then((rows) => {
+        if (cancelled) return
+        setContractOptions(
+          rows.map((r) => ({
+            value: r.id,
+            label: `${r.contract_number} (${r.date_from})${r.is_expired ? ' — просрочен' : ''}`,
+          })),
+        )
+        setContractRefId((prev) => {
+          if (rows.length === 1) return rows[0].id
+          if (prev != null && rows.some((r) => r.id === prev)) return prev
+          return null
+        })
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setContractOptions([])
+          setContractRefId(null)
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setContractLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [contractsRequiredForPt, vendorRefId])
+
   const purposeOptions = useMemo(() => {
     if (!activePt?.payment_purposes?.length) return []
     return activePt.payment_purposes.map((p) => ({
@@ -246,6 +304,10 @@ export function RequestCreatePage({ requestsBasePath = '/requests', variant = 'p
       message.warning('Выберите поставщика из списка')
       return
     }
+    if (contractsRequiredForPt && !contractRefId) {
+      message.warning('Выберите договор')
+      return
+    }
     if (attachments.length > REQUEST_ATTACHMENT_MAX_FILES) {
       message.warning(`Можно прикрепить максимум ${REQUEST_ATTACHMENT_MAX_FILES} файлов`)
       return
@@ -280,6 +342,7 @@ export function RequestCreatePage({ requestsBasePath = '/requests', variant = 'p
       }
       if (paymentPurpose) payload.payment_purpose = paymentPurpose
       if (vendorRefId) payload.vendor_ref = vendorRefId
+      if (contractRefId) payload.contract_ref = contractRefId
       const res: CreatedPortalRequest = await createPortalRequest(payload)
       for (const file of attachments) {
         await uploadRequestAttachment(res.id, file)
@@ -326,6 +389,52 @@ export function RequestCreatePage({ requestsBasePath = '/requests', variant = 'p
       message.error(e instanceof Error ? e.message : 'Ошибка')
     } finally {
       setNewVendorSaving(false)
+    }
+  }
+
+  const saveNewContract = async () => {
+    if (!vendorRefId) return
+    const num = ncNumber.trim()
+    if (!num) {
+      message.warning('Укажите номер договора')
+      return
+    }
+    if (!ncDateFrom.trim()) {
+      message.warning('Укажите дату начала')
+      return
+    }
+    if (ncAmount == null || ncAmount <= 0) {
+      message.warning('Укажите сумму договора')
+      return
+    }
+    const f = ncFileList[0]?.originFileObj as File | undefined
+    setNewContractSaving(true)
+    try {
+      const created = await createContract({
+        vendor: vendorRefId,
+        contract_number: num,
+        date_from: ncDateFrom.trim(),
+        date_to: ncDateTo.trim() || undefined,
+        contract_amount: String(ncAmount),
+        currency: ncCurrency,
+        contract_terms: ncTerms.trim(),
+        acc_number: ncAcc.trim(),
+        contract_file: f,
+      })
+      message.success('Договор создан')
+      setNewContractOpen(false)
+      const rows = await listContracts({ vendor: vendorRefId })
+      setContractOptions(
+        rows.map((r) => ({
+          value: r.id,
+          label: `${r.contract_number} (${r.date_from})${r.is_expired ? ' — просрочен' : ''}`,
+        })),
+      )
+      setContractRefId(created.id)
+    } catch (e: unknown) {
+      message.error(e instanceof Error ? e.message : 'Ошибка')
+    } finally {
+      setNewContractSaving(false)
     }
   }
 
@@ -376,6 +485,7 @@ export function RequestCreatePage({ requestsBasePath = '/requests', variant = 'p
                 setPaymentType(v)
                 setRequesterId(null)
                 setVendorRefId(null)
+                setContractRefId(null)
                 setPaymentPurpose(null)
                 setAmortizationEnabled(false)
                 setAmortizationMonths(2)
@@ -621,7 +731,10 @@ export function RequestCreatePage({ requestsBasePath = '/requests', variant = 'p
                 filterOption={false}
                 loading={vendorSearchLoading}
                 value={vendorRefId ?? undefined}
-                onChange={(v) => setVendorRefId(v)}
+                onChange={(v) => {
+                  setVendorRefId(v)
+                  setContractRefId(null)
+                }}
                 onSearch={onVendorSearch}
                 options={vendorOptions}
                 allowClear
@@ -629,6 +742,48 @@ export function RequestCreatePage({ requestsBasePath = '/requests', variant = 'p
                 popupMatchSelectWidth={isTg ? true : undefined}
               />
             </div>
+            {contractsRequiredForPt ? (
+              <div className={isTg ? 'tg-field-block' : undefined}>
+                <Space align="center" size="middle" wrap style={{ marginBottom: 8 }}>
+                  <Typography.Text strong>Договор</Typography.Text>
+                  <Button
+                    type="link"
+                    icon={<PlusOutlined />}
+                    disabled={!vendorRefId}
+                    onClick={() => {
+                      if (!vendorRefId) {
+                        message.warning('Сначала выберите поставщика')
+                        return
+                      }
+                      setNcNumber('')
+                      setNcDateFrom('')
+                      setNcDateTo('')
+                      setNcAmount(null)
+                      setNcCurrency(currency || 'UZS')
+                      setNcTerms('')
+                      setNcAcc('')
+                      setNcFileList([])
+                      setNewContractOpen(true)
+                    }}
+                    style={{ paddingInline: 0 }}
+                  >
+                    Новый договор
+                  </Button>
+                </Space>
+                <Select
+                  placeholder={vendorRefId ? 'Выберите договор' : 'Сначала выберите поставщика'}
+                  size={isTg ? 'large' : undefined}
+                  style={{ display: 'block', width: '100%', maxWidth: isTg ? undefined : 560 }}
+                  loading={contractLoading}
+                  value={contractRefId ?? undefined}
+                  onChange={(v) => setContractRefId(v)}
+                  options={contractOptions}
+                  allowClear
+                  getPopupContainer={isTg ? tgPopupContainer : undefined}
+                  popupMatchSelectWidth={isTg ? true : undefined}
+                />
+              </div>
+            ) : null}
             <div className={isTg ? 'tg-field-block' : undefined}>
               <Typography.Text strong style={labelBlockAboveField}>
                 Описание
@@ -700,6 +855,59 @@ export function RequestCreatePage({ requestsBasePath = '/requests', variant = 'p
           ) : null}
           <Form.Item label="Расчётный счёт (необязательно)">
             <Input value={newVendorAccount} onChange={(e) => setNewVendorAccount(e.target.value)} />
+          </Form.Item>
+        </Form>
+      </Modal>
+
+      <Modal
+        title="Новый договор"
+        open={newContractOpen}
+        onCancel={() => setNewContractOpen(false)}
+        onOk={() => void saveNewContract()}
+        confirmLoading={newContractSaving}
+        okText="Сохранить"
+        centered
+        width={isTg ? 'min(calc(100vw - 24px), 440px)' : 520}
+        getContainer={isTg ? () => document.body : undefined}
+      >
+        <Typography.Paragraph type="secondary">
+          Поставщик: текущий выбор в заявке (из справочника).
+        </Typography.Paragraph>
+        <Form layout="vertical">
+          <Form.Item label="Номер договора" required>
+            <Input value={ncNumber} onChange={(e) => setNcNumber(e.target.value)} />
+          </Form.Item>
+          <Space wrap>
+            <Form.Item label="Дата с" required>
+              <Input type="date" value={ncDateFrom} onChange={(e) => setNcDateFrom(e.target.value)} />
+            </Form.Item>
+            <Form.Item label="Дата по">
+              <Input type="date" value={ncDateTo} onChange={(e) => setNcDateTo(e.target.value)} />
+            </Form.Item>
+          </Space>
+          <Space wrap>
+            <Form.Item label="Сумма" required>
+              <InputNumber min={0.01} step={0.01} value={ncAmount ?? undefined} onChange={(v) => setNcAmount(typeof v === 'number' ? v : null)} />
+            </Form.Item>
+            <Form.Item label="Валюта">
+              <Select
+                style={{ width: 120 }}
+                value={ncCurrency}
+                onChange={setNcCurrency}
+                options={['UZS', 'USD', 'EUR', 'RUB'].map((c) => ({ value: c, label: c }))}
+              />
+            </Form.Item>
+          </Space>
+          <Form.Item label="Расчётный счёт">
+            <Input value={ncAcc} onChange={(e) => setNcAcc(e.target.value)} />
+          </Form.Item>
+          <Form.Item label="Условия">
+            <Input.TextArea rows={2} value={ncTerms} onChange={(e) => setNcTerms(e.target.value)} />
+          </Form.Item>
+          <Form.Item label="Файл">
+            <Upload maxCount={1} fileList={ncFileList} beforeUpload={() => false} onChange={({ fileList }) => setNcFileList(fileList)}>
+              <Button>Выбрать файл</Button>
+            </Upload>
           </Form.Item>
         </Form>
       </Modal>
