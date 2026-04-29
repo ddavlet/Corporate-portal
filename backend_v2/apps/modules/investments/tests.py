@@ -381,13 +381,18 @@ class InvestmentApprovalFlowTests(APITestCase):
         )
         self.assertIn(not_active.status_code, (400, 409))
 
+        second_step.refresh_from_db()
+        self.assertIsNotNone(second_step.message_id)
         ok_second = self.client.post(
             "/api/investments/approvals/webhook/",
             {
                 "callback_query": {
                     "data": f"inv_{second_step.id}:a",
                     "from": {"id": self.approver2.telegram_from_id},
-                    "message": {"message_id": 303, "chat": {"id": self.approver2.telegram_chat_id}},
+                    "message": {
+                        "message_id": second_step.message_id,
+                        "chat": {"id": self.approver2.telegram_chat_id},
+                    },
                 }
             },
             format="json",
