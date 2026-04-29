@@ -47,6 +47,9 @@ class TenantIntegrationConfigSerializer(serializers.Serializer):
     telegram_approvals_bridge_token = serializers.CharField(required=False, allow_blank=True, write_only=True)
     n8n_integration_token = serializers.CharField(required=False, allow_blank=True, write_only=True)
     requests_file_gateway_token = serializers.CharField(required=False, allow_blank=True, write_only=True)
+    telegram_oidc_client_id = serializers.CharField(required=False, allow_blank=True, max_length=120)
+    telegram_oidc_client_secret = serializers.CharField(required=False, allow_blank=True, write_only=True)
+    telegram_oidc_redirect_uri = serializers.CharField(required=False, allow_blank=True)
     portal_feedback_telegram_chat_id = serializers.IntegerField(required=False, allow_null=True)
     portal_feedback_telegram_action = serializers.CharField(required=False, allow_blank=True, max_length=100)
 

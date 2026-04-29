@@ -7,6 +7,7 @@ from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 from apps.accounts.views_otp import OtpRequestView, OtpVerifyView
 from apps.accounts.views_password import ChangePasswordView
 from apps.accounts.views_telegram_login_widget import TelegramLoginWidgetAuthView
+from apps.accounts.views_telegram_oidc import TelegramOidcConfigView, TelegramOidcExchangeView
 from apps.accounts.views_telegram_webapp import TelegramWebAppAuthView
 from apps.modules.requests.views import FileGatewayView, FileDownloadView
 from apps.modules.n8n_integration.views import AiChatProxyView, CashflowDataProxyView, PnlDataProxyView
@@ -28,6 +29,8 @@ urlpatterns = [
     path("api/auth/token/refresh/", TokenRefreshView.as_view(), name="token_refresh"),
     path("api/auth/otp/request/", OtpRequestView.as_view(), name="otp_request"),
     path("api/auth/otp/verify/", OtpVerifyView.as_view(), name="otp_verify"),
+    path("api/auth/telegram/oidc/config/", TelegramOidcConfigView.as_view(), name="telegram_oidc_config"),
+    path("api/auth/telegram/oidc/exchange/", TelegramOidcExchangeView.as_view(), name="telegram_oidc_exchange"),
     path("api/auth/telegram/login-widget/", TelegramLoginWidgetAuthView.as_view(), name="telegram_login_widget_auth"),
     path("api/auth/telegram/webapp/", TelegramWebAppAuthView.as_view(), name="telegram_webapp_auth"),
     path("api/auth/password/change/", ChangePasswordView.as_view(), name="password_change"),

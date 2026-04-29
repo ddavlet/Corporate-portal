@@ -29,6 +29,9 @@ class TenantAdminFormTests(TestCase):
                 "telegram_otp_enabled": "",
                 "telegram_bot_token": "",
                 "telegram_bot_username": "adminsavebot",
+                "telegram_oidc_client_id": "",
+                "telegram_oidc_client_secret": "",
+                "telegram_oidc_redirect_uri": "",
                 "enabled_modules": ["requests"],
             }
         )
@@ -110,6 +113,9 @@ class TenantIntegrationConfigApiTests(APITestCase):
             {
                 "telegram_bot_token": "bot-secret",
                 "telegram_bot_username": "@acme_login_bot",
+                "telegram_oidc_client_id": "123456789",
+                "telegram_oidc_client_secret": "oidc-secret",
+                "telegram_oidc_redirect_uri": "https://main.kolberg.uz/app/login",
                 "telegram_approvals_bridge_dispatch_url": "https://acme.example.com/n8n/telegram/dispatch",
                 "telegram_approvals_bridge_token": "secret-1",
                 "telegram_approvals_message_template": "<b>{header}</b>\nКомпания: {company_payer}",
@@ -131,6 +137,9 @@ class TenantIntegrationConfigApiTests(APITestCase):
         self.tenant.refresh_from_db()
         self.assertEqual(self.tenant.get_telegram_bot_token(), "bot-secret")
         self.assertEqual(self.tenant.telegram_bot_username, "acme_login_bot")
+        self.assertEqual(cfg.telegram_oidc_client_id, "123456789")
+        self.assertEqual(cfg.get_telegram_oidc_client_secret(), "oidc-secret")
+        self.assertEqual(cfg.telegram_oidc_redirect_uri, "https://main.kolberg.uz/app/login")
         self.assertEqual(cfg.get_telegram_approvals_bridge_token(), "secret-1")
         self.assertEqual(cfg.telegram_approvals_message_template, "<b>{header}</b>\nКомпания: {company_payer}")
         self.assertEqual(cfg.telegram_approvals_header_new_template, "💰 Новая заявка на расход № {request_id}")
@@ -144,6 +153,9 @@ class TenantIntegrationConfigApiTests(APITestCase):
         self.assertEqual(get.data["telegram_approvals_bridge_token"], "********")
         self.assertEqual(get.data["requests_file_gateway_token"], "********")
         self.assertEqual(get.data["telegram_bot_username"], "acme_login_bot")
+        self.assertEqual(get.data["telegram_oidc_client_id"], "123456789")
+        self.assertEqual(get.data["telegram_oidc_client_secret"], "********")
+        self.assertEqual(get.data["telegram_oidc_redirect_uri"], "https://main.kolberg.uz/app/login")
         self.assertIn("telegram_approvals_message_template", get.data)
         self.assertEqual(get.data["portal_feedback_telegram_chat_id"], -1001234567890)
         self.assertEqual(get.data["portal_feedback_telegram_action"], "send_portal_feedback")
