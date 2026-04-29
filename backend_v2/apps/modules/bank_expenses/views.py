@@ -51,7 +51,11 @@ class BankExpenseViewSet(viewsets.ModelViewSet):
             ),
         ).filter(
             Q(expense_ref_id=OuterRef("id"))
-            | (Q(expense_id=OuterRef("doc_no")) & Q(expense_year=OuterRef("expense_year")))
+            | (
+                Q(expense_id=OuterRef("doc_no"))
+                & Q(expense_year=OuterRef("expense_year"))
+                & Q(amount=OuterRef("debit_turnover"))
+            )
         )
         paid_request_subquery = request_subquery.filter(status=Request.STATUS_PAYED)
         qs = BankExpense.objects.filter(tenant=tenant).annotate(
@@ -66,7 +70,7 @@ class BankExpenseViewSet(viewsets.ModelViewSet):
                 | Q(vendor__inn__icontains=vendor_search)
                 | Q(vendor__account_number__icontains=vendor_search)
             )
-        return qs
+        return qs.order_by("-doc_date", "-process_date", "-id")
 
     def perform_create(self, serializer):
         serializer.save(tenant=self.request.tenant, created_by=self.request.user)
@@ -159,7 +163,7 @@ class BankRevenueViewSet(viewsets.ModelViewSet):
         tenant = getattr(self.request, "tenant", None)
         if not tenant:
             return BankRevenue.objects.none()
-        return BankRevenue.objects.filter(tenant=tenant)
+        return BankRevenue.objects.filter(tenant=tenant).order_by("-doc_date", "-process_date", "-id")
 
     def perform_create(self, serializer):
         serializer.save(tenant=self.request.tenant, created_by=self.request.user)

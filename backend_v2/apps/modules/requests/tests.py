@@ -1333,6 +1333,67 @@ class RequestApprovalsTests(APITestCase):
         self.assertEqual(req.expense_ref_id, cash_expense.id)
         self.assertEqual(req.expense_id, "1-000000343")
 
+    def test_payment_webapp_confirm_bank_resolves_same_doc_no_by_amount(self):
+        self._configure_payment_step(
+            payment_type=Request.PAYMENT_TYPE_TRANSFER,
+            mode=RequestApprovalStepConfig.PAYMENT_ACTION_MODE_WEBAPP,
+        )
+        request_id = self._create_request_for_payment_type(Request.PAYMENT_TYPE_TRANSFER)
+        approval = Approval.objects.get(
+            request_id=request_id,
+            approver_user=self.approver,
+            step_type=Approval.STEP_TYPE_PAYMENT,
+        )
+        bank_account = BankAccount.objects.create(tenant=self.tenant, label="Main")
+        bank_wallet = Wallet.objects.create(
+            tenant=self.tenant,
+            wallet_type=Wallet.Type.BANK,
+            currency="UZS",
+            bank_account=bank_account,
+        )
+        wrong_amount_expense = BankExpense.objects.create(
+            tenant=self.tenant,
+            created_by=self.admin,
+            row_no=1,
+            doc_date=date(2026, 1, 2),
+            process_date=date(2026, 1, 2),
+            expense_year=2026,
+            expense_month=1,
+            expense_day=2,
+            doc_no="DUP-2026-001",
+            debit_turnover=Decimal("20.00"),
+            payment_purpose="wrong amount",
+            wallet=bank_wallet,
+        )
+        matching_expense = BankExpense.objects.create(
+            tenant=self.tenant,
+            created_by=self.admin,
+            row_no=2,
+            doc_date=date(2026, 1, 3),
+            process_date=date(2026, 1, 3),
+            expense_year=2026,
+            expense_month=1,
+            expense_day=3,
+            doc_no="DUP-2026-001",
+            debit_turnover=Decimal("10.00"),
+            payment_purpose="matching amount",
+            wallet=bank_wallet,
+        )
+
+        self.client.force_authenticate(self.approver)
+        res = self.client.post(
+            "/api/requests/approvals/payment-webapp/confirm/",
+            {"approval_id": approval.id, "expense_id": "DUP-2026-001"},
+            format="json",
+            HTTP_HOST=self.host,
+        )
+        self.assertEqual(res.status_code, 200, res.content)
+
+        req = Request.objects.get(pk=request_id)
+        self.assertEqual(req.expense_ref_id, matching_expense.id)
+        self.assertNotEqual(req.expense_ref_id, wrong_amount_expense.id)
+        self.assertEqual(req.expense_ref_target, Request.EXPENSE_REF_TARGET_BANK)
+
     def _configure_payment_step(self, *, payment_type: str, mode: str) -> None:
         appr_cfg = RequestApprovalConfig.objects.get(tenant=self.tenant)
         RequestApprovalPaymentTypeConfig.objects.filter(

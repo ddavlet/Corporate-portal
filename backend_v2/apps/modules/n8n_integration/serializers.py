@@ -422,6 +422,9 @@ class N8nRequestImportSerializer(serializers.ModelSerializer):
         effective_expense_year = attrs.get("expense_year")
         if effective_expense_year is None and self.instance is not None:
             effective_expense_year = self.instance.expense_year
+        effective_amount = attrs.get("amount")
+        if effective_amount is None and self.instance is not None:
+            effective_amount = self.instance.amount
         eid = str(expense_id_val or "").strip()
         if not eid:
             attrs["expense_ref_id"] = None
@@ -433,6 +436,7 @@ class N8nRequestImportSerializer(serializers.ModelSerializer):
                 category=effective_category,
                 expense_id_raw=expense_id_val,
                 expense_year=effective_expense_year,
+                amount=effective_amount,
             )
             tgt = expense_ref_target_for(payment_type=effective_payment_type, category=effective_category) if ref else None
             attrs["expense_ref_id"] = ref
