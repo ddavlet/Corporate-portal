@@ -159,6 +159,9 @@ export async function resendRequestApprovals(requestId: number): Promise<{ resen
 export type TenantIntegrationConfigResponse = {
   telegram_bot_token: string
   telegram_bot_username: string
+  telegram_oidc_client_id: string
+  telegram_oidc_client_secret: string
+  telegram_oidc_redirect_uri: string
   telegram_approvals_bridge_dispatch_url: string
   telegram_approvals_send_action: string
   telegram_approvals_edit_action: string
@@ -181,6 +184,9 @@ export type TenantIntegrationConfigResponse = {
 export type TenantIntegrationConfigUpdatePayload = Partial<{
   telegram_bot_token: string
   telegram_bot_username: string
+  telegram_oidc_client_id: string
+  telegram_oidc_client_secret: string
+  telegram_oidc_redirect_uri: string
   telegram_approvals_bridge_dispatch_url: string
   telegram_approvals_send_action: string
   telegram_approvals_edit_action: string
@@ -962,6 +968,20 @@ export type TelegramLoginWidgetAuthData = {
   hash: string
 }
 
+export type TelegramOidcConfigResponse = {
+  client_id: string
+  redirect_uri: string
+  authorization_endpoint: string
+  scope: string
+}
+
+export type TelegramOidcExchangePayload = {
+  code: string
+  code_verifier: string
+  redirect_uri: string
+  nonce?: string
+}
+
 export async function exchangeTelegramWebApp(initData: string): Promise<TelegramWebAppAuthResponse> {
   const res = await fetch('/api/auth/telegram/webapp/', {
     method: 'POST',
@@ -991,6 +1011,31 @@ export async function exchangeTelegramLoginWidget(
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
     body: JSON.stringify({ auth_data: authData }),
+  })
+  if (!res.ok) throw new Error(await parseErrorBody(res))
+  const json = (await res.json().catch(() => null)) as TelegramWebAppAuthResponse | null
+  if (!json?.access || !json?.refresh || !json?.username) throw new Error('Empty auth response')
+  return json
+}
+
+export async function getTelegramOidcConfig(): Promise<TelegramOidcConfigResponse> {
+  const res = await fetch('/api/auth/telegram/oidc/config/', {
+    method: 'GET',
+    headers: { Accept: 'application/json' },
+  })
+  if (!res.ok) throw new Error(await parseErrorBody(res))
+  const json = (await res.json().catch(() => null)) as TelegramOidcConfigResponse | null
+  if (!json?.client_id || !json?.redirect_uri || !json?.authorization_endpoint) throw new Error('OIDC not configured')
+  return json
+}
+
+export async function exchangeTelegramOidc(
+  payload: TelegramOidcExchangePayload,
+): Promise<TelegramWebAppAuthResponse> {
+  const res = await fetch('/api/auth/telegram/oidc/exchange/', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+    body: JSON.stringify(payload),
   })
   if (!res.ok) throw new Error(await parseErrorBody(res))
   const json = (await res.json().catch(() => null)) as TelegramWebAppAuthResponse | null
