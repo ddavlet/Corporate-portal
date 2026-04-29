@@ -569,8 +569,9 @@ class TelegramApprovalsTests(APITestCase):
     @patch("apps.modules.telegram_approvals.services.requests.post")
     def test_webhook_callback_persists_missing_message_id_from_callback(self, mocked_post):
         mocked_post.return_value.status_code = 200
-        mocked_post.return_value.content = b'{"result":{"message_id":5001}}'
-        mocked_post.return_value.json.return_value = {"result": {"message_id": 5001}}
+        # Edit call is expected to keep the same message_id as in callback.
+        mocked_post.return_value.content = b'{"result":{"message_id":4123}}'
+        mocked_post.return_value.json.return_value = {"result": {"message_id": 4123}}
         request_row = Request.objects.create(
             tenant=self.tenant,
             created_by=self.admin,
