@@ -238,6 +238,64 @@ class BankExpenseRequestRequiredApiTests(APITestCase):
         self.assertFalse(by_id[optional_missing.id]["request_required"])
         self.assertFalse(by_id[optional_missing.id]["has_paid_request"])
 
+    def test_request_match_uses_amount_when_doc_no_is_duplicated(self):
+        d = date(2026, 4, 1)
+        wrong_amount = BankExpense.objects.create(
+            tenant=self.tenant,
+            created_by=self.admin,
+            wallet=self.wallet,
+            row_no=1,
+            doc_date=d,
+            process_date=d,
+            expense_year=2026,
+            expense_month=4,
+            expense_day=1,
+            doc_no="DUP-AMOUNT",
+            debit_turnover="20.00",
+            payment_purpose="Wrong amount",
+            vendor=self.vendor,
+        )
+        matching_amount = BankExpense.objects.create(
+            tenant=self.tenant,
+            created_by=self.admin,
+            wallet=self.wallet,
+            row_no=2,
+            doc_date=d,
+            process_date=d,
+            expense_year=2026,
+            expense_month=4,
+            expense_day=1,
+            doc_no="DUP-AMOUNT",
+            debit_turnover="10.00",
+            payment_purpose="Matching amount",
+            vendor=self.vendor,
+        )
+        Request.objects.create(
+            tenant=self.tenant,
+            created_by=self.admin,
+            requester=self.admin,
+            title="Paid",
+            amount="10.00",
+            currency="UZS",
+            payment_type=Request.PAYMENT_TYPE_TRANSFER,
+            urgency=Request.URGENCY_NORMAL,
+            billing_date=d,
+            status=Request.STATUS_PAYED,
+            expense_id="DUP-AMOUNT",
+            expense_year=2026,
+        )
+
+        res = self.client.get("/api/bank/expenses/", **self._headers())
+        self.assertEqual(res.status_code, 200, res.content)
+        payload = res.json()
+        rows = payload if isinstance(payload, list) else payload.get("results", [])
+        by_id = {row["id"]: row for row in rows}
+
+        self.assertFalse(by_id[wrong_amount.id]["has_request"])
+        self.assertFalse(by_id[wrong_amount.id]["has_paid_request"])
+        self.assertTrue(by_id[matching_amount.id]["has_request"])
+        self.assertTrue(by_id[matching_amount.id]["has_paid_request"])
+
     def test_create_requires_vendor(self):
         payload = {
             "row_no": 10,

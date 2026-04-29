@@ -586,6 +586,7 @@ class PortalRequestViewSet(viewsets.ModelViewSet):
                 category=request_obj.category,
                 expense_id_raw=expense_id,
                 expense_year=request_obj.expense_year,
+                amount=request_obj.amount,
             )
             if normalized_expense_id and request_obj.payment_type == Request.PAYMENT_TYPE_CASH:
                 request_obj.expense_id = normalized_expense_id

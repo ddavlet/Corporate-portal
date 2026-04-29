@@ -1,3 +1,5 @@
+from decimal import Decimal, InvalidOperation
+
 from apps.modules.bank_expenses.models import BankExpense
 from apps.modules.cashier.models import CashExpense
 from apps.modules.corporate_card.models import CardExpense
@@ -35,6 +37,15 @@ def _cash_external_id_candidates(raw: str) -> list[str]:
     return candidates
 
 
+def _decimal_or_none(value) -> Decimal | None:
+    if value in (None, ""):
+        return None
+    try:
+        return Decimal(str(value))
+    except (InvalidOperation, TypeError, ValueError):
+        return None
+
+
 def resolve_request_expense_ref(
     *,
     tenant,
@@ -42,6 +53,7 @@ def resolve_request_expense_ref(
     category: str,
     expense_id_raw,
     expense_year,
+    amount=None,
 ) -> tuple[int | None, str | None]:
     """
     Resolve business `expense_id` (+ context) to concrete expense PK and canonical `expense_id`.
@@ -75,11 +87,14 @@ def resolve_request_expense_ref(
     if payment_type in (Request.PAYMENT_TYPE_TRANSFER, Request.PAYMENT_TYPE_TOPUP):
         if expense_year is None:
             return None, None
+        amount_value = _decimal_or_none(amount)
         qs = BankExpense.objects.filter(
             tenant=tenant,
             doc_no=raw,
             expense_year=expense_year,
         ).order_by("-doc_date", "-id")
+        if amount_value is not None:
+            qs = qs.filter(debit_turnover=amount_value)
         matches = list(qs[:2])
         if len(matches) == 1:
             return matches[0].id, raw
@@ -116,6 +131,7 @@ def try_resolve_request_expense_ref_id(
     category: str,
     expense_id_raw,
     expense_year,
+    amount=None,
 ) -> int | None:
     resolved_id, _normalized = resolve_request_expense_ref(
         tenant=tenant,
@@ -123,6 +139,7 @@ def try_resolve_request_expense_ref_id(
         category=category,
         expense_id_raw=expense_id_raw,
         expense_year=expense_year,
+        amount=amount,
     )
     return resolved_id
 
@@ -141,6 +158,7 @@ def maybe_persist_request_expense_ref(*, request_obj: Request, tenant) -> int | 
             category=request_obj.category,
             expense_id_raw=raw,
             expense_year=request_obj.expense_year,
+            amount=request_obj.amount,
         )
         if normalized and request_obj.payment_type == Request.PAYMENT_TYPE_CASH and request_obj.expense_id != normalized:
             Request.objects.filter(pk=request_obj.pk, tenant_id=tenant.id).update(expense_id=normalized)

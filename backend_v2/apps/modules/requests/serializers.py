@@ -361,6 +361,9 @@ class PortalRequestSerializer(serializers.ModelSerializer):
         effective_expense_year = attrs.get("expense_year")
         if effective_expense_year is None and self.instance is not None:
             effective_expense_year = self.instance.expense_year
+        effective_amount = attrs.get("amount")
+        if effective_amount is None and self.instance is not None:
+            effective_amount = self.instance.amount
         if not eid:
             attrs["expense_ref_id"] = None
             attrs["expense_ref_target"] = None
@@ -371,6 +374,7 @@ class PortalRequestSerializer(serializers.ModelSerializer):
                 category=effective_cat,
                 expense_id_raw=eid,
                 expense_year=effective_expense_year,
+                amount=effective_amount,
             )
             tgt = expense_ref_target_for(payment_type=effective_pt, category=effective_cat) if ref else None
             attrs["expense_ref_id"] = ref
