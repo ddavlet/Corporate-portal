@@ -854,6 +854,7 @@ export type PublicInvestPayoutScheduleResponse = {
   filters: {
     company: number | null
     company_name: string
+    tenant_name: string
     paid_filter: 'all' | 'paid' | 'unpaid'
   }
   rows: PublicInvestPayoutScheduleRow[]
