@@ -135,8 +135,11 @@ class TelegramApprovalsTests(APITestCase):
         )
         self.assertEqual(res.status_code, 400, res.content)
         self.assertIn("telegram", res.data)
-        self.assertEqual(Request.objects.count(), 0)
-        self.assertEqual(Approval.objects.count(), 0)
+        self.assertEqual(Request.objects.count(), 1)
+        self.assertEqual(Approval.objects.count(), 1)
+        approval = Approval.objects.select_related("request").get()
+        self.assertIsNone(approval.message_id)
+        self.assertFalse(approval.message_sent)
 
     @patch("apps.modules.telegram_approvals.services.requests.post")
     def test_bridge_http_error_notifies_n8n_error_webhook(self, mocked_post):
