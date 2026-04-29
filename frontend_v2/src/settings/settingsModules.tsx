@@ -33,6 +33,13 @@ export const SETTINGS_MODULES: SettingsModuleItem[] = [
     icon: <SettingOutlined />,
   },
   {
+    key: 'investments-approvals',
+    title: 'Инвестиции — этапы согласования',
+    description: 'Очередность и пользователи, которые подтверждают выплату по инвестициям.',
+    path: '/settings/investment-approval-config',
+    icon: <FileTextOutlined />,
+  },
+  {
     key: 'cash-registers',
     title: 'Кошельки',
     description: 'Касса, банк (выписка), корпкарта: счета, остаток на 1 янв, безопасное удаление.',

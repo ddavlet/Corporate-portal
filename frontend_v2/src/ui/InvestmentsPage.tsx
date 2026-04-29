@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Alert, Button, Card, Select, Skeleton, Space, Table, Tabs, Typography, message } from 'antd'
+import { Alert, Button, Card, DatePicker, Form, Input, InputNumber, Select, Skeleton, Space, Table, Tabs, Typography, message } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
+import dayjs from 'dayjs'
 
 import {
+  createInvestReturn,
   createInvestPayoutScheduleShareLink,
   deleteInvestPayoutScheduleShareLink,
   getInvestCompanies,
@@ -50,6 +52,7 @@ function byCompany<T extends { company: number | null }>(rows: T[], filter: Comp
 }
 
 export function InvestmentsPage() {
+  const [returnForm] = Form.useForm()
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [companyFilter, setCompanyFilter] = useState<CompanyFilter>('all')
@@ -60,6 +63,7 @@ export function InvestmentsPage() {
   const [returns, setReturns] = useState<InvestReturnRow[]>([])
   const [shareLinks, setShareLinks] = useState<InvestPayoutScheduleShareLinkRow[]>([])
   const [creatingShareLink, setCreatingShareLink] = useState(false)
+  const [creatingReturn, setCreatingReturn] = useState(false)
   const [deletingShareLinkId, setDeletingShareLinkId] = useState<number | null>(null)
 
   const loadAll = async () => {
@@ -235,6 +239,91 @@ export function InvestmentsPage() {
 
   return (
     <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+      <Card title="Новая выплата">
+        <Form
+          form={returnForm}
+          layout="vertical"
+          initialValues={{
+            currency: 'USD',
+            type: 'дивиденды',
+            recipient: 'инвестор',
+            date: dayjs(),
+          }}
+          onFinish={async (values) => {
+            try {
+              setCreatingReturn(true)
+              await createInvestReturn({
+                company: values.company ?? null,
+                date: values.date.format('YYYY-MM-DD'),
+                sum: values.sum,
+                currency: values.currency,
+                type: values.type,
+                recipient: values.recipient,
+                comment: values.comment ?? '',
+              })
+              message.success('Выплата создана и отправлена на согласование')
+              returnForm.resetFields(['company', 'sum', 'comment'])
+              await loadAll()
+            } catch (e: unknown) {
+              message.error(e instanceof Error ? e.message : 'Не удалось создать выплату')
+            } finally {
+              setCreatingReturn(false)
+            }
+          }}
+        >
+          <Space align="start" wrap style={{ width: '100%' }}>
+            <Form.Item label="Компания" name="company" style={{ minWidth: 260 }}>
+              <Select
+                allowClear
+                options={companies.map((c) => ({ value: c.id, label: c.name }))}
+                placeholder="Не выбрано (используется tenant)"
+              />
+            </Form.Item>
+            <Form.Item label="Дата" name="date" rules={[{ required: true, message: 'Укажите дату' }]}>
+              <DatePicker format="DD.MM.YYYY" />
+            </Form.Item>
+            <Form.Item label="Сумма" name="sum" rules={[{ required: true, message: 'Укажите сумму' }]}>
+              <InputNumber min={0} precision={2} style={{ width: 180 }} />
+            </Form.Item>
+            <Form.Item label="Валюта" name="currency" rules={[{ required: true }]}>
+              <Select
+                style={{ width: 120 }}
+                options={[
+                  { value: 'USD', label: 'USD' },
+                  { value: 'EUR', label: 'EUR' },
+                  { value: 'UZS', label: 'UZS' },
+                ]}
+              />
+            </Form.Item>
+            <Form.Item label="Тип" name="type" rules={[{ required: true }]}>
+              <Select
+                style={{ width: 180 }}
+                options={[
+                  { value: 'дивиденды', label: 'Дивиденды' },
+                  { value: 'проценты', label: 'Проценты' },
+                  { value: 'доля_прибыли', label: 'Доля прибыли' },
+                  { value: 'тело_инвестиций', label: 'Тело инвестиций' },
+                ]}
+              />
+            </Form.Item>
+            <Form.Item label="Получатель" name="recipient" rules={[{ required: true }]}>
+              <Select
+                style={{ width: 160 }}
+                options={[
+                  { value: 'инвестор', label: 'Инвестор' },
+                  { value: 'партнер', label: 'Партнер' },
+                ]}
+              />
+            </Form.Item>
+          </Space>
+          <Form.Item label="Комментарий" name="comment">
+            <Input.TextArea rows={2} maxLength={500} />
+          </Form.Item>
+          <Button type="primary" htmlType="submit" loading={creatingReturn}>
+            Создать выплату
+          </Button>
+        </Form>
+      </Card>
       <Card>
         <Space style={{ width: '100%', justifyContent: 'space-between' }} wrap>
           <Typography.Title level={4} style={{ margin: 0 }}>
