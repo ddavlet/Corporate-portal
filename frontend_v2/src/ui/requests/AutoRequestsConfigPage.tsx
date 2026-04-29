@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { Alert, Button, Card, Checkbox, Collapse, Divider, Input, InputNumber, Select, Space, Typography, message } from 'antd'
 import { ArrowLeftOutlined, PlusOutlined, SaveOutlined } from '@ant-design/icons'
 import { useNavigate } from 'react-router-dom'
@@ -6,6 +6,7 @@ import {
   createAutoRequestCopy,
   getAutoRequestConfig,
   updateAutoRequestConfig,
+  listContracts,
   type AutoRequestBillingMonthMode,
   type AutoRequestConfigResponse,
   type AutoRequestTemplateItem,
@@ -101,6 +102,7 @@ function emptyTemplate(data: AutoRequestConfigResponse | null, paymentType: stri
     urgency: 'Обычно',
     payment_purpose: '',
     vendor_ref_id: null,
+    contract_ref_id: null,
     billing_month_mode: 'current',
     requester_id: firstRequesterIdForPaymentType(data, paymentType),
   }
@@ -113,6 +115,7 @@ export function AutoRequestsConfigPage() {
   const [creatingTemplateId, setCreatingTemplateId] = useState<number | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [data, setData] = useState<AutoRequestConfigResponse | null>(null)
+  const [contractOptsMap, setContractOptsMap] = useState<Record<number, { value: number; label: string }[]>>({})
 
   useEffect(() => {
     let cancelled = false
@@ -138,6 +141,36 @@ export function AutoRequestsConfigPage() {
       cancelled = true
     }
   }, [])
+
+  const refreshContractsForIdx = useCallback(
+    (idx: number, vendorId: number | null | undefined, paymentType: string) => {
+      if (!data) return
+      const pt = formPtForPaymentType(data, paymentType)
+      if (!pt?.contracts_required || !vendorId) {
+        setContractOptsMap((prev) => ({ ...prev, [idx]: [] }))
+        return
+      }
+      listContracts({ vendor: vendorId })
+        .then((rows) =>
+          setContractOptsMap((prev) => ({
+            ...prev,
+            [idx]: rows.map((r) => ({
+              value: r.id,
+              label: `${r.contract_number} (${r.date_from})${r.is_expired ? ' просрочен' : ''}`,
+            })),
+          })),
+        )
+        .catch(() => setContractOptsMap((prev) => ({ ...prev, [idx]: [] })))
+    },
+    [data],
+  )
+
+  useEffect(() => {
+    if (!data?.templates?.length) return
+    data.templates.forEach((row, idx) => {
+      refreshContractsForIdx(idx, row.vendor_ref_id, row.payment_type)
+    })
+  }, [data, refreshContractsForIdx])
 
   const hasFormConfig = Boolean(data?.form_payment_types?.length)
 
@@ -192,6 +225,7 @@ export function AutoRequestsConfigPage() {
           urgency: row.urgency || 'Обычно',
           payment_purpose: String(row.payment_purpose || ''),
           vendor_ref_id: row.vendor_ref_id ?? null,
+          contract_ref_id: row.contract_ref_id ?? null,
           billing_month_mode: (row.billing_month_mode ?? 'current') as AutoRequestBillingMonthMode,
           requester_id: Number(row.requester_id),
         })),
@@ -345,6 +379,7 @@ export function AutoRequestsConfigPage() {
                                   updateRow(idx, {
                                     payment_type: v,
                                     vendor_ref_id: null,
+                                    contract_ref_id: null,
                                     payment_purpose: '',
                                     requester_id: firstRequesterIdForPaymentType(data, v),
                                   })
@@ -386,13 +421,33 @@ export function AutoRequestsConfigPage() {
                               style={{ width: '100%' }}
                               placeholder="Выберите из справочника"
                               value={row.vendor_ref_id ?? undefined}
-                              onChange={(v) => updateRow(idx, { vendor_ref_id: v })}
+                              onChange={(v) => {
+                                updateRow(idx, { vendor_ref_id: v, contract_ref_id: null })
+                                refreshContractsForIdx(idx, v ?? null, row.payment_type)
+                              }}
                               options={vendorOpts}
                               allowClear
                               showSearch
                               optionFilterProp="label"
                             />
                           </div>
+                          {pt?.contracts_required ? (
+                            <div>
+                              <Typography.Text strong style={labelBlockAboveField}>
+                                Договор
+                              </Typography.Text>
+                              <Select
+                                style={{ width: '100%' }}
+                                placeholder={row.vendor_ref_id ? 'Выберите договор' : 'Сначала выберите поставщика'}
+                                value={row.contract_ref_id ?? undefined}
+                                onChange={(v) => updateRow(idx, { contract_ref_id: v })}
+                                options={contractOptsMap[idx] ?? []}
+                                allowClear
+                                showSearch
+                                optionFilterProp="label"
+                              />
+                            </div>
+                          ) : null}
                           <div>
                             <Typography.Text strong style={labelBlockAboveField}>
                               Назначение платежа

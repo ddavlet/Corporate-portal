@@ -1,8 +1,11 @@
 from django.contrib.auth import get_user_model
+from collections import defaultdict
+
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
+from rest_framework.exceptions import ValidationError
 
 from apps.tenants.models import (
     TenantIntegrationConfig,
@@ -76,7 +79,16 @@ class TenantModuleConfigView(APIView):
         serializer.is_valid(raise_exception=True)
 
         module_items = serializer.validated_data["items"]
-        module_keys = [x["module_key"] for x in module_items]
+
+        merged: defaultdict[str, bool] = defaultdict(bool)
+        for row in TenantModuleConfig.objects.filter(tenant=tenant):
+            merged[row.module_key] = row.is_enabled
+        for row in module_items:
+            merged[row["module_key"]] = row["is_enabled"]
+        if merged["contracts"] and not merged["vendors"]:
+            raise ValidationError(
+                {"items": "Модуль «Договоры» требует включённый модуль «Поставщики»."}
+            )
 
         # Upsert rows.
         for row in module_items:

@@ -43,6 +43,15 @@ class TenantAdminForm(forms.ModelForm):
             "enabled_modules",
         ]
 
+    def clean(self):
+        cleaned = super().clean()
+        enabled = set(cleaned.get("enabled_modules") or [])
+        if "contracts" in enabled and "vendors" not in enabled:
+            raise forms.ValidationError(
+                {"enabled_modules": "Модуль «Договоры» требует включённый модуль «Поставщики»."}
+            )
+        return cleaned
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         if self.instance and self.instance.pk:

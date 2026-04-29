@@ -12,6 +12,7 @@ import { InvestmentsPage } from '../ui/InvestmentsPage'
 import { PublicInvestmentsSchedulePage } from '../ui/PublicInvestmentsSchedulePage'
 import { ClientsDebtPage } from '../ui/ClientsDebtPage'
 import { BudgetsPage } from '../ui/BudgetsPage'
+import { ContractsPage } from '../ui/ContractsPage'
 import { PayrollDocumentDetailPage } from '../ui/PayrollDocumentDetailPage'
 import { CashExpenseDetailPage } from '../ui/CashExpenseDetailPage'
 import { BankExpenseDetailPage } from '../ui/BankExpenseDetailPage'
@@ -93,6 +94,7 @@ export function App() {
         <Route path="investments" element={<InvestmentsPage />} />
         <Route path="clients-debt" element={<ClientsDebtPage />} />
         <Route path="budgets" element={<BudgetsPage />} />
+        <Route path="contracts" element={<ContractsPage />} />
         <Route path="payroll/:id" element={<PayrollDocumentDetailPage />} />
         <Route path="settings" element={<SettingsPage />} />
         <Route path="settings/request-form-config" element={<RequestFormConfigPage />} />
