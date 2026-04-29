@@ -27,7 +27,11 @@ export function PublicInvestmentsSchedulePage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [rows, setRows] = useState<PublicInvestPayoutScheduleRow[]>([])
-  const [meta, setMeta] = useState<{ company_name: string; paid_filter: 'all' | 'paid' | 'unpaid' } | null>(null)
+  const [meta, setMeta] = useState<{
+    company_name: string
+    tenant_name: string
+    paid_filter: 'all' | 'paid' | 'unpaid'
+  } | null>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -40,6 +44,7 @@ export function PublicInvestmentsSchedulePage() {
         setRows(data.rows)
         setMeta({
           company_name: data.filters.company_name || 'Все компании',
+          tenant_name: data.filters.tenant_name || '',
           paid_filter: data.filters.paid_filter,
         })
       } catch (e: unknown) {
@@ -53,10 +58,10 @@ export function PublicInvestmentsSchedulePage() {
     }
   }, [token])
 
-  const paidLabel = useMemo(() => {
-    if (meta?.paid_filter === 'paid') return 'Оплачено'
-    if (meta?.paid_filter === 'unpaid') return 'Не оплачено'
-    return 'Все статусы'
+  const bigTitle = useMemo(() => {
+    const companyName = String(meta?.company_name || '').trim()
+    if (companyName) return companyName
+    return String(meta?.tenant_name || '').trim() || '—'
   }, [meta])
 
   const columns: ColumnsType<PublicInvestPayoutScheduleRow> = [
@@ -77,12 +82,12 @@ export function PublicInvestmentsSchedulePage() {
   return (
     <Space direction="vertical" size="middle" style={{ width: '100%', padding: 16 }}>
       <Card>
-        <Typography.Title level={4} style={{ margin: 0 }}>
-          Внешний просмотр: график выплат
+        <Typography.Title level={2} style={{ margin: 0 }}>
+          {bigTitle}
         </Typography.Title>
-        <Typography.Paragraph type="secondary" style={{ margin: '8px 0 0' }}>
-          Компания: {meta?.company_name || '-'} | Статус: {paidLabel}
-        </Typography.Paragraph>
+        <Typography.Title level={4} style={{ margin: '8px 0 0' }}>
+          График выплат
+        </Typography.Title>
       </Card>
 
       {error ? <Alert type="error" showIcon message={error} /> : null}

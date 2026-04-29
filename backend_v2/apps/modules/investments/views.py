@@ -109,6 +109,7 @@ class PublicInvestPayoutScheduleByTokenView(APIView):
                 "filters": {
                     "company": link.company_id,
                     "company_name": link.company.name if link.company else "",
+                    "tenant_name": link.tenant.name,
                     "paid_filter": link.paid_filter,
                 },
                 "rows": PublicInvestPayoutScheduleShareViewSerializer(rows, many=True).data,
