@@ -2,6 +2,9 @@ from rest_framework import serializers
 
 from apps.modules.investments.models import (
     InvestCompany,
+    InvestmentApprovalConfig,
+    InvestmentApprovalConfigStep,
+    InvestmentReturnApproval,
     InvestPayoutSchedule,
     InvestPayoutScheduleShareLink,
     InvestReturn,
@@ -160,3 +163,48 @@ class PublicInvestPayoutScheduleShareViewSerializer(serializers.Serializer):
     company = serializers.IntegerField(allow_null=True)
     company_name = serializers.CharField(allow_blank=True)
     currency = serializers.CharField()
+
+
+class InvestmentApprovalConfigStepSerializer(serializers.Serializer):
+    step = serializers.IntegerField(min_value=1)
+    is_enabled = serializers.BooleanField(default=True)
+    approver_user_ids = serializers.ListField(
+        child=serializers.IntegerField(min_value=1),
+        allow_empty=False,
+    )
+
+
+class InvestmentApprovalConfigSerializer(serializers.Serializer):
+    is_enabled = serializers.BooleanField(default=False)
+    steps = InvestmentApprovalConfigStepSerializer(many=True)
+    approver_candidates = serializers.ListField(read_only=True)
+
+    def validate_steps(self, value):
+        seen_steps: set[int] = set()
+        for row in value:
+            step = int(row["step"])
+            if step in seen_steps:
+                raise serializers.ValidationError("Step numbers must be unique.")
+            seen_steps.add(step)
+            if row.get("is_enabled", True) and not row.get("approver_user_ids"):
+                raise serializers.ValidationError("Enabled step must contain at least one approver.")
+        return value
+
+
+class InvestmentApprovalDecisionSerializer(serializers.Serializer):
+    decision = serializers.ChoiceField(
+        choices=[InvestmentReturnApproval.DECISION_APPROVED, InvestmentReturnApproval.DECISION_REJECTED]
+    )
+    approver_tg_id = serializers.IntegerField(required=False)
+    approver_tg_from_id = serializers.IntegerField(required=False)
+    comment = serializers.CharField(required=False, allow_blank=True)
+
+
+class InvestmentApprovalWebhookSerializer(serializers.Serializer):
+    update = serializers.JSONField(required=False)
+    callback_query = serializers.JSONField(required=False)
+
+    def validate(self, attrs):
+        if attrs.get("update") or attrs.get("callback_query"):
+            return attrs
+        raise serializers.ValidationError({"detail": "Payload must contain update or callback_query."})

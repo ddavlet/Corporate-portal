@@ -27,6 +27,7 @@ import {
 import { SettingsPage } from '../ui/SettingsPage'
 import { TenantIntegrationConfigPage } from '../ui/settings/TenantIntegrationConfigPage'
 import { CashRegistersSettingsPage } from '../ui/settings/CashRegistersSettingsPage'
+import { InvestmentApprovalConfigPage } from '../ui/settings/InvestmentApprovalConfigPage'
 import { AdminModulePage } from '../ui/admin/AdminModulePage'
 import { TrainingPage } from '../ui/training/TrainingPage'
 import { TgWebAppLayout } from '../ui/tg/TgWebAppLayout'
@@ -97,6 +98,7 @@ export function App() {
         <Route path="settings" element={<SettingsPage />} />
         <Route path="settings/request-form-config" element={<RequestFormConfigPage />} />
         <Route path="settings/request-approval-config" element={<RequestApprovalConfigPage />} />
+        <Route path="settings/investment-approval-config" element={<InvestmentApprovalConfigPage />} />
         <Route path="settings/tenant-integration-config" element={<TenantIntegrationConfigPage />} />
         <Route path="settings/cash-registers" element={<CashRegistersSettingsPage />} />
         <Route path="admin" element={<AdminModulePage />} />
