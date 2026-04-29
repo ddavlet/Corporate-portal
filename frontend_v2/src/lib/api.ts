@@ -880,6 +880,29 @@ export type InvestReturnRow = {
   created_at: string
 }
 
+export type CreateInvestReturnPayload = {
+  company?: number | null
+  date: string
+  sum: string | number
+  sum_uzs?: string | number | null
+  comment?: string
+  currency: string
+  type: string
+  recipient: string
+}
+
+export type InvestmentApprovalConfigStepItem = {
+  step: number
+  is_enabled: boolean
+  approver_user_ids: number[]
+}
+
+export type InvestmentApprovalConfigResponse = {
+  is_enabled: boolean
+  steps: InvestmentApprovalConfigStepItem[]
+  approver_candidates: Array<{ id: number; username: string }>
+}
+
 export async function getInvestCompanies(): Promise<InvestCompanyRow[]> {
   const res = await apiFetch('/api/investments/companies/')
   if (!res.ok) throw new Error(await parseErrorBody(res))
@@ -950,6 +973,51 @@ export async function getInvestReturns(): Promise<InvestReturnRow[]> {
   if (!res.ok) throw new Error(await parseErrorBody(res))
   const json = await res.json().catch(() => null)
   return normalizeListPayload<InvestReturnRow>(json)
+}
+
+export async function createInvestReturn(payload: CreateInvestReturnPayload): Promise<InvestReturnRow> {
+  const body: Record<string, unknown> = {
+    date: payload.date,
+    sum: payload.sum,
+    currency: payload.currency,
+    type: payload.type,
+    recipient: payload.recipient,
+    confirmed: false,
+    comment: payload.comment ?? '',
+  }
+  if (payload.company !== undefined) body.company = payload.company
+  if (payload.sum_uzs !== undefined) body.sum_uzs = payload.sum_uzs
+  const res = await apiFetch('/api/investments/returns/', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+  if (!res.ok) throw new Error(await parseErrorBody(res))
+  const json = (await res.json().catch(() => null)) as InvestReturnRow | null
+  if (!json) throw new Error('Empty response')
+  return json
+}
+
+export async function getInvestmentApprovalConfig(): Promise<InvestmentApprovalConfigResponse> {
+  const res = await apiFetch('/api/investments/approval-config/')
+  if (!res.ok) throw new Error(await parseErrorBody(res))
+  const json = (await res.json().catch(() => null)) as InvestmentApprovalConfigResponse | null
+  if (!json) throw new Error('Empty response')
+  return json
+}
+
+export async function updateInvestmentApprovalConfig(
+  payload: Pick<InvestmentApprovalConfigResponse, 'is_enabled' | 'steps'>,
+): Promise<InvestmentApprovalConfigResponse> {
+  const res = await apiFetch('/api/investments/approval-config/', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+  if (!res.ok) throw new Error(await parseErrorBody(res))
+  const json = (await res.json().catch(() => null)) as InvestmentApprovalConfigResponse | null
+  if (!json) throw new Error('Empty response')
+  return json
 }
 
 export type TelegramWebAppAuthResponse = {
