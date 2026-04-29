@@ -86,6 +86,7 @@ class BankExpenseSerializer(serializers.ModelSerializer):
     def validate(self, attrs):
         reject_client_pk_on_create(self)
         tenant = getattr(self.context.get("request"), "tenant", None)
+        allow_missing_vendor = bool(self.context.get("allow_missing_vendor"))
         account_no = (attrs.pop("account_no", "") or "").strip()
         if account_no and tenant:
             resolved_vendor = (
@@ -98,10 +99,12 @@ class BankExpenseSerializer(serializers.ModelSerializer):
                 .first()
             )
             if resolved_vendor is None:
-                raise serializers.ValidationError(
-                    {"account_no": "No transfer vendor found for this account number in current tenant."}
-                )
-            attrs["vendor"] = resolved_vendor
+                if not allow_missing_vendor:
+                    raise serializers.ValidationError(
+                        {"account_no": "No transfer vendor found for this account number in current tenant."}
+                    )
+            else:
+                attrs["vendor"] = resolved_vendor
 
         vendor = attrs.get("vendor")
         if vendor is None and self.instance is not None:
@@ -111,7 +114,7 @@ class BankExpenseSerializer(serializers.ModelSerializer):
                 raise serializers.ValidationError({"vendor": "Only vendors with type «перечисление» are allowed."})
             if tenant and vendor.tenant_id != tenant.id:
                 raise serializers.ValidationError({"vendor": "Vendor must belong to this tenant."})
-        else:
+        elif not allow_missing_vendor:
             raise serializers.ValidationError({"vendor": "Vendor is required for bank expenses."})
         _apply_expense_calendar_from_doc_date(attrs, self.instance)
         if tenant:
