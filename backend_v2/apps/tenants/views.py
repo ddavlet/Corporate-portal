@@ -98,6 +98,7 @@ class TenantIntegrationConfigView(APIView):
 
     def get(self, request):
         tenant = request.tenant
+        cfg, _ = TenantIntegrationConfig.objects.get_or_create(tenant=tenant)
         tg = get_telegram_approvals_settings(tenant=tenant)
         n8n = get_n8n_integration_settings(tenant=tenant)
         req = get_requests_gateway_settings(tenant=tenant)
@@ -121,6 +122,9 @@ class TenantIntegrationConfigView(APIView):
                 "telegram_approvals_bridge_token": self._masked(tg.bridge_token),
                 "n8n_integration_token": self._masked(n8n.integration_token),
                 "requests_file_gateway_token": self._masked(req.bearer_token),
+                "telegram_oidc_client_id": cfg.telegram_oidc_client_id,
+                "telegram_oidc_client_secret": self._masked(cfg.get_telegram_oidc_client_secret()),
+                "telegram_oidc_redirect_uri": cfg.telegram_oidc_redirect_uri,
                 "portal_feedback_telegram_chat_id": pf.telegram_chat_id,
                 "portal_feedback_telegram_action": pf.telegram_action,
             }
@@ -157,6 +161,12 @@ class TenantIntegrationConfigView(APIView):
             cfg.set_n8n_integration_token(data["n8n_integration_token"])
         if "requests_file_gateway_token" in data:
             cfg.set_requests_file_gateway_token(data["requests_file_gateway_token"])
+        if "telegram_oidc_client_id" in data:
+            cfg.telegram_oidc_client_id = data["telegram_oidc_client_id"].strip()
+        if "telegram_oidc_client_secret" in data:
+            cfg.set_telegram_oidc_client_secret(data["telegram_oidc_client_secret"])
+        if "telegram_oidc_redirect_uri" in data:
+            cfg.telegram_oidc_redirect_uri = data["telegram_oidc_redirect_uri"].strip()
         if "portal_feedback_telegram_chat_id" in data:
             cfg.portal_feedback_telegram_chat_id = data["portal_feedback_telegram_chat_id"]
         if "portal_feedback_telegram_action" in data:

@@ -10,6 +10,9 @@ import {
 type FormState = {
   telegram_bot_token: string
   telegram_bot_username: string
+  telegram_oidc_client_id: string
+  telegram_oidc_client_secret: string
+  telegram_oidc_redirect_uri: string
   telegram_approvals_bridge_dispatch_url: string
   telegram_approvals_send_action: string
   telegram_approvals_edit_action: string
@@ -40,6 +43,9 @@ function toFormState(data: TenantIntegrationConfigResponse): FormState {
   return {
     telegram_bot_token: data.telegram_bot_token || '',
     telegram_bot_username: data.telegram_bot_username || '',
+    telegram_oidc_client_id: data.telegram_oidc_client_id || '',
+    telegram_oidc_client_secret: data.telegram_oidc_client_secret || '',
+    telegram_oidc_redirect_uri: data.telegram_oidc_redirect_uri || '',
     telegram_approvals_bridge_dispatch_url: data.telegram_approvals_bridge_dispatch_url || '',
     telegram_approvals_send_action: data.telegram_approvals_send_action || '',
     telegram_approvals_edit_action: data.telegram_approvals_edit_action || '',
@@ -122,6 +128,11 @@ export function TenantIntegrationConfigPage() {
         payload.telegram_bot_token = form.telegram_bot_token
       }
       payload.telegram_bot_username = form.telegram_bot_username.trim().replace(/^@+/, '')
+      payload.telegram_oidc_client_id = form.telegram_oidc_client_id.trim()
+      payload.telegram_oidc_redirect_uri = form.telegram_oidc_redirect_uri.trim()
+      if (form.telegram_oidc_client_secret && form.telegram_oidc_client_secret !== MASK) {
+        payload.telegram_oidc_client_secret = form.telegram_oidc_client_secret
+      }
       if (form.telegram_approvals_bridge_token && form.telegram_approvals_bridge_token !== MASK) {
         payload.telegram_approvals_bridge_token = form.telegram_approvals_bridge_token
       }
@@ -188,6 +199,21 @@ export function TenantIntegrationConfigPage() {
               placeholder="Telegram bot username (for Login Widget)"
               value={form.telegram_bot_username}
               onChange={(e) => setField('telegram_bot_username', e.target.value)}
+            />
+            <Input
+              placeholder="Telegram OIDC client id"
+              value={form.telegram_oidc_client_id}
+              onChange={(e) => setField('telegram_oidc_client_id', e.target.value)}
+            />
+            <Input.Password
+              placeholder="Telegram OIDC client secret"
+              value={form.telegram_oidc_client_secret}
+              onChange={(e) => setField('telegram_oidc_client_secret', e.target.value)}
+            />
+            <Input
+              placeholder="Telegram OIDC redirect URI"
+              value={form.telegram_oidc_redirect_uri}
+              onChange={(e) => setField('telegram_oidc_redirect_uri', e.target.value)}
             />
             <Input
               placeholder="Bridge dispatch URL"
