@@ -928,7 +928,10 @@ export async function getPublicInvestPayoutSchedule(token: string): Promise<Publ
   })
   const json = (await res.json().catch(() => null)) as PublicInvestPayoutScheduleResponse | { detail?: string } | null
   if (!res.ok) {
-    const detail = json && typeof json === 'object' && typeof json.detail === 'string' ? json.detail : `HTTP ${res.status}`
+    const detail =
+      json && typeof json === 'object' && 'detail' in json && typeof (json as { detail?: unknown }).detail === 'string'
+        ? (json as { detail: string }).detail
+        : `HTTP ${res.status}`
     throw new Error(detail)
   }
   if (!json || !('rows' in json) || !Array.isArray(json.rows)) throw new Error('Empty response')
