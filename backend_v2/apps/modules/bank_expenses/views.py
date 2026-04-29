@@ -51,7 +51,11 @@ class BankExpenseViewSet(viewsets.ModelViewSet):
             ),
         ).filter(
             Q(expense_ref_id=OuterRef("id"))
-            | (Q(expense_id=OuterRef("doc_no")) & Q(expense_year=OuterRef("expense_year")))
+            | (
+                Q(expense_id=OuterRef("doc_no"))
+                & Q(expense_year=OuterRef("expense_year"))
+                & Q(amount=OuterRef("debit_turnover"))
+            )
         )
         paid_request_subquery = request_subquery.filter(status=Request.STATUS_PAYED)
         qs = BankExpense.objects.filter(tenant=tenant).annotate(
