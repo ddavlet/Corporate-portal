@@ -369,15 +369,6 @@ class N8nIntegrationAuthTests(APITestCase):
         self.assertEqual(row.vendor_id, vendor_by_account.id)
 
     def test_bank_expense_upsert_relinks_matching_transfer_request(self):
-        # Serializer requires an existing transfer vendor for `account_no`.
-        Vendor.objects.create(
-            tenant=self.tenant,
-            kind=Vendor.KIND_TRANSFER,
-            name="Transfer vendor for relink test",
-            inn="900000001",
-            account_number="20208000999999999999",
-            created_by=self.admin,
-        )
         req = Request.objects.create(
             tenant=self.tenant,
             created_by=self.admin,
@@ -412,23 +403,6 @@ class N8nIntegrationAuthTests(APITestCase):
 
     @patch("apps.modules.n8n_integration.views._relink_requests_to_bank_expenses")
     def test_bank_expense_batch_runs_relink_once(self, relink_mock):
-        # Batch serializer requires existing transfer vendors for each `account_no`.
-        Vendor.objects.create(
-            tenant=self.tenant,
-            kind=Vendor.KIND_TRANSFER,
-            name="Transfer vendor for batch #1",
-            inn="900000002",
-            account_number="20208000999999999991",
-            created_by=self.admin,
-        )
-        Vendor.objects.create(
-            tenant=self.tenant,
-            kind=Vendor.KIND_TRANSFER,
-            name="Transfer vendor for batch #2",
-            inn="900000003",
-            account_number="20208000999999999992",
-            created_by=self.admin,
-        )
         url = f"{self.n8n_prefix}/bank/expenses/batch/"
         body = [
             {
