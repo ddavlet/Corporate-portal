@@ -236,6 +236,8 @@ class TelegramApprovalsTests(APITestCase):
         self.assertEqual(new_approval.decision, Approval.DECISION_PENDING)
         self.assertTrue(new_approval.message_sent)
         self.assertEqual(new_approval.message_id, 9999)
+        self.assertIsNotNone(new_approval.resend_key)
+        self.assertTrue(str(new_approval.resend_key).startswith("auto:"))
         self.assertEqual(mocked_post.call_count, 2)
         first_payload = mocked_post.call_args_list[0].kwargs.get("json", {})
         second_payload = mocked_post.call_args_list[1].kwargs.get("json", {})

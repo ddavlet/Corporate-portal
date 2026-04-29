@@ -1,4 +1,5 @@
 from datetime import date
+import uuid
 import mimetypes
 import os
 
@@ -403,7 +404,8 @@ class PortalRequestViewSet(viewsets.ModelViewSet):
             raise PermissionDenied("Only admins or approvers can resend approvals.")
         payload = self.ApprovalResendPayloadSerializer(data=request.data or {})
         payload.is_valid(raise_exception=True)
-        idempotency_key = payload.validated_data.get("idempotency_key")
+        # Keep resend_key non-null for traceability even if legacy clients omit the key.
+        idempotency_key = payload.validated_data.get("idempotency_key") or f"auto:{uuid.uuid4().hex}"
         pending_current_step = current_pending_step_approvals_count(request_obj=request_obj)
         resent = resend_current_pending_step(request_obj=request_obj, idempotency_key=idempotency_key)
         route_request_approvals(request_obj=request_obj)
