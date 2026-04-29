@@ -6,6 +6,7 @@ import requests
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.db import IntegrityError, transaction
+from django.db.models import Q
 from rest_framework import status
 from rest_framework.exceptions import APIException
 from rest_framework.exceptions import ValidationError
@@ -108,6 +109,48 @@ def _n8n_batch_failure_response(idx, item, failed_status, failed_data, *, http_s
         payload["failed_item"] = item
         payload["failed_item_summary"] = _n8n_batch_item_summary(item)
     return Response(payload, status=http_status)
+
+
+def _extract_bank_relink_candidate(payload: dict) -> tuple[str, int, int] | None:
+    if not isinstance(payload, dict):
+        return None
+    raw_doc_no = payload.get("doc_no")
+    raw_expense_year = payload.get("expense_year")
+    raw_expense_id = payload.get("id")
+    doc_no = str(raw_doc_no or "").strip()
+    if not doc_no:
+        return None
+    try:
+        expense_year = int(raw_expense_year)
+        expense_id = int(raw_expense_id)
+    except (TypeError, ValueError):
+        return None
+    return doc_no, expense_year, expense_id
+
+
+def _relink_requests_to_bank_expenses(*, tenant, candidates: list[tuple[str, int, int]]) -> int:
+    """
+    Backfill canonical request->bank links after bank expense upserts.
+    """
+    if tenant is None or not candidates:
+        return 0
+    updated = 0
+    deduped = set(candidates)
+    for doc_no, expense_year, expense_id in deduped:
+        updated += Request.objects.filter(
+            tenant=tenant,
+            payment_type__in=(Request.PAYMENT_TYPE_TRANSFER, Request.PAYMENT_TYPE_TOPUP),
+            expense_id=doc_no,
+            expense_year=expense_year,
+        ).filter(
+            Q(expense_ref_id__isnull=True)
+            | ~Q(expense_ref_id=expense_id)
+            | ~Q(expense_ref_target=Request.EXPENSE_REF_TARGET_BANK)
+        ).update(
+            expense_ref_id=expense_id,
+            expense_ref_target=Request.EXPENSE_REF_TARGET_BANK,
+        )
+    return updated
 
 
 def _system_user():
@@ -947,13 +990,20 @@ class N8nBankExpenseUpsertView(_N8nBaseView):
         def build_create_kwargs(req, su):
             return {"tenant": req.tenant, "created_by": su}
 
-        return _n8n_upsert(
+        response = _n8n_upsert(
             request,
             serializer_class=N8nBankExpenseImportSerializer,
             get_instance=get_instance,
             other_tenant_conflict=other_tenant_conflict,
             build_create_kwargs=build_create_kwargs,
         )
+        if 200 <= int(getattr(response, "status_code", 500)) < 300 and not getattr(
+            request, "skip_bank_relink", False
+        ):
+            candidate = _extract_bank_relink_candidate(getattr(response, "data", None))
+            if candidate is not None:
+                _relink_requests_to_bank_expenses(tenant=tenant, candidates=[candidate])
+        return response
 
 
 class N8nBankRevenueUpsertView(_N8nBaseView):
@@ -1230,6 +1280,28 @@ class N8nCashRevenueBatchUpsertView(_N8nBatchBaseView):
 
 class N8nBankExpenseBatchUpsertView(_N8nBatchBaseView):
     single_view_class = N8nBankExpenseUpsertView
+
+    @staticmethod
+    def _item_request(base_request, item_data):
+        req = _N8nBatchBaseView._item_request(base_request, item_data)
+        setattr(req, "skip_bank_relink", True)
+        return req
+
+    def post(self, request):
+        response = super().post(request)
+        if int(getattr(response, "status_code", 500)) != status.HTTP_200_OK:
+            return response
+        data = getattr(response, "data", {}) or {}
+        results = data.get("results", []) if isinstance(data, dict) else []
+        candidates: list[tuple[str, int, int]] = []
+        for row in results:
+            payload = row.get("data") if isinstance(row, dict) else None
+            candidate = _extract_bank_relink_candidate(payload)
+            if candidate is not None:
+                candidates.append(candidate)
+        if candidates:
+            _relink_requests_to_bank_expenses(tenant=request.tenant, candidates=candidates)
+        return response
 
 
 class N8nBankRevenueBatchUpsertView(_N8nBatchBaseView):

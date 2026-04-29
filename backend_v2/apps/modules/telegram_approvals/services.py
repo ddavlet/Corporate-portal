@@ -24,6 +24,37 @@ class TelegramDispatchMissingMessageId(ValidationError):
     pass
 
 
+def _ensure_bridge_message_id(
+    *,
+    approval: Approval,
+    response_data: dict | None,
+    request_id: int,
+    action: str,
+) -> None:
+    _maybe_set_message_id(approval=approval, response_data=response_data)
+    if approval.message_id is not None:
+        return
+    response_type = type(response_data).__name__
+    response_keys = list(response_data.keys()) if isinstance(response_data, dict) else []
+    logger.error(
+        "Telegram bridge response missing message_id approval_id=%s request_id=%s payload_action=%s response_type=%s response_keys=%s",
+        approval.id,
+        request_id,
+        action,
+        response_type,
+        response_keys,
+    )
+    raise TelegramDispatchMissingMessageId(
+        {
+            "telegram": (
+                "Bridge dispatch must return message_id for action. "
+                f"approval_id={approval.id} request_id={request_id} action={action} "
+                f"(response_type={response_type}, response_keys={response_keys})"
+            )
+        }
+    )
+
+
 def _debug_log(*, run_id: str, hypothesis_id: str, location: str, message: str, data: dict) -> None:
     try:
         with open(
@@ -695,6 +726,9 @@ def _maybe_set_message_id(*, approval: Approval, response_data: dict | None) -> 
     if not approval.message_sent:
         approval.message_sent = True
         updates.append("message_sent")
+    if approval.message_sent_at is None:
+        approval.message_sent_at = timezone.now()
+        updates.append("message_sent_at")
     if updates:
         approval.save(update_fields=updates)
 
@@ -765,27 +799,13 @@ def dispatch_pending_approvals(*, request_obj: Request, step: int | None = None,
         response_data = _post_to_bridge(request_obj=locked, payload=payload)
         if response_data is None:
             continue
-        previous_message_id = approval.message_id
-        _maybe_set_message_id(approval=approval, response_data=response_data)
-        # Keep invariant: message_sent=True is only allowed with message_id present.
-        if approval.message_id is None:
-            logger.error(
-                "Telegram bridge response missing message_id approval_id=%s request_id=%s payload_action=%s",
-                approval.id,
-                locked.id,
-                payload.get("action"),
-            )
-            raise TelegramDispatchMissingMessageId(
-                {
-                    "telegram": (
-                        "Bridge dispatch must return message_id for send action. "
-                        f"approval_id={approval.id} request_id={locked.id}"
-                    )
-                }
-            )
-        if previous_message_id is None and approval.message_sent_at is None:
-            approval.message_sent_at = timezone.now()
-            approval.save(update_fields=["message_sent_at"])
+        
+        _ensure_bridge_message_id(
+            approval=approval,
+            response_data=response_data,
+            request_id=locked.id,
+            action=str(payload.get("action") or ""),
+        )
         sent_count += 1
     return sent_count
 
@@ -801,7 +821,14 @@ def edit_approval_message(*, approval: Approval, request_context: Request | None
         message_text=build_approval_message(request_obj=req, approval=approval),
     )
     response_data = _post_to_bridge(request_obj=req, payload=payload)
-    _maybe_set_message_id(approval=approval, response_data=response_data)
+    if response_data is None:
+        return False
+    _ensure_bridge_message_id(
+        approval=approval,
+        response_data=response_data,
+        request_id=req.id,
+        action=str(payload.get("action") or ""),
+    )
     return response_data is not None
 
 
@@ -817,7 +844,14 @@ def deactivate_approval_message_buttons(*, approval: Approval, request_context: 
         include_buttons=False,
     )
     response_data = _post_to_bridge(request_obj=req, payload=payload)
-    _maybe_set_message_id(approval=approval, response_data=response_data)
+    if response_data is None:
+        return False
+    _ensure_bridge_message_id(
+        approval=approval,
+        response_data=response_data,
+        request_id=req.id,
+        action=str(payload.get("action") or ""),
+    )
     return response_data is not None
 
 

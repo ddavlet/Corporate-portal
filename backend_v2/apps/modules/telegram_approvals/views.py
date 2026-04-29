@@ -4,6 +4,7 @@ import json
 
 from django.conf import settings
 from django.db import transaction
+from django.utils import timezone
 from rest_framework import status
 from rest_framework.exceptions import ValidationError
 from rest_framework.permissions import AllowAny
@@ -159,6 +160,9 @@ class TelegramApprovalWebhookView(APIView):
                 if not approval.message_sent:
                     approval.message_sent = True
                     updates.append("message_sent")
+                if approval.message_sent_at is None:
+                    approval.message_sent_at = timezone.now()
+                    updates.append("message_sent_at")
                 approval.save(update_fields=updates)
             try:
                 confirm_approval_by_id(
