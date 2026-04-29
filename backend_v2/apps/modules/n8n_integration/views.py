@@ -997,7 +997,9 @@ class N8nBankExpenseUpsertView(_N8nBaseView):
             other_tenant_conflict=other_tenant_conflict,
             build_create_kwargs=build_create_kwargs,
         )
-        if 200 <= int(getattr(response, "status_code", 500)) < 300:
+        if 200 <= int(getattr(response, "status_code", 500)) < 300 and not getattr(
+            request, "skip_bank_relink", False
+        ):
             candidate = _extract_bank_relink_candidate(getattr(response, "data", None))
             if candidate is not None:
                 _relink_requests_to_bank_expenses(tenant=tenant, candidates=[candidate])
@@ -1278,6 +1280,12 @@ class N8nCashRevenueBatchUpsertView(_N8nBatchBaseView):
 
 class N8nBankExpenseBatchUpsertView(_N8nBatchBaseView):
     single_view_class = N8nBankExpenseUpsertView
+
+    @staticmethod
+    def _item_request(base_request, item_data):
+        req = _N8nBatchBaseView._item_request(base_request, item_data)
+        setattr(req, "skip_bank_relink", True)
+        return req
 
     def post(self, request):
         response = super().post(request)
