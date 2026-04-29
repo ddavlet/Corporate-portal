@@ -100,12 +100,14 @@ async function refreshAccess(refresh: string): Promise<Tokens | null> {
 export type ApiFetchOptions = {
   /** When false, 401 does not clear tokens or call unauthorizedHandler (e.g. optional module endpoints). */
   treatAuthErrorsAsGlobal?: boolean
+  /** For binary endpoints (file download): omit Accept: application/json. */
+  omitAcceptJson?: boolean
 }
 
 export async function apiFetch(input: string, init: RequestInit = {}, options?: ApiFetchOptions) {
   const tokens = getTokens()
   const headers = new Headers(init.headers || {})
-  headers.set('Accept', 'application/json')
+  if (!options?.omitAcceptJson) headers.set('Accept', 'application/json')
   if (tokens?.access) headers.set('Authorization', `Bearer ${tokens.access}`)
 
   const doFetch = () =>
@@ -1347,6 +1349,7 @@ export type RequestFormConfigPaymentTypeItem = {
   default_billing_days_offset: number
   default_payment_purpose: string
   default_vendor_id: number | null
+  contracts_required?: boolean
 }
 
 /** Месяц начисления относительно календарного месяца дня срабатывания шаблона. */
@@ -1367,6 +1370,7 @@ export type AutoRequestTemplateItem = {
   urgency: string
   payment_purpose: string
   vendor_ref_id: number | null
+  contract_ref_id?: number | null
   /** Заявитель в создаваемых заявках; должен быть из списка формы для выбранного типа оплаты. */
   requester_id?: number
   last_run_month?: string | null
@@ -1395,6 +1399,7 @@ export type AutoRequestConfigUpdatePayload = {
     urgency?: string
     payment_purpose?: string
     vendor_ref_id?: number | null
+    contract_ref_id?: number | null
     requester_id: number
   }>
 }
@@ -1424,6 +1429,7 @@ export type RequestFormConfigUpdatePayload = {
     default_billing_days_offset?: number
     default_payment_purpose?: string
     default_vendor_id?: number | null
+    contracts_required?: boolean
   }>
 }
 
@@ -1664,12 +1670,14 @@ export type RequestFormOptionsPaymentType = {
   requester_ids: number[]
   requesters: RequestFormOptionsRequester[]
   vendor_ids: number[]
+  contracts_required?: boolean
   payment_purposes: Array<{ name: string; category: string }>
   defaults?: RequestFormOptionsFormDefaults
 }
 
 export type RequestFormOptionsResponse = {
   is_tenant_admin?: boolean
+  contracts_module_effective?: boolean
   requester_candidates?: RequestFormOptionsRequester[]
   payment_types: RequestFormOptionsPaymentType[]
 }
@@ -1683,6 +1691,7 @@ export async function getRequestFormOptions(): Promise<RequestFormOptionsRespons
   }
   return {
     is_tenant_admin: json.is_tenant_admin ?? false,
+    contracts_module_effective: json.contracts_module_effective ?? false,
     requester_candidates: json.requester_candidates ?? [],
     payment_types: json.payment_types ?? [],
   }
@@ -1770,6 +1779,7 @@ export interface PortalRequestCreateBody {
   requester?: number
   payment_purpose?: string
   vendor_ref?: number
+  contract_ref?: number | null
   amortization_months?: number
 }
 
@@ -1810,6 +1820,123 @@ export async function deleteRequestAttachment(requestId: number, attachmentId: n
     method: 'DELETE',
   })
   if (!res.ok) throw new Error(await parseErrorBody(res))
+}
+
+// ─── Contracts module ─────────────────────────────────────────────────────────
+
+export type ContractRow = {
+  id: number
+  tenant: number
+  vendor: number
+  contract_number: string
+  date_from: string
+  date_to: string | null
+  contract_amount: string
+  currency: string
+  contract_status: string
+  contract_terms: string
+  contract_file: string | null
+  acc_number: string
+  display_status: string
+  is_expired: boolean
+  created_at: string
+  created_by: number | null
+  updated_at: string
+}
+
+export async function listContracts(params: { vendor?: number }): Promise<ContractRow[]> {
+  const sp = new URLSearchParams()
+  if (params.vendor != null) sp.set('vendor', String(params.vendor))
+  const q = sp.toString()
+  const res = await apiFetch(`/api/contracts/${q ? `?${q}` : ''}`)
+  if (!res.ok) throw new Error(await parseErrorBody(res))
+  const json = await res.json().catch(() => null)
+  return normalizeListPayload<ContractRow>(json)
+}
+
+export type ContractCreateMultipartFields = {
+  vendor: number
+  contract_number: string
+  date_from: string
+  date_to?: string | null
+  contract_amount: string
+  currency?: string
+  contract_status?: string
+  contract_terms?: string
+  acc_number?: string
+  contract_file?: File | null
+}
+
+function appendContractFormData(fd: FormData, fields: ContractCreateMultipartFields) {
+  fd.append('vendor', String(fields.vendor))
+  fd.append('contract_number', fields.contract_number)
+  fd.append('date_from', fields.date_from)
+  if (fields.date_to != null && fields.date_to !== '') fd.append('date_to', fields.date_to)
+  fd.append('contract_amount', fields.contract_amount)
+  fd.append('currency', fields.currency ?? 'UZS')
+  fd.append('contract_status', fields.contract_status ?? 'accepted')
+  fd.append('contract_terms', fields.contract_terms ?? '')
+  fd.append('acc_number', fields.acc_number ?? '')
+  if (fields.contract_file) fd.append('contract_file', fields.contract_file)
+}
+
+export async function createContract(fields: ContractCreateMultipartFields): Promise<ContractRow> {
+  const fd = new FormData()
+  appendContractFormData(fd, fields)
+  const res = await apiFetch('/api/contracts/', { method: 'POST', body: fd })
+  if (!res.ok) throw new Error(await parseErrorBody(res))
+  const json = (await res.json().catch(() => null)) as ContractRow | null
+  if (!json) throw new Error('Empty response')
+  return json
+}
+
+export async function patchContractJson(id: number, body: Record<string, unknown>): Promise<ContractRow> {
+  const res = await apiFetch(`/api/contracts/${id}/`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+  if (!res.ok) throw new Error(await parseErrorBody(res))
+  const json = (await res.json().catch(() => null)) as ContractRow | null
+  if (!json) throw new Error('Empty response')
+  return json
+}
+
+export async function updateContract(id: number, fields: Partial<ContractCreateMultipartFields>): Promise<ContractRow> {
+  const fd = new FormData()
+  if (fields.vendor != null) fd.append('vendor', String(fields.vendor))
+  if (fields.contract_number != null) fd.append('contract_number', fields.contract_number)
+  if (fields.date_from != null) fd.append('date_from', fields.date_from)
+  if (fields.date_to !== undefined) {
+    if (fields.date_to === '' || fields.date_to == null) fd.append('date_to', '')
+    else fd.append('date_to', fields.date_to)
+  }
+  if (fields.contract_amount != null) fd.append('contract_amount', fields.contract_amount)
+  if (fields.currency != null) fd.append('currency', fields.currency)
+  if (fields.contract_status != null) fd.append('contract_status', fields.contract_status)
+  if (fields.contract_terms != null) fd.append('contract_terms', fields.contract_terms)
+  if (fields.acc_number != null) fd.append('acc_number', fields.acc_number)
+  if (fields.contract_file) fd.append('contract_file', fields.contract_file)
+  const res = await apiFetch(`/api/contracts/${id}/`, { method: 'PATCH', body: fd })
+  if (!res.ok) throw new Error(await parseErrorBody(res))
+  const json = (await res.json().catch(() => null)) as ContractRow | null
+  if (!json) throw new Error('Empty response')
+  return json
+}
+
+export async function deleteContract(id: number): Promise<void> {
+  const res = await apiFetch(`/api/contracts/${id}/`, { method: 'DELETE' })
+  if (!res.ok) throw new Error(await parseErrorBody(res))
+}
+
+export function contractFileDownloadUrl(contractId: number): string {
+  return `/api/contracts/${contractId}/file/`
+}
+
+export async function fetchContractFile(contractId: number): Promise<Blob> {
+  const res = await apiFetch(contractFileDownloadUrl(contractId), {}, { omitAcceptJson: true })
+  if (!res.ok) throw new Error(await parseErrorBody(res))
+  return res.blob()
 }
 
 // ─── Budgets module ───────────────────────────────────────────────────────────
