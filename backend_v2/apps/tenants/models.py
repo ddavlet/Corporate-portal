@@ -10,6 +10,7 @@ class Tenant(models.Model):
     is_active = models.BooleanField(default=True)
     telegram_otp_enabled = models.BooleanField(default=False)
     telegram_bot_token_enc = models.TextField(blank=True, default="")
+    telegram_bot_username = models.CharField(max_length=128, blank=True, default="")
 
     def set_telegram_bot_token(self, token: str) -> None:
         self.telegram_bot_token_enc = encrypt_secret(token.strip())
