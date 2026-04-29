@@ -29,6 +29,7 @@ class ModuleCatalogRowSerializer(serializers.Serializer):
 
 class TenantIntegrationConfigSerializer(serializers.Serializer):
     telegram_bot_token = serializers.CharField(required=False, allow_blank=True, write_only=True)
+    telegram_bot_username = serializers.CharField(required=False, allow_blank=True, max_length=128)
     telegram_approvals_bridge_dispatch_url = serializers.CharField(required=False, allow_blank=True)
     telegram_approvals_send_action = serializers.CharField(required=False, allow_blank=True, max_length=100)
     telegram_approvals_edit_action = serializers.CharField(required=False, allow_blank=True, max_length=100)
