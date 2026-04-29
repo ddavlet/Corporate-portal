@@ -118,6 +118,9 @@ class TenantIntegrationConfig(models.Model):
 
     n8n_integration_token_enc = models.TextField(blank=True, default="")
     requests_file_gateway_token_enc = models.TextField(blank=True, default="")
+    telegram_oidc_client_id = models.CharField(max_length=120, blank=True, default="")
+    telegram_oidc_client_secret_enc = models.TextField(blank=True, default="")
+    telegram_oidc_redirect_uri = models.TextField(blank=True, default="")
 
     portal_feedback_telegram_chat_id = models.BigIntegerField(null=True, blank=True)
     portal_feedback_telegram_action = models.CharField(max_length=100, blank=True, default="")
@@ -142,4 +145,10 @@ class TenantIntegrationConfig(models.Model):
 
     def get_requests_file_gateway_token(self) -> str:
         return decrypt_secret(self.requests_file_gateway_token_enc).strip()
+
+    def set_telegram_oidc_client_secret(self, secret: str) -> None:
+        self.telegram_oidc_client_secret_enc = encrypt_secret((secret or "").strip())
+
+    def get_telegram_oidc_client_secret(self) -> str:
+        return decrypt_secret(self.telegram_oidc_client_secret_enc).strip()
 
