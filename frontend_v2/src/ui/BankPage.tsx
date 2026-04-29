@@ -55,6 +55,10 @@ function formatDate(value?: string | null): string {
   return dateFormatterTashkent.format(parsed)
 }
 
+function compareDateStrings(a?: string | null, b?: string | null): number {
+  return String(a || '').slice(0, 10).localeCompare(String(b || '').slice(0, 10))
+}
+
 function getExpenseCounterparty(row: BankExpenseRow): string {
   return String(row.vendor_name || '').trim()
 }
@@ -240,8 +244,19 @@ export function BankPage() {
       render: (_value: boolean | undefined, row) => renderExpenseRequestStatusTag(row),
     },
     { title: 'Контрагент', key: 'counterparty', render: (_, row) => getExpenseCounterparty(row) || '-' },
-    { title: 'Дата док.', dataIndex: 'doc_date', render: (value: string) => formatDate(value) },
-    { title: 'Дата проводки', dataIndex: 'process_date', render: (value: string) => formatDate(value) },
+    {
+      title: 'Дата док.',
+      dataIndex: 'doc_date',
+      defaultSortOrder: 'descend',
+      sorter: (a, b) => compareDateStrings(a.doc_date, b.doc_date),
+      render: (value: string) => formatDate(value),
+    },
+    {
+      title: 'Дата проводки',
+      dataIndex: 'process_date',
+      sorter: (a, b) => compareDateStrings(a.process_date, b.process_date),
+      render: (value: string) => formatDate(value),
+    },
   ]
 
   const revenueColumns: ColumnsType<BankRevenueRow> = [
@@ -254,8 +269,19 @@ export function BankPage() {
       render: (value: string | number) => Number(value).toLocaleString('ru-RU'),
     },
     { title: 'Контрагент', dataIndex: 'account_name' },
-    { title: 'Дата док.', dataIndex: 'doc_date', render: (value: string) => formatDate(value) },
-    { title: 'Дата проводки', dataIndex: 'process_date', render: (value: string) => formatDate(value) },
+    {
+      title: 'Дата док.',
+      dataIndex: 'doc_date',
+      defaultSortOrder: 'descend',
+      sorter: (a, b) => compareDateStrings(a.doc_date, b.doc_date),
+      render: (value: string) => formatDate(value),
+    },
+    {
+      title: 'Дата проводки',
+      dataIndex: 'process_date',
+      sorter: (a, b) => compareDateStrings(a.process_date, b.process_date),
+      render: (value: string) => formatDate(value),
+    },
   ]
 
   type AllRow = (typeof allRows)[number]
@@ -276,7 +302,13 @@ export function BankPage() {
       render: (value: string | number) => Number(value).toLocaleString('ru-RU'),
     },
     { title: 'Контрагент', dataIndex: 'account_name' },
-    { title: 'Дата док.', dataIndex: 'at', render: (value: string) => formatDate(value) },
+    {
+      title: 'Дата док.',
+      dataIndex: 'at',
+      defaultSortOrder: 'descend',
+      sorter: (a, b) => compareDateStrings(a.at, b.at),
+      render: (value: string) => formatDate(value),
+    },
   ]
 
   return (

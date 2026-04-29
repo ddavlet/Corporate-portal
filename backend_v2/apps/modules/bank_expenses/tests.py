@@ -94,6 +94,39 @@ class BankRevenueApiTenantIsolationTests(APITestCase):
         doc_nos_b = {r["doc_no"] for r in results_b}
         self.assertEqual(doc_nos_b, {"R-B"})
 
+    def test_list_revenues_ordered_by_doc_and_process_dates_desc(self):
+        wallet = get_or_create_bank_wallet(tenant=self.tenant_a)
+        rows = [
+            ("R-NEWER", date(2026, 4, 2), date(2026, 4, 1), "20.00"),
+            ("R-SAME-DOC-LATER-PROCESS", date(2026, 4, 2), date(2026, 4, 4), "30.00"),
+        ]
+        for doc_no, doc_date, process_date, amount in rows:
+            BankRevenue.objects.create(
+                tenant=self.tenant_a,
+                created_by=self.admin_a,
+                wallet=wallet,
+                row_no=2,
+                doc_date=doc_date,
+                process_date=process_date,
+                doc_no=doc_no,
+                account_name=doc_no,
+                inn="100000000",
+                account_no="20208000111111111111",
+                mfo="01001",
+                kredit_turnover=amount,
+                payment_purpose=f"Purpose {doc_no}",
+            )
+
+        res = self.client.get("/api/bank/revenues/", **self._headers(self.admin_a, "acme.example.com"))
+        self.assertEqual(res.status_code, 200, res.content)
+        payload = res.json()
+        rows = payload if isinstance(payload, list) else payload.get("results", [])
+
+        self.assertEqual(
+            [row["doc_no"] for row in rows],
+            ["R-SAME-DOC-LATER-PROCESS", "R-NEWER", "R-A"],
+        )
+
 
 @override_settings(BASE_DOMAIN="example.com", ALLOWED_HOSTS=["*"])
 class BankExpenseRequestRequiredApiTests(APITestCase):
@@ -217,6 +250,39 @@ class BankExpenseRequestRequiredApiTests(APITestCase):
         res = self.client.post("/api/bank/expenses/", payload, format="json", **self._headers())
         self.assertEqual(res.status_code, 400, res.content)
         self.assertIn("vendor", res.json())
+
+    def test_list_expenses_ordered_by_doc_and_process_dates_desc(self):
+        rows = [
+            ("DOC-OLDER", date(2026, 4, 1), date(2026, 4, 3), 1),
+            ("DOC-NEWER", date(2026, 4, 2), date(2026, 4, 1), 2),
+            ("DOC-SAME-DOC-LATER-PROCESS", date(2026, 4, 2), date(2026, 4, 4), 3),
+        ]
+        for doc_no, doc_date, process_date, row_no in rows:
+            BankExpense.objects.create(
+                tenant=self.tenant,
+                created_by=self.admin,
+                wallet=self.wallet,
+                row_no=row_no,
+                doc_date=doc_date,
+                process_date=process_date,
+                expense_year=doc_date.year,
+                expense_month=doc_date.month,
+                expense_day=doc_date.day,
+                doc_no=doc_no,
+                debit_turnover="10.00",
+                payment_purpose=f"Purpose {doc_no}",
+                vendor=self.vendor,
+            )
+
+        res = self.client.get("/api/bank/expenses/", **self._headers())
+        self.assertEqual(res.status_code, 200, res.content)
+        payload = res.json()
+        rows = payload if isinstance(payload, list) else payload.get("results", [])
+
+        self.assertEqual(
+            [row["doc_no"] for row in rows],
+            ["DOC-SAME-DOC-LATER-PROCESS", "DOC-NEWER", "DOC-OLDER"],
+        )
 
 
 @override_settings(BASE_DOMAIN="example.com", ALLOWED_HOSTS=["*"])
