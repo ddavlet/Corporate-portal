@@ -13,7 +13,22 @@ SECRET_KEY = os.getenv("DJANGO_SECRET_KEY", "dev-only-change-me")
 DEBUG = os.getenv("DJANGO_DEBUG", "False").lower() in {"1", "true", "yes", "on"}
 
 
-ALLOWED_HOSTS = [h for h in os.getenv("DJANGO_ALLOWED_HOSTS", "").split(",") if h] or ["*"]
+def _allowed_hosts_from_env() -> list[str]:
+    """Hosts Django accepts on incoming requests.
+
+    tg-gateway forwards Telegram callbacks to ``http://django_v2:8001/...``, so the Host
+    header is the Docker DNS name (``django_v2:8001``). Production often sets
+    ``DJANGO_ALLOWED_HOSTS`` to public tenant domains only; without allowing this internal
+    name, Django returns generic HTTP 400 before the webhook view runs.
+    """
+    hosts = [h for h in os.getenv("DJANGO_ALLOWED_HOSTS", "").split(",") if h] or ["*"]
+    if "*" in hosts:
+        return hosts
+    internal_service_hosts = ("django_v2", "backend_v2")
+    return list(dict.fromkeys(list(hosts) + list(internal_service_hosts)))
+
+
+ALLOWED_HOSTS = _allowed_hosts_from_env()
 
 
 # Application definition
