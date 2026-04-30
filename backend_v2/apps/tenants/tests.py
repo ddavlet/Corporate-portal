@@ -1,12 +1,15 @@
+import os
 from unittest.mock import patch
 
 import requests
-from django.test import TestCase, override_settings
+from django.test import SimpleTestCase, TestCase, override_settings
 from django.test.client import RequestFactory
 from django.http import Http404
 from rest_framework.test import APITestCase
 from django.contrib.auth import get_user_model
 from rest_framework_simplejwt.tokens import RefreshToken
+
+from config.settings import _allowed_hosts_from_env
 
 from apps.tenants.middleware import TenantSubdomainMiddleware
 from apps.tenants.admin import TenantAdminForm
@@ -356,4 +359,27 @@ class UserPreferencesApiTests(APITestCase):
             **self._auth_headers(stranger, host="acme.example.com"),
         )
         self.assertEqual(denied.status_code, 403, denied.content)
+
+
+class AllowedHostsEnvTests(SimpleTestCase):
+    """tg-gateway uses Host django_v2 when forwarding; ALLOWED_HOSTS must allow it."""
+
+    def test_empty_env_defaults_to_wildcard(self):
+        with patch.dict(os.environ, {"DJANGO_ALLOWED_HOSTS": ""}, clear=False):
+            self.assertEqual(_allowed_hosts_from_env(), ["*"])
+
+    def test_wildcard_entry_skips_internal_merge(self):
+        with patch.dict(os.environ, {"DJANGO_ALLOWED_HOSTS": "example.com,*"}, clear=False):
+            self.assertEqual(_allowed_hosts_from_env(), ["example.com", "*"])
+
+    def test_restricted_list_includes_docker_backend_service_names(self):
+        with patch.dict(
+            os.environ,
+            {"DJANGO_ALLOWED_HOSTS": "neuron.kolberg.uz,main.kolberg.uz"},
+            clear=False,
+        ):
+            got = _allowed_hosts_from_env()
+            self.assertEqual(got[:2], ["neuron.kolberg.uz", "main.kolberg.uz"])
+            self.assertIn("django_v2", got)
+            self.assertIn("backend_v2", got)
 
