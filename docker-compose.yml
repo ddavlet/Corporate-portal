@@ -531,6 +531,9 @@ services:
     depends_on:
       - backend_v2
     networks:
+      # Must share traefik-public with Traefik; otherwise the Docker provider may use the
+      # backend-network IP and Traefik (traefik-public only) gets intermittent dial timeouts.
+      - traefik-public
       - backend
       - gateway
 
