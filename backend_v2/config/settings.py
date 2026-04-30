@@ -15,7 +15,11 @@ DEBUG = os.getenv("DJANGO_DEBUG", "False").lower() in {"1", "true", "yes", "on"}
 # RFC-valid Docker DNS alias for the backend (hyphens only). Compose attaches this to ``backend_v2``
 # so internal HTTP clients can use ``http://kolberg-django-v2:8001/`` instead of ``django_v2``
 # (underscores make Host invalid per RFC 1034/1035 — Django rejects before ALLOWED_HOSTS).
-DOCKER_INTERNAL_BACKEND_DNS_NAME = "kolberg-django-v2"
+# Optional override: ``DOCKER_INTERNAL_BACKEND_DNS_NAME`` (must stay RFC-valid if set).
+DOCKER_INTERNAL_BACKEND_DNS_NAME = (
+    (os.getenv("DOCKER_INTERNAL_BACKEND_DNS_NAME") or "kolberg-django-v2").strip()
+    or "kolberg-django-v2"
+)
 
 
 def _allowed_hosts_from_env() -> list[str]:
