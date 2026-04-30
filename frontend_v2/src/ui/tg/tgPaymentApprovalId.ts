@@ -5,8 +5,20 @@
  */
 export function getTelegramWebAppStartParam(): string {
   if (typeof window === 'undefined') return ''
-  const fromUnsafe = window.Telegram?.WebApp?.initDataUnsafe?.start_param
+  const tw = window.Telegram?.WebApp
+  const fromUnsafe = tw?.initDataUnsafe?.start_param
   if (typeof fromUnsafe === 'string' && fromUnsafe.trim()) return fromUnsafe.trim()
+
+  const rawInit = (tw?.initData ?? '').trim()
+  if (rawInit) {
+    try {
+      const fromSigned = new URLSearchParams(rawInit).get('start_param')
+      if (typeof fromSigned === 'string' && fromSigned.trim()) return fromSigned.trim()
+    } catch {
+      /* ignore malformed initData */
+    }
+  }
+
   return new URLSearchParams(window.location.search).get('tgWebAppStartParam')?.trim() || ''
 }
 

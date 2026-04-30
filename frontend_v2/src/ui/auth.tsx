@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useMemo, useState } from 'react'
+import React, { createContext, useCallback, useContext, useMemo, useState } from 'react'
 
 type Tokens = {
   access: string
@@ -45,22 +45,28 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const initial = loadState()
   const [state, setState] = useState<AuthState | null>(initial)
 
+  // Stable identities — otherwise effects that depend on login/logout (e.g. TgWebAppLayout)
+  // re-run after every successful auth and spam /api/auth/telegram/webapp/.
+  const login = useCallback(({ tokens, username }: { tokens: Tokens; username: string }) => {
+    const next: AuthState = { ...tokens, username }
+    setState(next)
+    saveState(next)
+  }, [])
+
+  const logout = useCallback(() => {
+    setState(null)
+    saveState(null)
+  }, [])
+
   const value = useMemo<AuthContextValue>(
     () => ({
       accessToken: state?.access ?? null,
       refreshToken: state?.refresh ?? null,
       username: state?.username ?? null,
-      login: ({ tokens, username }) => {
-        const next: AuthState = { ...tokens, username }
-        setState(next)
-        saveState(next)
-      },
-      logout: () => {
-        setState(null)
-        saveState(null)
-      },
+      login,
+      logout,
     }),
-    [state],
+    [state, login, logout],
   )
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
