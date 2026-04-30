@@ -44,6 +44,8 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(mess
 logger = logging.getLogger(__name__)
 
 BACKEND_URL = os.environ.get("BACKEND_WEBHOOK_URL", "")
+# Optional Host header so Django tenant middleware sees a real subdomain (e.g. test.localhost:8001).
+BACKEND_WEBHOOK_HTTP_HOST = (os.environ.get("BACKEND_WEBHOOK_HTTP_HOST", "") or "").strip()
 PUBLIC_WEBHOOK_BASE_URL = (os.environ.get("PUBLIC_WEBHOOK_BASE_URL", "") or "").rstrip("/")
 
 
@@ -242,9 +244,10 @@ async def messaging_webhook(
 
     if BACKEND_URL:
         try:
+            headers = {"Host": BACKEND_WEBHOOK_HTTP_HOST} if BACKEND_WEBHOOK_HTTP_HOST else None
             async with httpx.AsyncClient(timeout=10) as client:
                 # No auth header — Docker network isolation is the access control
-                resp = await client.post(BACKEND_URL, json=forward)
+                resp = await client.post(BACKEND_URL, json=forward, headers=headers)
             fwd_status = resp.status_code
             ok = resp.status_code < 400
             if not ok:
