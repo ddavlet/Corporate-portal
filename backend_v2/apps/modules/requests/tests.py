@@ -33,6 +33,7 @@ from apps.modules.requests.auto_requests import (
     process_due_auto_requests,
     render_auto_request_template,
 )
+from apps.modules.requests.integration_settings import get_requests_messaging_gateway_settings
 from apps.modules.bank_expenses.models import BankExpense
 from apps.modules.cashier.models import CashExpense
 from apps.modules.corporate_card.models import CardExpense
@@ -2945,5 +2946,24 @@ class RequestContractsRequiredTests(APITestCase):
         self.assertEqual(res.status_code, 201, res.content)
         req = Request.objects.get(id=res.data["id"])
         self.assertIsNone(req.contract_ref_id)
+
+
+@override_settings(BASE_DOMAIN="example.com", MESSAGING_GATEWAY_SEND_URL="http://gw.example/v1/messaging/send")
+class GetRequestsMessagingGatewaySettingsTests(APITestCase):
+    def test_resolves_draft_notification_action_without_crashing(self):
+        tenant = Tenant.objects.create(name="Co", subdomain="gwsett", is_active=True)
+        settings_obj = get_requests_messaging_gateway_settings(tenant=tenant)
+        self.assertEqual(settings_obj.draft_notification_action, "send")
+
+    def test_request_approval_config_draft_overrides_tenant_defaults(self):
+        tenant = Tenant.objects.create(name="Co2", subdomain="gwsett2", is_active=True)
+        admin = User.objects.create_user(username="gwsett_admin", password="x")
+        RequestApprovalConfig.objects.create(
+            tenant=tenant,
+            updated_by=admin,
+            messaging_gateway_draft_action="send_interactive",
+        )
+        settings_obj = get_requests_messaging_gateway_settings(tenant=tenant)
+        self.assertEqual(settings_obj.draft_notification_action, "send_interactive")
 
 

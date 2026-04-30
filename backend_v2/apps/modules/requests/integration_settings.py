@@ -36,7 +36,7 @@ def get_requests_messaging_gateway_settings(*, tenant) -> RequestsMessagingGatew
     cfg = RequestApprovalConfig.objects.filter(tenant=tenant).first()
     legacy = get_messaging_gateway_settings(tenant=tenant)
     draft_action = (cfg.messaging_gateway_draft_action.strip() if cfg else "") or (
-        legacy.draft_action.strip()
+        legacy.draft_notification_action.strip()
     )
     if not draft_action:
         draft_action = "send"
