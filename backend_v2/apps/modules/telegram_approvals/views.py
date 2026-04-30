@@ -121,7 +121,7 @@ class TelegramApprovalWebhookView(APIView):
             chat_id = int(event_data["recipient_id"])
         except (TypeError, ValueError) as exc:
             raise ValidationError({"recipient_id": "recipient_id is required and must be integer."}) from exc
-        message_id = event_data["message_id"]
+        message_id = event_data.get("message_id")
 
         approval = (
             Approval.objects.select_related("request", "request__tenant", "approver_user")
@@ -131,7 +131,7 @@ class TelegramApprovalWebhookView(APIView):
         if approval is None:
             logger.warning("messaging_gateway_webhook unknown approval_id=%s", approval_id)
             raise ValidationError({"approval_id": "Approval not found."})
-        if approval.gateway_message_id and approval.gateway_message_id != message_id:
+        if message_id is not None and approval.gateway_message_id is not None and approval.gateway_message_id != message_id:
             logger.warning(
                 "messaging_gateway_webhook message_id mismatch approval_id=%s stored=%s callback=%s",
                 approval_id,
@@ -159,7 +159,7 @@ class TelegramApprovalWebhookView(APIView):
         tenant: Tenant = approval.request.tenant
 
         with transaction.atomic():
-            if approval.gateway_message_id is None:
+            if message_id is not None and approval.gateway_message_id is None:
                 updates = ["gateway_message_id"]
                 approval.gateway_message_id = message_id
                 if not approval.message_sent:
