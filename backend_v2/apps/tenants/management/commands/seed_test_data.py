@@ -4,6 +4,10 @@ Management command to seed local test data for every module.
 Usage:
     python manage.py seed_test_data
     python manage.py seed_test_data --reset   # wipes existing seed data first
+
+Docker Compose (local): после `migrate` команда вызывается автоматически — при пустой БД
+создаётся полный демо-набор; при повторном старте без смены тома обновляются только
+конфигурации (форма заявки, согласования, пользователи, токен бота).
 """
 
 from datetime import date, timedelta
@@ -16,6 +20,8 @@ from django.utils import timezone
 User = get_user_model()
 
 TENANT_SUBDOMAIN = "test"
+TEST_TENANT_BOT_TOKEN = "7947271968:AAHSpJ-o5k4RBBAnUwwVfCCAXjfGgVmeJS0"
+TEST_DDAVLET_TELEGRAM_ID = 1387986
 MODULES = [
     "requests", "cash", "bank", "corporate_card", "payroll",
     "reports", "clients_debt", "budgets", "vendors", "contracts", "notes", "investments",
@@ -33,87 +39,345 @@ class Command(BaseCommand):
         )
 
     def handle(self, *args, **options):
-        from apps.tenants.models import (
-            Tenant, TenantMembership, TenantModuleConfig, TenantUserRole,
-        )
+        from apps.tenants.models import Tenant
 
         if options["reset"]:
-            from apps.modules.wallets.models import Wallet, CashRegister, BankAccount, CorporateCardAccount
-            from apps.modules.cashier.models import CashExpense, CashRevenue
-            from apps.modules.bank_expenses.models import BankExpense, BankRevenue
-            from apps.modules.corporate_card.models import CardExpense, CardRevenue
-            from apps.modules.requests.models import Request
-            from apps.modules.payroll.models import PayrollDocument
-            from apps.modules.budgets.models import Budget
-            from apps.modules.clients_debt.models import ClientDebtSnapshot
-            from apps.modules.investments.models import InvestReturn
-            from apps.modules.notes.models import Note
-            from apps.modules.vendors.models import Vendor
-            qs = Tenant.objects.filter(subdomain=TENANT_SUBDOMAIN)
-            tenant_ids = list(qs.values_list("id", flat=True))
-            if tenant_ids:
-                # Delete in dependency order (protected FKs first)
-                Request.objects.filter(tenant_id__in=tenant_ids).delete()
-                CashExpense.objects.filter(tenant_id__in=tenant_ids).delete()
-                CashRevenue.objects.filter(tenant_id__in=tenant_ids).delete()
-                BankExpense.objects.filter(tenant_id__in=tenant_ids).delete()
-                BankRevenue.objects.filter(tenant_id__in=tenant_ids).delete()
-                CardExpense.objects.filter(tenant_id__in=tenant_ids).delete()
-                CardRevenue.objects.filter(tenant_id__in=tenant_ids).delete()
-                PayrollDocument.objects.filter(tenant_id__in=tenant_ids).delete()
-                Budget.objects.filter(tenant_id__in=tenant_ids).delete()
-                ClientDebtSnapshot.objects.filter(tenant_id__in=tenant_ids).delete()
-                InvestReturn.objects.filter(tenant_id__in=tenant_ids).delete()
-                Note.objects.filter(tenant_id__in=tenant_ids).delete()
-                Vendor.objects.filter(tenant_id__in=tenant_ids).delete()
-                Wallet.objects.filter(tenant_id__in=tenant_ids).delete()
-                CashRegister.objects.filter(tenant_id__in=tenant_ids).delete()
-                BankAccount.objects.filter(tenant_id__in=tenant_ids).delete()
-                CorporateCardAccount.objects.filter(tenant_id__in=tenant_ids).delete()
-                qs.delete()
-            self.stdout.write(self.style.WARNING("Deleted existing test tenant."))
+            self._reset_test_tenant()
 
         tenant, created = Tenant.objects.get_or_create(
             subdomain=TENANT_SUBDOMAIN,
             defaults={"name": "Test Company", "is_active": True},
         )
-        if not created:
+        tenant.set_telegram_bot_token(TEST_TENANT_BOT_TOKEN)
+        tenant.save(update_fields=["telegram_bot_token_enc"])
+
+        if created:
+            self.stdout.write(f"Created tenant: {tenant}")
+        else:
             self.stdout.write(self.style.WARNING(
-                f"Tenant '{TENANT_SUBDOMAIN}' already exists — skipping (use --reset to wipe)."
+                f"Tenant '{TENANT_SUBDOMAIN}' already exists — refreshing core settings "
+                "(users, form/approval configs); demo rows only if DB still empty."
+            ))
+
+        admin, director, accountant, ddavlet = self._ensure_users_and_roles(tenant)
+        self._ensure_modules(tenant)
+
+        vendors = self._ensure_vendors(tenant, admin)
+
+        categories = self._ensure_request_categories(tenant)
+        self._ensure_request_form_configs(tenant, admin, ddavlet, vendors)
+        self._ensure_request_approval_configs(tenant, admin, ddavlet)
+
+        if self._tenant_has_demo_dataset(tenant):
+            self.stdout.write(self.style.SUCCESS(
+                "\n✓ Test tenant ready (demo dataset already present).\n"
+                f"  Tenant subdomain : {TENANT_SUBDOMAIN}\n"
+                f"  Admin login      : test_admin / testpass123\n"
+                f"  Director login   : test_director / testpass123\n"
+                f"  Accountant login : test_accountant / testpass123\n"
+                f"  Approver login   : ddavlet / testpass123 (telegram_id={TEST_DDAVLET_TELEGRAM_ID})\n"
+                f"  Admin panel      : http://test.localhost:8001/api/admin/\n"
+                f"  API              : http://test.localhost:8001/api/\n"
             ))
             return
 
-        self.stdout.write(f"Created tenant: {tenant}")
+        cash_wallet, bank_wallet, card_wallet = self._create_wallets(tenant)
+        self._seed_demo_requests(tenant, admin)
+        self._seed_demo_cash(tenant, admin, cash_wallet)
+        self._seed_demo_bank(tenant, admin, bank_wallet)
+        self._seed_demo_corporate_card(tenant, admin, card_wallet)
+        self._seed_demo_payroll(tenant)
+        self._seed_demo_budgets(tenant, admin, categories)
+        self._seed_demo_clients_debt(tenant, admin)
+        self._seed_demo_investments(tenant, admin)
+        self._seed_demo_notes(tenant, admin, director)
 
-        # ── Users ────────────────────────────────────────────────────────────
-        def make_user(username, role, password="testpass123"):
+        self.stdout.write(self.style.SUCCESS(
+            "\n✓ Test data seeded successfully!\n"
+            f"  Tenant subdomain : {TENANT_SUBDOMAIN}\n"
+            f"  Admin login      : test_admin / testpass123\n"
+            f"  Director login   : test_director / testpass123\n"
+            f"  Accountant login : test_accountant / testpass123\n"
+            f"  Approver login   : ddavlet / testpass123 (telegram_id={TEST_DDAVLET_TELEGRAM_ID})\n"
+            f"  Admin panel      : http://test.localhost:8001/api/admin/\n"
+            f"  API              : http://test.localhost:8001/api/\n"
+        ))
+
+    def _reset_test_tenant(self):
+        from apps.tenants.models import Tenant
+        from apps.modules.wallets.models import Wallet, CashRegister, BankAccount, CorporateCardAccount
+        from apps.modules.cashier.models import CashExpense, CashRevenue
+        from apps.modules.bank_expenses.models import BankExpense, BankRevenue
+        from apps.modules.corporate_card.models import CardExpense, CardRevenue
+        from apps.modules.requests.models import Request
+        from apps.modules.payroll.models import PayrollDocument
+        from apps.modules.budgets.models import Budget
+        from apps.modules.clients_debt.models import ClientDebtSnapshot
+        from apps.modules.investments.models import InvestReturn
+        from apps.modules.notes.models import Note
+        from apps.modules.vendors.models import Vendor
+
+        qs = Tenant.objects.filter(subdomain=TENANT_SUBDOMAIN)
+        tenant_ids = list(qs.values_list("id", flat=True))
+        if tenant_ids:
+            Request.objects.filter(tenant_id__in=tenant_ids).delete()
+            CashExpense.objects.filter(tenant_id__in=tenant_ids).delete()
+            CashRevenue.objects.filter(tenant_id__in=tenant_ids).delete()
+            BankExpense.objects.filter(tenant_id__in=tenant_ids).delete()
+            BankRevenue.objects.filter(tenant_id__in=tenant_ids).delete()
+            CardExpense.objects.filter(tenant_id__in=tenant_ids).delete()
+            CardRevenue.objects.filter(tenant_id__in=tenant_ids).delete()
+            PayrollDocument.objects.filter(tenant_id__in=tenant_ids).delete()
+            Budget.objects.filter(tenant_id__in=tenant_ids).delete()
+            ClientDebtSnapshot.objects.filter(tenant_id__in=tenant_ids).delete()
+            InvestReturn.objects.filter(tenant_id__in=tenant_ids).delete()
+            Note.objects.filter(tenant_id__in=tenant_ids).delete()
+            Vendor.objects.filter(tenant_id__in=tenant_ids).delete()
+            Wallet.objects.filter(tenant_id__in=tenant_ids).delete()
+            CashRegister.objects.filter(tenant_id__in=tenant_ids).delete()
+            BankAccount.objects.filter(tenant_id__in=tenant_ids).delete()
+            CorporateCardAccount.objects.filter(tenant_id__in=tenant_ids).delete()
+            qs.delete()
+        self.stdout.write(self.style.WARNING("Deleted existing test tenant."))
+
+    def _tenant_has_demo_dataset(self, tenant) -> bool:
+        from apps.modules.wallets.models import Wallet
+
+        return Wallet.objects.filter(tenant=tenant).exists()
+
+    def _ensure_users_and_roles(self, tenant):
+        from apps.tenants.models import TenantMembership, TenantUserRole
+
+        def make_user(username, role, password="testpass123", telegram_id=None):
             is_admin = role == TenantUserRole.ROLE_ADMIN
             user, _ = User.objects.get_or_create(
                 username=username,
                 defaults={"email": f"{username}@test.local", "is_staff": is_admin, "is_superuser": is_admin},
             )
+            if telegram_id is not None:
+                user.telegram_chat_id = telegram_id
+                user.telegram_from_id = telegram_id
             user.set_password(password)
-            user.save(update_fields=["password"])
+            if telegram_id is not None:
+                user.save(update_fields=["password", "telegram_chat_id", "telegram_from_id"])
+            else:
+                user.save(update_fields=["password"])
             TenantMembership.objects.get_or_create(tenant=tenant, user=user, defaults={"is_active": True})
-            TenantUserRole.objects.get_or_create(tenant=tenant, user=user, defaults={"role": role})
+            TenantUserRole.objects.get_or_create(tenant=tenant, user=user, role=role)
             return user
 
         admin = make_user("test_admin", TenantUserRole.ROLE_ADMIN)
         director = make_user("test_director", TenantUserRole.ROLE_DIRECTOR)
         accountant = make_user("test_accountant", TenantUserRole.ROLE_ACCOUNTANT)
+        ddavlet = make_user(
+            "ddavlet",
+            TenantUserRole.ROLE_APPROVER,
+            telegram_id=TEST_DDAVLET_TELEGRAM_ID,
+        )
+        TenantUserRole.objects.get_or_create(
+            tenant=tenant,
+            user=ddavlet,
+            role=TenantUserRole.ROLE_REQUESTER,
+        )
 
-        self.stdout.write(f"  Users: {admin.username} / {director.username} / {accountant.username}  (password: testpass123)")
+        self.stdout.write(
+            "  Users: "
+            f"{admin.username} / {director.username} / {accountant.username} / {ddavlet.username} "
+            "(password: testpass123)"
+        )
+        return admin, director, accountant, ddavlet
 
-        # ── Enable all modules ───────────────────────────────────────────────
+    def _ensure_modules(self, tenant):
+        from apps.tenants.models import TenantModuleConfig
+
         for key in MODULES:
             TenantModuleConfig.objects.get_or_create(tenant=tenant, module_key=key, defaults={"is_enabled": True})
+            TenantModuleConfig.objects.filter(tenant=tenant, module_key=key).update(is_enabled=True)
 
         self.stdout.write(f"  Modules enabled: {', '.join(MODULES)}")
 
-        # ── Wallets ──────────────────────────────────────────────────────────
-        from apps.modules.wallets.models import (
-            Wallet, CashRegister, BankAccount, CorporateCardAccount,
+    def _ensure_vendors(self, tenant, admin):
+        from apps.modules.vendors.models import Vendor
+
+        vendor_rows = [
+            ("Касса Ромашка", Vendor.KIND_CASH, "", ""),
+            ("Касса АвтоДел", Vendor.KIND_CASH, "", ""),
+            ("ООО ТехСервис", Vendor.KIND_TRANSFER, "301234567", "20208000100100000001"),
+            ("ИП Иванов", Vendor.KIND_TRANSFER, "309876543", "20208000100100000002"),
+        ]
+        vendors = []
+        for name, kind, inn, account_number in vendor_rows:
+            v, created = Vendor.objects.get_or_create(
+                tenant=tenant,
+                name=name,
+                defaults={
+                    "kind": kind,
+                    "inn": inn or None,
+                    "account_number": account_number or None,
+                    "created_by": admin,
+                },
+            )
+            if not created:
+                v.kind = kind
+                v.inn = inn or None
+                v.account_number = account_number or None
+                v.save(update_fields=["kind", "inn", "account_number"])
+            vendors.append(v)
+
+        self.stdout.write(f"  Vendors: {len(vendors)} ensured")
+        return vendors
+
+    def _ensure_request_categories(self, tenant):
+        from apps.modules.requests.models import RequestCategory
+
+        categories = []
+        for cat_name in ["IT", "Marketing", "HR"]:
+            c, _ = RequestCategory.objects.get_or_create(
+                tenant=tenant,
+                name=cat_name,
+                defaults={"is_active": True},
+            )
+            if not c.is_active:
+                c.is_active = True
+                c.save(update_fields=["is_active"])
+            categories.append(c)
+        return categories
+
+    def _ensure_request_form_configs(self, tenant, admin, ddavlet, vendors):
+        from apps.modules.requests.models import (
+            Request,
+            RequestFormConfig,
+            RequestFormPaymentTypeConfig,
+            RequestFormPaymentTypeRequester,
+            RequestFormPaymentTypeVendor,
+            RequestPaymentPurposeConfig,
         )
+        from apps.modules.vendors.models import Vendor
+
+        form_cfg, _ = RequestFormConfig.objects.get_or_create(tenant=tenant, defaults={"updated_by": admin})
+        form_cfg.updated_by = admin
+        form_cfg.save(update_fields=["updated_by"])
+
+        cash_vendor = next((v for v in vendors if v.kind == Vendor.KIND_CASH), None)
+        transfer_vendor = next((v for v in vendors if v.kind == Vendor.KIND_TRANSFER), None)
+        payer_by_type = {
+            Request.PAYMENT_TYPE_CASH: "Test Cash LLC",
+            Request.PAYMENT_TYPE_TRANSFER: "Test Transfer LLC",
+            Request.PAYMENT_TYPE_TOPUP: "Test Topup LLC",
+            Request.PAYMENT_TYPE_CARD: "Test Card LLC",
+        }
+        purpose_by_type = {
+            Request.PAYMENT_TYPE_CASH: ("Хозрасходы", "IT"),
+            Request.PAYMENT_TYPE_TRANSFER: ("Оплата поставщику", "Marketing"),
+            Request.PAYMENT_TYPE_TOPUP: ("Пополнение счета", "HR"),
+            Request.PAYMENT_TYPE_CARD: ("Онлайн подписки", "IT"),
+        }
+
+        for payment_type, _label in Request.PAYMENT_TYPE_CHOICES:
+            is_cash = payment_type == Request.PAYMENT_TYPE_CASH
+            default_vendor = cash_vendor if is_cash else transfer_vendor
+            default_purpose_name, default_category = purpose_by_type[payment_type]
+            pt_cfg, _ = RequestFormPaymentTypeConfig.objects.get_or_create(
+                config=form_cfg,
+                payment_type=payment_type,
+                defaults={
+                    "is_enabled": True,
+                    "default_title": "Тестовая заявка",
+                    "default_company_payer": payer_by_type[payment_type],
+                    "default_description": "Автозаполнение для локальных тестов",
+                    "default_amount": Decimal("100000"),
+                    "default_currency": Request.CURRENCY_UZS,
+                    "default_urgency": Request.URGENCY_NORMAL,
+                    "default_billing_days_offset": 0,
+                    "default_payment_purpose": default_purpose_name,
+                    "default_vendor": default_vendor,
+                    "contracts_required": False,
+                },
+            )
+            pt_cfg.is_enabled = True
+            pt_cfg.default_title = "Тестовая заявка"
+            pt_cfg.default_company_payer = payer_by_type[payment_type]
+            pt_cfg.default_description = "Автозаполнение для локальных тестов"
+            pt_cfg.default_amount = Decimal("100000")
+            pt_cfg.default_currency = Request.CURRENCY_UZS
+            pt_cfg.default_urgency = Request.URGENCY_NORMAL
+            pt_cfg.default_billing_days_offset = 0
+            pt_cfg.default_payment_purpose = default_purpose_name
+            pt_cfg.default_vendor = default_vendor
+            pt_cfg.contracts_required = False
+            pt_cfg.save()
+
+            RequestFormPaymentTypeRequester.objects.get_or_create(payment_type_config=pt_cfg, user=ddavlet)
+            if default_vendor:
+                RequestFormPaymentTypeVendor.objects.get_or_create(
+                    payment_type_config=pt_cfg,
+                    vendor=default_vendor,
+                )
+
+            purpose, _ = RequestPaymentPurposeConfig.objects.get_or_create(
+                payment_type_config=pt_cfg,
+                name=default_purpose_name,
+                defaults={"category": default_category, "is_active": True},
+            )
+            if purpose.category != default_category or not purpose.is_active:
+                purpose.category = default_category
+                purpose.is_active = True
+                purpose.save(update_fields=["category", "is_active"])
+
+        self.stdout.write("  Request form config: defaults + purposes ensured for all payment types")
+
+    def _ensure_request_approval_configs(self, tenant, admin, ddavlet):
+        from apps.modules.requests.models import (
+            Approval,
+            Request,
+            RequestApprovalConfig,
+            RequestApprovalPaymentTypeConfig,
+            RequestApprovalStepApproverConfig,
+            RequestApprovalStepConfig,
+        )
+
+        approval_cfg, _ = RequestApprovalConfig.objects.get_or_create(tenant=tenant, defaults={"updated_by": admin})
+        approval_cfg.updated_by = admin
+        approval_cfg.save(update_fields=["updated_by"])
+
+        for payment_type, _label in Request.PAYMENT_TYPE_CHOICES:
+            pt_cfg, _ = RequestApprovalPaymentTypeConfig.objects.get_or_create(
+                config=approval_cfg,
+                payment_type=payment_type,
+                defaults={"is_enabled": True},
+            )
+            pt_cfg.is_enabled = True
+            pt_cfg.save(update_fields=["is_enabled"])
+
+            step_defs = [
+                (1, Approval.STEP_TYPE_SERIAL, RequestApprovalStepConfig.PAYMENT_ACTION_MODE_CALLBACK),
+                (2, Approval.STEP_TYPE_SERIAL, RequestApprovalStepConfig.PAYMENT_ACTION_MODE_CALLBACK),
+                (3, Approval.STEP_TYPE_PAYMENT, RequestApprovalStepConfig.PAYMENT_ACTION_MODE_CREATE),
+            ]
+            for step, step_type, payment_action_mode in step_defs:
+                step_cfg, _ = RequestApprovalStepConfig.objects.get_or_create(
+                    payment_type_config=pt_cfg,
+                    step=step,
+                    defaults={
+                        "step_type": step_type,
+                        "is_enabled": True,
+                        "payment_action_mode": payment_action_mode,
+                    },
+                )
+                step_cfg.step_type = step_type
+                step_cfg.is_enabled = True
+                step_cfg.payment_action_mode = payment_action_mode
+                step_cfg.save(update_fields=["step_type", "is_enabled", "payment_action_mode"])
+                RequestApprovalStepApproverConfig.objects.get_or_create(
+                    step_config=step_cfg,
+                    approver_user=ddavlet,
+                )
+
+        self.stdout.write("  Approval config: 3-step pipeline ensured for all payment types")
+
+    def _create_wallets(self, tenant):
+        from apps.modules.wallets.models import Wallet, CashRegister, BankAccount, CorporateCardAccount
+
         cash_register = CashRegister.objects.create(tenant=tenant, currency="UZS", name="Основная касса")
         cash_wallet = Wallet.objects.create(
             tenant=tenant, wallet_type="cash", currency="UZS", cash_register=cash_register,
@@ -127,27 +391,10 @@ class Command(BaseCommand):
             tenant=tenant, wallet_type="corporate_card", currency="USD", corporate_card_account=card_account,
         )
         self.stdout.write("  Wallets: cash/UZS, bank/UZS, card/USD")
+        return cash_wallet, bank_wallet, card_wallet
 
-        # ── Vendors ──────────────────────────────────────────────────────────
-        from apps.modules.vendors.models import Vendor
-        vendors = []
-        for name, kind in [("ООО Ромашка", "legal"), ("ИП Иванов", "individual"), ("ТехСервис", "legal"), ("АвтоДел", "individual")]:
-            v = Vendor.objects.create(tenant=tenant, name=name, kind=kind, created_by=admin)
-            vendors.append(v)
-        self.stdout.write(f"  Vendors: {len(vendors)} created")
-
-        # ── Requests ─────────────────────────────────────────────────────────
-        from apps.modules.requests.models import (
-            Request, RequestCategory, RequestFormConfig,
-            RequestApprovalConfig,
-        )
-        categories = []
-        for cat_name in ["IT", "Marketing", "HR"]:
-            c = RequestCategory.objects.create(tenant=tenant, name=cat_name, is_active=True)
-            categories.append(c)
-
-        RequestFormConfig.objects.get_or_create(tenant=tenant, defaults={"updated_by": admin})
-        RequestApprovalConfig.objects.get_or_create(tenant=tenant, defaults={"updated_by": admin})
+    def _seed_demo_requests(self, tenant, admin):
+        from apps.modules.requests.models import Request
 
         today = date.today()
         request_data = [
@@ -157,13 +404,13 @@ class Command(BaseCommand):
             ("Подписка GitHub Teams", "IT", Decimal("200"), "USD", Request.STATUS_APPROVED, today - timedelta(days=2)),
         ]
         requests = []
-        for title, cat, amount, currency, status, bdate in request_data:
+        for title, cat_name, amount, currency, status, bdate in request_data:
             r = Request.objects.create(
                 tenant=tenant,
                 created_by=admin,
                 requester=admin,
                 title=title,
-                category=cat,
+                category=cat_name,
                 amount=amount,
                 currency=currency,
                 status=status,
@@ -173,8 +420,9 @@ class Command(BaseCommand):
             requests.append(r)
         self.stdout.write(f"  Requests: {len(requests)} created (categories: IT, Marketing, HR)")
 
-        # ── Cash ─────────────────────────────────────────────────────────────
+    def _seed_demo_cash(self, tenant, admin, cash_wallet):
         from apps.modules.cashier.models import CashExpense, CashRevenue
+
         now = timezone.now()
         for i, (title, amount) in enumerate([("Канцтовары", 50000), ("Такси", 30000), ("Обед команды", 120000), ("Аренда зала", 200000)]):
             dt = now - timedelta(days=i)
@@ -196,8 +444,10 @@ class Command(BaseCommand):
             )
         self.stdout.write("  Cash: 4 expenses, 3 revenues")
 
-        # ── Bank ─────────────────────────────────────────────────────────────
+    def _seed_demo_bank(self, tenant, admin, bank_wallet):
         from apps.modules.bank_expenses.models import BankExpense, BankRevenue
+
+        now = timezone.now()
         for i, (purpose, amount) in enumerate([("Оплата поставщику", 2000000), ("Аренда офиса", 3500000), ("Зарплата", 10000000), ("Коммунальные услуги", 450000)]):
             dt = now - timedelta(days=i)
             BankExpense.objects.create(
@@ -220,8 +470,10 @@ class Command(BaseCommand):
             )
         self.stdout.write("  Bank: 4 expenses, 3 revenues")
 
-        # ── Corporate Card ───────────────────────────────────────────────────
+    def _seed_demo_corporate_card(self, tenant, admin, card_wallet):
         from apps.modules.corporate_card.models import CardExpense, CardRevenue
+
+        now = timezone.now()
         for i, (title, amount) in enumerate([("Uber business", 45), ("AWS services", 120), ("Zoom subscription", 15), ("Adobe license", 55)]):
             dt = now - timedelta(days=i)
             CardExpense.objects.create(
@@ -238,8 +490,9 @@ class Command(BaseCommand):
             )
         self.stdout.write("  Corporate card: 4 expenses, 3 revenues")
 
-        # ── Payroll ──────────────────────────────────────────────────────────
+    def _seed_demo_payroll(self, tenant):
         from apps.modules.payroll.models import PayrollDocument, PayrollLine
+
         for doc_num in range(1, 3):
             doc = PayrollDocument.objects.create(
                 tenant=tenant, doc_id=f"PR-2026-0{doc_num}",
@@ -259,8 +512,9 @@ class Command(BaseCommand):
                 )
         self.stdout.write("  Payroll: 2 documents × 3 lines")
 
-        # ── Budgets ──────────────────────────────────────────────────────────
+    def _seed_demo_budgets(self, tenant, admin, categories):
         from apps.modules.budgets.models import Budget
+
         budget_data = [
             ("IT бюджет", categories[0], Budget.PERIOD_MONTHLY, Decimal("10000000"), "UZS"),
             ("Маркетинг Q2", categories[1], Budget.PERIOD_QUARTERLY, Decimal("5000000"), "UZS"),
@@ -275,8 +529,9 @@ class Command(BaseCommand):
             )
         self.stdout.write(f"  Budgets: {len(budget_data)} created")
 
-        # ── Clients Debt ─────────────────────────────────────────────────────
+    def _seed_demo_clients_debt(self, tenant, admin):
         from apps.modules.clients_debt.models import ClientDebtSnapshot
+
         for i, (client, debt) in enumerate([("ООО АльфаТорг", 1500000), ("ИП Петров", 750000), ("ТехСервис Плюс", 3200000)]):
             ClientDebtSnapshot.objects.create(
                 tenant=tenant,
@@ -287,8 +542,10 @@ class Command(BaseCommand):
             )
         self.stdout.write("  Clients debt: 3 snapshots")
 
-        # ── Investments ──────────────────────────────────────────────────────
+    def _seed_demo_investments(self, tenant, admin):
         from apps.modules.investments.models import InvestReturn
+
+        today = date.today()
         for i, (amount, inv_type, recipient) in enumerate([
             (Decimal("10000000"), InvestReturn.ReturnType.DIVIDEND, InvestReturn.Recipient.INVESTOR),
             (Decimal("7500000"), InvestReturn.ReturnType.DIVIDEND, InvestReturn.Recipient.PARTNER),
@@ -302,8 +559,9 @@ class Command(BaseCommand):
             )
         self.stdout.write("  Investments: 4 invest returns")
 
-        # ── Notes ────────────────────────────────────────────────────────────
+    def _seed_demo_notes(self, tenant, admin, director):
         from apps.modules.notes.models import Note
+
         for i, (msg, target_type) in enumerate([
             ("Проверить оплату по заявке #1", Note.TARGET_REQUEST),
             ("Согласовать бюджет на Q3", Note.TARGET_CASH),
@@ -316,13 +574,3 @@ class Command(BaseCommand):
                 message=msg,
             )
         self.stdout.write("  Notes: 3 created")
-
-        self.stdout.write(self.style.SUCCESS(
-            "\n✓ Test data seeded successfully!\n"
-            f"  Tenant subdomain : {TENANT_SUBDOMAIN}\n"
-            f"  Admin login      : test_admin / testpass123\n"
-            f"  Director login   : test_director / testpass123\n"
-            f"  Accountant login : test_accountant / testpass123\n"
-            f"  Admin panel      : http://test.localhost:8001/api/admin/\n"
-            f"  API              : http://test.localhost:8001/api/\n"
-        ))

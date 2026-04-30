@@ -1,9 +1,9 @@
 import hashlib
+import json
 import os
 import random
 from datetime import timedelta
 
-import requests
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.contrib.auth.hashers import check_password, make_password
@@ -16,7 +16,7 @@ from rest_framework.views import APIView
 from rest_framework_simplejwt.tokens import RefreshToken
 
 from apps.accounts.models import OtpChallenge
-from apps.tenants.integration_settings import get_notes_integration_settings
+from apps.modules.telegram_approvals.services import _get_tenant_bot_token, post_messaging_gateway
 from apps.tenants.models import TenantMembership, TenantUserRole
 
 User = get_user_model()
@@ -56,22 +56,28 @@ def _check_code(code: str, code_hash: str):
     return check_password(raw, code_hash)
 
 
-def _send_telegram_message(*, tenant, bot_token: str, chat_id: int, text: str):
-    base_url = get_notes_integration_settings(tenant=tenant).telegram_api_base_url
+def _send_otp_via_gateway(*, tenant, bot_token: str, chat_id: int, text: str):
+    """Deliver OTP HTML via messaging gateway (same path as notes / approvals)."""
+    payload = {
+        "action": "send",
+        "bot_token": bot_token,
+        "tenant_id": str(getattr(tenant, "id", "")),
+        "recipient_id": str(chat_id),
+        "text": text,
+        "format": "html",
+    }
     try:
-        resp = requests.post(
-            f"{base_url}/bot{bot_token}/sendMessage",
-            json={
-                "chat_id": chat_id,
-                "text": text,
-                "parse_mode": "HTML",
-                "disable_web_page_preview": True,
-            },
-            timeout=10,
-        )
-        return resp.ok, resp.status_code, (resp.text or "")
-    except requests.RequestException as exc:
+        data = post_messaging_gateway(tenant=tenant, payload=payload)
+    except Exception as exc:
         return False, None, str(exc)
+    if data is None:
+        return False, None, "messaging_gateway_unreachable_or_http_error"
+    if isinstance(data, dict) and data.get("ok") is True:
+        return True, 200, json.dumps(data, ensure_ascii=False)
+    if isinstance(data, dict):
+        detail = data.get("detail") or data.get("description") or data
+        return False, None, str(detail)
+    return False, None, str(data)
 
 
 def _notify_tenant_admins(*, tenant, bot_token: str, text: str) -> None:
@@ -102,7 +108,7 @@ def _notify_tenant_admins(*, tenant, bot_token: str, text: str) -> None:
 
     for admin in admins.iterator():
         try:
-            _send_telegram_message(tenant=tenant, bot_token=bot_token, chat_id=int(admin.telegram_chat_id), text=clipped)
+            _send_otp_via_gateway(tenant=tenant, bot_token=bot_token, chat_id=int(admin.telegram_chat_id), text=clipped)
         except Exception:
             # Do not let diagnostics break auth flow.
             pass
@@ -136,7 +142,7 @@ class OtpRequestView(APIView):
         if not tenant.telegram_otp_enabled:
             return Response({"detail": "OTP для этого тенанта отключен."}, status=status.HTTP_400_BAD_REQUEST)
 
-        bot_token = tenant.get_telegram_bot_token()
+        bot_token = _get_tenant_bot_token(tenant)
         if not bot_token or not user.telegram_chat_id:
             return Response({"detail": "OTP недоступен для этого пользователя."}, status=status.HTTP_400_BAD_REQUEST)
 
@@ -155,10 +161,10 @@ class OtpRequestView(APIView):
             f"<code>{code}</code>\n\n"
             "Срок действия — 5 минут."
         )
-        sent, tg_status, tg_body = _send_telegram_message(
+        sent, tg_status, tg_body = _send_otp_via_gateway(
             tenant=tenant,
             bot_token=bot_token,
-            chat_id=user.telegram_chat_id,
+            chat_id=int(user.telegram_chat_id),
             text=message,
         )
         cache.set(key, "1", timeout=OTP_RESEND_COOLDOWN_SECONDS)
@@ -172,8 +178,8 @@ class OtpRequestView(APIView):
                     f"tenant={tenant.subdomain}\n"
                     f"username={username}\n"
                     f"chat_id={user.telegram_chat_id}\n"
-                    f"telegram_status={tg_status}\n"
-                    f"telegram_body={tg_body}"
+                    f"gateway_status={tg_status}\n"
+                    f"gateway_body={tg_body}"
                 ),
             )
             return Response({"detail": "Не удалось отправить OTP. Попробуйте позже."}, status=status.HTTP_503_SERVICE_UNAVAILABLE)

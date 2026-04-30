@@ -102,37 +102,17 @@ class TenantIntegrationConfig(models.Model):
         blank=True,
     )
 
-    telegram_approvals_bridge_dispatch_url = models.TextField(blank=True, default="")
-    telegram_approvals_send_action = models.CharField(max_length=100, blank=True, default="send_approval_message")
-    telegram_approvals_edit_action = models.CharField(max_length=100, blank=True, default="edit_approval_message")
-    telegram_approvals_draft_notification_action = models.CharField(max_length=100, blank=True, default="")
-    telegram_approvals_message_template = models.TextField(blank=True, default="")
-    telegram_approvals_header_new_template = models.TextField(blank=True, default="")
-    telegram_approvals_header_step_approved_template = models.TextField(blank=True, default="")
-    telegram_approvals_header_fully_approved_template = models.TextField(blank=True, default="")
-    telegram_approvals_header_closed_template = models.TextField(blank=True, default="")
-    telegram_approvals_header_rejected_template = models.TextField(blank=True, default="")
-    telegram_approvals_subheader_payment_responsible_template = models.TextField(blank=True, default="")
-    telegram_approvals_subheader_rejected_by_template = models.TextField(blank=True, default="")
-    telegram_approvals_bridge_token_enc = models.TextField(blank=True, default="")
-
     n8n_integration_token_enc = models.TextField(blank=True, default="")
     requests_file_gateway_token_enc = models.TextField(blank=True, default="")
     telegram_oidc_client_id = models.CharField(max_length=120, blank=True, default="")
     telegram_oidc_client_secret_enc = models.TextField(blank=True, default="")
     telegram_oidc_redirect_uri = models.TextField(blank=True, default="")
 
-    portal_feedback_telegram_chat_id = models.BigIntegerField(null=True, blank=True)
-    portal_feedback_telegram_action = models.CharField(max_length=100, blank=True, default="")
+    messaging_gateway_feedback_recipient_id = models.BigIntegerField(null=True, blank=True)
+    messaging_gateway_feedback_action = models.CharField(max_length=100, blank=True, default="")
 
     class Meta:
         db_table = "tenant_integration_configs"
-
-    def set_telegram_approvals_bridge_token(self, token: str) -> None:
-        self.telegram_approvals_bridge_token_enc = encrypt_secret((token or "").strip())
-
-    def get_telegram_approvals_bridge_token(self) -> str:
-        return decrypt_secret(self.telegram_approvals_bridge_token_enc).strip()
 
     def set_n8n_integration_token(self, token: str) -> None:
         self.n8n_integration_token_enc = encrypt_secret((token or "").strip())

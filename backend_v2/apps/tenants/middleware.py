@@ -6,6 +6,19 @@ def _host_no_port(host: str) -> str:
     return (host or "").split(":")[0].lower()
 
 
+# Forwarded from tg-gateway over Docker DNS (e.g. kolberg_backend_local). Tenant is resolved inside the view from Approval.
+_INTERNAL_MESSAGING_CALLBACK_PREFIXES = (
+    "/api/messaging-gateway/webhook",
+    "/api/investments/approvals/webhook",
+)
+
+
+def _is_internal_messaging_gateway_callback(path: str) -> bool:
+    if not path:
+        return False
+    return any(path == p or path.startswith(p + "/") for p in _INTERNAL_MESSAGING_CALLBACK_PREFIXES)
+
+
 def _get_subdomain(host: str, base_domain: str) -> str:
     h = _host_no_port(host)
     if not h:
@@ -38,6 +51,9 @@ class TenantSubdomainMiddleware:
         from django.conf import settings
 
         if getattr(request, "tenant", None) is not None:
+            return self.get_response(request)
+
+        if _is_internal_messaging_gateway_callback(request.path or ""):
             return self.get_response(request)
 
         sub = _get_subdomain(request.get_host(), getattr(settings, "BASE_DOMAIN", "") or "")

@@ -33,6 +33,7 @@ from apps.modules.requests.auto_requests import (
     process_due_auto_requests,
     render_auto_request_template,
 )
+from apps.modules.requests.integration_settings import get_requests_messaging_gateway_settings
 from apps.modules.bank_expenses.models import BankExpense
 from apps.modules.cashier.models import CashExpense
 from apps.modules.corporate_card.models import CardExpense
@@ -566,15 +567,15 @@ class RequestApprovalsTests(APITestCase):
         self.assertEqual(approval.decision, Approval.DECISION_PENDING)
         self.assertEqual(approval.step, 1)
         self.assertEqual(approval.step_type, Approval.STEP_TYPE_SERIAL)
-        self.assertEqual(approval.approver_tg_id, self.approver.telegram_chat_id)
-        self.assertEqual(approval.approver_tg_from_id, self.approver.telegram_from_id)
+        self.assertEqual(approval.approver_recipient_id, self.approver.telegram_chat_id)
+        self.assertEqual(approval.approver_external_user_id, self.approver.telegram_from_id)
 
         inbox_qs = UserRequestApproval.objects.filter(request_id=request_id, approver_user=self.approver)
         self.assertEqual(inbox_qs.count(), 1)
         inbox = inbox_qs.first()
         self.assertEqual(inbox.decision, Approval.DECISION_PENDING)
         self.assertEqual(inbox.step, 1)
-        self.assertEqual(inbox.approver_tg_from_id, self.approver.telegram_from_id)
+        self.assertEqual(inbox.approver_external_user_id, self.approver.telegram_from_id)
 
         self.client.force_authenticate(self.approver)
         res = self.client.get("/api/requests/my-approvals/", HTTP_HOST=self.host)
@@ -820,7 +821,7 @@ class RequestApprovalsTests(APITestCase):
         from apps.modules.requests.approval_workflow import confirm_approval_by_id
 
         with patch(
-            "apps.modules.telegram_approvals.services._post_to_bridge",
+            "apps.modules.telegram_approvals.services._post_to_gateway",
             return_value={"message_id": 1},
         ) as mock_bridge:
             req_data = self._create_request()
@@ -839,7 +840,7 @@ class RequestApprovalsTests(APITestCase):
             )
             step2_chat = self.other_approver.telegram_chat_id
             notified_step2 = any(
-                (getattr(c, "kwargs", None) or {}).get("payload", {}).get("chat_id") == step2_chat
+                (getattr(c, "kwargs", None) or {}).get("payload", {}).get("recipient_id") == str(step2_chat)
                 for c in mock_bridge.call_args_list
             )
             self.assertFalse(
@@ -940,9 +941,9 @@ class RequestApprovalsTests(APITestCase):
         req_data = self._create_request()
         request_id = req_data["id"]
         approval = Approval.objects.get(request_id=request_id, approver_user=self.approver)
-        approval.message_id = 9001
+        approval.gateway_message_id = 9001
         approval.message_sent = True
-        approval.save(update_fields=["message_id", "message_sent"])
+        approval.save(update_fields=["gateway_message_id", "message_sent"])
 
         self.client.force_authenticate(self.approver)
         res = self.client.get(
@@ -2850,7 +2851,7 @@ class DraftRequestPatchSubmitTests(APITestCase):
         )
         self.assertEqual(res.status_code, 403, res.content)
 
-    @patch("apps.modules.telegram_approvals.services._post_to_bridge", return_value={"message_id": 1})
+    @patch("apps.modules.telegram_approvals.services._post_to_gateway", return_value={"message_id": 1})
     def test_dispatch_draft_notification_payload(self, mock_post):
         from apps.modules.telegram_approvals.services import dispatch_draft_request_notification
 
@@ -2859,20 +2860,18 @@ class DraftRequestPatchSubmitTests(APITestCase):
         self.assertTrue(ok)
         mock_post.assert_called_once()
         payload = mock_post.call_args.kwargs["payload"]
-        self.assertEqual(payload["action"], "send_draft_notification")
-        self.assertEqual(payload["notification_kind"], "draft_needs_amount")
-        self.assertEqual(payload["chat_id"], 123)
-        self.assertEqual(payload["template_id"], 77)
-        self.assertEqual(
-            payload["template_url"],
+        self.assertEqual(payload["action"], "send")
+        self.assertEqual(payload["recipient_id"], "123")
+        self.assertIn("кнопкой в этом сообщении", payload["text"])
+        self.assertIn("📝 Черновик заявки", payload["text"])
+        self.assertIn("💰 Финансы", payload["text"])
+        self.assertIn("📌 Назначение", payload["text"])
+        self.assertIn("⏱ Статус", payload["text"])
+        self.assertIn(
             f"https://{self.tenant.subdomain}.example.com/requests/auto-config?template_id=77",
+            payload["text"],
         )
-        self.assertIn("кнопкой в этом сообщении", payload["message"])
-        self.assertIn("📝 Черновик заявки", payload["message"])
-        self.assertIn("💰 Финансы", payload["message"])
-        self.assertIn("📌 Назначение", payload["message"])
-        self.assertIn("⏱ Статус", payload["message"])
-        self.assertEqual(payload["draft_url"], f"https://{self.tenant.subdomain}.example.com/requests/{req.id}")
+        self.assertIn(f"https://{self.tenant.subdomain}.example.com/requests/{req.id}", payload["text"])
 
 
 @override_settings(BASE_DOMAIN="example.com", N8N_TOKEN="", N8N_INTEGRATION_TOKEN="", ALLOWED_HOSTS=["*"])
@@ -3006,5 +3005,19 @@ class RequestContractsRequiredTests(APITestCase):
         self.assertEqual(res.status_code, 201, res.content)
         req = Request.objects.get(id=res.data["id"])
         self.assertIsNone(req.contract_ref_id)
+
+
+@override_settings(BASE_DOMAIN="example.com", MESSAGING_GATEWAY_SEND_URL="http://gw.example/v1/messaging/send")
+class GetRequestsMessagingGatewaySettingsTests(APITestCase):
+    def test_resolves_draft_notification_action_without_crashing(self):
+        tenant = Tenant.objects.create(name="Co", subdomain="gwsett", is_active=True)
+        settings_obj = get_requests_messaging_gateway_settings(tenant=tenant)
+        self.assertEqual(settings_obj.draft_notification_action, "send")
+
+    @override_settings(MESSAGING_GATEWAY_DRAFT_ACTION="send_interactive")
+    def test_draft_notification_action_from_django_settings(self):
+        tenant = Tenant.objects.create(name="Co2", subdomain="gwsett2", is_active=True)
+        settings_obj = get_requests_messaging_gateway_settings(tenant=tenant)
+        self.assertEqual(settings_obj.draft_notification_action, "send_interactive")
 
 

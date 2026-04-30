@@ -189,10 +189,12 @@ N8N_FEEDBACK_AI_WEBHOOK_PATH = (
     os.getenv("N8N_FEEDBACK_AI_WEBHOOK_PATH", "n8n/ai/dispatch") or "n8n/ai/dispatch"
 ).strip().strip("/")
 
-TELEGRAM_APPROVALS_BRIDGE_DISPATCH_URL = os.getenv("TELEGRAM_APPROVALS_BRIDGE_DISPATCH_URL", "").strip()
-# Optional override for bridge failure notifications; default is derived from dispatch URL or tenant host + /n8n/error/
-TELEGRAM_APPROVALS_BRIDGE_ERROR_URL = os.getenv("TELEGRAM_APPROVALS_BRIDGE_ERROR_URL", "").strip()
-TELEGRAM_APPROVALS_BRIDGE_TOKEN = os.getenv("TELEGRAM_APPROVALS_BRIDGE_TOKEN", "").strip()
+MESSAGING_GATEWAY_SEND_URL = os.getenv("MESSAGING_GATEWAY_SEND_URL", "").strip()
+MESSAGING_GATEWAY_ADMIN_URL = os.getenv("MESSAGING_GATEWAY_ADMIN_URL", "http://tg_gateway:8080").strip()
+# Platform-neutral actions for tg-gateway (tenant-wide; subdomain only scopes HTTP API / tenant row).
+MESSAGING_GATEWAY_SEND_ACTION = os.getenv("MESSAGING_GATEWAY_SEND_ACTION", "send_interactive").strip()
+MESSAGING_GATEWAY_EDIT_ACTION = os.getenv("MESSAGING_GATEWAY_EDIT_ACTION", "edit_interactive").strip()
+MESSAGING_GATEWAY_DRAFT_ACTION = os.getenv("MESSAGING_GATEWAY_DRAFT_ACTION", "send").strip()
 
 # Reports payload cache (seconds). Keep short to reduce staleness while smoothing n8n latency spikes.
 REPORTS_CACHE_TTL_SECONDS = int(os.getenv("REPORTS_CACHE_TTL_SECONDS", "60"))

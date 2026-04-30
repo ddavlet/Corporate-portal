@@ -1407,7 +1407,6 @@ class RequestApprovalConfigView(APIView):
         payload = RequestApprovalConfigPayloadSerializer(data=request.data, context={"request": request})
         payload.is_valid(raise_exception=True)
         payment_types = payload.validated_data.get("payment_types", [])
-        integration_settings = payload.validated_data.get("integration_settings", {})
 
         active_member_ids = set(
             TenantMembership.objects.filter(tenant=tenant, is_active=True).values_list("user_id", flat=True)
@@ -1418,25 +1417,7 @@ class RequestApprovalConfigView(APIView):
                 tenant=tenant, defaults={"updated_by": request.user}
             )
             cfg.updated_by = request.user
-            for field in (
-                "telegram_approvals_bridge_dispatch_url",
-                "telegram_approvals_send_action",
-                "telegram_approvals_edit_action",
-                "telegram_approvals_draft_notification_action",
-                "telegram_approvals_bridge_token",
-                "telegram_approvals_message_template",
-                "telegram_approvals_header_new_template",
-                "telegram_approvals_header_step_approved_template",
-                "telegram_approvals_header_fully_approved_template",
-                "telegram_approvals_header_closed_template",
-                "telegram_approvals_header_rejected_template",
-                "telegram_approvals_subheader_payment_responsible_template",
-                "telegram_approvals_subheader_rejected_by_template",
-                "n8n_integration_token",
-            ):
-                if field in integration_settings:
-                    setattr(cfg, field, integration_settings[field])
-            cfg.save()
+            cfg.save(update_fields=["updated_by"])
 
             existing_pt = {
                 row.payment_type: row
