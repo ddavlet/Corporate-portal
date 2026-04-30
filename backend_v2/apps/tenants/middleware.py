@@ -21,7 +21,7 @@ class RewriteDockerInternalHostMiddleware:
         host = request.META.get("HTTP_HOST")
         if host:
             domain, _, port = host.partition(":")
-            canonical = getattr(settings, "DOCKER_INTERNAL_BACKEND_DNS_NAME", "") or ""
+            canonical = settings.DOCKER_INTERNAL_BACKEND_DNS_NAME
             if canonical and domain in self._LEGACY_NAMES:
                 request.META["HTTP_HOST"] = f"{canonical}:{port}" if port else canonical
         return self.get_response(request)
