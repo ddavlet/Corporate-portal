@@ -190,6 +190,7 @@ N8N_FEEDBACK_AI_WEBHOOK_PATH = (
 ).strip().strip("/")
 
 MESSAGING_GATEWAY_SEND_URL = os.getenv("MESSAGING_GATEWAY_SEND_URL", "").strip()
+MESSAGING_GATEWAY_ADMIN_URL = os.getenv("MESSAGING_GATEWAY_ADMIN_URL", "http://tg_gateway:8080").strip()
 
 # Reports payload cache (seconds). Keep short to reduce staleness while smoothing n8n latency spikes.
 REPORTS_CACHE_TTL_SECONDS = int(os.getenv("REPORTS_CACHE_TTL_SECONDS", "60"))

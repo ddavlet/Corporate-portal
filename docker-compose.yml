@@ -473,6 +473,7 @@ services:
       N8N_INTEGRATION_TOKEN: ${N8N_INTEGRATION_TOKEN:-}
       N8N_TOKEN: ${N8N_TOKEN:-}
       MESSAGING_GATEWAY_SEND_URL: http://tg_gateway:8080/v1/messaging/send
+      MESSAGING_GATEWAY_ADMIN_URL: http://tg_gateway:8080
     volumes:
       - ./backend_v2:/app
     depends_on:
@@ -513,8 +514,20 @@ services:
     restart: always
     environment:
       BACKEND_WEBHOOK_URL: http://django_v2:8001/api/messaging-gateway/webhook/
+      PUBLIC_WEBHOOK_BASE_URL: ${TG_GATEWAY_PUBLIC_BASE_URL:-https://tg-gateway.kolberg.uz}
       CALLBACK_COOLDOWN_SECS: ${CALLBACK_COOLDOWN_SECS:-10}
       DATABASE_URL: ${TG_GATEWAY_DATABASE_URL:-}
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=n8n_traefik-public
+      - traefik.http.services.tg-gateway.loadbalancer.server.port=8080
+      # External access is limited strictly to Telegram webhook delivery path.
+      - traefik.http.routers.tg-gateway-webhook.rule=Host(`${TG_GATEWAY_PUBLIC_HOST:-tg-gateway.kolberg.uz}`) && PathPrefix(`/v1/messaging/webhook/`)
+      - traefik.http.routers.tg-gateway-webhook.entrypoints=web,websecure
+      - traefik.http.routers.tg-gateway-webhook.tls=true
+      - traefik.http.routers.tg-gateway-webhook.tls.certresolver=mytlschallenge
+      - traefik.http.routers.tg-gateway-webhook.service=tg-gateway
+      - traefik.http.routers.tg-gateway-webhook.priority=1300
     depends_on:
       - backend_v2
     networks:

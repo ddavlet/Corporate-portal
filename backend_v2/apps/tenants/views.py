@@ -1,6 +1,8 @@
 from django.contrib.auth import get_user_model
 from collections import defaultdict
 
+import requests
+from django.conf import settings
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.views import APIView
 from rest_framework.response import Response
@@ -107,12 +109,35 @@ class TenantIntegrationConfigView(APIView):
     def _masked(value: str) -> str:
         return "********" if value else ""
 
+    @staticmethod
+    def _gateway_base_url() -> str:
+        return (getattr(settings, "MESSAGING_GATEWAY_ADMIN_URL", "") or "http://tg_gateway:8080").rstrip("/")
+
+    @classmethod
+    def _fetch_webhook_info(cls, bot_token: str) -> dict:
+        if not bot_token:
+            return {"connected": False, "url": "", "error": "Telegram bot token is not configured."}
+        try:
+            resp = requests.get(f"{cls._gateway_base_url()}/v1/messaging/webhook/info/{bot_token}", timeout=8)
+            data = resp.json() if resp.content else {}
+            if resp.status_code >= 400 or not data.get("ok"):
+                detail = (data.get("telegram") or {}).get("description") if isinstance(data, dict) else None
+                return {"connected": False, "url": "", "error": detail or f"Gateway HTTP {resp.status_code}"}
+            return {
+                "connected": bool(data.get("connected")),
+                "url": str(data.get("url") or ""),
+                "error": str(data.get("last_error_message") or "") or None,
+            }
+        except Exception as exc:
+            return {"connected": False, "url": "", "error": str(exc)}
+
     def get(self, request):
         tenant = request.tenant
         cfg, _ = TenantIntegrationConfig.objects.get_or_create(tenant=tenant)
         mg = get_messaging_gateway_settings(tenant=tenant)
         req = get_requests_gateway_settings(tenant=tenant)
         pf = get_portal_feedback_settings(tenant=tenant)
+        webhook = self._fetch_webhook_info(tenant.get_telegram_bot_token())
         return Response(
             {
                 "telegram_bot_token": self._masked(tenant.get_telegram_bot_token()),
@@ -136,6 +161,9 @@ class TenantIntegrationConfigView(APIView):
                 "telegram_oidc_redirect_uri": cfg.telegram_oidc_redirect_uri,
                 "messaging_gateway_feedback_recipient_id": pf.recipient_id,
                 "messaging_gateway_feedback_action": pf.action,
+                "messaging_gateway_webhook_connected": webhook["connected"],
+                "messaging_gateway_webhook_url": webhook["url"],
+                "messaging_gateway_webhook_error": webhook.get("error"),
             }
         )
 
@@ -185,6 +213,47 @@ class TenantIntegrationConfigView(APIView):
         cfg.save()
         tenant.save(update_fields=["telegram_bot_token_enc", "telegram_bot_username"])
         return self.get(request)
+
+
+class TenantMessagingWebhookView(APIView):
+    permission_classes = [IsTenantAdmin]
+
+    @staticmethod
+    def _gateway_base_url() -> str:
+        return (getattr(settings, "MESSAGING_GATEWAY_ADMIN_URL", "") or "http://tg_gateway:8080").rstrip("/")
+
+    def post(self, request):
+        action = str(request.data.get("action") or "").strip().lower()
+        tenant = request.tenant
+        bot_token = tenant.get_telegram_bot_token()
+        if not bot_token:
+            raise ValidationError({"detail": "Telegram bot token is not configured."})
+
+        base = self._gateway_base_url()
+        if action == "set":
+            webhook_url = str(request.data.get("webhook_url") or "").strip()
+            body = {"bot_token": bot_token}
+            if webhook_url:
+                body["webhook_url"] = webhook_url
+            resp = requests.post(f"{base}/v1/messaging/webhook/set", json=body, timeout=12)
+        elif action == "delete":
+            resp = requests.post(
+                f"{base}/v1/messaging/webhook/delete",
+                json={"bot_token": bot_token, "drop_pending_updates": True},
+                timeout=12,
+            )
+        elif action == "info":
+            resp = requests.get(f"{base}/v1/messaging/webhook/info/{bot_token}", timeout=12)
+        else:
+            raise ValidationError({"action": "Expected one of: set, info, delete."})
+
+        payload = resp.json() if resp.content else {}
+        if resp.status_code >= 400:
+            return Response(
+                {"detail": (payload.get("telegram") or {}).get("description") or f"Gateway HTTP {resp.status_code}"},
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+        return Response(payload)
 
 
 class AccessMatrixView(APIView):

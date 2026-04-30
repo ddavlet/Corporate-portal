@@ -21,7 +21,7 @@ networks:
   traefik-public:
   backend:
   chromium:
-  gateway:          # NEW — internal only, no internet exposure
+  gateway:          # NEW — internal network for backend<->gateway traffic
     internal: true
 
 # Add new tg-gateway service
@@ -35,8 +35,8 @@ networks:
       # No BACKEND_TOKEN needed — network isolation replaces it
       CALLBACK_COOLDOWN_SECS: 10
     networks:
-      - traefik-public   # must be reachable by Telegram (inbound webhooks)
-      - gateway          # must reach backend_v2
+      - traefik-public   # inbound webhook path is exposed via Traefik
+      - gateway          # backend communication
 
 # In backend_v2 service, add the gateway network
   backend_v2:
@@ -47,8 +47,9 @@ networks:
 ```
 
 The webhook endpoint on the backend (`/api/messaging-gateway/webhook/`) must NOT be routed through
-Traefik anymore — it should only be reachable via the `gateway` Docker network on port 8001 directly.
-Remove or do not add a Traefik rule for that path.
+Traefik — it should only be reachable via the `gateway` Docker network on port 8001 directly.
+At the same time, the gateway itself may expose exactly one public route for Telegram delivery:
+`/v1/messaging/webhook/{bot_token}`.
 
 ### Gateway — main.py
 
@@ -68,10 +69,12 @@ resp = await client.post(BACKEND_URL, json=forward)
 Remove `_check_token()` and the `X-N8N-Integration-Token` validation entirely. The endpoint is not
 reachable from outside the `gateway` Docker network, so no token check is needed.
 
-Remove these env vars from backend settings and docker-compose:
-- `N8N_INTEGRATION_TOKEN`
-- `N8N_TOKEN`
+Remove Telegram-bridge-specific token vars:
 - `TELEGRAM_APPROVALS_BRIDGE_TOKEN` (and all its tenant-level copies)
+
+Note: `N8N_INTEGRATION_TOKEN` / `N8N_TOKEN` can remain if still required by non-gateway flows
+(reports, n8n integration endpoints, file gateway, etc.). Do not remove them unless those flows are
+also migrated.
 
 ---
 
@@ -199,7 +202,7 @@ Every call to `_post_to_bridge()` must be updated. Key changes in each payload-b
 **tenants/integration_settings.py and requests/integration_settings.py:**
 Update default action names:
 - `telegram_approvals_send_action` default: `"send_approval_message"` → `"send_interactive"`
-- `telegram_approvals_edit_action` default: `"edit_approval_message"` → `"edit_interactive"`
+- `telegram_approvals_edit_action` default: `"edit_approval_message"` → `"edit"`
 - `telegram_approvals_draft_notification_action` default: `"send_draft_notification"` → `"send"`
 
 **tenants/models.py — TenantIntegrationConfig:**
@@ -252,8 +255,7 @@ URL change:
 ```
 api/telegram-approvals/webhook/  →  api/messaging-gateway/webhook/
 ```
-Add a 301 redirect from the old URL so existing webhook registrations keep working during the
-transition.
+No temporary redirect is required. Production uses only the new path.
 
 ### Model field renames (needs Django migration)
 
@@ -329,7 +331,7 @@ Use this to make sure nothing is missed during the rename.
 - [ ] `views.py` — remove token check, update webhook parsing to flat format
 - [ ] `serializers.py` — replace with platform-neutral serializer
 - [ ] `services.py` — rename all payload fields, update action names
-- [ ] `urls.py` — rename URL prefix, add redirect from old path
+- [ ] `urls.py` — rename URL prefix (no backward-compat redirect)
 - [ ] `management/commands/refresh_telegram_approval_messages.py` — rename command
 
 **Cross-module callers:**
@@ -357,7 +359,7 @@ Use this to make sure nothing is missed during the rename.
 
 **Config:**
 - [ ] `config/settings.py` — remove `N8N_INTEGRATION_TOKEN`, `N8N_TOKEN`, `TELEGRAM_APPROVALS_BRIDGE_TOKEN`
-- [ ] `config/urls.py` — rename URL prefixes, keep backward-compat redirect
+- [ ] `config/urls.py` — rename URL prefixes (no backward-compat redirect)
 - [ ] `docker-compose.yml` — remove token env vars, add gateway network
 
 **Migrations:**

@@ -31,12 +31,20 @@ from fastapi import FastAPI, HTTPException, Path, Request
 from fastapi.responses import JSONResponse
 
 import db
-from models import DELETE_ACTIONS, EDIT_ACTIONS, SEND_ACTIONS, DispatchRequest
+from models import (
+    DELETE_ACTIONS,
+    EDIT_ACTIONS,
+    SEND_ACTIONS,
+    DispatchRequest,
+    WebhookDeleteRequest,
+    WebhookSetRequest,
+)
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
 
 BACKEND_URL = os.environ.get("BACKEND_WEBHOOK_URL", "")
+PUBLIC_WEBHOOK_BASE_URL = (os.environ.get("PUBLIC_WEBHOOK_BASE_URL", "") or "").rstrip("/")
 
 
 # ── Lifespan ──────────────────────────────────────────────────────────────────
@@ -78,6 +86,16 @@ async def _tg_post(bot_token: str, method: str, body: dict) -> dict:
                 logger.warning("TG %s attempt %d failed: %s", method, attempt + 1, exc)
                 last_exc = exc
     raise last_exc  # type: ignore[misc]
+
+
+async def _telegram_api(bot_token: str, method: str, body: dict) -> tuple[int, dict]:
+    async with httpx.AsyncClient(timeout=15) as client:
+        resp = await client.post(_tg_url(bot_token, method), json=body)
+    try:
+        payload = resp.json()
+    except Exception:
+        payload = {"ok": False, "description": resp.text[:500]}
+    return resp.status_code, payload
 
 
 # ── POST /v1/messaging/send ───────────────────────────────────────────────────
@@ -249,6 +267,65 @@ async def messaging_webhook(
     )
 
     return {"ok": True}
+
+
+# ── Telegram webhook management ────────────────────────────────────────────────
+
+@app.post("/v1/messaging/webhook/set")
+async def set_telegram_webhook(payload: WebhookSetRequest) -> JSONResponse:
+    webhook_url = (payload.webhook_url or "").strip()
+    if not webhook_url:
+        if not PUBLIC_WEBHOOK_BASE_URL:
+            raise HTTPException(status_code=400, detail="webhook_url is required when PUBLIC_WEBHOOK_BASE_URL is not configured")
+        webhook_url = f"{PUBLIC_WEBHOOK_BASE_URL}/v1/messaging/webhook/{payload.bot_token}"
+
+    status_code, tg_data = await _telegram_api(payload.bot_token, "setWebhook", {"url": webhook_url})
+    return JSONResponse(
+        status_code=200 if tg_data.get("ok") else 502,
+        content={
+            "ok": bool(tg_data.get("ok")),
+            "webhook_url": webhook_url,
+            "telegram_status": status_code,
+            "telegram": tg_data,
+        },
+    )
+
+
+@app.get("/v1/messaging/webhook/info/{bot_token}")
+async def get_telegram_webhook_info(bot_token: str) -> JSONResponse:
+    status_code, tg_data = await _telegram_api(bot_token, "getWebhookInfo", {})
+    result = tg_data.get("result") if isinstance(tg_data, dict) else {}
+    webhook_url = result.get("url", "") if isinstance(result, dict) else ""
+    return JSONResponse(
+        status_code=200 if tg_data.get("ok") else 502,
+        content={
+            "ok": bool(tg_data.get("ok")),
+            "connected": bool(webhook_url),
+            "url": webhook_url,
+            "pending_update_count": int(result.get("pending_update_count", 0)) if isinstance(result, dict) else 0,
+            "last_error_date": result.get("last_error_date") if isinstance(result, dict) else None,
+            "last_error_message": result.get("last_error_message") if isinstance(result, dict) else None,
+            "telegram_status": status_code,
+            "telegram": tg_data,
+        },
+    )
+
+
+@app.post("/v1/messaging/webhook/delete")
+async def delete_telegram_webhook(payload: WebhookDeleteRequest) -> JSONResponse:
+    status_code, tg_data = await _telegram_api(
+        payload.bot_token,
+        "deleteWebhook",
+        {"drop_pending_updates": payload.drop_pending_updates},
+    )
+    return JSONResponse(
+        status_code=200 if tg_data.get("ok") else 502,
+        content={
+            "ok": bool(tg_data.get("ok")),
+            "telegram_status": status_code,
+            "telegram": tg_data,
+        },
+    )
 
 
 # ── GET /health ───────────────────────────────────────────────────────────────

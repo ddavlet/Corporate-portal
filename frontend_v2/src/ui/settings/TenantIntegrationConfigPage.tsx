@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Alert, Button, Card, Divider, Input, Space, Typography, message } from 'antd'
+import { Alert, Button, Card, Divider, Input, Space, Tag, Typography, message } from 'antd'
 import {
   getTenantIntegrationConfig,
+  manageMessagingWebhook,
   type TenantIntegrationConfigResponse,
   type TenantIntegrationConfigUpdatePayload,
   updateTenantIntegrationConfig,
@@ -13,23 +14,25 @@ type FormState = {
   telegram_oidc_client_id: string
   telegram_oidc_client_secret: string
   telegram_oidc_redirect_uri: string
-  telegram_approvals_bridge_dispatch_url: string
-  telegram_approvals_send_action: string
-  telegram_approvals_edit_action: string
-  telegram_approvals_draft_notification_action: string
-  telegram_approvals_message_template: string
-  telegram_approvals_header_new_template: string
-  telegram_approvals_header_step_approved_template: string
-  telegram_approvals_header_fully_approved_template: string
-  telegram_approvals_header_closed_template: string
-  telegram_approvals_header_rejected_template: string
-  telegram_approvals_subheader_payment_responsible_template: string
-  telegram_approvals_subheader_rejected_by_template: string
-  telegram_approvals_bridge_token: string
-  n8n_integration_token: string
+  messaging_gateway_dispatch_url: string
+  messaging_gateway_send_action: string
+  messaging_gateway_edit_action: string
+  messaging_gateway_draft_action: string
+  messaging_gateway_message_template: string
+  messaging_gateway_header_new_template: string
+  messaging_gateway_header_step_approved_template: string
+  messaging_gateway_header_fully_approved_template: string
+  messaging_gateway_header_closed_template: string
+  messaging_gateway_header_rejected_template: string
+  messaging_gateway_subheader_payment_responsible_template: string
+  messaging_gateway_subheader_rejected_by_template: string
+  messaging_gateway_token: string
   requests_file_gateway_token: string
-  portal_feedback_telegram_chat_id: string
-  portal_feedback_telegram_action: string
+  messaging_gateway_feedback_recipient_id: string
+  messaging_gateway_feedback_action: string
+  messaging_gateway_webhook_connected: boolean
+  messaging_gateway_webhook_url: string
+  messaging_gateway_webhook_error: string
 }
 
 const MASK = '********'
@@ -46,25 +49,27 @@ function toFormState(data: TenantIntegrationConfigResponse): FormState {
     telegram_oidc_client_id: data.telegram_oidc_client_id || '',
     telegram_oidc_client_secret: data.telegram_oidc_client_secret || '',
     telegram_oidc_redirect_uri: data.telegram_oidc_redirect_uri || '',
-    telegram_approvals_bridge_dispatch_url: data.telegram_approvals_bridge_dispatch_url || '',
-    telegram_approvals_send_action: data.telegram_approvals_send_action || '',
-    telegram_approvals_edit_action: data.telegram_approvals_edit_action || '',
-    telegram_approvals_draft_notification_action: data.telegram_approvals_draft_notification_action || '',
-    telegram_approvals_message_template: data.telegram_approvals_message_template || '',
-    telegram_approvals_header_new_template: data.telegram_approvals_header_new_template || '',
-    telegram_approvals_header_step_approved_template: data.telegram_approvals_header_step_approved_template || '',
-    telegram_approvals_header_fully_approved_template: data.telegram_approvals_header_fully_approved_template || '',
-    telegram_approvals_header_closed_template: data.telegram_approvals_header_closed_template || '',
-    telegram_approvals_header_rejected_template: data.telegram_approvals_header_rejected_template || '',
-    telegram_approvals_subheader_payment_responsible_template:
-      data.telegram_approvals_subheader_payment_responsible_template || '',
-    telegram_approvals_subheader_rejected_by_template: data.telegram_approvals_subheader_rejected_by_template || '',
-    telegram_approvals_bridge_token: data.telegram_approvals_bridge_token || '',
-    n8n_integration_token: data.n8n_integration_token || '',
+    messaging_gateway_dispatch_url: data.messaging_gateway_dispatch_url || '',
+    messaging_gateway_send_action: data.messaging_gateway_send_action || '',
+    messaging_gateway_edit_action: data.messaging_gateway_edit_action || '',
+    messaging_gateway_draft_action: data.messaging_gateway_draft_action || '',
+    messaging_gateway_message_template: data.messaging_gateway_message_template || '',
+    messaging_gateway_header_new_template: data.messaging_gateway_header_new_template || '',
+    messaging_gateway_header_step_approved_template: data.messaging_gateway_header_step_approved_template || '',
+    messaging_gateway_header_fully_approved_template: data.messaging_gateway_header_fully_approved_template || '',
+    messaging_gateway_header_closed_template: data.messaging_gateway_header_closed_template || '',
+    messaging_gateway_header_rejected_template: data.messaging_gateway_header_rejected_template || '',
+    messaging_gateway_subheader_payment_responsible_template:
+      data.messaging_gateway_subheader_payment_responsible_template || '',
+    messaging_gateway_subheader_rejected_by_template: data.messaging_gateway_subheader_rejected_by_template || '',
+    messaging_gateway_token: data.messaging_gateway_token || '',
     requests_file_gateway_token: data.requests_file_gateway_token || '',
-    portal_feedback_telegram_chat_id:
-      data.portal_feedback_telegram_chat_id != null ? String(data.portal_feedback_telegram_chat_id) : '',
-    portal_feedback_telegram_action: data.portal_feedback_telegram_action || '',
+    messaging_gateway_feedback_recipient_id:
+      data.messaging_gateway_feedback_recipient_id != null ? String(data.messaging_gateway_feedback_recipient_id) : '',
+    messaging_gateway_feedback_action: data.messaging_gateway_feedback_action || '',
+    messaging_gateway_webhook_connected: Boolean(data.messaging_gateway_webhook_connected),
+    messaging_gateway_webhook_url: data.messaging_gateway_webhook_url || '',
+    messaging_gateway_webhook_error: data.messaging_gateway_webhook_error || '',
   }
 }
 
@@ -93,7 +98,7 @@ export function TenantIntegrationConfigPage() {
 
   const validationError = useMemo(() => {
     if (!form) return null
-    if (form.telegram_approvals_bridge_dispatch_url && !isAbsoluteUrl(form.telegram_approvals_bridge_dispatch_url)) {
+    if (form.messaging_gateway_dispatch_url && !isAbsoluteUrl(form.messaging_gateway_dispatch_url)) {
       return 'Поле Dispatch URL должно быть абсолютным URL.'
     }
     return null
@@ -109,19 +114,19 @@ export function TenantIntegrationConfigPage() {
     setError(null)
     try {
       const payload: TenantIntegrationConfigUpdatePayload = {
-        telegram_approvals_bridge_dispatch_url: form.telegram_approvals_bridge_dispatch_url.trim(),
-        telegram_approvals_send_action: form.telegram_approvals_send_action.trim(),
-        telegram_approvals_edit_action: form.telegram_approvals_edit_action.trim(),
-        telegram_approvals_draft_notification_action: form.telegram_approvals_draft_notification_action.trim(),
-        telegram_approvals_message_template: form.telegram_approvals_message_template,
-        telegram_approvals_header_new_template: form.telegram_approvals_header_new_template,
-        telegram_approvals_header_step_approved_template: form.telegram_approvals_header_step_approved_template,
-        telegram_approvals_header_fully_approved_template: form.telegram_approvals_header_fully_approved_template,
-        telegram_approvals_header_closed_template: form.telegram_approvals_header_closed_template,
-        telegram_approvals_header_rejected_template: form.telegram_approvals_header_rejected_template,
-        telegram_approvals_subheader_payment_responsible_template:
-          form.telegram_approvals_subheader_payment_responsible_template,
-        telegram_approvals_subheader_rejected_by_template: form.telegram_approvals_subheader_rejected_by_template,
+        messaging_gateway_dispatch_url: form.messaging_gateway_dispatch_url.trim(),
+        messaging_gateway_send_action: form.messaging_gateway_send_action.trim(),
+        messaging_gateway_edit_action: form.messaging_gateway_edit_action.trim(),
+        messaging_gateway_draft_action: form.messaging_gateway_draft_action.trim(),
+        messaging_gateway_message_template: form.messaging_gateway_message_template,
+        messaging_gateway_header_new_template: form.messaging_gateway_header_new_template,
+        messaging_gateway_header_step_approved_template: form.messaging_gateway_header_step_approved_template,
+        messaging_gateway_header_fully_approved_template: form.messaging_gateway_header_fully_approved_template,
+        messaging_gateway_header_closed_template: form.messaging_gateway_header_closed_template,
+        messaging_gateway_header_rejected_template: form.messaging_gateway_header_rejected_template,
+        messaging_gateway_subheader_payment_responsible_template:
+          form.messaging_gateway_subheader_payment_responsible_template,
+        messaging_gateway_subheader_rejected_by_template: form.messaging_gateway_subheader_rejected_by_template,
       }
       // Send secrets only when user entered a new value.
       if (form.telegram_bot_token && form.telegram_bot_token !== MASK) {
@@ -133,18 +138,15 @@ export function TenantIntegrationConfigPage() {
       if (form.telegram_oidc_client_secret && form.telegram_oidc_client_secret !== MASK) {
         payload.telegram_oidc_client_secret = form.telegram_oidc_client_secret
       }
-      if (form.telegram_approvals_bridge_token && form.telegram_approvals_bridge_token !== MASK) {
-        payload.telegram_approvals_bridge_token = form.telegram_approvals_bridge_token
-      }
-      if (form.n8n_integration_token && form.n8n_integration_token !== MASK) {
-        payload.n8n_integration_token = form.n8n_integration_token
+      if (form.messaging_gateway_token && form.messaging_gateway_token !== MASK) {
+        payload.messaging_gateway_token = form.messaging_gateway_token
       }
       if (form.requests_file_gateway_token && form.requests_file_gateway_token !== MASK) {
         payload.requests_file_gateway_token = form.requests_file_gateway_token
       }
-      const chatRaw = form.portal_feedback_telegram_chat_id.trim()
+      const chatRaw = form.messaging_gateway_feedback_recipient_id.trim()
       if (chatRaw === '') {
-        payload.portal_feedback_telegram_chat_id = null
+        payload.messaging_gateway_feedback_recipient_id = null
       } else {
         const n = Number(chatRaw)
         if (!Number.isFinite(n)) {
@@ -152,9 +154,9 @@ export function TenantIntegrationConfigPage() {
           setSaving(false)
           return
         }
-        payload.portal_feedback_telegram_chat_id = Math.trunc(n)
+        payload.messaging_gateway_feedback_recipient_id = Math.trunc(n)
       }
-      payload.portal_feedback_telegram_action = form.portal_feedback_telegram_action.trim()
+      payload.messaging_gateway_feedback_action = form.messaging_gateway_feedback_action.trim()
 
       const data = await updateTenantIntegrationConfig(payload)
       setForm(toFormState(data))
@@ -166,19 +168,39 @@ export function TenantIntegrationConfigPage() {
     }
   }
 
+  const onWebhookAction = async (action: 'set' | 'info' | 'delete') => {
+    setSaving(true)
+    setError(null)
+    try {
+      await manageMessagingWebhook(action)
+      await load()
+      message.success(
+        action === 'set'
+          ? 'Webhook установлен'
+          : action === 'delete'
+            ? 'Webhook удален'
+            : 'Статус webhook обновлен',
+      )
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Не удалось выполнить операцию webhook')
+    } finally {
+      setSaving(false)
+    }
+  }
+
   return (
     <Space direction="vertical" size={12} style={{ display: 'flex' }}>
       <Typography.Title level={4} style={{ marginTop: 0 }}>
         Интеграционные настройки
       </Typography.Title>
       <Typography.Paragraph type="secondary">
-        Tenant-специфичные URL, actions и секреты для telegram approvals и n8n/file gateway.
+        Tenant-специфичные URL, actions и секреты для messaging gateway.
       </Typography.Paragraph>
       <Alert
         type="info"
         showIcon
         message="Подсказка по секретам"
-        description="Значение ******** означает, что секрет уже сохранен. Оставьте как есть — секрет не изменится. Введите новое значение только если хотите обновить секрет. Для входящих запросов в backend используйте единый N8N_INTEGRATION_TOKEN."
+        description="Значение ******** означает, что секрет уже сохранен. Оставьте как есть — секрет не изменится. Введите новое значение только если хотите обновить секрет."
       />
       {error ? <Alert type="error" message={error} showIcon /> : null}
       {validationError ? <Alert type="warning" message={validationError} showIcon /> : null}
@@ -186,9 +208,9 @@ export function TenantIntegrationConfigPage() {
       <Card loading={loading}>
         {form ? (
           <Space direction="vertical" size={12} style={{ display: 'flex' }}>
-            <Typography.Text strong>Telegram approvals</Typography.Text>
+            <Typography.Text strong>Messaging Gateway</Typography.Text>
             <Typography.Text type="secondary">
-              Dispatch URL должен быть абсолютным (http/https). Action-поля обычно менять не нужно, если backend и bridge уже синхронизированы.
+              Dispatch URL должен быть абсолютным (http/https). Action-поля обычно менять не нужно, если backend и gateway уже синхронизированы.
             </Typography.Text>
             <Input.Password
               placeholder="Telegram bot token (OTP + Notes)"
@@ -216,60 +238,78 @@ export function TenantIntegrationConfigPage() {
               onChange={(e) => setField('telegram_oidc_redirect_uri', e.target.value)}
             />
             <Input
-              placeholder="Bridge dispatch URL"
-              value={form.telegram_approvals_bridge_dispatch_url}
-              onChange={(e) => setField('telegram_approvals_bridge_dispatch_url', e.target.value)}
+              placeholder="Gateway dispatch URL"
+              value={form.messaging_gateway_dispatch_url}
+              onChange={(e) => setField('messaging_gateway_dispatch_url', e.target.value)}
             />
             <Input
               placeholder="Send action"
-              value={form.telegram_approvals_send_action}
-              onChange={(e) => setField('telegram_approvals_send_action', e.target.value)}
+              value={form.messaging_gateway_send_action}
+              onChange={(e) => setField('messaging_gateway_send_action', e.target.value)}
             />
             <Input
               placeholder="Edit action"
-              value={form.telegram_approvals_edit_action}
-              onChange={(e) => setField('telegram_approvals_edit_action', e.target.value)}
+              value={form.messaging_gateway_edit_action}
+              onChange={(e) => setField('messaging_gateway_edit_action', e.target.value)}
             />
             <Input
-              placeholder="Draft notification action (n8n), напр. send_draft_notification"
-              value={form.telegram_approvals_draft_notification_action}
-              onChange={(e) => setField('telegram_approvals_draft_notification_action', e.target.value)}
+              placeholder="Draft notification action"
+              value={form.messaging_gateway_draft_action}
+              onChange={(e) => setField('messaging_gateway_draft_action', e.target.value)}
             />
             <Input.TextArea
-              placeholder="Telegram message template (HTML)"
-              value={form.telegram_approvals_message_template}
-              onChange={(e) => setField('telegram_approvals_message_template', e.target.value)}
+              placeholder="Message template (HTML)"
+              value={form.messaging_gateway_message_template}
+              onChange={(e) => setField('messaging_gateway_message_template', e.target.value)}
               autoSize={{ minRows: 10, maxRows: 18 }}
             />
             <Typography.Text type="secondary">
               Доступные переменные: {'{header}'}, {'{subheader}'}, {'{subheader_block}'}, {'{company_payer}'}, {'{project_title}'}, {'{vendor}'}, {'{category}'}, {'{amount}'}, {'{currency}'}, {'{payment_type}'}, {'{payment_purpose}'}, {'{description}'}, {'{accrual_month}'}, {'{urgency}'}, {'{requester}'}, {'{submitted_at}'}.
             </Typography.Text>
-            <Input placeholder="Header: new" value={form.telegram_approvals_header_new_template} onChange={(e) => setField('telegram_approvals_header_new_template', e.target.value)} />
-            <Input placeholder="Header: step approved" value={form.telegram_approvals_header_step_approved_template} onChange={(e) => setField('telegram_approvals_header_step_approved_template', e.target.value)} />
-            <Input placeholder="Header: fully approved" value={form.telegram_approvals_header_fully_approved_template} onChange={(e) => setField('telegram_approvals_header_fully_approved_template', e.target.value)} />
-            <Input placeholder="Header: closed" value={form.telegram_approvals_header_closed_template} onChange={(e) => setField('telegram_approvals_header_closed_template', e.target.value)} />
-            <Input placeholder="Header: rejected" value={form.telegram_approvals_header_rejected_template} onChange={(e) => setField('telegram_approvals_header_rejected_template', e.target.value)} />
-            <Input placeholder="Subheader: payment responsible" value={form.telegram_approvals_subheader_payment_responsible_template} onChange={(e) => setField('telegram_approvals_subheader_payment_responsible_template', e.target.value)} />
-            <Input placeholder="Subheader: rejected by" value={form.telegram_approvals_subheader_rejected_by_template} onChange={(e) => setField('telegram_approvals_subheader_rejected_by_template', e.target.value)} />
+            <Input placeholder="Header: new" value={form.messaging_gateway_header_new_template} onChange={(e) => setField('messaging_gateway_header_new_template', e.target.value)} />
+            <Input placeholder="Header: step approved" value={form.messaging_gateway_header_step_approved_template} onChange={(e) => setField('messaging_gateway_header_step_approved_template', e.target.value)} />
+            <Input placeholder="Header: fully approved" value={form.messaging_gateway_header_fully_approved_template} onChange={(e) => setField('messaging_gateway_header_fully_approved_template', e.target.value)} />
+            <Input placeholder="Header: closed" value={form.messaging_gateway_header_closed_template} onChange={(e) => setField('messaging_gateway_header_closed_template', e.target.value)} />
+            <Input placeholder="Header: rejected" value={form.messaging_gateway_header_rejected_template} onChange={(e) => setField('messaging_gateway_header_rejected_template', e.target.value)} />
+            <Input placeholder="Subheader: payment responsible" value={form.messaging_gateway_subheader_payment_responsible_template} onChange={(e) => setField('messaging_gateway_subheader_payment_responsible_template', e.target.value)} />
+            <Input placeholder="Subheader: rejected by" value={form.messaging_gateway_subheader_rejected_by_template} onChange={(e) => setField('messaging_gateway_subheader_rejected_by_template', e.target.value)} />
             <Typography.Text type="secondary">
               Переменные для шапок: {'{request_id}'}, {'{payment_responsible}'}, {'{rejected_by}'}.
             </Typography.Text>
             <Input.Password
-              placeholder="Bridge token"
-              value={form.telegram_approvals_bridge_token}
-              onChange={(e) => setField('telegram_approvals_bridge_token', e.target.value)}
+              placeholder="Messaging gateway token"
+              value={form.messaging_gateway_token}
+              onChange={(e) => setField('messaging_gateway_token', e.target.value)}
             />
 
             <Divider style={{ margin: '4px 0' }} />
-            <Typography.Text strong>n8n / requests gateway</Typography.Text>
+            <Typography.Text strong>Telegram webhook</Typography.Text>
+            <Space>
+              <Tag color={form.messaging_gateway_webhook_connected ? 'green' : 'red'}>
+                {form.messaging_gateway_webhook_connected ? 'Подключен' : 'Не подключен'}
+              </Tag>
+              <Typography.Text type="secondary">{form.messaging_gateway_webhook_url || 'URL не установлен'}</Typography.Text>
+            </Space>
+            {form.messaging_gateway_webhook_error ? (
+              <Alert type="warning" showIcon message={`Webhook error: ${form.messaging_gateway_webhook_error}`} />
+            ) : null}
+            <Space>
+              <Button onClick={() => void onWebhookAction('set')} loading={saving}>
+                setWebhook
+              </Button>
+              <Button onClick={() => void onWebhookAction('info')} loading={saving}>
+                getWebhookInfo
+              </Button>
+              <Button danger onClick={() => void onWebhookAction('delete')} loading={saving}>
+                deleteWebhook
+              </Button>
+            </Space>
+
+            <Divider style={{ margin: '4px 0' }} />
+            <Typography.Text strong>Requests gateway</Typography.Text>
             <Typography.Text type="secondary">
-              N8N integration token используется для входящих запросов в backend (включая callback webhook). Меняйте только при ротации ключей.
+              Токен используется для входящих запросов file gateway.
             </Typography.Text>
-            <Input.Password
-              placeholder="N8N integration token"
-              value={form.n8n_integration_token}
-              onChange={(e) => setField('n8n_integration_token', e.target.value)}
-            />
             <Input.Password
               placeholder="Requests file gateway token"
               value={form.requests_file_gateway_token}
@@ -277,20 +317,19 @@ export function TenantIntegrationConfigPage() {
             />
 
             <Divider style={{ margin: '4px 0' }} />
-            <Typography.Text strong>Обратная связь портала (Telegram)</Typography.Text>
+            <Typography.Text strong>Обратная связь портала</Typography.Text>
             <Typography.Text type="secondary">
-              Сообщения с кнопки «Обратная связь» уходят в n8n через тот же dispatch URL, что и заявки. Укажите chat_id
-              получателя и при необходимости action (по умолчанию send_portal_feedback — ветка в workflow dispatch).
+              Сообщения с кнопки «Обратная связь» уходят через messaging gateway.
             </Typography.Text>
             <Input
-              placeholder="Telegram chat_id получателя фидбека (число)"
-              value={form.portal_feedback_telegram_chat_id}
-              onChange={(e) => setField('portal_feedback_telegram_chat_id', e.target.value)}
+              placeholder="recipient_id получателя фидбека (число)"
+              value={form.messaging_gateway_feedback_recipient_id}
+              onChange={(e) => setField('messaging_gateway_feedback_recipient_id', e.target.value)}
             />
             <Input
-              placeholder="Action n8n, напр. send_portal_feedback"
-              value={form.portal_feedback_telegram_action}
-              onChange={(e) => setField('portal_feedback_telegram_action', e.target.value)}
+              placeholder="Action, напр. send_portal_feedback"
+              value={form.messaging_gateway_feedback_action}
+              onChange={(e) => setField('messaging_gateway_feedback_action', e.target.value)}
             />
 
             <Space>
