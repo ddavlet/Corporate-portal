@@ -1418,20 +1418,19 @@ class RequestApprovalConfigView(APIView):
             )
             cfg.updated_by = request.user
             for field in (
-                "telegram_approvals_bridge_dispatch_url",
-                "telegram_approvals_send_action",
-                "telegram_approvals_edit_action",
-                "telegram_approvals_draft_notification_action",
-                "telegram_approvals_bridge_token",
-                "telegram_approvals_message_template",
-                "telegram_approvals_header_new_template",
-                "telegram_approvals_header_step_approved_template",
-                "telegram_approvals_header_fully_approved_template",
-                "telegram_approvals_header_closed_template",
-                "telegram_approvals_header_rejected_template",
-                "telegram_approvals_subheader_payment_responsible_template",
-                "telegram_approvals_subheader_rejected_by_template",
-                "n8n_integration_token",
+                "messaging_gateway_dispatch_url",
+                "messaging_gateway_send_action",
+                "messaging_gateway_edit_action",
+                "messaging_gateway_draft_action",
+                "messaging_gateway_token",
+                "messaging_gateway_message_template",
+                "messaging_gateway_header_new_template",
+                "messaging_gateway_header_step_approved_template",
+                "messaging_gateway_header_fully_approved_template",
+                "messaging_gateway_header_closed_template",
+                "messaging_gateway_header_rejected_template",
+                "messaging_gateway_subheader_payment_responsible_template",
+                "messaging_gateway_subheader_rejected_by_template",
             ):
                 if field in integration_settings:
                     setattr(cfg, field, integration_settings[field])

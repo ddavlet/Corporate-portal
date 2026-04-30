@@ -34,9 +34,9 @@ def create_approval_rows_for_request(request_obj: Request) -> int:
                 Approval(
                     request=request_obj,
                     approver_user=row.approver_user,
-                    approver_tg_id=row.approver_user.telegram_chat_id,
-                    approver_tg_from_id=row.approver_user.telegram_from_id,
-                    message_id=None,
+                    approver_recipient_id=row.approver_user.telegram_chat_id,
+                    approver_user_id=row.approver_user.telegram_from_id,
+                    gateway_message_id=None,
                     message_sent=False,
                     step=step_cfg.step,
                     step_type=step_cfg.step_type,

@@ -81,8 +81,8 @@ urlpatterns = [
     path("api/budgets/", include("apps.modules.budgets.urls")),
     path("api/contracts/", include("apps.modules.contracts.urls")),
 
-    # Telegram approvals bridge webhook
-    path("api/telegram-approvals/", include("apps.modules.telegram_approvals.urls")),
+    # Messaging gateway webhook
+    path("api/messaging-gateway/", include("apps.modules.telegram_approvals.urls")),
 ]
 
 for _n8n_seg in settings.N8N_INTEGRATION_MOUNT_PATHS:

@@ -189,10 +189,7 @@ N8N_FEEDBACK_AI_WEBHOOK_PATH = (
     os.getenv("N8N_FEEDBACK_AI_WEBHOOK_PATH", "n8n/ai/dispatch") or "n8n/ai/dispatch"
 ).strip().strip("/")
 
-TELEGRAM_APPROVALS_BRIDGE_DISPATCH_URL = os.getenv("TELEGRAM_APPROVALS_BRIDGE_DISPATCH_URL", "").strip()
-# Optional override for bridge failure notifications; default is derived from dispatch URL or tenant host + /n8n/error/
-TELEGRAM_APPROVALS_BRIDGE_ERROR_URL = os.getenv("TELEGRAM_APPROVALS_BRIDGE_ERROR_URL", "").strip()
-TELEGRAM_APPROVALS_BRIDGE_TOKEN = os.getenv("TELEGRAM_APPROVALS_BRIDGE_TOKEN", "").strip()
+MESSAGING_GATEWAY_SEND_URL = os.getenv("MESSAGING_GATEWAY_SEND_URL", "").strip()
 
 # Reports payload cache (seconds). Keep short to reduce staleness while smoothing n8n latency spikes.
 REPORTS_CACHE_TTL_SECONDS = int(os.getenv("REPORTS_CACHE_TTL_SECONDS", "60"))

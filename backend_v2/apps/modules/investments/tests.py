@@ -300,7 +300,7 @@ class InvestmentApprovalFlowTests(APITestCase):
         response = self.client.put("/api/investments/approval-config/", cfg_payload, format="json", HTTP_HOST=self.host)
         self.assertEqual(response.status_code, 200)
 
-    @patch("apps.modules.investments.approval_services.post_telegram_bridge")
+    @patch("apps.modules.investments.approval_services.post_messaging_gateway")
     def test_create_return_creates_approvals_and_dispatches_first_step(self, bridge_mock):
         bridge_mock.return_value = {"message_id": 101}
         response = self.client.post(
@@ -321,9 +321,9 @@ class InvestmentApprovalFlowTests(APITestCase):
         self.assertFalse(created.confirmed)
         self.assertEqual(created.approvals.count(), 2)
         self.assertEqual(bridge_mock.call_count, 1)
-        self.assertIn("Новая выплата по InvestFlow", bridge_mock.call_args.kwargs["payload"]["message"])
+        self.assertIn("Новая выплата по InvestFlow", bridge_mock.call_args.kwargs["payload"]["text"])
 
-    @patch("apps.modules.investments.approval_services.post_telegram_bridge")
+    @patch("apps.modules.investments.approval_services.post_messaging_gateway")
     def test_callback_enforces_authorization_and_final_confirmation(self, bridge_mock):
         bridge_mock.return_value = {"message_id": 202}
         response = self.client.post(
@@ -346,11 +346,12 @@ class InvestmentApprovalFlowTests(APITestCase):
         bad_res = self.client.post(
             "/api/investments/approvals/webhook/",
             {
-                "callback_query": {
-                    "data": f"inv_{first_step.id}:a",
-                    "from": {"id": self.intruder.telegram_from_id},
-                    "message": {"message_id": first_step.message_id or 202, "chat": {"id": self.intruder.telegram_chat_id}},
-                }
+                "event": "interaction",
+                "payload": f"inv_{first_step.id}:a",
+                "user_id": str(self.intruder.telegram_from_id),
+                "recipient_id": str(self.intruder.telegram_chat_id),
+                "message_id": first_step.message_id or 202,
+                "platform": "telegram",
             },
             format="json",
             HTTP_HOST=self.host,
@@ -360,11 +361,12 @@ class InvestmentApprovalFlowTests(APITestCase):
         ok_first = self.client.post(
             "/api/investments/approvals/webhook/",
             {
-                "callback_query": {
-                    "data": f"inv_{first_step.id}:a",
-                    "from": {"id": self.approver1.telegram_from_id},
-                    "message": {"message_id": first_step.message_id or 202, "chat": {"id": self.approver1.telegram_chat_id}},
-                }
+                "event": "interaction",
+                "payload": f"inv_{first_step.id}:a",
+                "user_id": str(self.approver1.telegram_from_id),
+                "recipient_id": str(self.approver1.telegram_chat_id),
+                "message_id": first_step.message_id or 202,
+                "platform": "telegram",
             },
             format="json",
             HTTP_HOST=self.host,
@@ -386,14 +388,12 @@ class InvestmentApprovalFlowTests(APITestCase):
         ok_second = self.client.post(
             "/api/investments/approvals/webhook/",
             {
-                "callback_query": {
-                    "data": f"inv_{second_step.id}:a",
-                    "from": {"id": self.approver2.telegram_from_id},
-                    "message": {
-                        "message_id": second_step.message_id,
-                        "chat": {"id": self.approver2.telegram_chat_id},
-                    },
-                }
+                "event": "interaction",
+                "payload": f"inv_{second_step.id}:a",
+                "user_id": str(self.approver2.telegram_from_id),
+                "recipient_id": str(self.approver2.telegram_chat_id),
+                "message_id": second_step.message_id,
+                "platform": "telegram",
             },
             format="json",
             HTTP_HOST=self.host,
@@ -402,7 +402,7 @@ class InvestmentApprovalFlowTests(APITestCase):
         inv_return.refresh_from_db()
         self.assertTrue(inv_return.confirmed)
 
-    @patch("apps.modules.investments.approval_services.post_telegram_bridge")
+    @patch("apps.modules.investments.approval_services.post_messaging_gateway")
     def test_reject_keeps_return_unconfirmed(self, bridge_mock):
         bridge_mock.return_value = {"message_id": 404}
         response = self.client.post(
@@ -422,11 +422,12 @@ class InvestmentApprovalFlowTests(APITestCase):
         reject_res = self.client.post(
             "/api/investments/approvals/webhook/",
             {
-                "callback_query": {
-                    "data": f"inv_{first_step.id}:r",
-                    "from": {"id": self.approver1.telegram_from_id},
-                    "message": {"message_id": first_step.message_id or 404, "chat": {"id": self.approver1.telegram_chat_id}},
-                }
+                "event": "interaction",
+                "payload": f"inv_{first_step.id}:r",
+                "user_id": str(self.approver1.telegram_from_id),
+                "recipient_id": str(self.approver1.telegram_chat_id),
+                "message_id": first_step.message_id or 404,
+                "platform": "telegram",
             },
             format="json",
             HTTP_HOST=self.host,

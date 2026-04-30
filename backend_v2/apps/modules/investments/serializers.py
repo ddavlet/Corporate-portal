@@ -195,16 +195,15 @@ class InvestmentApprovalDecisionSerializer(serializers.Serializer):
     decision = serializers.ChoiceField(
         choices=[InvestmentReturnApproval.DECISION_APPROVED, InvestmentReturnApproval.DECISION_REJECTED]
     )
-    approver_tg_id = serializers.IntegerField(required=False)
-    approver_tg_from_id = serializers.IntegerField(required=False)
+    approver_recipient_id = serializers.IntegerField(required=False)
+    approver_user_id = serializers.IntegerField(required=False)
     comment = serializers.CharField(required=False, allow_blank=True)
 
 
 class InvestmentApprovalWebhookSerializer(serializers.Serializer):
-    update = serializers.JSONField(required=False)
-    callback_query = serializers.JSONField(required=False)
-
-    def validate(self, attrs):
-        if attrs.get("update") or attrs.get("callback_query"):
-            return attrs
-        raise serializers.ValidationError({"detail": "Payload must contain update or callback_query."})
+    event = serializers.CharField()
+    payload = serializers.CharField()
+    user_id = serializers.CharField()
+    recipient_id = serializers.CharField()
+    message_id = serializers.IntegerField(required=False)
+    platform = serializers.CharField(default="telegram")

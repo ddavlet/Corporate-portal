@@ -7,7 +7,7 @@ from html import escape
 import requests
 from django.conf import settings
 
-from apps.modules.telegram_approvals.services import _bridge_headers
+from apps.modules.telegram_approvals.services import _get_tenant_bot_token
 
 logger = logging.getLogger(__name__)
 _THOUSANDS_NUMBER_RE = re.compile(r"(?<![\w])(?P<int>\d{4,})(?P<frac>[.,]\d+)?(?![\w])")
@@ -66,13 +66,15 @@ def feedback_ai_webhook_url(*, tenant_subdomain: str) -> str:
 
 def post_feedback_ai_refine(*, tenant, body: dict) -> str:
     """
-    POST JSON to n8n (action + payload.kind/text) with X-N8N-Integration-Token like telegram/dispatch.
+    POST JSON to n8n AI webhook (action + payload.kind/text).
     """
     url = feedback_ai_webhook_url(tenant_subdomain=tenant.subdomain)
     logger.info("Feedback AI POST %s", url)
 
-    headers = dict(_bridge_headers(tenant=tenant))
-    headers["Accept"] = "application/json"
+    headers = {
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+    }
 
     try:
         resp = requests.post(url, json=body, headers=headers, timeout=60)
@@ -121,13 +123,15 @@ def build_portal_feedback_dispatch_payload(
     message_html: str,
     feedback_id: int,
     kind: str,
+    tenant,
 ) -> dict:
     return {
         "action": action,
-        "message": message_html,
-        "parse_mode": "HTML",
-        "chat_id": chat_id,
-        "inline_keyboard": [],
+        "text": message_html,
+        "recipient_id": str(chat_id),
+        "bot_token": _get_tenant_bot_token(tenant),
+        "tenant_id": str(getattr(tenant, "id", "")),
+        "buttons": [],
         "feedback_id": feedback_id,
         "feedback_kind": kind,
         "notification_kind": "portal_feedback",

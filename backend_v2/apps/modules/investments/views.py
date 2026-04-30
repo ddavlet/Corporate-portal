@@ -1,6 +1,4 @@
 import json
-
-from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.db import transaction
 from rest_framework import status, viewsets
@@ -213,8 +211,8 @@ class InvestmentApprovalDecisionView(APIView):
             result = confirm_invest_return_approval_by_id(
                 tenant=request.tenant,
                 approval_id=approval_id,
-                approver_tg_id=payload.get("approver_tg_id"),
-                approver_tg_from_id=payload.get("approver_tg_from_id"),
+                approver_recipient_id=payload.get("approver_recipient_id"),
+                approver_user_id=payload.get("approver_user_id"),
                 decision=payload["decision"],
                 comment=payload.get("comment", ""),
             )
@@ -235,31 +233,9 @@ class InvestmentApprovalWebhookView(APIView):
     permission_classes = [AllowAny]
     authentication_classes = []
 
-    def _check_token(self, request):
-        tenant = getattr(request, "tenant", None)
-        config = self._resolve_config_token(tenant)
-        if not config:
-            return
-        got = (request.META.get("HTTP_X_N8N_INTEGRATION_TOKEN", "") or "").strip()
-        if got != config:
-            raise ValidationError({"detail": "Invalid webhook token."})
-
-    def _resolve_config_token(self, tenant) -> str:
-        from apps.modules.requests.integration_settings import get_requests_telegram_integration_settings
-
-        token = get_requests_telegram_integration_settings(tenant=tenant).n8n_integration_token
-        if token:
-            return token
-        return (getattr(settings, "N8N_INTEGRATION_TOKEN", "") or "").strip()
-
-    def _extract_update(self, payload: dict) -> dict:
-        if isinstance(payload.get("update"), dict):
-            return payload["update"]
-        return payload
-
     def _parse_callback_data(self, callback_data: str | None) -> tuple[int | None, str]:
         if not callback_data:
-            raise ValidationError({"detail": "callback_query.data is required."})
+            raise ValidationError({"detail": "payload (callback data) is required."})
         raw = callback_data.strip()
         if raw.startswith('"') and raw.endswith('"'):
             try:
@@ -279,57 +255,51 @@ class InvestmentApprovalWebhookView(APIView):
                 return approval_id, InvestmentReturnApproval.DECISION_APPROVED
             if code == "r":
                 return approval_id, InvestmentReturnApproval.DECISION_REJECTED
-        raise ValidationError({"detail": "Unsupported decision value in callback data."})
+        raise ValidationError({"detail": "Unsupported decision value in callback payload."})
 
     def post(self, request):
-        self._check_token(request)
         serializer = InvestmentApprovalWebhookSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        payload = serializer.validated_data
-        update = self._extract_update(payload)
-        callback_query = update.get("callback_query") if isinstance(update.get("callback_query"), dict) else None
-        if callback_query is None:
-            return Response({"detail": "Only callback_query updates are supported."}, status=status.HTTP_202_ACCEPTED)
+        event_data = serializer.validated_data
+        if event_data.get("event") != "interaction":
+            return Response({"detail": "Only interaction events are supported."}, status=status.HTTP_202_ACCEPTED)
 
-        parsed_approval_id, decision = self._parse_callback_data(callback_query.get("data"))
+        parsed_approval_id, decision = self._parse_callback_data(event_data.get("payload"))
         if parsed_approval_id is None:
             raise ValidationError({"approval_id": "approval_id is required and must be integer."})
 
-        from_obj = callback_query.get("from") if isinstance(callback_query.get("from"), dict) else {}
-        message_obj = callback_query.get("message") if isinstance(callback_query.get("message"), dict) else {}
-        chat_obj = message_obj.get("chat") if isinstance(message_obj.get("chat"), dict) else {}
         try:
-            from_id = int(from_obj.get("id"))
-            chat_id = int(chat_obj.get("id"))
-            message_id = int(message_obj.get("message_id"))
+            from_id = int(event_data["user_id"])
+            chat_id = int(event_data["recipient_id"])
         except (TypeError, ValueError) as exc:
             raise ValidationError({"detail": "Invalid callback identifiers."}) from exc
+        message_id = event_data.get("message_id")
 
         approval = InvestmentReturnApproval.objects.select_related("tenant").filter(id=parsed_approval_id).first()
         if not approval:
             raise ValidationError({"approval_id": "Approval not found."})
-        if approval.message_id is not None and approval.message_id != message_id:
+        if message_id is not None and approval.gateway_message_id is not None and approval.gateway_message_id != message_id:
             raise ValidationError({"message_id": "Callback message_id does not match stored message_id."})
-        if approval.approver_tg_id is not None and approval.approver_tg_id != chat_id:
-            raise ValidationError({"chat_id": "Chat is not allowed for this approval."})
-        if approval.approver_tg_from_id is not None and approval.approver_tg_from_id != from_id:
-            raise ValidationError({"from_id": "User is not allowed for this approval."})
+        if approval.approver_recipient_id is not None and approval.approver_recipient_id != chat_id:
+            raise ValidationError({"recipient_id": "Recipient is not allowed for this approval."})
+        if approval.approver_user_id is not None and approval.approver_user_id != from_id:
+            raise ValidationError({"user_id": "User is not allowed for this approval."})
 
-        if approval.message_id is None:
-            approval.message_id = message_id
+        if message_id is not None and approval.gateway_message_id is None:
+            approval.gateway_message_id = message_id
             approval.message_sent = True
             if approval.message_sent_at is None:
                 from django.utils import timezone
 
                 approval.message_sent_at = timezone.now()
-            approval.save(update_fields=["message_id", "message_sent", "message_sent_at"])
+            approval.save(update_fields=["gateway_message_id", "message_sent", "message_sent_at"])
 
         try:
             confirm_invest_return_approval_by_id(
                 tenant=approval.tenant,
                 approval_id=approval.id,
-                approver_tg_id=chat_id,
-                approver_tg_from_id=from_id,
+                approver_recipient_id=chat_id,
+                approver_user_id=from_id,
                 decision=decision,
             )
         except InvestmentApprovalDecisionAlreadyMade:
