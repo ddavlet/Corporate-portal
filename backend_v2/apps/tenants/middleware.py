@@ -1,5 +1,30 @@
+from django.conf import settings
 from django.http import Http404
+
 from apps.tenants.models import Tenant
+
+
+class RewriteDockerInternalHostMiddleware:
+    """
+    Docker Compose historically used ``django_v2`` / ``backend_v2`` as DNS names.
+    Underscores are not valid in RFC 1034/1035 hostnames, so Django rejects
+    ``HTTP_HOST`` before ``ALLOWED_HOSTS`` is consulted. Map those names to an
+    RFC-valid alias (see ``DOCKER_INTERNAL_BACKEND_DNS_NAME`` in settings).
+    """
+
+    _LEGACY_NAMES = frozenset({"django_v2", "backend_v2"})
+
+    def __init__(self, get_response):
+        self.get_response = get_response
+
+    def __call__(self, request):
+        host = request.META.get("HTTP_HOST")
+        if host:
+            domain, _, port = host.partition(":")
+            canonical = getattr(settings, "DOCKER_INTERNAL_BACKEND_DNS_NAME", "") or ""
+            if canonical and domain in self._LEGACY_NAMES:
+                request.META["HTTP_HOST"] = f"{canonical}:{port}" if port else canonical
+        return self.get_response(request)
 
 
 def _host_no_port(host: str) -> str:
@@ -48,8 +73,6 @@ class TenantSubdomainMiddleware:
         self.get_response = get_response
 
     def __call__(self, request):
-        from django.conf import settings
-
         if getattr(request, "tenant", None) is not None:
             return self.get_response(request)
 
