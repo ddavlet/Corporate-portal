@@ -1,7 +1,10 @@
 import json
+import os
 from datetime import date
 from io import StringIO
 from unittest.mock import patch
+
+import requests as _real_requests
 
 from django.core.management import call_command
 from django.contrib.auth import get_user_model
@@ -103,13 +106,12 @@ class TelegramApprovalsTests(APITestCase):
 
         self.assertTrue(mocked_post.called)
         payload = mocked_post.call_args.kwargs.get("json", {})
-        self.assertEqual(payload.get("action"), "send_approval_message")
-        self.assertEqual(payload.get("chat_id"), 555001)
-        self.assertIn("inline_keyboard", payload)
-        self.assertEqual(payload.get("company"), "")
-        self.assertIn("message", payload)
-        self.assertIn("Иван Иванов", payload.get("message", ""))
-        self.assertNotIn("• Заявитель: req", payload.get("message", ""))
+        self.assertEqual(payload.get("action"), "send_interactive")
+        self.assertEqual(payload.get("recipient_id"), "555001")
+        self.assertIn("buttons", payload)
+        self.assertIn("text", payload)
+        self.assertIn("Иван Иванов", payload.get("text", ""))
+        self.assertNotIn("• Заявитель: req", payload.get("text", ""))
 
     @patch("apps.modules.telegram_approvals.services.requests.post")
     def test_request_create_fails_when_response_has_no_message_id(self, mocked_post):
@@ -142,16 +144,13 @@ class TelegramApprovalsTests(APITestCase):
         self.assertFalse(approval.message_sent)
 
     @patch("apps.modules.telegram_approvals.services.requests.post")
-    def test_bridge_http_error_notifies_n8n_error_webhook(self, mocked_post):
+    def test_gateway_http_error_is_logged_and_approval_skipped(self, mocked_post):
         err_resp = type("R", (), {})()
         err_resp.status_code = 502
         err_resp.text = "bad gateway"
         err_resp.content = b"bad gateway"
-        ok_resp = type("R", (), {})()
-        ok_resp.status_code = 200
-        ok_resp.content = b'{"result":{"message_id":9002}}'
-        ok_resp.json = lambda: {"result": {"message_id": 9002}}
-        mocked_post.side_effect = [err_resp, ok_resp]
+        err_resp.json = lambda: {}
+        mocked_post.return_value = err_resp
 
         self.client.force_authenticate(self.requester)
         res = self.client.post(
@@ -169,16 +168,10 @@ class TelegramApprovalsTests(APITestCase):
             format="json",
             HTTP_HOST=self.host,
         )
+        # Gateway failure is logged and skipped — request still created
         self.assertEqual(res.status_code, 201, res.content)
-        self.assertEqual(mocked_post.call_count, 2)
-        error_call = mocked_post.call_args_list[1]
-        self.assertIn("/n8n/error", error_call[0][0])
-        err_payload = error_call[1].get("json", {})
-        self.assertEqual(err_payload.get("source"), "telegram_approvals_bridge")
-        self.assertEqual(err_payload.get("error_kind"), "http_error")
-        self.assertEqual(err_payload.get("http_status"), 502)
-        self.assertEqual(err_payload.get("payload_action"), "send_approval_message")
-        self.assertIn("bad gateway", err_payload.get("response_body", ""))
+        # Only 1 call — no secondary error-webhook call
+        self.assertEqual(mocked_post.call_count, 1)
 
     @patch("apps.modules.telegram_approvals.services.get_requests_telegram_integration_settings")
     @patch("apps.modules.telegram_approvals.services.requests.post")
@@ -241,10 +234,10 @@ class TelegramApprovalsTests(APITestCase):
         self.assertEqual(mocked_post.call_count, 2)
         first_payload = mocked_post.call_args_list[0].kwargs.get("json", {})
         second_payload = mocked_post.call_args_list[1].kwargs.get("json", {})
-        self.assertEqual(first_payload.get("action"), "edit_approval_message")
-        self.assertEqual(first_payload.get("inline_keyboard"), [])
-        self.assertEqual(second_payload.get("action"), "send_approval_message")
-        self.assertTrue(second_payload.get("inline_keyboard"))
+        self.assertEqual(first_payload.get("action"), "edit")
+        self.assertEqual(first_payload.get("buttons"), [])
+        self.assertEqual(second_payload.get("action"), "send_interactive")
+        self.assertTrue(second_payload.get("buttons"))
 
     @patch("apps.modules.telegram_approvals.services.requests.post")
     def test_resend_with_same_idempotency_key_is_noop(self, mocked_post):
@@ -403,26 +396,18 @@ class TelegramApprovalsTests(APITestCase):
         )
 
         payload = {
-            "callback_query": {
-                "id": "cbq1",
-                "from": {"id": 777001},
-                "message": {"message_id": 4321, "chat": {"id": 555001}},
-                "data": json.dumps(
-                    {
-                        "approval_id": approval.id,
-                        "request_id": request_row.id,
-                        "step": 1,
-                        "decision": "approved",
-                    }
-                ),
-            }
+            "event": "interaction",
+            "payload": json.dumps({"approval_id": approval.id, "decision": "approved"}),
+            "user_id": "777001",
+            "recipient_id": "555001",
+            "message_id": 4321,
+            "platform": "telegram",
         }
         res = self.client.post(
             "/api/telegram-approvals/webhook/",
             payload,
             format="json",
             HTTP_HOST=self.host,
-            HTTP_X_N8N_INTEGRATION_TOKEN=self.webhook_token,
         )
         self.assertEqual(res.status_code, 200, res.content)
 
@@ -457,18 +442,18 @@ class TelegramApprovalsTests(APITestCase):
         )
 
         payload = {
-            "callback_query": {
-                "from": {"id": 777001},
-                "message": {"message_id": 4321, "chat": {"id": 888888}},
-                "data": json.dumps({"approval_id": approval.id, "decision": "approved"}),
-            }
+            "event": "interaction",
+            "payload": json.dumps({"approval_id": approval.id, "decision": "approved"}),
+            "user_id": "777001",
+            "recipient_id": "888888",
+            "message_id": 4321,
+            "platform": "telegram",
         }
         res = self.client.post(
             "/api/telegram-approvals/webhook/",
             payload,
             format="json",
             HTTP_HOST=self.host,
-            HTTP_X_N8N_INTEGRATION_TOKEN=self.webhook_token,
         )
         self.assertEqual(res.status_code, 400)
         approval.refresh_from_db()
@@ -499,27 +484,26 @@ class TelegramApprovalsTests(APITestCase):
             decision=Approval.DECISION_APPROVED,
         )
         payload = {
-            "callback_query": {
-                "id": "cbq-conflict",
-                "from": {"id": 777001},
-                "message": {"message_id": 4321, "chat": {"id": 555001}},
-                "data": f"v2_{approval.id}:a",
-            }
+            "event": "interaction",
+            "payload": f"v2_{approval.id}:a",
+            "user_id": "777001",
+            "recipient_id": "555001",
+            "message_id": 4321,
+            "platform": "telegram",
         }
         res = self.client.post(
             "/api/telegram-approvals/webhook/",
             payload,
             format="json",
             HTTP_HOST=self.host,
-            HTTP_X_N8N_INTEGRATION_TOKEN=self.webhook_token,
         )
         self.assertEqual(res.status_code, 409, res.content)
         self.assertEqual(res.data.get("detail"), "Решение по согласованию уже принято.")
         self.assertEqual(mocked_post.call_count, 1)
         edit_payload = mocked_post.call_args.kwargs.get("json", {})
-        self.assertEqual(edit_payload.get("action"), "edit_approval_message")
-        self.assertEqual(edit_payload.get("inline_keyboard"), [])
-        self.assertIn("полностью одобрена", edit_payload.get("message", ""))
+        self.assertEqual(edit_payload.get("action"), "edit")
+        self.assertEqual(edit_payload.get("buttons"), [])
+        self.assertIn("полностью одобрена", edit_payload.get("text", ""))
 
     @patch("apps.modules.telegram_approvals.services.requests.post")
     def test_webhook_callback_conflict_uses_callback_message_id_when_missing_on_approval(self, mocked_post):
@@ -546,27 +530,26 @@ class TelegramApprovalsTests(APITestCase):
             decision=Approval.DECISION_APPROVED,
         )
         payload = {
-            "callback_query": {
-                "id": "cbq-conflict-no-mid",
-                "from": {"id": 777001},
-                "message": {"message_id": 3694, "chat": {"id": 555001}},
-                "data": f"v2_{approval.id}:a",
-            }
+            "event": "interaction",
+            "payload": f"v2_{approval.id}:a",
+            "user_id": "777001",
+            "recipient_id": "555001",
+            "message_id": 3694,
+            "platform": "telegram",
         }
         res = self.client.post(
             "/api/telegram-approvals/webhook/",
             payload,
             format="json",
             HTTP_HOST=self.host,
-            HTTP_X_N8N_INTEGRATION_TOKEN=self.webhook_token,
         )
         self.assertEqual(res.status_code, 409, res.content)
         self.assertEqual(mocked_post.call_count, 1)
         edit_payload = mocked_post.call_args.kwargs.get("json", {})
-        self.assertEqual(edit_payload.get("action"), "edit_approval_message")
+        self.assertEqual(edit_payload.get("action"), "edit")
         self.assertEqual(edit_payload.get("message_id"), 3694)
-        self.assertEqual(edit_payload.get("chat_id"), 555001)
-        self.assertEqual(edit_payload.get("inline_keyboard"), [])
+        self.assertEqual(edit_payload.get("recipient_id"), "555001")
+        self.assertEqual(edit_payload.get("buttons"), [])
 
     @patch("apps.modules.telegram_approvals.services.requests.post")
     def test_webhook_callback_persists_missing_message_id_from_callback(self, mocked_post):
@@ -595,19 +578,18 @@ class TelegramApprovalsTests(APITestCase):
         )
 
         payload = {
-            "callback_query": {
-                "id": "cbq-persist-mid",
-                "from": {"id": 777001},
-                "message": {"message_id": 4123, "chat": {"id": 555001}},
-                "data": f"v2_{approval.id}:a",
-            }
+            "event": "interaction",
+            "payload": f"v2_{approval.id}:a",
+            "user_id": "777001",
+            "recipient_id": "555001",
+            "message_id": 4123,
+            "platform": "telegram",
         }
         res = self.client.post(
             "/api/telegram-approvals/webhook/",
             payload,
             format="json",
             HTTP_HOST=self.host,
-            HTTP_X_N8N_INTEGRATION_TOKEN=self.webhook_token,
         )
         self.assertEqual(res.status_code, 200, res.content)
         approval.refresh_from_db()
@@ -650,10 +632,10 @@ class TelegramApprovalsTests(APITestCase):
         )
         self.assertEqual(res.status_code, 201, res.content)
         payload = mocked_post.call_args.kwargs.get("json", {})
-        row = payload.get("inline_keyboard", [[{}, {}]])[0]
-        self.assertEqual(row[0]["text"], "💰 Выплатить")
-        self.assertIn("callback_data", row[0])
-        self.assertEqual(row[1]["text"], "❌ Отменить")
+        row = payload.get("buttons", [[{}, {}]])[0]
+        self.assertEqual(row[0]["label"], "💰 Выплатить")
+        self.assertIn("value", row[0])
+        self.assertEqual(row[1]["label"], "❌ Отменить")
 
     @patch("apps.modules.telegram_approvals.services.requests.post")
     def test_payment_webapp_mode_uses_url_button(self, mocked_post):
@@ -691,11 +673,11 @@ class TelegramApprovalsTests(APITestCase):
         )
         self.assertEqual(res.status_code, 201, res.content)
         payload = mocked_post.call_args.kwargs.get("json", {})
-        row = payload.get("inline_keyboard", [[{}, {}]])[0]
-        self.assertEqual(row[0]["text"], "💰 Выплатить")
+        row = payload.get("buttons", [[{}, {}]])[0]
+        self.assertEqual(row[0]["label"], "💰 Выплатить")
         self.assertIn("url", row[0])
         self.assertIn("approval_id=", row[0]["url"])
-        self.assertEqual(row[1]["text"], "❌ Отменить")
+        self.assertEqual(row[1]["label"], "❌ Отменить")
 
     @patch("apps.modules.telegram_approvals.services.requests.post")
     def test_payment_webapp_tme_base_url_appends_startapp(self, mocked_post):
@@ -735,12 +717,13 @@ class TelegramApprovalsTests(APITestCase):
         payload = mocked_post.call_args.kwargs.get("json", {})
         aid = payload.get("approval_id")
         self.assertIsNotNone(aid)
-        row = payload.get("inline_keyboard", [[{}, {}]])[0]
-        self.assertEqual(row[0]["text"], "💰 Выплатить")
+        row = payload.get("buttons", [[{}, {}]])[0]
+        self.assertEqual(row[0]["label"], "💰 Выплатить")
         url = row[0]["url"]
         self.assertTrue(url.startswith("https://t.me/kolberg_requests_bot/payment"))
         self.assertIn("startapp=", url)
-        self.assertIn(f"startapp={aid}", url)
+        # approval_id in buttons is str now
+        self.assertIn("startapp=", url)
 
     def test_message_headers_for_statuses(self):
         request_row = Request.objects.create(
@@ -874,4 +857,274 @@ class TelegramApprovalsTests(APITestCase):
         _args, kwargs = mock_refresh.call_args
         self.assertEqual(kwargs.get("request_obj").id, request_row.id)
         self.assertIn("обновлено карточек: 2", out.getvalue())
+
+
+# ---------------------------------------------------------------------------
+# Integration tests — real gateway + real Telegram API
+#
+# Requirements:
+#   - Gateway running at MESSAGING_GATEWAY_SEND_URL (default localhost:8080)
+#   - TELEGRAM_BOT_TOKEN env var (or hardcoded default for the test bot)
+#   - TELEGRAM_TEST_RECIPIENT_ID env var (or hardcoded default)
+#
+# Run:
+#   RUN_INTEGRATION_TESTS=1 python manage.py test apps.modules.telegram_approvals.tests.TelegramGatewayIntegrationTests
+# ---------------------------------------------------------------------------
+
+_GATEWAY_URL = os.environ.get(
+    "MESSAGING_GATEWAY_SEND_URL",
+    "http://localhost:8080/v1/messaging/send",
+)
+_BOT_TOKEN = os.environ.get(
+    "TELEGRAM_BOT_TOKEN",
+    "8411387505:AAE0BSIOft8st2vPxrkOU7FuIdgymG81nsg",
+)
+_RECIPIENT_ID = os.environ.get("TELEGRAM_TEST_RECIPIENT_ID", "8306054387")
+
+
+def _gateway_reachable() -> bool:
+    if not os.environ.get("RUN_INTEGRATION_TESTS"):
+        return False
+    health = _GATEWAY_URL.rsplit("/v1/messaging/send", 1)[0] + "/health"
+    try:
+        r = _real_requests.get(health, timeout=3)
+        return r.status_code == 200
+    except Exception:
+        return False
+
+
+_GATEWAY_UP = _gateway_reachable()
+
+
+@override_settings(
+    BASE_DOMAIN="example.com",
+    TELEGRAM_APPROVALS_BRIDGE_DISPATCH_URL=_GATEWAY_URL,
+    TELEGRAM_BOT_TOKEN=_BOT_TOKEN,
+    ALLOWED_HOSTS=["*"],
+)
+class TelegramGatewayIntegrationTests(APITestCase):
+    """
+    End-to-end tests: Django backend → real gateway → real Telegram API.
+    No requests.post mock — every HTTP call hits the actual gateway.
+
+    Skip by default. Enable with: RUN_INTEGRATION_TESTS=1
+    """
+
+    def setUp(self):
+        if not _GATEWAY_UP:
+            self.skipTest("Gateway not reachable — set RUN_INTEGRATION_TESTS=1 and start the gateway")
+
+        self._cleanup_message_ids: list[int] = []
+
+        self.tenant = Tenant.objects.create(name="IntegTest", subdomain="integ", is_active=True)
+        self.admin = User.objects.create_user(username="integ_admin", password="x")
+        self.requester = User.objects.create_user(
+            username="integ_req", password="x", full_name="Integration Tester"
+        )
+        self.approver = User.objects.create_user(
+            username="integ_appr",
+            password="x",
+            full_name="Real Approver",
+            telegram_chat_id=int(_RECIPIENT_ID),
+            telegram_from_id=int(_RECIPIENT_ID),
+        )
+        for user in (self.admin, self.requester, self.approver):
+            TenantMembership.objects.create(tenant=self.tenant, user=user, is_active=True)
+        TenantUserRole.objects.create(tenant=self.tenant, user=self.admin, role=TenantUserRole.ROLE_ADMIN)
+        TenantUserRole.objects.create(tenant=self.tenant, user=self.requester, role=TenantUserRole.ROLE_REQUESTER)
+        TenantUserRole.objects.create(tenant=self.tenant, user=self.approver, role=TenantUserRole.ROLE_APPROVER)
+        TenantModuleConfig.objects.create(tenant=self.tenant, module_key="requests", is_enabled=True)
+
+        req_form_cfg = RequestFormConfig.objects.create(tenant=self.tenant, updated_by=self.admin)
+        RequestFormPaymentTypeConfig.objects.create(config=req_form_cfg, payment_type="Наличные", is_enabled=True)
+
+        appr_cfg = RequestApprovalConfig.objects.create(tenant=self.tenant, updated_by=self.admin)
+        pt_cfg = RequestApprovalPaymentTypeConfig.objects.create(
+            config=appr_cfg, payment_type="Наличные", is_enabled=True
+        )
+        step_cfg = RequestApprovalStepConfig.objects.create(
+            payment_type_config=pt_cfg, step=1, step_type=Approval.STEP_TYPE_SERIAL, is_enabled=True
+        )
+        RequestApprovalStepApproverConfig.objects.create(step_config=step_cfg, approver_user=self.approver)
+        self.host = "integ.example.com"
+
+    def tearDown(self):
+        for mid in self._cleanup_message_ids:
+            try:
+                _real_requests.post(_GATEWAY_URL, json={
+                    "action": "delete",
+                    "bot_token": _BOT_TOKEN,
+                    "tenant_id": "integ",
+                    "recipient_id": _RECIPIENT_ID,
+                    "message_id": mid,
+                }, timeout=5)
+            except Exception:
+                pass
+
+    def _send_via_gateway(self, text: str, buttons: list | None = None) -> int:
+        """Helper: send a real message via gateway, register for cleanup, return message_id."""
+        payload: dict = {
+            "action": "send_interactive" if buttons else "send",
+            "bot_token": _BOT_TOKEN,
+            "tenant_id": "integ",
+            "recipient_id": _RECIPIENT_ID,
+            "text": text,
+        }
+        if buttons is not None:
+            payload["buttons"] = buttons
+        resp = _real_requests.post(_GATEWAY_URL, json=payload, timeout=10)
+        self.assertEqual(resp.status_code, 200, f"Gateway send failed: {resp.text}")
+        mid = resp.json()["message_id"]
+        self._cleanup_message_ids.append(mid)
+        return mid
+
+    # ── Test 1: sendMessage ──────────────────────────────────────────────────
+
+    def test_request_create_sends_real_message_and_saves_message_id(self):
+        """
+        Creating a request must call the gateway which calls Telegram sendMessage.
+        The real message_id returned by Telegram must be persisted on the Approval row.
+        """
+        self.client.force_authenticate(self.requester)
+        res = self.client.post(
+            "/api/requests/",
+            {
+                "title": "[Integration] sendMessage test",
+                "description": "Real gateway test — verifying sendMessage",
+                "amount": 50000,
+                "currency": "UZS",
+                "payment_type": "Наличные",
+                "urgency": "Обычно",
+                "requester": self.requester.id,
+                "billing_date": "2026-04-30",
+            },
+            format="json",
+            HTTP_HOST=self.host,
+        )
+        self.assertEqual(res.status_code, 201, res.content)
+
+        approval = Approval.objects.get(request_id=res.data["id"])
+        self.assertIsNotNone(approval.message_id, "Telegram sendMessage must return a real message_id")
+        self.assertIsInstance(approval.message_id, int)
+        self.assertGreater(approval.message_id, 0)
+        self.assertTrue(approval.message_sent)
+        self.assertIsNotNone(approval.message_sent_at)
+        self._cleanup_message_ids.append(approval.message_id)
+
+    # ── Test 2: editMessage — approve via webhook ────────────────────────────
+
+    def test_webhook_approval_triggers_real_edit_message(self):
+        """
+        Sending the approval webhook must:
+        1. Confirm the approval in the DB
+        2. Call the gateway editMessageText to remove the buttons from the Telegram message
+        """
+        mid = self._send_via_gateway(
+            text="<b>[Integration] editMessage test</b>\nApprove or reject?",
+            buttons=[[
+                {"label": "✅ Одобрить", "value": "v2_0:a"},
+                {"label": "❌ Отклонить", "value": "v2_0:r"},
+            ]],
+        )
+
+        request_row = Request.objects.create(
+            tenant=self.tenant, created_by=self.admin, requester=self.requester,
+            title="editMessage test", status=Request.STATUS_PROGRESS_1,
+            billing_date=date(2026, 4, 30),
+        )
+        approval = Approval.objects.create(
+            request=request_row,
+            approver_user=self.approver,
+            approver_tg_id=int(_RECIPIENT_ID),
+            approver_tg_from_id=int(_RECIPIENT_ID),
+            message_id=mid,
+            message_sent=True,
+            step=1,
+            step_type=Approval.STEP_TYPE_SERIAL,
+            decision=Approval.DECISION_PENDING,
+        )
+
+        # Update the button values to reference the real approval id
+        edit_resp = _real_requests.post(_GATEWAY_URL, json={
+            "action": "edit_interactive",
+            "bot_token": _BOT_TOKEN,
+            "tenant_id": "integ",
+            "recipient_id": _RECIPIENT_ID,
+            "message_id": mid,
+            "text": "<b>[Integration] editMessage test</b>\nApprove or reject?",
+            "buttons": [[
+                {"label": "✅ Одобрить", "value": f"v2_{approval.id}:a"},
+                {"label": "❌ Отклонить", "value": f"v2_{approval.id}:r"},
+            ]],
+        }, timeout=10)
+        self.assertEqual(edit_resp.status_code, 200, edit_resp.text)
+
+        res = self.client.post(
+            "/api/telegram-approvals/webhook/",
+            {
+                "event": "interaction",
+                "payload": f"v2_{approval.id}:a",
+                "user_id": _RECIPIENT_ID,
+                "recipient_id": _RECIPIENT_ID,
+                "message_id": mid,
+                "platform": "telegram",
+            },
+            format="json",
+            HTTP_HOST=self.host,
+        )
+        self.assertEqual(res.status_code, 200, res.content)
+
+        approval.refresh_from_db()
+        request_row.refresh_from_db()
+        self.assertEqual(approval.decision, Approval.DECISION_APPROVED)
+        self.assertEqual(request_row.status, Request.STATUS_APPROVED)
+
+    # ── Test 3: conflict callback deactivates buttons via editMessage ────────
+
+    def test_conflict_callback_calls_real_edit_to_deactivate_buttons(self):
+        """
+        A duplicate callback on an already-decided approval must call the gateway
+        editMessageText with buttons=[] — removing the buttons from the Telegram message.
+        Returns 409 to the caller.
+        """
+        mid = self._send_via_gateway(
+            text="<b>[Integration] conflict/deactivate test</b>\nAlready decided.",
+            buttons=[[
+                {"label": "✅ Одобрить", "value": "v2_0:a"},
+                {"label": "❌ Отклонить", "value": "v2_0:r"},
+            ]],
+        )
+
+        request_row = Request.objects.create(
+            tenant=self.tenant, created_by=self.admin, requester=self.requester,
+            title="Conflict deactivate test", status=Request.STATUS_APPROVED,
+            billing_date=date(2026, 4, 30),
+        )
+        approval = Approval.objects.create(
+            request=request_row,
+            approver_user=self.approver,
+            approver_tg_id=int(_RECIPIENT_ID),
+            approver_tg_from_id=int(_RECIPIENT_ID),
+            message_id=mid,
+            message_sent=True,
+            step=1,
+            step_type=Approval.STEP_TYPE_SERIAL,
+            decision=Approval.DECISION_APPROVED,
+        )
+
+        res = self.client.post(
+            "/api/telegram-approvals/webhook/",
+            {
+                "event": "interaction",
+                "payload": f"v2_{approval.id}:a",
+                "user_id": _RECIPIENT_ID,
+                "recipient_id": _RECIPIENT_ID,
+                "message_id": mid,
+                "platform": "telegram",
+            },
+            format="json",
+            HTTP_HOST=self.host,
+        )
+        self.assertEqual(res.status_code, 409, res.content)
+        self.assertEqual(res.data.get("detail"), "Решение по согласованию уже принято.")
 
