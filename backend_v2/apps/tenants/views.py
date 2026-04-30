@@ -1,3 +1,4 @@
+import logging
 from django.contrib.auth import get_user_model
 from collections import defaultdict
 
@@ -27,6 +28,7 @@ from apps.tenants.integration_settings import get_portal_feedback_settings, get_
 from apps.modules.registry import list_modules
 
 User = get_user_model()
+logger = logging.getLogger(__name__)
 
 
 class ModuleCatalogView(APIView):
@@ -193,22 +195,26 @@ class TenantMessagingWebhookView(APIView):
             raise ValidationError({"detail": "Telegram bot token is not configured."})
 
         base = self._gateway_base_url()
-        if action == "set":
-            webhook_url = str(request.data.get("webhook_url") or "").strip()
-            body = {"bot_token": bot_token}
-            if webhook_url:
-                body["webhook_url"] = webhook_url
-            resp = requests.post(f"{base}/v1/messaging/webhook/set", json=body, timeout=12)
-        elif action == "delete":
-            resp = requests.post(
-                f"{base}/v1/messaging/webhook/delete",
-                json={"bot_token": bot_token, "drop_pending_updates": True},
-                timeout=12,
-            )
-        elif action == "info":
-            resp = requests.get(f"{base}/v1/messaging/webhook/info/{bot_token}", timeout=12)
-        else:
-            raise ValidationError({"action": "Expected one of: set, info, delete."})
+        try:
+            if action == "set":
+                webhook_url = str(request.data.get("webhook_url") or "").strip()
+                body = {"bot_token": bot_token}
+                if webhook_url:
+                    body["webhook_url"] = webhook_url
+                resp = requests.post(f"{base}/v1/messaging/webhook/set", json=body, timeout=12)
+            elif action == "delete":
+                resp = requests.post(
+                    f"{base}/v1/messaging/webhook/delete",
+                    json={"bot_token": bot_token, "drop_pending_updates": True},
+                    timeout=12,
+                )
+            elif action == "info":
+                resp = requests.get(f"{base}/v1/messaging/webhook/info/{bot_token}", timeout=12)
+            else:
+                raise ValidationError({"action": "Expected one of: set, info, delete."})
+        except requests.RequestException as exc:
+            logger.exception("Messaging gateway webhook call failed action=%s tenant=%s", action, getattr(tenant, "pk", None))
+            return Response({"detail": str(exc)}, status=status.HTTP_502_BAD_GATEWAY)
 
         payload = resp.json() if resp.content else {}
         if resp.status_code >= 400:
