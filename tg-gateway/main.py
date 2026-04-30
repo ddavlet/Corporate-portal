@@ -71,6 +71,13 @@ def _tg_url(bot_token: str, method: str) -> str:
     return f"https://api.telegram.org/bot{bot_token}/{method}"
 
 
+def _mask_bot_token(bot_token: str) -> str:
+    token = (bot_token or "").strip()
+    if len(token) <= 10:
+        return "***"
+    return f"{token[:6]}...{token[-4:]}"
+
+
 def _markup(tg_keyboard: list[list[dict]]) -> dict | None:
     """Wrap Telegram keyboard rows in reply_markup. None → omit field entirely."""
     return {"inline_keyboard": tg_keyboard} if tg_keyboard else None
@@ -277,12 +284,24 @@ async def messaging_webhook(
 @app.post("/v1/messaging/webhook/set")
 async def set_telegram_webhook(payload: WebhookSetRequest) -> JSONResponse:
     webhook_url = (payload.webhook_url or "").strip()
+    token_mask = _mask_bot_token(payload.bot_token)
+    url_source = "request"
     if not webhook_url:
         if not PUBLIC_WEBHOOK_BASE_URL:
             raise HTTPException(status_code=400, detail="webhook_url is required when PUBLIC_WEBHOOK_BASE_URL is not configured")
         webhook_url = f"{PUBLIC_WEBHOOK_BASE_URL}/v1/messaging/webhook/{payload.bot_token}"
+        url_source = "public_base"
+
+    logger.info("webhook set requested token=%s source=%s url=%s", token_mask, url_source, webhook_url)
 
     status_code, tg_data = await _telegram_api(payload.bot_token, "setWebhook", {"url": webhook_url})
+    logger.info(
+        "webhook set result token=%s ok=%s status=%s description=%s",
+        token_mask,
+        bool(tg_data.get("ok")),
+        status_code,
+        tg_data.get("description"),
+    )
     return JSONResponse(
         status_code=200 if tg_data.get("ok") else 502,
         content={
@@ -296,9 +315,20 @@ async def set_telegram_webhook(payload: WebhookSetRequest) -> JSONResponse:
 
 @app.get("/v1/messaging/webhook/info/{bot_token}")
 async def get_telegram_webhook_info(bot_token: str) -> JSONResponse:
+    token_mask = _mask_bot_token(bot_token)
     status_code, tg_data = await _telegram_api(bot_token, "getWebhookInfo", {})
     result = tg_data.get("result") if isinstance(tg_data, dict) else {}
     webhook_url = result.get("url", "") if isinstance(result, dict) else ""
+    logger.info(
+        "webhook info token=%s ok=%s status=%s connected=%s url=%s pending=%s last_error=%s",
+        token_mask,
+        bool(tg_data.get("ok")),
+        status_code,
+        bool(webhook_url),
+        webhook_url,
+        int(result.get("pending_update_count", 0)) if isinstance(result, dict) else 0,
+        result.get("last_error_message") if isinstance(result, dict) else None,
+    )
     return JSONResponse(
         status_code=200 if tg_data.get("ok") else 502,
         content={
@@ -316,10 +346,23 @@ async def get_telegram_webhook_info(bot_token: str) -> JSONResponse:
 
 @app.post("/v1/messaging/webhook/delete")
 async def delete_telegram_webhook(payload: WebhookDeleteRequest) -> JSONResponse:
+    token_mask = _mask_bot_token(payload.bot_token)
+    logger.info(
+        "webhook delete requested token=%s drop_pending_updates=%s",
+        token_mask,
+        payload.drop_pending_updates,
+    )
     status_code, tg_data = await _telegram_api(
         payload.bot_token,
         "deleteWebhook",
         {"drop_pending_updates": payload.drop_pending_updates},
+    )
+    logger.info(
+        "webhook delete result token=%s ok=%s status=%s description=%s",
+        token_mask,
+        bool(tg_data.get("ok")),
+        status_code,
+        tg_data.get("description"),
     )
     return JSONResponse(
         status_code=200 if tg_data.get("ok") else 502,
