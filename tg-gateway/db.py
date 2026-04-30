@@ -42,32 +42,45 @@ async def init_tables(pool) -> None:
         return
     await pool.execute("""
         CREATE TABLE IF NOT EXISTS gateway_logs (
-            id          BIGSERIAL PRIMARY KEY,
-            ts          TIMESTAMPTZ DEFAULT NOW(),
-            direction   VARCHAR(10)  NOT NULL,
-            endpoint    VARCHAR(200),
-            action      VARCHAR(50),
-            tenant_id   VARCHAR(100),
-            chat_id     BIGINT,
-            message_id  INT,
-            ok          BOOLEAN,
-            status_code INT,
-            error_text  TEXT,
-            payload     JSONB,
-            tg_response JSONB
+            id           BIGSERIAL PRIMARY KEY,
+            ts           TIMESTAMPTZ DEFAULT NOW(),
+            direction    VARCHAR(10)  NOT NULL,
+            endpoint     VARCHAR(200),
+            action       VARCHAR(50),
+            tenant_id    VARCHAR(100),
+            recipient_id VARCHAR(100),
+            message_id   INT,
+            ok           BOOLEAN,
+            status_code  INT,
+            error_text   TEXT,
+            payload      JSONB,
+            tg_response  JSONB
         )
     """)
-    # add tenant_id column if table existed before this migration
+    # Migrate old schema: rename chat_id → recipient_id if the old column still exists
+    await pool.execute("""
+        DO $$
+        BEGIN
+            IF EXISTS (
+                SELECT 1 FROM information_schema.columns
+                WHERE table_name='gateway_logs' AND column_name='chat_id'
+            ) THEN
+                ALTER TABLE gateway_logs RENAME COLUMN chat_id TO recipient_id;
+            END IF;
+        END $$
+    """)
+    # Ensure columns added in later versions exist on older tables
     await pool.execute("""
         ALTER TABLE gateway_logs
-        ADD COLUMN IF NOT EXISTS tenant_id VARCHAR(100)
+            ADD COLUMN IF NOT EXISTS tenant_id    VARCHAR(100),
+            ADD COLUMN IF NOT EXISTS recipient_id VARCHAR(100)
     """)
     await pool.execute("""
         CREATE TABLE IF NOT EXISTS callback_cooldown (
-            chat_id     BIGINT NOT NULL,
-            cb_key      TEXT   NOT NULL,
-            last_called TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-            PRIMARY KEY (chat_id, cb_key)
+            recipient_id VARCHAR(100) NOT NULL,
+            cb_key       TEXT         NOT NULL,
+            last_called  TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+            PRIMARY KEY (recipient_id, cb_key)
         )
     """)
     logger.info("DB tables ready")
@@ -79,7 +92,7 @@ async def log_event(
     endpoint: str,
     action: str | None = None,
     tenant_id: str | None = None,
-    chat_id: int | None = None,
+    recipient_id: str | None = None,
     message_id: int | None = None,
     ok: bool,
     status_code: int | None = None,
@@ -95,11 +108,11 @@ async def log_event(
         await pool.execute(
             """
             INSERT INTO gateway_logs
-              (direction, endpoint, action, tenant_id, chat_id, message_id,
+              (direction, endpoint, action, tenant_id, recipient_id, message_id,
                ok, status_code, error_text, payload, tg_response)
             VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb,$11::jsonb)
             """,
-            direction, endpoint, action, tenant_id, chat_id, message_id,
+            direction, endpoint, action, tenant_id, recipient_id, message_id,
             ok, status_code, error_text,
             json.dumps(payload)     if payload     else None,
             json.dumps(tg_response) if tg_response else None,
@@ -108,15 +121,15 @@ async def log_event(
         logger.error("DB log_event failed: %s", exc)
 
 
-async def is_cooldown_ok(chat_id: int, cb_key: str) -> bool:
+async def is_cooldown_ok(recipient_id: str, cb_key: str) -> bool:
     """Return True if callback is allowed, False if still in cooldown."""
     pool = get_pool()
     if pool is None:
         return True
     try:
         row = await pool.fetchrow(
-            "SELECT last_called FROM callback_cooldown WHERE chat_id=$1 AND cb_key=$2",
-            chat_id, cb_key,
+            "SELECT last_called FROM callback_cooldown WHERE recipient_id=$1 AND cb_key=$2",
+            recipient_id, cb_key,
         )
         now = datetime.now(timezone.utc)
         if row:
@@ -125,11 +138,11 @@ async def is_cooldown_ok(chat_id: int, cb_key: str) -> bool:
                 return False
         await pool.execute(
             """
-            INSERT INTO callback_cooldown (chat_id, cb_key, last_called)
+            INSERT INTO callback_cooldown (recipient_id, cb_key, last_called)
             VALUES ($1, $2, NOW())
-            ON CONFLICT (chat_id, cb_key) DO UPDATE SET last_called = NOW()
+            ON CONFLICT (recipient_id, cb_key) DO UPDATE SET last_called = NOW()
             """,
-            chat_id, cb_key,
+            recipient_id, cb_key,
         )
         return True
     except Exception as exc:

@@ -1,30 +1,27 @@
 """
-Unit tests for the Telegram Dispatch Gateway.
-No real credentials or database needed.
+Unit tests for the Messaging Gateway (Telegram adapter).
+No real credentials or database needed — all external calls are mocked.
 
 Run:
     pytest test_gateway.py -v
 """
 import os
-import pytest
-from fastapi.testclient import TestClient
 from unittest.mock import AsyncMock, MagicMock, patch
 
-os.environ.setdefault("DATABASE_URL", "")  # disables DB — all log_event calls are no-ops
+os.environ.setdefault("DATABASE_URL", "")  # disables DB — log_event is a no-op
 
+from fastapi.testclient import TestClient
 from main import app  # noqa: E402
 
 client = TestClient(app)
 
-BOT    = "123:TEST"
-CHAT   = 12345
-TENANT = "test-tenant"
+BOT       = "123:TEST"           # fake — never reaches Telegram
+RECIPIENT = "12345"
+TENANT    = "test-tenant"
 
-BASE_PAYLOAD = {
-    "bot_token": BOT,
-    "tenant_id": TENANT,
-    "chat_id": CHAT,
-}
+BASE = {"bot_token": BOT, "tenant_id": TENANT, "recipient_id": RECIPIENT}
+SEND = "/v1/messaging/send"
+HOOK = "/v1/messaging/webhook/testtoken"
 
 
 # ── Mock factories ────────────────────────────────────────────────────────────
@@ -74,97 +71,125 @@ def _posted_url(mock_cls) -> str:
 def test_health():
     resp = client.get("/health")
     assert resp.status_code == 200
-    assert resp.json()["ok"] is True
+    data = resp.json()
+    assert data["ok"] is True
+    assert "db" in data
 
 
-# ── send_message ──────────────────────────────────────────────────────────────
+# ── Contract: response shape ──────────────────────────────────────────────────
 
-def test_send_message_returns_tenant_chat_message():
+def test_response_contains_tenant_recipient_message_id():
     with patch("httpx.AsyncClient", return_value=_tg_ok(101)):
-        resp = client.post("/v1/telegram/send", json={
-            **BASE_PAYLOAD, "action": "send_message", "text_message": "Hello",
-        })
+        resp = client.post(SEND, json={**BASE, "action": "send", "text": "Hello"})
     assert resp.status_code == 200
     data = resp.json()
     assert data["ok"] is True
     assert data["tenant"] == TENANT
-    assert data["chat_id"] == CHAT
+    assert data["recipient_id"] == RECIPIENT
     assert data["message_id"] == 101
 
 
-def test_send_message_no_reply_markup():
-    with patch("httpx.AsyncClient", return_value=_tg_ok()) as m:
-        client.post("/v1/telegram/send", json={
-            **BASE_PAYLOAD, "action": "send_message", "text_message": "plain",
-        })
-    assert "reply_markup" not in _posted_body(m)
+def test_response_does_not_contain_bot_token():
+    """bot_token must never appear in response or logs."""
+    with patch("httpx.AsyncClient", return_value=_tg_ok()):
+        resp = client.post(SEND, json={**BASE, "action": "send", "text": "hi"})
+    body = resp.text
+    assert BOT not in body
 
 
-# ── send_message_button (fully dynamic) ──────────────────────────────────────
+def test_response_does_not_contain_old_chat_id_field():
+    """chat_id was removed from response — only recipient_id is returned."""
+    with patch("httpx.AsyncClient", return_value=_tg_ok()):
+        resp = client.post(SEND, json={**BASE, "action": "send", "text": "hi"})
+    assert "chat_id" not in resp.json()
 
-def test_send_message_button_passes_any_keyboard():
-    buttons = [
-        [{"text": "✅ Approve", "callback_data": "v2_1:a"},
-         {"text": "❌ Reject",  "callback_data": "v2_1:r"}],
-    ]
-    with patch("httpx.AsyncClient", return_value=_tg_ok(202)) as m:
-        resp = client.post("/v1/telegram/send", json={
-            **BASE_PAYLOAD, "action": "send_message_button",
-            "text_message": "Approve?", "inline_keyboard": buttons,
-        })
+
+# ── Security: no auth token required ─────────────────────────────────────────
+
+def test_no_token_still_accepted():
+    """Gateway has no token auth — any caller on the internal network is trusted."""
+    with patch("httpx.AsyncClient", return_value=_tg_ok()):
+        resp = client.post(SEND, json={**BASE, "action": "send", "text": "hi"})
     assert resp.status_code == 200
-    body = _posted_body(m)
-    assert body["reply_markup"]["inline_keyboard"] == buttons
 
 
-def test_send_message_button_custom_labels():
-    buttons = [[{"text": "💰 Pay", "callback_data": "pay"},
-                {"text": "🚫 Cancel", "callback_data": "cancel"}]]
+# ── Contract: field mapping to Telegram ──────────────────────────────────────
+
+def test_recipient_id_mapped_to_tg_chat_id():
+    """Universal recipient_id (str) must be converted to int for Telegram."""
     with patch("httpx.AsyncClient", return_value=_tg_ok()) as m:
-        client.post("/v1/telegram/send", json={
-            **BASE_PAYLOAD, "action": "send_message_button",
-            "text_message": "Pay?", "inline_keyboard": buttons,
-        })
+        client.post(SEND, json={**BASE, "action": "send", "text": "hi"})
     body = _posted_body(m)
-    assert body["reply_markup"]["inline_keyboard"][0][0]["text"] == "💰 Pay"
+    assert body["chat_id"] == int(RECIPIENT)
 
 
-def test_send_message_button_empty_keyboard_omits_markup():
+def test_format_html_maps_to_tg_parse_mode():
     with patch("httpx.AsyncClient", return_value=_tg_ok()) as m:
-        client.post("/v1/telegram/send", json={
-            **BASE_PAYLOAD, "action": "send_message_button",
-            "text_message": "no buttons", "inline_keyboard": [],
-        })
+        client.post(SEND, json={**BASE, "action": "send", "text": "hi", "format": "html"})
+    assert _posted_body(m)["parse_mode"] == "HTML"
+
+
+def test_format_plain_omits_parse_mode():
+    with patch("httpx.AsyncClient", return_value=_tg_ok()) as m:
+        client.post(SEND, json={**BASE, "action": "send", "text": "hi", "format": "plain"})
+    assert _posted_body(m).get("parse_mode") is None
+
+
+# ── send ──────────────────────────────────────────────────────────────────────
+
+def test_send_no_reply_markup():
+    with patch("httpx.AsyncClient", return_value=_tg_ok()) as m:
+        client.post(SEND, json={**BASE, "action": "send", "text": "plain"})
     assert "reply_markup" not in _posted_body(m)
 
 
-# ── edit_message ──────────────────────────────────────────────────────────────
+# ── send_interactive — dynamic buttons ───────────────────────────────────────
 
-def test_edit_message_calls_editMessageText():
+def test_send_interactive_converts_buttons_to_tg_format():
+    """Universal {label, value} must be converted to Telegram {text, callback_data}."""
+    with patch("httpx.AsyncClient", return_value=_tg_ok()) as m:
+        client.post(SEND, json={**BASE, "action": "send_interactive", "text": "Approve?",
+            "buttons": [[
+                {"label": "✅ Approve", "value": "v2_1:a"},
+                {"label": "❌ Reject",  "value": "v2_1:r"},
+            ]]})
+    kb = _posted_body(m)["reply_markup"]["inline_keyboard"]
+    assert kb[0][0] == {"text": "✅ Approve", "callback_data": "v2_1:a"}
+    assert kb[0][1] == {"text": "❌ Reject",  "callback_data": "v2_1:r"}
+
+
+def test_send_interactive_any_button_labels():
+    for label in ["💰 Pay", "Accept", "Confirm", "🚫 Cancel"]:
+        with patch("httpx.AsyncClient", return_value=_tg_ok()) as m:
+            client.post(SEND, json={**BASE, "action": "send_interactive", "text": "?",
+                "buttons": [[{"label": label, "value": "x"}]]})
+        assert _posted_body(m)["reply_markup"]["inline_keyboard"][0][0]["text"] == label
+
+
+def test_send_interactive_empty_buttons_omits_markup():
+    with patch("httpx.AsyncClient", return_value=_tg_ok()) as m:
+        client.post(SEND, json={**BASE, "action": "send_interactive", "text": "hi", "buttons": []})
+    assert "reply_markup" not in _posted_body(m)
+
+
+# ── edit ──────────────────────────────────────────────────────────────────────
+
+def test_edit_calls_editMessageText():
     with patch("httpx.AsyncClient", return_value=_tg_ok(555)) as m:
-        resp = client.post("/v1/telegram/send", json={
-            **BASE_PAYLOAD, "action": "edit_message",
-            "message_id": 555, "text_message": "Edited",
-        })
+        resp = client.post(SEND, json={**BASE, "action": "edit", "message_id": 555, "text": "Edited"})
     assert resp.status_code == 200
     assert "editMessageText" in _posted_url(m)
 
 
-def test_edit_message_empty_keyboard_removes_buttons():
-    """edit_message with empty inline_keyboard removes buttons (no reply_markup sent)."""
+def test_edit_empty_buttons_removes_markup():
     with patch("httpx.AsyncClient", return_value=_tg_ok(555)) as m:
-        client.post("/v1/telegram/send", json={
-            **BASE_PAYLOAD, "action": "edit_message",
-            "message_id": 555, "text_message": "No buttons now", "inline_keyboard": [],
-        })
+        client.post(SEND, json={**BASE, "action": "edit", "message_id": 555, "text": "no btns", "buttons": []})
     assert "reply_markup" not in _posted_body(m)
 
 
-def test_edit_message_no_message_id_returns_400():
+def test_edit_no_message_id_returns_400():
     with patch("httpx.AsyncClient", return_value=_tg_ok()):
-        resp = client.post("/v1/telegram/send", json={
-            **BASE_PAYLOAD, "action": "edit_message", "text_message": "no id",
-        })
+        resp = client.post(SEND, json={**BASE, "action": "edit", "text": "no id"})
     assert resp.status_code == 400
 
 
@@ -176,108 +201,148 @@ def test_edit_not_modified_returns_200():
     m.__aexit__  = AsyncMock(return_value=False)
     m.post = AsyncMock(return_value=mock_resp)
     with patch("httpx.AsyncClient", return_value=m):
-        resp = client.post("/v1/telegram/send", json={
-            **BASE_PAYLOAD, "action": "edit_message",
-            "message_id": 999, "text_message": "same",
-        })
+        resp = client.post(SEND, json={**BASE, "action": "edit", "message_id": 999, "text": "same"})
     assert resp.status_code == 200
 
 
-# ── edit_message_button (fully dynamic) ──────────────────────────────────────
+# ── edit_interactive ──────────────────────────────────────────────────────────
 
-def test_edit_message_button_replaces_keyboard():
-    new_buttons = [[{"text": "New", "callback_data": "new"}]]
+def test_edit_interactive_replaces_buttons():
     with patch("httpx.AsyncClient", return_value=_tg_ok(777)) as m:
-        resp = client.post("/v1/telegram/send", json={
-            **BASE_PAYLOAD, "action": "edit_message_button",
-            "message_id": 777, "text_message": "updated",
-            "inline_keyboard": new_buttons,
-        })
+        resp = client.post(SEND, json={**BASE, "action": "edit_interactive",
+            "message_id": 777, "text": "updated",
+            "buttons": [[{"label": "New", "value": "new"}]]})
     assert resp.status_code == 200
-    body = _posted_body(m)
-    assert body["reply_markup"]["inline_keyboard"] == new_buttons
+    kb = _posted_body(m)["reply_markup"]["inline_keyboard"]
+    assert kb[0][0] == {"text": "New", "callback_data": "new"}
 
 
-def test_edit_message_button_no_message_id_returns_400():
+def test_edit_interactive_no_message_id_returns_400():
     with patch("httpx.AsyncClient", return_value=_tg_ok()):
-        resp = client.post("/v1/telegram/send", json={
-            **BASE_PAYLOAD, "action": "edit_message_button", "text_message": "no id",
-        })
+        resp = client.post(SEND, json={**BASE, "action": "edit_interactive", "text": "no id"})
     assert resp.status_code == 400
 
 
-# ── delete_message ────────────────────────────────────────────────────────────
+# ── delete ────────────────────────────────────────────────────────────────────
 
-def test_delete_message_calls_deleteMessage():
+def test_delete_calls_deleteMessage():
     with patch("httpx.AsyncClient", return_value=_tg_delete_ok()) as m:
-        resp = client.post("/v1/telegram/send", json={
-            **BASE_PAYLOAD, "action": "delete_message", "message_id": 888,
-        })
+        resp = client.post(SEND, json={**BASE, "action": "delete", "message_id": 888})
     assert resp.status_code == 200
     assert "deleteMessage" in _posted_url(m)
 
 
-def test_delete_message_no_message_id_returns_400():
+def test_delete_no_message_id_returns_400():
     with patch("httpx.AsyncClient", return_value=_tg_delete_ok()):
-        resp = client.post("/v1/telegram/send", json={
-            **BASE_PAYLOAD, "action": "delete_message",
-        })
+        resp = client.post(SEND, json={**BASE, "action": "delete"})
     assert resp.status_code == 400
 
 
-def test_delete_message_button_action_is_unknown():
-    """delete_message_button is removed — must return 422."""
-    resp = client.post("/v1/telegram/send", json={
-        **BASE_PAYLOAD, "action": "delete_message_button", "message_id": 999,
-    })
+# ── Removed actions must return 422 ──────────────────────────────────────────
+
+def test_old_send_message_action_rejected():
+    resp = client.post(SEND, json={**BASE, "action": "send_message", "text": "hi"})
     assert resp.status_code == 422
 
 
-# ── Telegram API errors ───────────────────────────────────────────────────────
+def test_old_edit_message_action_rejected():
+    resp = client.post(SEND, json={**BASE, "action": "edit_message", "message_id": 1, "text": "hi"})
+    assert resp.status_code == 422
 
-def test_telegram_error_returns_502():
+
+def test_old_delete_message_button_rejected():
+    resp = client.post(SEND, json={**BASE, "action": "delete_message_button", "message_id": 1})
+    assert resp.status_code == 422
+
+
+# ── Telegram error → 502 ─────────────────────────────────────────────────────
+
+def test_telegram_chat_not_found_returns_502():
     with patch("httpx.AsyncClient", return_value=_tg_err("chat not found")):
-        resp = client.post("/v1/telegram/send", json={
-            **BASE_PAYLOAD, "action": "send_message", "text_message": "hi",
-        })
+        resp = client.post(SEND, json={**BASE, "action": "send", "text": "hi"})
     assert resp.status_code == 502
     assert "chat not found" in resp.json()["detail"]
+
+
+def test_telegram_bot_blocked_returns_502():
+    with patch("httpx.AsyncClient", return_value=_tg_err("Forbidden: bot was blocked by the user")):
+        resp = client.post(SEND, json={**BASE, "action": "send", "text": "hi"})
+    assert resp.status_code == 502
 
 
 # ── Validation ────────────────────────────────────────────────────────────────
 
 def test_unknown_action_returns_422():
-    resp = client.post("/v1/telegram/send", json={
-        **BASE_PAYLOAD, "action": "fly_to_moon", "text_message": "hi",
-    })
+    resp = client.post(SEND, json={**BASE, "action": "fly_to_moon", "text": "hi"})
     assert resp.status_code == 422
 
 
-def test_missing_chat_id_returns_422():
-    resp = client.post("/v1/telegram/send", json={
-        "action": "send_message", "bot_token": BOT, "text_message": "hi",
-    })
+def test_missing_recipient_id_returns_422():
+    resp = client.post(SEND, json={"action": "send", "bot_token": BOT, "text": "hi"})
     assert resp.status_code == 422
 
 
-# ── Webhook ───────────────────────────────────────────────────────────────────
+def test_missing_bot_token_returns_422():
+    resp = client.post(SEND, json={"action": "send", "recipient_id": RECIPIENT, "text": "hi"})
+    assert resp.status_code == 422
 
-def test_webhook_non_callback_returns_ok():
-    resp = client.post("/v1/telegram/webhook/testtoken", json={
-        "update_id": 1, "message": {"text": "hi"},
-    })
+
+# ── Webhook: platform-neutral callback forward ────────────────────────────────
+
+def test_webhook_non_interactive_returns_ok():
+    resp = client.post(HOOK, json={"update_id": 1, "message": {"text": "hi"}})
     assert resp.status_code == 200
     assert resp.json()["ok"] is True
 
 
-def test_webhook_callback_no_backend_returns_ok():
-    with patch("main.BACKEND_URL", ""):
-        resp = client.post("/v1/telegram/webhook/testtoken", json={
+def test_webhook_callback_forwards_neutral_format():
+    """Gateway must forward a platform-neutral event, not raw Telegram structure."""
+    forward_payload = {}
+
+    async def fake_post(url, json=None, **kwargs):
+        nonlocal forward_payload
+        forward_payload = json
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.text = ""
+        return mock_resp
+
+    m = AsyncMock()
+    m.__aenter__ = AsyncMock(return_value=m)
+    m.__aexit__  = AsyncMock(return_value=False)
+    m.post = AsyncMock(side_effect=fake_post)
+
+    with patch("main.BACKEND_URL", "http://backend/webhook"), \
+         patch("httpx.AsyncClient", return_value=m):
+        resp = client.post(HOOK, json={
             "update_id": 2,
             "callback_query": {
                 "id": "abc", "data": "v2_42:a",
-                "from": {"id": 12345},
-                "message": {"message_id": 999, "chat": {"id": 12345}},
+                "from": {"id": 789},
+                "message": {"message_id": 456, "chat": {"id": 123456}},
+            },
+        })
+
+    assert resp.status_code == 200
+    # Must be flat, platform-neutral — no "update" or "callback_query" keys
+    assert "update" not in forward_payload
+    assert "callback_query" not in forward_payload
+    assert forward_payload["event"] == "interaction"
+    assert forward_payload["payload"] == "v2_42:a"
+    assert forward_payload["user_id"] == "789"
+    assert forward_payload["recipient_id"] == "123456"
+    assert forward_payload["message_id"] == 456
+    assert forward_payload["platform"] == "telegram"
+
+
+def test_webhook_callback_no_backend_returns_ok():
+    with patch("main.BACKEND_URL", ""):
+        resp = client.post(HOOK, json={
+            "update_id": 3,
+            "callback_query": {
+                "id": "xyz", "data": "v2_99:r",
+                "from": {"id": 111},
+                "message": {"message_id": 222, "chat": {"id": 333}},
             },
         })
     assert resp.status_code == 200
