@@ -32,7 +32,7 @@ services:
       DJANGO_DEBUG: "True"
       DJANGO_ALLOWED_HOSTS: "*"
       BASE_DOMAIN: localhost
-      DJANGO_CSRF_TRUSTED_ORIGINS: "http://localhost:8001,http://test.localhost:8001"
+      DJANGO_CSRF_TRUSTED_ORIGINS: "http://localhost:8001,http://localhost:3000,http://test.localhost:8001,http://test.localhost:3000"
       MESSAGING_GATEWAY_SEND_URL: http://tg_gateway_local:8080/v1/messaging/send
       MESSAGING_GATEWAY_ADMIN_URL: http://tg_gateway_local:8080
     ports:
@@ -45,6 +45,7 @@ services:
     command: >
       sh -c "
       python manage.py migrate &&
+      python manage.py seed_test_data &&
       python manage.py runserver 0.0.0.0:8001
       "
     networks:
