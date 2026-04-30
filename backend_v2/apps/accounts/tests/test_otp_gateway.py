@@ -1,4 +1,4 @@
-"""OTP sends via messaging gateway; bot token from tenant or TELEGRAM_BOT_TOKEN fallback."""
+"""OTP sends via messaging gateway; bot token is tenant-scoped."""
 
 from unittest.mock import patch
 

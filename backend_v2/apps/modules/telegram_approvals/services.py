@@ -64,17 +64,15 @@ def _display_user_name(user) -> str:
 
 
 def _get_tenant_bot_token(tenant) -> str:
-    """Telegram bot token lives on `Tenant` (encrypted field), not on TenantIntegrationConfig."""
+    """Telegram bot token lives only on `Tenant` (encrypted field)."""
     if tenant is None:
-        return (getattr(settings, "TELEGRAM_BOT_TOKEN", "") or "").strip()
+        return ""
     try:
         token = (tenant.get_telegram_bot_token() or "").strip()
     except Exception:
         logger.exception("Failed to read Telegram bot token for tenant=%s", getattr(tenant, "pk", None))
         token = ""
-    if token:
-        return token
-    return (getattr(settings, "TELEGRAM_BOT_TOKEN", "") or "").strip()
+    return token
 
 
 def _resolve_gateway_url_for_tenant(tenant) -> str:
