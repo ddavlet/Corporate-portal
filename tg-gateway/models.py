@@ -60,3 +60,13 @@ class DispatchRequest(BaseModel):
                     tg_row.append({"text": btn.label, "callback_data": btn.value})
             result.append(tg_row)
         return result
+
+
+class WebhookSetRequest(BaseModel):
+    bot_token: str
+    webhook_url: str | None = None
+
+
+class WebhookDeleteRequest(BaseModel):
+    bot_token: str
+    drop_pending_updates: bool = True

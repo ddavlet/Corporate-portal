@@ -1,7 +1,9 @@
 # Service Contract — Messaging Gateway
 
-Version: 2.0 (platform-neutral redesign)
-Base URL: `http://tg-gateway:8080` (internal Docker network only)
+Version: 2.1
+Base URL:
+- Internal (backend -> gateway): `http://tg-gateway:8080`
+- Public (Telegram -> gateway webhook only): `https://<TG_GATEWAY_PUBLIC_HOST>`
 
 This gateway is a **platform adapter**. The backend sends and receives platform-neutral messages; the
 gateway translates them to/from the target platform (Telegram, Slack, etc.). Switching platforms
@@ -9,10 +11,17 @@ requires deploying a different gateway — no backend changes.
 
 ---
 
-## Authentication
+## Authentication and Network Model
 
-None. The gateway is only reachable from the `gateway` Docker network. Backend and gateway must both
-be on that network; the endpoint is not exposed through Traefik.
+No token authentication between backend and gateway.
+
+Access is split by path and network:
+- `POST /v1/messaging/send` and webhook management endpoints are **internal-only** (Docker network).
+- `POST /v1/messaging/webhook/{bot_token}` is exposed externally via Traefik on a dedicated host/path
+  so Telegram can deliver updates.
+
+The backend callback endpoint (`/api/messaging-gateway/webhook/`) remains internal-only and is not
+exposed via Traefik.
 
 ---
 
@@ -52,22 +61,24 @@ Send, edit, or delete a message on any platform.
 | `bot_token`    | string          | yes      | Platform credential (Telegram bot token, Slack bot token, etc.) |
 | `tenant_id`    | string          | no       | Echoed in response and logs |
 | `recipient_id` | string          | yes      | Platform-agnostic channel/chat/user identifier |
-| `text`         | string          | yes (send/edit) | Message body |
+| `text`         | string          | no | Message body (`null/empty` is passed through to platform API) |
 | `format`       | `html` / `markdown` / `plain` | no | Default: `html` |
 | `message_id`   | integer         | yes (edit/delete) | ID of the message to edit or delete |
-| `buttons`      | array of rows   | no       | `[[{label, value}, ...], ...]` — empty array removes buttons on edit |
+| `buttons`      | array of rows   | no       | `[[{label, value}, ...], ...]` |
 | `request_id`   | integer         | no       | Passed through; echoed in logs |
 | `approval_id`  | string/integer  | no       | Passed through; echoed in logs |
 
 **Actions:**
 
-| Action           | Telegram method      | buttons required |
-|------------------|----------------------|------------------|
-| `send`           | `sendMessage`        | no               |
-| `send_interactive` | `sendMessage`      | yes              |
-| `edit`           | `editMessageText`    | no               |
-| `edit_interactive` | `editMessageText`  | yes              |
-| `delete`         | `deleteMessage`      | no               |
+| Action             | Telegram method    | Notes |
+|--------------------|--------------------|-------|
+| `send`             | `sendMessage`      | Plain send |
+| `send_interactive` | `sendMessage`      | If `buttons` present, sent as inline keyboard |
+| `edit`             | `editMessageText`  | If `buttons` present, they are updated |
+| `edit_interactive` | `editMessageText`  | Same behavior as `edit`, semantic alias |
+| `delete`           | `deleteMessage`    | Deletes message by id |
+
+For `edit`/`edit_interactive`, passing `buttons: []` clears buttons.
 
 **Success response (200):**
 
@@ -139,6 +150,77 @@ No auth header is sent — network isolation is the only access control.
 
 ---
 
+### POST /v1/messaging/webhook/set
+
+Create/update Telegram webhook for a bot.
+
+**Request body:**
+```json
+{
+  "bot_token": "123:abc",
+  "webhook_url": "https://tg-gateway.example.com/v1/messaging/webhook/123:abc"
+}
+```
+
+- `webhook_url` is optional.
+- If omitted, gateway builds URL as:
+  `PUBLIC_WEBHOOK_BASE_URL + "/v1/messaging/webhook/{bot_token}"`.
+
+**Response (200 on success, 502 on Telegram failure):**
+```json
+{
+  "ok": true,
+  "webhook_url": "https://tg-gateway.example.com/v1/messaging/webhook/123:abc",
+  "telegram_status": 200,
+  "telegram": { "ok": true, "result": true }
+}
+```
+
+---
+
+### GET /v1/messaging/webhook/info/{bot_token}
+
+Read Telegram webhook status for a bot.
+
+**Response:**
+```json
+{
+  "ok": true,
+  "connected": true,
+  "url": "https://tg-gateway.example.com/v1/messaging/webhook/123:abc",
+  "pending_update_count": 0,
+  "last_error_date": null,
+  "last_error_message": null,
+  "telegram_status": 200,
+  "telegram": { "...": "..." }
+}
+```
+
+---
+
+### POST /v1/messaging/webhook/delete
+
+Delete Telegram webhook for a bot.
+
+**Request body:**
+```json
+{
+  "bot_token": "123:abc",
+  "drop_pending_updates": true
+}
+```
+
+**Response (200 on success, 502 on Telegram failure):**
+```json
+{
+  "ok": true,
+  "telegram_status": 200,
+  "telegram": { "ok": true, "result": true }
+}
+```
+
+---
+
 ### GET /health
 
 Liveness check.
@@ -179,6 +261,7 @@ Every send/edit/delete call and every inbound callback is written to the `gatewa
 | Variable               | Required | Default | Description |
 |------------------------|----------|---------|-------------|
 | `BACKEND_WEBHOOK_URL`  | yes      | —       | Where to forward interaction callbacks (internal URL) |
+| `PUBLIC_WEBHOOK_BASE_URL` | no    | —       | Public base URL used by `/v1/messaging/webhook/set` when `webhook_url` is omitted |
 | `DATABASE_URL`         | no       | —       | PostgreSQL DSN; omit to disable logging |
 | `CALLBACK_COOLDOWN_SECS` | no     | `10`    | Dedup window for identical button clicks |
 

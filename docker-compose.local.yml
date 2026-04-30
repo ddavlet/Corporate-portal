@@ -34,6 +34,7 @@ services:
       BASE_DOMAIN: localhost
       DJANGO_CSRF_TRUSTED_ORIGINS: "http://localhost:8001,http://test.localhost:8001"
       MESSAGING_GATEWAY_SEND_URL: http://tg_gateway_local:8080/v1/messaging/send
+      MESSAGING_GATEWAY_ADMIN_URL: http://tg_gateway_local:8080
     ports:
       - "127.0.0.1:8001:8001"
     volumes:
@@ -55,8 +56,11 @@ services:
     container_name: tg_gateway_local
     environment:
       BACKEND_WEBHOOK_URL: http://kolberg_backend_local:8001/api/messaging-gateway/webhook/
+      PUBLIC_WEBHOOK_BASE_URL: ${TG_GATEWAY_PUBLIC_BASE_URL:-http://localhost:8080}
       CALLBACK_COOLDOWN_SECS: ${CALLBACK_COOLDOWN_SECS:-10}
       DATABASE_URL: ${TG_GATEWAY_DATABASE_URL:-}
+    ports:
+      - "127.0.0.1:8080:8080"
     depends_on:
       db:
         condition: service_healthy

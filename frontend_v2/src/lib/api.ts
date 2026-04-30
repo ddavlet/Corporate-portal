@@ -164,23 +164,25 @@ export type TenantIntegrationConfigResponse = {
   telegram_oidc_client_id: string
   telegram_oidc_client_secret: string
   telegram_oidc_redirect_uri: string
-  telegram_approvals_bridge_dispatch_url: string
-  telegram_approvals_send_action: string
-  telegram_approvals_edit_action: string
-  telegram_approvals_draft_notification_action: string
-  telegram_approvals_message_template: string
-  telegram_approvals_header_new_template: string
-  telegram_approvals_header_step_approved_template: string
-  telegram_approvals_header_fully_approved_template: string
-  telegram_approvals_header_closed_template: string
-  telegram_approvals_header_rejected_template: string
-  telegram_approvals_subheader_payment_responsible_template: string
-  telegram_approvals_subheader_rejected_by_template: string
-  telegram_approvals_bridge_token: string
-  n8n_integration_token: string
+  messaging_gateway_dispatch_url: string
+  messaging_gateway_send_action: string
+  messaging_gateway_edit_action: string
+  messaging_gateway_draft_action: string
+  messaging_gateway_message_template: string
+  messaging_gateway_header_new_template: string
+  messaging_gateway_header_step_approved_template: string
+  messaging_gateway_header_fully_approved_template: string
+  messaging_gateway_header_closed_template: string
+  messaging_gateway_header_rejected_template: string
+  messaging_gateway_subheader_payment_responsible_template: string
+  messaging_gateway_subheader_rejected_by_template: string
+  messaging_gateway_token: string
   requests_file_gateway_token: string
-  portal_feedback_telegram_chat_id: number | null
-  portal_feedback_telegram_action: string
+  messaging_gateway_feedback_recipient_id: number | null
+  messaging_gateway_feedback_action: string
+  messaging_gateway_webhook_connected: boolean
+  messaging_gateway_webhook_url: string
+  messaging_gateway_webhook_error: string | null
 }
 
 export type TenantIntegrationConfigUpdatePayload = Partial<{
@@ -189,24 +191,32 @@ export type TenantIntegrationConfigUpdatePayload = Partial<{
   telegram_oidc_client_id: string
   telegram_oidc_client_secret: string
   telegram_oidc_redirect_uri: string
-  telegram_approvals_bridge_dispatch_url: string
-  telegram_approvals_send_action: string
-  telegram_approvals_edit_action: string
-  telegram_approvals_draft_notification_action: string
-  telegram_approvals_message_template: string
-  telegram_approvals_header_new_template: string
-  telegram_approvals_header_step_approved_template: string
-  telegram_approvals_header_fully_approved_template: string
-  telegram_approvals_header_closed_template: string
-  telegram_approvals_header_rejected_template: string
-  telegram_approvals_subheader_payment_responsible_template: string
-  telegram_approvals_subheader_rejected_by_template: string
-  telegram_approvals_bridge_token: string
-  n8n_integration_token: string
+  messaging_gateway_dispatch_url: string
+  messaging_gateway_send_action: string
+  messaging_gateway_edit_action: string
+  messaging_gateway_draft_action: string
+  messaging_gateway_message_template: string
+  messaging_gateway_header_new_template: string
+  messaging_gateway_header_step_approved_template: string
+  messaging_gateway_header_fully_approved_template: string
+  messaging_gateway_header_closed_template: string
+  messaging_gateway_header_rejected_template: string
+  messaging_gateway_subheader_payment_responsible_template: string
+  messaging_gateway_subheader_rejected_by_template: string
+  messaging_gateway_token: string
   requests_file_gateway_token: string
-  portal_feedback_telegram_chat_id: number | null
-  portal_feedback_telegram_action: string
+  messaging_gateway_feedback_recipient_id: number | null
+  messaging_gateway_feedback_action: string
 }>
+
+export type MessagingWebhookManageResponse = {
+  ok: boolean
+  connected?: boolean
+  url?: string
+  webhook_url?: string
+  pending_update_count?: number
+  last_error_message?: string | null
+}
 
 export type ModuleCatalogRow = {
   module_key: string
@@ -241,6 +251,23 @@ export async function updateTenantIntegrationConfig(
   })
   if (!res.ok) throw new Error(await parseErrorBody(res))
   const json = (await res.json().catch(() => null)) as TenantIntegrationConfigResponse | null
+  if (!json) throw new Error('Empty response')
+  return json
+}
+
+export async function manageMessagingWebhook(
+  action: 'set' | 'info' | 'delete',
+  webhookUrl?: string,
+): Promise<MessagingWebhookManageResponse> {
+  const body: Record<string, unknown> = { action }
+  if (webhookUrl && webhookUrl.trim()) body.webhook_url = webhookUrl.trim()
+  const res = await apiFetch('/api/tenant-integration-config/messaging-webhook/', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+  if (!res.ok) throw new Error(await parseErrorBody(res))
+  const json = (await res.json().catch(() => null)) as MessagingWebhookManageResponse | null
   if (!json) throw new Error('Empty response')
   return json
 }
