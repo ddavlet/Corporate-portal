@@ -2851,6 +2851,15 @@ class DraftRequestPatchSubmitTests(APITestCase):
         )
         self.assertEqual(res.status_code, 403, res.content)
 
+    def test_auto_draft_submit_amount_field_uses_decimal_min_not_float(self):
+        """DRF emits UserWarning if DecimalField.min_value is a float."""
+        from apps.modules.requests.views import PortalRequestViewSet
+
+        ser = PortalRequestViewSet.AutoDraftSubmitAmountPayloadSerializer()
+        min_v = ser.fields["amount"].min_value
+        self.assertIsInstance(min_v, Decimal)
+        self.assertEqual(min_v, Decimal("0.01"))
+
     @patch("apps.modules.telegram_approvals.services._post_to_gateway", return_value={"message_id": 1})
     def test_dispatch_draft_notification_payload(self, mock_post):
         from apps.modules.telegram_approvals.services import dispatch_draft_request_notification
