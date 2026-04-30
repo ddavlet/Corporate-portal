@@ -142,22 +142,16 @@ class TenantIntegrationConfigApiTests(APITestCase):
                 "telegram_oidc_client_id": "123456789",
                 "telegram_oidc_client_secret": "oidc-secret",
                 "telegram_oidc_redirect_uri": "https://main.kolberg.uz/app/login",
-                "telegram_approvals_bridge_dispatch_url": "https://acme.example.com/n8n/telegram/dispatch",
-                "telegram_approvals_bridge_token": "secret-1",
-                "telegram_approvals_message_template": "<b>{header}</b>\nКомпания: {company_payer}",
-                "telegram_approvals_header_new_template": "💰 Новая заявка на расход № {request_id}",
-                "n8n_integration_token": "secret-2",
                 "requests_file_gateway_token": "secret-3",
-                "portal_feedback_telegram_chat_id": -1001234567890,
-                "portal_feedback_telegram_action": "send_portal_feedback",
+                "messaging_gateway_feedback_recipient_id": -1001234567890,
+                "messaging_gateway_feedback_action": "send_portal_feedback",
             },
             format="json",
             **self._auth_headers(self.admin),
         )
         self.assertEqual(put.status_code, 200, put.content)
         self.assertEqual(put.data["telegram_bot_token"], "********")
-        self.assertEqual(put.data["telegram_approvals_bridge_token"], "********")
-        self.assertEqual(put.data["n8n_integration_token"], "********")
+        self.assertEqual(put.data["requests_file_gateway_token"], "********")
 
         cfg = TenantIntegrationConfig.objects.get(tenant=self.tenant)
         self.tenant.refresh_from_db()
@@ -166,25 +160,19 @@ class TenantIntegrationConfigApiTests(APITestCase):
         self.assertEqual(cfg.telegram_oidc_client_id, "123456789")
         self.assertEqual(cfg.get_telegram_oidc_client_secret(), "oidc-secret")
         self.assertEqual(cfg.telegram_oidc_redirect_uri, "https://main.kolberg.uz/app/login")
-        self.assertEqual(cfg.get_telegram_approvals_bridge_token(), "secret-1")
-        self.assertEqual(cfg.telegram_approvals_message_template, "<b>{header}</b>\nКомпания: {company_payer}")
-        self.assertEqual(cfg.telegram_approvals_header_new_template, "💰 Новая заявка на расход № {request_id}")
-        self.assertEqual(cfg.get_n8n_integration_token(), "secret-2")
         self.assertEqual(cfg.get_requests_file_gateway_token(), "secret-3")
-        self.assertEqual(cfg.portal_feedback_telegram_chat_id, -1001234567890)
-        self.assertEqual(cfg.portal_feedback_telegram_action, "send_portal_feedback")
+        self.assertEqual(cfg.messaging_gateway_feedback_recipient_id, -1001234567890)
+        self.assertEqual(cfg.messaging_gateway_feedback_action, "send_portal_feedback")
 
         get = self.client.get(self.url, **self._auth_headers(self.admin))
         self.assertEqual(get.status_code, 200, get.content)
-        self.assertEqual(get.data["telegram_approvals_bridge_token"], "********")
         self.assertEqual(get.data["requests_file_gateway_token"], "********")
         self.assertEqual(get.data["telegram_bot_username"], "acme_login_bot")
         self.assertEqual(get.data["telegram_oidc_client_id"], "123456789")
         self.assertEqual(get.data["telegram_oidc_client_secret"], "********")
         self.assertEqual(get.data["telegram_oidc_redirect_uri"], "https://main.kolberg.uz/app/login")
-        self.assertIn("telegram_approvals_message_template", get.data)
-        self.assertEqual(get.data["portal_feedback_telegram_chat_id"], -1001234567890)
-        self.assertEqual(get.data["portal_feedback_telegram_action"], "send_portal_feedback")
+        self.assertEqual(get.data["messaging_gateway_feedback_recipient_id"], -1001234567890)
+        self.assertEqual(get.data["messaging_gateway_feedback_action"], "send_portal_feedback")
 
     def test_non_admin_forbidden(self):
         res = self.client.get(self.url, **self._auth_headers(self.user))

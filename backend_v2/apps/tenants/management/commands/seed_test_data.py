@@ -20,7 +20,7 @@ from django.utils import timezone
 User = get_user_model()
 
 TENANT_SUBDOMAIN = "test"
-TEST_TENANT_BOT_TOKEN = "7947271968:AAHPfq2gXHxjURHHM2WamJLj2fwBBf8rsx8"
+TEST_TENANT_BOT_TOKEN = "7947271968:AAHSpJ-o5k4RBBAnUwwVfCCAXjfGgVmeJS0"
 TEST_DDAVLET_TELEGRAM_ID = 1387986
 MODULES = [
     "requests", "cash", "bank", "corporate_card", "payroll",

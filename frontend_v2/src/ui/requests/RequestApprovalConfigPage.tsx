@@ -292,11 +292,12 @@ export function RequestApprovalConfigPage() {
         Укажите для каждого типа оплаты шаги и approver-ов, которые согласуют заявку.
       </Typography.Paragraph>
       <Typography.Paragraph type="secondary" style={{ marginBottom: 0 }}>
-        Параметры Telegram и n8n для заявок настраиваются в разделе{' '}
+        URL шлюза сообщений и тексты карточек Telegram задаются в конфигурации деплоя (
+        <Typography.Text code>MESSAGING_GATEWAY_*</Typography.Text>). В{' '}
         <Button type="link" onClick={() => navigate('/settings/tenant-integration-config')} style={{ padding: 0, height: 'auto' }}>
-          Интеграции tenant
-        </Button>
-        .
+          интеграциях tenant
+        </Button>{' '}
+        — токен бота и связанные секреты.
       </Typography.Paragraph>
 
       <Divider />

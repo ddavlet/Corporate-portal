@@ -191,6 +191,10 @@ N8N_FEEDBACK_AI_WEBHOOK_PATH = (
 
 MESSAGING_GATEWAY_SEND_URL = os.getenv("MESSAGING_GATEWAY_SEND_URL", "").strip()
 MESSAGING_GATEWAY_ADMIN_URL = os.getenv("MESSAGING_GATEWAY_ADMIN_URL", "http://tg_gateway:8080").strip()
+# Platform-neutral actions for tg-gateway (tenant-wide; subdomain only scopes HTTP API / tenant row).
+MESSAGING_GATEWAY_SEND_ACTION = os.getenv("MESSAGING_GATEWAY_SEND_ACTION", "send_interactive").strip()
+MESSAGING_GATEWAY_EDIT_ACTION = os.getenv("MESSAGING_GATEWAY_EDIT_ACTION", "edit_interactive").strip()
+MESSAGING_GATEWAY_DRAFT_ACTION = os.getenv("MESSAGING_GATEWAY_DRAFT_ACTION", "send").strip()
 
 # Reports payload cache (seconds). Keep short to reduce staleness while smoothing n8n latency spikes.
 REPORTS_CACHE_TTL_SECONDS = int(os.getenv("REPORTS_CACHE_TTL_SECONDS", "60"))

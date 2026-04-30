@@ -22,11 +22,7 @@ from apps.tenants.serializers import (
     TenantModuleConfigUpdateSerializer,
     TenantUserPreferenceSerializer,
 )
-from apps.tenants.integration_settings import (
-    get_messaging_gateway_settings,
-    get_portal_feedback_settings,
-    get_requests_gateway_settings,
-)
+from apps.tenants.integration_settings import get_portal_feedback_settings, get_requests_gateway_settings
 
 from apps.modules.registry import list_modules
 
@@ -134,7 +130,6 @@ class TenantIntegrationConfigView(APIView):
     def get(self, request):
         tenant = request.tenant
         cfg, _ = TenantIntegrationConfig.objects.get_or_create(tenant=tenant)
-        mg = get_messaging_gateway_settings(tenant=tenant)
         req = get_requests_gateway_settings(tenant=tenant)
         pf = get_portal_feedback_settings(tenant=tenant)
         webhook = self._fetch_webhook_info(tenant.get_telegram_bot_token())
@@ -142,19 +137,6 @@ class TenantIntegrationConfigView(APIView):
             {
                 "telegram_bot_token": self._masked(tenant.get_telegram_bot_token()),
                 "telegram_bot_username": tenant.telegram_bot_username or "",
-                "messaging_gateway_dispatch_url": mg.dispatch_url,
-                "messaging_gateway_send_action": mg.send_action,
-                "messaging_gateway_edit_action": mg.edit_action,
-                "messaging_gateway_draft_action": mg.draft_notification_action,
-                "messaging_gateway_message_template": mg.message_template,
-                "messaging_gateway_header_new_template": mg.header_new_template,
-                "messaging_gateway_header_step_approved_template": mg.header_step_approved_template,
-                "messaging_gateway_header_fully_approved_template": mg.header_fully_approved_template,
-                "messaging_gateway_header_closed_template": mg.header_closed_template,
-                "messaging_gateway_header_rejected_template": mg.header_rejected_template,
-                "messaging_gateway_subheader_payment_responsible_template": mg.subheader_payment_responsible_template,
-                "messaging_gateway_subheader_rejected_by_template": mg.subheader_rejected_by_template,
-                "messaging_gateway_token": self._masked(mg.bridge_token),
                 "requests_file_gateway_token": self._masked(req.bearer_token),
                 "telegram_oidc_client_id": cfg.telegram_oidc_client_id,
                 "telegram_oidc_client_secret": self._masked(cfg.get_telegram_oidc_client_secret()),
@@ -175,25 +157,6 @@ class TenantIntegrationConfigView(APIView):
 
         cfg, _ = TenantIntegrationConfig.objects.get_or_create(tenant=tenant)
         cfg.updated_by = request.user
-        for field in (
-            "messaging_gateway_dispatch_url",
-            "messaging_gateway_send_action",
-            "messaging_gateway_edit_action",
-            "messaging_gateway_draft_action",
-            "messaging_gateway_message_template",
-            "messaging_gateway_header_new_template",
-            "messaging_gateway_header_step_approved_template",
-            "messaging_gateway_header_fully_approved_template",
-            "messaging_gateway_header_closed_template",
-            "messaging_gateway_header_rejected_template",
-            "messaging_gateway_subheader_payment_responsible_template",
-            "messaging_gateway_subheader_rejected_by_template",
-        ):
-            if field in data:
-                setattr(cfg, field, data[field])
-
-        if "messaging_gateway_token" in data:
-            cfg.set_messaging_gateway_token(data["messaging_gateway_token"])
         if "requests_file_gateway_token" in data:
             cfg.set_requests_file_gateway_token(data["requests_file_gateway_token"])
         if "telegram_oidc_client_id" in data:

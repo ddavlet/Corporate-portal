@@ -102,20 +102,6 @@ class TenantIntegrationConfig(models.Model):
         blank=True,
     )
 
-    messaging_gateway_dispatch_url = models.TextField(blank=True, default="")
-    messaging_gateway_send_action = models.CharField(max_length=100, blank=True, default="send_interactive")
-    messaging_gateway_edit_action = models.CharField(max_length=100, blank=True, default="edit_interactive")
-    messaging_gateway_draft_action = models.CharField(max_length=100, blank=True, default="")
-    messaging_gateway_message_template = models.TextField(blank=True, default="")
-    messaging_gateway_header_new_template = models.TextField(blank=True, default="")
-    messaging_gateway_header_step_approved_template = models.TextField(blank=True, default="")
-    messaging_gateway_header_fully_approved_template = models.TextField(blank=True, default="")
-    messaging_gateway_header_closed_template = models.TextField(blank=True, default="")
-    messaging_gateway_header_rejected_template = models.TextField(blank=True, default="")
-    messaging_gateway_subheader_payment_responsible_template = models.TextField(blank=True, default="")
-    messaging_gateway_subheader_rejected_by_template = models.TextField(blank=True, default="")
-    messaging_gateway_token_enc = models.TextField(blank=True, default="")
-
     n8n_integration_token_enc = models.TextField(blank=True, default="")
     requests_file_gateway_token_enc = models.TextField(blank=True, default="")
     telegram_oidc_client_id = models.CharField(max_length=120, blank=True, default="")
@@ -127,12 +113,6 @@ class TenantIntegrationConfig(models.Model):
 
     class Meta:
         db_table = "tenant_integration_configs"
-
-    def set_messaging_gateway_token(self, token: str) -> None:
-        self.messaging_gateway_token_enc = encrypt_secret((token or "").strip())
-
-    def get_messaging_gateway_token(self) -> str:
-        return decrypt_secret(self.messaging_gateway_token_enc).strip()
 
     def set_n8n_integration_token(self, token: str) -> None:
         self.n8n_integration_token_enc = encrypt_secret((token or "").strip())
