@@ -213,7 +213,7 @@ class Approval(models.Model):
         related_name="request_approvals",
     )
     approver_recipient_id = models.BigIntegerField(null=True, blank=True)
-    # platform user id (Telegram from.id, Slack user, etc.). Cannot be named approver_user_id — clashes with FK column.
+    # Platform user id (e.g. Telegram from.id); distinct from FK `approver_user` / `approver_user_id`.
     approver_external_user_id = models.BigIntegerField(null=True, blank=True)
     gateway_message_id = models.BigIntegerField(null=True, blank=True)
     message_sent = models.BooleanField(default=False)

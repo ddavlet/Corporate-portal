@@ -350,7 +350,7 @@ class InvestmentApprovalFlowTests(APITestCase):
                 "payload": f"inv_{first_step.id}:a",
                 "user_id": str(self.intruder.telegram_from_id),
                 "recipient_id": str(self.intruder.telegram_chat_id),
-                "message_id": first_step.message_id or 202,
+                "message_id": first_step.gateway_message_id or 202,
                 "platform": "telegram",
             },
             format="json",
@@ -365,7 +365,7 @@ class InvestmentApprovalFlowTests(APITestCase):
                 "payload": f"inv_{first_step.id}:a",
                 "user_id": str(self.approver1.telegram_from_id),
                 "recipient_id": str(self.approver1.telegram_chat_id),
-                "message_id": first_step.message_id or 202,
+                "message_id": first_step.gateway_message_id or 202,
                 "platform": "telegram",
             },
             format="json",
@@ -384,7 +384,7 @@ class InvestmentApprovalFlowTests(APITestCase):
         self.assertIn(not_active.status_code, (400, 409))
 
         second_step.refresh_from_db()
-        self.assertIsNotNone(second_step.message_id)
+        self.assertIsNotNone(second_step.gateway_message_id)
         ok_second = self.client.post(
             "/api/investments/approvals/webhook/",
             {
@@ -392,7 +392,7 @@ class InvestmentApprovalFlowTests(APITestCase):
                 "payload": f"inv_{second_step.id}:a",
                 "user_id": str(self.approver2.telegram_from_id),
                 "recipient_id": str(self.approver2.telegram_chat_id),
-                "message_id": second_step.message_id,
+                "message_id": second_step.gateway_message_id,
                 "platform": "telegram",
             },
             format="json",
@@ -426,7 +426,7 @@ class InvestmentApprovalFlowTests(APITestCase):
                 "payload": f"inv_{first_step.id}:r",
                 "user_id": str(self.approver1.telegram_from_id),
                 "recipient_id": str(self.approver1.telegram_chat_id),
-                "message_id": first_step.message_id or 404,
+                "message_id": first_step.gateway_message_id or 404,
                 "platform": "telegram",
             },
             format="json",

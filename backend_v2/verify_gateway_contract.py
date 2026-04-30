@@ -58,10 +58,10 @@ def _make_approval(approval_id: int, message_id: int | None = None) -> object:
     approval = types.SimpleNamespace(
         pk=approval_id, id=approval_id,
         request=request, request_id=1,
-        approver_tg_id=int(RECIPIENT_ID),
-        approver_tg_from_id=int(RECIPIENT_ID),
+        approver_recipient_id=int(RECIPIENT_ID),
+        approver_external_user_id=int(RECIPIENT_ID),
         approver_user=types.SimpleNamespace(full_name="Test Approver", username="appr"),
-        message_id=message_id,
+        gateway_message_id=message_id,
         message_sent=message_id is not None,
         message_sent_at=None,
         step=1,

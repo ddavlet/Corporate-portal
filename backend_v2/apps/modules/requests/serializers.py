@@ -577,7 +577,7 @@ class ApprovalSerializer(serializers.ModelSerializer):
             "approver_user",
             "approver_username",
             "approver_recipient_id",
-            "approver_user_id",
+            "approver_external_user_id",
             "gateway_message_id",
             "message_sent",
             "message_sent_at",

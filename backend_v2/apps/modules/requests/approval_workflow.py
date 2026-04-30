@@ -180,7 +180,7 @@ def _approval_match_queryset(
     if approver_recipient_id is not None:
         qs = qs.filter(approver_recipient_id=approver_recipient_id)
     if approver_external_user_id is not None:
-        qs = qs.filter(approver_user_id=approver_external_user_id)
+        qs = qs.filter(approver_external_user_id=approver_external_user_id)
     return qs.select_related("approver_user")
 
 
