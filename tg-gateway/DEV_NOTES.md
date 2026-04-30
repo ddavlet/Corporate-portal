@@ -31,7 +31,7 @@ networks:
     restart: always
     environment:
       DATABASE_URL: postgresql://...   # can share backend db or have its own
-      BACKEND_WEBHOOK_URL: http://django_v2:8001/api/messaging-gateway/webhook/
+      BACKEND_WEBHOOK_URL: http://kolberg-django-v2:8001/api/messaging-gateway/webhook/
       # No BACKEND_TOKEN needed — network isolation replaces it
       CALLBACK_COOLDOWN_SECS: 10
     networks:

@@ -11,7 +11,7 @@ from rest_framework_simplejwt.tokens import RefreshToken
 
 from config.settings import _allowed_hosts_from_env
 
-from apps.tenants.middleware import TenantSubdomainMiddleware
+from apps.tenants.middleware import RewriteDockerInternalHostMiddleware, TenantSubdomainMiddleware
 from apps.tenants.admin import TenantAdminForm
 from apps.tenants.models import (
     Tenant,
@@ -23,6 +23,31 @@ from apps.tenants.models import (
 )
 
 User = get_user_model()
+
+
+class RewriteDockerInternalHostMiddlewareTests(SimpleTestCase):
+    def setUp(self):
+        self.factory = RequestFactory()
+
+    def test_rewrites_legacy_compose_service_hosts(self):
+        def get_response(request):
+            return request
+
+        mw = RewriteDockerInternalHostMiddleware(get_response)
+        for legacy in ("django_v2:8001", "backend_v2:8001"):
+            with self.subTest(legacy=legacy):
+                req = self.factory.get("/api/messaging-gateway/webhook/", HTTP_HOST=legacy)
+                mw(req)
+                self.assertEqual(req.META["HTTP_HOST"], "kolberg-django-v2:8001")
+
+    def test_preserves_normal_hosts(self):
+        def get_response(request):
+            return request
+
+        mw = RewriteDockerInternalHostMiddleware(get_response)
+        req = self.factory.get("/api/health/", HTTP_HOST="acme.example.com")
+        mw(req)
+        self.assertEqual(req.META["HTTP_HOST"], "acme.example.com")
 
 
 class TenantAdminFormTests(TestCase):
@@ -362,7 +387,7 @@ class UserPreferencesApiTests(APITestCase):
 
 
 class AllowedHostsEnvTests(SimpleTestCase):
-    """tg-gateway uses Host django_v2 when forwarding; ALLOWED_HOSTS must allow it."""
+    """Internal Docker callbacks; ALLOWED_HOSTS must allow legacy and RFC-valid alias names."""
 
     def test_empty_env_defaults_to_wildcard(self):
         with patch.dict(os.environ, {"DJANGO_ALLOWED_HOSTS": ""}, clear=False):
@@ -382,4 +407,5 @@ class AllowedHostsEnvTests(SimpleTestCase):
             self.assertEqual(got[:2], ["neuron.kolberg.uz", "main.kolberg.uz"])
             self.assertIn("django_v2", got)
             self.assertIn("backend_v2", got)
+            self.assertIn("kolberg-django-v2", got)
 

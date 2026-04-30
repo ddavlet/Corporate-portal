@@ -12,19 +12,27 @@ SECRET_KEY = os.getenv("DJANGO_SECRET_KEY", "dev-only-change-me")
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = os.getenv("DJANGO_DEBUG", "False").lower() in {"1", "true", "yes", "on"}
 
+# RFC-valid Docker DNS alias for the backend (hyphens only). Compose attaches this to ``backend_v2``
+# so internal HTTP clients can use ``http://kolberg-django-v2:8001/`` instead of ``django_v2``
+# (underscores make Host invalid per RFC 1034/1035 — Django rejects before ALLOWED_HOSTS).
+# Optional override: ``DOCKER_INTERNAL_BACKEND_DNS_NAME`` (must stay RFC-valid if set).
+DOCKER_INTERNAL_BACKEND_DNS_NAME = (
+    (os.getenv("DOCKER_INTERNAL_BACKEND_DNS_NAME") or "kolberg-django-v2").strip()
+    or "kolberg-django-v2"
+)
+
 
 def _allowed_hosts_from_env() -> list[str]:
     """Hosts Django accepts on incoming requests.
 
-    tg-gateway forwards Telegram callbacks to ``http://django_v2:8001/...``, so the Host
-    header is the Docker DNS name (``django_v2:8001``). Production often sets
-    ``DJANGO_ALLOWED_HOSTS`` to public tenant domains only; without allowing this internal
-    name, Django returns generic HTTP 400 before the webhook view runs.
+    Internal callbacks (tg-gateway → backend) use Docker DNS. Legacy names ``django_v2`` /
+    ``backend_v2`` are kept in this list for compatibility; ``RewriteDockerInternalHostMiddleware``
+    rewrites them to :attr:`DOCKER_INTERNAL_BACKEND_DNS_NAME`, which must also be allowed here.
     """
     hosts = [h for h in os.getenv("DJANGO_ALLOWED_HOSTS", "").split(",") if h] or ["*"]
     if "*" in hosts:
         return hosts
-    internal_service_hosts = ("django_v2", "backend_v2")
+    internal_service_hosts = ("django_v2", "backend_v2", DOCKER_INTERNAL_BACKEND_DNS_NAME)
     return list(dict.fromkeys(list(hosts) + list(internal_service_hosts)))
 
 
@@ -65,6 +73,7 @@ INSTALLED_APPS = [
 ]
 
 MIDDLEWARE = [
+    "apps.tenants.middleware.RewriteDockerInternalHostMiddleware",
     "django.middleware.security.SecurityMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
