@@ -1,4 +1,5 @@
 from datetime import date
+from decimal import Decimal
 import uuid
 import mimetypes
 import os
@@ -393,7 +394,7 @@ class PortalRequestViewSet(viewsets.ModelViewSet):
 
     class AutoDraftSubmitAmountPayloadSerializer(serializers.Serializer):
         request_id = serializers.IntegerField(min_value=1)
-        amount = serializers.DecimalField(max_digits=12, decimal_places=2, min_value=0.01)
+        amount = serializers.DecimalField(max_digits=12, decimal_places=2, min_value=Decimal("0.01"))
 
     class ApprovalResendPayloadSerializer(serializers.Serializer):
         idempotency_key = serializers.CharField(required=False, allow_blank=False, max_length=128)
