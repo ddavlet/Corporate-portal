@@ -21,8 +21,12 @@ from apps.modules.requests.models import (
     RequestFormConfig,
     RequestFormPaymentTypeConfig,
 )
-from apps.modules.telegram_approvals.services import build_approval_message, post_messaging_gateway
-from apps.tenants.models import Tenant, TenantMembership, TenantModuleConfig, TenantUserRole
+from apps.modules.telegram_approvals.services import (
+    _get_tenant_bot_token,
+    build_approval_message,
+    post_messaging_gateway,
+)
+from apps.tenants.models import Tenant, TenantIntegrationConfig, TenantMembership, TenantModuleConfig, TenantUserRole
 
 User = get_user_model()
 
@@ -74,6 +78,15 @@ class TelegramApprovalsTests(APITestCase):
         RequestApprovalStepApproverConfig.objects.create(step_config=step_cfg, approver_user=self.approver)
         self.host = "acme.example.com"
         self.webhook_token = "test-n8n-token"
+
+    def test_tenant_bot_token_is_read_from_tenant_model(self):
+        """Regression: token must not be taken from TenantIntegrationConfig (no bot token there)."""
+        self.tenant.set_telegram_bot_token("111222333:AAATESTBOTTOKEN")
+        self.tenant.save(update_fields=["telegram_bot_token_enc"])
+        TenantIntegrationConfig.objects.get_or_create(
+            tenant=self.tenant, defaults={"updated_by": self.admin}
+        )
+        self.assertEqual(_get_tenant_bot_token(self.tenant), "111222333:AAATESTBOTTOKEN")
 
     @patch("apps.modules.telegram_approvals.services.requests.post")
     def test_request_create_dispatches_telegram_message_and_saves_message_id(self, mocked_post):
@@ -404,7 +417,7 @@ class TelegramApprovalsTests(APITestCase):
             "platform": "telegram",
         }
         res = self.client.post(
-            "/api/telegram-approvals/webhook/",
+            "/api/messaging-gateway/webhook/",
             payload,
             format="json",
             HTTP_HOST=self.host,
@@ -450,7 +463,7 @@ class TelegramApprovalsTests(APITestCase):
             "platform": "telegram",
         }
         res = self.client.post(
-            "/api/telegram-approvals/webhook/",
+            "/api/messaging-gateway/webhook/",
             payload,
             format="json",
             HTTP_HOST=self.host,
@@ -492,7 +505,7 @@ class TelegramApprovalsTests(APITestCase):
             "platform": "telegram",
         }
         res = self.client.post(
-            "/api/telegram-approvals/webhook/",
+            "/api/messaging-gateway/webhook/",
             payload,
             format="json",
             HTTP_HOST=self.host,
@@ -538,7 +551,7 @@ class TelegramApprovalsTests(APITestCase):
             "platform": "telegram",
         }
         res = self.client.post(
-            "/api/telegram-approvals/webhook/",
+            "/api/messaging-gateway/webhook/",
             payload,
             format="json",
             HTTP_HOST=self.host,
@@ -586,7 +599,7 @@ class TelegramApprovalsTests(APITestCase):
             "platform": "telegram",
         }
         res = self.client.post(
-            "/api/telegram-approvals/webhook/",
+            "/api/messaging-gateway/webhook/",
             payload,
             format="json",
             HTTP_HOST=self.host,
@@ -1060,7 +1073,7 @@ class TelegramGatewayIntegrationTests(APITestCase):
         self.assertEqual(edit_resp.status_code, 200, edit_resp.text)
 
         res = self.client.post(
-            "/api/telegram-approvals/webhook/",
+            "/api/messaging-gateway/webhook/",
             {
                 "event": "interaction",
                 "payload": f"v2_{approval.id}:a",
@@ -1113,7 +1126,7 @@ class TelegramGatewayIntegrationTests(APITestCase):
         )
 
         res = self.client.post(
-            "/api/telegram-approvals/webhook/",
+            "/api/messaging-gateway/webhook/",
             {
                 "event": "interaction",
                 "payload": f"v2_{approval.id}:a",

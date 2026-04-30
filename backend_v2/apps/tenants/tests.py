@@ -89,6 +89,32 @@ class TenantSubdomainMiddlewareTests(TestCase):
         with self.assertRaises(Http404):
             mw(req)
 
+    def test_skips_tenant_for_messaging_gateway_webhook_on_internal_host(self):
+        req = self.factory.post(
+            "/api/messaging-gateway/webhook/",
+            HTTP_HOST="kolberg_backend_local:8001",
+        )
+
+        def get_response(request):
+            return request
+
+        mw = TenantSubdomainMiddleware(get_response)
+        res = mw(req)
+        self.assertFalse(hasattr(res, "tenant"))
+
+    def test_skips_tenant_for_investment_approval_webhook_on_internal_host(self):
+        req = self.factory.post(
+            "/api/investments/approvals/webhook/",
+            HTTP_HOST="django_v2:8001",
+        )
+
+        def get_response(request):
+            return request
+
+        mw = TenantSubdomainMiddleware(get_response)
+        res = mw(req)
+        self.assertFalse(hasattr(res, "tenant"))
+
 
 @override_settings(BASE_DOMAIN="example.com", ALLOWED_HOSTS=["*"])
 class TenantIntegrationConfigApiTests(APITestCase):
