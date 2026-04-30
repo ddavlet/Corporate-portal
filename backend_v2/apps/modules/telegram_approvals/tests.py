@@ -113,7 +113,7 @@ class TelegramApprovalsTests(APITestCase):
         self.assertEqual(res.status_code, 201, res.content)
 
         approval = Approval.objects.get(request_id=res.data["id"], approver_user=self.approver)
-        self.assertEqual(approval.message_id, 9001)
+        self.assertEqual(approval.gateway_message_id, 9001)
         self.assertTrue(approval.message_sent)
         self.assertIsNotNone(approval.message_sent_at)
 
@@ -153,7 +153,7 @@ class TelegramApprovalsTests(APITestCase):
         self.assertEqual(Request.objects.count(), 1)
         self.assertEqual(Approval.objects.count(), 1)
         approval = Approval.objects.select_related("request").get()
-        self.assertIsNone(approval.message_id)
+        self.assertIsNone(approval.gateway_message_id)
         self.assertFalse(approval.message_sent)
 
     @patch("apps.modules.telegram_approvals.services.requests.post")
@@ -195,7 +195,7 @@ class TelegramApprovalsTests(APITestCase):
             payload={"action": "send", "text": "hello"},
         )
         self.assertIsNone(result)
-        self.assertEqual(mocked_post.call_count, 0)
+        self.assertEqual(mocked_post.call_count, 1)
 
     @patch("apps.modules.telegram_approvals.services.requests.post")
     def test_resend_pending_step_deactivates_old_and_sends_new_message(self, mocked_post):
@@ -218,7 +218,7 @@ class TelegramApprovalsTests(APITestCase):
             approver_user=self.approver,
             approver_recipient_id=555001,
             approver_external_user_id=777001,
-            message_id=4321,
+            gateway_message_id=4321,
             message_sent=True,
             step=1,
             step_type=Approval.STEP_TYPE_SERIAL,
@@ -237,11 +237,11 @@ class TelegramApprovalsTests(APITestCase):
 
         approval.refresh_from_db()
         self.assertEqual(approval.decision, Approval.DECISION_CANCELED)
-        self.assertEqual(approval.message_id, 4321)
+        self.assertEqual(approval.gateway_message_id, 4321)
         new_approval = Approval.objects.filter(request=request_row, replaced_approval=approval).get()
         self.assertEqual(new_approval.decision, Approval.DECISION_PENDING)
         self.assertTrue(new_approval.message_sent)
-        self.assertEqual(new_approval.message_id, 9999)
+        self.assertEqual(new_approval.gateway_message_id, 9999)
         self.assertIsNotNone(new_approval.resend_key)
         self.assertTrue(str(new_approval.resend_key).startswith("auto:"))
         self.assertEqual(mocked_post.call_count, 2)
@@ -273,7 +273,7 @@ class TelegramApprovalsTests(APITestCase):
             approver_user=self.approver,
             approver_recipient_id=555001,
             approver_external_user_id=777001,
-            message_id=4321,
+            gateway_message_id=4321,
             message_sent=True,
             step=1,
             step_type=Approval.STEP_TYPE_SERIAL,
@@ -320,7 +320,7 @@ class TelegramApprovalsTests(APITestCase):
             approver_user=self.approver,
             approver_recipient_id=555001,
             approver_external_user_id=777001,
-            message_id=4321,
+            gateway_message_id=4321,
             message_sent=True,
             step=1,
             step_type=Approval.STEP_TYPE_SERIAL,
@@ -357,7 +357,7 @@ class TelegramApprovalsTests(APITestCase):
             approver_user=self.approver,
             approver_recipient_id=555001,
             approver_external_user_id=777001,
-            message_id=7654,
+            gateway_message_id=7654,
             message_sent=True,
             step=2,
             step_type=Approval.STEP_TYPE_PAYMENT,
@@ -379,7 +379,7 @@ class TelegramApprovalsTests(APITestCase):
         new_payment = Approval.objects.get(request=request_row, replaced_approval=old_payment)
         self.assertEqual(new_payment.decision, Approval.DECISION_PENDING)
         self.assertEqual(new_payment.step_type, Approval.STEP_TYPE_PAYMENT)
-        self.assertEqual(new_payment.message_id, 10001)
+        self.assertEqual(new_payment.gateway_message_id, 10001)
         self.assertTrue(new_payment.message_sent)
         self.assertEqual(mocked_post.call_count, 2)
 
@@ -401,7 +401,7 @@ class TelegramApprovalsTests(APITestCase):
             approver_user=self.approver,
             approver_recipient_id=555001,
             approver_external_user_id=777001,
-            message_id=4321,
+            gateway_message_id=4321,
             message_sent=True,
             step=1,
             step_type=Approval.STEP_TYPE_SERIAL,
@@ -447,7 +447,7 @@ class TelegramApprovalsTests(APITestCase):
             approver_user=self.approver,
             approver_recipient_id=555001,
             approver_external_user_id=777001,
-            message_id=4321,
+            gateway_message_id=4321,
             message_sent=True,
             step=1,
             step_type=Approval.STEP_TYPE_SERIAL,
@@ -490,7 +490,7 @@ class TelegramApprovalsTests(APITestCase):
             approver_user=self.approver,
             approver_recipient_id=555001,
             approver_external_user_id=777001,
-            message_id=4321,
+            gateway_message_id=4321,
             message_sent=True,
             step=1,
             step_type=Approval.STEP_TYPE_SERIAL,
@@ -536,7 +536,7 @@ class TelegramApprovalsTests(APITestCase):
             approver_user=self.approver,
             approver_recipient_id=555001,
             approver_external_user_id=777001,
-            message_id=None,
+            gateway_message_id=None,
             message_sent=True,
             step=1,
             step_type=Approval.STEP_TYPE_SERIAL,
@@ -583,7 +583,7 @@ class TelegramApprovalsTests(APITestCase):
             approver_user=self.approver,
             approver_recipient_id=555001,
             approver_external_user_id=777001,
-            message_id=None,
+            gateway_message_id=None,
             message_sent=False,
             step=1,
             step_type=Approval.STEP_TYPE_SERIAL,
@@ -606,7 +606,7 @@ class TelegramApprovalsTests(APITestCase):
         )
         self.assertEqual(res.status_code, 200, res.content)
         approval.refresh_from_db()
-        self.assertEqual(approval.message_id, 4123)
+        self.assertEqual(approval.gateway_message_id, 4123)
         self.assertTrue(approval.message_sent)
         self.assertIsNotNone(approval.message_sent_at)
 
@@ -624,7 +624,7 @@ class TelegramApprovalsTests(APITestCase):
             approver_user=self.approver,
             approver_recipient_id=555001,
             approver_external_user_id=777001,
-            message_id=None,
+            gateway_message_id=None,
             message_sent=False,
             step=1,
             step_type=Approval.STEP_TYPE_SERIAL,
@@ -645,7 +645,7 @@ class TelegramApprovalsTests(APITestCase):
         )
         self.assertEqual(res.status_code, 200, res.content)
         approval.refresh_from_db()
-        self.assertIsNone(approval.message_id)
+        self.assertIsNone(approval.gateway_message_id)
         self.assertEqual(approval.decision, Approval.DECISION_APPROVED)
 
     @patch("apps.modules.telegram_approvals.services.requests.post")
@@ -1055,12 +1055,12 @@ class TelegramGatewayIntegrationTests(APITestCase):
         self.assertEqual(res.status_code, 201, res.content)
 
         approval = Approval.objects.get(request_id=res.data["id"])
-        self.assertIsNotNone(approval.message_id, "Telegram sendMessage must return a real message_id")
-        self.assertIsInstance(approval.message_id, int)
-        self.assertGreater(approval.message_id, 0)
+        self.assertIsNotNone(approval.gateway_message_id, "Telegram sendMessage must return a real message_id")
+        self.assertIsInstance(approval.gateway_message_id, int)
+        self.assertGreater(approval.gateway_message_id, 0)
         self.assertTrue(approval.message_sent)
         self.assertIsNotNone(approval.message_sent_at)
-        self._cleanup_message_ids.append(approval.message_id)
+        self._cleanup_message_ids.append(approval.gateway_message_id)
 
     # ── Test 2: editMessage — approve via webhook ────────────────────────────
 
@@ -1088,7 +1088,7 @@ class TelegramGatewayIntegrationTests(APITestCase):
             approver_user=self.approver,
             approver_recipient_id=int(_RECIPIENT_ID),
             approver_external_user_id=int(_RECIPIENT_ID),
-            message_id=mid,
+            gateway_message_id=mid,
             message_sent=True,
             step=1,
             step_type=Approval.STEP_TYPE_SERIAL,
@@ -1156,7 +1156,7 @@ class TelegramGatewayIntegrationTests(APITestCase):
             approver_user=self.approver,
             approver_recipient_id=int(_RECIPIENT_ID),
             approver_external_user_id=int(_RECIPIENT_ID),
-            message_id=mid,
+            gateway_message_id=mid,
             message_sent=True,
             step=1,
             step_type=Approval.STEP_TYPE_SERIAL,
