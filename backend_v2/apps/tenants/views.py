@@ -1,6 +1,8 @@
 from django.contrib.auth import get_user_model
 from collections import defaultdict
 
+import requests
+from django.conf import settings
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.views import APIView
 from rest_framework.response import Response
@@ -20,12 +22,7 @@ from apps.tenants.serializers import (
     TenantModuleConfigUpdateSerializer,
     TenantUserPreferenceSerializer,
 )
-from apps.tenants.integration_settings import (
-    get_n8n_integration_settings,
-    get_portal_feedback_settings,
-    get_requests_gateway_settings,
-    get_telegram_approvals_settings,
-)
+from apps.tenants.integration_settings import get_portal_feedback_settings, get_requests_gateway_settings
 
 from apps.modules.registry import list_modules
 
@@ -108,37 +105,47 @@ class TenantIntegrationConfigView(APIView):
     def _masked(value: str) -> str:
         return "********" if value else ""
 
+    @staticmethod
+    def _gateway_base_url() -> str:
+        return (getattr(settings, "MESSAGING_GATEWAY_ADMIN_URL", "") or "http://tg_gateway:8080").rstrip("/")
+
+    @classmethod
+    def _fetch_webhook_info(cls, bot_token: str) -> dict:
+        if not bot_token:
+            return {"connected": False, "url": "", "error": "Telegram bot token is not configured."}
+        try:
+            resp = requests.get(f"{cls._gateway_base_url()}/v1/messaging/webhook/info/{bot_token}", timeout=8)
+            data = resp.json() if resp.content else {}
+            if resp.status_code >= 400 or not data.get("ok"):
+                detail = (data.get("telegram") or {}).get("description") if isinstance(data, dict) else None
+                return {"connected": False, "url": "", "error": detail or f"Gateway HTTP {resp.status_code}"}
+            return {
+                "connected": bool(data.get("connected")),
+                "url": str(data.get("url") or ""),
+                "error": str(data.get("last_error_message") or "") or None,
+            }
+        except Exception as exc:
+            return {"connected": False, "url": "", "error": str(exc)}
+
     def get(self, request):
         tenant = request.tenant
         cfg, _ = TenantIntegrationConfig.objects.get_or_create(tenant=tenant)
-        tg = get_telegram_approvals_settings(tenant=tenant)
-        n8n = get_n8n_integration_settings(tenant=tenant)
         req = get_requests_gateway_settings(tenant=tenant)
         pf = get_portal_feedback_settings(tenant=tenant)
+        webhook = self._fetch_webhook_info(tenant.get_telegram_bot_token())
         return Response(
             {
                 "telegram_bot_token": self._masked(tenant.get_telegram_bot_token()),
                 "telegram_bot_username": tenant.telegram_bot_username or "",
-                "telegram_approvals_bridge_dispatch_url": tg.dispatch_url,
-                "telegram_approvals_send_action": tg.send_action,
-                "telegram_approvals_edit_action": tg.edit_action,
-                "telegram_approvals_draft_notification_action": tg.draft_notification_action,
-                "telegram_approvals_message_template": tg.message_template,
-                "telegram_approvals_header_new_template": tg.header_new_template,
-                "telegram_approvals_header_step_approved_template": tg.header_step_approved_template,
-                "telegram_approvals_header_fully_approved_template": tg.header_fully_approved_template,
-                "telegram_approvals_header_closed_template": tg.header_closed_template,
-                "telegram_approvals_header_rejected_template": tg.header_rejected_template,
-                "telegram_approvals_subheader_payment_responsible_template": tg.subheader_payment_responsible_template,
-                "telegram_approvals_subheader_rejected_by_template": tg.subheader_rejected_by_template,
-                "telegram_approvals_bridge_token": self._masked(tg.bridge_token),
-                "n8n_integration_token": self._masked(n8n.integration_token),
                 "requests_file_gateway_token": self._masked(req.bearer_token),
                 "telegram_oidc_client_id": cfg.telegram_oidc_client_id,
                 "telegram_oidc_client_secret": self._masked(cfg.get_telegram_oidc_client_secret()),
                 "telegram_oidc_redirect_uri": cfg.telegram_oidc_redirect_uri,
-                "portal_feedback_telegram_chat_id": pf.telegram_chat_id,
-                "portal_feedback_telegram_action": pf.telegram_action,
+                "messaging_gateway_feedback_recipient_id": pf.recipient_id,
+                "messaging_gateway_feedback_action": pf.action,
+                "messaging_gateway_webhook_connected": webhook["connected"],
+                "messaging_gateway_webhook_url": webhook["url"],
+                "messaging_gateway_webhook_error": webhook.get("error"),
             }
         )
 
@@ -150,27 +157,6 @@ class TenantIntegrationConfigView(APIView):
 
         cfg, _ = TenantIntegrationConfig.objects.get_or_create(tenant=tenant)
         cfg.updated_by = request.user
-        for field in (
-            "telegram_approvals_bridge_dispatch_url",
-            "telegram_approvals_send_action",
-            "telegram_approvals_edit_action",
-            "telegram_approvals_draft_notification_action",
-            "telegram_approvals_message_template",
-            "telegram_approvals_header_new_template",
-            "telegram_approvals_header_step_approved_template",
-            "telegram_approvals_header_fully_approved_template",
-            "telegram_approvals_header_closed_template",
-            "telegram_approvals_header_rejected_template",
-            "telegram_approvals_subheader_payment_responsible_template",
-            "telegram_approvals_subheader_rejected_by_template",
-        ):
-            if field in data:
-                setattr(cfg, field, data[field])
-
-        if "telegram_approvals_bridge_token" in data:
-            cfg.set_telegram_approvals_bridge_token(data["telegram_approvals_bridge_token"])
-        if "n8n_integration_token" in data:
-            cfg.set_n8n_integration_token(data["n8n_integration_token"])
         if "requests_file_gateway_token" in data:
             cfg.set_requests_file_gateway_token(data["requests_file_gateway_token"])
         if "telegram_oidc_client_id" in data:
@@ -179,10 +165,10 @@ class TenantIntegrationConfigView(APIView):
             cfg.set_telegram_oidc_client_secret(data["telegram_oidc_client_secret"])
         if "telegram_oidc_redirect_uri" in data:
             cfg.telegram_oidc_redirect_uri = data["telegram_oidc_redirect_uri"].strip()
-        if "portal_feedback_telegram_chat_id" in data:
-            cfg.portal_feedback_telegram_chat_id = data["portal_feedback_telegram_chat_id"]
-        if "portal_feedback_telegram_action" in data:
-            cfg.portal_feedback_telegram_action = data["portal_feedback_telegram_action"]
+        if "messaging_gateway_feedback_recipient_id" in data:
+            cfg.messaging_gateway_feedback_recipient_id = data["messaging_gateway_feedback_recipient_id"]
+        if "messaging_gateway_feedback_action" in data:
+            cfg.messaging_gateway_feedback_action = data["messaging_gateway_feedback_action"]
         if "telegram_bot_token" in data:
             tenant.set_telegram_bot_token(data["telegram_bot_token"])
         if "telegram_bot_username" in data:
@@ -190,6 +176,47 @@ class TenantIntegrationConfigView(APIView):
         cfg.save()
         tenant.save(update_fields=["telegram_bot_token_enc", "telegram_bot_username"])
         return self.get(request)
+
+
+class TenantMessagingWebhookView(APIView):
+    permission_classes = [IsTenantAdmin]
+
+    @staticmethod
+    def _gateway_base_url() -> str:
+        return (getattr(settings, "MESSAGING_GATEWAY_ADMIN_URL", "") or "http://tg_gateway:8080").rstrip("/")
+
+    def post(self, request):
+        action = str(request.data.get("action") or "").strip().lower()
+        tenant = request.tenant
+        bot_token = tenant.get_telegram_bot_token()
+        if not bot_token:
+            raise ValidationError({"detail": "Telegram bot token is not configured."})
+
+        base = self._gateway_base_url()
+        if action == "set":
+            webhook_url = str(request.data.get("webhook_url") or "").strip()
+            body = {"bot_token": bot_token}
+            if webhook_url:
+                body["webhook_url"] = webhook_url
+            resp = requests.post(f"{base}/v1/messaging/webhook/set", json=body, timeout=12)
+        elif action == "delete":
+            resp = requests.post(
+                f"{base}/v1/messaging/webhook/delete",
+                json={"bot_token": bot_token, "drop_pending_updates": True},
+                timeout=12,
+            )
+        elif action == "info":
+            resp = requests.get(f"{base}/v1/messaging/webhook/info/{bot_token}", timeout=12)
+        else:
+            raise ValidationError({"action": "Expected one of: set, info, delete."})
+
+        payload = resp.json() if resp.content else {}
+        if resp.status_code >= 400:
+            return Response(
+                {"detail": (payload.get("telegram") or {}).get("description") or f"Gateway HTTP {resp.status_code}"},
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+        return Response(payload)
 
 
 class AccessMatrixView(APIView):

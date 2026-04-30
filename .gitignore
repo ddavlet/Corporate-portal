@@ -33,3 +33,6 @@ backend_v2/media/
 .worktrees/
 V2_FULL_SPEC.md
 V2_FULL_SPEC_RU.md
+
+CLAUDE.md
+settings.local.json

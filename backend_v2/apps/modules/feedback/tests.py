@@ -60,14 +60,14 @@ class FeedbackApiTests(APITestCase):
             {"action": "feedback_former", "payload": {"kind": "error", "text": "broken"}},
         )
 
-    @patch("apps.modules.feedback.views.post_telegram_bridge")
-    def test_submit_saves_and_dispatches_when_chat_configured(self, mocked_bridge):
-        mocked_bridge.return_value = {"ok": True}
+    @patch("apps.modules.feedback.views.post_messaging_gateway")
+    def test_submit_saves_and_dispatches_when_chat_configured(self, mocked_gateway):
+        mocked_gateway.return_value = {"ok": True}
         from apps.tenants.models import TenantIntegrationConfig
 
         cfg, _ = TenantIntegrationConfig.objects.get_or_create(tenant=self.tenant)
-        cfg.portal_feedback_telegram_chat_id = 42424242
-        cfg.portal_feedback_telegram_action = "send_portal_feedback"
+        cfg.messaging_gateway_feedback_recipient_id = 42424242
+        cfg.messaging_gateway_feedback_action = "send_portal_feedback"
         cfg.save()
 
         res = self.client.post(
@@ -80,16 +80,16 @@ class FeedbackApiTests(APITestCase):
         fb = PortalFeedback.objects.get()
         self.assertEqual(fb.body, "Лимит 1000000 сум")
         self.assertEqual(fb.delivery_status, PortalFeedback.DELIVERY_SENT)
-        mocked_bridge.assert_called_once()
-        payload = mocked_bridge.call_args.kwargs["payload"]
+        mocked_gateway.assert_called_once()
+        payload = mocked_gateway.call_args.kwargs["payload"]
         self.assertEqual(payload["action"], "send_portal_feedback")
-        self.assertEqual(payload["chat_id"], 42424242)
+        self.assertEqual(payload["recipient_id"], "42424242")
         self.assertEqual(payload["notification_kind"], "portal_feedback")
         self.assertEqual(payload["feedback_id"], fb.id)
-        self.assertIn("1 000 000", payload["message"])
+        self.assertIn("1 000 000", payload["text"])
 
-    @patch("apps.modules.feedback.views.post_telegram_bridge")
-    def test_submit_skips_telegram_without_chat(self, mocked_bridge):
+    @patch("apps.modules.feedback.views.post_messaging_gateway")
+    def test_submit_skips_telegram_without_chat(self, mocked_gateway):
         res = self.client.post(
             "/api/feedback/submissions/",
             {"kind": "error", "body": "Bug"},
@@ -98,6 +98,6 @@ class FeedbackApiTests(APITestCase):
         )
         self.assertEqual(res.status_code, status.HTTP_201_CREATED, res.content)
         self.assertEqual(res.data["delivery"]["status"], "skipped")
-        mocked_bridge.assert_not_called()
+        mocked_gateway.assert_not_called()
         fb = PortalFeedback.objects.get()
         self.assertEqual(fb.delivery_status, PortalFeedback.DELIVERY_SKIPPED)

@@ -85,7 +85,7 @@ class NoteCreateSerializer(serializers.ModelSerializer):
         if not is_member:
             raise serializers.ValidationError("Recipient must be an active tenant member.")
         if not value.telegram_chat_id:
-            raise serializers.ValidationError("Recipient has no telegram_chat_id.")
+            raise serializers.ValidationError("Recipient has no recipient_id (telegram_chat_id).")
         return value
 
     def validate(self, attrs):

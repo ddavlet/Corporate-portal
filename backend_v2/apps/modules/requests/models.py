@@ -212,10 +212,10 @@ class Approval(models.Model):
         on_delete=models.PROTECT,
         related_name="request_approvals",
     )
-    approver_tg_id = models.BigIntegerField(null=True, blank=True)
-    # telegram_from_id is an alternative Telegram identifier (used by webapp/OTP flows).
-    approver_tg_from_id = models.BigIntegerField(null=True, blank=True)
-    message_id = models.BigIntegerField(null=True, blank=True)
+    approver_recipient_id = models.BigIntegerField(null=True, blank=True)
+    # Platform user id (e.g. Telegram from.id); distinct from FK `approver_user` / `approver_user_id`.
+    approver_external_user_id = models.BigIntegerField(null=True, blank=True)
+    gateway_message_id = models.BigIntegerField(null=True, blank=True)
     message_sent = models.BooleanField(default=False)
     message_sent_at = models.DateTimeField(null=True, blank=True)
     step = models.IntegerField(default=1)
@@ -240,9 +240,8 @@ class Approval(models.Model):
         indexes = [
             models.Index(fields=["request"], name="approvals_request_id_idx"),
             models.Index(fields=["decision"], name="approvals_decision_idx"),
-            models.Index(fields=["approver_tg_id"], name="approvals_approver_tg_id_idx"),
-            # Postgres index name must be <= 30 chars.
-            models.Index(fields=["approver_tg_from_id"], name="approvals_tg_from_idx"),
+            models.Index(fields=["approver_recipient_id"], name="approvals_appr_rcpt_idx"),
+            models.Index(fields=["approver_external_user_id"], name="approvals_ext_uid_idx"),
             models.Index(fields=["message_sent"], name="approvals_message_sent_idx"),
         ]
 
@@ -417,20 +416,6 @@ class RequestApprovalConfig(models.Model):
         null=True,
         blank=True,
     )
-    telegram_approvals_bridge_dispatch_url = models.TextField(blank=True, default="")
-    telegram_approvals_send_action = models.CharField(max_length=100, blank=True, default="")
-    telegram_approvals_edit_action = models.CharField(max_length=100, blank=True, default="")
-    telegram_approvals_draft_notification_action = models.CharField(max_length=100, blank=True, default="")
-    telegram_approvals_bridge_token = models.TextField(blank=True, default="")
-    telegram_approvals_message_template = models.TextField(blank=True, default="")
-    telegram_approvals_header_new_template = models.TextField(blank=True, default="")
-    telegram_approvals_header_step_approved_template = models.TextField(blank=True, default="")
-    telegram_approvals_header_fully_approved_template = models.TextField(blank=True, default="")
-    telegram_approvals_header_closed_template = models.TextField(blank=True, default="")
-    telegram_approvals_header_rejected_template = models.TextField(blank=True, default="")
-    telegram_approvals_subheader_payment_responsible_template = models.TextField(blank=True, default="")
-    telegram_approvals_subheader_rejected_by_template = models.TextField(blank=True, default="")
-    n8n_integration_token = models.TextField(blank=True, default="")
 
     class Meta:
         db_table = "request_approval_configs"
@@ -632,9 +617,9 @@ class UserRequestApproval(models.Model):
         on_delete=models.PROTECT,
         related_name="user_request_approvals",
     )
-    approver_tg_id = models.BigIntegerField(null=True, blank=True)
-    approver_tg_from_id = models.BigIntegerField(null=True, blank=True)
-    message_id = models.BigIntegerField(null=True, blank=True)
+    approver_recipient_id = models.BigIntegerField(null=True, blank=True)
+    approver_external_user_id = models.BigIntegerField(null=True, blank=True)
+    gateway_message_id = models.BigIntegerField(null=True, blank=True)
     message_sent = models.BooleanField(default=False)
     step = models.IntegerField(default=1)
     step_type = models.CharField(max_length=10, default=Approval.STEP_TYPE_SERIAL, choices=Approval.STEP_TYPE_CHOICES)

@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import json
+import logging
 
-from django.conf import settings
 from django.db import transaction
 from django.utils import timezone
 from rest_framework import status
@@ -13,42 +13,22 @@ from rest_framework.views import APIView
 
 from apps.modules.requests.models import Approval
 from apps.modules.requests.approval_workflow import ApprovalDecisionAlreadyMade, confirm_approval_by_id
-from apps.modules.telegram_approvals.serializers import TelegramApprovalWebhookSerializer
-from apps.modules.telegram_approvals.services import (
-    build_approval_message,
-    deactivate_approval_message_buttons,
-    post_telegram_bridge,
-)
-from apps.modules.requests.integration_settings import get_requests_telegram_integration_settings
+from apps.modules.telegram_approvals.serializers import MessagingGatewayCallbackSerializer
+from apps.modules.telegram_approvals.services import deactivate_approval_message_buttons
 from apps.tenants.models import Tenant
+
+logger = logging.getLogger(__name__)
 
 
 class TelegramApprovalWebhookView(APIView):
     permission_classes = [AllowAny]
     authentication_classes = []
 
-    def _check_token(self, request):
-        tenant = getattr(request, "tenant", None)
-        expected = get_requests_telegram_integration_settings(tenant=tenant).n8n_integration_token
-        if not expected:
-            expected = (getattr(settings, "N8N_INTEGRATION_TOKEN", "") or "").strip()
-        if not expected:
-            return
-        got = (request.META.get("HTTP_X_N8N_INTEGRATION_TOKEN", "") or "").strip()
-        if got != expected:
-            raise ValidationError({"detail": "Invalid webhook token."})
-
-    def _extract_update(self, payload: dict) -> dict:
-        if isinstance(payload.get("update"), dict):
-            return payload["update"]
-        return payload
-
     def _parse_callback_data(self, callback_data: str | None) -> tuple[int | None, str]:
         if not callback_data:
-            raise ValidationError({"detail": "callback_query.data is required."})
+            raise ValidationError({"detail": "payload (callback data) is required."})
         raw = callback_data.strip()
-        # Some bridge setups can pass callback_data as JSON-encoded string,
-        # e.g. "\"v2_2267:a\"" or "\"2267:a\"".
+        # Some setups JSON-encode the callback value: "\"v2_2267:a\""
         if raw.startswith('"') and raw.endswith('"'):
             try:
                 decoded_raw = json.loads(raw)
@@ -56,7 +36,7 @@ class TelegramApprovalWebhookView(APIView):
                     raw = decoded_raw.strip()
             except json.JSONDecodeError:
                 pass
-        # New compact format: "v2_<approval_id>:<a|r>"
+        # Compact format: "v2_<approval_id>:<a|r>"
         if raw.startswith("v2_"):
             compact = raw[3:]
             if ":" in compact and compact.count(":") == 1:
@@ -84,11 +64,11 @@ class TelegramApprovalWebhookView(APIView):
             if code == "r":
                 return approval_id, Approval.DECISION_REJECTED
 
-        # Backward compatible format: JSON payload.
+        # Backward-compatible JSON payload format
         try:
             parsed = json.loads(raw)
         except json.JSONDecodeError as exc:
-            raise ValidationError({"detail": "callback_query.data must be valid JSON."}) from exc
+            raise ValidationError({"detail": "payload must be valid JSON or compact v2_<id>:<a|r> format."}) from exc
         raw_decision = (parsed.get("decision") or "").strip().lower()
         raw_approval_id = parsed.get("approval_id")
         try:
@@ -99,43 +79,49 @@ class TelegramApprovalWebhookView(APIView):
             return approval_id, Approval.DECISION_APPROVED
         if raw_decision == "rejected":
             return approval_id, Approval.DECISION_REJECTED
-        raise ValidationError({"detail": "Unsupported decision value in callback data."})
+        raise ValidationError({"detail": "Unsupported decision value in callback payload."})
 
     def post(self, request):
-        self._check_token(request)
-        serializer = TelegramApprovalWebhookSerializer(data=request.data)
+        serializer = MessagingGatewayCallbackSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        payload = serializer.validated_data
-        update = self._extract_update(payload)
-        callback_query = update.get("callback_query") if isinstance(update.get("callback_query"), dict) else None
-        if callback_query is None:
-            return Response({"detail": "Only callback_query updates are supported."}, status=status.HTTP_202_ACCEPTED)
+        event_data = serializer.validated_data
 
-        parsed_approval_id, decision = self._parse_callback_data(callback_query.get("data"))
-        raw_approval_id = callback_query.get("approval_id")
-        if raw_approval_id in (None, ""):
-            raw_approval_id = parsed_approval_id
+        if event_data.get("event") != "interaction":
+            return Response({"detail": "Only interaction events are supported."}, status=status.HTTP_202_ACCEPTED)
+
+        payload_preview = (event_data.get("payload") or "")[:48]
+        logger.info(
+            "messaging_gateway_webhook interaction user_id=%s recipient_id=%s message_id=%s payload=%r",
+            event_data.get("user_id"),
+            event_data.get("recipient_id"),
+            event_data.get("message_id"),
+            payload_preview,
+        )
+
         try:
-            approval_id = int(raw_approval_id)
+            parsed_approval_id, decision = self._parse_callback_data(event_data.get("payload"))
+        except ValidationError:
+            logger.warning(
+                "messaging_gateway_webhook bad payload user_id=%s payload=%r",
+                event_data.get("user_id"),
+                payload_preview,
+            )
+            raise
+
+        try:
+            approval_id = int(parsed_approval_id)
         except (TypeError, ValueError) as exc:
             raise ValidationError({"approval_id": "approval_id is required and must be integer."}) from exc
 
-        from_obj = callback_query.get("from") if isinstance(callback_query.get("from"), dict) else {}
-        message_obj = callback_query.get("message") if isinstance(callback_query.get("message"), dict) else {}
-        chat_obj = message_obj.get("chat") if isinstance(message_obj.get("chat"), dict) else {}
-
         try:
-            from_id = int(from_obj.get("id"))
+            from_id = int(event_data["user_id"])
         except (TypeError, ValueError) as exc:
-            raise ValidationError({"from_id": "callback_query.from.id is required and must be integer."}) from exc
+            raise ValidationError({"user_id": "user_id is required and must be integer."}) from exc
         try:
-            chat_id = int(chat_obj.get("id"))
+            chat_id = int(event_data["recipient_id"])
         except (TypeError, ValueError) as exc:
-            raise ValidationError({"chat_id": "callback_query.message.chat.id is required and must be integer."}) from exc
-        try:
-            message_id = int(message_obj.get("message_id"))
-        except (TypeError, ValueError) as exc:
-            raise ValidationError({"message_id": "callback_query.message.message_id is required and must be integer."}) from exc
+            raise ValidationError({"recipient_id": "recipient_id is required and must be integer."}) from exc
+        message_id = event_data.get("message_id")
 
         approval = (
             Approval.objects.select_related("request", "request__tenant", "approver_user")
@@ -143,20 +129,39 @@ class TelegramApprovalWebhookView(APIView):
             .first()
         )
         if approval is None:
+            logger.warning("messaging_gateway_webhook unknown approval_id=%s", approval_id)
             raise ValidationError({"approval_id": "Approval not found."})
-        if approval.message_id and approval.message_id != message_id:
+        if message_id is not None and approval.gateway_message_id is not None and approval.gateway_message_id != message_id:
+            logger.warning(
+                "messaging_gateway_webhook message_id mismatch approval_id=%s stored=%s callback=%s",
+                approval_id,
+                approval.gateway_message_id,
+                message_id,
+            )
             raise ValidationError({"message_id": "Callback message_id does not match stored approval message_id."})
-        if approval.approver_tg_id is not None and approval.approver_tg_id != chat_id:
-            raise ValidationError({"chat_id": "Chat is not allowed for this approval."})
-        if approval.approver_tg_from_id is not None and approval.approver_tg_from_id != from_id:
-            raise ValidationError({"from_id": "User is not allowed for this approval."})
+        if approval.approver_recipient_id is not None and approval.approver_recipient_id != chat_id:
+            logger.warning(
+                "messaging_gateway_webhook recipient mismatch approval_id=%s expected=%s got=%s",
+                approval_id,
+                approval.approver_recipient_id,
+                chat_id,
+            )
+            raise ValidationError({"recipient_id": "Recipient is not allowed for this approval."})
+        if approval.approver_external_user_id is not None and approval.approver_external_user_id != from_id:
+            logger.warning(
+                "messaging_gateway_webhook user mismatch approval_id=%s expected=%s got=%s",
+                approval_id,
+                approval.approver_external_user_id,
+                from_id,
+            )
+            raise ValidationError({"user_id": "User is not allowed for this approval."})
 
         tenant: Tenant = approval.request.tenant
 
         with transaction.atomic():
-            if approval.message_id is None:
-                updates = ["message_id"]
-                approval.message_id = message_id
+            if message_id is not None and approval.gateway_message_id is None:
+                updates = ["gateway_message_id"]
+                approval.gateway_message_id = message_id
                 if not approval.message_sent:
                     approval.message_sent = True
                     updates.append("message_sent")
@@ -169,35 +174,33 @@ class TelegramApprovalWebhookView(APIView):
                     tenant=tenant,
                     approval_id=approval.id,
                     request_id=approval.request_id,
-                    approver_tg_id=chat_id,
-                    approver_tg_from_id=from_id,
+                    approver_recipient_id=chat_id,
+                    approver_external_user_id=from_id,
                     decision=decision,
                 )
             except ApprovalDecisionAlreadyMade:
-                # Keep HTTP 409, but still try to sync stale Telegram card to current
-                # state and remove action buttons.
+                logger.info(
+                    "messaging_gateway_webhook duplicate decision approval_id=%s request_id=%s",
+                    approval.id,
+                    approval.request_id,
+                )
                 approval.refresh_from_db()
                 approval.request.refresh_from_db()
                 updated = deactivate_approval_message_buttons(
                     approval=approval,
                     request_context=approval.request,
                 )
-                if not updated and chat_id and message_id:
-                    # Fallback for legacy rows where approval.message_id was not persisted:
-                    # use callback message identifiers to force an edit attempt.
-                    payload = {
-                        "action": get_requests_telegram_integration_settings(tenant=tenant).edit_action,
-                        "message": build_approval_message(request_obj=approval.request, approval=approval),
-                        "parse_mode": "HTML",
-                        "chat_id": chat_id,
-                        "company": approval.request.company_payer or "",
-                        "approval_id": approval.id,
-                        "request_id": approval.request_id,
-                        "message_id": message_id,
-                        "inline_keyboard": [],
-                    }
-                    post_telegram_bridge(tenant=tenant, payload=payload)
+                if not updated and message_id:
+                    # Fallback for legacy rows where approval message id was not persisted
+                    approval.gateway_message_id = message_id
+                    deactivate_approval_message_buttons(approval=approval, request_context=approval.request)
                 raise
 
+        logger.info(
+            "messaging_gateway_webhook processed approval_id=%s request_id=%s tenant_id=%s decision=%s",
+            approval.id,
+            approval.request_id,
+            tenant.id,
+            decision,
+        )
         return Response({"detail": "Callback processed."}, status=status.HTTP_200_OK)
-

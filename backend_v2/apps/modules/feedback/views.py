@@ -15,7 +15,7 @@ from apps.modules.feedback.services import (
     build_portal_feedback_telegram_message,
     post_feedback_ai_refine,
 )
-from apps.modules.telegram_approvals.services import post_telegram_bridge
+from apps.modules.telegram_approvals.services import post_messaging_gateway
 from apps.tenants.integration_settings import get_portal_feedback_settings
 
 logger = logging.getLogger(__name__)
@@ -102,9 +102,9 @@ class FeedbackSubmitView(APIView):
         kind_label = "Ошибка" if kind == PortalFeedback.KIND_ERROR else "Улучшение"
         author = (request.user.full_name or "").strip() or request.user.username
 
-        if pf.telegram_chat_id is None:
+        if pf.recipient_id is None:
             fb.delivery_status = PortalFeedback.DELIVERY_SKIPPED
-            fb.delivery_error = "Получатель Telegram не настроен (portal_feedback_telegram_chat_id)."
+            fb.delivery_error = "Получатель messaging gateway не настроен (messaging_gateway_feedback_recipient_id)."
             fb.save(update_fields=["delivery_status", "delivery_error"])
             return Response(
                 {
@@ -123,13 +123,14 @@ class FeedbackSubmitView(APIView):
             body=body,
         )
         dispatch_payload = build_portal_feedback_dispatch_payload(
-            action=pf.telegram_action,
-            chat_id=int(pf.telegram_chat_id),
+            action=pf.action,
+            chat_id=int(pf.recipient_id),
             message_html=message_html,
             feedback_id=fb.pk,
             kind=kind,
+            tenant=tenant,
         )
-        bridge_result = post_telegram_bridge(tenant=tenant, payload=dispatch_payload)
+        bridge_result = post_messaging_gateway(tenant=tenant, payload=dispatch_payload)
         if bridge_result is not None:
             fb.delivery_status = PortalFeedback.DELIVERY_SENT
             fb.delivery_error = ""
@@ -144,7 +145,7 @@ class FeedbackSubmitView(APIView):
             )
 
         fb.delivery_status = PortalFeedback.DELIVERY_FAILED
-        fb.delivery_error = "Не удалось отправить сообщение через Telegram bridge (n8n)."
+        fb.delivery_error = "Не удалось отправить сообщение через messaging gateway."
         fb.save(update_fields=["delivery_status", "delivery_error"])
         return Response(
             {

@@ -11,8 +11,8 @@ from apps.modules.investments.models import (
     InvestmentReturnApproval,
     InvestReturn,
 )
-from apps.modules.requests.integration_settings import get_requests_telegram_integration_settings
-from apps.modules.telegram_approvals.services import post_telegram_bridge
+from apps.modules.requests.integration_settings import get_requests_messaging_gateway_settings
+from apps.modules.telegram_approvals.services import post_messaging_gateway, _get_tenant_bot_token
 
 
 class InvestmentApprovalDecisionAlreadyMade(Exception):
@@ -42,30 +42,32 @@ def _build_message(*, invest_return: InvestReturn) -> str:
 
 
 def _dispatch_approval_message(*, approval: InvestmentReturnApproval) -> None:
-    if approval.approver_tg_id is None:
+    if approval.approver_recipient_id is None:
         return
-    settings_obj = get_requests_telegram_integration_settings(tenant=approval.tenant)
+    settings_obj = get_requests_messaging_gateway_settings(tenant=approval.tenant)
     payload = {
         "action": settings_obj.send_action,
-        "message": _build_message(invest_return=approval.invest_return),
-        "parse_mode": "HTML",
-        "chat_id": approval.approver_tg_id,
-        "company": approval.invest_return.company.name if approval.invest_return.company else approval.tenant.name,
-        "approval_id": approval.id,
+        "text": _build_message(invest_return=approval.invest_return),
+        "recipient_id": str(approval.approver_recipient_id),
+        "bot_token": _get_tenant_bot_token(approval.tenant),
+        "tenant_id": str(approval.tenant_id),
+        "approval_id": str(approval.id),
         "request_id": approval.invest_return_id,
-        "inline_keyboard": [
+        "buttons": [
             [
-                {"text": "✅ Подтвердить", "callback_data": _button_data(approval_id=approval.id, decision="approved")},
-                {"text": "❌ Отменить", "callback_data": _button_data(approval_id=approval.id, decision="rejected")},
+                {"label": "✅ Подтвердить", "value": _button_data(approval_id=approval.id, decision="approved")},
+                {"label": "❌ Отменить", "value": _button_data(approval_id=approval.id, decision="rejected")},
             ]
         ],
     }
-    response_data = post_telegram_bridge(tenant=approval.tenant, payload=payload) or {}
+    response_data = post_messaging_gateway(tenant=approval.tenant, payload=payload) or {}
     message_id = response_data.get("message_id")
+    if message_id in (None, "") and isinstance(response_data.get("result"), dict):
+        message_id = response_data["result"].get("message_id")
     updates = []
     if isinstance(message_id, int):
-        approval.message_id = message_id
-        updates.append("message_id")
+        approval.gateway_message_id = message_id
+        updates.append("gateway_message_id")
     if not approval.message_sent:
         approval.message_sent = True
         updates.append("message_sent")
@@ -93,8 +95,8 @@ def create_approvals_for_invest_return(*, invest_return: InvestReturn) -> int:
                 invest_return=invest_return,
                 step=step.step,
                 approver_user=approver,
-                approver_tg_id=approver.telegram_chat_id,
-                approver_tg_from_id=approver.telegram_from_id,
+                approver_recipient_id=approver.telegram_chat_id,
+                approver_external_user_id=approver.telegram_from_id,
             )
             created += 1
     return created
@@ -151,8 +153,8 @@ def confirm_invest_return_approval_by_id(
     *,
     tenant,
     approval_id: int,
-    approver_tg_id: int | None = None,
-    approver_tg_from_id: int | None = None,
+    approver_recipient_id: int | None = None,
+    approver_external_user_id: int | None = None,
     decision: str,
     comment: str = "",
 ) -> InvestmentApprovalDecisionResult:
@@ -167,9 +169,12 @@ def confirm_invest_return_approval_by_id(
             raise ValueError("Approval not found.")
         if approval.decision != InvestmentReturnApproval.DECISION_PENDING:
             raise InvestmentApprovalDecisionAlreadyMade()
-        if approver_tg_id is not None and approval.approver_tg_id not in (None, approver_tg_id):
+        if approver_recipient_id is not None and approval.approver_recipient_id not in (None, approver_recipient_id):
             raise ValueError("Chat is not allowed for this approval.")
-        if approver_tg_from_id is not None and approval.approver_tg_from_id not in (None, approver_tg_from_id):
+        if approver_external_user_id is not None and approval.approver_external_user_id not in (
+            None,
+            approver_external_user_id,
+        ):
             raise ValueError("User is not allowed for this approval.")
 
         current_step = (
