@@ -23,21 +23,8 @@ class Migration(migrations.Migration):
             old_name="message_id",
             new_name="gateway_message_id",
         ),
-        migrations.RenameField(
-            model_name="userrequestapproval",
-            old_name="approver_tg_id",
-            new_name="approver_recipient_id",
-        ),
-        migrations.RenameField(
-            model_name="userrequestapproval",
-            old_name="approver_tg_from_id",
-            new_name="approver_external_user_id",
-        ),
-        migrations.RenameField(
-            model_name="userrequestapproval",
-            old_name="message_id",
-            new_name="gateway_message_id",
-        ),
+        # UserRequestApproval is unmanaged (`managed=False`) and shares `approvals` via AlterModelTable;
+        # its migration state has never tracked tg/message mirror fields — renames run via Approval only.
         migrations.RenameField(
             model_name="requestapprovalconfig",
             old_name="telegram_approvals_bridge_dispatch_url",

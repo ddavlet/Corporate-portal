@@ -566,15 +566,15 @@ class RequestApprovalsTests(APITestCase):
         self.assertEqual(approval.decision, Approval.DECISION_PENDING)
         self.assertEqual(approval.step, 1)
         self.assertEqual(approval.step_type, Approval.STEP_TYPE_SERIAL)
-        self.assertEqual(approval.approver_tg_id, self.approver.telegram_chat_id)
-        self.assertEqual(approval.approver_tg_from_id, self.approver.telegram_from_id)
+        self.assertEqual(approval.approver_recipient_id, self.approver.telegram_chat_id)
+        self.assertEqual(approval.approver_external_user_id, self.approver.telegram_from_id)
 
         inbox_qs = UserRequestApproval.objects.filter(request_id=request_id, approver_user=self.approver)
         self.assertEqual(inbox_qs.count(), 1)
         inbox = inbox_qs.first()
         self.assertEqual(inbox.decision, Approval.DECISION_PENDING)
         self.assertEqual(inbox.step, 1)
-        self.assertEqual(inbox.approver_tg_from_id, self.approver.telegram_from_id)
+        self.assertEqual(inbox.approver_external_user_id, self.approver.telegram_from_id)
 
         self.client.force_authenticate(self.approver)
         res = self.client.get("/api/requests/my-approvals/", HTTP_HOST=self.host)

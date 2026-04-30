@@ -196,7 +196,7 @@ class InvestmentApprovalDecisionSerializer(serializers.Serializer):
         choices=[InvestmentReturnApproval.DECISION_APPROVED, InvestmentReturnApproval.DECISION_REJECTED]
     )
     approver_recipient_id = serializers.IntegerField(required=False)
-    approver_user_id = serializers.IntegerField(required=False)
+    approver_external_user_id = serializers.IntegerField(required=False)
     comment = serializers.CharField(required=False, allow_blank=True)
 
 

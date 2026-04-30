@@ -96,7 +96,7 @@ def create_approvals_for_invest_return(*, invest_return: InvestReturn) -> int:
                 step=step.step,
                 approver_user=approver,
                 approver_recipient_id=approver.telegram_chat_id,
-                approver_user_id=approver.telegram_from_id,
+                approver_external_user_id=approver.telegram_from_id,
             )
             created += 1
     return created
@@ -154,7 +154,7 @@ def confirm_invest_return_approval_by_id(
     tenant,
     approval_id: int,
     approver_recipient_id: int | None = None,
-    approver_user_id: int | None = None,
+    approver_external_user_id: int | None = None,
     decision: str,
     comment: str = "",
 ) -> InvestmentApprovalDecisionResult:
@@ -171,7 +171,10 @@ def confirm_invest_return_approval_by_id(
             raise InvestmentApprovalDecisionAlreadyMade()
         if approver_recipient_id is not None and approval.approver_recipient_id not in (None, approver_recipient_id):
             raise ValueError("Chat is not allowed for this approval.")
-        if approver_user_id is not None and approval.approver_user_id not in (None, approver_user_id):
+        if approver_external_user_id is not None and approval.approver_external_user_id not in (
+            None,
+            approver_external_user_id,
+        ):
             raise ValueError("User is not allowed for this approval.")
 
         current_step = (

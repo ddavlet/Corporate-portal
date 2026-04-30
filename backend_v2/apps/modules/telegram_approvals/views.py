@@ -114,7 +114,7 @@ class TelegramApprovalWebhookView(APIView):
             raise ValidationError({"message_id": "Callback message_id does not match stored approval message_id."})
         if approval.approver_recipient_id is not None and approval.approver_recipient_id != chat_id:
             raise ValidationError({"recipient_id": "Recipient is not allowed for this approval."})
-        if approval.approver_user_id is not None and approval.approver_user_id != from_id:
+        if approval.approver_external_user_id is not None and approval.approver_external_user_id != from_id:
             raise ValidationError({"user_id": "User is not allowed for this approval."})
 
         tenant: Tenant = approval.request.tenant
@@ -136,7 +136,7 @@ class TelegramApprovalWebhookView(APIView):
                     approval_id=approval.id,
                     request_id=approval.request_id,
                     approver_recipient_id=chat_id,
-                    approver_user_id=from_id,
+                    approver_external_user_id=from_id,
                     decision=decision,
                 )
             except ApprovalDecisionAlreadyMade:

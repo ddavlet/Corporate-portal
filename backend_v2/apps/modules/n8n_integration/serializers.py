@@ -454,7 +454,7 @@ class N8nApprovalImportSerializer(serializers.ModelSerializer):
             "request",
             "approver_user",
             "approver_recipient_id",
-            "approver_user_id",
+            "approver_external_user_id",
             "gateway_message_id",
             "message_sent",
             "message_sent_at",

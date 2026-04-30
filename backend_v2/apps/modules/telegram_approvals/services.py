@@ -721,7 +721,7 @@ def resend_current_pending_step(*, request_obj: Request, idempotency_key: str | 
             request=locked,
             approver_user=approval.approver_user,
             approver_recipient_id=approval.approver_recipient_id,
-            approver_user_id=approval.approver_user_id,
+            approver_external_user_id=approval.approver_external_user_id,
             step=approval.step,
             step_type=approval.step_type,
             decision=Approval.DECISION_PENDING,
