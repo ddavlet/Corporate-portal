@@ -238,7 +238,7 @@ def create_request_copy_for_template(
     now_dt: dt.datetime | None = None,
 ) -> Request:
     now_dt = now_dt or timezone.now()
-    run_month_start = _month_start(now_dt.date())
+    run_month_start = _month_start(timezone.localdate(now_dt))
     return _create_request_for_template(template, run_month_start=run_month_start, now_dt=now_dt)
 
 
