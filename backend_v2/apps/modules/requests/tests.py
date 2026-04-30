@@ -2955,14 +2955,9 @@ class GetRequestsMessagingGatewaySettingsTests(APITestCase):
         settings_obj = get_requests_messaging_gateway_settings(tenant=tenant)
         self.assertEqual(settings_obj.draft_notification_action, "send")
 
-    def test_request_approval_config_draft_overrides_tenant_defaults(self):
+    @override_settings(MESSAGING_GATEWAY_DRAFT_ACTION="send_interactive")
+    def test_draft_notification_action_from_django_settings(self):
         tenant = Tenant.objects.create(name="Co2", subdomain="gwsett2", is_active=True)
-        admin = User.objects.create_user(username="gwsett_admin", password="x")
-        RequestApprovalConfig.objects.create(
-            tenant=tenant,
-            updated_by=admin,
-            messaging_gateway_draft_action="send_interactive",
-        )
         settings_obj = get_requests_messaging_gateway_settings(tenant=tenant)
         self.assertEqual(settings_obj.draft_notification_action, "send_interactive")
 

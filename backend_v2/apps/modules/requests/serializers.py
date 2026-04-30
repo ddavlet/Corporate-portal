@@ -900,25 +900,7 @@ class RequestApprovalPaymentTypePayloadSerializer(serializers.Serializer):
 
 
 class RequestApprovalConfigPayloadSerializer(serializers.Serializer):
-    class IntegrationSettingsPayloadSerializer(serializers.Serializer):
-        messaging_gateway_dispatch_url = serializers.CharField(required=False, allow_blank=True, default="")
-        messaging_gateway_send_action = serializers.CharField(required=False, allow_blank=True, default="")
-        messaging_gateway_edit_action = serializers.CharField(required=False, allow_blank=True, default="")
-        messaging_gateway_draft_action = serializers.CharField(
-            required=False, allow_blank=True, default=""
-        )
-        messaging_gateway_token = serializers.CharField(required=False, allow_blank=True, default="")
-        messaging_gateway_message_template = serializers.CharField(required=False, allow_blank=True, default="")
-        messaging_gateway_header_new_template = serializers.CharField(required=False, allow_blank=True, default="")
-        messaging_gateway_header_step_approved_template = serializers.CharField(required=False, allow_blank=True, default="")
-        messaging_gateway_header_fully_approved_template = serializers.CharField(required=False, allow_blank=True, default="")
-        messaging_gateway_header_closed_template = serializers.CharField(required=False, allow_blank=True, default="")
-        messaging_gateway_header_rejected_template = serializers.CharField(required=False, allow_blank=True, default="")
-        messaging_gateway_subheader_payment_responsible_template = serializers.CharField(required=False, allow_blank=True, default="")
-        messaging_gateway_subheader_rejected_by_template = serializers.CharField(required=False, allow_blank=True, default="")
-
     payment_types = serializers.ListField(child=RequestApprovalPaymentTypePayloadSerializer())
-    integration_settings = IntegrationSettingsPayloadSerializer(required=False, default=dict)
 
     def validate(self, attrs):
         attrs = super().validate(attrs)
@@ -1108,25 +1090,9 @@ def build_request_approval_config_response(*, tenant) -> dict:
                     )
         payment_types_rows.append(row)
 
-    integration_settings = {
-        "messaging_gateway_dispatch_url": cfg.messaging_gateway_dispatch_url if cfg else "",
-        "messaging_gateway_send_action": cfg.messaging_gateway_send_action if cfg else "",
-        "messaging_gateway_edit_action": cfg.messaging_gateway_edit_action if cfg else "",
-        "messaging_gateway_draft_action": cfg.messaging_gateway_draft_action if cfg else "",
-        "messaging_gateway_token": cfg.messaging_gateway_token if cfg else "",
-        "messaging_gateway_message_template": cfg.messaging_gateway_message_template if cfg else "",
-        "messaging_gateway_header_new_template": cfg.messaging_gateway_header_new_template if cfg else "",
-        "messaging_gateway_header_step_approved_template": cfg.messaging_gateway_header_step_approved_template if cfg else "",
-        "messaging_gateway_header_fully_approved_template": cfg.messaging_gateway_header_fully_approved_template if cfg else "",
-        "messaging_gateway_header_closed_template": cfg.messaging_gateway_header_closed_template if cfg else "",
-        "messaging_gateway_header_rejected_template": cfg.messaging_gateway_header_rejected_template if cfg else "",
-        "messaging_gateway_subheader_payment_responsible_template": cfg.messaging_gateway_subheader_payment_responsible_template if cfg else "",
-        "messaging_gateway_subheader_rejected_by_template": cfg.messaging_gateway_subheader_rejected_by_template if cfg else "",
-    }
     return {
         "payment_types": payment_types_rows,
         "approver_candidates": approver_candidates,
-        "integration_settings": integration_settings,
     }
 
 

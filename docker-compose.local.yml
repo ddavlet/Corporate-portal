@@ -33,8 +33,11 @@ services:
       DJANGO_ALLOWED_HOSTS: "*"
       BASE_DOMAIN: localhost
       DJANGO_CSRF_TRUSTED_ORIGINS: "http://localhost:8001,http://localhost:3000,http://test.localhost:8001,http://test.localhost:3000"
+      # Шлюз один на деплой; опционально: MESSAGING_GATEWAY_SEND_ACTION, EDIT_ACTION, DRAFT_ACTION
       MESSAGING_GATEWAY_SEND_URL: http://tg_gateway_local:8080/v1/messaging/send
       MESSAGING_GATEWAY_ADMIN_URL: http://tg_gateway_local:8080
+      # Секрет не коммитить: положите токен бота в `.env` как SEED_TEST_TELEGRAM_BOT_TOKEN=...
+      SEED_TEST_TELEGRAM_BOT_TOKEN: ${SEED_TEST_TELEGRAM_BOT_TOKEN:-}
     ports:
       - "127.0.0.1:8001:8001"
     volumes:

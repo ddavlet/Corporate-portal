@@ -1406,7 +1406,6 @@ class RequestApprovalConfigView(APIView):
         payload = RequestApprovalConfigPayloadSerializer(data=request.data, context={"request": request})
         payload.is_valid(raise_exception=True)
         payment_types = payload.validated_data.get("payment_types", [])
-        integration_settings = payload.validated_data.get("integration_settings", {})
 
         active_member_ids = set(
             TenantMembership.objects.filter(tenant=tenant, is_active=True).values_list("user_id", flat=True)
@@ -1417,24 +1416,7 @@ class RequestApprovalConfigView(APIView):
                 tenant=tenant, defaults={"updated_by": request.user}
             )
             cfg.updated_by = request.user
-            for field in (
-                "messaging_gateway_dispatch_url",
-                "messaging_gateway_send_action",
-                "messaging_gateway_edit_action",
-                "messaging_gateway_draft_action",
-                "messaging_gateway_token",
-                "messaging_gateway_message_template",
-                "messaging_gateway_header_new_template",
-                "messaging_gateway_header_step_approved_template",
-                "messaging_gateway_header_fully_approved_template",
-                "messaging_gateway_header_closed_template",
-                "messaging_gateway_header_rejected_template",
-                "messaging_gateway_subheader_payment_responsible_template",
-                "messaging_gateway_subheader_rejected_by_template",
-            ):
-                if field in integration_settings:
-                    setattr(cfg, field, integration_settings[field])
-            cfg.save()
+            cfg.save(update_fields=["updated_by"])
 
             existing_pt = {
                 row.payment_type: row

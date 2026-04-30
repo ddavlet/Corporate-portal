@@ -114,8 +114,7 @@ class _FakeSettings:
     header_rejected_template = "❌ Заявка № {request_id} отклонена"
     subheader_payment_responsible_template = "Ответственный: {payment_responsible}"
     subheader_rejected_by_template = "Отклонил: {rejected_by}"
-    bridge_token = ""
-    n8n_integration_token = ""
+
 
 def _patched_get(*args, **kwargs):
     return _FakeSettings()

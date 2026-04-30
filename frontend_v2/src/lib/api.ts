@@ -164,19 +164,6 @@ export type TenantIntegrationConfigResponse = {
   telegram_oidc_client_id: string
   telegram_oidc_client_secret: string
   telegram_oidc_redirect_uri: string
-  messaging_gateway_dispatch_url: string
-  messaging_gateway_send_action: string
-  messaging_gateway_edit_action: string
-  messaging_gateway_draft_action: string
-  messaging_gateway_message_template: string
-  messaging_gateway_header_new_template: string
-  messaging_gateway_header_step_approved_template: string
-  messaging_gateway_header_fully_approved_template: string
-  messaging_gateway_header_closed_template: string
-  messaging_gateway_header_rejected_template: string
-  messaging_gateway_subheader_payment_responsible_template: string
-  messaging_gateway_subheader_rejected_by_template: string
-  messaging_gateway_token: string
   requests_file_gateway_token: string
   messaging_gateway_feedback_recipient_id: number | null
   messaging_gateway_feedback_action: string
@@ -191,19 +178,6 @@ export type TenantIntegrationConfigUpdatePayload = Partial<{
   telegram_oidc_client_id: string
   telegram_oidc_client_secret: string
   telegram_oidc_redirect_uri: string
-  messaging_gateway_dispatch_url: string
-  messaging_gateway_send_action: string
-  messaging_gateway_edit_action: string
-  messaging_gateway_draft_action: string
-  messaging_gateway_message_template: string
-  messaging_gateway_header_new_template: string
-  messaging_gateway_header_step_approved_template: string
-  messaging_gateway_header_fully_approved_template: string
-  messaging_gateway_header_closed_template: string
-  messaging_gateway_header_rejected_template: string
-  messaging_gateway_subheader_payment_responsible_template: string
-  messaging_gateway_subheader_rejected_by_template: string
-  messaging_gateway_token: string
   requests_file_gateway_token: string
   messaging_gateway_feedback_recipient_id: number | null
   messaging_gateway_feedback_action: string
@@ -1641,22 +1615,6 @@ export type RequestApprovalConfigResponse = {
   is_tenant_admin?: boolean
   payment_types: RequestApprovalConfigPaymentTypeItem[]
   approver_candidates: Array<{ id: number; username: string }>
-  integration_settings?: {
-    telegram_approvals_bridge_dispatch_url?: string
-    telegram_approvals_send_action?: string
-    telegram_approvals_edit_action?: string
-    telegram_approvals_draft_notification_action?: string
-    telegram_approvals_bridge_token?: string
-    telegram_approvals_message_template?: string
-    telegram_approvals_header_new_template?: string
-    telegram_approvals_header_step_approved_template?: string
-    telegram_approvals_header_fully_approved_template?: string
-    telegram_approvals_header_closed_template?: string
-    telegram_approvals_header_rejected_template?: string
-    telegram_approvals_subheader_payment_responsible_template?: string
-    telegram_approvals_subheader_rejected_by_template?: string
-    n8n_integration_token?: string
-  }
 }
 
 export type RequestApprovalConfigUpdatePayload = {
@@ -1687,22 +1645,6 @@ export type RequestApprovalConfigUpdatePayload = {
       payment_webapp_url?: string
     }>
   }>
-  integration_settings?: {
-    telegram_approvals_bridge_dispatch_url?: string
-    telegram_approvals_send_action?: string
-    telegram_approvals_edit_action?: string
-    telegram_approvals_draft_notification_action?: string
-    telegram_approvals_bridge_token?: string
-    telegram_approvals_message_template?: string
-    telegram_approvals_header_new_template?: string
-    telegram_approvals_header_step_approved_template?: string
-    telegram_approvals_header_fully_approved_template?: string
-    telegram_approvals_header_closed_template?: string
-    telegram_approvals_header_rejected_template?: string
-    telegram_approvals_subheader_payment_responsible_template?: string
-    telegram_approvals_subheader_rejected_by_template?: string
-    n8n_integration_token?: string
-  }
 }
 
 export async function getRequestApprovalConfig(): Promise<RequestApprovalConfigResponse> {

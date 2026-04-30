@@ -30,33 +30,12 @@ class ModuleCatalogRowSerializer(serializers.Serializer):
 class TenantIntegrationConfigSerializer(serializers.Serializer):
     telegram_bot_token = serializers.CharField(required=False, allow_blank=True, write_only=True)
     telegram_bot_username = serializers.CharField(required=False, allow_blank=True, max_length=128)
-    messaging_gateway_dispatch_url = serializers.CharField(required=False, allow_blank=True)
-    messaging_gateway_send_action = serializers.CharField(required=False, allow_blank=True, max_length=100)
-    messaging_gateway_edit_action = serializers.CharField(required=False, allow_blank=True, max_length=100)
-    messaging_gateway_draft_action = serializers.CharField(
-        required=False, allow_blank=True, max_length=100
-    )
-    messaging_gateway_message_template = serializers.CharField(required=False, allow_blank=True)
-    messaging_gateway_header_new_template = serializers.CharField(required=False, allow_blank=True)
-    messaging_gateway_header_step_approved_template = serializers.CharField(required=False, allow_blank=True)
-    messaging_gateway_header_fully_approved_template = serializers.CharField(required=False, allow_blank=True)
-    messaging_gateway_header_closed_template = serializers.CharField(required=False, allow_blank=True)
-    messaging_gateway_header_rejected_template = serializers.CharField(required=False, allow_blank=True)
-    messaging_gateway_subheader_payment_responsible_template = serializers.CharField(required=False, allow_blank=True)
-    messaging_gateway_subheader_rejected_by_template = serializers.CharField(required=False, allow_blank=True)
-    messaging_gateway_token = serializers.CharField(required=False, allow_blank=True, write_only=True)
     requests_file_gateway_token = serializers.CharField(required=False, allow_blank=True, write_only=True)
     telegram_oidc_client_id = serializers.CharField(required=False, allow_blank=True, max_length=120)
     telegram_oidc_client_secret = serializers.CharField(required=False, allow_blank=True, write_only=True)
     telegram_oidc_redirect_uri = serializers.CharField(required=False, allow_blank=True)
     messaging_gateway_feedback_recipient_id = serializers.IntegerField(required=False, allow_null=True)
     messaging_gateway_feedback_action = serializers.CharField(required=False, allow_blank=True, max_length=100)
-
-    def validate(self, attrs):
-        raw = attrs.get("messaging_gateway_dispatch_url")
-        if raw and not (raw.startswith("http://") or raw.startswith("https://")):
-            raise serializers.ValidationError({"messaging_gateway_dispatch_url": "Must be an absolute URL."})
-        return attrs
 
 
 class TenantUserPreferenceSerializer(serializers.Serializer):

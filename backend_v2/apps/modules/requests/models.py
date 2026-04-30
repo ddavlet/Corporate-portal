@@ -416,19 +416,6 @@ class RequestApprovalConfig(models.Model):
         null=True,
         blank=True,
     )
-    messaging_gateway_dispatch_url = models.TextField(blank=True, default="")
-    messaging_gateway_send_action = models.CharField(max_length=100, blank=True, default="")
-    messaging_gateway_edit_action = models.CharField(max_length=100, blank=True, default="")
-    messaging_gateway_draft_action = models.CharField(max_length=100, blank=True, default="")
-    messaging_gateway_token = models.TextField(blank=True, default="")
-    messaging_gateway_message_template = models.TextField(blank=True, default="")
-    messaging_gateway_header_new_template = models.TextField(blank=True, default="")
-    messaging_gateway_header_step_approved_template = models.TextField(blank=True, default="")
-    messaging_gateway_header_fully_approved_template = models.TextField(blank=True, default="")
-    messaging_gateway_header_closed_template = models.TextField(blank=True, default="")
-    messaging_gateway_header_rejected_template = models.TextField(blank=True, default="")
-    messaging_gateway_subheader_payment_responsible_template = models.TextField(blank=True, default="")
-    messaging_gateway_subheader_rejected_by_template = models.TextField(blank=True, default="")
 
     class Meta:
         db_table = "request_approval_configs"

@@ -10,7 +10,6 @@ from apps.tenants.models import Tenant, TenantIntegrationConfig
 @dataclass(frozen=True)
 class MessagingGatewaySettings:
     dispatch_url: str
-    bridge_token: str
     send_action: str
     edit_action: str
     draft_notification_action: str
@@ -76,50 +75,29 @@ def _integration_config(tenant: Tenant | None) -> TenantIntegrationConfig | None
     return TenantIntegrationConfig.objects.filter(tenant=tenant).first()
 
 
-def get_messaging_gateway_settings(*, tenant: Tenant | None) -> MessagingGatewaySettings:
-    cfg = _integration_config(tenant)
-    cfg_get = (lambda attr: getattr(cfg, attr, "") if cfg else "")
-    dispatch_url = (cfg.messaging_gateway_dispatch_url.strip() if cfg else "") or (
-        getattr(settings, "MESSAGING_GATEWAY_SEND_URL", "") or ""
-    ).strip()
-    bridge_token = (cfg_get("messaging_gateway_token").strip())
-    send_action = (cfg_get("messaging_gateway_send_action").strip()) or "send_interactive"
-    edit_action = (cfg_get("messaging_gateway_edit_action").strip()) or "edit"
-    draft_notification_action = (cfg_get("messaging_gateway_draft_action").strip()) or "send"
-    message_template = cfg_get("messaging_gateway_message_template") or DEFAULT_MESSAGING_GATEWAY_MESSAGE_TEMPLATE
-    header_new_template = cfg_get("messaging_gateway_header_new_template") or DEFAULT_MESSAGING_GATEWAY_HEADER_NEW_TEMPLATE
-    header_step_approved_template = (
-        cfg_get("messaging_gateway_header_step_approved_template") or DEFAULT_MESSAGING_GATEWAY_HEADER_STEP_APPROVED_TEMPLATE
-    )
-    header_fully_approved_template = (
-        cfg_get("messaging_gateway_header_fully_approved_template") or DEFAULT_MESSAGING_GATEWAY_HEADER_FULLY_APPROVED_TEMPLATE
-    )
-    header_closed_template = cfg_get("messaging_gateway_header_closed_template") or DEFAULT_MESSAGING_GATEWAY_HEADER_CLOSED_TEMPLATE
-    header_rejected_template = (
-        cfg_get("messaging_gateway_header_rejected_template") or DEFAULT_MESSAGING_GATEWAY_HEADER_REJECTED_TEMPLATE
-    )
-    subheader_payment_responsible_template = (
-        cfg_get("messaging_gateway_subheader_payment_responsible_template")
-        or DEFAULT_MESSAGING_GATEWAY_SUBHEADER_PAYMENT_RESPONSIBLE_TEMPLATE
-    )
-    subheader_rejected_by_template = (
-        cfg_get("messaging_gateway_subheader_rejected_by_template")
-        or DEFAULT_MESSAGING_GATEWAY_SUBHEADER_REJECTED_BY_TEMPLATE
-    )
+def get_messaging_gateway_settings(*, tenant: Tenant | None = None) -> MessagingGatewaySettings:
+    """
+    Messaging gateway URL and actions are deployment-wide (Django settings / env).
+    Telegram card copy uses built-in defaults; tenant subdomain only scopes API access and DB rows.
+    """
+    _ = tenant
+    dispatch_url = (getattr(settings, "MESSAGING_GATEWAY_SEND_URL", "") or "").strip()
+    send_action = (getattr(settings, "MESSAGING_GATEWAY_SEND_ACTION", "") or "").strip() or "send_interactive"
+    edit_action = (getattr(settings, "MESSAGING_GATEWAY_EDIT_ACTION", "") or "").strip() or "edit_interactive"
+    draft_notification_action = (getattr(settings, "MESSAGING_GATEWAY_DRAFT_ACTION", "") or "").strip() or "send"
     return MessagingGatewaySettings(
         dispatch_url=dispatch_url,
-        bridge_token=bridge_token,
         send_action=send_action,
         edit_action=edit_action,
         draft_notification_action=draft_notification_action,
-        message_template=message_template,
-        header_new_template=header_new_template,
-        header_step_approved_template=header_step_approved_template,
-        header_fully_approved_template=header_fully_approved_template,
-        header_closed_template=header_closed_template,
-        header_rejected_template=header_rejected_template,
-        subheader_payment_responsible_template=subheader_payment_responsible_template,
-        subheader_rejected_by_template=subheader_rejected_by_template,
+        message_template=DEFAULT_MESSAGING_GATEWAY_MESSAGE_TEMPLATE,
+        header_new_template=DEFAULT_MESSAGING_GATEWAY_HEADER_NEW_TEMPLATE,
+        header_step_approved_template=DEFAULT_MESSAGING_GATEWAY_HEADER_STEP_APPROVED_TEMPLATE,
+        header_fully_approved_template=DEFAULT_MESSAGING_GATEWAY_HEADER_FULLY_APPROVED_TEMPLATE,
+        header_closed_template=DEFAULT_MESSAGING_GATEWAY_HEADER_CLOSED_TEMPLATE,
+        header_rejected_template=DEFAULT_MESSAGING_GATEWAY_HEADER_REJECTED_TEMPLATE,
+        subheader_payment_responsible_template=DEFAULT_MESSAGING_GATEWAY_SUBHEADER_PAYMENT_RESPONSIBLE_TEMPLATE,
+        subheader_rejected_by_template=DEFAULT_MESSAGING_GATEWAY_SUBHEADER_REJECTED_BY_TEMPLATE,
     )
 
 
@@ -160,4 +138,3 @@ def get_portal_feedback_settings(*, tenant: Tenant | None) -> PortalFeedbackSett
     raw_action = (cfg.messaging_gateway_feedback_action.strip() if cfg else "") or ""
     action = raw_action or "send_portal_feedback"
     return PortalFeedbackSettings(recipient_id=chat_id, action=action)
-
