@@ -1,20 +1,23 @@
 """
-Telegram Dispatch Gateway
---------------------------
-Internal service — no token authentication required (Docker network only).
+Messaging Gateway — Telegram Adapter
+--------------------------------------
+Platform-neutral API. The backend sends/receives universal messages; this service
+translates them to/from the Telegram Bot API. Replacing Telegram with Slack or
+another platform requires only deploying a different gateway — no backend changes.
 
-POST /v1/telegram/send                   — send / edit / delete messages
-POST /v1/telegram/webhook/{bot_token}    — receive Telegram updates, forward callbacks to backend
-GET  /health                             — liveness + DB status
+Endpoints:
+  POST /v1/messaging/send               — send / edit / delete via Telegram
+  POST /v1/messaging/webhook/{bot_token}— receive Telegram updates, forward platform-neutral callback
+  GET  /health                          — liveness + DB status
+
+Authentication: none — Docker internal network only (no public exposure).
 
 Actions:
-  send_message         → sendMessage (plain text)
-  send_message_button  → sendMessage + fully dynamic inline_keyboard
-  edit_message         → editMessageText (also removes buttons if inline_keyboard is empty)
-  edit_message_button  → editMessageText + dynamic inline_keyboard update
-  delete_message       → deleteMessage
-
-Multi-tenant: every request carries tenant_id, every response and log entry echoes it back.
+  send             → sendMessage  (plain text)
+  send_interactive → sendMessage  (with dynamic buttons)
+  edit             → editMessageText (also clears buttons when buttons=[])
+  edit_interactive → editMessageText (with dynamic button update)
+  delete           → deleteMessage
 """
 from __future__ import annotations
 
@@ -33,8 +36,7 @@ from models import DELETE_ACTIONS, EDIT_ACTIONS, SEND_ACTIONS, DispatchRequest
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
 
-BACKEND_URL   = os.environ.get("BACKEND_WEBHOOK_URL", "")
-BACKEND_TOKEN = os.environ.get("BACKEND_TOKEN", "")
+BACKEND_URL = os.environ.get("BACKEND_WEBHOOK_URL", "")
 
 
 # ── Lifespan ──────────────────────────────────────────────────────────────────
@@ -50,7 +52,7 @@ async def lifespan(app: FastAPI):
         await pool.close()
 
 
-app = FastAPI(title="Telegram Dispatch Gateway", version="3.0", lifespan=lifespan)
+app = FastAPI(title="Messaging Gateway", version="2.0", lifespan=lifespan)
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -59,9 +61,9 @@ def _tg_url(bot_token: str, method: str) -> str:
     return f"https://api.telegram.org/bot{bot_token}/{method}"
 
 
-def _markup(inline_keyboard: list) -> dict | None:
-    """None when empty — Telegram omits reply_markup entirely."""
-    return {"inline_keyboard": inline_keyboard} if inline_keyboard else None
+def _markup(tg_keyboard: list[list[dict]]) -> dict | None:
+    """Wrap Telegram keyboard rows in reply_markup. None → omit field entirely."""
+    return {"inline_keyboard": tg_keyboard} if tg_keyboard else None
 
 
 async def _tg_post(bot_token: str, method: str, body: dict) -> dict:
@@ -78,14 +80,15 @@ async def _tg_post(bot_token: str, method: str, body: dict) -> dict:
     raise last_exc  # type: ignore[misc]
 
 
-# ── POST /v1/telegram/send ────────────────────────────────────────────────────
+# ── POST /v1/messaging/send ───────────────────────────────────────────────────
 
-@app.post("/v1/telegram/send")
+@app.post("/v1/messaging/send")
 async def dispatch(payload: DispatchRequest) -> JSONResponse:
     action = payload.action
     logger.info(
-        "dispatch tenant=%s action=%s chat_id=%s approval_id=%s request_id=%s",
-        payload.tenant_id, action, payload.chat_id, payload.approval_id, payload.request_id,
+        "dispatch tenant=%s action=%s recipient=%s approval_id=%s request_id=%s",
+        payload.tenant_id, action, payload.recipient_id,
+        payload.approval_id, payload.request_id,
     )
 
     tg_data: dict[str, Any] = {}
@@ -96,12 +99,12 @@ async def dispatch(payload: DispatchRequest) -> JSONResponse:
     try:
         if action in SEND_ACTIONS:
             body: dict = {
-                "chat_id": payload.chat_id,
-                "text": payload.text_message,
-                "parse_mode": payload.parse_mode,
+                "chat_id":    payload.tg_recipient(),
+                "text":       payload.text,
+                "parse_mode": payload.tg_parse_mode(),
             }
-            if action == "send_message_button":
-                markup = _markup(payload.inline_keyboard)
+            if action == "send_interactive":
+                markup = _markup(payload.tg_keyboard())
                 if markup:
                     body["reply_markup"] = markup
             tg_data = await _tg_post(payload.bot_token, "sendMessage", body)
@@ -110,35 +113,31 @@ async def dispatch(payload: DispatchRequest) -> JSONResponse:
             if not payload.message_id:
                 raise HTTPException(status_code=400, detail="message_id required for edit actions")
             body = {
-                "chat_id": payload.chat_id,
+                "chat_id":    payload.tg_recipient(),
                 "message_id": payload.message_id,
-                "text": payload.text_message,
-                "parse_mode": payload.parse_mode,
+                "text":       payload.text,
+                "parse_mode": payload.tg_parse_mode(),
             }
-            # edit_message with empty inline_keyboard removes buttons
-            # edit_message_button with buttons updates them
-            markup = _markup(payload.inline_keyboard)
+            markup = _markup(payload.tg_keyboard())
             if markup:
                 body["reply_markup"] = markup
             tg_data = await _tg_post(payload.bot_token, "editMessageText", body)
-            # Telegram 400 "not modified" — treat as success
+            # "message is not modified" is not an error
             if not tg_data.get("ok") and "not modified" in str(tg_data.get("description", "")).lower():
                 tg_data = {"ok": True, "result": {"message_id": payload.message_id}}
 
-        elif action == "delete_message":
+        elif action == "delete":
             if not payload.message_id:
-                raise HTTPException(status_code=400, detail="message_id required for delete_message")
+                raise HTTPException(status_code=400, detail="message_id required for delete")
             tg_data = await _tg_post(payload.bot_token, "deleteMessage", {
-                "chat_id": payload.chat_id,
+                "chat_id":    payload.tg_recipient(),
                 "message_id": payload.message_id,
             })
 
         if tg_data.get("ok"):
             ok = True
             result = tg_data.get("result", {})
-            message_id = (
-                result.get("message_id") if isinstance(result, dict) else payload.message_id
-            )
+            message_id = result.get("message_id") if isinstance(result, dict) else payload.message_id
         else:
             error_text = tg_data.get("description", "Unknown Telegram error")
             logger.error("Telegram %s failed: %s", action, error_text)
@@ -151,15 +150,15 @@ async def dispatch(payload: DispatchRequest) -> JSONResponse:
     finally:
         await db.log_event(
             direction="out",
-            endpoint="/v1/telegram/send",
+            endpoint="/v1/messaging/send",
             action=action,
             tenant_id=payload.tenant_id,
-            chat_id=payload.chat_id,
+            recipient_id=payload.recipient_id,
             message_id=message_id or payload.message_id,
             ok=ok,
             status_code=200 if ok else 502,
             error_text=error_text,
-            payload=payload.model_dump(exclude={"bot_token"}),
+            payload=payload.model_dump(exclude={"bot_token"}),  # never log credentials
             tg_response=tg_data or None,
         )
 
@@ -167,55 +166,56 @@ async def dispatch(payload: DispatchRequest) -> JSONResponse:
         raise HTTPException(status_code=502, detail=f"Telegram error: {error_text}")
 
     return JSONResponse({
-        "ok": True,
-        "tenant": payload.tenant_id,
-        "chat_id": payload.chat_id,
-        "message_id": message_id,
-        "telegram_response": tg_data,
+        "ok":           True,
+        "tenant":       payload.tenant_id,
+        "recipient_id": payload.recipient_id,
+        "message_id":   message_id,
     })
 
 
-# ── POST /v1/telegram/webhook/{bot_token} ─────────────────────────────────────
+# ── POST /v1/messaging/webhook/{bot_token} ────────────────────────────────────
 
-@app.post("/v1/telegram/webhook/{bot_token}")
-async def telegram_webhook(
+@app.post("/v1/messaging/webhook/{bot_token}")
+async def messaging_webhook(
     request: Request,
     bot_token: str = Path(...),
 ) -> dict:
     update: dict = await request.json()
-    logger.info("webhook bot=***%s update_id=%s", bot_token[-6:], update.get("update_id"))
+    # Never log the bot_token — it is a secret even though it's in the URL
+    logger.info("webhook update_id=%s", update.get("update_id"))
 
     cb = update.get("callback_query")
     if not cb:
         await db.log_event(
-            direction="in", endpoint="/v1/telegram/webhook",
-            action="non_callback", ok=True, status_code=200, payload=update,
+            direction="in", endpoint="/v1/messaging/webhook",
+            action="non_interactive", ok=True, status_code=200, payload=update,
         )
         return {"ok": True}
 
-    msg       = cb.get("message", {})
-    chat_id   = msg.get("chat", {}).get("id")
-    message_id = msg.get("message_id")
-    cb_data   = cb.get("data", "")
+    msg          = cb.get("message", {})
+    recipient_id = str(msg.get("chat", {}).get("id", ""))
+    message_id   = msg.get("message_id")
+    cb_value     = cb.get("data", "")
+    user_id      = str(cb.get("from", {}).get("id", ""))
 
-    # 10-second cooldown per (chat_id, callback_data)
-    if chat_id and not await db.is_cooldown_ok(int(chat_id), cb_data):
-        logger.info("cooldown blocked chat_id=%s data=%s", chat_id, cb_data)
+    # 10-second cooldown — deduplicate rapid identical button presses
+    if recipient_id and not await db.is_cooldown_ok(recipient_id, cb_value):
+        logger.info("cooldown blocked recipient=%s value=%s", recipient_id, cb_value)
         await db.log_event(
-            direction="in", endpoint="/v1/telegram/webhook",
-            action="cooldown_blocked", chat_id=chat_id, message_id=message_id,
+            direction="in", endpoint="/v1/messaging/webhook",
+            action="cooldown_blocked", recipient_id=recipient_id, message_id=message_id,
             ok=False, status_code=429, error_text="cooldown", payload=update,
         )
-        return {"ok": True}
+        return {"ok": True}  # always 200 to Telegram
 
+    # Platform-neutral interaction event
     forward: dict = {
-        "update": {
-            "callback_query": {
-                "data": cb_data,
-                "from": cb.get("from", {}),
-                "message": msg,
-            }
-        }
+        "event":        "interaction",
+        "payload":      cb_value,
+        "user_id":      user_id,
+        "recipient_id": recipient_id,
+        "message_id":   message_id,
+        "platform":     "telegram",
     }
 
     ok = False
@@ -225,28 +225,25 @@ async def telegram_webhook(
     if BACKEND_URL:
         try:
             async with httpx.AsyncClient(timeout=10) as client:
-                resp = await client.post(
-                    BACKEND_URL,
-                    json=forward,
-                    headers={"X-N8N-Integration-Token": BACKEND_TOKEN},
-                )
+                # No auth header — Docker network isolation is the access control
+                resp = await client.post(BACKEND_URL, json=forward)
             fwd_status = resp.status_code
             ok = resp.status_code < 400
             if not ok:
                 error_text = resp.text[:500]
                 logger.error("backend forward %s: %s", fwd_status, error_text)
             else:
-                logger.info("callback forwarded: chat_id=%s data=%s", chat_id, cb_data)
+                logger.info("interaction forwarded: recipient=%s value=%s", recipient_id, cb_value)
         except Exception as exc:
             error_text = str(exc)
             logger.error("backend forward failed: %s", exc)
     else:
-        logger.warning("BACKEND_WEBHOOK_URL not configured — callback not forwarded")
+        logger.warning("BACKEND_WEBHOOK_URL not configured — interaction not forwarded")
         ok = True
 
     await db.log_event(
-        direction="in", endpoint="/v1/telegram/webhook",
-        action="callback_forward", chat_id=chat_id, message_id=message_id,
+        direction="in", endpoint="/v1/messaging/webhook",
+        action="interaction", recipient_id=recipient_id, message_id=message_id,
         ok=ok, status_code=fwd_status, error_text=error_text,
         payload=update, tg_response=forward,
     )
