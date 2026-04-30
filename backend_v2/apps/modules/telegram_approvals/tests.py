@@ -610,6 +610,44 @@ class TelegramApprovalsTests(APITestCase):
         self.assertTrue(approval.message_sent)
         self.assertIsNotNone(approval.message_sent_at)
 
+    def test_webhook_callback_allows_missing_message_id(self):
+        request_row = Request.objects.create(
+            tenant=self.tenant,
+            created_by=self.admin,
+            requester=self.requester,
+            title="Missing message_id is allowed",
+            status=Request.STATUS_PROGRESS_1,
+            billing_date=date(2026, 3, 31),
+        )
+        approval = Approval.objects.create(
+            request=request_row,
+            approver_user=self.approver,
+            approver_recipient_id=555001,
+            approver_external_user_id=777001,
+            message_id=None,
+            message_sent=False,
+            step=1,
+            step_type=Approval.STEP_TYPE_SERIAL,
+            decision=Approval.DECISION_PENDING,
+        )
+        payload = {
+            "event": "interaction",
+            "payload": f"v2_{approval.id}:a",
+            "user_id": "777001",
+            "recipient_id": "555001",
+            "platform": "telegram",
+        }
+        res = self.client.post(
+            "/api/messaging-gateway/webhook/",
+            payload,
+            format="json",
+            HTTP_HOST=self.host,
+        )
+        self.assertEqual(res.status_code, 200, res.content)
+        approval.refresh_from_db()
+        self.assertIsNone(approval.message_id)
+        self.assertEqual(approval.decision, Approval.DECISION_APPROVED)
+
     @patch("apps.modules.telegram_approvals.services.requests.post")
     def test_payment_callback_mode_buttons_use_vyplatit_otmenit(self, mocked_post):
         mocked_post.return_value.status_code = 200

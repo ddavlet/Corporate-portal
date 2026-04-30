@@ -6,5 +6,5 @@ class MessagingGatewayCallbackSerializer(serializers.Serializer):
     payload = serializers.CharField()
     user_id = serializers.CharField()
     recipient_id = serializers.CharField()
-    message_id = serializers.IntegerField()
+    message_id = serializers.IntegerField(required=False)
     platform = serializers.CharField(default="telegram")
