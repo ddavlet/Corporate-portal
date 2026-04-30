@@ -1,3 +1,6 @@
+from unittest.mock import patch
+
+import requests
 from django.test import TestCase, override_settings
 from django.test.client import RequestFactory
 from django.http import Http404
@@ -177,6 +180,21 @@ class TenantIntegrationConfigApiTests(APITestCase):
     def test_non_admin_forbidden(self):
         res = self.client.get(self.url, **self._auth_headers(self.user))
         self.assertEqual(res.status_code, 403)
+
+    @patch("apps.tenants.views.requests.get")
+    def test_messaging_webhook_info_gateway_network_error_returns_502(self, mocked_get):
+        self.tenant.set_telegram_bot_token("123456:token")
+        self.tenant.save(update_fields=["telegram_bot_token_enc"])
+        mocked_get.side_effect = requests.RequestException("DNS failure")
+
+        res = self.client.post(
+            "/api/tenant-integration-config/messaging-webhook/",
+            {"action": "info"},
+            format="json",
+            **self._auth_headers(self.admin),
+        )
+        self.assertEqual(res.status_code, 502, res.content)
+        self.assertIn("DNS failure", str(res.data.get("detail", "")))
 
     def test_access_matrix_admin_only(self):
         matrix_url = "/api/access-matrix/"
