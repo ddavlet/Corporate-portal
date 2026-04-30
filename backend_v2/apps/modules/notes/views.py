@@ -4,10 +4,10 @@ from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
-import requests
 
 from apps.modules.notes.models import Note
 from apps.modules.notes.serializers import NoteCreateSerializer, NoteSerializer, RecipientOptionSerializer
+from apps.modules.telegram_approvals.services import post_messaging_gateway
 from apps.tenants.integration_settings import get_notes_integration_settings
 from apps.tenants.permissions import HasEffectiveModuleAccess
 
@@ -32,14 +32,15 @@ def _target_path(*, target_type: str, target_id: int, tenant) -> str:
     return template.replace("{id}", str(target_id))
 
 
-def _send_telegram_message(*, bot_token: str, chat_id: int, text: str, tenant):
-    cfg = get_notes_integration_settings(tenant=tenant)
-    resp = requests.post(
-        f"{cfg.telegram_api_base_url}/bot{bot_token}/sendMessage",
-        json={"chat_id": chat_id, "text": text},
-        timeout=10,
-    )
-    return resp.ok
+def _send_note_via_gateway(*, bot_token: str, chat_id: int, text: str, tenant) -> bool:
+    payload = {
+        "action": "send",
+        "bot_token": bot_token,
+        "tenant_id": str(getattr(tenant, "id", "")),
+        "recipient_id": str(chat_id),
+        "text": text,
+    }
+    return post_messaging_gateway(tenant=tenant, payload=payload) is not None
 
 
 class NoteRecipientsView(APIView):
@@ -94,19 +95,19 @@ class NotesCreateView(APIView):
         delivery_error = ""
         sent = False
         if not bot_token:
-            delivery_error = "Токен Telegram-бота не настроен для компании."
+            delivery_error = "Токен бота для messaging gateway не настроен для компании."
         elif not recipient.telegram_chat_id:
-            delivery_error = "У получателя не настроен telegram_chat_id."
+            delivery_error = "У получателя не настроен recipient_id (telegram_chat_id)."
         else:
             try:
-                sent = _send_telegram_message(
+                sent = _send_note_via_gateway(
                     bot_token=bot_token,
                     chat_id=recipient.telegram_chat_id,
                     text=text,
                     tenant=tenant,
                 )
                 if not sent:
-                    delivery_error = "Telegram API вернул ошибку при отправке."
+                    delivery_error = "Messaging gateway вернул ошибку при отправке."
             except Exception as exc:  # noqa: BLE001
                 delivery_error = str(exc)
                 sent = False

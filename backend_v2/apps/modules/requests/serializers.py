@@ -576,9 +576,9 @@ class ApprovalSerializer(serializers.ModelSerializer):
             "decided_at",
             "approver_user",
             "approver_username",
-            "approver_tg_id",
-            "approver_tg_from_id",
-            "message_id",
+            "approver_recipient_id",
+            "approver_user_id",
+            "gateway_message_id",
             "message_sent",
             "message_sent_at",
         ]
@@ -901,22 +901,21 @@ class RequestApprovalPaymentTypePayloadSerializer(serializers.Serializer):
 
 class RequestApprovalConfigPayloadSerializer(serializers.Serializer):
     class IntegrationSettingsPayloadSerializer(serializers.Serializer):
-        telegram_approvals_bridge_dispatch_url = serializers.CharField(required=False, allow_blank=True, default="")
-        telegram_approvals_send_action = serializers.CharField(required=False, allow_blank=True, default="")
-        telegram_approvals_edit_action = serializers.CharField(required=False, allow_blank=True, default="")
-        telegram_approvals_draft_notification_action = serializers.CharField(
+        messaging_gateway_dispatch_url = serializers.CharField(required=False, allow_blank=True, default="")
+        messaging_gateway_send_action = serializers.CharField(required=False, allow_blank=True, default="")
+        messaging_gateway_edit_action = serializers.CharField(required=False, allow_blank=True, default="")
+        messaging_gateway_draft_action = serializers.CharField(
             required=False, allow_blank=True, default=""
         )
-        telegram_approvals_bridge_token = serializers.CharField(required=False, allow_blank=True, default="")
-        telegram_approvals_message_template = serializers.CharField(required=False, allow_blank=True, default="")
-        telegram_approvals_header_new_template = serializers.CharField(required=False, allow_blank=True, default="")
-        telegram_approvals_header_step_approved_template = serializers.CharField(required=False, allow_blank=True, default="")
-        telegram_approvals_header_fully_approved_template = serializers.CharField(required=False, allow_blank=True, default="")
-        telegram_approvals_header_closed_template = serializers.CharField(required=False, allow_blank=True, default="")
-        telegram_approvals_header_rejected_template = serializers.CharField(required=False, allow_blank=True, default="")
-        telegram_approvals_subheader_payment_responsible_template = serializers.CharField(required=False, allow_blank=True, default="")
-        telegram_approvals_subheader_rejected_by_template = serializers.CharField(required=False, allow_blank=True, default="")
-        n8n_integration_token = serializers.CharField(required=False, allow_blank=True, default="")
+        messaging_gateway_token = serializers.CharField(required=False, allow_blank=True, default="")
+        messaging_gateway_message_template = serializers.CharField(required=False, allow_blank=True, default="")
+        messaging_gateway_header_new_template = serializers.CharField(required=False, allow_blank=True, default="")
+        messaging_gateway_header_step_approved_template = serializers.CharField(required=False, allow_blank=True, default="")
+        messaging_gateway_header_fully_approved_template = serializers.CharField(required=False, allow_blank=True, default="")
+        messaging_gateway_header_closed_template = serializers.CharField(required=False, allow_blank=True, default="")
+        messaging_gateway_header_rejected_template = serializers.CharField(required=False, allow_blank=True, default="")
+        messaging_gateway_subheader_payment_responsible_template = serializers.CharField(required=False, allow_blank=True, default="")
+        messaging_gateway_subheader_rejected_by_template = serializers.CharField(required=False, allow_blank=True, default="")
 
     payment_types = serializers.ListField(child=RequestApprovalPaymentTypePayloadSerializer())
     integration_settings = IntegrationSettingsPayloadSerializer(required=False, default=dict)
@@ -1110,20 +1109,19 @@ def build_request_approval_config_response(*, tenant) -> dict:
         payment_types_rows.append(row)
 
     integration_settings = {
-        "telegram_approvals_bridge_dispatch_url": cfg.telegram_approvals_bridge_dispatch_url if cfg else "",
-        "telegram_approvals_send_action": cfg.telegram_approvals_send_action if cfg else "",
-        "telegram_approvals_edit_action": cfg.telegram_approvals_edit_action if cfg else "",
-        "telegram_approvals_draft_notification_action": cfg.telegram_approvals_draft_notification_action if cfg else "",
-        "telegram_approvals_bridge_token": cfg.telegram_approvals_bridge_token if cfg else "",
-        "telegram_approvals_message_template": cfg.telegram_approvals_message_template if cfg else "",
-        "telegram_approvals_header_new_template": cfg.telegram_approvals_header_new_template if cfg else "",
-        "telegram_approvals_header_step_approved_template": cfg.telegram_approvals_header_step_approved_template if cfg else "",
-        "telegram_approvals_header_fully_approved_template": cfg.telegram_approvals_header_fully_approved_template if cfg else "",
-        "telegram_approvals_header_closed_template": cfg.telegram_approvals_header_closed_template if cfg else "",
-        "telegram_approvals_header_rejected_template": cfg.telegram_approvals_header_rejected_template if cfg else "",
-        "telegram_approvals_subheader_payment_responsible_template": cfg.telegram_approvals_subheader_payment_responsible_template if cfg else "",
-        "telegram_approvals_subheader_rejected_by_template": cfg.telegram_approvals_subheader_rejected_by_template if cfg else "",
-        "n8n_integration_token": cfg.n8n_integration_token if cfg else "",
+        "messaging_gateway_dispatch_url": cfg.messaging_gateway_dispatch_url if cfg else "",
+        "messaging_gateway_send_action": cfg.messaging_gateway_send_action if cfg else "",
+        "messaging_gateway_edit_action": cfg.messaging_gateway_edit_action if cfg else "",
+        "messaging_gateway_draft_action": cfg.messaging_gateway_draft_action if cfg else "",
+        "messaging_gateway_token": cfg.messaging_gateway_token if cfg else "",
+        "messaging_gateway_message_template": cfg.messaging_gateway_message_template if cfg else "",
+        "messaging_gateway_header_new_template": cfg.messaging_gateway_header_new_template if cfg else "",
+        "messaging_gateway_header_step_approved_template": cfg.messaging_gateway_header_step_approved_template if cfg else "",
+        "messaging_gateway_header_fully_approved_template": cfg.messaging_gateway_header_fully_approved_template if cfg else "",
+        "messaging_gateway_header_closed_template": cfg.messaging_gateway_header_closed_template if cfg else "",
+        "messaging_gateway_header_rejected_template": cfg.messaging_gateway_header_rejected_template if cfg else "",
+        "messaging_gateway_subheader_payment_responsible_template": cfg.messaging_gateway_subheader_payment_responsible_template if cfg else "",
+        "messaging_gateway_subheader_rejected_by_template": cfg.messaging_gateway_subheader_rejected_by_template if cfg else "",
     }
     return {
         "payment_types": payment_types_rows,

@@ -472,6 +472,7 @@ services:
       N8N_INTEGRATION_URL_PATH: ${N8N_INTEGRATION_URL_PATH:-n8n}
       N8N_INTEGRATION_TOKEN: ${N8N_INTEGRATION_TOKEN:-}
       N8N_TOKEN: ${N8N_TOKEN:-}
+      MESSAGING_GATEWAY_SEND_URL: http://tg_gateway:8080/v1/messaging/send
     volumes:
       - ./backend_v2:/app
     depends_on:
@@ -487,7 +488,7 @@ services:
       - traefik.http.services.django-v2.loadbalancer.server.port=8001
 
       # tenants: /api/* except n8n integration prefix (that prefix has its own router below)
-      - traefik.http.routers.django-v2-api.rule=(Host(`main.kolberg.uz`) || Host(`lemonfit.kolberg.uz`) || Host(`lemonfit2.kolberg.uz`) || Host(`neuron.kolberg.uz`) || Host(`lemonaqua.kolberg.uz`)) && PathPrefix(`/api`) && !PathPrefix(`/api/${N8N_INTEGRATION_URL_PATH:-n8n}/`)
+      - traefik.http.routers.django-v2-api.rule=(Host(`main.kolberg.uz`) || Host(`lemonfit.kolberg.uz`) || Host(`lemonfit2.kolberg.uz`) || Host(`neuron.kolberg.uz`) || Host(`lemonaqua.kolberg.uz`)) && PathPrefix(`/api`) && !PathPrefix(`/api/${N8N_INTEGRATION_URL_PATH:-n8n}/`) && !PathPrefix(`/api/messaging-gateway/`)
       - traefik.http.routers.django-v2-api.entrypoints=web,websecure
       - traefik.http.routers.django-v2-api.tls=true
       - traefik.http.routers.django-v2-api.tls.certresolver=mytlschallenge
@@ -504,6 +505,21 @@ services:
     networks:
       - traefik-public
       - backend
+      - gateway
+
+  tg-gateway:
+    build: ./tg-gateway
+    container_name: tg_gateway
+    restart: always
+    environment:
+      BACKEND_WEBHOOK_URL: http://django_v2:8001/api/messaging-gateway/webhook/
+      CALLBACK_COOLDOWN_SECS: ${CALLBACK_COOLDOWN_SECS:-10}
+      DATABASE_URL: ${TG_GATEWAY_DATABASE_URL:-}
+    depends_on:
+      - backend_v2
+    networks:
+      - backend
+      - gateway
 
   frontend_v2:
     build: ./frontend_v2
@@ -604,3 +620,5 @@ networks:
   traefik-public:
   backend:
   chromium:
+  gateway:
+    internal: true

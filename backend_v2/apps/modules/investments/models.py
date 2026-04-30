@@ -237,12 +237,12 @@ class InvestmentReturnApproval(models.Model):
         on_delete=models.PROTECT,
         related_name="investment_return_approvals",
     )
-    approver_tg_id = models.BigIntegerField(null=True, blank=True)
-    approver_tg_from_id = models.BigIntegerField(null=True, blank=True)
+    approver_recipient_id = models.BigIntegerField(null=True, blank=True)
+    approver_user_id = models.BigIntegerField(null=True, blank=True)
     decision = models.CharField(max_length=20, choices=DECISION_CHOICES, default=DECISION_PENDING)
     decision_comment = models.TextField(blank=True, default="")
     decided_at = models.DateTimeField(null=True, blank=True)
-    message_id = models.BigIntegerField(null=True, blank=True)
+    gateway_message_id = models.BigIntegerField(null=True, blank=True)
     message_sent = models.BooleanField(default=False)
     message_sent_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -255,6 +255,6 @@ class InvestmentReturnApproval(models.Model):
         indexes = [
             models.Index(fields=["tenant", "invest_return"], name="invrapp_tenant_ret_idx"),
             models.Index(fields=["tenant", "decision"], name="invrapp_tenant_dec_idx"),
-            models.Index(fields=["approver_tg_id"], name="invrapp_tg_id_idx"),
-            models.Index(fields=["message_id"], name="invrapp_msg_id_idx"),
+            models.Index(fields=["approver_recipient_id"], name="invrapp_recipient_idx"),
+            models.Index(fields=["gateway_message_id"], name="invrapp_gateway_msg_idx"),
         ]

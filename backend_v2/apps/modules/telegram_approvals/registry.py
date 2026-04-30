@@ -1,3 +1,3 @@
-MODULE_KEY = "telegram_approvals"
-display_name = "Telegram approvals"
+MODULE_KEY = "messaging_gateway"
+display_name = "Messaging Gateway"
 

@@ -110,19 +110,19 @@ class TelegramApprovalWebhookView(APIView):
         )
         if approval is None:
             raise ValidationError({"approval_id": "Approval not found."})
-        if approval.message_id and approval.message_id != message_id:
+        if approval.gateway_message_id and approval.gateway_message_id != message_id:
             raise ValidationError({"message_id": "Callback message_id does not match stored approval message_id."})
-        if approval.approver_tg_id is not None and approval.approver_tg_id != chat_id:
+        if approval.approver_recipient_id is not None and approval.approver_recipient_id != chat_id:
             raise ValidationError({"recipient_id": "Recipient is not allowed for this approval."})
-        if approval.approver_tg_from_id is not None and approval.approver_tg_from_id != from_id:
+        if approval.approver_user_id is not None and approval.approver_user_id != from_id:
             raise ValidationError({"user_id": "User is not allowed for this approval."})
 
         tenant: Tenant = approval.request.tenant
 
         with transaction.atomic():
-            if approval.message_id is None:
-                updates = ["message_id"]
-                approval.message_id = message_id
+            if approval.gateway_message_id is None:
+                updates = ["gateway_message_id"]
+                approval.gateway_message_id = message_id
                 if not approval.message_sent:
                     approval.message_sent = True
                     updates.append("message_sent")
@@ -135,8 +135,8 @@ class TelegramApprovalWebhookView(APIView):
                     tenant=tenant,
                     approval_id=approval.id,
                     request_id=approval.request_id,
-                    approver_tg_id=chat_id,
-                    approver_tg_from_id=from_id,
+                    approver_recipient_id=chat_id,
+                    approver_user_id=from_id,
                     decision=decision,
                 )
             except ApprovalDecisionAlreadyMade:
@@ -147,8 +147,8 @@ class TelegramApprovalWebhookView(APIView):
                     request_context=approval.request,
                 )
                 if not updated and message_id:
-                    # Fallback for legacy rows where approval.message_id was not persisted
-                    approval.message_id = message_id
+                    # Fallback for legacy rows where approval message id was not persisted
+                    approval.gateway_message_id = message_id
                     deactivate_approval_message_buttons(approval=approval, request_context=approval.request)
                 raise
 

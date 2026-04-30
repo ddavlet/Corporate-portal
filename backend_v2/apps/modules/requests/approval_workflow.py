@@ -168,8 +168,8 @@ def _approval_match_queryset(
     *,
     approval_id: int,
     approver_user_id: int | None,
-    approver_tg_id: int | None,
-    approver_tg_from_id: int | None,
+    approver_recipient_id: int | None,
+    approver_external_user_id: int | None,
     require_pending: bool,
 ):
     qs = Approval.objects.filter(id=approval_id)
@@ -177,10 +177,10 @@ def _approval_match_queryset(
         qs = qs.filter(decision=Approval.DECISION_PENDING)
     if approver_user_id is not None:
         qs = qs.filter(approver_user_id=approver_user_id)
-    if approver_tg_id is not None:
-        qs = qs.filter(approver_tg_id=approver_tg_id)
-    if approver_tg_from_id is not None:
-        qs = qs.filter(approver_tg_from_id=approver_tg_from_id)
+    if approver_recipient_id is not None:
+        qs = qs.filter(approver_recipient_id=approver_recipient_id)
+    if approver_external_user_id is not None:
+        qs = qs.filter(approver_user_id=approver_external_user_id)
     return qs.select_related("approver_user")
 
 
@@ -199,7 +199,7 @@ def get_approval_full_context(*, request_obj: Request, trigger_approval: Approva
 
 def lookup_approval_by_message_id(*, tenant, message_id: int) -> dict:
     approval = (
-        Approval.objects.filter(request__tenant=tenant, message_id=message_id)
+        Approval.objects.filter(request__tenant=tenant, gateway_message_id=message_id)
         .select_related("approver_user", "request", "request__requester")
         .first()
     )
@@ -214,13 +214,13 @@ def confirm_approval_by_id(
     approval_id: int,
     request_id: int | None = None,
     approver_user_id: int | None = None,
-    approver_tg_id: int | None = None,
-    approver_tg_from_id: int | None = None,
+    approver_recipient_id: int | None = None,
+    approver_external_user_id: int | None = None,
     decision: str = Approval.DECISION_APPROVED,
     comment: str | None = None,
     decided_at=None,
 ) -> dict:
-    if approver_user_id is None and approver_tg_id is None and approver_tg_from_id is None:
+    if approver_user_id is None and approver_recipient_id is None and approver_external_user_id is None:
         raise ValidationError({"detail": "Approver identity is required."})
     if decision not in {Approval.DECISION_APPROVED, Approval.DECISION_REJECTED}:
         raise ValidationError({"decision": "Unsupported decision value."})
@@ -229,8 +229,8 @@ def confirm_approval_by_id(
         approval = _approval_match_queryset(
             approval_id=approval_id,
             approver_user_id=approver_user_id,
-            approver_tg_id=approver_tg_id,
-            approver_tg_from_id=approver_tg_from_id,
+            approver_recipient_id=approver_recipient_id,
+            approver_external_user_id=approver_external_user_id,
             require_pending=False,
         ).select_related("request", "approver_user").first()
 

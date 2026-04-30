@@ -21,10 +21,9 @@ from apps.tenants.serializers import (
     TenantUserPreferenceSerializer,
 )
 from apps.tenants.integration_settings import (
-    get_n8n_integration_settings,
+    get_messaging_gateway_settings,
     get_portal_feedback_settings,
     get_requests_gateway_settings,
-    get_telegram_approvals_settings,
 )
 
 from apps.modules.registry import list_modules
@@ -111,34 +110,32 @@ class TenantIntegrationConfigView(APIView):
     def get(self, request):
         tenant = request.tenant
         cfg, _ = TenantIntegrationConfig.objects.get_or_create(tenant=tenant)
-        tg = get_telegram_approvals_settings(tenant=tenant)
-        n8n = get_n8n_integration_settings(tenant=tenant)
+        mg = get_messaging_gateway_settings(tenant=tenant)
         req = get_requests_gateway_settings(tenant=tenant)
         pf = get_portal_feedback_settings(tenant=tenant)
         return Response(
             {
                 "telegram_bot_token": self._masked(tenant.get_telegram_bot_token()),
                 "telegram_bot_username": tenant.telegram_bot_username or "",
-                "telegram_approvals_bridge_dispatch_url": tg.dispatch_url,
-                "telegram_approvals_send_action": tg.send_action,
-                "telegram_approvals_edit_action": tg.edit_action,
-                "telegram_approvals_draft_notification_action": tg.draft_notification_action,
-                "telegram_approvals_message_template": tg.message_template,
-                "telegram_approvals_header_new_template": tg.header_new_template,
-                "telegram_approvals_header_step_approved_template": tg.header_step_approved_template,
-                "telegram_approvals_header_fully_approved_template": tg.header_fully_approved_template,
-                "telegram_approvals_header_closed_template": tg.header_closed_template,
-                "telegram_approvals_header_rejected_template": tg.header_rejected_template,
-                "telegram_approvals_subheader_payment_responsible_template": tg.subheader_payment_responsible_template,
-                "telegram_approvals_subheader_rejected_by_template": tg.subheader_rejected_by_template,
-                "telegram_approvals_bridge_token": self._masked(tg.bridge_token),
-                "n8n_integration_token": self._masked(n8n.integration_token),
+                "messaging_gateway_dispatch_url": mg.dispatch_url,
+                "messaging_gateway_send_action": mg.send_action,
+                "messaging_gateway_edit_action": mg.edit_action,
+                "messaging_gateway_draft_action": mg.draft_notification_action,
+                "messaging_gateway_message_template": mg.message_template,
+                "messaging_gateway_header_new_template": mg.header_new_template,
+                "messaging_gateway_header_step_approved_template": mg.header_step_approved_template,
+                "messaging_gateway_header_fully_approved_template": mg.header_fully_approved_template,
+                "messaging_gateway_header_closed_template": mg.header_closed_template,
+                "messaging_gateway_header_rejected_template": mg.header_rejected_template,
+                "messaging_gateway_subheader_payment_responsible_template": mg.subheader_payment_responsible_template,
+                "messaging_gateway_subheader_rejected_by_template": mg.subheader_rejected_by_template,
+                "messaging_gateway_token": self._masked(mg.bridge_token),
                 "requests_file_gateway_token": self._masked(req.bearer_token),
                 "telegram_oidc_client_id": cfg.telegram_oidc_client_id,
                 "telegram_oidc_client_secret": self._masked(cfg.get_telegram_oidc_client_secret()),
                 "telegram_oidc_redirect_uri": cfg.telegram_oidc_redirect_uri,
-                "portal_feedback_telegram_chat_id": pf.telegram_chat_id,
-                "portal_feedback_telegram_action": pf.telegram_action,
+                "messaging_gateway_feedback_recipient_id": pf.recipient_id,
+                "messaging_gateway_feedback_action": pf.action,
             }
         )
 
@@ -151,26 +148,24 @@ class TenantIntegrationConfigView(APIView):
         cfg, _ = TenantIntegrationConfig.objects.get_or_create(tenant=tenant)
         cfg.updated_by = request.user
         for field in (
-            "telegram_approvals_bridge_dispatch_url",
-            "telegram_approvals_send_action",
-            "telegram_approvals_edit_action",
-            "telegram_approvals_draft_notification_action",
-            "telegram_approvals_message_template",
-            "telegram_approvals_header_new_template",
-            "telegram_approvals_header_step_approved_template",
-            "telegram_approvals_header_fully_approved_template",
-            "telegram_approvals_header_closed_template",
-            "telegram_approvals_header_rejected_template",
-            "telegram_approvals_subheader_payment_responsible_template",
-            "telegram_approvals_subheader_rejected_by_template",
+            "messaging_gateway_dispatch_url",
+            "messaging_gateway_send_action",
+            "messaging_gateway_edit_action",
+            "messaging_gateway_draft_action",
+            "messaging_gateway_message_template",
+            "messaging_gateway_header_new_template",
+            "messaging_gateway_header_step_approved_template",
+            "messaging_gateway_header_fully_approved_template",
+            "messaging_gateway_header_closed_template",
+            "messaging_gateway_header_rejected_template",
+            "messaging_gateway_subheader_payment_responsible_template",
+            "messaging_gateway_subheader_rejected_by_template",
         ):
             if field in data:
                 setattr(cfg, field, data[field])
 
-        if "telegram_approvals_bridge_token" in data:
-            cfg.set_telegram_approvals_bridge_token(data["telegram_approvals_bridge_token"])
-        if "n8n_integration_token" in data:
-            cfg.set_n8n_integration_token(data["n8n_integration_token"])
+        if "messaging_gateway_token" in data:
+            cfg.set_messaging_gateway_token(data["messaging_gateway_token"])
         if "requests_file_gateway_token" in data:
             cfg.set_requests_file_gateway_token(data["requests_file_gateway_token"])
         if "telegram_oidc_client_id" in data:
@@ -179,10 +174,10 @@ class TenantIntegrationConfigView(APIView):
             cfg.set_telegram_oidc_client_secret(data["telegram_oidc_client_secret"])
         if "telegram_oidc_redirect_uri" in data:
             cfg.telegram_oidc_redirect_uri = data["telegram_oidc_redirect_uri"].strip()
-        if "portal_feedback_telegram_chat_id" in data:
-            cfg.portal_feedback_telegram_chat_id = data["portal_feedback_telegram_chat_id"]
-        if "portal_feedback_telegram_action" in data:
-            cfg.portal_feedback_telegram_action = data["portal_feedback_telegram_action"]
+        if "messaging_gateway_feedback_recipient_id" in data:
+            cfg.messaging_gateway_feedback_recipient_id = data["messaging_gateway_feedback_recipient_id"]
+        if "messaging_gateway_feedback_action" in data:
+            cfg.messaging_gateway_feedback_action = data["messaging_gateway_feedback_action"]
         if "telegram_bot_token" in data:
             tenant.set_telegram_bot_token(data["telegram_bot_token"])
         if "telegram_bot_username" in data:

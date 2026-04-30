@@ -13,7 +13,7 @@ import types
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "config.settings")
 os.environ.setdefault("TELEGRAM_BOT_TOKEN", "8411387505:AAE0BSIOft8st2vPxrkOU7FuIdgymG81nsg")
 os.environ.setdefault("MESSAGING_GATEWAY_SEND_URL", "http://localhost:8080/v1/messaging/send")
-os.environ.setdefault("TELEGRAM_APPROVALS_BRIDGE_DISPATCH_URL", "http://localhost:8080/v1/messaging/send")
+os.environ.setdefault("MESSAGING_GATEWAY_SEND_URL", "http://localhost:8080/v1/messaging/send")
 
 import django
 django.setup()
@@ -79,7 +79,7 @@ from apps.modules.telegram_approvals.services import (
     build_approval_message,
     _buttons,
 )
-from apps.modules.requests.integration_settings import get_requests_telegram_integration_settings
+from apps.modules.requests.integration_settings import get_requests_messaging_gateway_settings
 
 
 section("Health check")
@@ -97,9 +97,9 @@ section("sendMessage via _post_to_gateway")
 
 approval = _make_approval(approval_id=1)
 
-# Monkey-patch get_requests_telegram_integration_settings to return real action names
+# Monkey-patch get_requests_messaging_gateway_settings to return real action names
 import apps.modules.telegram_approvals.services as svc
-_orig_get = svc.get_requests_telegram_integration_settings
+_orig_get = svc.get_requests_messaging_gateway_settings
 
 class _FakeSettings:
     dispatch_url = GATEWAY_URL
@@ -120,7 +120,7 @@ class _FakeSettings:
 def _patched_get(*args, **kwargs):
     return _FakeSettings()
 
-svc.get_requests_telegram_integration_settings = _patched_get
+svc.get_requests_messaging_gateway_settings = _patched_get
 
 # Also patch ORM queries used by build_approval_message internals
 from unittest.mock import patch, MagicMock

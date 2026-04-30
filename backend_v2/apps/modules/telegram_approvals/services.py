@@ -13,7 +13,7 @@ from django.utils.formats import date_format
 from django.utils import timezone
 from rest_framework.exceptions import ValidationError
 
-from apps.modules.requests.integration_settings import get_requests_telegram_integration_settings
+from apps.modules.requests.integration_settings import get_requests_messaging_gateway_settings
 from apps.modules.requests.models import Approval, Request, RequestApprovalStepConfig
 
 logger = logging.getLogger(__name__)
@@ -31,7 +31,7 @@ def _ensure_bridge_message_id(
     action: str,
 ) -> None:
     _maybe_set_message_id(approval=approval, response_data=response_data)
-    if approval.message_id is not None:
+    if approval.gateway_message_id is not None:
         return
     response_type = type(response_data).__name__
     response_keys = list(response_data.keys()) if isinstance(response_data, dict) else []
@@ -78,7 +78,7 @@ def _get_tenant_bot_token(tenant) -> str:
 def _resolve_gateway_url_for_tenant(tenant) -> str:
     if tenant is not None:
         try:
-            url = (get_requests_telegram_integration_settings(tenant=tenant).dispatch_url or "").strip()
+            url = (get_requests_messaging_gateway_settings(tenant=tenant).dispatch_url or "").strip()
             if url:
                 return url
         except Exception:
@@ -86,18 +86,6 @@ def _resolve_gateway_url_for_tenant(tenant) -> str:
                 "Failed to resolve gateway URL for tenant=%s", getattr(tenant, "pk", None)
             )
     return (getattr(settings, "MESSAGING_GATEWAY_SEND_URL", "") or "").strip()
-
-
-def _bridge_dispatch_url(*, tenant_subdomain: str | None) -> str:
-    configured = (getattr(settings, "TELEGRAM_APPROVALS_BRIDGE_DISPATCH_URL", "") or "").strip()
-    if configured:
-        return configured
-    if not tenant_subdomain:
-        return ""
-    n8n_path = (getattr(settings, "N8N_INTEGRATION_URL_PATH", "n8n") or "n8n").strip("/")
-    return f"https://{tenant_subdomain}.{settings.BASE_DOMAIN}/{n8n_path}/telegram/dispatch"
-
-
 
 
 def build_request_draft_public_url(*, request_obj: Request) -> str:
@@ -131,7 +119,7 @@ def dispatch_draft_request_notification(
     if chat_id is None:
         logger.info("draft notification skipped: no chat_id for request_id=%s", request_obj.pk)
         return False
-    settings_obj = get_requests_telegram_integration_settings(tenant=request_obj.tenant)
+    settings_obj = get_requests_messaging_gateway_settings(tenant=request_obj.tenant)
     action = (settings_obj.draft_notification_action or "").strip() or "send"
     draft_url = build_request_draft_public_url(request_obj=request_obj)
     template_url = build_auto_request_template_public_url(request_obj=request_obj, template_id=template_id)
@@ -178,29 +166,6 @@ def dispatch_draft_request_notification(
     }
     response_data = _post_to_gateway(request_obj=request_obj, payload=payload)
     return response_data is not None
-
-
-def _bridge_headers(*, tenant=None) -> dict:
-    cfg = None
-    if tenant is not None:
-        try:
-            cfg = get_requests_telegram_integration_settings(tenant=tenant)
-        except Exception:
-            logger.exception(
-                "Failed to resolve telegram integration settings for headers tenant=%s",
-                getattr(tenant, "pk", None),
-            )
-    token = (cfg.n8n_integration_token if cfg is not None else "") or ""
-    if not token and cfg is not None:
-        token = cfg.bridge_token
-    if not token:
-        token = (getattr(settings, "N8N_INTEGRATION_TOKEN", "") or "").strip()
-    if not token:
-        token = (getattr(settings, "TELEGRAM_APPROVALS_BRIDGE_TOKEN", "") or "").strip()
-    headers = {"Content-Type": "application/json"}
-    if token:
-        headers["X-N8N-Integration-Token"] = token
-    return headers
 
 
 def _format_billing_month(request_obj: Request) -> str:
@@ -273,7 +238,7 @@ def _rejected_by_text(*, request_obj: Request) -> str:
 
 
 def _message_header(*, request_obj: Request, approval: Approval | None) -> tuple[str, str | None]:
-    settings_obj = get_requests_telegram_integration_settings(tenant=request_obj.tenant)
+    settings_obj = get_requests_messaging_gateway_settings(tenant=request_obj.tenant)
     ctx = {
         "request_id": request_obj.id,
         "payment_responsible": _payment_responsible_text(request_obj=request_obj),
@@ -329,7 +294,7 @@ def build_approval_message(*, request_obj: Request, approval: Approval | None = 
     header, subheader = _message_header(request_obj=request_obj, approval=approval)
     vendor_name = (request_obj.vendor_ref.name if request_obj.vendor_ref_id and request_obj.vendor_ref else request_obj.vendor) or "-"
     requester_name = _display_user_name(request_obj.requester if request_obj.requester_id else None)
-    template = get_requests_telegram_integration_settings(tenant=request_obj.tenant).message_template
+    template = get_requests_messaging_gateway_settings(tenant=request_obj.tenant).message_template
     billing_month_escaped = escape(_format_billing_month(request_obj))
     context = {
         "header": escape(header),
@@ -478,32 +443,16 @@ def _dispatch_payload(
     payload: dict = {
         "action": action,
         "text": message_text,
-        "recipient_id": str(approval.approver_tg_id),
+        "recipient_id": str(approval.approver_recipient_id),
         "bot_token": _get_tenant_bot_token(request_obj.tenant),
         "tenant_id": str(request_obj.tenant_id),
         "approval_id": str(approval.id),
         "request_id": approval.request_id,
     }
     payload["buttons"] = _buttons(approval=approval) if include_buttons else []
-    if approval.message_id:
-        payload["message_id"] = approval.message_id
+    if approval.gateway_message_id:
+        payload["message_id"] = approval.gateway_message_id
     return payload
-
-
-def _resolve_dispatch_url_for_tenant(tenant) -> str:
-    url = ""
-    if tenant is not None:
-        try:
-            url = (get_requests_telegram_integration_settings(tenant=tenant).dispatch_url or "").strip()
-        except Exception:
-            logger.exception(
-                "Failed to resolve telegram dispatch URL from tenant settings tenant=%s",
-                getattr(tenant, "pk", None),
-            )
-            return ""
-    if not url:
-        url = _bridge_dispatch_url(tenant_subdomain=getattr(tenant, "subdomain", None) if tenant else None)
-    return url or ""
 
 
 def _parse_bridge_response(resp: requests.Response) -> dict | None:
@@ -519,39 +468,11 @@ def _parse_bridge_response(resp: requests.Response) -> dict | None:
     return data if isinstance(data, dict) else {}
 
 
-def post_telegram_bridge(*, tenant, payload: dict) -> dict | None:
-    """
-    POST JSON to the tenant Telegram dispatch webhook (n8n). Failures are logged only.
-    """
-    url = _resolve_dispatch_url_for_tenant(tenant)
-    if not url:
-        logger.warning("Telegram bridge: no dispatch URL for tenant=%s", getattr(tenant, "pk", None))
-        return None
-    try:
-        resp = requests.post(url, json=payload, headers=_bridge_headers(tenant=tenant), timeout=10)
-        if resp.status_code >= 400:
-            logger.warning(
-                "Telegram bridge returned HTTP %s for payload action=%s",
-                resp.status_code,
-                payload.get("action"),
-            )
-            return None
-        return _parse_bridge_response(resp)
-    except Exception:
-        logger.exception("Failed to call Telegram bridge")
-        return None
-
-
-def _post_to_gateway(*, request_obj: Request, payload: dict) -> dict | None:
-    """POST a platform-neutral payload to the messaging gateway. Failures are logged only."""
-    tenant = getattr(request_obj, "tenant", None)
+def post_messaging_gateway(*, tenant, payload: dict) -> dict | None:
+    """POST a platform-neutral payload to the messaging gateway using tenant context."""
     url = _resolve_gateway_url_for_tenant(tenant)
     if not url:
-        logger.warning(
-            "Messaging gateway: no URL configured for tenant=%s action=%s",
-            getattr(tenant, "pk", None),
-            payload.get("action"),
-        )
+        logger.warning("Messaging gateway: no URL configured for tenant=%s", getattr(tenant, "pk", None))
         return None
     try:
         resp = requests.post(url, json=payload, headers={"Content-Type": "application/json"}, timeout=10)
@@ -573,6 +494,11 @@ def _post_to_gateway(*, request_obj: Request, payload: dict) -> dict | None:
         return None
 
 
+def _post_to_gateway(*, request_obj: Request, payload: dict) -> dict | None:
+    """POST a platform-neutral payload to the messaging gateway. Failures are logged only."""
+    return post_messaging_gateway(tenant=getattr(request_obj, "tenant", None), payload=payload)
+
+
 def _maybe_set_message_id(*, approval: Approval, response_data: dict | None) -> None:
     if not isinstance(response_data, dict):
         return
@@ -585,8 +511,8 @@ def _maybe_set_message_id(*, approval: Approval, response_data: dict | None) -> 
     except (TypeError, ValueError):
         return
     updates = []
-    approval.message_id = message_id
-    updates.append("message_id")
+    approval.gateway_message_id = message_id
+    updates.append("gateway_message_id")
     if not approval.message_sent:
         approval.message_sent = True
         updates.append("message_sent")
@@ -629,7 +555,7 @@ def current_pending_step_approvals_count(*, request_obj: Request) -> int:
         request=request_obj,
         step=current_step,
         decision=Approval.DECISION_PENDING,
-        approver_tg_id__isnull=False,
+        approver_recipient_id__isnull=False,
     ).count()
 
 
@@ -644,7 +570,7 @@ def dispatch_pending_approvals(*, request_obj: Request, step: int | None = None,
         step=current_step,
         decision=Approval.DECISION_PENDING,
         message_sent=False,
-        approver_tg_id__isnull=False,
+        approver_recipient_id__isnull=False,
     )
     if step_type is not None:
         approvals_qs = approvals_qs.filter(step_type=step_type)
@@ -655,7 +581,7 @@ def dispatch_pending_approvals(*, request_obj: Request, step: int | None = None,
     for approval in approvals:
         message_text = build_approval_message(request_obj=locked, approval=approval)
         payload = _dispatch_payload(
-            action=get_requests_telegram_integration_settings(tenant=locked.tenant).send_action,
+            action=get_requests_messaging_gateway_settings(tenant=locked.tenant).send_action,
             request_obj=locked,
             approval=approval,
             message_text=message_text,
@@ -675,11 +601,11 @@ def dispatch_pending_approvals(*, request_obj: Request, step: int | None = None,
 
 
 def edit_approval_message(*, approval: Approval, request_context: Request | None = None) -> bool:
-    if not approval.message_id or approval.approver_tg_id is None:
+    if not approval.gateway_message_id or approval.approver_recipient_id is None:
         return False
     req = request_context or approval.request
     payload = _dispatch_payload(
-        action=get_requests_telegram_integration_settings(tenant=req.tenant).edit_action,
+        action=get_requests_messaging_gateway_settings(tenant=req.tenant).edit_action,
         request_obj=req,
         approval=approval,
         message_text=build_approval_message(request_obj=req, approval=approval),
@@ -697,11 +623,11 @@ def edit_approval_message(*, approval: Approval, request_context: Request | None
 
 
 def deactivate_approval_message_buttons(*, approval: Approval, request_context: Request | None = None) -> bool:
-    if not approval.message_id or approval.approver_tg_id is None:
+    if not approval.gateway_message_id or approval.approver_recipient_id is None:
         return False
     req = request_context or approval.request
     payload = _dispatch_payload(
-        action=get_requests_telegram_integration_settings(tenant=req.tenant).edit_action,
+        action=get_requests_messaging_gateway_settings(tenant=req.tenant).edit_action,
         request_obj=req,
         approval=approval,
         message_text=build_approval_message(request_obj=req, approval=approval),
@@ -730,8 +656,8 @@ def refresh_request_messages(*, request_obj: Request) -> int:
         Approval.objects.filter(
             request=request_obj,
             message_sent=True,
-            message_id__isnull=False,
-            approver_tg_id__isnull=False,
+            gateway_message_id__isnull=False,
+            approver_recipient_id__isnull=False,
         )
         .select_related("request", "request__tenant", "approver_user")
         .order_by("id")
@@ -773,7 +699,7 @@ def resend_current_pending_step(*, request_obj: Request, idempotency_key: str | 
             request_id=locked.pk,
             step=current_step,
             decision=Approval.DECISION_PENDING,
-            approver_tg_id__isnull=False,
+            approver_recipient_id__isnull=False,
         )
         .select_related("request", "request__tenant", "approver_user")
         .order_by("id")
@@ -783,7 +709,7 @@ def resend_current_pending_step(*, request_obj: Request, idempotency_key: str | 
 
     created = 0
     for approval in approvals:
-        if approval.message_id:
+        if approval.gateway_message_id:
             deactivate_approval_message_buttons(approval=approval, request_context=locked)
         approval.decision = Approval.DECISION_CANCELED
         approval.decided_at = timezone.now()
@@ -794,13 +720,13 @@ def resend_current_pending_step(*, request_obj: Request, idempotency_key: str | 
         Approval.objects.create(
             request=locked,
             approver_user=approval.approver_user,
-            approver_tg_id=approval.approver_tg_id,
-            approver_tg_from_id=approval.approver_tg_from_id,
+            approver_recipient_id=approval.approver_recipient_id,
+            approver_user_id=approval.approver_user_id,
             step=approval.step,
             step_type=approval.step_type,
             decision=Approval.DECISION_PENDING,
             message_sent=False,
-            message_id=None,
+            gateway_message_id=None,
             resend_key=idempotency_key,
             replaced_approval=approval,
         )
