@@ -85,9 +85,9 @@ def get_telegram_approvals_settings(*, tenant: Tenant | None) -> TelegramApprova
     bridge_token = (cfg.get_telegram_approvals_bridge_token() if cfg else "") or (
         getattr(settings, "TELEGRAM_APPROVALS_BRIDGE_TOKEN", "") or ""
     ).strip()
-    send_action = (cfg_get("telegram_approvals_send_action").strip()) or "send_approval_message"
-    edit_action = (cfg_get("telegram_approvals_edit_action").strip()) or "edit_approval_message"
-    draft_notification_action = (cfg_get("telegram_approvals_draft_notification_action").strip()) or "send_draft_notification"
+    send_action = (cfg_get("telegram_approvals_send_action").strip()) or "send_interactive"
+    edit_action = (cfg_get("telegram_approvals_edit_action").strip()) or "edit"
+    draft_notification_action = (cfg_get("telegram_approvals_draft_notification_action").strip()) or "send"
     message_template = cfg_get("telegram_approvals_message_template") or DEFAULT_TELEGRAM_APPROVALS_MESSAGE_TEMPLATE
     header_new_template = cfg_get("telegram_approvals_header_new_template") or DEFAULT_TELEGRAM_APPROVALS_HEADER_NEW_TEMPLATE
     header_step_approved_template = (
