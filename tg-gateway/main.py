@@ -207,6 +207,25 @@ async def messaging_webhook(
     request: Request,
     bot_token: str = Path(...),
 ) -> dict:
+    # IMPORTANT:
+    # This dynamic route can shadow static POST routes like /webhook/set and /webhook/delete
+    # depending on router resolution order. Handle those sentinels explicitly so admin
+    # endpoints continue to work even if this route is matched first.
+    if bot_token == "set":
+        payload = await request.json()
+        try:
+            parsed = WebhookSetRequest.model_validate(payload)
+        except Exception as exc:  # noqa: BLE001
+            raise HTTPException(status_code=422, detail=f"Invalid set payload: {exc}") from exc
+        return await set_telegram_webhook(parsed)
+    if bot_token == "delete":
+        payload = await request.json()
+        try:
+            parsed = WebhookDeleteRequest.model_validate(payload)
+        except Exception as exc:  # noqa: BLE001
+            raise HTTPException(status_code=422, detail=f"Invalid delete payload: {exc}") from exc
+        return await delete_telegram_webhook(parsed)
+
     update: dict = await request.json()
     # Never log the bot_token — it is a secret even though it's in the URL
     logger.info("webhook update_id=%s", update.get("update_id"))
