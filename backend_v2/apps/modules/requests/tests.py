@@ -2799,7 +2799,7 @@ class DraftRequestPatchSubmitTests(APITestCase):
         self.assertTrue(ok)
         mock_post.assert_called_once()
         payload = mock_post.call_args.kwargs["payload"]
-        self.assertEqual(payload["action"], "send_draft_notification")
+        self.assertEqual(payload["action"], "send")
         self.assertEqual(payload["recipient_id"], "123")
         self.assertIn("кнопкой в этом сообщении", payload["text"])
         self.assertIn("📝 Черновик заявки", payload["text"])
