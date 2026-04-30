@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Alert, Button, Card, Input, Typography, message } from 'antd'
 import { useSearchParams } from 'react-router-dom'
 import { confirmPaymentViaWebApp } from '../../lib/api'
@@ -9,8 +9,32 @@ export function TgPaymentConfirmPage() {
   const [expenseId, setExpenseId] = useState('')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [approvalId, setApprovalId] = useState(0)
 
-  const approvalId = useMemo(() => resolvePaymentApprovalId(searchParams), [searchParams])
+  // Do not useMemo only on searchParams: start_param lives in Telegram.WebApp (initData /
+  // initDataUnsafe) and can appear after the first paint. Re-read after ready + next frames.
+  useEffect(() => {
+    let alive = true
+    const sync = () => {
+      if (!alive) return
+      const next = resolvePaymentApprovalId(searchParams)
+      setApprovalId((prev) => (prev !== next ? next : prev))
+    }
+    sync()
+    window.Telegram?.WebApp?.ready?.()
+    const raf = requestAnimationFrame(sync)
+    const t0 = window.setTimeout(sync, 0)
+    const t1 = window.setTimeout(sync, 50)
+    const t2 = window.setTimeout(sync, 250)
+    return () => {
+      alive = false
+      cancelAnimationFrame(raf)
+      window.clearTimeout(t0)
+      window.clearTimeout(t1)
+      window.clearTimeout(t2)
+    }
+  }, [searchParams])
+
   const isApprovalValid = Number.isInteger(approvalId) && approvalId > 0
 
   const submit = async () => {

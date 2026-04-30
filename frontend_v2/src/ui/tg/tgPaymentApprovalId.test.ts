@@ -55,6 +55,20 @@ describe('getTelegramWebAppStartParam', () => {
 
     expect(getTelegramWebAppStartParam()).toBe('approval-77')
   })
+
+  it('parses start_param from signed initData when initDataUnsafe is empty', () => {
+    const win = getWindow()
+    win.Telegram = {
+      WebApp: {
+        initData: 'user=%7B%22id%22%3A1%7D&auth_date=1&start_param=555&hash=abc',
+        initDataUnsafe: {},
+        ready: () => {},
+      },
+    }
+    setWindowLocationSearch('')
+
+    expect(getTelegramWebAppStartParam()).toBe('555')
+  })
 })
 
 describe('resolvePaymentApprovalId', () => {
@@ -101,5 +115,19 @@ describe('resolvePaymentApprovalId', () => {
     win.Telegram = { WebApp: createTelegramWebApp('not-an-id') }
 
     expect(resolvePaymentApprovalId(params)).toBe(0)
+  })
+
+  it('uses start_param from initData when initDataUnsafe has no start_param', () => {
+    const params = new URLSearchParams('')
+    const win = getWindow()
+    win.Telegram = {
+      WebApp: {
+        initData: 'start_param=888&user=%7B%22id%22%3A1%7D&auth_date=1&hash=x',
+        initDataUnsafe: {},
+        ready: () => {},
+      },
+    }
+
+    expect(resolvePaymentApprovalId(params)).toBe(888)
   })
 })
