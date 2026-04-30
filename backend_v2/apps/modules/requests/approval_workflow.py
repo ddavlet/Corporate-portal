@@ -115,7 +115,18 @@ def _recalculate_request_status(request_obj: Request) -> str:
 
     if request_obj.status != next_status:
         request_obj.status = next_status
-        request_obj.save(update_fields=["status"])
+        update_fields = ["status"]
+        if next_status == Request.STATUS_PAYED:
+            now = timezone.localdate()
+            if request_obj.payed_at is None:
+                request_obj.payed_at = now.year * 10000 + now.month * 100 + now.day
+                update_fields.append("payed_at")
+            if request_obj.expense_year is None:
+                request_obj.expense_year = now.year
+                request_obj.expense_month = now.month
+                request_obj.expense_day = now.day
+                update_fields.extend(["expense_year", "expense_month", "expense_day"])
+        request_obj.save(update_fields=update_fields)
     return request_obj.status
 
 
