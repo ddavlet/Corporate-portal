@@ -16,7 +16,7 @@ class Migration(migrations.Migration):
         migrations.RenameField(
             model_name="approval",
             old_name="approver_tg_from_id",
-            new_name="approver_user_id",
+            new_name="approver_external_user_id",
         ),
         migrations.RenameField(
             model_name="approval",
@@ -31,7 +31,7 @@ class Migration(migrations.Migration):
         migrations.RenameField(
             model_name="userrequestapproval",
             old_name="approver_tg_from_id",
-            new_name="approver_user_id",
+            new_name="approver_external_user_id",
         ),
         migrations.RenameField(
             model_name="userrequestapproval",

@@ -213,8 +213,8 @@ class Approval(models.Model):
         related_name="request_approvals",
     )
     approver_recipient_id = models.BigIntegerField(null=True, blank=True)
-    # platform user id (Telegram from.id, Slack user, etc.).
-    approver_user_id = models.BigIntegerField(null=True, blank=True)
+    # platform user id (Telegram from.id, Slack user, etc.). Cannot be named approver_user_id — clashes with FK column.
+    approver_external_user_id = models.BigIntegerField(null=True, blank=True)
     gateway_message_id = models.BigIntegerField(null=True, blank=True)
     message_sent = models.BooleanField(default=False)
     message_sent_at = models.DateTimeField(null=True, blank=True)
@@ -240,9 +240,8 @@ class Approval(models.Model):
         indexes = [
             models.Index(fields=["request"], name="approvals_request_id_idx"),
             models.Index(fields=["decision"], name="approvals_decision_idx"),
-            models.Index(fields=["approver_recipient_id"], name="approvals_approver_recipient_idx"),
-            # Postgres index name must be <= 30 chars.
-            models.Index(fields=["approver_user_id"], name="approvals_user_id_idx"),
+            models.Index(fields=["approver_recipient_id"], name="approvals_appr_rcpt_idx"),
+            models.Index(fields=["approver_external_user_id"], name="approvals_ext_uid_idx"),
             models.Index(fields=["message_sent"], name="approvals_message_sent_idx"),
         ]
 
@@ -632,7 +631,7 @@ class UserRequestApproval(models.Model):
         related_name="user_request_approvals",
     )
     approver_recipient_id = models.BigIntegerField(null=True, blank=True)
-    approver_user_id = models.BigIntegerField(null=True, blank=True)
+    approver_external_user_id = models.BigIntegerField(null=True, blank=True)
     gateway_message_id = models.BigIntegerField(null=True, blank=True)
     message_sent = models.BooleanField(default=False)
     step = models.IntegerField(default=1)
