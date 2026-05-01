@@ -362,48 +362,6 @@ services:
     networks:
       - traefik-public
 
-  favicon:
-    image: nginx:alpine
-    container_name: favicon
-    restart: always
-    environment:
-      - NGINX_ENTRYPOINT_QUIET_LOGS=1
-      - NGINX_DISABLE_IPV6=1
-    volumes:
-      - ./favicon/favicon.ico:/usr/share/nginx/html/favicon.ico:ro
-      - ./favicon/default.conf:/etc/nginx/conf.d/default.conf:ro
-    labels:
-      - traefik.enable=true
-      - traefik.docker.network=n8n_traefik-public
-
-      - traefik.http.routers.favicon.rule=(
-        Host(`login.kolberg.uz`) ||
-        Host(`neuron.kolberg.uz`) ||
-        Host(`invest.kolberg.uz`) ||
-        Host(`construction.kolberg.uz`) ||
-        Host(`lemonfit.kolberg.uz`) ||
-        Host(`lemonfit2.kolberg.uz`) ||
-        Host(`main.kolberg.uz`) ||
-        Host(`zarqand.kolberg.uz`) ||
-        Host(`dev.kolberg.uz`) ||
-        Host(`metabase.kolberg.uz`) ||
-        Host(`cloud.kolberg.uz`) ||
-        Host(`database.kolberg.uz`) ||
-        Host(`docker.kolberg.uz`)
-        ) && (Path(`/favicon.ico`) || Path(`/favicon-16x16.png`) || Path(`/favicon-32x32.png`) || Path(`/apple-touch-icon.png`) || Path(`/site.webmanifest`))
-      - traefik.http.routers.favicon.entrypoints=web,websecure
-      - traefik.http.routers.favicon.tls=true
-      - traefik.http.routers.favicon.tls.certresolver=mytlschallenge
-      - traefik.http.routers.favicon.priority=10000
-
-      # можешь оставить для проверки, потом убрать
-      - traefik.http.middlewares.favicon-mark.headers.customresponseheaders.X-Favicon-Router=favicon
-      - traefik.http.routers.favicon.middlewares=favicon-mark@docker
-
-      - traefik.http.services.favicon.loadbalancer.server.port=80
-    networks:
-      - traefik-public
-
   backend:
     build: ./backend
     container_name: django
