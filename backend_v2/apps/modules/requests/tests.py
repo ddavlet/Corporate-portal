@@ -2877,10 +2877,10 @@ class DraftRequestPatchSubmitTests(APITestCase):
         self.assertIn("📌 Назначение", payload["text"])
         self.assertIn("⏱ Статус", payload["text"])
         self.assertIn(
-            f"https://{self.tenant.subdomain}.example.com/requests/auto-config?template_id=77",
+            f"https://{self.tenant.subdomain}.example.com/app/requests/auto-config?template_id=77",
             payload["text"],
         )
-        self.assertIn(f"https://{self.tenant.subdomain}.example.com/requests/{req.id}", payload["text"])
+        self.assertIn(f"https://{self.tenant.subdomain}.example.com/app/requests/{req.id}", payload["text"])
 
 
 @override_settings(BASE_DOMAIN="example.com", N8N_TOKEN="", N8N_INTEGRATION_TOKEN="", ALLOWED_HOSTS=["*"])
