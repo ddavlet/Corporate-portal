@@ -7,7 +7,7 @@ DEPLOY_TEST_PATH ?= $(TEST_PATH)
 BRANCH     := $(shell git rev-parse --abbrev-ref HEAD)
 
 .DEFAULT_GOAL := help
-.PHONY: help push test deploy makemigrations showmigrations rollback refresh-approval-messages local-up local-down local-logs
+.PHONY: help push test deploy makemigrations showmigrations backup-db rollback refresh-approval-messages local-up local-down local-logs
 
 help:
 	@echo ""
@@ -19,6 +19,7 @@ help:
 	@echo "  make deploy DEPLOY_TEST_PATH=apps.modules.requests.tests — деплой + таргетные тесты"
 	@echo "  make makemigrations  — создать миграции и скачать на локал"
 	@echo "  make showmigrations  — показать tenants/requests/vendors миграции на сервере"
+	@echo "  make backup-db       — создать gzip-копию БД на сервере в backups/db"
 	@echo "  make refresh-approval-messages REQUEST_IDS='1 2' — актуализировать Telegram-карточки заявок на сервере"
 	@echo "  make local-up        — поднять docker-compose.local.yml локально"
 	@echo "  make local-down      — остановить локальный compose (без удаления volumes)"
@@ -79,7 +80,20 @@ showmigrations:
 		docker compose --env-file ./.env exec -T backend_v2 \
 		python manage.py showmigrations tenants requests vendors"
 
-# ── 6. Telegram: актуализация карточек согласований по ID заявок (на сервере) ─
+# ── 6. Ручной backup БД на сервере (перед миграциями) ─────────────────────────
+BACKUP_NAME ?= manual_$(shell date +%Y%m%d_%H%M%S)
+
+backup-db:
+	ssh $(SERVER) "cd $(REMOTE_DIR) && \
+		mkdir -p backups/db && \
+		docker compose --env-file ./.env exec -T db sh -c 'pg_dump -U \"$$POSTGRES_USER\" \"$$POSTGRES_DB\" > /tmp/$(BACKUP_NAME).sql' && \
+		docker compose --env-file ./.env exec -T db sh -c 'gzip -f /tmp/$(BACKUP_NAME).sql' && \
+		docker compose --env-file ./.env cp db:/tmp/$(BACKUP_NAME).sql.gz backups/db/$(BACKUP_NAME).sql.gz && \
+		docker compose --env-file ./.env exec -T db sh -c 'rm -f /tmp/$(BACKUP_NAME).sql.gz' && \
+		ls -lh backups/db/$(BACKUP_NAME).sql.gz"
+	@echo "✅  Backup создан: $(REMOTE_DIR)/backups/db/$(BACKUP_NAME).sql.gz"
+
+# ── 7. Telegram: актуализация карточек согласований по ID заявок (на сервере) ─
 REQUEST_IDS ?=
 
 refresh-approval-messages:
@@ -92,7 +106,7 @@ refresh-approval-messages:
 		docker compose --env-file ./.env exec -T backend_v2 \
 		python manage.py refresh_telegram_approval_messages $(REQUEST_IDS)"
 
-# ── 7. Откат production ──────────────────────────────────────────────────────
+# ── 8. Откат production ──────────────────────────────────────────────────────
 rollback:
 	@echo "⚠️  Откат production на предыдущий образ..."
 	ssh $(SERVER) "cd $(REMOTE_DIR) && \
@@ -101,7 +115,7 @@ rollback:
 		docker compose --env-file ./.env up -d --no-deps backend_v2 frontend_v2"
 	@echo "✅  Откат выполнен."
 
-# ── 8. Локальный docker compose (docker-compose.local.yml) ────────────────
+# ── 9. Локальный docker compose (docker-compose.local.yml) ────────────────
 local-up:
 	docker compose -f docker-compose.local.yml --env-file .env.local up -d --build
 
