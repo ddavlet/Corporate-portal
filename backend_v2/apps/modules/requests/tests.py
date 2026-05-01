@@ -1289,6 +1289,56 @@ class RequestApprovalsTests(APITestCase):
         self.assertEqual(req.status, Request.STATUS_PAYED)
         self.assertEqual(approval.decision, Approval.DECISION_APPROVED)
 
+    @patch("apps.modules.requests.status_events.requests.post")
+    def test_payment_webapp_confirm_sends_n8n_payed_event(self, mocked_post):
+        mocked_post.return_value.status_code = 200
+        self._configure_payment_step(
+            payment_type=Request.PAYMENT_TYPE_TRANSFER,
+            mode=RequestApprovalStepConfig.PAYMENT_ACTION_MODE_WEBAPP,
+        )
+        request_id = self._create_request_for_payment_type(Request.PAYMENT_TYPE_TRANSFER)
+        approval = Approval.objects.get(
+            request_id=request_id,
+            approver_user=self.approver,
+            step_type=Approval.STEP_TYPE_PAYMENT,
+        )
+        bank_account = BankAccount.objects.create(tenant=self.tenant, label="Main")
+        bank_wallet = Wallet.objects.create(
+            tenant=self.tenant,
+            wallet_type=Wallet.Type.BANK,
+            currency="UZS",
+            bank_account=bank_account,
+        )
+        BankExpense.objects.create(
+            tenant=self.tenant,
+            created_by=self.admin,
+            row_no=1,
+            doc_date=date(2026, 1, 2),
+            process_date=date(2026, 1, 2),
+            expense_year=2026,
+            expense_month=1,
+            expense_day=2,
+            doc_no="INV-2026-002",
+            debit_turnover=Decimal("10.00"),
+            payment_purpose="x",
+            wallet=bank_wallet,
+        )
+
+        self.client.force_authenticate(self.approver)
+        res = self.client.post(
+            "/api/requests/approvals/payment-webapp/confirm/",
+            {"approval_id": approval.id, "expense_id": "INV-2026-002"},
+            format="json",
+            HTTP_HOST=self.host,
+        )
+        self.assertEqual(res.status_code, 200, res.content)
+        mocked_post.assert_called_once()
+        args, kwargs = mocked_post.call_args
+        self.assertEqual(args[0], "https://acme.example.com/n8n/events/new-payed-request")
+        self.assertEqual(kwargs["timeout"], 30)
+        self.assertEqual(kwargs["json"]["id"], request_id)
+        self.assertEqual(kwargs["json"]["status"], Request.STATUS_PAYED)
+
     def test_payment_webapp_confirm_cash_resolves_numeric_expense_id_to_canonical(self):
         self._configure_payment_step(
             payment_type=Request.PAYMENT_TYPE_CASH,

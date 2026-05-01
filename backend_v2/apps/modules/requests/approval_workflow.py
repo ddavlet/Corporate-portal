@@ -7,6 +7,7 @@ from rest_framework.exceptions import APIException, NotFound, PermissionDenied, 
 from apps.modules.requests.approval_config_resolver import resolve_effective_payment_step_config_for_request
 from apps.modules.requests.models import Approval, Request, RequestApprovalStepConfig
 from apps.modules.requests.services import create_expense_for_request_payment
+from apps.modules.requests.status_events import dispatch_request_payed_event_handlers
 
 # Set on remaining pending rows when another step already rejected the request.
 _STOPPED_BY_OTHER_STEP_COMMENT = "Автоматически: заявка отклонена на другом этапе."
@@ -127,6 +128,8 @@ def _recalculate_request_status(request_obj: Request) -> str:
                 request_obj.expense_day = now.day
                 update_fields.extend(["expense_year", "expense_month", "expense_day"])
         request_obj.save(update_fields=update_fields)
+        if next_status == Request.STATUS_PAYED:
+            dispatch_request_payed_event_handlers(request_obj=request_obj)
     return request_obj.status
 
 
