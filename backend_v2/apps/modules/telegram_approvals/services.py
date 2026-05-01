@@ -95,7 +95,7 @@ def build_request_draft_public_url(*, request_obj: Request) -> str:
     base = f"https://{subdomain}.{base_domain}" if subdomain and base_domain else ""
     if not base:
         return ""
-    return f"{base}/requests/{request_obj.pk}"
+    return f"{base}/app/requests/{request_obj.pk}"
 
 
 def build_auto_request_template_public_url(*, request_obj: Request, template_id: int | None) -> str:
@@ -107,7 +107,7 @@ def build_auto_request_template_public_url(*, request_obj: Request, template_id:
     base = f"https://{subdomain}.{base_domain}" if subdomain and base_domain else ""
     if not base:
         return ""
-    return f"{base}/requests/auto-config?template_id={template_id}"
+    return f"{base}/app/requests/auto-config?template_id={template_id}"
 
 
 def dispatch_draft_request_notification(
