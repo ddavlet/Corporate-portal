@@ -86,7 +86,7 @@ BACKUP_NAME ?= manual_$(shell date +%Y%m%d_%H%M%S)
 backup-db:
 	ssh $(SERVER) "cd $(REMOTE_DIR) && \
 		mkdir -p backups/db && \
-		docker compose --env-file ./.env exec -T db sh -c 'pg_dump -U \"$$POSTGRES_USER\" \"$$POSTGRES_DB\" > /tmp/$(BACKUP_NAME).sql' && \
+		docker compose --env-file ./.env exec -T db sh -c 'pg_dump -U \"\\$$POSTGRES_USER\" \"\\$$POSTGRES_DB\" > /tmp/$(BACKUP_NAME).sql' && \
 		docker compose --env-file ./.env exec -T db sh -c 'gzip -f /tmp/$(BACKUP_NAME).sql' && \
 		docker compose --env-file ./.env cp db:/tmp/$(BACKUP_NAME).sql.gz backups/db/$(BACKUP_NAME).sql.gz && \
 		docker compose --env-file ./.env exec -T db sh -c 'rm -f /tmp/$(BACKUP_NAME).sql.gz' && \
