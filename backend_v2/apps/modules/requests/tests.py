@@ -1384,6 +1384,55 @@ class RequestApprovalsTests(APITestCase):
         self.assertEqual(req.expense_ref_id, cash_expense.id)
         self.assertEqual(req.expense_id, "1-000000343")
 
+    def test_payment_webapp_confirm_cash_zero_pad_without_prefix_resolves_short_id(self):
+        self.tenant.cash_expense_external_id_prefix = ""
+        self.tenant.cash_expense_external_id_digit_width = 11
+        self.tenant.save(update_fields=["cash_expense_external_id_prefix", "cash_expense_external_id_digit_width"])
+
+        self._configure_payment_step(
+            payment_type=Request.PAYMENT_TYPE_CASH,
+            mode=RequestApprovalStepConfig.PAYMENT_ACTION_MODE_WEBAPP,
+        )
+        request_id = self._create_request_for_payment_type(Request.PAYMENT_TYPE_CASH)
+        approval = Approval.objects.get(
+            request_id=request_id,
+            approver_user=self.approver,
+            step_type=Approval.STEP_TYPE_PAYMENT,
+        )
+        cash_register = CashRegister.objects.create(tenant=self.tenant, currency="UZS", name="Main cash pad")
+        cash_wallet = Wallet.objects.create(
+            tenant=self.tenant,
+            wallet_type=Wallet.Type.CASH,
+            currency="UZS",
+            cash_register=cash_register,
+        )
+        cash_expense = CashExpense.objects.create(
+            tenant=self.tenant,
+            external_id="00000000459",
+            confirmed=True,
+            title="Padded id expense",
+            amount=Decimal("10.00"),
+            currency="UZS",
+            expense_at=datetime(2026, 1, 2, 10, 0, 0),
+            expense_year=2026,
+            expense_month=1,
+            expense_day=2,
+            created_by=self.admin,
+            wallet=cash_wallet,
+        )
+
+        self.client.force_authenticate(self.approver)
+        res = self.client.post(
+            "/api/requests/approvals/payment-webapp/confirm/",
+            {"approval_id": approval.id, "expense_id": "459"},
+            format="json",
+            HTTP_HOST=self.host,
+        )
+        self.assertEqual(res.status_code, 200, res.content)
+        req = Request.objects.get(pk=request_id)
+        self.assertEqual(req.expense_ref_id, cash_expense.id)
+        self.assertEqual(req.expense_id, "00000000459")
+
     def test_payment_webapp_confirm_bank_resolves_same_doc_no_by_amount(self):
         self._configure_payment_step(
             payment_type=Request.PAYMENT_TYPE_TRANSFER,

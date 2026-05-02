@@ -42,7 +42,8 @@ export const SETTINGS_MODULES: SettingsModuleItem[] = [
   {
     key: 'cash-registers',
     title: 'Кошельки',
-    description: 'Касса, банк (выписка), корпкарта: счета, остаток на 1 янв, безопасное удаление.',
+    description:
+      'Касса — формат номера расхода для заявок; банк (выписка), корпкарта: счета, остаток на 1 янв, удаление без движений.',
     path: '/settings/cash-registers',
     icon: <ShopOutlined />,
   },
