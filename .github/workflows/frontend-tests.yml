@@ -17,10 +17,10 @@ on:
   workflow_dispatch:
 
 jobs:
-  vitest:
-    name: Vitest
+  build-and-test:
+    name: Build and tests
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     defaults:
       run:
         working-directory: frontend_v2
@@ -37,6 +37,10 @@ jobs:
 
       - name: Install frontend dependencies
         run: npm ci
+
+      # Совпадает с Docker-образом frontend_v2 (`npm run build`: tsc -b && vite build).
+      - name: Production build (TypeScript + Vite)
+        run: npm run build
 
       - name: Run frontend tests
         run: npm run test -- --run
