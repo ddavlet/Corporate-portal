@@ -3,7 +3,7 @@ import json
 import re
 from rest_framework import serializers
 
-from apps.tenants.models import TenantModuleConfig, TenantMembership, Tenant
+from apps.tenants.cash_expense_id_format import validate_cash_expense_external_id_prefix
 
 User = get_user_model()
 PREFERENCE_KEY_PATTERN = re.compile(r"^[a-z0-9]+(?:[._-][a-z0-9]+)*$")
@@ -25,6 +25,17 @@ class ModuleCatalogRowSerializer(serializers.Serializer):
     tenant_enabled = serializers.BooleanField()
     user_allowed = serializers.BooleanField()
     effective_enabled = serializers.BooleanField()
+
+
+class TenantCashExpenseIdFormatSerializer(serializers.Serializer):
+    cash_expense_external_id_prefix = serializers.CharField(max_length=32, allow_blank=True)
+    cash_expense_external_id_digit_width = serializers.IntegerField(min_value=1, max_value=32)
+
+    def validate_cash_expense_external_id_prefix(self, value):
+        try:
+            return validate_cash_expense_external_id_prefix(value)
+        except ValueError as exc:
+            raise serializers.ValidationError(str(exc)) from exc
 
 
 class TenantIntegrationConfigSerializer(serializers.Serializer):

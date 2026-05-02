@@ -315,6 +315,62 @@ class TenantIntegrationConfigApiTests(APITestCase):
 
 
 @override_settings(BASE_DOMAIN="example.com", ALLOWED_HOSTS=["*"])
+class TenantCashExpenseIdFormatApiTests(APITestCase):
+    def setUp(self):
+        self.tenant = Tenant.objects.create(name="Acme", subdomain="cashfmt", is_active=True)
+        self.director = User.objects.create_user(username="cashfmt-dir", password="x")
+        self.accountant = User.objects.create_user(username="cashfmt-acc", password="x")
+        self.requester = User.objects.create_user(username="cashfmt-req", password="x")
+        for u in (self.director, self.accountant, self.requester):
+            TenantMembership.objects.create(tenant=self.tenant, user=u, is_active=True)
+        TenantUserRole.objects.create(tenant=self.tenant, user=self.director, role=TenantUserRole.ROLE_DIRECTOR)
+        TenantUserRole.objects.create(tenant=self.tenant, user=self.accountant, role=TenantUserRole.ROLE_ACCOUNTANT)
+        TenantUserRole.objects.create(tenant=self.tenant, user=self.requester, role=TenantUserRole.ROLE_REQUESTER)
+        TenantModuleConfig.objects.create(tenant=self.tenant, module_key="wallets", is_enabled=True)
+        self.url = "/api/tenant/cash-expense-id-format/"
+        self.host_hdr = {"HTTP_HOST": "cashfmt.example.com"}
+
+    def _auth(self, user):
+        token = str(RefreshToken.for_user(user).access_token)
+        return {**self.host_hdr, "HTTP_AUTHORIZATION": f"Bearer {token}"}
+
+    def test_director_gets_defaults_and_can_set_pad_without_prefix(self):
+        g = self.client.get(self.url, **self._auth(self.director))
+        self.assertEqual(g.status_code, 200, g.content)
+        self.assertEqual(g.data["cash_expense_external_id_prefix"], "1-")
+        self.assertEqual(g.data["cash_expense_external_id_digit_width"], 9)
+
+        p = self.client.put(
+            self.url,
+            {"cash_expense_external_id_prefix": "", "cash_expense_external_id_digit_width": 11},
+            format="json",
+            **self._auth(self.director),
+        )
+        self.assertEqual(p.status_code, 200, p.content)
+        self.assertEqual(p.data["cash_expense_external_id_prefix"], "")
+        self.assertEqual(p.data["cash_expense_external_id_digit_width"], 11)
+        self.tenant.refresh_from_db()
+        self.assertEqual(self.tenant.cash_expense_external_id_prefix, "")
+        self.assertEqual(self.tenant.cash_expense_external_id_digit_width, 11)
+
+    def test_accountant_can_update(self):
+        p = self.client.put(
+            self.url,
+            {"cash_expense_external_id_prefix": "X-", "cash_expense_external_id_digit_width": 6},
+            format="json",
+            **self._auth(self.accountant),
+        )
+        self.assertEqual(p.status_code, 200, p.content)
+        self.tenant.refresh_from_db()
+        self.assertEqual(self.tenant.cash_expense_external_id_prefix, "X-")
+        self.assertEqual(self.tenant.cash_expense_external_id_digit_width, 6)
+
+    def test_requester_forbidden(self):
+        r = self.client.get(self.url, **self._auth(self.requester))
+        self.assertEqual(r.status_code, 403)
+
+
+@override_settings(BASE_DOMAIN="example.com", ALLOWED_HOSTS=["*"])
 class UserPreferencesApiTests(APITestCase):
     def setUp(self):
         self.tenant = Tenant.objects.create(name="Acme", subdomain="acme", is_active=True)

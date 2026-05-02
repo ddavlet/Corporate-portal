@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import {
   Alert,
   Button,
+  Card,
   Form,
   Input,
   InputNumber,
@@ -31,7 +32,116 @@ import {
   type BankAccountDto,
   type CashRegisterDto,
   type CorporateCardAccountDto,
+  apiFetch,
+  updateTenantCashExpenseIdFormat,
 } from '../../lib/api'
+
+function previewCashExpenseCanonicalId(prefix: string, digitWidth: number, sampleNumeric: number): string {
+  const w = Number.isFinite(digitWidth) ? Math.min(32, Math.max(1, Math.floor(digitWidth))) : 9
+  const core = String(Math.trunc(sampleNumeric)).padStart(w, '0')
+  return `${prefix}${core}`
+}
+
+function CashExpenseExternalIdFormatSection() {
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+  const [hidden, setHidden] = useState(false)
+  const [form] = Form.useForm<{
+    cash_expense_external_id_prefix: string
+    cash_expense_external_id_digit_width: number
+  }>()
+  const prefixWatch = Form.useWatch('cash_expense_external_id_prefix', form)
+  const widthWatch = Form.useWatch('cash_expense_external_id_digit_width', form)
+
+  const load = useCallback(async () => {
+    setLoading(true)
+    try {
+      const res = await apiFetch('/api/tenant/cash-expense-id-format/')
+      if (res.status === 403) {
+        setHidden(true)
+        return
+      }
+      if (!res.ok) {
+        message.error(`Не удалось загрузить настройку формата (${res.status}).`)
+        setHidden(false)
+        return
+      }
+      const data = (await res.json()) as {
+        cash_expense_external_id_prefix?: string
+        cash_expense_external_id_digit_width?: number
+      }
+      form.setFieldsValue({
+        cash_expense_external_id_prefix: data.cash_expense_external_id_prefix ?? '',
+        cash_expense_external_id_digit_width: data.cash_expense_external_id_digit_width ?? 9,
+      })
+      setHidden(false)
+    } finally {
+      setLoading(false)
+    }
+  }, [form])
+
+  useEffect(() => {
+    void load()
+  }, [load])
+
+  if (hidden) return null
+
+  const p = typeof prefixWatch === 'string' ? prefixWatch : ''
+  const dw = typeof widthWatch === 'number' ? widthWatch : 9
+  const preview = previewCashExpenseCanonicalId(p, dw, 459)
+
+  const onSave = async () => {
+    try {
+      const v = await form.validateFields()
+      setSaving(true)
+      await updateTenantCashExpenseIdFormat({
+        cash_expense_external_id_prefix: v.cash_expense_external_id_prefix.trim(),
+        cash_expense_external_id_digit_width: v.cash_expense_external_id_digit_width,
+      })
+      message.success('Сохранено')
+      void load()
+    } catch (e: unknown) {
+      if (e && typeof e === 'object' && 'errorFields' in e) return
+      message.error(e instanceof Error ? e.message : 'Ошибка сохранения')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <Card title="Формат номера кассового расхода (external id)" style={{ marginBottom: 16 }} loading={loading}>
+      <Typography.Paragraph type="secondary">
+        Привязка расхода к заявке: можно ввести короткий номер (например <Typography.Text code>459</Typography.Text>),
+        система найдёт строку по полному идентификатору в кассе, как он хранится в базе после загрузки/импорта.
+      </Typography.Paragraph>
+      <Form form={form} layout="vertical" disabled={loading}>
+        <Form.Item
+          label="Префикс перед номером"
+          name="cash_expense_external_id_prefix"
+          rules={[{ max: 32, message: 'Не длиннее 32 символов' }]}
+          extra="Оставьте пустым, если в кассе только число с ведущими нулями. Пример с префиксом по умолчанию: «1-» → 1-000000343."
+        >
+          <Input placeholder="Например: 1- или пусто" allowClear />
+        </Form.Item>
+        <Form.Item
+          label="Числовая часть: знаков всего"
+          name="cash_expense_external_id_digit_width"
+          rules={[{ required: true }]}
+          extra="Сколько знаков занимает число после дополнения нулями слева (не считая префикс)."
+        >
+          <InputNumber min={1} max={32} style={{ width: '100%' }} />
+        </Form.Item>
+      </Form>
+      <Typography.Paragraph style={{ marginBottom: 16 }}>
+        Пример: ввод <Typography.Text code>459</Typography.Text> совпадает с расходом{' '}
+        <Typography.Text code>{preview}</Typography.Text> в базе кассы (для указанной ширины и префикса).
+      </Typography.Paragraph>
+      <Button type="primary" onClick={() => void onSave()} loading={saving} disabled={loading}>
+        Сохранить формат
+      </Button>
+    </Card>
+  )
+}
 
 function CashTab() {
   const [loading, setLoading] = useState(true)
@@ -209,6 +319,7 @@ function CashTab() {
 
   return (
     <>
+      <CashExpenseExternalIdFormatSection />
       <Typography.Paragraph type="secondary">
         Можно отключить показ отдельного кошелька в разделе "Касса" (остатки, доходы и расходы), не блокируя
         операции по нему.
@@ -660,8 +771,8 @@ export function CashRegistersSettingsPage() {
         Кошельки и счета
       </Typography.Title>
       <Typography.Paragraph type="secondary" style={{ marginBottom: 16 }}>
-        Наличные, банк (выписка) и корпоративная карта: создание, правка, безопасное удаление (без движений) и
-        остаток на начало года.
+        Наличные: формат номера кассового расхода для заявок, кассы, банк (выписка) и корпоративная карта: создание,
+        правка, безопасное удаление (без движений) и остаток на начало года.
       </Typography.Paragraph>
       <Tabs
         defaultActiveKey="cash"

@@ -17,8 +17,14 @@ from apps.tenants.models import (
     TenantUserPreference,
     TenantUserRole,
 )
-from apps.tenants.permissions import IsTenantAdmin, role_allows_module
+from apps.tenants.permissions import (
+    HasEffectiveModuleAccess,
+    HasWalletsFinancialWriteAccess,
+    IsTenantAdmin,
+    role_allows_module,
+)
 from apps.tenants.serializers import (
+    TenantCashExpenseIdFormatSerializer,
     TenantIntegrationConfigSerializer,
     TenantModuleConfigUpdateSerializer,
     TenantUserPreferenceSerializer,
@@ -348,4 +354,41 @@ class UserPreferencesView(APIView):
             defaults={"value": serializer.validated_data["value"]},
         )
         return Response({"key": pref.key, "value": pref.value})
+
+
+class TenantCashExpenseIdFormatView(APIView):
+    """
+    Read/update how cashier cash expense `external_id` is matched from short numeric input
+    (prefix + zero-padded width). Requires wallets module and financial write roles to change.
+    """
+
+    module_key = "wallets"
+
+    def get_permissions(self):
+        return [IsAuthenticated(), HasEffectiveModuleAccess(), HasWalletsFinancialWriteAccess()]
+
+    def get(self, request):
+        tenant = getattr(request, "tenant", None)
+        if not tenant:
+            return Response({"detail": "Unknown tenant."}, status=status.HTTP_404_NOT_FOUND)
+        return Response(
+            {
+                "cash_expense_external_id_prefix": tenant.cash_expense_external_id_prefix,
+                "cash_expense_external_id_digit_width": tenant.cash_expense_external_id_digit_width,
+            }
+        )
+
+    def put(self, request):
+        tenant = getattr(request, "tenant", None)
+        if not tenant:
+            return Response({"detail": "Unknown tenant."}, status=status.HTTP_404_NOT_FOUND)
+        serializer = TenantCashExpenseIdFormatSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+        tenant.cash_expense_external_id_prefix = data["cash_expense_external_id_prefix"]
+        tenant.cash_expense_external_id_digit_width = data["cash_expense_external_id_digit_width"]
+        tenant.save(
+            update_fields=["cash_expense_external_id_prefix", "cash_expense_external_id_digit_width"]
+        )
+        return self.get(request)
 
