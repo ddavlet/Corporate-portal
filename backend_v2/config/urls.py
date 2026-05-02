@@ -16,6 +16,7 @@ from apps.tenants.views import (
     ModuleCatalogView,
     SettingsAccessView,
     TenantMessagingWebhookView,
+    TenantCashExpenseIdFormatView,
     TenantIntegrationConfigView,
     TenantModuleConfigView,
     UserPreferencesView,
@@ -45,6 +46,11 @@ urlpatterns = [
     # Tenants + module config/permissions
     path("api/modules/", ModuleCatalogView.as_view(), name="module_catalog"),
     path("api/tenant-module-config/", TenantModuleConfigView.as_view(), name="tenant_module_config"),
+    path(
+        "api/tenant/cash-expense-id-format/",
+        TenantCashExpenseIdFormatView.as_view(),
+        name="tenant_cash_expense_id_format",
+    ),
     path("api/tenant-integration-config/", TenantIntegrationConfigView.as_view(), name="tenant_integration_config"),
     path("api/tenant-integration-config/messaging-webhook/", TenantMessagingWebhookView.as_view(), name="tenant_messaging_webhook"),
     path("api/access-matrix/", AccessMatrixView.as_view(), name="admin_access_matrix"),

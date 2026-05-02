@@ -7,34 +7,7 @@ from apps.modules.payroll.constants import SALARY_CATEGORY
 from apps.modules.payroll.models import PayrollDocument
 from apps.modules.payroll.utils import tenant_has_payroll_module_enabled
 from apps.modules.requests.models import Request
-
-
-def _cash_external_id_candidates(raw: str) -> list[str]:
-    """
-    Build candidate IDs for cash expense matching.
-
-    Supports both plain numeric IDs (`343`) and canonical cash IDs (`1-000000343`).
-    """
-    value = str(raw or "").strip()
-    if not value:
-        return []
-
-    candidates: list[str] = [value]
-    numeric_part: str | None = None
-    if value.isdigit():
-        numeric_part = value
-    elif value.startswith("1-"):
-        suffix = value[2:]
-        if suffix.isdigit():
-            numeric_part = str(int(suffix))
-
-    if numeric_part is not None:
-        plain = str(int(numeric_part))
-        canonical = f"1-{int(numeric_part):09d}"
-        for candidate in (plain, canonical):
-            if candidate not in candidates:
-                candidates.append(candidate)
-    return candidates
+from apps.tenants.cash_expense_id_format import cash_expense_external_id_match_candidates
 
 
 def _decimal_or_none(value) -> Decimal | None:
@@ -73,7 +46,7 @@ def resolve_request_expense_ref(
         return payroll_doc.id, str(payroll_doc.doc_id or "").strip() or raw
 
     if payment_type == Request.PAYMENT_TYPE_CASH:
-        candidates = _cash_external_id_candidates(raw)
+        candidates = cash_expense_external_id_match_candidates(raw, tenant)
         qs = CashExpense.objects.filter(tenant=tenant, external_id__in=candidates).order_by("-expense_year", "-id")
         if expense_year is not None:
             qs = qs.filter(expense_year=expense_year)

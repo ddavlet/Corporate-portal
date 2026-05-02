@@ -12,6 +12,10 @@ class Tenant(models.Model):
     telegram_bot_token_enc = models.TextField(blank=True, default="")
     telegram_bot_username = models.CharField(max_length=128, blank=True, default="")
 
+    # Cash expense `external_id`: optional prefix before zero-padded numeric part (e.g. "1-", or empty).
+    cash_expense_external_id_prefix = models.CharField(max_length=32, default="1-")
+    cash_expense_external_id_digit_width = models.PositiveSmallIntegerField(default=9)
+
     def set_telegram_bot_token(self, token: str) -> None:
         self.telegram_bot_token_enc = encrypt_secret(token.strip())
 
