@@ -560,6 +560,8 @@ services:
       WG_DEFAULT_ADDRESS: 10.8.0.x
       WG_DEFAULT_DNS: 8.8.8.8
       WG_ALLOWED_IPS: 0.0.0.0/0,::/0
+      # Outbound NIC for NAT in wg0.conf PostUp (`ip route get 8.8.8.8` → dev …). Wrong default breaks internet after reboot.
+      WG_DEVICE: eth2
       PASSWORD_HASH: ${WG_PASSWORD_HASH}
     volumes:
       - ./wg:/etc/wireguard
