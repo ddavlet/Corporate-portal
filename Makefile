@@ -83,14 +83,16 @@ showmigrations:
 # ── 6. Ручной backup БД на сервере (перед миграциями) ─────────────────────────
 BACKUP_NAME ?= manual_$(shell date +%Y%m%d_%H%M%S)
 
+# Переменные POSTGRES_* должны раскрываться во внутреннем sh контейнера db, не в ssh-сессии
+# на сервере (иначе пустые — pg_dump берёт локального пользователя и даёт «role root does not exist»).
 backup-db:
-	ssh $(SERVER) "cd $(REMOTE_DIR) && \
+	ssh $(SERVER) 'cd $(REMOTE_DIR) && \
 		mkdir -p backups/db && \
-		docker compose --env-file ./.env exec -T db sh -c 'pg_dump -U \"\\$$POSTGRES_USER\" \"\\$$POSTGRES_DB\" > /tmp/$(BACKUP_NAME).sql' && \
-		docker compose --env-file ./.env exec -T db sh -c 'gzip -f /tmp/$(BACKUP_NAME).sql' && \
+		docker compose --env-file ./.env exec -T db sh -c '"'"'pg_dump -U "$$POSTGRES_USER" "$$POSTGRES_DB" > /tmp/$(BACKUP_NAME).sql'"'"' && \
+		docker compose --env-file ./.env exec -T db sh -c '"'"'gzip -f /tmp/$(BACKUP_NAME).sql'"'"' && \
 		docker compose --env-file ./.env cp db:/tmp/$(BACKUP_NAME).sql.gz backups/db/$(BACKUP_NAME).sql.gz && \
-		docker compose --env-file ./.env exec -T db sh -c 'rm -f /tmp/$(BACKUP_NAME).sql.gz' && \
-		ls -lh backups/db/$(BACKUP_NAME).sql.gz"
+		docker compose --env-file ./.env exec -T db sh -c '"'"'rm -f /tmp/$(BACKUP_NAME).sql.gz'"'"' && \
+		ls -lh backups/db/$(BACKUP_NAME).sql.gz'
 	@echo "✅  Backup создан: $(REMOTE_DIR)/backups/db/$(BACKUP_NAME).sql.gz"
 
 # ── 7. Telegram: актуализация карточек согласований по ID заявок (на сервере) ─
