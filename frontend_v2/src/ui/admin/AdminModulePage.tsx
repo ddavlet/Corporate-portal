@@ -322,7 +322,7 @@ export function AdminModulePage() {
       setEditableFields(plan.fields)
       setNonEditableFields(plan.nonEditable)
       form.resetFields()
-      form.setFieldsValue(plan.initial as Record<string, unknown>)
+      form.setFieldsValue(plan.initial as Parameters<typeof form.setFieldsValue>[0])
     } finally {
       setOpeningCreateModal(false)
     }
