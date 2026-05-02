@@ -322,7 +322,8 @@ export function AdminModulePage() {
       setEditableFields(plan.fields)
       setNonEditableFields(plan.nonEditable)
       form.resetFields()
-      form.setFieldsValue(plan.initial as Parameters<typeof form.setFieldsValue>[0])
+      // plan.initial — Record<string, unknown> из DRF/строки; Ant Form ожидает более узкий Store.
+      form.setFieldsValue(plan.initial as unknown as Parameters<typeof form.setFieldsValue>[0])
     } finally {
       setOpeningCreateModal(false)
     }
