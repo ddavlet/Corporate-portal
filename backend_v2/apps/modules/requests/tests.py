@@ -1,6 +1,6 @@
 from datetime import date, datetime
 from decimal import Decimal
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 from zoneinfo import ZoneInfo
 
 from django.contrib.auth import get_user_model
@@ -1291,7 +1291,22 @@ class RequestApprovalsTests(APITestCase):
 
     @patch("apps.modules.requests.status_events.requests.post")
     def test_payment_webapp_confirm_sends_n8n_payed_event(self, mocked_post):
-        mocked_post.return_value.status_code = 200
+        # Подменяет глобальный requests.post — нужен message_id для gateway при создании заявки
+        # и отдельный успешный ответ для webhook n8n (new-payed-request).
+        def post_side_effect(url, json=None, **kwargs):  # noqa: ARG001
+            r = MagicMock()
+            r.status_code = 200
+            if "new-payed-request" in str(url):
+                r.content = b"{}"
+                r.json.return_value = {}
+                return r
+            r.content = b'{"message_id": 1}'
+            r.json.return_value = {"message_id": 424242}
+
+            return r
+
+        mocked_post.side_effect = post_side_effect
+
         self._configure_payment_step(
             payment_type=Request.PAYMENT_TYPE_TRANSFER,
             mode=RequestApprovalStepConfig.PAYMENT_ACTION_MODE_WEBAPP,
@@ -1332,12 +1347,16 @@ class RequestApprovalsTests(APITestCase):
             HTTP_HOST=self.host,
         )
         self.assertEqual(res.status_code, 200, res.content)
-        mocked_post.assert_called_once()
-        args, kwargs = mocked_post.call_args
-        self.assertEqual(args[0], "https://acme.example.com/n8n/events/new-payed-request")
-        self.assertEqual(kwargs["timeout"], 30)
-        self.assertEqual(kwargs["json"]["id"], request_id)
-        self.assertEqual(kwargs["json"]["status"], Request.STATUS_PAYED)
+        target = None
+        for call in mocked_post.call_args_list:
+            if call.args and "new-payed-request" in str(call.args[0]):
+                target = call
+                break
+        self.assertIsNotNone(target, mocked_post.call_args_list)
+        self.assertEqual(target.args[0], "https://acme.example.com/n8n/events/new-payed-request")
+        self.assertEqual(target.kwargs.get("timeout"), 30)
+        self.assertEqual(target.kwargs["json"]["id"], request_id)
+        self.assertEqual(target.kwargs["json"]["status"], Request.STATUS_PAYED)
 
     def test_payment_webapp_confirm_cash_resolves_numeric_expense_id_to_canonical(self):
         self._configure_payment_step(
