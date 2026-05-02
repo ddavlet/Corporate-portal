@@ -1,6 +1,13 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Alert, Button, Card, Col, Form, Input, InputNumber, Modal, Popconfirm, Row, Select, Space, Switch, Table, Typography, message } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
+import {
+  ADMIN_CRUD_SKIP_KEYS,
+  fetchAdminCrudPostSchema,
+  planAdminCreateFieldsFromOptionsPost,
+  planAdminCreateFieldsFromRow,
+  type AdminCrudDynamicField,
+} from '../../lib/adminModuleCrudFields'
 import { apiFetch, getAccessMatrix, getSettingsAccess, type AccessMatrixUserRow } from '../../lib/api'
 
 type AnyRow = Record<string, unknown> & { id?: number | string }
@@ -9,14 +16,16 @@ type Source = {
   key: string
   label: string
   endpoint: string
+  /** false — источник read-only или POST не соответствует таблице (напр. только создание без списка). */
+  supportsCreate?: boolean
 }
 
 const SOURCES: Source[] = [
   { key: 'vendors', label: 'Поставщики', endpoint: '/api/vendors/' },
   { key: 'requests', label: 'Заявки', endpoint: '/api/requests/' },
-  { key: 'notes', label: 'Заметки', endpoint: '/api/notes/' },
-  { key: 'payroll-documents', label: 'Начисления ЗП: документы', endpoint: '/api/payroll/documents/' },
-  { key: 'clients-debt', label: 'Долги клиентов', endpoint: '/api/clients-debt/' },
+  { key: 'notes', label: 'Заметки', endpoint: '/api/notes/', supportsCreate: false },
+  { key: 'payroll-documents', label: 'Начисления ЗП: документы', endpoint: '/api/payroll/documents/', supportsCreate: false },
+  { key: 'clients-debt', label: 'Долги клиентов', endpoint: '/api/clients-debt/', supportsCreate: false },
   { key: 'cash-expenses', label: 'Касса: расходы', endpoint: '/api/cash/expenses/' },
   { key: 'cash-revenues', label: 'Касса: доходы', endpoint: '/api/cash/revenues/' },
   { key: 'bank-expenses', label: 'Банк: расходы', endpoint: '/api/bank/expenses/' },
@@ -99,9 +108,13 @@ export function AdminModulePage() {
   const [crudPage, setCrudPage] = useState(1)
   const [crudPageSize, setCrudPageSize] = useState(20)
   const [editing, setEditing] = useState<AnyRow | null>(null)
-  const [editableFields, setEditableFields] = useState<Array<{ key: string; type: 'string' | 'number' | 'boolean' | 'null' }>>([])
+  const [editableFields, setEditableFields] = useState<AdminCrudDynamicField[]>([])
   const [nonEditableFields, setNonEditableFields] = useState<Array<{ key: string; value: unknown }>>([])
   const [saving, setSaving] = useState(false)
+
+  /** Создание новой записи (модальное окно). */
+  const [creatingRecord, setCreatingRecord] = useState(false)
+  const [openingCreateModal, setOpeningCreateModal] = useState(false)
 
   const [mxLoading, setMxLoading] = useState(false)
   const [mxError, setMxError] = useState<string | null>(null)
@@ -111,6 +124,7 @@ export function AdminModulePage() {
   const [matrixPageSize, setMatrixPageSize] = useState(20)
 
   const currentSource = SOURCES.find((s) => s.key === sourceKey) || SOURCES[0]
+  const canCreateHere = Boolean(currentSource.supportsCreate !== false)
 
   const loadRows = async () => {
     setLoading(true)
@@ -207,16 +221,17 @@ export function AdminModulePage() {
           <Button
             size="small"
             onClick={() => {
+              setCreatingRecord(false)
               setEditing(row)
               const initial: Record<string, unknown> = {}
               const nonEditable: Array<{ key: string; value: unknown }> = []
               for (const [key, value] of Object.entries(row)) {
                 if (key === 'id') continue
-                if (key === 'created_at' || key === 'created_by' || key === 'tenant') continue
+                if (ADMIN_CRUD_SKIP_KEYS.has(key)) continue
                 if (isPrimitive(value)) initial[key] = value
                 else nonEditable.push({ key, value })
               }
-              const fields = Object.entries(initial)
+              const fields: AdminCrudDynamicField[] = Object.entries(initial)
                 .sort(([a], [b]) => a.localeCompare(b))
                 .map(([key, value]) => ({
                   key,
@@ -274,6 +289,71 @@ export function AdminModulePage() {
     return [...base, ...mods]
   }, [mxModules])
 
+  const closeRecordModal = () => {
+    setEditing(null)
+    setCreatingRecord(false)
+    setEditableFields([])
+    setNonEditableFields([])
+    form.resetFields()
+  }
+
+  const openCreateModal = async () => {
+    setOpeningCreateModal(true)
+    try {
+      let plan =
+        planAdminCreateFieldsFromOptionsPost(
+          await fetchAdminCrudPostSchema(currentSource.endpoint, apiFetch),
+        ) ?? null
+
+      const templateRow = (filteredRows[0] ?? rows[0]) as AnyRow | undefined
+      if ((!plan || !plan.fields.length) && templateRow) {
+        plan = planAdminCreateFieldsFromRow(templateRow as Record<string, unknown>)
+      }
+
+      if (!plan || !plan.fields.length) {
+        message.warning(
+          'Не удалось сформировать поля: откройте OPTIONS у API или дождитесь строк в таблице и нажмите «Обновить».',
+        )
+        return
+      }
+
+      setEditing(null)
+      setCreatingRecord(true)
+      setEditableFields(plan.fields)
+      setNonEditableFields(plan.nonEditable)
+      form.resetFields()
+      form.setFieldsValue(plan.initial as Record<string, unknown>)
+    } finally {
+      setOpeningCreateModal(false)
+    }
+  }
+
+  const handleCreateRecord = async () => {
+    const payload = (await form.validateFields()) as Record<string, unknown>
+    const body: Record<string, unknown> = {}
+    for (const [key, raw] of Object.entries(payload)) {
+      if (raw === undefined) continue
+      body[key] = raw
+    }
+    setSaving(true)
+    try {
+      const res = await apiFetch(currentSource.endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      })
+      const json = await res.json().catch(() => null)
+      if (!res.ok) throw new Error(typeof json === 'object' && json ? JSON.stringify(json) : `HTTP ${res.status}`)
+      message.success('Создано')
+      closeRecordModal()
+      await loadRows()
+    } catch (e: unknown) {
+      message.error(e instanceof Error ? e.message : 'Не удалось создать запись')
+    } finally {
+      setSaving(false)
+    }
+  }
+
   const handleDelete = async (row: AnyRow) => {
     const id = row.id
     if (id === undefined || id === null || id === '') {
@@ -308,7 +388,7 @@ export function AdminModulePage() {
       const json = await res.json().catch(() => null)
       if (!res.ok) throw new Error(typeof json === 'object' && json ? JSON.stringify(json) : `HTTP ${res.status}`)
       message.success('Сохранено')
-      setEditing(null)
+      closeRecordModal()
       await loadRows()
     } catch (e: unknown) {
       message.error(e instanceof Error ? e.message : 'Не удалось сохранить')
@@ -392,6 +472,11 @@ export function AdminModulePage() {
                   style={{ width: 300 }}
                 />
                 <Button onClick={() => void loadRows()}>Обновить</Button>
+                {canCreateHere ? (
+                  <Button type="primary" loading={openingCreateModal} onClick={() => void openCreateModal()}>
+                    Создать
+                  </Button>
+                ) : null}
               </Space>
               {error ? <Alert type="error" showIcon message={error} style={{ marginBottom: 12 }} /> : null}
               <Table<AnyRow>
@@ -416,21 +501,31 @@ export function AdminModulePage() {
       ) : null}
 
       <Modal
-        open={Boolean(editing)}
-        title={editing ? `Изменить: ${rowCaption(editing)}` : 'Изменить запись'}
-        okText="Сохранить"
-        onOk={() => void handleSave()}
+        open={Boolean(editing) || creatingRecord}
+        title={
+          creatingRecord ? `Создать запись · ${currentSource.label}` : editing ? `Изменить: ${rowCaption(editing)}` : 'Запись'
+        }
+        okText={creatingRecord ? 'Создать' : 'Сохранить'}
+        onOk={() => void (creatingRecord ? handleCreateRecord() : handleSave())}
         confirmLoading={saving}
-        onCancel={() => {
-          setEditing(null)
-          setEditableFields([])
-          setNonEditableFields([])
-          form.resetFields()
-        }}
+        onCancel={closeRecordModal}
         width={920}
       >
         <Form form={form} layout="vertical">
-          {editableFields.map(({ key, type }) => {
+          {editableFields.map(({ key, type, choices }) => {
+              if (choices?.length) {
+                return (
+                  <Form.Item key={key} label={key} name={key}>
+                    <Select
+                      allowClear
+                      showSearch
+                      optionFilterProp="label"
+                      options={choices.map((c) => ({ value: c.value, label: c.label }))}
+                      placeholder={`Выберите ${key}`}
+                    />
+                  </Form.Item>
+                )
+              }
               if (type === 'boolean') {
                 return (
                   <Form.Item key={key} label={key} name={key} valuePropName="checked">
@@ -456,7 +551,11 @@ export function AdminModulePage() {
           <Alert
             type="info"
             showIcon
-            message="Часть полей недоступна для редактирования в упрощенной форме"
+            message={
+              creatingRecord
+                ? 'Поля из образца строки задаются только на сервере или через расширенный API'
+                : 'Часть полей недоступна для редактирования в упрощенной форме'
+            }
             description={
               <Space direction="vertical">
                 {nonEditableFields.map((f) => (
