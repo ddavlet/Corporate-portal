@@ -298,6 +298,28 @@ export async function getAccessMatrix(): Promise<AccessMatrixResponse> {
   }
 }
 
+export type AccessMatrixAssignmentPayload = {
+  user_id: number
+  roles: string[]
+}
+
+export async function updateAccessMatrixAssignments(
+  assignments: AccessMatrixAssignmentPayload[],
+): Promise<AccessMatrixResponse> {
+  const res = await apiFetch('/api/access-matrix/', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ assignments }),
+  })
+  if (!res.ok) throw new Error(await parseErrorBody(res))
+  const json = (await res.json().catch(() => null)) as AccessMatrixResponse | null
+  if (!json) throw new Error('Empty response')
+  return {
+    modules: Array.isArray(json.modules) ? json.modules : [],
+    users: Array.isArray(json.users) ? json.users : [],
+  }
+}
+
 export type SettingsAccessResponse = {
   tenant_name?: string
   can_open_settings: boolean

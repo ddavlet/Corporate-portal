@@ -240,6 +240,52 @@ class TenantIntegrationConfigApiTests(APITestCase):
         self.assertIn("admin", usernames)
         self.assertIn("user", usernames)
 
+    def test_access_matrix_put_requires_admin(self):
+        matrix_url = "/api/access-matrix/"
+        payload = {
+            "assignments": [
+                {"user_id": self.user.id, "roles": [TenantUserRole.ROLE_REQUESTER, TenantUserRole.ROLE_APPROVER]},
+                {"user_id": self.admin.id, "roles": [TenantUserRole.ROLE_ADMIN]},
+            ]
+        }
+        denied = self.client.put(matrix_url, payload, format="json", **self._auth_headers(self.user))
+        self.assertEqual(denied.status_code, 403)
+
+        ok = self.client.put(matrix_url, payload, format="json", **self._auth_headers(self.admin))
+        self.assertEqual(ok.status_code, 200, ok.content)
+        roles_user = next(row["roles"] for row in ok.data["users"] if row["username"] == "user")
+        roles_admin = next(row["roles"] for row in ok.data["users"] if row["username"] == "admin")
+        self.assertEqual(sorted(roles_user), sorted(["approver", "requester"]))
+        self.assertEqual(roles_admin, ["admin"])
+
+    def test_access_matrix_put_rejects_non_member_user_id(self):
+        matrix_url = "/api/access-matrix/"
+        outsider = User.objects.create_user(username="outsider", password="x")
+        payload = {
+            "assignments": [
+                {"user_id": self.admin.id, "roles": [TenantUserRole.ROLE_ADMIN]},
+                {"user_id": outsider.id, "roles": [TenantUserRole.ROLE_REQUESTER]},
+            ]
+        }
+        res = self.client.put(matrix_url, payload, format="json", **self._auth_headers(self.admin))
+        self.assertEqual(res.status_code, 400, res.content)
+
+    def test_access_matrix_put_rejects_removing_last_admin(self):
+        matrix_url = "/api/access-matrix/"
+        payload = {
+            "assignments": [
+                {"user_id": self.admin.id, "roles": [TenantUserRole.ROLE_REQUESTER]},
+                {"user_id": self.user.id, "roles": [TenantUserRole.ROLE_REQUESTER]},
+            ]
+        }
+        res = self.client.put(matrix_url, payload, format="json", **self._auth_headers(self.admin))
+        self.assertEqual(res.status_code, 400, res.content)
+        self.assertTrue(
+            TenantUserRole.objects.filter(
+                tenant=self.tenant, user=self.admin, role=TenantUserRole.ROLE_ADMIN
+            ).exists()
+        )
+
     def test_settings_access_flags_for_roles(self):
         url = "/api/settings-access/"
 
