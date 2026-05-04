@@ -3,7 +3,7 @@ from django.contrib import admin
 from django.db import transaction
 
 from apps.modules.registry import list_modules
-from apps.tenants.models import Tenant, TenantIntegrationConfig, TenantMembership, TenantModuleConfig, TenantUserRole
+from apps.tenants.models import Tenant, TenantIntegrationConfig, TenantMembership, TenantModuleConfig
 
 
 def _module_choices():
@@ -97,13 +97,6 @@ class TenantMembershipInline(admin.TabularInline):
     fields = ("user", "is_active")
 
 
-class TenantUserRoleInline(admin.TabularInline):
-    model = TenantUserRole
-    extra = 0
-    autocomplete_fields = ("user",)
-    fields = ("user", "role")
-
-
 @admin.register(Tenant)
 class TenantAdmin(admin.ModelAdmin):
     form = TenantAdminForm
@@ -111,7 +104,8 @@ class TenantAdmin(admin.ModelAdmin):
     list_filter = ("is_active", "telegram_otp_enabled")
     search_fields = ("subdomain", "name")
     ordering = ("subdomain",)
-    inlines = [TenantMembershipInline, TenantUserRoleInline]
+    # Roles: portal Settings ▸ Настройки пользователей (tenant admin).
+    inlines = [TenantMembershipInline]
     fields = (
         "name",
         "subdomain",
@@ -142,14 +136,6 @@ class TenantModuleConfigAdmin(admin.ModelAdmin):
         if db_field.name == "module_key":
             kwargs["choices"] = _module_choices()
         return super().formfield_for_choice_field(db_field, request, **kwargs)
-
-
-@admin.register(TenantUserRole)
-class TenantUserRoleAdmin(admin.ModelAdmin):
-    list_display = ("id", "tenant", "user", "role")
-    list_filter = ("tenant", "role")
-    search_fields = ("tenant__subdomain", "user__username", "role")
-    autocomplete_fields = ("tenant", "user")
 
 
 @admin.register(TenantIntegrationConfig)
