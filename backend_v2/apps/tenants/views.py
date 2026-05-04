@@ -4,6 +4,7 @@ from collections import defaultdict
 
 import requests
 from django.conf import settings
+from django.db import transaction
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.views import APIView
 from rest_framework.response import Response
@@ -24,6 +25,7 @@ from apps.tenants.permissions import (
     role_allows_module,
 )
 from apps.tenants.serializers import (
+    AccessMatrixUpdateSerializer,
     TenantCashExpenseIdFormatSerializer,
     TenantIntegrationConfigSerializer,
     TenantModuleConfigUpdateSerializer,
@@ -275,6 +277,39 @@ class AccessMatrixView(APIView):
                 "users": users_payload,
             }
         )
+
+    def put(self, request):
+        tenant = request.tenant
+        serializer = AccessMatrixUpdateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        assignments = serializer.validated_data["assignments"]
+
+        member_ids = set(
+            TenantMembership.objects.filter(tenant=tenant, is_active=True).values_list("user_id", flat=True)
+        )
+        for item in assignments:
+            uid = item["user_id"]
+            if uid not in member_ids:
+                raise ValidationError(
+                    {"assignments": f"Пользователь {uid} не является активным участником компании."}
+                )
+
+        with transaction.atomic():
+            for item in assignments:
+                uid = item["user_id"]
+                roles = item["roles"]
+                TenantUserRole.objects.filter(tenant=tenant, user_id=uid).delete()
+                TenantUserRole.objects.bulk_create(
+                    [TenantUserRole(tenant=tenant, user_id=uid, role=r) for r in roles]
+                )
+            if not TenantUserRole.objects.filter(tenant=tenant, role=TenantUserRole.ROLE_ADMIN).exists():
+                raise ValidationError(
+                    {
+                        "assignments": "У компании должен остаться хотя бы один пользователь с ролью admin.",
+                    }
+                )
+
+        return self.get(request)
 
 
 class SettingsAccessView(APIView):
