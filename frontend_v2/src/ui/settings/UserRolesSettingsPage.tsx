@@ -3,6 +3,7 @@ import { Alert, Button, Card, Select, Space, Table, Typography, message } from '
 import type { ColumnsType } from 'antd/es/table'
 import {
   getAccessMatrix,
+  getSettingsAccess,
   updateAccessMatrixAssignments,
   type AccessMatrixUserRow,
 } from '../../lib/api'
@@ -31,13 +32,16 @@ function rolesEqual(a: string[], b: string[]): boolean {
 }
 
 export function UserRolesSettingsPage() {
-  const [loading, setLoading] = useState(true)
+  const [gateLoading, setGateLoading] = useState(true)
+  const [allowed, setAllowed] = useState(false)
+  const [gateError, setGateError] = useState<string | null>(null)
+  const [loading, setLoading] = useState(false)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [users, setUsers] = useState<AccessMatrixUserRow[]>([])
   const [draftRoles, setDraftRoles] = useState<Record<number, string[]>>({})
 
-  const load = useCallback(async () => {
+  const loadMatrix = useCallback(async () => {
     setLoading(true)
     setError(null)
     try {
@@ -56,8 +60,31 @@ export function UserRolesSettingsPage() {
   }, [])
 
   useEffect(() => {
-    void load()
-  }, [load])
+    let cancelled = false
+    void (async () => {
+      setGateLoading(true)
+      setGateError(null)
+      try {
+        const access = await getSettingsAccess()
+        if (cancelled) return
+        setAllowed(Boolean(access.can_manage_tenant_settings))
+      } catch (e: unknown) {
+        if (cancelled) return
+        setGateError(e instanceof Error ? e.message : 'Не удалось проверить доступ')
+        setAllowed(false)
+      } finally {
+        if (!cancelled) setGateLoading(false)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  useEffect(() => {
+    if (!allowed) return
+    void loadMatrix()
+  }, [allowed, loadMatrix])
 
   const isDirty = useMemo(
     () => users.some((u) => !rolesEqual(draftRoles[u.user_id] ?? [], u.roles)),
@@ -142,24 +169,38 @@ export function UserRolesSettingsPage() {
         message="Ограничения"
         description="Должен остаться хотя бы один пользователь с ролью «Администратор компании» (admin). Пользователей без активного членства в компании здесь нельзя изменить."
       />
-      {error ? <Alert type="error" showIcon message={error} /> : null}
-      <Card>
-        <Space style={{ marginBottom: 12 }}>
-          <Button onClick={() => void load()} disabled={saving}>
-            Обновить
-          </Button>
-          <Button type="primary" onClick={() => void onSave()} loading={saving} disabled={!isDirty}>
-            Сохранить изменения
-          </Button>
-        </Space>
-        <Table<RowData>
-          loading={loading}
-          columns={columns}
-          dataSource={dataSource}
-          pagination={{ pageSize: 20, showSizeChanger: true }}
-          scroll={{ x: 720 }}
+      {gateLoading ? (
+        <Card loading />
+      ) : gateError ? (
+        <Alert type="error" showIcon message={gateError} />
+      ) : !allowed ? (
+        <Alert
+          type="warning"
+          showIcon
+          message="Доступ только для администратора компании"
+          description="Управление ролями доступно только пользователям с ролью admin в этом tenant."
         />
-      </Card>
+      ) : null}
+      {error ? <Alert type="error" showIcon message={error} /> : null}
+      {allowed ? (
+        <Card>
+          <Space style={{ marginBottom: 12 }}>
+            <Button onClick={() => void loadMatrix()} disabled={saving}>
+              Обновить
+            </Button>
+            <Button type="primary" onClick={() => void onSave()} loading={saving} disabled={!isDirty}>
+              Сохранить изменения
+            </Button>
+          </Space>
+          <Table<RowData>
+            loading={loading}
+            columns={columns}
+            dataSource={dataSource}
+            pagination={{ pageSize: 20, showSizeChanger: true }}
+            scroll={{ x: 720 }}
+          />
+        </Card>
+      ) : null}
     </Space>
   )
 }

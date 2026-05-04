@@ -12,7 +12,6 @@ export function SettingsPage() {
     can_manage_tenant_settings: boolean
     can_manage_requests_settings: boolean
     can_manage_wallet_settings: boolean
-    can_open_admin: boolean
   } | null>(null)
 
   useEffect(() => {
@@ -26,7 +25,6 @@ export function SettingsPage() {
           can_manage_tenant_settings: Boolean(data.can_manage_tenant_settings),
           can_manage_requests_settings: Boolean(data.can_manage_requests_settings),
           can_manage_wallet_settings: Boolean(data.can_manage_wallet_settings),
-          can_open_admin: Boolean(data.can_open_admin),
         })
       } catch (e: unknown) {
         if (cancelled) return
@@ -52,7 +50,7 @@ export function SettingsPage() {
         return access.can_manage_wallet_settings
       }
       if (m.path === '/settings/users-roles') {
-        return access.can_open_admin
+        return access.can_manage_tenant_settings
       }
       if (m.path === '/settings/investment-approval-config') {
         return access.can_manage_requests_settings
