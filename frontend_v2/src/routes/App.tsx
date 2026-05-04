@@ -27,6 +27,7 @@ import {
 } from '../ui/requests'
 import { SettingsPage } from '../ui/SettingsPage'
 import { TenantIntegrationConfigPage } from '../ui/settings/TenantIntegrationConfigPage'
+import { UserRolesSettingsPage } from '../ui/settings/UserRolesSettingsPage'
 import { CashRegistersSettingsPage } from '../ui/settings/CashRegistersSettingsPage'
 import { InvestmentApprovalConfigPage } from '../ui/settings/InvestmentApprovalConfigPage'
 import { AdminModulePage } from '../ui/admin/AdminModulePage'
@@ -102,6 +103,7 @@ export function App() {
         <Route path="settings/request-approval-config" element={<RequestApprovalConfigPage />} />
         <Route path="settings/investment-approval-config" element={<InvestmentApprovalConfigPage />} />
         <Route path="settings/tenant-integration-config" element={<TenantIntegrationConfigPage />} />
+        <Route path="settings/users-roles" element={<UserRolesSettingsPage />} />
         <Route path="settings/cash-registers" element={<CashRegistersSettingsPage />} />
         <Route path="admin" element={<AdminModulePage />} />
         <Route path="training" element={<TrainingPage />} />

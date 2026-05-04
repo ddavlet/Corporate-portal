@@ -1,4 +1,4 @@
-import { FileTextOutlined, SettingOutlined, ShopOutlined } from '@ant-design/icons'
+import { FileTextOutlined, SettingOutlined, ShopOutlined, TeamOutlined } from '@ant-design/icons'
 import type { ReactNode } from 'react'
 
 export type SettingsModuleItem = {
@@ -31,6 +31,13 @@ export const SETTINGS_MODULES: SettingsModuleItem[] = [
     description: 'URL, actions и секреты интеграций по модулям компании.',
     path: '/settings/tenant-integration-config',
     icon: <SettingOutlined />,
+  },
+  {
+    key: 'users-roles',
+    title: 'Настройки пользователей',
+    description: 'Роли участников компании с активным доступом к порталу.',
+    path: '/settings/users-roles',
+    icon: <TeamOutlined />,
   },
   {
     key: 'investments-approvals',
