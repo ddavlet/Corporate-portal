@@ -596,7 +596,7 @@ services:
     command: >
       sh -c "
         npm install -g @modelcontextprotocol/server-postgres mcp-proxy &&
-        mcp-proxy --port 3100 --transport sse npx @modelcontextprotocol/server-postgres 'postgresql://mcp_claude:${MCP_CLAUDE_PASSWORD}@db:5432/backend_v2'
+        mcp-proxy --port 3100 --transport sse npx @modelcontextprotocol/server-postgres 'postgresql://POSGRES_MCP_USER:${POSGRES_MCP_PASSWORD}@db:5432/backend_v2'
       "
     depends_on:
       db:
