@@ -35,7 +35,7 @@ export const SETTINGS_MODULES: SettingsModuleItem[] = [
   {
     key: 'users-roles',
     title: 'Настройки пользователей',
-    description: 'Роли участников компании с активным доступом к порталу.',
+    description: 'Роли участников компании (только для администратора tenant).',
     path: '/settings/users-roles',
     icon: <TeamOutlined />,
   },
