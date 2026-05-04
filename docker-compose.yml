@@ -589,6 +589,35 @@ services:
     networks:
       - traefik-public
 
+  mcp-postgres:
+    image: node:20-alpine
+    container_name: mcp-postgres
+    restart: always
+    command: >
+      sh -c "
+        npm install -g @modelcontextprotocol/server-postgres mcp-proxy &&
+        mcp-proxy --port 3100 --transport sse --
+          npx @modelcontextprotocol/server-postgres
+          'postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}'
+      "
+    depends_on:
+      db:
+        condition: service_healthy
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=n8n_traefik-public
+      - traefik.http.routers.mcp-postgres.rule=Host(`mcp-db.kolberg.uz`)
+      - traefik.http.routers.mcp-postgres.entrypoints=web,websecure
+      - traefik.http.routers.mcp-postgres.tls=true
+      - traefik.http.routers.mcp-postgres.tls.certresolver=mytlschallenge
+      - traefik.http.services.mcp-postgres.loadbalancer.server.port=3100
+      # Basic auth middleware to protect the endpoint
+      - traefik.http.routers.mcp-postgres.middlewares=mcp-postgres-auth@docker
+      - traefik.http.middlewares.mcp-postgres-auth.basicauth.users=${MCP_POSTGRES_BASIC_AUTH}
+    networks:
+      - traefik-public
+      - backend
+
 volumes:
   n8n_data:
   traefik_data:
