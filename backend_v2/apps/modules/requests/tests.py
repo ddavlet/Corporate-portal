@@ -2629,12 +2629,14 @@ class DraftRequestPatchSubmitTests(APITestCase):
         self.approver = User.objects.create_user(username="d_appr", password="x")
         self.approver.telegram_chat_id = 222
         self.approver.save(update_fields=["telegram_chat_id"])
-        for u in (self.admin, self.requester, self.other, self.approver):
+        self.director = User.objects.create_user(username="d_dir", password="x")
+        for u in (self.admin, self.requester, self.other, self.approver, self.director):
             TenantMembership.objects.create(tenant=self.tenant, user=u, is_active=True)
         TenantUserRole.objects.create(tenant=self.tenant, user=self.admin, role=TenantUserRole.ROLE_ADMIN)
         TenantUserRole.objects.create(tenant=self.tenant, user=self.requester, role=TenantUserRole.ROLE_REQUESTER)
         TenantUserRole.objects.create(tenant=self.tenant, user=self.other, role=TenantUserRole.ROLE_REQUESTER)
         TenantUserRole.objects.create(tenant=self.tenant, user=self.approver, role=TenantUserRole.ROLE_APPROVER)
+        TenantUserRole.objects.create(tenant=self.tenant, user=self.director, role=TenantUserRole.ROLE_DIRECTOR)
         TenantModuleConfig.objects.create(tenant=self.tenant, module_key="requests", is_enabled=True)
         self.host = "draftco.example.com"
 
@@ -2736,6 +2738,18 @@ class DraftRequestPatchSubmitTests(APITestCase):
             HTTP_HOST=self.host,
         )
         self.assertEqual(res.status_code, 403, res.content)
+
+    def test_director_can_patch_others_draft(self):
+        req = self._draft_request()
+        self.client.force_authenticate(self.director)
+        res = self.client.patch(
+            f"/api/requests/{req.id}/",
+            {"description": "edited by director"},
+            format="json",
+            HTTP_HOST=self.host,
+        )
+        self.assertEqual(res.status_code, 200, res.content)
+        self.assertEqual(Request.objects.get(pk=req.id).description, "edited by director")
 
     def test_create_sets_amortization_defaults_from_billing_date(self):
         self.client.force_authenticate(self.requester)
