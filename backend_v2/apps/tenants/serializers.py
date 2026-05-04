@@ -4,6 +4,7 @@ import re
 from rest_framework import serializers
 
 from apps.tenants.cash_expense_id_format import validate_cash_expense_external_id_prefix
+from apps.tenants.models import TenantUserRole
 
 User = get_user_model()
 PREFERENCE_KEY_PATTERN = re.compile(r"^[a-z0-9]+(?:[._-][a-z0-9]+)*$")
@@ -36,6 +37,26 @@ class TenantCashExpenseIdFormatSerializer(serializers.Serializer):
             return validate_cash_expense_external_id_prefix(value)
         except ValueError as exc:
             raise serializers.ValidationError(str(exc)) from exc
+
+
+_ALLOWED_TENANT_ROLE_VALUES = {choice[0] for choice in TenantUserRole.ROLE_CHOICES}
+
+
+class AccessMatrixAssignmentSerializer(serializers.Serializer):
+    user_id = serializers.IntegerField(min_value=1)
+    roles = serializers.ListField(child=serializers.CharField(max_length=30), allow_empty=False)
+
+    def validate_roles(self, value: list[str]) -> list[str]:
+        unknown = [r for r in value if r not in _ALLOWED_TENANT_ROLE_VALUES]
+        if unknown:
+            raise serializers.ValidationError(f"Unknown roles: {sorted(set(unknown))}")
+        if len(value) != len(set(value)):
+            raise serializers.ValidationError("Duplicate roles are not allowed.")
+        return value
+
+
+class AccessMatrixUpdateSerializer(serializers.Serializer):
+    assignments = serializers.ListField(child=AccessMatrixAssignmentSerializer(), allow_empty=False)
 
 
 class TenantIntegrationConfigSerializer(serializers.Serializer):
