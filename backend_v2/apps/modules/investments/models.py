@@ -196,7 +196,7 @@ class InvestmentApprovalConfigStep(models.Model):
 
     config = models.ForeignKey(InvestmentApprovalConfig, on_delete=models.CASCADE, related_name="steps")
     step = models.PositiveIntegerField()
-    step_type = models.CharField(max_length=10, choices=STEP_TYPE_CHOICES, default=STEP_TYPE_SERIAL)
+    step_type = models.CharField(max_length=16, choices=STEP_TYPE_CHOICES, default=STEP_TYPE_SERIAL)
     is_enabled = models.BooleanField(default=True)
     payment_chat_id = models.BigIntegerField(null=True, blank=True)
     approver_users = models.ManyToManyField(
@@ -242,7 +242,7 @@ class InvestmentReturnApproval(models.Model):
     invest_return = models.ForeignKey(InvestReturn, on_delete=models.CASCADE, related_name="approvals")
     step = models.PositiveIntegerField()
     step_type = models.CharField(
-        max_length=10,
+        max_length=16,
         choices=InvestmentApprovalConfigStep.STEP_TYPE_CHOICES,
         default=InvestmentApprovalConfigStep.STEP_TYPE_SERIAL,
     )
