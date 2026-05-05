@@ -8,7 +8,13 @@ from django.test import override_settings
 from rest_framework.test import APIRequestFactory
 from rest_framework.test import APITestCase
 
-from apps.modules.investments.models import InvestCompany, InvestPayoutSchedule, InvestPayoutScheduleShareLink, InvestReturn
+from apps.modules.investments.models import (
+    InvestCompany,
+    InvestmentApprovalConfigStep,
+    InvestPayoutSchedule,
+    InvestPayoutScheduleShareLink,
+    InvestReturn,
+)
 from apps.tenants.models import TenantMembership, TenantModuleConfig, TenantUserRole
 from apps.modules.investments.serializers import (
     InvestPayoutScheduleSerializer,
@@ -293,8 +299,19 @@ class InvestmentApprovalFlowTests(APITestCase):
         cfg_payload = {
             "is_enabled": True,
             "steps": [
-                {"step": 1, "is_enabled": True, "approver_user_ids": [self.approver1.id]},
-                {"step": 2, "is_enabled": True, "approver_user_ids": [self.approver2.id]},
+                {
+                    "step": 1,
+                    "step_type": InvestmentApprovalConfigStep.STEP_TYPE_SERIAL,
+                    "is_enabled": True,
+                    "approver_user_ids": [self.approver1.id],
+                },
+                {
+                    "step": 2,
+                    "step_type": InvestmentApprovalConfigStep.STEP_TYPE_CONFIRMATION,
+                    "is_enabled": True,
+                    "payment_chat_id": 666000,
+                    "approver_user_ids": [self.approver2.id],
+                },
             ],
         }
         response = self.client.put("/api/investments/approval-config/", cfg_payload, format="json", HTTP_HOST=self.host)
@@ -321,7 +338,9 @@ class InvestmentApprovalFlowTests(APITestCase):
         self.assertFalse(created.confirmed)
         self.assertEqual(created.approvals.count(), 2)
         self.assertEqual(bridge_mock.call_count, 1)
-        self.assertIn("Новая выплата по InvestFlow", bridge_mock.call_args.kwargs["payload"]["text"])
+        payload = bridge_mock.call_args.kwargs["payload"]
+        self.assertIn("Новая выплата по InvestFlow", payload["text"])
+        self.assertEqual(payload["buttons"][0][0]["label"], "✅ Проверено")
 
     @patch("apps.modules.investments.approval_services.post_messaging_gateway")
     def test_callback_enforces_authorization_and_final_confirmation(self, bridge_mock):
@@ -385,13 +404,14 @@ class InvestmentApprovalFlowTests(APITestCase):
 
         second_step.refresh_from_db()
         self.assertIsNotNone(second_step.gateway_message_id)
+        self.assertEqual(second_step.approver_recipient_id, 666000)
         ok_second = self.client.post(
             "/api/investments/approvals/webhook/",
             {
                 "event": "interaction",
                 "payload": f"inv_{second_step.id}:a",
                 "user_id": str(self.approver2.telegram_from_id),
-                "recipient_id": str(self.approver2.telegram_chat_id),
+                "recipient_id": "666000",
                 "message_id": second_step.gateway_message_id,
                 "platform": "telegram",
             },
@@ -435,3 +455,39 @@ class InvestmentApprovalFlowTests(APITestCase):
         self.assertEqual(reject_res.status_code, 200)
         inv_return.refresh_from_db()
         self.assertFalse(inv_return.confirmed)
+
+    @patch("apps.modules.investments.approval_services.post_messaging_gateway")
+    def test_payment_step_uses_payment_buttons_and_chat_id(self, bridge_mock):
+        bridge_mock.return_value = {"message_id": 505}
+        create_res = self.client.post(
+            "/api/investments/returns/",
+            {
+                "date": "2026-04-29",
+                "sum": "750.00",
+                "currency": "USD",
+                "type": "дивиденды",
+                "recipient": "инвестор",
+            },
+            format="json",
+            HTTP_HOST=self.host,
+        )
+        self.assertEqual(create_res.status_code, 201)
+        inv_return = InvestReturn.objects.get(id=create_res.data["id"])
+        first_step = inv_return.approvals.get(step=1)
+        first_ok = self.client.post(
+            "/api/investments/approvals/webhook/",
+            {
+                "event": "interaction",
+                "payload": f"inv_{first_step.id}:a",
+                "user_id": str(self.approver1.telegram_from_id),
+                "recipient_id": str(self.approver1.telegram_chat_id),
+                "message_id": first_step.gateway_message_id or 505,
+                "platform": "telegram",
+            },
+            format="json",
+            HTTP_HOST=self.host,
+        )
+        self.assertEqual(first_ok.status_code, 200)
+        payload = bridge_mock.call_args.kwargs["payload"]
+        self.assertEqual(payload["recipient_id"], "666000")
+        self.assertEqual(payload["buttons"][0][0]["label"], "✅ Получено")

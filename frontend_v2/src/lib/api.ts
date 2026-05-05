@@ -945,7 +945,9 @@ export type CreateInvestReturnPayload = {
 
 export type InvestmentApprovalConfigStepItem = {
   step: number
+  step_type: 'serial' | 'confirmation'
   is_enabled: boolean
+  payment_chat_id?: number | null
   approver_user_ids: number[]
 }
 
