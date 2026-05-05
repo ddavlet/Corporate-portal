@@ -8,6 +8,7 @@ from django.utils import timezone
 
 from apps.modules.investments.models import (
     InvestmentApprovalConfig,
+    InvestmentApprovalConfigStep,
     InvestmentReturnApproval,
     InvestReturn,
 )
@@ -41,6 +42,22 @@ def _build_message(*, invest_return: InvestReturn) -> str:
     )
 
 
+def _build_buttons(*, approval: InvestmentReturnApproval) -> list[list[dict]]:
+    if approval.step_type == InvestmentApprovalConfigStep.STEP_TYPE_CONFIRMATION:
+        return [
+            [
+                {"label": "✅ Получено", "value": _button_data(approval_id=approval.id, decision="approved")},
+                {"label": "❌ Отменить", "value": _button_data(approval_id=approval.id, decision="rejected")},
+            ]
+        ]
+    return [
+        [
+            {"label": "✅ Проверено", "value": _button_data(approval_id=approval.id, decision="approved")},
+            {"label": "❌ Есть ошибка", "value": _button_data(approval_id=approval.id, decision="rejected")},
+        ]
+    ]
+
+
 def _dispatch_approval_message(*, approval: InvestmentReturnApproval) -> None:
     if approval.approver_recipient_id is None:
         return
@@ -53,12 +70,7 @@ def _dispatch_approval_message(*, approval: InvestmentReturnApproval) -> None:
         "tenant_id": str(approval.tenant_id),
         "approval_id": str(approval.id),
         "request_id": approval.invest_return_id,
-        "buttons": [
-            [
-                {"label": "✅ Подтвердить", "value": _button_data(approval_id=approval.id, decision="approved")},
-                {"label": "❌ Отменить", "value": _button_data(approval_id=approval.id, decision="rejected")},
-            ]
-        ],
+        "buttons": _build_buttons(approval=approval),
     }
     response_data = post_messaging_gateway(tenant=approval.tenant, payload=payload) or {}
     message_id = response_data.get("message_id")
@@ -90,12 +102,18 @@ def create_approvals_for_invest_return(*, invest_return: InvestReturn) -> int:
     created = 0
     for step in config.steps.filter(is_enabled=True).order_by("step", "id"):
         for approver in step.approver_users.filter(is_active=True):
+            recipient_id = (
+                step.payment_chat_id
+                if step.step_type == InvestmentApprovalConfigStep.STEP_TYPE_CONFIRMATION
+                else approver.telegram_chat_id
+            )
             InvestmentReturnApproval.objects.create(
                 tenant=invest_return.tenant,
                 invest_return=invest_return,
                 step=step.step,
+                step_type=step.step_type,
                 approver_user=approver,
-                approver_recipient_id=approver.telegram_chat_id,
+                approver_recipient_id=recipient_id,
                 approver_external_user_id=approver.telegram_from_id,
             )
             created += 1
