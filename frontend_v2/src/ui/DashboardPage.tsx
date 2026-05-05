@@ -90,8 +90,13 @@ export function DashboardPage() {
   const prevRef = getPreviousMonthRef(nowRef)
 
   const pnlTotals = useMemo(
-    () => totalsFromReport(pnlPayload?.revenue ?? [], pnlPayload?.expense ?? []),
-    [pnlPayload?.revenue, pnlPayload?.expense],
+    () =>
+      totalsFromReport(pnlPayload?.revenue ?? [], [
+        ...(pnlPayload?.operational_expenses ?? []),
+        ...(pnlPayload?.other_expenses ?? []),
+        ...(pnlPayload?.expense ?? []),
+      ]),
+    [pnlPayload?.revenue, pnlPayload?.operational_expenses, pnlPayload?.other_expenses, pnlPayload?.expense],
   )
   const cashflowTotals = useMemo(
     () => totalsFromReport(cashflowPayload?.revenue ?? [], cashflowPayload?.expense ?? []),
