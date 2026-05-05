@@ -3,7 +3,7 @@ from django.contrib import admin
 from django.db import transaction
 
 from apps.modules.registry import list_modules
-from apps.tenants.models import Tenant, TenantIntegrationConfig, TenantMembership, TenantModuleConfig
+from apps.tenants.models import Tenant, TenantMembership, TenantModuleConfig, TenantUserRole
 
 
 def _module_choices():
@@ -117,30 +117,10 @@ class TenantAdmin(admin.ModelAdmin):
     )
 
 
-@admin.register(TenantMembership)
-class TenantMembershipAdmin(admin.ModelAdmin):
-    list_display = ("id", "user", "tenant", "is_active")
-    list_filter = ("is_active", "tenant")
-    search_fields = ("user__username", "user__email", "tenant__subdomain", "tenant__name")
-    autocomplete_fields = ("user", "tenant")
-
-
-@admin.register(TenantModuleConfig)
-class TenantModuleConfigAdmin(admin.ModelAdmin):
-    list_display = ("id", "tenant", "module_key", "is_enabled")
-    list_filter = ("is_enabled", "module_key")
-    search_fields = ("tenant__subdomain", "module_key")
-    autocomplete_fields = ("tenant",)
-
-    def formfield_for_choice_field(self, db_field, request, **kwargs):
-        if db_field.name == "module_key":
-            kwargs["choices"] = _module_choices()
-        return super().formfield_for_choice_field(db_field, request, **kwargs)
-
-
-@admin.register(TenantIntegrationConfig)
-class TenantIntegrationConfigAdmin(admin.ModelAdmin):
-    list_display = ("id", "tenant", "updated_at", "updated_by")
-    search_fields = ("tenant__subdomain", "tenant__name")
-    autocomplete_fields = ("tenant", "updated_by")
+@admin.register(TenantUserRole)
+class TenantUserRoleAdmin(admin.ModelAdmin):
+    list_display = ("id", "tenant", "user", "role")
+    list_filter = ("role", "tenant")
+    search_fields = ("tenant__subdomain", "tenant__name", "user__username", "user__email")
+    autocomplete_fields = ("tenant", "user")
 
