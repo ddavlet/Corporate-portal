@@ -165,7 +165,9 @@ class InvestmentApprovalConfigView(APIView):
             "steps": [
                 {
                     "step": row.step,
+                    "step_type": row.step_type,
                     "is_enabled": row.is_enabled,
+                    "payment_chat_id": row.payment_chat_id,
                     "approver_user_ids": list(row.approver_users.values_list("id", flat=True)),
                 }
                 for row in steps
@@ -192,7 +194,9 @@ class InvestmentApprovalConfigView(APIView):
                 step = InvestmentApprovalConfigStep.objects.create(
                     config=config,
                     step=row["step"],
+                    step_type=row.get("step_type", InvestmentApprovalConfigStep.STEP_TYPE_SERIAL),
                     is_enabled=row["is_enabled"],
+                    payment_chat_id=row.get("payment_chat_id"),
                 )
                 step.approver_users.set(row["approver_user_ids"])
         return Response(self._response_payload(request.tenant))
