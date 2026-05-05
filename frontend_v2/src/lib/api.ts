@@ -1639,6 +1639,7 @@ export type RequestApprovalConfigStepItem = {
   approver_user_ids: number[]
   payment_action_mode?: 'callback' | 'webapp' | 'create'
   payment_webapp_url?: string
+  payment_chat_id?: number | null
 }
 
 export type RequestApprovalPurposeExceptionItem = {
@@ -1683,6 +1684,7 @@ export type RequestApprovalConfigUpdatePayload = {
         approver_user_ids: number[]
         payment_action_mode?: 'callback' | 'webapp' | 'create'
         payment_webapp_url?: string
+        payment_chat_id?: number | null
       }>
     }>
     steps: Array<{
@@ -1692,6 +1694,7 @@ export type RequestApprovalConfigUpdatePayload = {
       approver_user_ids: number[]
       payment_action_mode?: 'callback' | 'webapp' | 'create'
       payment_webapp_url?: string
+      payment_chat_id?: number | null
     }>
   }>
 }

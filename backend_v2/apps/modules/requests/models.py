@@ -460,6 +460,10 @@ class RequestApprovalStepConfig(models.Model):
         default=PAYMENT_ACTION_MODE_CALLBACK,
     )
     payment_webapp_url = models.TextField(blank=True, default="")
+    # Per-tenant payment-stage destination chat. When set on a payment step, dispatch uses this
+    # instead of the approver's user.telegram_chat_id, allowing the same user to serve different
+    # tenants/groups with distinct group chats.
+    payment_chat_id = models.BigIntegerField(null=True, blank=True)
 
     class Meta:
         db_table = "request_approval_step_configs"
@@ -562,6 +566,7 @@ class RequestApprovalPurposeExceptionStepConfig(models.Model):
         default=RequestApprovalStepConfig.PAYMENT_ACTION_MODE_CALLBACK,
     )
     payment_webapp_url = models.TextField(blank=True, default="")
+    payment_chat_id = models.BigIntegerField(null=True, blank=True)
 
     class Meta:
         db_table = "request_approval_purpose_exception_step_configs"
