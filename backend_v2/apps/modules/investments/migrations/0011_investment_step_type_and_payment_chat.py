@@ -18,7 +18,7 @@ class Migration(migrations.Migration):
             field=models.CharField(
                 choices=[("serial", "serial"), ("confirmation", "confirmation")],
                 default="serial",
-                max_length=10,
+                max_length=16,
             ),
         ),
         migrations.AddField(
@@ -27,7 +27,7 @@ class Migration(migrations.Migration):
             field=models.CharField(
                 choices=[("serial", "serial"), ("confirmation", "confirmation")],
                 default="serial",
-                max_length=10,
+                max_length=16,
             ),
         ),
     ]
