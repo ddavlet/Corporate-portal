@@ -28,6 +28,7 @@ function emptyStep(step: number): RequestApprovalConfigStepItem {
     approver_user_ids: [],
     payment_action_mode: 'callback',
     payment_webapp_url: '',
+    payment_chat_id: null,
   }
 }
 
@@ -131,6 +132,7 @@ export function RequestApprovalConfigPage() {
         payment_types: prev.payment_types.map((p) => {
           if (p.payment_type !== pt) return p
           const next = [...(p.purpose_exceptions ?? [])]
+          if (excIdx < 0 || excIdx >= next.length) return p
           next[excIdx] = { ...next[excIdx], ...patch }
           return { ...p, purpose_exceptions: next }
         }),
@@ -169,6 +171,25 @@ export function RequestApprovalConfigPage() {
         payment_types: prev.payment_types.map((p) =>
           p.payment_type === pt ? { ...p, purpose_exceptions: [...(p.purpose_exceptions ?? []), emptyPurposeException()] } : p,
         ),
+      }
+    })
+  }
+
+  const addPurposeExceptionStep = (pt: string, excIdx: number) => {
+    setData((prev) => {
+      if (!prev) return prev
+      return {
+        ...prev,
+        payment_types: prev.payment_types.map((p) => {
+          if (p.payment_type !== pt) return p
+          const exceptions = [...(p.purpose_exceptions ?? [])]
+          const current = exceptions[excIdx]
+          const maxStep = (current.steps ?? []).reduce((acc, s) => Math.max(acc, s.step), 0)
+          const next = maxStep + 1
+          const steps = [...(current.steps ?? []), emptyStep(next)]
+          exceptions[excIdx] = { ...current, steps }
+          return { ...p, purpose_exceptions: exceptions }
+        }),
       }
     })
   }
@@ -257,6 +278,7 @@ export function RequestApprovalConfigPage() {
               approver_user_ids: s.approver_user_ids,
               payment_action_mode: s.payment_action_mode ?? 'callback',
               payment_webapp_url: s.payment_webapp_url ?? '',
+              payment_chat_id: s.step_type === 'payment' ? s.payment_chat_id ?? null : null,
             })),
           })),
           steps: pt.steps.map((s) => ({
@@ -266,6 +288,7 @@ export function RequestApprovalConfigPage() {
             approver_user_ids: s.approver_user_ids,
             payment_action_mode: s.payment_action_mode ?? 'callback',
             payment_webapp_url: s.payment_webapp_url ?? '',
+            payment_chat_id: s.step_type === 'payment' ? s.payment_chat_id ?? null : null,
           })),
         })),
       }
@@ -456,8 +479,24 @@ export function RequestApprovalConfigPage() {
                                 placeholder="Approver-ы"
                                 style={{ width: 360 }}
                               />
+                              {step.step_type === 'payment' ? (
+                                <InputNumber
+                                  value={step.payment_chat_id ?? null}
+                                  onChange={(v) =>
+                                    updatePurposeExceptionStep(pt.payment_type, excIdx, stepIdx, {
+                                      payment_chat_id: v === null || v === undefined ? null : Number(v),
+                                    })
+                                  }
+                                  placeholder="Chat ID (например, -1001234567890)"
+                                  style={{ width: 260 }}
+                                  controls={false}
+                                />
+                              ) : null}
                             </Space>
                           ))}
+                          <Button icon={<PlusOutlined />} onClick={() => addPurposeExceptionStep(pt.payment_type, excIdx)}>
+                            Добавить шаг
+                          </Button>
                         </Space>
                       </Card>
                     ))}
@@ -580,6 +619,27 @@ export function RequestApprovalConfigPage() {
                                       />
                                     </div>
                                   ) : null}
+                                  <div>
+                                    <Typography.Text strong style={labelBlockAboveField}>
+                                      Chat ID
+                                    </Typography.Text>
+                                    <div style={{ height: 8 }} />
+                                    <InputNumber
+                                      value={step.payment_chat_id ?? null}
+                                      onChange={(v) =>
+                                        updateStep(pt.payment_type, idx, {
+                                          payment_chat_id: v === null || v === undefined ? null : Number(v),
+                                        })
+                                      }
+                                      placeholder="Например, -1001234567890"
+                                      style={{ width: 260 }}
+                                      controls={false}
+                                    />
+                                    <div style={{ height: 4 }} />
+                                    <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                                      Используется для уведомлений на этапе оплаты. Если пусто — берётся chat_id approver-а.
+                                    </Typography.Text>
+                                  </div>
                                 </>
                               ) : null}
                             </Space>
@@ -606,4 +666,3 @@ export function RequestApprovalConfigPage() {
     </Card>
   )
 }
-

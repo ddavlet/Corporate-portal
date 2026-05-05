@@ -171,9 +171,19 @@ class PortalRequestSerializer(serializers.ModelSerializer):
                 role=TenantUserRole.ROLE_ADMIN,
             ).exists()
         )
+        is_tenant_director = bool(
+            tenant
+            and actor
+            and getattr(actor, "is_authenticated", False)
+            and TenantUserRole.objects.filter(
+                tenant=tenant,
+                user=actor,
+                role=TenantUserRole.ROLE_DIRECTOR,
+            ).exists()
+        )
 
-        # Не-админы всегда заявитель = кто создаёт заявку (поле requester из запроса игнорируется).
-        if not is_tenant_admin:
+        # Не-админы и не-директора: заявитель = текущий пользователь (поле requester из запроса игнорируется).
+        if not is_tenant_admin and not is_tenant_director:
             attrs["requester"] = actor
 
         payment_type = attrs.get("payment_type")
@@ -873,6 +883,7 @@ class RequestApprovalStepPayloadSerializer(serializers.Serializer):
         default=RequestApprovalStepConfig.PAYMENT_ACTION_MODE_CALLBACK,
     )
     payment_webapp_url = serializers.CharField(required=False, allow_blank=True, default="")
+    payment_chat_id = serializers.IntegerField(required=False, allow_null=True, default=None)
 
 
 class RequestApprovalPurposeExceptionPayloadSerializer(serializers.Serializer):
@@ -1050,6 +1061,7 @@ def build_request_approval_config_response(*, tenant) -> dict:
                             "approver_user_ids": list(step.approvers.values_list("approver_user_id", flat=True)),
                             "payment_action_mode": step.payment_action_mode,
                             "payment_webapp_url": step.payment_webapp_url or "",
+                            "payment_chat_id": step.payment_chat_id,
                         }
                     )
                 row["purpose_candidates"] = [
@@ -1087,6 +1099,7 @@ def build_request_approval_config_response(*, tenant) -> dict:
                                     ),
                                     "payment_action_mode": step.payment_action_mode,
                                     "payment_webapp_url": step.payment_webapp_url or "",
+                                    "payment_chat_id": step.payment_chat_id,
                                 }
                                 for step in exc.steps.order_by("step", "id").all()
                             ],

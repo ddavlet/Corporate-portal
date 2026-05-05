@@ -1,6 +1,6 @@
 from datetime import date, datetime
 from decimal import Decimal
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 from zoneinfo import ZoneInfo
 
 from django.contrib.auth import get_user_model
@@ -1291,7 +1291,22 @@ class RequestApprovalsTests(APITestCase):
 
     @patch("apps.modules.requests.status_events.requests.post")
     def test_payment_webapp_confirm_sends_n8n_payed_event(self, mocked_post):
-        mocked_post.return_value.status_code = 200
+        # Подменяет глобальный requests.post — нужен message_id для gateway при создании заявки
+        # и отдельный успешный ответ для webhook n8n (new-payed-request).
+        def post_side_effect(url, json=None, **kwargs):  # noqa: ARG001
+            r = MagicMock()
+            r.status_code = 200
+            if "new-payed-request" in str(url):
+                r.content = b"{}"
+                r.json.return_value = {}
+                return r
+            r.content = b'{"message_id": 1}'
+            r.json.return_value = {"message_id": 424242}
+
+            return r
+
+        mocked_post.side_effect = post_side_effect
+
         self._configure_payment_step(
             payment_type=Request.PAYMENT_TYPE_TRANSFER,
             mode=RequestApprovalStepConfig.PAYMENT_ACTION_MODE_WEBAPP,
@@ -1332,12 +1347,16 @@ class RequestApprovalsTests(APITestCase):
             HTTP_HOST=self.host,
         )
         self.assertEqual(res.status_code, 200, res.content)
-        mocked_post.assert_called_once()
-        args, kwargs = mocked_post.call_args
-        self.assertEqual(args[0], "https://acme.example.com/n8n/events/new-payed-request")
-        self.assertEqual(kwargs["timeout"], 30)
-        self.assertEqual(kwargs["json"]["id"], request_id)
-        self.assertEqual(kwargs["json"]["status"], Request.STATUS_PAYED)
+        target = None
+        for call in mocked_post.call_args_list:
+            if call.args and "new-payed-request" in str(call.args[0]):
+                target = call
+                break
+        self.assertIsNotNone(target, mocked_post.call_args_list)
+        self.assertEqual(target.args[0], "https://acme.example.com/n8n/events/new-payed-request")
+        self.assertEqual(target.kwargs.get("timeout"), 30)
+        self.assertEqual(target.kwargs["json"]["id"], request_id)
+        self.assertEqual(target.kwargs["json"]["status"], Request.STATUS_PAYED)
 
     def test_payment_webapp_confirm_cash_resolves_numeric_expense_id_to_canonical(self):
         self._configure_payment_step(
@@ -1383,6 +1402,55 @@ class RequestApprovalsTests(APITestCase):
         req = Request.objects.get(pk=request_id)
         self.assertEqual(req.expense_ref_id, cash_expense.id)
         self.assertEqual(req.expense_id, "1-000000343")
+
+    def test_payment_webapp_confirm_cash_zero_pad_without_prefix_resolves_short_id(self):
+        self.tenant.cash_expense_external_id_prefix = ""
+        self.tenant.cash_expense_external_id_digit_width = 11
+        self.tenant.save(update_fields=["cash_expense_external_id_prefix", "cash_expense_external_id_digit_width"])
+
+        self._configure_payment_step(
+            payment_type=Request.PAYMENT_TYPE_CASH,
+            mode=RequestApprovalStepConfig.PAYMENT_ACTION_MODE_WEBAPP,
+        )
+        request_id = self._create_request_for_payment_type(Request.PAYMENT_TYPE_CASH)
+        approval = Approval.objects.get(
+            request_id=request_id,
+            approver_user=self.approver,
+            step_type=Approval.STEP_TYPE_PAYMENT,
+        )
+        cash_register = CashRegister.objects.create(tenant=self.tenant, currency="UZS", name="Main cash pad")
+        cash_wallet = Wallet.objects.create(
+            tenant=self.tenant,
+            wallet_type=Wallet.Type.CASH,
+            currency="UZS",
+            cash_register=cash_register,
+        )
+        cash_expense = CashExpense.objects.create(
+            tenant=self.tenant,
+            external_id="00000000459",
+            confirmed=True,
+            title="Padded id expense",
+            amount=Decimal("10.00"),
+            currency="UZS",
+            expense_at=datetime(2026, 1, 2, 10, 0, 0),
+            expense_year=2026,
+            expense_month=1,
+            expense_day=2,
+            created_by=self.admin,
+            wallet=cash_wallet,
+        )
+
+        self.client.force_authenticate(self.approver)
+        res = self.client.post(
+            "/api/requests/approvals/payment-webapp/confirm/",
+            {"approval_id": approval.id, "expense_id": "459"},
+            format="json",
+            HTTP_HOST=self.host,
+        )
+        self.assertEqual(res.status_code, 200, res.content)
+        req = Request.objects.get(pk=request_id)
+        self.assertEqual(req.expense_ref_id, cash_expense.id)
+        self.assertEqual(req.expense_id, "00000000459")
 
     def test_payment_webapp_confirm_bank_resolves_same_doc_no_by_amount(self):
         self._configure_payment_step(
@@ -2561,12 +2629,14 @@ class DraftRequestPatchSubmitTests(APITestCase):
         self.approver = User.objects.create_user(username="d_appr", password="x")
         self.approver.telegram_chat_id = 222
         self.approver.save(update_fields=["telegram_chat_id"])
-        for u in (self.admin, self.requester, self.other, self.approver):
+        self.director = User.objects.create_user(username="d_dir", password="x")
+        for u in (self.admin, self.requester, self.other, self.approver, self.director):
             TenantMembership.objects.create(tenant=self.tenant, user=u, is_active=True)
         TenantUserRole.objects.create(tenant=self.tenant, user=self.admin, role=TenantUserRole.ROLE_ADMIN)
         TenantUserRole.objects.create(tenant=self.tenant, user=self.requester, role=TenantUserRole.ROLE_REQUESTER)
         TenantUserRole.objects.create(tenant=self.tenant, user=self.other, role=TenantUserRole.ROLE_REQUESTER)
         TenantUserRole.objects.create(tenant=self.tenant, user=self.approver, role=TenantUserRole.ROLE_APPROVER)
+        TenantUserRole.objects.create(tenant=self.tenant, user=self.director, role=TenantUserRole.ROLE_DIRECTOR)
         TenantModuleConfig.objects.create(tenant=self.tenant, module_key="requests", is_enabled=True)
         self.host = "draftco.example.com"
 
@@ -2668,6 +2738,18 @@ class DraftRequestPatchSubmitTests(APITestCase):
             HTTP_HOST=self.host,
         )
         self.assertEqual(res.status_code, 403, res.content)
+
+    def test_director_can_patch_others_draft(self):
+        req = self._draft_request()
+        self.client.force_authenticate(self.director)
+        res = self.client.patch(
+            f"/api/requests/{req.id}/",
+            {"description": "edited by director"},
+            format="json",
+            HTTP_HOST=self.host,
+        )
+        self.assertEqual(res.status_code, 200, res.content)
+        self.assertEqual(Request.objects.get(pk=req.id).description, "edited by director")
 
     def test_create_sets_amortization_defaults_from_billing_date(self):
         self.client.force_authenticate(self.requester)

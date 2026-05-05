@@ -167,7 +167,9 @@ class PublicInvestPayoutScheduleShareViewSerializer(serializers.Serializer):
 
 class InvestmentApprovalConfigStepSerializer(serializers.Serializer):
     step = serializers.IntegerField(min_value=1)
+    step_type = serializers.ChoiceField(choices=InvestmentApprovalConfigStep.STEP_TYPE_CHOICES, default=InvestmentApprovalConfigStep.STEP_TYPE_SERIAL)
     is_enabled = serializers.BooleanField(default=True)
+    payment_chat_id = serializers.IntegerField(required=False, allow_null=True, default=None)
     approver_user_ids = serializers.ListField(
         child=serializers.IntegerField(min_value=1),
         allow_empty=False,
@@ -188,6 +190,11 @@ class InvestmentApprovalConfigSerializer(serializers.Serializer):
             seen_steps.add(step)
             if row.get("is_enabled", True) and not row.get("approver_user_ids"):
                 raise serializers.ValidationError("Enabled step must contain at least one approver.")
+            step_type = row.get("step_type") or InvestmentApprovalConfigStep.STEP_TYPE_SERIAL
+            if step_type == InvestmentApprovalConfigStep.STEP_TYPE_CONFIRMATION and row.get("payment_chat_id") in (None, ""):
+                raise serializers.ValidationError("Confirmation step must contain payment_chat_id.")
+            if step_type != InvestmentApprovalConfigStep.STEP_TYPE_CONFIRMATION:
+                row["payment_chat_id"] = None
         return value
 
 

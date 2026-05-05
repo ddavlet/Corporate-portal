@@ -8,7 +8,7 @@ import {
   planAdminCreateFieldsFromRow,
   type AdminCrudDynamicField,
 } from '../../lib/adminModuleCrudFields'
-import { apiFetch, getAccessMatrix, getSettingsAccess, type AccessMatrixUserRow } from '../../lib/api'
+import { apiFetch, getAccessMatrix, type AccessMatrixUserRow } from '../../lib/api'
 
 type AnyRow = Record<string, unknown> & { id?: number | string }
 
@@ -98,7 +98,6 @@ function formatAmount(value: unknown): string | null {
 
 export function AdminModulePage() {
   const [form] = Form.useForm<Record<string, unknown>>()
-  const [canOpenAdmin, setCanOpenAdmin] = useState<boolean | null>(null)
   const [activeSection, setActiveSection] = useState<AdminSectionKey>('matrix')
   const [sourceKey, setSourceKey] = useState<string>(SOURCES[0].key)
   const [loading, setLoading] = useState(false)
@@ -159,30 +158,17 @@ export function AdminModulePage() {
   }
 
   useEffect(() => {
-    void (async () => {
-      try {
-        const data = await getSettingsAccess()
-        setCanOpenAdmin(Boolean(data.can_open_admin))
-      } catch {
-        setCanOpenAdmin(false)
-      }
-    })()
-  }, [])
-
-  useEffect(() => {
-    if (!canOpenAdmin) return
     void loadRows()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sourceKey, canOpenAdmin])
+  }, [sourceKey])
 
   useEffect(() => {
     setCrudPage(1)
   }, [sourceKey, search])
 
   useEffect(() => {
-    if (!canOpenAdmin) return
     void loadMatrix()
-  }, [canOpenAdmin])
+  }, [])
 
   const filteredRows = useMemo(() => {
     const q = search.trim().toLowerCase()
@@ -322,7 +308,8 @@ export function AdminModulePage() {
       setEditableFields(plan.fields)
       setNonEditableFields(plan.nonEditable)
       form.resetFields()
-      form.setFieldsValue(plan.initial as Parameters<typeof form.setFieldsValue>[0])
+      // plan.initial — Record<string, unknown> из DRF/строки; Ant Form ожидает более узкий Store.
+      form.setFieldsValue(plan.initial as unknown as Parameters<typeof form.setFieldsValue>[0])
     } finally {
       setOpeningCreateModal(false)
     }
@@ -403,13 +390,10 @@ export function AdminModulePage() {
         Админка
       </Typography.Title>
       <Typography.Paragraph type="secondary">
-        Вне настроек: отдельный модуль для управления доступами и данными.
+        Доступна только администратору компании (роль admin в tenant). Матрица — для просмотра; назначение ролей — в
+        разделе Настройки → Настройки пользователей.
       </Typography.Paragraph>
-      {canOpenAdmin === false ? <Alert type="warning" showIcon message="Доступ к админке только у роли admin." /> : null}
-      {canOpenAdmin === null ? <Card loading style={{ marginTop: 12 }} /> : null}
-      {canOpenAdmin ? (
-        <>
-          <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
+      <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
             <Col xs={24} sm={12} lg={8}>
               <Card
                 hoverable
@@ -418,7 +402,7 @@ export function AdminModulePage() {
                 style={{ borderColor: activeSection === 'matrix' ? '#1677ff' : undefined }}
               >
                 <Typography.Paragraph type="secondary" style={{ marginBottom: 0 }}>
-                  Роли пользователей и эффективный доступ к модулям.
+                  Просмотр ролей и эффективного доступа к модулям (редактирование ролей — в Настройках).
                 </Typography.Paragraph>
               </Card>
             </Col>
@@ -497,8 +481,6 @@ export function AdminModulePage() {
               />
             </Card>
           )}
-        </>
-      ) : null}
 
       <Modal
         open={Boolean(editing) || creatingRecord}

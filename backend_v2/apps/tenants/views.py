@@ -4,6 +4,7 @@ from collections import defaultdict
 
 import requests
 from django.conf import settings
+from django.db import transaction
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.views import APIView
 from rest_framework.response import Response
@@ -17,8 +18,15 @@ from apps.tenants.models import (
     TenantUserPreference,
     TenantUserRole,
 )
-from apps.tenants.permissions import IsTenantAdmin, role_allows_module
+from apps.tenants.permissions import (
+    HasEffectiveModuleAccess,
+    HasWalletsFinancialWriteAccess,
+    IsTenantAdmin,
+    role_allows_module,
+)
 from apps.tenants.serializers import (
+    AccessMatrixUpdateSerializer,
+    TenantCashExpenseIdFormatSerializer,
     TenantIntegrationConfigSerializer,
     TenantModuleConfigUpdateSerializer,
     TenantUserPreferenceSerializer,
@@ -270,6 +278,39 @@ class AccessMatrixView(APIView):
             }
         )
 
+    def put(self, request):
+        tenant = request.tenant
+        serializer = AccessMatrixUpdateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        assignments = serializer.validated_data["assignments"]
+
+        member_ids = set(
+            TenantMembership.objects.filter(tenant=tenant, is_active=True).values_list("user_id", flat=True)
+        )
+        for item in assignments:
+            uid = item["user_id"]
+            if uid not in member_ids:
+                raise ValidationError(
+                    {"assignments": f"Пользователь {uid} не является активным участником компании."}
+                )
+
+        with transaction.atomic():
+            for item in assignments:
+                uid = item["user_id"]
+                roles = item["roles"]
+                TenantUserRole.objects.filter(tenant=tenant, user_id=uid).delete()
+                TenantUserRole.objects.bulk_create(
+                    [TenantUserRole(tenant=tenant, user_id=uid, role=r) for r in roles]
+                )
+            if not TenantUserRole.objects.filter(tenant=tenant, role=TenantUserRole.ROLE_ADMIN).exists():
+                raise ValidationError(
+                    {
+                        "assignments": "У компании должен остаться хотя бы один пользователь с ролью admin.",
+                    }
+                )
+
+        return self.get(request)
+
 
 class SettingsAccessView(APIView):
     permission_classes = [IsAuthenticated]
@@ -291,6 +332,7 @@ class SettingsAccessView(APIView):
             {
                 "tenant_name": tenant.name,
                 "can_open_settings": can_open_settings,
+                # React «Админка» (/admin): только tenant role admin (не Django staff).
                 "can_open_admin": TenantUserRole.ROLE_ADMIN in roles,
                 "can_manage_tenant_settings": TenantUserRole.ROLE_ADMIN in roles,
                 "can_manage_requests_settings": can_open_settings,
@@ -348,4 +390,41 @@ class UserPreferencesView(APIView):
             defaults={"value": serializer.validated_data["value"]},
         )
         return Response({"key": pref.key, "value": pref.value})
+
+
+class TenantCashExpenseIdFormatView(APIView):
+    """
+    Read/update how cashier cash expense `external_id` is matched from short numeric input
+    (prefix + zero-padded width). Requires wallets module and financial write roles to change.
+    """
+
+    module_key = "wallets"
+
+    def get_permissions(self):
+        return [IsAuthenticated(), HasEffectiveModuleAccess(), HasWalletsFinancialWriteAccess()]
+
+    def get(self, request):
+        tenant = getattr(request, "tenant", None)
+        if not tenant:
+            return Response({"detail": "Unknown tenant."}, status=status.HTTP_404_NOT_FOUND)
+        return Response(
+            {
+                "cash_expense_external_id_prefix": tenant.cash_expense_external_id_prefix,
+                "cash_expense_external_id_digit_width": tenant.cash_expense_external_id_digit_width,
+            }
+        )
+
+    def put(self, request):
+        tenant = getattr(request, "tenant", None)
+        if not tenant:
+            return Response({"detail": "Unknown tenant."}, status=status.HTTP_404_NOT_FOUND)
+        serializer = TenantCashExpenseIdFormatSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+        tenant.cash_expense_external_id_prefix = data["cash_expense_external_id_prefix"]
+        tenant.cash_expense_external_id_digit_width = data["cash_expense_external_id_digit_width"]
+        tenant.save(
+            update_fields=["cash_expense_external_id_prefix", "cash_expense_external_id_digit_width"]
+        )
+        return self.get(request)
 

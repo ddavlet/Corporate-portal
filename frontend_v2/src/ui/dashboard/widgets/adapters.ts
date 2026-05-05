@@ -110,6 +110,33 @@ export function totalsFromReport(revenueItems: LegacyReportItem[], expenseItems:
   return { incomeByMonth, expenseByMonth }
 }
 
+function monthKey(ref: ReportMonthRef): string {
+  const month = String(ref.monthIndex + 1).padStart(2, '0')
+  return `${ref.year}-${month}`
+}
+
+export function netForMonthRef(revenueItems: LegacyReportItem[], expenseItems: LegacyReportItem[], ref: ReportMonthRef): number {
+  const target = monthKey(ref)
+  let income = 0
+  let expense = 0
+
+  for (const row of revenueItems) {
+    const date = parseReportDate(row.date)
+    if (!date) continue
+    if (monthKey(getMonthRef(date)) !== target) continue
+    income += parseAmount(row.amount ?? row.kredit)
+  }
+
+  for (const row of expenseItems) {
+    const date = parseReportDate(row.date)
+    if (!date) continue
+    if (monthKey(getMonthRef(date)) !== target) continue
+    expense -= Math.abs(parseAmount(row.amount ?? row.kredit))
+  }
+
+  return income + expense
+}
+
 export function buildCategorySlices(items: LegacyReportItem[]): CategorySlice[] {
   const map = new Map<string, number>()
   for (const item of items) {

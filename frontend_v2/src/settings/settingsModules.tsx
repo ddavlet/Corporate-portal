@@ -1,4 +1,4 @@
-import { FileTextOutlined, SettingOutlined, ShopOutlined } from '@ant-design/icons'
+import { FileTextOutlined, SettingOutlined, ShopOutlined, TeamOutlined } from '@ant-design/icons'
 import type { ReactNode } from 'react'
 
 export type SettingsModuleItem = {
@@ -33,6 +33,13 @@ export const SETTINGS_MODULES: SettingsModuleItem[] = [
     icon: <SettingOutlined />,
   },
   {
+    key: 'users-roles',
+    title: 'Настройки пользователей',
+    description: 'Роли участников компании (только для администратора tenant).',
+    path: '/settings/users-roles',
+    icon: <TeamOutlined />,
+  },
+  {
     key: 'investments-approvals',
     title: 'Инвестиции — этапы согласования',
     description: 'Очередность и пользователи, которые подтверждают выплату по инвестициям.',
@@ -42,7 +49,8 @@ export const SETTINGS_MODULES: SettingsModuleItem[] = [
   {
     key: 'cash-registers',
     title: 'Кошельки',
-    description: 'Касса, банк (выписка), корпкарта: счета, остаток на 1 янв, безопасное удаление.',
+    description:
+      'Касса — формат номера расхода для заявок; банк (выписка), корпкарта: счета, остаток на 1 янв, удаление без движений.',
     path: '/settings/cash-registers',
     icon: <ShopOutlined />,
   },

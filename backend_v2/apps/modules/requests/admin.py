@@ -78,6 +78,14 @@ class RequestApprovalStepConfigInline(admin.TabularInline):
     model = RequestApprovalStepConfig
     extra = 0
     inlines = [RequestApprovalStepApproverConfigInline]
+    fields = (
+        "step",
+        "step_type",
+        "is_enabled",
+        "payment_action_mode",
+        "payment_webapp_url",
+        "payment_chat_id",
+    )
 
 
 class RequestApprovalPaymentTypeConfigInline(admin.TabularInline):

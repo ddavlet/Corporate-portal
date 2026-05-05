@@ -215,6 +215,33 @@ export async function getTenantIntegrationConfig(): Promise<TenantIntegrationCon
   return json
 }
 
+export type TenantCashExpenseIdFormatDto = {
+  cash_expense_external_id_prefix: string
+  cash_expense_external_id_digit_width: number
+}
+
+export async function getTenantCashExpenseIdFormat(): Promise<TenantCashExpenseIdFormatDto> {
+  const res = await apiFetch('/api/tenant/cash-expense-id-format/')
+  if (!res.ok) throw new Error(await parseErrorBody(res))
+  const json = (await res.json().catch(() => null)) as TenantCashExpenseIdFormatDto | null
+  if (!json) throw new Error('Empty response')
+  return json
+}
+
+export async function updateTenantCashExpenseIdFormat(
+  payload: TenantCashExpenseIdFormatDto,
+): Promise<TenantCashExpenseIdFormatDto> {
+  const res = await apiFetch('/api/tenant/cash-expense-id-format/', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+  if (!res.ok) throw new Error(await parseErrorBody(res))
+  const json = (await res.json().catch(() => null)) as TenantCashExpenseIdFormatDto | null
+  if (!json) throw new Error('Empty response')
+  return json
+}
+
 export async function updateTenantIntegrationConfig(
   payload: TenantIntegrationConfigUpdatePayload,
 ): Promise<TenantIntegrationConfigResponse> {
@@ -262,6 +289,28 @@ export type AccessMatrixResponse = {
 
 export async function getAccessMatrix(): Promise<AccessMatrixResponse> {
   const res = await apiFetch('/api/access-matrix/')
+  if (!res.ok) throw new Error(await parseErrorBody(res))
+  const json = (await res.json().catch(() => null)) as AccessMatrixResponse | null
+  if (!json) throw new Error('Empty response')
+  return {
+    modules: Array.isArray(json.modules) ? json.modules : [],
+    users: Array.isArray(json.users) ? json.users : [],
+  }
+}
+
+export type AccessMatrixAssignmentPayload = {
+  user_id: number
+  roles: string[]
+}
+
+export async function updateAccessMatrixAssignments(
+  assignments: AccessMatrixAssignmentPayload[],
+): Promise<AccessMatrixResponse> {
+  const res = await apiFetch('/api/access-matrix/', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ assignments }),
+  })
   if (!res.ok) throw new Error(await parseErrorBody(res))
   const json = (await res.json().catch(() => null)) as AccessMatrixResponse | null
   if (!json) throw new Error('Empty response')
@@ -896,7 +945,9 @@ export type CreateInvestReturnPayload = {
 
 export type InvestmentApprovalConfigStepItem = {
   step: number
+  step_type: 'serial' | 'confirmation'
   is_enabled: boolean
+  payment_chat_id?: number | null
   approver_user_ids: number[]
 }
 
@@ -1590,6 +1641,7 @@ export type RequestApprovalConfigStepItem = {
   approver_user_ids: number[]
   payment_action_mode?: 'callback' | 'webapp' | 'create'
   payment_webapp_url?: string
+  payment_chat_id?: number | null
 }
 
 export type RequestApprovalPurposeExceptionItem = {
@@ -1634,6 +1686,7 @@ export type RequestApprovalConfigUpdatePayload = {
         approver_user_ids: number[]
         payment_action_mode?: 'callback' | 'webapp' | 'create'
         payment_webapp_url?: string
+        payment_chat_id?: number | null
       }>
     }>
     steps: Array<{
@@ -1643,6 +1696,7 @@ export type RequestApprovalConfigUpdatePayload = {
       approver_user_ids: number[]
       payment_action_mode?: 'callback' | 'webapp' | 'create'
       payment_webapp_url?: string
+      payment_chat_id?: number | null
     }>
   }>
 }

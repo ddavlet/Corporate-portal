@@ -104,6 +104,23 @@ def _display_user_name(user) -> str:
     return full or user.username
 
 
+def _coerce_payment_chat_id(value) -> int | None:
+    if value is None:
+        return None
+    if isinstance(value, str):
+        text = value.strip()
+        if not text:
+            return None
+        try:
+            return int(text)
+        except ValueError as exc:
+            raise ValidationError({"payment_chat_id": "payment_chat_id must be an integer."}) from exc
+    try:
+        return int(value)
+    except (TypeError, ValueError) as exc:
+        raise ValidationError({"payment_chat_id": "payment_chat_id must be an integer."}) from exc
+
+
 def _ensure_app_user_for_auto_requests(tenant):
     """
     Системный пользователь `app` — заявитель создаваемых по расписанию заявок.
@@ -282,6 +299,8 @@ class PortalRequestViewSet(viewsets.ModelViewSet):
         if not user or not getattr(user, "is_authenticated", False):
             return False
         if self._has_role(tenant, TenantUserRole.ROLE_ADMIN):
+            return True
+        if self._has_role(tenant, TenantUserRole.ROLE_DIRECTOR):
             return True
         if request_obj.created_by_id == user.id:
             return True
@@ -1460,6 +1479,7 @@ class RequestApprovalConfigView(APIView):
                             RequestApprovalStepConfig.PAYMENT_ACTION_MODE_CALLBACK,
                         ),
                         payment_webapp_url=str(step_item.get("payment_webapp_url", "") or "").strip(),
+                        payment_chat_id=_coerce_payment_chat_id(step_item.get("payment_chat_id")),
                     )
                     step_rows.append(step_cfg)
                 if step_rows:
@@ -1536,6 +1556,7 @@ class RequestApprovalConfigView(APIView):
                                     RequestApprovalStepConfig.PAYMENT_ACTION_MODE_CALLBACK,
                                 ),
                                 payment_webapp_url=str(step_item.get("payment_webapp_url", "") or "").strip(),
+                                payment_chat_id=_coerce_payment_chat_id(step_item.get("payment_chat_id")),
                             )
                         )
                     if exc_step_rows:
