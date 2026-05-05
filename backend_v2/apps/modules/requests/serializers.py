@@ -171,9 +171,19 @@ class PortalRequestSerializer(serializers.ModelSerializer):
                 role=TenantUserRole.ROLE_ADMIN,
             ).exists()
         )
+        is_tenant_director = bool(
+            tenant
+            and actor
+            and getattr(actor, "is_authenticated", False)
+            and TenantUserRole.objects.filter(
+                tenant=tenant,
+                user=actor,
+                role=TenantUserRole.ROLE_DIRECTOR,
+            ).exists()
+        )
 
-        # Не-админы всегда заявитель = кто создаёт заявку (поле requester из запроса игнорируется).
-        if not is_tenant_admin:
+        # Не-админы и не-директора: заявитель = текущий пользователь (поле requester из запроса игнорируется).
+        if not is_tenant_admin and not is_tenant_director:
             attrs["requester"] = actor
 
         payment_type = attrs.get("payment_type")

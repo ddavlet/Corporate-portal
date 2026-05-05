@@ -132,6 +132,7 @@ export function RequestApprovalConfigPage() {
         payment_types: prev.payment_types.map((p) => {
           if (p.payment_type !== pt) return p
           const next = [...(p.purpose_exceptions ?? [])]
+          if (excIdx < 0 || excIdx >= next.length) return p
           next[excIdx] = { ...next[excIdx], ...patch }
           return { ...p, purpose_exceptions: next }
         }),
@@ -170,6 +171,25 @@ export function RequestApprovalConfigPage() {
         payment_types: prev.payment_types.map((p) =>
           p.payment_type === pt ? { ...p, purpose_exceptions: [...(p.purpose_exceptions ?? []), emptyPurposeException()] } : p,
         ),
+      }
+    })
+  }
+
+  const addPurposeExceptionStep = (pt: string, excIdx: number) => {
+    setData((prev) => {
+      if (!prev) return prev
+      return {
+        ...prev,
+        payment_types: prev.payment_types.map((p) => {
+          if (p.payment_type !== pt) return p
+          const exceptions = [...(p.purpose_exceptions ?? [])]
+          const current = exceptions[excIdx]
+          const maxStep = (current.steps ?? []).reduce((acc, s) => Math.max(acc, s.step), 0)
+          const next = maxStep + 1
+          const steps = [...(current.steps ?? []), emptyStep(next)]
+          exceptions[excIdx] = { ...current, steps }
+          return { ...p, purpose_exceptions: exceptions }
+        }),
       }
     })
   }
@@ -474,6 +494,9 @@ export function RequestApprovalConfigPage() {
                               ) : null}
                             </Space>
                           ))}
+                          <Button icon={<PlusOutlined />} onClick={() => addPurposeExceptionStep(pt.payment_type, excIdx)}>
+                            Добавить шаг
+                          </Button>
                         </Space>
                       </Card>
                     ))}
@@ -643,4 +666,3 @@ export function RequestApprovalConfigPage() {
     </Card>
   )
 }
-
