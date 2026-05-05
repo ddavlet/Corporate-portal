@@ -173,6 +173,25 @@ export function RequestApprovalConfigPage() {
     })
   }
 
+  const addPurposeExceptionStep = (pt: string, excIdx: number) => {
+    setData((prev) => {
+      if (!prev) return prev
+      return {
+        ...prev,
+        payment_types: prev.payment_types.map((p) => {
+          if (p.payment_type !== pt) return p
+          const exceptions = [...(p.purpose_exceptions ?? [])]
+          const current = exceptions[excIdx]
+          const maxStep = (current.steps ?? []).reduce((acc, s) => Math.max(acc, s.step), 0)
+          const next = maxStep + 1
+          const steps = [...(current.steps ?? []), emptyStep(next)]
+          exceptions[excIdx] = { ...current, steps }
+          return { ...p, purpose_exceptions: exceptions }
+        }),
+      }
+    })
+  }
+
   const removePurposeException = (pt: string, excIdx: number) => {
     setData((prev) => {
       if (!prev) return prev
@@ -458,6 +477,9 @@ export function RequestApprovalConfigPage() {
                               />
                             </Space>
                           ))}
+                          <Button icon={<PlusOutlined />} onClick={() => addPurposeExceptionStep(pt.payment_type, excIdx)}>
+                            Добавить шаг
+                          </Button>
                         </Space>
                       </Card>
                     ))}
