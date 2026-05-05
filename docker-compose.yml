@@ -108,7 +108,7 @@ services:
        - traefik.http.middlewares.n8n.headers.STSPreload=true
 
       # ---------- CORS middleware for dev.kolberg.uz  ----------
-       - traefik.http.middlewares.n8n-dev-cors.headers.accessControlAllowOriginList=https://neuron.kolberg.uz,https://construction.kolberg.uz,https://lemonfit.kolberg.uz,https://main.kolberg.uz
+       - traefik.http.middlewares.n8n-dev-cors.headers.accessControlAllowOriginList=https://neuron.kolberg.uz,https://construction.kolberg.uz,https://lemonfit.kolberg.uz,https://lemonaqua.kolberg.uz,https://main.kolberg.uz
        - traefik.http.middlewares.n8n-dev-cors.headers.accessControlAllowMethods=GET,POST,OPTIONS
        - traefik.http.middlewares.n8n-dev-cors.headers.accessControlAllowHeaders=Content-Type,Authorization
        - traefik.http.middlewares.n8n-dev-cors.headers.addVaryHeader=true
@@ -162,6 +162,16 @@ services:
        - traefik.http.middlewares.n8n-lemonfit2-webhook.replacepathregex.replacement=/webhook/lemonfit2/$1
        - traefik.http.routers.n8n-webhook-lemonfit2.middlewares=n8n-lemonfit2-webhook@docker,n8n@docker,n8n-error-pages@docker
        - traefik.http.routers.n8n-webhook-lemonfit2.service=n8n
+
+      # ---------- Webhooks & Forms for lemonaqua.kolberg.uz ----------
+       - traefik.http.routers.n8n-webhook-lemonaqua.rule=Host(`lemonaqua.kolberg.uz`)
+       - traefik.http.routers.n8n-webhook-lemonaqua.entrypoints=web,websecure
+       - traefik.http.routers.n8n-webhook-lemonaqua.tls=true
+       - traefik.http.routers.n8n-webhook-lemonaqua.tls.certresolver=mytlschallenge
+       - traefik.http.middlewares.n8n-lemonaqua-webhook.replacepathregex.regex=^/(.*)$
+       - traefik.http.middlewares.n8n-lemonaqua-webhook.replacepathregex.replacement=/webhook/lemonaqua/$1
+       - traefik.http.routers.n8n-webhook-lemonaqua.middlewares=n8n-lemonaqua-webhook@docker,n8n@docker,n8n-error-pages@docker
+       - traefik.http.routers.n8n-webhook-lemonaqua.service=n8n
 
       # ---------- Webhooks & Forms for main.kolberg.uz ----------
        - traefik.http.routers.n8n-webhook-main.rule=Host(`main.kolberg.uz`)
@@ -231,7 +241,7 @@ services:
       - N8N_PROXY_HOPS=1
 
       - N8N_DEFAULT_CORS=true
-      - N8N_CORS_ALLOW_ORIGIN=https://neuron.kolberg.uz,https://construction.kolberg.uz,https://lemonfit.kolberg.uz,https://main.kolberg.uz
+      - N8N_CORS_ALLOW_ORIGIN=https://neuron.kolberg.uz,https://construction.kolberg.uz,https://lemonfit.kolberg.uz,https://lemonaqua.kolberg.uz,https://main.kolberg.uz
 
       - EXECUTIONS_DATA_PRUNE=true
       - EXECUTIONS_DATA_MAX_AGE=720
