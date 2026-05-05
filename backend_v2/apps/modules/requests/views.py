@@ -283,6 +283,8 @@ class PortalRequestViewSet(viewsets.ModelViewSet):
             return False
         if self._has_role(tenant, TenantUserRole.ROLE_ADMIN):
             return True
+        if self._has_role(tenant, TenantUserRole.ROLE_DIRECTOR):
+            return True
         if request_obj.created_by_id == user.id:
             return True
         if request_obj.requester_id == user.id:
