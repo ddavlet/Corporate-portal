@@ -44,19 +44,31 @@ export function FeedbackModal({ open, onClose, pagePath }: Props) {
       setHasRefinedOnce(true)
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Не удалось сформировать текст')
+      setHasRefinedOnce(true)
     } finally {
       setRefining(false)
     }
   }
 
   const onSubmit = async () => {
-    if (!kind || !text.trim() || !hasRefinedOnce) return
+    if (!kind || !text.trim()) return
     setSubmitting(true)
     setError(null)
     try {
+      let body = text.trim()
+      if (!hasRefinedOnce) {
+        try {
+          const { feedback } = await refineFeedbackWithAi({ kind, text: body })
+          body = feedback
+          setText(feedback)
+          setHasRefinedOnce(true)
+        } catch {
+          // AI refine failed — proceed with original text
+        }
+      }
       const result = await submitFeedback({
         kind,
-        body: text.trim(),
+        body,
         page_path: pagePath,
       })
       if (result.delivery.status === 'failed') {
@@ -73,7 +85,7 @@ export function FeedbackModal({ open, onClose, pagePath }: Props) {
   }
 
   const canRefine = Boolean(kind && text.trim())
-  const canSubmit = Boolean(kind && text.trim() && hasRefinedOnce)
+  const canSubmit = Boolean(kind && text.trim())
 
   return (
     <Modal
@@ -86,8 +98,8 @@ export function FeedbackModal({ open, onClose, pagePath }: Props) {
     >
       <Space direction="vertical" size="middle" style={{ width: '100%' }}>
         <Typography.Text type="secondary">
-          Сначала опишите ситуацию своими словами, затем нажмите «Сформировать» — мы прогоним текст через ИИ, чтобы он
-          был структурным и понятным. При необходимости отредактируйте результат и снова нажмите «Сформировать».
+          Опишите ситуацию своими словами. При желании нажмите «Сформировать» — мы прогоним текст через ИИ, чтобы он
+          был структурным и понятным. Затем нажмите «Отправить».
         </Typography.Text>
 
         <div>
