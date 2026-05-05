@@ -132,6 +132,7 @@ export function RequestApprovalConfigPage() {
         payment_types: prev.payment_types.map((p) => {
           if (p.payment_type !== pt) return p
           const next = [...(p.purpose_exceptions ?? [])]
+          if (excIdx < 0 || excIdx >= next.length) return p
           next[excIdx] = { ...next[excIdx], ...patch }
           return { ...p, purpose_exceptions: next }
         }),
@@ -665,4 +666,3 @@ export function RequestApprovalConfigPage() {
     </Card>
   )
 }
-
