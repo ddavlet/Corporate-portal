@@ -68,4 +68,6 @@ urlpatterns = [
     ),
     path("payroll/lines/", views.N8nPayrollLineUpsertView.as_view(), name="n8n-payroll-lines-upsert"),
     path("payroll/lines/batch/", views.N8nPayrollLineBatchUpsertView.as_view(), name="n8n-payroll-lines-batch-upsert"),
+    path("vendors-list/", views.N8nVendorListView.as_view(), name="n8n-vendors-list"),
+    path("payment-purposes/", views.N8nPaymentPurposeListView.as_view(), name="n8n-payment-purposes"),
 ]
