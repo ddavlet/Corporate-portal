@@ -23,6 +23,9 @@ from apps.modules.investments.models import InvestCompany, InvestPayoutSchedule,
 from apps.modules.notes.models import Note
 from apps.modules.requests.models import Approval, Request
 from apps.modules.requests.amortization import build_amortization_schedule_rows, is_request_amortized
+from apps.modules.requests.approval_bootstrap import create_approval_rows_for_request
+from apps.modules.requests.approval_workflow import _recalculate_request_status, route_request_approvals
+from apps.modules.requests.serializers import PortalRequestSerializer
 from apps.modules.vendors.models import Vendor
 from apps.modules.n8n_integration.authentication import N8nIntegrationAuthentication
 from apps.modules.n8n_integration.serializers import (
@@ -44,7 +47,7 @@ from apps.modules.n8n_integration.serializers import (
     N8nVendorImportSerializer,
 )
 from apps.tenants.integration_settings import get_n8n_integration_settings
-from apps.tenants.permissions import IsTenantAdmin
+from apps.tenants.permissions import HasEffectiveModuleAccess, IsTenantAdmin
 
 User = get_user_model()
 logger = logging.getLogger(__name__)
@@ -688,6 +691,35 @@ class N8nRequestUpsertView(_N8nBaseView):
             other_tenant_conflict=other_tenant_conflict,
             build_create_kwargs=build_create_kwargs,
         )
+
+
+class N8nAiRequestCreateView(APIView):
+    """
+    n8n gateway for AI assistants:
+    accepts frontend-like user fields and runs the same create flow as portal.
+    """
+
+    module_key = "requests"
+    authentication_classes = [N8nIntegrationAuthentication]
+    permission_classes = [IsAuthenticated, HasEffectiveModuleAccess]
+
+    def post(self, request):
+        tenant = getattr(request, "tenant", None)
+        if not tenant:
+            return Response({"detail": "Unknown tenant."}, status=status.HTTP_400_BAD_REQUEST)
+
+        serializer = PortalRequestSerializer(data=request.data, context={"request": request})
+        serializer.is_valid(raise_exception=True)
+
+        with transaction.atomic():
+            request_obj = serializer.save(tenant=tenant, created_by=request.user)
+            created_approvals = create_approval_rows_for_request(request_obj)
+            if created_approvals and request_obj.status == Request.STATUS_DRAFT:
+                _recalculate_request_status(request_obj)
+
+        route_request_approvals(request_obj=request_obj)
+        output = PortalRequestSerializer(request_obj, context={"request": request}).data
+        return Response(output, status=status.HTTP_201_CREATED)
 
 
 class N8nRequestAmortizationView(_N8nBaseView):
