@@ -13,7 +13,14 @@ import { IncomePieWidget } from './dashboard/widgets/IncomePieWidget'
 import { PendingApprovalsWidget } from './dashboard/widgets/PendingApprovalsWidget'
 import { PnlNetProfitPrevMonthWidget } from './dashboard/widgets/PnlNetProfitPrevMonthWidget'
 import { CashflowProfitCurrentMonthWidget } from './dashboard/widgets/CashflowProfitCurrentMonthWidget'
-import { buildCategorySlices, getCurrentMonthRef, getPreviousMonthRef, toPendingApprovals, totalsFromReport } from './dashboard/widgets/adapters'
+import {
+  buildCategorySlices,
+  getCurrentMonthRef,
+  getPreviousMonthRef,
+  netForMonthRef,
+  toPendingApprovals,
+  totalsFromReport,
+} from './dashboard/widgets/adapters'
 import type { DashboardWidgetKey, PendingApprovalItem, WidgetVisibility } from './dashboard/widgets/types'
 import { useUserPreference } from '../lib/useUserPreference'
 
@@ -90,17 +97,21 @@ export function DashboardPage() {
   const prevRef = getPreviousMonthRef(nowRef)
 
   const pnlTotals = useMemo(
-    () => totalsFromReport(pnlPayload?.revenue ?? [], pnlPayload?.expense ?? []),
-    [pnlPayload?.revenue, pnlPayload?.expense],
+    () =>
+      totalsFromReport(pnlPayload?.revenue ?? [], [
+        ...(pnlPayload?.operational_expenses ?? []),
+        ...(pnlPayload?.other_expenses ?? []),
+        ...(pnlPayload?.expense ?? []),
+      ]),
+    [pnlPayload?.revenue, pnlPayload?.operational_expenses, pnlPayload?.other_expenses, pnlPayload?.expense],
   )
   const cashflowTotals = useMemo(
     () => totalsFromReport(cashflowPayload?.revenue ?? [], cashflowPayload?.expense ?? []),
     [cashflowPayload?.revenue, cashflowPayload?.expense],
   )
 
-  const pnlPrevMonthProfit = (pnlTotals.incomeByMonth[prevRef.monthIndex] ?? 0) + (pnlTotals.expenseByMonth[prevRef.monthIndex] ?? 0)
-  const cashflowCurrentProfit =
-    (cashflowTotals.incomeByMonth[nowRef.monthIndex] ?? 0) + (cashflowTotals.expenseByMonth[nowRef.monthIndex] ?? 0)
+  const pnlPrevMonthProfit = netForMonthRef(pnlPayload?.revenue ?? [], pnlPayload?.expense ?? [], prevRef)
+  const cashflowCurrentProfit = netForMonthRef(cashflowPayload?.revenue ?? [], cashflowPayload?.expense ?? [], nowRef)
 
   const incomeSlices = useMemo(() => buildCategorySlices(pnlPayload?.revenue ?? []), [pnlPayload?.revenue])
   const expenseSlices = useMemo(() => buildCategorySlices(pnlPayload?.expense ?? []), [pnlPayload?.expense])

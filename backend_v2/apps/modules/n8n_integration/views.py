@@ -183,7 +183,8 @@ def _n8n_upsert(request, *, serializer_class, get_instance, other_tenant_conflic
         ser = serializer_class(data=data, context={"request": request})
         ser.is_valid(raise_exception=True)
         try:
-            ser.save(**build_create_kwargs(request, su))
+            with transaction.atomic():
+                ser.save(**build_create_kwargs(request, su))
         except IntegrityError as exc:
             return Response(_n8n_integrity_error_payload(exc), status=status.HTTP_400_BAD_REQUEST)
         return Response(ser.data, status=status.HTTP_201_CREATED)
@@ -195,7 +196,8 @@ def _n8n_upsert(request, *, serializer_class, get_instance, other_tenant_conflic
         ser = serializer_class(instance=instance, data=data, partial=True, context=ctx)
         ser.is_valid(raise_exception=True)
         try:
-            ser.save()
+            with transaction.atomic():
+                ser.save()
         except IntegrityError as exc:
             return Response(_n8n_integrity_error_payload(exc), status=status.HTTP_400_BAD_REQUEST)
         return Response(ser.data, status=status.HTTP_200_OK)
@@ -206,7 +208,8 @@ def _n8n_upsert(request, *, serializer_class, get_instance, other_tenant_conflic
     ser = serializer_class(data=data, context=ctx)
     ser.is_valid(raise_exception=True)
     try:
-        ser.save(id=pk, **build_create_kwargs(request, su))
+        with transaction.atomic():
+            ser.save(id=pk, **build_create_kwargs(request, su))
     except IntegrityError as exc:
         return Response(_n8n_integrity_error_payload(exc), status=status.HTTP_400_BAD_REQUEST)
     return Response(ser.data, status=status.HTTP_201_CREATED)
@@ -246,6 +249,7 @@ class _N8nBaseView(APIView):
 
 class _N8nBatchBaseView(_N8nBaseView):
     single_view_class = None
+    skip_on_duplicate = False
 
     @staticmethod
     def _item_request(base_request, item_data):
@@ -284,6 +288,7 @@ class _N8nBatchBaseView(_N8nBaseView):
 
         single_view = self.single_view_class()
         results = []
+        skipped = 0
         with transaction.atomic():
             for idx, item in enumerate(request.data):
                 if not isinstance(item, dict):
@@ -321,6 +326,11 @@ class _N8nBatchBaseView(_N8nBaseView):
 
                 code = int(getattr(item_response, "status_code", status.HTTP_500_INTERNAL_SERVER_ERROR))
                 if not 200 <= code < 300:
+                    if self.skip_on_duplicate:
+                        resp_data = getattr(item_response, "data", None)
+                        if isinstance(resp_data, dict) and resp_data.get("error_type") == "integrity_error":
+                            skipped += 1
+                            continue
                     transaction.set_rollback(True)
                     return _n8n_batch_failure_response(
                         idx,
@@ -340,6 +350,7 @@ class _N8nBatchBaseView(_N8nBaseView):
         return Response(
             {
                 "count": len(results),
+                "skipped": skipped,
                 "results": results,
             },
             status=status.HTTP_200_OK,
@@ -686,7 +697,10 @@ class N8nRequestUpsertView(_N8nBaseView):
 
 
 class N8nAiRequestCreateView(APIView):
-    """n8n gateway for AI assistants: accepts frontend-like fields and runs the portal create flow."""
+    """
+    n8n gateway for AI assistants:
+    accepts frontend-like user fields and runs the same create flow as portal.
+    """
 
     module_key = "requests"
     authentication_classes = [N8nIntegrationAuthentication]
@@ -1312,6 +1326,7 @@ class N8nCashRevenueBatchUpsertView(_N8nBatchBaseView):
 
 class N8nBankExpenseBatchUpsertView(_N8nBatchBaseView):
     single_view_class = N8nBankExpenseUpsertView
+    skip_on_duplicate = True
 
     @staticmethod
     def _item_request(base_request, item_data):
@@ -1338,6 +1353,7 @@ class N8nBankExpenseBatchUpsertView(_N8nBatchBaseView):
 
 class N8nBankRevenueBatchUpsertView(_N8nBatchBaseView):
     single_view_class = N8nBankRevenueUpsertView
+    skip_on_duplicate = True
 
 
 class N8nCardExpenseBatchUpsertView(_N8nBatchBaseView):

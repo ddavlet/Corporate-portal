@@ -59,9 +59,11 @@ export function RequestCreatePage({ requestsBasePath = '/requests', variant = 'p
   const [formOptions, setFormOptions] = useState<RequestFormOptionsPaymentType[]>([])
   const [contractsModuleEffective, setContractsModuleEffective] = useState(false)
   const [isTenantAdmin, setIsTenantAdmin] = useState(false)
+  const [isTenantDirector, setIsTenantDirector] = useState(false)
   const [step, setStep] = useState(0)
 
-  const detailStep = isTenantAdmin ? 2 : 1
+  const requiresRequesterSelection = isTenantAdmin || isTenantDirector
+  const detailStep = requiresRequesterSelection ? 2 : 1
 
   const [paymentType, setPaymentType] = useState<string | null>(null)
   const [requesterId, setRequesterId] = useState<number | null>(null)
@@ -118,6 +120,7 @@ export function RequestCreatePage({ requestsBasePath = '/requests', variant = 'p
           setFormOptions(opts.payment_types)
           setContractsModuleEffective(opts.contracts_module_effective ?? false)
           setIsTenantAdmin(opts.is_tenant_admin ?? false)
+          setIsTenantDirector(opts.is_tenant_director ?? false)
         }
       } catch (e: unknown) {
         if (!cancelled) setOptionsError(e instanceof Error ? e.message : 'Не удалось загрузить настройки формы')
@@ -241,18 +244,18 @@ export function RequestCreatePage({ requestsBasePath = '/requests', variant = 'p
   }, [activePt])
 
   const stepItems = useMemo(() => {
-    if (isTenantAdmin) {
+    if (requiresRequesterSelection) {
       return [{ title: 'Тип оплаты' }, { title: 'Заявитель' }, { title: 'Детали' }]
     }
     return [{ title: 'Тип оплаты' }, { title: 'Детали' }]
-  }, [isTenantAdmin])
+  }, [requiresRequesterSelection])
 
   const goNext = () => {
     if (step === 0 && !paymentType) {
       message.warning('Выберите тип оплаты')
       return
     }
-    if (step === 1 && isTenantAdmin) {
+    if (step === 1 && requiresRequesterSelection) {
       if (!paymentType || !activePt) {
         message.warning('Выберите тип оплаты')
         return
@@ -278,7 +281,7 @@ export function RequestCreatePage({ requestsBasePath = '/requests', variant = 'p
       message.error('Выберите тип оплаты')
       return
     }
-    if (isTenantAdmin) {
+    if (requiresRequesterSelection) {
       if ((activePt?.requesters?.length ?? 0) === 0) {
         message.error('Для выбранного типа оплаты не настроены заявители.')
         return
@@ -337,7 +340,7 @@ export function RequestCreatePage({ requestsBasePath = '/requests', variant = 'p
         status: 'DRAFT',
         amortization_months: amortizationEnabled ? amortizationMonths : 1,
       }
-      if (isTenantAdmin && requesterId != null) {
+      if (requiresRequesterSelection && requesterId != null) {
         payload.requester = requesterId
       }
       if (paymentPurpose) payload.payment_purpose = paymentPurpose
@@ -497,7 +500,7 @@ export function RequestCreatePage({ requestsBasePath = '/requests', variant = 'p
           </div>
         ) : null}
 
-        {step === 1 && isTenantAdmin ? (
+        {step === 1 && requiresRequesterSelection ? (
           <div className={isTg ? 'tg-field-block' : undefined}>
             <Typography.Text strong style={labelBlockAboveField}>
               Заявитель

@@ -9,7 +9,7 @@ from rest_framework.test import APITestCase
 from rest_framework_simplejwt.tokens import RefreshToken
 
 from apps.tenants.models import Tenant, TenantMembership, TenantModuleConfig, TenantUserRole
-from apps.modules.bank_expenses.models import BankExpense
+from apps.modules.bank_expenses.models import BankExpense, BankRevenue
 from apps.modules.cashier.models import CashExpense
 from apps.modules.cashier.models import CashRevenue
 from apps.modules.clients_debt.models import ClientDebtSnapshot
@@ -670,6 +670,44 @@ class N8nIntegrationAuthTests(APITestCase):
         # Title is derived from tenant name at model-level.
         self.assertEqual(req.title, self.tenant.name)
 
+    def test_request_frontend_create_gateway_allows_requester_role(self):
+        url = f"{self.n8n_prefix}/requests/ai-create/"
+        body = {
+            "title": "AI created request",
+            "description": "from assistant",
+            "amount": "1200.00",
+            "currency": "UZS",
+            "payment_type": Request.PAYMENT_TYPE_CASH,
+            "urgency": Request.URGENCY_NORMAL,
+            "billing_date": "2026-04-01",
+            # non-admin requester field should be ignored (same as frontend behavior)
+            "requester": self.admin.id,
+        }
+        res = self.client.post(url, body, format="json", **self._headers(self.other))
+        self.assertEqual(res.status_code, 201, res.content)
+        req = Request.objects.get(pk=res.data["id"])
+        self.assertEqual(req.tenant_id, self.tenant.id)
+        self.assertEqual(req.created_by_id, self.other.id)
+        self.assertEqual(req.requester_id, self.other.id)
+        self.assertTrue(Approval.objects.filter(request=req).exists())
+
+    def test_request_frontend_create_gateway_requires_requests_module(self):
+        TenantModuleConfig.objects.filter(
+            tenant=self.tenant,
+            module_key="requests",
+        ).update(is_enabled=False)
+        url = f"{self.n8n_prefix}/requests/ai-create/"
+        body = {
+            "title": "AI created request",
+            "amount": "1200.00",
+            "currency": "UZS",
+            "payment_type": Request.PAYMENT_TYPE_CASH,
+            "urgency": Request.URGENCY_NORMAL,
+            "billing_date": "2026-04-01",
+        }
+        res = self.client.post(url, body, format="json", **self._headers(self.other))
+        self.assertEqual(res.status_code, 403)
+
     def test_requests_amortization_endpoint_requires_admin(self):
         url = f"{self.n8n_prefix}/requests/amortization/"
         self.client.force_authenticate(self.other)
@@ -1190,4 +1228,186 @@ class N8nIntegrationAuthTests(APITestCase):
         self.assertEqual(res2.status_code, 200, res2.content)
         appr.refresh_from_db()
         self.assertEqual(appr.decision, "approved")
+
+
+@override_settings(
+    BASE_DOMAIN="example.com",
+    N8N_INTEGRATION_TOKEN="integ-test-secret",
+    ALLOWED_HOSTS=["acme.example.com", "testserver"],
+)
+class N8nBankStatementDuplicateTests(APITestCase):
+    """
+    Verify that re-uploading a bank statement skips duplicate transactions
+    instead of failing the entire batch import.
+    """
+
+    def setUp(self):
+        su, _ = User.objects.update_or_create(pk=1, defaults={"username": "n8n_system"})
+        if not su.has_usable_password():
+            su.set_unusable_password()
+            su.save(update_fields=["password"])
+
+        self.tenant = Tenant.objects.create(name="BankCo", subdomain="acme", is_active=True)
+        self.admin = User.objects.create_user(username="bank_admin", password="pass12345")
+        TenantMembership.objects.create(tenant=self.tenant, user=self.admin, is_active=True)
+        TenantUserRole.objects.create(tenant=self.tenant, user=self.admin, role=TenantUserRole.ROLE_ADMIN)
+
+        prefix = settings.N8N_INTEGRATION_URL_PREFIX.rstrip("/")
+        self.expense_batch_url = f"{prefix}/bank/expenses/batch/"
+        self.revenue_batch_url = f"{prefix}/bank/revenues/batch/"
+
+    def _headers(self):
+        access = str(RefreshToken.for_user(self.admin).access_token)
+        return {
+            "HTTP_HOST": "acme.example.com",
+            "HTTP_X_N8N_INTEGRATION_TOKEN": "integ-test-secret",
+            "HTTP_AUTHORIZATION": f"Bearer {access}",
+        }
+
+    def _expense_item(self, doc_no, *, debit_turnover="1000.00", doc_date="2026-04-01"):
+        return {
+            "row_no": 1,
+            "doc_date": doc_date,
+            "process_date": doc_date,
+            "doc_no": doc_no,
+            "account_no": "20208000999999999999",
+            "debit_turnover": debit_turnover,
+            "payment_purpose": "Тест дублей апрель",
+        }
+
+    def _revenue_item(self, doc_no, *, kredit_turnover="1000.00", doc_date="2026-04-01"):
+        return {
+            "row_no": 1,
+            "doc_date": doc_date,
+            "process_date": doc_date,
+            "doc_no": doc_no,
+            "account_no": "20208000999999991",
+            "account_name": "ООО Тест",
+            "inn": "987654321",
+            "mfo": "01001",
+            "kredit_turnover": kredit_turnover,
+            "payment_purpose": "Тест дублей апрель",
+        }
+
+    # ── Bank Expenses ────────────────────────────────────────────────────────
+
+    def test_expense_batch_second_upload_skips_all(self):
+        """Re-uploading the same expense statement returns 200 with all records skipped."""
+        batch = [self._expense_item("BEXP-DUP-1"), self._expense_item("BEXP-DUP-2")]
+
+        r1 = self.client.post(self.expense_batch_url, batch, format="json", **self._headers())
+        self.assertEqual(r1.status_code, 200, r1.content)
+        self.assertEqual(r1.data["count"], 2)
+        self.assertEqual(r1.data["skipped"], 0)
+        self.assertEqual(BankExpense.objects.filter(tenant=self.tenant).count(), 2)
+
+        r2 = self.client.post(self.expense_batch_url, batch, format="json", **self._headers())
+        self.assertEqual(r2.status_code, 200, r2.content)
+        self.assertEqual(r2.data["count"], 0)
+        self.assertEqual(r2.data["skipped"], 2)
+        # Existing records untouched — still exactly 2.
+        self.assertEqual(BankExpense.objects.filter(tenant=self.tenant).count(), 2)
+
+    def test_expense_batch_new_records_inserted_duplicates_skipped(self):
+        """Mixed batch: new transactions are imported, duplicate ones are silently skipped."""
+        r1 = self.client.post(
+            self.expense_batch_url,
+            [self._expense_item("BEXP-MIX-1")],
+            format="json",
+            **self._headers(),
+        )
+        self.assertEqual(r1.status_code, 200, r1.content)
+        self.assertEqual(BankExpense.objects.filter(tenant=self.tenant).count(), 1)
+
+        batch = [
+            self._expense_item("BEXP-MIX-1"),  # duplicate — must be skipped
+            self._expense_item("BEXP-MIX-2"),  # new — must be inserted
+        ]
+        r2 = self.client.post(self.expense_batch_url, batch, format="json", **self._headers())
+        self.assertEqual(r2.status_code, 200, r2.content)
+        self.assertEqual(r2.data["count"], 1)
+        self.assertEqual(r2.data["skipped"], 1)
+        self.assertEqual(BankExpense.objects.filter(tenant=self.tenant).count(), 2)
+        self.assertTrue(BankExpense.objects.filter(tenant=self.tenant, doc_no="BEXP-MIX-2").exists())
+
+    def test_expense_batch_validation_error_still_rolls_back(self):
+        """A genuine validation error (not a duplicate) must still fail the batch and roll back."""
+        batch = [
+            self._expense_item("BEXP-VALERR-1"),
+            {**self._expense_item("BEXP-VALERR-2"), "debit_turnover": "not-a-number"},
+        ]
+        res = self.client.post(self.expense_batch_url, batch, format="json", **self._headers())
+        self.assertEqual(res.status_code, 400, res.content)
+        self.assertEqual(res.data.get("error_type"), "batch_item_failed")
+        self.assertEqual(res.data.get("failed_index"), 1)
+        # Rollback: the valid first item must not have been persisted.
+        self.assertFalse(BankExpense.objects.filter(tenant=self.tenant, doc_no="BEXP-VALERR-1").exists())
+
+    def test_expense_batch_duplicate_does_not_overwrite_existing_record(self):
+        """Skipping a duplicate must leave the original record completely unchanged."""
+        r1 = self.client.post(
+            self.expense_batch_url,
+            [self._expense_item("BEXP-OVERWRITE-1", debit_turnover="500.00")],
+            format="json",
+            **self._headers(),
+        )
+        self.assertEqual(r1.status_code, 200, r1.content)
+        original = BankExpense.objects.get(tenant=self.tenant, doc_no="BEXP-OVERWRITE-1")
+        original_pk = original.pk
+        original_created_at = original.created_at
+
+        # Re-upload the same item — should be skipped, not overwritten.
+        r2 = self.client.post(
+            self.expense_batch_url,
+            [self._expense_item("BEXP-OVERWRITE-1", debit_turnover="500.00")],
+            format="json",
+            **self._headers(),
+        )
+        self.assertEqual(r2.status_code, 200, r2.content)
+        self.assertEqual(r2.data["skipped"], 1)
+
+        original.refresh_from_db()
+        self.assertEqual(original.pk, original_pk)
+        self.assertEqual(original.created_at, original_created_at)
+        self.assertEqual(str(original.debit_turnover), "500.00")
+
+    # ── Bank Revenues ────────────────────────────────────────────────────────
+
+    def test_revenue_batch_second_upload_skips_all(self):
+        """Re-uploading the same revenue statement returns 200 with all records skipped."""
+        batch = [self._revenue_item("BREV-DUP-1"), self._revenue_item("BREV-DUP-2")]
+
+        r1 = self.client.post(self.revenue_batch_url, batch, format="json", **self._headers())
+        self.assertEqual(r1.status_code, 200, r1.content)
+        self.assertEqual(r1.data["count"], 2)
+        self.assertEqual(r1.data["skipped"], 0)
+        self.assertEqual(BankRevenue.objects.filter(tenant=self.tenant).count(), 2)
+
+        r2 = self.client.post(self.revenue_batch_url, batch, format="json", **self._headers())
+        self.assertEqual(r2.status_code, 200, r2.content)
+        self.assertEqual(r2.data["count"], 0)
+        self.assertEqual(r2.data["skipped"], 2)
+        self.assertEqual(BankRevenue.objects.filter(tenant=self.tenant).count(), 2)
+
+    def test_revenue_batch_new_records_inserted_duplicates_skipped(self):
+        """Mixed revenue batch: new transactions imported, duplicates silently skipped."""
+        r1 = self.client.post(
+            self.revenue_batch_url,
+            [self._revenue_item("BREV-MIX-1")],
+            format="json",
+            **self._headers(),
+        )
+        self.assertEqual(r1.status_code, 200, r1.content)
+        self.assertEqual(BankRevenue.objects.filter(tenant=self.tenant).count(), 1)
+
+        batch = [
+            self._revenue_item("BREV-MIX-1"),  # duplicate — must be skipped
+            self._revenue_item("BREV-MIX-2"),  # new — must be inserted
+        ]
+        r2 = self.client.post(self.revenue_batch_url, batch, format="json", **self._headers())
+        self.assertEqual(r2.status_code, 200, r2.content)
+        self.assertEqual(r2.data["count"], 1)
+        self.assertEqual(r2.data["skipped"], 1)
+        self.assertEqual(BankRevenue.objects.filter(tenant=self.tenant).count(), 2)
+        self.assertTrue(BankRevenue.objects.filter(tenant=self.tenant, doc_no="BREV-MIX-2").exists())
 
