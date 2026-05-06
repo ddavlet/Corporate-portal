@@ -8,6 +8,7 @@ import requests
 from django.conf import settings
 
 from apps.modules.telegram_approvals.services import _get_tenant_bot_token
+from apps.tenants.integration_settings import get_n8n_integration_settings
 
 logger = logging.getLogger(__name__)
 _THOUSANDS_NUMBER_RE = re.compile(r"(?<![\w])(?P<int>\d{4,})(?P<frac>[.,]\d+)?(?![\w])")
@@ -71,10 +72,13 @@ def post_feedback_ai_refine(*, tenant, body: dict) -> str:
     url = feedback_ai_webhook_url(tenant_subdomain=tenant.subdomain)
     logger.info("Feedback AI POST %s", url)
 
+    token = get_n8n_integration_settings(tenant=tenant).integration_token
     headers = {
         "Content-Type": "application/json",
         "Accept": "application/json",
     }
+    if token:
+        headers["X-N8N-Integration-Token"] = token
 
     try:
         resp = requests.post(url, json=body, headers=headers, timeout=60)
