@@ -49,6 +49,7 @@ class N8nIntegrationAuthTests(APITestCase):
         TenantUserRole.objects.create(tenant=self.tenant, user=self.requester, role=TenantUserRole.ROLE_REQUESTER)
         TenantUserRole.objects.create(tenant=self.tenant, user=self.approver, role=TenantUserRole.ROLE_APPROVER)
         TenantModuleConfig.objects.create(tenant=self.tenant, module_key="vendors", is_enabled=True)
+        TenantModuleConfig.objects.create(tenant=self.tenant, module_key="requests", is_enabled=True)
 
         self.n8n_prefix = settings.N8N_INTEGRATION_URL_PREFIX.rstrip("/")
         self.vendor_url = f"{self.n8n_prefix}/vendors/"
@@ -649,6 +650,44 @@ class N8nIntegrationAuthTests(APITestCase):
         req.refresh_from_db()
         # Title is derived from tenant name at model-level.
         self.assertEqual(req.title, self.tenant.name)
+
+    def test_request_frontend_create_gateway_allows_requester_role(self):
+        url = f"{self.n8n_prefix}/requests/ai-create/"
+        body = {
+            "title": "AI created request",
+            "description": "from assistant",
+            "amount": "1200.00",
+            "currency": "UZS",
+            "payment_type": Request.PAYMENT_TYPE_CASH,
+            "urgency": Request.URGENCY_NORMAL,
+            "billing_date": "2026-04-01",
+            # non-admin requester field should be ignored (same as frontend behavior)
+            "requester": self.admin.id,
+        }
+        res = self.client.post(url, body, format="json", **self._headers(self.other))
+        self.assertEqual(res.status_code, 201, res.content)
+        req = Request.objects.get(pk=res.data["id"])
+        self.assertEqual(req.tenant_id, self.tenant.id)
+        self.assertEqual(req.created_by_id, self.other.id)
+        self.assertEqual(req.requester_id, self.other.id)
+        self.assertTrue(Approval.objects.filter(request=req).exists())
+
+    def test_request_frontend_create_gateway_requires_requests_module(self):
+        TenantModuleConfig.objects.filter(
+            tenant=self.tenant,
+            module_key="requests",
+        ).update(is_enabled=False)
+        url = f"{self.n8n_prefix}/requests/ai-create/"
+        body = {
+            "title": "AI created request",
+            "amount": "1200.00",
+            "currency": "UZS",
+            "payment_type": Request.PAYMENT_TYPE_CASH,
+            "urgency": Request.URGENCY_NORMAL,
+            "billing_date": "2026-04-01",
+        }
+        res = self.client.post(url, body, format="json", **self._headers(self.other))
+        self.assertEqual(res.status_code, 403)
 
     def test_requests_amortization_endpoint_requires_admin(self):
         url = f"{self.n8n_prefix}/requests/amortization/"

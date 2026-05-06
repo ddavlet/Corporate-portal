@@ -194,6 +194,24 @@ export function RequestApprovalConfigPage() {
     })
   }
 
+  const removePurposeExceptionStep = (pt: string, excIdx: number, stepIdx: number) => {
+    setData((prev) => {
+      if (!prev) return prev
+      return {
+        ...prev,
+        payment_types: prev.payment_types.map((p) => {
+          if (p.payment_type !== pt) return p
+          const exceptions = [...(p.purpose_exceptions ?? [])]
+          const current = exceptions[excIdx]
+          if (!current) return p
+          const steps = (current.steps ?? []).filter((_, i) => i !== stepIdx)
+          exceptions[excIdx] = { ...current, steps }
+          return { ...p, purpose_exceptions: exceptions }
+        }),
+      }
+    })
+  }
+
   const removePurposeException = (pt: string, excIdx: number) => {
     setData((prev) => {
       if (!prev) return prev
@@ -269,12 +287,12 @@ export function RequestApprovalConfigPage() {
           purpose_exceptions: (pt.purpose_exceptions ?? []).map((exc) => ({
             id: exc.id,
             name: exc.name ?? '',
-            is_enabled: exc.is_enabled,
+            is_enabled: true,
             payment_purpose_ids: exc.payment_purpose_ids ?? [],
             steps: (exc.steps ?? []).map((s) => ({
               step: s.step,
               step_type: s.step_type,
-              is_enabled: s.is_enabled,
+              is_enabled: true,
               approver_user_ids: s.approver_user_ids,
               payment_action_mode: s.payment_action_mode ?? 'callback',
               payment_webapp_url: s.payment_webapp_url ?? '',
@@ -438,12 +456,6 @@ export function RequestApprovalConfigPage() {
                               placeholder="Название исключения (опционально)"
                               style={{ width: 320 }}
                             />
-                            <Checkbox
-                              checked={exc.is_enabled}
-                              onChange={(e) => updatePurposeException(pt.payment_type, excIdx, { is_enabled: e.target.checked })}
-                            >
-                              Активно
-                            </Checkbox>
                             <Button danger onClick={() => removePurposeException(pt.payment_type, excIdx)}>
                               Удалить исключение
                             </Button>
@@ -480,17 +492,47 @@ export function RequestApprovalConfigPage() {
                                 style={{ width: 360 }}
                               />
                               {step.step_type === 'payment' ? (
-                                <InputNumber
-                                  value={step.payment_chat_id ?? null}
-                                  onChange={(v) =>
-                                    updatePurposeExceptionStep(pt.payment_type, excIdx, stepIdx, {
-                                      payment_chat_id: v === null || v === undefined ? null : Number(v),
-                                    })
-                                  }
-                                  placeholder="Chat ID (например, -1001234567890)"
-                                  style={{ width: 260 }}
-                                  controls={false}
-                                />
+                                <>
+                                  <Select
+                                    value={step.payment_action_mode ?? 'callback'}
+                                    onChange={(v) =>
+                                      updatePurposeExceptionStep(pt.payment_type, excIdx, stepIdx, {
+                                        payment_action_mode: v as RequestApprovalConfigStepItem['payment_action_mode'],
+                                      })
+                                    }
+                                    options={(pt.payment_action_mode_options ?? ['callback', 'webapp']).map((mode) => ({
+                                      value: mode,
+                                      label: mode,
+                                    }))}
+                                    style={{ width: 220 }}
+                                  />
+                                  {(step.payment_action_mode ?? 'callback') === 'webapp' ? (
+                                    <Input
+                                      value={step.payment_webapp_url ?? ''}
+                                      onChange={(e) =>
+                                        updatePurposeExceptionStep(pt.payment_type, excIdx, stepIdx, {
+                                          payment_webapp_url: e.target.value,
+                                        })
+                                      }
+                                      placeholder="https://t.me/ВашБот/ИмяПриложения (добавится startapp с id одобрения)"
+                                      style={{ width: 420 }}
+                                    />
+                                  ) : null}
+                                  <InputNumber
+                                    value={step.payment_chat_id ?? null}
+                                    onChange={(v) =>
+                                      updatePurposeExceptionStep(pt.payment_type, excIdx, stepIdx, {
+                                        payment_chat_id: v === null || v === undefined ? null : Number(v),
+                                      })
+                                    }
+                                    placeholder="Chat ID (например, -1001234567890)"
+                                    style={{ width: 260 }}
+                                    controls={false}
+                                  />
+                                  <Button danger onClick={() => removePurposeExceptionStep(pt.payment_type, excIdx, stepIdx)}>
+                                    Удалить шаг
+                                  </Button>
+                                </>
                               ) : null}
                             </Space>
                           ))}
@@ -526,61 +568,34 @@ export function RequestApprovalConfigPage() {
                           <Card key={`${pt.payment_type}:${step.step}:${step.step_type}`} size="small" type="inner">
                             <Space direction="vertical" size={10} style={{ display: 'flex' }}>
                               <Space wrap align="start">
-                                <div>
-                                  <Typography.Text strong>Шаг</Typography.Text>
-                                  <div style={{ height: 8 }} />
-                                  <InputNumber
-                                    value={step.step}
-                                    min={1}
-                                    onChange={(v) => updateStep(pt.payment_type, idx, { step: Number(v) })}
-                                  />
-                                </div>
-
-                                <div>
-                                  <Typography.Text strong>Тип шага</Typography.Text>
-                                  <div style={{ height: 8 }} />
-                                  <Select
-                                    value={step.step_type}
-                                    onChange={(v) => updateStep(pt.payment_type, idx, { step_type: v })}
-                                    options={STEP_TYPES}
-                                    style={{ width: 180 }}
-                                  />
-                                </div>
-
-                                <div>
-                                  <Typography.Text strong>Активен</Typography.Text>
-                                  <div style={{ height: 8 }} />
-                                  <Checkbox
-                                    checked={step.is_enabled}
-                                    onChange={(e) => updateStep(pt.payment_type, idx, { is_enabled: e.target.checked })}
-                                  />
-                                </div>
-
-                                <div>
-                                  <Button
-                                    danger
-                                    icon={<DeleteOutlined />}
-                                    onClick={() => removeStep(pt.payment_type, idx)}
-                                  >
-                                    Удалить
-                                  </Button>
-                                </div>
-                              </Space>
-
-                              <div>
-                                <Typography.Text strong style={labelBlockAboveField}>
-                                  Approver-ы для шага
-                                </Typography.Text>
-                                <div style={{ height: 8 }} />
+                                <InputNumber
+                                  value={step.step}
+                                  min={1}
+                                  onChange={(v) => updateStep(pt.payment_type, idx, { step: Number(v) })}
+                                  placeholder="Шаг"
+                                />
+                                <Select
+                                  value={step.step_type}
+                                  onChange={(v) => updateStep(pt.payment_type, idx, { step_type: v })}
+                                  options={STEP_TYPES}
+                                  style={{ width: 160 }}
+                                />
                                 <Select
                                   mode="multiple"
                                   value={step.approver_user_ids}
                                   onChange={(v) => updateStep(pt.payment_type, idx, { approver_user_ids: v as number[] })}
                                   options={approverOptions}
-                                  placeholder="Выберите approver-ов"
-                                  style={{ width: '100%' }}
+                                  placeholder="Участники"
+                                  style={{ minWidth: 320 }}
                                 />
-                              </div>
+                                <Button
+                                  danger
+                                  icon={<DeleteOutlined />}
+                                  onClick={() => removeStep(pt.payment_type, idx)}
+                                >
+                                  Удалить
+                                </Button>
+                              </Space>
                               {step.step_type === 'payment' ? (
                                 <>
                                   <div>
