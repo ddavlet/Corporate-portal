@@ -148,7 +148,7 @@ describe('api module', () => {
     fetchMock.mockResolvedValueOnce(createJsonResponse(200, null))
 
     const response = await getRequestFormOptions()
-    expect(response).toEqual({ is_tenant_admin: false, requester_candidates: [], payment_types: [] })
+    expect(response).toEqual({ is_tenant_admin: false, is_tenant_director: false, requester_candidates: [], payment_types: [] })
   })
 
   it('validates AI question and accepts typo key "reponse"', async () => {

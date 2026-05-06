@@ -12,7 +12,7 @@ import {
 import { labelBlockAboveField } from '../formSpacing'
 
 function emptyStep(step: number): InvestmentApprovalConfigStepItem {
-  return { step, is_enabled: true, approver_user_ids: [] }
+  return { step, step_type: 'serial', is_enabled: true, payment_chat_id: null, approver_user_ids: [] }
 }
 
 export function InvestmentApprovalConfigPage() {
@@ -78,7 +78,9 @@ export function InvestmentApprovalConfigPage() {
         is_enabled: data.is_enabled,
         steps: data.steps.map((s) => ({
           step: s.step,
+          step_type: s.step_type ?? 'serial',
           is_enabled: s.is_enabled,
+          payment_chat_id: s.step_type === 'confirmation' ? (s.payment_chat_id ?? null) : null,
           approver_user_ids: s.approver_user_ids,
         })),
       })
@@ -125,6 +127,25 @@ export function InvestmentApprovalConfigPage() {
                       </Typography.Text>
                       <InputNumber min={1} value={step.step} onChange={(v) => updateStep(idx, { step: Number(v) })} />
                     </div>
+                    <div>
+                      <Typography.Text strong style={labelBlockAboveField}>
+                        Тип этапа
+                      </Typography.Text>
+                      <Select
+                        value={step.step_type ?? 'serial'}
+                        style={{ width: 180 }}
+                        onChange={(v) =>
+                          updateStep(idx, {
+                            step_type: v as 'serial' | 'confirmation',
+                            payment_chat_id: v === 'confirmation' ? (step.payment_chat_id ?? null) : null,
+                          })
+                        }
+                        options={[
+                          { value: 'serial', label: 'serial (проверка)' },
+                          { value: 'confirmation', label: 'confirmation (подтверждение получения)' },
+                        ]}
+                      />
+                    </div>
                     <Checkbox checked={step.is_enabled} onChange={(e) => updateStep(idx, { is_enabled: e.target.checked })}>
                       Активен
                     </Checkbox>
@@ -144,6 +165,18 @@ export function InvestmentApprovalConfigPage() {
                       style={{ width: '100%' }}
                     />
                   </div>
+                  {step.step_type === 'confirmation' ? (
+                    <div>
+                      <Typography.Text strong style={labelBlockAboveField}>
+                        Chat ID для этапа оплаты
+                      </Typography.Text>
+                      <InputNumber
+                        style={{ width: '100%' }}
+                        value={step.payment_chat_id ?? undefined}
+                        onChange={(v) => updateStep(idx, { payment_chat_id: v == null ? null : Number(v) })}
+                      />
+                    </div>
+                  ) : null}
                 </Space>
               </Card>
             ))}
