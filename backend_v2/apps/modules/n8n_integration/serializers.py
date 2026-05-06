@@ -211,7 +211,7 @@ class N8nPayrollLineImportSerializer(serializers.ModelSerializer):
 
 
 class N8nBankExpenseImportSerializer(BankExpenseSerializer):
-    id = serializers.IntegerField(required=False)
+    id = serializers.IntegerField(required=False, allow_null=True)
     vendor_name = serializers.CharField(required=False, allow_blank=True, write_only=True)
     account_name = serializers.CharField(required=False, allow_blank=True, write_only=True)
     counterparty = serializers.CharField(required=False, allow_blank=True, write_only=True)
@@ -259,7 +259,7 @@ class N8nBankExpenseImportSerializer(BankExpenseSerializer):
 
 
 class N8nBankRevenueImportSerializer(BankRevenueSerializer):
-    id = serializers.IntegerField(required=False)
+    id = serializers.IntegerField(required=False, allow_null=True)
 
     class Meta(BankRevenueSerializer.Meta):
         read_only_fields = ["created_at", "created_by"]
