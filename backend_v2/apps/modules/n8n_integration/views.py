@@ -695,6 +695,33 @@ class N8nRequestUpsertView(_N8nBaseView):
             build_create_kwargs=build_create_kwargs,
         )
 
+class N8nAiRequestCreateView(APIView):
+    """
+    n8n gateway for AI assistants:
+    accepts frontend-like user fields and runs the same create flow as portal.
+    """
+
+    module_key = "requests"
+    authentication_classes = [N8nIntegrationAuthentication]
+    permission_classes = [IsAuthenticated, HasEffectiveModuleAccess]
+
+    def post(self, request):
+        tenant = getattr(request, "tenant", None)
+        if not tenant:
+            return Response({"detail": "Unknown tenant."}, status=status.HTTP_400_BAD_REQUEST)
+
+        serializer = PortalRequestSerializer(data=request.data, context={"request": request})
+        serializer.is_valid(raise_exception=True)
+
+        with transaction.atomic():
+            request_obj = serializer.save(tenant=tenant, created_by=request.user)
+            created_approvals = create_approval_rows_for_request(request_obj)
+            if created_approvals and request_obj.status == Request.STATUS_DRAFT:
+                _recalculate_request_status(request_obj)
+
+        route_request_approvals(request_obj=request_obj)
+        output = PortalRequestSerializer(request_obj, context={"request": request}).data
+        return Response(output, status=status.HTTP_201_CREATED)
 
 class N8nRequestAmortizationView(_N8nBaseView):
     def get(self, request):
