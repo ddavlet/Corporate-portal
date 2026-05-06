@@ -2,7 +2,7 @@ from __future__ import annotations
 from typing import Any
 from pydantic import BaseModel, field_validator
 
-SEND_ACTIONS   = {"send", "send_interactive"}
+SEND_ACTIONS   = {"send", "send_interactive", "send_portal_feedback"}
 EDIT_ACTIONS   = {"edit", "edit_interactive"}
 DELETE_ACTIONS = {"delete"}
 ALL_ACTIONS    = SEND_ACTIONS | EDIT_ACTIONS | DELETE_ACTIONS
