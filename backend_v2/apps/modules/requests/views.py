@@ -1314,6 +1314,11 @@ class RequestFormOptionsView(APIView):
             user=request.user,
             role=TenantUserRole.ROLE_ADMIN,
         ).exists()
+        is_tenant_director = TenantUserRole.objects.filter(
+            tenant=tenant,
+            user=request.user,
+            role=TenantUserRole.ROLE_DIRECTOR,
+        ).exists()
         requester_candidates = _requester_candidates_for_options(tenant)
 
         cfg = RequestFormConfig.objects.filter(tenant=tenant).first()
@@ -1324,6 +1329,7 @@ class RequestFormOptionsView(APIView):
             return Response(
                 {
                     "is_tenant_admin": is_tenant_admin,
+                    "is_tenant_director": is_tenant_director,
                     "requester_candidates": requester_candidates,
                     "contracts_module_effective": contracts_m_effective,
                     "payment_types": [],
@@ -1361,6 +1367,7 @@ class RequestFormOptionsView(APIView):
         return Response(
             {
                 "is_tenant_admin": is_tenant_admin,
+                "is_tenant_director": is_tenant_director,
                 "requester_candidates": requester_candidates,
                 "contracts_module_effective": contracts_m_effective,
                 "payment_types": [

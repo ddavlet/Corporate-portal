@@ -1768,6 +1768,7 @@ export type RequestFormOptionsPaymentType = {
 
 export type RequestFormOptionsResponse = {
   is_tenant_admin?: boolean
+  is_tenant_director?: boolean
   contracts_module_effective?: boolean
   requester_candidates?: RequestFormOptionsRequester[]
   payment_types: RequestFormOptionsPaymentType[]
@@ -1778,10 +1779,11 @@ export async function getRequestFormOptions(): Promise<RequestFormOptionsRespons
   if (!res.ok) throw new Error(await parseErrorBody(res))
   const json = (await res.json().catch(() => null)) as RequestFormOptionsResponse | null
   if (!json) {
-    return { is_tenant_admin: false, requester_candidates: [], payment_types: [] }
+    return { is_tenant_admin: false, is_tenant_director: false, requester_candidates: [], payment_types: [] }
   }
   return {
     is_tenant_admin: json.is_tenant_admin ?? false,
+    is_tenant_director: json.is_tenant_director ?? false,
     contracts_module_effective: json.contracts_module_effective ?? false,
     requester_candidates: json.requester_candidates ?? [],
     payment_types: json.payment_types ?? [],
