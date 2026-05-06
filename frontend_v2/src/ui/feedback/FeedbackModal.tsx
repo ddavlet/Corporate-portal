@@ -15,7 +15,7 @@ const KIND_OPTIONS: { label: string; value: FeedbackKind }[] = [
 ]
 
 export function FeedbackModal({ open, onClose, pagePath }: Props) {
-  const [kind, setKind] = useState<FeedbackKind | undefined>(undefined)
+  const [kind, setKind] = useState<FeedbackKind>('error')
   const [text, setText] = useState('')
   const [hasRefinedOnce, setHasRefinedOnce] = useState(false)
   const [refining, setRefining] = useState(false)
@@ -23,7 +23,7 @@ export function FeedbackModal({ open, onClose, pagePath }: Props) {
   const [error, setError] = useState<string | null>(null)
 
   const reset = () => {
-    setKind(undefined)
+    setKind('error')
     setText('')
     setHasRefinedOnce(false)
     setError(null)
@@ -122,9 +122,7 @@ export function FeedbackModal({ open, onClose, pagePath }: Props) {
           <Typography.Paragraph type="secondary" style={{ marginBottom: 8, marginTop: 4 }}>
             {kind === 'error'
               ? 'Укажите: что делали, что ожидали, что произошло вместо этого, страница или раздел. По возможности — шаги, чтобы повторить.'
-              : kind === 'improvement'
-                ? 'Опишите задачу или боль, как сейчас устроено, и каким вы видите улучшение (процесс, интерфейс, отчёт).'
-                : 'Выберите тип отзыва — появятся подсказки для текста.'}
+              : 'Опишите задачу или боль, как сейчас устроено, и каким вы видите улучшение (процесс, интерфейс, отчёт).'}
           </Typography.Paragraph>
           <Input.TextArea
             value={text}
