@@ -1424,3 +1424,50 @@ class N8nInvestCompanyUpsertView(_N8nBaseView):
 
 class N8nInvestCompanyBatchUpsertView(_N8nBatchBaseView):
     single_view_class = N8nInvestCompanyUpsertView
+
+
+class N8nVendorListView(_N8nBaseView):
+    """Return all vendor names grouped by payment_type.
+
+    cash vendors  → Наличные
+    transfer vendors → Перечисление, Пополнение, Платежная карта
+    """
+
+    def get(self, request):
+        tenant = request.tenant
+        cash_names = list(
+            Vendor.objects.filter(tenant=tenant, kind=Vendor.KIND_CASH)
+            .order_by("name")
+            .values_list("name", flat=True)
+        )
+        transfer_names = list(
+            Vendor.objects.filter(tenant=tenant, kind=Vendor.KIND_TRANSFER)
+            .order_by("name")
+            .values_list("name", flat=True)
+        )
+        return Response(
+            {
+                Request.PAYMENT_TYPE_CASH: cash_names,
+                Request.PAYMENT_TYPE_TRANSFER: transfer_names,
+                Request.PAYMENT_TYPE_TOPUP: transfer_names,
+                Request.PAYMENT_TYPE_CARD: transfer_names,
+            }
+        )
+
+
+class N8nPaymentPurposeListView(_N8nBaseView):
+    """Return distinct payment purposes per payment_type, derived from request history."""
+
+    def get(self, request):
+        tenant = request.tenant
+        result = {}
+        for pt, _ in Request.PAYMENT_TYPE_CHOICES:
+            purposes = list(
+                Request.objects.filter(tenant=tenant, payment_type=pt)
+                .exclude(payment_purpose="")
+                .order_by("payment_purpose")
+                .values_list("payment_purpose", flat=True)
+                .distinct()
+            )
+            result[pt] = purposes
+        return Response(result)
