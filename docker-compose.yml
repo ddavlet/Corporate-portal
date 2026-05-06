@@ -108,7 +108,7 @@ services:
        - traefik.http.middlewares.n8n.headers.STSPreload=true
 
       # ---------- CORS middleware for dev.kolberg.uz  ----------
-       - traefik.http.middlewares.n8n-dev-cors.headers.accessControlAllowOriginList=https://neuron.kolberg.uz,https://construction.kolberg.uz,https://lemonfit.kolberg.uz,https://lemonaqua.kolberg.uz,https://main.kolberg.uz
+       - traefik.http.middlewares.n8n-dev-cors.headers.accessControlAllowOriginList=https://neuron.kolberg.uz,https://construction.kolberg.uz,https://lemonfit.kolberg.uz,https://lemonaqua.kolberg.uz,https://main.kolberg.uz,https://zarqand.kolberg.uz,https://invest.kolberg.uz,https://syrop.kolberg.uz,https://qulay.kolberg.uz
        - traefik.http.middlewares.n8n-dev-cors.headers.accessControlAllowMethods=GET,POST,OPTIONS
        - traefik.http.middlewares.n8n-dev-cors.headers.accessControlAllowHeaders=Content-Type,Authorization
        - traefik.http.middlewares.n8n-dev-cors.headers.addVaryHeader=true
@@ -285,7 +285,6 @@ services:
     # >>> CHANGE: только public
     networks:
       - traefik-public
-
 
   db_backup:
     image: postgres:17
