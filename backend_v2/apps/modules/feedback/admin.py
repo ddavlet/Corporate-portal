@@ -132,13 +132,18 @@ class PortalFeedbackAdmin(admin.ModelAdmin):
             kwargs["queryset"] = User.objects.filter(is_staff=True).order_by(
                 "username"
             )
-        field = super().formfield_for_foreignkey(db_field, request, **kwargs)
-        if db_field.name == "assignee" and field:
-            field.widget.can_add_related = False
-            field.widget.can_change_related = False
-            field.widget.can_delete_related = False
-            field.widget.can_view_related = False
-        return field
+        return super().formfield_for_foreignkey(db_field, request, **kwargs)
+
+    def formfield_for_dbfield(self, db_field, request, **kwargs):
+        formfield = super().formfield_for_dbfield(db_field, request, **kwargs)
+        if db_field.name == "assignee" and formfield is not None:
+            widget = formfield.widget
+            if hasattr(widget, "can_add_related"):
+                widget.can_add_related = False
+                widget.can_change_related = False
+                widget.can_delete_related = False
+                widget.can_view_related = False
+        return formfield
 
     def save_model(self, request, obj, form, change):
         if obj.work_status == PortalFeedback.WORK_DONE and obj.resolved_at is None:
