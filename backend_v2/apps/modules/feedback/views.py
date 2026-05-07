@@ -32,6 +32,24 @@ class FeedbackSubmitSerializer(serializers.Serializer):
     page_path = serializers.CharField(required=False, allow_blank=True, max_length=500, default="")
 
 
+class MyFeedbackSerializer(serializers.ModelSerializer):
+    work_status_label = serializers.CharField(source="get_work_status_display", read_only=True)
+
+    class Meta:
+        model = PortalFeedback
+        fields = (
+            "id",
+            "kind",
+            "body",
+            "page_path",
+            "work_status",
+            "work_status_label",
+            "created_at",
+            "resolved_at",
+        )
+        read_only_fields = fields
+
+
 class FeedbackAiRefineView(APIView):
     permission_classes = [IsAuthenticated]
 
@@ -154,3 +172,19 @@ class FeedbackSubmitView(APIView):
             },
             status=status.HTTP_201_CREATED,
         )
+
+
+class MyFeedbackListView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        tenant = getattr(request, "tenant", None)
+        if not tenant:
+            return Response({"detail": "Unknown tenant."}, status=status.HTTP_404_NOT_FOUND)
+
+        qs = (
+            PortalFeedback.objects.filter(tenant=tenant, created_by=request.user)
+            .order_by("-created_at")[:100]
+        )
+        data = MyFeedbackSerializer(qs, many=True).data
+        return Response({"results": data})
