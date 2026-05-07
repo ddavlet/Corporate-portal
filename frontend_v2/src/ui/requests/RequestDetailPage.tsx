@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react'
 import { Alert, Button, Card, DatePicker, Input, InputNumber, Modal, Select, Space, Typography, message } from 'antd'
-import { ReloadOutlined } from '@ant-design/icons'
+import { CopyOutlined, ReloadOutlined } from '@ant-design/icons'
 import { useNavigate, useParams } from 'react-router-dom'
 import {
   apiFetch,
   confirmPaymentViaWebApp,
+  copyPortalRequest,
   getRequestFormOptions,
   deleteRequestAttachment,
   resendRequestApprovals,
@@ -229,6 +230,17 @@ export function RequestDetailPage({ listPath = '/requests', variant = 'portal' }
       message.error(e instanceof Error ? e.message : 'Не удалось отправить запрос повторно')
     } finally {
       setResendLoading(false)
+    }
+  }
+
+  const duplicateRequest = async () => {
+    if (!detail?.id) return
+    try {
+      const created = await copyPortalRequest(detail.id)
+      message.success(`Черновик-копия создан: #${created.request_id}`)
+      navigate(`${listPath}/${created.request_id}`)
+    } catch (e: unknown) {
+      message.error(e instanceof Error ? e.message : 'Не удалось скопировать заявку')
     }
   }
 
@@ -533,6 +545,11 @@ export function RequestDetailPage({ listPath = '/requests', variant = 'portal' }
                   Прикрепить файл
                 </Button>
               ) : null}
+              {detail?.id ? (
+                <Button size="large" block icon={<CopyOutlined />} onClick={() => void duplicateRequest()}>
+                  Копировать заявку
+                </Button>
+              ) : null}
               {pendingApprovalsEl}
               {showExpenseButton ? (
                 <Button type="primary" size="large" block onClick={openLinkedExpense}>
@@ -556,6 +573,11 @@ export function RequestDetailPage({ listPath = '/requests', variant = 'portal' }
                   </>
                 ) : null}
                 {detail?.id ? <Button onClick={() => setOpenNoteModal(true)}>Добавить заметку</Button> : null}
+                {detail?.id ? (
+                  <Button icon={<CopyOutlined />} onClick={() => void duplicateRequest()}>
+                    Копировать заявку
+                  </Button>
+                ) : null}
                 {detail?.id ? (
                   <Button
                     icon={<ReloadOutlined />}

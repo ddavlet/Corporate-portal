@@ -331,6 +331,42 @@ class PortalRequestViewSet(viewsets.ModelViewSet):
         obj = serializer.instance
         route_request_approvals(request_obj=obj)
 
+    @action(detail=True, methods=["post"], url_path="copy")
+    def copy(self, request, pk=None):
+        source = self.get_object()
+        tenant = getattr(request, "tenant", None)
+        if not tenant:
+            raise ValidationError({"detail": "Unknown tenant."})
+
+        payload = {
+            "title": source.title,
+            "description": source.description,
+            "amount": source.amount,
+            "currency": source.currency,
+            "payment_type": source.payment_type,
+            "urgency": source.urgency,
+            "payment_purpose": source.payment_purpose,
+            "vendor_ref": source.vendor_ref_id,
+            "contract_ref": source.contract_ref_id,
+            "billing_date": source.billing_date,
+            "amortization_months": source.amortization_months,
+            "requester": request.user.id,
+        }
+        serializer = self.get_serializer(data=payload, context=self.get_serializer_context())
+        serializer.is_valid(raise_exception=True)
+        with transaction.atomic():
+            copied = serializer.save(
+                tenant=tenant,
+                created_by=request.user,
+                requester=request.user,
+                status=Request.STATUS_DRAFT,
+            )
+            n = create_approval_rows_for_request(copied)
+            if n and copied.status == Request.STATUS_DRAFT:
+                _recalculate_request_status(copied)
+        route_request_approvals(request_obj=copied)
+        return Response({"request_id": copied.id}, status=status.HTTP_201_CREATED)
+
     @action(detail=True, methods=["post"], url_path="submit-for-approval")
     def submit_for_approval(self, request, pk=None):
         tenant = self.request.tenant
