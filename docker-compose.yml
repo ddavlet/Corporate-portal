@@ -519,7 +519,8 @@ services:
       - traefik.http.services.frontend-v2.loadbalancer.server.port=80
 
       # tenants: /app/*
-      - traefik.http.routers.frontend-v2.rule=(Host(`qulay.kolberg.uz`) || Host(`main.kolberg.uz`) || Host(`lemonfit.kolberg.uz`) || Host(`lemonfit2.kolberg.uz`) || Host(`neuron.kolberg.uz`) || Host(`lemonaqua.kolberg.uz`)) && (PathPrefix(`/app/`) || PathPrefix(`/app`))      - traefik.http.routers.frontend-v2.entrypoints=web,websecure
+      - traefik.http.routers.frontend-v2.rule=(Host(`qulay.kolberg.uz`) || Host(`main.kolberg.uz`) || Host(`lemonfit.kolberg.uz`) || Host(`lemonfit2.kolberg.uz`) || Host(`neuron.kolberg.uz`) || Host(`lemonaqua.kolberg.uz`)) && (PathPrefix(`/app/`) || PathPrefix(`/app`))
+      - traefik.http.routers.frontend-v2.entrypoints=web,websecure
       - traefik.http.routers.frontend-v2.tls=true
       - traefik.http.routers.frontend-v2.tls.certresolver=mytlschallenge
       - traefik.http.routers.frontend-v2.service=frontend-v2
