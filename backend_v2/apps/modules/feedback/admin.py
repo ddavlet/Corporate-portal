@@ -140,6 +140,17 @@ class PortalFeedbackAdmin(admin.ModelAdmin):
             field.widget.can_view_related = False
         return field
 
+    def formfield_for_dbfield(self, db_field, request, **kwargs):
+        formfield = super().formfield_for_dbfield(db_field, request, **kwargs)
+        if db_field.name == "assignee" and formfield is not None:
+            widget = formfield.widget
+            if hasattr(widget, "can_add_related"):
+                widget.can_add_related = False
+                widget.can_change_related = False
+                widget.can_delete_related = False
+                widget.can_view_related = False
+        return formfield
+
     def save_model(self, request, obj, form, change):
         if obj.work_status == PortalFeedback.WORK_DONE and obj.resolved_at is None:
             obj.resolved_at = timezone.now()
