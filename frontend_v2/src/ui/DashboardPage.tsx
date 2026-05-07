@@ -19,7 +19,6 @@ import {
   getPreviousMonthRef,
   netForMonthRef,
   toPendingApprovals,
-  totalsFromReport,
 } from './dashboard/widgets/adapters'
 import type { DashboardWidgetKey, PendingApprovalItem, WidgetVisibility } from './dashboard/widgets/types'
 import { useUserPreference } from '../lib/useUserPreference'
@@ -96,25 +95,21 @@ export function DashboardPage() {
   const nowRef = getCurrentMonthRef()
   const prevRef = getPreviousMonthRef(nowRef)
 
-  const pnlTotals = useMemo(
-    () =>
-      totalsFromReport(pnlPayload?.revenue ?? [], [
-        ...(pnlPayload?.operational_expenses ?? []),
-        ...(pnlPayload?.other_expenses ?? []),
-        ...(pnlPayload?.expense ?? []),
-      ]),
-    [pnlPayload?.revenue, pnlPayload?.operational_expenses, pnlPayload?.other_expenses, pnlPayload?.expense],
-  )
-  const cashflowTotals = useMemo(
-    () => totalsFromReport(cashflowPayload?.revenue ?? [], cashflowPayload?.expense ?? []),
-    [cashflowPayload?.revenue, cashflowPayload?.expense],
-  )
+const pnlExpenseItems = useMemo(() => {
+    const operational = pnlPayload?.operational_expenses ?? []
+    const other = pnlPayload?.other_expenses ?? []
+    const legacyExpense = pnlPayload?.expense ?? []
+    if (operational.length > 0 || other.length > 0) {
+      return [...operational, ...other]
+    }
+    return legacyExpense
+  }, [pnlPayload?.operational_expenses, pnlPayload?.other_expenses, pnlPayload?.expense])
 
-  const pnlPrevMonthProfit = netForMonthRef(pnlPayload?.revenue ?? [], pnlPayload?.expense ?? [], prevRef)
+  const pnlPrevMonthProfit = netForMonthRef(pnlPayload?.revenue ?? [], pnlExpenseItems, prevRef)
   const cashflowCurrentProfit = netForMonthRef(cashflowPayload?.revenue ?? [], cashflowPayload?.expense ?? [], nowRef)
 
   const incomeSlices = useMemo(() => buildCategorySlices(pnlPayload?.revenue ?? []), [pnlPayload?.revenue])
-  const expenseSlices = useMemo(() => buildCategorySlices(pnlPayload?.expense ?? []), [pnlPayload?.expense])
+  const expenseSlices = useMemo(() => buildCategorySlices(pnlExpenseItems), [pnlExpenseItems])
 
   const handleDecision = async (requestId: number, step: number, decision: 'approved' | 'rejected') => {
     setApprovalsBusy(true)
