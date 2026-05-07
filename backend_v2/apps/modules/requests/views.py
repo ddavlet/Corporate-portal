@@ -10,6 +10,7 @@ from django.db import transaction
 from django.db.models import Q
 from django.core.files.storage import default_storage
 from django.http import FileResponse
+from django.shortcuts import get_object_or_404
 from django.utils import timezone
 import requests
 from rest_framework import viewsets
@@ -333,10 +334,10 @@ class PortalRequestViewSet(viewsets.ModelViewSet):
 
     @action(detail=True, methods=["post"], url_path="copy")
     def copy(self, request, pk=None):
-        source = self.get_object()
         tenant = getattr(request, "tenant", None)
         if not tenant:
             raise ValidationError({"detail": "Unknown tenant."})
+        source = get_object_or_404(Request, pk=pk, tenant=tenant)
 
         payload = {
             "title": source.title,
