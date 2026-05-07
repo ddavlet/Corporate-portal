@@ -4,6 +4,7 @@ from django.urls import path, include
 
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 
+from config.admin_hardening import disable_admin_deletions
 from apps.accounts.views_otp import OtpRequestView, OtpVerifyView
 from apps.accounts.views_password import ChangePasswordView
 from apps.accounts.views_telegram_login_widget import TelegramLoginWidgetAuthView
@@ -21,6 +22,9 @@ from apps.tenants.views import (
     TenantModuleConfigView,
     UserPreferencesView,
 )
+
+
+disable_admin_deletions()
 
 
 urlpatterns = [
