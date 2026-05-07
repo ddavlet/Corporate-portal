@@ -62,6 +62,7 @@ class PortalFeedback(models.Model):
         related_name="assigned_portal_feedbacks",
         null=True,
         blank=True,
+        limit_choices_to={"is_staff": True},
     )
     resolution_note = models.TextField(blank=True, default="")
     resolved_at = models.DateTimeField(null=True, blank=True)
