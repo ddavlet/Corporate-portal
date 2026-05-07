@@ -4,12 +4,14 @@ import { FeedbackModal } from './FeedbackModal'
 
 const refineFeedbackWithAiMock = vi.fn()
 const submitFeedbackMock = vi.fn()
+const listMyFeedbackMock = vi.fn()
 const successMock = vi.fn()
 const warningMock = vi.fn()
 
 vi.mock('../../lib/api', () => ({
   refineFeedbackWithAi: (...args: unknown[]) => refineFeedbackWithAiMock(...args),
   submitFeedback: (...args: unknown[]) => submitFeedbackMock(...args),
+  listMyFeedback: (...args: unknown[]) => listMyFeedbackMock(...args),
 }))
 
 vi.mock('antd', async () => {
@@ -28,6 +30,8 @@ describe('FeedbackModal', () => {
   beforeEach(() => {
     refineFeedbackWithAiMock.mockReset()
     submitFeedbackMock.mockReset()
+    listMyFeedbackMock.mockReset()
+    listMyFeedbackMock.mockResolvedValue([])
     successMock.mockReset()
     warningMock.mockReset()
   })
