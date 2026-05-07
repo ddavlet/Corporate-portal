@@ -463,6 +463,26 @@ export async function submitFeedback(payload: {
   }
 }
 
+export type FeedbackWorkStatus = 'new' | 'in_progress' | 'done'
+
+export type MyFeedbackItem = {
+  id: number
+  kind: FeedbackKind
+  body: string
+  page_path: string
+  work_status: FeedbackWorkStatus
+  work_status_label: string
+  created_at: string
+  resolved_at: string | null
+}
+
+export async function listMyFeedback(): Promise<MyFeedbackItem[]> {
+  const res = await apiFetch('/api/feedback/my/', { method: 'GET' })
+  if (!res.ok) throw new Error(await parseErrorBody(res))
+  const json = (await res.json().catch(() => null)) as { results?: MyFeedbackItem[] } | null
+  return Array.isArray(json?.results) ? json.results : []
+}
+
 export async function changePassword(payload: {
   old_password?: string
   new_password: string
