@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Alert, Button, Card, Collapse, DatePicker, Input, InputNumber, Modal, Select, Skeleton, Space, Switch, Table, Tag, Typography, message } from 'antd'
 import type { ColumnsType, TableProps } from 'antd/es/table'
 import type { Dayjs } from 'dayjs'
@@ -179,14 +179,17 @@ export function RequestsPage() {
   const [vendorSearchApi, setVendorSearchApi] = useState('')
   const [debouncedVendorSearchApi, setDebouncedVendorSearchApi] = useState('')
   const [amortizedOnly, setAmortizedOnly] = useState(false)
-  const { value: storedPrefs, setValue: setStoredPrefs } = useUserPreference<RequestsPagePreferences>({
+  const { value: storedPrefs, setValue: setStoredPrefs, isLoading: prefsLoading } = useUserPreference<RequestsPagePreferences>({
     key: REQUESTS_FILTER_PREF_KEY,
     defaultValue: defaultRequestsPreferences,
     normalize: (raw, fallback) => ({ ...fallback, ...(raw as Partial<RequestsPagePreferences>) }),
     debounceMs: 300,
   })
+  const hydratedFromPrefsRef = useRef(false)
 
   useEffect(() => {
+    if (prefsLoading || hydratedFromPrefsRef.current) return
+    hydratedFromPrefsRef.current = true
     setSearch(storedPrefs.search || '')
     setStatus(storedPrefs.status)
     setUrgency(storedPrefs.urgency)
@@ -200,7 +203,7 @@ export function RequestsPage() {
     setSubmittedRange(parseStoredRange(storedPrefs.submittedRange))
     setBillingRange(parseStoredRange(storedPrefs.billingRange))
     setAmortizedOnly(Boolean(storedPrefs.amortizedOnly))
-  }, [storedPrefs])
+  }, [storedPrefs, prefsLoading])
 
   useEffect(() => {
     setStoredPrefs({
