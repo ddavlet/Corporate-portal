@@ -10,7 +10,7 @@ from django.db.models import Q
 from rest_framework import status
 from rest_framework.exceptions import APIException
 from rest_framework.exceptions import ValidationError
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
@@ -27,7 +27,10 @@ from apps.modules.requests.approval_bootstrap import create_approval_rows_for_re
 from apps.modules.requests.approval_workflow import _recalculate_request_status, route_request_approvals
 from apps.modules.requests.serializers import PortalRequestSerializer
 from apps.modules.vendors.models import Vendor
-from apps.modules.n8n_integration.authentication import N8nIntegrationAuthentication
+from apps.modules.n8n_integration.authentication import (
+    N8nIntegrationAuthentication,
+    N8nIntegrationTokenOnlyAuthentication,
+)
 from apps.modules.n8n_integration.serializers import (
     N8nApprovalImportSerializer,
     N8nBankExpenseImportSerializer,
@@ -1456,3 +1459,64 @@ class N8nInvestCompanyUpsertView(_N8nBaseView):
 
 class N8nInvestCompanyBatchUpsertView(_N8nBatchBaseView):
     single_view_class = N8nInvestCompanyUpsertView
+
+
+class N8nVendorListView(APIView):
+    """Return all vendor names grouped by payment_type for the current tenant.
+
+    Vendor.kind only has cash/transfer; the latter applies to all
+    non-cash payment types (Перечисление, Пополнение, Платежная карта).
+    Auth: integration token only — no JWT, no user identity required.
+    """
+
+    authentication_classes = [N8nIntegrationTokenOnlyAuthentication]
+    permission_classes = [AllowAny]
+
+    def get(self, request):
+        tenant = getattr(request, "tenant", None)
+        if tenant is None:
+            return Response({"detail": "Unknown tenant."}, status=status.HTTP_400_BAD_REQUEST)
+        cash_names = list(
+            Vendor.objects.filter(tenant=tenant, kind=Vendor.KIND_CASH)
+            .order_by("name")
+            .values_list("name", flat=True)
+        )
+        transfer_names = list(
+            Vendor.objects.filter(tenant=tenant, kind=Vendor.KIND_TRANSFER)
+            .order_by("name")
+            .values_list("name", flat=True)
+        )
+        return Response(
+            {
+                Request.PAYMENT_TYPE_CASH: cash_names,
+                Request.PAYMENT_TYPE_TRANSFER: transfer_names,
+                Request.PAYMENT_TYPE_TOPUP: transfer_names,
+                Request.PAYMENT_TYPE_CARD: transfer_names,
+            }
+        )
+
+
+class N8nPaymentPurposeListView(APIView):
+    """Return distinct payment purposes per payment_type from request history.
+
+    payment_purpose has no directory table; values come from existing Request rows.
+    Auth: integration token only — no JWT, no user identity required.
+    """
+
+    authentication_classes = [N8nIntegrationTokenOnlyAuthentication]
+    permission_classes = [AllowAny]
+
+    def get(self, request):
+        tenant = getattr(request, "tenant", None)
+        if tenant is None:
+            return Response({"detail": "Unknown tenant."}, status=status.HTTP_400_BAD_REQUEST)
+        result = {}
+        for pt, _label in Request.PAYMENT_TYPE_CHOICES:
+            result[pt] = list(
+                Request.objects.filter(tenant=tenant, payment_type=pt)
+                .exclude(payment_purpose="")
+                .order_by("payment_purpose")
+                .values_list("payment_purpose", flat=True)
+                .distinct()
+            )
+        return Response(result)

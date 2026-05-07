@@ -13,7 +13,14 @@ from apps.modules.bank_expenses.models import BankExpense, BankRevenue
 from apps.modules.cashier.models import CashExpense
 from apps.modules.cashier.models import CashRevenue
 from apps.modules.clients_debt.models import ClientDebtSnapshot
-from apps.modules.requests.models import Approval, Request
+from apps.modules.requests.models import (
+    Approval,
+    Request,
+    RequestApprovalConfig,
+    RequestApprovalPaymentTypeConfig,
+    RequestApprovalStepConfig,
+    RequestApprovalStepApproverConfig,
+)
 from apps.modules.vendors.models import Vendor
 from apps.modules.wallets.models import CashRegister, Wallet
 
@@ -50,6 +57,18 @@ class N8nIntegrationAuthTests(APITestCase):
         TenantUserRole.objects.create(tenant=self.tenant, user=self.approver, role=TenantUserRole.ROLE_APPROVER)
         TenantModuleConfig.objects.create(tenant=self.tenant, module_key="vendors", is_enabled=True)
         TenantModuleConfig.objects.create(tenant=self.tenant, module_key="requests", is_enabled=True)
+
+        appr_cfg = RequestApprovalConfig.objects.create(tenant=self.tenant, updated_by=self.admin)
+        pt_cfg = RequestApprovalPaymentTypeConfig.objects.create(
+            config=appr_cfg, payment_type=Request.PAYMENT_TYPE_CASH, is_enabled=True
+        )
+        step_cfg = RequestApprovalStepConfig.objects.create(
+            payment_type_config=pt_cfg,
+            step=1,
+            step_type=Approval.STEP_TYPE_SERIAL,
+            is_enabled=True,
+        )
+        RequestApprovalStepApproverConfig.objects.create(step_config=step_cfg, approver_user=self.approver)
 
         self.n8n_prefix = settings.N8N_INTEGRATION_URL_PREFIX.rstrip("/")
         self.vendor_url = f"{self.n8n_prefix}/vendors/"
