@@ -346,13 +346,14 @@ class PortalRequestViewSet(viewsets.ModelViewSet):
             "currency": source.currency,
             "payment_type": source.payment_type,
             "urgency": source.urgency,
-            "payment_purpose": source.payment_purpose,
             "vendor_ref": source.vendor_ref_id,
             "contract_ref": source.contract_ref_id,
             "billing_date": source.billing_date,
             "amortization_months": source.amortization_months,
             "requester": request.user.id,
         }
+        if source.payment_purpose:
+            payload["payment_purpose"] = source.payment_purpose
         serializer = self.get_serializer(data=payload, context=self.get_serializer_context())
         serializer.is_valid(raise_exception=True)
         with transaction.atomic():
