@@ -689,6 +689,50 @@ class RequestApprovalsTests(APITestCase):
         # DRAFT has no approval step in progress: workflow refreshes state only.
         mock_dispatch.assert_not_called()
 
+    def test_copy_request_creates_new_draft_for_actor(self):
+        self.client.force_authenticate(self.requester)
+        create_res = self.client.post(
+            "/api/requests/",
+            {
+                "title": "Source",
+                "description": "Original description",
+                "amount": 150,
+                "currency": "USD",
+                "payment_type": "Наличные",
+                "urgency": "Срочно",
+                "billing_date": "2026-03-01",
+            },
+            format="json",
+            HTTP_HOST=self.host,
+        )
+        self.assertEqual(create_res.status_code, 201, create_res.content)
+        source_id = create_res.data["id"]
+
+        copier = User.objects.create_user(username="copy_actor", password="x")
+        TenantMembership.objects.create(tenant=self.tenant, user=copier, is_active=True)
+        TenantUserRole.objects.create(tenant=self.tenant, user=copier, role=TenantUserRole.ROLE_REQUESTER)
+        self.client.force_authenticate(copier)
+        res = self.client.post(
+            f"/api/requests/{source_id}/copy/",
+            {},
+            format="json",
+            HTTP_HOST=self.host,
+        )
+        self.assertEqual(res.status_code, 201, res.content)
+        self.assertIn("request_id", res.data)
+
+        copied = Request.objects.get(pk=res.data["request_id"])
+        source = Request.objects.get(pk=source_id)
+        self.assertEqual(copied.status, Request.STATUS_DRAFT)
+        self.assertEqual(copied.created_by_id, copier.id)
+        self.assertEqual(copied.requester_id, copier.id)
+        self.assertEqual(copied.description, source.description)
+        self.assertEqual(copied.amount, source.amount)
+        self.assertEqual(copied.currency, source.currency)
+        self.assertEqual(copied.payment_type, source.payment_type)
+        self.assertEqual(copied.urgency, source.urgency)
+        self.assertEqual(copied.billing_date, source.billing_date)
+
     def test_post_manual_approval_calls_telegram_refresh_and_dispatch(self):
         from unittest.mock import patch
 

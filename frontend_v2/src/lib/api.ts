@@ -1909,6 +1909,18 @@ export async function createPortalRequest(body: PortalRequestCreateBody): Promis
   return json
 }
 
+export async function copyPortalRequest(requestId: number): Promise<{ request_id: number }> {
+  const res = await apiFetch(`/api/requests/${requestId}/copy/`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({}),
+  })
+  if (!res.ok) throw new Error(await parseErrorBody(res))
+  const json = (await res.json().catch(() => null)) as { request_id?: number } | null
+  if (!json?.request_id) throw new Error('Empty response')
+  return { request_id: Number(json.request_id) }
+}
+
 export async function uploadRequestAttachment(requestId: number, file: File): Promise<RequestAttachment> {
   const fd = new FormData()
   fd.append('file', file)

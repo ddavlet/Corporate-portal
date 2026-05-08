@@ -10,6 +10,7 @@ from django.db import transaction
 from django.db.models import Q
 from django.core.files.storage import default_storage
 from django.http import FileResponse
+from django.shortcuts import get_object_or_404
 from django.utils import timezone
 import requests
 from rest_framework import viewsets
@@ -330,6 +331,38 @@ class PortalRequestViewSet(viewsets.ModelViewSet):
         super().perform_update(serializer)
         obj = serializer.instance
         route_request_approvals(request_obj=obj)
+
+    @action(detail=True, methods=["post"], url_path="copy")
+    def copy(self, request, pk=None):
+        tenant = getattr(request, "tenant", None)
+        if not tenant:
+            raise ValidationError({"detail": "Unknown tenant."})
+        source = get_object_or_404(Request, pk=pk, tenant=tenant)
+
+        payload = {
+            "title": source.title,
+            "description": source.description,
+            "amount": source.amount,
+            "currency": source.currency,
+            "payment_type": source.payment_type,
+            "urgency": source.urgency,
+            "vendor_ref": source.vendor_ref_id,
+            "contract_ref": source.contract_ref_id,
+            "billing_date": source.billing_date,
+            "amortization_months": source.amortization_months,
+            "requester": request.user.id,
+        }
+        if source.payment_purpose:
+            payload["payment_purpose"] = source.payment_purpose
+        serializer = self.get_serializer(data=payload, context=self.get_serializer_context())
+        serializer.is_valid(raise_exception=True)
+        copied = serializer.save(
+            tenant=tenant,
+            created_by=request.user,
+            requester=request.user,
+            status=Request.STATUS_DRAFT,
+        )
+        return Response({"request_id": copied.id}, status=status.HTTP_201_CREATED)
 
     @action(detail=True, methods=["post"], url_path="submit-for-approval")
     def submit_for_approval(self, request, pk=None):

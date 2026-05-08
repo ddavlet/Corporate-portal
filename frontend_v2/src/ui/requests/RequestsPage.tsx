@@ -4,8 +4,8 @@ import type { ColumnsType, TableProps } from 'antd/es/table'
 import type { Dayjs } from 'dayjs'
 import dayjs from 'dayjs'
 import { useNavigate } from 'react-router-dom'
-import { FileAddOutlined, FileSearchOutlined, MessageOutlined, ReloadOutlined } from '@ant-design/icons'
-import { apiFetch, getRequestFormOptions, resendRequestApprovals } from '../../lib/api'
+import { CopyOutlined, FileAddOutlined, FileSearchOutlined, MessageOutlined, ReloadOutlined } from '@ant-design/icons'
+import { apiFetch, copyPortalRequest, getRequestFormOptions, resendRequestApprovals } from '../../lib/api'
 import { isPayedMissingLinkedExpense, type RequestExpenseLink } from '../../lib/requestExpense'
 import { RequestDetailModal, type RequestDetail } from './RequestDetailModal'
 import { NoteCreateModal } from '../NoteCreateModal'
@@ -558,6 +558,23 @@ export function RequestsPage() {
       key: 'is_amortized',
       render: (_, row) => (row.is_amortized ? <Tag color="processing">{`${row.amortization_months || 0} мес.`}</Tag> : '—'),
     },
+    {
+      title: 'Действия',
+      key: 'actions',
+      width: 120,
+      render: (_, row) => (
+        <Button
+          size="small"
+          icon={<CopyOutlined />}
+          onClick={(e) => {
+            e.stopPropagation()
+            void duplicateRequest(row.id)
+          }}
+        >
+          Копировать
+        </Button>
+      ),
+    },
   ]
 
   const onTableChange: TableProps<RequestRow>['onChange'] = (_, __, sorter) => {
@@ -593,6 +610,16 @@ export function RequestsPage() {
       message.error(e?.message || 'Не удалось отправить запрос повторно')
     } finally {
       setResendLoading(false)
+    }
+  }
+
+  async function duplicateRequest(requestId: number) {
+    try {
+      const created = await copyPortalRequest(requestId)
+      message.success(`Черновик-копия создан: #${created.request_id}`)
+      navigate(`/requests/${created.request_id}`)
+    } catch (e: any) {
+      message.error(e?.message || 'Не удалось скопировать заявку')
     }
   }
 
@@ -784,6 +811,9 @@ export function RequestsPage() {
               </Button>
               <Button icon={<MessageOutlined />} onClick={() => setOpenNoteModal(true)}>
                 Добавить заметку
+              </Button>
+              <Button icon={<CopyOutlined />} onClick={() => selectedRow && void duplicateRequest(selectedRow.id)}>
+                Копировать
               </Button>
               {isTenantAdmin ? (
                 <Button
