@@ -130,13 +130,21 @@ def _calc_monthly(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return result
 
 
-def _reports_cache_key(*, tenant_subdomain: str, user_id: int, endpoint: str, query_params: dict[str, Any]) -> str:
+def _reports_cache_key(
+    *,
+    tenant_subdomain: str,
+    user_id: int,
+    endpoint: str,
+    query_params: dict[str, Any],
+    payload_source: str | None = None,
+) -> str:
     payload = json.dumps(
         {
             "tenant": tenant_subdomain,
             "user_id": user_id,
             "endpoint": endpoint,
             "query_params": query_params,
+            "payload_source": payload_source,
         },
         sort_keys=True,
         ensure_ascii=True,
@@ -146,24 +154,138 @@ def _reports_cache_key(*, tenant_subdomain: str, user_id: int, endpoint: str, qu
     return f"reports:payload:{digest}"
 
 
+def _is_pnl_endpoint(endpoint: str) -> bool:
+    ep = endpoint.lstrip("/").lower()
+    return ep.endswith("pnl-data") or ep.endswith("n8n/pnl-data")
+
+
+def finalize_report_payload(
+    *,
+    payload_obj: dict[str, Any],
+    endpoint: str,
+    source: str,
+) -> dict[str, Any]:
+    """
+    Normalize raw report dict (n8n or backend) into API shape with totals, rows, monthly.
+    """
+    revenue = payload_obj.get("revenue")
+    expense = payload_obj.get("expense")
+    operational_expenses = payload_obj.get("operational_expenses")
+    other_expenses = payload_obj.get("other_expenses")
+    invest_returns = payload_obj.get("invest_returns")
+    metadata = payload_obj.get("metadata")
+    report_settings = payload_obj.get("report_settings")
+
+    if not isinstance(revenue, list):
+        revenue = []
+    if not isinstance(expense, list):
+        expense = []
+    if not isinstance(operational_expenses, list):
+        operational_expenses = []
+    if not isinstance(other_expenses, list):
+        other_expenses = []
+    if not isinstance(invest_returns, list):
+        invest_returns = []
+    if not isinstance(metadata, dict):
+        metadata = {}
+
+    # Backward compatibility with old n8n shape where all expenses were in one array.
+    if not operational_expenses and not other_expenses and expense:
+        other_expenses = expense
+
+    revenue_rows = _normalize_rows(revenue, "revenue")
+    operational_expense_rows = _normalize_rows(operational_expenses, "expense")
+    other_expense_rows = _normalize_rows(other_expenses, "expense")
+    expense_rows = operational_expense_rows + other_expense_rows
+    invest_return_rows = _normalize_rows(invest_returns, "expense")
+    for row in invest_return_rows:
+        row["category"] = "Выплаты по инвестициям"
+    table_rows = sorted(
+        revenue_rows + expense_rows + invest_return_rows,
+        key=lambda row: (row.get("date") or "", row.get("id") or ""),
+        reverse=True,
+    )
+    pnl_rows = revenue_rows + expense_rows
+
+    total_revenue = sum((_to_decimal(x.get("amount")) for x in revenue_rows), start=Decimal("0"))
+    total_operational_expense = sum((_to_decimal(x.get("amount")) for x in operational_expense_rows), start=Decimal("0"))
+    total_other_expense = sum((_to_decimal(x.get("amount")) for x in other_expense_rows), start=Decimal("0"))
+    total_expense = total_operational_expense + total_other_expense
+    total_invest_returns = sum((_to_decimal(x.get("amount")) for x in invest_return_rows), start=Decimal("0"))
+    total_ebit = total_revenue - total_operational_expense
+    total_net = total_ebit - total_other_expense
+    total_balance = total_net - total_invest_returns
+
+    result = {
+        "metadata": {
+            "company_name": metadata.get("company_name"),
+            "start_month": metadata.get("start_month"),
+            "source": source,
+            "endpoint": endpoint,
+        },
+        "totals": {
+            "revenue": str(total_revenue),
+            "operational_expense": str(total_operational_expense),
+            "other_expense": str(total_other_expense),
+            "expense": str(total_expense),
+            "ebit": str(total_ebit),
+            "net": str(total_net),
+            "invest_returns": str(total_invest_returns),
+            "balance": str(total_balance),
+        },
+        "monthly": _calc_monthly(pnl_rows),
+        "revenue": revenue,
+        "operational_expenses": operational_expenses,
+        "other_expenses": other_expenses,
+        "expense": expense,
+        "invest_returns": invest_returns,
+        "rows": table_rows,
+    }
+    if isinstance(report_settings, dict) and report_settings:
+        result["report_settings"] = report_settings
+    return result
+
+
 def fetch_n8n_report_payload(*, tenant, user_id: int, endpoint: str, query_params: dict[str, Any]) -> dict[str, Any]:
     if not settings.BASE_DOMAIN:
         raise RuntimeError("BASE_DOMAIN is not configured.")
-    token = get_n8n_integration_settings(tenant=tenant).integration_token
-    if not token:
-        token = (getattr(settings, "N8N_INTEGRATION_TOKEN", None) or "").strip()
-    if not token:
-        raise RuntimeError("N8N_INTEGRATION_TOKEN is not configured.")
+
+    pnl_backend = _is_pnl_endpoint(endpoint) and getattr(settings, "PNL_REPORT_SOURCE", "n8n").strip().lower() == "backend"
+    payload_source = "backend" if pnl_backend else "n8n"
 
     cache_key = _reports_cache_key(
         tenant_subdomain=tenant.subdomain,
         user_id=user_id,
         endpoint=endpoint,
         query_params=query_params,
+        payload_source=payload_source,
     )
     cached_payload = cache.get(cache_key)
     if cached_payload is not None:
         return cached_payload
+
+    if pnl_backend:
+        from apps.modules.reports.pnl_builder import (
+            ReportSettingsInvalid,
+            ReportSettingsMissing,
+            build_pnl_payload_from_db,
+        )
+
+        try:
+            raw = build_pnl_payload_from_db(tenant=tenant, query_params=query_params)
+        except (ReportSettingsMissing, ReportSettingsInvalid) as exc:
+            raise RuntimeError(str(exc)) from exc
+
+        result = finalize_report_payload(payload_obj=raw, endpoint=endpoint, source="backend")
+        cache_ttl = int(getattr(settings, "REPORTS_CACHE_TTL_SECONDS", 60))
+        cache.set(cache_key, result, timeout=max(1, cache_ttl))
+        return result
+
+    token = get_n8n_integration_settings(tenant=tenant).integration_token
+    if not token:
+        token = (getattr(settings, "N8N_INTEGRATION_TOKEN", None) or "").strip()
+    if not token:
+        raise RuntimeError("N8N_INTEGRATION_TOKEN is not configured.")
 
     url = f"https://{tenant.subdomain}.{settings.BASE_DOMAIN}/{endpoint.lstrip('/')}"
     response = requests.get(
@@ -191,80 +313,7 @@ def fetch_n8n_report_payload(*, tenant, user_id: int, endpoint: str, query_param
     else:
         payload_obj = {}
 
-    revenue = payload_obj.get("revenue")
-    expense = payload_obj.get("expense")
-    operational_expenses = payload_obj.get("operational_expenses")
-    other_expenses = payload_obj.get("other_expenses")
-    invest_returns = payload_obj.get("invest_returns")
-    metadata = payload_obj.get("metadata")
-    if not isinstance(revenue, list):
-        revenue = []
-    if not isinstance(expense, list):
-        expense = []
-    if not isinstance(operational_expenses, list):
-        operational_expenses = []
-    if not isinstance(other_expenses, list):
-        other_expenses = []
-    if not isinstance(invest_returns, list):
-        invest_returns = []
-    if not isinstance(metadata, dict):
-        metadata = {}
-
-    # Backward compatibility with old n8n shape where all expenses were in one array.
-    if not operational_expenses and not other_expenses and expense:
-        other_expenses = expense
-
-    revenue_rows = _normalize_rows(revenue, "revenue")
-    operational_expense_rows = _normalize_rows(operational_expenses, "expense")
-    other_expense_rows = _normalize_rows(other_expenses, "expense")
-    expense_rows = operational_expense_rows + other_expense_rows
-    invest_return_rows = _normalize_rows(invest_returns, "expense")
-    for row in invest_return_rows:
-        # Keep these rows distinguishable in UI while preserving source payload in `raw`.
-        row["category"] = "Выплаты по инвестициям"
-    table_rows = sorted(
-        revenue_rows + expense_rows + invest_return_rows,
-        key=lambda row: (row.get("date") or "", row.get("id") or ""),
-        reverse=True,
-    )
-    pnl_rows = revenue_rows + expense_rows
-
-    total_revenue = sum((_to_decimal(x.get("amount")) for x in revenue_rows), start=Decimal("0"))
-    total_operational_expense = sum((_to_decimal(x.get("amount")) for x in operational_expense_rows), start=Decimal("0"))
-    total_other_expense = sum((_to_decimal(x.get("amount")) for x in other_expense_rows), start=Decimal("0"))
-    total_expense = total_operational_expense + total_other_expense
-    total_invest_returns = sum((_to_decimal(x.get("amount")) for x in invest_return_rows), start=Decimal("0"))
-    total_ebit = total_revenue - total_operational_expense
-    total_net = total_ebit - total_other_expense
-    total_balance = total_net - total_invest_returns
-
-    result = {
-        "metadata": {
-            "company_name": metadata.get("company_name"),
-            "start_month": metadata.get("start_month"),
-            "source": "n8n",
-            "endpoint": endpoint,
-        },
-        "totals": {
-            "revenue": str(total_revenue),
-            "operational_expense": str(total_operational_expense),
-            "other_expense": str(total_other_expense),
-            "expense": str(total_expense),
-            "ebit": str(total_ebit),
-            "net": str(total_net),
-            "invest_returns": str(total_invest_returns),
-            "balance": str(total_balance),
-        },
-        "monthly": _calc_monthly(pnl_rows),
-        # Legacy-compatible fields for existing dashboard adapters.
-        "revenue": revenue,
-        "operational_expenses": operational_expenses,
-        "other_expenses": other_expenses,
-        "expense": expense,
-        "invest_returns": invest_returns,
-        # Best-practice table payload.
-        "rows": table_rows,
-    }
+    result = finalize_report_payload(payload_obj=payload_obj, endpoint=endpoint, source="n8n")
     cache_ttl = int(getattr(settings, "REPORTS_CACHE_TTL_SECONDS", 60))
     cache.set(cache_key, result, timeout=max(1, cache_ttl))
     return result
