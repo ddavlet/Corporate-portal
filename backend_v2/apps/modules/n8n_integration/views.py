@@ -454,9 +454,90 @@ def _proxy_n8n_json(request, endpoint: str):
         )
 
 
+def _pnl_payload_backend_or_proxy(request, *, proxy_path: str, fetch_endpoint: str):
+    """
+    When tenant report settings say backend, return same payload as /api/reports/pnl/.
+    Otherwise proxy to n8n at proxy_path.
+    """
+    tenant = getattr(request, "tenant", None)
+    if not tenant:
+        return Response(
+            _n8n_error_payload(
+                "No tenant.",
+                error_type="tenant_missing",
+                error_location=fetch_endpoint,
+                reason="Tenant could not be resolved from request host/context.",
+            ),
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+    from apps.modules.reports.services import fetch_n8n_report_payload, resolve_pnl_source_for_tenant
+
+    try:
+        pnl_source = resolve_pnl_source_for_tenant(tenant=tenant)
+    except RuntimeError as exc:
+        return Response(
+            _n8n_error_payload(
+                str(exc),
+                error_type="report_config_error",
+                error_location=fetch_endpoint,
+                reason=exc.__class__.__name__,
+            ),
+            status=status.HTTP_503_SERVICE_UNAVAILABLE,
+        )
+    if pnl_source != "backend":
+        return _proxy_n8n_json(request, proxy_path)
+
+    if not settings.BASE_DOMAIN:
+        return Response(
+            _n8n_error_payload(
+                "BASE_DOMAIN is not configured.",
+                error_type="config_error",
+                error_location=fetch_endpoint,
+                reason="Missing BASE_DOMAIN setting.",
+            ),
+            status=status.HTTP_503_SERVICE_UNAVAILABLE,
+        )
+
+    user = getattr(request, "user", None)
+    user_id = int(getattr(user, "id", 0) or 0)
+    try:
+        payload = fetch_n8n_report_payload(
+            tenant=tenant,
+            user_id=user_id,
+            endpoint=fetch_endpoint,
+            query_params=dict(request.GET),
+        )
+    except RuntimeError as exc:
+        return Response(
+            _n8n_error_payload(
+                str(exc),
+                error_type="report_config_error",
+                error_location=fetch_endpoint,
+                reason=exc.__class__.__name__,
+            ),
+            status=status.HTTP_503_SERVICE_UNAVAILABLE,
+        )
+    except ValueError as exc:
+        return Response(
+            _n8n_error_payload(
+                str(exc),
+                error_type="report_payload_error",
+                error_location=fetch_endpoint,
+                reason=exc.__class__.__name__,
+            ),
+            status=status.HTTP_502_BAD_GATEWAY,
+        )
+
+    return Response(payload, status=status.HTTP_200_OK)
+
+
 class N8nPnlDataView(_N8nBaseView):
     def get(self, request):
-        return _proxy_n8n_json(request, "/pnl-data")
+        return _pnl_payload_backend_or_proxy(
+            request,
+            proxy_path="/pnl-data",
+            fetch_endpoint="/n8n/pnl-data",
+        )
 
 
 class N8nCashflowDataView(_N8nBaseView):
@@ -468,7 +549,11 @@ class PnlDataProxyView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        return _proxy_n8n_json(request, "/n8n/pnl-data")
+        return _pnl_payload_backend_or_proxy(
+            request,
+            proxy_path="/n8n/pnl-data",
+            fetch_endpoint="/n8n/pnl-data",
+        )
 
 
 class CashflowDataProxyView(APIView):

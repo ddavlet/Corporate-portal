@@ -789,6 +789,15 @@ export type StructuredMonthlyRow = {
   net: string
 }
 
+/** Snapshot of backend PnL rules (read-only); present when source is backend. */
+export type PnlReportSettingsSnapshot = {
+  start_month?: string
+  cash_exclude_operations?: string[]
+  request_exclude_categories?: string[]
+  income_tax_payment_purpose?: string
+  invest_return_exclude_types?: string[]
+}
+
 export type StructuredReportPayload = {
   report: 'pnl' | 'cashflow'
   metadata: {
@@ -797,6 +806,8 @@ export type StructuredReportPayload = {
     source?: string
     endpoint?: string
   }
+  /** Backend PnL: filters and period from tenant_report_settings (read-only). */
+  report_settings?: PnlReportSettingsSnapshot | null
   totals: {
     revenue: string
     operational_expense?: string
@@ -827,6 +838,11 @@ function normalizeStructuredReportPayload(payload: unknown, report: 'pnl' | 'cas
   const otherExpenses = Array.isArray(obj.other_expenses) ? (obj.other_expenses as LegacyReportItem[]) : []
   const expense = Array.isArray(obj.expense) ? (obj.expense as LegacyReportItem[]) : []
   const investReturns = Array.isArray(obj.invest_returns) ? (obj.invest_returns as LegacyReportItem[]) : []
+  const reportSettingsRaw = obj.report_settings
+  const report_settings =
+    reportSettingsRaw && typeof reportSettingsRaw === 'object'
+      ? (reportSettingsRaw as PnlReportSettingsSnapshot)
+      : null
   return {
     report,
     metadata: {
@@ -835,6 +851,7 @@ function normalizeStructuredReportPayload(payload: unknown, report: 'pnl' | 'cas
       source: typeof metadata.source === 'string' ? metadata.source : undefined,
       endpoint: typeof metadata.endpoint === 'string' ? metadata.endpoint : undefined,
     },
+    report_settings,
     totals: {
       revenue: String(totals.revenue ?? '0'),
       operational_expense: totals.operational_expense != null ? String(totals.operational_expense) : undefined,
