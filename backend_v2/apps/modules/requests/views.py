@@ -356,17 +356,12 @@ class PortalRequestViewSet(viewsets.ModelViewSet):
             payload["payment_purpose"] = source.payment_purpose
         serializer = self.get_serializer(data=payload, context=self.get_serializer_context())
         serializer.is_valid(raise_exception=True)
-        with transaction.atomic():
-            copied = serializer.save(
-                tenant=tenant,
-                created_by=request.user,
-                requester=request.user,
-                status=Request.STATUS_DRAFT,
-            )
-            n = create_approval_rows_for_request(copied)
-            if n and copied.status == Request.STATUS_DRAFT:
-                _recalculate_request_status(copied)
-        route_request_approvals(request_obj=copied)
+        copied = serializer.save(
+            tenant=tenant,
+            created_by=request.user,
+            requester=request.user,
+            status=Request.STATUS_DRAFT,
+        )
         return Response({"request_id": copied.id}, status=status.HTTP_201_CREATED)
 
     @action(detail=True, methods=["post"], url_path="submit-for-approval")
