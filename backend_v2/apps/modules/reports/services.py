@@ -11,6 +11,7 @@ import requests
 from django.conf import settings
 from django.core.cache import cache
 
+from apps.modules.reports.models import TenantReportSettings
 from apps.tenants.integration_settings import get_n8n_integration_settings
 
 
@@ -159,6 +160,24 @@ def _is_pnl_endpoint(endpoint: str) -> bool:
     return ep.endswith("pnl-data") or ep.endswith("n8n/pnl-data")
 
 
+def resolve_pnl_source_for_tenant(*, tenant) -> str:
+    """
+    Resolve per-tenant PnL source from TenantReportSettings.
+    For non-model test doubles (without id), fallback to n8n.
+    """
+    tenant_id = getattr(tenant, "id", None)
+    if not tenant_id:
+        return TenantReportSettings.PNL_SOURCE_N8N
+    try:
+        row = TenantReportSettings.objects.only("pnl_source").get(tenant_id=tenant_id)
+    except TenantReportSettings.DoesNotExist as exc:
+        raise RuntimeError(f"No tenant_report_settings for tenant_id={tenant_id}") from exc
+    source = (row.pnl_source or "").strip().lower()
+    if source not in {TenantReportSettings.PNL_SOURCE_N8N, TenantReportSettings.PNL_SOURCE_BACKEND}:
+        raise RuntimeError(f"Invalid pnl_source={source!r} for tenant_id={tenant_id}")
+    return source
+
+
 def finalize_report_payload(
     *,
     payload_obj: dict[str, Any],
@@ -250,7 +269,7 @@ def fetch_n8n_report_payload(*, tenant, user_id: int, endpoint: str, query_param
     if not settings.BASE_DOMAIN:
         raise RuntimeError("BASE_DOMAIN is not configured.")
 
-    pnl_backend = _is_pnl_endpoint(endpoint) and getattr(settings, "PNL_REPORT_SOURCE", "n8n").strip().lower() == "backend"
+    pnl_backend = _is_pnl_endpoint(endpoint) and resolve_pnl_source_for_tenant(tenant=tenant) == TenantReportSettings.PNL_SOURCE_BACKEND
     payload_source = "backend" if pnl_backend else "n8n"
 
     cache_key = _reports_cache_key(
