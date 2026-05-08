@@ -456,12 +456,9 @@ def _proxy_n8n_json(request, endpoint: str):
 
 def _pnl_payload_backend_or_proxy(request, *, proxy_path: str, fetch_endpoint: str):
     """
-    When PNL_REPORT_SOURCE=backend, return the same enriched payload as /api/reports/pnl/.
+    When tenant report settings say backend, return same payload as /api/reports/pnl/.
     Otherwise proxy to n8n at proxy_path.
     """
-    if getattr(settings, "PNL_REPORT_SOURCE", "n8n").strip().lower() != "backend":
-        return _proxy_n8n_json(request, proxy_path)
-
     tenant = getattr(request, "tenant", None)
     if not tenant:
         return Response(
@@ -473,6 +470,23 @@ def _pnl_payload_backend_or_proxy(request, *, proxy_path: str, fetch_endpoint: s
             ),
             status=status.HTTP_400_BAD_REQUEST,
         )
+    from apps.modules.reports.services import fetch_n8n_report_payload, resolve_pnl_source_for_tenant
+
+    try:
+        pnl_source = resolve_pnl_source_for_tenant(tenant=tenant)
+    except RuntimeError as exc:
+        return Response(
+            _n8n_error_payload(
+                str(exc),
+                error_type="report_config_error",
+                error_location=fetch_endpoint,
+                reason=exc.__class__.__name__,
+            ),
+            status=status.HTTP_503_SERVICE_UNAVAILABLE,
+        )
+    if pnl_source != "backend":
+        return _proxy_n8n_json(request, proxy_path)
+
     if not settings.BASE_DOMAIN:
         return Response(
             _n8n_error_payload(
@@ -483,8 +497,6 @@ def _pnl_payload_backend_or_proxy(request, *, proxy_path: str, fetch_endpoint: s
             ),
             status=status.HTTP_503_SERVICE_UNAVAILABLE,
         )
-
-    from apps.modules.reports.services import fetch_n8n_report_payload
 
     user = getattr(request, "user", None)
     user_id = int(getattr(user, "id", 0) or 0)

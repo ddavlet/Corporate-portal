@@ -126,13 +126,14 @@ class ReportsCacheTests(SimpleTestCase):
         self.assertEqual(payload["totals"]["balance"], "400")
 
 
-@override_settings(BASE_DOMAIN="example.com", REPORTS_CACHE_TTL_SECONDS=60, PNL_REPORT_SOURCE="backend")
+@override_settings(BASE_DOMAIN="example.com", REPORTS_CACHE_TTL_SECONDS=60)
 class BackendPnlSourceTests(SimpleTestCase):
     def setUp(self):
         cache.clear()
 
+    @patch("apps.modules.reports.services.resolve_pnl_source_for_tenant", return_value="backend")
     @patch("apps.modules.reports.pnl_builder.build_pnl_payload_from_db")
-    def test_pnl_backend_skips_http_upstream(self, mock_build: Mock):
+    def test_pnl_backend_skips_http_upstream(self, mock_build: Mock, _mock_source: Mock):
         mock_build.return_value = {
             "revenue": [{"id": "1", "amount": "10", "date": "2026-04-01", "category": "X"}],
             "operational_expenses": [],
@@ -171,7 +172,7 @@ class FinalizeReportPayloadTests(SimpleTestCase):
         self.assertEqual(out["report_settings"]["cash_exclude_operations"], ["a"])
 
 
-@override_settings(BASE_DOMAIN="example.com", PNL_REPORT_SOURCE="backend", REPORTS_CACHE_TTL_SECONDS=60)
+@override_settings(BASE_DOMAIN="example.com", REPORTS_CACHE_TTL_SECONDS=60)
 class BackendPnlDatabaseTests(TestCase):
     def setUp(self):
         cache.clear()
@@ -190,6 +191,7 @@ class BackendPnlDatabaseTests(TestCase):
     def test_backend_pnl_returns_empty_blocks_with_config(self):
         TenantReportSettings.objects.create(
             tenant=self.tenant,
+            pnl_source="backend",
             pnl_config={
                 "start_month": "2026-02",
                 "cash_exclude_operations": [],

@@ -224,6 +224,4 @@ MESSAGING_GATEWAY_DRAFT_ACTION = os.getenv("MESSAGING_GATEWAY_DRAFT_ACTION", "se
 # Reports payload cache (seconds). Keep short to reduce staleness while smoothing n8n latency spikes.
 REPORTS_CACHE_TTL_SECONDS = int(os.getenv("REPORTS_CACHE_TTL_SECONDS", "60"))
 
-# PnL report: "n8n" (HTTP to tenant webhook) or "backend" (ORM build in apps.modules.reports).
-PNL_REPORT_SOURCE = (os.getenv("PNL_REPORT_SOURCE", "n8n") or "n8n").strip().lower()
 
