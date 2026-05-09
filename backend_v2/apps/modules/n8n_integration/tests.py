@@ -134,7 +134,7 @@ class N8nIntegrationAuthTests(APITestCase):
         v.refresh_from_db()
         self.assertEqual(v.name, "Updated")
 
-    @patch("apps.modules.n8n_integration.views.requests.post")
+    @patch("apps.modules.n8n_integration.views._n8n_session.post")
     def test_ai_chat_proxy_generates_session_id_and_forwards_payload(self, mocked_post):
         mocked_response = Mock()
         mocked_response.status_code = 200
