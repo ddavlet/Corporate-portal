@@ -1089,6 +1089,89 @@ export async function createInvestReturn(payload: CreateInvestReturnPayload): Pr
   return json
 }
 
+export type CreateInvestCompanyPayload = {
+  name: string
+  comment?: string
+  is_active?: boolean
+}
+
+export async function createInvestCompany(payload: CreateInvestCompanyPayload): Promise<InvestCompanyRow> {
+  const body: Record<string, unknown> = {
+    name: payload.name,
+    comment: payload.comment ?? '',
+    is_active: payload.is_active ?? true,
+  }
+  const res = await apiFetch('/api/investments/companies/', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+  if (!res.ok) throw new Error(await parseErrorBody(res))
+  const json = (await res.json().catch(() => null)) as InvestCompanyRow | null
+  if (!json) throw new Error('Empty response')
+  return json
+}
+
+export type CreateProjectInvestmentPayload = {
+  company?: number | null
+  date: string
+  amount: string | number
+  currency: string
+  comment?: string
+}
+
+export async function createProjectInvestment(payload: CreateProjectInvestmentPayload): Promise<ProjectInvestmentRow> {
+  const body: Record<string, unknown> = {
+    date: payload.date,
+    amount: payload.amount,
+    currency: payload.currency,
+    comment: payload.comment ?? '',
+  }
+  if (payload.company !== undefined) body.company = payload.company
+  const res = await apiFetch('/api/investments/project-investments/', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+  if (!res.ok) throw new Error(await parseErrorBody(res))
+  const json = (await res.json().catch(() => null)) as ProjectInvestmentRow | null
+  if (!json) throw new Error('Empty response')
+  return json
+}
+
+export type CreateInvestPayoutSchedulePayload = {
+  company?: number | null
+  payout_date: string
+  amount: string | number
+  currency: string
+  comment?: string
+  is_paid?: boolean
+  payment_amount?: string | number
+}
+
+export async function createInvestPayoutSchedule(
+  payload: CreateInvestPayoutSchedulePayload,
+): Promise<InvestPayoutScheduleRow> {
+  const body: Record<string, unknown> = {
+    payout_date: payload.payout_date,
+    amount: payload.amount,
+    currency: payload.currency,
+    comment: payload.comment ?? '',
+    is_paid: payload.is_paid ?? false,
+    payment_amount: payload.payment_amount ?? '0',
+  }
+  if (payload.company !== undefined) body.company = payload.company
+  const res = await apiFetch('/api/investments/payout-schedule/', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+  if (!res.ok) throw new Error(await parseErrorBody(res))
+  const json = (await res.json().catch(() => null)) as InvestPayoutScheduleRow | null
+  if (!json) throw new Error('Empty response')
+  return json
+}
+
 export async function getInvestmentApprovalConfig(): Promise<InvestmentApprovalConfigResponse> {
   const res = await apiFetch('/api/investments/approval-config/')
   if (!res.ok) throw new Error(await parseErrorBody(res))
