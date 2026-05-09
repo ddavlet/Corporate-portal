@@ -75,6 +75,21 @@ services:
     volumes:
       - traefik_data:/letsencrypt
       - /var/run/docker.sock:/var/run/docker.sock:ro
+
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=n8n_traefik-public
+
+      # Redirect only root path on old frontend domains: https://<sub>.kolberg.uz[/] -> https://<sub>.korberg.uz/app
+      - traefik.http.routers.kolberg-frontend-root-redirect.rule=(${TRAEFIK_FRONTEND_HOST_RULE}) && Path(`/`)
+      - traefik.http.routers.kolberg-frontend-root-redirect.entrypoints=web,websecure
+      - traefik.http.routers.kolberg-frontend-root-redirect.tls=true
+      - traefik.http.routers.kolberg-frontend-root-redirect.tls.certresolver=mytlschallenge
+      - traefik.http.routers.kolberg-frontend-root-redirect.priority=1500
+      - traefik.http.routers.kolberg-frontend-root-redirect.middlewares=kolberg-frontend-root-to-korberg@docker
+      - traefik.http.middlewares.kolberg-frontend-root-to-korberg.redirectregex.regex=^https?://([a-z0-9-]+)\.kolberg\.uz/?$
+      - traefik.http.middlewares.kolberg-frontend-root-to-korberg.redirectregex.replacement=https://$${1}.korberg.uz/app
+      - traefik.http.middlewares.kolberg-frontend-root-to-korberg.redirectregex.permanent=true
     # >>> CHANGE: traefik только в public
     networks:
       - traefik-public
@@ -457,7 +472,7 @@ services:
       - traefik.http.services.django-v2.loadbalancer.server.port=8001
 
       # tenants: /api/* except n8n integration prefix (that prefix has its own router below)
-      - traefik.http.routers.django-v2-api.rule=(Host(`qulay.kolberg.uz`) || Host(`main.kolberg.uz`) || Host(`lemonfit.kolberg.uz`) || Host(`lemonfit2.kolberg.uz`) || Host(`neuron.kolberg.uz`) || Host(`lemonaqua.kolberg.uz`)) && (PathPrefix(`/api`) && !PathPrefix(`/api/${N8N_INTEGRATION_URL_PATH:-n8n}/`) && !PathPrefix(`/api/messaging-gateway/`))
+      - traefik.http.routers.django-v2-api.rule=(${TRAEFIK_BACKEND_V2_HOST_RULE}) && (${TRAEFIK_BACKEND_V2_API_PATH_RULE})
       - traefik.http.routers.django-v2-api.entrypoints=web,websecure
       - traefik.http.routers.django-v2-api.tls=true
       - traefik.http.routers.django-v2-api.tls.certresolver=mytlschallenge
@@ -465,7 +480,7 @@ services:
       - traefik.http.routers.django-v2-api.priority=1100
 
       # Integration API: must beat Host-only n8n webhooks on the same hosts (priority > django-v2-api)
-      - traefik.http.routers.django-v2-n8n.rule=(Host(`qulay.kolberg.uz`) || Host(`main.kolberg.uz`) || Host(`lemonfit.kolberg.uz`) || Host(`lemonaqua.kolberg.uz`) || Host(`neuron.kolberg.uz`)) && PathPrefix(`/api/${N8N_INTEGRATION_URL_PATH:-n8n}/`)
+      - traefik.http.routers.django-v2-n8n.rule=${TRAEFIK_BACKEND_V2_N8N_RULE}
       - traefik.http.routers.django-v2-n8n.entrypoints=web,websecure
       - traefik.http.routers.django-v2-n8n.tls=true
       - traefik.http.routers.django-v2-n8n.tls.certresolver=mytlschallenge
@@ -519,7 +534,7 @@ services:
       - traefik.http.services.frontend-v2.loadbalancer.server.port=80
 
       # tenants: /app/*
-      - traefik.http.routers.frontend-v2.rule=(Host(`qulay.kolberg.uz`) || Host(`main.kolberg.uz`) || Host(`lemonfit.kolberg.uz`) || Host(`lemonfit2.kolberg.uz`) || Host(`neuron.kolberg.uz`) || Host(`lemonaqua.kolberg.uz`)) && (PathPrefix(`/app/`) || PathPrefix(`/app`))
+      - traefik.http.routers.frontend-v2.rule=(${TRAEFIK_FRONTEND_HOST_RULE}) && (${TRAEFIK_FRONTEND_APP_PATH_RULE})
       - traefik.http.routers.frontend-v2.entrypoints=web,websecure
       - traefik.http.routers.frontend-v2.tls=true
       - traefik.http.routers.frontend-v2.tls.certresolver=mytlschallenge
