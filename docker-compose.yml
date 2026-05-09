@@ -450,7 +450,7 @@ services:
       DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:-change-me-to-a-long-random-secret-key-32-plus-bytes}
       # Override in `.env` next to this file: DJANGO_DEBUG=true (never leave on in production).
       DJANGO_DEBUG: "${DJANGO_DEBUG:-False}"
-      DJANGO_ALLOWED_HOSTS: "main.kolberg.uz,lemonfit.kolberg.uz,lemonfit2.kolberg.uz,neuron.kolberg.uz,lemonaqua.kolberg.uz"
+      DJANGO_ALLOWED_HOSTS: "main.kolberg.uz,lemonfit.kolberg.uz,lemonfit2.kolberg.uz,neuron.kolberg.uz,lemonaqua.kolberg.uz,qulay.kolberg.uz"
       # No leading/trailing slashes (e.g. n8n). Slashes break Traefik labels: /api/${VAR}/ → /api/n8n//
       N8N_INTEGRATION_URL_PATH: ${N8N_INTEGRATION_URL_PATH:-n8n}
       N8N_INTEGRATION_TOKEN: ${N8N_INTEGRATION_TOKEN:-}
