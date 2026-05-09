@@ -70,6 +70,7 @@ INSTALLED_APPS = [
     "apps.modules.investments",
     "apps.modules.budgets",
     "apps.modules.contracts",
+    "apps.modules.reports",
 ]
 
 MIDDLEWARE = [
@@ -222,4 +223,5 @@ MESSAGING_GATEWAY_DRAFT_ACTION = os.getenv("MESSAGING_GATEWAY_DRAFT_ACTION", "se
 
 # Reports payload cache (seconds). Keep short to reduce staleness while smoothing n8n latency spikes.
 REPORTS_CACHE_TTL_SECONDS = int(os.getenv("REPORTS_CACHE_TTL_SECONDS", "60"))
+
 

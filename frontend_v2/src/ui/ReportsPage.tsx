@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Alert, Button, Card, DatePicker, Input, Segmented, Skeleton, Space, Table, Tag, Typography } from 'antd'
+import { Alert, Button, Card, DatePicker, Descriptions, Input, Segmented, Skeleton, Space, Table, Tag, Typography } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
 import type { Dayjs } from 'dayjs'
 import { useNavigate } from 'react-router-dom'
@@ -567,6 +567,28 @@ export function ReportsPage() {
 
       {!loading && report ? (
         <>
+          {active === 'pnl' && report.report_settings ? (
+            <Card title="Настройки отчёта PnL (только просмотр)">
+              <Descriptions bordered size="small" column={1}>
+                <Descriptions.Item label="Начало периода (start_month)">
+                  {report.report_settings.start_month ?? '—'}
+                </Descriptions.Item>
+                <Descriptions.Item label="Исключения операций кассы">
+                  {(report.report_settings.cash_exclude_operations ?? []).join(', ') || '—'}
+                </Descriptions.Item>
+                <Descriptions.Item label="Исключения категорий заявок">
+                  {(report.report_settings.request_exclude_categories ?? []).join(', ') || '—'}
+                </Descriptions.Item>
+                <Descriptions.Item label="Подоходный налог (назначение)">
+                  {report.report_settings.income_tax_payment_purpose ?? '—'}
+                </Descriptions.Item>
+                <Descriptions.Item label="Исключения типов invest_returns">
+                  {(report.report_settings.invest_return_exclude_types ?? []).join(', ') || '—'}
+                </Descriptions.Item>
+              </Descriptions>
+            </Card>
+          ) : null}
+
           <Card
             title={`${active === 'pnl' ? 'PnL' : 'Cashflow'}: сводный отчет`}
             extra={report.metadata.company_name ? <Typography.Text type="secondary">{report.metadata.company_name}</Typography.Text> : null}
