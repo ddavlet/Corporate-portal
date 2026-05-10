@@ -123,7 +123,7 @@ services:
        - traefik.http.middlewares.n8n.headers.STSPreload=true
 
       # ---------- CORS middleware for dev.kolberg.uz  ----------
-       - traefik.http.middlewares.n8n-dev-cors.headers.accessControlAllowOriginList=https://neuron.kolberg.uz,https://construction.kolberg.uz,https://lemonfit.kolberg.uz,https://lemonaqua.kolberg.uz,https://main.kolberg.uz,https://zarqand.kolberg.uz,https://invest.kolberg.uz,https://syrop.kolberg.uz,https://qulay.kolberg.uz
+       - traefik.http.middlewares.n8n-dev-cors.headers.accessControlAllowOriginList=https://neuron.kolberg.uz,https://construction.kolberg.uz,https://lemonfit.kolberg.uz,https://lemonaqua.kolberg.uz,https://main.kolberg.uz,https://zarqand.kolberg.uz,https://invest.kolberg.uz,https://syrop.kolberg.uz,https://qulay.kolberg.uz,https://lemonelectro.kolberg.uz
        - traefik.http.middlewares.n8n-dev-cors.headers.accessControlAllowMethods=GET,POST,OPTIONS
        - traefik.http.middlewares.n8n-dev-cors.headers.accessControlAllowHeaders=Content-Type,Authorization
        - traefik.http.middlewares.n8n-dev-cors.headers.addVaryHeader=true
@@ -486,6 +486,40 @@ services:
        - traefik.http.routers.n8n-webhook-qulay.middlewares=n8n-qulay-webhook@docker,n8n@docker,n8n-error-pages@docker
        - traefik.http.routers.n8n-webhook-qulay.service=n8n
 
+      # ---------- Webhooks & Forms for lemonelectro.kolberg.uz ----------
+       # Form: https://lemonelectro.kolberg.uz/form/<path> -> n8n /form/lemonelectro/<path>
+       - traefik.http.middlewares.n8n-lemonelectro-form.replacepathregex.regex=^/form/(.*)$
+       - traefik.http.middlewares.n8n-lemonelectro-form.replacepathregex.replacement=/form/lemonelectro/$1
+       - traefik.http.routers.n8n-form-lemonelectro.rule=Host(`lemonelectro.kolberg.uz`) && PathPrefix(`/form/`)
+       - traefik.http.routers.n8n-form-lemonelectro.entrypoints=web,websecure
+       - traefik.http.routers.n8n-form-lemonelectro.tls=true
+       - traefik.http.routers.n8n-form-lemonelectro.tls.certresolver=mytlschallenge
+       - traefik.http.routers.n8n-form-lemonelectro.priority=100
+       - traefik.http.routers.n8n-form-lemonelectro.middlewares=n8n-lemonelectro-form@docker,n8n@docker,n8n-error-pages@docker
+       - traefik.http.routers.n8n-form-lemonelectro.service=n8n
+
+       # Webhook prefix: https://lemonelectro.kolberg.uz/webhook/<path> -> n8n /webhook/lemonelectro/<path>
+       - traefik.http.middlewares.n8n-lemonelectro-whp.replacepathregex.regex=^/webhook/(.*)$
+       - traefik.http.middlewares.n8n-lemonelectro-whp.replacepathregex.replacement=/webhook/lemonelectro/$1
+       - traefik.http.routers.n8n-whp-lemonelectro.rule=Host(`lemonelectro.kolberg.uz`) && PathPrefix(`/webhook/`)
+       - traefik.http.routers.n8n-whp-lemonelectro.entrypoints=web,websecure
+       - traefik.http.routers.n8n-whp-lemonelectro.tls=true
+       - traefik.http.routers.n8n-whp-lemonelectro.tls.certresolver=mytlschallenge
+       - traefik.http.routers.n8n-whp-lemonelectro.priority=100
+       - traefik.http.routers.n8n-whp-lemonelectro.middlewares=n8n-lemonelectro-whp@docker,n8n@docker,n8n-error-pages@docker
+       - traefik.http.routers.n8n-whp-lemonelectro.service=n8n
+
+       # Short paths: https://lemonelectro.kolberg.uz/<path> -> n8n /webhook/lemonelectro/<path>
+       - traefik.http.middlewares.n8n-lemonelectro-webhook.replacepathregex.regex=^/(.*)$
+       - traefik.http.middlewares.n8n-lemonelectro-webhook.replacepathregex.replacement=/webhook/lemonelectro/$1
+       - traefik.http.routers.n8n-webhook-lemonelectro.rule=Host(`lemonelectro.kolberg.uz`)
+       - traefik.http.routers.n8n-webhook-lemonelectro.priority=1
+       - traefik.http.routers.n8n-webhook-lemonelectro.entrypoints=web,websecure
+       - traefik.http.routers.n8n-webhook-lemonelectro.tls=true
+       - traefik.http.routers.n8n-webhook-lemonelectro.tls.certresolver=mytlschallenge
+       - traefik.http.routers.n8n-webhook-lemonelectro.middlewares=n8n-lemonelectro-webhook@docker,n8n@docker,n8n-error-pages@docker
+       - traefik.http.routers.n8n-webhook-lemonelectro.service=n8n
+
       # ---------- Final n8n service config ----------
        - traefik.http.services.n8n.loadbalancer.server.port=5678
 
@@ -697,7 +731,7 @@ services:
       DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:-change-me-to-a-long-random-secret-key-32-plus-bytes}
       # Override in `.env` next to this file: DJANGO_DEBUG=true (never leave on in production).
       DJANGO_DEBUG: "${DJANGO_DEBUG:-False}"
-      DJANGO_ALLOWED_HOSTS: "main.kolberg.uz,lemonfit.kolberg.uz,lemonfit2.kolberg.uz,neuron.kolberg.uz,lemonaqua.kolberg.uz,qulay.kolberg.uz"
+      DJANGO_ALLOWED_HOSTS: "main.kolberg.uz,lemonfit.kolberg.uz,lemonfit2.kolberg.uz,neuron.kolberg.uz,lemonaqua.kolberg.uz,qulay.kolberg.uz,lemonelectro.kolberg.uz"
       # No leading/trailing slashes (e.g. n8n). Slashes break Traefik labels: /api/${VAR}/ → /api/n8n//
       N8N_INTEGRATION_URL_PATH: ${N8N_INTEGRATION_URL_PATH:-n8n}
       N8N_INTEGRATION_TOKEN: ${N8N_INTEGRATION_TOKEN:-}
