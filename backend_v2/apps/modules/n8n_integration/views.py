@@ -1,8 +1,10 @@
 import logging
+import time
 import uuid
 from datetime import date, datetime
 
 import requests
+from requests.adapters import HTTPAdapter
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.db import IntegrityError, transaction
@@ -54,6 +56,32 @@ from apps.tenants.permissions import HasEffectiveModuleAccess, IsTenantAdmin
 
 User = get_user_model()
 logger = logging.getLogger(__name__)
+
+# Reused HTTP client for outbound n8n calls. Keep-alive avoids a TCP+TLS handshake per request,
+# which is the dominant cost when proxying through Traefik on the public hop.
+_n8n_session = requests.Session()
+_n8n_adapter = HTTPAdapter(pool_connections=20, pool_maxsize=50)
+_n8n_session.mount("http://", _n8n_adapter)
+_n8n_session.mount("https://", _n8n_adapter)
+
+
+def _build_n8n_url(tenant, endpoint: str) -> tuple[str, str | None, str]:
+    """
+    Resolve the URL the backend should hit to reach an n8n webhook for a tenant.
+
+    Returns (url, host_header_override, transport_label).
+    Internal transport bypasses Traefik+TLS via the docker network; we still send Host
+    as the public subdomain so any workflow that reads the Host header keeps working.
+    """
+    ep = endpoint if endpoint.startswith("/") else f"/{endpoint}"
+    base_internal = (getattr(settings, "N8N_INTERNAL_BASE_URL", "") or "").strip().rstrip("/")
+    subdomain = getattr(tenant, "subdomain", "") or ""
+    base_domain = getattr(settings, "BASE_DOMAIN", "") or ""
+    if base_internal and subdomain:
+        url = f"{base_internal}/{subdomain}{ep}"
+        host_override = f"{subdomain}.{base_domain}" if base_domain else None
+        return url, host_override, "internal"
+    return f"https://{subdomain}.{base_domain}{ep}", None, "public"
 
 
 def _n8n_error_payload(detail, *, error_type, error_location, reason=None, extra=None):
@@ -394,21 +422,25 @@ def _proxy_n8n_json(request, endpoint: str):
             status=status.HTTP_503_SERVICE_UNAVAILABLE,
         )
 
-    url = f"https://{tenant.subdomain}.{settings.BASE_DOMAIN}/{endpoint.lstrip('/')}"
+    url, host_override, transport = _build_n8n_url(tenant, endpoint)
+    headers = {
+        "Accept": "application/json",
+        "X-N8N-Integration-Token": token,
+        "X-Tenant": tenant.subdomain,
+        "X-User-Id": str(request.user.id),
+    }
+    if host_override:
+        headers["Host"] = host_override
+
+    started = time.perf_counter()
     try:
-        resp = requests.get(
-            url,
-            params=request.GET,
-            timeout=20,
-            headers={
-                "Accept": "application/json",
-                "X-N8N-Integration-Token": token,
-                "X-Tenant": tenant.subdomain,
-                "X-User-Id": str(request.user.id),
-            },
-        )
+        resp = _n8n_session.get(url, params=request.GET, timeout=20, headers=headers)
     except requests.RequestException as exc:
-        logger.warning("n8n report proxy request failed: tenant=%s endpoint=%s error=%s", tenant.subdomain, endpoint, exc)
+        elapsed_ms = (time.perf_counter() - started) * 1000
+        logger.warning(
+            "n8n proxy failed: tenant=%s endpoint=%s transport=%s duration_ms=%.0f error=%s",
+            tenant.subdomain, endpoint, transport, elapsed_ms, exc,
+        )
         return Response(
             _n8n_error_payload(
                 f"n8n request failed: {exc}",
@@ -418,6 +450,11 @@ def _proxy_n8n_json(request, endpoint: str):
             ),
             status=status.HTTP_502_BAD_GATEWAY,
         )
+    elapsed_ms = (time.perf_counter() - started) * 1000
+    logger.info(
+        "n8n proxy: tenant=%s endpoint=%s transport=%s status=%s duration_ms=%.0f",
+        tenant.subdomain, endpoint, transport, resp.status_code, elapsed_ms,
+    )
 
     if resp.status_code in (401, 403):
         return Response(
@@ -611,27 +648,31 @@ class AiChatProxyView(APIView):
                 status=status.HTTP_503_SERVICE_UNAVAILABLE,
             )
 
-        url = f"https://{tenant.subdomain}.{settings.BASE_DOMAIN}/{endpoint.lstrip('/')}"
+        url, host_override, transport = _build_n8n_url(tenant, endpoint)
         payload = {
             "user": request.user.id,
             "session_id": session_id,
             "question": question,
         }
+        headers = {
+            "Accept": "application/json",
+            "Content-Type": "application/json",
+            "X-N8N-Integration-Token": token,
+            "X-Tenant": tenant.subdomain,
+            "X-User-Id": str(request.user.id),
+        }
+        if host_override:
+            headers["Host"] = host_override
+
+        started = time.perf_counter()
         try:
-            resp = requests.post(
-                url,
-                json=payload,
-                timeout=30,
-                headers={
-                    "Accept": "application/json",
-                    "Content-Type": "application/json",
-                    "X-N8N-Integration-Token": token,
-                    "X-Tenant": tenant.subdomain,
-                    "X-User-Id": str(request.user.id),
-                },
-            )
+            resp = _n8n_session.post(url, json=payload, timeout=30, headers=headers)
         except requests.RequestException as exc:
-            logger.warning("n8n ai chat proxy request failed: tenant=%s endpoint=%s error=%s", tenant.subdomain, endpoint, exc)
+            elapsed_ms = (time.perf_counter() - started) * 1000
+            logger.warning(
+                "n8n proxy failed: tenant=%s endpoint=%s transport=%s duration_ms=%.0f error=%s",
+                tenant.subdomain, endpoint, transport, elapsed_ms, exc,
+            )
             return Response(
                 _n8n_error_payload(
                     f"n8n request failed: {exc}",
@@ -641,6 +682,11 @@ class AiChatProxyView(APIView):
                 ),
                 status=status.HTTP_502_BAD_GATEWAY,
             )
+        elapsed_ms = (time.perf_counter() - started) * 1000
+        logger.info(
+            "n8n proxy: tenant=%s endpoint=%s transport=%s status=%s duration_ms=%.0f",
+            tenant.subdomain, endpoint, transport, resp.status_code, elapsed_ms,
+        )
 
         if resp.status_code in (401, 403):
             return Response(

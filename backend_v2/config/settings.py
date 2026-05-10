@@ -206,6 +206,11 @@ N8N_INTEGRATION_URL_PREFIXES = frozenset(
 )
 N8N_INTEGRATION_TOKEN = os.getenv("N8N_INTEGRATION_TOKEN", "").strip()
 
+# Internal base URL for n8n webhook calls (skips Traefik+TLS when backend and n8n share a docker network).
+# Example: http://n8n:5678/webhook -> backend builds http://n8n:5678/webhook/<tenant>/<endpoint>.
+# When empty, backend falls back to the public https://{subdomain}.{BASE_DOMAIN} path.
+N8N_INTERNAL_BASE_URL = (os.getenv("N8N_INTERNAL_BASE_URL", "") or "").strip().rstrip("/")
+
 # Outbound authorization token for calling n8n webhooks (X-N8N-Token header).
 N8N_TOKEN = os.getenv("N8N_TOKEN", "").strip()
 
