@@ -193,6 +193,16 @@ services:
        - traefik.http.routers.n8n-whp-construction.middlewares=n8n-construction-whp@docker,n8n@docker,n8n-error-pages@docker
        - traefik.http.routers.n8n-whp-construction.service=n8n
 
+       # Bare /request opens the Form workflow path construction/request; does not match /requests-data etc.
+       - traefik.http.middlewares.n8n-construction-form-request.replacepath.path=/form/construction/request
+       - traefik.http.routers.n8n-form-request-construction.rule=Host(`construction.kolberg.uz`) && PathRegexp(`^/request/?$`)
+       - traefik.http.routers.n8n-form-request-construction.entrypoints=web,websecure
+       - traefik.http.routers.n8n-form-request-construction.tls=true
+       - traefik.http.routers.n8n-form-request-construction.tls.certresolver=mytlschallenge
+       - traefik.http.routers.n8n-form-request-construction.priority=100
+       - traefik.http.routers.n8n-form-request-construction.middlewares=n8n-construction-form-request@docker,n8n@docker,n8n-error-pages@docker
+       - traefik.http.routers.n8n-form-request-construction.service=n8n
+
        # Short paths: https://construction.kolberg.uz/<path> -> n8n /webhook/construction/<path>
        - traefik.http.middlewares.n8n-construction-webhook.replacepathregex.regex=^/(.*)$
        - traefik.http.middlewares.n8n-construction-webhook.replacepathregex.replacement=/webhook/construction/$1
