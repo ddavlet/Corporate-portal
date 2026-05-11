@@ -30,6 +30,7 @@ import { TenantIntegrationConfigPage } from '../ui/settings/TenantIntegrationCon
 import { UserRolesSettingsPage } from '../ui/settings/UserRolesSettingsPage'
 import { CashRegistersSettingsPage } from '../ui/settings/CashRegistersSettingsPage'
 import { InvestmentApprovalConfigPage } from '../ui/settings/InvestmentApprovalConfigPage'
+import { PnlReportSettingsPage } from '../ui/settings/PnlReportSettingsPage'
 import { AdminRouteGate } from '../ui/admin/AdminRouteGate'
 import { TrainingPage } from '../ui/training/TrainingPage'
 import { TgWebAppLayout } from '../ui/tg/TgWebAppLayout'
@@ -105,6 +106,7 @@ export function App() {
         <Route path="settings/tenant-integration-config" element={<TenantIntegrationConfigPage />} />
         <Route path="settings/users-roles" element={<UserRolesSettingsPage />} />
         <Route path="settings/cash-registers" element={<CashRegistersSettingsPage />} />
+        <Route path="settings/pnl-report-config" element={<PnlReportSettingsPage />} />
         <Route path="admin" element={<AdminRouteGate />} />
         <Route path="training" element={<TrainingPage />} />
       </Route>

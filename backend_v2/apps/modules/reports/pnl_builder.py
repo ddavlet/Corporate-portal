@@ -52,13 +52,8 @@ def _cash_operation_label(row: CashRevenue) -> str:
     return str(row.operation or "").strip()
 
 
-def get_pnl_config_or_raise(*, tenant) -> dict[str, Any]:
-    try:
-        row = TenantReportSettings.objects.get(tenant_id=tenant.id)
-    except TenantReportSettings.DoesNotExist as exc:
-        raise ReportSettingsMissing(f"No tenant_report_settings for tenant_id={tenant.id}") from exc
-
-    cfg = row.pnl_config if isinstance(row.pnl_config, dict) else {}
+def validate_pnl_config_dict(cfg: dict[str, Any]) -> None:
+    """Raise ReportSettingsInvalid if cfg cannot drive backend PnL."""
     required = (
         "start_month",
         "cash_exclude_operations",
@@ -78,6 +73,16 @@ def get_pnl_config_or_raise(*, tenant) -> dict[str, Any]:
         raise ReportSettingsInvalid("request_exclude_categories must be a list")
     if not isinstance(cfg["invest_return_exclude_types"], list):
         raise ReportSettingsInvalid("invest_return_exclude_types must be a list")
+
+
+def get_pnl_config_or_raise(*, tenant) -> dict[str, Any]:
+    try:
+        row = TenantReportSettings.objects.get(tenant_id=tenant.id)
+    except TenantReportSettings.DoesNotExist as exc:
+        raise ReportSettingsMissing(f"No tenant_report_settings for tenant_id={tenant.id}") from exc
+
+    cfg = row.pnl_config if isinstance(row.pnl_config, dict) else {}
+    validate_pnl_config_dict(cfg)
 
     return cfg
 
