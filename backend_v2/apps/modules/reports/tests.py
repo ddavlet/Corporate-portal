@@ -1,3 +1,4 @@
+from datetime import date
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
@@ -7,11 +8,34 @@ from django.test import SimpleTestCase, TestCase, override_settings
 from rest_framework.test import APITestCase
 from rest_framework_simplejwt.tokens import RefreshToken
 
+from apps.modules.requests.models import Request
 from apps.modules.reports.models import TenantReportSettings
+from apps.modules.reports.pnl_builder import (
+    ReportSettingsInvalid,
+    compute_unassigned_payment_purposes,
+    validate_pnl_config_dict,
+)
 from apps.modules.reports.services import fetch_n8n_report_payload, finalize_report_payload
 from apps.tenants.models import Tenant, TenantMembership, TenantUserRole
 
 User = get_user_model()
+
+
+def full_backend_pnl_config(**overrides):
+    cfg = {
+        "start_month": "2026-02",
+        "cash_exclude_operations": [],
+        "request_exclude_categories": [],
+        "request_payment_types_for_pnl": [Request.PAYMENT_TYPE_TRANSFER],
+        "payment_purpose_operational": ["Операционное назначение"],
+        "payment_purpose_other": ["Прочее назначение"],
+        "payment_purpose_invest_returns": ["Инвест назначение"],
+        "invest_return_type_operational": ["дивиденды", "проценты"],
+        "invest_return_type_other": ["доля_прибыли"],
+        "invest_return_type_invest_returns": ["тело_инвестиций"],
+    }
+    cfg.update(overrides)
+    return cfg
 
 
 @override_settings(
@@ -176,6 +200,29 @@ class FinalizeReportPayloadTests(SimpleTestCase):
         out = finalize_report_payload(payload_obj=raw, endpoint="/n8n/pnl-data", source="backend")
         self.assertEqual(out["report_settings"]["cash_exclude_operations"], ["a"])
 
+    def test_invest_returns_bucket_gets_fixed_category(self):
+        raw = {
+            "revenue": [],
+            "operational_expenses": [
+                {
+                    "id": "10",
+                    "amount": "40",
+                    "date": "2026-04-01",
+                    "category": "Проценты",
+                    "purpose": "Проценты",
+                }
+            ],
+            "other_expenses": [],
+            "invest_returns": [
+                {"id": "11", "amount": "15", "date": "2026-04-01", "category": "X", "purpose": "Y"},
+            ],
+            "metadata": {},
+        }
+        out = finalize_report_payload(payload_obj=raw, endpoint="/n8n/pnl-data", source="backend")
+        by_id = {r["id"]: r for r in out["rows"]}
+        self.assertEqual(by_id["10"]["category"], "Проценты")
+        self.assertEqual(by_id["11"]["category"], "Выплаты по инвестициям")
+
 
 @override_settings(BASE_DOMAIN="example.com", REPORTS_CACHE_TTL_SECONDS=60)
 class BackendPnlDatabaseTests(TestCase):
@@ -197,13 +244,9 @@ class BackendPnlDatabaseTests(TestCase):
         TenantReportSettings.objects.create(
             tenant=self.tenant,
             pnl_source="backend",
-            pnl_config={
-                "start_month": "2026-02",
-                "cash_exclude_operations": [],
-                "request_exclude_categories": [],
-                "income_tax_payment_purpose": "Подоходный налог",
-                "invest_return_exclude_types": [],
-            },
+            pnl_config=full_backend_pnl_config(
+                request_payment_types_for_pnl=[],
+            ),
         )
         payload = fetch_n8n_report_payload(
             tenant=self.tenant,
@@ -259,13 +302,10 @@ class TenantReportSettingsConfigApiTests(APITestCase):
             self.url,
             {
                 "pnl_source": "backend",
-                "pnl_config": {
-                    "start_month": "2026-02",
-                    "cash_exclude_operations": ["x"],
-                    "request_exclude_categories": [],
-                    "income_tax_payment_purpose": "Подоходный налог",
-                    "invest_return_exclude_types": [],
-                },
+                "pnl_config": full_backend_pnl_config(
+                    start_month="2026-02",
+                    cash_exclude_operations=["x"],
+                ),
             },
             format="json",
             **self._auth(self.admin),
@@ -275,3 +315,86 @@ class TenantReportSettingsConfigApiTests(APITestCase):
         row = TenantReportSettings.objects.get(tenant=self.tenant)
         self.assertEqual(row.pnl_source, "backend")
         self.assertEqual(row.pnl_config["start_month"], "2026-02")
+
+    def test_admin_get_pnl_diagnostics_unassigned_purposes(self):
+        TenantReportSettings.objects.create(
+            tenant=self.tenant,
+            pnl_source="backend",
+            pnl_config=full_backend_pnl_config(),
+        )
+        Request.objects.create(
+            tenant=self.tenant,
+            created_by=self.admin,
+            requester=self.admin,
+            title="r1",
+            description="",
+            amount="100.00",
+            currency="UZS",
+            payment_type=Request.PAYMENT_TYPE_TRANSFER,
+            urgency=Request.URGENCY_NORMAL,
+            billing_date=date(2026, 3, 1),
+            payment_purpose="Непокрытое назначение XYZ",
+            status=Request.STATUS_PAYED,
+        )
+        res = self.client.get(f"{self.url}?pnl_diagnostics=1", **self._auth(self.admin))
+        self.assertEqual(res.status_code, 200, res.content)
+        diag = res.data.get("pnl_diagnostics") or {}
+        items = diag.get("unassigned_payment_purposes") or []
+        purposes = {x["purpose"] for x in items}
+        self.assertIn("Непокрытое назначение XYZ", purposes)
+
+
+class PnlConfigValidationTests(TestCase):
+    def test_rejects_overlapping_payment_purposes(self):
+        cfg = full_backend_pnl_config(
+            payment_purpose_operational=["same"],
+            payment_purpose_other=["same"],
+        )
+        with self.assertRaises(ReportSettingsInvalid):
+            validate_pnl_config_dict(cfg)
+
+    def test_rejects_invalid_payment_type(self):
+        cfg = full_backend_pnl_config(request_payment_types_for_pnl=["Неизвестный тип"])
+        with self.assertRaises(ReportSettingsInvalid):
+            validate_pnl_config_dict(cfg)
+
+    def test_rejects_incomplete_invest_type_partition(self):
+        cfg = full_backend_pnl_config(invest_return_type_invest_returns=[])
+        with self.assertRaises(ReportSettingsInvalid):
+            validate_pnl_config_dict(cfg)
+
+    def test_compute_unassigned_matches_builder_scope(self):
+        tenant = Tenant.objects.create(name="DiagCo", subdomain="diagpnl")
+        admin = User.objects.create_user(username="diag_admin", password="x")
+        TenantReportSettings.objects.create(tenant=tenant, pnl_source="backend", pnl_config=full_backend_pnl_config())
+        Request.objects.create(
+            tenant=tenant,
+            created_by=admin,
+            requester=admin,
+            title="r",
+            description="",
+            amount="10",
+            currency="UZS",
+            payment_type=Request.PAYMENT_TYPE_TRANSFER,
+            urgency=Request.URGENCY_NORMAL,
+            billing_date=date(2026, 3, 1),
+            payment_purpose="Операционное назначение",
+            status=Request.STATUS_PAYED,
+        )
+        Request.objects.create(
+            tenant=tenant,
+            created_by=admin,
+            requester=admin,
+            title="r2",
+            description="",
+            amount="20",
+            currency="UZS",
+            payment_type=Request.PAYMENT_TYPE_TRANSFER,
+            urgency=Request.URGENCY_NORMAL,
+            billing_date=date(2026, 3, 2),
+            payment_purpose="Левое назначение",
+            status=Request.STATUS_PAYED,
+        )
+        un = compute_unassigned_payment_purposes(tenant_id=tenant.id, cfg=full_backend_pnl_config())
+        self.assertTrue(any(x["purpose"] == "Левое назначение" for x in un))
+        self.assertFalse(any(x["purpose"] == "Операционное назначение" for x in un))
