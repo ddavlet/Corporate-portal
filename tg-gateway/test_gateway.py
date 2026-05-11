@@ -295,6 +295,45 @@ def test_webhook_non_interactive_returns_ok():
     assert resp.json()["ok"] is True
 
 
+def test_webhook_group_message_logs_chat_id(caplog):
+    """Discovery: a group message should surface chat_id (negative) in logs."""
+    import logging
+    caplog.set_level(logging.INFO, logger="main")
+    resp = client.post(HOOK, json={
+        "update_id": 10,
+        "message": {
+            "message_id": 1,
+            "chat": {"id": -1001234567890, "type": "supergroup", "title": "My Group"},
+            "from": {"id": 42, "username": "alice"},
+            "text": "1 2 3",
+        },
+    })
+    assert resp.status_code == 200
+    assert any(
+        "discovery" in r.message and "chat_id=-1001234567890" in r.message
+        for r in caplog.records
+    ), "expected discovery log line with negative chat_id"
+
+
+def test_webhook_my_chat_member_logs_chat_id(caplog):
+    """Discovery: bot-added-to-group should surface chat_id + new member status."""
+    import logging
+    caplog.set_level(logging.INFO, logger="main")
+    resp = client.post(HOOK, json={
+        "update_id": 11,
+        "my_chat_member": {
+            "chat": {"id": -1009999999999, "type": "supergroup", "title": "Ops"},
+            "from": {"id": 7, "username": "admin"},
+            "new_chat_member": {"status": "member"},
+        },
+    })
+    assert resp.status_code == 200
+    assert any(
+        "discovery" in r.message and "kind=my_chat_member" in r.message and "status=member" in r.message
+        for r in caplog.records
+    ), "expected my_chat_member discovery log line"
+
+
 def test_webhook_callback_forwards_neutral_format():
     """Gateway must forward a platform-neutral event, not raw Telegram structure."""
     forward_payload = {}
