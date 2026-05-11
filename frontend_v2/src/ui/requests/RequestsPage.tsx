@@ -5,9 +5,16 @@ import type { Dayjs } from 'dayjs'
 import dayjs from 'dayjs'
 import { useNavigate } from 'react-router-dom'
 import { CopyOutlined, FileAddOutlined, FileSearchOutlined, MessageOutlined, ReloadOutlined } from '@ant-design/icons'
-import { apiFetch, copyPortalRequest, getRequestFormOptions, resendRequestApprovals } from '../../lib/api'
+import {
+  apiFetch,
+  copyPortalRequest,
+  getRequestFormOptions,
+  resendRequestApprovals,
+  type RequestFormOptionsPaymentType,
+} from '../../lib/api'
 import { isPayedMissingLinkedExpense, type RequestExpenseLink } from '../../lib/requestExpense'
 import { RequestDetailModal, type RequestDetail } from './RequestDetailModal'
+import { labelBlockAboveField } from '../formSpacing'
 import { NoteCreateModal } from '../NoteCreateModal'
 import { useUserPreference } from '../../lib/useUserPreference'
 
@@ -176,6 +183,7 @@ export function RequestsPage() {
   const [editOpen, setEditOpen] = useState(false)
   const [editSaving, setEditSaving] = useState(false)
   const [editDraft, setEditDraft] = useState<RequestModalEditDraft | null>(null)
+  const [requestFormPaymentTypes, setRequestFormPaymentTypes] = useState<RequestFormOptionsPaymentType[]>([])
   const [vendorSearchApi, setVendorSearchApi] = useState('')
   const [debouncedVendorSearchApi, setDebouncedVendorSearchApi] = useState('')
   const [amortizedOnly, setAmortizedOnly] = useState(false)
@@ -245,10 +253,12 @@ export function RequestsPage() {
         const opts = await getRequestFormOptions()
         if (!cancelled) {
           setIsTenantAdmin(Boolean(opts.is_tenant_admin))
+          setRequestFormPaymentTypes(opts.payment_types ?? [])
         }
       } catch {
         if (!cancelled) {
           setIsTenantAdmin(false)
+          setRequestFormPaymentTypes([])
         }
       }
     })()
@@ -315,6 +325,30 @@ export function RequestsPage() {
       label: value,
       value,
     }))
+
+  const editModalPaymentTypeOptions = useMemo(() => {
+    const uniq = new Set<string>()
+    for (const p of requestFormPaymentTypes) {
+      if (p.payment_type) uniq.add(p.payment_type)
+    }
+    for (const r of rows) {
+      if (r.payment_type) uniq.add(r.payment_type)
+    }
+    return [...uniq].sort((a, b) => a.localeCompare(b)).map((value) => ({ label: value, value }))
+  }, [requestFormPaymentTypes, rows])
+
+  const editPaymentTypeFormConfig = useMemo(
+    () => requestFormPaymentTypes.find((p) => p.payment_type === editDraft?.payment_type) ?? null,
+    [requestFormPaymentTypes, editDraft?.payment_type],
+  )
+
+  const editPurposeSelectOptions = useMemo(() => {
+    if (!editPaymentTypeFormConfig?.payment_purposes?.length) return []
+    return editPaymentTypeFormConfig.payment_purposes.map((p) => ({
+      value: p.name,
+      label: `${p.name} → ${p.category}`,
+    }))
+  }, [editPaymentTypeFormConfig])
 
   const requesterOptions = useMemo(() => {
     const map = new Map<string, string>()
@@ -383,6 +417,12 @@ export function RequestsPage() {
     if (!editDraft) return
     if (!editDraft.title.trim()) {
       message.warning('Введите название заявки')
+      return
+    }
+    const ptCfg = requestFormPaymentTypes.find((p) => p.payment_type === editDraft.payment_type)
+    const purposesConfigured = Boolean(ptCfg?.payment_purposes?.length)
+    if (purposesConfigured && !editDraft.payment_purpose.trim()) {
+      message.warning('Выберите назначение платежа')
       return
     }
     setEditSaving(true)
@@ -923,18 +963,34 @@ export function RequestsPage() {
               style={{ minWidth: 220 }}
               placeholder="Тип оплаты"
               value={editDraft?.payment_type}
-              onChange={(value) => setEditDraft((prev) => (prev ? { ...prev, payment_type: value } : prev))}
-              options={optionize(rows.map((r) => r.payment_type))}
+              onChange={(value) =>
+                setEditDraft((prev) => {
+                  if (!prev) return prev
+                  const cfg = requestFormPaymentTypes.find((p) => p.payment_type === value)
+                  const purposes = cfg?.payment_purposes ?? []
+                  if (purposes.length === 0) {
+                    return { ...prev, payment_type: value }
+                  }
+                  const matched = purposes.find((p) => p.name === prev.payment_purpose)
+                  if (matched) {
+                    return { ...prev, payment_type: value, category: matched.category }
+                  }
+                  return { ...prev, payment_type: value, payment_purpose: '', category: '' }
+                })
+              }
+              options={editModalPaymentTypeOptions}
               showSearch
             />
-            <Select
-              style={{ minWidth: 220 }}
-              placeholder="Категория"
-              value={editDraft?.category}
-              onChange={(value) => setEditDraft((prev) => (prev ? { ...prev, category: value } : prev))}
-              options={optionize(rows.map((r) => r.category))}
-              showSearch
-            />
+            {editPurposeSelectOptions.length === 0 ? (
+              <Select
+                style={{ minWidth: 220 }}
+                placeholder="Категория"
+                value={editDraft?.category}
+                onChange={(value) => setEditDraft((prev) => (prev ? { ...prev, category: value } : prev))}
+                options={optionize(rows.map((r) => r.category))}
+                showSearch
+              />
+            ) : null}
             <Select
               style={{ minWidth: 220 }}
               placeholder="Поставщик"
@@ -944,11 +1000,39 @@ export function RequestsPage() {
               showSearch
             />
           </Space>
-          <Input
-            placeholder="Назначение платежа"
-            value={editDraft?.payment_purpose || ''}
-            onChange={(e) => setEditDraft((prev) => (prev ? { ...prev, payment_purpose: e.target.value } : prev))}
-          />
+          {editPurposeSelectOptions.length > 0 ? (
+            <div>
+              <Typography.Text strong style={labelBlockAboveField}>
+                Назначение платежа
+              </Typography.Text>
+              <Select
+                placeholder="Выберите назначение"
+                style={{ display: 'block', width: '100%', maxWidth: 560 }}
+                value={editDraft?.payment_purpose || undefined}
+                onChange={(purposeName) =>
+                  setEditDraft((prev) => {
+                    if (!prev) return prev
+                    const cfg = requestFormPaymentTypes.find((p) => p.payment_type === prev.payment_type)
+                    const matched = cfg?.payment_purposes?.find((p) => p.name === purposeName)
+                    return {
+                      ...prev,
+                      payment_purpose: purposeName,
+                      category: matched?.category ?? '',
+                    }
+                  })
+                }
+                options={editPurposeSelectOptions}
+                showSearch
+                optionFilterProp="label"
+              />
+            </div>
+          ) : (
+            <Input
+              placeholder="Назначение платежа"
+              value={editDraft?.payment_purpose || ''}
+              onChange={(e) => setEditDraft((prev) => (prev ? { ...prev, payment_purpose: e.target.value } : prev))}
+            />
+          )}
           <Space wrap>
             <DatePicker
               picker="month"
