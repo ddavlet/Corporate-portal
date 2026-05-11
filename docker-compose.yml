@@ -237,6 +237,16 @@ services:
        - traefik.http.routers.n8n-whp-neuron.middlewares=n8n-neuron-whp@docker,n8n@docker,n8n-error-pages@docker
        - traefik.http.routers.n8n-whp-neuron.service=n8n
 
+       # Bare /request opens the Form workflow path neuron/request; does not match /requests-data etc.
+       - traefik.http.middlewares.n8n-neuron-form-request.replacepath.path=/form/neuron/request
+       - traefik.http.routers.n8n-form-request-neuron.rule=Host(`neuron.kolberg.uz`) && PathRegexp(`^/request/?$`)
+       - traefik.http.routers.n8n-form-request-neuron.entrypoints=web,websecure
+       - traefik.http.routers.n8n-form-request-neuron.tls=true
+       - traefik.http.routers.n8n-form-request-neuron.tls.certresolver=mytlschallenge
+       - traefik.http.routers.n8n-form-request-neuron.priority=100
+       - traefik.http.routers.n8n-form-request-neuron.middlewares=n8n-neuron-form-request@docker,n8n@docker,n8n-error-pages@docker
+       - traefik.http.routers.n8n-form-request-neuron.service=n8n
+
        # Short paths: https://neuron.kolberg.uz/<path> -> n8n /webhook/neuron/<path>
        - traefik.http.middlewares.n8n-neuron-webhook.replacepathregex.regex=^/(.*)$
        - traefik.http.middlewares.n8n-neuron-webhook.replacepathregex.replacement=/webhook/neuron/$1
