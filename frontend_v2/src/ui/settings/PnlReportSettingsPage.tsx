@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Alert, Button, Card, Input, Select, Space, Typography, message } from 'antd'
 import {
+  getRequestFormOptions,
   getSettingsAccess,
   getTenantReportSettings,
   patchTenantReportSettings,
   type PnlReportSettingsSnapshot,
+  type RequestFormOptionsPaymentType,
 } from '../../lib/api'
 
 function splitList(text: string): string[] {
@@ -16,6 +18,22 @@ function splitList(text: string): string[] {
 
 function joinList(items: string[] | undefined): string {
   return (items ?? []).join('\n')
+}
+
+function collectActivePurposeOptions(paymentTypes: RequestFormOptionsPaymentType[]): { value: string; label: string }[] {
+  const byName = new Map<string, string>()
+  for (const pt of paymentTypes) {
+    for (const p of pt.payment_purposes || []) {
+      const name = String(p.name || '').trim()
+      if (!name) continue
+      const cat = String(p.category || '').trim()
+      const label = cat ? `${name} → ${cat}` : name
+      if (!byName.has(name)) byName.set(name, label)
+    }
+  }
+  return [...byName.entries()]
+    .sort((a, b) => a[0].localeCompare(b[0], 'ru'))
+    .map(([value, label]) => ({ value, label }))
 }
 
 function buildConfigFromForm(fields: {
@@ -42,6 +60,7 @@ export function PnlReportSettingsPage() {
   const [loading, setLoading] = useState(false)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [paymentTypesFromForm, setPaymentTypesFromForm] = useState<RequestFormOptionsPaymentType[]>([])
 
   const [pnlSource, setPnlSource] = useState<'n8n' | 'backend'>('n8n')
   const [startMonth, setStartMonth] = useState('')
@@ -88,12 +107,26 @@ export function PnlReportSettingsPage() {
     }
   }, [])
 
+  const incomePurposeOptions = useMemo(
+    () => collectActivePurposeOptions(paymentTypesFromForm),
+    [paymentTypesFromForm],
+  )
+
+  const allowedPurposeNames = useMemo(() => new Set(incomePurposeOptions.map((o) => o.value)), [incomePurposeOptions])
+
+  const incomePurposeOrphan = useMemo(() => {
+    const t = incomeTaxPurpose.trim()
+    if (!t || incomePurposeOptions.length === 0) return null
+    return allowedPurposeNames.has(t) ? null : t
+  }, [incomeTaxPurpose, incomePurposeOptions.length, allowedPurposeNames])
+
   const load = useCallback(async () => {
     setLoading(true)
     setError(null)
     try {
-      const data = await getTenantReportSettings()
+      const [data, formOpts] = await Promise.all([getTenantReportSettings(), getRequestFormOptions()])
       applyServerRow(data)
+      setPaymentTypesFromForm(formOpts.payment_types ?? [])
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Не удалось загрузить настройки')
     } finally {
@@ -110,6 +143,20 @@ export function PnlReportSettingsPage() {
     setSaving(true)
     setError(null)
     try {
+      const tax = incomeTaxPurpose.trim()
+      if (pnlSource === 'backend' && incomePurposeOptions.length > 0) {
+        if (!tax) {
+          message.warning('Выберите назначение для подоходного налога из списка')
+          setSaving(false)
+          return
+        }
+        if (!allowedPurposeNames.has(tax)) {
+          message.warning('Назначение должно быть одним из активных в настройках формы заявки')
+          setSaving(false)
+          return
+        }
+      }
+
       const pnl_config = buildConfigFromForm({
         startMonth,
         incomeTaxPurpose,
@@ -192,12 +239,47 @@ export function PnlReportSettingsPage() {
 
           <div>
             <Typography.Text strong>Назначение платежа (подоходный налог)</Typography.Text>
-            <Input
-              style={{ marginTop: 8 }}
-              placeholder="Текст для сопоставления в выписках"
-              value={incomeTaxPurpose}
-              onChange={(e) => setIncomeTaxPurpose(e.target.value)}
-            />
+            <Typography.Paragraph type="secondary" style={{ margin: '6px 0 0' }}>
+              Только активные назначения из «Настройки → Заявки — форма создания» (совпадает с полем payment_purpose у
+              заявки). Так backend сопоставляет строку с оплаченными заявками.
+            </Typography.Paragraph>
+            {incomePurposeOrphan ? (
+              <Alert
+                type="warning"
+                showIcon
+                style={{ marginTop: 8 }}
+                message="В конфиге сохранено значение вне списка активных назначений"
+                description={`Сейчас в данных: «${incomePurposeOrphan}». Выберите актуальное назначение из списка ниже.`}
+              />
+            ) : null}
+            {incomePurposeOptions.length > 0 ? (
+              <Select
+                style={{ width: '100%', marginTop: 8 }}
+                placeholder="Выберите назначение"
+                value={allowedPurposeNames.has(incomeTaxPurpose.trim()) ? incomeTaxPurpose.trim() : undefined}
+                onChange={(v) => setIncomeTaxPurpose(v)}
+                options={incomePurposeOptions}
+                showSearch
+                optionFilterProp="label"
+                allowClear
+              />
+            ) : (
+              <>
+                <Alert
+                  type="info"
+                  showIcon
+                  style={{ marginTop: 8 }}
+                  message="Нет активных назначений в форме заявки"
+                  description="Добавьте назначения платежа для типов оплаты в настройках формы или введите текст вручную (для режима backend после появления списка выберите значение из него)."
+                />
+                <Input
+                  style={{ marginTop: 8 }}
+                  placeholder="Текст назначения (как в заявке / выписке)"
+                  value={incomeTaxPurpose}
+                  onChange={(e) => setIncomeTaxPurpose(e.target.value)}
+                />
+              </>
+            )}
           </div>
 
           <div>
