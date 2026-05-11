@@ -107,6 +107,47 @@ async def _telegram_api(bot_token: str, method: str, body: dict) -> tuple[int, d
     return resp.status_code, payload
 
 
+# Order matters: more specific update kinds first so we surface the most useful
+# event (e.g. bot-added-to-group) instead of the generic "message" wrapper.
+_DISCOVERY_UPDATE_KEYS = (
+    "my_chat_member",
+    "chat_member",
+    "message",
+    "edited_message",
+    "channel_post",
+    "edited_channel_post",
+)
+
+
+def _extract_chat_info(update: dict) -> dict | None:
+    """Pull chat/sender identifiers out of a Telegram update for discovery logging.
+
+    Why: the group chat_id (negative integer) is only revealed by Telegram in
+    incoming updates. Logging it here lets an operator add the bot to a group,
+    say "/start" or @mention it, and read the chat_id from gateway logs — no
+    need to temporarily reroute the webhook to n8n.
+    """
+    for kind in _DISCOVERY_UPDATE_KEYS:
+        node = update.get(kind)
+        if not isinstance(node, dict):
+            continue
+        chat = node.get("chat") or {}
+        sender = node.get("from") or {}
+        info: dict[str, Any] = {
+            "update_kind":   kind,
+            "chat_id":       chat.get("id"),
+            "chat_type":     chat.get("type"),
+            "chat_title":    chat.get("title"),
+            "from_id":       sender.get("id"),
+            "from_username": sender.get("username"),
+            "text":          node.get("text") if kind in ("message", "edited_message", "channel_post", "edited_channel_post") else None,
+        }
+        if kind in ("my_chat_member", "chat_member"):
+            info["new_member_status"] = (node.get("new_chat_member") or {}).get("status")
+        return info
+    return None
+
+
 # ── POST /v1/messaging/send ───────────────────────────────────────────────────
 
 @app.post("/v1/messaging/send")
@@ -232,9 +273,24 @@ async def messaging_webhook(
 
     cb = update.get("callback_query")
     if not cb:
+        info = _extract_chat_info(update)
+        if info and info.get("chat_id") is not None:
+            logger.info(
+                "discovery kind=%s chat_id=%s chat_type=%s chat_title=%r from_id=%s from_username=%s status=%s text=%r",
+                info["update_kind"],
+                info["chat_id"],
+                info.get("chat_type"),
+                info.get("chat_title"),
+                info.get("from_id"),
+                info.get("from_username"),
+                info.get("new_member_status"),
+                info.get("text"),
+            )
         await db.log_event(
             direction="in", endpoint="/v1/messaging/webhook",
-            action="non_interactive", ok=True, status_code=200, payload=update,
+            action=(info["update_kind"] if info else "non_interactive"),
+            recipient_id=(str(info["chat_id"]) if info and info.get("chat_id") is not None else None),
+            ok=True, status_code=200, payload=update,
         )
         return {"ok": True}
 
