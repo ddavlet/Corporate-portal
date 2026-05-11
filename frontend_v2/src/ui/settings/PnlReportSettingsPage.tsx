@@ -46,17 +46,57 @@ const INVEST_RETURN_TYPE_OPTIONS: { value: string; label: string }[] = [
   { value: 'Возврат', label: 'Возврат (устаревшее значение)' },
 ]
 
-function collectFormCategories(paymentTypes: RequestFormOptionsPaymentType[]): { value: string; label: string }[] {
-  const names = new Set<string>()
+function categoriesFromFormSet(paymentTypes: RequestFormOptionsPaymentType[]): Set<string> {
+  const s = new Set<string>()
   for (const pt of paymentTypes) {
     for (const p of pt.payment_purposes || []) {
       const c = String(p.category || '').trim()
-      if (c) names.add(c)
+      if (c) s.add(c)
     }
   }
-  return [...names]
-    .sort((a, b) => a.localeCompare(b, 'ru'))
-    .map((value) => ({ value, label: value }))
+  return s
+}
+
+/** Все назначения с данной категорией (имена совпадают с формой заявки). */
+function purposeNamesMatchingCategories(
+  categories: string[],
+  paymentTypes: RequestFormOptionsPaymentType[],
+): string[] {
+  const catSet = new Set(categories.map((c) => c.trim()).filter(Boolean))
+  const names: string[] = []
+  for (const pt of paymentTypes) {
+    for (const p of pt.payment_purposes || []) {
+      const c = String(p.category || '').trim()
+      const n = String(p.name || '').trim()
+      if (!n || !c || !catSet.has(c)) continue
+      names.push(n)
+    }
+  }
+  return [...new Set(names)].sort((a, b) => a.localeCompare(b, 'ru'))
+}
+
+function purposeNameToCategory(name: string, paymentTypes: RequestFormOptionsPaymentType[]): string | null {
+  const n = name.trim()
+  for (const pt of paymentTypes) {
+    for (const p of pt.payment_purposes || []) {
+      if (String(p.name || '').trim() !== n) continue
+      const c = String(p.category || '').trim()
+      return c || null
+    }
+  }
+  return null
+}
+
+function categoriesFromSelectedPurposeNames(
+  purposeNames: string[],
+  paymentTypes: RequestFormOptionsPaymentType[],
+): string[] {
+  const cats = new Set<string>()
+  for (const name of purposeNames) {
+    const c = purposeNameToCategory(name, paymentTypes)
+    if (c) cats.add(c)
+  }
+  return [...cats].sort((a, b) => a.localeCompare(b, 'ru'))
 }
 
 function mergeSelectOptions(
@@ -108,7 +148,11 @@ export function PnlReportSettingsPage() {
   const [startMonth, setStartMonth] = useState('')
   const [incomeTaxPurpose, setIncomeTaxPurpose] = useState('')
   const [cashExclude, setCashExclude] = useState('')
-  const [requestExcludeCategories, setRequestExcludeCategories] = useState<string[]>([])
+  /** Назначения из формы заявки; в конфиг уходит производная по категориям. */
+  const [requestExcludePurposeNames, setRequestExcludePurposeNames] = useState<string[]>([])
+  /** Категории из сохранённого конфига, которых нет ни у одного активного назначения в форме. */
+  const [legacyExcludeCategories, setLegacyExcludeCategories] = useState<string[]>([])
+  const [serverRequestExcludeCategories, setServerRequestExcludeCategories] = useState<string[]>([])
   const [investExcludeTypes, setInvestExcludeTypes] = useState<string[]>([])
   const [updatedAt, setUpdatedAt] = useState<string | null>(null)
 
@@ -122,7 +166,7 @@ export function PnlReportSettingsPage() {
     setStartMonth((c.start_month ?? '').trim())
     setIncomeTaxPurpose((c.income_tax_payment_purpose ?? '').trim())
     setCashExclude(joinList(c.cash_exclude_operations))
-    setRequestExcludeCategories(normalizeStringList(c.request_exclude_categories))
+    setServerRequestExcludeCategories(normalizeStringList(c.request_exclude_categories))
     setInvestExcludeTypes(normalizeStringList(c.invest_return_exclude_types))
     setUpdatedAt(typeof data.updated_at === 'string' ? data.updated_at : null)
   }, [])
@@ -156,15 +200,29 @@ export function PnlReportSettingsPage() {
 
   const allowedPurposeNames = useMemo(() => new Set(incomePurposeOptions.map((o) => o.value)), [incomePurposeOptions])
 
-  const requestCategoryOptions = useMemo(
-    () => collectFormCategories(paymentTypesFromForm),
-    [paymentTypesFromForm],
+  useEffect(() => {
+    const saved = serverRequestExcludeCategories
+    if (!paymentTypesFromForm.length) {
+      setRequestExcludePurposeNames([])
+      setLegacyExcludeCategories(saved)
+      return
+    }
+    const formCatSet = categoriesFromFormSet(paymentTypesFromForm)
+    const legacy = saved.filter((c) => !formCatSet.has(c))
+    const mappedCats = saved.filter((c) => formCatSet.has(c))
+    setLegacyExcludeCategories(legacy)
+    setRequestExcludePurposeNames(purposeNamesMatchingCategories(mappedCats, paymentTypesFromForm))
+  }, [paymentTypesFromForm, serverRequestExcludeCategories])
+
+  const requestExcludePurposeSelectOptions = useMemo(
+    () => mergeSelectOptions(incomePurposeOptions, requestExcludePurposeNames),
+    [incomePurposeOptions, requestExcludePurposeNames],
   )
 
-  const requestCategorySelectOptions = useMemo(
-    () => mergeSelectOptions(requestCategoryOptions, requestExcludeCategories),
-    [requestCategoryOptions, requestExcludeCategories],
-  )
+  const resolvedRequestExcludeCategories = useMemo(() => {
+    const fromPurposes = categoriesFromSelectedPurposeNames(requestExcludePurposeNames, paymentTypesFromForm)
+    return [...new Set([...fromPurposes, ...legacyExcludeCategories])].sort((a, b) => a.localeCompare(b, 'ru'))
+  }, [requestExcludePurposeNames, paymentTypesFromForm, legacyExcludeCategories])
 
   const investTypeSelectOptions = useMemo(
     () => mergeSelectOptions(INVEST_RETURN_TYPE_OPTIONS, investExcludeTypes),
@@ -218,7 +276,7 @@ export function PnlReportSettingsPage() {
         startMonth,
         incomeTaxPurpose,
         cashExclude,
-        requestExcludeCategories,
+        requestExcludeCategories: resolvedRequestExcludeCategories,
         investExcludeTypes,
       })
       const data = await patchTenantReportSettings({ pnl_source: pnlSource, pnl_config })
@@ -355,31 +413,52 @@ export function PnlReportSettingsPage() {
           </div>
 
           <div>
-            <Typography.Text strong>Исключить категории заявок</Typography.Text>
+            <Typography.Text strong>Исключить заявки по назначению платежа</Typography.Text>
             <Typography.Paragraph type="secondary" style={{ margin: '6px 0 0' }}>
-              Категории из активных назначений формы заявки (как у строк «назначение → категория»). Уже сохранённые
-              значения вне списка показываются с пометкой.
+              В заявке категория подставляется автоматически из выбранного назначения. Здесь вы отмечаете назначения из
+              формы — в отчёт не попадут заявки с соответствующими категориями (в конфиг сохраняются именно категории,
+              как ожидает backend).
             </Typography.Paragraph>
-            {requestCategoryOptions.length > 0 ? (
-              <Select
-                mode="multiple"
-                allowClear
-                showSearch
-                optionFilterProp="label"
-                placeholder="Выберите категории"
-                style={{ width: '100%', marginTop: 8 }}
-                value={requestExcludeCategories}
-                onChange={(v) => setRequestExcludeCategories(v)}
-                options={requestCategorySelectOptions}
-                maxTagCount="responsive"
+            {legacyExcludeCategories.length > 0 ? (
+              <Alert
+                type="info"
+                showIcon
+                style={{ marginTop: 8 }}
+                message="В конфиге есть категории без совпадения в текущей форме заявки"
+                description={`Они сохранятся при следующем сохранении: ${legacyExcludeCategories.join(', ')}.`}
               />
+            ) : null}
+            {incomePurposeOptions.length > 0 ? (
+              <>
+                <Select
+                  mode="multiple"
+                  allowClear
+                  showSearch
+                  optionFilterProp="label"
+                  placeholder="Выберите назначения, заявки с их категориями исключить из PnL"
+                  style={{ width: '100%', marginTop: 8 }}
+                  value={requestExcludePurposeNames}
+                  onChange={(v) => setRequestExcludePurposeNames(v)}
+                  options={requestExcludePurposeSelectOptions}
+                  maxTagCount="responsive"
+                />
+                {resolvedRequestExcludeCategories.length > 0 ? (
+                  <Typography.Paragraph type="secondary" style={{ margin: '8px 0 0', fontSize: 13 }}>
+                    Итоговые категории в конфиге: {resolvedRequestExcludeCategories.join(', ')}
+                  </Typography.Paragraph>
+                ) : (
+                  <Typography.Paragraph type="secondary" style={{ margin: '8px 0 0', fontSize: 13 }}>
+                    Категории для исключения не выбраны.
+                  </Typography.Paragraph>
+                )}
+              </>
             ) : (
               <Input.TextArea
                 style={{ marginTop: 8 }}
                 rows={3}
-                placeholder="В форме заявки нет категорий — по строке на значение"
-                value={joinList(requestExcludeCategories)}
-                onChange={(e) => setRequestExcludeCategories(splitList(e.target.value))}
+                placeholder="Нет активных назначений в форме — категории по строке на значение"
+                value={joinList(serverRequestExcludeCategories)}
+                onChange={(e) => setServerRequestExcludeCategories(splitList(e.target.value))}
               />
             )}
           </div>
