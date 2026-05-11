@@ -8,7 +8,11 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.modules.reports.models import TenantReportSettings
-from apps.modules.reports.pnl_builder import ReportSettingsInvalid, validate_pnl_config_dict
+from apps.modules.reports.pnl_builder import (
+    ReportSettingsInvalid,
+    compute_unassigned_payment_purposes,
+    validate_pnl_config_dict,
+)
 from apps.modules.reports.registry import MODULE_KEY
 from apps.modules.reports.services import fetch_n8n_report_payload
 from apps.tenants.permissions import HasEffectiveModuleAccess, IsTenantAdmin
@@ -104,7 +108,15 @@ class TenantReportSettingsConfigView(APIView):
                 "pnl_config": {},
             },
         )
-        return Response(self._serialize(row), status=status.HTTP_200_OK)
+        data = self._serialize(row)
+        if str(request.query_params.get("pnl_diagnostics") or "").strip() in {"1", "true", "yes"}:
+            cfg = row.pnl_config if isinstance(row.pnl_config, dict) else {}
+            try:
+                unassigned = compute_unassigned_payment_purposes(tenant_id=tenant.id, cfg=cfg)
+                data["pnl_diagnostics"] = {"unassigned_payment_purposes": unassigned}
+            except ReportSettingsInvalid as exc:
+                data["pnl_diagnostics"] = {"error": str(exc)}
+        return Response(data, status=status.HTTP_200_OK)
 
     def patch(self, request):
         tenant = getattr(request, "tenant", None)
