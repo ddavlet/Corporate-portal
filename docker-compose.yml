@@ -612,7 +612,7 @@ services:
         if [ \"$$now_hm\" = \"01:00\" ] && [ \"$$today\" != \"$$last_backup\" ]; then
           ts=$$(date +%F-%H%M) ;
           pg_dumpall -h db -U \"$POSTGRES_USER\" | gzip > /backups/postgres-all-$$ts.sql.gz ;
-          find /backups -type f -name 'postgres-all-*.sql.gz' -mtime +7 -delete ;
+          find /backups -type f -name 'postgres-all-*.sql.gz' -mtime +10 -delete ;
           echo \"$$today\" > /tmp/last_db_backup_date ;
         fi ;
         sleep 30 ;
@@ -629,9 +629,10 @@ services:
     image: rclone/rclone:latest
     container_name: gdrive_backup_sync
     restart: always
-    # Сколько дней держать архивы в Drive (имя файла + min-age по времени на remote). ~2.2–2.6 ГБ на дамп PG.
+    # Локально db_backup держит ~10 дней; в Drive — только последние GDRIVE_RETENTION_DAYS дней
+    # (upload по mtime + purge по min-age на remote). ~2.2–2.6 ГБ на дамп PG.
     environment:
-      - GDRIVE_RETENTION_DAYS=4
+      - GDRIVE_RETENTION_DAYS=3
     entrypoint:
       - /bin/sh
       - -lc
@@ -644,7 +645,11 @@ services:
             latest_pg=$$(ls -1t /backups/postgres/postgres-all-*.sql.gz 2>/dev/null | sed -n '1p');
             if [ -n "$$latest_pg" ]; then
               rclone copyto "$$latest_pg" gdrive:kolberg-backups/postgres-latest.sql.gz;
-              rclone copyto "$$latest_pg" "gdrive:kolberg-backups/postgres-daily/$${today}.sql.gz";
+              find /backups/postgres -maxdepth 1 -type f -name 'postgres-all-*.sql.gz' -mtime -$$((GDRIVE_RETENTION_DAYS + 1)) 2>/dev/null | while IFS= read -r f; do
+                d=$$(basename "$$f" | sed -n 's/postgres-all-\([0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]\)-.*/\1/p');
+                [ -n "$$d" ] || continue;
+                rclone copyto "$$f" "gdrive:kolberg-backups/postgres-daily/$${d}.sql.gz";
+              done;
               rclone delete "gdrive:kolberg-backups/postgres-daily/" --include "*.sql.gz" --min-age "$${GDRIVE_RETENTION_DAYS}d" || true;
             fi;
             echo "$$today" > /tmp/last_sync_date;
