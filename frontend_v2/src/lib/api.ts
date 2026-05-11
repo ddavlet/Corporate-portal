@@ -789,13 +789,53 @@ export type StructuredMonthlyRow = {
   net: string
 }
 
-/** Snapshot of backend PnL rules (read-only); present when source is backend. */
+/** Rules for backend PnL (also returned in structured report as report_settings). */
 export type PnlReportSettingsSnapshot = {
   start_month?: string
   cash_exclude_operations?: string[]
   request_exclude_categories?: string[]
   income_tax_payment_purpose?: string
   invest_return_exclude_types?: string[]
+}
+
+export type TenantReportSettingsApiResponse = {
+  pnl_source: 'n8n' | 'backend'
+  pnl_config: PnlReportSettingsSnapshot
+  updated_at?: string | null
+}
+
+function parseTenantReportSettingsApiResponse(json: unknown): TenantReportSettingsApiResponse {
+  const obj = json && typeof json === 'object' ? (json as Record<string, unknown>) : {}
+  const src = String(obj.pnl_source || '').toLowerCase()
+  const pnl_source: 'n8n' | 'backend' = src === 'backend' ? 'backend' : 'n8n'
+  const rawCfg = obj.pnl_config
+  const pnl_config: PnlReportSettingsSnapshot =
+    rawCfg && typeof rawCfg === 'object' ? (rawCfg as PnlReportSettingsSnapshot) : {}
+  return {
+    pnl_source,
+    pnl_config,
+    updated_at: typeof obj.updated_at === 'string' ? obj.updated_at : null,
+  }
+}
+
+export async function getTenantReportSettings(): Promise<TenantReportSettingsApiResponse> {
+  const res = await apiFetch('/api/reports/tenant-report-settings/')
+  if (!res.ok) throw new Error(await parseErrorBody(res))
+  const parsedJson: unknown = await res.json().catch(() => null)
+  return parseTenantReportSettingsApiResponse(parsedJson)
+}
+
+export async function patchTenantReportSettings(
+  payload: Partial<{ pnl_source: 'n8n' | 'backend'; pnl_config: PnlReportSettingsSnapshot }>,
+): Promise<TenantReportSettingsApiResponse> {
+  const res = await apiFetch('/api/reports/tenant-report-settings/', {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+  if (!res.ok) throw new Error(await parseErrorBody(res))
+  const parsedJson: unknown = await res.json().catch(() => null)
+  return parseTenantReportSettingsApiResponse(parsedJson)
 }
 
 export type StructuredReportPayload = {
