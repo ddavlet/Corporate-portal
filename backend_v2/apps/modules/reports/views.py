@@ -2,13 +2,16 @@ import logging
 
 import requests
 from rest_framework import status
+from rest_framework.exceptions import ValidationError
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from apps.modules.reports.models import TenantReportSettings
+from apps.modules.reports.pnl_builder import ReportSettingsInvalid, validate_pnl_config_dict
 from apps.modules.reports.registry import MODULE_KEY
 from apps.modules.reports.services import fetch_n8n_report_payload
-from apps.tenants.permissions import HasEffectiveModuleAccess
+from apps.tenants.permissions import HasEffectiveModuleAccess, IsTenantAdmin
 
 logger = logging.getLogger(__name__)
 
@@ -73,3 +76,75 @@ class PnlReportView(_ReportsBaseView):
 class CashflowReportView(_ReportsBaseView):
     report_path = "/n8n/cashflow-data"
     report_name = "cashflow"
+
+
+class TenantReportSettingsConfigView(APIView):
+    """
+    Per-tenant PnL source (n8n vs backend) and backend filters — tenant admin only.
+    """
+
+    permission_classes = [IsAuthenticated, IsTenantAdmin]
+
+    @staticmethod
+    def _serialize(row: TenantReportSettings) -> dict:
+        return {
+            "pnl_source": row.pnl_source,
+            "pnl_config": row.pnl_config if isinstance(row.pnl_config, dict) else {},
+            "updated_at": row.updated_at.isoformat() if row.updated_at else None,
+        }
+
+    def get(self, request):
+        tenant = getattr(request, "tenant", None)
+        if not tenant:
+            return Response({"detail": "No tenant."}, status=status.HTTP_400_BAD_REQUEST)
+        row, _ = TenantReportSettings.objects.get_or_create(
+            tenant=tenant,
+            defaults={
+                "pnl_source": TenantReportSettings.PNL_SOURCE_N8N,
+                "pnl_config": {},
+            },
+        )
+        return Response(self._serialize(row), status=status.HTTP_200_OK)
+
+    def patch(self, request):
+        tenant = getattr(request, "tenant", None)
+        if not tenant:
+            return Response({"detail": "No tenant."}, status=status.HTTP_400_BAD_REQUEST)
+
+        row, _ = TenantReportSettings.objects.get_or_create(
+            tenant=tenant,
+            defaults={
+                "pnl_source": TenantReportSettings.PNL_SOURCE_N8N,
+                "pnl_config": {},
+            },
+        )
+
+        body = request.data if isinstance(request.data, dict) else {}
+        new_source = row.pnl_source
+        if "pnl_source" in body:
+            raw = str(body.get("pnl_source") or "").strip().lower()
+            if raw not in {TenantReportSettings.PNL_SOURCE_N8N, TenantReportSettings.PNL_SOURCE_BACKEND}:
+                raise ValidationError({"pnl_source": "Must be 'n8n' or 'backend'."})
+            new_source = raw
+
+        new_cfg = row.pnl_config if isinstance(row.pnl_config, dict) else {}
+        if "pnl_config" in body:
+            cfg_in = body.get("pnl_config")
+            if cfg_in is None:
+                new_cfg = {}
+            elif not isinstance(cfg_in, dict):
+                raise ValidationError({"pnl_config": "Must be a JSON object."})
+            else:
+                new_cfg = cfg_in
+
+        if new_source == TenantReportSettings.PNL_SOURCE_BACKEND:
+            try:
+                validate_pnl_config_dict(new_cfg)
+            except ReportSettingsInvalid as exc:
+                raise ValidationError({"pnl_config": str(exc)}) from exc
+
+        row.pnl_source = new_source
+        row.pnl_config = new_cfg
+        row.save(update_fields=["pnl_source", "pnl_config", "updated_at"])
+
+        return Response(self._serialize(row), status=status.HTTP_200_OK)

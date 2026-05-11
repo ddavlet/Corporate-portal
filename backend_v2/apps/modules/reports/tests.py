@@ -1,12 +1,17 @@
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
+from django.contrib.auth import get_user_model
 from django.core.cache import cache
 from django.test import SimpleTestCase, TestCase, override_settings
+from rest_framework.test import APITestCase
+from rest_framework_simplejwt.tokens import RefreshToken
 
 from apps.modules.reports.models import TenantReportSettings
 from apps.modules.reports.services import fetch_n8n_report_payload, finalize_report_payload
-from apps.tenants.models import Tenant
+from apps.tenants.models import Tenant, TenantMembership, TenantUserRole
+
+User = get_user_model()
 
 
 @override_settings(
@@ -210,3 +215,63 @@ class BackendPnlDatabaseTests(TestCase):
         self.assertEqual(payload["metadata"]["start_month"], "2026-02")
         self.assertEqual(payload["revenue"], [])
         self.assertIn("report_settings", payload)
+
+
+@override_settings(BASE_DOMAIN="example.com", ALLOWED_HOSTS=["*"])
+class TenantReportSettingsConfigApiTests(APITestCase):
+    url = "/api/reports/tenant-report-settings/"
+
+    def setUp(self):
+        self.tenant = Tenant.objects.create(name="Acme", subdomain="pnlcfg", is_active=True)
+        self.admin = User.objects.create_user(username="pnl_admin", password="x")
+        self.director = User.objects.create_user(username="pnl_director", password="x")
+        TenantMembership.objects.create(tenant=self.tenant, user=self.admin, is_active=True)
+        TenantMembership.objects.create(tenant=self.tenant, user=self.director, is_active=True)
+        TenantUserRole.objects.create(tenant=self.tenant, user=self.admin, role=TenantUserRole.ROLE_ADMIN)
+        TenantUserRole.objects.create(tenant=self.tenant, user=self.director, role=TenantUserRole.ROLE_DIRECTOR)
+
+    def _auth(self, user):
+        token = str(RefreshToken.for_user(user).access_token)
+        return {"HTTP_HOST": "pnlcfg.example.com", "HTTP_AUTHORIZATION": f"Bearer {token}"}
+
+    def test_admin_get_creates_defaults(self):
+        self.assertFalse(TenantReportSettings.objects.filter(tenant=self.tenant).exists())
+        res = self.client.get(self.url, **self._auth(self.admin))
+        self.assertEqual(res.status_code, 200, res.content)
+        self.assertEqual(res.data["pnl_source"], TenantReportSettings.PNL_SOURCE_N8N)
+        self.assertEqual(res.data["pnl_config"], {})
+        self.assertTrue(TenantReportSettings.objects.filter(tenant=self.tenant).exists())
+
+    def test_director_forbidden(self):
+        res = self.client.get(self.url, **self._auth(self.director))
+        self.assertEqual(res.status_code, 403)
+
+    def test_admin_patch_backend_requires_full_config(self):
+        bad = self.client.patch(
+            self.url,
+            {"pnl_source": "backend", "pnl_config": {}},
+            format="json",
+            **self._auth(self.admin),
+        )
+        self.assertEqual(bad.status_code, 400, bad.content)
+
+        ok = self.client.patch(
+            self.url,
+            {
+                "pnl_source": "backend",
+                "pnl_config": {
+                    "start_month": "2026-02",
+                    "cash_exclude_operations": ["x"],
+                    "request_exclude_categories": [],
+                    "income_tax_payment_purpose": "Подоходный налог",
+                    "invest_return_exclude_types": [],
+                },
+            },
+            format="json",
+            **self._auth(self.admin),
+        )
+        self.assertEqual(ok.status_code, 200, ok.content)
+        self.assertEqual(ok.data["pnl_source"], "backend")
+        row = TenantReportSettings.objects.get(tenant=self.tenant)
+        self.assertEqual(row.pnl_source, "backend")
+        self.assertEqual(row.pnl_config["start_month"], "2026-02")

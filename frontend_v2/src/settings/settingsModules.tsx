@@ -1,4 +1,4 @@
-import { FileTextOutlined, SettingOutlined, ShopOutlined, TeamOutlined } from '@ant-design/icons'
+import { BarChartOutlined, FileTextOutlined, SettingOutlined, ShopOutlined, TeamOutlined } from '@ant-design/icons'
 import type { ReactNode } from 'react'
 
 export type SettingsModuleItem = {
@@ -31,6 +31,13 @@ export const SETTINGS_MODULES: SettingsModuleItem[] = [
     description: 'URL, actions и секреты интеграций по модулям компании.',
     path: '/settings/tenant-integration-config',
     icon: <SettingOutlined />,
+  },
+  {
+    key: 'pnl-report',
+    title: 'Отчёт PnL',
+    description: 'Источник данных (n8n или расчёт в приложении) и параметры backend-PnL.',
+    path: '/settings/pnl-report-config',
+    icon: <BarChartOutlined />,
   },
   {
     key: 'users-roles',
