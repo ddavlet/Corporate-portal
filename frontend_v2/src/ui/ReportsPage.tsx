@@ -579,11 +579,26 @@ export function ReportsPage() {
                 <Descriptions.Item label="Исключения категорий заявок">
                   {(report.report_settings.request_exclude_categories ?? []).join(', ') || '—'}
                 </Descriptions.Item>
-                <Descriptions.Item label="Подоходный налог (назначение)">
-                  {report.report_settings.income_tax_payment_purpose ?? '—'}
+                <Descriptions.Item label="Типы оплаты заявок в PnL">
+                  {(report.report_settings.request_payment_types_for_pnl ?? []).join(', ') || '—'}
                 </Descriptions.Item>
-                <Descriptions.Item label="Исключения типов invest_returns">
-                  {(report.report_settings.invest_return_exclude_types ?? []).join(', ') || '—'}
+                <Descriptions.Item label="Назначения: операционные">
+                  {(report.report_settings.payment_purpose_operational ?? []).join(', ') || '—'}
+                </Descriptions.Item>
+                <Descriptions.Item label="Назначения: прочие">
+                  {(report.report_settings.payment_purpose_other ?? []).join(', ') || '—'}
+                </Descriptions.Item>
+                <Descriptions.Item label="Назначения: корзина invest_returns">
+                  {(report.report_settings.payment_purpose_invest_returns ?? []).join(', ') || '—'}
+                </Descriptions.Item>
+                <Descriptions.Item label="Типы выплат → операционные">
+                  {(report.report_settings.invest_return_type_operational ?? []).join(', ') || '—'}
+                </Descriptions.Item>
+                <Descriptions.Item label="Типы выплат → прочие">
+                  {(report.report_settings.invest_return_type_other ?? []).join(', ') || '—'}
+                </Descriptions.Item>
+                <Descriptions.Item label="Типы выплат → invest_returns">
+                  {(report.report_settings.invest_return_type_invest_returns ?? []).join(', ') || '—'}
                 </Descriptions.Item>
               </Descriptions>
             </Card>

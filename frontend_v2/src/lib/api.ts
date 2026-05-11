@@ -794,14 +794,27 @@ export type PnlReportSettingsSnapshot = {
   start_month?: string
   cash_exclude_operations?: string[]
   request_exclude_categories?: string[]
-  income_tax_payment_purpose?: string
-  invest_return_exclude_types?: string[]
+  request_payment_types_for_pnl?: string[]
+  payment_purpose_operational?: string[]
+  payment_purpose_other?: string[]
+  payment_purpose_invest_returns?: string[]
+  invest_return_type_operational?: string[]
+  invest_return_type_other?: string[]
+  invest_return_type_invest_returns?: string[]
+}
+
+export type PnlDiagnosticsItem = { purpose: string; count: number }
+
+export type PnlDiagnosticsApi = {
+  unassigned_payment_purposes?: PnlDiagnosticsItem[]
+  error?: string
 }
 
 export type TenantReportSettingsApiResponse = {
   pnl_source: 'n8n' | 'backend'
   pnl_config: PnlReportSettingsSnapshot
   updated_at?: string | null
+  pnl_diagnostics?: PnlDiagnosticsApi
 }
 
 function parseTenantReportSettingsApiResponse(json: unknown): TenantReportSettingsApiResponse {
@@ -811,15 +824,22 @@ function parseTenantReportSettingsApiResponse(json: unknown): TenantReportSettin
   const rawCfg = obj.pnl_config
   const pnl_config: PnlReportSettingsSnapshot =
     rawCfg && typeof rawCfg === 'object' ? (rawCfg as PnlReportSettingsSnapshot) : {}
+  const rawDiag = obj.pnl_diagnostics
+  const pnl_diagnostics: PnlDiagnosticsApi | undefined =
+    rawDiag && typeof rawDiag === 'object' ? (rawDiag as PnlDiagnosticsApi) : undefined
   return {
     pnl_source,
     pnl_config,
     updated_at: typeof obj.updated_at === 'string' ? obj.updated_at : null,
+    pnl_diagnostics,
   }
 }
 
-export async function getTenantReportSettings(): Promise<TenantReportSettingsApiResponse> {
-  const res = await apiFetch('/api/reports/tenant-report-settings/')
+export async function getTenantReportSettings(opts?: {
+  pnlDiagnostics?: boolean
+}): Promise<TenantReportSettingsApiResponse> {
+  const q = opts?.pnlDiagnostics ? '?pnl_diagnostics=1' : ''
+  const res = await apiFetch(`/api/reports/tenant-report-settings/${q}`)
   if (!res.ok) throw new Error(await parseErrorBody(res))
   const parsedJson: unknown = await res.json().catch(() => null)
   return parseTenantReportSettingsApiResponse(parsedJson)
