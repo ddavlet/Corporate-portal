@@ -36,19 +36,61 @@ function collectActivePurposeOptions(paymentTypes: RequestFormOptionsPaymentType
     .map(([value, label]) => ({ value, label }))
 }
 
+/** Совпадает с InvestReturn.type в backend_v2 (apps.modules.investments.models). */
+const INVEST_RETURN_TYPE_OPTIONS: { value: string; label: string }[] = [
+  { value: 'дивиденды', label: 'Дивиденды' },
+  { value: 'проценты', label: 'Проценты' },
+  { value: 'доля_прибыли', label: 'Доля прибыли' },
+  { value: 'тело_инвестиций', label: 'Тело инвестиций' },
+  /** Иногда встречается в старых данных / n8n */
+  { value: 'Возврат', label: 'Возврат (устаревшее значение)' },
+]
+
+function collectFormCategories(paymentTypes: RequestFormOptionsPaymentType[]): { value: string; label: string }[] {
+  const names = new Set<string>()
+  for (const pt of paymentTypes) {
+    for (const p of pt.payment_purposes || []) {
+      const c = String(p.category || '').trim()
+      if (c) names.add(c)
+    }
+  }
+  return [...names]
+    .sort((a, b) => a.localeCompare(b, 'ru'))
+    .map((value) => ({ value, label: value }))
+}
+
+function mergeSelectOptions(
+  base: { value: string; label: string }[],
+  selectedValues: string[],
+): { value: string; label: string }[] {
+  const known = new Set(base.map((o) => o.value))
+  const extras = selectedValues.filter((v) => v && !known.has(v)).map((value) => ({
+    value,
+    label: `${value} (нет в справочнике)`,
+  }))
+  const merged = [...base, ...extras]
+  merged.sort((a, b) => a.value.localeCompare(b.value, 'ru'))
+  return merged
+}
+
+function normalizeStringList(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return []
+  return raw.map((x) => String(x || '').trim()).filter(Boolean)
+}
+
 function buildConfigFromForm(fields: {
   startMonth: string
   incomeTaxPurpose: string
   cashExclude: string
-  requestExclude: string
-  investExclude: string
+  requestExcludeCategories: string[]
+  investExcludeTypes: string[]
 }): PnlReportSettingsSnapshot {
   return {
     start_month: fields.startMonth.trim(),
     income_tax_payment_purpose: fields.incomeTaxPurpose.trim(),
     cash_exclude_operations: splitList(fields.cashExclude),
-    request_exclude_categories: splitList(fields.requestExclude),
-    invest_return_exclude_types: splitList(fields.investExclude),
+    request_exclude_categories: [...fields.requestExcludeCategories],
+    invest_return_exclude_types: [...fields.investExcludeTypes],
   }
 }
 
@@ -66,8 +108,8 @@ export function PnlReportSettingsPage() {
   const [startMonth, setStartMonth] = useState('')
   const [incomeTaxPurpose, setIncomeTaxPurpose] = useState('')
   const [cashExclude, setCashExclude] = useState('')
-  const [requestExclude, setRequestExclude] = useState('')
-  const [investExclude, setInvestExclude] = useState('')
+  const [requestExcludeCategories, setRequestExcludeCategories] = useState<string[]>([])
+  const [investExcludeTypes, setInvestExcludeTypes] = useState<string[]>([])
   const [updatedAt, setUpdatedAt] = useState<string | null>(null)
 
   const applyServerRow = useCallback((data: {
@@ -80,8 +122,8 @@ export function PnlReportSettingsPage() {
     setStartMonth((c.start_month ?? '').trim())
     setIncomeTaxPurpose((c.income_tax_payment_purpose ?? '').trim())
     setCashExclude(joinList(c.cash_exclude_operations))
-    setRequestExclude(joinList(c.request_exclude_categories))
-    setInvestExclude(joinList(c.invest_return_exclude_types))
+    setRequestExcludeCategories(normalizeStringList(c.request_exclude_categories))
+    setInvestExcludeTypes(normalizeStringList(c.invest_return_exclude_types))
     setUpdatedAt(typeof data.updated_at === 'string' ? data.updated_at : null)
   }, [])
 
@@ -113,6 +155,21 @@ export function PnlReportSettingsPage() {
   )
 
   const allowedPurposeNames = useMemo(() => new Set(incomePurposeOptions.map((o) => o.value)), [incomePurposeOptions])
+
+  const requestCategoryOptions = useMemo(
+    () => collectFormCategories(paymentTypesFromForm),
+    [paymentTypesFromForm],
+  )
+
+  const requestCategorySelectOptions = useMemo(
+    () => mergeSelectOptions(requestCategoryOptions, requestExcludeCategories),
+    [requestCategoryOptions, requestExcludeCategories],
+  )
+
+  const investTypeSelectOptions = useMemo(
+    () => mergeSelectOptions(INVEST_RETURN_TYPE_OPTIONS, investExcludeTypes),
+    [investExcludeTypes],
+  )
 
   const incomePurposeOrphan = useMemo(() => {
     const t = incomeTaxPurpose.trim()
@@ -161,8 +218,8 @@ export function PnlReportSettingsPage() {
         startMonth,
         incomeTaxPurpose,
         cashExclude,
-        requestExclude,
-        investExclude,
+        requestExcludeCategories,
+        investExcludeTypes,
       })
       const data = await patchTenantReportSettings({ pnl_source: pnlSource, pnl_config })
       applyServerRow(data)
@@ -284,6 +341,10 @@ export function PnlReportSettingsPage() {
 
           <div>
             <Typography.Text strong>Исключить операции кассы (подписи операций)</Typography.Text>
+            <Typography.Paragraph type="secondary" style={{ margin: '6px 0 0' }}>
+              Подпись операции как в кассовых поступлениях (поле operation / payload). Общего справочника нет — список
+              вводится текстом.
+            </Typography.Paragraph>
             <Input.TextArea
               style={{ marginTop: 8 }}
               rows={3}
@@ -295,23 +356,51 @@ export function PnlReportSettingsPage() {
 
           <div>
             <Typography.Text strong>Исключить категории заявок</Typography.Text>
-            <Input.TextArea
-              style={{ marginTop: 8 }}
-              rows={3}
-              placeholder="По одному значению на строку"
-              value={requestExclude}
-              onChange={(e) => setRequestExclude(e.target.value)}
-            />
+            <Typography.Paragraph type="secondary" style={{ margin: '6px 0 0' }}>
+              Категории из активных назначений формы заявки (как у строк «назначение → категория»). Уже сохранённые
+              значения вне списка показываются с пометкой.
+            </Typography.Paragraph>
+            {requestCategoryOptions.length > 0 ? (
+              <Select
+                mode="multiple"
+                allowClear
+                showSearch
+                optionFilterProp="label"
+                placeholder="Выберите категории"
+                style={{ width: '100%', marginTop: 8 }}
+                value={requestExcludeCategories}
+                onChange={(v) => setRequestExcludeCategories(v)}
+                options={requestCategorySelectOptions}
+                maxTagCount="responsive"
+              />
+            ) : (
+              <Input.TextArea
+                style={{ marginTop: 8 }}
+                rows={3}
+                placeholder="В форме заявки нет категорий — по строке на значение"
+                value={joinList(requestExcludeCategories)}
+                onChange={(e) => setRequestExcludeCategories(splitList(e.target.value))}
+              />
+            )}
           </div>
 
           <div>
-            <Typography.Text strong>Исключить типы возвратов по инвестициям</Typography.Text>
-            <Input.TextArea
-              style={{ marginTop: 8 }}
-              rows={3}
-              placeholder="По одному значению на строку"
-              value={investExclude}
-              onChange={(e) => setInvestExclude(e.target.value)}
+            <Typography.Text strong>Исключить типы выплат по инвестициям</Typography.Text>
+            <Typography.Paragraph type="secondary" style={{ margin: '6px 0 0' }}>
+              Значения поля type у записей invest_returns (как в модуле инвестиций). Дополнительные строки из конфига
+              остаются доступными для выбора.
+            </Typography.Paragraph>
+            <Select
+              mode="multiple"
+              allowClear
+              showSearch
+              optionFilterProp="label"
+              placeholder="Выберите типы"
+              style={{ width: '100%', marginTop: 8 }}
+              value={investExcludeTypes}
+              onChange={(v) => setInvestExcludeTypes(v)}
+              options={investTypeSelectOptions}
+              maxTagCount="responsive"
             />
           </div>
 
