@@ -4,8 +4,25 @@ import {
   getSettingsAccess,
   getTenantReportSettings,
   patchTenantReportSettings,
+  type PnlDiagnosticsItem,
   type PnlReportSettingsSnapshot,
 } from '../../lib/api'
+
+const REQUEST_PAYMENT_OPTIONS = [
+  { value: 'Наличные', label: 'Наличные' },
+  { value: 'Перечисление', label: 'Перечисление' },
+  { value: 'Пополнение', label: 'Пополнение' },
+  { value: 'Платежная карта', label: 'Платежная карта' },
+] as const
+
+const INVEST_RETURN_TYPES = [
+  { value: 'дивиденды', label: 'Дивиденды' },
+  { value: 'проценты', label: 'Проценты' },
+  { value: 'доля_прибыли', label: 'Доля прибыли' },
+  { value: 'тело_инвестиций', label: 'Тело инвестиций' },
+] as const
+
+type InvestBucket = 'operational' | 'other' | 'invest_returns'
 
 function splitList(text: string): string[] {
   return text
@@ -18,19 +35,65 @@ function joinList(items: string[] | undefined): string {
   return (items ?? []).join('\n')
 }
 
+function hasFullInvestPartition(c: PnlReportSettingsSnapshot): boolean {
+  const a = new Set([...(c.invest_return_type_operational ?? []), ...(c.invest_return_type_other ?? []), ...(c.invest_return_type_invest_returns ?? [])])
+  return INVEST_RETURN_TYPES.every((t) => a.has(t.value))
+}
+
+function investBucketsFromConfig(c: PnlReportSettingsSnapshot): Record<string, InvestBucket> {
+  const out: Record<string, InvestBucket> = {}
+  for (const t of INVEST_RETURN_TYPES) {
+    if ((c.invest_return_type_operational ?? []).includes(t.value)) out[t.value] = 'operational'
+    else if ((c.invest_return_type_other ?? []).includes(t.value)) out[t.value] = 'other'
+    else if ((c.invest_return_type_invest_returns ?? []).includes(t.value)) out[t.value] = 'invest_returns'
+    else out[t.value] = 'operational'
+  }
+  return out
+}
+
+/** Valid partition used only when saved config has no invest partition yet (form defaults). */
+function defaultInvestBuckets(): Record<string, InvestBucket> {
+  return {
+    дивиденды: 'invest_returns',
+    проценты: 'operational',
+    доля_прибыли: 'operational',
+    тело_инвестиций: 'other',
+  }
+}
+
 function buildConfigFromForm(fields: {
   startMonth: string
-  incomeTaxPurpose: string
   cashExclude: string
   requestExclude: string
-  investExclude: string
+  requestPaymentTypes: string[]
+  purposeOperational: string
+  purposeOther: string
+  purposeInvestReturns: string
+  investBucketByType: Record<string, InvestBucket>
 }): PnlReportSettingsSnapshot {
+  const op = splitList(fields.purposeOperational)
+  const ot = splitList(fields.purposeOther)
+  const inv = splitList(fields.purposeInvestReturns)
+  const operational: string[] = []
+  const other: string[] = []
+  const investReturns: string[] = []
+  for (const t of INVEST_RETURN_TYPES) {
+    const b = fields.investBucketByType[t.value] ?? 'operational'
+    if (b === 'operational') operational.push(t.value)
+    else if (b === 'other') other.push(t.value)
+    else investReturns.push(t.value)
+  }
   return {
     start_month: fields.startMonth.trim(),
-    income_tax_payment_purpose: fields.incomeTaxPurpose.trim(),
     cash_exclude_operations: splitList(fields.cashExclude),
     request_exclude_categories: splitList(fields.requestExclude),
-    invest_return_exclude_types: splitList(fields.investExclude),
+    request_payment_types_for_pnl: [...fields.requestPaymentTypes],
+    payment_purpose_operational: op,
+    payment_purpose_other: ot,
+    payment_purpose_invest_returns: inv,
+    invest_return_type_operational: operational,
+    invest_return_type_other: other,
+    invest_return_type_invest_returns: investReturns,
   }
 }
 
@@ -45,26 +108,71 @@ export function PnlReportSettingsPage() {
 
   const [pnlSource, setPnlSource] = useState<'n8n' | 'backend'>('n8n')
   const [startMonth, setStartMonth] = useState('')
-  const [incomeTaxPurpose, setIncomeTaxPurpose] = useState('')
   const [cashExclude, setCashExclude] = useState('')
   const [requestExclude, setRequestExclude] = useState('')
-  const [investExclude, setInvestExclude] = useState('')
+  const [requestPaymentTypes, setRequestPaymentTypes] = useState<string[]>([])
+  const [purposeOperational, setPurposeOperational] = useState('')
+  const [purposeOther, setPurposeOther] = useState('')
+  const [purposeInvestReturns, setPurposeInvestReturns] = useState('')
+  const [investBucketByType, setInvestBucketByType] = useState<Record<string, InvestBucket>>(() =>
+    defaultInvestBuckets(),
+  )
   const [updatedAt, setUpdatedAt] = useState<string | null>(null)
+  const [diagnostics, setDiagnostics] = useState<PnlDiagnosticsItem[] | null>(null)
+  const [diagnosticsError, setDiagnosticsError] = useState<string | null>(null)
 
-  const applyServerRow = useCallback((data: {
-    pnl_source: 'n8n' | 'backend'
-    pnl_config: PnlReportSettingsSnapshot
-    updated_at?: string | null
-  }) => {
-    setPnlSource(data.pnl_source)
-    const c = data.pnl_config ?? {}
-    setStartMonth((c.start_month ?? '').trim())
-    setIncomeTaxPurpose((c.income_tax_payment_purpose ?? '').trim())
-    setCashExclude(joinList(c.cash_exclude_operations))
-    setRequestExclude(joinList(c.request_exclude_categories))
-    setInvestExclude(joinList(c.invest_return_exclude_types))
-    setUpdatedAt(typeof data.updated_at === 'string' ? data.updated_at : null)
-  }, [])
+  const applyServerRow = useCallback(
+    (data: {
+      pnl_source: 'n8n' | 'backend'
+      pnl_config: PnlReportSettingsSnapshot
+      updated_at?: string | null
+      pnl_diagnostics?: { unassigned_payment_purposes?: PnlDiagnosticsItem[]; error?: string }
+    }) => {
+      setPnlSource(data.pnl_source)
+      const c = data.pnl_config ?? {}
+      setStartMonth((c.start_month ?? '').trim())
+      setCashExclude(joinList(c.cash_exclude_operations))
+      setRequestExclude(joinList(c.request_exclude_categories))
+      setRequestPaymentTypes([...(c.request_payment_types_for_pnl ?? [])])
+      setPurposeOperational(joinList(c.payment_purpose_operational))
+      setPurposeOther(joinList(c.payment_purpose_other))
+      setPurposeInvestReturns(joinList(c.payment_purpose_invest_returns))
+      setInvestBucketByType(hasFullInvestPartition(c) ? investBucketsFromConfig(c) : defaultInvestBuckets())
+      setUpdatedAt(typeof data.updated_at === 'string' ? data.updated_at : null)
+      if (data.pnl_diagnostics?.error) {
+        setDiagnosticsError(data.pnl_diagnostics.error)
+        setDiagnostics(null)
+      } else if (data.pnl_diagnostics?.unassigned_payment_purposes) {
+        setDiagnosticsError(null)
+        setDiagnostics(data.pnl_diagnostics.unassigned_payment_purposes)
+      } else {
+        setDiagnosticsError(null)
+        setDiagnostics(null)
+      }
+    },
+    [],
+  )
+
+  const loadDiagnostics = useCallback(async () => {
+    if (pnlSource !== 'backend') {
+      setDiagnostics(null)
+      setDiagnosticsError(null)
+      return
+    }
+    try {
+      const data = await getTenantReportSettings({ pnlDiagnostics: true })
+      if (data.pnl_diagnostics?.error) {
+        setDiagnosticsError(data.pnl_diagnostics.error)
+        setDiagnostics(null)
+      } else {
+        setDiagnosticsError(null)
+        setDiagnostics(data.pnl_diagnostics?.unassigned_payment_purposes ?? [])
+      }
+    } catch {
+      setDiagnosticsError(null)
+      setDiagnostics(null)
+    }
+  }, [pnlSource])
 
   useEffect(() => {
     let cancelled = false
@@ -94,6 +202,13 @@ export function PnlReportSettingsPage() {
     try {
       const data = await getTenantReportSettings()
       applyServerRow(data)
+      if (data.pnl_source === 'backend') {
+        const withDiag = await getTenantReportSettings({ pnlDiagnostics: true })
+        applyServerRow(withDiag)
+      } else {
+        setDiagnostics(null)
+        setDiagnosticsError(null)
+      }
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Не удалось загрузить настройки')
     } finally {
@@ -112,13 +227,20 @@ export function PnlReportSettingsPage() {
     try {
       const pnl_config = buildConfigFromForm({
         startMonth,
-        incomeTaxPurpose,
         cashExclude,
         requestExclude,
-        investExclude,
+        requestPaymentTypes,
+        purposeOperational,
+        purposeOther,
+        purposeInvestReturns,
+        investBucketByType,
       })
       const data = await patchTenantReportSettings({ pnl_source: pnlSource, pnl_config })
       applyServerRow(data)
+      if (pnlSource === 'backend') {
+        const d = await getTenantReportSettings({ pnlDiagnostics: true })
+        applyServerRow(d)
+      }
       message.success('Настройки PnL сохранены')
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Не удалось сохранить')
@@ -130,13 +252,13 @@ export function PnlReportSettingsPage() {
   const backendHint = useMemo(
     () =>
       pnlSource === 'backend'
-        ? 'Для расчёта в приложении нужны все поля: месяц старта (YYYY-MM), списки фильтров и шаблон назначения для налога.'
+        ? 'Backend PnL: задайте стартовый месяц, типы оплаты заявок (пустой список — ни одна заявка в расходах), три непересекающихся списка назначений платежа и распределение всех четырёх типов выплат по инвестициям.'
         : null,
     [pnlSource],
   )
 
   if (gateLoading) {
-    return <Card loading style={{ maxWidth: 720 }} />
+    return <Card loading style={{ maxWidth: 960 }} />
   }
   if (!allowed) {
     return (
@@ -153,17 +275,40 @@ export function PnlReportSettingsPage() {
   }
 
   return (
-    <div style={{ maxWidth: 720 }}>
+    <div style={{ maxWidth: 960 }}>
       <Typography.Title level={4} style={{ marginTop: 0 }}>
         Отчёт PnL — источник данных
       </Typography.Title>
       <Typography.Paragraph type="secondary">
-        Выбор между workflow в n8n и расчётом на сервере. Параметры ниже используются только при источнике
-        «Расчёт в приложении».
+        Выбор между workflow в n8n и расчётом на сервере. Параметры блока «Расчёт в приложении» обязательны при
+        сохранении с этим источником.
       </Typography.Paragraph>
 
       {error ? <Alert type="error" showIcon message={error} style={{ marginBottom: 16 }} /> : null}
       {backendHint ? <Alert type="info" showIcon message={backendHint} style={{ marginBottom: 16 }} /> : null}
+
+      {pnlSource === 'backend' && diagnosticsError ? (
+        <Alert type="warning" showIcon message="Диагностика" description={diagnosticsError} style={{ marginBottom: 16 }} />
+      ) : null}
+      {pnlSource === 'backend' && diagnostics && diagnostics.length > 0 ? (
+        <Alert
+          type="error"
+          showIcon
+          message="Назначения платежа не попали ни в одну корзину (по данным заявок)"
+          description={
+            <ul style={{ margin: '8px 0 0', paddingLeft: 20 }}>
+              {diagnostics.map((row) => (
+                <li key={row.purpose}>
+                  <Typography.Text type="danger">
+                    {row.purpose} ({row.count})
+                  </Typography.Text>
+                </li>
+              ))}
+            </ul>
+          }
+          style={{ marginBottom: 16 }}
+        />
+      ) : null}
 
       <Card loading={loading}>
         <Space direction="vertical" size="middle" style={{ width: '100%' }}>
@@ -191,12 +336,18 @@ export function PnlReportSettingsPage() {
           </div>
 
           <div>
-            <Typography.Text strong>Назначение платежа (подоходный налог)</Typography.Text>
-            <Input
-              style={{ marginTop: 8 }}
-              placeholder="Текст для сопоставления в выписках"
-              value={incomeTaxPurpose}
-              onChange={(e) => setIncomeTaxPurpose(e.target.value)}
+            <Typography.Text strong>Типы оплаты заявок в расходах PnL</Typography.Text>
+            <Typography.Paragraph type="secondary" style={{ marginBottom: 8, marginTop: 4 }}>
+              Ничего не выбрано — пустой whitelist: заявки в расходы PnL не попадают.
+            </Typography.Paragraph>
+            <Select
+              mode="multiple"
+              allowClear
+              style={{ width: '100%' }}
+              placeholder="Выберите типы оплаты"
+              value={requestPaymentTypes}
+              onChange={(v) => setRequestPaymentTypes(v)}
+              options={[...REQUEST_PAYMENT_OPTIONS]}
             />
           </div>
 
@@ -222,20 +373,67 @@ export function PnlReportSettingsPage() {
             />
           </div>
 
-          <div>
-            <Typography.Text strong>Исключить типы возвратов по инвестициям</Typography.Text>
-            <Input.TextArea
-              style={{ marginTop: 8 }}
-              rows={3}
-              placeholder="По одному значению на строку"
-              value={investExclude}
-              onChange={(e) => setInvestExclude(e.target.value)}
-            />
-          </div>
+          <Typography.Title level={5}>Назначения платежа заявок (три корзины, без пересечений)</Typography.Title>
+          <Space align="start" wrap style={{ width: '100%' }}>
+            <div style={{ flex: 1, minWidth: 200 }}>
+              <Typography.Text strong>Операционные расходы</Typography.Text>
+              <Input.TextArea
+                style={{ marginTop: 8 }}
+                rows={5}
+                placeholder="По строке на назначение"
+                value={purposeOperational}
+                onChange={(e) => setPurposeOperational(e.target.value)}
+              />
+            </div>
+            <div style={{ flex: 1, minWidth: 200 }}>
+              <Typography.Text strong>Прочие расходы</Typography.Text>
+              <Input.TextArea
+                style={{ marginTop: 8 }}
+                rows={5}
+                placeholder="По строке на назначение"
+                value={purposeOther}
+                onChange={(e) => setPurposeOther(e.target.value)}
+              />
+            </div>
+            <div style={{ flex: 1, minWidth: 200 }}>
+              <Typography.Text strong>Третья корзина (ключ API invest_returns)</Typography.Text>
+              <Input.TextArea
+                style={{ marginTop: 8 }}
+                rows={5}
+                placeholder="По строке на назначение"
+                value={purposeInvestReturns}
+                onChange={(e) => setPurposeInvestReturns(e.target.value)}
+              />
+            </div>
+          </Space>
 
-          <Button type="primary" onClick={() => void onSave()} loading={saving}>
-            Сохранить
-          </Button>
+          <Typography.Title level={5}>Типы выплат по инвестициям (ровно одна корзина на тип)</Typography.Title>
+          <Space direction="vertical" style={{ width: '100%' }}>
+            {INVEST_RETURN_TYPES.map((t) => (
+              <div key={t.value} style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+                <Typography.Text style={{ minWidth: 160 }}>{t.label}</Typography.Text>
+                <Select<InvestBucket>
+                  style={{ minWidth: 220 }}
+                  value={investBucketByType[t.value] ?? 'operational'}
+                  onChange={(v) => setInvestBucketByType((prev) => ({ ...prev, [t.value]: v }))}
+                  options={[
+                    { value: 'operational', label: 'Операционные расходы' },
+                    { value: 'other', label: 'Прочие расходы' },
+                    { value: 'invest_returns', label: 'Третья корзина (invest_returns)' },
+                  ]}
+                />
+              </div>
+            ))}
+          </Space>
+
+          <Space wrap>
+            <Button type="primary" onClick={() => void onSave()} loading={saving}>
+              Сохранить
+            </Button>
+            {pnlSource === 'backend' ? (
+              <Button onClick={() => void loadDiagnostics()}>Обновить диагностику назначений</Button>
+            ) : null}
+          </Space>
 
           {updatedAt ? (
             <Typography.Text type="secondary" style={{ fontSize: 12 }}>
