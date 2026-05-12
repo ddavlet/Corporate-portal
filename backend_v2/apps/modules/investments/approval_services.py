@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from html import escape
 
 from django.db import transaction
 from django.db.models import Min
 from django.utils import timezone
+from django.utils.formats import date_format
 
 from apps.modules.investments.models import (
     InvestmentApprovalConfig,
@@ -13,7 +15,11 @@ from apps.modules.investments.models import (
     InvestReturn,
 )
 from apps.modules.requests.integration_settings import get_requests_messaging_gateway_settings
-from apps.modules.telegram_approvals.services import post_messaging_gateway, _get_tenant_bot_token
+from apps.modules.telegram_approvals.services import (
+    _format_amount_for_telegram,
+    _get_tenant_bot_token,
+    post_messaging_gateway,
+)
 
 
 class InvestmentApprovalDecisionAlreadyMade(Exception):
@@ -31,14 +37,94 @@ def _button_data(*, approval_id: int, decision: str) -> str:
     return f"inv_{approval_id}:{code}"
 
 
-def _build_message(*, invest_return: InvestReturn) -> str:
-    company_name = invest_return.company.name if invest_return.company else invest_return.tenant.name
-    amount = invest_return.sum
-    currency = (invest_return.currency or "").upper()
+def _investment_flow_flags(*, invest_return: InvestReturn) -> tuple[bool, int | None]:
+    blocked = InvestmentReturnApproval.objects.filter(
+        invest_return=invest_return,
+        decision=InvestmentReturnApproval.DECISION_REJECTED,
+    ).exists()
+    current_step = (
+        InvestmentReturnApproval.objects.filter(
+            tenant=invest_return.tenant,
+            invest_return=invest_return,
+            decision=InvestmentReturnApproval.DECISION_PENDING,
+        ).aggregate(value=Min("step"))["value"]
+    )
+    return blocked, current_step
+
+
+def _investment_telegram_card_should_be_readonly(
+    *,
+    approval: InvestmentReturnApproval,
+    blocked_by_rejection: bool,
+    current_pending_step: int | None,
+) -> bool:
+    if approval.decision != InvestmentReturnApproval.DECISION_PENDING:
+        return True
+    if blocked_by_rejection:
+        return True
+    if current_pending_step is None:
+        return True
+    if approval.step != current_pending_step:
+        return True
+    return False
+
+
+def build_investment_return_approval_telegram_message(
+    *,
+    invest_return: InvestReturn,
+    approval: InvestmentReturnApproval,
+    blocked_by_rejection: bool,
+    current_pending_step: int | None,
+) -> str:
+    """HTML body for Telegram / messaging gateway (same amount style as request approvals)."""
+    ir = invest_return
+    company_name = ir.company.name if ir.company else ir.tenant.name
+    amount_text = escape(_format_amount_for_telegram(ir.sum))
+    currency_text = escape((ir.currency or "").upper() or "-")
+    date_text = escape(date_format(ir.date, "j E Y", use_l10n=True)) if ir.date else "-"
+    type_text = escape(str(ir.get_type_display()))
+    recipient_text = escape(str(ir.get_recipient_display()))
+    comment_raw = (ir.comment or "").strip()
+    comment_line = f"• Комментарий: {escape(comment_raw)}\n" if comment_raw else ""
+
+    readonly = _investment_telegram_card_should_be_readonly(
+        approval=approval,
+        blocked_by_rejection=blocked_by_rejection,
+        current_pending_step=current_pending_step,
+    )
+
+    if approval.decision == InvestmentReturnApproval.DECISION_REJECTED:
+        header = "❌ Выплата отклонена"
+    elif approval.decision == InvestmentReturnApproval.DECISION_APPROVED:
+        header = f"✅ Шаг {approval.step} согласован"
+    elif blocked_by_rejection:
+        header = "⛔️ Согласование остановлено"
+    elif current_pending_step is None:
+        header = "✅ Выплата полностью подтверждена"
+    elif readonly:
+        header = "⏳ Ожидание предыдущих шагов"
+    elif approval.step_type == InvestmentApprovalConfigStep.STEP_TYPE_CONFIRMATION:
+        header = f"💰 Подтверждение получения — шаг {approval.step}"
+    else:
+        header = f"📋 Проверка выплаты — шаг {approval.step}"
+
+    action_hint = ""
+    if not readonly and approval.decision == InvestmentReturnApproval.DECISION_PENDING:
+        if approval.step_type == InvestmentApprovalConfigStep.STEP_TYPE_CONFIRMATION:
+            action_hint = "\n\nПодтвердите получение средств кнопками ниже."
+        else:
+            action_hint = "\n\nПроверьте реквизиты и сумму, затем ответьте кнопками ниже."
+
     return (
-        f"Новая выплата по {company_name}\n\n"
-        f"Сумма: {amount} {currency}\n\n"
-        "Пожалуйста, подтвердите получение"
+        f"<b>{escape(header)}</b>\n\n"
+        f"<b>Выплата № {ir.id}</b>\n"
+        f"• Компания: {escape(str(company_name))}\n"
+        f"• Сумма: {amount_text} {currency_text}\n"
+        f"• Дата: {date_text}\n"
+        f"• Тип: {type_text}\n"
+        f"• Получатель: {recipient_text}\n"
+        f"{comment_line}"
+        f"{action_hint}"
     )
 
 
@@ -58,20 +144,45 @@ def _build_buttons(*, approval: InvestmentReturnApproval) -> list[list[dict]]:
     ]
 
 
-def _dispatch_approval_message(*, approval: InvestmentReturnApproval) -> None:
-    if approval.approver_recipient_id is None:
-        return
-    settings_obj = get_requests_messaging_gateway_settings(tenant=approval.tenant)
-    payload = {
-        "action": settings_obj.send_action,
-        "text": _build_message(invest_return=approval.invest_return),
+def _investment_messaging_payload(
+    *,
+    action: str,
+    approval: InvestmentReturnApproval,
+    message_text: str,
+    include_buttons: bool,
+) -> dict:
+    payload: dict = {
+        "action": action,
+        "text": message_text,
         "recipient_id": str(approval.approver_recipient_id),
         "bot_token": _get_tenant_bot_token(approval.tenant),
         "tenant_id": str(approval.tenant_id),
         "approval_id": str(approval.id),
         "request_id": approval.invest_return_id,
-        "buttons": _build_buttons(approval=approval),
+        "buttons": _build_buttons(approval=approval) if include_buttons else [],
     }
+    if approval.gateway_message_id:
+        payload["message_id"] = approval.gateway_message_id
+    return payload
+
+
+def _dispatch_approval_message(*, approval: InvestmentReturnApproval) -> None:
+    if approval.approver_recipient_id is None:
+        return
+    settings_obj = get_requests_messaging_gateway_settings(tenant=approval.tenant)
+    blocked, current_step = _investment_flow_flags(invest_return=approval.invest_return)
+    message_text = build_investment_return_approval_telegram_message(
+        invest_return=approval.invest_return,
+        approval=approval,
+        blocked_by_rejection=blocked,
+        current_pending_step=current_step,
+    )
+    payload = _investment_messaging_payload(
+        action=settings_obj.send_action,
+        approval=approval,
+        message_text=message_text,
+        include_buttons=True,
+    )
     response_data = post_messaging_gateway(tenant=approval.tenant, payload=payload) or {}
     message_id = response_data.get("message_id")
     if message_id in (None, "") and isinstance(response_data.get("result"), dict):
@@ -88,6 +199,59 @@ def _dispatch_approval_message(*, approval: InvestmentReturnApproval) -> None:
         updates.append("message_sent_at")
     if updates:
         approval.save(update_fields=updates)
+
+
+def refresh_invest_return_approval_messages(*, invest_return: InvestReturn) -> int:
+    """
+    Sync Telegram cards after decisions (same idea as refresh_request_messages for requests):
+    update text/headers and drop inline buttons when the step is no longer actionable.
+    """
+    invest_return.refresh_from_db()
+    blocked, current_step = _investment_flow_flags(invest_return=invest_return)
+    approvals = list(
+        InvestmentReturnApproval.objects.filter(
+            invest_return=invest_return,
+            message_sent=True,
+            gateway_message_id__isnull=False,
+            approver_recipient_id__isnull=False,
+        ).select_related("invest_return", "invest_return__company", "tenant")
+    )
+    updated = 0
+    for approval in approvals:
+        readonly = _investment_telegram_card_should_be_readonly(
+            approval=approval,
+            blocked_by_rejection=blocked,
+            current_pending_step=current_step,
+        )
+        if _edit_investment_return_approval_message(approval=approval, include_buttons=not readonly):
+            updated += 1
+    return updated
+
+
+def _edit_investment_return_approval_message(*, approval: InvestmentReturnApproval, include_buttons: bool) -> bool:
+    if not approval.gateway_message_id or approval.approver_recipient_id is None:
+        return False
+    ir = approval.invest_return
+    blocked, current_step = _investment_flow_flags(invest_return=ir)
+    message_text = build_investment_return_approval_telegram_message(
+        invest_return=ir,
+        approval=approval,
+        blocked_by_rejection=blocked,
+        current_pending_step=current_step,
+    )
+    settings_obj = get_requests_messaging_gateway_settings(tenant=approval.tenant)
+    payload = _investment_messaging_payload(
+        action=settings_obj.edit_action,
+        approval=approval,
+        message_text=message_text,
+        include_buttons=include_buttons,
+    )
+    return post_messaging_gateway(tenant=approval.tenant, payload=payload) is not None
+
+
+def deactivate_investment_return_approval_buttons(*, approval: InvestmentReturnApproval) -> bool:
+    """editMessage with empty buttons — e.g. duplicate callback after decision."""
+    return _edit_investment_return_approval_message(approval=approval, include_buttons=False)
 
 
 def create_approvals_for_invest_return(*, invest_return: InvestReturn) -> int:
@@ -144,6 +308,7 @@ def dispatch_pending_invest_return_approvals(*, invest_return: InvestReturn) -> 
 
 
 def route_invest_return_approvals(*, invest_return: InvestReturn) -> int:
+    refresh_invest_return_approval_messages(invest_return=invest_return)
     pending = InvestmentReturnApproval.objects.filter(
         tenant=invest_return.tenant,
         invest_return=invest_return,
