@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Alert, Select, Skeleton, Tag, Typography } from 'antd'
+import { Alert, Button, Select, Skeleton, Tag, Typography } from 'antd'
+import { useNavigate } from 'react-router-dom'
+import { ArrowLeftOutlined } from '@ant-design/icons'
 import { getInvestCompanies, getInvestPayoutSchedule, type InvestCompanyRow, type InvestPayoutScheduleRow } from '../../lib/api'
 
 type CompanyFilter = 'all' | 'none' | number
@@ -31,6 +33,7 @@ function byCompany<T extends { company: number | null }>(rows: T[], filter: Comp
 }
 
 export function TgInvestmentsSchedulePage() {
+  const navigate = useNavigate()
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [companyFilter, setCompanyFilter] = useState<CompanyFilter>('all')
@@ -82,6 +85,15 @@ export function TgInvestmentsSchedulePage() {
 
   return (
     <div className="tg-schedule-page">
+      <Button
+        icon={<ArrowLeftOutlined />}
+        size="large"
+        onClick={() => navigate('/tg/investments')}
+        style={{ marginBottom: 12, borderRadius: 12 }}
+      >
+        Назад
+      </Button>
+
       <Typography.Title level={4} style={{ margin: '0 0 16px', fontWeight: 700 }}>
         Расписание выплат
       </Typography.Title>

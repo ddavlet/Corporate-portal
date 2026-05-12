@@ -38,7 +38,17 @@ import { TgRequestsPage } from '../ui/tg/TgRequestsPage'
 import { TgRequestCreatePage } from '../ui/tg/TgRequestCreatePage'
 import { TgRequestDetailPage } from '../ui/tg/TgRequestDetailPage'
 import { TgPaymentConfirmPage } from '../ui/tg/TgPaymentConfirmPage'
+import { TgInvestmentsPage } from '../ui/tg/TgInvestmentsPage'
+import { TgInvestmentsCompaniesPage } from '../ui/tg/TgInvestmentsCompaniesPage'
+import { TgInvestmentsProjectsPage } from '../ui/tg/TgInvestmentsProjectsPage'
+import { TgInvestmentsReturnsPage } from '../ui/tg/TgInvestmentsReturnsPage'
 import { TgInvestmentsSchedulePage } from '../ui/tg/TgInvestmentsSchedulePage'
+import { TgCashPage } from '../ui/tg/TgCashPage'
+import { TgCashListPage } from '../ui/tg/TgCashListPage'
+import { TgCashExpenseDetailPage } from '../ui/tg/TgCashExpenseDetailPage'
+import { TgBankPage } from '../ui/tg/TgBankPage'
+import { TgBankListPage } from '../ui/tg/TgBankListPage'
+import { TgBankExpenseDetailPage } from '../ui/tg/TgBankExpenseDetailPage'
 import { useAuth } from '../ui/auth'
 import { ModuleAccessProvider } from '../ui/moduleAccess'
 import { setUnauthorizedHandler } from '../lib/api'
@@ -63,9 +73,23 @@ export function App() {
       <Route path="/tg/*" element={<TgWebAppLayout />}>
         <Route index element={<Navigate to="requests" replace />} />
         <Route path="requests" element={<TgRequestsPage />} />
+        <Route path="investments" element={<TgInvestmentsPage />} />
+        <Route path="investments/companies" element={<TgInvestmentsCompaniesPage />} />
+        <Route path="investments/projects" element={<TgInvestmentsProjectsPage />} />
         <Route path="investments/schedule" element={<TgInvestmentsSchedulePage />} />
+        <Route path="investments/returns" element={<TgInvestmentsReturnsPage />} />
         <Route path="requests/new" element={<TgRequestCreatePage />} />
         <Route path="requests/:id" element={<TgRequestDetailPage />} />
+        <Route path="cash" element={<TgCashPage />} />
+        <Route path="cash/all" element={<TgCashListPage mode="all" />} />
+        <Route path="cash/expenses" element={<TgCashListPage mode="expenses" />} />
+        <Route path="cash/revenues" element={<TgCashListPage mode="revenues" />} />
+        <Route path="cash/expenses/:id" element={<TgCashExpenseDetailPage />} />
+        <Route path="bank" element={<TgBankPage />} />
+        <Route path="bank/all" element={<TgBankListPage mode="all" />} />
+        <Route path="bank/expenses" element={<TgBankListPage mode="expenses" />} />
+        <Route path="bank/revenues" element={<TgBankListPage mode="revenues" />} />
+        <Route path="bank/expenses/:id" element={<TgBankExpenseDetailPage />} />
         <Route path="payment" element={<TgPaymentConfirmPage />} />
       </Route>
 
