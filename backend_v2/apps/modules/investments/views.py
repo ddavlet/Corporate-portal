@@ -11,6 +11,7 @@ from apps.modules.investments.approval_services import (
     InvestmentApprovalDecisionAlreadyMade,
     confirm_invest_return_approval_by_id,
     create_approvals_for_invest_return,
+    deactivate_investment_return_approval_buttons,
     route_invest_return_approvals,
 )
 from apps.modules.investments.models import (
@@ -307,6 +308,8 @@ class InvestmentApprovalWebhookView(APIView):
                 decision=decision,
             )
         except InvestmentApprovalDecisionAlreadyMade:
+            approval.refresh_from_db()
+            deactivate_investment_return_approval_buttons(approval=approval)
             return Response({"detail": "Decision already made."}, status=status.HTTP_409_CONFLICT)
         except ValueError as exc:
             raise ValidationError({"detail": str(exc)}) from exc
