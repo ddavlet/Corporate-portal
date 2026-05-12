@@ -89,6 +89,12 @@ class TelegramApprovalWebhookView(APIView):
         if event_data.get("event") != "interaction":
             return Response({"detail": "Only interaction events are supported."}, status=status.HTTP_202_ACCEPTED)
 
+        # Investment payout approvals use "inv_<id>:<a|r>" callback data — delegate to dedicated handler.
+        payload_str = (event_data.get("payload") or "").strip()
+        if payload_str.startswith("inv_"):
+            from apps.modules.investments.views import InvestmentApprovalWebhookView
+            return InvestmentApprovalWebhookView().post(request)
+
         payload_preview = (event_data.get("payload") or "")[:48]
         logger.info(
             "messaging_gateway_webhook interaction user_id=%s recipient_id=%s message_id=%s payload=%r",

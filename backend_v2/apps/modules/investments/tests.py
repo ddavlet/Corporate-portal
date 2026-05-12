@@ -339,7 +339,12 @@ class InvestmentApprovalFlowTests(APITestCase):
         self.assertEqual(created.approvals.count(), 2)
         self.assertEqual(bridge_mock.call_count, 1)
         payload = bridge_mock.call_args.kwargs["payload"]
-        self.assertIn("Новая выплата по InvestFlow", payload["text"])
+        self.assertIn("InvestFlow", payload["text"])
+        self.assertIn("1 200.00", payload["text"])
+        self.assertIn("Выплата №", payload["text"])
+        self.assertIn("Проверка выплаты", payload["text"])
+        self.assertIn("Auto approval", payload["text"])
+        self.assertTrue(payload["text"].strip().startswith("<b>"))
         self.assertEqual(payload["buttons"][0][0]["label"], "✅ Проверено")
 
     @patch("apps.modules.investments.approval_services.post_messaging_gateway")
@@ -393,6 +398,12 @@ class InvestmentApprovalFlowTests(APITestCase):
         self.assertEqual(ok_first.status_code, 200)
         first_step.refresh_from_db()
         self.assertEqual(first_step.decision, "approved")
+        stripped = [
+            c.kwargs["payload"]
+            for c in bridge_mock.call_args_list
+            if c.kwargs.get("payload", {}).get("buttons") == []
+        ]
+        self.assertGreaterEqual(len(stripped), 1)
 
         not_active = self.client.post(
             f"/api/investments/approvals/{first_step.id}/decision/",
@@ -491,3 +502,41 @@ class InvestmentApprovalFlowTests(APITestCase):
         payload = bridge_mock.call_args.kwargs["payload"]
         self.assertEqual(payload["recipient_id"], "666000")
         self.assertEqual(payload["buttons"][0][0]["label"], "✅ Получено")
+        self.assertIn("750.00", payload["text"])
+        self.assertIn("Подтверждение получения", payload["text"])
+
+    @patch("apps.modules.investments.approval_services.post_messaging_gateway")
+    def test_duplicate_webhook_callback_strips_inline_buttons(self, bridge_mock):
+        bridge_mock.return_value = {"message_id": 909}
+        response = self.client.post(
+            "/api/investments/returns/",
+            {
+                "date": "2026-04-29",
+                "sum": "100.00",
+                "currency": "USD",
+                "type": "дивиденды",
+                "recipient": "инвестор",
+            },
+            format="json",
+            HTTP_HOST=self.host,
+        )
+        self.assertEqual(response.status_code, 201)
+        inv_return = InvestReturn.objects.get(id=response.data["id"])
+        first_step = inv_return.approvals.get(step=1)
+        body = {
+            "event": "interaction",
+            "payload": f"inv_{first_step.id}:a",
+            "user_id": str(self.approver1.telegram_from_id),
+            "recipient_id": str(self.approver1.telegram_chat_id),
+            "message_id": first_step.gateway_message_id or 909,
+            "platform": "telegram",
+        }
+        self.assertEqual(
+            self.client.post("/api/investments/approvals/webhook/", body, format="json", HTTP_HOST=self.host).status_code,
+            200,
+        )
+        dup = self.client.post("/api/investments/approvals/webhook/", body, format="json", HTTP_HOST=self.host)
+        self.assertEqual(dup.status_code, 409)
+        last_payload = bridge_mock.call_args.kwargs["payload"]
+        self.assertEqual(last_payload.get("buttons"), [])
+        self.assertIn("message_id", last_payload)
