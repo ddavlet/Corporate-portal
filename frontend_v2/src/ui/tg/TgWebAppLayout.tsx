@@ -1,14 +1,25 @@
-import { useCallback, useEffect, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { Alert, ConfigProvider, Skeleton } from 'antd'
-import { Outlet } from 'react-router-dom'
+import { Outlet, useLocation } from 'react-router-dom'
 import { exchangeTelegramWebApp, setTgTokens } from '../../lib/api'
 import { useAuth } from '../auth'
+import { ModuleAccessProvider } from '../moduleAccess'
 import { getTgAntdTheme } from './tgAntdTheme'
+import { TgBottomNav } from './TgBottomNav'
 import { useTgWebAppShell } from './useTgWebAppShell'
 import './tgWebApp.css'
 
+const NAV_VISIBLE_PATHS =
+  /^\/tg\/((requests|cash|bank)(\/(all|expenses|revenues))?|investments(\/(companies|projects|schedule|returns))?)$/
+
+function shouldShowBottomNav(pathname: string): boolean {
+  const normalized = pathname.replace(/\/+$/, '') || '/'
+  return NAV_VISIBLE_PATHS.test(normalized)
+}
+
 export function TgWebAppLayout() {
   const { login } = useAuth()
+  const location = useLocation()
   const [antdTheme, setAntdTheme] = useState(() => getTgAntdTheme())
   const syncAntdTheme = useCallback(() => setAntdTheme(getTgAntdTheme()), [])
   useTgWebAppShell(syncAntdTheme)
@@ -45,10 +56,13 @@ export function TgWebAppLayout() {
     }
   }, [login])
 
-  const shell = (node: ReactNode) => (
+  const showNav = useMemo(() => shouldShowBottomNav(location.pathname), [location.pathname])
+
+  const shell = (node: ReactNode, opts?: { withNav?: boolean }) => (
     <ConfigProvider theme={antdTheme}>
-      <div className="tg-webapp-root">
+      <div className={`tg-webapp-root${opts?.withNav ? ' tg-with-bottom-nav' : ''}`}>
         <div className="tg-webapp-inner">{node}</div>
+        {opts?.withNav ? <TgBottomNav /> : null}
       </div>
     </ConfigProvider>
   )
@@ -61,5 +75,7 @@ export function TgWebAppLayout() {
     return shell(<Skeleton active title paragraph={{ rows: 4 }} />)
   }
 
-  return shell(<Outlet />)
+  return (
+    <ModuleAccessProvider>{shell(<Outlet />, { withNav: showNav })}</ModuleAccessProvider>
+  )
 }
