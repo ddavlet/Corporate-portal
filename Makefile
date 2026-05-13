@@ -7,16 +7,17 @@ DEPLOY_TEST_PATH ?= $(TEST_PATH)
 BRANCH     := $(shell git rev-parse --abbrev-ref HEAD)
 
 .DEFAULT_GOAL := help
-.PHONY: help push test deploy makemigrations showmigrations backup-db rollback refresh-approval-messages local-up local-down local-logs
+.PHONY: help push test deploy deploy-fast makemigrations showmigrations backup-db rollback refresh-approval-messages local-up local-down local-logs
 
 help:
 	@echo ""
 	@echo "  make push            — проверить коммиты и отправить ветку в GitHub"
 	@echo "  make test            — запустить тесты на сервере"
-	@echo "  make deploy          — задеплоить main в production"
+	@echo "  make deploy          — задеплоить main (после перезапуска: пост-тесты $(DEPLOY_TEST_PATH), обычно несколько минут)"
+	@echo "  make deploy-fast     — то же без пост-тестов (быстрее; полный прогон — в GitHub Actions на PR)"
 	@echo "  make deploy DEPLOY_AT=23:00 — задеплоить в указанное время"
-	@echo "  make deploy DEPLOY_RUN_TESTS=0 — деплой без пост-тестов"
-	@echo "  make deploy DEPLOY_TEST_PATH=apps.modules.requests.tests — деплой + таргетные тесты"
+	@echo "  make deploy DEPLOY_RUN_TESTS=0 — как deploy-fast: без пост-тестов"
+	@echo "  make deploy DEPLOY_TEST_PATH=apps.modules.requests.tests — пост-тесты только по модулю"
 	@echo "  make makemigrations  — создать миграции и скачать на локал"
 	@echo "  make showmigrations  — показать tenants/requests/vendors миграции на сервере"
 	@echo "  make backup-db       — создать gzip-копию БД на сервере в backups/db"
@@ -61,6 +62,10 @@ deploy:
 		exit 1; \
 	fi
 	ssh $(SERVER) "DEPLOY_RUN_TESTS=$(DEPLOY_RUN_TESTS) DEPLOY_TEST_PATH='$(DEPLOY_TEST_PATH)' bash $(REMOTE_DIR)/deploy.sh $(DEPLOY_AT)"
+
+# Быстрый деплой: без повторного прогона всего apps на сервере (полный прогон — в GitHub Actions на PR).
+deploy-fast:
+	@$(MAKE) deploy DEPLOY_RUN_TESTS=0
 
 # ── 4. Миграции ───────────────────────────────────────────────────────────────
 makemigrations:
