@@ -10,14 +10,17 @@ from apps.modules.investments.models import (
     InvestCompany,
     InvestmentApprovalConfig,
     InvestmentApprovalConfigStep,
+    InvestmentApprovalConfigStepApprover,
     InvestmentFormConfig,
     InvestmentProjectApprovalConfig,
     InvestmentProjectApprovalConfigStep,
+    InvestmentProjectApprovalConfigStepApprover,
     InvestmentReturnApproval,
     InvestPayoutSchedule,
     InvestPayoutScheduleShareLink,
     InvestReturn,
     ProjectInvestment,
+    ProjectInvestmentApproval,
 )
 from apps.modules.investments.services import (
     CbuRateFetchError,
@@ -447,3 +450,103 @@ class InvestmentApprovalWebhookSerializer(serializers.Serializer):
     recipient_id = serializers.CharField()
     message_id = serializers.IntegerField(required=False)
     platform = serializers.CharField(default="telegram")
+
+
+# --- Read-only serializers for admin / module data inspection (list + retrieve only) ---
+
+
+class InvestmentFormConfigReadSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = InvestmentFormConfig
+        fields = ["id", "tenant", "uses_companies", "allowed_return_types", "created_at", "updated_at"]
+        read_only_fields = fields
+
+
+class InvestmentApprovalConfigReadSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = InvestmentApprovalConfig
+        fields = ["id", "tenant", "return_type", "recipient", "is_enabled", "created_at", "updated_at"]
+        read_only_fields = fields
+
+
+class InvestmentApprovalConfigStepReadSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = InvestmentApprovalConfigStep
+        fields = ["id", "config", "step", "step_type", "is_enabled", "payment_chat_id"]
+        read_only_fields = fields
+
+
+class InvestmentApprovalConfigStepApproverReadSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = InvestmentApprovalConfigStepApprover
+        fields = ["id", "step", "approver_user"]
+        read_only_fields = fields
+
+
+class InvestmentReturnApprovalReadSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = InvestmentReturnApproval
+        fields = [
+            "id",
+            "tenant",
+            "invest_return",
+            "step",
+            "step_type",
+            "approver_user",
+            "approver_recipient_id",
+            "approver_external_user_id",
+            "decision",
+            "decision_comment",
+            "decided_at",
+            "gateway_message_id",
+            "message_sent",
+            "message_sent_at",
+            "created_at",
+            "updated_at",
+        ]
+        read_only_fields = fields
+
+
+class InvestmentProjectApprovalConfigReadSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = InvestmentProjectApprovalConfig
+        fields = ["id", "tenant", "is_enabled", "created_at", "updated_at"]
+        read_only_fields = fields
+
+
+class InvestmentProjectApprovalConfigStepReadSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = InvestmentProjectApprovalConfigStep
+        fields = ["id", "config", "step", "step_type", "is_enabled", "payment_chat_id"]
+        read_only_fields = fields
+
+
+class InvestmentProjectApprovalConfigStepApproverReadSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = InvestmentProjectApprovalConfigStepApprover
+        fields = ["id", "step", "approver_user"]
+        read_only_fields = fields
+
+
+class ProjectInvestmentApprovalReadSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ProjectInvestmentApproval
+        fields = [
+            "id",
+            "tenant",
+            "project_investment",
+            "step",
+            "step_type",
+            "approver_user",
+            "approver_recipient_id",
+            "approver_external_user_id",
+            "decision",
+            "decision_comment",
+            "decided_at",
+            "gateway_message_id",
+            "message_sent",
+            "message_sent_at",
+            "created_at",
+            "updated_at",
+        ]
+        read_only_fields = fields
