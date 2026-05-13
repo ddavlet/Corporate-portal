@@ -61,6 +61,7 @@ class InvestPayoutScheduleAdmin(admin.ModelAdmin):
 class ProjectInvestmentAdmin(admin.ModelAdmin):
     list_display = ("id", "tenant", "company", "date", "amount", "currency", "confirmed", "created_at", "last_edit_at")
     list_filter = ("tenant", "confirmed")
+    search_fields = ("comment", "id", "tenant__name", "tenant__subdomain")
     readonly_fields = ("created_at", "last_edit_at")
 
 
