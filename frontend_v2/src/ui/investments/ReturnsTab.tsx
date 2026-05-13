@@ -28,11 +28,10 @@ import {
   asMoney,
   asNumber,
   byCompany,
-  CURRENCY_OPTIONS,
-  dateText,
   inDateRange,
   makeCompanySelectOptions,
   precisionFor,
+  RETURN_CURRENCY_OPTIONS,
   totalsByCurrency,
   type CompanyFilter,
 } from './utils'
@@ -111,6 +110,21 @@ export function ReturnsTab({ loading, rows, companies, companyLabel, companyFilt
       align: 'right',
       render: (v: string | number) => asMoney(v),
       sorter: (a, b) => asNumber(a.sum) - asNumber(b.sum),
+    },
+    {
+      title: 'Сум (UZS)',
+      dataIndex: 'sum_uzs',
+      width: 130,
+      align: 'right',
+      render: (v: string | number | null | undefined) => (v != null && v !== '' ? asMoney(v) : '—'),
+      sorter: (a, b) => asNumber(a.sum_uzs ?? 0) - asNumber(b.sum_uzs ?? 0),
+    },
+    {
+      title: 'Курс CBU',
+      dataIndex: 'cbu_usd_uzs_rate',
+      width: 110,
+      align: 'right',
+      render: (v: string | number | null | undefined) => (v != null && v !== '' ? asMoney(v) : '—'),
     },
     {
       title: 'Валюта',
@@ -204,7 +218,7 @@ export function ReturnsTab({ loading, rows, companies, companyLabel, companyFilt
           columns={columns}
           dataSource={filtered}
           pagination={{ pageSize: 30 }}
-          scroll={{ x: 1200 }}
+          scroll={{ x: 1480 }}
           locale={{
             emptyText: (
               <Empty description="Выплат пока нет" image={Empty.PRESENTED_IMAGE_SIMPLE}>
@@ -236,11 +250,15 @@ export function ReturnsTab({ loading, rows, companies, companyLabel, companyFilt
             <Form.Item label="Дата" name="date" rules={[{ required: true, message: 'Укажите дату' }]}>
               <DatePicker format="DD.MM.YYYY" />
             </Form.Item>
-            <Form.Item label="Сумма" name="sum" rules={[{ required: true, message: 'Укажите сумму' }]}>
+            <Form.Item
+              label={watchedCurrency === 'UZS' ? 'Сумма (UZS)' : 'Сумма (USD)'}
+              name="sum"
+              rules={[{ required: true, message: 'Укажите сумму' }]}
+            >
               <InputNumber min={0} precision={precisionFor(watchedCurrency)} style={{ width: 180 }} />
             </Form.Item>
             <Form.Item label="Валюта" name="currency" rules={[{ required: true }]}>
-              <Select style={{ width: 120 }} options={CURRENCY_OPTIONS} />
+              <Select style={{ width: 120 }} options={RETURN_CURRENCY_OPTIONS} />
             </Form.Item>
           </Space>
           <Space style={{ width: '100%' }} align="start" wrap>
