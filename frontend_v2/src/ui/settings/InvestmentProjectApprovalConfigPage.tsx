@@ -98,12 +98,12 @@ export function InvestmentProjectApprovalConfigPage() {
         Назад к настройкам
       </Button>
       <Typography.Title level={4} style={{ marginTop: 0 }}>
-        Инвестиции — согласование вложений
+        Инвестиции — согласование заявок на вложение
       </Typography.Title>
       <Typography.Paragraph type="secondary" style={{ marginBottom: 0 }}>
-        Цепочка для записей «Вложения» (капитальные вложения в проект): те же три типа этапов, что и для выплат —
-        проверка (serial), подтверждение поступления в указанный Telegram chat (confirmation) и уведомление без кнопок
-        (notification). Пока цепочка выключена или не задана, новое вложение сразу считается подтверждённым.
+        Цепочка для заявок на вложение в проект: те же три типа этапов, что и для выплат — проверка (serial),
+        подтверждение поступления в указанный Telegram chat (confirmation) и уведомление без кнопок (notification).
+        Пока цепочка выключена или не задана, новая заявка сразу считается подтверждённой.
       </Typography.Paragraph>
 
       <Divider />
@@ -114,7 +114,7 @@ export function InvestmentProjectApprovalConfigPage() {
       {!loading && data ? (
         <Space direction="vertical" size={12} style={{ display: 'flex' }}>
           <Checkbox checked={data.is_enabled} onChange={(e) => setData({ ...data, is_enabled: e.target.checked })}>
-            Включить согласование вложений
+            Включить согласование заявок на вложение
           </Checkbox>
           {(data.steps ?? [])
             .slice()
@@ -166,7 +166,7 @@ export function InvestmentProjectApprovalConfigPage() {
                       Approver-ы
                     </Typography.Text>
                     <Typography.Paragraph type="secondary" style={{ marginBottom: 8, fontSize: 12 }}>
-                      Для этапа notification список может быть пустым — в карточке будет указан автор вложения; сообщение
+                      Для этапа notification список может быть пустым — в карточке будет указан автор заявки; сообщение
                       уходит в chat ID ниже.
                     </Typography.Paragraph>
                     <Select

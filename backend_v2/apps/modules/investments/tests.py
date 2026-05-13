@@ -1184,10 +1184,10 @@ class InvestmentProjectApprovalFlowTests(APITestCase):
         self.assertEqual(created.approvals.count(), 2)
         self.assertEqual(bridge_mock.call_count, 1)
         payload = bridge_mock.call_args.kwargs["payload"]
-        self.assertIn("Вложение №", payload["text"])
+        self.assertIn("Заявка на вложение №", payload["text"])
         self.assertIn("ProjInvFlow", payload["text"])
         self.assertIn("250 000.00", payload["text"])
-        self.assertIn("Проверка вложения", payload["text"])
+        self.assertIn("Проверка заявки на вложение", payload["text"])
         self.assertIn("Seed round", payload["text"])
         self.assertTrue(payload["text"].strip().startswith("<b>"))
         self.assertEqual(payload["buttons"][0][0]["label"], "✅ Проверено")
