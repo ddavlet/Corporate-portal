@@ -963,6 +963,7 @@ export type ProjectInvestmentRow = {
   amount: string | number
   currency: string
   comment: string
+  confirmed: boolean
   created_at: string
 }
 
@@ -1057,6 +1058,12 @@ export type InvestmentApprovalConfigResponse = {
   recipient: string | null
   return_type_choices: InvestmentReturnTypeChoice[]
   recipient_choices: InvestmentReturnTypeChoice[]
+  is_enabled: boolean
+  steps: InvestmentApprovalConfigStepItem[]
+  approver_candidates: Array<{ id: number; username: string }>
+}
+
+export type InvestmentProjectApprovalConfigResponse = {
   is_enabled: boolean
   steps: InvestmentApprovalConfigStepItem[]
   approver_candidates: Array<{ id: number; username: string }>
@@ -1284,6 +1291,28 @@ export async function updateInvestmentApprovalConfig(
   })
   if (!res.ok) throw new Error(await parseErrorBody(res))
   const json = (await res.json().catch(() => null)) as InvestmentApprovalConfigResponse | null
+  if (!json) throw new Error('Empty response')
+  return json
+}
+
+export async function getInvestmentProjectApprovalConfig(): Promise<InvestmentProjectApprovalConfigResponse> {
+  const res = await apiFetch('/api/investments/project-approval-config/')
+  if (!res.ok) throw new Error(await parseErrorBody(res))
+  const json = (await res.json().catch(() => null)) as InvestmentProjectApprovalConfigResponse | null
+  if (!json) throw new Error('Empty response')
+  return json
+}
+
+export async function updateInvestmentProjectApprovalConfig(
+  payload: Pick<InvestmentProjectApprovalConfigResponse, 'is_enabled' | 'steps'>,
+): Promise<InvestmentProjectApprovalConfigResponse> {
+  const res = await apiFetch('/api/investments/project-approval-config/', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+  if (!res.ok) throw new Error(await parseErrorBody(res))
+  const json = (await res.json().catch(() => null)) as InvestmentProjectApprovalConfigResponse | null
   if (!json) throw new Error('Empty response')
   return json
 }

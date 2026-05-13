@@ -19,11 +19,21 @@ from apps.modules.investments.models import (
     InvestmentApprovalConfig,
     InvestmentApprovalConfigStep,
     InvestmentFormConfig,
+    InvestmentProjectApprovalConfig,
+    InvestmentProjectApprovalConfigStep,
     InvestmentReturnApproval,
     InvestPayoutSchedule,
     InvestPayoutScheduleShareLink,
     InvestReturn,
     ProjectInvestment,
+    ProjectInvestmentApproval,
+)
+from apps.modules.investments.project_investment_approval_services import (
+    InvestmentProjectApprovalDecisionAlreadyMade,
+    confirm_project_investment_approval_by_id,
+    create_approvals_for_project_investment,
+    deactivate_project_investment_approval_buttons,
+    route_project_investment_approvals,
 )
 from apps.modules.investments.serializers import (
     InvestCompanySerializer,
@@ -31,6 +41,7 @@ from apps.modules.investments.serializers import (
     InvestmentApprovalDecisionSerializer,
     InvestmentApprovalWebhookSerializer,
     InvestmentFormConfigSerializer,
+    InvestmentProjectApprovalConfigSerializer,
     InvestPayoutScheduleSerializer,
     InvestPayoutScheduleShareLinkSerializer,
     InvestReturnSerializer,
@@ -73,6 +84,11 @@ class InvestPayoutScheduleViewSet(_InvestmentsTenantViewSet):
 class ProjectInvestmentViewSet(_InvestmentsTenantViewSet):
     serializer_class = ProjectInvestmentSerializer
     queryset = ProjectInvestment.objects.all()
+
+    def perform_create(self, serializer):
+        obj = serializer.save(tenant=self.request.tenant, created_by=self.request.user)
+        create_approvals_for_project_investment(project_investment=obj)
+        route_project_investment_approvals(project_investment=obj)
 
 
 class InvestCompanyViewSet(_InvestmentsTenantViewSet):
@@ -290,6 +306,72 @@ class InvestmentApprovalConfigView(APIView):
         )
 
 
+class InvestmentProjectApprovalConfigView(APIView):
+    permission_classes = [IsAuthenticated, HasEffectiveModuleAccess]
+    module_key = "investments"
+
+    def _get_or_create(self, tenant):
+        config, _ = InvestmentProjectApprovalConfig.objects.get_or_create(
+            tenant=tenant,
+            defaults={"is_enabled": False},
+        )
+        return config
+
+    def _response_payload(self, tenant):
+        config = self._get_or_create(tenant)
+        steps = list(config.steps.order_by("step", "id").prefetch_related("approver_users"))
+        User = get_user_model()
+        member_ids = TenantMembership.objects.filter(tenant=tenant, is_active=True).values_list(
+            "user_id", flat=True
+        )
+        approver_candidates = list(
+            User.objects.filter(id__in=member_ids, is_active=True)
+            .distinct()
+            .order_by("username")
+            .values("id", "username")
+        )
+        return {
+            "is_enabled": config.is_enabled,
+            "steps": [
+                {
+                    "step": row.step,
+                    "step_type": row.step_type,
+                    "is_enabled": row.is_enabled,
+                    "payment_chat_id": row.payment_chat_id,
+                    "approver_user_ids": list(row.approver_users.values_list("id", flat=True)),
+                }
+                for row in steps
+            ],
+            "approver_candidates": approver_candidates,
+        }
+
+    def get(self, request):
+        self.check_permissions(request)
+        return Response(self._response_payload(request.tenant))
+
+    def put(self, request):
+        self.check_permissions(request)
+        serializer = InvestmentProjectApprovalConfigSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        payload = serializer.validated_data
+
+        with transaction.atomic():
+            config = self._get_or_create(request.tenant)
+            config.is_enabled = payload["is_enabled"]
+            config.save(update_fields=["is_enabled", "updated_at"])
+            config.steps.all().delete()
+            for row in payload["steps"]:
+                step = InvestmentProjectApprovalConfigStep.objects.create(
+                    config=config,
+                    step=row["step"],
+                    step_type=row.get("step_type", InvestmentProjectApprovalConfigStep.STEP_TYPE_SERIAL),
+                    is_enabled=row["is_enabled"],
+                    payment_chat_id=row.get("payment_chat_id"),
+                )
+                step.approver_users.set(row.get("approver_user_ids") or [])
+        return Response(self._response_payload(request.tenant))
+
+
 class InvestmentApprovalDecisionView(APIView):
     permission_classes = [IsAuthenticated, HasEffectiveModuleAccess]
     module_key = "investments"
@@ -321,11 +403,48 @@ class InvestmentApprovalDecisionView(APIView):
         )
 
 
+class InvestmentProjectApprovalDecisionView(APIView):
+    permission_classes = [IsAuthenticated, HasEffectiveModuleAccess]
+    module_key = "investments"
+
+    def post(self, request, approval_id: int):
+        self.check_permissions(request)
+        serializer = InvestmentApprovalDecisionSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        payload = serializer.validated_data
+        try:
+            result = confirm_project_investment_approval_by_id(
+                tenant=request.tenant,
+                approval_id=approval_id,
+                approver_recipient_id=payload.get("approver_recipient_id"),
+                approver_external_user_id=payload.get("approver_external_user_id"),
+                decision=payload["decision"],
+                comment=payload.get("comment", ""),
+            )
+        except InvestmentProjectApprovalDecisionAlreadyMade:
+            return Response({"detail": "Decision already made."}, status=status.HTTP_409_CONFLICT)
+        except ValueError as exc:
+            raise ValidationError({"detail": str(exc)}) from exc
+        return Response(
+            {
+                "approval_id": result.approval.id,
+                "decision": result.approval.decision,
+                "project_investment": {
+                    "id": result.project_investment.id,
+                    "confirmed": result.project_investment.confirmed,
+                },
+            }
+        )
+
+
 class InvestmentApprovalWebhookView(APIView):
     permission_classes = [AllowAny]
     authentication_classes = []
 
-    def _parse_callback_data(self, callback_data: str | None) -> tuple[int | None, str]:
+    def _parse_callback_data(self, callback_data: str | None) -> tuple[str, int | None, str]:
+        """
+        Returns (kind, approval_id, decision) where kind is 'return' or 'project'.
+        """
         if not callback_data:
             raise ValidationError({"detail": "payload (callback data) is required."})
         raw = callback_data.strip()
@@ -336,6 +455,17 @@ class InvestmentApprovalWebhookView(APIView):
                     raw = decoded_raw.strip()
             except json.JSONDecodeError:
                 pass
+        if raw.startswith("invp_") and ":" in raw and raw.count(":") == 1:
+            left, right = raw[5:].split(":", 1)
+            try:
+                approval_id = int(left)
+            except (TypeError, ValueError):
+                approval_id = None
+            code = right.strip().lower()
+            if code == "a":
+                return "project", approval_id, ProjectInvestmentApproval.DECISION_APPROVED
+            if code == "r":
+                return "project", approval_id, ProjectInvestmentApproval.DECISION_REJECTED
         if raw.startswith("inv_") and ":" in raw and raw.count(":") == 1:
             left, right = raw[4:].split(":", 1)
             try:
@@ -344,9 +474,9 @@ class InvestmentApprovalWebhookView(APIView):
                 approval_id = None
             code = right.strip().lower()
             if code == "a":
-                return approval_id, InvestmentReturnApproval.DECISION_APPROVED
+                return "return", approval_id, InvestmentReturnApproval.DECISION_APPROVED
             if code == "r":
-                return approval_id, InvestmentReturnApproval.DECISION_REJECTED
+                return "return", approval_id, InvestmentReturnApproval.DECISION_REJECTED
         raise ValidationError({"detail": "Unsupported decision value in callback payload."})
 
     def post(self, request):
@@ -356,7 +486,7 @@ class InvestmentApprovalWebhookView(APIView):
         if event_data.get("event") != "interaction":
             return Response({"detail": "Only interaction events are supported."}, status=status.HTTP_202_ACCEPTED)
 
-        parsed_approval_id, decision = self._parse_callback_data(event_data.get("payload"))
+        kind, parsed_approval_id, decision = self._parse_callback_data(event_data.get("payload"))
         if parsed_approval_id is None:
             raise ValidationError({"approval_id": "approval_id is required and must be integer."})
 
@@ -366,6 +496,44 @@ class InvestmentApprovalWebhookView(APIView):
         except (TypeError, ValueError) as exc:
             raise ValidationError({"detail": "Invalid callback identifiers."}) from exc
         message_id = event_data.get("message_id")
+
+        if kind == "project":
+            approval = ProjectInvestmentApproval.objects.select_related("tenant").filter(id=parsed_approval_id).first()
+            if not approval:
+                raise ValidationError({"approval_id": "Approval not found."})
+            if approval.step_type == InvestmentProjectApprovalConfigStep.STEP_TYPE_NOTIFICATION:
+                raise ValidationError({"detail": "Этап notification не принимает ответы по кнопкам."})
+            if message_id is not None and approval.gateway_message_id is not None and approval.gateway_message_id != message_id:
+                raise ValidationError({"message_id": "Callback message_id does not match stored message_id."})
+            if approval.approver_recipient_id is not None and approval.approver_recipient_id != chat_id:
+                raise ValidationError({"recipient_id": "Recipient is not allowed for this approval."})
+            if approval.approver_external_user_id is not None and approval.approver_external_user_id != from_id:
+                raise ValidationError({"user_id": "User is not allowed for this approval."})
+
+            if message_id is not None and approval.gateway_message_id is None:
+                approval.gateway_message_id = message_id
+                approval.message_sent = True
+                if approval.message_sent_at is None:
+                    from django.utils import timezone
+
+                    approval.message_sent_at = timezone.now()
+                approval.save(update_fields=["gateway_message_id", "message_sent", "message_sent_at"])
+
+            try:
+                confirm_project_investment_approval_by_id(
+                    tenant=approval.tenant,
+                    approval_id=approval.id,
+                    approver_recipient_id=chat_id,
+                    approver_external_user_id=from_id,
+                    decision=decision,
+                )
+            except InvestmentProjectApprovalDecisionAlreadyMade:
+                approval.refresh_from_db()
+                deactivate_project_investment_approval_buttons(approval=approval)
+                return Response({"detail": "Decision already made."}, status=status.HTTP_409_CONFLICT)
+            except ValueError as exc:
+                raise ValidationError({"detail": str(exc)}) from exc
+            return Response({"detail": "Callback processed."}, status=status.HTTP_200_OK)
 
         approval = InvestmentReturnApproval.objects.select_related("tenant").filter(id=parsed_approval_id).first()
         if not approval:
