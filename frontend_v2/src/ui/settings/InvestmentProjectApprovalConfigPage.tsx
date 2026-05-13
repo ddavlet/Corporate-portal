@@ -102,7 +102,7 @@ export function InvestmentProjectApprovalConfigPage() {
       </Typography.Title>
       <Typography.Paragraph type="secondary" style={{ marginBottom: 0 }}>
         Цепочка для заявок на вложение в проект: те же три типа этапов, что и для выплат — проверка (serial),
-        подтверждение поступления в указанный Telegram chat (confirmation) и уведомление без кнопок (notification).
+        подтверждение выплаты по заявке в указанный Telegram chat (confirmation) и уведомление без кнопок (notification).
         Пока цепочка выключена или не задана, новая заявка сразу считается подтверждённой.
       </Typography.Paragraph>
 
@@ -146,7 +146,7 @@ export function InvestmentProjectApprovalConfigPage() {
                         }}
                         options={[
                           { value: 'serial', label: 'serial (проверка)' },
-                          { value: 'confirmation', label: 'confirmation (подтверждение поступления)' },
+                          { value: 'confirmation', label: 'confirmation (подтверждение выплаты по заявке)' },
                           {
                             value: 'notification',
                             label: 'notification (уведомление в chat, без кнопок, авто-подтверждение)',
