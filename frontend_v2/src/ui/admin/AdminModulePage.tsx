@@ -18,6 +18,8 @@ type Source = {
   endpoint: string
   /** false — источник read-only или POST не соответствует таблице (напр. только создание без списка). */
   supportsCreate?: boolean
+  /** Только GET-список: без создания, правки и удаления в UI. */
+  readOnly?: boolean
 }
 
 const SOURCES: Source[] = [
@@ -38,6 +40,78 @@ const SOURCES: Source[] = [
     key: 'wallets-corporate-card-accounts',
     label: 'Кошельки: корпоративные карты',
     endpoint: '/api/wallets/corporate-card-accounts/',
+  },
+  { key: 'invest-companies', label: 'Инвестиции: компании', endpoint: '/api/investments/companies/' },
+  { key: 'invest-returns', label: 'Инвестиции: выплаты', endpoint: '/api/investments/returns/' },
+  { key: 'invest-payout-schedule', label: 'Инвестиции: график выплат', endpoint: '/api/investments/payout-schedule/' },
+  {
+    key: 'invest-payout-schedule-share-links',
+    label: 'Инвестиции: ссылки на график',
+    endpoint: '/api/investments/payout-schedule-share-links/',
+  },
+  { key: 'invest-project-investments', label: 'Инвестиции: вложения в проект', endpoint: '/api/investments/project-investments/' },
+  {
+    key: 'invest-form-config-records',
+    label: 'Инвестиции: настройка формы (таблица)',
+    endpoint: '/api/investments/form-config-records/',
+    supportsCreate: false,
+    readOnly: true,
+  },
+  {
+    key: 'invest-approval-configs',
+    label: 'Инвестиции: конфиги согласования выплат',
+    endpoint: '/api/investments/approval-configs/',
+    supportsCreate: false,
+    readOnly: true,
+  },
+  {
+    key: 'invest-approval-config-steps',
+    label: 'Инвестиции: этапы согласования выплат',
+    endpoint: '/api/investments/approval-config-steps/',
+    supportsCreate: false,
+    readOnly: true,
+  },
+  {
+    key: 'invest-approval-config-step-approvers',
+    label: 'Инвестиции: согласующие по этапу (выплаты)',
+    endpoint: '/api/investments/approval-config-step-approvers/',
+    supportsCreate: false,
+    readOnly: true,
+  },
+  {
+    key: 'invest-return-approvals',
+    label: 'Инвестиции: согласования выплат',
+    endpoint: '/api/investments/return-approvals/',
+    supportsCreate: false,
+    readOnly: true,
+  },
+  {
+    key: 'invest-project-approval-configs',
+    label: 'Инвестиции: конфиг согласования вложений',
+    endpoint: '/api/investments/project-approval-configs/',
+    supportsCreate: false,
+    readOnly: true,
+  },
+  {
+    key: 'invest-project-approval-config-steps',
+    label: 'Инвестиции: этапы согласования вложений',
+    endpoint: '/api/investments/project-approval-config-steps/',
+    supportsCreate: false,
+    readOnly: true,
+  },
+  {
+    key: 'invest-project-approval-config-step-approvers',
+    label: 'Инвестиции: согласующие по этапу (вложения)',
+    endpoint: '/api/investments/project-approval-config-step-approvers/',
+    supportsCreate: false,
+    readOnly: true,
+  },
+  {
+    key: 'invest-project-investment-approvals',
+    label: 'Инвестиции: согласования вложений',
+    endpoint: '/api/investments/project-investment-approvals/',
+    supportsCreate: false,
+    readOnly: true,
   },
 ]
 
@@ -81,6 +155,11 @@ function rowCaption(row: AnyRow): string {
       row.external_id ??
       row.doc_no ??
       row.operation ??
+      row.token ??
+      row.decision ??
+      row.type ??
+      row.recipient ??
+      (typeof row.comment === 'string' && row.comment.trim() ? row.comment.trim() : undefined) ??
       row.id ??
       'Запись',
   )
@@ -123,7 +202,7 @@ export function AdminModulePage() {
   const [matrixPageSize, setMatrixPageSize] = useState(20)
 
   const currentSource = SOURCES.find((s) => s.key === sourceKey) || SOURCES[0]
-  const canCreateHere = Boolean(currentSource.supportsCreate !== false)
+  const canCreateHere = Boolean(!currentSource.readOnly && currentSource.supportsCreate !== false)
 
   const loadRows = async () => {
     setLoading(true)
@@ -176,7 +255,23 @@ export function AdminModulePage() {
     return rows.filter((row) => rowCaption(row).toLowerCase().includes(q) || JSON.stringify(row).toLowerCase().includes(q))
   }, [rows, search])
 
-  const columns: ColumnsType<AnyRow> = [
+  const handleDelete = async (row: AnyRow) => {
+    const id = row.id
+    if (id === undefined || id === null || id === '') {
+      message.error('У записи отсутствует id')
+      return
+    }
+    const res = await apiFetch(`${currentSource.endpoint}${id}/`, { method: 'DELETE' })
+    if (!res.ok) {
+      const json = await res.json().catch(() => null)
+      message.error(typeof json === 'object' && json ? JSON.stringify(json) : `HTTP ${res.status}`)
+      return
+    }
+    message.success('Удалено')
+    await loadRows()
+  }
+
+  const baseCrudColumns: ColumnsType<AnyRow> = [
     { title: 'ID', dataIndex: 'id', width: 100, render: (v: unknown) => String(v ?? '-') },
     {
       title: 'Название',
@@ -191,63 +286,72 @@ export function AdminModulePage() {
         const counterparty = String(row.vendor_name ?? '').trim()
         if (counterparty) parts.push(`Контрагент: ${counterparty}`)
         if (typeof row.status === 'string' && row.status) parts.push(`Статус: ${row.status}`)
+        if (typeof row.decision === 'string' && row.decision) parts.push(`Решение: ${row.decision}`)
+        if (typeof row.step_type === 'string' && row.step_type) parts.push(`Тип шага: ${row.step_type}`)
+        if (typeof row.is_enabled === 'boolean') parts.push(`Вкл: ${row.is_enabled ? 'да' : 'нет'}`)
+        if (typeof row.is_paid === 'boolean') parts.push(`Оплачено: ${row.is_paid ? 'да' : 'нет'}`)
+        if (typeof row.confirmed === 'boolean') parts.push(`Подтв.: ${row.confirmed ? 'да' : 'нет'}`)
         if (typeof row.currency === 'string' && row.currency) parts.push(`Валюта: ${row.currency}`)
-        const amountLike = row.debt_sum ?? row.amount ?? row.total_sum
+        const amountLike = row.debt_sum ?? row.amount ?? row.total_sum ?? row.sum ?? row.payment_amount
         const formattedAmount = formatAmount(amountLike)
         if (formattedAmount !== null) parts.push(`Сумма: ${formattedAmount}`)
         return <Typography.Text type="secondary">{parts.join(' | ') || '—'}</Typography.Text>
       },
     },
-    {
-      title: 'Действия',
-      key: 'actions',
-      width: 210,
-      render: (_, row) => (
-        <Space>
-          <Button
-            size="small"
-            onClick={() => {
-              setCreatingRecord(false)
-              setEditing(row)
-              const initial: Record<string, unknown> = {}
-              const nonEditable: Array<{ key: string; value: unknown }> = []
-              for (const [key, value] of Object.entries(row)) {
-                if (key === 'id') continue
-                if (ADMIN_CRUD_SKIP_KEYS.has(key)) continue
-                if (isPrimitive(value)) initial[key] = value
-                else nonEditable.push({ key, value })
-              }
-              const fields: AdminCrudDynamicField[] = Object.entries(initial)
-                .sort(([a], [b]) => a.localeCompare(b))
-                .map(([key, value]) => ({
-                  key,
-                  type:
-                    value === null
-                      ? ('null' as const)
-                      : typeof value === 'boolean'
-                        ? ('boolean' as const)
-                        : typeof value === 'number'
-                          ? ('number' as const)
-                          : ('string' as const),
-                }))
-              setEditableFields(fields)
-              setNonEditableFields(nonEditable)
-              form.setFieldsValue(initial as any)
-            }}
-          >
-            Изменить
-          </Button>
-          <Popconfirm title="Удалить запись?" description={rowCaption(row)} onConfirm={() => void handleDelete(row)}>
-            <Button size="small" danger>
-              Удалить
-            </Button>
-          </Popconfirm>
-        </Space>
-      ),
-    },
   ]
 
-  const matrixRows: MatrixRow[] = mxRows.map((r) => ({ key: r.user_id, ...r }))
+  const columns: ColumnsType<AnyRow> = currentSource.readOnly
+    ? baseCrudColumns
+    : [
+        ...baseCrudColumns,
+        {
+          title: 'Действия',
+          key: 'actions',
+          width: 210,
+          render: (_, row) => (
+            <Space>
+              <Button
+                size="small"
+                onClick={() => {
+                  setCreatingRecord(false)
+                  setEditing(row)
+                  const initial: Record<string, unknown> = {}
+                  const nonEditable: Array<{ key: string; value: unknown }> = []
+                  for (const [key, value] of Object.entries(row)) {
+                    if (key === 'id') continue
+                    if (ADMIN_CRUD_SKIP_KEYS.has(key)) continue
+                    if (isPrimitive(value)) initial[key] = value
+                    else nonEditable.push({ key, value })
+                  }
+                  const fields: AdminCrudDynamicField[] = Object.entries(initial)
+                    .sort(([a], [b]) => a.localeCompare(b))
+                    .map(([key, value]) => ({
+                      key,
+                      type:
+                        value === null
+                          ? ('null' as const)
+                          : typeof value === 'boolean'
+                            ? ('boolean' as const)
+                            : typeof value === 'number'
+                              ? ('number' as const)
+                              : ('string' as const),
+                    }))
+                  setEditableFields(fields)
+                  setNonEditableFields(nonEditable)
+                  form.setFieldsValue(initial as any)
+                }}
+              >
+                Изменить
+              </Button>
+              <Popconfirm title="Удалить запись?" description={rowCaption(row)} onConfirm={() => void handleDelete(row)}>
+                <Button size="small" danger>
+                  Удалить
+                </Button>
+              </Popconfirm>
+            </Space>
+          ),
+        },
+      ]
   const matrixColumns: ColumnsType<MatrixRow> = useMemo(() => {
     const base: ColumnsType<MatrixRow> = [
       { title: 'User ID', dataIndex: 'user_id', width: 90 },
@@ -339,22 +443,6 @@ export function AdminModulePage() {
     } finally {
       setSaving(false)
     }
-  }
-
-  const handleDelete = async (row: AnyRow) => {
-    const id = row.id
-    if (id === undefined || id === null || id === '') {
-      message.error('У записи отсутствует id')
-      return
-    }
-    const res = await apiFetch(`${currentSource.endpoint}${id}/`, { method: 'DELETE' })
-    if (!res.ok) {
-      const json = await res.json().catch(() => null)
-      message.error(typeof json === 'object' && json ? JSON.stringify(json) : `HTTP ${res.status}`)
-      return
-    }
-    message.success('Удалено')
-    await loadRows()
   }
 
   const handleSave = async () => {
