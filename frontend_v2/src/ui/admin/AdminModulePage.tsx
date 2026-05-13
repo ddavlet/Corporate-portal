@@ -255,6 +255,11 @@ export function AdminModulePage() {
     return rows.filter((row) => rowCaption(row).toLowerCase().includes(q) || JSON.stringify(row).toLowerCase().includes(q))
   }, [rows, search])
 
+  const matrixRows = useMemo<MatrixRow[]>(
+    () => mxRows.map((u) => ({ ...u, key: u.user_id })),
+    [mxRows],
+  )
+
   const handleDelete = async (row: AnyRow) => {
     const id = row.id
     if (id === undefined || id === null || id === '') {
