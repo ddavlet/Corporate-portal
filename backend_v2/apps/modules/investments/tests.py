@@ -2,6 +2,8 @@ from datetime import date
 from decimal import Decimal
 from unittest.mock import MagicMock, patch
 
+from apps.modules.investments.approval_services import build_investment_return_approval_telegram_message
+
 from django.contrib.auth import get_user_model
 from django.test import SimpleTestCase, TestCase
 from django.test import override_settings
@@ -40,6 +42,73 @@ from apps.tenants.models import Tenant
 
 User = get_user_model()
 factory = APIRequestFactory()
+
+
+class InvestReturnApprovalTelegramMessageTests(SimpleTestCase):
+    def test_message_omits_fx_block_without_both_uzs_and_cbu(self):
+        ir = MagicMock()
+        ir.id = 99
+        ir.company = None
+        ir.tenant = MagicMock()
+        ir.tenant.name = "Solo"
+        ir.sum = Decimal("50.00")
+        ir.currency = "USD"
+        ir.date = date(2026, 5, 1)
+        ir.billing_date = date(2026, 5, 1)
+        ir.type = "дивиденды"
+        ir.recipient = "инвестор"
+        ir.comment = ""
+        ir.sum_uzs = None
+        ir.cbu_usd_uzs_rate = None
+        ir.get_type_display = lambda: "Дивиденды"
+        ir.get_recipient_display = lambda: "Инвестор"
+
+        approval = MagicMock()
+        approval.step = 1
+        approval.step_type = InvestmentApprovalConfigStep.STEP_TYPE_SERIAL
+        approval.decision = InvestmentReturnApproval.DECISION_PENDING
+
+        out = build_investment_return_approval_telegram_message(
+            invest_return=ir,
+            approval=approval,
+            blocked_by_rejection=False,
+            current_pending_step=1,
+        )
+        self.assertIn("💵", out)
+        self.assertNotIn("Курс CBU", out)
+        self.assertNotIn("🇺🇿", out)
+        self.assertNotIn("Комментарий", out)
+
+    def test_cbu_rate_rounded_to_two_decimals_in_message(self):
+        ir = MagicMock()
+        ir.id = 1
+        ir.company = None
+        ir.tenant = MagicMock()
+        ir.tenant.name = "T"
+        ir.sum = Decimal("1.00")
+        ir.currency = "USD"
+        ir.date = date(2026, 5, 1)
+        ir.billing_date = date(2026, 5, 1)
+        ir.type = "дивиденды"
+        ir.recipient = "инвестор"
+        ir.comment = ""
+        ir.sum_uzs = Decimal("12600123.45")
+        ir.cbu_usd_uzs_rate = Decimal("12600.126")
+        ir.get_type_display = lambda: "Дивиденды"
+        ir.get_recipient_display = lambda: "Инвестор"
+
+        approval = MagicMock()
+        approval.step = 1
+        approval.step_type = InvestmentApprovalConfigStep.STEP_TYPE_SERIAL
+        approval.decision = InvestmentReturnApproval.DECISION_PENDING
+
+        out = build_investment_return_approval_telegram_message(
+            invest_return=ir,
+            approval=approval,
+            blocked_by_rejection=False,
+            current_pending_step=1,
+        )
+        self.assertIn("📊 Курс CBU: 12 600.13 UZS/$", out)
 
 
 class InvestReturnSerializerTests(TestCase):
@@ -646,11 +715,12 @@ class InvestmentApprovalFlowTests(APITestCase):
         self.assertEqual(created.approvals.count(), 2)
         self.assertEqual(bridge_mock.call_count, 1)
         payload = bridge_mock.call_args.kwargs["payload"]
-        self.assertIn("Месяц назначения", payload["text"])
+        self.assertIn("📅 Месяц:", payload["text"])
         self.assertIn("InvestFlow", payload["text"])
         self.assertIn("1 200.00", payload["text"])
         self.assertIn("Выплата №", payload["text"])
-        self.assertIn("Проверка выплаты", payload["text"])
+        self.assertIn("🔍 Проверка выплаты", payload["text"])
+        self.assertIn("Курс CBU", payload["text"])
         self.assertIn("Auto approval", payload["text"])
         self.assertTrue(payload["text"].strip().startswith("<b>"))
         self.assertEqual(payload["buttons"][0][0]["label"], "✅ Проверено")
@@ -813,9 +883,9 @@ class InvestmentApprovalFlowTests(APITestCase):
         self.assertEqual(first_ok.status_code, 200)
         payload = bridge_mock.call_args.kwargs["payload"]
         self.assertEqual(payload["recipient_id"], "666000")
-        self.assertEqual(payload["buttons"][0][0]["label"], "✅ Получено")
+        self.assertEqual(payload["buttons"][0][0]["label"], "✅ Подтвердить")
         self.assertIn("750.00", payload["text"])
-        self.assertIn("Подтверждение получения", payload["text"])
+        self.assertIn("💰 Подтверждение получения", payload["text"])
 
     @patch("apps.modules.investments.approval_services.post_messaging_gateway")
     def test_duplicate_webhook_callback_strips_inline_buttons(self, bridge_mock):
