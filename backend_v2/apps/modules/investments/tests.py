@@ -9,6 +9,7 @@ from rest_framework import serializers
 from rest_framework.test import APIRequestFactory
 from rest_framework.test import APITestCase
 
+from apps.modules.investments.approval_services import INVESTMENT_APPROVAL_CASCADE_REJECTION_COMMENT
 from apps.modules.investments.models import (
     InvestCompany,
     InvestmentApprovalConfigStep,
@@ -777,6 +778,10 @@ class InvestmentApprovalFlowTests(APITestCase):
         self.assertEqual(reject_res.status_code, 200)
         inv_return.refresh_from_db()
         self.assertFalse(inv_return.confirmed)
+        second_step = inv_return.approvals.get(step=2)
+        second_step.refresh_from_db()
+        self.assertEqual(second_step.decision, InvestmentReturnApproval.DECISION_REJECTED)
+        self.assertEqual(second_step.decision_comment, INVESTMENT_APPROVAL_CASCADE_REJECTION_COMMENT)
 
     @patch("apps.modules.investments.approval_services.post_messaging_gateway")
     def test_payment_step_uses_payment_buttons_and_chat_id(self, bridge_mock):
@@ -1243,6 +1248,50 @@ class InvestmentProjectApprovalFlowTests(APITestCase):
         self.assertTrue(pi.confirmed)
         self.assertEqual(
             ProjectInvestmentApproval.objects.filter(project_investment=pi, decision="approved").count(), 2
+        )
+
+    @patch("apps.modules.investments.project_investment_approval_services.post_messaging_gateway")
+    def test_reject_on_first_step_cascades_all_pending(self, bridge_mock):
+        bridge_mock.return_value = {"message_id": 503}
+        response = self.client.post(
+            "/api/investments/project-investments/",
+            {
+                "date": "2026-05-01",
+                "amount": "10000.00",
+                "currency": "USD",
+                "comment": "",
+            },
+            format="json",
+            HTTP_HOST=self.host,
+        )
+        self.assertEqual(response.status_code, 201)
+        pi = ProjectInvestment.objects.get(id=response.data["id"])
+        first_step = pi.approvals.get(step=1)
+        second_step = pi.approvals.get(step=2)
+        self.assertEqual(second_step.decision, ProjectInvestmentApproval.DECISION_PENDING)
+        reject = self.client.post(
+            "/api/investments/approvals/webhook/",
+            {
+                "event": "interaction",
+                "payload": f"invp_{first_step.id}:r",
+                "user_id": str(self.approver1.telegram_from_id),
+                "recipient_id": str(self.approver1.telegram_chat_id),
+                "message_id": first_step.gateway_message_id or 503,
+                "platform": "telegram",
+            },
+            format="json",
+            HTTP_HOST=self.host,
+        )
+        self.assertEqual(reject.status_code, 200)
+        second_step.refresh_from_db()
+        self.assertEqual(second_step.decision, ProjectInvestmentApproval.DECISION_REJECTED)
+        self.assertEqual(second_step.decision_comment, INVESTMENT_APPROVAL_CASCADE_REJECTION_COMMENT)
+        pi.refresh_from_db()
+        self.assertFalse(pi.confirmed)
+        self.assertFalse(
+            ProjectInvestmentApproval.objects.filter(
+                project_investment=pi, decision=ProjectInvestmentApproval.DECISION_PENDING
+            ).exists()
         )
 
 
