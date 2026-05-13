@@ -23,15 +23,23 @@ from apps.modules.telegram_approvals.services import (
 )
 
 
-def resolve_investment_approval_config(*, tenant, payout_type: str) -> InvestmentApprovalConfig | None:
-    """Сначала конфиг для конкретного типа выплаты, иначе конфиг по умолчанию (return_type is null)."""
+def resolve_investment_approval_config(
+    *, tenant, payout_type: str, payout_recipient: str
+) -> InvestmentApprovalConfig | None:
+    """Цепочка: тип+получатель → только тип → глобально+получатель → глобальный дефолт."""
     base = InvestmentApprovalConfig.objects.filter(tenant=tenant, is_enabled=True).prefetch_related(
         "steps__approver_users"
     )
-    hit = base.filter(return_type=payout_type).first()
-    if hit:
-        return hit
-    return base.filter(return_type__isnull=True).first()
+    for filt in (
+        lambda q: q.filter(return_type=payout_type, recipient=payout_recipient),
+        lambda q: q.filter(return_type=payout_type, recipient__isnull=True),
+        lambda q: q.filter(return_type__isnull=True, recipient=payout_recipient),
+        lambda q: q.filter(return_type__isnull=True, recipient__isnull=True),
+    ):
+        hit = filt(base).first()
+        if hit:
+            return hit
+    return None
 
 
 class InvestmentApprovalDecisionAlreadyMade(Exception):
@@ -299,7 +307,11 @@ def deactivate_investment_return_approval_buttons(*, approval: InvestmentReturnA
 
 
 def create_approvals_for_invest_return(*, invest_return: InvestReturn) -> int:
-    config = resolve_investment_approval_config(tenant=invest_return.tenant, payout_type=invest_return.type)
+    config = resolve_investment_approval_config(
+        tenant=invest_return.tenant,
+        payout_type=invest_return.type,
+        payout_recipient=invest_return.recipient,
+    )
     if not config:
         return 0
 

@@ -214,6 +214,13 @@ class InvestmentApprovalConfig(models.Model):
         blank=True,
         help_text="Если пусто — конфиг по умолчанию для всех типов выплат без отдельной настройки.",
     )
+    recipient = models.CharField(
+        max_length=20,
+        choices=InvestReturn.Recipient.choices,
+        null=True,
+        blank=True,
+        help_text="Если пусто — цепочка для всех получателей в рамках выбранного типа выплаты (или глобально).",
+    )
     is_enabled = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -223,13 +230,23 @@ class InvestmentApprovalConfig(models.Model):
         constraints = [
             models.UniqueConstraint(
                 fields=["tenant"],
-                condition=Q(return_type__isnull=True),
+                condition=Q(return_type__isnull=True, recipient__isnull=True),
                 name="invapprcfg_tenant_default_uniq",
             ),
             models.UniqueConstraint(
                 fields=["tenant", "return_type"],
-                condition=Q(return_type__isnull=False),
+                condition=Q(return_type__isnull=False, recipient__isnull=True),
                 name="invapprcfg_tenant_type_uniq",
+            ),
+            models.UniqueConstraint(
+                fields=["tenant", "return_type", "recipient"],
+                condition=Q(return_type__isnull=False, recipient__isnull=False),
+                name="invapprcfg_tenant_type_recip_uniq",
+            ),
+            models.UniqueConstraint(
+                fields=["tenant", "recipient"],
+                condition=Q(return_type__isnull=True, recipient__isnull=False),
+                name="invapprcfg_tenant_recip_global_uniq",
             ),
         ]
 

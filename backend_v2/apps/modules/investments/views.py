@@ -207,16 +207,26 @@ class InvestmentApprovalConfigView(APIView):
             raise ValidationError({"return_type": "Недопустимый тип выплаты."})
         return raw
 
-    def _get_or_create(self, tenant, return_type: str | None):
+    @staticmethod
+    def _parse_recipient_param(raw) -> str | None:
+        if raw in (None, "", "null"):
+            return None
+        valid = {c[0] for c in InvestReturn.Recipient.choices}
+        if raw not in valid:
+            raise ValidationError({"recipient": "Недопустимый получатель."})
+        return raw
+
+    def _get_or_create(self, tenant, return_type: str | None, recipient: str | None):
         config, _ = InvestmentApprovalConfig.objects.get_or_create(
             tenant=tenant,
             return_type=return_type,
+            recipient=recipient,
             defaults={"is_enabled": False},
         )
         return config
 
-    def _response_payload(self, tenant, return_type: str | None):
-        config = self._get_or_create(tenant, return_type)
+    def _response_payload(self, tenant, return_type: str | None, recipient: str | None):
+        config = self._get_or_create(tenant, return_type, recipient)
         steps = list(config.steps.order_by("step", "id").prefetch_related("approver_users"))
         User = get_user_model()
         member_ids = TenantMembership.objects.filter(tenant=tenant, is_active=True).values_list(
@@ -230,7 +240,9 @@ class InvestmentApprovalConfigView(APIView):
         )
         return {
             "return_type": config.return_type,
+            "recipient": config.recipient,
             "return_type_choices": [{"value": c[0], "label": c[1]} for c in InvestReturn.ReturnType.choices],
+            "recipient_choices": [{"value": c[0], "label": c[1]} for c in InvestReturn.Recipient.choices],
             "is_enabled": config.is_enabled,
             "steps": [
                 {
@@ -248,7 +260,8 @@ class InvestmentApprovalConfigView(APIView):
     def get(self, request):
         self.check_permissions(request)
         rt = self._parse_return_type_param(request.query_params.get("return_type"))
-        return Response(self._response_payload(request.tenant, rt))
+        rec = self._parse_recipient_param(request.query_params.get("recipient"))
+        return Response(self._response_payload(request.tenant, rt, rec))
 
     def put(self, request):
         self.check_permissions(request)
@@ -256,9 +269,10 @@ class InvestmentApprovalConfigView(APIView):
         serializer.is_valid(raise_exception=True)
         payload = serializer.validated_data
         cfg_return_type = payload.get("return_type")
+        cfg_recipient = payload.get("recipient")
 
         with transaction.atomic():
-            config = self._get_or_create(request.tenant, cfg_return_type)
+            config = self._get_or_create(request.tenant, cfg_return_type, cfg_recipient)
             config.is_enabled = payload["is_enabled"]
             config.save(update_fields=["is_enabled", "updated_at"])
             config.steps.all().delete()
@@ -271,7 +285,9 @@ class InvestmentApprovalConfigView(APIView):
                     payment_chat_id=row.get("payment_chat_id"),
                 )
                 step.approver_users.set(row.get("approver_user_ids") or [])
-        return Response(self._response_payload(request.tenant, config.return_type))
+        return Response(
+            self._response_payload(request.tenant, config.return_type, config.recipient),
+        )
 
 
 class InvestmentApprovalDecisionView(APIView):

@@ -91,7 +91,7 @@ class InvestmentApprovalConfigStepInline(admin.TabularInline):
 
 @admin.register(InvestmentApprovalConfig)
 class InvestmentApprovalConfigAdmin(admin.ModelAdmin):
-    list_display = ("id", "tenant", "return_type", "is_enabled", "created_at", "updated_at")
+    list_display = ("id", "tenant", "return_type", "recipient", "is_enabled", "created_at", "updated_at")
     list_filter = ("is_enabled", "tenant")
     search_fields = ("tenant__subdomain", "tenant__name")
     autocomplete_fields = ("tenant",)
