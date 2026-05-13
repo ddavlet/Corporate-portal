@@ -11,6 +11,7 @@ import {
   Skeleton,
   Space,
   Table,
+  Tag,
   Typography,
   message,
 } from 'antd'
@@ -110,6 +111,13 @@ export function InvestmentsTab({
       dataIndex: 'currency',
       width: 90,
       sorter: (a, b) => a.currency.localeCompare(b.currency),
+    },
+    {
+      title: 'Подтверждено',
+      dataIndex: 'confirmed',
+      width: 130,
+      render: (v: boolean) =>
+        v ? <Tag color="success">Да</Tag> : <Tag color="warning">Нет</Tag>,
     },
     { title: 'Комментарий', dataIndex: 'comment', render: (v: string) => v || '-' },
     ]

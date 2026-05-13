@@ -17,6 +17,8 @@ from apps.modules.investments.models import (
     InvestPayoutSchedule,
     InvestPayoutScheduleShareLink,
     InvestReturn,
+    ProjectInvestment,
+    ProjectInvestmentApproval,
 )
 from apps.tenants.models import TenantMembership, TenantModuleConfig, TenantUserRole
 from apps.modules.reports.models import TenantReportSettings
@@ -373,6 +375,7 @@ class ProjectInvestmentSerializerTests(TestCase):
         self.assertTrue(serializer.is_valid(), serializer.errors)
         obj = serializer.save(tenant=self.tenant, created_by=self.user)
         self.assertEqual(obj.currency, "USD")
+        self.assertFalse(obj.confirmed)
         self.assertIsNotNone(obj.last_edit_at)
         self.assertIsNone(obj.company)
 
@@ -1110,6 +1113,137 @@ class InvestmentApprovalFlowTests(APITestCase):
         )
         payload_investor = bridge_mock.call_args.kwargs["payload"]
         self.assertEqual(payload_investor["recipient_id"], "111111")
+
+
+@override_settings(BASE_DOMAIN="example.com", N8N_INTEGRATION_TOKEN="", ALLOWED_HOSTS=["*"])
+class InvestmentProjectApprovalFlowTests(APITestCase):
+    def setUp(self):
+        self.tenant = Tenant.objects.create(name="ProjInvFlow", subdomain="projinvflow", is_active=True)
+        self.host = "projinvflow.example.com"
+        self.admin = User.objects.create_user(username="pi_admin", password="x")
+        self.approver1 = User.objects.create_user(
+            username="pi_appr_1",
+            password="x",
+            telegram_chat_id=155001,
+            telegram_from_id=177001,
+        )
+        self.approver2 = User.objects.create_user(
+            username="pi_appr_2",
+            password="x",
+            telegram_chat_id=155002,
+            telegram_from_id=177002,
+        )
+        for user in (self.admin, self.approver1, self.approver2):
+            TenantMembership.objects.create(tenant=self.tenant, user=user, is_active=True)
+        TenantUserRole.objects.create(tenant=self.tenant, user=self.admin, role=TenantUserRole.ROLE_ADMIN)
+        TenantUserRole.objects.create(tenant=self.tenant, user=self.approver1, role=TenantUserRole.ROLE_DIRECTOR)
+        TenantUserRole.objects.create(tenant=self.tenant, user=self.approver2, role=TenantUserRole.ROLE_DIRECTOR)
+        TenantModuleConfig.objects.create(tenant=self.tenant, module_key="investments", is_enabled=True)
+
+        self.client.force_authenticate(self.admin)
+        cfg_payload = {
+            "is_enabled": True,
+            "steps": [
+                {
+                    "step": 1,
+                    "step_type": InvestmentApprovalConfigStep.STEP_TYPE_SERIAL,
+                    "is_enabled": True,
+                    "approver_user_ids": [self.approver1.id],
+                },
+                {
+                    "step": 2,
+                    "step_type": InvestmentApprovalConfigStep.STEP_TYPE_CONFIRMATION,
+                    "is_enabled": True,
+                    "payment_chat_id": 166000,
+                    "approver_user_ids": [self.approver2.id],
+                },
+            ],
+        }
+        response = self.client.put(
+            "/api/investments/project-approval-config/", cfg_payload, format="json", HTTP_HOST=self.host
+        )
+        self.assertEqual(response.status_code, 200)
+
+    @patch("apps.modules.investments.project_investment_approval_services.post_messaging_gateway")
+    def test_create_placement_creates_approvals_and_telegram_card(self, bridge_mock):
+        bridge_mock.return_value = {"message_id": 501}
+        response = self.client.post(
+            "/api/investments/project-investments/",
+            {
+                "date": "2026-04-15",
+                "amount": "250000.00",
+                "currency": "USD",
+                "comment": "Seed round",
+            },
+            format="json",
+            HTTP_HOST=self.host,
+        )
+        self.assertEqual(response.status_code, 201)
+        created = ProjectInvestment.objects.get(id=response.data["id"])
+        self.assertFalse(created.confirmed)
+        self.assertEqual(created.approvals.count(), 2)
+        self.assertEqual(bridge_mock.call_count, 1)
+        payload = bridge_mock.call_args.kwargs["payload"]
+        self.assertIn("Вложение №", payload["text"])
+        self.assertIn("ProjInvFlow", payload["text"])
+        self.assertIn("250 000.00", payload["text"])
+        self.assertIn("Проверка вложения", payload["text"])
+        self.assertIn("Seed round", payload["text"])
+        self.assertTrue(payload["text"].strip().startswith("<b>"))
+        self.assertEqual(payload["buttons"][0][0]["label"], "✅ Проверено")
+
+    @patch("apps.modules.investments.project_investment_approval_services.post_messaging_gateway")
+    def test_webhook_invp_prefix_sets_confirmed(self, bridge_mock):
+        bridge_mock.return_value = {"message_id": 502}
+        response = self.client.post(
+            "/api/investments/project-investments/",
+            {
+                "date": "2026-05-01",
+                "amount": "10000.00",
+                "currency": "USD",
+                "comment": "",
+            },
+            format="json",
+            HTTP_HOST=self.host,
+        )
+        self.assertEqual(response.status_code, 201)
+        pi = ProjectInvestment.objects.get(id=response.data["id"])
+        first_step = pi.approvals.get(step=1)
+        second_step = pi.approvals.get(step=2)
+        ok_first = self.client.post(
+            "/api/investments/approvals/webhook/",
+            {
+                "event": "interaction",
+                "payload": f"invp_{first_step.id}:a",
+                "user_id": str(self.approver1.telegram_from_id),
+                "recipient_id": str(self.approver1.telegram_chat_id),
+                "message_id": first_step.gateway_message_id or 502,
+                "platform": "telegram",
+            },
+            format="json",
+            HTTP_HOST=self.host,
+        )
+        self.assertEqual(ok_first.status_code, 200)
+        second_step.refresh_from_db()
+        ok_second = self.client.post(
+            "/api/investments/approvals/webhook/",
+            {
+                "event": "interaction",
+                "payload": f"invp_{second_step.id}:a",
+                "user_id": str(self.approver2.telegram_from_id),
+                "recipient_id": "166000",
+                "message_id": second_step.gateway_message_id,
+                "platform": "telegram",
+            },
+            format="json",
+            HTTP_HOST=self.host,
+        )
+        self.assertEqual(ok_second.status_code, 200)
+        pi.refresh_from_db()
+        self.assertTrue(pi.confirmed)
+        self.assertEqual(
+            ProjectInvestmentApproval.objects.filter(project_investment=pi, decision="approved").count(), 2
+        )
 
 
 class BillingMonthRulesTests(SimpleTestCase):

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Alert, Button, Input, Skeleton, Typography } from 'antd'
+import { Alert, Button, Input, Skeleton, Tag, Typography } from 'antd'
 import { useNavigate } from 'react-router-dom'
 import { ArrowLeftOutlined, SearchOutlined } from '@ant-design/icons'
 import {
@@ -130,6 +130,15 @@ export function TgInvestmentsProjectsPage() {
               <div className="tg-request-row-meta">
                 <span className="tg-request-row-amount">{formatAmount(row.amount, row.currency)}</span>
                 <span>{formatDate(row.date)}</span>
+                {row.confirmed ? (
+                  <Tag color="success" style={{ margin: 0 }}>
+                    Подтверждено
+                  </Tag>
+                ) : (
+                  <Tag color="warning" style={{ margin: 0 }}>
+                    На согласовании
+                  </Tag>
+                )}
                 {row.comment ? <span>{row.comment}</span> : null}
               </div>
             </div>

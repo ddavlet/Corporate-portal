@@ -30,6 +30,7 @@ import { TenantIntegrationConfigPage } from '../ui/settings/TenantIntegrationCon
 import { UserRolesSettingsPage } from '../ui/settings/UserRolesSettingsPage'
 import { CashRegistersSettingsPage } from '../ui/settings/CashRegistersSettingsPage'
 import { InvestmentApprovalConfigPage } from '../ui/settings/InvestmentApprovalConfigPage'
+import { InvestmentProjectApprovalConfigPage } from '../ui/settings/InvestmentProjectApprovalConfigPage'
 import { InvestmentFormConfigPage } from '../ui/settings/InvestmentFormConfigPage'
 import { PnlReportSettingsPage } from '../ui/settings/PnlReportSettingsPage'
 import { AdminRouteGate } from '../ui/admin/AdminRouteGate'
@@ -129,6 +130,7 @@ export function App() {
         <Route path="settings/request-approval-config" element={<RequestApprovalConfigPage />} />
         <Route path="settings/investment-form-config" element={<InvestmentFormConfigPage />} />
         <Route path="settings/investment-approval-config" element={<InvestmentApprovalConfigPage />} />
+        <Route path="settings/investment-project-approval-config" element={<InvestmentProjectApprovalConfigPage />} />
         <Route path="settings/tenant-integration-config" element={<TenantIntegrationConfigPage />} />
         <Route path="settings/users-roles" element={<UserRolesSettingsPage />} />
         <Route path="settings/cash-registers" element={<CashRegistersSettingsPage />} />

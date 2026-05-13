@@ -7,6 +7,8 @@ from apps.modules.investments.views import (
     InvestmentApprovalDecisionView,
     InvestmentApprovalWebhookView,
     InvestmentFormConfigView,
+    InvestmentProjectApprovalConfigView,
+    InvestmentProjectApprovalDecisionView,
     InvestPayoutScheduleViewSet,
     InvestPayoutScheduleShareLinkViewSet,
     InvestReturnViewSet,
@@ -27,6 +29,12 @@ urlpatterns = [
     path("public/payout-schedule/<str:token>/", PublicInvestPayoutScheduleByTokenView.as_view(), name="invest-public-payout-schedule"),
     path("form-config/", InvestmentFormConfigView.as_view(), name="invest-form-config"),
     path("approval-config/", InvestmentApprovalConfigView.as_view(), name="invest-approval-config"),
+    path("project-approval-config/", InvestmentProjectApprovalConfigView.as_view(), name="invest-project-approval-config"),
     path("approvals/<int:approval_id>/decision/", InvestmentApprovalDecisionView.as_view(), name="invest-approval-decision"),
+    path(
+        "project-approvals/<int:approval_id>/decision/",
+        InvestmentProjectApprovalDecisionView.as_view(),
+        name="invest-project-approval-decision",
+    ),
     path("approvals/webhook/", InvestmentApprovalWebhookView.as_view(), name="invest-approvals-webhook"),
 ]
