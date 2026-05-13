@@ -289,12 +289,16 @@ class PublicInvestPayoutScheduleShareViewSerializer(serializers.Serializer):
 
 class InvestmentApprovalConfigStepSerializer(serializers.Serializer):
     step = serializers.IntegerField(min_value=1)
-    step_type = serializers.ChoiceField(choices=InvestmentApprovalConfigStep.STEP_TYPE_CHOICES, default=InvestmentApprovalConfigStep.STEP_TYPE_SERIAL)
+    step_type = serializers.ChoiceField(
+        choices=InvestmentApprovalConfigStep.STEP_TYPE_CHOICES,
+        default=InvestmentApprovalConfigStep.STEP_TYPE_SERIAL,
+    )
     is_enabled = serializers.BooleanField(default=True)
     payment_chat_id = serializers.IntegerField(required=False, allow_null=True, default=None)
     approver_user_ids = serializers.ListField(
         child=serializers.IntegerField(min_value=1),
-        allow_empty=False,
+        allow_empty=True,
+        required=False,
     )
 
 
@@ -307,9 +311,18 @@ class InvestmentFormConfigSerializer(serializers.Serializer):
 
 
 class InvestmentApprovalConfigSerializer(serializers.Serializer):
+    return_type = serializers.CharField(required=False, allow_null=True, allow_blank=True, max_length=25)
     is_enabled = serializers.BooleanField(default=False)
     steps = InvestmentApprovalConfigStepSerializer(many=True)
     approver_candidates = serializers.ListField(read_only=True)
+
+    def validate_return_type(self, value):
+        if value in (None, ""):
+            return None
+        valid = {c[0] for c in InvestReturn.ReturnType.choices}
+        if value not in valid:
+            raise serializers.ValidationError("Недопустимый тип выплаты.")
+        return value
 
     def validate_steps(self, value):
         seen_steps: set[int] = set()
@@ -318,12 +331,21 @@ class InvestmentApprovalConfigSerializer(serializers.Serializer):
             if step in seen_steps:
                 raise serializers.ValidationError("Step numbers must be unique.")
             seen_steps.add(step)
-            if row.get("is_enabled", True) and not row.get("approver_user_ids"):
-                raise serializers.ValidationError("Enabled step must contain at least one approver.")
             step_type = row.get("step_type") or InvestmentApprovalConfigStep.STEP_TYPE_SERIAL
-            if step_type == InvestmentApprovalConfigStep.STEP_TYPE_CONFIRMATION and row.get("payment_chat_id") in (None, ""):
-                raise serializers.ValidationError("Confirmation step must contain payment_chat_id.")
-            if step_type != InvestmentApprovalConfigStep.STEP_TYPE_CONFIRMATION:
+            is_enabled = row.get("is_enabled", True)
+            approver_ids = row.get("approver_user_ids") or []
+            if is_enabled:
+                if step_type != InvestmentApprovalConfigStep.STEP_TYPE_NOTIFICATION and not approver_ids:
+                    raise serializers.ValidationError("У активного этапа должен быть хотя бы один согласующий.")
+                if step_type in (
+                    InvestmentApprovalConfigStep.STEP_TYPE_CONFIRMATION,
+                    InvestmentApprovalConfigStep.STEP_TYPE_NOTIFICATION,
+                ):
+                    if row.get("payment_chat_id") in (None, ""):
+                        raise serializers.ValidationError(
+                            "Для этапов confirmation и notification нужен payment_chat_id (Telegram chat)."
+                        )
+            if step_type == InvestmentApprovalConfigStep.STEP_TYPE_SERIAL:
                 row["payment_chat_id"] = None
         return value
 

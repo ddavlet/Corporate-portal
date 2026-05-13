@@ -13,6 +13,7 @@ from apps.modules.investments.models import (
     InvestCompany,
     InvestmentApprovalConfigStep,
     InvestmentFormConfig,
+    InvestmentReturnApproval,
     InvestPayoutSchedule,
     InvestPayoutScheduleShareLink,
     InvestReturn,
@@ -580,6 +581,7 @@ class InvestmentApprovalFlowTests(APITestCase):
 
         self.client.force_authenticate(self.admin)
         cfg_payload = {
+            "return_type": None,
             "is_enabled": True,
             "steps": [
                 {
@@ -833,6 +835,130 @@ class InvestmentApprovalFlowTests(APITestCase):
         last_payload = bridge_mock.call_args.kwargs["payload"]
         self.assertEqual(last_payload.get("buttons"), [])
         self.assertIn("message_id", last_payload)
+
+    def test_get_approval_config_rejects_invalid_return_type_query(self):
+        res = self.client.get("/api/investments/approval-config/?return_type=invalid_type", HTTP_HOST=self.host)
+        self.assertEqual(res.status_code, 400)
+
+    @patch("apps.modules.investments.approval_services.post_messaging_gateway")
+    def test_uses_return_type_specific_config_when_present(self, bridge_mock):
+        bridge_mock.return_value = {"message_id": 303}
+        self.client.put(
+            "/api/investments/approval-config/",
+            {
+                "return_type": None,
+                "is_enabled": True,
+                "steps": [
+                    {
+                        "step": 1,
+                        "step_type": InvestmentApprovalConfigStep.STEP_TYPE_SERIAL,
+                        "is_enabled": True,
+                        "approver_user_ids": [self.approver1.id],
+                    },
+                ],
+            },
+            format="json",
+            HTTP_HOST=self.host,
+        )
+        self.client.put(
+            "/api/investments/approval-config/",
+            {
+                "return_type": "проценты",
+                "is_enabled": True,
+                "steps": [
+                    {
+                        "step": 1,
+                        "step_type": InvestmentApprovalConfigStep.STEP_TYPE_SERIAL,
+                        "is_enabled": True,
+                        "approver_user_ids": [self.approver2.id],
+                    },
+                ],
+            },
+            format="json",
+            HTTP_HOST=self.host,
+        )
+        self.client.post(
+            "/api/investments/returns/",
+            {
+                "date": "2026-04-29",
+                "sum": "10.00",
+                "currency": "USD",
+                "type": "дивиденды",
+                "recipient": "инвестор",
+            },
+            format="json",
+            HTTP_HOST=self.host,
+        )
+        div_payload = bridge_mock.call_args.kwargs["payload"]
+        self.assertEqual(div_payload["recipient_id"], str(self.approver1.telegram_chat_id))
+        bridge_mock.reset_mock()
+        bridge_mock.return_value = {"message_id": 304}
+        self.client.post(
+            "/api/investments/returns/",
+            {
+                "date": "2026-04-29",
+                "sum": "11.00",
+                "currency": "USD",
+                "type": "проценты",
+                "recipient": "партнер",
+            },
+            format="json",
+            HTTP_HOST=self.host,
+        )
+        pct_payload = bridge_mock.call_args.kwargs["payload"]
+        self.assertEqual(pct_payload["recipient_id"], str(self.approver2.telegram_chat_id))
+
+    @patch("apps.modules.investments.approval_services.post_messaging_gateway")
+    def test_notification_step_dispatches_without_buttons_and_auto_approves(self, bridge_mock):
+        bridge_mock.return_value = {"message_id": 801}
+        self.client.put(
+            "/api/investments/approval-config/",
+            {
+                "return_type": None,
+                "is_enabled": True,
+                "steps": [
+                    {
+                        "step": 1,
+                        "step_type": InvestmentApprovalConfigStep.STEP_TYPE_NOTIFICATION,
+                        "is_enabled": True,
+                        "payment_chat_id": 888001,
+                        "approver_user_ids": [],
+                    },
+                    {
+                        "step": 2,
+                        "step_type": InvestmentApprovalConfigStep.STEP_TYPE_SERIAL,
+                        "is_enabled": True,
+                        "approver_user_ids": [self.approver1.id],
+                    },
+                ],
+            },
+            format="json",
+            HTTP_HOST=self.host,
+        )
+        response = self.client.post(
+            "/api/investments/returns/",
+            {
+                "date": "2026-04-29",
+                "sum": "42.00",
+                "currency": "USD",
+                "type": "дивиденды",
+                "recipient": "инвестор",
+            },
+            format="json",
+            HTTP_HOST=self.host,
+        )
+        self.assertEqual(response.status_code, 201)
+        inv_return = InvestReturn.objects.get(id=response.data["id"])
+        notif = inv_return.approvals.get(step=1)
+        serial = inv_return.approvals.get(step=2)
+        self.assertEqual(notif.decision, InvestmentReturnApproval.DECISION_APPROVED)
+        self.assertEqual(serial.decision, InvestmentReturnApproval.DECISION_PENDING)
+        calls = [c.kwargs["payload"] for c in bridge_mock.call_args_list]
+        self.assertEqual(calls[0]["recipient_id"], "888001")
+        self.assertEqual(calls[0].get("buttons"), [])
+        self.assertIn("Уведомление", calls[0]["text"])
+        self.assertEqual(calls[1]["recipient_id"], str(self.approver1.telegram_chat_id))
+        self.assertGreater(len(calls[1].get("buttons", [])), 0)
 
 
 class BillingMonthRulesTests(SimpleTestCase):

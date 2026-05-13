@@ -3,6 +3,7 @@ import secrets
 
 from django.conf import settings
 from django.db import models
+from django.db.models import Q
 
 from apps.tenants.models import Tenant
 
@@ -201,21 +202,46 @@ class InvestmentFormConfig(models.Model):
 
 
 class InvestmentApprovalConfig(models.Model):
-    tenant = models.OneToOneField(Tenant, on_delete=models.CASCADE, related_name="investment_approval_config")
+    tenant = models.ForeignKey(
+        Tenant,
+        on_delete=models.CASCADE,
+        related_name="investment_approval_configs",
+    )
+    return_type = models.CharField(
+        max_length=25,
+        choices=InvestReturn.ReturnType.choices,
+        null=True,
+        blank=True,
+        help_text="Если пусто — конфиг по умолчанию для всех типов выплат без отдельной настройки.",
+    )
     is_enabled = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
         db_table = "investment_approval_config"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["tenant"],
+                condition=Q(return_type__isnull=True),
+                name="invapprcfg_tenant_default_uniq",
+            ),
+            models.UniqueConstraint(
+                fields=["tenant", "return_type"],
+                condition=Q(return_type__isnull=False),
+                name="invapprcfg_tenant_type_uniq",
+            ),
+        ]
 
 
 class InvestmentApprovalConfigStep(models.Model):
     STEP_TYPE_SERIAL = "serial"
     STEP_TYPE_CONFIRMATION = "confirmation"
+    STEP_TYPE_NOTIFICATION = "notification"
     STEP_TYPE_CHOICES = [
         (STEP_TYPE_SERIAL, STEP_TYPE_SERIAL),
         (STEP_TYPE_CONFIRMATION, STEP_TYPE_CONFIRMATION),
+        (STEP_TYPE_NOTIFICATION, STEP_TYPE_NOTIFICATION),
     ]
 
     config = models.ForeignKey(InvestmentApprovalConfig, on_delete=models.CASCADE, related_name="steps")

@@ -1044,13 +1044,15 @@ export type CreateInvestReturnPayload = {
 
 export type InvestmentApprovalConfigStepItem = {
   step: number
-  step_type: 'serial' | 'confirmation'
+  step_type: 'serial' | 'confirmation' | 'notification'
   is_enabled: boolean
   payment_chat_id?: number | null
   approver_user_ids: number[]
 }
 
 export type InvestmentApprovalConfigResponse = {
+  return_type: string | null
+  return_type_choices: InvestmentReturnTypeChoice[]
   is_enabled: boolean
   steps: InvestmentApprovalConfigStepItem[]
   approver_candidates: Array<{ id: number; username: string }>
@@ -1254,8 +1256,14 @@ export async function createInvestPayoutSchedule(
   return json
 }
 
-export async function getInvestmentApprovalConfig(): Promise<InvestmentApprovalConfigResponse> {
-  const res = await apiFetch('/api/investments/approval-config/')
+export async function getInvestmentApprovalConfig(
+  returnType?: string | null,
+): Promise<InvestmentApprovalConfigResponse> {
+  const params = new URLSearchParams()
+  if (returnType != null && returnType !== '') params.set('return_type', returnType)
+  const qs = params.toString()
+  const url = qs ? `/api/investments/approval-config/?${qs}` : '/api/investments/approval-config/'
+  const res = await apiFetch(url)
   if (!res.ok) throw new Error(await parseErrorBody(res))
   const json = (await res.json().catch(() => null)) as InvestmentApprovalConfigResponse | null
   if (!json) throw new Error('Empty response')
@@ -1263,7 +1271,7 @@ export async function getInvestmentApprovalConfig(): Promise<InvestmentApprovalC
 }
 
 export async function updateInvestmentApprovalConfig(
-  payload: Pick<InvestmentApprovalConfigResponse, 'is_enabled' | 'steps'>,
+  payload: Pick<InvestmentApprovalConfigResponse, 'is_enabled' | 'steps' | 'return_type'>,
 ): Promise<InvestmentApprovalConfigResponse> {
   const res = await apiFetch('/api/investments/approval-config/', {
     method: 'PUT',
