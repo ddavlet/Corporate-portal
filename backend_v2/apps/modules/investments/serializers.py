@@ -312,6 +312,7 @@ class InvestmentFormConfigSerializer(serializers.Serializer):
 
 class InvestmentApprovalConfigSerializer(serializers.Serializer):
     return_type = serializers.CharField(required=False, allow_null=True, allow_blank=True, max_length=25)
+    recipient = serializers.CharField(required=False, allow_null=True, allow_blank=True, max_length=20)
     is_enabled = serializers.BooleanField(default=False)
     steps = InvestmentApprovalConfigStepSerializer(many=True)
     approver_candidates = serializers.ListField(read_only=True)
@@ -322,6 +323,14 @@ class InvestmentApprovalConfigSerializer(serializers.Serializer):
         valid = {c[0] for c in InvestReturn.ReturnType.choices}
         if value not in valid:
             raise serializers.ValidationError("Недопустимый тип выплаты.")
+        return value
+
+    def validate_recipient(self, value):
+        if value in (None, ""):
+            return None
+        valid = {c[0] for c in InvestReturn.Recipient.choices}
+        if value not in valid:
+            raise serializers.ValidationError("Недопустимый получатель.")
         return value
 
     def validate_steps(self, value):

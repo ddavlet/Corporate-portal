@@ -1050,15 +1050,17 @@ export type InvestmentApprovalConfigStepItem = {
   approver_user_ids: number[]
 }
 
+export type InvestmentReturnTypeChoice = { value: string; label: string }
+
 export type InvestmentApprovalConfigResponse = {
   return_type: string | null
+  recipient: string | null
   return_type_choices: InvestmentReturnTypeChoice[]
+  recipient_choices: InvestmentReturnTypeChoice[]
   is_enabled: boolean
   steps: InvestmentApprovalConfigStepItem[]
   approver_candidates: Array<{ id: number; username: string }>
 }
-
-export type InvestmentReturnTypeChoice = { value: string; label: string }
 
 export type InvestmentFormConfigResponse = {
   uses_companies: boolean
@@ -1258,9 +1260,11 @@ export async function createInvestPayoutSchedule(
 
 export async function getInvestmentApprovalConfig(
   returnType?: string | null,
+  recipient?: string | null,
 ): Promise<InvestmentApprovalConfigResponse> {
   const params = new URLSearchParams()
   if (returnType != null && returnType !== '') params.set('return_type', returnType)
+  if (recipient != null && recipient !== '') params.set('recipient', recipient)
   const qs = params.toString()
   const url = qs ? `/api/investments/approval-config/?${qs}` : '/api/investments/approval-config/'
   const res = await apiFetch(url)
@@ -1271,7 +1275,7 @@ export async function getInvestmentApprovalConfig(
 }
 
 export async function updateInvestmentApprovalConfig(
-  payload: Pick<InvestmentApprovalConfigResponse, 'is_enabled' | 'steps' | 'return_type'>,
+  payload: Pick<InvestmentApprovalConfigResponse, 'is_enabled' | 'steps' | 'return_type' | 'recipient'>,
 ): Promise<InvestmentApprovalConfigResponse> {
   const res = await apiFetch('/api/investments/approval-config/', {
     method: 'PUT',

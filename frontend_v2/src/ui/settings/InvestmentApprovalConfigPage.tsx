@@ -12,6 +12,7 @@ import {
 import { labelBlockAboveField } from '../formSpacing'
 
 const DEFAULT_RETURN_TYPE_KEY = '__default__'
+const DEFAULT_RECIPIENT_KEY = '__all__'
 
 function emptyStep(step: number): InvestmentApprovalConfigStepItem {
   return { step, step_type: 'serial', is_enabled: true, payment_chat_id: null, approver_user_ids: [] }
@@ -24,12 +25,13 @@ export function InvestmentApprovalConfigPage() {
   const [error, setError] = useState<string | null>(null)
   const [data, setData] = useState<InvestmentApprovalConfigResponse | null>(null)
   const [returnTypeFilter, setReturnTypeFilter] = useState<string | null>(null)
+  const [recipientFilter, setRecipientFilter] = useState<string | null>(null)
 
-  const load = useCallback(async (rt: string | null) => {
+  const load = useCallback(async (rt: string | null, rec: string | null) => {
     setLoading(true)
     setError(null)
     try {
-      const cfg = await getInvestmentApprovalConfig(rt)
+      const cfg = await getInvestmentApprovalConfig(rt, rec)
       setData(cfg)
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Ошибка загрузки')
@@ -39,8 +41,8 @@ export function InvestmentApprovalConfigPage() {
   }, [])
 
   useEffect(() => {
-    void load(returnTypeFilter)
-  }, [load, returnTypeFilter])
+    void load(returnTypeFilter, recipientFilter)
+  }, [load, returnTypeFilter, recipientFilter])
 
   const approverOptions = useMemo(
     () => (data?.approver_candidates ?? []).map((u) => ({ value: u.id, label: u.username })),
@@ -54,6 +56,14 @@ export function InvestmentApprovalConfigPage() {
       ...choices.map((c) => ({ value: c.value, label: c.label })),
     ]
   }, [data?.return_type_choices])
+
+  const recipientSelectOptions = useMemo(() => {
+    const choices = data?.recipient_choices ?? []
+    return [
+      { value: DEFAULT_RECIPIENT_KEY, label: 'Все получатели (в рамках выбранного типа)' },
+      ...choices.map((c) => ({ value: c.value, label: c.label })),
+    ]
+  }, [data?.recipient_choices])
 
   const updateStep = (idx: number, patch: Partial<InvestmentApprovalConfigStepItem>) => {
     setData((prev) => {
@@ -85,6 +95,7 @@ export function InvestmentApprovalConfigPage() {
     try {
       const next = await updateInvestmentApprovalConfig({
         return_type: returnTypeFilter,
+        recipient: recipientFilter,
         is_enabled: data.is_enabled,
         steps: data.steps.map((s) => ({
           step: s.step,
@@ -104,7 +115,8 @@ export function InvestmentApprovalConfigPage() {
     }
   }
 
-  const selectValue = returnTypeFilter == null ? DEFAULT_RETURN_TYPE_KEY : returnTypeFilter
+  const selectReturnValue = returnTypeFilter == null ? DEFAULT_RETURN_TYPE_KEY : returnTypeFilter
+  const selectRecipientValue = recipientFilter == null ? DEFAULT_RECIPIENT_KEY : recipientFilter
 
   return (
     <Card>
@@ -115,8 +127,9 @@ export function InvestmentApprovalConfigPage() {
         Инвестиции - этапы согласования
       </Typography.Title>
       <Typography.Paragraph type="secondary" style={{ marginBottom: 0 }}>
-        Настройте шаги подтверждения новой выплаты по инвестициям в Telegram. Для каждого типа выплаты можно задать
-        отдельную цепочку; если для типа нет настройки, используется конфиг «по умолчанию».
+        Отдельная цепочка для комбинации типа выплаты и получателя: можно задать разные этапы и разные chat для
+        confirmation (партнёр / инвестор). Если для пары «тип + получатель» нет записи, используется настройка «все
+        получатели» для этого типа, затем глобальный дефолт.
       </Typography.Paragraph>
 
       <Divider />
@@ -125,13 +138,25 @@ export function InvestmentApprovalConfigPage() {
       <Space direction="vertical" size={12} style={{ display: 'flex', marginBottom: 12 }}>
         <div>
           <Typography.Text strong style={labelBlockAboveField}>
-            Тип выплаты (отдельный конфиг)
+            Тип выплаты
           </Typography.Text>
           <Select
             style={{ width: '100%', maxWidth: 480 }}
-            value={selectValue}
+            value={selectReturnValue}
             onChange={(v) => setReturnTypeFilter(v === DEFAULT_RETURN_TYPE_KEY ? null : String(v))}
             options={returnTypeSelectOptions}
+            disabled={loading && !data}
+          />
+        </div>
+        <div>
+          <Typography.Text strong style={labelBlockAboveField}>
+            Получатель выплаты
+          </Typography.Text>
+          <Select
+            style={{ width: '100%', maxWidth: 480 }}
+            value={selectRecipientValue}
+            onChange={(v) => setRecipientFilter(v === DEFAULT_RECIPIENT_KEY ? null : String(v))}
+            options={recipientSelectOptions}
             disabled={loading && !data}
           />
         </div>
@@ -142,7 +167,7 @@ export function InvestmentApprovalConfigPage() {
       {!loading && data ? (
         <Space direction="vertical" size={12} style={{ display: 'flex' }}>
           <Checkbox checked={data.is_enabled} onChange={(e) => setData({ ...data, is_enabled: e.target.checked })}>
-            Включить согласование выплат по инвестициям (для этого типа)
+            Включить согласование для этой комбинации (тип + получатель)
           </Checkbox>
           {(data.steps ?? [])
             .slice()
