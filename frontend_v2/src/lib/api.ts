@@ -1021,6 +1021,7 @@ export type InvestReturnRow = {
   date: string
   sum: string | number
   sum_uzs?: string | number | null
+  cbu_usd_uzs_rate?: string | number | null
   currency: string
   confirmed: boolean
   type: string
@@ -1033,7 +1034,6 @@ export type CreateInvestReturnPayload = {
   company?: number | null
   date: string
   sum: string | number
-  sum_uzs?: string | number | null
   comment?: string
   currency: string
   type: string
@@ -1137,7 +1137,6 @@ export async function createInvestReturn(payload: CreateInvestReturnPayload): Pr
     comment: payload.comment ?? '',
   }
   if (payload.company !== undefined) body.company = payload.company
-  if (payload.sum_uzs !== undefined) body.sum_uzs = payload.sum_uzs
   const res = await apiFetch('/api/investments/returns/', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
