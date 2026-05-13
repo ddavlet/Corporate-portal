@@ -929,7 +929,7 @@ class InvestmentApprovalFlowTests(APITestCase):
     @patch("apps.modules.investments.approval_services.post_messaging_gateway")
     def test_notification_step_dispatches_without_buttons_and_auto_approves(self, bridge_mock):
         bridge_mock.return_value = {"message_id": 801}
-        self.client.put(
+        put_res = self.client.put(
             "/api/investments/approval-config/",
             {
                 "return_type": None,
@@ -953,6 +953,7 @@ class InvestmentApprovalFlowTests(APITestCase):
             format="json",
             HTTP_HOST=self.host,
         )
+        self.assertEqual(put_res.status_code, 200, put_res.data)
         response = self.client.post(
             "/api/investments/returns/",
             {
@@ -973,11 +974,16 @@ class InvestmentApprovalFlowTests(APITestCase):
         self.assertEqual(notif.decision, InvestmentReturnApproval.DECISION_APPROVED)
         self.assertEqual(serial.decision, InvestmentReturnApproval.DECISION_PENDING)
         calls = [c.kwargs["payload"] for c in bridge_mock.call_args_list]
-        self.assertEqual(calls[0]["recipient_id"], "888001")
-        self.assertEqual(calls[0].get("buttons"), [])
-        self.assertIn("Уведомление", calls[0]["text"])
-        self.assertEqual(calls[1]["recipient_id"], str(self.approver1.telegram_chat_id))
-        self.assertGreater(len(calls[1].get("buttons", [])), 0)
+        notify_sends = [p for p in calls if p.get("recipient_id") == "888001" and p.get("buttons") == []]
+        serial_sends = [
+            p
+            for p in calls
+            if p.get("recipient_id") == str(self.approver1.telegram_chat_id) and p.get("buttons")
+        ]
+        self.assertTrue(notify_sends, "ожидался send в chat notification без кнопок")
+        self.assertIn("Уведомление", notify_sends[0]["text"])
+        self.assertTrue(serial_sends, "ожидался send serial с кнопками")
+        self.assertLess(calls.index(notify_sends[0]), calls.index(serial_sends[0]))
 
 
 class BillingMonthRulesTests(SimpleTestCase):
