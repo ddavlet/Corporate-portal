@@ -1054,6 +1054,26 @@ export type InvestmentApprovalConfigResponse = {
   approver_candidates: Array<{ id: number; username: string }>
 }
 
+export type InvestmentReturnTypeChoice = { value: string; label: string }
+
+export type InvestmentFormConfigResponse = {
+  uses_companies: boolean
+  allowed_return_types: string[]
+  return_type_choices: InvestmentReturnTypeChoice[]
+}
+
+/** Fallback when form-config API fails — mirrors backend InvestReturn.ReturnType. */
+export const DEFAULT_INVESTMENT_FORM_CONFIG: InvestmentFormConfigResponse = {
+  uses_companies: true,
+  allowed_return_types: ['дивиденды', 'проценты', 'доля_прибыли', 'тело_инвестиций'],
+  return_type_choices: [
+    { value: 'дивиденды', label: 'Дивиденды' },
+    { value: 'проценты', label: 'Проценты' },
+    { value: 'доля_прибыли', label: 'Доля прибыли' },
+    { value: 'тело_инвестиций', label: 'Тело инвестиций' },
+  ],
+}
+
 export async function getInvestCompanies(): Promise<InvestCompanyRow[]> {
   const res = await apiFetch('/api/investments/companies/')
   if (!res.ok) throw new Error(await parseErrorBody(res))
@@ -1249,6 +1269,28 @@ export async function updateInvestmentApprovalConfig(
   })
   if (!res.ok) throw new Error(await parseErrorBody(res))
   const json = (await res.json().catch(() => null)) as InvestmentApprovalConfigResponse | null
+  if (!json) throw new Error('Empty response')
+  return json
+}
+
+export async function getInvestmentFormConfig(): Promise<InvestmentFormConfigResponse> {
+  const res = await apiFetch('/api/investments/form-config/')
+  if (!res.ok) throw new Error(await parseErrorBody(res))
+  const json = (await res.json().catch(() => null)) as InvestmentFormConfigResponse | null
+  if (!json) throw new Error('Empty response')
+  return json
+}
+
+export async function updateInvestmentFormConfig(
+  payload: Pick<InvestmentFormConfigResponse, 'uses_companies' | 'allowed_return_types'>,
+): Promise<InvestmentFormConfigResponse> {
+  const res = await apiFetch('/api/investments/form-config/', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+  if (!res.ok) throw new Error(await parseErrorBody(res))
+  const json = (await res.json().catch(() => null)) as InvestmentFormConfigResponse | null
   if (!json) throw new Error('Empty response')
   return json
 }

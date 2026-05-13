@@ -1,8 +1,13 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Alert, Button, Input, Skeleton, Tag, Typography } from 'antd'
-import { useNavigate } from 'react-router-dom'
+import { Navigate, useNavigate } from 'react-router-dom'
 import { ArrowLeftOutlined, SearchOutlined } from '@ant-design/icons'
-import { getInvestCompanies, type InvestCompanyRow } from '../../lib/api'
+import {
+  DEFAULT_INVESTMENT_FORM_CONFIG,
+  getInvestmentFormConfig,
+  getInvestCompanies,
+  type InvestCompanyRow,
+} from '../../lib/api'
 
 export function TgInvestmentsCompaniesPage() {
   const navigate = useNavigate()
@@ -10,6 +15,7 @@ export function TgInvestmentsCompaniesPage() {
   const [error, setError] = useState<string | null>(null)
   const [rows, setRows] = useState<InvestCompanyRow[]>([])
   const [search, setSearch] = useState('')
+  const [blocked, setBlocked] = useState<boolean | null>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -17,6 +23,14 @@ export function TgInvestmentsCompaniesPage() {
       setError(null)
       setLoading(true)
       try {
+        const cfg = await getInvestmentFormConfig().catch(() => DEFAULT_INVESTMENT_FORM_CONFIG)
+        if (cancelled) return
+        if (!cfg.uses_companies) {
+          setBlocked(true)
+          setLoading(false)
+          return
+        }
+        setBlocked(false)
         const data = await getInvestCompanies()
         if (!cancelled) setRows(data)
       } catch (e: unknown) {
@@ -29,6 +43,10 @@ export function TgInvestmentsCompaniesPage() {
       cancelled = true
     }
   }, [])
+
+  if (blocked === true) {
+    return <Navigate to="/tg/investments" replace />
+  }
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase()

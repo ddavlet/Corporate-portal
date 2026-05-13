@@ -6,6 +6,7 @@ from apps.modules.investments.models import (
     InvestCompany,
     InvestmentApprovalConfig,
     InvestmentApprovalConfigStep,
+    InvestmentFormConfig,
     InvestmentReturnApproval,
     InvestPayoutSchedule,
     InvestPayoutScheduleShareLink,
@@ -38,6 +39,17 @@ class _CompanyScopeMixin:
             company_field.queryset = InvestCompany.objects.filter(tenant=tenant)
         else:
             company_field.queryset = InvestCompany.objects.none()
+
+
+def investment_form_clear_company_if_disabled(attrs, request) -> dict:
+    """When tenant disabled companies in form settings, drop company FK on write."""
+    tenant = getattr(request, "tenant", None)
+    if not tenant:
+        return attrs
+    cfg = InvestmentFormConfig.objects.filter(tenant=tenant).first()
+    if cfg and not cfg.uses_companies:
+        attrs["company"] = None
+    return attrs
 
 
 class InvestReturnSerializer(_CompanyScopeMixin, serializers.ModelSerializer):
@@ -74,7 +86,20 @@ class InvestReturnSerializer(_CompanyScopeMixin, serializers.ModelSerializer):
         merged_currency = str(merged_currency or "USD").strip().upper()
         if merged_currency not in ("USD", "UZS"):
             raise serializers.ValidationError({"currency": "Допустимы только USD и UZS."})
-        return attrs
+        tenant = getattr(self.context.get("request"), "tenant", None)
+        if tenant:
+            cfg = InvestmentFormConfig.objects.filter(tenant=tenant).first()
+            if cfg:
+                allowed = cfg.allowed_return_types or []
+                if allowed:
+                    merged_type = attrs.get("type")
+                    if merged_type is None and self.instance is not None:
+                        merged_type = self.instance.type
+                    if merged_type not in allowed:
+                        raise serializers.ValidationError(
+                            {"type": "Этот тип выплат отключён в настройках формы инвестиций."}
+                        )
+        return investment_form_clear_company_if_disabled(attrs, self.context.get("request"))
 
     def create(self, validated_data):
         try:
@@ -138,7 +163,7 @@ class InvestPayoutScheduleSerializer(_CompanyScopeMixin, serializers.ModelSerial
     def validate(self, attrs):
         reject_client_pk_on_create(self)
         _normalize_currency(attrs)
-        return attrs
+        return investment_form_clear_company_if_disabled(attrs, self.context.get("request"))
 
 
 class ProjectInvestmentSerializer(_CompanyScopeMixin, serializers.ModelSerializer):
@@ -161,7 +186,7 @@ class ProjectInvestmentSerializer(_CompanyScopeMixin, serializers.ModelSerialize
     def validate(self, attrs):
         reject_client_pk_on_create(self)
         _normalize_currency(attrs)
-        return attrs
+        return investment_form_clear_company_if_disabled(attrs, self.context.get("request"))
 
 
 class InvestCompanySerializer(serializers.ModelSerializer):
@@ -207,7 +232,7 @@ class InvestPayoutScheduleShareLinkSerializer(_CompanyScopeMixin, serializers.Mo
 
     def validate(self, attrs):
         reject_client_pk_on_create(self)
-        return attrs
+        return investment_form_clear_company_if_disabled(attrs, self.context.get("request"))
 
 
 class PublicInvestPayoutScheduleShareViewSerializer(serializers.Serializer):
@@ -229,6 +254,14 @@ class InvestmentApprovalConfigStepSerializer(serializers.Serializer):
     payment_chat_id = serializers.IntegerField(required=False, allow_null=True, default=None)
     approver_user_ids = serializers.ListField(
         child=serializers.IntegerField(min_value=1),
+        allow_empty=False,
+    )
+
+
+class InvestmentFormConfigSerializer(serializers.Serializer):
+    uses_companies = serializers.BooleanField()
+    allowed_return_types = serializers.ListField(
+        child=serializers.ChoiceField(choices=InvestReturn.ReturnType.choices),
         allow_empty=False,
     )
 

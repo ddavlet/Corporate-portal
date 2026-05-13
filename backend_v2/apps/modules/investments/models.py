@@ -183,6 +183,19 @@ class InvestPayoutScheduleShareLink(models.Model):
         super().save(*args, **kwargs)
 
 
+class InvestmentFormConfig(models.Model):
+    """Per-tenant UI/create rules for investments (payout types whitelist, companies on/off)."""
+
+    tenant = models.OneToOneField(Tenant, on_delete=models.CASCADE, related_name="investment_form_config")
+    uses_companies = models.BooleanField(default=True)
+    allowed_return_types = models.JSONField(default=list, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "investment_form_config"
+
+
 class InvestmentApprovalConfig(models.Model):
     tenant = models.OneToOneField(Tenant, on_delete=models.CASCADE, related_name="investment_approval_config")
     is_enabled = models.BooleanField(default=False)

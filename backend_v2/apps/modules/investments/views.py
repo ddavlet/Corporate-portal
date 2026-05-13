@@ -18,6 +18,7 @@ from apps.modules.investments.models import (
     InvestCompany,
     InvestmentApprovalConfig,
     InvestmentApprovalConfigStep,
+    InvestmentFormConfig,
     InvestmentReturnApproval,
     InvestPayoutSchedule,
     InvestPayoutScheduleShareLink,
@@ -29,6 +30,7 @@ from apps.modules.investments.serializers import (
     InvestmentApprovalConfigSerializer,
     InvestmentApprovalDecisionSerializer,
     InvestmentApprovalWebhookSerializer,
+    InvestmentFormConfigSerializer,
     InvestPayoutScheduleSerializer,
     InvestPayoutScheduleShareLinkSerializer,
     InvestReturnSerializer,
@@ -76,6 +78,12 @@ class ProjectInvestmentViewSet(_InvestmentsTenantViewSet):
 class InvestCompanyViewSet(_InvestmentsTenantViewSet):
     serializer_class = InvestCompanySerializer
     queryset = InvestCompany.objects.all()
+
+    def perform_create(self, serializer):
+        cfg = InvestmentFormConfig.objects.filter(tenant=self.request.tenant).first()
+        if cfg and not cfg.uses_companies:
+            raise ValidationError({"detail": "Создание компаний отключено в настройках формы инвестиций."})
+        super().perform_create(serializer)
 
 
 class InvestPayoutScheduleShareLinkViewSet(_InvestmentsTenantViewSet):
@@ -138,6 +146,52 @@ class PublicInvestPayoutScheduleByTokenView(APIView):
                 "rows": PublicInvestPayoutScheduleShareViewSerializer(rows, many=True).data,
             }
         )
+
+
+class InvestmentFormConfigView(APIView):
+    permission_classes = [IsAuthenticated, HasEffectiveModuleAccess]
+    module_key = "investments"
+
+    @staticmethod
+    def _all_return_type_values() -> list[str]:
+        return [c[0] for c in InvestReturn.ReturnType.choices]
+
+    def _payload(self, tenant):
+        cfg = InvestmentFormConfig.objects.filter(tenant=tenant).first()
+        choices_payload = [{"value": c[0], "label": str(c[1])} for c in InvestReturn.ReturnType.choices]
+        all_values = self._all_return_type_values()
+        if not cfg:
+            return {
+                "uses_companies": True,
+                "allowed_return_types": all_values,
+                "return_type_choices": choices_payload,
+            }
+        allowed = list(cfg.allowed_return_types or [])
+        if not allowed:
+            allowed = all_values
+        return {
+            "uses_companies": cfg.uses_companies,
+            "allowed_return_types": allowed,
+            "return_type_choices": choices_payload,
+        }
+
+    def get(self, request):
+        self.check_permissions(request)
+        return Response(self._payload(request.tenant))
+
+    def put(self, request):
+        self.check_permissions(request)
+        serializer = InvestmentFormConfigSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        payload = serializer.validated_data
+        InvestmentFormConfig.objects.update_or_create(
+            tenant=request.tenant,
+            defaults={
+                "uses_companies": payload["uses_companies"],
+                "allowed_return_types": list(payload["allowed_return_types"]),
+            },
+        )
+        return Response(self._payload(request.tenant))
 
 
 class InvestmentApprovalConfigView(APIView):
