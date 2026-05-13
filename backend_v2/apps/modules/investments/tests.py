@@ -1,6 +1,6 @@
 from datetime import date
 from decimal import Decimal
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.contrib.auth import get_user_model
 from django.test import TestCase
@@ -23,6 +23,7 @@ from apps.modules.investments.serializers import (
     InvestReturnSerializer,
     ProjectInvestmentSerializer,
 )
+from apps.modules.investments.services import fetch_cbu_usd_uzs_rate
 from apps.modules.investments.views import PublicInvestPayoutScheduleByTokenView
 from apps.tenants.models import Tenant
 
@@ -165,6 +166,30 @@ class InvestReturnSerializerTests(TestCase):
         ret.refresh_from_db()
         self.assertIsNotNone(ret.last_edit_at)
         self.assertGreaterEqual(ret.last_edit_at, t1)
+
+
+class InvestReturnCbuServicesTests(TestCase):
+    @patch("apps.modules.investments.services.requests.get")
+    def test_fetch_cbu_uses_all_by_date_url(self, mock_get):
+        mock_resp = MagicMock()
+        mock_resp.raise_for_status.return_value = None
+        mock_resp.json.return_value = [{"Ccy": "USD", "Nominal": "1", "Rate": "12000.5"}]
+        mock_get.return_value = mock_resp
+
+        out = fetch_cbu_usd_uzs_rate(rate_date=date(2020, 1, 15))
+        self.assertEqual(out, Decimal("12000.5"))
+        url = mock_get.call_args[0][0]
+        self.assertIn("/all/2020-01-15/", url)
+
+    @patch("apps.modules.investments.services.requests.get")
+    def test_fetch_cbu_accepts_single_object_json(self, mock_get):
+        mock_resp = MagicMock()
+        mock_resp.raise_for_status.return_value = None
+        mock_resp.json.return_value = {"Ccy": "USD", "Nominal": "1", "Rate": "11500"}
+        mock_get.return_value = mock_resp
+
+        out = fetch_cbu_usd_uzs_rate(rate_date=date(2019, 6, 1))
+        self.assertEqual(out, Decimal("11500"))
 
 
 class InvestPayoutScheduleSerializerTests(TestCase):
