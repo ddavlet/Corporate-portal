@@ -23,7 +23,10 @@ from apps.modules.investments.serializers import (
     InvestReturnSerializer,
     ProjectInvestmentSerializer,
 )
-from apps.modules.investments.services import fetch_cbu_usd_uzs_rate
+from apps.modules.investments.services import (
+    fetch_cbu_usd_uzs_rate,
+    invest_return_cbu_usd_rate_and_sum_uzs_from_bulletin,
+)
 from apps.modules.investments.views import PublicInvestPayoutScheduleByTokenView
 from apps.tenants.models import Tenant
 
@@ -190,6 +193,33 @@ class InvestReturnCbuServicesTests(TestCase):
 
         out = fetch_cbu_usd_uzs_rate(rate_date=date(2019, 6, 1))
         self.assertEqual(out, Decimal("11500"))
+
+    def test_invest_return_cbu_fields_from_bulletin_usd(self):
+        rows = [{"Ccy": "USD", "Nominal": "1", "Rate": "10000"}]
+        usd, su = invest_return_cbu_usd_rate_and_sum_uzs_from_bulletin(
+            sum_val=Decimal("2"), currency="USD", rows=rows
+        )
+        self.assertEqual(usd, Decimal("10000"))
+        self.assertEqual(su, Decimal("20000"))
+
+    def test_invest_return_cbu_fields_from_bulletin_uzs(self):
+        rows = [{"Ccy": "USD", "Nominal": "1", "Rate": "12000"}]
+        usd, su = invest_return_cbu_usd_rate_and_sum_uzs_from_bulletin(
+            sum_val=Decimal("5000"), currency="UZS", rows=rows
+        )
+        self.assertEqual(usd, Decimal("12000"))
+        self.assertEqual(su, Decimal("5000"))
+
+    def test_invest_return_cbu_fields_from_bulletin_eur(self):
+        rows = [
+            {"Ccy": "USD", "Nominal": "1", "Rate": "12000"},
+            {"Ccy": "EUR", "Nominal": "1", "Rate": "13000"},
+        ]
+        usd, su = invest_return_cbu_usd_rate_and_sum_uzs_from_bulletin(
+            sum_val=Decimal("10"), currency="EUR", rows=rows
+        )
+        self.assertEqual(usd, Decimal("12000"))
+        self.assertEqual(su, Decimal("130000"))
 
 
 class InvestPayoutScheduleSerializerTests(TestCase):
