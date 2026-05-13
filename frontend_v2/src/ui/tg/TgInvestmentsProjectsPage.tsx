@@ -3,6 +3,8 @@ import { Alert, Button, Input, Skeleton, Typography } from 'antd'
 import { useNavigate } from 'react-router-dom'
 import { ArrowLeftOutlined, SearchOutlined } from '@ant-design/icons'
 import {
+  DEFAULT_INVESTMENT_FORM_CONFIG,
+  getInvestmentFormConfig,
   getInvestCompanies,
   getProjectInvestments,
   type InvestCompanyRow,
@@ -36,6 +38,7 @@ export function TgInvestmentsProjectsPage() {
   const [rows, setRows] = useState<ProjectInvestmentRow[]>([])
   const [companies, setCompanies] = useState<InvestCompanyRow[]>([])
   const [search, setSearch] = useState('')
+  const [usesCompanies, setUsesCompanies] = useState(true)
 
   useEffect(() => {
     let cancelled = false
@@ -43,13 +46,16 @@ export function TgInvestmentsProjectsPage() {
       setError(null)
       setLoading(true)
       try {
-        const [items, companyRows] = await Promise.all([
+        const cfgPromise = getInvestmentFormConfig().catch(() => DEFAULT_INVESTMENT_FORM_CONFIG)
+        const [items, companyRows, cfg] = await Promise.all([
           getProjectInvestments(),
           getInvestCompanies(),
+          cfgPromise,
         ])
         if (cancelled) return
         setRows(items)
         setCompanies(companyRows)
+        setUsesCompanies(cfg.uses_companies)
       } catch (e: unknown) {
         if (!cancelled) setError(e instanceof Error ? e.message : 'Ошибка загрузки')
       } finally {
@@ -118,7 +124,9 @@ export function TgInvestmentsProjectsPage() {
       {!loading && !error
         ? filtered.map((row) => (
             <div key={row.id} className="tg-request-row" style={{ cursor: 'default' }}>
-              <div className="tg-request-row-title">{companyLabel(row.company)}</div>
+              <div className="tg-request-row-title">
+                {usesCompanies ? companyLabel(row.company) : formatAmount(row.amount, row.currency)}
+              </div>
               <div className="tg-request-row-meta">
                 <span className="tg-request-row-amount">{formatAmount(row.amount, row.currency)}</span>
                 <span>{formatDate(row.date)}</span>

@@ -43,6 +43,8 @@ type Props = {
   companies: InvestCompanyRow[]
   companyLabel: (id: number | null) => string
   companyFilter: CompanyFilter
+  usesCompanies: boolean
+  returnTypeSelectOptions: { value: string; label: string }[]
   onCreated: () => Promise<void> | void
 }
 
@@ -56,19 +58,21 @@ type FormValues = {
   comment?: string
 }
 
-const TYPE_OPTIONS = [
-  { value: 'дивиденды', label: 'Дивиденды' },
-  { value: 'проценты', label: 'Проценты' },
-  { value: 'доля_прибыли', label: 'Доля прибыли' },
-  { value: 'тело_инвестиций', label: 'Тело инвестиций' },
-]
-
 const RECIPIENT_OPTIONS = [
   { value: 'инвестор', label: 'Инвестор' },
   { value: 'партнер', label: 'Партнер' },
 ]
 
-export function ReturnsTab({ loading, rows, companies, companyLabel, companyFilter, onCreated }: Props) {
+export function ReturnsTab({
+  loading,
+  rows,
+  companies,
+  companyLabel,
+  companyFilter,
+  usesCompanies,
+  returnTypeSelectOptions,
+  onCreated,
+}: Props) {
   const [form] = Form.useForm<FormValues>()
   const [open, setOpen] = useState(false)
   const [submitting, setSubmitting] = useState(false)
@@ -88,22 +92,25 @@ export function ReturnsTab({ loading, rows, companies, companyLabel, companyFilt
     [filtered],
   )
 
-  const columns: ColumnsType<InvestReturnRow> = [
+  const columns: ColumnsType<InvestReturnRow> = useMemo(() => {
+    const companyCol = {
+      title: 'Компания',
+      dataIndex: 'company' as const,
+      width: 220,
+      render: (v: number | null) => companyLabel(v),
+      sorter: (a: InvestReturnRow, b: InvestReturnRow) =>
+        companyLabel(a.company).localeCompare(companyLabel(b.company)),
+    }
+    const rest: ColumnsType<InvestReturnRow> = [
     {
       title: 'Дата',
       dataIndex: 'date',
       width: 120,
       render: (v: string) => dateText(v),
       sorter: (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime(),
-      defaultSortOrder: 'descend',
+      defaultSortOrder: 'descend' as const,
     },
-    {
-      title: 'Компания',
-      dataIndex: 'company',
-      width: 220,
-      render: (v: number | null) => companyLabel(v),
-      sorter: (a, b) => companyLabel(a.company).localeCompare(companyLabel(b.company)),
-    },
+    ...(usesCompanies ? [companyCol] : []),
     {
       title: 'Сумма',
       dataIndex: 'sum',
@@ -143,14 +150,17 @@ export function ReturnsTab({ loading, rows, companies, companyLabel, companyFilt
       sorter: (a, b) => Number(a.confirmed) - Number(b.confirmed),
     },
     { title: 'Комментарий', dataIndex: 'comment', render: (v: string) => v || '-' },
-  ]
+    ]
+    return rest
+  }, [usesCompanies, companyLabel])
 
   const openCreate = () => {
     form.resetFields()
+    const firstType = returnTypeSelectOptions[0]?.value ?? 'дивиденды'
     form.setFieldsValue({
       date: dayjs(),
       currency: 'USD',
-      type: 'дивиденды',
+      type: firstType,
       recipient: 'инвестор',
     })
     setOpen(true)
@@ -244,9 +254,11 @@ export function ReturnsTab({ loading, rows, companies, companyLabel, companyFilt
         width={620}
       >
         <Form form={form} layout="vertical" preserve={false}>
-          <Form.Item label="Компания" name="company">
-            <Select allowClear options={makeCompanySelectOptions(companies)} placeholder="Без компании" />
-          </Form.Item>
+          {usesCompanies ? (
+            <Form.Item label="Компания" name="company">
+              <Select allowClear options={makeCompanySelectOptions(companies)} placeholder="Без компании" />
+            </Form.Item>
+          ) : null}
           <Space style={{ width: '100%' }} align="start" wrap>
             <Form.Item label="Дата" name="date" rules={[{ required: true, message: 'Укажите дату' }]}>
               <DatePicker format="DD.MM.YYYY" />
@@ -264,7 +276,7 @@ export function ReturnsTab({ loading, rows, companies, companyLabel, companyFilt
           </Space>
           <Space style={{ width: '100%' }} align="start" wrap>
             <Form.Item label="Тип" name="type" rules={[{ required: true }]}>
-              <Select style={{ width: 200 }} options={TYPE_OPTIONS} />
+              <Select style={{ width: 200 }} options={returnTypeSelectOptions} />
             </Form.Item>
             <Form.Item label="Получатель" name="recipient" rules={[{ required: true }]}>
               <Select style={{ width: 180 }} options={RECIPIENT_OPTIONS} />

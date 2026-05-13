@@ -12,6 +12,7 @@ from rest_framework.test import APITestCase
 from apps.modules.investments.models import (
     InvestCompany,
     InvestmentApprovalConfigStep,
+    InvestmentFormConfig,
     InvestPayoutSchedule,
     InvestPayoutScheduleShareLink,
     InvestReturn,
@@ -170,6 +171,53 @@ class InvestReturnSerializerTests(TestCase):
         self.assertIsNotNone(ret.last_edit_at)
         self.assertGreaterEqual(ret.last_edit_at, t1)
 
+    @patch("apps.modules.investments.serializers.fetch_cbu_usd_uzs_rate", return_value=Decimal("12600"))
+    def test_rejects_disallowed_return_type(self, _mock_fetch):
+        InvestmentFormConfig.objects.create(
+            tenant=self.tenant,
+            uses_companies=True,
+            allowed_return_types=["проценты"],
+        )
+        request = factory.post("/api/investments/returns/")
+        request.tenant = self.tenant
+        serializer = InvestReturnSerializer(
+            data={
+                "date": date(2026, 4, 17),
+                "sum": "100.00",
+                "currency": "USD",
+                "type": "дивиденды",
+                "recipient": "инвестор",
+            },
+            context={"request": request},
+        )
+        self.assertFalse(serializer.is_valid())
+        self.assertIn("type", serializer.errors)
+
+    @patch("apps.modules.investments.serializers.fetch_cbu_usd_uzs_rate", return_value=Decimal("12600"))
+    def test_create_clears_company_when_form_disables_companies(self, _mock_fetch):
+        co = InvestCompany.objects.create(tenant=self.tenant, name="Co", created_by=self.user)
+        InvestmentFormConfig.objects.create(
+            tenant=self.tenant,
+            uses_companies=False,
+            allowed_return_types=["дивиденды", "проценты", "доля_прибыли", "тело_инвестиций"],
+        )
+        request = factory.post("/api/investments/returns/")
+        request.tenant = self.tenant
+        serializer = InvestReturnSerializer(
+            data={
+                "date": date(2026, 4, 17),
+                "sum": "100.00",
+                "currency": "USD",
+                "type": "дивиденды",
+                "recipient": "инвестор",
+                "company": co.id,
+            },
+            context={"request": request},
+        )
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+        obj = serializer.save(tenant=self.tenant, created_by=self.user)
+        self.assertIsNone(obj.company_id)
+
 
 class InvestReturnCbuServicesTests(TestCase):
     @patch("apps.modules.investments.services.requests.get")
@@ -244,6 +292,31 @@ class InvestPayoutScheduleSerializerTests(TestCase):
         self.assertIsNotNone(obj.created_at)
         self.assertIsNotNone(obj.last_edit_at)
         self.assertIsNone(obj.company)
+
+    def test_clears_company_when_form_disables_companies(self):
+        co = InvestCompany.objects.create(tenant=self.tenant, name="SchedCo", created_by=self.user)
+        InvestmentFormConfig.objects.create(
+            tenant=self.tenant,
+            uses_companies=False,
+            allowed_return_types=["дивиденды"],
+        )
+        request = factory.post("/api/investments/payout-schedule/")
+        request.tenant = self.tenant
+        serializer = InvestPayoutScheduleSerializer(
+            data={
+                "payout_date": date(2026, 6, 1),
+                "amount": "5000.00",
+                "currency": "USD",
+                "is_paid": False,
+                "payment_amount": "0",
+                "comment": "Q2",
+                "company": co.id,
+            },
+            context={"request": request},
+        )
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+        obj = serializer.save(tenant=self.tenant, created_by=self.user)
+        self.assertIsNone(obj.company_id)
 
 
 class ProjectInvestmentSerializerTests(TestCase):
@@ -392,6 +465,51 @@ class InvestPayoutScheduleShareLinkTests(TestCase):
         request = factory.get(f"/api/investments/public/payout-schedule/{link.token}/")
         response = view(request, token=link.token)
         self.assertEqual(response.status_code, 404)
+
+
+@override_settings(BASE_DOMAIN="example.com", ALLOWED_HOSTS=["*"])
+class InvestmentFormConfigApiTests(APITestCase):
+    def setUp(self):
+        self.tenant = Tenant.objects.create(name="FormCfg", subdomain="formcfg", is_active=True)
+        self.host = "formcfg.example.com"
+        self.user = User.objects.create_user(username="form_admin", password="x")
+        TenantMembership.objects.create(tenant=self.tenant, user=self.user, is_active=True)
+        TenantUserRole.objects.create(tenant=self.tenant, user=self.user, role=TenantUserRole.ROLE_ADMIN)
+        TenantModuleConfig.objects.create(tenant=self.tenant, module_key="investments", is_enabled=True)
+        self.client.force_authenticate(self.user)
+        InvestmentFormConfig.objects.create(
+            tenant=self.tenant,
+            uses_companies=False,
+            allowed_return_types=["дивиденды", "проценты"],
+        )
+
+    def test_get_form_config_returns_saved_values(self):
+        res = self.client.get("/api/investments/form-config/", HTTP_HOST=self.host)
+        self.assertEqual(res.status_code, 200)
+        self.assertFalse(res.data["uses_companies"])
+        self.assertEqual(set(res.data["allowed_return_types"]), {"дивиденды", "проценты"})
+
+    def test_put_updates_form_config(self):
+        all_types = [c[0] for c in InvestReturn.ReturnType.choices]
+        res = self.client.put(
+            "/api/investments/form-config/",
+            {"uses_companies": True, "allowed_return_types": all_types},
+            format="json",
+            HTTP_HOST=self.host,
+        )
+        self.assertEqual(res.status_code, 200)
+        self.assertTrue(res.data["uses_companies"])
+        cfg = InvestmentFormConfig.objects.get(tenant=self.tenant)
+        self.assertTrue(cfg.uses_companies)
+
+    def test_create_company_rejected_when_disabled(self):
+        res = self.client.post(
+            "/api/investments/companies/",
+            {"name": "NewCo", "comment": ""},
+            format="json",
+            HTTP_HOST=self.host,
+        )
+        self.assertEqual(res.status_code, 400)
 
 
 @override_settings(BASE_DOMAIN="example.com", N8N_INTEGRATION_TOKEN="", ALLOWED_HOSTS=["*"])
