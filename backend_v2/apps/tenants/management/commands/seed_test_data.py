@@ -552,10 +552,19 @@ class Command(BaseCommand):
             (Decimal("5000000"), InvestReturn.ReturnType.INTEREST, InvestReturn.Recipient.INVESTOR),
             (Decimal("3000000"), InvestReturn.ReturnType.PRINCIPAL, InvestReturn.Recipient.PARTNER),
         ]):
+            payout_dt = today - timedelta(days=i * 10)
             InvestReturn.objects.create(
-                tenant=tenant, created_by=admin,
-                date=today - timedelta(days=i * 10),
-                sum=amount, type=inv_type, recipient=recipient,
+                tenant=tenant,
+                created_by=admin,
+                date=payout_dt,
+                billing_date=payout_dt.replace(day=1),
+                sum=amount,
+                sum_uzs=amount,
+                currency="UZS",
+                type=inv_type,
+                recipient=recipient,
+                comment="",
+                confirmed=False,
             )
         self.stdout.write("  Investments: 4 invest returns")
 

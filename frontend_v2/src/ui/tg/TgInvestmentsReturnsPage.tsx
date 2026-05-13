@@ -43,6 +43,12 @@ const RECIPIENT_LABEL: Record<string, string> = {
   партнер: 'Партнер',
 }
 
+function accrualMonthShort(iso: string | undefined): string {
+  if (!iso || iso.length < 7) return '—'
+  const [y, m] = iso.slice(0, 10).split('-')
+  return m && y ? `${m}.${y}` : '—'
+}
+
 export function TgInvestmentsReturnsPage() {
   const navigate = useNavigate()
   const [loading, setLoading] = useState(true)
@@ -146,6 +152,7 @@ export function TgInvestmentsReturnsPage() {
                 </Tag>
                 <span>{TYPE_LABEL[row.type] || row.type || '—'}</span>
                 <span>{RECIPIENT_LABEL[row.recipient] || row.recipient || '—'}</span>
+                <span>Нач.: {accrualMonthShort(row.billing_date)}</span>
                 <span>{formatDate(row.date)}</span>
                 {row.comment ? <span>{row.comment}</span> : null}
               </div>

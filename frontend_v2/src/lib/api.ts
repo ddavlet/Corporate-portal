@@ -1019,6 +1019,7 @@ export type InvestReturnRow = {
   id: number
   company: number | null
   date: string
+  billing_date: string
   sum: string | number
   sum_uzs?: string | number | null
   cbu_usd_uzs_rate?: string | number | null
@@ -1033,6 +1034,7 @@ export type InvestReturnRow = {
 export type CreateInvestReturnPayload = {
   company?: number | null
   date: string
+  billing_date: string
   sum: string | number
   comment?: string
   currency: string
@@ -1149,6 +1151,7 @@ export async function getInvestReturns(): Promise<InvestReturnRow[]> {
 export async function createInvestReturn(payload: CreateInvestReturnPayload): Promise<InvestReturnRow> {
   const body: Record<string, unknown> = {
     date: payload.date,
+    billing_date: payload.billing_date,
     sum: payload.sum,
     currency: payload.currency,
     type: payload.type,

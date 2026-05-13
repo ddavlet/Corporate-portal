@@ -191,7 +191,15 @@ def _system_user():
     return User.objects.filter(pk=1).first()
 
 
-def _n8n_upsert(request, *, serializer_class, get_instance, other_tenant_conflict, build_create_kwargs):
+def _n8n_upsert(
+    request,
+    *,
+    serializer_class,
+    get_instance,
+    other_tenant_conflict,
+    build_create_kwargs,
+    serializer_context_extra=None,
+):
     su = _system_user()
     if su is None:
         return Response({"detail": "System user (pk=1) is missing."}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
@@ -206,9 +214,13 @@ def _n8n_upsert(request, *, serializer_class, get_instance, other_tenant_conflic
     else:
         pk = None
 
+    ctx_base = {"request": request}
+    if serializer_context_extra:
+        ctx_base.update(serializer_context_extra)
+
     # Create without client PK when `id` is not provided.
     if pk is None:
-        ser = serializer_class(data=data, context={"request": request})
+        ser = serializer_class(data=data, context=ctx_base)
         ser.is_valid(raise_exception=True)
         try:
             with transaction.atomic():
@@ -218,10 +230,9 @@ def _n8n_upsert(request, *, serializer_class, get_instance, other_tenant_conflic
         return Response(ser.data, status=status.HTTP_201_CREATED)
 
     instance = get_instance(pk)
-    ctx = {"request": request}
 
     if instance:
-        ser = serializer_class(instance=instance, data=data, partial=True, context=ctx)
+        ser = serializer_class(instance=instance, data=data, partial=True, context=ctx_base)
         ser.is_valid(raise_exception=True)
         try:
             with transaction.atomic():
@@ -233,7 +244,7 @@ def _n8n_upsert(request, *, serializer_class, get_instance, other_tenant_conflic
     if other_tenant_conflict(pk):
         return Response({"id": ["This ID already exists in another tenant."]}, status=status.HTTP_400_BAD_REQUEST)
 
-    ser = serializer_class(data=data, context=ctx)
+    ser = serializer_class(data=data, context=ctx_base)
     ser.is_valid(raise_exception=True)
     try:
         with transaction.atomic():
@@ -1432,6 +1443,7 @@ class N8nInvestReturnUpsertView(_N8nBaseView):
             get_instance=get_instance,
             other_tenant_conflict=other_tenant_conflict,
             build_create_kwargs=build_create_kwargs,
+            serializer_context_extra={"skip_invest_return_billing_window": True},
         )
 
 

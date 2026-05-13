@@ -27,6 +27,9 @@ class InvestReturn(models.Model):
         blank=True,
     )
     date = models.DateField()
+    billing_date = models.DateField(
+        help_text="Первый день месяца начисления (PnL и отчёты по месяцу назначения, как у заявок).",
+    )
     sum = models.DecimalField(max_digits=18, decimal_places=2)
     comment = models.TextField(blank=True, default="")
     confirmed = models.BooleanField(default=False)
@@ -54,6 +57,7 @@ class InvestReturn(models.Model):
         ordering = ["-date", "-created_at", "-id"]
         indexes = [
             models.Index(fields=["tenant", "date"], name="invret_tenant_date_idx"),
+            models.Index(fields=["tenant", "billing_date"], name="invret_tenant_billing_idx"),
             models.Index(fields=["tenant", "confirmed"], name="invret_tenant_conf_idx"),
         ]
 
