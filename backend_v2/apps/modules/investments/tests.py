@@ -56,6 +56,7 @@ class InvestReturnSerializerTests(TestCase):
         serializer = InvestReturnSerializer(
             data={
                 "date": date(2026, 4, 17),
+                "billing_date": date(2026, 4, 1),
                 "sum": "100.00",
                 "comment": "Dividend payout",
                 "confirmed": True,
@@ -78,6 +79,7 @@ class InvestReturnSerializerTests(TestCase):
         serializer = InvestReturnSerializer(
             data={
                 "date": date(2026, 4, 17),
+                "billing_date": date(2026, 4, 1),
                 "sum": "5000000",
                 "comment": "Payout in soums",
                 "confirmed": False,
@@ -100,6 +102,7 @@ class InvestReturnSerializerTests(TestCase):
         serializer = InvestReturnSerializer(
             data={
                 "date": date(2026, 4, 17),
+                "billing_date": date(2026, 4, 1),
                 "sum": "100.00",
                 "currency": "USD",
                 "type": "дивиденды",
@@ -113,6 +116,7 @@ class InvestReturnSerializerTests(TestCase):
         serializer = InvestReturnSerializer(
             data={
                 "date": date(2026, 4, 17),
+                "billing_date": date(2026, 4, 1),
                 "sum": "100.00",
                 "currency": "EUR",
                 "type": "проценты",
@@ -127,6 +131,7 @@ class InvestReturnSerializerTests(TestCase):
         serializer = InvestReturnSerializer(
             data={
                 "date": date(2026, 4, 17),
+                "billing_date": date(2026, 4, 1),
                 "sum": "10.00",
                 "sum_uzs": "1.00",
                 "currency": "USD",
@@ -146,6 +151,7 @@ class InvestReturnSerializerTests(TestCase):
         serializer = InvestReturnSerializer(
             data={
                 "date": date(2026, 4, 17),
+                "billing_date": date(2026, 4, 1),
                 "sum": "10.00",
                 "currency": "USD",
                 "type": "дивиденды",
@@ -212,6 +218,7 @@ class InvestReturnSerializerTests(TestCase):
         serializer = InvestReturnSerializer(
             data={
                 "date": date(2026, 4, 17),
+                "billing_date": date(2026, 4, 1),
                 "sum": "100.00",
                 "currency": "USD",
                 "type": "дивиденды",
@@ -235,6 +242,7 @@ class InvestReturnSerializerTests(TestCase):
         serializer = InvestReturnSerializer(
             data={
                 "date": date(2026, 4, 17),
+                "billing_date": date(2026, 4, 1),
                 "sum": "100.00",
                 "currency": "USD",
                 "type": "дивиденды",
@@ -616,6 +624,7 @@ class InvestmentApprovalFlowTests(APITestCase):
             "/api/investments/returns/",
             {
                 "date": "2026-04-29",
+                "billing_date": "2026-04-01",
                 "sum": "1200.00",
                 "currency": "USD",
                 "type": "дивиденды",
@@ -649,6 +658,7 @@ class InvestmentApprovalFlowTests(APITestCase):
             "/api/investments/returns/",
             {
                 "date": "2026-04-29",
+                "billing_date": "2026-04-01",
                 "sum": "900.00",
                 "currency": "USD",
                 "type": "проценты",
@@ -735,6 +745,7 @@ class InvestmentApprovalFlowTests(APITestCase):
             "/api/investments/returns/",
             {
                 "date": "2026-04-29",
+                "billing_date": "2026-04-01",
                 "sum": "500.00",
                 "currency": "USD",
                 "type": "дивиденды",
@@ -743,6 +754,7 @@ class InvestmentApprovalFlowTests(APITestCase):
             format="json",
             HTTP_HOST=self.host,
         )
+        self.assertEqual(response.status_code, 201)
         inv_return = InvestReturn.objects.get(id=response.data["id"])
         first_step = inv_return.approvals.get(step=1)
         reject_res = self.client.post(
@@ -769,6 +781,7 @@ class InvestmentApprovalFlowTests(APITestCase):
             "/api/investments/returns/",
             {
                 "date": "2026-04-29",
+                "billing_date": "2026-04-01",
                 "sum": "750.00",
                 "currency": "USD",
                 "type": "дивиденды",
@@ -807,6 +820,7 @@ class InvestmentApprovalFlowTests(APITestCase):
             "/api/investments/returns/",
             {
                 "date": "2026-04-29",
+                "billing_date": "2026-04-01",
                 "sum": "100.00",
                 "currency": "USD",
                 "type": "дивиденды",
@@ -877,10 +891,11 @@ class InvestmentApprovalFlowTests(APITestCase):
             format="json",
             HTTP_HOST=self.host,
         )
-        self.client.post(
+        div_res = self.client.post(
             "/api/investments/returns/",
             {
                 "date": "2026-04-29",
+                "billing_date": "2026-04-01",
                 "sum": "10.00",
                 "currency": "USD",
                 "type": "дивиденды",
@@ -889,14 +904,16 @@ class InvestmentApprovalFlowTests(APITestCase):
             format="json",
             HTTP_HOST=self.host,
         )
+        self.assertEqual(div_res.status_code, 201, div_res.data)
         div_payload = bridge_mock.call_args.kwargs["payload"]
         self.assertEqual(div_payload["recipient_id"], str(self.approver1.telegram_chat_id))
         bridge_mock.reset_mock()
         bridge_mock.return_value = {"message_id": 304}
-        self.client.post(
+        pct_res = self.client.post(
             "/api/investments/returns/",
             {
                 "date": "2026-04-29",
+                "billing_date": "2026-04-01",
                 "sum": "11.00",
                 "currency": "USD",
                 "type": "проценты",
@@ -905,6 +922,7 @@ class InvestmentApprovalFlowTests(APITestCase):
             format="json",
             HTTP_HOST=self.host,
         )
+        self.assertEqual(pct_res.status_code, 201, pct_res.data)
         pct_payload = bridge_mock.call_args.kwargs["payload"]
         self.assertEqual(pct_payload["recipient_id"], str(self.approver2.telegram_chat_id))
 
@@ -939,6 +957,7 @@ class InvestmentApprovalFlowTests(APITestCase):
             "/api/investments/returns/",
             {
                 "date": "2026-04-29",
+                "billing_date": "2026-04-01",
                 "sum": "42.00",
                 "currency": "USD",
                 "type": "дивиденды",
