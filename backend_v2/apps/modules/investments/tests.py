@@ -645,6 +645,14 @@ class InvestmentFormConfigApiTests(APITestCase):
         self.assertFalse(res.data["uses_companies"])
         self.assertEqual(set(res.data["allowed_return_types"]), {"дивиденды", "проценты"})
 
+    def test_form_config_records_readonly_list(self):
+        res = self.client.get("/api/investments/form-config-records/", HTTP_HOST=self.host)
+        self.assertEqual(res.status_code, 200)
+        self.assertIsInstance(res.data, list)
+        self.assertEqual(len(res.data), 1)
+        self.assertEqual(res.data[0]["id"], InvestmentFormConfig.objects.get(tenant=self.tenant).id)
+        self.assertEqual(self.client.post("/api/investments/form-config-records/", {}, format="json", HTTP_HOST=self.host).status_code, 405)
+
     def test_put_updates_form_config(self):
         all_types = [c[0] for c in InvestReturn.ReturnType.choices]
         res = self.client.put(

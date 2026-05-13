@@ -18,9 +18,11 @@ from apps.modules.investments.models import (
     InvestCompany,
     InvestmentApprovalConfig,
     InvestmentApprovalConfigStep,
+    InvestmentApprovalConfigStepApprover,
     InvestmentFormConfig,
     InvestmentProjectApprovalConfig,
     InvestmentProjectApprovalConfigStep,
+    InvestmentProjectApprovalConfigStepApprover,
     InvestmentReturnApproval,
     InvestPayoutSchedule,
     InvestPayoutScheduleShareLink,
@@ -37,15 +39,24 @@ from apps.modules.investments.project_investment_approval_services import (
 )
 from apps.modules.investments.serializers import (
     InvestCompanySerializer,
+    InvestmentApprovalConfigReadSerializer,
     InvestmentApprovalConfigSerializer,
+    InvestmentApprovalConfigStepApproverReadSerializer,
+    InvestmentApprovalConfigStepReadSerializer,
     InvestmentApprovalDecisionSerializer,
     InvestmentApprovalWebhookSerializer,
+    InvestmentFormConfigReadSerializer,
     InvestmentFormConfigSerializer,
+    InvestmentProjectApprovalConfigReadSerializer,
     InvestmentProjectApprovalConfigSerializer,
+    InvestmentProjectApprovalConfigStepApproverReadSerializer,
+    InvestmentProjectApprovalConfigStepReadSerializer,
+    InvestmentReturnApprovalReadSerializer,
     InvestPayoutScheduleSerializer,
     InvestPayoutScheduleShareLinkSerializer,
     InvestReturnSerializer,
     PublicInvestPayoutScheduleShareViewSerializer,
+    ProjectInvestmentApprovalReadSerializer,
     ProjectInvestmentSerializer,
 )
 from apps.tenants.models import TenantMembership
@@ -64,6 +75,92 @@ class _InvestmentsTenantViewSet(viewsets.ModelViewSet):
 
     def perform_create(self, serializer):
         serializer.save(tenant=self.request.tenant, created_by=self.request.user)
+
+
+class _ReadOnlyInvestmentsTenantViewSet(viewsets.ReadOnlyModelViewSet):
+    """Список строк таблицы модуля «Инвестиции» для админ-просмотра (без изменений через API)."""
+
+    module_key = "investments"
+    permission_classes = [IsAuthenticated, HasEffectiveModuleAccess]
+
+    def get_queryset(self):
+        tenant = getattr(self.request, "tenant", None)
+        if not tenant:
+            return self.queryset.none()
+        return self.queryset.filter(tenant=tenant)
+
+
+class InvestmentFormConfigReadViewSet(_ReadOnlyInvestmentsTenantViewSet):
+    serializer_class = InvestmentFormConfigReadSerializer
+    queryset = InvestmentFormConfig.objects.all()
+
+
+class InvestmentApprovalConfigReadViewSet(_ReadOnlyInvestmentsTenantViewSet):
+    serializer_class = InvestmentApprovalConfigReadSerializer
+    queryset = InvestmentApprovalConfig.objects.all()
+
+
+class InvestmentApprovalConfigStepReadViewSet(_ReadOnlyInvestmentsTenantViewSet):
+    serializer_class = InvestmentApprovalConfigStepReadSerializer
+    queryset = InvestmentApprovalConfigStep.objects.select_related("config")
+
+    def get_queryset(self):
+        tenant = getattr(self.request, "tenant", None)
+        if not tenant:
+            return InvestmentApprovalConfigStep.objects.none()
+        return InvestmentApprovalConfigStep.objects.filter(config__tenant=tenant).select_related("config")
+
+
+class InvestmentApprovalConfigStepApproverReadViewSet(_ReadOnlyInvestmentsTenantViewSet):
+    serializer_class = InvestmentApprovalConfigStepApproverReadSerializer
+    queryset = InvestmentApprovalConfigStepApprover.objects.select_related("step__config")
+
+    def get_queryset(self):
+        tenant = getattr(self.request, "tenant", None)
+        if not tenant:
+            return InvestmentApprovalConfigStepApprover.objects.none()
+        return InvestmentApprovalConfigStepApprover.objects.filter(step__config__tenant=tenant).select_related(
+            "step", "step__config", "approver_user"
+        )
+
+
+class InvestmentReturnApprovalReadViewSet(_ReadOnlyInvestmentsTenantViewSet):
+    serializer_class = InvestmentReturnApprovalReadSerializer
+    queryset = InvestmentReturnApproval.objects.select_related("invest_return", "approver_user")
+
+
+class InvestmentProjectApprovalConfigReadViewSet(_ReadOnlyInvestmentsTenantViewSet):
+    serializer_class = InvestmentProjectApprovalConfigReadSerializer
+    queryset = InvestmentProjectApprovalConfig.objects.all()
+
+
+class InvestmentProjectApprovalConfigStepReadViewSet(_ReadOnlyInvestmentsTenantViewSet):
+    serializer_class = InvestmentProjectApprovalConfigStepReadSerializer
+    queryset = InvestmentProjectApprovalConfigStep.objects.select_related("config")
+
+    def get_queryset(self):
+        tenant = getattr(self.request, "tenant", None)
+        if not tenant:
+            return InvestmentProjectApprovalConfigStep.objects.none()
+        return InvestmentProjectApprovalConfigStep.objects.filter(config__tenant=tenant).select_related("config")
+
+
+class InvestmentProjectApprovalConfigStepApproverReadViewSet(_ReadOnlyInvestmentsTenantViewSet):
+    serializer_class = InvestmentProjectApprovalConfigStepApproverReadSerializer
+    queryset = InvestmentProjectApprovalConfigStepApprover.objects.select_related("step__config")
+
+    def get_queryset(self):
+        tenant = getattr(self.request, "tenant", None)
+        if not tenant:
+            return InvestmentProjectApprovalConfigStepApprover.objects.none()
+        return InvestmentProjectApprovalConfigStepApprover.objects.filter(step__config__tenant=tenant).select_related(
+            "step", "step__config", "approver_user"
+        )
+
+
+class ProjectInvestmentApprovalReadViewSet(_ReadOnlyInvestmentsTenantViewSet):
+    serializer_class = ProjectInvestmentApprovalReadSerializer
+    queryset = ProjectInvestmentApproval.objects.select_related("project_investment", "approver_user")
 
 
 class InvestReturnViewSet(_InvestmentsTenantViewSet):
