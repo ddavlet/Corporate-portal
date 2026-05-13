@@ -22,6 +22,10 @@ from apps.modules.telegram_approvals.services import (
     post_messaging_gateway,
 )
 
+INVESTMENT_APPROVAL_CASCADE_REJECTION_COMMENT = (
+    "Согласование остановлено: получен отказ. Дальнейшие этапы не выполняются."
+)
+
 
 def resolve_investment_approval_config(
     *, tenant, payout_type: str, payout_recipient: str
@@ -416,6 +420,20 @@ def route_invest_return_approvals(*, invest_return: InvestReturn) -> int:
     return dispatch_pending_invest_return_approvals(invest_return=invest_return)
 
 
+def reject_remaining_pending_invest_return_approvals(*, invest_return: InvestReturn) -> int:
+    """После отказа: все ещё ожидающие строки по этой выплате → отказ (цепочка не идёт дальше)."""
+    now = timezone.now()
+    return InvestmentReturnApproval.objects.filter(
+        invest_return=invest_return,
+        decision=InvestmentReturnApproval.DECISION_PENDING,
+    ).update(
+        decision=InvestmentReturnApproval.DECISION_REJECTED,
+        decision_comment=INVESTMENT_APPROVAL_CASCADE_REJECTION_COMMENT,
+        decided_at=now,
+        updated_at=now,
+    )
+
+
 def confirm_invest_return_approval_by_id(
     *,
     tenant,
@@ -460,6 +478,9 @@ def confirm_invest_return_approval_by_id(
         approval.decision_comment = comment or ""
         approval.decided_at = timezone.now()
         approval.save(update_fields=["decision", "decision_comment", "decided_at", "updated_at"])
+
+        if decision == InvestmentReturnApproval.DECISION_REJECTED:
+            reject_remaining_pending_invest_return_approvals(invest_return=approval.invest_return)
 
         route_invest_return_approvals(invest_return=approval.invest_return)
         approval.invest_return.refresh_from_db()
