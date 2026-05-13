@@ -8,6 +8,7 @@ from django.db.models import Min
 from django.utils import timezone
 from django.utils.formats import date_format
 
+from apps.modules.investments.approval_services import INVESTMENT_APPROVAL_CASCADE_REJECTION_COMMENT
 from apps.modules.investments.models import (
     InvestmentProjectApprovalConfig,
     InvestmentProjectApprovalConfigStep,
@@ -375,6 +376,20 @@ def route_project_investment_approvals(*, project_investment: ProjectInvestment)
     return dispatch_pending_project_investment_approvals(project_investment=project_investment)
 
 
+def reject_remaining_pending_project_investment_approvals(*, project_investment: ProjectInvestment) -> int:
+    """После отказа: все ещё ожидающие строки по этой заявке → отказ (цепочка не идёт дальше)."""
+    now = timezone.now()
+    return ProjectInvestmentApproval.objects.filter(
+        project_investment=project_investment,
+        decision=ProjectInvestmentApproval.DECISION_PENDING,
+    ).update(
+        decision=ProjectInvestmentApproval.DECISION_REJECTED,
+        decision_comment=INVESTMENT_APPROVAL_CASCADE_REJECTION_COMMENT,
+        decided_at=now,
+        updated_at=now,
+    )
+
+
 def confirm_project_investment_approval_by_id(
     *,
     tenant,
@@ -419,6 +434,9 @@ def confirm_project_investment_approval_by_id(
         approval.decision_comment = comment or ""
         approval.decided_at = timezone.now()
         approval.save(update_fields=["decision", "decision_comment", "decided_at", "updated_at"])
+
+        if decision == ProjectInvestmentApproval.DECISION_REJECTED:
+            reject_remaining_pending_project_investment_approvals(project_investment=approval.project_investment)
 
         route_project_investment_approvals(project_investment=approval.project_investment)
         approval.project_investment.refresh_from_db()
