@@ -17,10 +17,13 @@ from apps.modules.investments.models import (
 )
 from apps.modules.requests.integration_settings import get_requests_messaging_gateway_settings
 from apps.modules.telegram_approvals.services import (
+    _display_user_name,
     _format_amount_for_telegram,
     _get_tenant_bot_token,
     post_messaging_gateway,
 )
+
+_TG_CARD_SEP = "\u2500" * 17
 
 
 def resolve_investment_project_approval_config(*, tenant) -> InvestmentProjectApprovalConfig | None:
@@ -95,7 +98,6 @@ def build_project_investment_approval_telegram_message(
     currency_text = escape((pi.currency or "").upper() or "-")
     date_text = escape(date_format(pi.date, "j E Y", use_l10n=True)) if pi.date else "-"
     comment_raw = (pi.comment or "").strip()
-    comment_line = f"• Комментарий: {escape(comment_raw)}\n" if comment_raw else ""
 
     readonly = _project_investment_telegram_card_should_be_readonly(
         approval=approval,
@@ -134,15 +136,29 @@ def build_project_investment_approval_telegram_message(
         else:
             action_hint = "\n\nПроверьте данные заявки на вложение и ответьте кнопками ниже."
 
+    expected_approver_footer = ""
+    if (
+        not readonly
+        and approval.decision == ProjectInvestmentApproval.DECISION_PENDING
+        and approval.step_type != InvestmentProjectApprovalConfigStep.STEP_TYPE_NOTIFICATION
+    ):
+        who = _display_user_name(getattr(approval, "approver_user", None))
+        if who and who != "-":
+            expected_approver_footer = f"\n\n✍️ Ожидается подтверждение от: <b>{escape(who)}</b>"
+
+    sep = _TG_CARD_SEP
     parts: list[str] = [
         f"<b>{escape(header)}</b>\n\n",
-        f"<b>Заявка на вложение № {pi.id}</b>\n",
-        f"• Компания: {escape(str(company_name))}\n",
-        f"• Сумма: {amount_text} {currency_text}\n",
-        f"• Дата: {date_text}\n",
-        f"{comment_line}",
-        f"{action_hint}",
+        f"<b>Заявка на вложение №{pi.id}</b>\n",
+        f"{sep}\n",
+        f"🏢 Компания: <b>{escape(str(company_name))}</b>\n",
+        f"📅 Дата: {date_text}\n\n",
+        f"{sep}\n",
+        f"💵 <b>{amount_text} {currency_text}</b>\n",
     ]
+    if comment_raw:
+        parts.extend([f"\n{sep}\n", f"💬 Комментарий: {escape(comment_raw)}\n"])
+    parts.append(f"{action_hint}{expected_approver_footer}")
     return "".join(parts)
 
 

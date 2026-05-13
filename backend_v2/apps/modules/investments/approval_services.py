@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import date
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from html import escape
 
 from django.db import transaction
@@ -17,6 +18,7 @@ from apps.modules.investments.models import (
 )
 from apps.modules.requests.integration_settings import get_requests_messaging_gateway_settings
 from apps.modules.telegram_approvals.services import (
+    _display_user_name,
     _format_amount_for_telegram,
     _get_tenant_bot_token,
     post_messaging_gateway,
@@ -59,6 +61,25 @@ class InvestmentApprovalDecisionResult:
 def _button_data(*, approval_id: int, decision: str) -> str:
     code = "a" if decision == InvestmentReturnApproval.DECISION_APPROVED else "r"
     return f"inv_{approval_id}:{code}"
+
+
+_TG_CARD_SEP = "\u2500" * 17
+
+
+def _invest_return_step_phase_label(step_type: str) -> str:
+    if step_type == InvestmentApprovalConfigStep.STEP_TYPE_CONFIRMATION:
+        return "подтверждение"
+    if step_type == InvestmentApprovalConfigStep.STEP_TYPE_NOTIFICATION:
+        return "уведомление"
+    return "проверка"
+
+
+def _format_cbu_rate_uzs_per_usd(*, rate) -> str:
+    try:
+        q = Decimal(str(rate)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    except (InvalidOperation, ValueError, TypeError):
+        return _format_amount_for_telegram(rate)
+    return format(q, ",.2f").replace(",", " ")
 
 
 def _investment_flow_flags(*, invest_return: InvestReturn) -> tuple[bool, int | None]:
@@ -107,10 +128,6 @@ def build_investment_return_approval_telegram_message(
     company_name = ir.company.name if ir.company else ir.tenant.name
     amount_text = escape(_format_amount_for_telegram(ir.sum))
     currency_text = escape((ir.currency or "").upper() or "-")
-    uzs_amount_text = escape(_format_amount_for_telegram(ir.sum_uzs)) if ir.sum_uzs is not None else ""
-    rate_text = ""
-    if ir.cbu_usd_uzs_rate is not None:
-        rate_text = escape(_format_amount_for_telegram(ir.cbu_usd_uzs_rate))
     date_text = escape(date_format(ir.date, "j E Y", use_l10n=True)) if ir.date else "-"
     bd = getattr(ir, "billing_date", None)
     billing_month_text = (
@@ -119,7 +136,12 @@ def build_investment_return_approval_telegram_message(
     type_text = escape(str(ir.get_type_display()))
     recipient_text = escape(str(ir.get_recipient_display()))
     comment_raw = (ir.comment or "").strip()
-    comment_line = f"• Комментарий: {escape(comment_raw)}\n" if comment_raw else ""
+    comment_line = f"💬 Комментарий: {escape(comment_raw)}\n" if comment_raw else ""
+    show_fx_block = ir.sum_uzs is not None and ir.cbu_usd_uzs_rate is not None
+    uzs_amount_plain = _format_amount_for_telegram(ir.sum_uzs) if show_fx_block else ""
+    uzs_amount_text = escape(uzs_amount_plain)
+    rate_plain = _format_cbu_rate_uzs_per_usd(rate=ir.cbu_usd_uzs_rate) if show_fx_block else ""
+    rate_text = escape(rate_plain)
 
     readonly = _investment_telegram_card_should_be_readonly(
         approval=approval,
@@ -139,7 +161,7 @@ def build_investment_return_approval_telegram_message(
     ):
         header = f"📢 Уведомление — шаг {approval.step}"
     elif blocked_by_rejection:
-        header = "⛔️ Согласование остановлено"
+        header = "🚫 Согласование остановлено"
     elif current_pending_step is None:
         header = "✅ Выплата полностью подтверждена"
     elif readonly:
@@ -147,7 +169,7 @@ def build_investment_return_approval_telegram_message(
     elif approval.step_type == InvestmentApprovalConfigStep.STEP_TYPE_CONFIRMATION:
         header = f"💰 Подтверждение получения — шаг {approval.step}"
     else:
-        header = f"📋 Проверка выплаты — шаг {approval.step}"
+        header = f"🔍 Проверка выплаты — шаг {approval.step}"
 
     action_hint = ""
     if not readonly and approval.decision == InvestmentReturnApproval.DECISION_PENDING:
@@ -158,24 +180,44 @@ def build_investment_return_approval_telegram_message(
         else:
             action_hint = "\n\nПроверьте реквизиты и сумму, затем ответьте кнопками ниже."
 
+    expected_approver_footer = ""
+    if (
+        not readonly
+        and approval.decision == InvestmentReturnApproval.DECISION_PENDING
+        and approval.step_type != InvestmentApprovalConfigStep.STEP_TYPE_NOTIFICATION
+    ):
+        who = _display_user_name(getattr(approval, "approver_user", None))
+        if who and who != "-":
+            expected_approver_footer = f"\n\n✍️ Ожидается подтверждение от: <b>{escape(who)}</b>"
+
+    phase = _invest_return_step_phase_label(approval.step_type)
+    sep = _TG_CARD_SEP
     parts: list[str] = [
         f"<b>{escape(header)}</b>\n\n",
-        f"<b>Выплата № {ir.id}</b>\n",
-        f"• Компания: {escape(str(company_name))}\n",
-        f"• Сумма: {amount_text} {currency_text}\n",
+        f"💰 <b>Выплата №{ir.id} — {escape(phase)}</b>\n",
+        f"{sep}\n",
+        f"🏢 Компания: <b>{escape(str(company_name))}</b>\n",
+        f"👤 Получатель: {recipient_text}\n",
+        f"📅 Месяц: {billing_month_text} · {date_text}\n",
+        f"{sep}\n",
     ]
-    if uzs_amount_text:
-        parts.append(f"• В сумах: {uzs_amount_text} UZS\n")
-    if rate_text:
-        parts.append(f"• Курс CBU (USD→UZS на дату создания): {rate_text}\n")
+    if show_fx_block:
+        parts.extend(
+            [
+                f"💵 <b>{amount_text} {currency_text}</b>\n",
+                f"🇺🇿 {uzs_amount_text} UZS\n",
+                f"📊 Курс CBU: {rate_text} UZS/$\n",
+                f"{sep}\n",
+            ]
+        )
+    else:
+        parts.append(f"💵 <b>{amount_text} {currency_text}</b>\n{sep}\n")
     parts.extend(
         [
-            f"• Месяц назначения: {billing_month_text}\n",
-            f"• Дата: {date_text}\n",
-            f"• Тип: {type_text}\n",
-            f"• Получатель: {recipient_text}\n",
+            f"🏷 Тип: {type_text}\n",
             f"{comment_line}",
             f"{action_hint}",
+            f"{expected_approver_footer}",
         ]
     )
     return "".join(parts)
@@ -187,8 +229,8 @@ def _build_buttons(*, approval: InvestmentReturnApproval) -> list[list[dict]]:
     if approval.step_type == InvestmentApprovalConfigStep.STEP_TYPE_CONFIRMATION:
         return [
             [
-                {"label": "✅ Получено", "value": _button_data(approval_id=approval.id, decision="approved")},
-                {"label": "❌ Отменить", "value": _button_data(approval_id=approval.id, decision="rejected")},
+                {"label": "✅ Подтвердить", "value": _button_data(approval_id=approval.id, decision="approved")},
+                {"label": "❌ Отклонить", "value": _button_data(approval_id=approval.id, decision="rejected")},
             ]
         ]
     return [
@@ -270,7 +312,7 @@ def refresh_invest_return_approval_messages(*, invest_return: InvestReturn) -> i
             message_sent=True,
             gateway_message_id__isnull=False,
             approver_recipient_id__isnull=False,
-        ).select_related("invest_return", "invest_return__company", "tenant")
+        ).select_related("invest_return", "invest_return__company", "tenant", "approver_user")
     )
     updated = 0
     for approval in approvals:
@@ -371,7 +413,7 @@ def dispatch_pending_invest_return_approvals(*, invest_return: InvestReturn) -> 
             invest_return=invest_return,
             step=pending_step,
             decision=InvestmentReturnApproval.DECISION_PENDING,
-        ).select_related("invest_return", "tenant")
+        ).select_related("invest_return", "tenant", "approver_user")
     )
     any_notification_finalized = False
     for row in rows:
