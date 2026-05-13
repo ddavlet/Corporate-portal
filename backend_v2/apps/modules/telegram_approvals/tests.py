@@ -429,6 +429,27 @@ class TelegramApprovalsTests(APITestCase):
         self.assertEqual(approval.decision, Approval.DECISION_APPROVED)
         self.assertEqual(request_row.status, Request.STATUS_APPROVED)
 
+    def test_webhook_invp_prefix_delegates_to_investment_handler(self):
+        """Regression: project investment inline buttons use invp_<id>:a|r — not inv_."""
+        payload = {
+            "event": "interaction",
+            "payload": "invp_999999:a",
+            "user_id": "777001",
+            "recipient_id": "555001",
+            "message_id": 4321,
+            "platform": "telegram",
+        }
+        res = self.client.post(
+            "/api/messaging-gateway/webhook/",
+            payload,
+            format="json",
+            HTTP_HOST=self.host,
+        )
+        self.assertEqual(res.status_code, 400, res.content)
+        # Wrong path was request-approval parser → "approval_id is required and must be integer."
+        self.assertNotIn("must be integer", str(res.content))
+        self.assertIn("Approval not found", str(res.content))
+
     @patch("apps.modules.telegram_approvals.services.requests.post")
     def test_webhook_callback_rejects_wrong_chat(self, mocked_post):
         mocked_post.return_value.status_code = 200
