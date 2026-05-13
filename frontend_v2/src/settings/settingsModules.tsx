@@ -62,8 +62,8 @@ export const SETTINGS_MODULES: SettingsModuleItem[] = [
   },
   {
     key: 'investments-project-approvals',
-    title: 'Инвестиции — согласование вложений',
-    description: 'Этапы подтверждения записей «Вложения» (капитальные вложения), в т.ч. Telegram.',
+    title: 'Инвестиции — заявки на вложение',
+    description: 'Этапы согласования заявок на вложение в проект, в том числе уведомления в Telegram.',
     path: '/settings/investment-project-approval-config',
     icon: <FileTextOutlined />,
   },

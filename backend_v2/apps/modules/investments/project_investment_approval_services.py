@@ -103,7 +103,7 @@ def build_project_investment_approval_telegram_message(
     )
 
     if approval.decision == ProjectInvestmentApproval.DECISION_REJECTED:
-        header = "❌ Вложение отклонено"
+        header = "❌ Заявка на вложение отклонена"
     elif approval.decision == ProjectInvestmentApproval.DECISION_APPROVED:
         header = f"✅ Шаг {approval.step} согласован"
     elif (
@@ -116,26 +116,26 @@ def build_project_investment_approval_telegram_message(
     elif blocked_by_rejection:
         header = "⛔️ Согласование остановлено"
     elif current_pending_step is None:
-        header = "✅ Вложение полностью подтверждено"
+        header = "✅ Заявка на вложение подтверждена"
     elif readonly:
         header = "⏳ Ожидание предыдущих шагов"
     elif approval.step_type == InvestmentProjectApprovalConfigStep.STEP_TYPE_CONFIRMATION:
-        header = f"💰 Подтверждение поступления вложения — шаг {approval.step}"
+        header = f"💰 Подтверждение поступления по заявке — шаг {approval.step}"
     else:
-        header = f"📋 Проверка вложения — шаг {approval.step}"
+        header = f"📋 Проверка заявки на вложение — шаг {approval.step}"
 
     action_hint = ""
     if not readonly and approval.decision == ProjectInvestmentApproval.DECISION_PENDING:
         if approval.step_type == InvestmentProjectApprovalConfigStep.STEP_TYPE_NOTIFICATION:
             action_hint = ""
         elif approval.step_type == InvestmentProjectApprovalConfigStep.STEP_TYPE_CONFIRMATION:
-            action_hint = "\n\nПодтвердите поступление средств кнопками ниже."
+            action_hint = "\n\nПодтвердите поступление средств по заявке кнопками ниже."
         else:
-            action_hint = "\n\nПроверьте сумму и реквизиты, затем ответьте кнопками ниже."
+            action_hint = "\n\nПроверьте данные заявки на вложение и ответьте кнопками ниже."
 
     parts: list[str] = [
         f"<b>{escape(header)}</b>\n\n",
-        f"<b>Вложение № {pi.id}</b>\n",
+        f"<b>Заявка на вложение № {pi.id}</b>\n",
         f"• Компания: {escape(str(company_name))}\n",
         f"• Сумма: {amount_text} {currency_text}\n",
         f"• Дата: {date_text}\n",

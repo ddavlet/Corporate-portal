@@ -346,7 +346,7 @@ class InvestmentReturnApproval(models.Model):
 
 
 class InvestmentProjectApprovalConfig(models.Model):
-    """Per-tenant approval chain for project investments (вложения в капитал)."""
+    """Per-tenant approval chain for project investment requests (заявки на вложение)."""
 
     tenant = models.OneToOneField(
         Tenant,

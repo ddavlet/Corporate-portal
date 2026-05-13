@@ -101,7 +101,7 @@ export function InvestmentsPage() {
     items.push(
       {
         key: 'investments',
-        label: `Вложения (${investments.length})`,
+        label: `Заявки на вложение (${investments.length})`,
         children: (
           <InvestmentsTab
             loading={loading}
