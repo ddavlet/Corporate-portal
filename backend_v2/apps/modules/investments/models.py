@@ -112,6 +112,7 @@ class ProjectInvestment(models.Model):
     amount = models.DecimalField(max_digits=18, decimal_places=2)
     currency = models.CharField(max_length=3, default="USD")
     comment = models.TextField(blank=True, default="")
+    confirmed = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
     last_edit_at = models.DateTimeField(auto_now=True)
     created_by = models.ForeignKey(
@@ -123,7 +124,10 @@ class ProjectInvestment(models.Model):
     class Meta:
         db_table = "project_investments"
         ordering = ["-date", "-id"]
-        indexes = [models.Index(fields=["tenant", "date"], name="invproj_tenant_date_idx")]
+        indexes = [
+            models.Index(fields=["tenant", "date"], name="invproj_tenant_date_idx"),
+            models.Index(fields=["tenant", "confirmed"], name="invproj_tenant_conf_idx"),
+        ]
 
 
 class InvestCompany(models.Model):
@@ -338,4 +342,118 @@ class InvestmentReturnApproval(models.Model):
             models.Index(fields=["tenant", "decision"], name="invrapp_tenant_dec_idx"),
             models.Index(fields=["approver_recipient_id"], name="invrapp_recipient_idx"),
             models.Index(fields=["gateway_message_id"], name="invrapp_gateway_msg_idx"),
+        ]
+
+
+class InvestmentProjectApprovalConfig(models.Model):
+    """Per-tenant approval chain for project investments (вложения в капитал)."""
+
+    tenant = models.OneToOneField(
+        Tenant,
+        on_delete=models.CASCADE,
+        related_name="investment_project_approval_config",
+    )
+    is_enabled = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "investment_project_approval_config"
+
+
+class InvestmentProjectApprovalConfigStep(models.Model):
+    STEP_TYPE_SERIAL = InvestmentApprovalConfigStep.STEP_TYPE_SERIAL
+    STEP_TYPE_CONFIRMATION = InvestmentApprovalConfigStep.STEP_TYPE_CONFIRMATION
+    STEP_TYPE_NOTIFICATION = InvestmentApprovalConfigStep.STEP_TYPE_NOTIFICATION
+    STEP_TYPE_CHOICES = InvestmentApprovalConfigStep.STEP_TYPE_CHOICES
+
+    config = models.ForeignKey(
+        InvestmentProjectApprovalConfig,
+        on_delete=models.CASCADE,
+        related_name="steps",
+    )
+    step = models.PositiveIntegerField()
+    step_type = models.CharField(max_length=16, choices=STEP_TYPE_CHOICES, default=STEP_TYPE_SERIAL)
+    is_enabled = models.BooleanField(default=True)
+    payment_chat_id = models.BigIntegerField(null=True, blank=True)
+    approver_users = models.ManyToManyField(
+        settings.AUTH_USER_MODEL,
+        through="InvestmentProjectApprovalConfigStepApprover",
+        related_name="investment_project_approval_steps",
+    )
+
+    class Meta:
+        db_table = "investment_project_approval_config_steps"
+        ordering = ["step", "id"]
+        unique_together = [("config", "step")]
+        indexes = [models.Index(fields=["config", "step"], name="invprojcfg_step_cfg_step_idx")]
+
+
+class InvestmentProjectApprovalConfigStepApprover(models.Model):
+    step = models.ForeignKey(
+        InvestmentProjectApprovalConfigStep,
+        on_delete=models.CASCADE,
+        related_name="step_approvers",
+    )
+    approver_user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="investment_project_step_assignments",
+    )
+
+    class Meta:
+        db_table = "investment_project_approval_config_step_approvers"
+        unique_together = [("step", "approver_user")]
+        indexes = [
+            models.Index(fields=["step", "approver_user"], name="invprojcfg_step_appr_idx"),
+        ]
+
+
+class ProjectInvestmentApproval(models.Model):
+    DECISION_PENDING = "pending"
+    DECISION_APPROVED = "approved"
+    DECISION_REJECTED = "rejected"
+    DECISION_CHOICES = [
+        (DECISION_PENDING, "Pending"),
+        (DECISION_APPROVED, "Approved"),
+        (DECISION_REJECTED, "Rejected"),
+    ]
+
+    tenant = models.ForeignKey(Tenant, on_delete=models.CASCADE, related_name="project_investment_approvals")
+    project_investment = models.ForeignKey(
+        ProjectInvestment,
+        on_delete=models.CASCADE,
+        related_name="approvals",
+    )
+    step = models.PositiveIntegerField()
+    step_type = models.CharField(
+        max_length=16,
+        choices=InvestmentProjectApprovalConfigStep.STEP_TYPE_CHOICES,
+        default=InvestmentProjectApprovalConfigStep.STEP_TYPE_SERIAL,
+    )
+    approver_user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="project_investment_approvals_made",
+    )
+    approver_recipient_id = models.BigIntegerField(null=True, blank=True)
+    approver_external_user_id = models.BigIntegerField(null=True, blank=True)
+    decision = models.CharField(max_length=20, choices=DECISION_CHOICES, default=DECISION_PENDING)
+    decision_comment = models.TextField(blank=True, default="")
+    decided_at = models.DateTimeField(null=True, blank=True)
+    gateway_message_id = models.BigIntegerField(null=True, blank=True)
+    message_sent = models.BooleanField(default=False)
+    message_sent_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "project_investment_approvals"
+        ordering = ["step", "id"]
+        unique_together = [("project_investment", "step", "approver_user")]
+        indexes = [
+            models.Index(fields=["tenant", "project_investment"], name="invpiapp_tenant_pi_idx"),
+            models.Index(fields=["tenant", "decision"], name="invpiapp_tenant_dec_idx"),
+            models.Index(fields=["approver_recipient_id"], name="invpiapp_recipient_idx"),
+            models.Index(fields=["gateway_message_id"], name="invpiapp_gateway_msg_idx"),
         ]
