@@ -325,15 +325,30 @@ class InvestmentApprovalConfigSerializer(serializers.Serializer):
         return value
 
     def validate_steps(self, value):
+        raw_steps = (getattr(self, "initial_data", None) or {}).get("steps")
+        raw_by_step: dict[int, dict] = {}
+        if isinstance(raw_steps, list):
+            for r in raw_steps:
+                if isinstance(r, dict) and "step" in r:
+                    try:
+                        raw_by_step[int(r["step"])] = r
+                    except (TypeError, ValueError):
+                        continue
         seen_steps: set[int] = set()
         for row in value:
             step = int(row["step"])
             if step in seen_steps:
                 raise serializers.ValidationError("Step numbers must be unique.")
             seen_steps.add(step)
-            step_type = row.get("step_type") or InvestmentApprovalConfigStep.STEP_TYPE_SERIAL
+            raw = raw_by_step.get(step, {})
+            # После вложенного сериализатора step_type иногда не попадает в row — берём из initial_data.
+            step_type = (
+                row.get("step_type")
+                or raw.get("step_type")
+                or InvestmentApprovalConfigStep.STEP_TYPE_SERIAL
+            )
             is_enabled = row.get("is_enabled", True)
-            approver_ids = row.get("approver_user_ids") or []
+            approver_ids = row.get("approver_user_ids") or raw.get("approver_user_ids") or []
             if is_enabled:
                 if step_type != InvestmentApprovalConfigStep.STEP_TYPE_NOTIFICATION and not approver_ids:
                     raise serializers.ValidationError("У активного этапа должен быть хотя бы один согласующий.")
@@ -341,10 +356,15 @@ class InvestmentApprovalConfigSerializer(serializers.Serializer):
                     InvestmentApprovalConfigStep.STEP_TYPE_CONFIRMATION,
                     InvestmentApprovalConfigStep.STEP_TYPE_NOTIFICATION,
                 ):
-                    if row.get("payment_chat_id") in (None, ""):
+                    chat_id = row.get("payment_chat_id")
+                    if chat_id in (None, ""):
+                        chat_id = raw.get("payment_chat_id")
+                    if chat_id in (None, ""):
                         raise serializers.ValidationError(
                             "Для этапов confirmation и notification нужен payment_chat_id (Telegram chat)."
                         )
+                    row["payment_chat_id"] = chat_id
+            row["step_type"] = step_type
             if step_type == InvestmentApprovalConfigStep.STEP_TYPE_SERIAL:
                 row["payment_chat_id"] = None
         return value
