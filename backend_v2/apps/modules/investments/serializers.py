@@ -12,7 +12,12 @@ from apps.modules.investments.models import (
     InvestReturn,
     ProjectInvestment,
 )
-from apps.modules.investments.services import CbuRateFetchError, fetch_cbu_usd_uzs_rate
+from apps.modules.investments.services import (
+    CbuRateFetchError,
+    clamp_rate_date_to_cbu_availability,
+    fetch_cbu_usd_uzs_rate,
+    tashkent_today,
+)
 from apps.modules.serializers_guard import reject_client_pk_on_create
 
 
@@ -73,7 +78,7 @@ class InvestReturnSerializer(_CompanyScopeMixin, serializers.ModelSerializer):
 
     def create(self, validated_data):
         try:
-            rate = fetch_cbu_usd_uzs_rate()
+            rate = fetch_cbu_usd_uzs_rate(rate_date=tashkent_today())
         except CbuRateFetchError as exc:
             raise serializers.ValidationError({"detail": str(exc)}) from exc
         currency = str(validated_data["currency"]).strip().upper()
@@ -92,7 +97,9 @@ class InvestReturnSerializer(_CompanyScopeMixin, serializers.ModelSerializer):
             rate = instance.cbu_usd_uzs_rate
             if rate is None:
                 try:
-                    rate = fetch_cbu_usd_uzs_rate()
+                    rate = fetch_cbu_usd_uzs_rate(
+                        rate_date=clamp_rate_date_to_cbu_availability(requested=instance.date)
+                    )
                 except CbuRateFetchError as exc:
                     raise serializers.ValidationError({"detail": str(exc)}) from exc
             currency = str(validated_data.get("currency", instance.currency)).strip().upper()
