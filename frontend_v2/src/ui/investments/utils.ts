@@ -90,6 +90,12 @@ export const CURRENCY_OPTIONS = [
   { value: 'UZS', label: 'UZS' },
 ]
 
+/** Валюты для возвратов инвестиций (только USD / UZS). */
+export const RETURN_CURRENCY_OPTIONS = [
+  { value: 'USD', label: 'USD' },
+  { value: 'UZS', label: 'UZS' },
+]
+
 export function precisionFor(currency: string | undefined): 0 | 2 {
   return (currency || '').toUpperCase() === 'UZS' ? 0 : 2
 }

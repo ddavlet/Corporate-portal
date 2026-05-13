@@ -81,6 +81,10 @@ def build_investment_return_approval_telegram_message(
     company_name = ir.company.name if ir.company else ir.tenant.name
     amount_text = escape(_format_amount_for_telegram(ir.sum))
     currency_text = escape((ir.currency or "").upper() or "-")
+    uzs_amount_text = escape(_format_amount_for_telegram(ir.sum_uzs)) if ir.sum_uzs is not None else ""
+    rate_text = ""
+    if ir.cbu_usd_uzs_rate is not None:
+        rate_text = escape(_format_amount_for_telegram(ir.cbu_usd_uzs_rate))
     date_text = escape(date_format(ir.date, "j E Y", use_l10n=True)) if ir.date else "-"
     type_text = escape(str(ir.get_type_display()))
     recipient_text = escape(str(ir.get_recipient_display()))
@@ -115,17 +119,26 @@ def build_investment_return_approval_telegram_message(
         else:
             action_hint = "\n\nПроверьте реквизиты и сумму, затем ответьте кнопками ниже."
 
-    return (
-        f"<b>{escape(header)}</b>\n\n"
-        f"<b>Выплата № {ir.id}</b>\n"
-        f"• Компания: {escape(str(company_name))}\n"
-        f"• Сумма: {amount_text} {currency_text}\n"
-        f"• Дата: {date_text}\n"
-        f"• Тип: {type_text}\n"
-        f"• Получатель: {recipient_text}\n"
-        f"{comment_line}"
-        f"{action_hint}"
+    parts: list[str] = [
+        f"<b>{escape(header)}</b>\n\n",
+        f"<b>Выплата № {ir.id}</b>\n",
+        f"• Компания: {escape(str(company_name))}\n",
+        f"• Сумма: {amount_text} {currency_text}\n",
+    ]
+    if uzs_amount_text:
+        parts.append(f"• В сумах: {uzs_amount_text} UZS\n")
+    if rate_text:
+        parts.append(f"• Курс CBU (USD→UZS на дату создания): {rate_text}\n")
+    parts.extend(
+        [
+            f"• Дата: {date_text}\n",
+            f"• Тип: {type_text}\n",
+            f"• Получатель: {recipient_text}\n",
+            f"{comment_line}",
+            f"{action_hint}",
+        ]
     )
+    return "".join(parts)
 
 
 def _build_buttons(*, approval: InvestmentReturnApproval) -> list[list[dict]]:

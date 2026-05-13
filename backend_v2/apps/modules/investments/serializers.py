@@ -1,3 +1,5 @@
+from decimal import Decimal, ROUND_HALF_UP
+
 from rest_framework import serializers
 
 from apps.modules.investments.models import (
@@ -9,6 +11,12 @@ from apps.modules.investments.models import (
     InvestPayoutScheduleShareLink,
     InvestReturn,
     ProjectInvestment,
+)
+from apps.modules.investments.services import (
+    CbuRateFetchError,
+    clamp_rate_date_to_cbu_availability,
+    fetch_cbu_usd_uzs_rate,
+    tashkent_today,
 )
 from apps.modules.serializers_guard import reject_client_pk_on_create
 
@@ -42,6 +50,7 @@ class InvestReturnSerializer(_CompanyScopeMixin, serializers.ModelSerializer):
             "date",
             "sum",
             "sum_uzs",
+            "cbu_usd_uzs_rate",
             "comment",
             "confirmed",
             "currency",
@@ -51,12 +60,60 @@ class InvestReturnSerializer(_CompanyScopeMixin, serializers.ModelSerializer):
             "last_edit_at",
             "created_by",
         ]
-        read_only_fields = ["id", "tenant", "created_at", "last_edit_at", "created_by"]
+        read_only_fields = ["id", "tenant", "cbu_usd_uzs_rate", "created_at", "last_edit_at", "created_by"]
 
     def validate(self, attrs):
         reject_client_pk_on_create(self)
         _normalize_currency(attrs)
+        attrs.pop("sum_uzs", None)
+        merged_currency = attrs.get("currency")
+        if self.instance is not None:
+            merged_currency = merged_currency or self.instance.currency
+        else:
+            merged_currency = merged_currency or "USD"
+        merged_currency = str(merged_currency or "USD").strip().upper()
+        if merged_currency not in ("USD", "UZS"):
+            raise serializers.ValidationError({"currency": "Допустимы только USD и UZS."})
         return attrs
+
+    def create(self, validated_data):
+        try:
+            rate = fetch_cbu_usd_uzs_rate(rate_date=tashkent_today())
+        except CbuRateFetchError as exc:
+            raise serializers.ValidationError({"detail": str(exc)}) from exc
+        currency = str(validated_data["currency"]).strip().upper()
+        d_sum = Decimal(str(validated_data["sum"])).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        if currency == "UZS":
+            validated_data["sum"] = d_sum
+            validated_data["sum_uzs"] = d_sum
+        else:
+            validated_data["sum"] = d_sum
+            validated_data["sum_uzs"] = (d_sum * rate).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        validated_data["cbu_usd_uzs_rate"] = rate.quantize(Decimal("0.000001"), rounding=ROUND_HALF_UP)
+        return super().create(validated_data)
+
+    def update(self, instance, validated_data):
+        if "sum" in validated_data or "currency" in validated_data:
+            rate = instance.cbu_usd_uzs_rate
+            if rate is None:
+                try:
+                    rate = fetch_cbu_usd_uzs_rate(
+                        rate_date=clamp_rate_date_to_cbu_availability(requested=instance.date)
+                    )
+                except CbuRateFetchError as exc:
+                    raise serializers.ValidationError({"detail": str(exc)}) from exc
+            currency = str(validated_data.get("currency", instance.currency)).strip().upper()
+            base_sum = validated_data.get("sum", instance.sum)
+            d_sum = Decimal(str(base_sum)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+            if currency == "UZS":
+                validated_data["sum"] = d_sum
+                validated_data["sum_uzs"] = d_sum
+            else:
+                validated_data["sum"] = d_sum
+                validated_data["sum_uzs"] = (d_sum * rate).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+            if instance.cbu_usd_uzs_rate is None:
+                validated_data["cbu_usd_uzs_rate"] = rate.quantize(Decimal("0.000001"), rounding=ROUND_HALF_UP)
+        return super().update(instance, validated_data)
 
 
 class InvestPayoutScheduleSerializer(_CompanyScopeMixin, serializers.ModelSerializer):

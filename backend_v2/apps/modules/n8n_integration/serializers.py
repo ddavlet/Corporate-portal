@@ -18,6 +18,7 @@ from apps.modules.investments.serializers import (
     InvestReturnSerializer,
     ProjectInvestmentSerializer,
 )
+from apps.modules.serializers_guard import reject_client_pk_on_create
 from apps.modules.requests.expense_refs import (
     expense_ref_target_for,
     resolve_request_expense_ref,
@@ -291,6 +292,35 @@ class N8nInvestReturnImportSerializer(InvestReturnSerializer):
 
     class Meta(InvestReturnSerializer.Meta):
         read_only_fields = ["tenant", "created_at", "last_edit_at", "created_by"]
+
+    @staticmethod
+    def _normalize_currency(attrs: dict, key: str = "currency") -> None:
+        val = attrs.get(key)
+        if val is not None:
+            attrs[key] = str(val).strip().upper()
+
+    def validate(self, attrs):
+        reject_client_pk_on_create(self)
+        self._normalize_currency(attrs)
+        merged_currency = attrs.get("currency")
+        if self.instance is not None:
+            merged_currency = merged_currency or self.instance.currency
+        else:
+            merged_currency = merged_currency or "USD"
+        merged_currency = str(merged_currency or "USD").strip().upper()
+        if merged_currency not in ("USD", "UZS"):
+            raise serializers.ValidationError({"currency": "Допустимы только USD и UZS."})
+        return attrs
+
+    def create(self, validated_data):
+        if validated_data.get("cbu_usd_uzs_rate") is not None and validated_data.get("sum_uzs") is not None:
+            return super(InvestReturnSerializer, self).create(validated_data)
+        return super().create(validated_data)
+
+    def update(self, instance, validated_data):
+        if validated_data.get("cbu_usd_uzs_rate") is not None and validated_data.get("sum_uzs") is not None:
+            return super(InvestReturnSerializer, self).update(instance, validated_data)
+        return super().update(instance, validated_data)
 
 
 class N8nInvestPayoutScheduleImportSerializer(InvestPayoutScheduleSerializer):
