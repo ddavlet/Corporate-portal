@@ -1,5 +1,8 @@
+import { type ReactNode, useEffect, useMemo, useState } from 'react'
 import { Typography } from 'antd'
 import { useNavigate } from 'react-router-dom'
+
+import { DEFAULT_INVESTMENT_FORM_CONFIG, getInvestmentFormConfig } from '../../lib/api'
 import {
   BankOutlined,
   CalendarOutlined,
@@ -12,7 +15,7 @@ type Tile = {
   title: string
   subtitle: string
   path: string
-  icon: React.ReactNode
+  icon: ReactNode
   iconClass?: string
 }
 
@@ -51,13 +54,32 @@ const TILES: Tile[] = [
 
 export function TgInvestmentsPage() {
   const navigate = useNavigate()
+  const [usesCompanies, setUsesCompanies] = useState(true)
+
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      try {
+        const cfg = await getInvestmentFormConfig()
+        if (!cancelled) setUsesCompanies(cfg.uses_companies)
+      } catch {
+        if (!cancelled) setUsesCompanies(DEFAULT_INVESTMENT_FORM_CONFIG.uses_companies)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  const tiles = useMemo(() => TILES.filter((t) => t.key !== 'companies' || usesCompanies), [usesCompanies])
+
   return (
     <div className="tg-investments-page">
       <Typography.Title level={4} style={{ margin: '0 0 16px', fontWeight: 700 }}>
         Инвестиции
       </Typography.Title>
       <div className="tg-section-landing">
-        {TILES.map((tile) => (
+        {tiles.map((tile) => (
           <button
             key={tile.key}
             type="button"

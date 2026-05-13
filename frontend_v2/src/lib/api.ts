@@ -1019,6 +1019,7 @@ export type InvestReturnRow = {
   id: number
   company: number | null
   date: string
+  billing_date: string
   sum: string | number
   sum_uzs?: string | number | null
   cbu_usd_uzs_rate?: string | number | null
@@ -1033,6 +1034,7 @@ export type InvestReturnRow = {
 export type CreateInvestReturnPayload = {
   company?: number | null
   date: string
+  billing_date: string
   sum: string | number
   comment?: string
   currency: string
@@ -1042,16 +1044,38 @@ export type CreateInvestReturnPayload = {
 
 export type InvestmentApprovalConfigStepItem = {
   step: number
-  step_type: 'serial' | 'confirmation'
+  step_type: 'serial' | 'confirmation' | 'notification'
   is_enabled: boolean
   payment_chat_id?: number | null
   approver_user_ids: number[]
 }
 
 export type InvestmentApprovalConfigResponse = {
+  return_type: string | null
+  return_type_choices: InvestmentReturnTypeChoice[]
   is_enabled: boolean
   steps: InvestmentApprovalConfigStepItem[]
   approver_candidates: Array<{ id: number; username: string }>
+}
+
+export type InvestmentReturnTypeChoice = { value: string; label: string }
+
+export type InvestmentFormConfigResponse = {
+  uses_companies: boolean
+  allowed_return_types: string[]
+  return_type_choices: InvestmentReturnTypeChoice[]
+}
+
+/** Fallback when form-config API fails — mirrors backend InvestReturn.ReturnType. */
+export const DEFAULT_INVESTMENT_FORM_CONFIG: InvestmentFormConfigResponse = {
+  uses_companies: true,
+  allowed_return_types: ['дивиденды', 'проценты', 'доля_прибыли', 'тело_инвестиций'],
+  return_type_choices: [
+    { value: 'дивиденды', label: 'Дивиденды' },
+    { value: 'проценты', label: 'Проценты' },
+    { value: 'доля_прибыли', label: 'Доля прибыли' },
+    { value: 'тело_инвестиций', label: 'Тело инвестиций' },
+  ],
 }
 
 export async function getInvestCompanies(): Promise<InvestCompanyRow[]> {
@@ -1129,6 +1153,7 @@ export async function getInvestReturns(): Promise<InvestReturnRow[]> {
 export async function createInvestReturn(payload: CreateInvestReturnPayload): Promise<InvestReturnRow> {
   const body: Record<string, unknown> = {
     date: payload.date,
+    billing_date: payload.billing_date,
     sum: payload.sum,
     currency: payload.currency,
     type: payload.type,
@@ -1231,8 +1256,14 @@ export async function createInvestPayoutSchedule(
   return json
 }
 
-export async function getInvestmentApprovalConfig(): Promise<InvestmentApprovalConfigResponse> {
-  const res = await apiFetch('/api/investments/approval-config/')
+export async function getInvestmentApprovalConfig(
+  returnType?: string | null,
+): Promise<InvestmentApprovalConfigResponse> {
+  const params = new URLSearchParams()
+  if (returnType != null && returnType !== '') params.set('return_type', returnType)
+  const qs = params.toString()
+  const url = qs ? `/api/investments/approval-config/?${qs}` : '/api/investments/approval-config/'
+  const res = await apiFetch(url)
   if (!res.ok) throw new Error(await parseErrorBody(res))
   const json = (await res.json().catch(() => null)) as InvestmentApprovalConfigResponse | null
   if (!json) throw new Error('Empty response')
@@ -1240,7 +1271,7 @@ export async function getInvestmentApprovalConfig(): Promise<InvestmentApprovalC
 }
 
 export async function updateInvestmentApprovalConfig(
-  payload: Pick<InvestmentApprovalConfigResponse, 'is_enabled' | 'steps'>,
+  payload: Pick<InvestmentApprovalConfigResponse, 'is_enabled' | 'steps' | 'return_type'>,
 ): Promise<InvestmentApprovalConfigResponse> {
   const res = await apiFetch('/api/investments/approval-config/', {
     method: 'PUT',
@@ -1249,6 +1280,28 @@ export async function updateInvestmentApprovalConfig(
   })
   if (!res.ok) throw new Error(await parseErrorBody(res))
   const json = (await res.json().catch(() => null)) as InvestmentApprovalConfigResponse | null
+  if (!json) throw new Error('Empty response')
+  return json
+}
+
+export async function getInvestmentFormConfig(): Promise<InvestmentFormConfigResponse> {
+  const res = await apiFetch('/api/investments/form-config/')
+  if (!res.ok) throw new Error(await parseErrorBody(res))
+  const json = (await res.json().catch(() => null)) as InvestmentFormConfigResponse | null
+  if (!json) throw new Error('Empty response')
+  return json
+}
+
+export async function updateInvestmentFormConfig(
+  payload: Pick<InvestmentFormConfigResponse, 'uses_companies' | 'allowed_return_types'>,
+): Promise<InvestmentFormConfigResponse> {
+  const res = await apiFetch('/api/investments/form-config/', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+  if (!res.ok) throw new Error(await parseErrorBody(res))
+  const json = (await res.json().catch(() => null)) as InvestmentFormConfigResponse | null
   if (!json) throw new Error('Empty response')
   return json
 }

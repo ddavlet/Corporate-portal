@@ -47,6 +47,13 @@ export const SETTINGS_MODULES: SettingsModuleItem[] = [
     icon: <TeamOutlined />,
   },
   {
+    key: 'investments-form',
+    title: 'Инвестиции — форма создания',
+    description: 'Типы выплат и использование компаний при создании записей по инвестициям.',
+    path: '/settings/investment-form-config',
+    icon: <FileTextOutlined />,
+  },
+  {
     key: 'investments-approvals',
     title: 'Инвестиции — этапы согласования',
     description: 'Очередность и пользователи, которые подтверждают выплату по инвестициям.',
