@@ -11,6 +11,7 @@ import {
   Skeleton,
   Space,
   Table,
+  Tag,
   Typography,
   message,
 } from 'antd'
@@ -111,6 +112,13 @@ export function InvestmentsTab({
       width: 90,
       sorter: (a, b) => a.currency.localeCompare(b.currency),
     },
+    {
+      title: 'Статус заявки',
+      dataIndex: 'confirmed',
+      width: 150,
+      render: (v: boolean) =>
+        v ? <Tag color="success">Подтверждена</Tag> : <Tag color="warning">На согласовании</Tag>,
+    },
     { title: 'Комментарий', dataIndex: 'comment', render: (v: string) => v || '-' },
     ]
   }, [usesCompanies, companyLabel])
@@ -137,11 +145,11 @@ export function InvestmentsTab({
         currency: values.currency,
         comment: values.comment ?? '',
       })
-      message.success('Вложение создано')
+      message.success('Заявка на вложение создана')
       setOpen(false)
       await onCreated()
     } catch (e: unknown) {
-      message.error(e instanceof Error ? e.message : 'Не удалось создать вложение')
+      message.error(e instanceof Error ? e.message : 'Не удалось создать заявку на вложение')
     } finally {
       setSubmitting(false)
     }
@@ -160,11 +168,11 @@ export function InvestmentsTab({
           <Typography.Text type="secondary">Записей: {filtered.length}</Typography.Text>
         </Space>
         <Button type="primary" onClick={openCreate}>
-          Создать вложение
+          Подать заявку на вложение
         </Button>
       </Space>
 
-      <KpiStrip totals={totals} totalsLabel="Сумма вложений" />
+      <KpiStrip totals={totals} totalsLabel="Сумма по заявкам на вложение" />
 
       {loading ? (
         <Skeleton active />
@@ -178,9 +186,9 @@ export function InvestmentsTab({
           scroll={{ x: 900 }}
           locale={{
             emptyText: (
-              <Empty description="Вложений нет" image={Empty.PRESENTED_IMAGE_SIMPLE}>
+              <Empty description="Заявок на вложение пока нет" image={Empty.PRESENTED_IMAGE_SIMPLE}>
                 <Button type="primary" onClick={openCreate}>
-                  Создать первое вложение
+                  Подать первую заявку
                 </Button>
               </Empty>
             ),
@@ -190,8 +198,8 @@ export function InvestmentsTab({
 
       <Modal
         open={open}
-        title="Создать вложение"
-        okText="Создать"
+        title="Заявка на вложение"
+        okText="Отправить"
         cancelText="Отмена"
         confirmLoading={submitting}
         onOk={submit}

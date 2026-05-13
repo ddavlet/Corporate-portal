@@ -11,6 +11,8 @@ from apps.modules.investments.models import (
     InvestmentApprovalConfig,
     InvestmentApprovalConfigStep,
     InvestmentFormConfig,
+    InvestmentProjectApprovalConfig,
+    InvestmentProjectApprovalConfigStep,
     InvestmentReturnApproval,
     InvestPayoutSchedule,
     InvestPayoutScheduleShareLink,
@@ -217,11 +219,12 @@ class ProjectInvestmentSerializer(_CompanyScopeMixin, serializers.ModelSerialize
             "amount",
             "currency",
             "comment",
+            "confirmed",
             "created_at",
             "last_edit_at",
             "created_by",
         ]
-        read_only_fields = ["id", "tenant", "created_at", "last_edit_at", "created_by"]
+        read_only_fields = ["id", "tenant", "confirmed", "created_at", "last_edit_at", "created_by"]
 
     def validate(self, attrs):
         reject_client_pk_on_create(self)
@@ -312,6 +315,7 @@ class InvestmentFormConfigSerializer(serializers.Serializer):
 
 class InvestmentApprovalConfigSerializer(serializers.Serializer):
     return_type = serializers.CharField(required=False, allow_null=True, allow_blank=True, max_length=25)
+    recipient = serializers.CharField(required=False, allow_null=True, allow_blank=True, max_length=20)
     is_enabled = serializers.BooleanField(default=False)
     steps = InvestmentApprovalConfigStepSerializer(many=True)
     approver_candidates = serializers.ListField(read_only=True)
@@ -322,6 +326,14 @@ class InvestmentApprovalConfigSerializer(serializers.Serializer):
         valid = {c[0] for c in InvestReturn.ReturnType.choices}
         if value not in valid:
             raise serializers.ValidationError("Недопустимый тип выплаты.")
+        return value
+
+    def validate_recipient(self, value):
+        if value in (None, ""):
+            return None
+        valid = {c[0] for c in InvestReturn.Recipient.choices}
+        if value not in valid:
+            raise serializers.ValidationError("Недопустимый получатель.")
         return value
 
     def validate_steps(self, value):
@@ -377,6 +389,55 @@ class InvestmentApprovalDecisionSerializer(serializers.Serializer):
     approver_recipient_id = serializers.IntegerField(required=False)
     approver_external_user_id = serializers.IntegerField(required=False)
     comment = serializers.CharField(required=False, allow_blank=True)
+
+
+class InvestmentProjectApprovalConfigSerializer(serializers.Serializer):
+    is_enabled = serializers.BooleanField(default=False)
+    steps = InvestmentApprovalConfigStepSerializer(many=True)
+
+    def validate_steps(self, value):
+        raw_steps = (getattr(self, "initial_data", None) or {}).get("steps")
+        raw_by_step: dict[int, dict] = {}
+        if isinstance(raw_steps, list):
+            for r in raw_steps:
+                if isinstance(r, dict) and "step" in r:
+                    try:
+                        raw_by_step[int(r["step"])] = r
+                    except (TypeError, ValueError):
+                        continue
+        seen_steps: set[int] = set()
+        for row in value:
+            step = int(row["step"])
+            if step in seen_steps:
+                raise serializers.ValidationError("Step numbers must be unique.")
+            seen_steps.add(step)
+            raw = raw_by_step.get(step, {})
+            step_type = (
+                row.get("step_type")
+                or raw.get("step_type")
+                or InvestmentProjectApprovalConfigStep.STEP_TYPE_SERIAL
+            )
+            is_enabled = row.get("is_enabled", True)
+            approver_ids = row.get("approver_user_ids") or raw.get("approver_user_ids") or []
+            if is_enabled:
+                if step_type != InvestmentProjectApprovalConfigStep.STEP_TYPE_NOTIFICATION and not approver_ids:
+                    raise serializers.ValidationError("У активного этапа должен быть хотя бы один согласующий.")
+                if step_type in (
+                    InvestmentProjectApprovalConfigStep.STEP_TYPE_CONFIRMATION,
+                    InvestmentProjectApprovalConfigStep.STEP_TYPE_NOTIFICATION,
+                ):
+                    chat_id = row.get("payment_chat_id")
+                    if chat_id in (None, ""):
+                        chat_id = raw.get("payment_chat_id")
+                    if chat_id in (None, ""):
+                        raise serializers.ValidationError(
+                            "Для этапов confirmation и notification нужен payment_chat_id (Telegram chat)."
+                        )
+                    row["payment_chat_id"] = chat_id
+            row["step_type"] = step_type
+            if step_type == InvestmentProjectApprovalConfigStep.STEP_TYPE_SERIAL:
+                row["payment_chat_id"] = None
+        return value
 
 
 class InvestmentApprovalWebhookSerializer(serializers.Serializer):

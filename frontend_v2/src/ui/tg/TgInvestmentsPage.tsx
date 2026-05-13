@@ -29,7 +29,7 @@ const TILES: Tile[] = [
   },
   {
     key: 'projects',
-    title: 'Вложения',
+    title: 'Заявки на вложение',
     subtitle: 'Инвестиции в проекты',
     path: '/tg/investments/projects',
     icon: <BankOutlined />,

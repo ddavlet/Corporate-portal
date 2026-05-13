@@ -61,6 +61,13 @@ export const SETTINGS_MODULES: SettingsModuleItem[] = [
     icon: <FileTextOutlined />,
   },
   {
+    key: 'investments-project-approvals',
+    title: 'Инвестиции — заявки на вложение',
+    description: 'Этапы согласования заявок на вложение в проект, в том числе уведомления в Telegram.',
+    path: '/settings/investment-project-approval-config',
+    icon: <FileTextOutlined />,
+  },
+  {
     key: 'cash-registers',
     title: 'Кошельки',
     description:
