@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import date
 from html import escape
 
 from django.db import transaction
@@ -86,6 +87,10 @@ def build_investment_return_approval_telegram_message(
     if ir.cbu_usd_uzs_rate is not None:
         rate_text = escape(_format_amount_for_telegram(ir.cbu_usd_uzs_rate))
     date_text = escape(date_format(ir.date, "j E Y", use_l10n=True)) if ir.date else "-"
+    bd = getattr(ir, "billing_date", None)
+    billing_month_text = (
+        escape(date_format(date(bd.year, bd.month, 1), "F Y", use_l10n=True)) if bd else "-"
+    )
     type_text = escape(str(ir.get_type_display()))
     recipient_text = escape(str(ir.get_recipient_display()))
     comment_raw = (ir.comment or "").strip()
@@ -131,6 +136,7 @@ def build_investment_return_approval_telegram_message(
         parts.append(f"• Курс CBU (USD→UZS на дату создания): {rate_text}\n")
     parts.extend(
         [
+            f"• Месяц назначения: {billing_month_text}\n",
             f"• Дата: {date_text}\n",
             f"• Тип: {type_text}\n",
             f"• Получатель: {recipient_text}\n",

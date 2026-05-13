@@ -3,7 +3,7 @@ from decimal import Decimal
 from unittest.mock import MagicMock, patch
 
 from django.contrib.auth import get_user_model
-from django.test import TestCase
+from django.test import SimpleTestCase, TestCase
 from django.test import override_settings
 from rest_framework import serializers
 from rest_framework.test import APIRequestFactory
@@ -18,6 +18,9 @@ from apps.modules.investments.models import (
     InvestReturn,
 )
 from apps.tenants.models import TenantMembership, TenantModuleConfig, TenantUserRole
+from apps.modules.reports.models import TenantReportSettings
+from apps.modules.reports.pnl_builder import build_pnl_payload_from_db
+from apps.modules.reports.tests import full_backend_pnl_config
 from apps.modules.investments.serializers import (
     InvestPayoutScheduleSerializer,
     InvestPayoutScheduleShareLinkSerializer,
@@ -40,6 +43,12 @@ class InvestReturnSerializerTests(TestCase):
     def setUp(self):
         self.tenant = Tenant.objects.create(name="Acme", subdomain="acme", is_active=True)
         self.user = User.objects.create_user(username="invest-admin", password="x")
+        self._p_allow_billing = patch(
+            "apps.modules.investments.serializers.is_accrual_month_allowed",
+            return_value=True,
+        )
+        self._p_allow_billing.start()
+        self.addCleanup(self._p_allow_billing.stop)
 
     @patch("apps.modules.investments.serializers.fetch_cbu_usd_uzs_rate", return_value=Decimal("12600"))
     def test_usd_normalizes_currency_and_computes_sum_uzs(self, _mock_fetch):
@@ -61,6 +70,7 @@ class InvestReturnSerializerTests(TestCase):
         self.assertEqual(obj.sum, Decimal("100.00"))
         self.assertEqual(obj.sum_uzs, Decimal("1260000.00"))
         self.assertEqual(obj.cbu_usd_uzs_rate, Decimal("12600"))
+        self.assertEqual(obj.billing_date, date(2026, 4, 1))
 
     @patch("apps.modules.investments.serializers.fetch_cbu_usd_uzs_rate", return_value=Decimal("12600"))
     def test_uzs_sets_sum_equal_sum_uzs(self, _mock_fetch):
@@ -81,6 +91,22 @@ class InvestReturnSerializerTests(TestCase):
         self.assertEqual(obj.sum, Decimal("5000000.00"))
         self.assertEqual(obj.sum_uzs, Decimal("5000000.00"))
         self.assertEqual(obj.cbu_usd_uzs_rate, Decimal("12600"))
+        self.assertEqual(obj.billing_date, date(2026, 4, 1))
+
+    @patch("apps.modules.investments.serializers.fetch_cbu_usd_uzs_rate", return_value=Decimal("12600"))
+    @patch("apps.modules.investments.serializers.is_accrual_month_allowed", return_value=False)
+    def test_rejects_billing_month_when_not_allowed(self, _allow, _fetch):
+        serializer = InvestReturnSerializer(
+            data={
+                "date": date(2026, 4, 17),
+                "sum": "100.00",
+                "currency": "USD",
+                "type": "дивиденды",
+                "recipient": "инвестор",
+            }
+        )
+        self.assertFalse(serializer.is_valid())
+        self.assertIn("billing_date", serializer.errors)
 
     def test_rejects_eur(self):
         serializer = InvestReturnSerializer(
@@ -134,6 +160,7 @@ class InvestReturnSerializerTests(TestCase):
         obj = InvestReturn.objects.create(
             tenant=self.tenant,
             date=date(2026, 4, 1),
+            billing_date=date(2026, 4, 1),
             sum=Decimal("100.00"),
             sum_uzs=Decimal("1000000.00"),
             currency="USD",
@@ -158,6 +185,7 @@ class InvestReturnSerializerTests(TestCase):
         ret = InvestReturn.objects.create(
             tenant=self.tenant,
             date=date(2026, 1, 1),
+            billing_date=date(2026, 1, 1),
             sum=Decimal("1.00"),
             type="дивиденды",
             recipient="инвестор",
@@ -515,6 +543,12 @@ class InvestmentFormConfigApiTests(APITestCase):
 @override_settings(BASE_DOMAIN="example.com", N8N_INTEGRATION_TOKEN="", ALLOWED_HOSTS=["*"])
 class InvestmentApprovalFlowTests(APITestCase):
     def setUp(self):
+        self._p_allow_billing = patch(
+            "apps.modules.investments.serializers.is_accrual_month_allowed",
+            return_value=True,
+        )
+        self._p_allow_billing.start()
+        self.addCleanup(self._p_allow_billing.stop)
         self.tenant = Tenant.objects.create(name="InvestFlow", subdomain="investflow", is_active=True)
         self.host = "investflow.example.com"
         self.admin = User.objects.create_user(username="inv_admin", password="x")
@@ -597,6 +631,7 @@ class InvestmentApprovalFlowTests(APITestCase):
         self.assertEqual(created.approvals.count(), 2)
         self.assertEqual(bridge_mock.call_count, 1)
         payload = bridge_mock.call_args.kwargs["payload"]
+        self.assertIn("Месяц назначения", payload["text"])
         self.assertIn("InvestFlow", payload["text"])
         self.assertIn("1 200.00", payload["text"])
         self.assertIn("Выплата №", payload["text"])
@@ -798,3 +833,68 @@ class InvestmentApprovalFlowTests(APITestCase):
         last_payload = bridge_mock.call_args.kwargs["payload"]
         self.assertEqual(last_payload.get("buttons"), [])
         self.assertIn("message_id", last_payload)
+
+
+class BillingMonthRulesTests(SimpleTestCase):
+    @patch("apps.modules.investments.billing_month_rules.tashkent_today", return_value=date(2026, 5, 10))
+    def test_three_calendar_months_allowed_before_day_21(self, _mock):
+        from apps.modules.investments.billing_month_rules import allowed_accrual_month_starts
+
+        self.assertEqual(len(allowed_accrual_month_starts()), 3)
+
+    @patch("apps.modules.investments.billing_month_rules.tashkent_today", return_value=date(2026, 5, 21))
+    def test_two_calendar_months_allowed_from_day_21(self, _mock):
+        from apps.modules.investments.billing_month_rules import allowed_accrual_month_starts
+
+        self.assertEqual(len(allowed_accrual_month_starts()), 2)
+
+
+class InvestReturnPnLBillingMonthTests(TestCase):
+    def setUp(self):
+        self.tenant = Tenant.objects.create(name="PnLBilling", subdomain="pnlbilling", is_active=True)
+        TenantReportSettings.objects.create(
+            tenant=self.tenant,
+            pnl_source=TenantReportSettings.PNL_SOURCE_BACKEND,
+            pnl_config=full_backend_pnl_config(start_month="2026-02"),
+        )
+        self.user = User.objects.create_user(username="pnl_ir_u", password="x")
+
+    def test_operational_line_uses_billing_month_as_report_date(self):
+        ir = InvestReturn.objects.create(
+            tenant=self.tenant,
+            created_by=self.user,
+            date=date(2026, 5, 10),
+            billing_date=date(2026, 3, 1),
+            sum=Decimal("100"),
+            sum_uzs=Decimal("1000000"),
+            currency="USD",
+            cbu_usd_uzs_rate=Decimal("10000"),
+            type="дивиденды",
+            recipient="инвестор",
+            confirmed=True,
+            comment="",
+        )
+        payload = build_pnl_payload_from_db(tenant=self.tenant, query_params={})
+        rows = payload["operational_expenses"]
+        match = next((r for r in rows if r["id"] == str(ir.id)), None)
+        self.assertIsNotNone(match)
+        self.assertEqual(match["date"], "2026-03-01")
+
+    def test_excluded_when_billing_month_before_config_start(self):
+        ir = InvestReturn.objects.create(
+            tenant=self.tenant,
+            created_by=self.user,
+            date=date(2026, 6, 1),
+            billing_date=date(2026, 1, 1),
+            sum=Decimal("50"),
+            sum_uzs=Decimal("500000"),
+            currency="USD",
+            cbu_usd_uzs_rate=Decimal("10000"),
+            type="дивиденды",
+            recipient="инвестор",
+            confirmed=True,
+            comment="",
+        )
+        payload = build_pnl_payload_from_db(tenant=self.tenant, query_params={})
+        ids = {r["id"] for r in payload["operational_expenses"]}
+        self.assertNotIn(str(ir.id), ids)

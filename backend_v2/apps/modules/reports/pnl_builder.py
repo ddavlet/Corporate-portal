@@ -236,9 +236,11 @@ def _invest_return_row(ir: InvestReturn) -> dict[str, Any]:
         parts.append(str(ir.comment).strip())
     parts.append(f"Получатель: {ir.get_recipient_display()}")
     description = " — ".join(parts) if len(parts) > 1 else parts[0]
+    accrual = ir.billing_date
+    accrual_day = date(accrual.year, accrual.month, 1)
     return {
         "id": str(ir.id),
-        "date": ir.date.isoformat(),
+        "date": accrual_day.isoformat(),
         "amount": str(Decimal(ir.sum_uzs)),
         "category": label,
         "purpose": label,
@@ -408,9 +410,9 @@ def build_pnl_payload_from_db(*, tenant, query_params: dict[str, Any]) -> dict[s
         )
 
     for ir in (
-        InvestReturn.objects.filter(tenant_id=tenant.id, confirmed=True, date__gte=start)
+        InvestReturn.objects.filter(tenant_id=tenant.id, confirmed=True, billing_date__gte=start)
         .exclude(sum_uzs__isnull=True)
-        .order_by("date", "id")
+        .order_by("billing_date", "id")
     ):
         b = _invest_type_bucket(str(ir.type or ""), op=ir_op, ot=ir_ot, inv=ir_inv)
         if b is None:
