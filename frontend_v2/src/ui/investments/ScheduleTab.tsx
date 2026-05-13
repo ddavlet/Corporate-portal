@@ -52,6 +52,7 @@ type Props = {
   companyLabel: (id: number | null) => string
   companyFilter: CompanyFilter
   paidFilter: SchedulePaidFilter
+  usesCompanies: boolean
   onCreated: () => Promise<void> | void
   onShareLinkCreated: (link: InvestPayoutScheduleShareLinkRow) => void
   onShareLinkDeleted: (id: number) => void
@@ -83,6 +84,7 @@ export function ScheduleTab({
   companyLabel,
   companyFilter,
   paidFilter,
+  usesCompanies,
   onCreated,
   onShareLinkCreated,
   onShareLinkDeleted,
@@ -128,7 +130,16 @@ export function ScheduleTab({
     return generateSeriesDates(start.year(), start.month(), Number(watchedSeries.day), Number(watchedSeries.count))
   }, [watchedSeries])
 
-  const columns: ColumnsType<InvestPayoutScheduleRow> = [
+  const columns: ColumnsType<InvestPayoutScheduleRow> = useMemo(() => {
+    const companyCol = {
+      title: 'Компания',
+      dataIndex: 'company' as const,
+      width: 220,
+      render: (v: number | null) => companyLabel(v),
+      sorter: (a: InvestPayoutScheduleRow, b: InvestPayoutScheduleRow) =>
+        companyLabel(a.company).localeCompare(companyLabel(b.company)),
+    }
+    return [
     { title: 'ID', dataIndex: 'id', width: 80, sorter: (a, b) => a.id - b.id },
     {
       title: 'Дата',
@@ -136,15 +147,9 @@ export function ScheduleTab({
       width: 120,
       render: (v: string) => dateText(v),
       sorter: (a, b) => new Date(a.payout_date).getTime() - new Date(b.payout_date).getTime(),
-      defaultSortOrder: 'ascend',
+      defaultSortOrder: 'ascend' as const,
     },
-    {
-      title: 'Компания',
-      dataIndex: 'company',
-      width: 220,
-      render: (v: number | null) => companyLabel(v),
-      sorter: (a, b) => companyLabel(a.company).localeCompare(companyLabel(b.company)),
-    },
+    ...(usesCompanies ? [companyCol] : []),
     {
       title: 'Сумма',
       dataIndex: 'amount',
@@ -175,7 +180,8 @@ export function ScheduleTab({
       sorter: (a, b) => asNumber(a.payment_amount) - asNumber(b.payment_amount),
     },
     { title: 'Комментарий', dataIndex: 'comment', render: (v: string) => v || '-' },
-  ]
+    ]
+  }, [usesCompanies, companyLabel])
 
   const shareLinkRows = useMemo(
     () =>
@@ -186,9 +192,12 @@ export function ScheduleTab({
     [shareLinks],
   )
 
-  const shareLinkColumns: ColumnsType<InvestPayoutScheduleShareLinkRow & { url: string }> = [
+  const shareLinkColumns: ColumnsType<InvestPayoutScheduleShareLinkRow & { url: string }> = useMemo(() => {
+    const base: ColumnsType<InvestPayoutScheduleShareLinkRow & { url: string }> = [
     { title: 'Создано', dataIndex: 'created_at', width: 170, render: (v: string) => dateText(v) },
-    { title: 'Компания', dataIndex: 'company', width: 220, render: (v: number | null) => companyLabel(v) },
+    ...(usesCompanies
+      ? [{ title: 'Компания', dataIndex: 'company' as const, width: 220, render: (v: number | null) => companyLabel(v) }]
+      : []),
     {
       title: 'Статус',
       dataIndex: 'paid_filter',
@@ -235,7 +244,9 @@ export function ScheduleTab({
         </Button>
       ),
     },
-  ]
+    ]
+    return base
+  }, [usesCompanies, companyLabel])
 
   const openSingle = () => {
     singleForm.resetFields()
@@ -433,9 +444,11 @@ export function ScheduleTab({
         width={560}
       >
         <Form form={singleForm} layout="vertical" preserve={false}>
-          <Form.Item label="Компания" name="company">
-            <Select allowClear options={makeCompanySelectOptions(companies)} placeholder="Без компании" />
-          </Form.Item>
+          {usesCompanies ? (
+            <Form.Item label="Компания" name="company">
+              <Select allowClear options={makeCompanySelectOptions(companies)} placeholder="Без компании" />
+            </Form.Item>
+          ) : null}
           <Space style={{ width: '100%' }} align="start" wrap>
             <Form.Item
               label="Дата"
@@ -480,9 +493,11 @@ export function ScheduleTab({
             message="Сгенерируется N выплат подряд"
             description="Если выбран день 29–31, в коротких месяцах будет использован последний день месяца."
           />
-          <Form.Item label="Компания" name="company">
-            <Select allowClear options={makeCompanySelectOptions(companies)} placeholder="Без компании" />
-          </Form.Item>
+          {usesCompanies ? (
+            <Form.Item label="Компания" name="company">
+              <Select allowClear options={makeCompanySelectOptions(companies)} placeholder="Без компании" />
+            </Form.Item>
+          ) : null}
           <Space style={{ width: '100%' }} align="start" wrap>
             <Form.Item
               label="Старт (месяц)"

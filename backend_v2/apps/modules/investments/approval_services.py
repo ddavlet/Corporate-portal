@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import date
 from html import escape
 
 from django.db import transaction
@@ -20,6 +21,17 @@ from apps.modules.telegram_approvals.services import (
     _get_tenant_bot_token,
     post_messaging_gateway,
 )
+
+
+def resolve_investment_approval_config(*, tenant, payout_type: str) -> InvestmentApprovalConfig | None:
+    """Сначала конфиг для конкретного типа выплаты, иначе конфиг по умолчанию (return_type is null)."""
+    base = InvestmentApprovalConfig.objects.filter(tenant=tenant, is_enabled=True).prefetch_related(
+        "steps__approver_users"
+    )
+    hit = base.filter(return_type=payout_type).first()
+    if hit:
+        return hit
+    return base.filter(return_type__isnull=True).first()
 
 
 class InvestmentApprovalDecisionAlreadyMade(Exception):
@@ -58,6 +70,8 @@ def _investment_telegram_card_should_be_readonly(
     blocked_by_rejection: bool,
     current_pending_step: int | None,
 ) -> bool:
+    if approval.step_type == InvestmentApprovalConfigStep.STEP_TYPE_NOTIFICATION:
+        return True
     if approval.decision != InvestmentReturnApproval.DECISION_PENDING:
         return True
     if blocked_by_rejection:
@@ -86,6 +100,10 @@ def build_investment_return_approval_telegram_message(
     if ir.cbu_usd_uzs_rate is not None:
         rate_text = escape(_format_amount_for_telegram(ir.cbu_usd_uzs_rate))
     date_text = escape(date_format(ir.date, "j E Y", use_l10n=True)) if ir.date else "-"
+    bd = getattr(ir, "billing_date", None)
+    billing_month_text = (
+        escape(date_format(date(bd.year, bd.month, 1), "F Y", use_l10n=True)) if bd else "-"
+    )
     type_text = escape(str(ir.get_type_display()))
     recipient_text = escape(str(ir.get_recipient_display()))
     comment_raw = (ir.comment or "").strip()
@@ -101,6 +119,13 @@ def build_investment_return_approval_telegram_message(
         header = "❌ Выплата отклонена"
     elif approval.decision == InvestmentReturnApproval.DECISION_APPROVED:
         header = f"✅ Шаг {approval.step} согласован"
+    elif (
+        approval.step_type == InvestmentApprovalConfigStep.STEP_TYPE_NOTIFICATION
+        and approval.decision == InvestmentReturnApproval.DECISION_PENDING
+        and current_pending_step is not None
+        and approval.step == current_pending_step
+    ):
+        header = f"📢 Уведомление — шаг {approval.step}"
     elif blocked_by_rejection:
         header = "⛔️ Согласование остановлено"
     elif current_pending_step is None:
@@ -114,7 +139,9 @@ def build_investment_return_approval_telegram_message(
 
     action_hint = ""
     if not readonly and approval.decision == InvestmentReturnApproval.DECISION_PENDING:
-        if approval.step_type == InvestmentApprovalConfigStep.STEP_TYPE_CONFIRMATION:
+        if approval.step_type == InvestmentApprovalConfigStep.STEP_TYPE_NOTIFICATION:
+            action_hint = ""
+        elif approval.step_type == InvestmentApprovalConfigStep.STEP_TYPE_CONFIRMATION:
             action_hint = "\n\nПодтвердите получение средств кнопками ниже."
         else:
             action_hint = "\n\nПроверьте реквизиты и сумму, затем ответьте кнопками ниже."
@@ -131,6 +158,7 @@ def build_investment_return_approval_telegram_message(
         parts.append(f"• Курс CBU (USD→UZS на дату создания): {rate_text}\n")
     parts.extend(
         [
+            f"• Месяц назначения: {billing_month_text}\n",
             f"• Дата: {date_text}\n",
             f"• Тип: {type_text}\n",
             f"• Получатель: {recipient_text}\n",
@@ -142,6 +170,8 @@ def build_investment_return_approval_telegram_message(
 
 
 def _build_buttons(*, approval: InvestmentReturnApproval) -> list[list[dict]]:
+    if approval.step_type == InvestmentApprovalConfigStep.STEP_TYPE_NOTIFICATION:
+        return []
     if approval.step_type == InvestmentApprovalConfigStep.STEP_TYPE_CONFIRMATION:
         return [
             [
@@ -179,9 +209,9 @@ def _investment_messaging_payload(
     return payload
 
 
-def _dispatch_approval_message(*, approval: InvestmentReturnApproval) -> None:
+def _dispatch_approval_message(*, approval: InvestmentReturnApproval, include_buttons: bool = True) -> bool:
     if approval.approver_recipient_id is None:
-        return
+        return False
     settings_obj = get_requests_messaging_gateway_settings(tenant=approval.tenant)
     blocked, current_step = _investment_flow_flags(invest_return=approval.invest_return)
     message_text = build_investment_return_approval_telegram_message(
@@ -194,7 +224,7 @@ def _dispatch_approval_message(*, approval: InvestmentReturnApproval) -> None:
         action=settings_obj.send_action,
         approval=approval,
         message_text=message_text,
-        include_buttons=True,
+        include_buttons=include_buttons,
     )
     response_data = post_messaging_gateway(tenant=approval.tenant, payload=payload) or {}
     message_id = response_data.get("message_id")
@@ -212,6 +242,7 @@ def _dispatch_approval_message(*, approval: InvestmentReturnApproval) -> None:
         updates.append("message_sent_at")
     if updates:
         approval.save(update_fields=updates)
+    return isinstance(message_id, int)
 
 
 def refresh_invest_return_approval_messages(*, invest_return: InvestReturn) -> int:
@@ -268,16 +299,27 @@ def deactivate_investment_return_approval_buttons(*, approval: InvestmentReturnA
 
 
 def create_approvals_for_invest_return(*, invest_return: InvestReturn) -> int:
-    config = (
-        InvestmentApprovalConfig.objects.filter(tenant=invest_return.tenant, is_enabled=True)
-        .prefetch_related("steps__approver_users")
-        .first()
-    )
+    config = resolve_investment_approval_config(tenant=invest_return.tenant, payout_type=invest_return.type)
     if not config:
         return 0
 
     created = 0
     for step in config.steps.filter(is_enabled=True).order_by("step", "id"):
+        if step.step_type == InvestmentApprovalConfigStep.STEP_TYPE_NOTIFICATION:
+            approvers = list(step.approver_users.filter(is_active=True))
+            record_user = approvers[0] if approvers else invest_return.created_by
+            recipient_id = step.payment_chat_id
+            InvestmentReturnApproval.objects.create(
+                tenant=invest_return.tenant,
+                invest_return=invest_return,
+                step=step.step,
+                step_type=step.step_type,
+                approver_user=record_user,
+                approver_recipient_id=recipient_id,
+                approver_external_user_id=record_user.telegram_from_id,
+            )
+            created += 1
+            continue
         for approver in step.approver_users.filter(is_active=True):
             recipient_id = (
                 step.payment_chat_id
@@ -315,8 +357,25 @@ def dispatch_pending_invest_return_approvals(*, invest_return: InvestReturn) -> 
             decision=InvestmentReturnApproval.DECISION_PENDING,
         ).select_related("invest_return", "tenant")
     )
+    any_notification_finalized = False
     for row in rows:
-        _dispatch_approval_message(approval=row)
+        if row.step_type == InvestmentApprovalConfigStep.STEP_TYPE_NOTIFICATION:
+            ok = _dispatch_approval_message(approval=row, include_buttons=False)
+            if ok:
+                now = timezone.now()
+                updated = InvestmentReturnApproval.objects.filter(
+                    pk=row.pk,
+                    decision=InvestmentReturnApproval.DECISION_PENDING,
+                ).update(
+                    decision=InvestmentReturnApproval.DECISION_APPROVED,
+                    decided_at=now,
+                )
+                if updated:
+                    any_notification_finalized = True
+        else:
+            _dispatch_approval_message(approval=row, include_buttons=True)
+    if any_notification_finalized:
+        return route_invest_return_approvals(invest_return=invest_return)
     return len(rows)
 
 
@@ -363,6 +422,8 @@ def confirm_invest_return_approval_by_id(
         )
         if approval is None:
             raise ValueError("Approval not found.")
+        if approval.step_type == InvestmentApprovalConfigStep.STEP_TYPE_NOTIFICATION:
+            raise ValueError("Этап notification подтверждается автоматически после отправки сообщения.")
         if approval.decision != InvestmentReturnApproval.DECISION_PENDING:
             raise InvestmentApprovalDecisionAlreadyMade()
         if approver_recipient_id is not None and approval.approver_recipient_id not in (None, approver_recipient_id):

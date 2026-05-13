@@ -3,6 +3,7 @@ import secrets
 
 from django.conf import settings
 from django.db import models
+from django.db.models import Q
 
 from apps.tenants.models import Tenant
 
@@ -27,6 +28,9 @@ class InvestReturn(models.Model):
         blank=True,
     )
     date = models.DateField()
+    billing_date = models.DateField(
+        help_text="Первый день месяца начисления (PnL и отчёты по месяцу назначения, как у заявок).",
+    )
     sum = models.DecimalField(max_digits=18, decimal_places=2)
     comment = models.TextField(blank=True, default="")
     confirmed = models.BooleanField(default=False)
@@ -54,6 +58,7 @@ class InvestReturn(models.Model):
         ordering = ["-date", "-created_at", "-id"]
         indexes = [
             models.Index(fields=["tenant", "date"], name="invret_tenant_date_idx"),
+            models.Index(fields=["tenant", "billing_date"], name="invret_tenant_billing_idx"),
             models.Index(fields=["tenant", "confirmed"], name="invret_tenant_conf_idx"),
         ]
 
@@ -183,22 +188,60 @@ class InvestPayoutScheduleShareLink(models.Model):
         super().save(*args, **kwargs)
 
 
+class InvestmentFormConfig(models.Model):
+    """Per-tenant UI/create rules for investments (payout types whitelist, companies on/off)."""
+
+    tenant = models.OneToOneField(Tenant, on_delete=models.CASCADE, related_name="investment_form_config")
+    uses_companies = models.BooleanField(default=True)
+    allowed_return_types = models.JSONField(default=list, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "investment_form_config"
+
+
 class InvestmentApprovalConfig(models.Model):
-    tenant = models.OneToOneField(Tenant, on_delete=models.CASCADE, related_name="investment_approval_config")
+    tenant = models.ForeignKey(
+        Tenant,
+        on_delete=models.CASCADE,
+        related_name="investment_approval_configs",
+    )
+    return_type = models.CharField(
+        max_length=25,
+        choices=InvestReturn.ReturnType.choices,
+        null=True,
+        blank=True,
+        help_text="Если пусто — конфиг по умолчанию для всех типов выплат без отдельной настройки.",
+    )
     is_enabled = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
         db_table = "investment_approval_config"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["tenant"],
+                condition=Q(return_type__isnull=True),
+                name="invapprcfg_tenant_default_uniq",
+            ),
+            models.UniqueConstraint(
+                fields=["tenant", "return_type"],
+                condition=Q(return_type__isnull=False),
+                name="invapprcfg_tenant_type_uniq",
+            ),
+        ]
 
 
 class InvestmentApprovalConfigStep(models.Model):
     STEP_TYPE_SERIAL = "serial"
     STEP_TYPE_CONFIRMATION = "confirmation"
+    STEP_TYPE_NOTIFICATION = "notification"
     STEP_TYPE_CHOICES = [
         (STEP_TYPE_SERIAL, STEP_TYPE_SERIAL),
         (STEP_TYPE_CONFIRMATION, STEP_TYPE_CONFIRMATION),
+        (STEP_TYPE_NOTIFICATION, STEP_TYPE_NOTIFICATION),
     ]
 
     config = models.ForeignKey(InvestmentApprovalConfig, on_delete=models.CASCADE, related_name="steps")

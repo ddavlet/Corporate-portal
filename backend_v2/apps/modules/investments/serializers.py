@@ -2,10 +2,15 @@ from decimal import Decimal, ROUND_HALF_UP
 
 from rest_framework import serializers
 
+from apps.modules.investments.billing_month_rules import (
+    is_accrual_month_allowed,
+    month_first_day,
+)
 from apps.modules.investments.models import (
     InvestCompany,
     InvestmentApprovalConfig,
     InvestmentApprovalConfigStep,
+    InvestmentFormConfig,
     InvestmentReturnApproval,
     InvestPayoutSchedule,
     InvestPayoutScheduleShareLink,
@@ -40,6 +45,17 @@ class _CompanyScopeMixin:
             company_field.queryset = InvestCompany.objects.none()
 
 
+def investment_form_clear_company_if_disabled(attrs, request) -> dict:
+    """When tenant disabled companies in form settings, drop company FK on write."""
+    tenant = getattr(request, "tenant", None)
+    if not tenant:
+        return attrs
+    cfg = InvestmentFormConfig.objects.filter(tenant=tenant).first()
+    if cfg and not cfg.uses_companies:
+        attrs["company"] = None
+    return attrs
+
+
 class InvestReturnSerializer(_CompanyScopeMixin, serializers.ModelSerializer):
     class Meta:
         model = InvestReturn
@@ -48,6 +64,7 @@ class InvestReturnSerializer(_CompanyScopeMixin, serializers.ModelSerializer):
             "tenant",
             "company",
             "date",
+            "billing_date",
             "sum",
             "sum_uzs",
             "cbu_usd_uzs_rate",
@@ -74,7 +91,55 @@ class InvestReturnSerializer(_CompanyScopeMixin, serializers.ModelSerializer):
         merged_currency = str(merged_currency or "USD").strip().upper()
         if merged_currency not in ("USD", "UZS"):
             raise serializers.ValidationError({"currency": "Допустимы только USD и UZS."})
-        return attrs
+
+        skip_bd_window = bool(self.context.get("skip_invest_return_billing_window"))
+        merged_date = attrs.get("date")
+        if merged_date is None and self.instance is not None:
+            merged_date = self.instance.date
+
+        billing_in_attrs = "billing_date" in attrs
+        billing_explicit = attrs.get("billing_date") if billing_in_attrs else None
+
+        if self.instance is None:
+            if merged_date is None:
+                raise serializers.ValidationError({"date": "Укажите дату выплаты."})
+            billing_source = billing_explicit if billing_explicit is not None else merged_date
+            bd = month_first_day(billing_source)
+            if not skip_bd_window and not is_accrual_month_allowed(bd):
+                raise serializers.ValidationError(
+                    {
+                        "billing_date": "Месяц назначения недоступен. Выберите один из допустимых месяцев "
+                        "(как при создании заявки на расход ДС)."
+                    }
+                )
+            attrs["billing_date"] = bd
+        elif billing_in_attrs:
+            if billing_explicit is None:
+                raise serializers.ValidationError({"billing_date": "Укажите месяц назначения."})
+            bd = month_first_day(billing_explicit)
+            if not skip_bd_window and not is_accrual_month_allowed(bd):
+                raise serializers.ValidationError(
+                    {
+                        "billing_date": "Месяц назначения недоступен. Выберите один из допустимых месяцев "
+                        "(как при создании заявки на расход ДС)."
+                    }
+                )
+            attrs["billing_date"] = bd
+
+        tenant = getattr(self.context.get("request"), "tenant", None)
+        if tenant:
+            cfg = InvestmentFormConfig.objects.filter(tenant=tenant).first()
+            if cfg:
+                allowed = cfg.allowed_return_types or []
+                if allowed:
+                    merged_type = attrs.get("type")
+                    if merged_type is None and self.instance is not None:
+                        merged_type = self.instance.type
+                    if merged_type not in allowed:
+                        raise serializers.ValidationError(
+                            {"type": "Этот тип выплат отключён в настройках формы инвестиций."}
+                        )
+        return investment_form_clear_company_if_disabled(attrs, self.context.get("request"))
 
     def create(self, validated_data):
         try:
@@ -138,7 +203,7 @@ class InvestPayoutScheduleSerializer(_CompanyScopeMixin, serializers.ModelSerial
     def validate(self, attrs):
         reject_client_pk_on_create(self)
         _normalize_currency(attrs)
-        return attrs
+        return investment_form_clear_company_if_disabled(attrs, self.context.get("request"))
 
 
 class ProjectInvestmentSerializer(_CompanyScopeMixin, serializers.ModelSerializer):
@@ -161,7 +226,7 @@ class ProjectInvestmentSerializer(_CompanyScopeMixin, serializers.ModelSerialize
     def validate(self, attrs):
         reject_client_pk_on_create(self)
         _normalize_currency(attrs)
-        return attrs
+        return investment_form_clear_company_if_disabled(attrs, self.context.get("request"))
 
 
 class InvestCompanySerializer(serializers.ModelSerializer):
@@ -207,7 +272,7 @@ class InvestPayoutScheduleShareLinkSerializer(_CompanyScopeMixin, serializers.Mo
 
     def validate(self, attrs):
         reject_client_pk_on_create(self)
-        return attrs
+        return investment_form_clear_company_if_disabled(attrs, self.context.get("request"))
 
 
 class PublicInvestPayoutScheduleShareViewSerializer(serializers.Serializer):
@@ -224,33 +289,83 @@ class PublicInvestPayoutScheduleShareViewSerializer(serializers.Serializer):
 
 class InvestmentApprovalConfigStepSerializer(serializers.Serializer):
     step = serializers.IntegerField(min_value=1)
-    step_type = serializers.ChoiceField(choices=InvestmentApprovalConfigStep.STEP_TYPE_CHOICES, default=InvestmentApprovalConfigStep.STEP_TYPE_SERIAL)
+    step_type = serializers.ChoiceField(
+        choices=InvestmentApprovalConfigStep.STEP_TYPE_CHOICES,
+        default=InvestmentApprovalConfigStep.STEP_TYPE_SERIAL,
+    )
     is_enabled = serializers.BooleanField(default=True)
     payment_chat_id = serializers.IntegerField(required=False, allow_null=True, default=None)
     approver_user_ids = serializers.ListField(
         child=serializers.IntegerField(min_value=1),
+        allow_empty=True,
+        required=False,
+    )
+
+
+class InvestmentFormConfigSerializer(serializers.Serializer):
+    uses_companies = serializers.BooleanField()
+    allowed_return_types = serializers.ListField(
+        child=serializers.ChoiceField(choices=InvestReturn.ReturnType.choices),
         allow_empty=False,
     )
 
 
 class InvestmentApprovalConfigSerializer(serializers.Serializer):
+    return_type = serializers.CharField(required=False, allow_null=True, allow_blank=True, max_length=25)
     is_enabled = serializers.BooleanField(default=False)
     steps = InvestmentApprovalConfigStepSerializer(many=True)
     approver_candidates = serializers.ListField(read_only=True)
 
+    def validate_return_type(self, value):
+        if value in (None, ""):
+            return None
+        valid = {c[0] for c in InvestReturn.ReturnType.choices}
+        if value not in valid:
+            raise serializers.ValidationError("Недопустимый тип выплаты.")
+        return value
+
     def validate_steps(self, value):
+        raw_steps = (getattr(self, "initial_data", None) or {}).get("steps")
+        raw_by_step: dict[int, dict] = {}
+        if isinstance(raw_steps, list):
+            for r in raw_steps:
+                if isinstance(r, dict) and "step" in r:
+                    try:
+                        raw_by_step[int(r["step"])] = r
+                    except (TypeError, ValueError):
+                        continue
         seen_steps: set[int] = set()
         for row in value:
             step = int(row["step"])
             if step in seen_steps:
                 raise serializers.ValidationError("Step numbers must be unique.")
             seen_steps.add(step)
-            if row.get("is_enabled", True) and not row.get("approver_user_ids"):
-                raise serializers.ValidationError("Enabled step must contain at least one approver.")
-            step_type = row.get("step_type") or InvestmentApprovalConfigStep.STEP_TYPE_SERIAL
-            if step_type == InvestmentApprovalConfigStep.STEP_TYPE_CONFIRMATION and row.get("payment_chat_id") in (None, ""):
-                raise serializers.ValidationError("Confirmation step must contain payment_chat_id.")
-            if step_type != InvestmentApprovalConfigStep.STEP_TYPE_CONFIRMATION:
+            raw = raw_by_step.get(step, {})
+            # После вложенного сериализатора step_type иногда не попадает в row — берём из initial_data.
+            step_type = (
+                row.get("step_type")
+                or raw.get("step_type")
+                or InvestmentApprovalConfigStep.STEP_TYPE_SERIAL
+            )
+            is_enabled = row.get("is_enabled", True)
+            approver_ids = row.get("approver_user_ids") or raw.get("approver_user_ids") or []
+            if is_enabled:
+                if step_type != InvestmentApprovalConfigStep.STEP_TYPE_NOTIFICATION and not approver_ids:
+                    raise serializers.ValidationError("У активного этапа должен быть хотя бы один согласующий.")
+                if step_type in (
+                    InvestmentApprovalConfigStep.STEP_TYPE_CONFIRMATION,
+                    InvestmentApprovalConfigStep.STEP_TYPE_NOTIFICATION,
+                ):
+                    chat_id = row.get("payment_chat_id")
+                    if chat_id in (None, ""):
+                        chat_id = raw.get("payment_chat_id")
+                    if chat_id in (None, ""):
+                        raise serializers.ValidationError(
+                            "Для этапов confirmation и notification нужен payment_chat_id (Telegram chat)."
+                        )
+                    row["payment_chat_id"] = chat_id
+            row["step_type"] = step_type
+            if step_type == InvestmentApprovalConfigStep.STEP_TYPE_SERIAL:
                 row["payment_chat_id"] = None
         return value
 

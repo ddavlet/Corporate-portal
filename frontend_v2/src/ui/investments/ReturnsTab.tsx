@@ -23,6 +23,8 @@ import {
   type InvestCompanyRow,
   type InvestReturnRow,
 } from '../../lib/api'
+import { clampToAllowedBillingMonth, isAllowedBillingMonth } from '../../lib/billingMonth'
+import { monthStartTashkent } from '../../lib/tashkentTime'
 import { KpiStrip } from './KpiStrip'
 import {
   asMoney,
@@ -43,12 +45,15 @@ type Props = {
   companies: InvestCompanyRow[]
   companyLabel: (id: number | null) => string
   companyFilter: CompanyFilter
+  usesCompanies: boolean
+  returnTypeSelectOptions: { value: string; label: string }[]
   onCreated: () => Promise<void> | void
 }
 
 type FormValues = {
   company?: number | null
   date: Dayjs
+  billing_date: Dayjs
   sum: number
   currency: string
   type: string
@@ -56,19 +61,28 @@ type FormValues = {
   comment?: string
 }
 
-const TYPE_OPTIONS = [
-  { value: 'дивиденды', label: 'Дивиденды' },
-  { value: 'проценты', label: 'Проценты' },
-  { value: 'доля_прибыли', label: 'Доля прибыли' },
-  { value: 'тело_инвестиций', label: 'Тело инвестиций' },
-]
+function accrualMonthLabel(iso: string | undefined): string {
+  if (!iso || iso.length < 7) return '—'
+  const [y, m] = iso.slice(0, 10).split('-')
+  if (!y || !m) return '—'
+  return `${m}.${y}`
+}
 
 const RECIPIENT_OPTIONS = [
   { value: 'инвестор', label: 'Инвестор' },
   { value: 'партнер', label: 'Партнер' },
 ]
 
-export function ReturnsTab({ loading, rows, companies, companyLabel, companyFilter, onCreated }: Props) {
+export function ReturnsTab({
+  loading,
+  rows,
+  companies,
+  companyLabel,
+  companyFilter,
+  usesCompanies,
+  returnTypeSelectOptions,
+  onCreated,
+}: Props) {
   const [form] = Form.useForm<FormValues>()
   const [open, setOpen] = useState(false)
   const [submitting, setSubmitting] = useState(false)
@@ -88,22 +102,33 @@ export function ReturnsTab({ loading, rows, companies, companyLabel, companyFilt
     [filtered],
   )
 
-  const columns: ColumnsType<InvestReturnRow> = [
+  const columns: ColumnsType<InvestReturnRow> = useMemo(() => {
+    const companyCol = {
+      title: 'Компания',
+      dataIndex: 'company' as const,
+      width: 220,
+      render: (v: number | null) => companyLabel(v),
+      sorter: (a: InvestReturnRow, b: InvestReturnRow) =>
+        companyLabel(a.company).localeCompare(companyLabel(b.company)),
+    }
+    const rest: ColumnsType<InvestReturnRow> = [
     {
       title: 'Дата',
       dataIndex: 'date',
       width: 120,
       render: (v: string) => dateText(v),
       sorter: (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime(),
-      defaultSortOrder: 'descend',
+      defaultSortOrder: 'descend' as const,
     },
     {
-      title: 'Компания',
-      dataIndex: 'company',
-      width: 220,
-      render: (v: number | null) => companyLabel(v),
-      sorter: (a, b) => companyLabel(a.company).localeCompare(companyLabel(b.company)),
+      title: 'Месяц назначения',
+      dataIndex: 'billing_date',
+      width: 130,
+      render: (_: unknown, row: InvestReturnRow) => accrualMonthLabel(row.billing_date),
+      sorter: (a, b) =>
+        String(a.billing_date || '').slice(0, 7).localeCompare(String(b.billing_date || '').slice(0, 7)),
     },
+    ...(usesCompanies ? [companyCol] : []),
     {
       title: 'Сумма',
       dataIndex: 'sum',
@@ -143,14 +168,19 @@ export function ReturnsTab({ loading, rows, companies, companyLabel, companyFilt
       sorter: (a, b) => Number(a.confirmed) - Number(b.confirmed),
     },
     { title: 'Комментарий', dataIndex: 'comment', render: (v: string) => v || '-' },
-  ]
+    ]
+    return rest
+  }, [usesCompanies, companyLabel])
 
   const openCreate = () => {
     form.resetFields()
+    const firstType = returnTypeSelectOptions[0]?.value ?? 'дивиденды'
+    const bm = clampToAllowedBillingMonth(monthStartTashkent(dayjs()))
     form.setFieldsValue({
       date: dayjs(),
+      billing_date: bm,
       currency: 'USD',
-      type: 'дивиденды',
+      type: firstType,
       recipient: 'инвестор',
     })
     setOpen(true)
@@ -163,11 +193,16 @@ export function ReturnsTab({ loading, rows, companies, companyLabel, companyFilt
     } catch {
       return
     }
+    if (!values.billing_date || !isAllowedBillingMonth(values.billing_date)) {
+      message.warning('Выберите допустимый месяц назначения')
+      return
+    }
     setSubmitting(true)
     try {
       await createInvestReturn({
         company: values.company ?? null,
         date: values.date.format('YYYY-MM-DD'),
+        billing_date: values.billing_date.startOf('month').format('YYYY-MM-DD'),
         sum: String(values.sum),
         currency: values.currency,
         type: values.type,
@@ -219,7 +254,7 @@ export function ReturnsTab({ loading, rows, companies, companyLabel, companyFilt
           columns={columns}
           dataSource={filtered}
           pagination={{ pageSize: 30 }}
-          scroll={{ x: 1480 }}
+          scroll={{ x: 1620 }}
           locale={{
             emptyText: (
               <Empty description="Выплат пока нет" image={Empty.PRESENTED_IMAGE_SIMPLE}>
@@ -244,8 +279,22 @@ export function ReturnsTab({ loading, rows, companies, companyLabel, companyFilt
         width={620}
       >
         <Form form={form} layout="vertical" preserve={false}>
-          <Form.Item label="Компания" name="company">
-            <Select allowClear options={makeCompanySelectOptions(companies)} placeholder="Без компании" />
+          {usesCompanies ? (
+            <Form.Item label="Компания" name="company">
+              <Select allowClear options={makeCompanySelectOptions(companies)} placeholder="Без компании" />
+            </Form.Item>
+          ) : null}
+          <Form.Item
+            label="Месяц назначения"
+            name="billing_date"
+            rules={[{ required: true, message: 'Укажите месяц назначения' }]}
+          >
+            <DatePicker
+              picker="month"
+              format="MM.YYYY"
+              style={{ width: 160 }}
+              disabledDate={(current) => !current || !isAllowedBillingMonth(current)}
+            />
           </Form.Item>
           <Space style={{ width: '100%' }} align="start" wrap>
             <Form.Item label="Дата" name="date" rules={[{ required: true, message: 'Укажите дату' }]}>
@@ -264,7 +313,7 @@ export function ReturnsTab({ loading, rows, companies, companyLabel, companyFilt
           </Space>
           <Space style={{ width: '100%' }} align="start" wrap>
             <Form.Item label="Тип" name="type" rules={[{ required: true }]}>
-              <Select style={{ width: 200 }} options={TYPE_OPTIONS} />
+              <Select style={{ width: 200 }} options={returnTypeSelectOptions} />
             </Form.Item>
             <Form.Item label="Получатель" name="recipient" rules={[{ required: true }]}>
               <Select style={{ width: 180 }} options={RECIPIENT_OPTIONS} />

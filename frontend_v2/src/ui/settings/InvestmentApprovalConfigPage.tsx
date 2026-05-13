@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Alert, Button, Card, Checkbox, Divider, InputNumber, Select, Skeleton, Space, Typography, message } from 'antd'
 import { ArrowLeftOutlined, DeleteOutlined, PlusOutlined } from '@ant-design/icons'
 import { useNavigate } from 'react-router-dom'
@@ -11,6 +11,8 @@ import {
 } from '../../lib/api'
 import { labelBlockAboveField } from '../formSpacing'
 
+const DEFAULT_RETURN_TYPE_KEY = '__default__'
+
 function emptyStep(step: number): InvestmentApprovalConfigStepItem {
   return { step, step_type: 'serial', is_enabled: true, payment_chat_id: null, approver_user_ids: [] }
 }
@@ -21,30 +23,37 @@ export function InvestmentApprovalConfigPage() {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [data, setData] = useState<InvestmentApprovalConfigResponse | null>(null)
+  const [returnTypeFilter, setReturnTypeFilter] = useState<string | null>(null)
 
-  useEffect(() => {
-    let cancelled = false
-    ;(async () => {
-      setLoading(true)
-      setError(null)
-      try {
-        const cfg = await getInvestmentApprovalConfig()
-        if (!cancelled) setData(cfg)
-      } catch (e: unknown) {
-        if (!cancelled) setError(e instanceof Error ? e.message : 'Ошибка загрузки')
-      } finally {
-        if (!cancelled) setLoading(false)
-      }
-    })()
-    return () => {
-      cancelled = true
+  const load = useCallback(async (rt: string | null) => {
+    setLoading(true)
+    setError(null)
+    try {
+      const cfg = await getInvestmentApprovalConfig(rt)
+      setData(cfg)
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Ошибка загрузки')
+    } finally {
+      setLoading(false)
     }
   }, [])
+
+  useEffect(() => {
+    void load(returnTypeFilter)
+  }, [load, returnTypeFilter])
 
   const approverOptions = useMemo(
     () => (data?.approver_candidates ?? []).map((u) => ({ value: u.id, label: u.username })),
     [data],
   )
+
+  const returnTypeSelectOptions = useMemo(() => {
+    const choices = data?.return_type_choices ?? []
+    return [
+      { value: DEFAULT_RETURN_TYPE_KEY, label: 'По умолчанию (все типы без отдельной настройки)' },
+      ...choices.map((c) => ({ value: c.value, label: c.label })),
+    ]
+  }, [data?.return_type_choices])
 
   const updateStep = (idx: number, patch: Partial<InvestmentApprovalConfigStepItem>) => {
     setData((prev) => {
@@ -75,13 +84,15 @@ export function InvestmentApprovalConfigPage() {
     setError(null)
     try {
       const next = await updateInvestmentApprovalConfig({
+        return_type: returnTypeFilter,
         is_enabled: data.is_enabled,
         steps: data.steps.map((s) => ({
           step: s.step,
           step_type: s.step_type ?? 'serial',
           is_enabled: s.is_enabled,
-          payment_chat_id: s.step_type === 'confirmation' ? (s.payment_chat_id ?? null) : null,
-          approver_user_ids: s.approver_user_ids,
+          payment_chat_id:
+            s.step_type === 'confirmation' || s.step_type === 'notification' ? (s.payment_chat_id ?? null) : null,
+          approver_user_ids: s.approver_user_ids ?? [],
         })),
       })
       setData(next)
@@ -93,6 +104,8 @@ export function InvestmentApprovalConfigPage() {
     }
   }
 
+  const selectValue = returnTypeFilter == null ? DEFAULT_RETURN_TYPE_KEY : returnTypeFilter
+
   return (
     <Card>
       <Button type="link" icon={<ArrowLeftOutlined />} onClick={() => navigate('/settings')} style={{ padding: 0 }}>
@@ -102,17 +115,34 @@ export function InvestmentApprovalConfigPage() {
         Инвестиции - этапы согласования
       </Typography.Title>
       <Typography.Paragraph type="secondary" style={{ marginBottom: 0 }}>
-        Настройте шаги подтверждения новой выплаты по инвестициям в Telegram.
+        Настройте шаги подтверждения новой выплаты по инвестициям в Telegram. Для каждого типа выплаты можно задать
+        отдельную цепочку; если для типа нет настройки, используется конфиг «по умолчанию».
       </Typography.Paragraph>
 
       <Divider />
-      {loading ? <Skeleton active /> : null}
       {error ? <Alert type="error" showIcon message={error} style={{ marginBottom: 12 }} /> : null}
+
+      <Space direction="vertical" size={12} style={{ display: 'flex', marginBottom: 12 }}>
+        <div>
+          <Typography.Text strong style={labelBlockAboveField}>
+            Тип выплаты (отдельный конфиг)
+          </Typography.Text>
+          <Select
+            style={{ width: '100%', maxWidth: 480 }}
+            value={selectValue}
+            onChange={(v) => setReturnTypeFilter(v === DEFAULT_RETURN_TYPE_KEY ? null : String(v))}
+            options={returnTypeSelectOptions}
+            disabled={loading && !data}
+          />
+        </div>
+      </Space>
+
+      {loading && !data ? <Skeleton active /> : null}
 
       {!loading && data ? (
         <Space direction="vertical" size={12} style={{ display: 'flex' }}>
           <Checkbox checked={data.is_enabled} onChange={(e) => setData({ ...data, is_enabled: e.target.checked })}>
-            Включить согласование выплат по инвестициям
+            Включить согласование выплат по инвестициям (для этого типа)
           </Checkbox>
           {(data.steps ?? [])
             .slice()
@@ -133,16 +163,22 @@ export function InvestmentApprovalConfigPage() {
                       </Typography.Text>
                       <Select
                         value={step.step_type ?? 'serial'}
-                        style={{ width: 180 }}
-                        onChange={(v) =>
+                        style={{ width: 260 }}
+                        onChange={(v) => {
+                          const t = v as InvestmentApprovalConfigStepItem['step_type']
                           updateStep(idx, {
-                            step_type: v as 'serial' | 'confirmation',
-                            payment_chat_id: v === 'confirmation' ? (step.payment_chat_id ?? null) : null,
+                            step_type: t,
+                            payment_chat_id:
+                              t === 'confirmation' || t === 'notification' ? (step.payment_chat_id ?? null) : null,
                           })
-                        }
+                        }}
                         options={[
                           { value: 'serial', label: 'serial (проверка)' },
                           { value: 'confirmation', label: 'confirmation (подтверждение получения)' },
+                          {
+                            value: 'notification',
+                            label: 'notification (уведомление в chat, без кнопок, авто-подтверждение)',
+                          },
                         ]}
                       />
                     </div>
@@ -157,6 +193,10 @@ export function InvestmentApprovalConfigPage() {
                     <Typography.Text strong style={labelBlockAboveField}>
                       Approver-ы
                     </Typography.Text>
+                    <Typography.Paragraph type="secondary" style={{ marginBottom: 8, fontSize: 12 }}>
+                      Для этапа notification список может быть пустым — в карточке будет указан автор выплаты; сообщение
+                      уходит в chat ID ниже.
+                    </Typography.Paragraph>
                     <Select
                       mode="multiple"
                       value={step.approver_user_ids}
@@ -165,10 +205,10 @@ export function InvestmentApprovalConfigPage() {
                       style={{ width: '100%' }}
                     />
                   </div>
-                  {step.step_type === 'confirmation' ? (
+                  {step.step_type === 'confirmation' || step.step_type === 'notification' ? (
                     <div>
                       <Typography.Text strong style={labelBlockAboveField}>
-                        Chat ID для этапа оплаты
+                        {step.step_type === 'notification' ? 'Chat ID для уведомления' : 'Chat ID для этапа оплаты'}
                       </Typography.Text>
                       <InputNumber
                         style={{ width: '100%' }}

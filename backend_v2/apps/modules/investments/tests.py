@@ -3,7 +3,7 @@ from decimal import Decimal
 from unittest.mock import MagicMock, patch
 
 from django.contrib.auth import get_user_model
-from django.test import TestCase
+from django.test import SimpleTestCase, TestCase
 from django.test import override_settings
 from rest_framework import serializers
 from rest_framework.test import APIRequestFactory
@@ -12,11 +12,16 @@ from rest_framework.test import APITestCase
 from apps.modules.investments.models import (
     InvestCompany,
     InvestmentApprovalConfigStep,
+    InvestmentFormConfig,
+    InvestmentReturnApproval,
     InvestPayoutSchedule,
     InvestPayoutScheduleShareLink,
     InvestReturn,
 )
 from apps.tenants.models import TenantMembership, TenantModuleConfig, TenantUserRole
+from apps.modules.reports.models import TenantReportSettings
+from apps.modules.reports.pnl_builder import build_pnl_payload_from_db
+from apps.modules.reports.tests import full_backend_pnl_config
 from apps.modules.investments.serializers import (
     InvestPayoutScheduleSerializer,
     InvestPayoutScheduleShareLinkSerializer,
@@ -39,12 +44,19 @@ class InvestReturnSerializerTests(TestCase):
     def setUp(self):
         self.tenant = Tenant.objects.create(name="Acme", subdomain="acme", is_active=True)
         self.user = User.objects.create_user(username="invest-admin", password="x")
+        self._p_allow_billing = patch(
+            "apps.modules.investments.serializers.is_accrual_month_allowed",
+            return_value=True,
+        )
+        self._p_allow_billing.start()
+        self.addCleanup(self._p_allow_billing.stop)
 
     @patch("apps.modules.investments.serializers.fetch_cbu_usd_uzs_rate", return_value=Decimal("12600"))
     def test_usd_normalizes_currency_and_computes_sum_uzs(self, _mock_fetch):
         serializer = InvestReturnSerializer(
             data={
                 "date": date(2026, 4, 17),
+                "billing_date": date(2026, 4, 1),
                 "sum": "100.00",
                 "comment": "Dividend payout",
                 "confirmed": True,
@@ -60,12 +72,14 @@ class InvestReturnSerializerTests(TestCase):
         self.assertEqual(obj.sum, Decimal("100.00"))
         self.assertEqual(obj.sum_uzs, Decimal("1260000.00"))
         self.assertEqual(obj.cbu_usd_uzs_rate, Decimal("12600"))
+        self.assertEqual(obj.billing_date, date(2026, 4, 1))
 
     @patch("apps.modules.investments.serializers.fetch_cbu_usd_uzs_rate", return_value=Decimal("12600"))
     def test_uzs_sets_sum_equal_sum_uzs(self, _mock_fetch):
         serializer = InvestReturnSerializer(
             data={
                 "date": date(2026, 4, 17),
+                "billing_date": date(2026, 4, 1),
                 "sum": "5000000",
                 "comment": "Payout in soums",
                 "confirmed": False,
@@ -80,11 +94,29 @@ class InvestReturnSerializerTests(TestCase):
         self.assertEqual(obj.sum, Decimal("5000000.00"))
         self.assertEqual(obj.sum_uzs, Decimal("5000000.00"))
         self.assertEqual(obj.cbu_usd_uzs_rate, Decimal("12600"))
+        self.assertEqual(obj.billing_date, date(2026, 4, 1))
+
+    @patch("apps.modules.investments.serializers.fetch_cbu_usd_uzs_rate", return_value=Decimal("12600"))
+    @patch("apps.modules.investments.serializers.is_accrual_month_allowed", return_value=False)
+    def test_rejects_billing_month_when_not_allowed(self, _allow, _fetch):
+        serializer = InvestReturnSerializer(
+            data={
+                "date": date(2026, 4, 17),
+                "billing_date": date(2026, 4, 1),
+                "sum": "100.00",
+                "currency": "USD",
+                "type": "дивиденды",
+                "recipient": "инвестор",
+            }
+        )
+        self.assertFalse(serializer.is_valid())
+        self.assertIn("billing_date", serializer.errors)
 
     def test_rejects_eur(self):
         serializer = InvestReturnSerializer(
             data={
                 "date": date(2026, 4, 17),
+                "billing_date": date(2026, 4, 1),
                 "sum": "100.00",
                 "currency": "EUR",
                 "type": "проценты",
@@ -99,6 +131,7 @@ class InvestReturnSerializerTests(TestCase):
         serializer = InvestReturnSerializer(
             data={
                 "date": date(2026, 4, 17),
+                "billing_date": date(2026, 4, 1),
                 "sum": "10.00",
                 "sum_uzs": "1.00",
                 "currency": "USD",
@@ -118,6 +151,7 @@ class InvestReturnSerializerTests(TestCase):
         serializer = InvestReturnSerializer(
             data={
                 "date": date(2026, 4, 17),
+                "billing_date": date(2026, 4, 1),
                 "sum": "10.00",
                 "currency": "USD",
                 "type": "дивиденды",
@@ -133,6 +167,7 @@ class InvestReturnSerializerTests(TestCase):
         obj = InvestReturn.objects.create(
             tenant=self.tenant,
             date=date(2026, 4, 1),
+            billing_date=date(2026, 4, 1),
             sum=Decimal("100.00"),
             sum_uzs=Decimal("1000000.00"),
             currency="USD",
@@ -157,6 +192,7 @@ class InvestReturnSerializerTests(TestCase):
         ret = InvestReturn.objects.create(
             tenant=self.tenant,
             date=date(2026, 1, 1),
+            billing_date=date(2026, 1, 1),
             sum=Decimal("1.00"),
             type="дивиденды",
             recipient="инвестор",
@@ -169,6 +205,55 @@ class InvestReturnSerializerTests(TestCase):
         ret.refresh_from_db()
         self.assertIsNotNone(ret.last_edit_at)
         self.assertGreaterEqual(ret.last_edit_at, t1)
+
+    @patch("apps.modules.investments.serializers.fetch_cbu_usd_uzs_rate", return_value=Decimal("12600"))
+    def test_rejects_disallowed_return_type(self, _mock_fetch):
+        InvestmentFormConfig.objects.create(
+            tenant=self.tenant,
+            uses_companies=True,
+            allowed_return_types=["проценты"],
+        )
+        request = factory.post("/api/investments/returns/")
+        request.tenant = self.tenant
+        serializer = InvestReturnSerializer(
+            data={
+                "date": date(2026, 4, 17),
+                "billing_date": date(2026, 4, 1),
+                "sum": "100.00",
+                "currency": "USD",
+                "type": "дивиденды",
+                "recipient": "инвестор",
+            },
+            context={"request": request},
+        )
+        self.assertFalse(serializer.is_valid())
+        self.assertIn("type", serializer.errors)
+
+    @patch("apps.modules.investments.serializers.fetch_cbu_usd_uzs_rate", return_value=Decimal("12600"))
+    def test_create_clears_company_when_form_disables_companies(self, _mock_fetch):
+        co = InvestCompany.objects.create(tenant=self.tenant, name="Co", created_by=self.user)
+        InvestmentFormConfig.objects.create(
+            tenant=self.tenant,
+            uses_companies=False,
+            allowed_return_types=["дивиденды", "проценты", "доля_прибыли", "тело_инвестиций"],
+        )
+        request = factory.post("/api/investments/returns/")
+        request.tenant = self.tenant
+        serializer = InvestReturnSerializer(
+            data={
+                "date": date(2026, 4, 17),
+                "billing_date": date(2026, 4, 1),
+                "sum": "100.00",
+                "currency": "USD",
+                "type": "дивиденды",
+                "recipient": "инвестор",
+                "company": co.id,
+            },
+            context={"request": request},
+        )
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+        obj = serializer.save(tenant=self.tenant, created_by=self.user)
+        self.assertIsNone(obj.company_id)
 
 
 class InvestReturnCbuServicesTests(TestCase):
@@ -244,6 +329,31 @@ class InvestPayoutScheduleSerializerTests(TestCase):
         self.assertIsNotNone(obj.created_at)
         self.assertIsNotNone(obj.last_edit_at)
         self.assertIsNone(obj.company)
+
+    def test_clears_company_when_form_disables_companies(self):
+        co = InvestCompany.objects.create(tenant=self.tenant, name="SchedCo", created_by=self.user)
+        InvestmentFormConfig.objects.create(
+            tenant=self.tenant,
+            uses_companies=False,
+            allowed_return_types=["дивиденды"],
+        )
+        request = factory.post("/api/investments/payout-schedule/")
+        request.tenant = self.tenant
+        serializer = InvestPayoutScheduleSerializer(
+            data={
+                "payout_date": date(2026, 6, 1),
+                "amount": "5000.00",
+                "currency": "USD",
+                "is_paid": False,
+                "payment_amount": "0",
+                "comment": "Q2",
+                "company": co.id,
+            },
+            context={"request": request},
+        )
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+        obj = serializer.save(tenant=self.tenant, created_by=self.user)
+        self.assertIsNone(obj.company_id)
 
 
 class ProjectInvestmentSerializerTests(TestCase):
@@ -394,9 +504,60 @@ class InvestPayoutScheduleShareLinkTests(TestCase):
         self.assertEqual(response.status_code, 404)
 
 
+@override_settings(BASE_DOMAIN="example.com", ALLOWED_HOSTS=["*"])
+class InvestmentFormConfigApiTests(APITestCase):
+    def setUp(self):
+        self.tenant = Tenant.objects.create(name="FormCfg", subdomain="formcfg", is_active=True)
+        self.host = "formcfg.example.com"
+        self.user = User.objects.create_user(username="form_admin", password="x")
+        TenantMembership.objects.create(tenant=self.tenant, user=self.user, is_active=True)
+        TenantUserRole.objects.create(tenant=self.tenant, user=self.user, role=TenantUserRole.ROLE_ADMIN)
+        TenantModuleConfig.objects.create(tenant=self.tenant, module_key="investments", is_enabled=True)
+        self.client.force_authenticate(self.user)
+        InvestmentFormConfig.objects.create(
+            tenant=self.tenant,
+            uses_companies=False,
+            allowed_return_types=["дивиденды", "проценты"],
+        )
+
+    def test_get_form_config_returns_saved_values(self):
+        res = self.client.get("/api/investments/form-config/", HTTP_HOST=self.host)
+        self.assertEqual(res.status_code, 200)
+        self.assertFalse(res.data["uses_companies"])
+        self.assertEqual(set(res.data["allowed_return_types"]), {"дивиденды", "проценты"})
+
+    def test_put_updates_form_config(self):
+        all_types = [c[0] for c in InvestReturn.ReturnType.choices]
+        res = self.client.put(
+            "/api/investments/form-config/",
+            {"uses_companies": True, "allowed_return_types": all_types},
+            format="json",
+            HTTP_HOST=self.host,
+        )
+        self.assertEqual(res.status_code, 200)
+        self.assertTrue(res.data["uses_companies"])
+        cfg = InvestmentFormConfig.objects.get(tenant=self.tenant)
+        self.assertTrue(cfg.uses_companies)
+
+    def test_create_company_rejected_when_disabled(self):
+        res = self.client.post(
+            "/api/investments/companies/",
+            {"name": "NewCo", "comment": ""},
+            format="json",
+            HTTP_HOST=self.host,
+        )
+        self.assertEqual(res.status_code, 400)
+
+
 @override_settings(BASE_DOMAIN="example.com", N8N_INTEGRATION_TOKEN="", ALLOWED_HOSTS=["*"])
 class InvestmentApprovalFlowTests(APITestCase):
     def setUp(self):
+        self._p_allow_billing = patch(
+            "apps.modules.investments.serializers.is_accrual_month_allowed",
+            return_value=True,
+        )
+        self._p_allow_billing.start()
+        self.addCleanup(self._p_allow_billing.stop)
         self.tenant = Tenant.objects.create(name="InvestFlow", subdomain="investflow", is_active=True)
         self.host = "investflow.example.com"
         self.admin = User.objects.create_user(username="inv_admin", password="x")
@@ -428,6 +589,7 @@ class InvestmentApprovalFlowTests(APITestCase):
 
         self.client.force_authenticate(self.admin)
         cfg_payload = {
+            "return_type": None,
             "is_enabled": True,
             "steps": [
                 {
@@ -462,6 +624,7 @@ class InvestmentApprovalFlowTests(APITestCase):
             "/api/investments/returns/",
             {
                 "date": "2026-04-29",
+                "billing_date": "2026-04-01",
                 "sum": "1200.00",
                 "currency": "USD",
                 "type": "дивиденды",
@@ -479,6 +642,7 @@ class InvestmentApprovalFlowTests(APITestCase):
         self.assertEqual(created.approvals.count(), 2)
         self.assertEqual(bridge_mock.call_count, 1)
         payload = bridge_mock.call_args.kwargs["payload"]
+        self.assertIn("Месяц назначения", payload["text"])
         self.assertIn("InvestFlow", payload["text"])
         self.assertIn("1 200.00", payload["text"])
         self.assertIn("Выплата №", payload["text"])
@@ -494,6 +658,7 @@ class InvestmentApprovalFlowTests(APITestCase):
             "/api/investments/returns/",
             {
                 "date": "2026-04-29",
+                "billing_date": "2026-04-01",
                 "sum": "900.00",
                 "currency": "USD",
                 "type": "проценты",
@@ -580,6 +745,7 @@ class InvestmentApprovalFlowTests(APITestCase):
             "/api/investments/returns/",
             {
                 "date": "2026-04-29",
+                "billing_date": "2026-04-01",
                 "sum": "500.00",
                 "currency": "USD",
                 "type": "дивиденды",
@@ -588,6 +754,7 @@ class InvestmentApprovalFlowTests(APITestCase):
             format="json",
             HTTP_HOST=self.host,
         )
+        self.assertEqual(response.status_code, 201)
         inv_return = InvestReturn.objects.get(id=response.data["id"])
         first_step = inv_return.approvals.get(step=1)
         reject_res = self.client.post(
@@ -614,6 +781,7 @@ class InvestmentApprovalFlowTests(APITestCase):
             "/api/investments/returns/",
             {
                 "date": "2026-04-29",
+                "billing_date": "2026-04-01",
                 "sum": "750.00",
                 "currency": "USD",
                 "type": "дивиденды",
@@ -652,6 +820,7 @@ class InvestmentApprovalFlowTests(APITestCase):
             "/api/investments/returns/",
             {
                 "date": "2026-04-29",
+                "billing_date": "2026-04-01",
                 "sum": "100.00",
                 "currency": "USD",
                 "type": "дивиденды",
@@ -680,3 +849,203 @@ class InvestmentApprovalFlowTests(APITestCase):
         last_payload = bridge_mock.call_args.kwargs["payload"]
         self.assertEqual(last_payload.get("buttons"), [])
         self.assertIn("message_id", last_payload)
+
+    def test_get_approval_config_rejects_invalid_return_type_query(self):
+        res = self.client.get("/api/investments/approval-config/?return_type=invalid_type", HTTP_HOST=self.host)
+        self.assertEqual(res.status_code, 400)
+
+    @patch("apps.modules.investments.approval_services.post_messaging_gateway")
+    def test_uses_return_type_specific_config_when_present(self, bridge_mock):
+        bridge_mock.return_value = {"message_id": 303}
+        self.client.put(
+            "/api/investments/approval-config/",
+            {
+                "return_type": None,
+                "is_enabled": True,
+                "steps": [
+                    {
+                        "step": 1,
+                        "step_type": InvestmentApprovalConfigStep.STEP_TYPE_SERIAL,
+                        "is_enabled": True,
+                        "approver_user_ids": [self.approver1.id],
+                    },
+                ],
+            },
+            format="json",
+            HTTP_HOST=self.host,
+        )
+        self.client.put(
+            "/api/investments/approval-config/",
+            {
+                "return_type": "проценты",
+                "is_enabled": True,
+                "steps": [
+                    {
+                        "step": 1,
+                        "step_type": InvestmentApprovalConfigStep.STEP_TYPE_SERIAL,
+                        "is_enabled": True,
+                        "approver_user_ids": [self.approver2.id],
+                    },
+                ],
+            },
+            format="json",
+            HTTP_HOST=self.host,
+        )
+        div_res = self.client.post(
+            "/api/investments/returns/",
+            {
+                "date": "2026-04-29",
+                "billing_date": "2026-04-01",
+                "sum": "10.00",
+                "currency": "USD",
+                "type": "дивиденды",
+                "recipient": "инвестор",
+            },
+            format="json",
+            HTTP_HOST=self.host,
+        )
+        self.assertEqual(div_res.status_code, 201, div_res.data)
+        div_payload = bridge_mock.call_args.kwargs["payload"]
+        self.assertEqual(div_payload["recipient_id"], str(self.approver1.telegram_chat_id))
+        bridge_mock.reset_mock()
+        bridge_mock.return_value = {"message_id": 304}
+        pct_res = self.client.post(
+            "/api/investments/returns/",
+            {
+                "date": "2026-04-29",
+                "billing_date": "2026-04-01",
+                "sum": "11.00",
+                "currency": "USD",
+                "type": "проценты",
+                "recipient": "партнер",
+            },
+            format="json",
+            HTTP_HOST=self.host,
+        )
+        self.assertEqual(pct_res.status_code, 201, pct_res.data)
+        pct_payload = bridge_mock.call_args.kwargs["payload"]
+        self.assertEqual(pct_payload["recipient_id"], str(self.approver2.telegram_chat_id))
+
+    @patch("apps.modules.investments.approval_services.post_messaging_gateway")
+    def test_notification_step_dispatches_without_buttons_and_auto_approves(self, bridge_mock):
+        bridge_mock.return_value = {"message_id": 801}
+        put_res = self.client.put(
+            "/api/investments/approval-config/",
+            {
+                "return_type": None,
+                "is_enabled": True,
+                "steps": [
+                    {
+                        "step": 1,
+                        "step_type": InvestmentApprovalConfigStep.STEP_TYPE_NOTIFICATION,
+                        "is_enabled": True,
+                        "payment_chat_id": 888001,
+                        "approver_user_ids": [],
+                    },
+                    {
+                        "step": 2,
+                        "step_type": InvestmentApprovalConfigStep.STEP_TYPE_SERIAL,
+                        "is_enabled": True,
+                        "approver_user_ids": [self.approver1.id],
+                    },
+                ],
+            },
+            format="json",
+            HTTP_HOST=self.host,
+        )
+        self.assertEqual(put_res.status_code, 200, put_res.data)
+        response = self.client.post(
+            "/api/investments/returns/",
+            {
+                "date": "2026-04-29",
+                "billing_date": "2026-04-01",
+                "sum": "42.00",
+                "currency": "USD",
+                "type": "дивиденды",
+                "recipient": "инвестор",
+            },
+            format="json",
+            HTTP_HOST=self.host,
+        )
+        self.assertEqual(response.status_code, 201)
+        inv_return = InvestReturn.objects.get(id=response.data["id"])
+        notif = inv_return.approvals.get(step=1)
+        serial = inv_return.approvals.get(step=2)
+        self.assertEqual(notif.decision, InvestmentReturnApproval.DECISION_APPROVED)
+        self.assertEqual(serial.decision, InvestmentReturnApproval.DECISION_PENDING)
+        calls = [c.kwargs["payload"] for c in bridge_mock.call_args_list]
+        notify_sends = [p for p in calls if p.get("recipient_id") == "888001" and p.get("buttons") == []]
+        serial_sends = [
+            p
+            for p in calls
+            if p.get("recipient_id") == str(self.approver1.telegram_chat_id) and p.get("buttons")
+        ]
+        self.assertTrue(notify_sends, "ожидался send в chat notification без кнопок")
+        self.assertIn("Уведомление", notify_sends[0]["text"])
+        self.assertTrue(serial_sends, "ожидался send serial с кнопками")
+        self.assertLess(calls.index(notify_sends[0]), calls.index(serial_sends[0]))
+
+
+class BillingMonthRulesTests(SimpleTestCase):
+    @patch("apps.modules.investments.billing_month_rules.tashkent_today", return_value=date(2026, 5, 10))
+    def test_three_calendar_months_allowed_before_day_21(self, _mock):
+        from apps.modules.investments.billing_month_rules import allowed_accrual_month_starts
+
+        self.assertEqual(len(allowed_accrual_month_starts()), 3)
+
+    @patch("apps.modules.investments.billing_month_rules.tashkent_today", return_value=date(2026, 5, 21))
+    def test_two_calendar_months_allowed_from_day_21(self, _mock):
+        from apps.modules.investments.billing_month_rules import allowed_accrual_month_starts
+
+        self.assertEqual(len(allowed_accrual_month_starts()), 2)
+
+
+class InvestReturnPnLBillingMonthTests(TestCase):
+    def setUp(self):
+        self.tenant = Tenant.objects.create(name="PnLBilling", subdomain="pnlbilling", is_active=True)
+        TenantReportSettings.objects.create(
+            tenant=self.tenant,
+            pnl_source=TenantReportSettings.PNL_SOURCE_BACKEND,
+            pnl_config=full_backend_pnl_config(start_month="2026-02"),
+        )
+        self.user = User.objects.create_user(username="pnl_ir_u", password="x")
+
+    def test_operational_line_uses_billing_month_as_report_date(self):
+        ir = InvestReturn.objects.create(
+            tenant=self.tenant,
+            created_by=self.user,
+            date=date(2026, 5, 10),
+            billing_date=date(2026, 3, 1),
+            sum=Decimal("100"),
+            sum_uzs=Decimal("1000000"),
+            currency="USD",
+            cbu_usd_uzs_rate=Decimal("10000"),
+            type="дивиденды",
+            recipient="инвестор",
+            confirmed=True,
+            comment="",
+        )
+        payload = build_pnl_payload_from_db(tenant=self.tenant, query_params={})
+        rows = payload["operational_expenses"]
+        match = next((r for r in rows if r["id"] == str(ir.id)), None)
+        self.assertIsNotNone(match)
+        self.assertEqual(match["date"], "2026-03-01")
+
+    def test_excluded_when_billing_month_before_config_start(self):
+        ir = InvestReturn.objects.create(
+            tenant=self.tenant,
+            created_by=self.user,
+            date=date(2026, 6, 1),
+            billing_date=date(2026, 1, 1),
+            sum=Decimal("50"),
+            sum_uzs=Decimal("500000"),
+            currency="USD",
+            cbu_usd_uzs_rate=Decimal("10000"),
+            type="дивиденды",
+            recipient="инвестор",
+            confirmed=True,
+            comment="",
+        )
+        payload = build_pnl_payload_from_db(tenant=self.tenant, query_params={})
+        ids = {r["id"] for r in payload["operational_expenses"]}
+        self.assertNotIn(str(ir.id), ids)

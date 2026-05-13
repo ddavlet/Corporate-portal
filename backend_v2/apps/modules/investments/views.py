@@ -18,6 +18,7 @@ from apps.modules.investments.models import (
     InvestCompany,
     InvestmentApprovalConfig,
     InvestmentApprovalConfigStep,
+    InvestmentFormConfig,
     InvestmentReturnApproval,
     InvestPayoutSchedule,
     InvestPayoutScheduleShareLink,
@@ -29,6 +30,7 @@ from apps.modules.investments.serializers import (
     InvestmentApprovalConfigSerializer,
     InvestmentApprovalDecisionSerializer,
     InvestmentApprovalWebhookSerializer,
+    InvestmentFormConfigSerializer,
     InvestPayoutScheduleSerializer,
     InvestPayoutScheduleShareLinkSerializer,
     InvestReturnSerializer,
@@ -76,6 +78,12 @@ class ProjectInvestmentViewSet(_InvestmentsTenantViewSet):
 class InvestCompanyViewSet(_InvestmentsTenantViewSet):
     serializer_class = InvestCompanySerializer
     queryset = InvestCompany.objects.all()
+
+    def perform_create(self, serializer):
+        cfg = InvestmentFormConfig.objects.filter(tenant=self.request.tenant).first()
+        if cfg and not cfg.uses_companies:
+            raise ValidationError({"detail": "Создание компаний отключено в настройках формы инвестиций."})
+        super().perform_create(serializer)
 
 
 class InvestPayoutScheduleShareLinkViewSet(_InvestmentsTenantViewSet):
@@ -140,16 +148,75 @@ class PublicInvestPayoutScheduleByTokenView(APIView):
         )
 
 
+class InvestmentFormConfigView(APIView):
+    permission_classes = [IsAuthenticated, HasEffectiveModuleAccess]
+    module_key = "investments"
+
+    @staticmethod
+    def _all_return_type_values() -> list[str]:
+        return [c[0] for c in InvestReturn.ReturnType.choices]
+
+    def _payload(self, tenant):
+        cfg = InvestmentFormConfig.objects.filter(tenant=tenant).first()
+        choices_payload = [{"value": c[0], "label": str(c[1])} for c in InvestReturn.ReturnType.choices]
+        all_values = self._all_return_type_values()
+        if not cfg:
+            return {
+                "uses_companies": True,
+                "allowed_return_types": all_values,
+                "return_type_choices": choices_payload,
+            }
+        allowed = list(cfg.allowed_return_types or [])
+        if not allowed:
+            allowed = all_values
+        return {
+            "uses_companies": cfg.uses_companies,
+            "allowed_return_types": allowed,
+            "return_type_choices": choices_payload,
+        }
+
+    def get(self, request):
+        self.check_permissions(request)
+        return Response(self._payload(request.tenant))
+
+    def put(self, request):
+        self.check_permissions(request)
+        serializer = InvestmentFormConfigSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        payload = serializer.validated_data
+        InvestmentFormConfig.objects.update_or_create(
+            tenant=request.tenant,
+            defaults={
+                "uses_companies": payload["uses_companies"],
+                "allowed_return_types": list(payload["allowed_return_types"]),
+            },
+        )
+        return Response(self._payload(request.tenant))
+
+
 class InvestmentApprovalConfigView(APIView):
     permission_classes = [IsAuthenticated, HasEffectiveModuleAccess]
     module_key = "investments"
 
-    def _get_or_create(self, tenant):
-        config, _ = InvestmentApprovalConfig.objects.get_or_create(tenant=tenant)
+    @staticmethod
+    def _parse_return_type_param(raw) -> str | None:
+        if raw in (None, "", "null"):
+            return None
+        valid = {c[0] for c in InvestReturn.ReturnType.choices}
+        if raw not in valid:
+            raise ValidationError({"return_type": "Недопустимый тип выплаты."})
+        return raw
+
+    def _get_or_create(self, tenant, return_type: str | None):
+        config, _ = InvestmentApprovalConfig.objects.get_or_create(
+            tenant=tenant,
+            return_type=return_type,
+            defaults={"is_enabled": False},
+        )
         return config
 
-    def _response_payload(self, tenant):
-        config = self._get_or_create(tenant)
+    def _response_payload(self, tenant, return_type: str | None):
+        config = self._get_or_create(tenant, return_type)
         steps = list(config.steps.order_by("step", "id").prefetch_related("approver_users"))
         User = get_user_model()
         member_ids = TenantMembership.objects.filter(tenant=tenant, is_active=True).values_list(
@@ -162,6 +229,8 @@ class InvestmentApprovalConfigView(APIView):
             .values("id", "username")
         )
         return {
+            "return_type": config.return_type,
+            "return_type_choices": [{"value": c[0], "label": c[1]} for c in InvestReturn.ReturnType.choices],
             "is_enabled": config.is_enabled,
             "steps": [
                 {
@@ -178,16 +247,18 @@ class InvestmentApprovalConfigView(APIView):
 
     def get(self, request):
         self.check_permissions(request)
-        return Response(self._response_payload(request.tenant))
+        rt = self._parse_return_type_param(request.query_params.get("return_type"))
+        return Response(self._response_payload(request.tenant, rt))
 
     def put(self, request):
         self.check_permissions(request)
         serializer = InvestmentApprovalConfigSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         payload = serializer.validated_data
+        cfg_return_type = payload.get("return_type")
 
         with transaction.atomic():
-            config = self._get_or_create(request.tenant)
+            config = self._get_or_create(request.tenant, cfg_return_type)
             config.is_enabled = payload["is_enabled"]
             config.save(update_fields=["is_enabled", "updated_at"])
             config.steps.all().delete()
@@ -199,8 +270,8 @@ class InvestmentApprovalConfigView(APIView):
                     is_enabled=row["is_enabled"],
                     payment_chat_id=row.get("payment_chat_id"),
                 )
-                step.approver_users.set(row["approver_user_ids"])
-        return Response(self._response_payload(request.tenant))
+                step.approver_users.set(row.get("approver_user_ids") or [])
+        return Response(self._response_payload(request.tenant, config.return_type))
 
 
 class InvestmentApprovalDecisionView(APIView):
@@ -283,6 +354,8 @@ class InvestmentApprovalWebhookView(APIView):
         approval = InvestmentReturnApproval.objects.select_related("tenant").filter(id=parsed_approval_id).first()
         if not approval:
             raise ValidationError({"approval_id": "Approval not found."})
+        if approval.step_type == InvestmentApprovalConfigStep.STEP_TYPE_NOTIFICATION:
+            raise ValidationError({"detail": "Этап notification не принимает ответы по кнопкам."})
         if message_id is not None and approval.gateway_message_id is not None and approval.gateway_message_id != message_id:
             raise ValidationError({"message_id": "Callback message_id does not match stored message_id."})
         if approval.approver_recipient_id is not None and approval.approver_recipient_id != chat_id:

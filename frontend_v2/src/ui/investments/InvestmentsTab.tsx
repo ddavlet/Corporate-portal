@@ -42,6 +42,7 @@ type Props = {
   companies: InvestCompanyRow[]
   companyLabel: (id: number | null) => string
   companyFilter: CompanyFilter
+  usesCompanies: boolean
   onCreated: () => Promise<void> | void
 }
 
@@ -53,7 +54,15 @@ type FormValues = {
   comment?: string
 }
 
-export function InvestmentsTab({ loading, rows, companies, companyLabel, companyFilter, onCreated }: Props) {
+export function InvestmentsTab({
+  loading,
+  rows,
+  companies,
+  companyLabel,
+  companyFilter,
+  usesCompanies,
+  onCreated,
+}: Props) {
   const [form] = Form.useForm<FormValues>()
   const [open, setOpen] = useState(false)
   const [submitting, setSubmitting] = useState(false)
@@ -69,22 +78,25 @@ export function InvestmentsTab({ loading, rows, companies, companyLabel, company
 
   const totals = useMemo(() => totalsByCurrency(filtered, 'amount'), [filtered])
 
-  const columns: ColumnsType<ProjectInvestmentRow> = [
+  const columns: ColumnsType<ProjectInvestmentRow> = useMemo(() => {
+    const companyCol = {
+      title: 'Компания',
+      dataIndex: 'company' as const,
+      width: 220,
+      render: (v: number | null) => companyLabel(v),
+      sorter: (a: ProjectInvestmentRow, b: ProjectInvestmentRow) =>
+        companyLabel(a.company).localeCompare(companyLabel(b.company)),
+    }
+    return [
     {
       title: 'Дата',
       dataIndex: 'date',
       width: 120,
       render: (v: string) => dateText(v),
       sorter: (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime(),
-      defaultSortOrder: 'descend',
+      defaultSortOrder: 'descend' as const,
     },
-    {
-      title: 'Компания',
-      dataIndex: 'company',
-      width: 220,
-      render: (v: number | null) => companyLabel(v),
-      sorter: (a, b) => companyLabel(a.company).localeCompare(companyLabel(b.company)),
-    },
+    ...(usesCompanies ? [companyCol] : []),
     {
       title: 'Сумма',
       dataIndex: 'amount',
@@ -100,7 +112,8 @@ export function InvestmentsTab({ loading, rows, companies, companyLabel, company
       sorter: (a, b) => a.currency.localeCompare(b.currency),
     },
     { title: 'Комментарий', dataIndex: 'comment', render: (v: string) => v || '-' },
-  ]
+    ]
+  }, [usesCompanies, companyLabel])
 
   const openCreate = () => {
     form.resetFields()
@@ -187,9 +200,11 @@ export function InvestmentsTab({ loading, rows, companies, companyLabel, company
         width={560}
       >
         <Form form={form} layout="vertical" preserve={false}>
-          <Form.Item label="Компания" name="company">
-            <Select allowClear options={makeCompanySelectOptions(companies)} placeholder="Без компании" />
-          </Form.Item>
+          {usesCompanies ? (
+            <Form.Item label="Компания" name="company">
+              <Select allowClear options={makeCompanySelectOptions(companies)} placeholder="Без компании" />
+            </Form.Item>
+          ) : null}
           <Space style={{ width: '100%' }} align="start" wrap>
             <Form.Item label="Дата" name="date" rules={[{ required: true, message: 'Укажите дату' }]}>
               <DatePicker format="DD.MM.YYYY" />

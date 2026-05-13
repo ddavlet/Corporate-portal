@@ -3,6 +3,8 @@ import { Alert, Button, Input, Skeleton, Tag, Typography } from 'antd'
 import { useNavigate } from 'react-router-dom'
 import { ArrowLeftOutlined, SearchOutlined } from '@ant-design/icons'
 import {
+  DEFAULT_INVESTMENT_FORM_CONFIG,
+  getInvestmentFormConfig,
   getInvestCompanies,
   getInvestReturns,
   type InvestCompanyRow,
@@ -41,6 +43,12 @@ const RECIPIENT_LABEL: Record<string, string> = {
   партнер: 'Партнер',
 }
 
+function accrualMonthShort(iso: string | undefined): string {
+  if (!iso || iso.length < 7) return '—'
+  const [y, m] = iso.slice(0, 10).split('-')
+  return m && y ? `${m}.${y}` : '—'
+}
+
 export function TgInvestmentsReturnsPage() {
   const navigate = useNavigate()
   const [loading, setLoading] = useState(true)
@@ -48,6 +56,7 @@ export function TgInvestmentsReturnsPage() {
   const [rows, setRows] = useState<InvestReturnRow[]>([])
   const [companies, setCompanies] = useState<InvestCompanyRow[]>([])
   const [search, setSearch] = useState('')
+  const [usesCompanies, setUsesCompanies] = useState(true)
 
   useEffect(() => {
     let cancelled = false
@@ -55,13 +64,16 @@ export function TgInvestmentsReturnsPage() {
       setError(null)
       setLoading(true)
       try {
-        const [items, companyRows] = await Promise.all([
+        const cfgPromise = getInvestmentFormConfig().catch(() => DEFAULT_INVESTMENT_FORM_CONFIG)
+        const [items, companyRows, cfg] = await Promise.all([
           getInvestReturns(),
           getInvestCompanies(),
+          cfgPromise,
         ])
         if (cancelled) return
         setRows(items)
         setCompanies(companyRows)
+        setUsesCompanies(cfg.uses_companies)
       } catch (e: unknown) {
         if (!cancelled) setError(e instanceof Error ? e.message : 'Ошибка загрузки')
       } finally {
@@ -130,7 +142,9 @@ export function TgInvestmentsReturnsPage() {
       {!loading && !error
         ? filtered.map((row) => (
             <div key={row.id} className="tg-request-row" style={{ cursor: 'default' }}>
-              <div className="tg-request-row-title">{companyLabel(row.company)}</div>
+              {usesCompanies ? (
+                <div className="tg-request-row-title">{companyLabel(row.company)}</div>
+              ) : null}
               <div className="tg-request-row-meta">
                 <span className="tg-request-row-amount">{formatAmount(row.sum, row.currency)}</span>
                 <Tag color={row.confirmed ? 'green' : 'default'}>
@@ -138,6 +152,7 @@ export function TgInvestmentsReturnsPage() {
                 </Tag>
                 <span>{TYPE_LABEL[row.type] || row.type || '—'}</span>
                 <span>{RECIPIENT_LABEL[row.recipient] || row.recipient || '—'}</span>
+                <span>Нач.: {accrualMonthShort(row.billing_date)}</span>
                 <span>{formatDate(row.date)}</span>
                 {row.comment ? <span>{row.comment}</span> : null}
               </div>
