@@ -8,8 +8,12 @@ from apps.modules.investments.models import (
     InvestmentApprovalConfig,
     InvestmentApprovalConfigStep,
     InvestmentApprovalConfigStepApprover,
+    InvestmentProjectApprovalConfig,
+    InvestmentProjectApprovalConfigStep,
+    InvestmentProjectApprovalConfigStepApprover,
     InvestmentReturnApproval,
     ProjectInvestment,
+    ProjectInvestmentApproval,
 )
 
 
@@ -55,8 +59,9 @@ class InvestPayoutScheduleAdmin(admin.ModelAdmin):
 
 @admin.register(ProjectInvestment)
 class ProjectInvestmentAdmin(admin.ModelAdmin):
-    list_display = ("id", "tenant", "company", "date", "amount", "currency", "created_at", "last_edit_at")
-    list_filter = ("tenant",)
+    list_display = ("id", "tenant", "company", "date", "amount", "currency", "confirmed", "created_at", "last_edit_at")
+    list_filter = ("tenant", "confirmed")
+    search_fields = ("comment", "id", "tenant__name", "tenant__subdomain")
     readonly_fields = ("created_at", "last_edit_at")
 
 
@@ -91,7 +96,7 @@ class InvestmentApprovalConfigStepInline(admin.TabularInline):
 
 @admin.register(InvestmentApprovalConfig)
 class InvestmentApprovalConfigAdmin(admin.ModelAdmin):
-    list_display = ("id", "tenant", "return_type", "is_enabled", "created_at", "updated_at")
+    list_display = ("id", "tenant", "return_type", "recipient", "is_enabled", "created_at", "updated_at")
     list_filter = ("is_enabled", "tenant")
     search_fields = ("tenant__subdomain", "tenant__name")
     autocomplete_fields = ("tenant",)
@@ -124,4 +129,55 @@ class InvestmentReturnApprovalAdmin(admin.ModelAdmin):
     list_filter = ("decision", "step_type", "message_sent", "tenant")
     search_fields = ("approver_user__username", "invest_return__id", "decision_comment")
     autocomplete_fields = ("tenant", "invest_return", "approver_user")
+    readonly_fields = ("created_at", "updated_at")
+
+
+class InvestmentProjectApprovalConfigStepApproverInline(admin.TabularInline):
+    model = InvestmentProjectApprovalConfigStepApprover
+    extra = 0
+    autocomplete_fields = ("approver_user",)
+
+
+class InvestmentProjectApprovalConfigStepInline(admin.TabularInline):
+    model = InvestmentProjectApprovalConfigStep
+    extra = 0
+    fields = ("step", "step_type", "is_enabled", "payment_chat_id")
+    show_change_link = True
+
+
+@admin.register(InvestmentProjectApprovalConfig)
+class InvestmentProjectApprovalConfigAdmin(admin.ModelAdmin):
+    list_display = ("id", "tenant", "is_enabled", "created_at", "updated_at")
+    list_filter = ("is_enabled", "tenant")
+    search_fields = ("tenant__subdomain", "tenant__name")
+    autocomplete_fields = ("tenant",)
+    inlines = [InvestmentProjectApprovalConfigStepInline]
+
+
+@admin.register(InvestmentProjectApprovalConfigStep)
+class InvestmentProjectApprovalConfigStepAdmin(admin.ModelAdmin):
+    list_display = ("id", "config", "step", "step_type", "is_enabled", "payment_chat_id")
+    list_filter = ("step_type", "is_enabled", "config__tenant")
+    search_fields = ("config__tenant__subdomain", "config__tenant__name")
+    autocomplete_fields = ("config",)
+    inlines = [InvestmentProjectApprovalConfigStepApproverInline]
+
+
+@admin.register(ProjectInvestmentApproval)
+class ProjectInvestmentApprovalAdmin(admin.ModelAdmin):
+    list_display = (
+        "id",
+        "tenant",
+        "project_investment",
+        "step",
+        "step_type",
+        "approver_user",
+        "decision",
+        "message_sent",
+        "gateway_message_id",
+        "decided_at",
+    )
+    list_filter = ("decision", "step_type", "message_sent", "tenant")
+    search_fields = ("approver_user__username", "project_investment__id", "decision_comment")
+    autocomplete_fields = ("tenant", "project_investment", "approver_user")
     readonly_fields = ("created_at", "updated_at")

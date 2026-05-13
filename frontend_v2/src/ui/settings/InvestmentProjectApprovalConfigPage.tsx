@@ -4,34 +4,29 @@ import { ArrowLeftOutlined, DeleteOutlined, PlusOutlined } from '@ant-design/ico
 import { useNavigate } from 'react-router-dom'
 
 import {
-  getInvestmentApprovalConfig,
-  updateInvestmentApprovalConfig,
-  type InvestmentApprovalConfigResponse,
+  getInvestmentProjectApprovalConfig,
+  updateInvestmentProjectApprovalConfig,
   type InvestmentApprovalConfigStepItem,
+  type InvestmentProjectApprovalConfigResponse,
 } from '../../lib/api'
 import { labelBlockAboveField } from '../formSpacing'
-
-const DEFAULT_RETURN_TYPE_KEY = '__default__'
-const DEFAULT_RECIPIENT_KEY = '__all__'
 
 function emptyStep(step: number): InvestmentApprovalConfigStepItem {
   return { step, step_type: 'serial', is_enabled: true, payment_chat_id: null, approver_user_ids: [] }
 }
 
-export function InvestmentApprovalConfigPage() {
+export function InvestmentProjectApprovalConfigPage() {
   const navigate = useNavigate()
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [data, setData] = useState<InvestmentApprovalConfigResponse | null>(null)
-  const [returnTypeFilter, setReturnTypeFilter] = useState<string | null>(null)
-  const [recipientFilter, setRecipientFilter] = useState<string | null>(null)
+  const [data, setData] = useState<InvestmentProjectApprovalConfigResponse | null>(null)
 
-  const load = useCallback(async (rt: string | null, rec: string | null) => {
+  const load = useCallback(async () => {
     setLoading(true)
     setError(null)
     try {
-      const cfg = await getInvestmentApprovalConfig(rt, rec)
+      const cfg = await getInvestmentProjectApprovalConfig()
       setData(cfg)
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Ошибка загрузки')
@@ -41,29 +36,13 @@ export function InvestmentApprovalConfigPage() {
   }, [])
 
   useEffect(() => {
-    void load(returnTypeFilter, recipientFilter)
-  }, [load, returnTypeFilter, recipientFilter])
+    void load()
+  }, [load])
 
   const approverOptions = useMemo(
     () => (data?.approver_candidates ?? []).map((u) => ({ value: u.id, label: u.username })),
-    [data],
+    [data?.approver_candidates],
   )
-
-  const returnTypeSelectOptions = useMemo(() => {
-    const choices = data?.return_type_choices ?? []
-    return [
-      { value: DEFAULT_RETURN_TYPE_KEY, label: 'По умолчанию (все типы без отдельной настройки)' },
-      ...choices.map((c) => ({ value: c.value, label: c.label })),
-    ]
-  }, [data?.return_type_choices])
-
-  const recipientSelectOptions = useMemo(() => {
-    const choices = data?.recipient_choices ?? []
-    return [
-      { value: DEFAULT_RECIPIENT_KEY, label: 'Все получатели (в рамках выбранного типа)' },
-      ...choices.map((c) => ({ value: c.value, label: c.label })),
-    ]
-  }, [data?.recipient_choices])
 
   const updateStep = (idx: number, patch: Partial<InvestmentApprovalConfigStepItem>) => {
     setData((prev) => {
@@ -93,9 +72,7 @@ export function InvestmentApprovalConfigPage() {
     setSaving(true)
     setError(null)
     try {
-      const next = await updateInvestmentApprovalConfig({
-        return_type: returnTypeFilter,
-        recipient: recipientFilter,
+      const next = await updateInvestmentProjectApprovalConfig({
         is_enabled: data.is_enabled,
         steps: data.steps.map((s) => ({
           step: s.step,
@@ -115,65 +92,35 @@ export function InvestmentApprovalConfigPage() {
     }
   }
 
-  const selectReturnValue = returnTypeFilter == null ? DEFAULT_RETURN_TYPE_KEY : returnTypeFilter
-  const selectRecipientValue = recipientFilter == null ? DEFAULT_RECIPIENT_KEY : recipientFilter
-
   return (
     <Card>
       <Button type="link" icon={<ArrowLeftOutlined />} onClick={() => navigate('/settings')} style={{ padding: 0 }}>
         Назад к настройкам
       </Button>
       <Typography.Title level={4} style={{ marginTop: 0 }}>
-        Инвестиции - этапы согласования
+        Инвестиции — согласование заявок на вложение
       </Typography.Title>
       <Typography.Paragraph type="secondary" style={{ marginBottom: 0 }}>
-        Отдельная цепочка для комбинации типа выплаты и получателя: можно задать разные этапы и разные chat для
-        confirmation (партнёр / инвестор). Если для пары «тип + получатель» нет записи, используется настройка «все
-        получатели» для этого типа, затем глобальный дефолт.
+        Цепочка для заявок на вложение в проект: те же три типа этапов, что и для выплат — проверка (serial),
+        подтверждение выплаты по заявке в указанный Telegram chat (confirmation) и уведомление без кнопок (notification).
+        Пока цепочка выключена или не задана, новая заявка сразу считается подтверждённой.
       </Typography.Paragraph>
 
       <Divider />
       {error ? <Alert type="error" showIcon message={error} style={{ marginBottom: 12 }} /> : null}
-
-      <Space direction="vertical" size={12} style={{ display: 'flex', marginBottom: 12 }}>
-        <div>
-          <Typography.Text strong style={labelBlockAboveField}>
-            Тип выплаты
-          </Typography.Text>
-          <Select
-            style={{ width: '100%', maxWidth: 480 }}
-            value={selectReturnValue}
-            onChange={(v) => setReturnTypeFilter(v === DEFAULT_RETURN_TYPE_KEY ? null : String(v))}
-            options={returnTypeSelectOptions}
-            disabled={loading && !data}
-          />
-        </div>
-        <div>
-          <Typography.Text strong style={labelBlockAboveField}>
-            Получатель выплаты
-          </Typography.Text>
-          <Select
-            style={{ width: '100%', maxWidth: 480 }}
-            value={selectRecipientValue}
-            onChange={(v) => setRecipientFilter(v === DEFAULT_RECIPIENT_KEY ? null : String(v))}
-            options={recipientSelectOptions}
-            disabled={loading && !data}
-          />
-        </div>
-      </Space>
 
       {loading && !data ? <Skeleton active /> : null}
 
       {!loading && data ? (
         <Space direction="vertical" size={12} style={{ display: 'flex' }}>
           <Checkbox checked={data.is_enabled} onChange={(e) => setData({ ...data, is_enabled: e.target.checked })}>
-            Включить согласование для этой комбинации (тип + получатель)
+            Включить согласование заявок на вложение
           </Checkbox>
           {(data.steps ?? [])
             .slice()
             .sort((a, b) => a.step - b.step)
             .map((step, idx) => (
-              <Card key={`step-${idx}-${step.step}`} size="small" type="inner">
+              <Card key={`pi-step-${idx}-${step.step}`} size="small" type="inner">
                 <Space direction="vertical" size={10} style={{ display: 'flex' }}>
                   <Space wrap align="start">
                     <div>
@@ -199,7 +146,7 @@ export function InvestmentApprovalConfigPage() {
                         }}
                         options={[
                           { value: 'serial', label: 'serial (проверка)' },
-                          { value: 'confirmation', label: 'confirmation (подтверждение получения)' },
+                          { value: 'confirmation', label: 'confirmation (подтверждение выплаты по заявке)' },
                           {
                             value: 'notification',
                             label: 'notification (уведомление в chat, без кнопок, авто-подтверждение)',
@@ -219,7 +166,7 @@ export function InvestmentApprovalConfigPage() {
                       Approver-ы
                     </Typography.Text>
                     <Typography.Paragraph type="secondary" style={{ marginBottom: 8, fontSize: 12 }}>
-                      Для этапа notification список может быть пустым — в карточке будет указан автор выплаты; сообщение
+                      Для этапа notification список может быть пустым — в карточке будет указан автор заявки; сообщение
                       уходит в chat ID ниже.
                     </Typography.Paragraph>
                     <Select

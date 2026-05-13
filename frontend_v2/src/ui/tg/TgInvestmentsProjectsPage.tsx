@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Alert, Button, Input, Skeleton, Typography } from 'antd'
+import { Alert, Button, Input, Skeleton, Tag, Typography } from 'antd'
 import { useNavigate } from 'react-router-dom'
 import { ArrowLeftOutlined, SearchOutlined } from '@ant-design/icons'
 import {
@@ -96,7 +96,7 @@ export function TgInvestmentsProjectsPage() {
       </Button>
 
       <Typography.Title level={4} style={{ margin: '0 0 16px', fontWeight: 700 }}>
-        Вложения
+        Заявки на вложение
       </Typography.Title>
 
       <div className="tg-list-search">
@@ -117,7 +117,7 @@ export function TgInvestmentsProjectsPage() {
 
       {!loading && !error && filtered.length === 0 ? (
         <Typography.Paragraph type="secondary" style={{ textAlign: 'center', padding: '24px 8px' }}>
-          {rows.length === 0 ? 'Вложений пока нет.' : 'Ничего не найдено.'}
+          {rows.length === 0 ? 'Заявок на вложение пока нет.' : 'Ничего не найдено.'}
         </Typography.Paragraph>
       ) : null}
 
@@ -130,6 +130,15 @@ export function TgInvestmentsProjectsPage() {
               <div className="tg-request-row-meta">
                 <span className="tg-request-row-amount">{formatAmount(row.amount, row.currency)}</span>
                 <span>{formatDate(row.date)}</span>
+                {row.confirmed ? (
+                  <Tag color="success" style={{ margin: 0 }}>
+                    Заявка подтверждена
+                  </Tag>
+                ) : (
+                  <Tag color="warning" style={{ margin: 0 }}>
+                    На согласовании
+                  </Tag>
+                )}
                 {row.comment ? <span>{row.comment}</span> : null}
               </div>
             </div>
