@@ -18,6 +18,7 @@ from apps.modules.investments.models import (
 )
 from apps.modules.requests.integration_settings import get_requests_messaging_gateway_settings
 from apps.modules.telegram_approvals.services import (
+    _display_user_name,
     _format_amount_for_telegram,
     _get_tenant_bot_token,
     post_messaging_gateway,
@@ -175,6 +176,16 @@ def build_investment_return_approval_telegram_message(
         else:
             action_hint = "\n\nПроверьте реквизиты и сумму, затем ответьте кнопками ниже."
 
+    expected_approver_footer = ""
+    if (
+        not readonly
+        and approval.decision == InvestmentReturnApproval.DECISION_PENDING
+        and approval.step_type != InvestmentApprovalConfigStep.STEP_TYPE_NOTIFICATION
+    ):
+        who = _display_user_name(getattr(approval, "approver_user", None))
+        if who and who != "-":
+            expected_approver_footer = f"\n\n✍️ Ожидается подтверждение от: <b>{escape(who)}</b>"
+
     phase = _invest_return_step_phase_label(approval.step_type)
     sep = _TG_CARD_SEP
     parts: list[str] = [
@@ -202,6 +213,7 @@ def build_investment_return_approval_telegram_message(
             f"🏷 Тип: {type_text}\n",
             f"{comment_line}",
             f"{action_hint}",
+            f"{expected_approver_footer}",
         ]
     )
     return "".join(parts)
@@ -296,7 +308,7 @@ def refresh_invest_return_approval_messages(*, invest_return: InvestReturn) -> i
             message_sent=True,
             gateway_message_id__isnull=False,
             approver_recipient_id__isnull=False,
-        ).select_related("invest_return", "invest_return__company", "tenant")
+        ).select_related("invest_return", "invest_return__company", "tenant", "approver_user")
     )
     updated = 0
     for approval in approvals:
@@ -397,7 +409,7 @@ def dispatch_pending_invest_return_approvals(*, invest_return: InvestReturn) -> 
             invest_return=invest_return,
             step=pending_step,
             decision=InvestmentReturnApproval.DECISION_PENDING,
-        ).select_related("invest_return", "tenant")
+        ).select_related("invest_return", "tenant", "approver_user")
     )
     any_notification_finalized = False
     for row in rows:

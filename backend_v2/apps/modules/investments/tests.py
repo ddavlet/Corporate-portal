@@ -67,6 +67,10 @@ class InvestReturnApprovalTelegramMessageTests(SimpleTestCase):
         approval.step = 1
         approval.step_type = InvestmentApprovalConfigStep.STEP_TYPE_SERIAL
         approval.decision = InvestmentReturnApproval.DECISION_PENDING
+        u = MagicMock()
+        u.full_name = "Иван Петров"
+        u.username = "ivan"
+        approval.approver_user = u
 
         out = build_investment_return_approval_telegram_message(
             invest_return=ir,
@@ -78,6 +82,8 @@ class InvestReturnApprovalTelegramMessageTests(SimpleTestCase):
         self.assertNotIn("Курс CBU", out)
         self.assertNotIn("🇺🇿", out)
         self.assertNotIn("Комментарий", out)
+        self.assertIn("Ожидается подтверждение от", out)
+        self.assertIn("Иван Петров", out)
 
     def test_cbu_rate_rounded_to_two_decimals_in_message(self):
         ir = MagicMock()
@@ -101,6 +107,10 @@ class InvestReturnApprovalTelegramMessageTests(SimpleTestCase):
         approval.step = 1
         approval.step_type = InvestmentApprovalConfigStep.STEP_TYPE_SERIAL
         approval.decision = InvestmentReturnApproval.DECISION_PENDING
+        u = MagicMock()
+        u.full_name = "Иван Петров"
+        u.username = "ivan"
+        approval.approver_user = u
 
         out = build_investment_return_approval_telegram_message(
             invest_return=ir,
@@ -109,6 +119,42 @@ class InvestReturnApprovalTelegramMessageTests(SimpleTestCase):
             current_pending_step=1,
         )
         self.assertIn("📊 Курс CBU: 12 600.13 UZS/$", out)
+        self.assertIn("Ожидается подтверждение от", out)
+
+    def test_message_hides_approver_line_when_step_not_active_yet(self):
+        ir = MagicMock()
+        ir.id = 2
+        ir.company = None
+        ir.tenant = MagicMock()
+        ir.tenant.name = "T"
+        ir.sum = Decimal("10.00")
+        ir.currency = "USD"
+        ir.date = date(2026, 5, 1)
+        ir.billing_date = date(2026, 5, 1)
+        ir.type = "дивиденды"
+        ir.recipient = "инвестор"
+        ir.comment = ""
+        ir.sum_uzs = None
+        ir.cbu_usd_uzs_rate = None
+        ir.get_type_display = lambda: "Дивиденды"
+        ir.get_recipient_display = lambda: "Инвестор"
+
+        approval = MagicMock()
+        approval.step = 2
+        approval.step_type = InvestmentApprovalConfigStep.STEP_TYPE_SERIAL
+        approval.decision = InvestmentReturnApproval.DECISION_PENDING
+        u = MagicMock()
+        u.full_name = "Позже Согласует"
+        u.username = "later"
+        approval.approver_user = u
+
+        out = build_investment_return_approval_telegram_message(
+            invest_return=ir,
+            approval=approval,
+            blocked_by_rejection=False,
+            current_pending_step=1,
+        )
+        self.assertNotIn("Ожидается подтверждение от", out)
 
 
 class InvestReturnSerializerTests(TestCase):
@@ -636,12 +682,14 @@ class InvestmentApprovalFlowTests(APITestCase):
         self.approver1 = User.objects.create_user(
             username="inv_appr_1",
             password="x",
+            full_name="Первый Согласующий",
             telegram_chat_id=555001,
             telegram_from_id=777001,
         )
         self.approver2 = User.objects.create_user(
             username="inv_appr_2",
             password="x",
+            full_name="Второй Подтверждающий",
             telegram_chat_id=555002,
             telegram_from_id=777002,
         )
@@ -722,6 +770,8 @@ class InvestmentApprovalFlowTests(APITestCase):
         self.assertIn("🔍 Проверка выплаты", payload["text"])
         self.assertIn("Курс CBU", payload["text"])
         self.assertIn("Auto approval", payload["text"])
+        self.assertIn("Ожидается подтверждение от", payload["text"])
+        self.assertIn("Первый Согласующий", payload["text"])
         self.assertTrue(payload["text"].strip().startswith("<b>"))
         self.assertEqual(payload["buttons"][0][0]["label"], "✅ Проверено")
 
@@ -886,6 +936,8 @@ class InvestmentApprovalFlowTests(APITestCase):
         self.assertEqual(payload["buttons"][0][0]["label"], "✅ Подтвердить")
         self.assertIn("750.00", payload["text"])
         self.assertIn("💰 Подтверждение получения", payload["text"])
+        self.assertIn("Ожидается подтверждение от", payload["text"])
+        self.assertIn("Второй Подтверждающий", payload["text"])
 
     @patch("apps.modules.investments.approval_services.post_messaging_gateway")
     def test_duplicate_webhook_callback_strips_inline_buttons(self, bridge_mock):
