@@ -168,7 +168,7 @@ def _build_buttons(*, approval: ProjectInvestmentApproval) -> list[list[dict]]:
     if approval.step_type == InvestmentProjectApprovalConfigStep.STEP_TYPE_CONFIRMATION:
         return [
             [
-                {"label": "✅ Выплачено", "value": _button_data(approval_id=approval.id, decision="approved")},
+                {"label": "✅ Вложено", "value": _button_data(approval_id=approval.id, decision="approved")},
                 {"label": "❌ Отменить", "value": _button_data(approval_id=approval.id, decision="rejected")},
             ]
         ]
