@@ -1329,7 +1329,7 @@ class InvestmentProjectApprovalFlowTests(APITestCase):
 
     @patch("apps.modules.investments.project_investment_approval_services.post_messaging_gateway")
     def test_project_investment_confirmation_step_uses_investment_wording(self, bridge_mock):
-        """Шаг confirmation — про вложение, не про «выплату» (как у выплат инвестору)."""
+        """Текст шага confirmation — про вложение; кнопка подтверждения остаётся «Выплачено»."""
         bridge_mock.return_value = {"message_id": 600}
         response = self.client.post(
             "/api/investments/project-investments/",
@@ -1370,8 +1370,8 @@ class InvestmentProjectApprovalFlowTests(APITestCase):
             for row in c.kwargs.get("payload", {}).get("buttons") or []:
                 for b in row:
                     labels.append(b.get("label", ""))
-        self.assertIn("✅ Вложено", labels)
-        self.assertNotIn("✅ Выплачено", labels)
+        self.assertIn("✅ Выплачено", labels)
+        self.assertNotIn("✅ Вложено", labels)
 
     @patch("apps.modules.investments.project_investment_approval_services.post_messaging_gateway")
     def test_webhook_invp_prefix_sets_confirmed(self, bridge_mock):
