@@ -320,31 +320,45 @@ def compute_unassigned_payment_purposes(*, tenant_id: int, cfg: dict[str, Any]) 
     return out
 
 
-def list_tenant_payment_purpose_pool(*, tenant_id: int) -> list[str]:
+def list_tenant_payment_purpose_pool(
+    *,
+    tenant_id: int,
+    for_pnl_payment_types: list[str] | None = None,
+) -> list[str]:
     """
     Names to offer in PnL settings: active purposes from the request form config
     plus any non-empty payment_purpose strings already used on requests for the tenant.
+
+    When ``for_pnl_payment_types`` is set (including empty), only purposes tied to those
+    payment types are included — aligned with ``request_payment_types_for_pnl`` in backend PnL.
+    When ``None``, all payment types are considered (backward compatible API default).
     """
 
     merged: set[str] = set()
-    for name in (
-        RequestPaymentPurposeConfig.objects.filter(
-            payment_type_config__config__tenant_id=tenant_id,
-            is_active=True,
-        )
-        .values_list("name", flat=True)
-        .iterator()
-    ):
+
+    purpose_qs = RequestPaymentPurposeConfig.objects.filter(
+        payment_type_config__config__tenant_id=tenant_id,
+        is_active=True,
+    )
+    req_qs = Request.objects.filter(tenant_id=tenant_id).exclude(payment_purpose="")
+
+    if for_pnl_payment_types is not None:
+        allowed = [
+            str(x).strip()
+            for x in for_pnl_payment_types
+            if str(x).strip() and str(x).strip() in _PAYMENT_TYPE_VALUES
+        ]
+        purpose_qs = purpose_qs.filter(payment_type_config__payment_type__in=allowed)
+        if allowed:
+            req_qs = req_qs.filter(payment_type__in=allowed)
+        else:
+            req_qs = req_qs.none()
+
+    for name in purpose_qs.values_list("name", flat=True).iterator():
         s = str(name).strip()
         if s:
             merged.add(s)
-    for p in (
-        Request.objects.filter(tenant_id=tenant_id)
-        .exclude(payment_purpose="")
-        .values_list("payment_purpose", flat=True)
-        .distinct()
-        .iterator()
-    ):
+    for p in req_qs.values_list("payment_purpose", flat=True).distinct().iterator():
         s = str(p).strip()
         if s:
             merged.add(s)

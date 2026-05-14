@@ -164,7 +164,12 @@ class TenantReportSettingsConfigView(APIView):
 
 
 class TenantPnlPaymentPurposePoolView(APIView):
-    """Distinct payment purpose strings for PnL bucket pickers (form config + request history)."""
+    """Distinct payment purpose strings for PnL bucket pickers (form config + request history).
+
+    Optional query ``for_pnl_payment_types``: comma-separated payment type values
+    (same strings as ``request_payment_types_for_pnl`` / ``Request.PAYMENT_TYPE_CHOICES``).
+    When omitted, purposes from all payment types are returned.
+    """
 
     permission_classes = [IsAuthenticated, IsTenantAdmin]
 
@@ -172,5 +177,13 @@ class TenantPnlPaymentPurposePoolView(APIView):
         tenant = getattr(request, "tenant", None)
         if not tenant:
             return Response({"detail": "No tenant."}, status=status.HTTP_400_BAD_REQUEST)
-        purposes = list_tenant_payment_purpose_pool(tenant_id=tenant.id)
+        raw = request.query_params.get("for_pnl_payment_types")
+        if raw is None:
+            for_types: list[str] | None = None
+        else:
+            for_types = [p.strip() for p in str(raw).split(",") if p.strip()]
+        purposes = list_tenant_payment_purpose_pool(
+            tenant_id=tenant.id,
+            for_pnl_payment_types=for_types,
+        )
         return Response({"purposes": purposes}, status=status.HTTP_200_OK)

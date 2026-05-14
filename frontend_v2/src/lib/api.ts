@@ -876,8 +876,16 @@ function parseTenantPnlPaymentPurposePoolResponse(json: unknown): TenantPnlPayme
   return { purposes }
 }
 
-export async function getTenantPnlPaymentPurposePool(): Promise<TenantPnlPaymentPurposePoolResponse> {
-  const res = await apiFetch('/api/reports/payment-purpose-pool/')
+export async function getTenantPnlPaymentPurposePool(opts?: {
+  forPnlPaymentTypes?: string[]
+}): Promise<TenantPnlPaymentPurposePoolResponse> {
+  let path = '/api/reports/payment-purpose-pool/'
+  if (opts && 'forPnlPaymentTypes' in opts) {
+    const p = new URLSearchParams()
+    p.set('for_pnl_payment_types', (opts.forPnlPaymentTypes ?? []).join(','))
+    path = `${path}?${p.toString()}`
+  }
+  const res = await apiFetch(path)
   if (!res.ok) throw new Error(await parseErrorBody(res))
   const parsedJson: unknown = await res.json().catch(() => null)
   return parseTenantPnlPaymentPurposePoolResponse(parsedJson)
