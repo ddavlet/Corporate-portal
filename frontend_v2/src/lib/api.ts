@@ -858,6 +858,39 @@ export async function patchTenantReportSettings(
   return parseTenantReportSettingsApiResponse(parsedJson)
 }
 
+export type TenantPnlPaymentPurposePoolResponse = {
+  purposes: string[]
+}
+
+function parseTenantPnlPaymentPurposePoolResponse(json: unknown): TenantPnlPaymentPurposePoolResponse {
+  const obj = json && typeof json === 'object' ? (json as Record<string, unknown>) : {}
+  const raw = obj.purposes
+  const purposes: string[] = []
+  if (Array.isArray(raw)) {
+    for (const x of raw) {
+      const s = String(x ?? '').trim()
+      if (s) purposes.push(s)
+    }
+  }
+  purposes.sort((a, b) => a.localeCompare(b, 'ru'))
+  return { purposes }
+}
+
+export async function getTenantPnlPaymentPurposePool(opts?: {
+  forPnlPaymentTypes?: string[]
+}): Promise<TenantPnlPaymentPurposePoolResponse> {
+  let path = '/api/reports/payment-purpose-pool/'
+  if (opts && 'forPnlPaymentTypes' in opts) {
+    const p = new URLSearchParams()
+    p.set('for_pnl_payment_types', (opts.forPnlPaymentTypes ?? []).join(','))
+    path = `${path}?${p.toString()}`
+  }
+  const res = await apiFetch(path)
+  if (!res.ok) throw new Error(await parseErrorBody(res))
+  const parsedJson: unknown = await res.json().catch(() => null)
+  return parseTenantPnlPaymentPurposePoolResponse(parsedJson)
+}
+
 export type StructuredReportPayload = {
   report: 'pnl' | 'cashflow'
   metadata: {

@@ -11,7 +11,7 @@ from django.utils import timezone
 from apps.modules.bank_expenses.models import BankRevenue
 from apps.modules.cashier.models import CashRevenue
 from apps.modules.investments.models import InvestReturn
-from apps.modules.requests.models import Request
+from apps.modules.requests.models import Request, RequestPaymentPurposeConfig
 from apps.modules.reports.models import TenantReportSettings
 
 # --- pnl_config keys (backend PnL) ---
@@ -318,6 +318,51 @@ def compute_unassigned_payment_purposes(*, tenant_id: int, cfg: dict[str, Any]) 
         out.append({"purpose": p, "count": int(row["c"])})
     out.sort(key=lambda x: (x["purpose"], -x["count"]))
     return out
+
+
+def list_tenant_payment_purpose_pool(
+    *,
+    tenant_id: int,
+    for_pnl_payment_types: list[str] | None = None,
+) -> list[str]:
+    """
+    Names to offer in PnL settings: active purposes from the request form config
+    plus any non-empty payment_purpose strings already used on requests for the tenant.
+
+    When ``for_pnl_payment_types`` is set (including empty), only purposes tied to those
+    payment types are included — aligned with ``request_payment_types_for_pnl`` in backend PnL.
+    When ``None``, all payment types are considered (backward compatible API default).
+    """
+
+    merged: set[str] = set()
+
+    purpose_qs = RequestPaymentPurposeConfig.objects.filter(
+        payment_type_config__config__tenant_id=tenant_id,
+        is_active=True,
+    )
+    req_qs = Request.objects.filter(tenant_id=tenant_id).exclude(payment_purpose="")
+
+    if for_pnl_payment_types is not None:
+        allowed = [
+            str(x).strip()
+            for x in for_pnl_payment_types
+            if str(x).strip() and str(x).strip() in _PAYMENT_TYPE_VALUES
+        ]
+        purpose_qs = purpose_qs.filter(payment_type_config__payment_type__in=allowed)
+        if allowed:
+            req_qs = req_qs.filter(payment_type__in=allowed)
+        else:
+            req_qs = req_qs.none()
+
+    for name in purpose_qs.values_list("name", flat=True).iterator():
+        s = str(name).strip()
+        if s:
+            merged.add(s)
+    for p in req_qs.values_list("payment_purpose", flat=True).distinct().iterator():
+        s = str(p).strip()
+        if s:
+            merged.add(s)
+    return sorted(merged)
 
 
 def build_pnl_payload_from_db(*, tenant, query_params: dict[str, Any]) -> dict[str, Any]:
