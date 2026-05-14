@@ -11,6 +11,7 @@ from apps.modules.reports.models import TenantReportSettings
 from apps.modules.reports.pnl_builder import (
     ReportSettingsInvalid,
     compute_unassigned_payment_purposes,
+    list_tenant_payment_purpose_pool,
     validate_pnl_config_dict,
 )
 from apps.modules.reports.registry import MODULE_KEY
@@ -160,3 +161,29 @@ class TenantReportSettingsConfigView(APIView):
         row.save(update_fields=["pnl_source", "pnl_config", "updated_at"])
 
         return Response(self._serialize(row), status=status.HTTP_200_OK)
+
+
+class TenantPnlPaymentPurposePoolView(APIView):
+    """Distinct payment purpose strings for PnL bucket pickers (form config + request history).
+
+    Optional query ``for_pnl_payment_types``: comma-separated payment type values
+    (same strings as ``request_payment_types_for_pnl`` / ``Request.PAYMENT_TYPE_CHOICES``).
+    When omitted, purposes from all payment types are returned.
+    """
+
+    permission_classes = [IsAuthenticated, IsTenantAdmin]
+
+    def get(self, request):
+        tenant = getattr(request, "tenant", None)
+        if not tenant:
+            return Response({"detail": "No tenant."}, status=status.HTTP_400_BAD_REQUEST)
+        raw = request.query_params.get("for_pnl_payment_types")
+        if raw is None:
+            for_types: list[str] | None = None
+        else:
+            for_types = [p.strip() for p in str(raw).split(",") if p.strip()]
+        purposes = list_tenant_payment_purpose_pool(
+            tenant_id=tenant.id,
+            for_pnl_payment_types=for_types,
+        )
+        return Response({"purposes": purposes}, status=status.HTTP_200_OK)
