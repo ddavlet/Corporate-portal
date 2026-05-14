@@ -393,6 +393,7 @@ html.tg-twa-dark .tg-request-row.tg-request-row--payed-no-expense {
 
 .tg-bottom-nav-btn {
   flex: 1 1 0;
+  min-width: 0;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -411,6 +412,13 @@ html.tg-twa-dark .tg-request-row.tg-request-row--payed-no-expense {
   -webkit-tap-highlight-color: transparent;
   border-radius: 10px;
   transition: color 120ms ease, background 120ms ease;
+}
+
+.tg-bottom-nav-btn > span:not(.tg-bottom-nav-btn-icon) {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .tg-bottom-nav-btn:active {
