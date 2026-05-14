@@ -1,6 +1,7 @@
 from datetime import date
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
+from urllib.parse import quote
 
 from django.contrib.auth import get_user_model
 from django.core.cache import cache
@@ -328,6 +329,24 @@ class TenantReportSettingsConfigApiTests(APITestCase):
         self.assertEqual(res.status_code, 200, res.content)
         names = res.data.get("purposes") or []
         self.assertEqual(names, sorted({"Назначение из формы", "Только в заявках"}))
+
+        res_transfer = self.client.get(
+            f"{pool_url}?for_pnl_payment_types={quote(Request.PAYMENT_TYPE_TRANSFER)}",
+            **self._auth(self.admin),
+        )
+        self.assertEqual(res_transfer.status_code, 200, res_transfer.content)
+        self.assertEqual(res_transfer.data.get("purposes"), ["Назначение из формы"])
+
+        res_cash = self.client.get(
+            f"{pool_url}?for_pnl_payment_types={quote(Request.PAYMENT_TYPE_CASH)}",
+            **self._auth(self.admin),
+        )
+        self.assertEqual(res_cash.status_code, 200, res_cash.content)
+        self.assertEqual(res_cash.data.get("purposes"), ["Только в заявках"])
+
+        res_empty_filter = self.client.get(f"{pool_url}?for_pnl_payment_types=", **self._auth(self.admin))
+        self.assertEqual(res_empty_filter.status_code, 200, res_empty_filter.content)
+        self.assertEqual(res_empty_filter.data.get("purposes"), [])
 
         res_dir = self.client.get(pool_url, **self._auth(self.director))
         self.assertEqual(res_dir.status_code, 403)

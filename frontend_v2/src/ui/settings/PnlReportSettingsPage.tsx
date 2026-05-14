@@ -257,37 +257,40 @@ export function PnlReportSettingsPage() {
     }
   }, [])
 
+  const refetchPurposePool = useCallback(async (types: string[]) => {
+    setPurposePoolLoadError(null)
+    try {
+      const pool = await getTenantPnlPaymentPurposePool({ forPnlPaymentTypes: types })
+      setRawPurposePool(pool.purposes)
+    } catch (poolErr: unknown) {
+      setPurposePoolLoadError(
+        poolErr instanceof Error ? poolErr.message : 'Не удалось обновить список назначений',
+      )
+    }
+  }, [])
+
   const load = useCallback(async () => {
     setLoading(true)
     setError(null)
-    setPurposePoolLoadError(null)
     try {
-      let poolPurposes: string[] = []
-      try {
-        const pool = await getTenantPnlPaymentPurposePool()
-        poolPurposes = pool.purposes
-      } catch (poolErr: unknown) {
-        setPurposePoolLoadError(
-          poolErr instanceof Error ? poolErr.message : 'Не удалось загрузить список назначений',
-        )
-      }
-      setRawPurposePool(poolPurposes)
-
       const data = await getTenantReportSettings()
       applyServerRow(data)
+      let typesForPool = [...(data.pnl_config?.request_payment_types_for_pnl ?? [])]
       if (data.pnl_source === 'backend') {
         const withDiag = await getTenantReportSettings({ pnlDiagnostics: true })
         applyServerRow(withDiag)
+        typesForPool = [...(withDiag.pnl_config?.request_payment_types_for_pnl ?? [])]
       } else {
         setDiagnostics(null)
         setDiagnosticsError(null)
       }
+      await refetchPurposePool(typesForPool)
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Не удалось загрузить настройки')
     } finally {
       setLoading(false)
     }
-  }, [applyServerRow])
+  }, [applyServerRow, refetchPurposePool])
 
   useEffect(() => {
     if (!allowed) return
@@ -314,15 +317,7 @@ export function PnlReportSettingsPage() {
         const d = await getTenantReportSettings({ pnlDiagnostics: true })
         applyServerRow(d)
       }
-      try {
-        const pool = await getTenantPnlPaymentPurposePool()
-        setRawPurposePool(pool.purposes)
-        setPurposePoolLoadError(null)
-      } catch (poolErr: unknown) {
-        setPurposePoolLoadError(
-          poolErr instanceof Error ? poolErr.message : 'Не удалось обновить список назначений',
-        )
-      }
+      await refetchPurposePool(requestPaymentTypes)
       message.success('Настройки PnL сохранены')
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Не удалось сохранить')
@@ -455,7 +450,10 @@ export function PnlReportSettingsPage() {
               style={{ width: '100%' }}
               placeholder="Выберите типы оплаты"
               value={requestPaymentTypes}
-              onChange={(v) => setRequestPaymentTypes(v)}
+              onChange={(v) => {
+                setRequestPaymentTypes(v)
+                void refetchPurposePool(v)
+              }}
               options={[...REQUEST_PAYMENT_OPTIONS]}
             />
           </div>
@@ -484,8 +482,9 @@ export function PnlReportSettingsPage() {
 
           <Typography.Title level={5}>Назначения платежа заявок (три корзины, без пересечений)</Typography.Title>
           <Typography.Paragraph type="secondary" style={{ marginTop: 0 }}>
-            Пул: активные назначения из формы заявки и значения из заявок; при backend PnL сюда же подмешиваются
-            назначения из диагностики. Выбор в одной корзине убирает то же значение из двух других.
+            Пул ограничен выбранными выше «Типами оплаты заявок в расходах PnL»; активные назначения из формы заявки и
+            значения из заявок по этим типам. При backend PnL сюда же подмешиваются назначения из диагностики. Выбор в
+            одной корзине убирает то же значение из двух других.
           </Typography.Paragraph>
           <Space align="start" wrap style={{ width: '100%' }}>
             <div style={{ flex: 1, minWidth: 220 }}>
