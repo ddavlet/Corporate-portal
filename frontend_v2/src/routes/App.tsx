@@ -36,6 +36,7 @@ import { PnlReportSettingsPage } from '../ui/settings/PnlReportSettingsPage'
 import { AdminRouteGate } from '../ui/admin/AdminRouteGate'
 import { TrainingPage } from '../ui/training/TrainingPage'
 import { TgWebAppLayout } from '../ui/tg/TgWebAppLayout'
+import { TgHomePage } from '../ui/tg/TgHomePage'
 import { TgRequestsPage } from '../ui/tg/TgRequestsPage'
 import { TgRequestCreatePage } from '../ui/tg/TgRequestCreatePage'
 import { TgRequestDetailPage } from '../ui/tg/TgRequestDetailPage'
@@ -73,7 +74,7 @@ export function App() {
       <Route path="/public/investments/schedule/:token" element={<PublicInvestmentsSchedulePage />} />
 
       <Route path="/tg/*" element={<TgWebAppLayout />}>
-        <Route index element={<Navigate to="requests" replace />} />
+        <Route index element={<TgHomePage />} />
         <Route path="requests" element={<TgRequestsPage />} />
         <Route path="investments" element={<TgInvestmentsPage />} />
         <Route path="investments/companies" element={<TgInvestmentsCompaniesPage />} />

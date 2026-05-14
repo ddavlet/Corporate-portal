@@ -10,7 +10,7 @@ import { useTgWebAppShell } from './useTgWebAppShell'
 import './tgWebApp.css'
 
 const NAV_VISIBLE_PATHS =
-  /^\/tg\/((requests|cash|bank)(\/(all|expenses|revenues))?|investments(\/(companies|projects|schedule|returns))?)$/
+  /^\/tg(\/((requests|cash|bank)(\/(all|expenses|revenues))?|investments(\/(companies|projects|schedule|returns))?)?)?$/
 
 function shouldShowBottomNav(pathname: string): boolean {
   const normalized = pathname.replace(/\/+$/, '') || '/'
