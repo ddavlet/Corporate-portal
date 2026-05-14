@@ -37,3 +37,6 @@ Syrop-TV-setup.md
 
 CLAUDE.md
 settings.local.json
+.venv
+.venv_ci
+scripts/
