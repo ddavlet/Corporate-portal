@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { Alert, Button, Card, Input, Select, Space, Typography, message } from 'antd'
+import { Alert, Button, Card, Input, Select, Space, Tag, Typography, message } from 'antd'
 import {
   getSettingsAccess,
+  getTenantPnlPaymentPurposePool,
   getTenantReportSettings,
   patchTenantReportSettings,
   type PnlDiagnosticsItem,
@@ -35,6 +36,18 @@ function joinList(items: string[] | undefined): string {
   return (items ?? []).join('\n')
 }
 
+function uniqTrimmedStrings(items: Iterable<string>): string[] {
+  const seen = new Set<string>()
+  const out: string[] = []
+  for (const x of items) {
+    const s = String(x ?? '').trim()
+    if (!s || seen.has(s)) continue
+    seen.add(s)
+    out.push(s)
+  }
+  return out
+}
+
 function hasFullInvestPartition(c: PnlReportSettingsSnapshot): boolean {
   const a = new Set([...(c.invest_return_type_operational ?? []), ...(c.invest_return_type_other ?? []), ...(c.invest_return_type_invest_returns ?? [])])
   return INVEST_RETURN_TYPES.every((t) => a.has(t.value))
@@ -66,14 +79,14 @@ function buildConfigFromForm(fields: {
   cashExclude: string
   requestExclude: string
   requestPaymentTypes: string[]
-  purposeOperational: string
-  purposeOther: string
-  purposeInvestReturns: string
+  purposeOperational: string[]
+  purposeOther: string[]
+  purposeInvestReturns: string[]
   investBucketByType: Record<string, InvestBucket>
 }): PnlReportSettingsSnapshot {
-  const op = splitList(fields.purposeOperational)
-  const ot = splitList(fields.purposeOther)
-  const inv = splitList(fields.purposeInvestReturns)
+  const op = uniqTrimmedStrings(fields.purposeOperational)
+  const ot = uniqTrimmedStrings(fields.purposeOther)
+  const inv = uniqTrimmedStrings(fields.purposeInvestReturns)
   const operational: string[] = []
   const other: string[] = []
   const investReturns: string[] = []
@@ -111,9 +124,11 @@ export function PnlReportSettingsPage() {
   const [cashExclude, setCashExclude] = useState('')
   const [requestExclude, setRequestExclude] = useState('')
   const [requestPaymentTypes, setRequestPaymentTypes] = useState<string[]>([])
-  const [purposeOperational, setPurposeOperational] = useState('')
-  const [purposeOther, setPurposeOther] = useState('')
-  const [purposeInvestReturns, setPurposeInvestReturns] = useState('')
+  const [purposeOperational, setPurposeOperational] = useState<string[]>([])
+  const [purposeOther, setPurposeOther] = useState<string[]>([])
+  const [purposeInvestReturns, setPurposeInvestReturns] = useState<string[]>([])
+  const [rawPurposePool, setRawPurposePool] = useState<string[]>([])
+  const [purposePoolLoadError, setPurposePoolLoadError] = useState<string | null>(null)
   const [investBucketByType, setInvestBucketByType] = useState<Record<string, InvestBucket>>(() =>
     defaultInvestBuckets(),
   )
@@ -134,9 +149,9 @@ export function PnlReportSettingsPage() {
       setCashExclude(joinList(c.cash_exclude_operations))
       setRequestExclude(joinList(c.request_exclude_categories))
       setRequestPaymentTypes([...(c.request_payment_types_for_pnl ?? [])])
-      setPurposeOperational(joinList(c.payment_purpose_operational))
-      setPurposeOther(joinList(c.payment_purpose_other))
-      setPurposeInvestReturns(joinList(c.payment_purpose_invest_returns))
+      setPurposeOperational(uniqTrimmedStrings(c.payment_purpose_operational ?? []))
+      setPurposeOther(uniqTrimmedStrings(c.payment_purpose_other ?? []))
+      setPurposeInvestReturns(uniqTrimmedStrings(c.payment_purpose_invest_returns ?? []))
       setInvestBucketByType(hasFullInvestPartition(c) ? investBucketsFromConfig(c) : defaultInvestBuckets())
       setUpdatedAt(typeof data.updated_at === 'string' ? data.updated_at : null)
       if (data.pnl_diagnostics?.error) {
@@ -174,6 +189,52 @@ export function PnlReportSettingsPage() {
     }
   }, [pnlSource])
 
+  const diagnosticPurposeStrings = useMemo(
+    () => uniqTrimmedStrings((diagnostics ?? []).map((d) => String(d.purpose ?? ''))),
+    [diagnostics],
+  )
+
+  const diagnosticPurposeSet = useMemo(
+    () => new Set((diagnostics ?? []).map((d) => d.purpose)),
+    [diagnostics],
+  )
+
+  const fullPurposeOptions = useMemo(() => {
+    const s = new Set<string>()
+    for (const x of rawPurposePool) {
+      const t = x.trim()
+      if (t) s.add(t)
+    }
+    for (const x of diagnosticPurposeStrings) {
+      if (x) s.add(x)
+    }
+    for (const x of [...purposeOperational, ...purposeOther, ...purposeInvestReturns]) {
+      const t = x.trim()
+      if (t) s.add(t)
+    }
+    return [...s].sort((a, b) => a.localeCompare(b, 'ru'))
+  }, [rawPurposePool, diagnosticPurposeStrings, purposeOperational, purposeOther, purposeInvestReturns])
+
+  const purposeSelectOptions = useMemo(
+    () => fullPurposeOptions.map((value) => ({ value, label: value })),
+    [fullPurposeOptions],
+  )
+
+  const assignedPurposeSet = useMemo(
+    () => new Set([...purposeOperational, ...purposeOther, ...purposeInvestReturns]),
+    [purposeOperational, purposeOther, purposeInvestReturns],
+  )
+
+  const unassignedFromPaidRequests = useMemo(() => {
+    if (!diagnostics?.length) return []
+    return diagnostics.filter((d) => !assignedPurposeSet.has(d.purpose))
+  }, [diagnostics, assignedPurposeSet])
+
+  const unassignedFromPoolOnly = useMemo(
+    () => fullPurposeOptions.filter((p) => !assignedPurposeSet.has(p) && !diagnosticPurposeSet.has(p)),
+    [fullPurposeOptions, assignedPurposeSet, diagnosticPurposeSet],
+  )
+
   useEffect(() => {
     let cancelled = false
     void (async () => {
@@ -199,7 +260,19 @@ export function PnlReportSettingsPage() {
   const load = useCallback(async () => {
     setLoading(true)
     setError(null)
+    setPurposePoolLoadError(null)
     try {
+      let poolPurposes: string[] = []
+      try {
+        const pool = await getTenantPnlPaymentPurposePool()
+        poolPurposes = pool.purposes
+      } catch (poolErr: unknown) {
+        setPurposePoolLoadError(
+          poolErr instanceof Error ? poolErr.message : 'Не удалось загрузить список назначений',
+        )
+      }
+      setRawPurposePool(poolPurposes)
+
       const data = await getTenantReportSettings()
       applyServerRow(data)
       if (data.pnl_source === 'backend') {
@@ -241,6 +314,15 @@ export function PnlReportSettingsPage() {
         const d = await getTenantReportSettings({ pnlDiagnostics: true })
         applyServerRow(d)
       }
+      try {
+        const pool = await getTenantPnlPaymentPurposePool()
+        setRawPurposePool(pool.purposes)
+        setPurposePoolLoadError(null)
+      } catch (poolErr: unknown) {
+        setPurposePoolLoadError(
+          poolErr instanceof Error ? poolErr.message : 'Не удалось обновить список назначений',
+        )
+      }
       message.success('Настройки PnL сохранены')
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Не удалось сохранить')
@@ -252,7 +334,7 @@ export function PnlReportSettingsPage() {
   const backendHint = useMemo(
     () =>
       pnlSource === 'backend'
-        ? 'Backend PnL: задайте стартовый месяц, типы оплаты заявок (пустой список — ни одна заявка в расходах), три непересекающихся списка назначений платежа и распределение всех четырёх типов выплат по инвестициям.'
+        ? 'Backend PnL: задайте стартовый месяц, типы оплаты заявок (пустой список — ни одна заявка в расходах), три непересекающихся набора назначений платежа (выбор из списка) и распределение всех четырёх типов выплат по инвестициям.'
         : null,
     [pnlSource],
   )
@@ -287,24 +369,51 @@ export function PnlReportSettingsPage() {
       {error ? <Alert type="error" showIcon message={error} style={{ marginBottom: 16 }} /> : null}
       {backendHint ? <Alert type="info" showIcon message={backendHint} style={{ marginBottom: 16 }} /> : null}
 
+      {purposePoolLoadError ? (
+        <Alert
+          type="warning"
+          showIcon
+          message="Список назначений платежа"
+          description={purposePoolLoadError}
+          style={{ marginBottom: 16 }}
+        />
+      ) : null}
       {pnlSource === 'backend' && diagnosticsError ? (
         <Alert type="warning" showIcon message="Диагностика" description={diagnosticsError} style={{ marginBottom: 16 }} />
       ) : null}
-      {pnlSource === 'backend' && diagnostics && diagnostics.length > 0 ? (
+      {unassignedFromPaidRequests.length > 0 ? (
         <Alert
           type="error"
           showIcon
-          message="Назначения платежа не попали ни в одну корзину (по данным заявок)"
+          message="Назначения не попали ни в одну корзину (оплаченные заявки в области backend PnL)"
           description={
-            <ul style={{ margin: '8px 0 0', paddingLeft: 20 }}>
-              {diagnostics.map((row) => (
-                <li key={row.purpose}>
-                  <Typography.Text type="danger">
+            <div>
+              <Typography.Paragraph type="secondary" style={{ marginBottom: 8 }}>
+                Перенесите значения в одну из трёх корзин ниже — подсветка обновится сразу, без сохранения.
+              </Typography.Paragraph>
+              <Space wrap size={[6, 6]}>
+                {unassignedFromPaidRequests.map((row) => (
+                  <Tag key={row.purpose} color="volcano">
                     {row.purpose} ({row.count})
-                  </Typography.Text>
-                </li>
+                  </Tag>
+                ))}
+              </Space>
+            </div>
+          }
+          style={{ marginBottom: 16 }}
+        />
+      ) : null}
+      {unassignedFromPoolOnly.length > 0 ? (
+        <Alert
+          type="info"
+          showIcon
+          message="Назначения из справочника вне корзин"
+          description={
+            <Space wrap size={[6, 6]}>
+              {unassignedFromPoolOnly.map((p) => (
+                <Tag key={p}>{p}</Tag>
               ))}
-            </ul>
+            </Space>
           }
           style={{ marginBottom: 16 }}
         />
@@ -374,35 +483,63 @@ export function PnlReportSettingsPage() {
           </div>
 
           <Typography.Title level={5}>Назначения платежа заявок (три корзины, без пересечений)</Typography.Title>
+          <Typography.Paragraph type="secondary" style={{ marginTop: 0 }}>
+            Пул: активные назначения из формы заявки и значения из заявок; при backend PnL сюда же подмешиваются
+            назначения из диагностики. Выбор в одной корзине убирает то же значение из двух других.
+          </Typography.Paragraph>
           <Space align="start" wrap style={{ width: '100%' }}>
-            <div style={{ flex: 1, minWidth: 200 }}>
+            <div style={{ flex: 1, minWidth: 220 }}>
               <Typography.Text strong>Операционные расходы</Typography.Text>
-              <Input.TextArea
-                style={{ marginTop: 8 }}
-                rows={5}
-                placeholder="По строке на назначение"
+              <Select
+                mode="multiple"
+                allowClear
+                showSearch
+                optionFilterProp="label"
+                style={{ width: '100%', marginTop: 8 }}
+                placeholder="Выберите назначения"
+                options={purposeSelectOptions}
                 value={purposeOperational}
-                onChange={(e) => setPurposeOperational(e.target.value)}
+                onChange={(v) => {
+                  setPurposeOperational(v)
+                  setPurposeOther((prev) => prev.filter((p) => !v.includes(p)))
+                  setPurposeInvestReturns((prev) => prev.filter((p) => !v.includes(p)))
+                }}
               />
             </div>
-            <div style={{ flex: 1, minWidth: 200 }}>
+            <div style={{ flex: 1, minWidth: 220 }}>
               <Typography.Text strong>Прочие расходы</Typography.Text>
-              <Input.TextArea
-                style={{ marginTop: 8 }}
-                rows={5}
-                placeholder="По строке на назначение"
+              <Select
+                mode="multiple"
+                allowClear
+                showSearch
+                optionFilterProp="label"
+                style={{ width: '100%', marginTop: 8 }}
+                placeholder="Выберите назначения"
+                options={purposeSelectOptions}
                 value={purposeOther}
-                onChange={(e) => setPurposeOther(e.target.value)}
+                onChange={(v) => {
+                  setPurposeOther(v)
+                  setPurposeOperational((prev) => prev.filter((p) => !v.includes(p)))
+                  setPurposeInvestReturns((prev) => prev.filter((p) => !v.includes(p)))
+                }}
               />
             </div>
-            <div style={{ flex: 1, minWidth: 200 }}>
+            <div style={{ flex: 1, minWidth: 220 }}>
               <Typography.Text strong>Третья корзина (ключ API invest_returns)</Typography.Text>
-              <Input.TextArea
-                style={{ marginTop: 8 }}
-                rows={5}
-                placeholder="По строке на назначение"
+              <Select
+                mode="multiple"
+                allowClear
+                showSearch
+                optionFilterProp="label"
+                style={{ width: '100%', marginTop: 8 }}
+                placeholder="Выберите назначения"
+                options={purposeSelectOptions}
                 value={purposeInvestReturns}
-                onChange={(e) => setPurposeInvestReturns(e.target.value)}
+                onChange={(v) => {
+                  setPurposeInvestReturns(v)
+                  setPurposeOperational((prev) => prev.filter((p) => !v.includes(p)))
+                  setPurposeOther((prev) => prev.filter((p) => !v.includes(p)))
+                }}
               />
             </div>
           </Space>

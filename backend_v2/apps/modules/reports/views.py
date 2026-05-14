@@ -11,6 +11,7 @@ from apps.modules.reports.models import TenantReportSettings
 from apps.modules.reports.pnl_builder import (
     ReportSettingsInvalid,
     compute_unassigned_payment_purposes,
+    list_tenant_payment_purpose_pool,
     validate_pnl_config_dict,
 )
 from apps.modules.reports.registry import MODULE_KEY
@@ -160,3 +161,16 @@ class TenantReportSettingsConfigView(APIView):
         row.save(update_fields=["pnl_source", "pnl_config", "updated_at"])
 
         return Response(self._serialize(row), status=status.HTTP_200_OK)
+
+
+class TenantPnlPaymentPurposePoolView(APIView):
+    """Distinct payment purpose strings for PnL bucket pickers (form config + request history)."""
+
+    permission_classes = [IsAuthenticated, IsTenantAdmin]
+
+    def get(self, request):
+        tenant = getattr(request, "tenant", None)
+        if not tenant:
+            return Response({"detail": "No tenant."}, status=status.HTTP_400_BAD_REQUEST)
+        purposes = list_tenant_payment_purpose_pool(tenant_id=tenant.id)
+        return Response({"purposes": purposes}, status=status.HTTP_200_OK)

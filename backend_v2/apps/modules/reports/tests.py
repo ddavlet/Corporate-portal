@@ -8,7 +8,12 @@ from django.test import SimpleTestCase, TestCase, override_settings
 from rest_framework.test import APITestCase
 from rest_framework_simplejwt.tokens import RefreshToken
 
-from apps.modules.requests.models import Request
+from apps.modules.requests.models import (
+    Request,
+    RequestFormConfig,
+    RequestFormPaymentTypeConfig,
+    RequestPaymentPurposeConfig,
+)
 from apps.modules.reports.models import TenantReportSettings
 from apps.modules.reports.pnl_builder import (
     ReportSettingsInvalid,
@@ -288,6 +293,44 @@ class TenantReportSettingsConfigApiTests(APITestCase):
     def test_director_forbidden(self):
         res = self.client.get(self.url, **self._auth(self.director))
         self.assertEqual(res.status_code, 403)
+
+    def test_admin_get_payment_purpose_pool(self):
+        pool_url = "/api/reports/payment-purpose-pool/"
+        res_empty = self.client.get(pool_url, **self._auth(self.admin))
+        self.assertEqual(res_empty.status_code, 200, res_empty.content)
+        self.assertEqual(res_empty.data.get("purposes"), [])
+
+        rfc = RequestFormConfig.objects.create(tenant=self.tenant)
+        ptc = RequestFormPaymentTypeConfig.objects.create(
+            config=rfc,
+            payment_type=Request.PAYMENT_TYPE_TRANSFER,
+        )
+        RequestPaymentPurposeConfig.objects.create(
+            payment_type_config=ptc,
+            name="  Назначение из формы  ",
+            is_active=True,
+        )
+        Request.objects.create(
+            tenant=self.tenant,
+            created_by=self.admin,
+            requester=self.admin,
+            title="r",
+            description="",
+            amount="10.00",
+            currency="UZS",
+            payment_type=Request.PAYMENT_TYPE_CASH,
+            urgency=Request.URGENCY_NORMAL,
+            billing_date=date(2026, 1, 1),
+            payment_purpose="Только в заявках",
+            status=Request.STATUS_DRAFT,
+        )
+        res = self.client.get(pool_url, **self._auth(self.admin))
+        self.assertEqual(res.status_code, 200, res.content)
+        names = res.data.get("purposes") or []
+        self.assertEqual(names, sorted({"Назначение из формы", "Только в заявках"}))
+
+        res_dir = self.client.get(pool_url, **self._auth(self.director))
+        self.assertEqual(res_dir.status_code, 403)
 
     def test_admin_patch_backend_requires_full_config(self):
         bad = self.client.patch(

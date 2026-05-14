@@ -11,7 +11,7 @@ from django.utils import timezone
 from apps.modules.bank_expenses.models import BankRevenue
 from apps.modules.cashier.models import CashRevenue
 from apps.modules.investments.models import InvestReturn
-from apps.modules.requests.models import Request
+from apps.modules.requests.models import Request, RequestPaymentPurposeConfig
 from apps.modules.reports.models import TenantReportSettings
 
 # --- pnl_config keys (backend PnL) ---
@@ -318,6 +318,37 @@ def compute_unassigned_payment_purposes(*, tenant_id: int, cfg: dict[str, Any]) 
         out.append({"purpose": p, "count": int(row["c"])})
     out.sort(key=lambda x: (x["purpose"], -x["count"]))
     return out
+
+
+def list_tenant_payment_purpose_pool(*, tenant_id: int) -> list[str]:
+    """
+    Names to offer in PnL settings: active purposes from the request form config
+    plus any non-empty payment_purpose strings already used on requests for the tenant.
+    """
+
+    merged: set[str] = set()
+    for name in (
+        RequestPaymentPurposeConfig.objects.filter(
+            payment_type_config__config__tenant_id=tenant_id,
+            is_active=True,
+        )
+        .values_list("name", flat=True)
+        .iterator()
+    ):
+        s = str(name).strip()
+        if s:
+            merged.add(s)
+    for p in (
+        Request.objects.filter(tenant_id=tenant_id)
+        .exclude(payment_purpose="")
+        .values_list("payment_purpose", flat=True)
+        .distinct()
+        .iterator()
+    ):
+        s = str(p).strip()
+        if s:
+            merged.add(s)
+    return sorted(merged)
 
 
 def build_pnl_payload_from_db(*, tenant, query_params: dict[str, Any]) -> dict[str, Any]:
