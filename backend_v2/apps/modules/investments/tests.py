@@ -1328,6 +1328,52 @@ class InvestmentProjectApprovalFlowTests(APITestCase):
         self.assertEqual(payload["buttons"][0][0]["label"], "✅ Проверено")
 
     @patch("apps.modules.investments.project_investment_approval_services.post_messaging_gateway")
+    def test_project_investment_confirmation_step_uses_investment_wording(self, bridge_mock):
+        """Шаг confirmation — про вложение, не про «выплату» (как у выплат инвестору)."""
+        bridge_mock.return_value = {"message_id": 600}
+        response = self.client.post(
+            "/api/investments/project-investments/",
+            {
+                "date": "2026-06-01",
+                "amount": "5000.00",
+                "currency": "USD",
+                "comment": "",
+            },
+            format="json",
+            HTTP_HOST=self.host,
+        )
+        self.assertEqual(response.status_code, 201)
+        pi = ProjectInvestment.objects.get(id=response.data["id"])
+        first_step = pi.approvals.get(step=1)
+        bridge_mock.return_value = {"message_id": 601}
+        self.assertEqual(
+            self.client.post(
+                "/api/investments/approvals/webhook/",
+                {
+                    "event": "interaction",
+                    "payload": f"invp_{first_step.id}:a",
+                    "user_id": str(self.approver1.telegram_from_id),
+                    "recipient_id": str(self.approver1.telegram_chat_id),
+                    "message_id": first_step.gateway_message_id or 600,
+                    "platform": "telegram",
+                },
+                format="json",
+                HTTP_HOST=self.host,
+            ).status_code,
+            200,
+        )
+        texts = [c.kwargs["payload"]["text"] for c in bridge_mock.call_args_list if "payload" in c.kwargs]
+        self.assertTrue(any("Подтверждение вложения" in t for t in texts))
+        self.assertTrue(any("Подтвердите вложение средств по заявке" in t for t in texts))
+        labels: list[str] = []
+        for c in bridge_mock.call_args_list:
+            for row in c.kwargs.get("payload", {}).get("buttons") or []:
+                for b in row:
+                    labels.append(b.get("label", ""))
+        self.assertIn("✅ Вложено", labels)
+        self.assertNotIn("✅ Выплачено", labels)
+
+    @patch("apps.modules.investments.project_investment_approval_services.post_messaging_gateway")
     def test_webhook_invp_prefix_sets_confirmed(self, bridge_mock):
         bridge_mock.return_value = {"message_id": 502}
         response = self.client.post(
