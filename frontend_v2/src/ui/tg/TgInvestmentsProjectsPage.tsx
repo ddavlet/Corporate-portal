@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Alert, Button, Input, Skeleton, Tag, Typography } from 'antd'
 import { useNavigate } from 'react-router-dom'
-import { ArrowLeftOutlined, SearchOutlined } from '@ant-design/icons'
+import { ArrowLeftOutlined, PlusOutlined, SearchOutlined } from '@ant-design/icons'
 import {
   DEFAULT_INVESTMENT_FORM_CONFIG,
   getInvestmentFormConfig,
@@ -85,7 +85,7 @@ export function TgInvestmentsProjectsPage() {
   }, [rows, search, companyMap])
 
   return (
-    <div className="tg-investments-page">
+    <div className="tg-investments-page" style={{ paddingBottom: 80 }}>
       <Button
         icon={<ArrowLeftOutlined />}
         size="large"
@@ -98,6 +98,14 @@ export function TgInvestmentsProjectsPage() {
       <Typography.Title level={4} style={{ margin: '0 0 16px', fontWeight: 700 }}>
         Заявки на вложение
       </Typography.Title>
+
+      <Button
+        type="primary"
+        className="tg-fab"
+        icon={<PlusOutlined />}
+        onClick={() => navigate('/tg/investments/projects/new')}
+        aria-label="Создать заявку на вложение"
+      />
 
       <div className="tg-list-search">
         <Input

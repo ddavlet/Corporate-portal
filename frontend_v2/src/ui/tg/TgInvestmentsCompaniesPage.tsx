@@ -44,16 +44,16 @@ export function TgInvestmentsCompaniesPage() {
     }
   }, [])
 
-  if (blocked === true) {
-    return <Navigate to="/tg/investments" replace />
-  }
-
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase()
     const sorted = [...rows].sort((a, b) => a.name.localeCompare(b.name))
     if (!q) return sorted
     return sorted.filter((row) => JSON.stringify(row).toLowerCase().includes(q))
   }, [rows, search])
+
+  if (blocked === true) {
+    return <Navigate to="/tg/investments" replace />
+  }
 
   return (
     <div className="tg-investments-page">
