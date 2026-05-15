@@ -532,3 +532,34 @@ html.tg-twa-dark .tg-bottom-nav-btn--active {
   color: var(--tg-hint, rgba(0, 0, 0, 0.55));
   line-height: 1.35;
 }
+
+/* Sticky action bar for create/edit forms (no bottom nav on these pages) */
+.tg-sticky-action-bar {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  padding: 12px 16px max(12px, env(safe-area-inset-bottom));
+  background: var(--tg-sticky-bg, rgba(255, 255, 255, 0.92));
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border-top: 1px solid var(--tg-divider, rgba(0, 0, 0, 0.09));
+  z-index: 100;
+}
+
+/* FAB create button on list pages */
+.tg-fab {
+  position: fixed;
+  bottom: calc(64px + max(8px, env(safe-area-inset-bottom)));
+  right: 16px;
+  z-index: 99;
+  border-radius: 50% !important;
+  width: 52px !important;
+  height: 52px !important;
+  display: flex !important;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.18);
+  font-size: 22px !important;
+}
+
