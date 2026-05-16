@@ -818,8 +818,56 @@ class TelegramApprovalsTests(APITestCase):
         txt = build_approval_message(request_obj=request_row, approval=approval)
         self.assertIn("✅ Заявка №", txt)
         self.assertIn("полностью одобрена", txt)
+        self.assertNotIn("Ответственный за оплату", txt)
+        self.assertNotIn("Сейчас ожидается решение от", txt)
+
+    def test_pending_build_approval_message_shows_who_must_decide(self):
+        request_row = Request.objects.create(
+            tenant=self.tenant,
+            created_by=self.admin,
+            requester=self.requester,
+            title="Pending serial",
+            status=Request.STATUS_PROGRESS_1,
+            billing_date=date(2026, 3, 31),
+        )
+        approval = Approval.objects.create(
+            request=request_row,
+            approver_user=self.approver,
+            approver_recipient_id=555001,
+            approver_external_user_id=777001,
+            step=1,
+            step_type=Approval.STEP_TYPE_SERIAL,
+            decision=Approval.DECISION_PENDING,
+        )
+        txt = build_approval_message(request_obj=request_row, approval=approval)
+        self.assertIn("Сейчас ожидается решение от", txt)
         self.assertIn("Петр Петров", txt)
+        self.assertNotIn("Ответственный за оплату", txt)
         self.assertNotIn("appr", txt)
+
+    def test_approved_pending_payment_shows_decision_actor_not_payment_subheader(self):
+        request_row = Request.objects.create(
+            tenant=self.tenant,
+            created_by=self.admin,
+            requester=self.requester,
+            title="Awaiting payment",
+            status=Request.STATUS_APPROVED,
+            billing_date=date(2026, 3, 31),
+        )
+        approval = Approval.objects.create(
+            request=request_row,
+            approver_user=self.approver,
+            approver_recipient_id=555001,
+            approver_external_user_id=777001,
+            step=2,
+            step_type=Approval.STEP_TYPE_PAYMENT,
+            decision=Approval.DECISION_PENDING,
+        )
+        txt = build_approval_message(request_obj=request_row, approval=approval)
+        self.assertIn("полностью одобрена", txt)
+        self.assertNotIn("Ответственный за оплату", txt)
+        self.assertIn("Сейчас ожидается решение от", txt)
+        self.assertIn("Петр Петров", txt)
 
     def test_rejected_subheader_uses_full_name(self):
         request_row = Request.objects.create(

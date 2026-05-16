@@ -123,7 +123,7 @@ def build_project_investment_approval_telegram_message(
     elif readonly:
         header = "⏳ Ожидание предыдущих шагов"
     elif approval.step_type == InvestmentProjectApprovalConfigStep.STEP_TYPE_CONFIRMATION:
-        header = f"💰 Подтверждение выплаты по заявке — шаг {approval.step}"
+        header = f"💰 Подтверждение вложения — шаг {approval.step}"
     else:
         header = f"📋 Проверка заявки на вложение — шаг {approval.step}"
 
@@ -132,7 +132,7 @@ def build_project_investment_approval_telegram_message(
         if approval.step_type == InvestmentProjectApprovalConfigStep.STEP_TYPE_NOTIFICATION:
             action_hint = ""
         elif approval.step_type == InvestmentProjectApprovalConfigStep.STEP_TYPE_CONFIRMATION:
-            action_hint = "\n\nПодтвердите выплату по заявке кнопками ниже."
+            action_hint = "\n\nПодтвердите вложение средств по заявке кнопками ниже."
         else:
             action_hint = "\n\nПроверьте данные заявки на вложение и ответьте кнопками ниже."
 

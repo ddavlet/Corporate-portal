@@ -210,21 +210,6 @@ def _format_amount_for_telegram(value) -> str:
     return format(amount, ",.2f").replace(",", " ")
 
 
-def _payment_responsible_text(*, request_obj: Request) -> str:
-    approvals = (
-        Approval.objects.filter(request=request_obj, step_type=Approval.STEP_TYPE_PAYMENT)
-        .select_related("approver_user")
-        .distinct()
-    )
-    names = []
-    for row in approvals:
-        if not row.approver_user:
-            continue
-        names.append(_display_user_name(row.approver_user))
-    unique_names = list(dict.fromkeys(name for name in names if name and name != "-"))
-    return ", ".join(unique_names) if unique_names else "-"
-
-
 def _rejected_by_text(*, request_obj: Request) -> str:
     row = (
         Approval.objects.filter(request=request_obj, decision=Approval.DECISION_REJECTED)
@@ -241,7 +226,6 @@ def _message_header(*, request_obj: Request, approval: Approval | None) -> tuple
     settings_obj = get_requests_messaging_gateway_settings(tenant=request_obj.tenant)
     ctx = {
         "request_id": request_obj.id,
-        "payment_responsible": _payment_responsible_text(request_obj=request_obj),
         "rejected_by": _rejected_by_text(request_obj=request_obj),
     }
     def _fmt(template: str) -> str:
@@ -252,15 +236,9 @@ def _message_header(*, request_obj: Request, approval: Approval | None) -> tuple
             return template
 
     if request_obj.status == Request.STATUS_APPROVED:
-        return (
-            _fmt(settings_obj.header_fully_approved_template),
-            _fmt(settings_obj.subheader_payment_responsible_template),
-        )
+        return _fmt(settings_obj.header_fully_approved_template), None
     if request_obj.status == Request.STATUS_PAYED:
-        return (
-            _fmt(settings_obj.header_closed_template),
-            _fmt(settings_obj.subheader_payment_responsible_template),
-        )
+        return _fmt(settings_obj.header_closed_template), None
     if request_obj.status == Request.STATUS_REJECTED:
         return (
             _fmt(settings_obj.header_rejected_template),
@@ -290,6 +268,23 @@ def _telegram_card_should_be_readonly(*, request_obj: Request, approval: Approva
     return False
 
 
+def _expected_decision_footer(*, request_obj: Request, approval: Approval | None) -> str:
+    """
+    Для карточек в группе: кто должен нажать кнопку (согласование или подтверждение оплаты).
+    Не дублируем строку, если решение уже принято или карточка только для чтения.
+    """
+    if approval is None:
+        return ""
+    if approval.decision != Approval.DECISION_PENDING:
+        return ""
+    if _telegram_card_should_be_readonly(request_obj=request_obj, approval=approval):
+        return ""
+    who = _display_user_name(approval.approver_user if approval.approver_user_id else None)
+    if not who or who == "-":
+        return ""
+    return f"\n\n✍️ Сейчас ожидается решение от: <b>{escape(who)}</b>"
+
+
 def build_approval_message(*, request_obj: Request, approval: Approval | None = None) -> str:
     header, subheader = _message_header(request_obj=request_obj, approval=approval)
     vendor_name = (request_obj.vendor_ref.name if request_obj.vendor_ref_id and request_obj.vendor_ref else request_obj.vendor) or "-"
@@ -316,11 +311,11 @@ def build_approval_message(*, request_obj: Request, approval: Approval | None = 
         "submitted_at": escape(_format_submitted_at(request_obj)),
     }
     try:
-        return template.format_map(context)
+        body = template.format_map(context)
     except Exception:
         logger.exception("Failed to render tenant telegram approvals template")
         # Safe fallback to keep sending operational.
-        return (
+        body = (
             f"<b>{context['header']}</b>\n"
             f"{context['subheader_block']}"
             f"Компания: {context['company_payer']}\n"
@@ -339,6 +334,7 @@ def build_approval_message(*, request_obj: Request, approval: Approval | None = 
             f"• Заявитель: {context['requester']}\n\n"
             f"🕒 Подано: {context['submitted_at']}"
         )
+    return f"{body}{_expected_decision_footer(request_obj=request_obj, approval=approval)}"
 
 
 def _button_data(*, approval: Approval, decision: str) -> str:
