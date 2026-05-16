@@ -78,7 +78,7 @@ services:
 
     labels:
       - traefik.enable=true
-      - traefik.docker.network=n8n_traefik-public
+      - traefik.docker.network=whatsapp-api_traefik-public
 
       # Redirect only root path on old frontend domains: https://<sub>.kolberg.uz[/] -> https://<sub>.korberg.uz/app
       - traefik.http.routers.kolberg-frontend-root-redirect.rule=(${TRAEFIK_FRONTEND_HOST_RULE}) && Path(`/`)
@@ -929,6 +929,7 @@ volumes:
 # >>> CHANGE: добавили сети
 networks:
   traefik-public:
+    name: proxy
   backend:
   chromium:
   gateway:
