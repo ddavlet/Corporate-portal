@@ -208,8 +208,9 @@ export function TenantIntegrationConfigPage() {
             <Divider style={{ margin: '4px 0' }} />
             <Typography.Text strong>ИИ-чат заявок (n8n)</Typography.Text>
             <Typography.Text type="secondary">
-              Полный URL Chat Trigger в n8n (backend проксирует с{' '}
-              <Typography.Text code>X-N8N-Integration-Token</Typography.Text>). Портал вызывает{' '}
+              Полный URL Chat Trigger в n8n. Backend шлёт в n8n Basic Auth: user{' '}
+              <Typography.Text code>X-N8N-Integration-Token</Typography.Text>, password — integration
+              token. Портал вызывает{' '}
               <Typography.Text code>/api/requests/ai-chat/</Typography.Text>.
             </Typography.Text>
             <Input
