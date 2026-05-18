@@ -11,7 +11,7 @@ vi.mock('./requestAiChat', () => ({
 describe('RequestAiChatButton', () => {
   it('opens n8n chat on click', () => {
     render(<RequestAiChatButton />)
-    fireEvent.click(screen.getByRole('button', { name: 'Заявка с ИИ (Бета)' }))
+    fireEvent.click(screen.getByRole('button', { name: /Заявка с ИИ \(Бета\)/ }))
     expect(openRequestAiChatMock).toHaveBeenCalledTimes(1)
   })
 })
