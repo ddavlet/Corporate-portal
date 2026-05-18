@@ -1,3 +1,4 @@
+import base64
 from datetime import date
 from decimal import Decimal
 import uuid
@@ -1763,10 +1764,16 @@ class AutoRequestConfigView(APIView):
         return Response({"request_id": request_obj.id}, status=status.HTTP_201_CREATED)
 
 
+def _n8n_chat_basic_authorization(integration_token: str) -> str:
+    """n8n Chat Trigger Basic Auth: user X-N8N-Integration-Token, password = token."""
+    encoded = base64.b64encode(f"X-N8N-Integration-Token:{integration_token}".encode()).decode("ascii")
+    return f"Basic {encoded}"
+
+
 class RequestAiChatProxyView(APIView):
     """
     Frontend → this view: portal JWT (IsAuthenticated).
-    This view → n8n: tenant integration token only (never user JWT).
+    This view → n8n: Basic Auth (user X-N8N-Integration-Token, password = integration token).
     """
 
     module_key = "requests"
@@ -1797,6 +1804,7 @@ class RequestAiChatProxyView(APIView):
             "Accept": "application/json",
             "Content-Type": (request.content_type or "application/json").split(";")[0].strip(),
             "X-N8N-Integration-Token": integration_token,
+            "Authorization": _n8n_chat_basic_authorization(integration_token),
         }
 
         try:
@@ -1804,6 +1812,17 @@ class RequestAiChatProxyView(APIView):
         except requests.RequestException as exc:
             return Response(
                 {"detail": f"Upstream request failed: {exc}"},
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+
+        if upstream.status_code in (401, 403):
+            return Response(
+                {
+                    "detail": (
+                        "n8n rejected the chat request. "
+                        "Check tenant integration token and Chat Trigger authentication in n8n."
+                    )
+                },
                 status=status.HTTP_502_BAD_GATEWAY,
             )
 
