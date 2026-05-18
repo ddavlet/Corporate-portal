@@ -585,6 +585,89 @@ class RequestApprovalsTests(APITestCase):
         self.assertEqual(len(res.data[0]["approvals"]), 1)
         self.assertEqual(res.data[0]["approvals"][0]["decision"], Approval.DECISION_PENDING)
 
+    @patch("apps.modules.telegram_approvals.services._post_to_gateway")
+    def test_notification_step_dispatches_without_buttons_and_auto_approves(self, gateway_mock):
+        gateway_mock.return_value = {"message_id": 901}
+        pt_cfg = RequestApprovalPaymentTypeConfig.objects.get(
+            config__tenant=self.tenant, payment_type="Наличные"
+        )
+        RequestApprovalStepConfig.objects.filter(payment_type_config=pt_cfg).delete()
+        step1 = RequestApprovalStepConfig.objects.create(
+            payment_type_config=pt_cfg,
+            step=1,
+            step_type=Approval.STEP_TYPE_NOTIFICATION,
+            is_enabled=True,
+        )
+        RequestApprovalStepApproverConfig.objects.create(step_config=step1, approver_user=self.approver)
+        step2 = RequestApprovalStepConfig.objects.create(
+            payment_type_config=pt_cfg,
+            step=2,
+            step_type=Approval.STEP_TYPE_SERIAL,
+            is_enabled=True,
+        )
+        RequestApprovalStepApproverConfig.objects.create(step_config=step2, approver_user=self.other_approver)
+        self.other_approver.telegram_chat_id = 333
+        self.other_approver.telegram_from_id = 444
+        self.other_approver.save(update_fields=["telegram_chat_id", "telegram_from_id"])
+
+        req_data = self._create_request()
+        request_id = req_data["id"]
+        notif = Approval.objects.get(request_id=request_id, step=1, approver_user=self.approver)
+        serial = Approval.objects.get(request_id=request_id, step=2, approver_user=self.other_approver)
+        self.assertEqual(notif.step_type, Approval.STEP_TYPE_NOTIFICATION)
+        self.assertEqual(notif.decision, Approval.DECISION_APPROVED)
+        self.assertTrue(notif.message_sent)
+        self.assertEqual(serial.decision, Approval.DECISION_PENDING)
+
+        calls = [c.kwargs["payload"] for c in gateway_mock.call_args_list]
+        notify_sends = [
+            p
+            for p in calls
+            if p.get("approval_id") == str(notif.id) and p.get("buttons") == []
+        ]
+        serial_sends = [
+            p
+            for p in calls
+            if p.get("approval_id") == str(serial.id) and p.get("buttons")
+        ]
+        self.assertTrue(notify_sends, "ожидался send notification без кнопок")
+        self.assertTrue(serial_sends, "ожидался send serial с кнопками")
+        self.assertLess(calls.index(notify_sends[0]), calls.index(serial_sends[0]))
+
+    def test_cannot_manually_confirm_notification_step(self):
+        pt_cfg = RequestApprovalPaymentTypeConfig.objects.get(
+            config__tenant=self.tenant, payment_type="Наличные"
+        )
+        RequestApprovalStepConfig.objects.filter(payment_type_config=pt_cfg).delete()
+        step1 = RequestApprovalStepConfig.objects.create(
+            payment_type_config=pt_cfg,
+            step=1,
+            step_type=Approval.STEP_TYPE_NOTIFICATION,
+            is_enabled=True,
+        )
+        RequestApprovalStepApproverConfig.objects.create(step_config=step1, approver_user=self.approver)
+
+        req_data = self._create_request()
+        request_id = req_data["id"]
+        approval = Approval.objects.get(request_id=request_id, approver_user=self.approver)
+        approval.decision = Approval.DECISION_PENDING
+        approval.message_sent = False
+        approval.gateway_message_id = None
+        approval.save(update_fields=["decision", "message_sent", "gateway_message_id"])
+
+        from rest_framework.exceptions import ValidationError
+
+        from apps.modules.requests.approval_workflow import confirm_approval_by_id
+
+        with self.assertRaises(ValidationError) as ctx:
+            confirm_approval_by_id(
+                tenant=self.tenant,
+                approval_id=approval.id,
+                approver_user_id=self.approver.id,
+                decision=Approval.DECISION_APPROVED,
+            )
+        self.assertIn("notification", str(ctx.exception.detail).lower())
+
     def test_approver_list_shows_only_participating_or_requester_requests(self):
         req_data = self._create_request()
         visible_request_id = req_data["id"]

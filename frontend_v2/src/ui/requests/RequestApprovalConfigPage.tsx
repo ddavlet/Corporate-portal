@@ -18,6 +18,7 @@ type PaymentType = (typeof PAYMENT_TYPES)[number]
 const STEP_TYPES: Array<{ value: string; label: string }> = [
   { value: 'serial', label: 'serial' },
   { value: 'payment', label: 'payment' },
+  { value: 'notification', label: 'notification — автоуведомление' },
 ]
 
 function emptyStep(step: number): RequestApprovalConfigStepItem {
@@ -491,6 +492,11 @@ export function RequestApprovalConfigPage() {
                                 placeholder="Approver-ы"
                                 style={{ width: 360 }}
                               />
+                              {step.step_type === 'notification' ? (
+                                <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                                  Уведомление: сообщение без кнопок, шаг автоматически одобряется после отправки.
+                                </Typography.Text>
+                              ) : null}
                               {step.step_type === 'payment' ? (
                                 <>
                                   <Select
@@ -596,6 +602,11 @@ export function RequestApprovalConfigPage() {
                                   Удалить
                                 </Button>
                               </Space>
+                              {step.step_type === 'notification' ? (
+                                <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                                  Уведомление: сообщение без кнопок, шаг автоматически одобряется после отправки.
+                                </Typography.Text>
+                              ) : null}
                               {step.step_type === 'payment' ? (
                                 <>
                                   <div>

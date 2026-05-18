@@ -169,7 +169,16 @@ def route_request_approvals(*, request_obj: Request) -> None:
             ).exists()
             if has_pending_on_step:
                 dispatch_pending_approvals(request_obj=locked, step=current_step)
-                return
+                still_pending = find_approvals(
+                    request_obj=locked,
+                    step=current_step,
+                    decision=Approval.DECISION_PENDING,
+                ).exists()
+                if still_pending:
+                    return
+                _recalculate_request_status(locked)
+                locked.refresh_from_db()
+                continue
 
             next_status = _status_for_progress_step(current_step + 1) or Request.STATUS_APPROVED
             if locked.status == next_status:
@@ -265,6 +274,11 @@ def confirm_approval_by_id(
         if active_step is None or approval.step != active_step:
             raise ValidationError(
                 {"detail": "Этот этап согласования ещё не активен. Сначала завершите предыдущие шаги."}
+            )
+
+        if approval.step_type == Approval.STEP_TYPE_NOTIFICATION:
+            raise ValidationError(
+                {"detail": "Этап notification подтверждается автоматически после отправки сообщения."}
             )
 
         if (
