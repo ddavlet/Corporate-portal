@@ -143,6 +143,13 @@ class Request(models.Model):
 
     class Meta:
         db_table = "requests"
+        indexes = [
+            models.Index(
+                fields=["tenant", "payment_type", "payment_purpose"],
+                name="req_tenant_pt_purpose_idx",
+                condition=models.Q(payment_purpose__gt=""),
+            ),
+        ]
 
     def _resolve_title_from_tenant(self) -> str:
         tenant_name = ""
