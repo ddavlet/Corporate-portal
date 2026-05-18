@@ -68,6 +68,15 @@ class TenantIntegrationConfigSerializer(serializers.Serializer):
     telegram_oidc_redirect_uri = serializers.CharField(required=False, allow_blank=True)
     messaging_gateway_feedback_recipient_id = serializers.IntegerField(required=False, allow_null=True)
     messaging_gateway_feedback_action = serializers.CharField(required=False, allow_blank=True, max_length=100)
+    request_ai_chat_webhook_url = serializers.URLField(required=False, allow_blank=True, max_length=500)
+
+    def validate_request_ai_chat_webhook_url(self, value: str) -> str:
+        url = (value or "").strip()
+        if not url:
+            return ""
+        if "/webhook/" not in url:
+            raise serializers.ValidationError("URL must contain /webhook/ (n8n Chat Trigger).")
+        return url
 
 
 class TenantUserPreferenceSerializer(serializers.Serializer):

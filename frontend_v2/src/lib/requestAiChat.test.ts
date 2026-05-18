@@ -1,19 +1,24 @@
-import { describe, expect, it } from 'vitest'
-import { REQUEST_AI_CHAT_WEBHOOK_PATH, getRequestAiChatWebhookUrl } from './requestAiChat'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { getRequestAiChatWebhookUrl } from './requestAiChat'
+
+vi.mock('./api', () => ({
+  apiFetch: vi.fn(),
+  parseErrorBody: vi.fn(async () => 'error'),
+  readTgTokens: vi.fn(),
+}))
+
+import { apiFetch } from './api'
 
 describe('getRequestAiChatWebhookUrl', () => {
-  it('builds tenant-scoped n8n chat webhook URL', () => {
-    expect(getRequestAiChatWebhookUrl('https://dev.kolberg.uz')).toBe(
-      'https://dev.kolberg.uz/webhook/d9f95bda-910e-4118-a6a9-08a86124d96c/chat',
-    )
-    expect(getRequestAiChatWebhookUrl('https://acme.kolberg.uz')).toBe(
-      `https://acme.kolberg.uz/webhook/${REQUEST_AI_CHAT_WEBHOOK_PATH}`,
-    )
+  afterEach(() => {
+    vi.mocked(apiFetch).mockReset()
   })
 
-  it('strips trailing slash from origin', () => {
-    expect(getRequestAiChatWebhookUrl('https://dev.kolberg.uz/')).toBe(
-      'https://dev.kolberg.uz/webhook/d9f95bda-910e-4118-a6a9-08a86124d96c/chat',
+  it('loads webhook_url from tenant config API', async () => {
+    vi.mocked(apiFetch).mockResolvedValue(
+      new Response(JSON.stringify({ webhook_url: 'https://dev.kolberg.uz/webhook/uuid/chat' }), { status: 200 }),
     )
+    await expect(getRequestAiChatWebhookUrl()).resolves.toBe('https://dev.kolberg.uz/webhook/uuid/chat')
+    expect(apiFetch).toHaveBeenCalledWith('/api/requests/ai-chat-config/')
   })
 })

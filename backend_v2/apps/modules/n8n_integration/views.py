@@ -2,7 +2,6 @@ import logging
 import time
 import uuid
 from datetime import date, datetime
-
 import requests
 from requests.adapters import HTTPAdapter
 from django.conf import settings

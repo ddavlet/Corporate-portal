@@ -132,6 +132,11 @@ class PortalFeedbackSettings:
     action: str
 
 
+def get_request_ai_chat_webhook_url(*, tenant: Tenant | None) -> str:
+    cfg = _integration_config(tenant)
+    return (cfg.request_ai_chat_webhook_url if cfg else "").strip()
+
+
 def get_portal_feedback_settings(*, tenant: Tenant | None) -> PortalFeedbackSettings:
     cfg = _integration_config(tenant)
     chat_id = cfg.messaging_gateway_feedback_recipient_id if cfg else None

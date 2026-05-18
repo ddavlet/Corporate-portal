@@ -10,7 +10,7 @@ from django.utils import timezone
 from rest_framework.test import APITestCase
 from urllib.parse import parse_qs, urlparse
 
-from apps.tenants.models import Tenant, TenantMembership, TenantModuleConfig, TenantUserRole
+from apps.tenants.models import Tenant, TenantIntegrationConfig, TenantMembership, TenantModuleConfig, TenantUserRole
 from apps.modules.requests.models import (
     Approval,
     Request,
@@ -3287,5 +3287,36 @@ class GetRequestsMessagingGatewaySettingsTests(APITestCase):
         tenant = Tenant.objects.create(name="Co2", subdomain="gwsett2", is_active=True)
         settings_obj = get_requests_messaging_gateway_settings(tenant=tenant)
         self.assertEqual(settings_obj.draft_notification_action, "send_interactive")
+
+
+@override_settings(BASE_DOMAIN="example.com", ALLOWED_HOSTS=["*"])
+class RequestAiChatConfigTests(APITestCase):
+    def setUp(self):
+        self.tenant = Tenant.objects.create(name="Acme", subdomain="acme", is_active=True)
+        self.user = User.objects.create_user(username="req_chat", password="x")
+        TenantMembership.objects.create(tenant=self.tenant, user=self.user, is_active=True)
+        TenantUserRole.objects.create(tenant=self.tenant, user=self.user, role=TenantUserRole.ROLE_REQUESTER)
+        TenantModuleConfig.objects.create(tenant=self.tenant, module_key="requests", is_enabled=True)
+        self.host = "acme.example.com"
+
+    def test_returns_configured_webhook_url(self):
+        cfg, _ = TenantIntegrationConfig.objects.get_or_create(tenant=self.tenant)
+        cfg.request_ai_chat_webhook_url = "https://dev.kolberg.uz/webhook/uuid/chat"
+        cfg.save(update_fields=["request_ai_chat_webhook_url"])
+
+        self.client.force_authenticate(self.user)
+        res = self.client.get("/api/requests/ai-chat-config/", HTTP_HOST=self.host)
+        self.assertEqual(res.status_code, 200, res.content)
+        self.assertEqual(res.json()["webhook_url"], "https://dev.kolberg.uz/webhook/uuid/chat")
+
+    def test_missing_webhook_url_returns_503(self):
+        TenantIntegrationConfig.objects.get_or_create(tenant=self.tenant)
+        self.client.force_authenticate(self.user)
+        res = self.client.get("/api/requests/ai-chat-config/", HTTP_HOST=self.host)
+        self.assertEqual(res.status_code, 503)
+
+    def test_requires_auth(self):
+        res = self.client.get("/api/requests/ai-chat-config/", HTTP_HOST=self.host)
+        self.assertEqual(res.status_code, 401)
 
 

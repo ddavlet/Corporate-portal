@@ -20,6 +20,7 @@ type FormState = {
   messaging_gateway_webhook_connected: boolean
   messaging_gateway_webhook_url: string
   messaging_gateway_webhook_error: string
+  request_ai_chat_webhook_url: string
 }
 
 const MASK = '********'
@@ -38,6 +39,7 @@ function toFormState(data: TenantIntegrationConfigResponse): FormState {
     messaging_gateway_webhook_connected: Boolean(data.messaging_gateway_webhook_connected),
     messaging_gateway_webhook_url: data.messaging_gateway_webhook_url || '',
     messaging_gateway_webhook_error: data.messaging_gateway_webhook_error || '',
+    request_ai_chat_webhook_url: data.request_ai_chat_webhook_url || '',
   }
 }
 
@@ -99,6 +101,7 @@ export function TenantIntegrationConfigPage() {
         payload.messaging_gateway_feedback_recipient_id = Math.trunc(n)
       }
       payload.messaging_gateway_feedback_action = form.messaging_gateway_feedback_action.trim()
+      payload.request_ai_chat_webhook_url = form.request_ai_chat_webhook_url.trim()
 
       const data = await updateTenantIntegrationConfig(payload)
       setForm(toFormState(data))
@@ -201,6 +204,18 @@ export function TenantIntegrationConfigPage() {
                 deleteWebhook
               </Button>
             </Space>
+
+            <Divider style={{ margin: '4px 0' }} />
+            <Typography.Text strong>ИИ-чат заявок (n8n)</Typography.Text>
+            <Typography.Text type="secondary">
+              Полный URL Chat Trigger, например{' '}
+              <Typography.Text code>https://dev.kolberg.uz/webhook/…/chat</Typography.Text>. У каждого тенанта свой.
+            </Typography.Text>
+            <Input
+              placeholder="https://dev.kolberg.uz/webhook/<id>/chat"
+              value={form.request_ai_chat_webhook_url}
+              onChange={(e) => setField('request_ai_chat_webhook_url', e.target.value)}
+            />
 
             <Divider style={{ margin: '4px 0' }} />
             <Typography.Text strong>Requests file gateway</Typography.Text>
