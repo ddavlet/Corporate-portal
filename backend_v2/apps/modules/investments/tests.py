@@ -3,6 +3,9 @@ from decimal import Decimal
 from unittest.mock import MagicMock, patch
 
 from apps.modules.investments.approval_services import build_investment_return_approval_telegram_message
+from apps.modules.investments.project_investment_approval_services import (
+    build_project_investment_approval_telegram_message,
+)
 
 from django.contrib.auth import get_user_model
 from django.test import SimpleTestCase, TestCase
@@ -156,6 +159,63 @@ class InvestReturnApprovalTelegramMessageTests(SimpleTestCase):
             current_pending_step=1,
         )
         self.assertNotIn("Ожидается подтверждение от", out)
+
+    def test_completed_flow_shows_final_header_for_approved_steps(self):
+        ir = MagicMock()
+        ir.id = 3
+        ir.company = None
+        ir.tenant = MagicMock()
+        ir.tenant.name = "T"
+        ir.sum = Decimal("10.00")
+        ir.currency = "USD"
+        ir.date = date(2026, 5, 1)
+        ir.billing_date = date(2026, 5, 1)
+        ir.type = "дивиденды"
+        ir.recipient = "инвестор"
+        ir.comment = ""
+        ir.sum_uzs = None
+        ir.cbu_usd_uzs_rate = None
+        ir.get_type_display = lambda: "Дивиденды"
+        ir.get_recipient_display = lambda: "Инвестор"
+
+        approval = MagicMock()
+        approval.step = 1
+        approval.step_type = InvestmentApprovalConfigStep.STEP_TYPE_SERIAL
+        approval.decision = InvestmentReturnApproval.DECISION_APPROVED
+
+        out = build_investment_return_approval_telegram_message(
+            invest_return=ir,
+            approval=approval,
+            blocked_by_rejection=False,
+            current_pending_step=None,
+        )
+        self.assertIn("Выплата полностью подтверждена", out)
+        self.assertNotIn("Шаг 1 согласован", out)
+
+    def test_project_investment_completed_flow_shows_final_header(self):
+        pi = MagicMock()
+        pi.id = 7
+        pi.company = None
+        pi.tenant = MagicMock()
+        pi.tenant.name = "T"
+        pi.amount = Decimal("1000.00")
+        pi.currency = "USD"
+        pi.date = date(2026, 5, 1)
+        pi.comment = ""
+
+        approval = MagicMock()
+        approval.step = 2
+        approval.step_type = InvestmentApprovalConfigStep.STEP_TYPE_CONFIRMATION
+        approval.decision = ProjectInvestmentApproval.DECISION_APPROVED
+
+        out = build_project_investment_approval_telegram_message(
+            project_investment=pi,
+            approval=approval,
+            blocked_by_rejection=False,
+            current_pending_step=None,
+        )
+        self.assertIn("Заявка на вложение подтверждена", out)
+        self.assertNotIn("Шаг 2 согласован", out)
 
 
 class InvestReturnSerializerTests(TestCase):
@@ -1425,6 +1485,8 @@ class InvestmentProjectApprovalFlowTests(APITestCase):
         self.assertEqual(
             ProjectInvestmentApproval.objects.filter(project_investment=pi, decision="approved").count(), 2
         )
+        texts = [c.kwargs["payload"]["text"] for c in bridge_mock.call_args_list if "payload" in c.kwargs]
+        self.assertTrue(any("Заявка на вложение подтверждена" in t for t in texts))
 
     @patch("apps.modules.investments.project_investment_approval_services.post_messaging_gateway")
     def test_reject_on_first_step_cascades_all_pending(self, bridge_mock):

@@ -254,6 +254,8 @@ def _telegram_card_should_be_readonly(*, request_obj: Request, approval: Approva
     Milestone request statuses: everyone who already got a Telegram card should see the new header,
     without action buttons — except the cashier row while payment is still pending (APPROVED).
     """
+    if approval.step_type == Approval.STEP_TYPE_NOTIFICATION:
+        return True
     st = request_obj.status
     if approval.decision != Approval.DECISION_PENDING:
         return True
@@ -398,6 +400,8 @@ def _resolve_payment_webapp_url(*, approval: Approval) -> str:
 
 def _buttons(*, approval: Approval) -> list[list[dict]]:
     """Build universal {label, value} / {label, url} button rows for the messaging gateway."""
+    if approval.step_type == Approval.STEP_TYPE_NOTIFICATION:
+        return []
     if approval.step_type == Approval.STEP_TYPE_PAYMENT:
         step_cfg = _step_config_for_approval(approval=approval)
         mode = (
@@ -576,11 +580,13 @@ def dispatch_pending_approvals(*, request_obj: Request, step: int | None = None,
     sent_count = 0
     for approval in approvals:
         message_text = build_approval_message(request_obj=locked, approval=approval)
+        include_buttons = approval.step_type != Approval.STEP_TYPE_NOTIFICATION
         payload = _dispatch_payload(
             action=get_requests_messaging_gateway_settings(tenant=locked.tenant).send_action,
             request_obj=locked,
             approval=approval,
             message_text=message_text,
+            include_buttons=include_buttons,
         )
         response_data = _post_to_gateway(request_obj=locked, payload=payload)
         if response_data is None:
@@ -593,6 +599,14 @@ def dispatch_pending_approvals(*, request_obj: Request, step: int | None = None,
             action=str(payload.get("action") or ""),
         )
         sent_count += 1
+        if approval.step_type == Approval.STEP_TYPE_NOTIFICATION:
+            Approval.objects.filter(
+                pk=approval.pk,
+                decision=Approval.DECISION_PENDING,
+            ).update(
+                decision=Approval.DECISION_APPROVED,
+                decided_at=timezone.now(),
+            )
     return sent_count
 
 

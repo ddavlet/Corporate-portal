@@ -190,9 +190,11 @@ class RequestAttachment(models.Model):
 class Approval(models.Model):
     STEP_TYPE_SERIAL = "serial"
     STEP_TYPE_PAYMENT = "payment"
+    STEP_TYPE_NOTIFICATION = "notification"
     STEP_TYPE_CHOICES = [
         (STEP_TYPE_SERIAL, STEP_TYPE_SERIAL),
         (STEP_TYPE_PAYMENT, STEP_TYPE_PAYMENT),
+        (STEP_TYPE_NOTIFICATION, STEP_TYPE_NOTIFICATION),
     ]
 
     DECISION_PENDING = "pending"
@@ -219,7 +221,7 @@ class Approval(models.Model):
     message_sent = models.BooleanField(default=False)
     message_sent_at = models.DateTimeField(null=True, blank=True)
     step = models.IntegerField(default=1)
-    step_type = models.CharField(max_length=10, default=STEP_TYPE_SERIAL, choices=STEP_TYPE_CHOICES)
+    step_type = models.CharField(max_length=16, default=STEP_TYPE_SERIAL, choices=STEP_TYPE_CHOICES)
     decision = models.CharField(max_length=12, default=DECISION_PENDING, choices=DECISION_CHOICES)
     resend_batch_id = models.UUIDField(default=uuid.uuid4, editable=False, db_index=True)
     resend_key = models.CharField(max_length=128, null=True, blank=True, db_index=True)
@@ -452,7 +454,7 @@ class RequestApprovalStepConfig(models.Model):
         RequestApprovalPaymentTypeConfig, on_delete=models.CASCADE, related_name="steps"
     )
     step = models.IntegerField()
-    step_type = models.CharField(max_length=10, choices=Approval.STEP_TYPE_CHOICES, default=Approval.STEP_TYPE_SERIAL)
+    step_type = models.CharField(max_length=16, choices=Approval.STEP_TYPE_CHOICES, default=Approval.STEP_TYPE_SERIAL)
     is_enabled = models.BooleanField(default=True)
     payment_action_mode = models.CharField(
         max_length=12,
@@ -558,7 +560,7 @@ class RequestApprovalPurposeExceptionStepConfig(models.Model):
         related_name="steps",
     )
     step = models.IntegerField()
-    step_type = models.CharField(max_length=10, choices=Approval.STEP_TYPE_CHOICES, default=Approval.STEP_TYPE_SERIAL)
+    step_type = models.CharField(max_length=16, choices=Approval.STEP_TYPE_CHOICES, default=Approval.STEP_TYPE_SERIAL)
     is_enabled = models.BooleanField(default=True)
     payment_action_mode = models.CharField(
         max_length=12,
@@ -627,7 +629,7 @@ class UserRequestApproval(models.Model):
     gateway_message_id = models.BigIntegerField(null=True, blank=True)
     message_sent = models.BooleanField(default=False)
     step = models.IntegerField(default=1)
-    step_type = models.CharField(max_length=10, default=Approval.STEP_TYPE_SERIAL, choices=Approval.STEP_TYPE_CHOICES)
+    step_type = models.CharField(max_length=16, default=Approval.STEP_TYPE_SERIAL, choices=Approval.STEP_TYPE_CHOICES)
     decision = models.CharField(max_length=12, default=Approval.DECISION_PENDING, choices=Approval.DECISION_CHOICES)
     resend_batch_id = models.UUIDField(default=uuid.uuid4, editable=False)
     resend_key = models.CharField(max_length=128, null=True, blank=True)
