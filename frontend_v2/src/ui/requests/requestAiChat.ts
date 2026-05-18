@@ -1,7 +1,7 @@
 import '@n8n/chat/style.css'
 import './requestAiChatTheme.css'
 import { createChat } from '@n8n/chat'
-import { getAuthAccessToken, getRequestAiChatWebhookUrl } from '../../lib/requestAiChat'
+import { getRequestAiChatWebhookUrl } from '../../lib/requestAiChat'
 
 const MOUNT_ID = 'kolberg-request-ai-chat'
 
@@ -19,13 +19,9 @@ function ensureMountElement(): HTMLElement {
   return mount
 }
 
-function buildChatOptions(webhookUrl: string) {
-  const access = getAuthAccessToken()
-  const headers: Record<string, string> = {}
-  if (access) headers.Authorization = `Bearer ${access}`
-
+function buildChatOptions() {
   return {
-    webhookUrl,
+    webhookUrl: getRequestAiChatWebhookUrl(),
     target: `#${MOUNT_ID}`,
     mode: 'window' as const,
     loadPreviousSession: true,
@@ -36,7 +32,6 @@ function buildChatOptions(webhookUrl: string) {
     ],
     webhookConfig: {
       method: 'POST' as const,
-      headers,
     },
     metadata: {
       source: chatSource(),
@@ -55,18 +50,17 @@ function buildChatOptions(webhookUrl: string) {
   }
 }
 
-export async function ensureRequestAiChat(): Promise<void> {
+export function ensureRequestAiChat(): void {
   if (typeof document === 'undefined') return
   ensureMountElement()
   if (document.querySelector(`#${MOUNT_ID} .chat-window-wrapper`)) return
 
-  const webhookUrl = await getRequestAiChatWebhookUrl()
-  createChat(buildChatOptions(webhookUrl))
+  createChat(buildChatOptions())
 }
 
-export async function openRequestAiChat(): Promise<void> {
+export function openRequestAiChat(): void {
   if (typeof document === 'undefined') return
-  await ensureRequestAiChat()
+  ensureRequestAiChat()
 
   const toggle =
     document.querySelector<HTMLButtonElement>(`#${MOUNT_ID} .chat-window-toggle`) ??

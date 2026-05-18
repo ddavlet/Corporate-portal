@@ -1,24 +1,16 @@
-import { afterEach, describe, expect, it, vi } from 'vitest'
-import { getRequestAiChatWebhookUrl } from './requestAiChat'
-
-vi.mock('./api', () => ({
-  apiFetch: vi.fn(),
-  parseErrorBody: vi.fn(async () => 'error'),
-  readTgTokens: vi.fn(),
-}))
-
-import { apiFetch } from './api'
+import { describe, expect, it } from 'vitest'
+import { REQUEST_AI_CHAT_API_PATH, getRequestAiChatWebhookUrl } from './requestAiChat'
 
 describe('getRequestAiChatWebhookUrl', () => {
-  afterEach(() => {
-    vi.mocked(apiFetch).mockReset()
+  it('builds same-origin ai-chat proxy URL', () => {
+    expect(getRequestAiChatWebhookUrl('https://lemonfit.kolberg.uz')).toBe(
+      `https://lemonfit.kolberg.uz${REQUEST_AI_CHAT_API_PATH}`,
+    )
   })
 
-  it('loads webhook_url from tenant config API', async () => {
-    vi.mocked(apiFetch).mockResolvedValue(
-      new Response(JSON.stringify({ webhook_url: 'https://dev.kolberg.uz/webhook/uuid/chat' }), { status: 200 }),
+  it('strips trailing slash from origin', () => {
+    expect(getRequestAiChatWebhookUrl('https://lemonfit.kolberg.uz/')).toBe(
+      `https://lemonfit.kolberg.uz${REQUEST_AI_CHAT_API_PATH}`,
     )
-    await expect(getRequestAiChatWebhookUrl()).resolves.toBe('https://dev.kolberg.uz/webhook/uuid/chat')
-    expect(apiFetch).toHaveBeenCalledWith('/api/requests/ai-chat-config/')
   })
 })

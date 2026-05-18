@@ -10,7 +10,7 @@ type RequestAiChatButtonProps = {
 
 export function RequestAiChatButton({ block, size }: RequestAiChatButtonProps) {
   return (
-    <Button block={block} size={size} icon={<RobotOutlined />} onClick={() => void openRequestAiChat()}>
+    <Button block={block} size={size} icon={<RobotOutlined />} onClick={() => openRequestAiChat()}>
       Заявка с ИИ (Бета)
     </Button>
   )

@@ -9,7 +9,8 @@ from django.db import connection
 from django.db import transaction
 from django.db.models import Q
 from django.core.files.storage import default_storage
-from django.http import FileResponse
+from django.conf import settings
+from django.http import FileResponse, HttpResponse
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 import requests
@@ -77,7 +78,8 @@ from apps.modules.requests.approval_workflow import (
     min_pending_approval_step,
     route_request_approvals,
 )
-from apps.tenants.integration_settings import get_request_ai_chat_webhook_url
+from apps.modules.n8n_integration.views import _n8n_session
+from apps.tenants.integration_settings import get_n8n_integration_settings, get_request_ai_chat_webhook_url
 from apps.modules.telegram_approvals.services import (
     current_pending_step_approvals_count,
     dispatch_pending_approvals,
@@ -1761,21 +1763,49 @@ class AutoRequestConfigView(APIView):
         return Response({"request_id": request_obj.id}, status=status.HTTP_201_CREATED)
 
 
-class RequestAiChatConfigView(APIView):
-    """n8n Chat Trigger URL for the current tenant (from integration settings)."""
+class RequestAiChatProxyView(APIView):
+    """Proxy @n8n/chat to tenant n8n Chat Trigger URL (X-N8N-Integration-Token)."""
 
     module_key = "requests"
     permission_classes = [IsAuthenticated, HasEffectiveModuleAccess]
 
-    def get(self, request):
+    def post(self, request):
         tenant = getattr(request, "tenant", None)
         if not tenant:
             return Response({"detail": "Unknown tenant."}, status=status.HTTP_400_BAD_REQUEST)
+
         webhook_url = get_request_ai_chat_webhook_url(tenant=tenant)
         if not webhook_url:
             return Response(
                 {"detail": "Request AI chat webhook URL is not configured for this tenant."},
                 status=status.HTTP_503_SERVICE_UNAVAILABLE,
             )
-        return Response({"webhook_url": webhook_url})
+
+        token = get_n8n_integration_settings(tenant=tenant).integration_token
+        if not token:
+            token = (getattr(settings, "N8N_INTEGRATION_TOKEN", None) or "").strip()
+        if not token:
+            return Response(
+                {"detail": "N8N integration token is not configured."},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+
+        headers = {
+            "Accept": "application/json",
+            "Content-Type": (request.content_type or "application/json").split(";")[0].strip(),
+            "X-N8N-Integration-Token": token,
+            "X-Tenant": tenant.subdomain,
+            "X-User-Id": str(request.user.id),
+        }
+
+        try:
+            upstream = _n8n_session.post(webhook_url, data=request.body, headers=headers, timeout=60)
+        except requests.RequestException as exc:
+            return Response(
+                {"detail": f"Upstream request failed: {exc}"},
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
+
+        content_type = upstream.headers.get("Content-Type", "application/json")
+        return HttpResponse(upstream.content, status=upstream.status_code, content_type=content_type)
 
