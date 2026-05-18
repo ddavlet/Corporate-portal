@@ -1,14 +1,16 @@
-import { readTgTokens } from './api'
+import { apiFetch, parseErrorBody, readTgTokens } from './api'
 
-/**
- * n8n Chat Trigger production path (UUID + /chat).
- * На хосте тенанта: https://<tenant>.kolberg.uz/webhook/<id>/chat → n8n /webhook/<tenant>/<id>/chat
- */
-export const REQUEST_AI_CHAT_WEBHOOK_PATH = 'd9f95bda-910e-4118-a6a9-08a86124d96c/chat'
+let cachedWebhookUrl: string | null = null
 
-export function getRequestAiChatWebhookUrl(origin = typeof window !== 'undefined' ? window.location.origin : ''): string {
-  const base = origin.replace(/\/$/, '')
-  return `${base}/webhook/${REQUEST_AI_CHAT_WEBHOOK_PATH}`
+export async function getRequestAiChatWebhookUrl(): Promise<string> {
+  if (cachedWebhookUrl) return cachedWebhookUrl
+  const res = await apiFetch('/api/requests/ai-chat-config/')
+  if (!res.ok) throw new Error(await parseErrorBody(res))
+  const json = (await res.json().catch(() => null)) as { webhook_url?: string } | null
+  const url = json?.webhook_url?.trim()
+  if (!url) throw new Error('URL чата не настроен для этого тенанта')
+  cachedWebhookUrl = url
+  return url
 }
 
 export function getAuthAccessToken(): string | null {

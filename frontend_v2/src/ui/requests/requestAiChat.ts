@@ -19,13 +19,13 @@ function ensureMountElement(): HTMLElement {
   return mount
 }
 
-function buildChatOptions() {
+function buildChatOptions(webhookUrl: string) {
   const access = getAuthAccessToken()
   const headers: Record<string, string> = {}
   if (access) headers.Authorization = `Bearer ${access}`
 
   return {
-    webhookUrl: getRequestAiChatWebhookUrl(),
+    webhookUrl,
     target: `#${MOUNT_ID}`,
     mode: 'window' as const,
     loadPreviousSession: true,
@@ -55,17 +55,18 @@ function buildChatOptions() {
   }
 }
 
-export function ensureRequestAiChat(): void {
+export async function ensureRequestAiChat(): Promise<void> {
   if (typeof document === 'undefined') return
   ensureMountElement()
   if (document.querySelector(`#${MOUNT_ID} .chat-window-wrapper`)) return
 
-  createChat(buildChatOptions())
+  const webhookUrl = await getRequestAiChatWebhookUrl()
+  createChat(buildChatOptions(webhookUrl))
 }
 
-export function openRequestAiChat(): void {
+export async function openRequestAiChat(): Promise<void> {
   if (typeof document === 'undefined') return
-  ensureRequestAiChat()
+  await ensureRequestAiChat()
 
   const toggle =
     document.querySelector<HTMLButtonElement>(`#${MOUNT_ID} .chat-window-toggle`) ??

@@ -77,6 +77,7 @@ from apps.modules.requests.approval_workflow import (
     min_pending_approval_step,
     route_request_approvals,
 )
+from apps.tenants.integration_settings import get_request_ai_chat_webhook_url
 from apps.modules.telegram_approvals.services import (
     current_pending_step_approvals_count,
     dispatch_pending_approvals,
@@ -1758,4 +1759,23 @@ class AutoRequestConfigView(APIView):
             request_obj = create_request_copy_for_template(template)
 
         return Response({"request_id": request_obj.id}, status=status.HTTP_201_CREATED)
+
+
+class RequestAiChatConfigView(APIView):
+    """n8n Chat Trigger URL for the current tenant (from integration settings)."""
+
+    module_key = "requests"
+    permission_classes = [IsAuthenticated, HasEffectiveModuleAccess]
+
+    def get(self, request):
+        tenant = getattr(request, "tenant", None)
+        if not tenant:
+            return Response({"detail": "Unknown tenant."}, status=status.HTTP_400_BAD_REQUEST)
+        webhook_url = get_request_ai_chat_webhook_url(tenant=tenant)
+        if not webhook_url:
+            return Response(
+                {"detail": "Request AI chat webhook URL is not configured for this tenant."},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+        return Response({"webhook_url": webhook_url})
 
