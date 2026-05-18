@@ -40,3 +40,4 @@ settings.local.json
 .venv
 .venv_ci
 scripts/
+backups/
