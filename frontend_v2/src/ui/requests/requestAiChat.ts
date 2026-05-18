@@ -1,12 +1,9 @@
 import '@n8n/chat/style.css'
 import './requestAiChatTheme.css'
 import { createChat } from '@n8n/chat'
-import {
-  getRequestAiChatWebhookUrl,
-  installRequestAiChatFetchAuth,
-  requestAiChatProxyHeaders,
-  syncRequestAiChatProxyHeaders,
-} from '../../lib/requestAiChat'
+import { getRequestAiChatWebhookUrl, hookRequestAiChatFetch } from '../../lib/requestAiChat'
+
+hookRequestAiChatFetch()
 
 const MOUNT_ID = 'kolberg-request-ai-chat'
 
@@ -25,7 +22,6 @@ function ensureMountElement(): HTMLElement {
 }
 
 function buildChatOptions() {
-  syncRequestAiChatProxyHeaders()
   return {
     webhookUrl: getRequestAiChatWebhookUrl(),
     target: `#${MOUNT_ID}`,
@@ -39,7 +35,6 @@ function buildChatOptions() {
     ],
     webhookConfig: {
       method: 'POST' as const,
-      headers: requestAiChatProxyHeaders,
     },
     metadata: {
       source: chatSource(),
@@ -60,11 +55,8 @@ function buildChatOptions() {
 
 export function ensureRequestAiChat(): void {
   if (typeof document === 'undefined') return
-  installRequestAiChatFetchAuth()
-  syncRequestAiChatProxyHeaders()
   ensureMountElement()
   if (document.querySelector(`#${MOUNT_ID} .chat-window-wrapper`)) return
-
   createChat(buildChatOptions())
 }
 
@@ -77,28 +69,15 @@ function isRequestAiChatOpen(): boolean {
 
 export function closeRequestAiChat(): void {
   if (typeof document === 'undefined') return
-  const closeBtn = document.querySelector<HTMLButtonElement>(`#${MOUNT_ID} .chat-close-button`)
-  if (closeBtn) {
-    closeBtn.click()
-    return
-  }
-  const toggle = document.querySelector<HTMLButtonElement>(`#${MOUNT_ID} .chat-window-toggle`)
-  toggle?.click()
+  document.querySelector<HTMLButtonElement>(`#${MOUNT_ID} .chat-close-button`)?.click()
 }
 
 export function openRequestAiChat(): void {
   if (typeof document === 'undefined') return
-  syncRequestAiChatProxyHeaders()
   ensureRequestAiChat()
-
   if (isRequestAiChatOpen()) {
     closeRequestAiChat()
     return
   }
-
-  const toggle =
-    document.querySelector<HTMLButtonElement>(`#${MOUNT_ID} .chat-window-toggle`) ??
-    document.querySelector<HTMLButtonElement>('.chat-window-toggle')
-
-  toggle?.click()
+  document.querySelector<HTMLButtonElement>(`#${MOUNT_ID} .chat-window-toggle`)?.click()
 }

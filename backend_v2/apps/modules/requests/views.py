@@ -1764,7 +1764,10 @@ class AutoRequestConfigView(APIView):
 
 
 class RequestAiChatProxyView(APIView):
-    """Proxy @n8n/chat to tenant n8n Chat Trigger URL (X-N8N-Integration-Token)."""
+    """
+    Frontend → this view: portal JWT (IsAuthenticated).
+    This view → n8n: tenant integration token only (never user JWT).
+    """
 
     module_key = "requests"
     permission_classes = [IsAuthenticated, HasEffectiveModuleAccess]
@@ -1781,10 +1784,10 @@ class RequestAiChatProxyView(APIView):
                 status=status.HTTP_503_SERVICE_UNAVAILABLE,
             )
 
-        token = get_n8n_integration_settings(tenant=tenant).integration_token
-        if not token:
-            token = (getattr(settings, "N8N_INTEGRATION_TOKEN", None) or "").strip()
-        if not token:
+        integration_token = get_n8n_integration_settings(tenant=tenant).integration_token
+        if not integration_token:
+            integration_token = (getattr(settings, "N8N_INTEGRATION_TOKEN", None) or "").strip()
+        if not integration_token:
             return Response(
                 {"detail": "N8N integration token is not configured."},
                 status=status.HTTP_503_SERVICE_UNAVAILABLE,
@@ -1793,9 +1796,7 @@ class RequestAiChatProxyView(APIView):
         headers = {
             "Accept": "application/json",
             "Content-Type": (request.content_type or "application/json").split(";")[0].strip(),
-            "X-N8N-Integration-Token": token,
-            "X-Tenant": tenant.subdomain,
-            "X-User-Id": str(request.user.id),
+            "X-N8N-Integration-Token": integration_token,
         }
 
         try:
