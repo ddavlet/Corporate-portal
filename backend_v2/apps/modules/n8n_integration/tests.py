@@ -20,7 +20,11 @@ from apps.modules.requests.models import (
     RequestApprovalPaymentTypeConfig,
     RequestApprovalStepConfig,
     RequestApprovalStepApproverConfig,
+    RequestFormConfig,
+    RequestFormPaymentTypeConfig,
+    RequestPaymentPurposeConfig,
 )
+from apps.modules.requests.services import list_payment_purposes_by_payment_type
 from apps.modules.vendors.models import Vendor
 from apps.modules.wallets.models import CashRegister, Wallet
 
@@ -144,6 +148,58 @@ class N8nIntegrationAuthTests(APITestCase):
 
     def test_vendors_list_requires_integration_token(self):
         url = f"{self.n8n_prefix}/vendors-list/"
+        res = self.client.get(url, HTTP_HOST="acme.example.com")
+        self.assertEqual(res.status_code, 401)
+
+    def test_payment_purposes_list_uses_form_config_and_request_history(self):
+        cfg = RequestFormConfig.objects.create(tenant=self.tenant, updated_by=self.admin)
+        cash_pt = RequestFormPaymentTypeConfig.objects.create(
+            config=cfg,
+            payment_type=Request.PAYMENT_TYPE_CASH,
+            is_enabled=True,
+        )
+        RequestPaymentPurposeConfig.objects.create(
+            payment_type_config=cash_pt,
+            name="Configured purpose",
+            category="Admin",
+            is_active=True,
+        )
+        Request.objects.create(
+            tenant=self.tenant,
+            created_by=self.admin,
+            payment_type=Request.PAYMENT_TYPE_CASH,
+            payment_purpose="Historical purpose",
+            billing_date=date(2026, 1, 1),
+        )
+        Request.objects.create(
+            tenant=self.tenant,
+            created_by=self.admin,
+            payment_type=Request.PAYMENT_TYPE_TRANSFER,
+            payment_purpose="Transfer purpose",
+            billing_date=date(2026, 1, 1),
+        )
+
+        url = f"{self.n8n_prefix}/payment-purposes/"
+        res = self.client.get(
+            url,
+            HTTP_HOST="acme.example.com",
+            HTTP_X_N8N_INTEGRATION_TOKEN="integ-test-secret",
+        )
+        self.assertEqual(res.status_code, 200, res.content)
+        data = res.json()
+        self.assertEqual(
+            data[Request.PAYMENT_TYPE_CASH],
+            ["Configured purpose", "Historical purpose"],
+        )
+        self.assertEqual(data[Request.PAYMENT_TYPE_TRANSFER], ["Transfer purpose"])
+        self.assertEqual(data[Request.PAYMENT_TYPE_TOPUP], [])
+        self.assertEqual(data[Request.PAYMENT_TYPE_CARD], [])
+
+        service_data = list_payment_purposes_by_payment_type(tenant_id=self.tenant.id)
+        self.assertEqual(service_data, data)
+
+    def test_payment_purposes_list_requires_integration_token(self):
+        url = f"{self.n8n_prefix}/payment-purposes/"
         res = self.client.get(url, HTTP_HOST="acme.example.com")
         self.assertEqual(res.status_code, 401)
 

@@ -6,7 +6,7 @@ from rest_framework.exceptions import ValidationError
 from apps.modules.bank_expenses.models import BankExpense
 from apps.modules.cashier.models import CashExpense
 from apps.modules.corporate_card.models import CardExpense
-from apps.modules.requests.models import Request
+from apps.modules.requests.models import Request, RequestPaymentPurposeConfig
 from apps.modules.wallets.serializer_integration import (
     assign_wallet_for_bank_movement,
     assign_wallet_for_cash_movement,
@@ -153,3 +153,42 @@ def create_expense_for_request_payment(*, request_obj: Request, actor_user):
     request_obj.expense_ref_target = created_target
     request_obj.save(update_fields=["expense_id", "expense_ref_id", "expense_ref_target"])
     return created_target, created_id
+
+
+def list_payment_purposes_by_payment_type(*, tenant_id: int) -> dict[str, list[str]]:
+    """Distinct payment purpose names per payment_type (form config + request history)."""
+
+    result: dict[str, list[str]] = {pt: [] for pt, _ in Request.PAYMENT_TYPE_CHOICES}
+    seen: dict[str, set[str]] = {pt: set() for pt in result}
+
+    def _append(pt: str, name: str) -> None:
+        if pt not in result:
+            return
+        if name not in seen[pt]:
+            seen[pt].add(name)
+            result[pt].append(name)
+
+    for pt, name in (
+        RequestPaymentPurposeConfig.objects.filter(
+            payment_type_config__config__tenant_id=tenant_id,
+            is_active=True,
+        )
+        .values_list("payment_type_config__payment_type", "name")
+        .order_by("name", "id")
+    ):
+        name_s = str(name).strip()
+        if name_s:
+            _append(str(pt).strip(), name_s)
+
+    for row in (
+        Request.objects.filter(tenant_id=tenant_id)
+        .exclude(payment_purpose="")
+        .values("payment_type", "payment_purpose")
+        .distinct()
+        .order_by("payment_type", "payment_purpose")
+    ):
+        name_s = str(row["payment_purpose"]).strip()
+        if name_s:
+            _append(str(row["payment_type"]).strip(), name_s)
+
+    return result
