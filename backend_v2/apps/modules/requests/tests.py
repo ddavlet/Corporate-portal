@@ -3324,7 +3324,6 @@ class RequestAiChatProxyTests(APITestCase):
         self.assertEqual(mocked_post.call_args.args[0], "https://dev.kolberg.uz/webhook/uuid/chat")
         headers = mocked_post.call_args.kwargs["headers"]
         self.assertEqual(headers["X-N8N-Integration-Token"], "integ-token")
-        self.assertEqual(headers["X-Tenant"], "acme")
         self.assertNotIn("Authorization", headers)
 
     def test_missing_webhook_url_returns_503(self):

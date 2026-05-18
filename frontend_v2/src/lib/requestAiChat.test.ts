@@ -1,9 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
-  REQUEST_AI_CHAT_API_PATH,
+  REQUEST_AI_CHAT_PATH,
   getRequestAiChatWebhookUrl,
-  requestAiChatProxyHeaders,
-  syncRequestAiChatProxyHeaders,
+  hookRequestAiChatFetch,
 } from './requestAiChat'
 
 vi.mock('./api', () => ({
@@ -14,30 +13,33 @@ import { getAccessToken } from './api'
 
 describe('getRequestAiChatWebhookUrl', () => {
   it('builds same-origin ai-chat proxy URL', () => {
-    expect(getRequestAiChatWebhookUrl('https://lemonfit.kolberg.uz')).toBe(
-      `https://lemonfit.kolberg.uz${REQUEST_AI_CHAT_API_PATH}`,
-    )
+    vi.stubGlobal('window', { location: { origin: 'https://lemonfit.kolberg.uz' } })
+    expect(getRequestAiChatWebhookUrl()).toBe(`https://lemonfit.kolberg.uz${REQUEST_AI_CHAT_PATH}`)
+    vi.unstubAllGlobals()
   })
 })
 
-describe('syncRequestAiChatProxyHeaders', () => {
+describe('hookRequestAiChatFetch', () => {
+  const nativeFetch = vi.fn().mockResolvedValue(new Response('{}'))
+
   afterEach(() => {
     vi.mocked(getAccessToken).mockReset()
-    for (const key of Object.keys(requestAiChatProxyHeaders)) {
-      delete requestAiChatProxyHeaders[key]
-    }
+    vi.unstubAllGlobals()
   })
 
-  it('writes Bearer token into shared headers object', () => {
+  it('adds portal JWT only for ai-chat proxy requests', async () => {
     vi.mocked(getAccessToken).mockReturnValue('portal-jwt')
-    syncRequestAiChatProxyHeaders()
-    expect(requestAiChatProxyHeaders.Authorization).toBe('Bearer portal-jwt')
-  })
+    vi.stubGlobal('fetch', nativeFetch)
+    hookRequestAiChatFetch()
 
-  it('clears Authorization when logged out', () => {
-    requestAiChatProxyHeaders.Authorization = 'Bearer stale'
-    vi.mocked(getAccessToken).mockReturnValue(null)
-    syncRequestAiChatProxyHeaders()
-    expect(requestAiChatProxyHeaders.Authorization).toBeUndefined()
+    const hooked = globalThis.fetch as typeof fetch
+    await hooked('https://lemonfit.kolberg.uz/api/requests/ai-chat/', { method: 'POST' })
+    await hooked('https://example.com/other', { method: 'GET' })
+
+    expect(nativeFetch).toHaveBeenCalledTimes(2)
+    const proxyHeaders = nativeFetch.mock.calls[0][1]?.headers as Headers
+    expect(proxyHeaders.get('Authorization')).toBe('Bearer portal-jwt')
+    const otherHeaders = nativeFetch.mock.calls[1][1]?.headers as Headers | undefined
+    expect(otherHeaders?.get?.('Authorization') ?? null).toBeNull()
   })
 })
