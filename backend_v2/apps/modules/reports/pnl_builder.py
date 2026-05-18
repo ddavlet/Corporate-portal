@@ -53,9 +53,10 @@ def _iso_local(dt: datetime | date | None) -> str:
     if isinstance(dt, date) and not isinstance(dt, datetime):
         return dt.isoformat()
     if isinstance(dt, datetime):
+        tz = timezone.get_default_timezone()
         if settings.USE_TZ and timezone.is_naive(dt):
-            dt = timezone.make_aware(dt, timezone.get_current_timezone())
-        local = timezone.localtime(dt) if settings.USE_TZ else dt
+            dt = timezone.make_aware(dt, tz)
+        local = timezone.localtime(dt, timezone=tz) if settings.USE_TZ else dt
         return local.isoformat()
     return ""
 
@@ -404,7 +405,6 @@ def build_pnl_payload_from_db(*, tenant, query_params: dict[str, Any]) -> dict[s
     cash_qs = CashRevenue.objects.filter(
         tenant_id=tenant.id,
         confirmed=True,
-        revenue_at__isnull=False,
         revenue_at__date__gte=start,
     ).order_by("revenue_at", "id")
     for cr in cash_qs:
@@ -416,7 +416,7 @@ def build_pnl_payload_from_db(*, tenant, query_params: dict[str, Any]) -> dict[s
         revenue.append(
             {
                 "id": str(cr.id),
-                "date": _iso_local(cr.revenue_at) if cr.revenue_at else "",
+                "date": _iso_local(cr.revenue_at),
                 "amount": str(Decimal(cr.total_sum)),
                 "purpose": str(cr.operation or ""),
                 "description": str(cr.counterparty or ""),
