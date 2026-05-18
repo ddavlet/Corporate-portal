@@ -1,7 +1,7 @@
 import '@n8n/chat/style.css'
 import './requestAiChatTheme.css'
 import { createChat } from '@n8n/chat'
-import { getRequestAiChatWebhookUrl } from '../../lib/requestAiChat'
+import { getRequestAiChatProxyHeaders, getRequestAiChatWebhookUrl } from '../../lib/requestAiChat'
 
 const MOUNT_ID = 'kolberg-request-ai-chat'
 
@@ -32,6 +32,7 @@ function buildChatOptions() {
     ],
     webhookConfig: {
       method: 'POST' as const,
+      headers: getRequestAiChatProxyHeaders(),
     },
     metadata: {
       source: chatSource(),
