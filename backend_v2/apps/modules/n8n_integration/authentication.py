@@ -49,6 +49,10 @@ class N8nIntegrationTokenOnlyAuthentication(BaseAuthentication):
     the request host (resolved by TenantSubdomainMiddleware).
     """
 
+    def authenticate_header(self, request):
+        # DRF 3.17 returns 403 for AuthenticationFailed when this is None.
+        return "X-N8N-Integration-Token"
+
     def authenticate(self, request):
         tenant = getattr(request, "tenant", None)
         expected = _expected_integration_token(tenant)

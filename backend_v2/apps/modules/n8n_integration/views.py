@@ -28,6 +28,7 @@ from apps.modules.requests.amortization import build_amortization_schedule_rows,
 from apps.modules.requests.approval_bootstrap import create_approval_rows_for_request
 from apps.modules.requests.approval_workflow import _recalculate_request_status, route_request_approvals
 from apps.modules.requests.serializers import PortalRequestSerializer
+from apps.modules.requests.services import list_payment_purposes_by_payment_type
 from apps.modules.vendors.models import Vendor
 from apps.modules.n8n_integration.authentication import (
     N8nIntegrationAuthentication,
@@ -1640,9 +1641,9 @@ class N8nVendorListView(APIView):
 
 
 class N8nPaymentPurposeListView(APIView):
-    """Return distinct payment purposes per payment_type from request history.
+    """Return distinct payment purposes per payment_type for n8n pickers.
 
-    payment_purpose has no directory table; values come from existing Request rows.
+    Uses request form config (fast) and merges values from request history.
     Auth: integration token only — no JWT, no user identity required.
     """
 
@@ -1653,13 +1654,4 @@ class N8nPaymentPurposeListView(APIView):
         tenant = getattr(request, "tenant", None)
         if tenant is None:
             return Response({"detail": "Unknown tenant."}, status=status.HTTP_400_BAD_REQUEST)
-        result = {}
-        for pt, _label in Request.PAYMENT_TYPE_CHOICES:
-            result[pt] = list(
-                Request.objects.filter(tenant=tenant, payment_type=pt)
-                .exclude(payment_purpose="")
-                .order_by("payment_purpose")
-                .values_list("payment_purpose", flat=True)
-                .distinct()
-            )
-        return Response(result)
+        return Response(list_payment_purposes_by_payment_type(tenant_id=tenant.id))
