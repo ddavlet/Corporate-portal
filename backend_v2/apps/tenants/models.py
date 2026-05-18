@@ -115,6 +115,9 @@ class TenantIntegrationConfig(models.Model):
     messaging_gateway_feedback_recipient_id = models.BigIntegerField(null=True, blank=True)
     messaging_gateway_feedback_action = models.CharField(max_length=100, blank=True, default="")
 
+    # Full n8n Chat Trigger URL, e.g. https://dev.kolberg.uz/webhook/<id>/chat
+    request_ai_chat_webhook_url = models.TextField(blank=True, default="")
+
     class Meta:
         db_table = "tenant_integration_configs"
 

@@ -1,7 +1,7 @@
 import '@n8n/chat/style.css'
 import './requestAiChatTheme.css'
 import { createChat } from '@n8n/chat'
-import { getAuthAccessToken, getRequestAiChatWebhookUrl } from '../../lib/requestAiChat'
+import { getRequestAiChatWebhookUrl } from '../../lib/requestAiChat'
 
 const MOUNT_ID = 'kolberg-request-ai-chat'
 
@@ -20,10 +20,6 @@ function ensureMountElement(): HTMLElement {
 }
 
 function buildChatOptions() {
-  const access = getAuthAccessToken()
-  const headers: Record<string, string> = {}
-  if (access) headers.Authorization = `Bearer ${access}`
-
   return {
     webhookUrl: getRequestAiChatWebhookUrl(),
     target: `#${MOUNT_ID}`,
@@ -36,7 +32,6 @@ function buildChatOptions() {
     ],
     webhookConfig: {
       method: 'POST' as const,
-      headers,
     },
     metadata: {
       source: chatSource(),

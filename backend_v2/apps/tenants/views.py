@@ -156,6 +156,7 @@ class TenantIntegrationConfigView(APIView):
                 "messaging_gateway_webhook_connected": webhook["connected"],
                 "messaging_gateway_webhook_url": webhook["url"],
                 "messaging_gateway_webhook_error": webhook.get("error"),
+                "request_ai_chat_webhook_url": cfg.request_ai_chat_webhook_url or "",
             }
         )
 
@@ -179,6 +180,8 @@ class TenantIntegrationConfigView(APIView):
             cfg.messaging_gateway_feedback_recipient_id = data["messaging_gateway_feedback_recipient_id"]
         if "messaging_gateway_feedback_action" in data:
             cfg.messaging_gateway_feedback_action = data["messaging_gateway_feedback_action"]
+        if "request_ai_chat_webhook_url" in data:
+            cfg.request_ai_chat_webhook_url = data["request_ai_chat_webhook_url"]
         if "telegram_bot_token" in data:
             tenant.set_telegram_bot_token(data["telegram_bot_token"])
         if "telegram_bot_username" in data:

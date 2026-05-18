@@ -170,6 +170,7 @@ export type TenantIntegrationConfigResponse = {
   messaging_gateway_webhook_connected: boolean
   messaging_gateway_webhook_url: string
   messaging_gateway_webhook_error: string | null
+  request_ai_chat_webhook_url: string
 }
 
 export type TenantIntegrationConfigUpdatePayload = Partial<{
@@ -181,6 +182,7 @@ export type TenantIntegrationConfigUpdatePayload = Partial<{
   requests_file_gateway_token: string
   messaging_gateway_feedback_recipient_id: number | null
   messaging_gateway_feedback_action: string
+  request_ai_chat_webhook_url: string
 }>
 
 export type MessagingWebhookManageResponse = {
