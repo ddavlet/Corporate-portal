@@ -70,6 +70,10 @@ function getTokens(): Tokens | null {
   return portal ?? tg
 }
 
+export function getAccessToken(): string | null {
+  return getTokens()?.access?.trim() || null
+}
+
 function setTokens(tokens: Tokens | null) {
   if (!tokens) {
     localStorage.removeItem(STORAGE_KEY)

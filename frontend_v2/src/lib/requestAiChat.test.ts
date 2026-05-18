@@ -1,15 +1,16 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   REQUEST_AI_CHAT_API_PATH,
-  getRequestAiChatProxyHeaders,
   getRequestAiChatWebhookUrl,
+  requestAiChatProxyHeaders,
+  syncRequestAiChatProxyHeaders,
 } from './requestAiChat'
 
 vi.mock('./api', () => ({
-  readTgTokens: vi.fn(),
+  getAccessToken: vi.fn(),
 }))
 
-import { readTgTokens } from './api'
+import { getAccessToken } from './api'
 
 describe('getRequestAiChatWebhookUrl', () => {
   it('builds same-origin ai-chat proxy URL', () => {
@@ -19,18 +20,24 @@ describe('getRequestAiChatWebhookUrl', () => {
   })
 })
 
-describe('getRequestAiChatProxyHeaders', () => {
+describe('syncRequestAiChatProxyHeaders', () => {
   afterEach(() => {
-    vi.mocked(readTgTokens).mockReset()
-    localStorage.clear()
+    vi.mocked(getAccessToken).mockReset()
+    for (const key of Object.keys(requestAiChatProxyHeaders)) {
+      delete requestAiChatProxyHeaders[key]
+    }
   })
 
-  it('adds Bearer for portal tokens', () => {
-    localStorage.setItem('kolberg_v2_tokens', JSON.stringify({ access: 'portal-jwt', refresh: 'r' }))
-    expect(getRequestAiChatProxyHeaders()).toEqual({ Authorization: 'Bearer portal-jwt' })
+  it('writes Bearer token into shared headers object', () => {
+    vi.mocked(getAccessToken).mockReturnValue('portal-jwt')
+    syncRequestAiChatProxyHeaders()
+    expect(requestAiChatProxyHeaders.Authorization).toBe('Bearer portal-jwt')
   })
 
-  it('returns empty object when not logged in', () => {
-    expect(getRequestAiChatProxyHeaders()).toEqual({})
+  it('clears Authorization when logged out', () => {
+    requestAiChatProxyHeaders.Authorization = 'Bearer stale'
+    vi.mocked(getAccessToken).mockReturnValue(null)
+    syncRequestAiChatProxyHeaders()
+    expect(requestAiChatProxyHeaders.Authorization).toBeUndefined()
   })
 })
