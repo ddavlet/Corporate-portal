@@ -218,7 +218,6 @@ N8N_TOKEN = os.getenv("N8N_TOKEN", "").strip()
 N8N_FEEDBACK_AI_WEBHOOK_PATH = (
     os.getenv("N8N_FEEDBACK_AI_WEBHOOK_PATH", "n8n/ai/dispatch") or "n8n/ai/dispatch"
 ).strip().strip("/")
-
 MESSAGING_GATEWAY_SEND_URL = os.getenv("MESSAGING_GATEWAY_SEND_URL", "").strip()
 MESSAGING_GATEWAY_ADMIN_URL = os.getenv("MESSAGING_GATEWAY_ADMIN_URL", "http://tg_gateway:8080").strip()
 # Platform-neutral actions for tg-gateway (tenant-wide; subdomain only scopes HTTP API / tenant row).
