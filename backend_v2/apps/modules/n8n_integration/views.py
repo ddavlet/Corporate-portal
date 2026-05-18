@@ -1605,7 +1605,7 @@ class N8nInvestCompanyBatchUpsertView(_N8nBatchBaseView):
 
 
 class N8nVendorListView(APIView):
-    """Return all vendor names grouped by payment_type for the current tenant.
+    """Return vendors (id + name) grouped by payment_type for the current tenant.
 
     Vendor.kind only has cash/transfer; the latter applies to all
     non-cash payment types (Перечисление, Пополнение, Платежная карта).
@@ -1615,26 +1615,26 @@ class N8nVendorListView(APIView):
     authentication_classes = [N8nIntegrationTokenOnlyAuthentication]
     permission_classes = [AllowAny]
 
+    @staticmethod
+    def _vendor_rows(*, tenant, kind: str) -> list[dict]:
+        return list(
+            Vendor.objects.filter(tenant=tenant, kind=kind)
+            .order_by("name")
+            .values("id", "name")
+        )
+
     def get(self, request):
         tenant = getattr(request, "tenant", None)
         if tenant is None:
             return Response({"detail": "Unknown tenant."}, status=status.HTTP_400_BAD_REQUEST)
-        cash_names = list(
-            Vendor.objects.filter(tenant=tenant, kind=Vendor.KIND_CASH)
-            .order_by("name")
-            .values_list("name", flat=True)
-        )
-        transfer_names = list(
-            Vendor.objects.filter(tenant=tenant, kind=Vendor.KIND_TRANSFER)
-            .order_by("name")
-            .values_list("name", flat=True)
-        )
+        cash_vendors = self._vendor_rows(tenant=tenant, kind=Vendor.KIND_CASH)
+        transfer_vendors = self._vendor_rows(tenant=tenant, kind=Vendor.KIND_TRANSFER)
         return Response(
             {
-                Request.PAYMENT_TYPE_CASH: cash_names,
-                Request.PAYMENT_TYPE_TRANSFER: transfer_names,
-                Request.PAYMENT_TYPE_TOPUP: transfer_names,
-                Request.PAYMENT_TYPE_CARD: transfer_names,
+                Request.PAYMENT_TYPE_CASH: cash_vendors,
+                Request.PAYMENT_TYPE_TRANSFER: transfer_vendors,
+                Request.PAYMENT_TYPE_TOPUP: transfer_vendors,
+                Request.PAYMENT_TYPE_CARD: transfer_vendors,
             }
         )
 

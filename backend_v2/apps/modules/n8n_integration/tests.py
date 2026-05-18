@@ -112,6 +112,41 @@ class N8nIntegrationAuthTests(APITestCase):
         )
         self.assertEqual(res.status_code, 403)
 
+    def test_vendors_list_returns_id_and_name_grouped_by_payment_type(self):
+        cash_vendor = Vendor.objects.create(
+            tenant=self.tenant,
+            kind=Vendor.KIND_CASH,
+            name="Cash Vendor",
+            created_by=self.admin,
+        )
+        transfer_vendor = Vendor.objects.create(
+            tenant=self.tenant,
+            kind=Vendor.KIND_TRANSFER,
+            name="Transfer Vendor",
+            created_by=self.admin,
+        )
+        url = f"{self.n8n_prefix}/vendors-list/"
+        res = self.client.get(
+            url,
+            HTTP_HOST="acme.example.com",
+            HTTP_X_N8N_INTEGRATION_TOKEN="integ-test-secret",
+        )
+        self.assertEqual(res.status_code, 200, res.content)
+        data = res.json()
+        self.assertEqual(
+            data[Request.PAYMENT_TYPE_CASH],
+            [{"id": cash_vendor.id, "name": "Cash Vendor"}],
+        )
+        transfer_row = {"id": transfer_vendor.id, "name": "Transfer Vendor"}
+        self.assertEqual(data[Request.PAYMENT_TYPE_TRANSFER], [transfer_row])
+        self.assertEqual(data[Request.PAYMENT_TYPE_TOPUP], [transfer_row])
+        self.assertEqual(data[Request.PAYMENT_TYPE_CARD], [transfer_row])
+
+    def test_vendors_list_requires_integration_token(self):
+        url = f"{self.n8n_prefix}/vendors-list/"
+        res = self.client.get(url, HTTP_HOST="acme.example.com")
+        self.assertEqual(res.status_code, 401)
+
     def test_upsert_vendor_created_by_system_user(self):
         res = self.client.post(
             self.vendor_url,
