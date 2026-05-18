@@ -1,31 +1,43 @@
-import { readTgTokens } from './api'
+import { getAccessToken } from './api'
 
 /** Same-origin proxy → tenant n8n Chat Trigger (see RequestAiChatProxyView). */
 export const REQUEST_AI_CHAT_API_PATH = '/api/requests/ai-chat/'
+
+/** Mutable: @n8n/chat reads this object on each request (spread at fetch time). */
+export const requestAiChatProxyHeaders: Record<string, string> = {}
 
 export function getRequestAiChatWebhookUrl(origin = typeof window !== 'undefined' ? window.location.origin : ''): string {
   const base = origin.replace(/\/$/, '')
   return `${base}${REQUEST_AI_CHAT_API_PATH}`
 }
 
-/** JWT for Django proxy only (not sent to n8n). */
-export function getRequestAiChatProxyHeaders(): Record<string, string> {
-  if (typeof window === 'undefined') return {}
-  let access: string | null = null
-  if (window.location.pathname.includes('/tg/')) {
-    access = readTgTokens()?.access ?? null
-  } else {
-    try {
-      const raw = localStorage.getItem('kolberg_v2_tokens')
-      if (raw) {
-        const parsed = JSON.parse(raw) as { access?: string }
-        access = parsed.access?.trim() || null
-      }
-    } catch {
-      access = null
-    }
-    if (!access) access = readTgTokens()?.access ?? null
+/** Refresh JWT on the shared headers object (Django proxy only, not forwarded to n8n). */
+export function syncRequestAiChatProxyHeaders(): void {
+  for (const key of Object.keys(requestAiChatProxyHeaders)) {
+    delete requestAiChatProxyHeaders[key]
   }
-  if (!access) return {}
-  return { Authorization: `Bearer ${access}` }
+  const access = getAccessToken()
+  if (access) {
+    requestAiChatProxyHeaders.Authorization = `Bearer ${access}`
+  }
+}
+
+let fetchAuthInstalled = false
+
+/** Ensure @n8n/chat requests to our proxy always carry the current portal JWT. */
+export function installRequestAiChatFetchAuth(): void {
+  if (fetchAuthInstalled || typeof window === 'undefined') return
+  fetchAuthInstalled = true
+  const nativeFetch = window.fetch.bind(window)
+  window.fetch = (input: RequestInfo | URL, init?: RequestInit) => {
+    const url =
+      typeof input === 'string' ? input : input instanceof URL ? input.href : input.url
+    if (url.includes(REQUEST_AI_CHAT_API_PATH)) {
+      const headers = new Headers(init?.headers)
+      const access = getAccessToken()
+      if (access) headers.set('Authorization', `Bearer ${access}`)
+      return nativeFetch(input, { ...init, headers })
+    }
+    return nativeFetch(input, init)
+  }
 }

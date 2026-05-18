@@ -1,7 +1,12 @@
 import '@n8n/chat/style.css'
 import './requestAiChatTheme.css'
 import { createChat } from '@n8n/chat'
-import { getRequestAiChatProxyHeaders, getRequestAiChatWebhookUrl } from '../../lib/requestAiChat'
+import {
+  getRequestAiChatWebhookUrl,
+  installRequestAiChatFetchAuth,
+  requestAiChatProxyHeaders,
+  syncRequestAiChatProxyHeaders,
+} from '../../lib/requestAiChat'
 
 const MOUNT_ID = 'kolberg-request-ai-chat'
 
@@ -20,10 +25,12 @@ function ensureMountElement(): HTMLElement {
 }
 
 function buildChatOptions() {
+  syncRequestAiChatProxyHeaders()
   return {
     webhookUrl: getRequestAiChatWebhookUrl(),
     target: `#${MOUNT_ID}`,
     mode: 'window' as const,
+    showWindowCloseButton: true,
     loadPreviousSession: true,
     showWelcomeScreen: false,
     initialMessages: [
@@ -32,7 +39,7 @@ function buildChatOptions() {
     ],
     webhookConfig: {
       method: 'POST' as const,
-      headers: getRequestAiChatProxyHeaders(),
+      headers: requestAiChatProxyHeaders,
     },
     metadata: {
       source: chatSource(),
@@ -53,15 +60,41 @@ function buildChatOptions() {
 
 export function ensureRequestAiChat(): void {
   if (typeof document === 'undefined') return
+  installRequestAiChatFetchAuth()
+  syncRequestAiChatProxyHeaders()
   ensureMountElement()
   if (document.querySelector(`#${MOUNT_ID} .chat-window-wrapper`)) return
 
   createChat(buildChatOptions())
 }
 
+function isRequestAiChatOpen(): boolean {
+  const win = document.querySelector(`#${MOUNT_ID} .chat-window`)
+  if (!win) return false
+  const style = window.getComputedStyle(win)
+  return style.display !== 'none' && style.opacity !== '0' && style.visibility !== 'hidden'
+}
+
+export function closeRequestAiChat(): void {
+  if (typeof document === 'undefined') return
+  const closeBtn = document.querySelector<HTMLButtonElement>(`#${MOUNT_ID} .chat-close-button`)
+  if (closeBtn) {
+    closeBtn.click()
+    return
+  }
+  const toggle = document.querySelector<HTMLButtonElement>(`#${MOUNT_ID} .chat-window-toggle`)
+  toggle?.click()
+}
+
 export function openRequestAiChat(): void {
   if (typeof document === 'undefined') return
+  syncRequestAiChatProxyHeaders()
   ensureRequestAiChat()
+
+  if (isRequestAiChatOpen()) {
+    closeRequestAiChat()
+    return
+  }
 
   const toggle =
     document.querySelector<HTMLButtonElement>(`#${MOUNT_ID} .chat-window-toggle`) ??
