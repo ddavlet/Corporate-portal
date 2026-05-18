@@ -107,6 +107,10 @@ def build_project_investment_approval_telegram_message(
 
     if approval.decision == ProjectInvestmentApproval.DECISION_REJECTED:
         header = "❌ Заявка на вложение отклонена"
+    elif blocked_by_rejection:
+        header = "⛔️ Согласование остановлено"
+    elif current_pending_step is None:
+        header = "✅ Заявка на вложение подтверждена"
     elif approval.decision == ProjectInvestmentApproval.DECISION_APPROVED:
         header = f"✅ Шаг {approval.step} согласован"
     elif (
@@ -116,10 +120,6 @@ def build_project_investment_approval_telegram_message(
         and approval.step == current_pending_step
     ):
         header = f"📢 Уведомление — шаг {approval.step}"
-    elif blocked_by_rejection:
-        header = "⛔️ Согласование остановлено"
-    elif current_pending_step is None:
-        header = "✅ Заявка на вложение подтверждена"
     elif readonly:
         header = "⏳ Ожидание предыдущих шагов"
     elif approval.step_type == InvestmentProjectApprovalConfigStep.STEP_TYPE_CONFIRMATION:
