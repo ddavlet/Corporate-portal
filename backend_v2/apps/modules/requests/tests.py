@@ -3289,8 +3289,8 @@ class GetRequestsMessagingGatewaySettingsTests(APITestCase):
         self.assertEqual(settings_obj.draft_notification_action, "send_interactive")
 
 
-@override_settings(BASE_DOMAIN="example.com", ALLOWED_HOSTS=["*"])
-class RequestAiChatConfigTests(APITestCase):
+@override_settings(BASE_DOMAIN="example.com", N8N_INTEGRATION_TOKEN="integ-token", ALLOWED_HOSTS=["*"])
+class RequestAiChatProxyTests(APITestCase):
     def setUp(self):
         self.tenant = Tenant.objects.create(name="Acme", subdomain="acme", is_active=True)
         self.user = User.objects.create_user(username="req_chat", password="x")
@@ -3298,25 +3298,56 @@ class RequestAiChatConfigTests(APITestCase):
         TenantUserRole.objects.create(tenant=self.tenant, user=self.user, role=TenantUserRole.ROLE_REQUESTER)
         TenantModuleConfig.objects.create(tenant=self.tenant, module_key="requests", is_enabled=True)
         self.host = "acme.example.com"
-
-    def test_returns_configured_webhook_url(self):
         cfg, _ = TenantIntegrationConfig.objects.get_or_create(tenant=self.tenant)
         cfg.request_ai_chat_webhook_url = "https://dev.kolberg.uz/webhook/uuid/chat"
         cfg.save(update_fields=["request_ai_chat_webhook_url"])
 
+    @patch("apps.modules.requests.views._n8n_session.post")
+    def test_proxy_forwards_to_configured_url_with_integration_token(self, mocked_post):
+        mocked_response = MagicMock()
+        mocked_response.status_code = 200
+        mocked_response.content = b'{"output":"ok"}'
+        mocked_response.headers = {"Content-Type": "application/json"}
+        mocked_post.return_value = mocked_response
+
         self.client.force_authenticate(self.user)
-        res = self.client.get("/api/requests/ai-chat-config/", HTTP_HOST=self.host)
+        res = self.client.post(
+            "/api/requests/ai-chat/",
+            {"action": "sendMessage", "chatInput": "hello", "sessionId": "s1"},
+            format="json",
+            HTTP_HOST=self.host,
+        )
         self.assertEqual(res.status_code, 200, res.content)
-        self.assertEqual(res.json()["webhook_url"], "https://dev.kolberg.uz/webhook/uuid/chat")
+        self.assertEqual(res.json(), {"output": "ok"})
+
+        mocked_post.assert_called_once()
+        self.assertEqual(mocked_post.call_args.args[0], "https://dev.kolberg.uz/webhook/uuid/chat")
+        headers = mocked_post.call_args.kwargs["headers"]
+        self.assertEqual(headers["X-N8N-Integration-Token"], "integ-token")
+        self.assertEqual(headers["X-Tenant"], "acme")
+        self.assertNotIn("Authorization", headers)
 
     def test_missing_webhook_url_returns_503(self):
-        TenantIntegrationConfig.objects.get_or_create(tenant=self.tenant)
+        cfg = TenantIntegrationConfig.objects.get(tenant=self.tenant)
+        cfg.request_ai_chat_webhook_url = ""
+        cfg.save(update_fields=["request_ai_chat_webhook_url"])
+
         self.client.force_authenticate(self.user)
-        res = self.client.get("/api/requests/ai-chat-config/", HTTP_HOST=self.host)
+        res = self.client.post(
+            "/api/requests/ai-chat/",
+            {"action": "sendMessage"},
+            format="json",
+            HTTP_HOST=self.host,
+        )
         self.assertEqual(res.status_code, 503)
 
     def test_requires_auth(self):
-        res = self.client.get("/api/requests/ai-chat-config/", HTTP_HOST=self.host)
+        res = self.client.post(
+            "/api/requests/ai-chat/",
+            {"action": "sendMessage"},
+            format="json",
+            HTTP_HOST=self.host,
+        )
         self.assertEqual(res.status_code, 401)
 
 
