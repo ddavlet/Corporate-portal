@@ -1,4 +1,5 @@
 from datetime import date
+from decimal import Decimal
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 from urllib.parse import quote
@@ -16,12 +17,22 @@ from apps.modules.requests.models import (
     RequestPaymentPurposeConfig,
 )
 from apps.modules.reports.models import TenantReportSettings
+from apps.modules.investments.models import InvestReturn
+from apps.modules.reports.cashflow_builder import (
+    build_cashflow_payload_from_db,
+    validate_cashflow_config_dict,
+)
 from apps.modules.reports.pnl_builder import (
     ReportSettingsInvalid,
+    build_pnl_payload_from_db,
     compute_unassigned_payment_purposes,
     validate_pnl_config_dict,
 )
-from apps.modules.reports.services import fetch_n8n_report_payload, finalize_report_payload
+from apps.modules.reports.services import (
+    fetch_n8n_report_payload,
+    finalize_report_payload,
+    resolve_cashflow_source_for_tenant,
+)
 from apps.tenants.models import Tenant, TenantMembership, TenantUserRole
 
 User = get_user_model()
@@ -404,6 +415,195 @@ class TenantReportSettingsConfigApiTests(APITestCase):
         items = diag.get("unassigned_payment_purposes") or []
         purposes = {x["purpose"] for x in items}
         self.assertIn("Непокрытое назначение XYZ", purposes)
+
+
+@override_settings(BASE_DOMAIN="example.com", REPORTS_CACHE_TTL_SECONDS=60)
+class BackendCashflowSourceTests(SimpleTestCase):
+    def setUp(self):
+        cache.clear()
+
+    @patch("apps.modules.reports.services.resolve_cashflow_source_for_tenant", return_value="backend")
+    @patch("apps.modules.reports.cashflow_builder.build_cashflow_payload_from_db")
+    def test_cashflow_backend_skips_http_upstream(self, mock_build: Mock, _mock_source: Mock):
+        mock_build.return_value = {
+            "revenue": [{"id": "1", "amount": "10", "date": "2026-04-01", "category": "X"}],
+            "operational_expenses": [],
+            "other_expenses": [],
+            "invest_returns": [],
+            "metadata": {"start_month": "2026-02"},
+            "report_settings": {"start_month": "2026-02"},
+        }
+        tenant = SimpleNamespace(subdomain="acme")
+
+        with patch("apps.modules.reports.services.requests.get") as mock_get:
+            payload = fetch_n8n_report_payload(
+                tenant=tenant,
+                user_id=3,
+                endpoint="/n8n/cashflow-data",
+                query_params={},
+            )
+
+        mock_get.assert_not_called()
+        self.assertEqual(payload["metadata"]["source"], "backend")
+        self.assertEqual(payload["totals"]["revenue"], "10")
+        self.assertIn("report_settings", payload)
+
+
+@override_settings(BASE_DOMAIN="example.com", REPORTS_CACHE_TTL_SECONDS=60)
+class BackendCashflowDatabaseTests(TestCase):
+    def setUp(self):
+        cache.clear()
+        self.tenant = Tenant.objects.create(name="CashCo", subdomain="tstcf")
+        self.admin = User.objects.create_user(username="cf_admin", password="x")
+        TenantReportSettings.objects.create(
+            tenant=self.tenant,
+            cashflow_source="backend",
+            cashflow_config=full_backend_pnl_config(),
+        )
+
+    def test_request_expense_uses_cash_date_not_billing_date(self):
+        Request.objects.create(
+            tenant=self.tenant,
+            created_by=self.admin,
+            requester=self.admin,
+            title="accrual only",
+            description="",
+            amount="1000.00",
+            currency="UZS",
+            payment_type=Request.PAYMENT_TYPE_TRANSFER,
+            urgency=Request.URGENCY_NORMAL,
+            billing_date=date(2026, 1, 15),
+            amortization_months=12,
+            payment_purpose="Операционное назначение",
+            status=Request.STATUS_PAYED,
+            expense_year=2026,
+            expense_month=3,
+            expense_day=10,
+        )
+        Request.objects.create(
+            tenant=self.tenant,
+            created_by=self.admin,
+            requester=self.admin,
+            title="before start",
+            description="",
+            amount="50.00",
+            currency="UZS",
+            payment_type=Request.PAYMENT_TYPE_TRANSFER,
+            urgency=Request.URGENCY_NORMAL,
+            billing_date=date(2026, 3, 1),
+            payment_purpose="Операционное назначение",
+            status=Request.STATUS_PAYED,
+            expense_year=2026,
+            expense_month=1,
+            expense_day=1,
+        )
+        payload = build_cashflow_payload_from_db(tenant=self.tenant, query_params={})
+        op = payload["operational_expenses"]
+        self.assertEqual(len(op), 1)
+        self.assertEqual(op[0]["amount"], "1000.00")
+        self.assertEqual(op[0]["date"], "2026-03-10")
+
+    def test_pnl_amortizes_but_cashflow_does_not(self):
+        Request.objects.create(
+            tenant=self.tenant,
+            created_by=self.admin,
+            requester=self.admin,
+            title="amortized",
+            description="",
+            amount="1200.00",
+            currency="UZS",
+            payment_type=Request.PAYMENT_TYPE_TRANSFER,
+            urgency=Request.URGENCY_NORMAL,
+            billing_date=date(2026, 2, 1),
+            amortization_months=12,
+            amortization_start_date=date(2026, 2, 1),
+            payment_purpose="Операционное назначение",
+            status=Request.STATUS_PAYED,
+            expense_year=2026,
+            expense_month=2,
+            expense_day=1,
+        )
+        TenantReportSettings.objects.filter(tenant=self.tenant).update(
+            pnl_source="backend",
+            pnl_config=full_backend_pnl_config(),
+        )
+        pnl = build_pnl_payload_from_db(tenant=self.tenant, query_params={})
+        cashflow = build_cashflow_payload_from_db(tenant=self.tenant, query_params={})
+        self.assertEqual(len(pnl["operational_expenses"]), 1)
+        self.assertEqual(pnl["operational_expenses"][0]["amount"], "100.00")
+        self.assertEqual(len(cashflow["operational_expenses"]), 1)
+        self.assertEqual(cashflow["operational_expenses"][0]["amount"], "1200.00")
+
+    def test_invest_return_uses_payout_date_not_billing_date(self):
+        InvestReturn.objects.create(
+            tenant=self.tenant,
+            date=date(2026, 3, 15),
+            billing_date=date(2026, 1, 1),
+            sum=Decimal("10.00"),
+            sum_uzs=Decimal("100000.00"),
+            currency="UZS",
+            type="дивиденды",
+            recipient="инвестор",
+            confirmed=True,
+            created_by=self.admin,
+        )
+        payload = build_cashflow_payload_from_db(tenant=self.tenant, query_params={})
+        inv = payload["invest_returns"]
+        self.assertEqual(len(inv), 1)
+        self.assertEqual(inv[0]["date"], "2026-03-15")
+
+    def test_cashflow_n8n_when_source_not_backend(self):
+        TenantReportSettings.objects.filter(tenant=self.tenant).update(cashflow_source="n8n")
+        self.assertEqual(resolve_cashflow_source_for_tenant(tenant=self.tenant), "n8n")
+
+
+@override_settings(BASE_DOMAIN="example.com", ALLOWED_HOSTS=["*"])
+class TenantCashflowReportSettingsConfigApiTests(APITestCase):
+    url = "/api/reports/cashflow-report-settings/"
+
+    def setUp(self):
+        self.tenant = Tenant.objects.create(name="CfCfg", subdomain="cfcfg", is_active=True)
+        self.admin = User.objects.create_user(username="cf_cfg_admin", password="x")
+        TenantMembership.objects.create(tenant=self.tenant, user=self.admin, is_active=True)
+        TenantUserRole.objects.create(tenant=self.tenant, user=self.admin, role=TenantUserRole.ROLE_ADMIN)
+
+    def _auth(self, user):
+        token = str(RefreshToken.for_user(user).access_token)
+        return {"HTTP_HOST": "cfcfg.example.com", "HTTP_AUTHORIZATION": f"Bearer {token}"}
+
+    def test_admin_get_creates_defaults(self):
+        res = self.client.get(self.url, **self._auth(self.admin))
+        self.assertEqual(res.status_code, 200, res.content)
+        self.assertEqual(res.data["cashflow_source"], TenantReportSettings.CASHFLOW_SOURCE_N8N)
+        self.assertEqual(res.data["cashflow_config"], {})
+
+    def test_admin_patch_backend_requires_full_config(self):
+        bad = self.client.patch(
+            self.url,
+            {"cashflow_source": "backend", "cashflow_config": {}},
+            format="json",
+            **self._auth(self.admin),
+        )
+        self.assertEqual(bad.status_code, 400, bad.content)
+
+        ok = self.client.patch(
+            self.url,
+            {"cashflow_source": "backend", "cashflow_config": full_backend_pnl_config()},
+            format="json",
+            **self._auth(self.admin),
+        )
+        self.assertEqual(ok.status_code, 200, ok.content)
+        self.assertEqual(ok.data["cashflow_source"], "backend")
+
+
+class CashflowConfigValidationTests(TestCase):
+    def test_rejects_overlapping_payment_purposes(self):
+        cfg = full_backend_pnl_config(
+            payment_purpose_operational=["same"],
+            payment_purpose_other=["same"],
+        )
+        with self.assertRaises(ReportSettingsInvalid):
+            validate_cashflow_config_dict(cfg)
 
 
 class PnlConfigValidationTests(TestCase):
