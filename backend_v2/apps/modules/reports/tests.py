@@ -246,6 +246,16 @@ class BackendPnlDatabaseTests(TestCase):
     def setUp(self):
         cache.clear()
         self.tenant = Tenant.objects.create(name="TestCo", subdomain="tstpnl")
+        self.user = User.objects.create_user(username="pnl_db_u", password="x")
+
+    def _ensure_pnl_settings(self, **cfg_overrides):
+        TenantReportSettings.objects.update_or_create(
+            tenant=self.tenant,
+            defaults={
+                "pnl_source": "backend",
+                "pnl_config": full_backend_pnl_config(**cfg_overrides),
+            },
+        )
 
     def test_missing_tenant_report_settings_raises(self):
         with self.assertRaises(RuntimeError) as ctx:
@@ -258,13 +268,7 @@ class BackendPnlDatabaseTests(TestCase):
         self.assertIn("tenant_report_settings", str(ctx.exception).lower())
 
     def test_backend_pnl_returns_empty_blocks_with_config(self):
-        TenantReportSettings.objects.create(
-            tenant=self.tenant,
-            pnl_source="backend",
-            pnl_config=full_backend_pnl_config(
-                request_payment_types_for_pnl=[],
-            ),
-        )
+        self._ensure_pnl_settings(request_payment_types_for_pnl=[])
         payload = fetch_n8n_report_payload(
             tenant=self.tenant,
             user_id=1,
@@ -275,6 +279,88 @@ class BackendPnlDatabaseTests(TestCase):
         self.assertEqual(payload["metadata"]["start_month"], "2026-02")
         self.assertEqual(payload["revenue"], [])
         self.assertIn("report_settings", payload)
+
+    def test_pnl_amortized_request_spreads_across_schedule_months(self):
+        self._ensure_pnl_settings()
+        Request.objects.create(
+            tenant=self.tenant,
+            created_by=self.user,
+            requester=self.user,
+            title="3 months from Jan",
+            description="",
+            amount="300.00",
+            currency="UZS",
+            payment_type=Request.PAYMENT_TYPE_TRANSFER,
+            urgency=Request.URGENCY_NORMAL,
+            billing_date=date(2026, 1, 15),
+            amortization_months=3,
+            amortization_start_date=date(2026, 1, 1),
+            payment_purpose="Операционное назначение",
+            status=Request.STATUS_PAYED,
+        )
+        payload = build_pnl_payload_from_db(tenant=self.tenant, query_params={})
+        op = payload["operational_expenses"]
+        self.assertEqual(len(op), 2)
+        by_month = {row["date"][:7]: row["amount"] for row in op}
+        self.assertEqual(by_month["2026-02"], "100.00")
+        self.assertEqual(by_month["2026-03"], "100.00")
+
+        finalized = finalize_report_payload(payload_obj=payload, endpoint="/n8n/pnl-data", source="backend")
+        monthly = {row["month"]: row["expense"] for row in finalized["monthly"]}
+        self.assertEqual(monthly.get("2026-02"), "100.00")
+        self.assertEqual(monthly.get("2026-03"), "100.00")
+        self.assertNotIn("2026-01", monthly)
+
+    def test_pnl_amortized_request_includes_all_months_from_start_month(self):
+        self._ensure_pnl_settings()
+        Request.objects.create(
+            tenant=self.tenant,
+            created_by=self.user,
+            requester=self.user,
+            title="12 months from Feb",
+            description="",
+            amount="1200.00",
+            currency="UZS",
+            payment_type=Request.PAYMENT_TYPE_TRANSFER,
+            urgency=Request.URGENCY_NORMAL,
+            billing_date=date(2026, 2, 1),
+            amortization_months=12,
+            amortization_start_date=date(2026, 2, 1),
+            payment_purpose="Операционное назначение",
+            status=Request.STATUS_PAYED,
+        )
+        payload = build_pnl_payload_from_db(tenant=self.tenant, query_params={})
+        op = payload["operational_expenses"]
+        self.assertEqual(len(op), 12)
+        self.assertTrue(all(row["amount"] == "100.00" for row in op))
+        self.assertEqual(op[0]["date"][:7], "2026-02")
+        self.assertEqual(op[-1]["date"][:7], "2027-01")
+
+    def test_pnl_long_amortization_includes_tail_after_old_billing_date(self):
+        self._ensure_pnl_settings()
+        Request.objects.create(
+            tenant=self.tenant,
+            created_by=self.user,
+            requester=self.user,
+            title="36 months from 2024",
+            description="",
+            amount="3600.00",
+            currency="UZS",
+            payment_type=Request.PAYMENT_TYPE_TRANSFER,
+            urgency=Request.URGENCY_NORMAL,
+            billing_date=date(2024, 1, 10),
+            amortization_months=36,
+            amortization_start_date=date(2024, 1, 1),
+            payment_purpose="Операционное назначение",
+            status=Request.STATUS_PAYED,
+        )
+        payload = build_pnl_payload_from_db(tenant=self.tenant, query_params={})
+        op = payload["operational_expenses"]
+        months = sorted(row["date"][:7] for row in op)
+        self.assertEqual(months[0], "2026-02")
+        self.assertEqual(months[-1], "2026-12")
+        self.assertEqual(len(months), 11)
+        self.assertTrue(all(row["amount"] == "100.00" for row in op))
 
 
 @override_settings(BASE_DOMAIN="example.com", ALLOWED_HOSTS=["*"])
