@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Kolberg — вход для MCP</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: #f5f5f5;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      color: #1a1a1a;
+    }
+    .card {
+      background: #fff;
+      border-radius: 12px;
+      padding: 40px 36px;
+      width: 100%;
+      max-width: 380px;
+      box-shadow: 0 2px 16px rgba(0,0,0,.08);
+    }
+    h1 { font-size: 20px; font-weight: 600; margin-bottom: 6px; }
+    .subtitle { font-size: 14px; color: #666; margin-bottom: 28px; }
+    label { display: block; font-size: 13px; font-weight: 500; margin-bottom: 6px; }
+    input[type="text"], input[type="password"] {
+      width: 100%;
+      padding: 10px 12px;
+      border: 1px solid #d9d9d9;
+      border-radius: 8px;
+      font-size: 15px;
+      outline: none;
+      transition: border-color .15s;
+    }
+    input:focus { border-color: #1677ff; }
+    .error {
+      background: #fff2f0;
+      border: 1px solid #ffccc7;
+      border-radius: 8px;
+      padding: 10px 12px;
+      font-size: 13px;
+      color: #cf1322;
+      margin-bottom: 16px;
+    }
+    .field { margin-bottom: 20px; }
+    button {
+      width: 100%;
+      padding: 10px;
+      background: #1677ff;
+      color: #fff;
+      border: none;
+      border-radius: 8px;
+      font-size: 15px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: background .15s;
+    }
+    button:hover { background: #0958d9; }
+    .hint { font-size: 12px; color: #999; margin-top: 10px; text-align: center; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>Kolberg</h1>
+    <p class="subtitle">
+      {% if step == "username" %}Войдите для подключения MCP-клиента{% else %}Введите код из Telegram{% endif %}
+    </p>
+
+    {% if error %}
+      <div class="error">{{ error }}</div>
+    {% endif %}
+
+    <form method="post">
+      {% csrf_token %}
+      <input type="hidden" name="t" value="{{ t }}">
+
+      {% if step == "username" %}
+        <input type="hidden" name="step" value="username">
+        <div class="field">
+          <label for="username">Имя пользователя</label>
+          <input type="text" id="username" name="username" autocomplete="username"
+                 autofocus placeholder="username">
+        </div>
+        <button type="submit">Получить код</button>
+
+      {% elif step == "otp" %}
+        <input type="hidden" name="step" value="otp">
+        <input type="hidden" name="username" value="{{ username }}">
+        <div class="field">
+          <label for="otp">Код из Telegram</label>
+          <input type="text" id="otp" name="otp" autofocus
+                 autocomplete="one-time-code" inputmode="numeric"
+                 placeholder="123456">
+        </div>
+        <button type="submit">Войти</button>
+        <p class="hint">Код отправлен в Telegram для пользователя <strong>{{ username }}</strong></p>
+      {% endif %}
+    </form>
+  </div>
+</body>
+</html>
