@@ -157,6 +157,43 @@ class McpOAuthMetadataTests(TestCase):
             )
 
 
+@override_settings(
+    MCP_BASE_URL="https://api.kolberg.uz/mcp",
+    MCP_OAUTH_LOGIN_URL="https://api.kolberg.uz/oauth/login",
+    ALLOWED_HOSTS=["api.kolberg.uz", "testserver"],
+)
+class McpOAuthLoginFlowTests(TestCase):
+    def setUp(self):
+        self.client = Client()
+
+    def _signed_t(self) -> str:
+        from django.core import signing
+
+        return signing.dumps(
+            {
+                "client_id": "test-client",
+                "redirect_uri": "https://claude.ai/api/mcp/auth_callback",
+                "redirect_uri_provided_explicitly": True,
+                "code_challenge": "challenge",
+                "state": "st",
+                "scopes": ["mcp"],
+            },
+            salt="mcp-oauth-authorize",
+        )
+
+    @patch("apps.accounts.otp.send_otp")
+    def test_username_post_does_not_500_when_otp_module_present(self, mock_send):
+        t = self._signed_t()
+        r = self.client.post(
+            "/oauth/login/",
+            {"t": t, "step": "username", "username": "alice"},
+            HTTP_HOST="api.kolberg.uz",
+        )
+        self.assertEqual(r.status_code, 200, r.content[:500])
+        mock_send.assert_called_once()
+        self.assertIn(b"otp", r.content.lower())
+
+
 class McpTenantToggleTests(TestCase):
     def _make_tenant(self, *, mcp_enabled):
         t = MagicMock()
