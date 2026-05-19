@@ -2,15 +2,18 @@
 
 import os
 
-from django.core.management.base import BaseCommand
+from django.core.management.base import BaseCommand, CommandError
 
 
 class Command(BaseCommand):
     help = "Start the Kolberg MCP server (stdio transport)"
 
     def handle(self, *args, **options):
-        # Signal that Django is already set up so server.py skips bootstrap.
-        os.environ["_DJANGO_SETUP_DONE"] = "1"
+        if not os.environ.get("KOLBERG_JWT_TOKEN", "").strip():
+            raise CommandError(
+                "KOLBERG_JWT_TOKEN environment variable is not set.\n"
+                "Usage: KOLBERG_JWT_TOKEN=<jwt_access_token> python manage.py run_mcp_server"
+            )
 
         from apps.mcp_server.server import run
 

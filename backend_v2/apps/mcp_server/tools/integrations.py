@@ -12,13 +12,13 @@ from typing import Any
 from apps.mcp_server.auth import require_admin_access
 
 
-def get_integration_config(token: str, tenant_id: int) -> dict[str, Any]:
+def get_integration_config(tenant_id: int) -> dict[str, Any]:
     """Return the integration configuration for a tenant (admin only).
 
     Encrypted secrets are never included. Returns Telegram OIDC metadata,
     messaging gateway settings, and whether each token is configured.
     """
-    _, tenant = require_admin_access(token, tenant_id)
+    _, tenant = require_admin_access(tenant_id)
 
     from apps.tenants.models import TenantIntegrationConfig
 

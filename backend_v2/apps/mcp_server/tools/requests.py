@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from apps.mcp_server.auth import require_module_access
-from apps.mcp_server.utils import json_safe
+from apps.mcp_server.utils import json_safe, validate_date
 
 MODULE = "requests"
 _MAX_LIMIT = 200
@@ -22,19 +22,32 @@ def _request_to_dict(r) -> dict[str, Any]:
         "urgency": r.urgency,
         "category": r.category,
         "vendor": r.vendor,
+        "vendor_ref_id": r.vendor_ref_id,
+        "contract_ref_id": r.contract_ref_id,
         "company_payer": r.company_payer,
         "payment_purpose": r.payment_purpose,
         "description": r.description,
-        "billing_date": str(r.billing_date),
-        "created_at": r.created_at.isoformat(),
-        "submitted_at": r.submitted_at.isoformat(),
+        "billing_date": r.billing_date.isoformat() if r.billing_date else None,
+        "created_at": r.created_at.isoformat() if r.created_at else None,
+        "submitted_at": r.submitted_at.isoformat() if r.submitted_at else None,
+        "payed_at": r.payed_at,
         "created_by_id": r.created_by_id,
         "requester_id": r.requester_id,
+        "expense_id": r.expense_id,
+        "expense_ref_id": r.expense_ref_id,
+        "expense_ref_target": r.expense_ref_target,
+        "expense_year": r.expense_year,
+        "expense_month": r.expense_month,
+        "expense_day": r.expense_day,
+        "file_link": r.file_link,
+        "amortization_months": r.amortization_months,
+        "amortization_start_date": (
+            r.amortization_start_date.isoformat() if r.amortization_start_date else None
+        ),
     }
 
 
 def list_requests(
-    token: str,
     tenant_id: int,
     status: str = "",
     currency: str = "",
@@ -54,7 +67,10 @@ def list_requests(
     - date_from / date_to: ISO date strings (YYYY-MM-DD), filter on created_at
     - limit: max records to return (default 50, max 200)
     """
-    _, tenant = require_module_access(token, tenant_id, MODULE)
+    _, tenant = require_module_access(tenant_id, MODULE)
+
+    validate_date(date_from, "date_from")
+    validate_date(date_to, "date_to")
 
     from apps.modules.requests.models import Request
 
@@ -77,9 +93,9 @@ def list_requests(
     return [_request_to_dict(r) for r in qs.order_by("-created_at")[:limit]]
 
 
-def get_request(token: str, tenant_id: int, request_id: int) -> dict[str, Any]:
+def get_request(tenant_id: int, request_id: int) -> dict[str, Any]:
     """Return a single request by ID, including its approval steps."""
-    _, tenant = require_module_access(token, tenant_id, MODULE)
+    _, tenant = require_module_access(tenant_id, MODULE)
 
     from apps.modules.requests.models import Request, Approval
 
@@ -97,9 +113,9 @@ def get_request(token: str, tenant_id: int, request_id: int) -> dict[str, Any]:
     return data
 
 
-def list_request_categories(token: str, tenant_id: int) -> list[dict[str, Any]]:
+def list_request_categories(tenant_id: int) -> list[dict[str, Any]]:
     """Return all active request categories for a tenant."""
-    _, tenant = require_module_access(token, tenant_id, MODULE)
+    _, tenant = require_module_access(tenant_id, MODULE)
 
     from apps.modules.requests.models import RequestCategory
 
