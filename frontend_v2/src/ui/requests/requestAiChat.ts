@@ -21,6 +21,32 @@ function ensureMountElement(): HTMLElement {
   return mount
 }
 
+function getChatToggle(): HTMLButtonElement | null {
+  return (
+    document.querySelector<HTMLButtonElement>(`#${MOUNT_ID} .chat-window-toggle`) ??
+    document.querySelector<HTMLButtonElement>('.chat-window-toggle')
+  )
+}
+
+/**
+ * @n8n/chat: кнопка «Закрыть» шлёт event bus "close", но ChatWindow его не слушает —
+ * окно открывается/закрывается только через .chat-window-toggle.
+ */
+function wireRequestAiChatCloseFix(mount: HTMLElement): void {
+  if (mount.dataset.kolbergCloseFix === '1') return
+  mount.dataset.kolbergCloseFix = '1'
+  mount.addEventListener(
+    'click',
+    (event) => {
+      const closeBtn = (event.target as HTMLElement).closest('.chat-close-button')
+      if (!closeBtn || !mount.contains(closeBtn)) return
+      if (!isRequestAiChatOpen()) return
+      getChatToggle()?.click()
+    },
+    true,
+  )
+}
+
 function buildChatOptions() {
   return {
     webhookUrl: getRequestAiChatWebhookUrl(),
@@ -55,12 +81,13 @@ function buildChatOptions() {
 
 export function ensureRequestAiChat(): void {
   if (typeof document === 'undefined') return
-  ensureMountElement()
+  const mount = ensureMountElement()
+  wireRequestAiChatCloseFix(mount)
   if (document.querySelector(`#${MOUNT_ID} .chat-window-wrapper`)) return
   createChat(buildChatOptions())
 }
 
-function isRequestAiChatOpen(): boolean {
+export function isRequestAiChatOpen(): boolean {
   const win = document.querySelector(`#${MOUNT_ID} .chat-window`)
   if (!win) return false
   const style = window.getComputedStyle(win)
@@ -68,8 +95,8 @@ function isRequestAiChatOpen(): boolean {
 }
 
 export function closeRequestAiChat(): void {
-  if (typeof document === 'undefined') return
-  document.querySelector<HTMLButtonElement>(`#${MOUNT_ID} .chat-close-button`)?.click()
+  if (typeof document === 'undefined' || !isRequestAiChatOpen()) return
+  getChatToggle()?.click()
 }
 
 export function openRequestAiChat(): void {
@@ -79,5 +106,5 @@ export function openRequestAiChat(): void {
     closeRequestAiChat()
     return
   }
-  document.querySelector<HTMLButtonElement>(`#${MOUNT_ID} .chat-window-toggle`)?.click()
+  getChatToggle()?.click()
 }
