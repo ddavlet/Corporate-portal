@@ -41,11 +41,35 @@ def is_mcp_host(host: str) -> bool:
     return bool(name) and host_no_port(host) == name
 
 
-def is_well_known_oauth_path(path: str) -> bool:
-    return path_normalized(path) in (
+def mcp_resource_path_suffix() -> str:
+    """Path component of MCP_RESOURCE_URL (e.g. /mcp) for RFC 9728 path-suffixed well-known URIs."""
+    path = urlparse(settings.MCP_RESOURCE_URL.rstrip("/")).path or ""
+    return path if path and path != "/" else ""
+
+
+def _well_known_paths() -> frozenset[str]:
+    paths = {
         "/.well-known/oauth-authorization-server",
         "/.well-known/oauth-protected-resource",
-    )
+    }
+    suffix = mcp_resource_path_suffix()
+    if suffix:
+        paths.add(f"/.well-known/oauth-authorization-server{suffix}")
+        paths.add(f"/.well-known/oauth-protected-resource{suffix}")
+    return frozenset(paths)
+
+
+def is_well_known_oauth_path(path: str) -> bool:
+    return path_normalized(path) in _well_known_paths()
+
+
+def is_well_known_authorization_server_path(path: str) -> bool:
+    p = path_normalized(path)
+    paths = {"/.well-known/oauth-authorization-server"}
+    suffix = mcp_resource_path_suffix()
+    if suffix:
+        paths.add(f"/.well-known/oauth-authorization-server{suffix}")
+    return p in paths
 
 
 def is_legacy_mcp_login_path(path: str) -> bool:

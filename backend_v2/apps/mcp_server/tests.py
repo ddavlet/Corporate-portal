@@ -91,6 +91,8 @@ class McpRoutingTests(TestCase):
     def test_well_known_paths(self):
         self.assertTrue(is_well_known_oauth_path("/.well-known/oauth-authorization-server"))
         self.assertTrue(is_well_known_oauth_path("/.well-known/oauth-protected-resource/"))
+        self.assertTrue(is_well_known_oauth_path("/.well-known/oauth-protected-resource/mcp"))
+        self.assertTrue(is_well_known_oauth_path("/.well-known/oauth-authorization-server/mcp"))
         self.assertFalse(is_well_known_oauth_path("/mcp/.well-known/oauth-authorization-server"))
 
     def test_legacy_login_paths(self):
