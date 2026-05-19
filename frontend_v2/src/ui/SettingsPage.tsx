@@ -59,7 +59,7 @@ export function SettingsPage() {
       ) {
         return access.can_manage_requests_settings
       }
-      if (m.path === '/settings/pnl-report-config') {
+      if (m.path === '/settings/pnl-report-config' || m.path === '/settings/cashflow-report-config') {
         return access.can_manage_tenant_settings
       }
       return false

@@ -32,6 +32,7 @@ import { CashRegistersSettingsPage } from '../ui/settings/CashRegistersSettingsP
 import { InvestmentApprovalConfigPage } from '../ui/settings/InvestmentApprovalConfigPage'
 import { InvestmentProjectApprovalConfigPage } from '../ui/settings/InvestmentProjectApprovalConfigPage'
 import { InvestmentFormConfigPage } from '../ui/settings/InvestmentFormConfigPage'
+import { CashflowReportSettingsPage } from '../ui/settings/CashflowReportSettingsPage'
 import { PnlReportSettingsPage } from '../ui/settings/PnlReportSettingsPage'
 import { AdminRouteGate } from '../ui/admin/AdminRouteGate'
 import { TrainingPage } from '../ui/training/TrainingPage'
@@ -138,6 +139,7 @@ export function App() {
         <Route path="settings/users-roles" element={<UserRolesSettingsPage />} />
         <Route path="settings/cash-registers" element={<CashRegistersSettingsPage />} />
         <Route path="settings/pnl-report-config" element={<PnlReportSettingsPage />} />
+        <Route path="settings/cashflow-report-config" element={<CashflowReportSettingsPage />} />
         <Route path="admin" element={<AdminRouteGate />} />
         <Route path="training" element={<TrainingPage />} />
       </Route>

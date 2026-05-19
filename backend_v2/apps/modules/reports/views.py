@@ -8,6 +8,11 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.modules.reports.models import TenantReportSettings
+from apps.modules.reports.cashflow_builder import (
+    ReportSettingsInvalid as CashflowReportSettingsInvalid,
+    compute_unassigned_payment_purposes_cashflow,
+    validate_cashflow_config_dict,
+)
 from apps.modules.reports.pnl_builder import (
     ReportSettingsInvalid,
     compute_unassigned_payment_purposes,
@@ -159,6 +164,90 @@ class TenantReportSettingsConfigView(APIView):
         row.pnl_source = new_source
         row.pnl_config = new_cfg
         row.save(update_fields=["pnl_source", "pnl_config", "updated_at"])
+
+        return Response(self._serialize(row), status=status.HTTP_200_OK)
+
+
+class TenantCashflowReportSettingsConfigView(APIView):
+    """
+    Per-tenant Cashflow source (n8n vs backend) and backend filters — tenant admin only.
+    """
+
+    permission_classes = [IsAuthenticated, IsTenantAdmin]
+
+    @staticmethod
+    def _serialize(row: TenantReportSettings) -> dict:
+        return {
+            "cashflow_source": row.cashflow_source,
+            "cashflow_config": row.cashflow_config if isinstance(row.cashflow_config, dict) else {},
+            "updated_at": row.updated_at.isoformat() if row.updated_at else None,
+        }
+
+    def get(self, request):
+        tenant = getattr(request, "tenant", None)
+        if not tenant:
+            return Response({"detail": "No tenant."}, status=status.HTTP_400_BAD_REQUEST)
+        row, _ = TenantReportSettings.objects.get_or_create(
+            tenant=tenant,
+            defaults={
+                "pnl_source": TenantReportSettings.PNL_SOURCE_N8N,
+                "pnl_config": {},
+                "cashflow_source": TenantReportSettings.CASHFLOW_SOURCE_N8N,
+                "cashflow_config": {},
+            },
+        )
+        data = self._serialize(row)
+        if str(request.query_params.get("cashflow_diagnostics") or "").strip() in {"1", "true", "yes"}:
+            cfg = row.cashflow_config if isinstance(row.cashflow_config, dict) else {}
+            try:
+                unassigned = compute_unassigned_payment_purposes_cashflow(tenant_id=tenant.id, cfg=cfg)
+                data["cashflow_diagnostics"] = {"unassigned_payment_purposes": unassigned}
+            except CashflowReportSettingsInvalid as exc:
+                data["cashflow_diagnostics"] = {"error": str(exc)}
+        return Response(data, status=status.HTTP_200_OK)
+
+    def patch(self, request):
+        tenant = getattr(request, "tenant", None)
+        if not tenant:
+            return Response({"detail": "No tenant."}, status=status.HTTP_400_BAD_REQUEST)
+
+        row, _ = TenantReportSettings.objects.get_or_create(
+            tenant=tenant,
+            defaults={
+                "pnl_source": TenantReportSettings.PNL_SOURCE_N8N,
+                "pnl_config": {},
+                "cashflow_source": TenantReportSettings.CASHFLOW_SOURCE_N8N,
+                "cashflow_config": {},
+            },
+        )
+
+        body = request.data if isinstance(request.data, dict) else {}
+        new_source = row.cashflow_source
+        if "cashflow_source" in body:
+            raw = str(body.get("cashflow_source") or "").strip().lower()
+            if raw not in {TenantReportSettings.CASHFLOW_SOURCE_N8N, TenantReportSettings.CASHFLOW_SOURCE_BACKEND}:
+                raise ValidationError({"cashflow_source": "Must be 'n8n' or 'backend'."})
+            new_source = raw
+
+        new_cfg = row.cashflow_config if isinstance(row.cashflow_config, dict) else {}
+        if "cashflow_config" in body:
+            cfg_in = body.get("cashflow_config")
+            if cfg_in is None:
+                new_cfg = {}
+            elif not isinstance(cfg_in, dict):
+                raise ValidationError({"cashflow_config": "Must be a JSON object."})
+            else:
+                new_cfg = cfg_in
+
+        if new_source == TenantReportSettings.CASHFLOW_SOURCE_BACKEND:
+            try:
+                validate_cashflow_config_dict(new_cfg)
+            except CashflowReportSettingsInvalid as exc:
+                raise ValidationError({"cashflow_config": str(exc)}) from exc
+
+        row.cashflow_source = new_source
+        row.cashflow_config = new_cfg
+        row.save(update_fields=["cashflow_source", "cashflow_config", "updated_at"])
 
         return Response(self._serialize(row), status=status.HTTP_200_OK)
 
