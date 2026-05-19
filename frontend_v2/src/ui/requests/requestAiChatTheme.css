@@ -1,0 +1,141 @@
+/**
+ * Тема @n8n/chat под UI портала Колберг (Ant Design + styles.css).
+ * Переменные на :root — виджет монтируется в document.body.
+ */
+:root {
+  /* Colors — как в портале (antd primary, фон body, нейтрали) */
+  --chat--color--primary: #1677ff;
+  --chat--color--primary-shade-50: #4096ff;
+  --chat--color--primary--shade-100: #0958d9;
+  --chat--color--secondary: #1677ff;
+  --chat--color-secondary-shade-50: #4096ff;
+  --chat--color-white: #fff;
+  --chat--color-light: #f5f7fa;
+  --chat--color-light-shade-50: #e6e8eb;
+  --chat--color-light-shade-100: #d9d9d9;
+  --chat--color-medium: #bfbfbf;
+  --chat--color-dark: rgba(0, 0, 0, 0.88);
+  --chat--color-disabled: #bfbfbf;
+  --chat--color-typing: rgba(0, 0, 0, 0.45);
+
+  /* Base Layout */
+  --chat--spacing: 1rem;
+  --chat--border-radius: 0.5rem;
+  --chat--transition-duration: 0.15s;
+  --chat--font-family:
+    Inter, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+
+  /* Window Dimensions */
+  --chat--window--width: 400px;
+  --chat--window--height: 600px;
+  --chat--window--bottom: var(--chat--spacing);
+  --chat--window--right: var(--chat--spacing);
+  --chat--window--z-index: 9999;
+  --chat--window--border: 1px solid var(--chat--color-light-shade-50);
+  --chat--window--border-radius: var(--chat--border-radius);
+  --chat--window--margin-bottom: var(--chat--spacing);
+
+  /* Header — светлая шапка как у Card в портале */
+  --chat--header-height: auto;
+  --chat--header--padding: var(--chat--spacing);
+  --chat--header--background: var(--chat--color-white);
+  --chat--header--color: var(--chat--color-dark);
+  --chat--header--border-top: none;
+  --chat--header--border-bottom: 1px solid var(--chat--color-light-shade-50);
+  --chat--header--border-left: none;
+  --chat--header--border-right: none;
+  --chat--heading--font-size: 1.25rem;
+  --chat--subtitle--font-size: 0.875rem;
+  --chat--subtitle--line-height: 1.5;
+
+  /* Message Styles */
+  --chat--message--font-size: 0.875rem;
+  --chat--message--padding: 0.75rem 1rem;
+  --chat--message--border-radius: var(--chat--border-radius);
+  --chat--message-line-height: 1.5715;
+  --chat--message--margin-bottom: calc(var(--chat--spacing) * 0.75);
+  --chat--message--bot--background: var(--chat--color-white);
+  --chat--message--bot--color: var(--chat--color-dark);
+  --chat--message--bot--border: 1px solid var(--chat--color-light-shade-50);
+  --chat--message--user--background: var(--chat--color--primary);
+  --chat--message--user--color: var(--chat--color-white);
+  --chat--message--user--border: none;
+  --chat--message--pre--background: rgba(0, 0, 0, 0.04);
+  --chat--messages-list--padding: var(--chat--spacing);
+
+  /* Toggle (скрыт, открываем с кнопки портала) */
+  --chat--toggle--size: 64px;
+  --chat--toggle--width: var(--chat--toggle--size);
+  --chat--toggle--height: var(--chat--toggle--size);
+  --chat--toggle--border-radius: 50%;
+  --chat--toggle--background: var(--chat--color--primary);
+  --chat--toggle--hover--background: var(--chat--color--primary-shade-50);
+  --chat--toggle--active--background: var(--chat--color--primary--shade-100);
+  --chat--toggle--color: var(--chat--color-white);
+
+  /* Input Area */
+  --chat--textarea--height: 50px;
+  --chat--textarea--max-height: 30rem;
+  --chat--input--font-size: inherit;
+  --chat--input--border: 0;
+  --chat--input--border-radius: var(--chat--border-radius);
+  --chat--input--padding: 0.8rem;
+  --chat--input--background: var(--chat--color-white);
+  --chat--input--text-color: var(--chat--color-dark);
+  --chat--input--line-height: 1.5715;
+  --chat--input--placeholder--font-size: var(--chat--input--font-size);
+  --chat--input--border-active: 0;
+  --chat--input--left--panel--width: 2rem;
+
+  /* Button Styles */
+  --chat--button--padding: calc(var(--chat--spacing) * 5 / 8) var(--chat--spacing);
+  --chat--button--border-radius: var(--chat--border-radius);
+  --chat--button--font-size: 0.875rem;
+  --chat--button--line-height: 1.5715;
+  --chat--button--color--primary: var(--chat--color-white);
+  --chat--button--background--primary: var(--chat--color--primary);
+  --chat--button--border--primary: none;
+  --chat--button--color--primary--hover: var(--chat--color-white);
+  --chat--button--background--primary--hover: var(--chat--color--primary-shade-50);
+  --chat--button--border--primary--hover: none;
+  --chat--button--color--primary--disabled: var(--chat--color-white);
+  --chat--button--background--primary--disabled: #91caff;
+  --chat--button--border--primary--disabled: none;
+  --chat--button--color--secondary: var(--chat--color-dark);
+  --chat--button--background--secondary: var(--chat--color-light-shade-100);
+  --chat--button--border--secondary: none;
+  --chat--button--color--secondary--hover: var(--chat--color-dark);
+  --chat--button--background--secondary--hover: var(--chat--color-medium);
+  --chat--button--border--secondary--hover: none;
+  --chat--button--color--secondary--disabled: var(--chat--color-disabled);
+  --chat--button--background--secondary--disabled: var(--chat--color-light-shade-50);
+  --chat--button--border--secondary--disabled: none;
+  --chat--close--button--color-hover: var(--chat--color--primary);
+
+  /* Send and File Buttons */
+  --chat--input--send--button--background: var(--chat--color-white);
+  --chat--input--send--button--color: var(--chat--color--primary);
+  --chat--input--send--button--background-hover: rgba(22, 119, 255, 0.06);
+  --chat--input--send--button--color-hover: var(--chat--color--primary-shade-50);
+  --chat--input--file--button--background: var(--chat--color-white);
+  --chat--input--file--button--color: var(--chat--color--primary);
+  --chat--input--file--button--background-hover: rgba(22, 119, 255, 0.06);
+  --chat--input--file--button--color-hover: var(--chat--color--primary-shade-50);
+  --chat--files-spacing: 0.25rem;
+
+  /* Body and Footer */
+  --chat--body--background: var(--chat--color-light);
+  --chat--footer--background: var(--chat--color-white);
+  --chat--footer--color: var(--chat--color-dark);
+}
+
+#kolberg-request-ai-chat .chat-window-toggle {
+  position: fixed !important;
+  left: -9999px !important;
+  top: auto !important;
+  width: 1px !important;
+  height: 1px !important;
+  margin: 0 !important;
+  opacity: 0.01 !important;
+  overflow: hidden !important;
+}

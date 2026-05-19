@@ -176,6 +176,9 @@ class TenantIntegrationConfigApiTests(APITestCase):
                 "requests_file_gateway_token": "secret-3",
                 "messaging_gateway_feedback_recipient_id": -1001234567890,
                 "messaging_gateway_feedback_action": "send_portal_feedback",
+                "request_ai_chat_webhook_url": (
+                    "https://dev.kolberg.uz/webhook/d9f95bda-910e-4118-a6a9-08a86124d96c/chat"
+                ),
             },
             format="json",
             **self._auth_headers(self.admin),
@@ -194,6 +197,10 @@ class TenantIntegrationConfigApiTests(APITestCase):
         self.assertEqual(cfg.get_requests_file_gateway_token(), "secret-3")
         self.assertEqual(cfg.messaging_gateway_feedback_recipient_id, -1001234567890)
         self.assertEqual(cfg.messaging_gateway_feedback_action, "send_portal_feedback")
+        self.assertEqual(
+            cfg.request_ai_chat_webhook_url,
+            "https://dev.kolberg.uz/webhook/d9f95bda-910e-4118-a6a9-08a86124d96c/chat",
+        )
 
         get = self.client.get(self.url, **self._auth_headers(self.admin))
         self.assertEqual(get.status_code, 200, get.content)
@@ -204,6 +211,19 @@ class TenantIntegrationConfigApiTests(APITestCase):
         self.assertEqual(get.data["telegram_oidc_redirect_uri"], "https://main.kolberg.uz/app/login")
         self.assertEqual(get.data["messaging_gateway_feedback_recipient_id"], -1001234567890)
         self.assertEqual(get.data["messaging_gateway_feedback_action"], "send_portal_feedback")
+        self.assertEqual(
+            get.data["request_ai_chat_webhook_url"],
+            "https://dev.kolberg.uz/webhook/d9f95bda-910e-4118-a6a9-08a86124d96c/chat",
+        )
+
+    def test_request_ai_chat_webhook_url_must_contain_webhook_path(self):
+        res = self.client.put(
+            self.url,
+            {"request_ai_chat_webhook_url": "https://dev.kolberg.uz/n8n/bad-path"},
+            format="json",
+            **self._auth_headers(self.admin),
+        )
+        self.assertEqual(res.status_code, 400, res.content)
 
     def test_non_admin_forbidden(self):
         res = self.client.get(self.url, **self._auth_headers(self.user))
