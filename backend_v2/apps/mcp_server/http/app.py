@@ -25,11 +25,16 @@ def get_mcp_asgi_app():
     if _mcp_asgi_app is not None:
         return _mcp_asgi_app
 
+    from urllib.parse import urlparse
     from mcp.server.auth.settings import AuthSettings, ClientRegistrationOptions
+    from mcp.server.transport_security import TransportSecuritySettings
     from apps.mcp_server.server import mcp
     from apps.mcp_server.oauth.provider import KolbergOAuthProvider
 
     base_url = django_settings.MCP_BASE_URL.rstrip("/")
+    parsed = urlparse(base_url)
+    public_host = parsed.hostname  # e.g. "api.kolberg.uz"
+    public_origin = f"{parsed.scheme}://{parsed.netloc}"  # e.g. "https://api.kolberg.uz"
 
     mcp.settings.auth = AuthSettings(
         issuer_url=base_url,  # type: ignore[arg-type]
@@ -39,6 +44,13 @@ def get_mcp_asgi_app():
             valid_scopes=["mcp"],
             default_scopes=["mcp"],
         ),
+    )
+    # FastMCP defaults to localhost-only DNS rebinding protection when host="127.0.0.1".
+    # Override with the actual public host so MCP clients can connect.
+    mcp.settings.transport_security = TransportSecuritySettings(
+        enable_dns_rebinding_protection=True,
+        allowed_hosts=[public_host],
+        allowed_origins=[public_origin],
     )
     mcp.settings.streamable_http_path = "/"
     mcp._auth_server_provider = KolbergOAuthProvider()
