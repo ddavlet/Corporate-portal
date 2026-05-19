@@ -129,8 +129,9 @@ class McpOAuthMetadataTests(TestCase):
         self.assertEqual(r.json()["resource"], "https://api.kolberg.uz/mcp")
 
     def test_oauth_login_page_without_token_returns_400(self):
-        r = self.client.get("/mcp/oauth/login/")
-        self.assertEqual(r.status_code, 400)
+        for login_path in ("/oauth-login/", "/mcp/oauth/login/"):
+            r = self.client.get(login_path)
+            self.assertEqual(r.status_code, 400, login_path)
 
     def test_legacy_login_redirects_to_oauth_login(self):
         for legacy in ("/mcp/login/?t=test", "/oauth/mcp/login/?t=test"):
