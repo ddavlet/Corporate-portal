@@ -1,11 +1,10 @@
 """
 JWT validation and access-rights checking for the MCP server.
 
-The JWT token is read once from the KOLBERG_JWT_TOKEN environment variable
-so it never appears as a tool-call parameter in MCP logs or AI conversation
-history. Set it when starting the server:
-
-    KOLBERG_JWT_TOKEN=<access_token> python manage.py run_mcp_server
+Supports two modes:
+  - stdio: token read from KOLBERG_JWT_TOKEN environment variable.
+  - HTTP/OAuth: token set per-request via _request_token contextvar
+    (populated by KolbergOAuthProvider.load_access_token).
 
 All public functions raise PermissionError on failure so tool handlers can
 catch a single exception type and return a clean error message.
@@ -13,6 +12,7 @@ catch a single exception type and return a clean error message.
 
 from __future__ import annotations
 
+import contextvars
 import os
 
 from rest_framework_simplejwt.tokens import AccessToken
@@ -20,14 +20,31 @@ from rest_framework_simplejwt.exceptions import TokenError
 
 _ENV_VAR = "KOLBERG_JWT_TOKEN"
 
+# Set per-request in HTTP mode by the OAuth provider's load_access_token().
+_request_token: contextvars.ContextVar[str] = contextvars.ContextVar(
+    "mcp_request_token", default=""
+)
+
+
+def set_request_token(token: str) -> None:
+    """Set the JWT token for the current async request context (HTTP mode)."""
+    _request_token.set(token)
+
 
 def _get_token() -> str:
-    """Return the JWT token from the environment, or raise PermissionError."""
-    token = os.environ.get(_ENV_VAR, "").strip()
+    """Return the JWT token for the current context.
+
+    HTTP mode: reads from _request_token (set by OAuth provider per-request).
+    stdio mode: reads from KOLBERG_JWT_TOKEN environment variable.
+    """
+    token = _request_token.get("").strip()
+    if not token:
+        token = os.environ.get(_ENV_VAR, "").strip()
     if not token:
         raise PermissionError(
-            f"{_ENV_VAR} environment variable is not set. "
-            f"Start the server with: {_ENV_VAR}=<jwt_access_token> python manage.py run_mcp_server"
+            "No authentication token available. "
+            f"stdio mode: set {_ENV_VAR} env var. "
+            "HTTP mode: authenticate via OAuth at /mcp/authorize."
         )
     return token
 
