@@ -63,9 +63,9 @@ def _get_user_and_tenant(user_id: int, tenant_id: int):
     from apps.tenants.models import Tenant, TenantMembership
 
     try:
-        user = User.objects.get(id=user_id)
+        user = User.objects.get(id=user_id, is_active=True)
     except User.DoesNotExist:
-        raise PermissionError("User not found")
+        raise PermissionError("User not found or deactivated")
 
     try:
         tenant = Tenant.objects.get(id=tenant_id, is_active=True)
