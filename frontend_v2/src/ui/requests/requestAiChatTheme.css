@@ -129,6 +129,31 @@
   --chat--footer--color: var(--chat--color-dark);
 }
 
+#kolberg-request-ai-chat .chat-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+#kolberg-request-ai-chat .chat-close-button {
+  flex-shrink: 0;
+  margin-top: 0.15rem;
+  padding: 0.25rem;
+  color: rgba(0, 0, 0, 0.45);
+  cursor: pointer;
+}
+
+#kolberg-request-ai-chat .chat-close-button:hover {
+  color: #1677ff;
+}
+
+#kolberg-request-ai-chat .chat-close-button svg {
+  display: block;
+  width: 1.125rem;
+  height: 1.125rem;
+}
+
 #kolberg-request-ai-chat .chat-window-toggle {
   position: fixed !important;
   left: -9999px !important;
