@@ -1,12 +1,35 @@
 """
 JWT validation and access-rights checking for the MCP server.
 
-All functions raise PermissionError on failure so tool handlers can
+The JWT token is read once from the KOLBERG_JWT_TOKEN environment variable
+so it never appears as a tool-call parameter in MCP logs or AI conversation
+history. Set it when starting the server:
+
+    KOLBERG_JWT_TOKEN=<access_token> python manage.py run_mcp_server
+
+All public functions raise PermissionError on failure so tool handlers can
 catch a single exception type and return a clean error message.
 """
 
+from __future__ import annotations
+
+import os
+
 from rest_framework_simplejwt.tokens import AccessToken
 from rest_framework_simplejwt.exceptions import TokenError
+
+_ENV_VAR = "KOLBERG_JWT_TOKEN"
+
+
+def _get_token() -> str:
+    """Return the JWT token from the environment, or raise PermissionError."""
+    token = os.environ.get(_ENV_VAR, "").strip()
+    if not token:
+        raise PermissionError(
+            f"{_ENV_VAR} environment variable is not set. "
+            f"Start the server with: {_ENV_VAR}=<jwt_access_token> python manage.py run_mcp_server"
+        )
+    return token
 
 
 def _decode_token(token: str) -> int:
@@ -38,11 +61,12 @@ def _get_user_and_tenant(user_id: int, tenant_id: int):
     return user, tenant
 
 
-def require_module_access(token: str, tenant_id: int, module_key: str):
-    """Validate token and ensure the user has access to `module_key` in `tenant_id`.
+def require_module_access(tenant_id: int, module_key: str):
+    """Validate the env token and ensure the user has access to `module_key`.
 
     Returns (user, tenant). Raises PermissionError on any failure.
     """
+    token = _get_token()
     user_id = _decode_token(token)
     user, tenant = _get_user_and_tenant(user_id, tenant_id)
 
@@ -57,11 +81,12 @@ def require_module_access(token: str, tenant_id: int, module_key: str):
     return user, tenant
 
 
-def require_admin_access(token: str, tenant_id: int):
-    """Validate token and ensure the user has the 'admin' role in `tenant_id`.
+def require_admin_access(tenant_id: int):
+    """Validate the env token and ensure the user has the 'admin' role.
 
     Returns (user, tenant). Raises PermissionError on any failure.
     """
+    token = _get_token()
     user_id = _decode_token(token)
     user, tenant = _get_user_and_tenant(user_id, tenant_id)
 
@@ -75,8 +100,9 @@ def require_admin_access(token: str, tenant_id: int):
     return user, tenant
 
 
-def require_admin_or_director(token: str, tenant_id: int):
-    """Validate token and ensure the user is admin or director in `tenant_id`."""
+def require_admin_or_director(tenant_id: int):
+    """Validate the env token and ensure the user is admin or director."""
+    token = _get_token()
     user_id = _decode_token(token)
     user, tenant = _get_user_and_tenant(user_id, tenant_id)
 

@@ -8,9 +8,9 @@ from apps.mcp_server.auth import require_admin_access, require_admin_or_director
 from apps.mcp_server.utils import json_safe
 
 
-def get_tenant_info(token: str, tenant_id: int) -> dict[str, Any]:
+def get_tenant_info(tenant_id: int) -> dict[str, Any]:
     """Return public metadata for a tenant (admin or director only)."""
-    _, tenant = require_admin_or_director(token, tenant_id)
+    _, tenant = require_admin_or_director(tenant_id)
 
     return {
         "id": tenant.id,
@@ -22,9 +22,9 @@ def get_tenant_info(token: str, tenant_id: int) -> dict[str, Any]:
     }
 
 
-def list_module_configs(token: str, tenant_id: int) -> list[dict[str, Any]]:
+def list_module_configs(tenant_id: int) -> list[dict[str, Any]]:
     """Return all module enable/disable flags for a tenant (admin or director only)."""
-    _, tenant = require_admin_or_director(token, tenant_id)
+    _, tenant = require_admin_or_director(tenant_id)
 
     from apps.tenants.models import TenantModuleConfig
 
@@ -35,9 +35,9 @@ def list_module_configs(token: str, tenant_id: int) -> list[dict[str, Any]]:
     ))
 
 
-def list_user_roles(token: str, tenant_id: int) -> list[dict[str, Any]]:
+def list_user_roles(tenant_id: int) -> list[dict[str, Any]]:
     """Return all user-role assignments for a tenant (admin only)."""
-    _, tenant = require_admin_access(token, tenant_id)
+    _, tenant = require_admin_access(tenant_id)
 
     from apps.tenants.models import TenantUserRole
 
@@ -48,9 +48,9 @@ def list_user_roles(token: str, tenant_id: int) -> list[dict[str, Any]]:
     ))
 
 
-def list_memberships(token: str, tenant_id: int) -> list[dict[str, Any]]:
+def list_memberships(tenant_id: int) -> list[dict[str, Any]]:
     """Return all tenant memberships (admin only)."""
-    _, tenant = require_admin_access(token, tenant_id)
+    _, tenant = require_admin_access(tenant_id)
 
     from apps.tenants.models import TenantMembership
 

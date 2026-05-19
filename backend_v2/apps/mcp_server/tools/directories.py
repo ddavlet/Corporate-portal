@@ -11,7 +11,6 @@ _MAX_LIMIT = 500
 
 
 def list_vendors(
-    token: str,
     tenant_id: int,
     kind: str = "",
     name_search: str = "",
@@ -24,7 +23,7 @@ def list_vendors(
     - name_search: case-insensitive substring match on vendor name
     - limit: max records (default 100, max 500)
     """
-    _, tenant = require_module_access(token, tenant_id, "vendors")
+    _, tenant = require_module_access(tenant_id, "vendors")
 
     from apps.modules.vendors.models import Vendor
 
@@ -42,12 +41,9 @@ def list_vendors(
     ))
 
 
-def list_wallets(
-    token: str,
-    tenant_id: int,
-) -> list[dict[str, Any]]:
+def list_wallets(tenant_id: int) -> list[dict[str, Any]]:
     """Return all wallets (cash registers and bank/card accounts) for a tenant."""
-    _, tenant = require_module_access(token, tenant_id, "wallets")
+    _, tenant = require_module_access(tenant_id, "wallets")
 
     from apps.modules.wallets.models import Wallet
 

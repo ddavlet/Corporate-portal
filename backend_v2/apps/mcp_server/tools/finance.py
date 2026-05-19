@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from apps.mcp_server.auth import require_module_access
-from apps.mcp_server.utils import json_safe
+from apps.mcp_server.utils import json_safe, validate_date
 
 _MAX_LIMIT = 200
 
@@ -15,7 +15,6 @@ _MAX_LIMIT = 200
 # ---------------------------------------------------------------------------
 
 def list_cash_expenses(
-    token: str,
     tenant_id: int,
     date_from: str = "",
     date_to: str = "",
@@ -29,7 +28,10 @@ def list_cash_expenses(
     - currency: UZS | USD | EUR | RUB
     - limit: max records (default 50, max 200)
     """
-    _, tenant = require_module_access(token, tenant_id, "cash")
+    _, tenant = require_module_access(tenant_id, "cash")
+
+    validate_date(date_from, "date_from")
+    validate_date(date_to, "date_to")
 
     from apps.modules.cashier.models import CashExpense
 
@@ -52,7 +54,6 @@ def list_cash_expenses(
 
 
 def list_cash_revenues(
-    token: str,
     tenant_id: int,
     date_from: str = "",
     date_to: str = "",
@@ -64,7 +65,10 @@ def list_cash_revenues(
     - date_from / date_to: ISO date strings (YYYY-MM-DD)
     - limit: max records (default 50, max 200)
     """
-    _, tenant = require_module_access(token, tenant_id, "cash")
+    _, tenant = require_module_access(tenant_id, "cash")
+
+    validate_date(date_from, "date_from")
+    validate_date(date_to, "date_to")
 
     from apps.modules.cashier.models import CashRevenue
 
@@ -77,7 +81,7 @@ def list_cash_revenues(
     limit = min(max(1, int(limit)), _MAX_LIMIT)
     return json_safe(list(
         qs.order_by("-revenue_at")[:limit].values(
-            "id", "external_id", "currency", "revenue_at",
+            "id", "external_id", "total_sum", "currency", "revenue_at",
             "source_year", "confirmed", "created_at",
         )
     ))
@@ -88,7 +92,6 @@ def list_cash_revenues(
 # ---------------------------------------------------------------------------
 
 def list_bank_expenses(
-    token: str,
     tenant_id: int,
     date_from: str = "",
     date_to: str = "",
@@ -100,7 +103,10 @@ def list_bank_expenses(
     - date_from / date_to: ISO date strings (YYYY-MM-DD), filter on doc_date
     - limit: max records (default 50, max 200)
     """
-    _, tenant = require_module_access(token, tenant_id, "bank")
+    _, tenant = require_module_access(tenant_id, "bank")
+
+    validate_date(date_from, "date_from")
+    validate_date(date_to, "date_to")
 
     from apps.modules.bank_expenses.models import BankExpense
 
@@ -122,7 +128,6 @@ def list_bank_expenses(
 
 
 def list_bank_revenues(
-    token: str,
     tenant_id: int,
     date_from: str = "",
     date_to: str = "",
@@ -134,7 +139,10 @@ def list_bank_revenues(
     - date_from / date_to: ISO date strings (YYYY-MM-DD), filter on doc_date
     - limit: max records (default 50, max 200)
     """
-    _, tenant = require_module_access(token, tenant_id, "bank")
+    _, tenant = require_module_access(tenant_id, "bank")
+
+    validate_date(date_from, "date_from")
+    validate_date(date_to, "date_to")
 
     from apps.modules.bank_expenses.models import BankRevenue
 
@@ -160,7 +168,6 @@ def list_bank_revenues(
 # ---------------------------------------------------------------------------
 
 def list_card_expenses(
-    token: str,
     tenant_id: int,
     date_from: str = "",
     date_to: str = "",
@@ -172,7 +179,10 @@ def list_card_expenses(
     - date_from / date_to: ISO date strings (YYYY-MM-DD)
     - limit: max records (default 50, max 200)
     """
-    _, tenant = require_module_access(token, tenant_id, "corporate_card")
+    _, tenant = require_module_access(tenant_id, "corporate_card")
+
+    validate_date(date_from, "date_from")
+    validate_date(date_to, "date_to")
 
     from apps.modules.corporate_card.models import CardExpense
 
@@ -196,7 +206,6 @@ def list_card_expenses(
 # ---------------------------------------------------------------------------
 
 def list_payroll_documents(
-    token: str,
     tenant_id: int,
     limit: int = 50,
 ) -> list[dict[str, Any]]:
@@ -204,7 +213,7 @@ def list_payroll_documents(
 
     - limit: max records (default 50, max 200)
     """
-    _, tenant = require_module_access(token, tenant_id, "payroll")
+    _, tenant = require_module_access(tenant_id, "payroll")
 
     from apps.modules.payroll.models import PayrollDocument
 
@@ -217,12 +226,11 @@ def list_payroll_documents(
 
 
 def get_payroll_document(
-    token: str,
     tenant_id: int,
     document_id: int,
 ) -> dict[str, Any]:
     """Return a payroll document and all its lines."""
-    _, tenant = require_module_access(token, tenant_id, "payroll")
+    _, tenant = require_module_access(tenant_id, "payroll")
 
     from apps.modules.payroll.models import PayrollDocument
 
