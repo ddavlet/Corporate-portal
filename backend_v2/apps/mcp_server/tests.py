@@ -1,5 +1,6 @@
 from datetime import date, datetime
 from decimal import Decimal
+from unittest.mock import patch, MagicMock
 
 from django.test import TestCase
 
@@ -59,3 +60,52 @@ class ValidateDateTests(TestCase):
         with self.assertRaises(ValueError) as ctx:
             validate_date("abc", "date_from")
         self.assertIn("abc", str(ctx.exception))
+
+
+class McpTenantToggleTests(TestCase):
+    def _make_tenant(self, *, mcp_enabled):
+        t = MagicMock()
+        t.id = 1
+        t.subdomain = "acme"
+        t.mcp_enabled = mcp_enabled
+        t.is_active = True
+        return t
+
+    def _make_user(self):
+        u = MagicMock()
+        u.id = 42
+        u.is_active = True
+        return u
+
+    @patch("apps.mcp_server.auth._get_token", return_value="tok")
+    @patch("apps.mcp_server.auth._decode_token", return_value=42)
+    @patch("apps.accounts.models.User.objects")
+    @patch("apps.tenants.models.Tenant.objects")
+    @patch("apps.tenants.models.TenantMembership.objects")
+    def test_mcp_disabled_tenant_raises(self, mock_membership, mock_tenant_mgr, mock_user_mgr, _dt, _gt):
+        from apps.mcp_server.auth import _get_user_and_tenant
+
+        mock_user_mgr.get.return_value = self._make_user()
+        tenant = self._make_tenant(mcp_enabled=False)
+        mock_tenant_mgr.get.return_value = tenant
+
+        with self.assertRaises(PermissionError) as ctx:
+            _get_user_and_tenant(42, 1)
+        self.assertIn("not enabled", str(ctx.exception))
+
+    @patch("apps.mcp_server.auth._get_token", return_value="tok")
+    @patch("apps.mcp_server.auth._decode_token", return_value=42)
+    @patch("apps.accounts.models.User.objects")
+    @patch("apps.tenants.models.Tenant.objects")
+    @patch("apps.tenants.models.TenantMembership.objects")
+    def test_mcp_enabled_tenant_proceeds(self, mock_membership, mock_tenant_mgr, mock_user_mgr, _dt, _gt):
+        from apps.mcp_server.auth import _get_user_and_tenant
+
+        user = self._make_user()
+        mock_user_mgr.get.return_value = user
+        tenant = self._make_tenant(mcp_enabled=True)
+        mock_tenant_mgr.get.return_value = tenant
+        mock_membership.filter.return_value.exists.return_value = True
+
+        result_user, result_tenant = _get_user_and_tenant(42, 1)
+        self.assertEqual(result_tenant.mcp_enabled, True)
