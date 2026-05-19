@@ -10,6 +10,7 @@ import json
 import requests
 from django.conf import settings
 from django.core.cache import cache
+from django.utils import timezone
 
 from apps.modules.reports.models import TenantReportSettings
 from apps.tenants.integration_settings import get_n8n_integration_settings
@@ -107,6 +108,8 @@ def _calc_monthly(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
             continue
         try:
             dt = datetime.fromisoformat(str(date_text).replace("Z", "+00:00"))
+            if timezone.is_aware(dt):
+                dt = timezone.localtime(dt, timezone=timezone.get_default_timezone())
         except ValueError:
             continue
         key = dt.strftime("%Y-%m")

@@ -1,7 +1,9 @@
 import '@n8n/chat/style.css'
 import './requestAiChatTheme.css'
 import { createChat } from '@n8n/chat'
-import { getRequestAiChatWebhookUrl } from '../../lib/requestAiChat'
+import { getRequestAiChatWebhookUrl, hookRequestAiChatFetch } from '../../lib/requestAiChat'
+
+hookRequestAiChatFetch()
 
 const MOUNT_ID = 'kolberg-request-ai-chat'
 
@@ -82,7 +84,6 @@ export function ensureRequestAiChat(): void {
   const mount = ensureMountElement()
   wireRequestAiChatCloseFix(mount)
   if (document.querySelector(`#${MOUNT_ID} .chat-window-wrapper`)) return
-
   createChat(buildChatOptions())
 }
 
