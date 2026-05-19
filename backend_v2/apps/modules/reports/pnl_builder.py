@@ -1,16 +1,17 @@
 from __future__ import annotations
 
 from datetime import date, datetime
-from decimal import ROUND_HALF_UP, Decimal
+from decimal import Decimal
 from typing import Any
 
 from django.conf import settings
-from django.db.models import Count
+from django.db.models import Count, Q
 from django.utils import timezone
 
 from apps.modules.bank_expenses.models import BankRevenue
 from apps.modules.cashier.models import CashRevenue
 from apps.modules.investments.models import InvestReturn
+from apps.modules.requests.amortization import build_amortization_schedule_rows
 from apps.modules.requests.models import Request, RequestPaymentPurposeConfig
 from apps.modules.reports.models import TenantReportSettings
 
@@ -53,9 +54,10 @@ def _iso_local(dt: datetime | date | None) -> str:
     if isinstance(dt, date) and not isinstance(dt, datetime):
         return dt.isoformat()
     if isinstance(dt, datetime):
+        tz = timezone.get_default_timezone()
         if settings.USE_TZ and timezone.is_naive(dt):
-            dt = timezone.make_aware(dt, timezone.get_current_timezone())
-        local = timezone.localtime(dt) if settings.USE_TZ else dt
+            dt = timezone.make_aware(dt, tz)
+        local = timezone.localtime(dt, timezone=tz) if settings.USE_TZ else dt
         return local.isoformat()
     return ""
 
@@ -229,6 +231,17 @@ def _invest_type_bucket(type_value: str, *, op: set[str], ot: set[str], inv: set
     return None
 
 
+def _parse_period_month(raw: str) -> date | None:
+    text = (raw or "").strip()
+    if not text:
+        return None
+    try:
+        y, m, _day = text.split("-", 2)
+        return date(int(y), int(m), 1)
+    except (ValueError, AttributeError):
+        return None
+
+
 def _invest_return_row(ir: InvestReturn) -> dict[str, Any]:
     label = ir.get_type_display()
     parts: list[str] = []
@@ -252,6 +265,7 @@ def _append_request_line(
     *,
     req: Request,
     bucket: str,
+    report_start: date,
     operational_expenses: list[dict[str, Any]],
     other_expenses: list[dict[str, Any]],
     invest_returns: list[dict[str, Any]],
@@ -275,14 +289,22 @@ def _append_request_line(
 
     months = int(req.amortization_months or 1)
     if months < 2:
+        if req.billing_date < report_start:
+            return
         base_item["date"] = req.billing_date.isoformat()
         target.append(base_item)
         return
-    amt = (Decimal(req.amount) / Decimal(months)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
-    start_d = req.amortization_start_date or req.billing_date
-    base_item["amount"] = str(amt)
-    base_item["date"] = start_d.isoformat()
-    target.append(base_item)
+
+    for schedule_row in build_amortization_schedule_rows(req):
+        period_month = _parse_period_month(str(schedule_row.get("period_month") or ""))
+        if period_month is None or period_month < report_start:
+            continue
+        item = {
+            **base_item,
+            "amount": schedule_row["monthly_amount"],
+            "date": schedule_row["period_month"],
+        }
+        target.append(item)
 
 
 def compute_unassigned_payment_purposes(*, tenant_id: int, cfg: dict[str, Any]) -> list[dict[str, Any]]:
@@ -404,7 +426,6 @@ def build_pnl_payload_from_db(*, tenant, query_params: dict[str, Any]) -> dict[s
     cash_qs = CashRevenue.objects.filter(
         tenant_id=tenant.id,
         confirmed=True,
-        revenue_at__isnull=False,
         revenue_at__date__gte=start,
     ).order_by("revenue_at", "id")
     for cr in cash_qs:
@@ -416,7 +437,7 @@ def build_pnl_payload_from_db(*, tenant, query_params: dict[str, Any]) -> dict[s
         revenue.append(
             {
                 "id": str(cr.id),
-                "date": _iso_local(cr.revenue_at) if cr.revenue_at else "",
+                "date": _iso_local(cr.revenue_at),
                 "amount": str(Decimal(cr.total_sum)),
                 "purpose": str(cr.operation or ""),
                 "description": str(cr.counterparty or ""),
@@ -428,11 +449,12 @@ def build_pnl_payload_from_db(*, tenant, query_params: dict[str, Any]) -> dict[s
     other_expenses: list[dict[str, Any]] = []
     invest_returns: list[dict[str, Any]] = []
 
+    # Non-amortized: billing_date in report window. Amortized: all paid requests — schedule
+    # may span years (manual values); rows outside start_month are dropped in _append_request_line.
     req_qs = Request.objects.filter(
         tenant_id=tenant.id,
         status=Request.STATUS_PAYED,
-        billing_date__gte=start,
-    )
+    ).filter(Q(billing_date__gte=start) | Q(amortization_months__gt=1))
     if pay_list:
         req_qs = req_qs.filter(payment_type__in=pay_list)
     else:
@@ -449,6 +471,7 @@ def build_pnl_payload_from_db(*, tenant, query_params: dict[str, Any]) -> dict[s
         _append_request_line(
             req=req,
             bucket=bucket,
+            report_start=start,
             operational_expenses=operational_expenses,
             other_expenses=other_expenses,
             invest_returns=invest_returns,
