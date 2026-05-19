@@ -789,8 +789,8 @@ services:
       - traefik.http.routers.django-v2-n8n.service=django-v2
       - traefik.http.routers.django-v2-n8n.priority=1200
 
-      # MCP server: dedicated hostname (MCP_HOST, default api.kolberg.uz) — entire host → django-v2 ASGI
-      - traefik.http.routers.django-v2-mcp.rule=Host(`${MCP_HOST:-api.kolberg.uz}`)
+      # MCP host: /mcp (protocol), /.well-known (OAuth discovery), /oauth (legacy login redirect)
+      - traefik.http.routers.django-v2-mcp.rule=Host(`${MCP_HOST:-api.kolberg.uz}`) && (PathPrefix(`/mcp`) || PathPrefix(`/.well-known`) || PathPrefix(`/oauth`))
       - traefik.http.routers.django-v2-mcp.entrypoints=web,websecure
       - traefik.http.routers.django-v2-mcp.tls=true
       - traefik.http.routers.django-v2-mcp.tls.certresolver=mytlschallenge

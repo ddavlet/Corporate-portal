@@ -109,7 +109,8 @@ urlpatterns = [
         ProtectedResourceMetadataView.as_view(),
         name="mcp_oauth_protected_resource_metadata",
     ),
-    path("oauth/mcp/login/", McpLoginView.as_view(), name="mcp_oauth_login"),
+    path("mcp/oauth/login/", McpLoginView.as_view(), name="mcp_oauth_login"),
+    path("oauth/mcp/login/", McpLoginLegacyRedirectView.as_view(), name="mcp_oauth_login_legacy_oauth_prefix"),
     path("mcp/login/", McpLoginLegacyRedirectView.as_view(), name="mcp_oauth_login_legacy"),
 ]
 
