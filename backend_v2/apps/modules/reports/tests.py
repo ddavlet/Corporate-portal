@@ -548,9 +548,10 @@ class BackendCashflowDatabaseTests(TestCase):
             created_by=self.admin,
         )
         payload = build_cashflow_payload_from_db(tenant=self.tenant, query_params={})
-        inv = payload["invest_returns"]
-        self.assertEqual(len(inv), 1)
-        self.assertEqual(inv[0]["date"], "2026-03-15")
+        # «дивиденды» в full_backend_pnl_config попадают в operational_expenses, не в invest_returns.
+        rows = payload["operational_expenses"]
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["date"], "2026-03-15")
 
     def test_cashflow_n8n_when_source_not_backend(self):
         TenantReportSettings.objects.filter(tenant=self.tenant).update(cashflow_source="n8n")
