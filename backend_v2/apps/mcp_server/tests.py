@@ -62,6 +62,25 @@ class ValidateDateTests(TestCase):
         self.assertIn("abc", str(ctx.exception))
 
 
+class McpOAuthMetadataTests(TestCase):
+    def test_authorization_server_metadata_points_to_mcp_endpoints(self):
+        from apps.mcp_server.oauth.metadata import authorization_server_metadata
+
+        meta = authorization_server_metadata()
+        self.assertTrue(meta["issuer"].endswith("/mcp"))
+        self.assertTrue(meta["authorization_endpoint"].endswith("/mcp/authorize"))
+        self.assertTrue(meta["token_endpoint"].endswith("/mcp/token"))
+        self.assertIn("registration_endpoint", meta)
+        self.assertIn("S256", meta["code_challenge_methods_supported"])
+
+    def test_protected_resource_metadata(self):
+        from apps.mcp_server.oauth.metadata import protected_resource_metadata
+
+        meta = protected_resource_metadata()
+        self.assertTrue(meta["resource"].endswith("/mcp"))
+        self.assertTrue(meta["authorization_servers"][0].endswith("/mcp"))
+
+
 class McpTenantToggleTests(TestCase):
     def _make_tenant(self, *, mcp_enabled):
         t = MagicMock()

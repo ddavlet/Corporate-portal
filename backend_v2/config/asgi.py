@@ -2,9 +2,11 @@
 ASGI config for Kolberg.
 
 Request routing:
-  /mcp/login/  → Django (MCP OAuth login page)
-  /mcp/*       → FastMCP (OAuth protocol + MCP protocol)
-  everything else → Django
+  /.well-known/oauth-*  → Django (MCP OAuth discovery at authorization base URL)
+  /oauth/mcp/login/     → Django (OTP login for MCP OAuth)
+  /mcp/login/           → Django (legacy redirect → /oauth/mcp/login/)
+  /mcp/*                → FastMCP (OAuth protocol + MCP Streamable HTTP)
+  everything else       → Django
 
 Lifespan:
   FastMCP's StreamableHttpSessionManager requires a lifespan startup
@@ -28,7 +30,6 @@ async def _proxy_lifespan_to_mcp(scope, receive, send):
 
     mcp_app = get_mcp_asgi_app()
 
-    # Queues bridge uvicorn ↔ FastMCP lifespan channels.
     to_mcp: asyncio.Queue = asyncio.Queue()
     from_mcp: asyncio.Queue = asyncio.Queue()
 
@@ -42,7 +43,6 @@ async def _proxy_lifespan_to_mcp(scope, receive, send):
         mcp_app({"type": "lifespan", "asgi": scope.get("asgi", {})}, mcp_receive, mcp_send)
     )
 
-    # --- startup ---
     event = await receive()
     assert event["type"] == "lifespan.startup"
     await to_mcp.put({"type": "lifespan.startup"})
@@ -53,19 +53,24 @@ async def _proxy_lifespan_to_mcp(scope, receive, send):
         return
     await send({"type": "lifespan.startup.complete"})
 
-    # --- shutdown ---
     event = await receive()
     assert event["type"] == "lifespan.shutdown"
     await to_mcp.put({"type": "lifespan.shutdown"})
 
-    await from_mcp.get()  # lifespan.shutdown.complete
+    await from_mcp.get()
     await send({"type": "lifespan.shutdown.complete"})
     await mcp_task
 
 
-def _is_mcp_oauth_login_path(path: str) -> bool:
-    """True for /mcp/login and /mcp/login/ (OAuth OTP page — always Django)."""
-    return path == "/mcp/login" or path.startswith("/mcp/login/")
+def _is_mcp_protocol_path(path: str) -> bool:
+    """FastMCP handles /mcp and /mcp/* except legacy login redirect."""
+    if path == "/mcp":
+        return True
+    if not path.startswith("/mcp/"):
+        return False
+    if path == "/mcp/login" or path.startswith("/mcp/login/"):
+        return False
+    return True
 
 
 async def application(scope, receive, send):
@@ -75,13 +80,7 @@ async def application(scope, receive, send):
 
     path = scope.get("path", "")
 
-    # Login must be handled before FastMCP — otherwise Starlette returns 404 for /login/.
-    if scope["type"] == "http" and _is_mcp_oauth_login_path(path):
-        await _django_app(scope, receive, send)
-        return
-
-    is_mcp_path = path == "/mcp" or (path.startswith("/mcp/") and not _is_mcp_oauth_login_path(path))
-    if scope["type"] == "http" and is_mcp_path:
+    if scope["type"] == "http" and _is_mcp_protocol_path(path):
         from apps.mcp_server.http.app import get_mcp_asgi_app
 
         new_path = path[4:] or "/"
