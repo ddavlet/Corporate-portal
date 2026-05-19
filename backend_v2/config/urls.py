@@ -11,6 +11,7 @@ from apps.accounts.views_telegram_oidc import TelegramOidcConfigView, TelegramOi
 from apps.accounts.views_telegram_webapp import TelegramWebAppAuthView
 from apps.modules.requests.views import FileGatewayView, FileDownloadView
 from apps.modules.n8n_integration.views import AiChatProxyView, CashflowDataProxyView, PnlDataProxyView
+from apps.mcp_server.oauth.views import McpLoginView
 from apps.tenants.views import (
     AccessMatrixView,
     ModuleCatalogView,
@@ -92,7 +93,8 @@ urlpatterns = [
     # Messaging gateway webhook
     path("api/messaging-gateway/", include("apps.modules.telegram_approvals.urls")),
 
-    # MCP OAuth login page (FastMCP handles /mcp/* via ASGI; login page stays in Django)
+    # MCP OAuth login (explicit route + include — ASGI sends /mcp/login/* to Django only)
+    path("mcp/login/", McpLoginView.as_view(), name="mcp_oauth_login"),
     path("mcp/", include("apps.mcp_server.oauth.urls")),
 ]
 
