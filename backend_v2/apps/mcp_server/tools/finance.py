@@ -201,6 +201,41 @@ def list_card_expenses(
     ))
 
 
+def list_card_revenues(
+    tenant_id: int,
+    date_from: str = "",
+    date_to: str = "",
+    limit: int = 50,
+) -> list[dict[str, Any]]:
+    """Return corporate card revenues for a tenant.
+
+    Filters (all optional):
+    - date_from / date_to: ISO date strings (YYYY-MM-DD)
+    - limit: max records (default 50, max 200)
+    """
+    _, tenant = require_module_access(tenant_id, "corporate_card")
+
+    validate_date(date_from, "date_from")
+    validate_date(date_to, "date_to")
+
+    from apps.modules.corporate_card.models import CardRevenue
+
+    qs = CardRevenue.objects.filter(tenant=tenant)
+    if date_from:
+        qs = qs.filter(revenue_at__date__gte=date_from)
+    if date_to:
+        qs = qs.filter(revenue_at__date__lte=date_to)
+
+    limit = min(max(1, int(limit)), _MAX_LIMIT)
+    return json_safe(list(
+        qs.order_by("-revenue_at")[:limit].values(
+            "id", "external_id", "total_sum", "amount", "currency", "revenue_at",
+            "revenue_date", "direction", "organization", "counterparty",
+            "confirmed", "source_year", "wallet_id", "created_at",
+        )
+    ))
+
+
 # ---------------------------------------------------------------------------
 # Payroll
 # ---------------------------------------------------------------------------
