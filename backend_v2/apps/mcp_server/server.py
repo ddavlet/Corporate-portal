@@ -102,6 +102,13 @@ Corporate card (module: "corporate_card") — reconciliation only:
   list_card_expenses      — raw card charges
   list_card_revenues      — card credits (safe to query directly)
 
+Reports (module: "reports"):
+  get_pnl_report          — full PnL: revenue + expenses split into operational /
+                            other / invest_returns; expenses on billing_date with
+                            amortization; includes report_settings explaining config
+  get_cashflow_report     — same structure as PnL but expenses on actual cash
+                            payment date, no amortization (cash-basis)
+
 Payroll (module: "payroll"):
   list_payroll_documents  — salary payment documents
   get_payroll_document    — document with all employee lines
@@ -124,10 +131,11 @@ Tenant context (no module required):
 ROLE PERMISSIONS
 ════════════════════════════════════════════════════════════
 admin / director  — all modules
-approver          — requests, vendors
-requester         — requests, vendors
-cashier           — requests, cash, corporate_card, wallets, vendors
-accountant        — requests, bank, payroll, corporate_card, wallets, vendors
+approver          — requests, vendors, contracts, notes
+requester         — requests, vendors, contracts, notes
+cashier           — requests, cash, corporate_card, wallets, vendors, contracts, notes, reports
+accountant        — requests, bank, payroll, corporate_card, wallets, vendors, contracts, notes, reports
+investor          — investments, reports
 
 ════════════════════════════════════════════════════════════
 ERRORS AND FILTERING
@@ -502,6 +510,99 @@ def list_card_revenues(
         return _list_err(str(e))
     except Exception as e:
         return _list_err(f"Unexpected error: {e}")
+
+
+# ---------------------------------------------------------------------------
+# Reports — PnL and Cashflow
+# ---------------------------------------------------------------------------
+
+@mcp.tool()
+def get_pnl_report(tenant_id: int) -> dict:
+    """Get the full Profit & Loss (PnL) report for a tenant.
+
+    Builds the report directly from the database using the tenant's saved
+    pnl_config settings. The response includes a report_settings block that
+    explains exactly how the report was constructed (filters, buckets, etc.).
+
+    ── Response structure ──────────────────────────────────────────────────
+    {
+      "revenue": [                     ← all income lines (bank + cash inflows)
+        { "id", "date", "amount", "category", "purpose", "description" }
+      ],
+      "operational_expenses": [        ← operating costs (e.g. rent, salaries)
+        { "id", "date", "amount", "category", "purpose", "description" }
+      ],
+      "other_expenses": [              ← non-operating costs (e.g. taxes, fines)
+        { "id", "date", "amount", "category", "purpose", "description" }
+      ],
+      "invest_returns": [              ← founder / investor payouts
+        { "id", "date", "amount", "category", "purpose", "description" }
+      ],
+      "metadata": { "start_month" },  ← report window start (YYYY-MM)
+      "report_settings": {            ← FULL config used to build this report
+        "start_month",                   first month included
+        "cash_exclude_operations",       cash revenue ops excluded from income
+        "request_exclude_categories",    request categories excluded from expenses
+        "request_payment_types_for_pnl", payment types included as PnL expenses
+        "payment_purpose_operational",   purposes → operational_expenses bucket
+        "payment_purpose_other",         purposes → other_expenses bucket
+        "payment_purpose_invest_returns",purposes → invest_returns bucket
+        "invest_return_type_operational",invest return types → operational bucket
+        "invest_return_type_other",      invest return types → other bucket
+        "invest_return_type_invest_returns" invest return types → invest bucket
+      }
+    }
+    ────────────────────────────────────────────────────────────────────────
+
+    Key rule: expenses use billing_date from requests; amortized requests are
+    spread across months according to their amortization schedule.
+
+    Required roles: admin, director, accountant, cashier, investor (module: reports).
+
+    Args:
+        tenant_id: Tenant primary key (get from list_my_tenants).
+    """
+    try:
+        return fin_tools.get_pnl_report(tenant_id=tenant_id)
+    except (PermissionError, ValueError) as e:
+        return _err(str(e))
+    except Exception as e:
+        return _err(f"Unexpected error: {e}")
+
+
+@mcp.tool()
+def get_cashflow_report(tenant_id: int) -> dict:
+    """Get the full Cashflow report for a tenant.
+
+    Same structure and config as get_pnl_report, but expenses use the actual
+    cash payment date (payed_at / expense_year+month) instead of billing_date,
+    and there is NO amortization — every expense appears once on the day money
+    left the account.
+
+    ── Response structure ──────────────────────────────────────────────────
+    Identical shape to get_pnl_report:
+    { "revenue", "operational_expenses", "other_expenses",
+      "invest_returns", "metadata", "report_settings" }
+
+    Each expense line: { "id", "date", "amount", "category", "purpose", "description" }
+    ────────────────────────────────────────────────────────────────────────
+
+    ── PnL vs Cashflow ─────────────────────────────────────────────────────
+    PnL       — billing_date (accrual); amortized items spread across months.
+    Cashflow  — actual payment date;    no amortization, cash-basis only.
+    ────────────────────────────────────────────────────────────────────────
+
+    Required roles: admin, director, accountant, cashier, investor (module: reports).
+
+    Args:
+        tenant_id: Tenant primary key (get from list_my_tenants).
+    """
+    try:
+        return fin_tools.get_cashflow_report(tenant_id=tenant_id)
+    except (PermissionError, ValueError) as e:
+        return _err(str(e))
+    except Exception as e:
+        return _err(f"Unexpected error: {e}")
 
 
 @mcp.tool()

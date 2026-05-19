@@ -237,6 +237,54 @@ def list_card_revenues(
 
 
 # ---------------------------------------------------------------------------
+# Reports — PnL and Cashflow
+# ---------------------------------------------------------------------------
+
+def get_pnl_report(tenant_id: int) -> dict:
+    """Build and return the full PnL report from the database.
+
+    Uses the same pnl_config as the tenant's backend PnL settings.
+    Raises ValueError if report settings are not configured.
+    """
+    _, tenant = require_module_access(tenant_id, "reports")
+
+    from apps.modules.reports.pnl_builder import (
+        build_pnl_payload_from_db,
+        ReportSettingsMissing,
+        ReportSettingsInvalid,
+    )
+
+    try:
+        return build_pnl_payload_from_db(tenant=tenant, query_params={})
+    except ReportSettingsMissing as e:
+        raise ValueError(str(e))
+    except ReportSettingsInvalid as e:
+        raise ValueError(str(e))
+
+
+def get_cashflow_report(tenant_id: int) -> dict:
+    """Build and return the full Cashflow report from the database.
+
+    Uses the same pnl_config as PnL (cashflow reuses the same filter config).
+    Raises ValueError if report settings are not configured.
+    """
+    _, tenant = require_module_access(tenant_id, "reports")
+
+    from apps.modules.reports.cashflow_builder import (
+        build_cashflow_payload_from_db,
+        ReportSettingsInvalid,
+    )
+    from apps.modules.reports.pnl_builder import ReportSettingsMissing
+
+    try:
+        return build_cashflow_payload_from_db(tenant=tenant, query_params={})
+    except ReportSettingsMissing as e:
+        raise ValueError(str(e))
+    except ReportSettingsInvalid as e:
+        raise ValueError(str(e))
+
+
+# ---------------------------------------------------------------------------
 # Payroll
 # ---------------------------------------------------------------------------
 
