@@ -62,7 +62,7 @@ class McpLoginView(View):
             })
 
         from apps.accounts.models import User
-        from apps.tenants.models import Tenant
+        from apps.accounts.otp import OtpError, send_otp
 
         try:
             user = User.objects.get(username=username, is_active=True)
@@ -71,15 +71,12 @@ class McpLoginView(View):
                 "t": t, "step": "username", "error": "Пользователь не найден."
             })
 
-        # Send OTP using existing logic
-        from apps.accounts.otp import send_otp
-
+        ip = request.META.get("HTTP_X_REAL_IP") or request.META.get("REMOTE_ADDR") or ""
         try:
-            send_otp(user=user)
-        except Exception as exc:
+            send_otp(user=user, ip=ip)
+        except OtpError as exc:
             return render(request, self.template_name, {
-                "t": t, "step": "username",
-                "error": f"Не удалось отправить OTP: {exc}",
+                "t": t, "step": "username", "error": str(exc),
             })
 
         return render(request, self.template_name, {
@@ -91,7 +88,7 @@ class McpLoginView(View):
         otp_code = request.POST.get("otp", "").strip()
 
         from apps.accounts.models import User
-        from apps.accounts.otp import verify_otp
+        from apps.accounts.otp import OtpError, verify_otp
 
         try:
             user = User.objects.get(username=username, is_active=True)
@@ -102,10 +99,10 @@ class McpLoginView(View):
 
         try:
             verify_otp(user=user, code=otp_code)
-        except Exception:
+        except OtpError as exc:
             return render(request, self.template_name, {
                 "t": t, "step": "otp", "username": username,
-                "error": "Неверный или истёкший код.",
+                "error": str(exc),
             })
 
         # OTP verified — create authorization code and redirect
