@@ -109,7 +109,10 @@ urlpatterns = [
         ProtectedResourceMetadataView.as_view(),
         name="mcp_oauth_protected_resource_metadata",
     ),
-    path("mcp/oauth/login/", McpLoginView.as_view(), name="mcp_oauth_login"),
+    # Internal login path (ASGI rewrites /mcp/oauth/login/ → /oauth-login/).
+    path("oauth-login/", McpLoginView.as_view(), name="mcp_oauth_login"),
+    # Legacy public URLs kept for direct hits / tests.
+    path("mcp/oauth/login/", McpLoginView.as_view(), name="mcp_oauth_login_public"),
     path("oauth/mcp/login/", McpLoginLegacyRedirectView.as_view(), name="mcp_oauth_login_legacy_oauth_prefix"),
     path("mcp/login/", McpLoginLegacyRedirectView.as_view(), name="mcp_oauth_login_legacy"),
 ]

@@ -26,6 +26,8 @@ _django_app = get_asgi_application()
 
 _WELL_KNOWN_AUTH = "/.well-known/oauth-authorization-server"
 _WELL_KNOWN_RESOURCE = "/.well-known/oauth-protected-resource"
+# Internal Django path (public URLs /mcp/oauth/login/ etc. are rewritten here in ASGI).
+_DJANGO_LOGIN_PATH = "/oauth-login/"
 
 
 def _path_normalized(path: str) -> str:
@@ -47,6 +49,11 @@ def _is_mcp_django_path(path: str) -> bool:
     if p in ("/oauth/mcp/login", "/oauth/mcp/login/") or p.startswith("/oauth/mcp/login/"):
         return True
     return False
+
+
+def _scope_for_mcp_login(scope: dict) -> dict:
+    """Map public login URLs to a single internal Django route."""
+    return {**scope, "path": _DJANGO_LOGIN_PATH}
 
 
 def _is_mcp_protocol_path(path: str) -> bool:
@@ -132,6 +139,10 @@ async def application(scope, receive, send):
             await _send_json(send, authorization_server_metadata())
         else:
             await _send_json(send, protected_resource_metadata())
+        return
+
+    if _is_mcp_django_path(path):
+        await _django_app(_scope_for_mcp_login(scope), receive, send)
         return
 
     if _is_mcp_protocol_path(path):
