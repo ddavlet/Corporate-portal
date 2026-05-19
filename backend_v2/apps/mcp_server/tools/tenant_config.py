@@ -21,7 +21,7 @@ def list_my_tenants() -> list[dict[str, Any]]:
 
     memberships = (
         TenantMembership.objects
-        .filter(user_id=user_id, is_active=True, tenant__is_active=True)
+        .filter(user_id=user_id, user__is_active=True, is_active=True, tenant__is_active=True)
         .select_related("tenant")
         .order_by("tenant__name")
     )
@@ -52,7 +52,7 @@ def get_my_role(tenant_id: int) -> dict[str, Any]:
     except Tenant.DoesNotExist:
         raise PermissionError(f"Tenant {tenant_id} not found or inactive")
 
-    if not TenantMembership.objects.filter(user_id=user_id, tenant=tenant, is_active=True).exists():
+    if not TenantMembership.objects.filter(user_id=user_id, user__is_active=True, tenant=tenant, is_active=True).exists():
         raise PermissionError("You are not an active member of this tenant")
 
     roles = list(
@@ -82,10 +82,10 @@ def list_my_modules(tenant_id: int) -> list[dict[str, Any]]:
     from apps.tenants.permissions import has_effective_module_access
 
     try:
-        user = User.objects.get(id=user_id)
+        user = User.objects.get(id=user_id, is_active=True)
         tenant = Tenant.objects.get(id=tenant_id, is_active=True)
     except (User.DoesNotExist, Tenant.DoesNotExist):
-        raise PermissionError(f"Tenant {tenant_id} not found or user invalid")
+        raise PermissionError(f"Tenant {tenant_id} not found or user not found/deactivated")
 
     if not TenantMembership.objects.filter(user=user, tenant=tenant, is_active=True).exists():
         raise PermissionError("You are not an active member of this tenant")
