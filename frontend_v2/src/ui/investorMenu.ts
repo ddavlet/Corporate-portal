@@ -1,7 +1,9 @@
+import type { ReactElement } from 'react'
+
 export type ShellMenuRoute = {
   path: string
   name: string
-  icon: JSX.Element
+  icon: ReactElement
   moduleKey?: string
 }
 

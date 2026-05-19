@@ -15,6 +15,7 @@ import {
 import { isPayedMissingLinkedExpense, type RequestExpenseLink } from '../../lib/requestExpense'
 import { RequestDetailModal, type RequestDetail } from './RequestDetailModal'
 import { labelBlockAboveField } from '../formSpacing'
+import { RequestAiChatButton } from './RequestAiChatButton'
 import { NoteCreateModal } from '../NoteCreateModal'
 import { useUserPreference } from '../../lib/useUserPreference'
 
@@ -691,6 +692,7 @@ export function RequestsPage() {
         <Space>
           <Button onClick={() => navigate('/requests/audit')}>Аудит месяцев</Button>
           <Button onClick={() => navigate('/requests/auto-config')}>Автозаявки</Button>
+          <RequestAiChatButton />
           <Button type="primary" icon={<FileAddOutlined />} onClick={() => navigate('/requests/new')}>
             Новая заявка
           </Button>
