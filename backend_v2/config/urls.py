@@ -16,7 +16,6 @@ from apps.mcp_server.oauth.metadata_views import (
     AuthorizationServerMetadataView,
     ProtectedResourceMetadataView,
 )
-from apps.mcp_server.oauth.redirects import McpLoginLegacyRedirectView
 from apps.tenants.views import (
     AccessMatrixView,
     ModuleCatalogView,
@@ -110,10 +109,6 @@ urlpatterns = [
         name="mcp_oauth_protected_resource_metadata",
     ),
     path("oauth/login/", McpLoginView.as_view(), name="mcp_oauth_login"),
-    # Legacy URLs (ASGI also 301s these before FastMCP; kept for Django test client).
-    path("mcp/oauth/login/", McpLoginLegacyRedirectView.as_view(), name="mcp_oauth_login_legacy_mcp_prefix"),
-    path("oauth/mcp/login/", McpLoginLegacyRedirectView.as_view(), name="mcp_oauth_login_legacy_oauth_prefix"),
-    path("mcp/login/", McpLoginLegacyRedirectView.as_view(), name="mcp_oauth_login_legacy"),
 ]
 
 for _n8n_seg in settings.N8N_INTEGRATION_MOUNT_PATHS:
