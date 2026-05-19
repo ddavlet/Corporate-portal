@@ -22,6 +22,7 @@ from apps.tenants.permissions import (
     HasEffectiveModuleAccess,
     HasWalletsFinancialWriteAccess,
     IsTenantAdmin,
+    build_role_module_matrix,
     role_allows_module,
 )
 from apps.tenants.serializers import (
@@ -277,6 +278,7 @@ class AccessMatrixView(APIView):
         return Response(
             {
                 "modules": modules,
+                "role_module_rows": build_role_module_matrix(module_keys=module_keys),
                 "users": users_payload,
             }
         )

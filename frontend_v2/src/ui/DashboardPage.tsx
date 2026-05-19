@@ -22,6 +22,7 @@ import {
 } from './dashboard/widgets/adapters'
 import type { DashboardWidgetKey, PendingApprovalItem, WidgetVisibility } from './dashboard/widgets/types'
 import { useUserPreference } from '../lib/useUserPreference'
+import { useModuleAccess } from './moduleAccess'
 
 const DASHBOARD_WIDGETS_PREF_KEY = 'dashboard.widgets.v1'
 const defaultVisibility: WidgetVisibility = {
@@ -41,6 +42,8 @@ function normalizeWidgetVisibility(raw: unknown): WidgetVisibility {
 }
 
 export function DashboardPage() {
+  const { hasAccess, loading: moduleAccessLoading } = useModuleAccess()
+  const canViewReports = !moduleAccessLoading && hasAccess('reports')
   const [approvalsLoading, setApprovalsLoading] = useState(true)
   const [reportsLoading, setReportsLoading] = useState(true)
   const [approvalsBusy, setApprovalsBusy] = useState(false)
@@ -89,8 +92,14 @@ export function DashboardPage() {
 
   useEffect(() => {
     void loadApprovals()
-    void loadReports()
-  }, [])
+    if (canViewReports) {
+      void loadReports()
+      return
+    }
+    if (!moduleAccessLoading) {
+      setReportsLoading(false)
+    }
+  }, [canViewReports, moduleAccessLoading])
 
   const nowRef = getCurrentMonthRef()
   const prevRef = getPreviousMonthRef(nowRef)
@@ -177,36 +186,42 @@ const pnlExpenseItems = useMemo(() => {
             checkedChildren="Согласования"
             unCheckedChildren="Согласования"
           />
-          <Switch
-            checked={widgetVisibility.incomeBreakdown}
-            onChange={(checked) => toggleWidget('incomeBreakdown', checked)}
-            checkedChildren="Доходы"
-            unCheckedChildren="Доходы"
-          />
-          <Switch
-            checked={widgetVisibility.expenseBreakdown}
-            onChange={(checked) => toggleWidget('expenseBreakdown', checked)}
-            checkedChildren="Расходы"
-            unCheckedChildren="Расходы"
-          />
-          <Switch
-            checked={widgetVisibility.pnlNetPrevMonth}
-            onChange={(checked) => toggleWidget('pnlNetPrevMonth', checked)}
-            checkedChildren="P&L"
-            unCheckedChildren="P&L"
-          />
-          <Switch
-            checked={widgetVisibility.cashflowNetCurrentMonth}
-            onChange={(checked) => toggleWidget('cashflowNetCurrentMonth', checked)}
-            checkedChildren="Cashflow"
-            unCheckedChildren="Cashflow"
-          />
+          {canViewReports ? (
+            <>
+              <Switch
+                checked={widgetVisibility.incomeBreakdown}
+                onChange={(checked) => toggleWidget('incomeBreakdown', checked)}
+                checkedChildren="Доходы"
+                unCheckedChildren="Доходы"
+              />
+              <Switch
+                checked={widgetVisibility.expenseBreakdown}
+                onChange={(checked) => toggleWidget('expenseBreakdown', checked)}
+                checkedChildren="Расходы"
+                unCheckedChildren="Расходы"
+              />
+              <Switch
+                checked={widgetVisibility.pnlNetPrevMonth}
+                onChange={(checked) => toggleWidget('pnlNetPrevMonth', checked)}
+                checkedChildren="P&L"
+                unCheckedChildren="P&L"
+              />
+              <Switch
+                checked={widgetVisibility.cashflowNetCurrentMonth}
+                onChange={(checked) => toggleWidget('cashflowNetCurrentMonth', checked)}
+                checkedChildren="Cashflow"
+                unCheckedChildren="Cashflow"
+              />
+            </>
+          ) : null}
           <Button onClick={() => setWidgetVisibility(defaultVisibility)}>Сбросить настройки виджетов</Button>
         </Space>
       </Card>
 
       {approvalsError ? <Alert type="error" showIcon message="Ошибка загрузки согласований" description={approvalsError} /> : null}
-      {reportsError ? <Alert type="error" showIcon message="Ошибка загрузки отчетов" description={reportsError} /> : null}
+      {canViewReports && reportsError ? (
+        <Alert type="error" showIcon message="Ошибка загрузки отчетов" description={reportsError} />
+      ) : null}
 
       <Row gutter={[16, 16]}>
         {widgetVisibility.pendingApprovals ? (
@@ -221,12 +236,12 @@ const pnlExpenseItems = useMemo(() => {
             />
           </Col>
         ) : null}
-        {widgetVisibility.pnlNetPrevMonth ? (
+        {canViewReports && widgetVisibility.pnlNetPrevMonth ? (
           <Col xs={24} sm={12} lg={6}>
             <PnlNetProfitPrevMonthWidget value={pnlPrevMonthProfit} loading={reportsLoading} />
           </Col>
         ) : null}
-        {widgetVisibility.cashflowNetCurrentMonth ? (
+        {canViewReports && widgetVisibility.cashflowNetCurrentMonth ? (
           <Col xs={24} sm={12} lg={6}>
             <CashflowProfitCurrentMonthWidget value={cashflowCurrentProfit} loading={reportsLoading} />
           </Col>
@@ -234,12 +249,12 @@ const pnlExpenseItems = useMemo(() => {
       </Row>
 
       <Row gutter={[16, 16]}>
-        {widgetVisibility.incomeBreakdown ? (
+        {canViewReports && widgetVisibility.incomeBreakdown ? (
           <Col xs={24} lg={12}>
             <IncomePieWidget slices={incomeSlices} loading={reportsLoading} />
           </Col>
         ) : null}
-        {widgetVisibility.expenseBreakdown ? (
+        {canViewReports && widgetVisibility.expenseBreakdown ? (
           <Col xs={24} lg={12}>
             <ExpensePieWidget slices={expenseSlices} loading={reportsLoading} />
           </Col>
