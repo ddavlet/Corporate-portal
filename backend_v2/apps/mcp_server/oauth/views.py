@@ -1,7 +1,7 @@
 """
 Django login view for the MCP OAuth flow.
 
-URL: /mcp/login/?t=<signed_params>
+URL: /oauth/mcp/login/?t=<signed_params>
 
 Two-step flow:
   Step 1 — username form  → triggers OTP via Telegram

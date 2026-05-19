@@ -215,11 +215,32 @@ N8N_INTEGRATION_TOKEN = os.getenv("N8N_INTEGRATION_TOKEN", "").strip()
 # When empty, backend falls back to the public https://{subdomain}.{BASE_DOMAIN} path.
 N8N_INTERNAL_BASE_URL = (os.getenv("N8N_INTERNAL_BASE_URL", "") or "").strip().rstrip("/")
 
-# MCP server: base URL advertised as OAuth issuer (e.g. https://api.kolberg.uz/mcp).
-# The /mcp/ path is mounted via ASGI. Set MCP_BASE_URL in the environment.
+# MCP server: OAuth issuer + MCP protocol base (e.g. https://api.kolberg.uz/mcp).
 MCP_BASE_URL = (os.getenv("MCP_BASE_URL", "") or "").strip().rstrip("/") or (
     f"https://api.{BASE_DOMAIN}/mcp" if BASE_DOMAIN else "http://localhost:8000/mcp"
 )
+# Protected resource identifier (Streamable HTTP MCP endpoint).
+MCP_RESOURCE_URL = (os.getenv("MCP_RESOURCE_URL", "") or "").strip().rstrip("/") or MCP_BASE_URL
+
+def _mcp_public_origin() -> str:
+    from urllib.parse import urlparse
+
+    parsed = urlparse(MCP_BASE_URL)
+    return f"{parsed.scheme}://{parsed.netloc}"
+
+
+# Django OTP login page — outside /mcp/ so FastMCP never intercepts it.
+MCP_OAUTH_LOGIN_URL = (os.getenv("MCP_OAUTH_LOGIN_URL", "") or "").strip().rstrip("/") or (
+    f"{_mcp_public_origin()}/oauth/mcp/login"
+)
+
+# Origins allowed for Streamable HTTP (Claude.ai connector).
+_default_mcp_origins = f"{_mcp_public_origin()},https://claude.ai,https://claude.com"
+MCP_ALLOWED_ORIGINS = [
+    o.strip()
+    for o in (os.getenv("MCP_ALLOWED_ORIGINS", _default_mcp_origins) or _default_mcp_origins).split(",")
+    if o.strip()
+]
 
 # Outbound authorization token for calling n8n webhooks (X-N8N-Token header).
 N8N_TOKEN = os.getenv("N8N_TOKEN", "").strip()

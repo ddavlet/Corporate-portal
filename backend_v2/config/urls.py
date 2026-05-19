@@ -12,6 +12,11 @@ from apps.accounts.views_telegram_webapp import TelegramWebAppAuthView
 from apps.modules.requests.views import FileGatewayView, FileDownloadView
 from apps.modules.n8n_integration.views import AiChatProxyView, CashflowDataProxyView, PnlDataProxyView
 from apps.mcp_server.oauth.views import McpLoginView
+from apps.mcp_server.oauth.metadata_views import (
+    AuthorizationServerMetadataView,
+    ProtectedResourceMetadataView,
+)
+from apps.mcp_server.oauth.redirects import McpLoginLegacyRedirectView
 from apps.tenants.views import (
     AccessMatrixView,
     ModuleCatalogView,
@@ -93,9 +98,19 @@ urlpatterns = [
     # Messaging gateway webhook
     path("api/messaging-gateway/", include("apps.modules.telegram_approvals.urls")),
 
-    # MCP OAuth login (explicit route + include — ASGI sends /mcp/login/* to Django only)
-    path("mcp/login/", McpLoginView.as_view(), name="mcp_oauth_login"),
-    path("mcp/", include("apps.mcp_server.oauth.urls")),
+    # MCP OAuth — discovery at host root (MCP spec), login outside /mcp/ (Django only)
+    path(
+        ".well-known/oauth-authorization-server",
+        AuthorizationServerMetadataView.as_view(),
+        name="mcp_oauth_authorization_server_metadata",
+    ),
+    path(
+        ".well-known/oauth-protected-resource",
+        ProtectedResourceMetadataView.as_view(),
+        name="mcp_oauth_protected_resource_metadata",
+    ),
+    path("oauth/mcp/login/", McpLoginView.as_view(), name="mcp_oauth_login"),
+    path("mcp/login/", McpLoginLegacyRedirectView.as_view(), name="mcp_oauth_login_legacy"),
 ]
 
 for _n8n_seg in settings.N8N_INTEGRATION_MOUNT_PATHS:
