@@ -129,9 +129,8 @@ class McpOAuthMetadataTests(TestCase):
         self.assertEqual(r.json()["resource"], "https://api.kolberg.uz/mcp")
 
     def test_oauth_login_page_without_token_returns_400(self):
-        for login_path in ("/oauth-login/", "/mcp/oauth/login/"):
-            r = self.client.get(login_path)
-            self.assertEqual(r.status_code, 400, login_path)
+        r = self.client.get("/mcp/oauth/login/")
+        self.assertEqual(r.status_code, 400)
 
     def test_legacy_login_redirects_to_oauth_login(self):
         for legacy in ("/mcp/login/?t=test", "/oauth/mcp/login/?t=test"):
@@ -141,6 +140,29 @@ class McpOAuthMetadataTests(TestCase):
                 r["Location"].startswith("https://api.kolberg.uz/mcp/oauth/login/"),
                 r["Location"],
             )
+
+
+class McpAsgiLoginTests(TestCase):
+    def test_legacy_paths_redirect(self):
+        from apps.mcp_server.oauth.asgi_login import _is_legacy_login_path
+
+        self.assertTrue(_is_legacy_login_path("/mcp/login/"))
+        self.assertTrue(_is_legacy_login_path("/oauth/mcp/login"))
+        self.assertFalse(_is_legacy_login_path("/mcp/oauth/login/"))
+
+    def test_build_request_preserves_query(self):
+        from apps.mcp_server.oauth.asgi_login import _build_http_request
+
+        scope = {
+            "method": "GET",
+            "path": "/mcp/oauth/login/",
+            "query_string": b"t=abc",
+            "headers": [(b"host", b"api.kolberg.uz")],
+            "scheme": "https",
+        }
+        req = _build_http_request(scope, b"")
+        self.assertEqual(req.path, "/mcp/oauth/login/")
+        self.assertEqual(req.GET.get("t"), "abc")
 
 
 class McpTenantToggleTests(TestCase):

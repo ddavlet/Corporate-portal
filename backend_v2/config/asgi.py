@@ -3,9 +3,9 @@ ASGI config for Kolberg.
 
 Request routing:
   /.well-known/oauth-*     → JSON metadata (ASGI, MCP spec root discovery)
-  /mcp/oauth/login/        → Django (OTP login)
-  /mcp/login/              → Django (legacy redirect)
-  /oauth/mcp/login/        → Django (legacy redirect)
+  /mcp/oauth/login/        → McpLoginView via ASGI (OTP login)
+  /mcp/login/              → 301 → /mcp/oauth/login/
+  /oauth/mcp/login/        → 301 → /mcp/oauth/login/
   /mcp/*                   → FastMCP (OAuth + Streamable HTTP)
   everything else          → Django
 
@@ -26,10 +26,6 @@ _django_app = get_asgi_application()
 
 _WELL_KNOWN_AUTH = "/.well-known/oauth-authorization-server"
 _WELL_KNOWN_RESOURCE = "/.well-known/oauth-protected-resource"
-# Internal Django path (public URLs /mcp/oauth/login/ etc. are rewritten here in ASGI).
-_DJANGO_LOGIN_PATH = "/oauth-login/"
-
-
 def _path_normalized(path: str) -> str:
     return (path or "/").rstrip("/") or "/"
 
@@ -49,11 +45,6 @@ def _is_mcp_django_path(path: str) -> bool:
     if p in ("/oauth/mcp/login", "/oauth/mcp/login/") or p.startswith("/oauth/mcp/login/"):
         return True
     return False
-
-
-def _scope_for_mcp_login(scope: dict) -> dict:
-    """Map public login URLs to a single internal Django route."""
-    return {**scope, "path": _DJANGO_LOGIN_PATH}
 
 
 def _is_mcp_protocol_path(path: str) -> bool:
@@ -142,7 +133,9 @@ async def application(scope, receive, send):
         return
 
     if _is_mcp_django_path(path):
-        await _django_app(_scope_for_mcp_login(scope), receive, send)
+        from apps.mcp_server.oauth.asgi_login import serve_mcp_login
+
+        await serve_mcp_login(scope, receive, send)
         return
 
     if _is_mcp_protocol_path(path):
