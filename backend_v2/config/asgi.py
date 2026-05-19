@@ -70,7 +70,8 @@ async def application(scope, receive, send):
 
     path = scope.get("path", "")
 
-    if scope["type"] == "http" and path.startswith("/mcp/") and not path.startswith("/mcp/login"):
+    is_mcp_path = path == "/mcp" or (path.startswith("/mcp/") and not path.startswith("/mcp/login"))
+    if scope["type"] == "http" and is_mcp_path:
         from apps.mcp_server.http.app import get_mcp_asgi_app
 
         new_path = path[4:] or "/"
