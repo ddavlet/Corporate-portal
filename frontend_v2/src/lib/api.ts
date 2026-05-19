@@ -876,7 +876,9 @@ export type CashflowDiagnosticsApi = {
 
 export type TenantCashflowReportSettingsApiResponse = {
   cashflow_source: 'n8n' | 'backend'
-  cashflow_config: CashflowReportSettingsSnapshot
+  /** Shared with backend PnL — Cashflow reuses pnl_config for filters. */
+  pnl_config: CashflowReportSettingsSnapshot
+  uses_pnl_config?: boolean
   updated_at?: string | null
   cashflow_diagnostics?: CashflowDiagnosticsApi
 }
@@ -885,15 +887,16 @@ function parseTenantCashflowReportSettingsApiResponse(json: unknown): TenantCash
   const obj = json && typeof json === 'object' ? (json as Record<string, unknown>) : {}
   const src = String(obj.cashflow_source || '').toLowerCase()
   const cashflow_source: 'n8n' | 'backend' = src === 'backend' ? 'backend' : 'n8n'
-  const rawCfg = obj.cashflow_config
-  const cashflow_config: CashflowReportSettingsSnapshot =
+  const rawCfg = obj.pnl_config ?? obj.cashflow_config
+  const pnl_config: CashflowReportSettingsSnapshot =
     rawCfg && typeof rawCfg === 'object' ? (rawCfg as CashflowReportSettingsSnapshot) : {}
   const rawDiag = obj.cashflow_diagnostics
   const cashflow_diagnostics: CashflowDiagnosticsApi | undefined =
     rawDiag && typeof rawDiag === 'object' ? (rawDiag as CashflowDiagnosticsApi) : undefined
   return {
     cashflow_source,
-    cashflow_config,
+    pnl_config,
+    uses_pnl_config: obj.uses_pnl_config === true,
     updated_at: typeof obj.updated_at === 'string' ? obj.updated_at : null,
     cashflow_diagnostics,
   }
@@ -910,7 +913,7 @@ export async function getTenantCashflowReportSettings(opts?: {
 }
 
 export async function patchTenantCashflowReportSettings(
-  payload: Partial<{ cashflow_source: 'n8n' | 'backend'; cashflow_config: CashflowReportSettingsSnapshot }>,
+  payload: Partial<{ cashflow_source: 'n8n' | 'backend' }>,
 ): Promise<TenantCashflowReportSettingsApiResponse> {
   const res = await apiFetch('/api/reports/cashflow-report-settings/', {
     method: 'PATCH',

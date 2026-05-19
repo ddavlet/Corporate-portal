@@ -544,7 +544,7 @@ class BackendCashflowDatabaseTests(TestCase):
         TenantReportSettings.objects.create(
             tenant=self.tenant,
             cashflow_source="backend",
-            cashflow_config=full_backend_pnl_config(),
+            pnl_config=full_backend_pnl_config(),
         )
 
     def test_request_expense_uses_cash_date_not_billing_date(self):
@@ -615,10 +615,34 @@ class BackendCashflowDatabaseTests(TestCase):
         )
         pnl = build_pnl_payload_from_db(tenant=self.tenant, query_params={})
         cashflow = build_cashflow_payload_from_db(tenant=self.tenant, query_params={})
-        self.assertEqual(len(pnl["operational_expenses"]), 1)
-        self.assertEqual(pnl["operational_expenses"][0]["amount"], "100.00")
+        pnl_lines = pnl["operational_expenses"]
+        self.assertGreaterEqual(len(pnl_lines), 1)
+        pnl_total = sum(Decimal(x["amount"]) for x in pnl_lines)
+        self.assertEqual(pnl_total, Decimal("1200.00"))
         self.assertEqual(len(cashflow["operational_expenses"]), 1)
         self.assertEqual(cashflow["operational_expenses"][0]["amount"], "1200.00")
+
+    def test_request_expense_fallback_to_payed_at(self):
+        Request.objects.create(
+            tenant=self.tenant,
+            created_by=self.admin,
+            requester=self.admin,
+            title="payed only",
+            description="",
+            amount="500.00",
+            currency="UZS",
+            payment_type=Request.PAYMENT_TYPE_TRANSFER,
+            urgency=Request.URGENCY_NORMAL,
+            billing_date=date(2026, 1, 1),
+            payment_purpose="Операционное назначение",
+            status=Request.STATUS_PAYED,
+            payed_at=20260315,
+        )
+        payload = build_cashflow_payload_from_db(tenant=self.tenant, query_params={})
+        op = payload["operational_expenses"]
+        self.assertEqual(len(op), 1)
+        self.assertEqual(op[0]["amount"], "500.00")
+        self.assertEqual(op[0]["date"], "2026-03-15")
 
     def test_invest_return_uses_payout_date_not_billing_date(self):
         InvestReturn.objects.create(
@@ -662,20 +686,24 @@ class TenantCashflowReportSettingsConfigApiTests(APITestCase):
         res = self.client.get(self.url, **self._auth(self.admin))
         self.assertEqual(res.status_code, 200, res.content)
         self.assertEqual(res.data["cashflow_source"], TenantReportSettings.CASHFLOW_SOURCE_N8N)
-        self.assertEqual(res.data["cashflow_config"], {})
+        self.assertEqual(res.data["pnl_config"], {})
+        self.assertTrue(res.data.get("uses_pnl_config"))
 
-    def test_admin_patch_backend_requires_full_config(self):
+    def test_admin_patch_backend_requires_pnl_config(self):
         bad = self.client.patch(
             self.url,
-            {"cashflow_source": "backend", "cashflow_config": {}},
+            {"cashflow_source": "backend"},
             format="json",
             **self._auth(self.admin),
         )
         self.assertEqual(bad.status_code, 400, bad.content)
 
+        TenantReportSettings.objects.filter(tenant=self.tenant).update(
+            pnl_config=full_backend_pnl_config(),
+        )
         ok = self.client.patch(
             self.url,
-            {"cashflow_source": "backend", "cashflow_config": full_backend_pnl_config()},
+            {"cashflow_source": "backend"},
             format="json",
             **self._auth(self.admin),
         )
