@@ -16,26 +16,19 @@ def with_mcp_resource_metadata(app):
             return
 
         header_name = b"www-authenticate"
-        header_value = f'Bearer resource_metadata="{protected_resource_metadata_url()}"'.encode("ascii")
+        canonical_meta = protected_resource_metadata_url()
 
         async def send_wrapper(message):
             if message["type"] == "http.response.start" and message["status"] == 401:
-                headers = list(message.get("headers", []))
-                replaced = False
-                for i, (name, value) in enumerate(headers):
-                    if name.lower() == header_name:
-                        existing = value.decode("latin-1")
-                        if "resource_metadata=" not in existing:
-                            headers[i] = (
-                                name,
-                                f'{existing}, resource_metadata="{protected_resource_metadata_url()}"'.encode(
-                                    "latin-1"
-                                ),
-                            )
-                        replaced = True
-                        break
-                if not replaced:
-                    headers.append((header_name, header_value))
+                headers = [(n, v) for n, v in message.get("headers", []) if n.lower() != header_name]
+                # Always use Django-served metadata URL (FastMCP may append a wrong /mcp suffix).
+                headers.append(
+                    (
+                        header_name,
+                        f'Bearer error="invalid_token", error_description="Authentication required", '
+                        f'resource_metadata="{canonical_meta}"'.encode("latin-1"),
+                    )
+                )
                 message = {**message, "headers": headers}
             await send(message)
 
