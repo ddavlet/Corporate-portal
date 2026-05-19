@@ -163,6 +163,11 @@ def _is_pnl_endpoint(endpoint: str) -> bool:
     return ep.endswith("pnl-data") or ep.endswith("n8n/pnl-data")
 
 
+def _is_cashflow_endpoint(endpoint: str) -> bool:
+    ep = endpoint.lstrip("/").lower()
+    return ep.endswith("cashflow-data") or ep.endswith("n8n/cashflow-data")
+
+
 def resolve_pnl_source_for_tenant(*, tenant) -> str:
     """
     Resolve per-tenant PnL source from TenantReportSettings.
@@ -178,6 +183,24 @@ def resolve_pnl_source_for_tenant(*, tenant) -> str:
     source = (row.pnl_source or "").strip().lower()
     if source not in {TenantReportSettings.PNL_SOURCE_N8N, TenantReportSettings.PNL_SOURCE_BACKEND}:
         raise RuntimeError(f"Invalid pnl_source={source!r} for tenant_id={tenant_id}")
+    return source
+
+
+def resolve_cashflow_source_for_tenant(*, tenant) -> str:
+    """
+    Resolve per-tenant Cashflow source from TenantReportSettings.
+    For non-model test doubles (without id), fallback to n8n.
+    """
+    tenant_id = getattr(tenant, "id", None)
+    if not tenant_id:
+        return TenantReportSettings.CASHFLOW_SOURCE_N8N
+    try:
+        row = TenantReportSettings.objects.only("cashflow_source").get(tenant_id=tenant_id)
+    except TenantReportSettings.DoesNotExist as exc:
+        raise RuntimeError(f"No tenant_report_settings for tenant_id={tenant_id}") from exc
+    source = (row.cashflow_source or "").strip().lower()
+    if source not in {TenantReportSettings.CASHFLOW_SOURCE_N8N, TenantReportSettings.CASHFLOW_SOURCE_BACKEND}:
+        raise RuntimeError(f"Invalid cashflow_source={source!r} for tenant_id={tenant_id}")
     return source
 
 
@@ -273,7 +296,11 @@ def fetch_n8n_report_payload(*, tenant, user_id: int, endpoint: str, query_param
         raise RuntimeError("BASE_DOMAIN is not configured.")
 
     pnl_backend = _is_pnl_endpoint(endpoint) and resolve_pnl_source_for_tenant(tenant=tenant) == TenantReportSettings.PNL_SOURCE_BACKEND
-    payload_source = "backend" if pnl_backend else "n8n"
+    cashflow_backend = (
+        _is_cashflow_endpoint(endpoint)
+        and resolve_cashflow_source_for_tenant(tenant=tenant) == TenantReportSettings.CASHFLOW_SOURCE_BACKEND
+    )
+    payload_source = "backend" if (pnl_backend or cashflow_backend) else "n8n"
 
     cache_key = _reports_cache_key(
         tenant_subdomain=tenant.subdomain,
@@ -295,6 +322,23 @@ def fetch_n8n_report_payload(*, tenant, user_id: int, endpoint: str, query_param
 
         try:
             raw = build_pnl_payload_from_db(tenant=tenant, query_params=query_params)
+        except (ReportSettingsMissing, ReportSettingsInvalid) as exc:
+            raise RuntimeError(str(exc)) from exc
+
+        result = finalize_report_payload(payload_obj=raw, endpoint=endpoint, source="backend")
+        cache_ttl = int(getattr(settings, "REPORTS_CACHE_TTL_SECONDS", 60))
+        cache.set(cache_key, result, timeout=max(1, cache_ttl))
+        return result
+
+    if cashflow_backend:
+        from apps.modules.reports.cashflow_builder import (
+            ReportSettingsInvalid,
+            ReportSettingsMissing,
+            build_cashflow_payload_from_db,
+        )
+
+        try:
+            raw = build_cashflow_payload_from_db(tenant=tenant, query_params=query_params)
         except (ReportSettingsMissing, ReportSettingsInvalid) as exc:
             raise RuntimeError(str(exc)) from exc
 
