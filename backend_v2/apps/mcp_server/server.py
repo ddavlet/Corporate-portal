@@ -190,19 +190,35 @@ def list_requests(
     date_to: str = "",
     limit: int = 50,
 ) -> list:
-    """List requests (заявки) for a tenant with optional filters.
+    """List payment requests (заявки на оплату) for a tenant with optional filters.
+
+    A request is a payment order initiated by an employee and routed through
+    a multi-step approval chain before being paid. Each request has an amount,
+    currency, vendor, category, urgency, and a current status reflecting where
+    it is in the approval workflow.
+
+    Status lifecycle:
+      DRAFT     — saved but not yet submitted for approval
+      1–5       — in approval (step number depends on tenant config)
+      APPROVED  — all approvers signed off, awaiting payment
+      PAYED     — payment confirmed by cashier/accountant
+      REJECTED  — declined at some approval step
 
     Required roles: admin, director, approver, requester, accountant, cashier.
 
     Args:
-        tenant_id: Tenant primary key.
+        tenant_id: Tenant primary key (get from list_my_tenants).
         status: Filter by status. One of: DRAFT, 1, 2, 3, 4, 5, APPROVED, PAYED, REJECTED.
         currency: Filter by currency. One of: UZS, USD, EUR, RUB.
-        payment_type: Filter by payment type. One of: Наличные, Перечисление, Пополнение, Платежная карта.
-        urgency: Filter by urgency. One of: Низко, Обычно, Срочно.
-        date_from: Filter created_at >= this date (YYYY-MM-DD).
-        date_to: Filter created_at <= this date (YYYY-MM-DD).
-        limit: Max number of results (1–200, default 50).
+        payment_type: How payment is made. One of:
+            "Наличные" (cash),
+            "Перечисление" (bank transfer),
+            "Пополнение" (top-up / prepayment),
+            "Платежная карта" (corporate card).
+        urgency: One of: "Низко" (low), "Обычно" (normal), "Срочно" (urgent).
+        date_from: Filter by creation date >= YYYY-MM-DD.
+        date_to: Filter by creation date <= YYYY-MM-DD.
+        limit: Max records to return (1–200, default 50).
     """
     try:
         return req_tools.list_requests(
@@ -218,13 +234,18 @@ def list_requests(
 
 @mcp.tool()
 def get_request(tenant_id: int, request_id: int) -> dict:
-    """Get a single request by ID, including its approval steps.
+    """Get full details of a single payment request by ID.
+
+    Returns all request fields plus the approval chain: each step shows
+    the approver's name, their decision (approved / rejected / pending),
+    comment, and timestamp. Use this after list_requests to drill into
+    a specific request.
 
     Required roles: admin, director, approver, requester, accountant, cashier.
 
     Args:
-        tenant_id: Tenant primary key.
-        request_id: Request primary key.
+        tenant_id: Tenant primary key (get from list_my_tenants).
+        request_id: Request primary key (get from list_requests).
     """
     try:
         return req_tools.get_request(tenant_id=tenant_id, request_id=request_id)
@@ -236,12 +257,16 @@ def get_request(tenant_id: int, request_id: int) -> dict:
 
 @mcp.tool()
 def list_request_categories(tenant_id: int) -> list:
-    """List active request categories for a tenant.
+    """List active payment request categories configured for a tenant.
+
+    Categories classify what a request is for (e.g. "Аренда", "Маркетинг",
+    "Зарплата"). Use this to understand available categories before
+    filtering or explaining requests to the user.
 
     Required roles: admin, director, approver, requester, accountant, cashier.
 
     Args:
-        tenant_id: Tenant primary key.
+        tenant_id: Tenant primary key (get from list_my_tenants).
     """
     try:
         return req_tools.list_request_categories(tenant_id=tenant_id)
