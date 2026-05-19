@@ -6,7 +6,6 @@ from django.test import Client, TestCase, override_settings
 
 from apps.mcp_server.utils import json_safe, validate_date
 from apps.mcp_server.routing import (
-    is_legacy_mcp_login_path,
     is_mcp_protocol_path,
     is_well_known_oauth_path,
 )
@@ -72,14 +71,8 @@ class McpRoutingTests(TestCase):
         for path in ("/mcp", "/mcp/", "/mcp/authorize", "/mcp/token", "/mcp/register"):
             self.assertTrue(is_mcp_protocol_path(path), path)
 
-    def test_login_paths_not_fastmcp(self):
-        for path in (
-            "/oauth/login/",
-            "/mcp/oauth/login/",
-            "/oauth/mcp/login/",
-            "/mcp/login/",
-        ):
-            self.assertFalse(is_mcp_protocol_path(path), path)
+    def test_canonical_login_not_fastmcp(self):
+        self.assertFalse(is_mcp_protocol_path("/oauth/login/"))
 
     def test_well_known_not_fastmcp(self):
         for path in (
@@ -95,20 +88,22 @@ class McpRoutingTests(TestCase):
         self.assertTrue(is_well_known_oauth_path("/.well-known/oauth-authorization-server/mcp"))
         self.assertFalse(is_well_known_oauth_path("/mcp/.well-known/oauth-authorization-server"))
 
-    def test_legacy_login_paths(self):
-        self.assertTrue(is_legacy_mcp_login_path("/mcp/login/"))
-        self.assertTrue(is_legacy_mcp_login_path("/mcp/oauth/login"))
-        self.assertFalse(is_legacy_mcp_login_path("/oauth/login/"))
+
+_MCP_TEST_HOST = "api.kolberg.uz"
 
 
 @override_settings(
     MCP_BASE_URL="https://api.kolberg.uz/mcp",
     MCP_RESOURCE_URL="https://api.kolberg.uz/mcp",
     MCP_OAUTH_LOGIN_URL="https://api.kolberg.uz/oauth/login",
+    ALLOWED_HOSTS=[_MCP_TEST_HOST, "testserver"],
 )
 class McpOAuthMetadataTests(TestCase):
     def setUp(self):
         self.client = Client()
+
+    def _mcp_get(self, path: str):
+        return self.client.get(path, HTTP_HOST=_MCP_TEST_HOST)
 
     def test_authorization_server_metadata_points_to_mcp_endpoints(self):
         from apps.mcp_server.oauth.metadata import authorization_server_metadata
@@ -135,36 +130,30 @@ class McpOAuthMetadataTests(TestCase):
         self.assertFalse(url.endswith("/mcp"))
 
     def test_root_well_known_endpoints_served_by_django(self):
-        r = self.client.get("/.well-known/oauth-authorization-server")
+        r = self._mcp_get("/.well-known/oauth-authorization-server")
         self.assertEqual(r.status_code, 200)
         self.assertEqual(r.json()["authorization_endpoint"], "https://api.kolberg.uz/mcp/authorize")
 
-        r = self.client.get("/.well-known/oauth-protected-resource")
+        r = self._mcp_get("/.well-known/oauth-protected-resource")
         self.assertEqual(r.status_code, 200)
         self.assertEqual(r.json()["resource"], "https://api.kolberg.uz/mcp")
 
     def test_oauth_login_page_without_token_returns_400(self):
-        r = self.client.get("/oauth/login/")
+        r = self._mcp_get("/oauth/login/")
         self.assertEqual(r.status_code, 400)
-
-    def test_legacy_login_redirects_to_canonical_oauth_login(self):
-        for legacy in ("/mcp/login/?t=test", "/oauth/mcp/login/?t=test", "/mcp/oauth/login/?t=test"):
-            r = self.client.get(legacy)
-            self.assertEqual(r.status_code, 301, legacy)
-            self.assertTrue(
-                r["Location"].startswith("https://api.kolberg.uz/oauth/login/"),
-                r["Location"],
-            )
 
 
 @override_settings(
     MCP_BASE_URL="https://api.kolberg.uz/mcp",
     MCP_OAUTH_LOGIN_URL="https://api.kolberg.uz/oauth/login",
-    ALLOWED_HOSTS=["api.kolberg.uz", "testserver"],
+    ALLOWED_HOSTS=[_MCP_TEST_HOST, "testserver"],
 )
 class McpOAuthLoginFlowTests(TestCase):
     def setUp(self):
+        from django.contrib.auth import get_user_model
+
         self.client = Client()
+        get_user_model().objects.create_user(username="alice", password="test-pass")
 
     def _signed_t(self) -> str:
         from django.core import signing
@@ -187,7 +176,7 @@ class McpOAuthLoginFlowTests(TestCase):
         r = self.client.post(
             "/oauth/login/",
             {"t": t, "step": "username", "username": "alice"},
-            HTTP_HOST="api.kolberg.uz",
+            HTTP_HOST=_MCP_TEST_HOST,
         )
         self.assertEqual(r.status_code, 200, r.content[:500])
         mock_send.assert_called_once()

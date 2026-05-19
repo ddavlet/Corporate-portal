@@ -796,7 +796,6 @@ services:
       #   /.well-known/oauth-protected-resource
       #   /mcp/ /mcp/authorize /mcp/token /mcp/register — FastMCP protocol + OAuth
       #   /oauth/login/ — OTP login (Django)
-      #   /mcp/oauth/login/ /oauth/mcp/login/ /mcp/login/ — legacy 301 → /oauth/login/
       - traefik.http.routers.django-v2-mcp.rule=Host(`${MCP_HOST:-api.kolberg.uz}`)
       - traefik.http.routers.django-v2-mcp.entrypoints=web,websecure
       - traefik.http.routers.django-v2-mcp.tls=true

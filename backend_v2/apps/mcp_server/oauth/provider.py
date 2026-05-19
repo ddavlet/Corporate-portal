@@ -2,7 +2,7 @@
 KolbergOAuthProvider — реализация OAuthAuthorizationServerProvider для FastMCP.
 
 Поток авторизации:
-  1. FastMCP вызывает authorize() → редирект на /mcp/login/?t=<signed_params>
+  1. FastMCP вызывает authorize() → редирект на /oauth/login/?t=<signed_params>
   2. Пользователь логинится через OTP (Django-вью)
   3. После логина Django создаёт OAuthAuthorizationCode и редиректит на redirect_uri?code=...
   4. FastMCP вызывает exchange_authorization_code() → simplejwt access+refresh токены

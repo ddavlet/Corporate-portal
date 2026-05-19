@@ -3,7 +3,6 @@ ASGI config for Kolberg.
 
 MCP host (api.kolberg.uz) routing — see apps.mcp_server.routing:
   /.well-known/oauth-*  → JSON metadata
-  legacy /mcp/.../login → 301 → /oauth/login/
   /mcp, /mcp/*          → FastMCP
   /oauth/login/         → Django (OTP)
   everything else       → Django
@@ -89,11 +88,9 @@ async def application(scope, receive, send):
     path = scope.get("path", "")
 
     from apps.mcp_server.routing import (
-        is_legacy_mcp_login_path,
         is_mcp_protocol_path,
         is_well_known_authorization_server_path,
         is_well_known_oauth_path,
-        redirect_legacy_login_to_canonical,
     )
 
     if is_well_known_oauth_path(path):
@@ -106,10 +103,6 @@ async def application(scope, receive, send):
             await _send_json(send, authorization_server_metadata())
         else:
             await _send_json(send, protected_resource_metadata())
-        return
-
-    if is_legacy_mcp_login_path(path):
-        await redirect_legacy_login_to_canonical(scope, send)
         return
 
     if is_mcp_protocol_path(path):
