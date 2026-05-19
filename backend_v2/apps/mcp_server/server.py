@@ -48,68 +48,95 @@ mcp = FastMCP(
     name="Kolberg Data Server",
     instructions="""
 Kolberg is a multi-tenant financial management platform. This server provides
-read-only access to one tenant's data. Authentication is handled automatically
-via the KOLBERG_JWT_TOKEN environment variable set at server startup.
+read-only access to one tenant's data.
 
-HOW TO START
-1. Ask the user for their tenant_id (the numeric ID of their organization).
-2. Call list_module_configs(tenant_id) to discover which modules are enabled
-   for this tenant. Only call tools for modules that are enabled — disabled
-   modules always return a permission error.
-3. If access is denied, check the user's roles with list_user_roles(tenant_id)
-   (requires admin role).
+════════════════════════════════════════════════════════════
+CRITICAL: SOURCE OF TRUTH FOR EXPENSES
+════════════════════════════════════════════════════════════
+ALL expenses in Kolberg are recorded as payment REQUESTS (заявки).
+Cash and bank transaction records (list_cash_expenses, list_bank_expenses,
+list_card_expenses) are raw accounting feeds used ONLY to reconcile whether
+every expense has a matching request. They are NOT the source of truth.
 
-DATA DOMAINS AND TOOLS
-- Requests (заявки):
-    list_requests          — list with filters (status, currency, payment_type, urgency, date range)
-    get_request            — single request with full approval chain
-    list_request_categories — active categories for this tenant
+DEFAULT BEHAVIOUR — always follow this:
+  • When the user asks about expenses, spending, payments, or costs
+    → use list_requests / get_request as the primary source.
+  • Do NOT call list_cash_expenses / list_bank_expenses / list_card_expenses
+    by default.
 
-- Cash (module key: "cash"):
-    list_cash_expenses     — expenses with date/currency filters
-    list_cash_revenues     — revenues with date filter (includes total_sum amount)
+EXCEPTION — raw transaction data:
+  • Only call cash/bank/card expense tools when the user EXPLICITLY asks for
+    raw transaction data AND confirms they want to bypass requests.
+  • Example trigger: "покажи мне сырые данные кассы" / "нужны транзакции банка
+    напрямую, не через заявки".
+  • When in doubt — ask the user before calling raw expense tools.
 
-- Bank (module key: "bank"):
-    list_bank_expenses     — bank debit operations with date filter
-    list_bank_revenues     — bank credit operations with date filter
+Revenues (list_cash_revenues, list_bank_revenues, list_card_revenues) are not
+covered by requests and can be queried directly at any time.
 
-- Corporate card (module key: "corporate_card"):
-    list_card_expenses     — card expenses with date filter
+════════════════════════════════════════════════════════════
+HOW TO START A SESSION
+════════════════════════════════════════════════════════════
+1. list_my_tenants()            — discover which tenants the user belongs to.
+2. get_my_role(tenant_id)       — understand the user's roles and permissions.
+3. list_my_modules(tenant_id)   — see which modules are enabled and accessible.
+4. Only then call domain-specific tools for enabled modules.
 
-- Payroll (module key: "payroll"):
-    list_payroll_documents — list documents
-    get_payroll_document   — document with all employee lines
+════════════════════════════════════════════════════════════
+TOOLS BY DOMAIN
+════════════════════════════════════════════════════════════
+Requests / заявки (PRIMARY source for expenses):
+  list_requests           — filter by status, currency, payment_type, urgency, date
+  get_request             — full detail + approval chain for one request
+  list_request_categories — categories configured for this tenant
 
-- Directories / справочники (module keys: "vendors", "wallets"):
-    list_vendors           — vendor directory, filter by kind (cash/transfer) or name
-    list_wallets           — all wallets (cash registers, bank accounts, card accounts)
+Cash (module: "cash") — reconciliation only, see CRITICAL above:
+  list_cash_expenses      — raw cash outflows
+  list_cash_revenues      — cash inflows (safe to query directly)
 
-- Integrations (admin only):
-    get_integration_config — shows which integrations are configured (secrets never exposed)
+Bank (module: "bank") — reconciliation only, see CRITICAL above:
+  list_bank_expenses      — raw bank debits
+  list_bank_revenues      — bank credits (safe to query directly)
 
-- Tenant configuration (admin/director only):
-    get_tenant_info        — tenant name, subdomain, feature flags
-    list_module_configs    — which modules are enabled/disabled
-    list_user_roles        — all user→role assignments (admin only)
-    list_memberships       — all active members (admin only)
+Corporate card (module: "corporate_card") — reconciliation only:
+  list_card_expenses      — raw card charges
+  list_card_revenues      — card credits (safe to query directly)
 
-ROLE PERMISSIONS (who can access what)
-- admin / director : all modules
-- approver         : requests, vendors, notes
-- requester        : requests, vendors, notes
-- cashier          : requests, cash, corporate_card, wallets, vendors
-- accountant       : requests, bank, payroll, corporate_card, wallets, vendors
-- investor         : investments (no tools exposed yet)
+Payroll (module: "payroll"):
+  list_payroll_documents  — salary payment documents
+  get_payroll_document    — document with all employee lines
 
-ERRORS
-All tools return {"error": "message"} (for dict tools) or [{"error": "message"}]
-(for list tools) on failure. Always check for the "error" key before using results.
-Common errors: invalid/expired token, wrong tenant_id, insufficient role, module disabled.
+Directories (modules: "vendors", "wallets"):
+  list_vendors            — vendor directory; filter by kind or name
+  list_wallets            — cash registers, bank accounts, card accounts
+  list_active_users       — active tenant members with roles (admin/director only)
 
-FILTERING
-- Date filters accept YYYY-MM-DD format only. Invalid formats return a clear error.
-- limit parameter: default 50, max 200 (max 500 for list_vendors).
-- All results are scoped to the given tenant — cross-tenant access is impossible.
+Tenant context (no module required):
+  list_my_tenants         — tenants the current user belongs to
+  get_my_role             — current user's roles in a tenant
+  list_my_modules         — enabled + accessible modules for current user
+  get_tenant_info         — tenant metadata (admin/director only)
+  list_module_configs     — all module flags (admin/director only)
+  list_user_roles         — user→role assignments (admin only)
+  list_memberships        — all members (admin only)
+
+════════════════════════════════════════════════════════════
+ROLE PERMISSIONS
+════════════════════════════════════════════════════════════
+admin / director  — all modules
+approver          — requests, vendors
+requester         — requests, vendors
+cashier           — requests, cash, corporate_card, wallets, vendors
+accountant        — requests, bank, payroll, corporate_card, wallets, vendors
+
+════════════════════════════════════════════════════════════
+ERRORS AND FILTERING
+════════════════════════════════════════════════════════════
+- All tools return {"error": "..."} or [{"error": "..."}] on failure.
+  Always check for the "error" key before using results.
+- Date filters: YYYY-MM-DD only.
+- limit: default 50, max 200 (max 500 for list_vendors).
+- All data is strictly scoped to the given tenant_id.
 """,
 )
 
@@ -288,16 +315,21 @@ def list_cash_expenses(
     currency: str = "",
     limit: int = 50,
 ) -> list:
-    """List cash expenses for a tenant.
+    """[RECONCILIATION ONLY] Raw cash register outflows for a tenant.
+
+    WARNING: Do NOT use this to answer questions about expenses — use
+    list_requests instead. This tool returns raw cashier records used
+    to verify that every cash payment has a matching request (заявка).
+    Only call this when the user explicitly asks for raw cash data.
 
     Required roles: admin, director, cashier.
 
     Args:
-        tenant_id: Tenant primary key.
+        tenant_id: Tenant primary key (get from list_my_tenants).
         date_from: Filter expense_at >= this date (YYYY-MM-DD).
         date_to: Filter expense_at <= this date (YYYY-MM-DD).
-        currency: Filter by currency. One of: UZS, USD, EUR, RUB.
-        limit: Max number of results (1–200, default 50).
+        currency: One of: UZS, USD, EUR, RUB.
+        limit: Max records (1–200, default 50).
     """
     try:
         return fin_tools.list_cash_expenses(
@@ -317,15 +349,19 @@ def list_cash_revenues(
     date_to: str = "",
     limit: int = 50,
 ) -> list:
-    """List cash revenues for a tenant.
+    """Raw cash inflows (receipts) for a tenant.
+
+    Safe to query directly — revenues are not tracked via requests.
+    Use this to see money coming into the cash register (e.g. client
+    payments, refunds received, cash deposits).
 
     Required roles: admin, director, cashier.
 
     Args:
-        tenant_id: Tenant primary key.
+        tenant_id: Tenant primary key (get from list_my_tenants).
         date_from: Filter revenue_at >= this date (YYYY-MM-DD).
         date_to: Filter revenue_at <= this date (YYYY-MM-DD).
-        limit: Max number of results (1–200, default 50).
+        limit: Max records (1–200, default 50).
     """
     try:
         return fin_tools.list_cash_revenues(
@@ -345,15 +381,20 @@ def list_bank_expenses(
     date_to: str = "",
     limit: int = 50,
 ) -> list:
-    """List bank expenses for a tenant.
+    """[RECONCILIATION ONLY] Raw bank debit transactions for a tenant.
+
+    WARNING: Do NOT use this to answer questions about expenses — use
+    list_requests instead. This tool returns raw bank statement debits
+    used to verify that every bank payment has a matching request (заявка).
+    Only call this when the user explicitly asks for raw bank transaction data.
 
     Required roles: admin, director, accountant.
 
     Args:
-        tenant_id: Tenant primary key.
+        tenant_id: Tenant primary key (get from list_my_tenants).
         date_from: Filter doc_date >= this date (YYYY-MM-DD).
         date_to: Filter doc_date <= this date (YYYY-MM-DD).
-        limit: Max number of results (1–200, default 50).
+        limit: Max records (1–200, default 50).
     """
     try:
         return fin_tools.list_bank_expenses(
@@ -373,15 +414,19 @@ def list_bank_revenues(
     date_to: str = "",
     limit: int = 50,
 ) -> list:
-    """List bank revenues for a tenant.
+    """Raw bank credit transactions (incoming transfers) for a tenant.
+
+    Safe to query directly — revenues are not tracked via requests.
+    Use this to see money arriving in the company's bank accounts
+    (e.g. client payments, loan receipts, refunds from suppliers).
 
     Required roles: admin, director, accountant.
 
     Args:
-        tenant_id: Tenant primary key.
+        tenant_id: Tenant primary key (get from list_my_tenants).
         date_from: Filter doc_date >= this date (YYYY-MM-DD).
         date_to: Filter doc_date <= this date (YYYY-MM-DD).
-        limit: Max number of results (1–200, default 50).
+        limit: Max records (1–200, default 50).
     """
     try:
         return fin_tools.list_bank_revenues(
@@ -401,15 +446,20 @@ def list_card_expenses(
     date_to: str = "",
     limit: int = 50,
 ) -> list:
-    """List corporate card expenses for a tenant.
+    """[RECONCILIATION ONLY] Raw corporate card charges for a tenant.
+
+    WARNING: Do NOT use this to answer questions about expenses — use
+    list_requests instead. This tool returns raw card statement charges
+    used to verify that every card payment has a matching request (заявка).
+    Only call this when the user explicitly asks for raw card transaction data.
 
     Required roles: admin, director, accountant, cashier.
 
     Args:
-        tenant_id: Tenant primary key.
+        tenant_id: Tenant primary key (get from list_my_tenants).
         date_from: Filter expense_at >= this date (YYYY-MM-DD).
         date_to: Filter expense_at <= this date (YYYY-MM-DD).
-        limit: Max number of results (1–200, default 50).
+        limit: Max records (1–200, default 50).
     """
     try:
         return fin_tools.list_card_expenses(
@@ -429,15 +479,19 @@ def list_card_revenues(
     date_to: str = "",
     limit: int = 50,
 ) -> list:
-    """List corporate card revenues for a tenant.
+    """Raw corporate card credits (top-ups, refunds) for a tenant.
+
+    Safe to query directly — revenues are not tracked via requests.
+    Use this to see money loaded onto corporate cards or refunded back
+    to the card (e.g. "Пополнение" from the company, merchant refunds).
 
     Required roles: admin, director, accountant, cashier.
 
     Args:
-        tenant_id: Tenant primary key.
+        tenant_id: Tenant primary key (get from list_my_tenants).
         date_from: Filter revenue_at >= this date (YYYY-MM-DD).
         date_to: Filter revenue_at <= this date (YYYY-MM-DD).
-        limit: Max number of results (1–200, default 50).
+        limit: Max records (1–200, default 50).
     """
     try:
         return fin_tools.list_card_revenues(
@@ -452,13 +506,20 @@ def list_card_revenues(
 
 @mcp.tool()
 def list_payroll_documents(tenant_id: int, limit: int = 50) -> list:
-    """List payroll documents for a tenant.
+    """List payroll documents (ведомости) for a tenant.
+
+    A payroll document is a salary payment batch — it groups multiple
+    employee payment lines under one document with a period (month/year),
+    status, and total amount. Use get_payroll_document to retrieve the
+    individual lines (per-employee amounts).
+
+    Statuses: DRAFT, APPROVED, PAYED.
 
     Required roles: admin, director, accountant.
 
     Args:
-        tenant_id: Tenant primary key.
-        limit: Max number of results (1–200, default 50).
+        tenant_id: Tenant primary key (get from list_my_tenants).
+        limit: Max records (1–200, default 50).
     """
     try:
         return fin_tools.list_payroll_documents(tenant_id=tenant_id, limit=limit)
@@ -470,13 +531,18 @@ def list_payroll_documents(tenant_id: int, limit: int = 50) -> list:
 
 @mcp.tool()
 def get_payroll_document(tenant_id: int, document_id: int) -> dict:
-    """Get a payroll document and all its lines by ID.
+    """Get a payroll document and all its employee payment lines.
+
+    Returns the document header (period, status, totals) plus an array
+    of lines — one per employee — each showing the employee name,
+    accrual amount, and payment amount. Use list_payroll_documents first
+    to find the document_id.
 
     Required roles: admin, director, accountant.
 
     Args:
-        tenant_id: Tenant primary key.
-        document_id: PayrollDocument primary key.
+        tenant_id: Tenant primary key (get from list_my_tenants).
+        document_id: PayrollDocument primary key (get from list_payroll_documents).
     """
     try:
         return fin_tools.get_payroll_document(tenant_id=tenant_id, document_id=document_id)
@@ -497,15 +563,23 @@ def list_vendors(
     name_search: str = "",
     limit: int = 100,
 ) -> list:
-    """List vendors from the tenant directory.
+    """List vendors (контрагенты / получатели) from the tenant directory.
+
+    Vendors are the recipients of payment requests. Each vendor has a kind:
+      • "cash"     — paid in cash via cashier (Наличные payment type)
+      • "transfer" — paid by bank transfer or card (Перечисление / Платежная карта)
+
+    Use name_search to find a specific vendor before looking at their requests.
+    Vendors are referenced on every payment request, so this directory is the
+    starting point for understanding who the company pays.
 
     Required roles: admin, director, approver, requester, cashier, accountant.
 
     Args:
-        tenant_id: Tenant primary key.
-        kind: Filter by kind. One of: cash, transfer.
+        tenant_id: Tenant primary key (get from list_my_tenants).
+        kind: Filter by payment kind. One of: cash, transfer.
         name_search: Case-insensitive substring match on vendor name.
-        limit: Max number of results (1–500, default 100).
+        limit: Max records (1–500, default 100).
     """
     try:
         return dir_tools.list_vendors(
@@ -521,13 +595,15 @@ def list_vendors(
 def list_active_users(tenant_id: int) -> list:
     """List active members of a tenant with their roles.
 
-    Returns id, full_name, username, and roles. No passwords, emails,
-    or other sensitive fields are included.
+    Use this to resolve user names when displaying request approvers,
+    payroll recipients, or to find who holds a given role in the tenant.
+    Returns only id, full_name, username, and roles — no passwords,
+    emails, or other sensitive fields.
 
     Required roles: admin, director.
 
     Args:
-        tenant_id: Tenant primary key.
+        tenant_id: Tenant primary key (get from list_my_tenants).
     """
     try:
         return dir_tools.list_active_users(tenant_id=tenant_id)
@@ -539,12 +615,20 @@ def list_active_users(tenant_id: int) -> list:
 
 @mcp.tool()
 def list_wallets(tenant_id: int) -> list:
-    """List all wallets for a tenant (cash, bank, corporate card).
+    """List all wallets (счета / кассы) for a tenant.
+
+    A wallet is a named account or register that holds funds. Types:
+      • cash    — physical cash register operated by a cashier
+      • bank    — company bank account for wire transfers
+      • card    — corporate card account
+
+    Wallets appear on cash/bank/card transactions. Use this to understand
+    which accounts the tenant operates and their currencies.
 
     Required roles: admin, director, accountant, cashier.
 
     Args:
-        tenant_id: Tenant primary key.
+        tenant_id: Tenant primary key (get from list_my_tenants).
     """
     try:
         return dir_tools.list_wallets(tenant_id=tenant_id)
