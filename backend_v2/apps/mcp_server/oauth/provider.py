@@ -14,6 +14,7 @@ from __future__ import annotations
 import secrets
 from datetime import datetime, timezone, timedelta
 
+from django.conf import settings
 from django.core import signing
 from mcp.server.auth.provider import (
     OAuthAuthorizationServerProvider,
@@ -91,7 +92,11 @@ class KolbergOAuthProvider(
             "scopes": params.scopes or [],
         }
         signed = signing.dumps(payload, salt=_SIGN_SALT, compress=True)
-        return f"/mcp/login/?t={signed}"
+        # Absolute URL so MCP clients (Claude) open the Django login page, not a FastMCP-relative path.
+        issuer = settings.MCP_BASE_URL.rstrip("/")
+        if issuer.endswith("/mcp"):
+            issuer = issuer[: -len("/mcp")]
+        return f"{issuer}/mcp/login/?t={signed}"
 
     async def load_authorization_code(
         self, client: OAuthClientInformationFull, authorization_code: str
