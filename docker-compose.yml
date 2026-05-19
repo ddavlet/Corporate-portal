@@ -790,7 +790,7 @@ services:
       - traefik.http.routers.django-v2-n8n.priority=1200
 
       # MCP server: dedicated hostname (MCP_HOST, default api.kolberg.uz) → /mcp/*
-      - traefik.http.routers.django-v2-mcp.rule=Host(`${MCP_HOST:-api.kolberg.uz}`) && PathPrefix(`/mcp/`)
+      - traefik.http.routers.django-v2-mcp.rule=Host(`${MCP_HOST:-api.kolberg.uz}`) && PathPrefix(`/mcp`)
       - traefik.http.routers.django-v2-mcp.entrypoints=web,websecure
       - traefik.http.routers.django-v2-mcp.tls=true
       - traefik.http.routers.django-v2-mcp.tls.certresolver=mytlschallenge
