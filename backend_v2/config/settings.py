@@ -74,6 +74,7 @@ INSTALLED_APPS = [
 
     # MCP server
     "apps.mcp_server",
+    "apps.mcp_server.oauth",
 ]
 
 MIDDLEWARE = [
@@ -213,6 +214,12 @@ N8N_INTEGRATION_TOKEN = os.getenv("N8N_INTEGRATION_TOKEN", "").strip()
 # Example: http://n8n:5678/webhook -> backend builds http://n8n:5678/webhook/<tenant>/<endpoint>.
 # When empty, backend falls back to the public https://{subdomain}.{BASE_DOMAIN} path.
 N8N_INTERNAL_BASE_URL = (os.getenv("N8N_INTERNAL_BASE_URL", "") or "").strip().rstrip("/")
+
+# MCP server: base URL advertised as OAuth issuer (e.g. https://api.kolberg.uz/mcp).
+# The /mcp/ path is mounted via ASGI. Set MCP_BASE_URL in the environment.
+MCP_BASE_URL = (os.getenv("MCP_BASE_URL", "") or "").strip().rstrip("/") or (
+    f"https://api.{BASE_DOMAIN}/mcp" if BASE_DOMAIN else "http://localhost:8000/mcp"
+)
 
 # Outbound authorization token for calling n8n webhooks (X-N8N-Token header).
 N8N_TOKEN = os.getenv("N8N_TOKEN", "").strip()
