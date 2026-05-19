@@ -5,7 +5,7 @@ from unittest.mock import patch, MagicMock
 from django.test import Client, TestCase, override_settings
 
 from apps.mcp_server.utils import json_safe, validate_date
-from config.asgi import _is_mcp_protocol_path
+from config.asgi import _is_mcp_protocol_path, _is_well_known_oauth_path
 
 
 class JsonSafeTests(TestCase):
@@ -72,6 +72,7 @@ class McpAsgiPathRoutingTests(TestCase):
         for path in (
             "/.well-known/oauth-authorization-server",
             "/.well-known/oauth-protected-resource",
+            "/mcp/oauth/login/",
             "/oauth/mcp/login/",
             "/mcp/login/",
             "/mcp/login",
@@ -79,11 +80,16 @@ class McpAsgiPathRoutingTests(TestCase):
         ):
             self.assertFalse(_is_mcp_protocol_path(path), path)
 
+    def test_well_known_paths(self):
+        self.assertTrue(_is_well_known_oauth_path("/.well-known/oauth-authorization-server"))
+        self.assertTrue(_is_well_known_oauth_path("/.well-known/oauth-protected-resource/"))
+        self.assertFalse(_is_well_known_oauth_path("/mcp/.well-known/oauth-authorization-server"))
+
 
 @override_settings(
     MCP_BASE_URL="https://api.kolberg.uz/mcp",
     MCP_RESOURCE_URL="https://api.kolberg.uz/mcp",
-    MCP_OAUTH_LOGIN_URL="https://api.kolberg.uz/oauth/mcp/login",
+    MCP_OAUTH_LOGIN_URL="https://api.kolberg.uz/mcp/oauth/login",
 )
 class McpOAuthMetadataTests(TestCase):
     def setUp(self):
@@ -123,13 +129,17 @@ class McpOAuthMetadataTests(TestCase):
         self.assertEqual(r.json()["resource"], "https://api.kolberg.uz/mcp")
 
     def test_oauth_login_page_without_token_returns_400(self):
-        r = self.client.get("/oauth/mcp/login/")
+        r = self.client.get("/mcp/oauth/login/")
         self.assertEqual(r.status_code, 400)
 
     def test_legacy_login_redirects_to_oauth_login(self):
-        r = self.client.get("/mcp/login/?t=test")
-        self.assertEqual(r.status_code, 301)
-        self.assertTrue(r["Location"].startswith("https://api.kolberg.uz/oauth/mcp/login/"))
+        for legacy in ("/mcp/login/?t=test", "/oauth/mcp/login/?t=test"):
+            r = self.client.get(legacy)
+            self.assertEqual(r.status_code, 301, legacy)
+            self.assertTrue(
+                r["Location"].startswith("https://api.kolberg.uz/mcp/oauth/login/"),
+                r["Location"],
+            )
 
 
 class McpTenantToggleTests(TestCase):
