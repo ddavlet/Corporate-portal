@@ -109,8 +109,9 @@ urlpatterns = [
         ProtectedResourceMetadataView.as_view(),
         name="mcp_oauth_protected_resource_metadata",
     ),
-    # Public login + legacy URLs (also served via ASGI for production reliability).
-    path("mcp/oauth/login/", McpLoginView.as_view(), name="mcp_oauth_login_public"),
+    path("oauth/login/", McpLoginView.as_view(), name="mcp_oauth_login"),
+    # Legacy URLs (ASGI also 301s these before FastMCP; kept for Django test client).
+    path("mcp/oauth/login/", McpLoginLegacyRedirectView.as_view(), name="mcp_oauth_login_legacy_mcp_prefix"),
     path("oauth/mcp/login/", McpLoginLegacyRedirectView.as_view(), name="mcp_oauth_login_legacy_oauth_prefix"),
     path("mcp/login/", McpLoginLegacyRedirectView.as_view(), name="mcp_oauth_login_legacy"),
 ]

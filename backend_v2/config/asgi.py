@@ -1,13 +1,12 @@
 """
 ASGI config for Kolberg.
 
-Request routing:
-  /.well-known/oauth-*     → JSON metadata (ASGI, MCP spec root discovery)
-  /mcp/oauth/login/        → McpLoginView via ASGI (OTP login)
-  /mcp/login/              → 301 → /mcp/oauth/login/
-  /oauth/mcp/login/        → 301 → /mcp/oauth/login/
-  /mcp/*                   → FastMCP (OAuth + Streamable HTTP)
-  everything else          → Django
+MCP host (api.kolberg.uz) routing — see apps.mcp_server.routing:
+  /.well-known/oauth-*  → JSON metadata
+  legacy /mcp/.../login → 301 → /oauth/login/
+  /mcp, /mcp/*          → FastMCP
+  /oauth/login/         → Django (OTP)
+  everything else       → Django
 
 Lifespan: proxied to FastMCP (StreamableHttpSessionManager TaskGroup).
 """
@@ -25,35 +24,6 @@ from django.core.asgi import get_asgi_application
 _django_app = get_asgi_application()
 
 _WELL_KNOWN_AUTH = "/.well-known/oauth-authorization-server"
-_WELL_KNOWN_RESOURCE = "/.well-known/oauth-protected-resource"
-def _path_normalized(path: str) -> str:
-    return (path or "/").rstrip("/") or "/"
-
-
-def _is_well_known_oauth_path(path: str) -> bool:
-    p = _path_normalized(path)
-    return p in (_WELL_KNOWN_AUTH, _WELL_KNOWN_RESOURCE)
-
-
-def _is_mcp_django_path(path: str) -> bool:
-    """Paths served by Django under or beside /mcp (never FastMCP)."""
-    p = path or ""
-    if p in ("/mcp/login", "/mcp/login/") or p.startswith("/mcp/login/"):
-        return True
-    if p in ("/mcp/oauth/login", "/mcp/oauth/login/") or p.startswith("/mcp/oauth/login/"):
-        return True
-    if p in ("/oauth/mcp/login", "/oauth/mcp/login/") or p.startswith("/oauth/mcp/login/"):
-        return True
-    return False
-
-
-def _is_mcp_protocol_path(path: str) -> bool:
-    """FastMCP handles /mcp and /mcp/* except Django login subtrees."""
-    if path == "/mcp":
-        return True
-    if not path.startswith("/mcp/"):
-        return False
-    return not _is_mcp_django_path(path)
 
 
 async def _send_json(send, payload: dict, *, status: int = 200) -> None:
@@ -120,25 +90,31 @@ async def application(scope, receive, send):
 
     path = scope.get("path", "")
 
-    if _is_well_known_oauth_path(path):
+    from apps.mcp_server.routing import (
+        is_legacy_mcp_login_path,
+        is_mcp_protocol_path,
+        is_well_known_oauth_path,
+        path_normalized,
+        redirect_legacy_login_to_canonical,
+    )
+
+    if is_well_known_oauth_path(path):
         from apps.mcp_server.oauth.metadata import (
             authorization_server_metadata,
             protected_resource_metadata,
         )
 
-        if _path_normalized(path) == _WELL_KNOWN_AUTH:
+        if path_normalized(path) == _WELL_KNOWN_AUTH:
             await _send_json(send, authorization_server_metadata())
         else:
             await _send_json(send, protected_resource_metadata())
         return
 
-    if _is_mcp_django_path(path):
-        from apps.mcp_server.oauth.asgi_login import serve_mcp_login
-
-        await serve_mcp_login(scope, receive, send)
+    if is_legacy_mcp_login_path(path):
+        await redirect_legacy_login_to_canonical(scope, send)
         return
 
-    if _is_mcp_protocol_path(path):
+    if is_mcp_protocol_path(path):
         from apps.mcp_server.http.app import get_mcp_asgi_app
 
         new_path = path[4:] or "/"

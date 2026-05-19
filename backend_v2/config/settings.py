@@ -229,9 +229,9 @@ def _mcp_public_origin() -> str:
     return f"{parsed.scheme}://{parsed.netloc}"
 
 
-# Django OTP login — under /mcp/oauth/login/ (ASGI excludes it from FastMCP; works with Traefik PathPrefix /mcp).
+# Human OTP login page (outside /mcp/ — entire /mcp/* namespace is FastMCP).
 MCP_OAUTH_LOGIN_URL = (os.getenv("MCP_OAUTH_LOGIN_URL", "") or "").strip().rstrip("/") or (
-    f"{_mcp_public_origin()}/mcp/oauth/login"
+    f"{_mcp_public_origin()}/oauth/login"
 )
 
 # Origins allowed for Streamable HTTP (Claude.ai connector).
