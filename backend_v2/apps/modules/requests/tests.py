@@ -1,3 +1,4 @@
+import base64
 from datetime import date, datetime
 from decimal import Decimal
 from unittest.mock import MagicMock, patch
@@ -3324,8 +3325,26 @@ class RequestAiChatProxyTests(APITestCase):
         self.assertEqual(mocked_post.call_args.args[0], "https://dev.kolberg.uz/webhook/uuid/chat")
         headers = mocked_post.call_args.kwargs["headers"]
         self.assertEqual(headers["X-N8N-Integration-Token"], "integ-token")
-        self.assertEqual(headers["X-Tenant"], "acme")
-        self.assertNotIn("Authorization", headers)
+        expected = "Basic " + base64.b64encode(b"X-N8N-Integration-Token:integ-token").decode("ascii")
+        self.assertEqual(headers["Authorization"], expected)
+
+    @patch("apps.modules.requests.views._n8n_session.post")
+    def test_n8n_auth_failure_returns_502_not_opaque_401(self, mocked_post):
+        mocked_response = MagicMock()
+        mocked_response.status_code = 401
+        mocked_response.content = b"Authorization is required!"
+        mocked_response.headers = {"Content-Type": "text/plain"}
+        mocked_post.return_value = mocked_response
+
+        self.client.force_authenticate(self.user)
+        res = self.client.post(
+            "/api/requests/ai-chat/",
+            {"action": "sendMessage"},
+            format="json",
+            HTTP_HOST=self.host,
+        )
+        self.assertEqual(res.status_code, 502)
+        self.assertIn("n8n rejected", res.json()["detail"])
 
     def test_missing_webhook_url_returns_503(self):
         cfg = TenantIntegrationConfig.objects.get(tenant=self.tenant)

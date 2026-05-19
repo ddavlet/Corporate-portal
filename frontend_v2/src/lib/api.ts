@@ -70,6 +70,10 @@ function getTokens(): Tokens | null {
   return portal ?? tg
 }
 
+export function getAccessToken(): string | null {
+  return getTokens()?.access?.trim() || null
+}
+
 function setTokens(tokens: Tokens | null) {
   if (!tokens) {
     localStorage.removeItem(STORAGE_KEY)
@@ -858,6 +862,64 @@ export async function patchTenantReportSettings(
   if (!res.ok) throw new Error(await parseErrorBody(res))
   const parsedJson: unknown = await res.json().catch(() => null)
   return parseTenantReportSettingsApiResponse(parsedJson)
+}
+
+/** Rules for backend Cashflow (same keys as PnL; also returned in structured report as report_settings). */
+export type CashflowReportSettingsSnapshot = PnlReportSettingsSnapshot
+
+export type CashflowDiagnosticsItem = { purpose: string; count: number }
+
+export type CashflowDiagnosticsApi = {
+  unassigned_payment_purposes?: CashflowDiagnosticsItem[]
+  error?: string
+}
+
+export type TenantCashflowReportSettingsApiResponse = {
+  cashflow_source: 'n8n' | 'backend'
+  cashflow_config: CashflowReportSettingsSnapshot
+  updated_at?: string | null
+  cashflow_diagnostics?: CashflowDiagnosticsApi
+}
+
+function parseTenantCashflowReportSettingsApiResponse(json: unknown): TenantCashflowReportSettingsApiResponse {
+  const obj = json && typeof json === 'object' ? (json as Record<string, unknown>) : {}
+  const src = String(obj.cashflow_source || '').toLowerCase()
+  const cashflow_source: 'n8n' | 'backend' = src === 'backend' ? 'backend' : 'n8n'
+  const rawCfg = obj.cashflow_config
+  const cashflow_config: CashflowReportSettingsSnapshot =
+    rawCfg && typeof rawCfg === 'object' ? (rawCfg as CashflowReportSettingsSnapshot) : {}
+  const rawDiag = obj.cashflow_diagnostics
+  const cashflow_diagnostics: CashflowDiagnosticsApi | undefined =
+    rawDiag && typeof rawDiag === 'object' ? (rawDiag as CashflowDiagnosticsApi) : undefined
+  return {
+    cashflow_source,
+    cashflow_config,
+    updated_at: typeof obj.updated_at === 'string' ? obj.updated_at : null,
+    cashflow_diagnostics,
+  }
+}
+
+export async function getTenantCashflowReportSettings(opts?: {
+  cashflowDiagnostics?: boolean
+}): Promise<TenantCashflowReportSettingsApiResponse> {
+  const q = opts?.cashflowDiagnostics ? '?cashflow_diagnostics=1' : ''
+  const res = await apiFetch(`/api/reports/cashflow-report-settings/${q}`)
+  if (!res.ok) throw new Error(await parseErrorBody(res))
+  const parsedJson: unknown = await res.json().catch(() => null)
+  return parseTenantCashflowReportSettingsApiResponse(parsedJson)
+}
+
+export async function patchTenantCashflowReportSettings(
+  payload: Partial<{ cashflow_source: 'n8n' | 'backend'; cashflow_config: CashflowReportSettingsSnapshot }>,
+): Promise<TenantCashflowReportSettingsApiResponse> {
+  const res = await apiFetch('/api/reports/cashflow-report-settings/', {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+  if (!res.ok) throw new Error(await parseErrorBody(res))
+  const parsedJson: unknown = await res.json().catch(() => null)
+  return parseTenantCashflowReportSettingsApiResponse(parsedJson)
 }
 
 export type TenantPnlPaymentPurposePoolResponse = {

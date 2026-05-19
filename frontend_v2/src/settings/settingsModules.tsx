@@ -40,6 +40,13 @@ export const SETTINGS_MODULES: SettingsModuleItem[] = [
     icon: <BarChartOutlined />,
   },
   {
+    key: 'cashflow-report',
+    title: 'Отчёт Cashflow',
+    description: 'Источник данных (n8n или расчёт в приложении) и параметры backend-Cashflow.',
+    path: '/settings/cashflow-report-config',
+    icon: <BarChartOutlined />,
+  },
+  {
     key: 'users-roles',
     title: 'Настройки пользователей',
     description: 'Роли участников компании (только для администратора tenant).',

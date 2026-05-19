@@ -16,6 +16,13 @@ class TenantReportSettings(models.Model):
         (PNL_SOURCE_BACKEND, "backend"),
     ]
 
+    CASHFLOW_SOURCE_N8N = "n8n"
+    CASHFLOW_SOURCE_BACKEND = "backend"
+    CASHFLOW_SOURCE_CHOICES = [
+        (CASHFLOW_SOURCE_N8N, "n8n"),
+        (CASHFLOW_SOURCE_BACKEND, "backend"),
+    ]
+
     tenant = models.OneToOneField(
         Tenant,
         on_delete=models.CASCADE,
@@ -23,6 +30,12 @@ class TenantReportSettings(models.Model):
     )
     pnl_source = models.CharField(max_length=16, choices=PNL_SOURCE_CHOICES, default=PNL_SOURCE_N8N)
     pnl_config = models.JSONField(default=dict, blank=True)
+    cashflow_source = models.CharField(
+        max_length=16,
+        choices=CASHFLOW_SOURCE_CHOICES,
+        default=CASHFLOW_SOURCE_N8N,
+    )
+    cashflow_config = models.JSONField(default=dict, blank=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
