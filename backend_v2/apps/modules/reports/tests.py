@@ -325,6 +325,31 @@ class BackendPnlDatabaseTests(TestCase):
         self.assertEqual(op[0]["date"][:7], "2026-02")
         self.assertEqual(op[-1]["date"][:7], "2027-01")
 
+    def test_pnl_long_amortization_includes_tail_after_old_billing_date(self):
+        Request.objects.create(
+            tenant=self.tenant,
+            created_by=self.user,
+            requester=self.user,
+            title="36 months from 2024",
+            description="",
+            amount="3600.00",
+            currency="UZS",
+            payment_type=Request.PAYMENT_TYPE_TRANSFER,
+            urgency=Request.URGENCY_NORMAL,
+            billing_date=date(2024, 1, 10),
+            amortization_months=36,
+            amortization_start_date=date(2024, 1, 1),
+            payment_purpose="Операционное назначение",
+            status=Request.STATUS_PAYED,
+        )
+        payload = build_pnl_payload_from_db(tenant=self.tenant, query_params={})
+        op = payload["operational_expenses"]
+        months = sorted(row["date"][:7] for row in op)
+        self.assertEqual(months[0], "2026-02")
+        self.assertEqual(months[-1], "2026-12")
+        self.assertEqual(len(months), 11)
+        self.assertTrue(all(row["amount"] == "100.00" for row in op))
+
 
 @override_settings(BASE_DOMAIN="example.com", ALLOWED_HOSTS=["*"])
 class TenantReportSettingsConfigApiTests(APITestCase):

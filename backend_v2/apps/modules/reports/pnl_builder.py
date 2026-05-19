@@ -15,8 +15,6 @@ from apps.modules.requests.amortization import build_amortization_schedule_rows
 from apps.modules.requests.models import Request, RequestPaymentPurposeConfig
 from apps.modules.reports.models import TenantReportSettings
 
-MAX_AMORTIZATION_MONTHS = 6
-
 # --- pnl_config keys (backend PnL) ---
 CFG_START_MONTH = "start_month"
 CFG_CASH_EXCLUDE = "cash_exclude_operations"
@@ -231,12 +229,6 @@ def _invest_type_bucket(type_value: str, *, op: set[str], ot: set[str], inv: set
     if t in inv:
         return "invest_returns"
     return None
-
-
-def _month_shift(month_anchor: date, delta_months: int) -> date:
-    total_months = month_anchor.year * 12 + (month_anchor.month - 1) + delta_months
-    year, month_zero_based = divmod(total_months, 12)
-    return date(year, month_zero_based + 1, 1)
 
 
 def _parse_period_month(raw: str) -> date | None:
@@ -457,17 +449,12 @@ def build_pnl_payload_from_db(*, tenant, query_params: dict[str, Any]) -> dict[s
     other_expenses: list[dict[str, Any]] = []
     invest_returns: list[dict[str, Any]] = []
 
-    amort_window_start = _month_shift(start, -(MAX_AMORTIZATION_MONTHS - 1))
+    # Non-amortized: billing_date in report window. Amortized: all paid requests — schedule
+    # may span years (manual values); rows outside start_month are dropped in _append_request_line.
     req_qs = Request.objects.filter(
         tenant_id=tenant.id,
         status=Request.STATUS_PAYED,
-    ).filter(
-        Q(billing_date__gte=start)
-        | Q(
-            amortization_months__gt=1,
-            billing_date__gte=amort_window_start,
-        )
-    )
+    ).filter(Q(billing_date__gte=start) | Q(amortization_months__gt=1))
     if pay_list:
         req_qs = req_qs.filter(payment_type__in=pay_list)
     else:
