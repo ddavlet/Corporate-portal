@@ -255,10 +255,17 @@ class TenantIntegrationConfigApiTests(APITestCase):
         ok = self.client.get(matrix_url, **self._auth_headers(self.admin))
         self.assertEqual(ok.status_code, 200, ok.content)
         self.assertIn("modules", ok.data)
+        self.assertIn("role_module_rows", ok.data)
         self.assertIn("users", ok.data)
         usernames = {row["username"] for row in ok.data["users"]}
         self.assertIn("admin", usernames)
         self.assertIn("user", usernames)
+
+        by_role = {row["role"]: row for row in ok.data["role_module_rows"]}
+        self.assertTrue(by_role["admin"]["module_access"]["requests"])
+        self.assertFalse(by_role["accountant"]["module_access"]["reports"])
+        self.assertTrue(by_role["investor"]["module_access"]["investments"])
+        self.assertFalse(by_role["director"]["module_access"]["investments"])
 
     def test_access_matrix_put_requires_admin(self):
         matrix_url = "/api/access-matrix/"
@@ -378,6 +385,28 @@ class TenantIntegrationConfigApiTests(APITestCase):
 
         requests_res = self.client.get("/api/requests/", **self._auth_headers(investor))
         self.assertEqual(requests_res.status_code, 403)
+
+    def test_accountant_and_cashier_cannot_access_reports_module(self):
+        TenantModuleConfig.objects.update_or_create(
+            tenant=self.tenant, module_key="reports", defaults={"is_enabled": True}
+        )
+        for role, username in (
+            (TenantUserRole.ROLE_ACCOUNTANT, "solo_acc"),
+            (TenantUserRole.ROLE_CASHIER, "solo_cash"),
+        ):
+            user = User.objects.create_user(username=username, password="x")
+            TenantMembership.objects.create(tenant=self.tenant, user=user, is_active=True)
+            TenantUserRole.objects.create(tenant=self.tenant, user=user, role=role)
+
+            catalog = self.client.get("/api/modules/", **self._auth_headers(user))
+            self.assertEqual(catalog.status_code, 200, catalog.content)
+            by_key = {row["module_key"]: row for row in catalog.data["modules"]}
+            self.assertTrue(by_key["reports"]["tenant_enabled"])
+            self.assertFalse(by_key["reports"]["user_allowed"])
+            self.assertFalse(by_key["reports"]["effective_enabled"])
+
+            reports_res = self.client.get("/api/reports/pnl/", **self._auth_headers(user))
+            self.assertEqual(reports_res.status_code, 403)
 
 
 @override_settings(BASE_DOMAIN="example.com", ALLOWED_HOSTS=["*"])

@@ -62,8 +62,6 @@ ROLE_MODULE_ACCESS: dict[str, set[str]] = {
     "reports": {
         TenantUserRole.ROLE_ADMIN,
         TenantUserRole.ROLE_DIRECTOR,
-        TenantUserRole.ROLE_ACCOUNTANT,
-        TenantUserRole.ROLE_CASHIER,
         TenantUserRole.ROLE_INVESTOR,
     },
     "clients_debt": {
@@ -110,6 +108,24 @@ def role_allows_module(*, user, tenant, module_key: str) -> bool:
         return False
     roles = ROLE_MODULE_ACCESS.get(module_key, set())
     return _user_has_any_role(user=user, tenant=tenant, roles=roles)
+
+
+def build_role_module_matrix(*, module_keys: list[str]) -> list[dict[str, object]]:
+    """
+    Static role × module matrix from ROLE_MODULE_ACCESS (before tenant module toggles).
+    """
+    rows: list[dict[str, object]] = []
+    for role, _label in TenantUserRole.ROLE_CHOICES:
+        rows.append(
+            {
+                "role": role,
+                "module_access": {
+                    module_key: role in ROLE_MODULE_ACCESS.get(module_key, set())
+                    for module_key in module_keys
+                },
+            }
+        )
+    return rows
 
 
 class IsTenantAdmin(BasePermission):

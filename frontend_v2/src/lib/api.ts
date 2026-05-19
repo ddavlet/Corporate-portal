@@ -288,8 +288,14 @@ export type AccessMatrixUserRow = {
   tenant_settings_access: boolean
 }
 
+export type AccessMatrixRoleModuleRow = {
+  role: string
+  module_access: Record<string, boolean>
+}
+
 export type AccessMatrixResponse = {
   modules: Array<{ module_key: string; display_name: string }>
+  role_module_rows: AccessMatrixRoleModuleRow[]
   users: AccessMatrixUserRow[]
 }
 
@@ -300,6 +306,7 @@ export async function getAccessMatrix(): Promise<AccessMatrixResponse> {
   if (!json) throw new Error('Empty response')
   return {
     modules: Array.isArray(json.modules) ? json.modules : [],
+    role_module_rows: Array.isArray(json.role_module_rows) ? json.role_module_rows : [],
     users: Array.isArray(json.users) ? json.users : [],
   }
 }
@@ -322,6 +329,7 @@ export async function updateAccessMatrixAssignments(
   if (!json) throw new Error('Empty response')
   return {
     modules: Array.isArray(json.modules) ? json.modules : [],
+    role_module_rows: Array.isArray(json.role_module_rows) ? json.role_module_rows : [],
     users: Array.isArray(json.users) ? json.users : [],
   }
 }
