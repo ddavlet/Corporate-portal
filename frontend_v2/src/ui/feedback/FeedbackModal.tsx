@@ -124,10 +124,13 @@ export function FeedbackModal({ open, onClose, pagePath }: Props) {
         body,
         page_path: pagePath,
       })
-      if (result.delivery.status === 'failed') {
-        message.warning(result.delivery.error || 'Сообщение сохранено, но Telegram не отправился.')
-      } else {
+      if (result.delivery.status === 'sent') {
         message.success('Спасибо, отзыв отправлен.')
+      } else {
+        message.warning(
+          result.delivery.error ||
+            'Отзыв сохранён, но не доставлен получателю — проверьте настройки интеграции.',
+        )
       }
       handleClose()
     } catch (e: unknown) {
