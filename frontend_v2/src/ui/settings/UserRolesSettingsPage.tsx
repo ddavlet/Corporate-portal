@@ -7,17 +7,7 @@ import {
   updateAccessMatrixAssignments,
   type AccessMatrixUserRow,
 } from '../../lib/api'
-
-/** Совпадает с `TenantUserRole` на бекенде. */
-const TENANT_ROLE_OPTIONS: Array<{ value: string; label: string }> = [
-  { value: 'admin', label: 'Администратор компании' },
-  { value: 'director', label: 'Директор' },
-  { value: 'approver', label: 'Согласующий' },
-  { value: 'requester', label: 'Заявитель' },
-  { value: 'cashier', label: 'Кассир' },
-  { value: 'accountant', label: 'Бухгалтер' },
-  { value: 'investor', label: 'Инвестор' },
-]
+import { TENANT_ROLE_OPTIONS } from '../../lib/tenantRoles'
 
 type RowData = AccessMatrixUserRow & { key: number }
 

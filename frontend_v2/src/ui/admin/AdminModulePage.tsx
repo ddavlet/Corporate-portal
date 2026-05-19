@@ -8,7 +8,8 @@ import {
   planAdminCreateFieldsFromRow,
   type AdminCrudDynamicField,
 } from '../../lib/adminModuleCrudFields'
-import { apiFetch, getAccessMatrix, type AccessMatrixUserRow } from '../../lib/api'
+import { apiFetch, getAccessMatrix, type AccessMatrixRoleModuleRow } from '../../lib/api'
+import { tenantRoleLabel } from '../../lib/tenantRoles'
 
 type AnyRow = Record<string, unknown> & { id?: number | string }
 
@@ -124,13 +125,9 @@ function normalizeRows(payload: unknown): AnyRow[] {
   return []
 }
 
-type MatrixRow = {
-  key: number
-  user_id: number
-  username: string
-  full_name: string
-  roles: string[]
-  tenant_settings_access: boolean
+type RoleMatrixRow = {
+  key: string
+  role: string
   module_access: Record<string, boolean>
 }
 
@@ -196,7 +193,7 @@ export function AdminModulePage() {
 
   const [mxLoading, setMxLoading] = useState(false)
   const [mxError, setMxError] = useState<string | null>(null)
-  const [mxRows, setMxRows] = useState<AccessMatrixUserRow[]>([])
+  const [roleMatrixRows, setRoleMatrixRows] = useState<AccessMatrixRoleModuleRow[]>([])
   const [mxModules, setMxModules] = useState<Array<{ module_key: string; display_name: string }>>([])
   const [matrixPage, setMatrixPage] = useState(1)
   const [matrixPageSize, setMatrixPageSize] = useState(20)
@@ -225,10 +222,10 @@ export function AdminModulePage() {
     setMxError(null)
     try {
       const data = await getAccessMatrix()
-      setMxRows(data.users)
+      setRoleMatrixRows(data.role_module_rows)
       setMxModules(data.modules)
     } catch (e: unknown) {
-      setMxRows([])
+      setRoleMatrixRows([])
       setMxModules([])
       setMxError(e instanceof Error ? e.message : 'Не удалось загрузить матрицу доступов')
     } finally {
@@ -255,9 +252,9 @@ export function AdminModulePage() {
     return rows.filter((row) => rowCaption(row).toLowerCase().includes(q) || JSON.stringify(row).toLowerCase().includes(q))
   }, [rows, search])
 
-  const matrixRows = useMemo<MatrixRow[]>(
-    () => mxRows.map((u) => ({ ...u, key: u.user_id })),
-    [mxRows],
+  const matrixRows = useMemo<RoleMatrixRow[]>(
+    () => roleMatrixRows.map((row) => ({ ...row, key: row.role })),
+    [roleMatrixRows],
   )
 
   const handleDelete = async (row: AnyRow) => {
@@ -357,29 +354,22 @@ export function AdminModulePage() {
           ),
         },
       ]
-  const matrixColumns: ColumnsType<MatrixRow> = useMemo(() => {
-    const base: ColumnsType<MatrixRow> = [
-      { title: 'User ID', dataIndex: 'user_id', width: 90 },
-      { title: 'Username', dataIndex: 'username', width: 180 },
-      { title: 'ФИО', dataIndex: 'full_name', width: 220, render: (v: string) => v || '—' },
+  const matrixColumns: ColumnsType<RoleMatrixRow> = useMemo(() => {
+    const base: ColumnsType<RoleMatrixRow> = [
       {
-        title: 'Роли',
-        dataIndex: 'roles',
-        width: 260,
-        render: (roles: string[]) => (roles?.length ? roles.join(', ') : '—'),
-      },
-      {
-        title: 'Tenant настройки',
-        dataIndex: 'tenant_settings_access',
-        width: 150,
-        render: (v: boolean) => (v ? 'Да' : 'Нет'),
+        title: 'Роль',
+        dataIndex: 'role',
+        width: 220,
+        fixed: 'left',
+        render: (role: string) => tenantRoleLabel(role),
       },
     ]
-    const mods: ColumnsType<MatrixRow> = mxModules.map((m) => ({
+    const mods: ColumnsType<RoleMatrixRow> = mxModules.map((m) => ({
       title: m.display_name,
       key: `mod_${m.module_key}`,
-      width: 140,
-      render: (_, row) => (row.module_access?.[m.module_key] ? 'Да' : 'Нет'),
+      width: 120,
+      align: 'center',
+      render: (_, row) => (row.module_access?.[m.module_key] ? 'Да' : '—'),
     }))
     return [...base, ...mods]
   }, [mxModules])
@@ -483,8 +473,9 @@ export function AdminModulePage() {
         Админка
       </Typography.Title>
       <Typography.Paragraph type="secondary">
-        Доступна только администратору компании (роль admin в tenant). Матрица — для просмотра; назначение ролей — в
-        разделе Настройки → Настройки пользователей.
+        Доступна только администратору компании (роль admin в tenant). Матрица показывает статические права ролей по
+        модулям; назначение ролей пользователям — в Настройки → Настройки пользователей. Фактический доступ также
+        зависит от включения модуля у компании.
       </Typography.Paragraph>
       <Row gutter={[16, 16]} style={{ marginBottom: 16 }}>
             <Col xs={24} sm={12} lg={8}>
@@ -495,7 +486,7 @@ export function AdminModulePage() {
                 style={{ borderColor: activeSection === 'matrix' ? '#1677ff' : undefined }}
               >
                 <Typography.Paragraph type="secondary" style={{ marginBottom: 0 }}>
-                  Просмотр ролей и эффективного доступа к модулям (редактирование ролей — в Настройках).
+                  Какие роли tenant открывают какие модули (статическая матрица из кода).
                 </Typography.Paragraph>
               </Card>
             </Col>
@@ -514,9 +505,20 @@ export function AdminModulePage() {
           </Row>
 
           {activeSection === 'matrix' ? (
-            <Card>
+            <Card
+              title="Роль × модуль"
+              extra={
+                <Button onClick={() => void loadMatrix()} loading={mxLoading}>
+                  Обновить
+                </Button>
+              }
+            >
               {mxError ? <Alert type="error" showIcon message={mxError} style={{ marginBottom: 12 }} /> : null}
-              <Table<MatrixRow>
+              <Typography.Paragraph type="secondary">
+                «Да» — роль даёт доступ к модулю при активном членстве в компании и включённом модуле. Пусто — нет
+                доступа по этой роли.
+              </Typography.Paragraph>
+              <Table<RoleMatrixRow>
                 loading={mxLoading}
                 columns={matrixColumns}
                 dataSource={matrixRows}
