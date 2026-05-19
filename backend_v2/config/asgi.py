@@ -5,8 +5,14 @@ Request routing:
   /mcp/login/  → Django (MCP OAuth login page)
   /mcp/*       → FastMCP (OAuth protocol + MCP protocol)
   everything else → Django
+
+Lifespan:
+  FastMCP's StreamableHttpSessionManager requires a lifespan startup
+  to initialise its anyio TaskGroup. Django does not support lifespan,
+  so we proxy the lifespan protocol only to FastMCP.
 """
 
+import asyncio
 import os
 
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "config.settings")
@@ -16,13 +22,57 @@ from django.core.asgi import get_asgi_application
 _django_app = get_asgi_application()
 
 
+async def _proxy_lifespan_to_mcp(scope, receive, send):
+    """Receive lifespan events from uvicorn and forward them to FastMCP."""
+    from apps.mcp_server.http.app import get_mcp_asgi_app
+
+    mcp_app = get_mcp_asgi_app()
+
+    # Queues bridge uvicorn ↔ FastMCP lifespan channels.
+    to_mcp: asyncio.Queue = asyncio.Queue()
+    from_mcp: asyncio.Queue = asyncio.Queue()
+
+    async def mcp_receive():
+        return await to_mcp.get()
+
+    async def mcp_send(message):
+        await from_mcp.put(message)
+
+    mcp_task = asyncio.ensure_future(
+        mcp_app({"type": "lifespan", "asgi": scope.get("asgi", {})}, mcp_receive, mcp_send)
+    )
+
+    # --- startup ---
+    event = await receive()
+    assert event["type"] == "lifespan.startup"
+    await to_mcp.put({"type": "lifespan.startup"})
+
+    response = await from_mcp.get()
+    if response["type"] == "lifespan.startup.failed":
+        await send(response)
+        return
+    await send({"type": "lifespan.startup.complete"})
+
+    # --- shutdown ---
+    event = await receive()
+    assert event["type"] == "lifespan.shutdown"
+    await to_mcp.put({"type": "lifespan.shutdown"})
+
+    await from_mcp.get()  # lifespan.shutdown.complete
+    await send({"type": "lifespan.shutdown.complete"})
+    await mcp_task
+
+
 async def application(scope, receive, send):
+    if scope["type"] == "lifespan":
+        await _proxy_lifespan_to_mcp(scope, receive, send)
+        return
+
     path = scope.get("path", "")
 
     if scope["type"] == "http" and path.startswith("/mcp/") and not path.startswith("/mcp/login"):
         from apps.mcp_server.http.app import get_mcp_asgi_app
 
-        # Strip /mcp prefix: FastMCP routes are relative to its own root.
         new_path = path[4:] or "/"
         new_scope = {
             **scope,

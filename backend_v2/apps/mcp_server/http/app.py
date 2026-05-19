@@ -33,6 +33,7 @@ def get_mcp_asgi_app():
 
     mcp.settings.auth = AuthSettings(
         issuer_url=base_url,  # type: ignore[arg-type]
+        resource_server_url=None,
         client_registration_options=ClientRegistrationOptions(
             enabled=True,
             valid_scopes=["mcp"],
