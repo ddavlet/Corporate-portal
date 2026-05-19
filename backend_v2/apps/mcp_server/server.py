@@ -131,10 +131,11 @@ Tenant context (no module required):
 ROLE PERMISSIONS
 ════════════════════════════════════════════════════════════
 admin / director  — all modules
-approver          — requests, vendors
-requester         — requests, vendors
-cashier           — requests, cash, corporate_card, wallets, vendors
-accountant        — requests, bank, payroll, corporate_card, wallets, vendors
+approver          — requests, vendors, contracts, notes
+requester         — requests, vendors, contracts, notes
+cashier           — requests, cash, corporate_card, wallets, vendors, contracts, notes, reports
+accountant        — requests, bank, payroll, corporate_card, wallets, vendors, contracts, notes, reports
+investor          — investments, reports
 
 ════════════════════════════════════════════════════════════
 ERRORS AND FILTERING
@@ -556,7 +557,7 @@ def get_pnl_report(tenant_id: int) -> dict:
     Key rule: expenses use billing_date from requests; amortized requests are
     spread across months according to their amortization schedule.
 
-    Required roles: admin, director, accountant (module: reports).
+    Required roles: admin, director, accountant, cashier, investor (module: reports).
 
     Args:
         tenant_id: Tenant primary key (get from list_my_tenants).
@@ -591,7 +592,7 @@ def get_cashflow_report(tenant_id: int) -> dict:
     Cashflow  — actual payment date;    no amortization, cash-basis only.
     ────────────────────────────────────────────────────────────────────────
 
-    Required roles: admin, director, accountant (module: reports).
+    Required roles: admin, director, accountant, cashier, investor (module: reports).
 
     Args:
         tenant_id: Tenant primary key (get from list_my_tenants).
