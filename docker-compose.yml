@@ -766,7 +766,7 @@ services:
     command: >
       sh -c "
       python manage.py migrate &&
-      gunicorn config.asgi:application -k uvicorn.workers.UvicornWorker --bind 0.0.0.0:8001 --workers 3 --timeout 120
+      gunicorn config.asgi:application -k uvicorn.workers.UvicornWorker --bind 0.0.0.0:8001 --workers 3 --timeout 120 --forwarded-allow-ips='*'
       "
     labels:
       - traefik.enable=true
