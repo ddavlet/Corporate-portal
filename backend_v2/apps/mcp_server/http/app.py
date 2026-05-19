@@ -27,6 +27,7 @@ def get_mcp_asgi_app():
 
     from urllib.parse import urlparse
     from mcp.server.auth.settings import AuthSettings, ClientRegistrationOptions
+    from mcp.server.auth.provider import ProviderTokenVerifier
     from mcp.server.transport_security import TransportSecuritySettings
     from apps.mcp_server.server import mcp
     from apps.mcp_server.oauth.provider import KolbergOAuthProvider
@@ -53,10 +54,13 @@ def get_mcp_asgi_app():
         allowed_origins=[public_origin],
     )
     mcp.settings.streamable_http_path = "/"
-    # Stateless mode: no session state stored per-worker, so requests can
-    # hit any gunicorn worker without losing session context.
     mcp.settings.stateless_http = True
-    mcp._auth_server_provider = KolbergOAuthProvider()
+
+    # Wire auth: provider handles OAuth flows, verifier protects the MCP endpoint.
+    # FastMCP does this automatically in __init__, but we configure after construction.
+    _provider = KolbergOAuthProvider()
+    mcp._auth_server_provider = _provider
+    mcp._token_verifier = ProviderTokenVerifier(_provider)
 
     _mcp_asgi_app = mcp.streamable_http_app()
     return _mcp_asgi_app
