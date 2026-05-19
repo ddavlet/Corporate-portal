@@ -746,7 +746,7 @@ services:
       DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:-change-me-to-a-long-random-secret-key-32-plus-bytes}
       # Override in `.env` next to this file: DJANGO_DEBUG=true (never leave on in production).
       DJANGO_DEBUG: "${DJANGO_DEBUG:-False}"
-      DJANGO_ALLOWED_HOSTS: "main.kolberg.uz,lemonfit.kolberg.uz,lemonfit2.kolberg.uz,neuron.kolberg.uz,lemonaqua.kolberg.uz,qulay.kolberg.uz,lemonelectro.kolberg.uz"
+      DJANGO_ALLOWED_HOSTS: "main.kolberg.uz,lemonfit.kolberg.uz,lemonfit2.kolberg.uz,neuron.kolberg.uz,lemonaqua.kolberg.uz,qulay.kolberg.uz,lemonelectro.kolberg.uz,${MCP_HOST:-api.kolberg.uz}"
       # No leading/trailing slashes (e.g. n8n). Slashes break Traefik labels: /api/${VAR}/ → /api/n8n//
       N8N_INTEGRATION_URL_PATH: ${N8N_INTEGRATION_URL_PATH:-n8n}
       N8N_INTEGRATION_TOKEN: ${N8N_INTEGRATION_TOKEN:-}
@@ -756,6 +756,9 @@ services:
       N8N_TOKEN: ${N8N_TOKEN:-}
       MESSAGING_GATEWAY_SEND_URL: http://tg_gateway:8080/v1/messaging/send
       MESSAGING_GATEWAY_ADMIN_URL: http://tg_gateway:8080
+      # MCP server OAuth issuer URL — must be the public HTTPS base without trailing slash.
+      # Default: https://<MCP_HOST>/mcp. Override with MCP_BASE_URL in .env if needed.
+      MCP_BASE_URL: ${MCP_BASE_URL:-https://${MCP_HOST:-api.kolberg.uz}/mcp}
     volumes:
       - ./backend_v2:/app
     depends_on:
@@ -763,7 +766,7 @@ services:
     command: >
       sh -c "
       python manage.py migrate &&
-      gunicorn config.wsgi:application --bind 0.0.0.0:8001 --workers 3 --timeout 120
+      gunicorn config.asgi:application -k uvicorn.workers.UvicornWorker --bind 0.0.0.0:8001 --workers 3 --timeout 120
       "
     labels:
       - traefik.enable=true
@@ -785,6 +788,14 @@ services:
       - traefik.http.routers.django-v2-n8n.tls.certresolver=mytlschallenge
       - traefik.http.routers.django-v2-n8n.service=django-v2
       - traefik.http.routers.django-v2-n8n.priority=1200
+
+      # MCP server: dedicated hostname (MCP_HOST, default api.kolberg.uz) → /mcp/*
+      - traefik.http.routers.django-v2-mcp.rule=Host(`${MCP_HOST:-api.kolberg.uz}`) && PathPrefix(`/mcp/`)
+      - traefik.http.routers.django-v2-mcp.entrypoints=web,websecure
+      - traefik.http.routers.django-v2-mcp.tls=true
+      - traefik.http.routers.django-v2-mcp.tls.certresolver=mytlschallenge
+      - traefik.http.routers.django-v2-mcp.service=django-v2
+      - traefik.http.routers.django-v2-mcp.priority=1300
     networks:
       traefik-public:
       backend:
