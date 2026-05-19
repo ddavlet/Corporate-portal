@@ -9,8 +9,8 @@ so FastMCP sees paths relative to its root:
   /mcp/register   → FastMCP dynamic client registration
   /mcp/.well-known/... → OAuth metadata discovery
 
-/oauth/mcp/login/ is handled by Django (see config/urls.py).
-Root /.well-known/oauth-* discovery is also Django (MCP spec).
+/oauth/login/ is handled by Django (see config/urls.py).
+Root /.well-known/oauth-* discovery is served in config/asgi.py (MCP spec).
 """
 
 from __future__ import annotations

@@ -5,7 +5,11 @@ from unittest.mock import patch, MagicMock
 from django.test import Client, TestCase, override_settings
 
 from apps.mcp_server.utils import json_safe, validate_date
-from config.asgi import _is_mcp_protocol_path, _is_well_known_oauth_path
+from apps.mcp_server.routing import (
+    is_legacy_mcp_login_path,
+    is_mcp_protocol_path,
+    is_well_known_oauth_path,
+)
 
 
 class JsonSafeTests(TestCase):
@@ -63,33 +67,42 @@ class ValidateDateTests(TestCase):
         self.assertIn("abc", str(ctx.exception))
 
 
-class McpAsgiPathRoutingTests(TestCase):
+class McpRoutingTests(TestCase):
     def test_fastmcp_paths(self):
         for path in ("/mcp", "/mcp/", "/mcp/authorize", "/mcp/token", "/mcp/register"):
-            self.assertTrue(_is_mcp_protocol_path(path), path)
+            self.assertTrue(is_mcp_protocol_path(path), path)
 
-    def test_django_paths_not_fastmcp(self):
+    def test_login_paths_not_fastmcp(self):
         for path in (
-            "/.well-known/oauth-authorization-server",
-            "/.well-known/oauth-protected-resource",
+            "/oauth/login/",
             "/mcp/oauth/login/",
             "/oauth/mcp/login/",
             "/mcp/login/",
-            "/mcp/login",
-            "/api/health/",
         ):
-            self.assertFalse(_is_mcp_protocol_path(path), path)
+            self.assertFalse(is_mcp_protocol_path(path), path)
+
+    def test_well_known_not_fastmcp(self):
+        for path in (
+            "/.well-known/oauth-authorization-server",
+            "/.well-known/oauth-protected-resource",
+        ):
+            self.assertFalse(is_mcp_protocol_path(path), path)
 
     def test_well_known_paths(self):
-        self.assertTrue(_is_well_known_oauth_path("/.well-known/oauth-authorization-server"))
-        self.assertTrue(_is_well_known_oauth_path("/.well-known/oauth-protected-resource/"))
-        self.assertFalse(_is_well_known_oauth_path("/mcp/.well-known/oauth-authorization-server"))
+        self.assertTrue(is_well_known_oauth_path("/.well-known/oauth-authorization-server"))
+        self.assertTrue(is_well_known_oauth_path("/.well-known/oauth-protected-resource/"))
+        self.assertFalse(is_well_known_oauth_path("/mcp/.well-known/oauth-authorization-server"))
+
+    def test_legacy_login_paths(self):
+        self.assertTrue(is_legacy_mcp_login_path("/mcp/login/"))
+        self.assertTrue(is_legacy_mcp_login_path("/mcp/oauth/login"))
+        self.assertFalse(is_legacy_mcp_login_path("/oauth/login/"))
 
 
 @override_settings(
     MCP_BASE_URL="https://api.kolberg.uz/mcp",
     MCP_RESOURCE_URL="https://api.kolberg.uz/mcp",
-    MCP_OAUTH_LOGIN_URL="https://api.kolberg.uz/mcp/oauth/login",
+    MCP_OAUTH_LOGIN_URL="https://api.kolberg.uz/oauth/login",
 )
 class McpOAuthMetadataTests(TestCase):
     def setUp(self):
@@ -129,40 +142,17 @@ class McpOAuthMetadataTests(TestCase):
         self.assertEqual(r.json()["resource"], "https://api.kolberg.uz/mcp")
 
     def test_oauth_login_page_without_token_returns_400(self):
-        r = self.client.get("/mcp/oauth/login/")
+        r = self.client.get("/oauth/login/")
         self.assertEqual(r.status_code, 400)
 
-    def test_legacy_login_redirects_to_oauth_login(self):
-        for legacy in ("/mcp/login/?t=test", "/oauth/mcp/login/?t=test"):
+    def test_legacy_login_redirects_to_canonical_oauth_login(self):
+        for legacy in ("/mcp/login/?t=test", "/oauth/mcp/login/?t=test", "/mcp/oauth/login/?t=test"):
             r = self.client.get(legacy)
             self.assertEqual(r.status_code, 301, legacy)
             self.assertTrue(
-                r["Location"].startswith("https://api.kolberg.uz/mcp/oauth/login/"),
+                r["Location"].startswith("https://api.kolberg.uz/oauth/login/"),
                 r["Location"],
             )
-
-
-class McpAsgiLoginTests(TestCase):
-    def test_legacy_paths_redirect(self):
-        from apps.mcp_server.oauth.asgi_login import _is_legacy_login_path
-
-        self.assertTrue(_is_legacy_login_path("/mcp/login/"))
-        self.assertTrue(_is_legacy_login_path("/oauth/mcp/login"))
-        self.assertFalse(_is_legacy_login_path("/mcp/oauth/login/"))
-
-    def test_build_request_preserves_query(self):
-        from apps.mcp_server.oauth.asgi_login import _build_http_request
-
-        scope = {
-            "method": "GET",
-            "path": "/mcp/oauth/login/",
-            "query_string": b"t=abc",
-            "headers": [(b"host", b"api.kolberg.uz")],
-            "scheme": "https",
-        }
-        req = _build_http_request(scope, b"")
-        self.assertEqual(req.path, "/mcp/oauth/login/")
-        self.assertEqual(req.GET.get("t"), "abc")
 
 
 class McpTenantToggleTests(TestCase):

@@ -7,7 +7,7 @@ from .metadata import mcp_oauth_login_url
 
 
 class McpLoginLegacyRedirectView(View):
-    """Redirect /mcp/login/ → /oauth/mcp/login/ (preserves query string)."""
+    """Redirect old login URLs → canonical /oauth/login/ (preserves query string)."""
 
     def get(self, request, *args, **kwargs):
         target = mcp_oauth_login_url().rstrip("/") + "/"
