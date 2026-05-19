@@ -63,6 +63,11 @@ async def _proxy_lifespan_to_mcp(scope, receive, send):
     await mcp_task
 
 
+def _is_mcp_oauth_login_path(path: str) -> bool:
+    """True for /mcp/login and /mcp/login/ (OAuth OTP page — always Django)."""
+    return path == "/mcp/login" or path.startswith("/mcp/login/")
+
+
 async def application(scope, receive, send):
     if scope["type"] == "lifespan":
         await _proxy_lifespan_to_mcp(scope, receive, send)
@@ -70,7 +75,12 @@ async def application(scope, receive, send):
 
     path = scope.get("path", "")
 
-    is_mcp_path = path == "/mcp" or (path.startswith("/mcp/") and not path.startswith("/mcp/login"))
+    # Login must be handled before FastMCP — otherwise Starlette returns 404 for /login/.
+    if scope["type"] == "http" and _is_mcp_oauth_login_path(path):
+        await _django_app(scope, receive, send)
+        return
+
+    is_mcp_path = path == "/mcp" or (path.startswith("/mcp/") and not _is_mcp_oauth_login_path(path))
     if scope["type"] == "http" and is_mcp_path:
         from apps.mcp_server.http.app import get_mcp_asgi_app
 
