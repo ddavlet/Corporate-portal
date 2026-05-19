@@ -79,6 +79,11 @@ class TenantSubdomainMiddleware:
         if _is_internal_messaging_gateway_callback(request.path or ""):
             return self.get_response(request)
 
+        from apps.mcp_server.routing import is_mcp_host
+
+        if is_mcp_host(request.get_host()):
+            return self.get_response(request)
+
         sub = _get_subdomain(request.get_host(), getattr(settings, "BASE_DOMAIN", "") or "")
         if not sub:
             if getattr(settings, "TENANT_SUBDOMAIN_FALLBACK", True):
