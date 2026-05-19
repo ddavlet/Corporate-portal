@@ -43,33 +43,47 @@ def validate_cashflow_config_dict(cfg: dict[str, Any]) -> None:
 
 
 def get_cashflow_config_or_raise(*, tenant) -> dict[str, Any]:
+    """Backend Cashflow reuses PnL filter config (pnl_config) — only expense dates differ."""
     try:
         row = TenantReportSettings.objects.get(tenant_id=tenant.id)
     except TenantReportSettings.DoesNotExist as exc:
         raise ReportSettingsMissing(f"No tenant_report_settings for tenant_id={tenant.id}") from exc
 
-    cfg = row.cashflow_config if isinstance(row.cashflow_config, dict) else {}
+    cfg = row.pnl_config if isinstance(row.pnl_config, dict) else {}
     validate_cashflow_config_dict(cfg)
 
     return cfg
 
 
+def _start_month_as_ymd_int(start: date) -> int:
+    return start.year * 10000 + start.month * 100 + 1
+
+
 def _request_expense_period_filter(*, start: date) -> Q:
     """Paid requests whose cash expense date is on or after start month."""
-    return Q(expense_year__isnull=False) & (
+    start_ymd = _start_month_as_ymd_int(start)
+    by_expense_fields = Q(expense_year__isnull=False) & (
         Q(expense_year__gt=start.year) | Q(expense_year=start.year, expense_month__gte=start.month)
     )
+    by_payed_at = Q(expense_year__isnull=True, payed_at__isnull=False, payed_at__gte=start_ymd)
+    return by_expense_fields | by_payed_at
 
 
 def _request_cash_expense_date(req: Request) -> date | None:
     y, m, d = req.expense_year, req.expense_month, req.expense_day
-    if y is None or m is None:
-        return None
-    day = int(d) if d is not None else 1
-    try:
-        return date(int(y), int(m), day)
-    except (TypeError, ValueError):
-        return None
+    if y is not None and m is not None:
+        day = int(d) if d is not None else 1
+        try:
+            return date(int(y), int(m), day)
+        except (TypeError, ValueError):
+            pass
+    if req.payed_at is not None:
+        try:
+            p = int(req.payed_at)
+            return date(p // 10000, (p // 100) % 100, p % 100)
+        except (TypeError, ValueError):
+            pass
+    return None
 
 
 def _invest_return_cashflow_row(ir: InvestReturn) -> dict[str, Any]:
