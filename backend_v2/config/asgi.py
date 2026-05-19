@@ -23,8 +23,6 @@ from django.core.asgi import get_asgi_application
 
 _django_app = get_asgi_application()
 
-_WELL_KNOWN_AUTH = "/.well-known/oauth-authorization-server"
-
 
 async def _send_json(send, payload: dict, *, status: int = 200) -> None:
     body = json.dumps(payload).encode("utf-8")
@@ -93,8 +91,8 @@ async def application(scope, receive, send):
     from apps.mcp_server.routing import (
         is_legacy_mcp_login_path,
         is_mcp_protocol_path,
+        is_well_known_authorization_server_path,
         is_well_known_oauth_path,
-        path_normalized,
         redirect_legacy_login_to_canonical,
     )
 
@@ -104,7 +102,7 @@ async def application(scope, receive, send):
             protected_resource_metadata,
         )
 
-        if path_normalized(path) == _WELL_KNOWN_AUTH:
+        if is_well_known_authorization_server_path(path):
             await _send_json(send, authorization_server_metadata())
         else:
             await _send_json(send, protected_resource_metadata())
