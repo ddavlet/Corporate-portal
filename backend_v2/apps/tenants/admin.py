@@ -100,8 +100,8 @@ class TenantMembershipInline(admin.TabularInline):
 @admin.register(Tenant)
 class TenantAdmin(admin.ModelAdmin):
     form = TenantAdminForm
-    list_display = ("id", "subdomain", "name", "is_active", "telegram_otp_enabled")
-    list_filter = ("is_active", "telegram_otp_enabled")
+    list_display = ("id", "subdomain", "name", "is_active", "telegram_otp_enabled", "mcp_enabled")
+    list_filter = ("is_active", "telegram_otp_enabled", "mcp_enabled")
     search_fields = ("subdomain", "name")
     ordering = ("subdomain",)
     # Roles: portal Settings ▸ Настройки пользователей (tenant admin).
@@ -113,6 +113,7 @@ class TenantAdmin(admin.ModelAdmin):
         "telegram_otp_enabled",
         "telegram_bot_token",
         "telegram_bot_username",
+        "mcp_enabled",
         "enabled_modules",
     )
 
