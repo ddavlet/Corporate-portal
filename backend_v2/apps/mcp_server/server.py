@@ -43,6 +43,8 @@ from apps.mcp_server.tools import (
     directories as dir_tools,
     integrations as int_tools,
     tenant_config as cfg_tools,
+    investments as inv_tools,
+    budgets as bud_tools,
 )
 
 mcp = FastMCP(
@@ -114,6 +116,18 @@ Payroll (module: "payroll"):
   list_payroll_documents  — salary payment documents
   get_payroll_document    — document with all employee lines
 
+Investments (module: "investments"):
+  get_investment_form_config — companies on/off, allowed return types
+  list_invest_companies      — legal entities / projects dimension
+  list_invest_returns        — payouts to investors (PnL invest_returns)
+  list_project_investments   — capital invested into projects
+  list_invest_payout_schedule — planned payout calendar (plan vs fact)
+
+Budgets (module: "budgets"):
+  list_budgets               — limits vs spend by category and period
+  get_budget                 — one budget with utilization
+  list_budget_spend_requests — requests counted toward a budget
+
 Directories (modules: "vendors", "wallets"):
   list_vendors            — vendor directory; filter by kind or name
   list_wallets            — cash registers, bank accounts, card accounts
@@ -158,6 +172,17 @@ def _err(msg: str) -> dict:
 
 def _list_err(msg: str) -> list:
     return [{"error": msg}]
+
+
+def _parse_bool_filter(value: str) -> bool | None:
+    raw = (value or "").strip().lower()
+    if not raw:
+        return None
+    if raw in ("1", "true", "yes"):
+        return True
+    if raw in ("0", "false", "no"):
+        return False
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -654,6 +679,289 @@ def get_payroll_document(tenant_id: int, document_id: int) -> dict:
         return _err(str(e))
     except Exception as e:
         return _err(f"Unexpected error: {e}")
+
+
+# ---------------------------------------------------------------------------
+# Investments
+# ---------------------------------------------------------------------------
+
+@tool
+def get_investment_form_config(tenant_id: int) -> dict:
+    """Per-tenant investment settings before other investment tools.
+
+    Returns whether company_id filters apply (uses_companies) and which
+    return_type strings are allowed when filtering list_invest_returns.
+
+    Required roles: admin, director, investor.
+
+    Args:
+        tenant_id: Tenant primary key (from list_my_tenants).
+    """
+    try:
+        return inv_tools.get_investment_form_config(tenant_id=tenant_id)
+    except (PermissionError, ValueError) as e:
+        return _err(str(e))
+    except Exception as e:
+        return _err(f"Unexpected error: {e}")
+
+
+@tool
+def list_invest_companies(
+    tenant_id: int,
+    name_search: str = "",
+    is_active: str = "",
+    limit: int = 100,
+) -> list:
+    """List investment companies (юрлица / проекты) for grouping returns and schedules.
+
+    Use name_search to find company_id for other investment tools.
+    Empty is_active = all; "true" / "false" to filter active flag.
+
+    Required roles: admin, director, investor.
+
+    Args:
+        tenant_id: Tenant primary key.
+        name_search: Substring match on company name.
+        is_active: "", "true", or "false".
+        limit: Max rows (default 100, max 200).
+    """
+    try:
+        active = _parse_bool_filter(is_active)
+        return inv_tools.list_invest_companies(
+            tenant_id=tenant_id,
+            name_search=name_search,
+            is_active=active,
+            limit=limit,
+        )
+    except (PermissionError, ValueError) as e:
+        return _list_err(str(e))
+    except Exception as e:
+        return _list_err(f"Unexpected error: {e}")
+
+
+@tool
+def list_invest_returns(
+    tenant_id: int,
+    date_from: str = "",
+    date_to: str = "",
+    return_type: str = "",
+    recipient: str = "",
+    company_id: int = 0,
+    confirmed: str = "",
+    limit: int = 50,
+) -> list:
+    """List investor payouts (выплаты инвесторам): dividends, interest, principal, etc.
+
+    Primary outbound cash in the Investments module; hits PnL invest_returns
+    by billing_date. return_type examples: дивиденды, проценты, доля_прибыли,
+    тело_инвестиций. recipient: инвестор | партнер.
+
+    Required roles: admin, director, investor.
+
+    Args:
+        tenant_id: Tenant primary key.
+        date_from / date_to: Filter payout date (YYYY-MM-DD).
+        return_type / recipient: Exact DB enum labels.
+        company_id: Filter by InvestCompany id (0 = all).
+        confirmed: "", "true", or "false".
+        limit: Max rows (default 50, max 200).
+    """
+    try:
+        return inv_tools.list_invest_returns(
+            tenant_id=tenant_id,
+            date_from=date_from,
+            date_to=date_to,
+            return_type=return_type,
+            recipient=recipient,
+            company_id=company_id,
+            confirmed=_parse_bool_filter(confirmed),
+            limit=limit,
+        )
+    except (PermissionError, ValueError) as e:
+        return _list_err(str(e))
+    except Exception as e:
+        return _list_err(f"Unexpected error: {e}")
+
+
+@tool
+def list_project_investments(
+    tenant_id: int,
+    date_from: str = "",
+    date_to: str = "",
+    company_id: int = 0,
+    confirmed: str = "",
+    limit: int = 50,
+) -> list:
+    """List capital invested into projects (вложения в проекты), inbound vs returns.
+
+    Required roles: admin, director, investor.
+
+    Args:
+        tenant_id: Tenant primary key.
+        date_from / date_to: YYYY-MM-DD on investment date.
+        company_id: 0 = all companies.
+        confirmed: "", "true", or "false".
+        limit: Max rows (default 50, max 200).
+    """
+    try:
+        return inv_tools.list_project_investments(
+            tenant_id=tenant_id,
+            date_from=date_from,
+            date_to=date_to,
+            company_id=company_id,
+            confirmed=_parse_bool_filter(confirmed),
+            limit=limit,
+        )
+    except (PermissionError, ValueError) as e:
+        return _list_err(str(e))
+    except Exception as e:
+        return _list_err(f"Unexpected error: {e}")
+
+
+@tool
+def list_invest_payout_schedule(
+    tenant_id: int,
+    date_from: str = "",
+    date_to: str = "",
+    company_id: int = 0,
+    is_paid: str = "",
+    limit: int = 50,
+) -> list:
+    """List planned investment payout schedule (график выплат).
+
+    Compare is_paid and payment_amount with list_invest_returns for plan vs fact.
+
+    Required roles: admin, director, investor.
+
+    Args:
+        tenant_id: Tenant primary key.
+        date_from / date_to: Filter payout_date (YYYY-MM-DD).
+        company_id: 0 = all.
+        is_paid: "", "true", or "false".
+        limit: Max rows (default 50, max 200).
+    """
+    try:
+        return inv_tools.list_invest_payout_schedule(
+            tenant_id=tenant_id,
+            date_from=date_from,
+            date_to=date_to,
+            company_id=company_id,
+            is_paid=_parse_bool_filter(is_paid),
+            limit=limit,
+        )
+    except (PermissionError, ValueError) as e:
+        return _list_err(str(e))
+    except Exception as e:
+        return _list_err(f"Unexpected error: {e}")
+
+
+# ---------------------------------------------------------------------------
+# Budgets
+# ---------------------------------------------------------------------------
+
+@tool
+def list_budgets(
+    tenant_id: int,
+    year: int = 0,
+    period: int = 0,
+    category_name: str = "",
+    is_active: str = "",
+    limit: int = 100,
+) -> list:
+    """List budgets with spent_amount, remaining, utilization_pct for a period.
+
+    Spend = sum of APPROVED + PAYED requests matching category, currency,
+    and billing_date in the period (same as UI). period_type: monthly |
+    quarterly | yearly. period is month 1–12 (quarterly uses month→quarter).
+
+    year=0 and period=0 default to current year/month.
+
+    Required roles: admin, director, accountant, approver.
+
+    Args:
+        tenant_id: Tenant primary key.
+        year: Calendar year (0 = current).
+        period: Month 1–12 (0 = current month).
+        category_name: Exact request category name filter.
+        is_active: "", "true", or "false".
+        limit: Max budgets (default 100, max 200).
+    """
+    try:
+        return bud_tools.list_budgets(
+            tenant_id=tenant_id,
+            year=year or None,
+            period=period or None,
+            category_name=category_name,
+            is_active=_parse_bool_filter(is_active),
+            limit=limit,
+        )
+    except (PermissionError, ValueError) as e:
+        return _list_err(str(e))
+    except Exception as e:
+        return _list_err(f"Unexpected error: {e}")
+
+
+@tool
+def get_budget(
+    tenant_id: int,
+    budget_id: int,
+    year: int = 0,
+    period: int = 0,
+) -> dict:
+    """Get one budget with utilization for a period (use list_budgets for budget_id).
+
+    Required roles: admin, director, accountant, approver.
+
+    Args:
+        tenant_id: Tenant primary key.
+        budget_id: Budget primary key.
+        year / period: Same as list_budgets (0 = current).
+    """
+    try:
+        return bud_tools.get_budget(
+            tenant_id=tenant_id,
+            budget_id=budget_id,
+            year=year or None,
+            period=period or None,
+        )
+    except (PermissionError, ValueError) as e:
+        return _err(str(e))
+    except Exception as e:
+        return _err(f"Unexpected error: {e}")
+
+
+@tool
+def list_budget_spend_requests(
+    tenant_id: int,
+    budget_id: int,
+    year: int = 0,
+    period: int = 0,
+    limit: int = 100,
+) -> list:
+    """List payment requests that count toward a budget's spend in the period.
+
+    Drill-down after list_budgets / get_budget when utilization is high.
+
+    Required roles: admin, director, accountant, approver.
+
+    Args:
+        tenant_id: Tenant primary key.
+        budget_id: Budget primary key.
+        year / period: Evaluation period (0 = current).
+        limit: Max requests (default 100, max 200).
+    """
+    try:
+        return bud_tools.list_budget_spend_requests(
+            tenant_id=tenant_id,
+            budget_id=budget_id,
+            year=year or None,
+            period=period or None,
+            limit=limit,
+        )
+    except (PermissionError, ValueError) as e:
+        return _list_err(str(e))
+    except Exception as e:
+        return _list_err(f"Unexpected error: {e}")
 
 
 # ---------------------------------------------------------------------------
