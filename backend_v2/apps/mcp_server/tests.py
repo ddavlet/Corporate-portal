@@ -2,9 +2,10 @@ from datetime import date, datetime
 from decimal import Decimal
 from unittest.mock import patch, MagicMock
 
-from django.test import TestCase
+from django.test import Client, TestCase, override_settings
 
 from apps.mcp_server.utils import json_safe, validate_date
+from config.asgi import _is_mcp_protocol_path
 
 
 class JsonSafeTests(TestCase):
@@ -62,23 +63,73 @@ class ValidateDateTests(TestCase):
         self.assertIn("abc", str(ctx.exception))
 
 
+class McpAsgiPathRoutingTests(TestCase):
+    def test_fastmcp_paths(self):
+        for path in ("/mcp", "/mcp/", "/mcp/authorize", "/mcp/token", "/mcp/register"):
+            self.assertTrue(_is_mcp_protocol_path(path), path)
+
+    def test_django_paths_not_fastmcp(self):
+        for path in (
+            "/.well-known/oauth-authorization-server",
+            "/.well-known/oauth-protected-resource",
+            "/oauth/mcp/login/",
+            "/mcp/login/",
+            "/mcp/login",
+            "/api/health/",
+        ):
+            self.assertFalse(_is_mcp_protocol_path(path), path)
+
+
+@override_settings(
+    MCP_BASE_URL="https://api.kolberg.uz/mcp",
+    MCP_RESOURCE_URL="https://api.kolberg.uz/mcp",
+    MCP_OAUTH_LOGIN_URL="https://api.kolberg.uz/oauth/mcp/login",
+)
 class McpOAuthMetadataTests(TestCase):
+    def setUp(self):
+        self.client = Client()
+
     def test_authorization_server_metadata_points_to_mcp_endpoints(self):
         from apps.mcp_server.oauth.metadata import authorization_server_metadata
 
         meta = authorization_server_metadata()
-        self.assertTrue(meta["issuer"].endswith("/mcp"))
-        self.assertTrue(meta["authorization_endpoint"].endswith("/mcp/authorize"))
-        self.assertTrue(meta["token_endpoint"].endswith("/mcp/token"))
-        self.assertIn("registration_endpoint", meta)
+        self.assertEqual(meta["issuer"], "https://api.kolberg.uz/mcp")
+        self.assertEqual(meta["authorization_endpoint"], "https://api.kolberg.uz/mcp/authorize")
+        self.assertEqual(meta["token_endpoint"], "https://api.kolberg.uz/mcp/token")
+        self.assertEqual(meta["registration_endpoint"], "https://api.kolberg.uz/mcp/register")
         self.assertIn("S256", meta["code_challenge_methods_supported"])
 
     def test_protected_resource_metadata(self):
         from apps.mcp_server.oauth.metadata import protected_resource_metadata
 
         meta = protected_resource_metadata()
-        self.assertTrue(meta["resource"].endswith("/mcp"))
-        self.assertTrue(meta["authorization_servers"][0].endswith("/mcp"))
+        self.assertEqual(meta["resource"], "https://api.kolberg.uz/mcp")
+        self.assertEqual(meta["authorization_servers"], ["https://api.kolberg.uz/mcp"])
+
+    def test_protected_resource_metadata_url_has_no_extra_mcp_suffix(self):
+        from apps.mcp_server.oauth.metadata import protected_resource_metadata_url
+
+        url = protected_resource_metadata_url()
+        self.assertEqual(url, "https://api.kolberg.uz/.well-known/oauth-protected-resource")
+        self.assertFalse(url.endswith("/mcp"))
+
+    def test_root_well_known_endpoints_served_by_django(self):
+        r = self.client.get("/.well-known/oauth-authorization-server")
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r.json()["authorization_endpoint"], "https://api.kolberg.uz/mcp/authorize")
+
+        r = self.client.get("/.well-known/oauth-protected-resource")
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r.json()["resource"], "https://api.kolberg.uz/mcp")
+
+    def test_oauth_login_page_without_token_returns_400(self):
+        r = self.client.get("/oauth/mcp/login/")
+        self.assertEqual(r.status_code, 400)
+
+    def test_legacy_login_redirects_to_oauth_login(self):
+        r = self.client.get("/mcp/login/?t=test")
+        self.assertEqual(r.status_code, 301)
+        self.assertTrue(r["Location"].startswith("https://api.kolberg.uz/oauth/mcp/login/"))
 
 
 class McpTenantToggleTests(TestCase):
