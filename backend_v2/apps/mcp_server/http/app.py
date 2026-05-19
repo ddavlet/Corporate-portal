@@ -53,6 +53,9 @@ def get_mcp_asgi_app():
         allowed_origins=[public_origin],
     )
     mcp.settings.streamable_http_path = "/"
+    # Stateless mode: no session state stored per-worker, so requests can
+    # hit any gunicorn worker without losing session context.
+    mcp.settings.stateless_http = True
     mcp._auth_server_provider = KolbergOAuthProvider()
 
     _mcp_asgi_app = mcp.streamable_http_app()
