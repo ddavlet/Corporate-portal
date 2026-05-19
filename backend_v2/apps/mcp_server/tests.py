@@ -194,6 +194,21 @@ class McpOAuthLoginFlowTests(TestCase):
         self.assertIn(b"otp", r.content.lower())
 
 
+class DjangoMcpToolDecoratorTests(TestCase):
+    def test_sync_to_async_wrapper_runs_sync_code(self):
+        import asyncio
+
+        from asgiref.sync import sync_to_async
+
+        def sync_add(a: int, b: int) -> int:
+            return a + b
+
+        async def run():
+            return await sync_to_async(sync_add, thread_sensitive=True)(2, 3)
+
+        self.assertEqual(asyncio.run(run()), 5)
+
+
 class McpTenantToggleTests(TestCase):
     def _make_tenant(self, *, mcp_enabled):
         t = MagicMock()

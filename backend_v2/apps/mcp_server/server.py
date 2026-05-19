@@ -36,6 +36,7 @@ _bootstrap_django()
 
 from mcp.server.fastmcp import FastMCP
 
+from apps.mcp_server.django_tools import django_mcp_tool
 from apps.mcp_server.tools import (
     requests as req_tools,
     finance as fin_tools,
@@ -148,6 +149,8 @@ ERRORS AND FILTERING
 """,
 )
 
+tool = django_mcp_tool(mcp)
+
 
 def _err(msg: str) -> dict:
     return {"error": msg}
@@ -161,7 +164,7 @@ def _list_err(msg: str) -> list:
 # Discovery — call this first
 # ---------------------------------------------------------------------------
 
-@mcp.tool()
+@tool
 def list_my_tenants() -> list:
     """List all active tenants the current user belongs to.
 
@@ -176,7 +179,7 @@ def list_my_tenants() -> list:
         return _list_err(f"Unexpected error: {e}")
 
 
-@mcp.tool()
+@tool
 def get_my_role(tenant_id: int) -> dict:
     """Return the current user's roles in a tenant.
 
@@ -193,7 +196,7 @@ def get_my_role(tenant_id: int) -> dict:
         return _err(f"Unexpected error: {e}")
 
 
-@mcp.tool()
+@tool
 def list_my_modules(tenant_id: int) -> list:
     """List modules that are enabled AND accessible to the current user.
 
@@ -214,7 +217,7 @@ def list_my_modules(tenant_id: int) -> list:
 # Requests (заявки)
 # ---------------------------------------------------------------------------
 
-@mcp.tool()
+@tool
 def list_requests(
     tenant_id: int,
     status: str = "",
@@ -267,7 +270,7 @@ def list_requests(
         return _list_err(f"Unexpected error: {e}")
 
 
-@mcp.tool()
+@tool
 def get_request(tenant_id: int, request_id: int) -> dict:
     """Get full details of a single payment request by ID.
 
@@ -290,7 +293,7 @@ def get_request(tenant_id: int, request_id: int) -> dict:
         return _err(f"Unexpected error: {e}")
 
 
-@mcp.tool()
+@tool
 def list_request_categories(tenant_id: int) -> list:
     """List active payment request categories configured for a tenant.
 
@@ -315,7 +318,7 @@ def list_request_categories(tenant_id: int) -> list:
 # Financial operations (финансовые операции)
 # ---------------------------------------------------------------------------
 
-@mcp.tool()
+@tool
 def list_cash_expenses(
     tenant_id: int,
     date_from: str = "",
@@ -350,7 +353,7 @@ def list_cash_expenses(
         return _list_err(f"Unexpected error: {e}")
 
 
-@mcp.tool()
+@tool
 def list_cash_revenues(
     tenant_id: int,
     date_from: str = "",
@@ -382,7 +385,7 @@ def list_cash_revenues(
         return _list_err(f"Unexpected error: {e}")
 
 
-@mcp.tool()
+@tool
 def list_bank_expenses(
     tenant_id: int,
     date_from: str = "",
@@ -415,7 +418,7 @@ def list_bank_expenses(
         return _list_err(f"Unexpected error: {e}")
 
 
-@mcp.tool()
+@tool
 def list_bank_revenues(
     tenant_id: int,
     date_from: str = "",
@@ -447,7 +450,7 @@ def list_bank_revenues(
         return _list_err(f"Unexpected error: {e}")
 
 
-@mcp.tool()
+@tool
 def list_card_expenses(
     tenant_id: int,
     date_from: str = "",
@@ -480,7 +483,7 @@ def list_card_expenses(
         return _list_err(f"Unexpected error: {e}")
 
 
-@mcp.tool()
+@tool
 def list_card_revenues(
     tenant_id: int,
     date_from: str = "",
@@ -516,7 +519,7 @@ def list_card_revenues(
 # Reports — PnL and Cashflow
 # ---------------------------------------------------------------------------
 
-@mcp.tool()
+@tool
 def get_pnl_report(tenant_id: int) -> dict:
     """Get the full Profit & Loss (PnL) report for a tenant.
 
@@ -570,7 +573,7 @@ def get_pnl_report(tenant_id: int) -> dict:
         return _err(f"Unexpected error: {e}")
 
 
-@mcp.tool()
+@tool
 def get_cashflow_report(tenant_id: int) -> dict:
     """Get the full Cashflow report for a tenant.
 
@@ -605,7 +608,7 @@ def get_cashflow_report(tenant_id: int) -> dict:
         return _err(f"Unexpected error: {e}")
 
 
-@mcp.tool()
+@tool
 def list_payroll_documents(tenant_id: int, limit: int = 50) -> list:
     """List payroll documents (ведомости) for a tenant.
 
@@ -630,7 +633,7 @@ def list_payroll_documents(tenant_id: int, limit: int = 50) -> list:
         return _list_err(f"Unexpected error: {e}")
 
 
-@mcp.tool()
+@tool
 def get_payroll_document(tenant_id: int, document_id: int) -> dict:
     """Get a payroll document and all its employee payment lines.
 
@@ -657,7 +660,7 @@ def get_payroll_document(tenant_id: int, document_id: int) -> dict:
 # Reference directories (справочники)
 # ---------------------------------------------------------------------------
 
-@mcp.tool()
+@tool
 def list_vendors(
     tenant_id: int,
     kind: str = "",
@@ -692,7 +695,7 @@ def list_vendors(
         return _list_err(f"Unexpected error: {e}")
 
 
-@mcp.tool()
+@tool
 def list_active_users(tenant_id: int) -> list:
     """List active members of a tenant with their roles.
 
@@ -714,7 +717,7 @@ def list_active_users(tenant_id: int) -> list:
         return _list_err(f"Unexpected error: {e}")
 
 
-@mcp.tool()
+@tool
 def list_wallets(tenant_id: int) -> list:
     """List all wallets (счета / кассы) for a tenant.
 
@@ -747,7 +750,7 @@ def list_wallets(tenant_id: int) -> list:
 # Tenant configuration
 # ---------------------------------------------------------------------------
 
-@mcp.tool()
+@tool
 def get_tenant_info(tenant_id: int) -> dict:
     """Get public metadata for a tenant.
 
@@ -764,7 +767,7 @@ def get_tenant_info(tenant_id: int) -> dict:
         return _err(f"Unexpected error: {e}")
 
 
-@mcp.tool()
+@tool
 def list_module_configs(tenant_id: int) -> list:
     """List all module enable/disable flags for a tenant.
 
@@ -781,7 +784,7 @@ def list_module_configs(tenant_id: int) -> list:
         return _list_err(f"Unexpected error: {e}")
 
 
-@mcp.tool()
+@tool
 def list_user_roles(tenant_id: int) -> list:
     """List all user-role assignments for a tenant (admin only).
 
@@ -798,7 +801,7 @@ def list_user_roles(tenant_id: int) -> list:
         return _list_err(f"Unexpected error: {e}")
 
 
-@mcp.tool()
+@tool
 def list_memberships(tenant_id: int) -> list:
     """List all tenant memberships (admin only).
 
