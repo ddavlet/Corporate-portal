@@ -36,6 +36,72 @@ def list_my_tenants() -> list[dict[str, Any]]:
     ]
 
 
+def get_my_role(tenant_id: int) -> dict[str, Any]:
+    """Return the current user's roles in a tenant.
+
+    Call this after list_my_tenants() to understand what actions are available.
+    Any active tenant member can call this.
+    """
+    token = _get_token()
+    user_id = _decode_token(token)
+
+    from apps.tenants.models import Tenant, TenantMembership, TenantUserRole
+
+    try:
+        tenant = Tenant.objects.get(id=tenant_id, is_active=True)
+    except Tenant.DoesNotExist:
+        raise PermissionError(f"Tenant {tenant_id} not found or inactive")
+
+    if not TenantMembership.objects.filter(user_id=user_id, tenant=tenant, is_active=True).exists():
+        raise PermissionError("You are not an active member of this tenant")
+
+    roles = list(
+        TenantUserRole.objects.filter(tenant=tenant, user_id=user_id)
+        .values_list("role", flat=True)
+        .order_by("role")
+    )
+
+    return {
+        "tenant_id": tenant.id,
+        "tenant_name": tenant.name,
+        "roles": roles,
+    }
+
+
+def list_my_modules(tenant_id: int) -> list[dict[str, Any]]:
+    """Return modules that are enabled AND accessible to the current user in a tenant.
+
+    Use this before calling finance/directory tools to know what's available.
+    Any active tenant member can call this.
+    """
+    token = _get_token()
+    user_id = _decode_token(token)
+
+    from apps.accounts.models import User
+    from apps.tenants.models import Tenant, TenantMembership, TenantModuleConfig
+    from apps.tenants.permissions import has_effective_module_access
+
+    try:
+        user = User.objects.get(id=user_id)
+        tenant = Tenant.objects.get(id=tenant_id, is_active=True)
+    except (User.DoesNotExist, Tenant.DoesNotExist):
+        raise PermissionError(f"Tenant {tenant_id} not found or user invalid")
+
+    if not TenantMembership.objects.filter(user=user, tenant=tenant, is_active=True).exists():
+        raise PermissionError("You are not an active member of this tenant")
+
+    enabled_modules = (
+        TenantModuleConfig.objects.filter(tenant=tenant, is_enabled=True)
+        .values_list("module_key", flat=True)
+    )
+
+    return [
+        {"module_key": key}
+        for key in sorted(enabled_modules)
+        if has_effective_module_access(user=user, tenant=tenant, module_key=key)
+    ]
+
+
 def get_tenant_info(tenant_id: int) -> dict[str, Any]:
     """Return public metadata for a tenant (admin or director only)."""
     _, tenant = require_admin_or_director(tenant_id)

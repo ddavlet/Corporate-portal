@@ -141,6 +141,40 @@ def list_my_tenants() -> list:
         return _list_err(f"Unexpected error: {e}")
 
 
+@mcp.tool()
+def get_my_role(tenant_id: int) -> dict:
+    """Return the current user's roles in a tenant.
+
+    Call after list_my_tenants() to understand what actions are available.
+
+    Args:
+        tenant_id: Tenant primary key.
+    """
+    try:
+        return cfg_tools.get_my_role(tenant_id=tenant_id)
+    except (PermissionError, ValueError) as e:
+        return _err(str(e))
+    except Exception as e:
+        return _err(f"Unexpected error: {e}")
+
+
+@mcp.tool()
+def list_my_modules(tenant_id: int) -> list:
+    """List modules that are enabled AND accessible to the current user.
+
+    Use this before calling finance/directory tools to know what's available.
+
+    Args:
+        tenant_id: Tenant primary key.
+    """
+    try:
+        return cfg_tools.list_my_modules(tenant_id=tenant_id)
+    except (PermissionError, ValueError) as e:
+        return _list_err(str(e))
+    except Exception as e:
+        return _list_err(f"Unexpected error: {e}")
+
+
 # ---------------------------------------------------------------------------
 # Requests (заявки)
 # ---------------------------------------------------------------------------
