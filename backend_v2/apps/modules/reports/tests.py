@@ -18,6 +18,7 @@ from apps.modules.requests.models import (
 from apps.modules.reports.models import TenantReportSettings
 from apps.modules.reports.pnl_builder import (
     ReportSettingsInvalid,
+    build_pnl_payload_from_db,
     compute_unassigned_payment_purposes,
     validate_pnl_config_dict,
 )
@@ -236,10 +237,14 @@ class BackendPnlDatabaseTests(TestCase):
         cache.clear()
         self.tenant = Tenant.objects.create(name="TestCo", subdomain="tstpnl")
         self.user = User.objects.create_user(username="pnl_db_u", password="x")
-        TenantReportSettings.objects.create(
+
+    def _ensure_pnl_settings(self, **cfg_overrides):
+        TenantReportSettings.objects.update_or_create(
             tenant=self.tenant,
-            pnl_source="backend",
-            pnl_config=full_backend_pnl_config(),
+            defaults={
+                "pnl_source": "backend",
+                "pnl_config": full_backend_pnl_config(**cfg_overrides),
+            },
         )
 
     def test_missing_tenant_report_settings_raises(self):
@@ -253,13 +258,7 @@ class BackendPnlDatabaseTests(TestCase):
         self.assertIn("tenant_report_settings", str(ctx.exception).lower())
 
     def test_backend_pnl_returns_empty_blocks_with_config(self):
-        TenantReportSettings.objects.create(
-            tenant=self.tenant,
-            pnl_source="backend",
-            pnl_config=full_backend_pnl_config(
-                request_payment_types_for_pnl=[],
-            ),
-        )
+        self._ensure_pnl_settings(request_payment_types_for_pnl=[])
         payload = fetch_n8n_report_payload(
             tenant=self.tenant,
             user_id=1,
@@ -272,6 +271,7 @@ class BackendPnlDatabaseTests(TestCase):
         self.assertIn("report_settings", payload)
 
     def test_pnl_amortized_request_spreads_across_schedule_months(self):
+        self._ensure_pnl_settings()
         Request.objects.create(
             tenant=self.tenant,
             created_by=self.user,
@@ -302,6 +302,7 @@ class BackendPnlDatabaseTests(TestCase):
         self.assertNotIn("2026-01", monthly)
 
     def test_pnl_amortized_request_includes_all_months_from_start_month(self):
+        self._ensure_pnl_settings()
         Request.objects.create(
             tenant=self.tenant,
             created_by=self.user,
@@ -326,6 +327,7 @@ class BackendPnlDatabaseTests(TestCase):
         self.assertEqual(op[-1]["date"][:7], "2027-01")
 
     def test_pnl_long_amortization_includes_tail_after_old_billing_date(self):
+        self._ensure_pnl_settings()
         Request.objects.create(
             tenant=self.tenant,
             created_by=self.user,
