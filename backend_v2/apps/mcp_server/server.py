@@ -345,6 +345,34 @@ def list_card_expenses(
 
 
 @mcp.tool()
+def list_card_revenues(
+    tenant_id: int,
+    date_from: str = "",
+    date_to: str = "",
+    limit: int = 50,
+) -> list:
+    """List corporate card revenues for a tenant.
+
+    Required roles: admin, director, accountant, cashier.
+
+    Args:
+        tenant_id: Tenant primary key.
+        date_from: Filter revenue_at >= this date (YYYY-MM-DD).
+        date_to: Filter revenue_at <= this date (YYYY-MM-DD).
+        limit: Max number of results (1–200, default 50).
+    """
+    try:
+        return fin_tools.list_card_revenues(
+            tenant_id=tenant_id,
+            date_from=date_from, date_to=date_to, limit=limit,
+        )
+    except (PermissionError, ValueError) as e:
+        return _list_err(str(e))
+    except Exception as e:
+        return _list_err(f"Unexpected error: {e}")
+
+
+@mcp.tool()
 def list_payroll_documents(tenant_id: int, limit: int = 50) -> list:
     """List payroll documents for a tenant.
 
@@ -431,26 +459,6 @@ def list_wallets(tenant_id: int) -> list:
 # ---------------------------------------------------------------------------
 # Integrations
 # ---------------------------------------------------------------------------
-
-@mcp.tool()
-def get_integration_config(tenant_id: int) -> dict:
-    """Get integration configuration for a tenant (admin only).
-
-    Returns metadata about configured integrations. Encrypted secrets are
-    never exposed — only whether each secret is set.
-
-    Required roles: admin.
-
-    Args:
-        tenant_id: Tenant primary key.
-    """
-    try:
-        return int_tools.get_integration_config(tenant_id=tenant_id)
-    except (PermissionError, ValueError) as e:
-        return _err(str(e))
-    except Exception as e:
-        return _err(f"Unexpected error: {e}")
-
 
 # ---------------------------------------------------------------------------
 # Tenant configuration
