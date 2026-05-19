@@ -905,29 +905,29 @@ services:
       - SYS_MODULE
     restart: unless-stopped
 
-  mcp-postgres:
-    image: node:22-alpine
-    container_name: mcp-postgres
-    restart: always
-    command: >
-      sh -c "
-        npm install -g @modelcontextprotocol/server-postgres mcp-proxy &&
-        mcp-proxy --port 3100 --transport sse npx @modelcontextprotocol/server-postgres 'postgresql://${POSGRES_MCP_USER}:${POSGRES_MCP_PASSWORD}@db:5432/backend_v2'
-      "
-    depends_on:
-      db:
-        condition: service_healthy
-    labels:
-      - traefik.enable=true
-      - traefik.docker.network=n8n_traefik-public
-      - traefik.http.routers.mcp-postgres.rule=Host(`mcp-db.kolberg.uz`)
-      - traefik.http.routers.mcp-postgres.entrypoints=web,websecure
-      - traefik.http.routers.mcp-postgres.tls=true
-      - traefik.http.routers.mcp-postgres.tls.certresolver=mytlschallenge
-      - traefik.http.services.mcp-postgres.loadbalancer.server.port=3100
-    networks:
-      - traefik-public
-      - backend
+  # mcp-postgres:
+  #   image: node:22-alpine
+  #   container_name: mcp-postgres
+  #   restart: always
+  #   command: >
+  #     sh -c "
+  #       npm install -g @modelcontextprotocol/server-postgres mcp-proxy &&
+  #       mcp-proxy --port 3100 --transport sse npx @modelcontextprotocol/server-postgres 'postgresql://${POSGRES_MCP_USER}:${POSGRES_MCP_PASSWORD}@db:5432/backend_v2'
+  #     "
+  #   depends_on:
+  #     db:
+  #       condition: service_healthy
+  #   labels:
+  #     - traefik.enable=true
+  #     - traefik.docker.network=n8n_traefik-public
+  #     - traefik.http.routers.mcp-postgres.rule=Host(`mcp-db.kolberg.uz`)
+  #     - traefik.http.routers.mcp-postgres.entrypoints=web,websecure
+  #     - traefik.http.routers.mcp-postgres.tls=true
+  #     - traefik.http.routers.mcp-postgres.tls.certresolver=mytlschallenge
+  #     - traefik.http.services.mcp-postgres.loadbalancer.server.port=3100
+  #   networks:
+  #     - traefik-public
+  #     - backend
 
 volumes:
   n8n_data:
