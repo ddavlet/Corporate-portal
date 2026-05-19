@@ -21,7 +21,7 @@ def list_my_tenants() -> list[dict[str, Any]]:
 
     memberships = (
         TenantMembership.objects
-        .filter(user_id=user_id, user__is_active=True, is_active=True, tenant__is_active=True)
+        .filter(user_id=user_id, user__is_active=True, is_active=True, tenant__is_active=True, tenant__mcp_enabled=True)
         .select_related("tenant")
         .order_by("tenant__name")
     )
@@ -111,6 +111,7 @@ def get_tenant_info(tenant_id: int) -> dict[str, Any]:
         "name": tenant.name,
         "subdomain": tenant.subdomain,
         "is_active": tenant.is_active,
+        "mcp_enabled": tenant.mcp_enabled,
         "telegram_otp_enabled": tenant.telegram_otp_enabled,
         "telegram_bot_username": tenant.telegram_bot_username,
     }

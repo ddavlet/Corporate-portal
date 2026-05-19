@@ -11,6 +11,7 @@ class Tenant(models.Model):
     telegram_otp_enabled = models.BooleanField(default=False)
     telegram_bot_token_enc = models.TextField(blank=True, default="")
     telegram_bot_username = models.CharField(max_length=128, blank=True, default="")
+    mcp_enabled = models.BooleanField(default=False)
 
     # Cash expense `external_id`: optional prefix before zero-padded numeric part (e.g. "1-", or empty).
     cash_expense_external_id_prefix = models.CharField(max_length=32, default="1-")

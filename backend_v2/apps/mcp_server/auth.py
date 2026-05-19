@@ -72,6 +72,12 @@ def _get_user_and_tenant(user_id: int, tenant_id: int):
     except Tenant.DoesNotExist:
         raise PermissionError(f"Tenant {tenant_id} not found or inactive")
 
+    if not tenant.mcp_enabled:
+        raise PermissionError(
+            f"MCP access is not enabled for tenant '{tenant.subdomain}'. "
+            "Ask your administrator to enable it in tenant settings."
+        )
+
     if not TenantMembership.objects.filter(user=user, tenant=tenant, is_active=True).exists():
         raise PermissionError("User is not an active member of this tenant")
 
