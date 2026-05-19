@@ -194,6 +194,51 @@ class McpOAuthLoginFlowTests(TestCase):
         self.assertIn(b"otp", r.content.lower())
 
 
+class McpInvestmentsBudgetsToolsTests(TestCase):
+    def setUp(self):
+        from django.contrib.auth import get_user_model
+        from apps.tenants.models import Tenant
+
+        User = get_user_model()
+        self.user = User.objects.create_user(username="mcp_inv", password="x")
+        self.tenant = Tenant.objects.create(name="T", subdomain="invbud", is_active=True, mcp_enabled=True)
+
+    @patch("apps.mcp_server.tools.investments.require_module_access")
+    def test_list_invest_companies_scoped(self, mock_access):
+        from apps.modules.investments.models import InvestCompany
+        from apps.mcp_server.tools import investments as inv_tools
+
+        mock_access.return_value = (None, self.tenant)
+        InvestCompany.objects.create(
+            tenant=self.tenant, name="HoldCo", created_by=self.user, is_active=True
+        )
+        rows = inv_tools.list_invest_companies(self.tenant.id)
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["name"], "HoldCo")
+
+    @patch("apps.mcp_server.tools.budgets.require_module_access")
+    def test_list_budgets_includes_utilization(self, mock_access):
+        from apps.modules.budgets.models import Budget
+        from apps.modules.requests.models import RequestCategory
+        from apps.mcp_server.tools import budgets as bud_tools
+
+        mock_access.return_value = (None, self.tenant)
+        cat = RequestCategory.objects.create(tenant=self.tenant, name="Marketing", is_active=True)
+        Budget.objects.create(
+            tenant=self.tenant,
+            name="Q1 Marketing",
+            category=cat,
+            period_type=Budget.PERIOD_MONTHLY,
+            limit_amount="1000.00",
+            currency="UZS",
+            created_by=self.user,
+        )
+        rows = bud_tools.list_budgets(self.tenant.id, year=2026, period=1)
+        self.assertEqual(len(rows), 1)
+        self.assertIn("spent_amount", rows[0])
+        self.assertIn("utilization_pct", rows[0])
+
+
 class DjangoMcpToolDecoratorTests(TestCase):
     def test_sync_to_async_wrapper_runs_sync_code(self):
         import asyncio
