@@ -39,19 +39,20 @@ def get_mcp_asgi_app():
 
     mcp.settings.auth = AuthSettings(
         issuer_url=base_url,  # type: ignore[arg-type]
-        resource_server_url=None,
+        resource_server_url=django_settings.MCP_RESOURCE_URL,  # type: ignore[arg-type]
         client_registration_options=ClientRegistrationOptions(
             enabled=True,
             valid_scopes=["mcp"],
             default_scopes=["mcp"],
         ),
     )
-    # FastMCP defaults to localhost-only DNS rebinding protection when host="127.0.0.1".
-    # Override with the actual public host so MCP clients can connect.
+    allowed_origins = list(dict.fromkeys(django_settings.MCP_ALLOWED_ORIGINS))
+    if public_origin not in allowed_origins:
+        allowed_origins.insert(0, public_origin)
     mcp.settings.transport_security = TransportSecuritySettings(
         enable_dns_rebinding_protection=True,
         allowed_hosts=[public_host],
-        allowed_origins=[public_origin],
+        allowed_origins=allowed_origins,
     )
     mcp.settings.streamable_http_path = "/"
     mcp.settings.stateless_http = True
@@ -62,5 +63,7 @@ def get_mcp_asgi_app():
     mcp._auth_server_provider = _provider
     mcp._token_verifier = ProviderTokenVerifier(_provider)
 
-    _mcp_asgi_app = mcp.streamable_http_app()
+    from apps.mcp_server.http.middleware import with_mcp_resource_metadata
+
+    _mcp_asgi_app = with_mcp_resource_metadata(mcp.streamable_http_app())
     return _mcp_asgi_app

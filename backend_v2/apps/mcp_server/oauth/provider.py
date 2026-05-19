@@ -14,8 +14,9 @@ from __future__ import annotations
 import secrets
 from datetime import datetime, timezone, timedelta
 
-from django.conf import settings
 from django.core import signing
+
+from apps.mcp_server.oauth.metadata import mcp_oauth_login_url
 from mcp.server.auth.provider import (
     OAuthAuthorizationServerProvider,
     AuthorizationParams,
@@ -92,11 +93,8 @@ class KolbergOAuthProvider(
             "scopes": params.scopes or [],
         }
         signed = signing.dumps(payload, salt=_SIGN_SALT, compress=True)
-        # Absolute URL so MCP clients (Claude) open the Django login page, not a FastMCP-relative path.
-        issuer = settings.MCP_BASE_URL.rstrip("/")
-        if issuer.endswith("/mcp"):
-            issuer = issuer[: -len("/mcp")]
-        return f"{issuer}/mcp/login/?t={signed}"
+        login_base = mcp_oauth_login_url().rstrip("/")
+        return f"{login_base}/?t={signed}"
 
     async def load_authorization_code(
         self, client: OAuthClientInformationFull, authorization_code: str
@@ -130,14 +128,13 @@ class KolbergOAuthProvider(
         self, client: OAuthClientInformationFull, authorization_code: KolbergAuthCode
     ) -> OAuthToken:
         from apps.mcp_server.oauth.models import OAuthAuthorizationCode
+        from apps.mcp_server.oauth.tokens import mcp_jwt_pair_for_user
         from apps.accounts.models import User
-        from rest_framework_simplejwt.tokens import RefreshToken as JwtRefresh
 
         await OAuthAuthorizationCode.objects.filter(code=authorization_code.code).aupdate(used=True)
 
         user = await User.objects.aget(id=authorization_code.user_id)
-        refresh = JwtRefresh.for_user(user)
-        access = refresh.access_token
+        refresh, access = mcp_jwt_pair_for_user(user)
 
         return OAuthToken(
             access_token=str(access),
@@ -190,8 +187,9 @@ class KolbergOAuthProvider(
         except User.DoesNotExist:
             raise TokenError(error="invalid_grant", error_description="User not found")
 
-        new_refresh = JwtRefresh.for_user(user)
-        access = new_refresh.access_token
+        from apps.mcp_server.oauth.tokens import mcp_jwt_pair_for_user
+
+        new_refresh, access = mcp_jwt_pair_for_user(user)
 
         return OAuthToken(
             access_token=str(access),
