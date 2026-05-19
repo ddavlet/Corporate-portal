@@ -146,6 +146,18 @@ class TenantSubdomainMiddlewareTests(TestCase):
         res = mw(req)
         self.assertFalse(hasattr(res, "tenant"))
 
+    @override_settings(MCP_BASE_URL="https://api.example.com/mcp")
+    def test_skips_tenant_for_mcp_host(self):
+        """api.{BASE_DOMAIN} is MCP edge, not tenant subdomain 'api'."""
+        req = self.factory.get("/oauth/login/", HTTP_HOST="api.example.com")
+
+        def get_response(request):
+            return request
+
+        mw = TenantSubdomainMiddleware(get_response)
+        res = mw(req)
+        self.assertFalse(hasattr(res, "tenant"))
+
 
 @override_settings(BASE_DOMAIN="example.com", ALLOWED_HOSTS=["*"])
 class TenantIntegrationConfigApiTests(APITestCase):

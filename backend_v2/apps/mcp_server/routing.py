@@ -9,6 +9,10 @@ MCP host routing invariants (api.kolberg.uz).
 
 from __future__ import annotations
 
+from urllib.parse import urlparse
+
+from django.conf import settings
+
 # Normalized paths (no trailing slash except "/")
 LEGACY_LOGIN_PATHS = frozenset(
     {
@@ -21,6 +25,20 @@ LEGACY_LOGIN_PATHS = frozenset(
 
 def path_normalized(path: str) -> str:
     return (path or "/").rstrip("/") or "/"
+
+
+def mcp_hostname() -> str:
+    """Public MCP API host (e.g. api.kolberg.uz), not a tenant subdomain."""
+    return (urlparse(settings.MCP_BASE_URL).hostname or "").lower()
+
+
+def host_no_port(host: str) -> str:
+    return (host or "").split(":")[0].lower()
+
+
+def is_mcp_host(host: str) -> bool:
+    name = mcp_hostname()
+    return bool(name) and host_no_port(host) == name
 
 
 def is_well_known_oauth_path(path: str) -> bool:
