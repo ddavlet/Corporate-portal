@@ -123,6 +123,25 @@ def _list_err(msg: str) -> list:
 
 
 # ---------------------------------------------------------------------------
+# Discovery — call this first
+# ---------------------------------------------------------------------------
+
+@mcp.tool()
+def list_my_tenants() -> list:
+    """List all active tenants the current user belongs to.
+
+    Call this first to discover available tenant IDs and names before
+    using any other tool that requires a tenant_id.
+    """
+    try:
+        return cfg_tools.list_my_tenants()
+    except (PermissionError, ValueError) as e:
+        return _list_err(str(e))
+    except Exception as e:
+        return _list_err(f"Unexpected error: {e}")
+
+
+# ---------------------------------------------------------------------------
 # Requests (заявки)
 # ---------------------------------------------------------------------------
 
@@ -433,6 +452,26 @@ def list_vendors(
         return dir_tools.list_vendors(
             tenant_id=tenant_id, kind=kind, name_search=name_search, limit=limit,
         )
+    except (PermissionError, ValueError) as e:
+        return _list_err(str(e))
+    except Exception as e:
+        return _list_err(f"Unexpected error: {e}")
+
+
+@mcp.tool()
+def list_active_users(tenant_id: int) -> list:
+    """List active members of a tenant with their roles.
+
+    Returns id, full_name, username, and roles. No passwords, emails,
+    or other sensitive fields are included.
+
+    Required roles: admin, director.
+
+    Args:
+        tenant_id: Tenant primary key.
+    """
+    try:
+        return dir_tools.list_active_users(tenant_id=tenant_id)
     except (PermissionError, ValueError) as e:
         return _list_err(str(e))
     except Exception as e:
