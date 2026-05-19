@@ -124,10 +124,15 @@ class FeedbackSubmitView(APIView):
             fb.delivery_status = PortalFeedback.DELIVERY_SKIPPED
             fb.delivery_error = "Получатель messaging gateway не настроен (messaging_gateway_feedback_recipient_id)."
             fb.save(update_fields=["delivery_status", "delivery_error"])
+            logger.warning(
+                "Portal feedback %s not delivered: messaging gateway recipient not configured for tenant=%s",
+                fb.pk,
+                getattr(tenant, "subdomain", None) or tenant.pk,
+            )
             return Response(
                 {
                     "id": fb.id,
-                    "delivery": {"status": fb.delivery_status, "error": None},
+                    "delivery": {"status": fb.delivery_status, "error": fb.delivery_error},
                 },
                 status=status.HTTP_201_CREATED,
             )
