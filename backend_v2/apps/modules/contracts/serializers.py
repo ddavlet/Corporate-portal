@@ -87,6 +87,8 @@ class ContractSerializer(serializers.ModelSerializer):
         uploaded = None
         if request and getattr(request, "FILES", None):
             uploaded = request.FILES.get("contract_file")
+        if self.instance is None and not isinstance(uploaded, UploadedFile):
+            raise serializers.ValidationError({"contract_file": "Прикрепите файл договора."})
         if uploaded is not None and isinstance(uploaded, UploadedFile):
             fn = os.path.basename(uploaded.name or "file") or "file"
             ext = fn.rsplit(".", 1)[-1].lower() if "." in fn else ""
