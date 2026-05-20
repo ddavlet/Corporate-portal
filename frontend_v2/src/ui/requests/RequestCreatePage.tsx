@@ -350,9 +350,8 @@ export function RequestCreatePage({ requestsBasePath = '/requests', variant = 'p
       for (const file of attachments) {
         await uploadRequestAttachment(res.id, file)
       }
-      message.success('Заявка создана')
       const id = res.id
-      if (typeof id === 'number') navigate(`${requestsBasePath}/${id}`)
+      if (typeof id === 'number') navigate(`${requestsBasePath}/${id}`, { state: { justCreated: true } })
       else navigate(requestsBasePath)
     } catch (e: unknown) {
       message.error(e instanceof Error ? e.message : 'Ошибка сохранения')

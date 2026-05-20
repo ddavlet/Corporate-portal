@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Alert, Button, Card, DatePicker, Input, InputNumber, Modal, Select, Space, Typography, message } from 'antd'
 import { CopyOutlined, ReloadOutlined } from '@ant-design/icons'
-import { useNavigate, useParams } from 'react-router-dom'
+import { useNavigate, useParams, useLocation } from 'react-router-dom'
 import {
   apiFetch,
   confirmPaymentViaWebApp,
@@ -61,7 +61,11 @@ function minPendingApprovalStep(approvals: ApprovalItem[] | undefined): number |
 export function RequestDetailPage({ listPath = '/requests', variant = 'portal' }: RequestDetailPageProps) {
   const navigate = useNavigate()
   const { id } = useParams<{ id: string }>()
+  const { state: locationState } = useLocation()
   const { accessToken } = useAuth()
+  const [showCreatedAlert, setShowCreatedAlert] = useState(
+    Boolean((locationState as Record<string, unknown> | null)?.justCreated),
+  )
   const [detail, setDetail] = useState<RequestDetail | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -502,6 +506,17 @@ export function RequestDetailPage({ listPath = '/requests', variant = 'portal' }
   return (
     <Card className={isTg ? 'tg-detail-card' : undefined} styles={{ body: isTg ? { padding: '16px 16px 24px' } : undefined }}>
       <div className={isTg ? 'tg-detail-page' : undefined}>
+        {showCreatedAlert ? (
+          <Alert
+            message="Заявка успешно создана!"
+            description="Ваша заявка была создана и отправлена на согласование."
+            type="success"
+            showIcon
+            closable
+            onClose={() => setShowCreatedAlert(false)}
+            style={{ marginBottom: 16, fontSize: 16 }}
+          />
+        ) : null}
         <Space direction="vertical" size={12} style={{ display: 'flex' }}>
           {isTg ? (
             <div className="tg-actions-stack">
