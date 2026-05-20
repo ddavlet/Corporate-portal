@@ -113,6 +113,100 @@ function parseMonthRef(input: unknown): { year: number; monthIndex: number } | n
   return { year, monthIndex }
 }
 
+function parseYmStartMonth(raw: unknown): string | null {
+  if (typeof raw !== 'string') return null
+  const t = raw.trim()
+  if (!/^\d{4}-\d{2}$/.test(t)) return null
+  return t
+}
+
+/** Год-месяц для колонки матрицы (monthIndex 0 = январь). */
+function ymKey(year: number, monthIndex: number): string {
+  return `${year}-${String(monthIndex + 1).padStart(2, '0')}`
+}
+
+function addOneYm(key: string): string {
+  const [yStr, mStr] = key.split('-')
+  let y = Number(yStr)
+  let m = Number(mStr)
+  if (!Number.isFinite(y) || !Number.isFinite(m)) return key
+  m += 1
+  if (m > 12) {
+    m = 1
+    y += 1
+  }
+  return `${y}-${String(m).padStart(2, '0')}`
+}
+
+/** Сводка «остаток» по календарным месяцам (доход − расходы − инвествыплаты), по всем годам в данных. */
+function accumulateNetBalanceByYm(report: StructuredReportPayload): Record<string, number> {
+  const byYm: Record<string, number> = {}
+  const bump = (dateStr: string | undefined | null, delta: number) => {
+    const ref = parseMonthRef(dateStr)
+    if (!ref) return
+    const k = ymKey(ref.year, ref.monthIndex)
+    byYm[k] = roundToCents((byYm[k] ?? 0) + delta)
+  }
+
+  for (const row of report.revenue ?? []) {
+    bump(row.date, roundToCents(Math.abs(parseAmount(row.amount ?? row.kredit))))
+  }
+
+  const operationalSource = (report.operational_expenses?.length ?? 0) > 0 ? report.operational_expenses : []
+  const otherSource =
+    (report.other_expenses?.length ?? 0) > 0
+      ? report.other_expenses
+      : (report.operational_expenses?.length ?? 0) === 0 && (report.expense?.length ?? 0) > 0
+        ? report.expense
+        : []
+
+  for (const row of operationalSource) {
+    bump(row.date, roundToCents(-Math.abs(parseAmount(row.amount ?? row.kredit))))
+  }
+
+  for (const row of otherSource) {
+    bump(row.date, roundToCents(-Math.abs(parseAmount(row.amount ?? row.kredit))))
+  }
+
+  for (const row of report.invest_returns ?? []) {
+    bump(row.date, roundToCents(-Math.abs(parseAmount(row.amount ?? row.kredit))))
+  }
+
+  return byYm
+}
+
+function cumulativeBalanceFromStartParams(opts: {
+  balanceByYm: Record<string, number>
+  effectiveYear: number
+  startYm: string | null
+  opening: number
+}): number[] {
+  const { balanceByYm, effectiveYear, startYm, opening } = opts
+  const cumulative = Array(12).fill(0) as number[]
+  if (!startYm) {
+    let running = roundToCents(opening)
+    for (let m = 0; m < 12; m++) {
+      running = roundToCents(running + (balanceByYm[ymKey(effectiveYear, m)] ?? 0))
+      cumulative[m] = running
+    }
+    return cumulative
+  }
+
+  for (let m = 0; m < 12; m++) {
+    const cellKey = ymKey(effectiveYear, m)
+    if (cellKey.localeCompare(startYm) < 0) {
+      cumulative[m] = 0
+      continue
+    }
+    let total = roundToCents(opening)
+    for (let k = startYm; k.localeCompare(cellKey) <= 0; k = addOneYm(k)) {
+      total = roundToCents(total + (balanceByYm[k] ?? 0))
+    }
+    cumulative[m] = total
+  }
+  return cumulative
+}
+
 function categoryFromItem(item: LegacyReportItem): string {
   return (
     item.category ||
@@ -272,11 +366,17 @@ function buildLegacyMatrix(report: StructuredReportPayload | null, year: number 
 
   const ebit = revTotals.map((v, idx) => roundToCents(v + operationalExpTotals[idx]))
   const net = ebit.map((v, idx) => roundToCents(v + otherExpTotals[idx]))
-  const balance = net.map((v, idx) => roundToCents(v + investReturnsTotals[idx]))
-  const cumulative = balance.reduce((acc: number[], current, idx) => {
-    acc[idx] = roundToCents((acc[idx - 1] ?? 0) + current)
-    return acc
-  }, Array(12).fill(0))
+  const balanceByYm = accumulateNetBalanceByYm(report)
+  const balance = Array.from({ length: 12 }, (_, idx) => roundToCents(balanceByYm[ymKey(effectiveYear, idx)] ?? 0))
+  const startYm =
+    parseYmStartMonth(report.report_settings?.start_month) ?? parseYmStartMonth(report.metadata?.start_month ?? null)
+  const opening = parseAmount(report.report_settings?.opening_balance ?? report.totals?.opening_balance)
+  const cumulative = cumulativeBalanceFromStartParams({
+    balanceByYm,
+    effectiveYear,
+    startYm,
+    opening,
+  })
 
   const rows: MatrixRow[] = [
     { key: 'section:income', label: 'Доходы', kind: 'section', values: Array(12).fill(0), emphasize: true },
@@ -298,7 +398,7 @@ function buildLegacyMatrix(report: StructuredReportPayload | null, year: number 
       emphasize: true,
     },
     { key: 'sum:balance', label: 'Остаток', kind: 'summary', values: balance, emphasize: true },
-    { key: 'sum:cumulative', label: 'Суммарный остаток (с стартового месяца)', kind: 'summary', values: cumulative, emphasize: true },
+    { key: 'sum:cumulative', label: 'Суммарный остаток (начальный остаток + месяцы с start_month)', kind: 'summary', values: cumulative, emphasize: true },
   ]
 
   return { months, rows, years }
@@ -567,11 +667,16 @@ export function ReportsPage() {
 
       {!loading && report ? (
         <>
-          {active === 'pnl' && report.report_settings ? (
-            <Card title="Настройки отчёта PnL (только просмотр)">
+          {(active === 'pnl' || active === 'cashflow') && report.report_settings ? (
+            <Card title={`Настройки отчёта (${active === 'pnl' ? 'PnL' : 'Cashflow'}, только просмотр)`}>
               <Descriptions bordered size="small" column={1}>
                 <Descriptions.Item label="Начало периода (start_month)">
                   {report.report_settings.start_month ?? '—'}
+                </Descriptions.Item>
+                <Descriptions.Item
+                  label={active === 'pnl' ? 'Начальный остаток (PnL)' : 'Начальный остаток (Cashflow)'}
+                >
+                  {money(report.report_settings.opening_balance ?? report.totals.opening_balance ?? '0')}
                 </Descriptions.Item>
                 <Descriptions.Item label="Исключения операций кассы">
                   {(report.report_settings.cash_exclude_operations ?? []).join(', ') || '—'}

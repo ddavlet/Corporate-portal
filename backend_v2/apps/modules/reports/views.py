@@ -12,6 +12,7 @@ from apps.modules.reports.cashflow_builder import (
     ReportSettingsInvalid as CashflowReportSettingsInvalid,
     compute_unassigned_payment_purposes_cashflow,
     validate_cashflow_config_dict,
+    validate_cashflow_supplement_dict,
 )
 from apps.modules.reports.pnl_builder import (
     ReportSettingsInvalid,
@@ -170,7 +171,8 @@ class TenantReportSettingsConfigView(APIView):
 
 class TenantCashflowReportSettingsConfigView(APIView):
     """
-    Per-tenant Cashflow source (n8n vs backend). Filter buckets are shared with PnL (pnl_config).
+    Per-tenant Cashflow source (n8n vs backend). Filters come from ``pnl_config`` (same as backend PnL).
+    ``cashflow_config`` holds Cashflow-only settings (e.g. opening_balance).
     """
 
     permission_classes = [IsAuthenticated, IsTenantAdmin]
@@ -178,9 +180,11 @@ class TenantCashflowReportSettingsConfigView(APIView):
     @staticmethod
     def _serialize(row: TenantReportSettings) -> dict:
         pnl_cfg = row.pnl_config if isinstance(row.pnl_config, dict) else {}
+        cf_cfg = row.cashflow_config if isinstance(row.cashflow_config, dict) else {}
         return {
             "cashflow_source": row.cashflow_source,
             "pnl_config": pnl_cfg,
+            "cashflow_config": cf_cfg,
             "uses_pnl_config": True,
             "updated_at": row.updated_at.isoformat() if row.updated_at else None,
         }
@@ -195,6 +199,7 @@ class TenantCashflowReportSettingsConfigView(APIView):
                 "pnl_source": TenantReportSettings.PNL_SOURCE_N8N,
                 "pnl_config": {},
                 "cashflow_source": TenantReportSettings.CASHFLOW_SOURCE_N8N,
+                "cashflow_config": {},
             },
         )
         data = self._serialize(row)
@@ -218,6 +223,7 @@ class TenantCashflowReportSettingsConfigView(APIView):
                 "pnl_source": TenantReportSettings.PNL_SOURCE_N8N,
                 "pnl_config": {},
                 "cashflow_source": TenantReportSettings.CASHFLOW_SOURCE_N8N,
+                "cashflow_config": {},
             },
         )
 
@@ -238,8 +244,25 @@ class TenantCashflowReportSettingsConfigView(APIView):
                     {"pnl_config": f"Настройте отчёт PnL (backend): {exc}"}
                 ) from exc
 
+        update_fields = ["cashflow_source", "updated_at"]
+        if "cashflow_config" in body:
+            cf_in = body.get("cashflow_config")
+            if cf_in is None:
+                new_cf_merged: dict = {}
+            elif not isinstance(cf_in, dict):
+                raise ValidationError({"cashflow_config": "Must be a JSON object."})
+            else:
+                base_cf = row.cashflow_config if isinstance(row.cashflow_config, dict) else {}
+                new_cf_merged = {**base_cf, **cf_in}
+            try:
+                validate_cashflow_supplement_dict(new_cf_merged)
+            except CashflowReportSettingsInvalid as exc:
+                raise ValidationError({"cashflow_config": str(exc)}) from exc
+            row.cashflow_config = new_cf_merged
+            update_fields.append("cashflow_config")
+
         row.cashflow_source = new_source
-        row.save(update_fields=["cashflow_source", "updated_at"])
+        row.save(update_fields=update_fields)
 
         return Response(self._serialize(row), status=status.HTTP_200_OK)
 
