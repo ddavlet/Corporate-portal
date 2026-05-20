@@ -76,6 +76,7 @@ function defaultInvestBuckets(): Record<string, InvestBucket> {
 
 function buildConfigFromForm(fields: {
   startMonth: string
+  openingBalance: string
   cashExclude: string
   requestExclude: string
   requestPaymentTypes: string[]
@@ -98,6 +99,7 @@ function buildConfigFromForm(fields: {
   }
   return {
     start_month: fields.startMonth.trim(),
+    opening_balance: fields.openingBalance.trim() || '0',
     cash_exclude_operations: splitList(fields.cashExclude),
     request_exclude_categories: splitList(fields.requestExclude),
     request_payment_types_for_pnl: [...fields.requestPaymentTypes],
@@ -121,6 +123,7 @@ export function PnlReportSettingsPage() {
 
   const [pnlSource, setPnlSource] = useState<'n8n' | 'backend'>('n8n')
   const [startMonth, setStartMonth] = useState('')
+  const [openingBalance, setOpeningBalance] = useState('')
   const [cashExclude, setCashExclude] = useState('')
   const [requestExclude, setRequestExclude] = useState('')
   const [requestPaymentTypes, setRequestPaymentTypes] = useState<string[]>([])
@@ -146,6 +149,7 @@ export function PnlReportSettingsPage() {
       setPnlSource(data.pnl_source)
       const c = data.pnl_config ?? {}
       setStartMonth((c.start_month ?? '').trim())
+      setOpeningBalance(String(c.opening_balance ?? '').trim())
       setCashExclude(joinList(c.cash_exclude_operations))
       setRequestExclude(joinList(c.request_exclude_categories))
       setRequestPaymentTypes([...(c.request_payment_types_for_pnl ?? [])])
@@ -303,6 +307,7 @@ export function PnlReportSettingsPage() {
     try {
       const pnl_config = buildConfigFromForm({
         startMonth,
+        openingBalance,
         cashExclude,
         requestExclude,
         requestPaymentTypes,
@@ -329,7 +334,7 @@ export function PnlReportSettingsPage() {
   const backendHint = useMemo(
     () =>
       pnlSource === 'backend'
-        ? 'Backend PnL: задайте стартовый месяц, типы оплаты заявок (пустой список — ни одна заявка в расходах), три непересекающихся набора назначений платежа (выбор из списка) и распределение всех четырёх типов выплат по инвестициям.'
+        ? 'Backend PnL: задайте стартовый месяц, начальный остаток PnL на его начало (опционально), типы оплаты заявок (пустой список — ни одна заявка в расходах), три непересекающихся набора назначений платежа (выбор из списка) и распределение всех четырёх типов выплат по инвестициям. Начальный остаток для Cashflow настраивается на странице Cashflow.'
         : null,
     [pnlSource],
   )
@@ -436,6 +441,21 @@ export function PnlReportSettingsPage() {
               placeholder="YYYY-MM, например 2026-01"
               value={startMonth}
               onChange={(e) => setStartMonth(e.target.value)}
+            />
+          </div>
+
+          <div>
+            <Typography.Text strong>Начальный остаток (PnL)</Typography.Text>
+            <Typography.Paragraph type="secondary" style={{ marginBottom: 8, marginTop: 4 }}>
+              Остаток на начало месяца «Стартовый месяц периода» (до операций этого месяца в отчёте PnL). Используется в строке
+              «Суммарный остаток» для отчёта PnL. Для Cashflow задаётся отдельно на странице настроек Cashflow. Оставьте пустым
+              или 0, если не нужен.
+            </Typography.Paragraph>
+            <Input
+              style={{ marginTop: 0 }}
+              placeholder="Например 1250000 или 0"
+              value={openingBalance}
+              onChange={(e) => setOpeningBalance(e.target.value)}
             />
           </div>
 

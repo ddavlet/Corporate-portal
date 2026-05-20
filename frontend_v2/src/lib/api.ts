@@ -806,6 +806,8 @@ export type StructuredMonthlyRow = {
 /** Rules for backend PnL (also returned in structured report as report_settings). */
 export type PnlReportSettingsSnapshot = {
   start_month?: string
+  /** Начальный остаток для отчёта PnL (на начало ``start_month``). Cashflow задаётся отдельно в ``cashflow_config``. */
+  opening_balance?: string
   cash_exclude_operations?: string[]
   request_exclude_categories?: string[]
   request_payment_types_for_pnl?: string[]
@@ -872,6 +874,11 @@ export async function patchTenantReportSettings(
   return parseTenantReportSettingsApiResponse(parsedJson)
 }
 
+/** Доп. настройки backend Cashflow (не фильтры PnL); хранятся в ``cashflow_config`` на сервере. */
+export type CashflowOnlyReportConfig = {
+  opening_balance?: string
+}
+
 /** Rules for backend Cashflow (same keys as PnL; also returned in structured report as report_settings). */
 export type CashflowReportSettingsSnapshot = PnlReportSettingsSnapshot
 
@@ -886,6 +893,8 @@ export type TenantCashflowReportSettingsApiResponse = {
   cashflow_source: 'n8n' | 'backend'
   /** Shared with backend PnL — Cashflow reuses pnl_config for filters. */
   pnl_config: CashflowReportSettingsSnapshot
+  /** Отдельно от PnL: например начальный остаток для Cashflow. */
+  cashflow_config: CashflowOnlyReportConfig
   uses_pnl_config?: boolean
   updated_at?: string | null
   cashflow_diagnostics?: CashflowDiagnosticsApi
@@ -895,15 +904,19 @@ function parseTenantCashflowReportSettingsApiResponse(json: unknown): TenantCash
   const obj = json && typeof json === 'object' ? (json as Record<string, unknown>) : {}
   const src = String(obj.cashflow_source || '').toLowerCase()
   const cashflow_source: 'n8n' | 'backend' = src === 'backend' ? 'backend' : 'n8n'
-  const rawCfg = obj.pnl_config ?? obj.cashflow_config
+  const rawPnl = obj.pnl_config
+  const rawCf = obj.cashflow_config
   const pnl_config: CashflowReportSettingsSnapshot =
-    rawCfg && typeof rawCfg === 'object' ? (rawCfg as CashflowReportSettingsSnapshot) : {}
+    rawPnl && typeof rawPnl === 'object' ? (rawPnl as CashflowReportSettingsSnapshot) : {}
+  const cashflow_config: CashflowOnlyReportConfig =
+    rawCf && typeof rawCf === 'object' ? (rawCf as CashflowOnlyReportConfig) : {}
   const rawDiag = obj.cashflow_diagnostics
   const cashflow_diagnostics: CashflowDiagnosticsApi | undefined =
     rawDiag && typeof rawDiag === 'object' ? (rawDiag as CashflowDiagnosticsApi) : undefined
   return {
     cashflow_source,
     pnl_config,
+    cashflow_config,
     uses_pnl_config: obj.uses_pnl_config === true,
     updated_at: typeof obj.updated_at === 'string' ? obj.updated_at : null,
     cashflow_diagnostics,
@@ -921,7 +934,7 @@ export async function getTenantCashflowReportSettings(opts?: {
 }
 
 export async function patchTenantCashflowReportSettings(
-  payload: Partial<{ cashflow_source: 'n8n' | 'backend' }>,
+  payload: Partial<{ cashflow_source: 'n8n' | 'backend'; cashflow_config: CashflowOnlyReportConfig }>,
 ): Promise<TenantCashflowReportSettingsApiResponse> {
   const res = await apiFetch('/api/reports/cashflow-report-settings/', {
     method: 'PATCH',
@@ -984,6 +997,7 @@ export type StructuredReportPayload = {
     ebit?: string
     net: string
     invest_returns?: string
+    opening_balance?: string
     balance?: string
   }
   monthly: StructuredMonthlyRow[]
@@ -1028,6 +1042,7 @@ function normalizeStructuredReportPayload(payload: unknown, report: 'pnl' | 'cas
       ebit: totals.ebit != null ? String(totals.ebit) : undefined,
       net: String(totals.net ?? '0'),
       invest_returns: totals.invest_returns != null ? String(totals.invest_returns) : undefined,
+      opening_balance: totals.opening_balance != null ? String(totals.opening_balance) : undefined,
       balance: totals.balance != null ? String(totals.balance) : undefined,
     },
     monthly,

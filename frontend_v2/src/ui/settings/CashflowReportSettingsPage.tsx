@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { Alert, Button, Card, Select, Typography, message } from 'antd'
+import { Alert, Button, Card, Input, Select, Typography, message } from 'antd'
 import { Link } from 'react-router-dom'
 import {
   getSettingsAccess,
@@ -18,6 +18,7 @@ export function CashflowReportSettingsPage() {
   const [error, setError] = useState<string | null>(null)
 
   const [cashflowSource, setCashflowSource] = useState<'n8n' | 'backend'>('n8n')
+  const [cashflowOpeningBalance, setCashflowOpeningBalance] = useState('')
   const [pnlConfig, setPnlConfig] = useState<PnlReportSettingsSnapshot>({})
   const [pnlConfigError, setPnlConfigError] = useState<string | null>(null)
   const [updatedAt, setUpdatedAt] = useState<string | null>(null)
@@ -51,6 +52,7 @@ export function CashflowReportSettingsPage() {
     try {
       const data = await getTenantCashflowReportSettings()
       setCashflowSource(data.cashflow_source)
+      setCashflowOpeningBalance(String(data.cashflow_config?.opening_balance ?? '').trim())
       setPnlConfig(data.pnl_config ?? {})
       setUpdatedAt(typeof data.updated_at === 'string' ? data.updated_at : null)
       if (data.cashflow_diagnostics?.error) {
@@ -72,11 +74,15 @@ export function CashflowReportSettingsPage() {
     setSaving(true)
     setError(null)
     try {
-      const data = await patchTenantCashflowReportSettings({ cashflow_source: cashflowSource })
+      const data = await patchTenantCashflowReportSettings({
+        cashflow_source: cashflowSource,
+        cashflow_config: { opening_balance: cashflowOpeningBalance.trim() || '0' },
+      })
       setCashflowSource(data.cashflow_source)
+      setCashflowOpeningBalance(String(data.cashflow_config?.opening_balance ?? '').trim())
       setPnlConfig(data.pnl_config ?? {})
       setUpdatedAt(typeof data.updated_at === 'string' ? data.updated_at : null)
-      message.success('Источник Cashflow сохранён')
+      message.success('Настройки Cashflow сохранены')
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Не удалось сохранить')
     } finally {
@@ -111,10 +117,11 @@ export function CashflowReportSettingsPage() {
         Отчёт Cashflow — источник данных
       </Typography.Title>
       <Typography.Paragraph type="secondary">
-        Фильтры (типы оплаты, назначения платежа, корзины расходов, стартовый месяц) общие с отчётом PnL.
-        Настраиваются на странице{' '}
-        <Link to="/settings/pnl-report-config">Отчёт PnL</Link>. Для backend Cashflow расходы заявок
-        считаются по дате фактической оплаты (без амортизации); выплаты по инвестициям — по дате выплаты.
+        Фильтры (типы оплаты, назначения платежа, корзины расходов, стартовый месяц) общие с отчётом PnL — их можно задать на{' '}
+        <Link to="/settings/pnl-report-config">странице PnL</Link>.{' '}
+        <strong>Начальный остаток для Cashflow</strong> задаётся ниже отдельно от начального остатка PnL. Для backend
+        Cashflow расходы заявок считаются по дате фактической оплаты (без амортизации); выплаты по инвестициям — по дате
+        выплаты.
       </Typography.Paragraph>
 
       {error ? <Alert type="error" showIcon message={error} style={{ marginBottom: 16 }} /> : null}
@@ -148,6 +155,19 @@ export function CashflowReportSettingsPage() {
               { value: 'n8n', label: 'n8n (как настроено в автоматизации)' },
               { value: 'backend', label: 'Расчёт в приложении (backend)' },
             ]}
+          />
+        </div>
+
+        <div style={{ marginBottom: 16 }}>
+          <Typography.Text strong>Начальный остаток (Cashflow)</Typography.Text>
+          <Typography.Paragraph type="secondary" style={{ marginBottom: 8, marginTop: 4 }}>
+            Остаток на начало месяца «Стартовый месяц» из настроек PnL — только для суммарного остатка в отчёте Cashflow.
+            Не связан с полем начального остатка на странице PnL.
+          </Typography.Paragraph>
+          <Input
+            placeholder="Например 1250000 или 0"
+            value={cashflowOpeningBalance}
+            onChange={(e) => setCashflowOpeningBalance(e.target.value)}
           />
         </div>
 
