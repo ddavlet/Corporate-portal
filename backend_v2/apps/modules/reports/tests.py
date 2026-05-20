@@ -21,6 +21,7 @@ from apps.modules.investments.models import InvestReturn
 from apps.modules.reports.cashflow_builder import (
     build_cashflow_payload_from_db,
     validate_cashflow_config_dict,
+    validate_cashflow_supplement_dict,
 )
 from apps.modules.reports.pnl_builder import (
     ReportSettingsInvalid,
@@ -216,6 +217,32 @@ class FinalizeReportPayloadTests(SimpleTestCase):
         }
         out = finalize_report_payload(payload_obj=raw, endpoint="/n8n/pnl-data", source="backend")
         self.assertEqual(out["report_settings"]["cash_exclude_operations"], ["a"])
+
+    def test_finalize_report_settings_opening_balance(self):
+        raw = {
+            "revenue": [],
+            "operational_expenses": [],
+            "other_expenses": [],
+            "invest_returns": [],
+            "metadata": {},
+            "report_settings": {"start_month": "2026-02", "opening_balance": "150000"},
+        }
+        out = finalize_report_payload(payload_obj=raw, endpoint="/n8n/pnl-data", source="n8n")
+        self.assertEqual(out["totals"]["opening_balance"], "150000")
+
+
+class PnlOpeningBalanceSettingsTests(SimpleTestCase):
+    def test_snapshot_default_opening_when_key_missing(self):
+        cfg = full_backend_pnl_config()
+        from apps.modules.reports.pnl_builder import _report_settings_snapshot
+
+        snap = _report_settings_snapshot(cfg)
+        self.assertEqual(snap["opening_balance"], "0")
+
+    def test_validate_rejects_invalid_opening_balance_when_present(self):
+        cfg = full_backend_pnl_config(opening_balance="not-a-decimal")
+        with self.assertRaises(ReportSettingsInvalid):
+            validate_pnl_config_dict(cfg)
 
     def test_invest_returns_bucket_gets_fixed_category(self):
         raw = {
@@ -667,6 +694,22 @@ class BackendCashflowDatabaseTests(TestCase):
         TenantReportSettings.objects.filter(tenant=self.tenant).update(cashflow_source="n8n")
         self.assertEqual(resolve_cashflow_source_for_tenant(tenant=self.tenant), "n8n")
 
+    def test_report_settings_opening_balance_from_cashflow_config(self):
+        TenantReportSettings.objects.filter(tenant=self.tenant).update(
+            pnl_config=full_backend_pnl_config(opening_balance="111"),
+            cashflow_config={"opening_balance": "222"},
+        )
+        payload = build_cashflow_payload_from_db(tenant=self.tenant, query_params={})
+        self.assertEqual(payload["report_settings"]["opening_balance"], "222")
+
+    def test_report_settings_opening_balance_cashflow_defaults_without_extra_key(self):
+        TenantReportSettings.objects.filter(tenant=self.tenant).update(
+            pnl_config=full_backend_pnl_config(opening_balance="999"),
+            cashflow_config={},
+        )
+        payload = build_cashflow_payload_from_db(tenant=self.tenant, query_params={})
+        self.assertEqual(payload["report_settings"]["opening_balance"], "0")
+
 
 @override_settings(BASE_DOMAIN="example.com", ALLOWED_HOSTS=["*"])
 class TenantCashflowReportSettingsConfigApiTests(APITestCase):
@@ -687,6 +730,7 @@ class TenantCashflowReportSettingsConfigApiTests(APITestCase):
         self.assertEqual(res.status_code, 200, res.content)
         self.assertEqual(res.data["cashflow_source"], TenantReportSettings.CASHFLOW_SOURCE_N8N)
         self.assertEqual(res.data["pnl_config"], {})
+        self.assertEqual(res.data["cashflow_config"], {})
         self.assertTrue(res.data.get("uses_pnl_config"))
 
     def test_admin_patch_backend_requires_pnl_config(self):
@@ -710,6 +754,25 @@ class TenantCashflowReportSettingsConfigApiTests(APITestCase):
         self.assertEqual(ok.status_code, 200, ok.content)
         self.assertEqual(ok.data["cashflow_source"], "backend")
 
+    def test_admin_patch_cashflow_config_opening_balance(self):
+        res = self.client.patch(
+            self.url,
+            {"cashflow_config": {"opening_balance": "99.5"}},
+            format="json",
+            **self._auth(self.admin),
+        )
+        self.assertEqual(res.status_code, 200, res.content)
+        self.assertEqual(res.data["cashflow_config"]["opening_balance"], "99.5")
+
+    def test_admin_patch_cashflow_config_rejects_bad_opening_balance(self):
+        res = self.client.patch(
+            self.url,
+            {"cashflow_config": {"opening_balance": "notnum"}},
+            format="json",
+            **self._auth(self.admin),
+        )
+        self.assertEqual(res.status_code, 400, res.content)
+
 
 class CashflowConfigValidationTests(TestCase):
     def test_rejects_overlapping_payment_purposes(self):
@@ -719,6 +782,10 @@ class CashflowConfigValidationTests(TestCase):
         )
         with self.assertRaises(ReportSettingsInvalid):
             validate_cashflow_config_dict(cfg)
+
+    def test_rejects_invalid_opening_in_supplement(self):
+        with self.assertRaises(ReportSettingsInvalid):
+            validate_cashflow_supplement_dict({"opening_balance": "nope"})
 
 
 class PnlConfigValidationTests(TestCase):
