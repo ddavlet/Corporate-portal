@@ -10,7 +10,5 @@ class N8NIntegrationConfig(AppConfig):
     def ready(self):
         from apps.modules.requests import status_events
         from apps.modules.n8n_integration import event_handlers
-        status_events.REQUEST_PAYED_EVENT_HANDLERS = (
-            *status_events.REQUEST_PAYED_EVENT_HANDLERS,
-            event_handlers.notify_request_payed,
-        )
+
+        status_events.register_request_payed_event_handler(event_handlers.notify_request_payed)
