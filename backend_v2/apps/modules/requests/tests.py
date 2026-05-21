@@ -1417,6 +1417,7 @@ class RequestApprovalsTests(APITestCase):
         self.assertEqual(req.status, Request.STATUS_PAYED)
         self.assertEqual(approval.decision, Approval.DECISION_APPROVED)
 
+    @override_settings(N8N_INTERNAL_BASE_URL="")
     @patch("apps.modules.n8n_integration.event_handlers.threading.Thread")
     @patch("apps.modules.n8n_integration.views._n8n_session.post")
     def test_payment_webapp_confirm_sends_n8n_payed_event(self, mock_n8n_post, mock_thread):
