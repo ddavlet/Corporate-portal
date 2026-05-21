@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Alert,
   Button,
@@ -82,7 +82,7 @@ export function RequestCreatePage({ requestsBasePath = '/requests', variant = 'p
   const [billingDate, setBillingDate] = useState<Dayjs | null>(() => monthStartTashkent())
   const [amortizationEnabled, setAmortizationEnabled] = useState(false)
   const [amortizationMonths, setAmortizationMonths] = useState(2)
-  const [attachments, setAttachments] = useState<File[]>([])
+  const [attachmentFileList, setAttachmentFileList] = useState<UploadFile[]>([])
 
   const [submitting, setSubmitting] = useState(false)
   const [newVendorOpen, setNewVendorOpen] = useState(false)
@@ -190,10 +190,10 @@ export function RequestCreatePage({ requestsBasePath = '/requests', variant = 'p
     }
   }, [step, paymentType, formOptions, detailStep])
 
-  let searchTimer: ReturnType<typeof setTimeout> | undefined
+  const searchTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
   const onVendorSearch = (value: string) => {
-    window.clearTimeout(searchTimer)
-    searchTimer = setTimeout(() => void loadVendors(value), 300)
+    window.clearTimeout(searchTimerRef.current)
+    searchTimerRef.current = setTimeout(() => void loadVendors(value), 300)
   }
 
   const contractsRequiredForPt = Boolean(contractsModuleEffective && activePt?.contracts_required)
@@ -311,6 +311,7 @@ export function RequestCreatePage({ requestsBasePath = '/requests', variant = 'p
       message.warning('Выберите договор')
       return
     }
+    const attachments = attachmentFileList.map((f) => f.originFileObj as File).filter((f): f is File => f != null)
     if (attachments.length > REQUEST_ATTACHMENT_MAX_FILES) {
       message.warning(`Можно прикрепить максимум ${REQUEST_ATTACHMENT_MAX_FILES} файлов`)
       return
@@ -676,6 +677,7 @@ export function RequestCreatePage({ requestsBasePath = '/requests', variant = 'p
                     value={billingDate}
                     onChange={(v) => setBillingDate(v ? v.startOf('month') : null)}
                     disabledDate={(current) => !current || !isAllowedBillingMonth(current)}
+                    inputReadOnly
                   />
                 </div>
                 <div>
@@ -805,10 +807,17 @@ export function RequestCreatePage({ requestsBasePath = '/requests', variant = 'p
               <Typography.Text strong style={labelBlockAboveField}>
                 Вложения
               </Typography.Text>
-              <input type="file" multiple onChange={(e) => setAttachments(Array.from(e.target.files || []))} style={{ width: '100%' }} />
-              <Typography.Text type="secondary" style={{ display: 'block', marginTop: 6 }}>
-                {attachments.length > 0 ? `Выбрано файлов: ${attachments.length}` : 'Файлы не выбраны'}
-              </Typography.Text>
+              <Upload
+                multiple
+                beforeUpload={() => false}
+                fileList={attachmentFileList}
+                onChange={({ fileList }) => setAttachmentFileList(fileList)}
+                getPopupContainer={isTg ? tgPopupContainer : undefined}
+              >
+                <Button icon={<PlusOutlined />} size={isTg ? 'large' : undefined}>
+                  Выбрать файлы
+                </Button>
+              </Upload>
             </div>
           </Space>
         ) : null}
