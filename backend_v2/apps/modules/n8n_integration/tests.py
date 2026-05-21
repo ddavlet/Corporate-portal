@@ -1557,6 +1557,9 @@ class NotifyRequestPayedTests(APITestCase):
         notify_request_payed(request_obj=req)
         mock_post.assert_not_called()
 
+    # Override is required: class-level sets N8N_INTEGRATION_TOKEN="integ-test-secret",
+    # which is the settings fallback in get_n8n_integration_settings(). Without this
+    # override the fallback would supply a non-empty token and the guard would not fire.
     @override_settings(N8N_INTEGRATION_TOKEN="")
     @patch("apps.modules.n8n_integration.views._n8n_session.post")
     def test_skips_when_no_token(self, mock_post):
