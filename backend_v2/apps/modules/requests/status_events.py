@@ -3,6 +3,9 @@ from __future__ import annotations
 import logging
 from collections.abc import Callable
 
+from django.apps import apps
+from django.utils.module_loading import import_string
+
 from apps.modules.requests.models import Request
 
 logger = logging.getLogger(__name__)
@@ -18,18 +21,28 @@ def register_request_payed_event_handler(handler: RequestPayedEventHandler) -> N
         REQUEST_PAYED_EVENT_HANDLERS = (*REQUEST_PAYED_EVENT_HANDLERS, handler)
 
 
+def _configured_request_payed_event_handlers() -> tuple[RequestPayedEventHandler, ...]:
+    handlers = []
+    for app_config in apps.get_app_configs():
+        for handler_ref in getattr(app_config, "request_payed_event_handlers", ()):
+            try:
+                handler = import_string(handler_ref) if isinstance(handler_ref, str) else handler_ref
+            except Exception:
+                logger.exception(
+                    "Failed to import request_payed_event handler app=%s handler=%r",
+                    app_config.label,
+                    handler_ref,
+                )
+                continue
+            handlers.append(handler)
+    return tuple(handlers)
+
+
 def _request_payed_event_handlers() -> tuple[RequestPayedEventHandler, ...]:
     handlers = REQUEST_PAYED_EVENT_HANDLERS
-    try:
-        from django.apps import apps
-
-        if apps.is_installed("apps.modules.n8n_integration"):
-            from apps.modules.n8n_integration.event_handlers import notify_request_payed
-
-            if notify_request_payed not in handlers:
-                handlers = (*handlers, notify_request_payed)
-    except Exception:
-        logger.exception("Failed to resolve request_payed_event handlers")
+    for handler in _configured_request_payed_event_handlers():
+        if handler not in handlers:
+            handlers = (*handlers, handler)
     return handlers
 
 

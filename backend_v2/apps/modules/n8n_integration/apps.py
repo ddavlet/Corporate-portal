@@ -6,9 +6,14 @@ class N8NIntegrationConfig(AppConfig):
     name = "apps.modules.n8n_integration"
     label = "n8n_integration"
     verbose_name = "n8n integration"
+    request_payed_event_handlers = (
+        "apps.modules.n8n_integration.event_handlers.notify_request_payed",
+    )
 
     def ready(self):
-        from apps.modules.requests import status_events
-        from apps.modules.n8n_integration import event_handlers
+        from django.utils.module_loading import import_string
 
-        status_events.register_request_payed_event_handler(event_handlers.notify_request_payed)
+        from apps.modules.requests import status_events
+
+        for handler_ref in self.request_payed_event_handlers:
+            status_events.register_request_payed_event_handler(import_string(handler_ref))
