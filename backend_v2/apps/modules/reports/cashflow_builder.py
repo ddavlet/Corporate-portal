@@ -16,6 +16,7 @@ from apps.modules.reports.pnl_builder import (
     CFG_IR_TYPE_INV,
     CFG_IR_TYPE_OP,
     CFG_IR_TYPE_OTHER,
+    CFG_OPENING_BALANCE,
     CFG_PURPOSE_INV,
     CFG_PURPOSE_OP,
     CFG_PURPOSE_OTHER,
@@ -28,6 +29,7 @@ from apps.modules.reports.pnl_builder import (
     _invest_type_bucket,
     _iso_local,
     _normalize_str_list,
+    _parse_opening_balance,
     _parse_start_month,
     _purpose_bucket,
     _report_settings_snapshot,
@@ -40,6 +42,16 @@ _PAYMENT_TYPE_VALUES = frozenset(c[0] for c in Request.PAYMENT_TYPE_CHOICES)
 def validate_cashflow_config_dict(cfg: dict[str, Any]) -> None:
     """Cashflow uses the same config shape as backend PnL."""
     validate_pnl_config_dict(cfg)
+
+
+def validate_cashflow_supplement_dict(cf: dict[str, Any]) -> None:
+    """
+    Keys from TenantReportSettings.cashflow_config (separate from pnl_config filters).
+
+    Currently: ``opening_balance`` for cashflow cumulative (not shared with PnL).
+    """
+    if CFG_OPENING_BALANCE in cf:
+        _parse_opening_balance(cf.get(CFG_OPENING_BALANCE))
 
 
 def get_cashflow_config_or_raise(*, tenant) -> dict[str, Any]:
@@ -178,7 +190,15 @@ def build_cashflow_payload_from_db(*, tenant, query_params: dict[str, Any]) -> d
     """
     del query_params
 
-    cfg = get_cashflow_config_or_raise(tenant=tenant)
+    try:
+        row = TenantReportSettings.objects.get(tenant_id=tenant.id)
+    except TenantReportSettings.DoesNotExist as exc:
+        raise ReportSettingsMissing(f"No tenant_report_settings for tenant_id={tenant.id}") from exc
+
+    cfg = row.pnl_config if isinstance(row.pnl_config, dict) else {}
+    validate_cashflow_config_dict(cfg)
+    cf_extra = row.cashflow_config if isinstance(row.cashflow_config, dict) else {}
+
     start = _parse_start_month(str(cfg[CFG_START_MONTH]))
     cash_exclude = {str(x).strip() for x in cfg[CFG_CASH_EXCLUDE] if str(x).strip()}
     cat_exclude = {str(x).strip() for x in cfg[CFG_REQ_CAT_EXCLUDE] if str(x).strip()}
@@ -193,6 +213,7 @@ def build_cashflow_payload_from_db(*, tenant, query_params: dict[str, Any]) -> d
     ir_inv = set(_normalize_str_list(cfg[CFG_IR_TYPE_INV], field=CFG_IR_TYPE_INV))
 
     snapshot = _report_settings_snapshot(cfg)
+    snapshot["opening_balance"] = str(_parse_opening_balance(cf_extra.get(CFG_OPENING_BALANCE)))
 
     revenue: list[dict[str, Any]] = []
 

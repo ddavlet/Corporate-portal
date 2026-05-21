@@ -2,6 +2,7 @@ from datetime import date
 from decimal import Decimal
 
 from django.contrib.auth import get_user_model
+from django.core.files.uploadedfile import SimpleUploadedFile
 from django.db import IntegrityError
 from django.test import TestCase, override_settings
 from rest_framework.test import APITestCase
@@ -68,18 +69,33 @@ class ContractApiTests(APITestCase):
         return {"HTTP_HOST": self.host, "HTTP_AUTHORIZATION": f"Bearer {token}"}
 
     def test_admin_duplicate_contract_returns_400(self):
+        def _payload():
+            return {
+                "vendor": self.vendor.id,
+                "contract_number": "DUP-1",
+                "date_from": "2026-02-01",
+                "contract_amount": "10.00",
+                "currency": "UZS",
+                "contract_status": Contract.STATUS_ACCEPTED,
+                "contract_file": SimpleUploadedFile("c.pdf", b"%PDF-1.4", content_type="application/pdf"),
+            }
+        r1 = self.client.post("/api/contracts/", _payload(), format="multipart", **self._headers(self.admin))
+        self.assertEqual(r1.status_code, 201, r1.content)
+        r2 = self.client.post("/api/contracts/", _payload(), format="multipart", **self._headers(self.admin))
+        self.assertEqual(r2.status_code, 400, r2.content)
+
+    def test_create_without_file_returns_400(self):
         payload = {
             "vendor": self.vendor.id,
-            "contract_number": "DUP-1",
+            "contract_number": "NF-1",
             "date_from": "2026-02-01",
             "contract_amount": "10.00",
             "currency": "UZS",
             "contract_status": Contract.STATUS_ACCEPTED,
         }
-        r1 = self.client.post("/api/contracts/", payload, format="json", **self._headers(self.admin))
-        self.assertEqual(r1.status_code, 201, r1.content)
-        r2 = self.client.post("/api/contracts/", payload, format="json", **self._headers(self.admin))
-        self.assertEqual(r2.status_code, 400, r2.content)
+        res = self.client.post("/api/contracts/", payload, format="json", **self._headers(self.admin))
+        self.assertEqual(res.status_code, 400, res.content)
+        self.assertIn("contract_file", res.data)
 
     def test_requester_can_list_but_not_create(self):
         Contract.objects.create(

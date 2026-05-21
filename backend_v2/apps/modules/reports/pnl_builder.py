@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import date, datetime
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from typing import Any
 
 from django.conf import settings
@@ -26,6 +26,7 @@ CFG_PURPOSE_INV = "payment_purpose_invest_returns"
 CFG_IR_TYPE_OP = "invest_return_type_operational"
 CFG_IR_TYPE_OTHER = "invest_return_type_other"
 CFG_IR_TYPE_INV = "invest_return_type_invest_returns"
+CFG_OPENING_BALANCE = "opening_balance"
 
 _PAYMENT_TYPE_VALUES = frozenset(c[0] for c in Request.PAYMENT_TYPE_CHOICES)
 _RETURN_TYPE_VALUES = frozenset(c[0] for c in InvestReturn.ReturnType.choices)
@@ -46,6 +47,19 @@ def _parse_start_month(value: str) -> date:
         return date(int(y), int(m), 1)
     except (ValueError, AttributeError) as exc:
         raise ReportSettingsInvalid(f"Invalid start_month {value!r}, expected YYYY-MM.") from exc
+
+
+def _parse_opening_balance(raw: Any) -> Decimal:
+    """Cash balance at the beginning of ``start_month`` (before flows in that month). Defaults to 0."""
+    if raw is None:
+        return Decimal("0")
+    text = str(raw).strip().replace(" ", "").replace(",", ".")
+    if not text:
+        return Decimal("0")
+    try:
+        return Decimal(text)
+    except (InvalidOperation, ValueError) as exc:
+        raise ReportSettingsInvalid(f"Invalid opening_balance {raw!r}, expected a decimal number.") from exc
 
 
 def _iso_local(dt: datetime | date | None) -> str:
@@ -168,6 +182,9 @@ def validate_pnl_config_dict(cfg: dict[str, Any]) -> None:
     if len(ir_op) + len(ir_ot) + len(ir_inv) != len(_RETURN_TYPE_VALUES):
         raise ReportSettingsInvalid("invest_return_type_* lists must not contain duplicates across buckets.")
 
+    if CFG_OPENING_BALANCE in cfg:
+        _parse_opening_balance(cfg.get(CFG_OPENING_BALANCE))
+
 
 def _sorted_return_types() -> list[str]:
     return sorted(_RETURN_TYPE_VALUES)
@@ -195,6 +212,8 @@ def _report_settings_snapshot(cfg: dict[str, Any]) -> dict[str, Any]:
         if s and s not in seen:
             seen.add(s)
             pay_types.append(s)
+    opening = _parse_opening_balance(cfg.get(CFG_OPENING_BALANCE))
+
     return {
         CFG_START_MONTH: str(cfg[CFG_START_MONTH]).strip(),
         CFG_CASH_EXCLUDE: sorted(cash_exclude),
@@ -206,6 +225,7 @@ def _report_settings_snapshot(cfg: dict[str, Any]) -> dict[str, Any]:
         CFG_IR_TYPE_OP: sorted(_normalize_str_list(cfg[CFG_IR_TYPE_OP], field=CFG_IR_TYPE_OP)),
         CFG_IR_TYPE_OTHER: sorted(_normalize_str_list(cfg[CFG_IR_TYPE_OTHER], field=CFG_IR_TYPE_OTHER)),
         CFG_IR_TYPE_INV: sorted(_normalize_str_list(cfg[CFG_IR_TYPE_INV], field=CFG_IR_TYPE_INV)),
+        CFG_OPENING_BALANCE: str(opening),
     }
 
 

@@ -148,6 +148,10 @@ export function ContractsPage() {
       return
     }
     const file = uploadFiles[0]?.originFileObj as File | undefined
+    if (!editing && !file) {
+      setFormError('Прикрепите файл договора.')
+      return
+    }
     setFormLoading(true)
     setFormError(null)
     try {
@@ -348,7 +352,12 @@ export function ContractsPage() {
           <Form.Item name="contract_terms" label="Условия">
             <Input.TextArea rows={3} />
           </Form.Item>
-          <Form.Item label="Файл договора">
+          <Form.Item
+            label="Файл договора"
+            required={!editing}
+            validateStatus={!editing && uploadFiles.length === 0 && formError ? 'error' : ''}
+            help={!editing && uploadFiles.length === 0 && formError ? 'Прикрепите файл договора.' : undefined}
+          >
             <Upload
               maxCount={1}
               fileList={uploadFiles}
