@@ -62,7 +62,7 @@ INSTALLED_APPS = [
     "apps.modules.bank_expenses",
     "apps.modules.corporate_card",
     "apps.modules.notes",
-    "apps.modules.n8n_integration",
+    "apps.modules.n8n_integration.apps.N8NIntegrationConfig",
     "apps.modules.telegram_approvals",
     "apps.modules.payroll",
     "apps.modules.feedback",
@@ -258,5 +258,4 @@ MESSAGING_GATEWAY_DRAFT_ACTION = os.getenv("MESSAGING_GATEWAY_DRAFT_ACTION", "se
 
 # Reports payload cache (seconds). Keep short to reduce staleness while smoothing n8n latency spikes.
 REPORTS_CACHE_TTL_SECONDS = int(os.getenv("REPORTS_CACHE_TTL_SECONDS", "60"))
-
 
