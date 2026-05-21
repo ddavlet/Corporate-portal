@@ -58,10 +58,16 @@ def notify_request_payed(*, request_obj: Request) -> None:
     def _send():
         try:
             resp = _n8n_session.post(url, json=payload, headers=headers, timeout=10)
-            logger.info(
-                "notify_request_payed: tenant=%s request_id=%s transport=%s status=%s",
-                subdomain, request_id, transport, resp.status_code,
-            )
+            if resp.status_code >= 400:
+                logger.warning(
+                    "notify_request_payed: tenant=%s request_id=%s transport=%s status=%s body=%s",
+                    subdomain, request_id, transport, resp.status_code, resp.text[:200],
+                )
+            else:
+                logger.info(
+                    "notify_request_payed: tenant=%s request_id=%s transport=%s status=%s",
+                    subdomain, request_id, transport, resp.status_code,
+                )
         except Exception as exc:
             logger.warning(
                 "notify_request_payed failed: tenant=%s request_id=%s error=%s",

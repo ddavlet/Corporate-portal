@@ -3,9 +3,6 @@ from __future__ import annotations
 import logging
 from collections.abc import Callable
 
-from django.apps import apps
-from django.utils.module_loading import import_string
-
 from apps.modules.requests.models import Request
 
 logger = logging.getLogger(__name__)
@@ -22,6 +19,9 @@ def register_request_payed_event_handler(handler: RequestPayedEventHandler) -> N
 
 
 def _configured_request_payed_event_handlers() -> tuple[RequestPayedEventHandler, ...]:
+    from django.apps import apps
+    from django.utils.module_loading import import_string
+
     handlers = []
     for app_config in apps.get_app_configs():
         for handler_ref in getattr(app_config, "request_payed_event_handlers", ()):
