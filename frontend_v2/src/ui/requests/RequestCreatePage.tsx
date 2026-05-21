@@ -410,6 +410,10 @@ export function RequestCreatePage({ requestsBasePath = '/requests', variant = 'p
       return
     }
     const f = ncFileList[0]?.originFileObj as File | undefined
+    if (!f) {
+      message.warning('Прикрепите файл договора')
+      return
+    }
     setNewContractSaving(true)
     try {
       const created = await createContract({
