@@ -1,7 +1,7 @@
 import base64
 from datetime import date, datetime
 from decimal import Decimal
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, Mock, patch
 from zoneinfo import ZoneInfo
 
 from django.contrib.auth import get_user_model
