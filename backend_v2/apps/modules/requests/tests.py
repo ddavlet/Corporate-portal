@@ -1417,12 +1417,18 @@ class RequestApprovalsTests(APITestCase):
         self.assertEqual(req.status, Request.STATUS_PAYED)
         self.assertEqual(approval.decision, Approval.DECISION_APPROVED)
 
-    @override_settings(N8N_INTEGRATION_TOKEN="test-integ-token")
     @patch("apps.modules.n8n_integration.event_handlers.threading.Thread")
     @patch("apps.modules.n8n_integration.views._n8n_session.post")
     def test_payment_webapp_confirm_sends_n8n_payed_event(self, mock_n8n_post, mock_thread):
         mock_n8n_post.return_value = MagicMock(status_code=200, content=b"{}")
         mock_thread.side_effect = lambda target, daemon: Mock(start=target)
+
+        # Provide an integration token via the tenant config so that
+        # notify_request_payed passes the token guard (class-level settings
+        # keep N8N_INTEGRATION_TOKEN="" intentionally).
+        cfg, _ = TenantIntegrationConfig.objects.get_or_create(tenant=self.tenant)
+        cfg.set_n8n_integration_token("test-integ-token")
+        cfg.save()
 
         self._configure_payment_step(
             payment_type=Request.PAYMENT_TYPE_TRANSFER,
