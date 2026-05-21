@@ -260,6 +260,9 @@ def finalize_report_payload(
     total_ebit = total_revenue - total_operational_expense
     total_net = total_ebit - total_other_expense
     total_balance = total_net - total_invest_returns
+    opening_balance_dec = Decimal("0")
+    if isinstance(report_settings, dict):
+        opening_balance_dec = _to_decimal(report_settings.get("opening_balance"))
 
     result = {
         "metadata": {
@@ -276,6 +279,7 @@ def finalize_report_payload(
             "ebit": str(total_ebit),
             "net": str(total_net),
             "invest_returns": str(total_invest_returns),
+            "opening_balance": str(opening_balance_dec),
             "balance": str(total_balance),
         },
         "monthly": _calc_monthly(pnl_rows),

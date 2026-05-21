@@ -35,14 +35,14 @@ export const SETTINGS_MODULES: SettingsModuleItem[] = [
   {
     key: 'pnl-report',
     title: 'Отчёт PnL',
-    description: 'Источник данных (n8n или расчёт в приложении) и параметры backend-PnL.',
+    description: 'Источник данных, начальный остаток PnL и параметры backend-PnL.',
     path: '/settings/pnl-report-config',
     icon: <BarChartOutlined />,
   },
   {
     key: 'cashflow-report',
     title: 'Отчёт Cashflow',
-    description: 'Источник данных (n8n или расчёт в приложении) и параметры backend-Cashflow.',
+    description: 'Источник данных, начальный остаток Cashflow; фильтры совместно с PnL.',
     path: '/settings/cashflow-report-config',
     icon: <BarChartOutlined />,
   },
