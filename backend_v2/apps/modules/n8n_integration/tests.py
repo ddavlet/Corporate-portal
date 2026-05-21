@@ -1502,3 +1502,69 @@ class N8nBankStatementDuplicateTests(APITestCase):
         self.assertEqual(BankRevenue.objects.filter(tenant=self.tenant).count(), 2)
         self.assertTrue(BankRevenue.objects.filter(tenant=self.tenant, doc_no="BREV-MIX-2").exists())
 
+
+@override_settings(
+    BASE_DOMAIN="example.com",
+    N8N_INTEGRATION_TOKEN="integ-test-secret",
+    ALLOWED_HOSTS=["acme.example.com", "testserver"],
+)
+class NotifyRequestPayedTests(APITestCase):
+    def setUp(self):
+        su, _ = User.objects.update_or_create(pk=1, defaults={"username": "n8n_system"})
+        if not su.has_usable_password():
+            su.set_unusable_password()
+            su.save(update_fields=["password"])
+        self.tenant = Tenant.objects.create(name="Acme", subdomain="acme", is_active=True)
+        self.admin = User.objects.create_user(username="notify_admin", password="pass12345")
+
+    def _make_payed_request(self):
+        return Request.objects.create(
+            tenant=self.tenant,
+            created_by=self.admin,
+            billing_date=date(2026, 1, 1),
+            amount="500.00",
+            currency="UZS",
+            payment_type=Request.PAYMENT_TYPE_CASH,
+            payment_purpose="Test purpose",
+            status=Request.STATUS_PAYED,
+        )
+
+    @patch("apps.modules.n8n_integration.event_handlers.threading.Thread")
+    @patch("apps.modules.n8n_integration.views._n8n_session.post")
+    def test_sends_correct_url_and_payload(self, mock_post, mock_thread):
+        mock_post.return_value = Mock(status_code=200)
+        # Run _send synchronously by calling the target directly
+        mock_thread.side_effect = lambda target, daemon: Mock(start=target)
+
+        from apps.modules.n8n_integration.event_handlers import notify_request_payed
+        req = self._make_payed_request()
+        notify_request_payed(request_obj=req)
+
+        mock_post.assert_called_once()
+        call_url = mock_post.call_args.args[0]
+        self.assertIn("/n8n/events/new-payed-request", call_url)
+        payload = mock_post.call_args.kwargs["json"]
+        self.assertEqual(payload["id"], req.id)
+        self.assertEqual(payload["status"], "PAYED")
+        self.assertEqual(payload["tenant"], "acme")
+        self.assertEqual(payload["amount"], "500.00")
+
+    @override_settings(BASE_DOMAIN="")
+    @patch("apps.modules.n8n_integration.views._n8n_session.post")
+    def test_skips_when_no_base_domain(self, mock_post):
+        from apps.modules.n8n_integration.event_handlers import notify_request_payed
+        req = self._make_payed_request()
+        notify_request_payed(request_obj=req)
+        mock_post.assert_not_called()
+
+    # Override is required: class-level sets N8N_INTEGRATION_TOKEN="integ-test-secret",
+    # which is the settings fallback in get_n8n_integration_settings(). Without this
+    # override the fallback would supply a non-empty token and the guard would not fire.
+    @override_settings(N8N_INTEGRATION_TOKEN="")
+    @patch("apps.modules.n8n_integration.views._n8n_session.post")
+    def test_skips_when_no_token(self, mock_post):
+        from apps.modules.n8n_integration.event_handlers import notify_request_payed
+        req = self._make_payed_request()
+        notify_request_payed(request_obj=req)
+        mock_post.assert_not_called()
+

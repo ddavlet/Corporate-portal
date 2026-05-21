@@ -1,7 +1,7 @@
 import base64
 from datetime import date, datetime
 from decimal import Decimal
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, Mock, patch
 from zoneinfo import ZoneInfo
 
 from django.contrib.auth import get_user_model
@@ -1417,23 +1417,18 @@ class RequestApprovalsTests(APITestCase):
         self.assertEqual(req.status, Request.STATUS_PAYED)
         self.assertEqual(approval.decision, Approval.DECISION_APPROVED)
 
-    @patch("apps.modules.requests.status_events.requests.post")
-    def test_payment_webapp_confirm_sends_n8n_payed_event(self, mocked_post):
-        # Подменяет глобальный requests.post — нужен message_id для gateway при создании заявки
-        # и отдельный успешный ответ для webhook n8n (new-payed-request).
-        def post_side_effect(url, json=None, **kwargs):  # noqa: ARG001
-            r = MagicMock()
-            r.status_code = 200
-            if "new-payed-request" in str(url):
-                r.content = b"{}"
-                r.json.return_value = {}
-                return r
-            r.content = b'{"message_id": 1}'
-            r.json.return_value = {"message_id": 424242}
+    @patch("apps.modules.n8n_integration.event_handlers.threading.Thread")
+    @patch("apps.modules.n8n_integration.views._n8n_session.post")
+    def test_payment_webapp_confirm_sends_n8n_payed_event(self, mock_n8n_post, mock_thread):
+        mock_n8n_post.return_value = MagicMock(status_code=200, content=b"{}")
+        mock_thread.side_effect = lambda target, daemon: Mock(start=target)
 
-            return r
-
-        mocked_post.side_effect = post_side_effect
+        # Provide an integration token via the tenant config so that
+        # notify_request_payed passes the token guard (class-level settings
+        # keep N8N_INTEGRATION_TOKEN="" intentionally).
+        cfg, _ = TenantIntegrationConfig.objects.get_or_create(tenant=self.tenant)
+        cfg.set_n8n_integration_token("test-integ-token")
+        cfg.save()
 
         self._configure_payment_step(
             payment_type=Request.PAYMENT_TYPE_TRANSFER,
@@ -1476,13 +1471,13 @@ class RequestApprovalsTests(APITestCase):
         )
         self.assertEqual(res.status_code, 200, res.content)
         target = None
-        for call in mocked_post.call_args_list:
+        for call in mock_n8n_post.call_args_list:
             if call.args and "new-payed-request" in str(call.args[0]):
                 target = call
                 break
-        self.assertIsNotNone(target, mocked_post.call_args_list)
+        self.assertIsNotNone(target, mock_n8n_post.call_args_list)
         self.assertEqual(target.args[0], "https://acme.example.com/n8n/events/new-payed-request")
-        self.assertEqual(target.kwargs.get("timeout"), 30)
+        self.assertEqual(target.kwargs.get("timeout"), 10)
         self.assertEqual(target.kwargs["json"]["id"], request_id)
         self.assertEqual(target.kwargs["json"]["status"], Request.STATUS_PAYED)
 

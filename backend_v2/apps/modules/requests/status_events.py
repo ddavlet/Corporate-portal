@@ -12,6 +12,12 @@ RequestPayedEventHandler = Callable[[Request], None]
 REQUEST_PAYED_EVENT_HANDLERS: tuple[RequestPayedEventHandler, ...] = ()
 
 
+def register_request_payed_event_handler(handler: RequestPayedEventHandler) -> None:
+    global REQUEST_PAYED_EVENT_HANDLERS
+    if handler not in REQUEST_PAYED_EVENT_HANDLERS:
+        REQUEST_PAYED_EVENT_HANDLERS = (*REQUEST_PAYED_EVENT_HANDLERS, handler)
+
+
 def dispatch_request_payed_event_handlers(*, request_obj: Request) -> None:
     """
     Run PAYED status handlers without breaking the approval flow on handler errors.
