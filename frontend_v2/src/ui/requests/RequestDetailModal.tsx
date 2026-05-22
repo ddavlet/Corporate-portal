@@ -1,8 +1,9 @@
 import { useState } from 'react'
 import type { ReactNode } from 'react'
-import { Alert, Button, Card, Descriptions, Divider, Modal, Skeleton, Space, Tag, Typography, message } from 'antd'
+import { Alert, Button, Card, Collapse, Descriptions, Divider, Modal, Skeleton, Space, Tag, Typography, message } from 'antd'
 import { apiFetch } from '../../lib/api'
 import type { RequestAttachment } from '../../lib/api'
+import { formatRequestDate, formatRequestBillingMonth, getRequestStatusColor } from '../../lib/requestUtils'
 
 export type ApprovalItem = {
   id: number
@@ -67,18 +68,6 @@ export type RequestDetail = {
   approvals: ApprovalItem[]
 }
 
-const dateFormatterTashkent = new Intl.DateTimeFormat('ru-RU', {
-  day: '2-digit',
-  month: '2-digit',
-  year: 'numeric',
-  timeZone: 'Asia/Tashkent',
-})
-const billingMonthFormatterTashkent = new Intl.DateTimeFormat('ru-RU', {
-  month: 'long',
-  year: 'numeric',
-  timeZone: 'Asia/Tashkent',
-})
-
 const dateTimeFormatterTashkent = new Intl.DateTimeFormat('ru-RU', {
   day: '2-digit',
   month: '2-digit',
@@ -87,20 +76,6 @@ const dateTimeFormatterTashkent = new Intl.DateTimeFormat('ru-RU', {
   minute: '2-digit',
   timeZone: 'Asia/Tashkent',
 })
-
-function formatDateDDMMYYYY(value?: string | null): string {
-  if (!value) return '-'
-  const parsed = new Date(value)
-  if (Number.isNaN(parsed.getTime())) return '-'
-  return dateFormatterTashkent.format(parsed)
-}
-
-function formatBillingMonthYear(value?: string | null): string {
-  if (!value) return '-'
-  const parsed = new Date(value)
-  if (Number.isNaN(parsed.getTime())) return '-'
-  return billingMonthFormatterTashkent.format(parsed)
-}
 
 function formatDateTime(value?: string | null): string {
   if (!value) return '-'
@@ -140,7 +115,7 @@ function expenseLinkSummary(link: RequestDetail['expense_link']): string {
   const parts: string[] = []
   if (link.module) parts.push(`модуль: ${link.module}`)
   if (link.expense_type) parts.push(`тип: ${link.expense_type}`)
-  if (link.doc_id != null && String(link.doc_id).trim() !== '') parts.push(`doc_id: ${link.doc_id}`)
+  if (link.doc_id != null && String(link.doc_id).trim() !== '') parts.push(`№ документа: ${link.doc_id}`)
   if (link.id != null && link.id !== '') parts.push(`связанный id: ${link.id}`)
   return parts.length ? parts.join(' · ') : '-'
 }
@@ -153,16 +128,6 @@ function formatAttachmentSize(sizeBytes?: number): string {
   return `${(size / (1024 * 1024)).toFixed(1)} MB`
 }
 
-function getStatusColor(value: string): string | undefined {
-  const normalized = String(value || '').trim().toUpperCase()
-  if (normalized === 'REJECTED') return 'error'
-  if (normalized === 'APPROVED') return 'success'
-  if (normalized === 'PAYED') return '#8c8c8c'
-  if (normalized === '1-5') return 'warning'
-  const numericStatus = Number(normalized)
-  if (Number.isFinite(numericStatus) && numericStatus >= 1 && numericStatus <= 5) return 'warning'
-  return undefined
-}
 
 function decisionKey(decision?: string | null) {
   return String(decision || '').toLowerCase()
@@ -176,6 +141,21 @@ function getDecisionColor(decision?: string | null): string | undefined {
   return 'default'
 }
 
+function translateDecision(decision?: string | null): string {
+  const key = decisionKey(decision)
+  if (key === 'approved') return 'Одобрено'
+  if (key === 'rejected') return 'Отклонено'
+  if (key === 'pending') return 'Ожидает'
+  return String(decision || '').toUpperCase()
+}
+
+function translateStepType(stepType?: string | null): string {
+  const key = String(stepType || '').toLowerCase()
+  if (key === 'approval') return 'согласование'
+  if (key === 'payment') return 'выплата'
+  return stepType || ''
+}
+
 function renderApprovalGroup(title: string, items: ApprovalItem[]) {
   return (
     <Space direction="vertical" size={8} style={{ display: 'flex' }}>
@@ -187,27 +167,34 @@ function renderApprovalGroup(title: string, items: ApprovalItem[]) {
           <Card key={item.id} size="small">
             <Space direction="vertical" size={4} style={{ display: 'flex' }}>
               <Space wrap>
-                <Typography.Text>{`S${item.step}/${item.step_type}`}</Typography.Text>
-                <Typography.Text>{item.approver_username || 'Unknown approver'}</Typography.Text>
-                {item.approver_user != null ? (
-                  <Typography.Text type="secondary">user #{item.approver_user}</Typography.Text>
-                ) : null}
-                <Tag color={getDecisionColor(item.decision)}>{String(item.decision || '').toUpperCase()}</Tag>
+                <Typography.Text type="secondary">{`Этап ${item.step} · ${translateStepType(item.step_type)}`}</Typography.Text>
+                <Typography.Text>{item.approver_username || 'Согласующий не определён'}</Typography.Text>
+                <Tag color={getDecisionColor(item.decision)}>{translateDecision(item.decision)}</Tag>
               </Space>
-              <Typography.Text type="secondary">{item.comment || 'without comment'}</Typography.Text>
-              <Typography.Text type="secondary">Решение: {formatDateDDMMYYYY(item.decided_at)}</Typography.Text>
-              <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-                approval id: {item.id}
-                {item.message_id != null ? ` · message_id: ${item.message_id}` : ''}
-                {item.message_sent != null ? ` · message_sent: ${item.message_sent ? 'да' : 'нет'}` : ''}
-                {item.message_sent_at ? ` · message_sent_at: ${formatDateTime(item.message_sent_at)}` : ''}
-                {item.approver_tg_id != null && item.approver_tg_id !== ''
-                  ? ` · tg_id: ${item.approver_tg_id}`
-                  : ''}
-                {item.approver_tg_from_id != null && item.approver_tg_from_id !== ''
-                  ? ` · tg_from: ${item.approver_tg_from_id}`
-                  : ''}
-              </Typography.Text>
+              <Typography.Text type="secondary">{item.comment || 'Без комментария'}</Typography.Text>
+              <Typography.Text type="secondary">Дата решения: {formatRequestDate(item.decided_at)}</Typography.Text>
+              <Collapse
+                ghost
+                size="small"
+                items={[{
+                  key: 'tech',
+                  label: <Typography.Text type="secondary" style={{ fontSize: 11 }}>Детали</Typography.Text>,
+                  children: (
+                    <Typography.Text type="secondary" style={{ fontSize: 11 }}>
+                      approval id: {item.id}
+                      {item.message_id != null ? ` · message_id: ${item.message_id}` : ''}
+                      {item.message_sent != null ? ` · message_sent: ${item.message_sent ? 'да' : 'нет'}` : ''}
+                      {item.message_sent_at ? ` · sent_at: ${formatDateTime(item.message_sent_at)}` : ''}
+                      {item.approver_tg_id != null && item.approver_tg_id !== ''
+                        ? ` · tg_id: ${item.approver_tg_id}`
+                        : ''}
+                      {item.approver_tg_from_id != null && item.approver_tg_from_id !== ''
+                        ? ` · tg_from: ${item.approver_tg_from_id}`
+                        : ''}
+                    </Typography.Text>
+                  ),
+                }]}
+              />
             </Space>
           </Card>
         ))
@@ -311,7 +298,7 @@ export function RequestDetailContent({
               {detail.title || `Заявка #${detail.id}`}
             </Typography.Title>
             <div style={{ marginTop: 8 }}>
-              <Tag color={getStatusColor(detail.status)}>{detail.status}</Tag>
+              <Tag color={getRequestStatusColor(detail.status)}>{detail.status}</Tag>
             </div>
             <div className="tg-detail-amount">
               {`${Number(detail.amount).toLocaleString('ru-RU')} ${detail.currency}`}
@@ -336,15 +323,15 @@ export function RequestDetailContent({
             {detail.requester_username || (detail.requester ? `User #${detail.requester}` : '—')}
           </TgDetailRow>
           <TgDetailRow label="Отправлено">{formatDateTime(detail.submitted_at)}</TgDetailRow>
-          <TgDetailRow label="Дата биллинга">{formatBillingMonthYear(detail.billing_date)}</TgDetailRow>
+          <TgDetailRow label="Дата биллинга">{formatRequestBillingMonth(detail.billing_date)}</TgDetailRow>
           <TgDetailRow label="Амортизация">{detail.is_amortized ? `Да (${detail.amortization_months || 0} мес.)` : 'Нет'}</TgDetailRow>
-          <TgDetailRow label="Старт амортизации">{formatBillingMonthYear(detail.amortization_start_date || null)}</TgDetailRow>
+          <TgDetailRow label="Старт амортизации">{formatRequestBillingMonth(detail.amortization_start_date || null)}</TgDetailRow>
           {amortizationSchedule.length ? (
             <TgDetailRow label="График амортизации">
               <Space direction="vertical" size={4} style={{ display: 'flex' }}>
                 {amortizationSchedule.map((row) => (
                   <Typography.Text key={row.period_index}>
-                    {`#${row.period_index}: ${formatBillingMonthYear(row.period_month)} · ${Number(row.monthly_amount).toLocaleString('ru-RU')} ${detail.currency}`}
+                    {`#${row.period_index}: ${formatRequestBillingMonth(row.period_month)} · ${Number(row.monthly_amount).toLocaleString('ru-RU')} ${detail.currency}`}
                   </Typography.Text>
                 ))}
               </Space>
@@ -395,7 +382,7 @@ export function RequestDetailContent({
           </Descriptions.Item>
           <Descriptions.Item label="Название">{detail.title || '-'}</Descriptions.Item>
           <Descriptions.Item label="Статус">
-            <Tag color={getStatusColor(detail.status)}>{detail.status}</Tag>
+            <Tag color={getRequestStatusColor(detail.status)}>{detail.status}</Tag>
           </Descriptions.Item>
           <Descriptions.Item label="Компания-плательщик">{detail.company_payer?.trim() || '-'}</Descriptions.Item>
           <Descriptions.Item label="Сумма">{`${Number(detail.amount).toLocaleString('ru-RU')} ${detail.currency}`}</Descriptions.Item>
@@ -412,19 +399,19 @@ export function RequestDetailContent({
             {detail.requester_username || (detail.requester ? `User #${detail.requester}` : '-')}
           </Descriptions.Item>
           <Descriptions.Item label="Отправлено">{formatDateTime(detail.submitted_at)}</Descriptions.Item>
-          <Descriptions.Item label="Дата биллинга">{formatBillingMonthYear(detail.billing_date)}</Descriptions.Item>
+          <Descriptions.Item label="Дата биллинга">{formatRequestBillingMonth(detail.billing_date)}</Descriptions.Item>
           <Descriptions.Item label="Амортизация">
             {detail.is_amortized ? `Да (${detail.amortization_months || 0} мес.)` : 'Нет'}
           </Descriptions.Item>
           <Descriptions.Item label="Старт амортизации">
-            {formatBillingMonthYear(detail.amortization_start_date || null)}
+            {formatRequestBillingMonth(detail.amortization_start_date || null)}
           </Descriptions.Item>
           {amortizationSchedule.length ? (
             <Descriptions.Item label="График амортизации">
               <Space direction="vertical" size={4} style={{ display: 'flex' }}>
                 {amortizationSchedule.map((row) => (
                   <Typography.Text key={row.period_index}>
-                    {`#${row.period_index}: ${formatBillingMonthYear(row.period_month)} · ${Number(row.monthly_amount).toLocaleString('ru-RU')} ${detail.currency}`}
+                    {`#${row.period_index}: ${formatRequestBillingMonth(row.period_month)} · ${Number(row.monthly_amount).toLocaleString('ru-RU')} ${detail.currency}`}
                   </Typography.Text>
                 ))}
               </Space>
@@ -439,7 +426,7 @@ export function RequestDetailContent({
               <Typography.Text>{expenseLinkSummary(detail.expense_link)}</Typography.Text>
               {detail.expense_link?.url ? (
                 <Typography.Link href={detail.expense_link.url} target="_blank" rel="noopener noreferrer">
-                  Ссылка API
+                  Открыть расход
                 </Typography.Link>
               ) : null}
             </Space>
