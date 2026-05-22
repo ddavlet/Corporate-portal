@@ -12,6 +12,7 @@ import {
   Space,
   Table,
   Tag,
+  Tooltip,
   Typography,
   message,
 } from 'antd'
@@ -121,7 +122,7 @@ export function ReturnsTab({
       defaultSortOrder: 'descend' as const,
     },
     {
-      title: 'Месяц назначения',
+      title: 'Месяц начисления',
       dataIndex: 'billing_date',
       width: 130,
       render: (_: unknown, row: InvestReturnRow) => accrualMonthLabel(row.billing_date),
@@ -146,7 +147,7 @@ export function ReturnsTab({
       sorter: (a, b) => asNumber(a.sum_uzs ?? 0) - asNumber(b.sum_uzs ?? 0),
     },
     {
-      title: 'Курс CBU',
+      title: <Tooltip title="Курс Центрального банка Узбекистана (USD/UZS)">Курс ЦБУ</Tooltip>,
       dataIndex: 'cbu_usd_uzs_rate',
       width: 110,
       align: 'right',
@@ -161,9 +162,9 @@ export function ReturnsTab({
     { title: 'Тип', dataIndex: 'type', width: 140 },
     { title: 'Получатель', dataIndex: 'recipient', width: 120 },
     {
-      title: 'Подтв.',
+      title: 'Подтверждена',
       dataIndex: 'confirmed',
-      width: 100,
+      width: 120,
       render: (v: boolean) => (v ? <Tag color="green">Да</Tag> : <Tag color="orange">Нет</Tag>),
       sorter: (a, b) => Number(a.confirmed) - Number(b.confirmed),
     },
@@ -285,9 +286,10 @@ export function ReturnsTab({
             </Form.Item>
           ) : null}
           <Form.Item
-            label="Месяц назначения"
+            label="Месяц начисления"
             name="billing_date"
-            rules={[{ required: true, message: 'Укажите месяц назначения' }]}
+            rules={[{ required: true, message: 'Укажите месяц начисления' }]}
+            extra="Доступны только месяцы, ещё не закрытые начислениями."
           >
             <DatePicker
               picker="month"

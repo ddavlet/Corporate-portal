@@ -282,7 +282,6 @@ export function CashPage() {
   }, [selectedExpense?.matched_request_id])
 
   const columns: ColumnsType<CashExpenseRow> = [
-    { title: 'PK', dataIndex: 'id', width: 80, sorter: (a, b) => a.id - b.id },
     {
       title: 'ID',
       dataIndex: 'external_id',
@@ -301,7 +300,7 @@ export function CashPage() {
       dataIndex: 'confirmed',
       width: 130,
       render: (value: boolean | undefined) =>
-        value === false ? <Tag color="default">Нет</Tag> : <Tag color="processing">Да</Tag>,
+        value === false ? <Tag color="default">Нет</Tag> : <Tag color="success">Да</Tag>,
     },
     {
       title: 'Сумма',
@@ -364,7 +363,7 @@ export function CashPage() {
       dataIndex: 'confirmed',
       width: 130,
       render: (value: boolean | undefined) =>
-        value === false ? <Tag color="default">Нет</Tag> : <Tag color="processing">Да</Tag>,
+        value === false ? <Tag color="default">Нет</Tag> : <Tag color="success">Да</Tag>,
     },
     { title: 'Комментарий', dataIndex: 'comment' },
   ]
@@ -424,7 +423,10 @@ export function CashPage() {
           items={[
             {
               key: 'advanced',
-              label: 'Расширенные фильтры',
+              label: (() => {
+                const count = [confirmedFilter, currencyFilter, cashRegisterFilter, amountMin, amountMax, dateRange].filter(Boolean).length
+                return count > 0 ? `Расширенные фильтры (${count} активно)` : 'Расширенные фильтры'
+              })(),
               children: (
                 <Space wrap size={[12, 12]}>
                   <Select

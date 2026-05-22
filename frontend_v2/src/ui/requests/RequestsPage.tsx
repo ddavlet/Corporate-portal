@@ -11,6 +11,7 @@ import {
   getRequestFormOptions,
   resendRequestApprovals,
   type RequestFormOptionsPaymentType,
+  type RequestFormOptionsRequester,
 } from '../../lib/api'
 import { isPayedMissingLinkedExpense, type RequestExpenseLink } from '../../lib/requestExpense'
 import { canResendRequestByStatus, formatRequestBillingMonth, formatRequestDate, getRequestStatusColor } from '../../lib/requestUtils'
@@ -154,6 +155,7 @@ export function RequestsPage() {
   const [editSaving, setEditSaving] = useState(false)
   const [editDraft, setEditDraft] = useState<RequestModalEditDraft | null>(null)
   const [requestFormPaymentTypes, setRequestFormPaymentTypes] = useState<RequestFormOptionsPaymentType[]>([])
+  const [requesterCandidates, setRequesterCandidates] = useState<RequestFormOptionsRequester[]>([])
   const [vendorSearchApi, setVendorSearchApi] = useState('')
   const [debouncedVendorSearchApi, setDebouncedVendorSearchApi] = useState('')
   const [amortizedOnly, setAmortizedOnly] = useState(false)
@@ -224,6 +226,7 @@ export function RequestsPage() {
         if (!cancelled) {
           setIsTenantAdmin(Boolean(opts.is_tenant_admin))
           setRequestFormPaymentTypes(opts.payment_types ?? [])
+          setRequesterCandidates(opts.requester_candidates ?? [])
         }
       } catch {
         if (!cancelled) {
@@ -321,6 +324,10 @@ export function RequestsPage() {
   }, [editPaymentTypeFormConfig])
 
   const requesterOptions = useMemo(() => {
+    if (requesterCandidates.length > 0) {
+      return requesterCandidates.map((c) => ({ value: String(c.id), label: c.username }))
+    }
+    // Fallback: build from loaded rows (e.g. requester-only users see only their own requests)
     const map = new Map<string, string>()
     for (const row of rows) {
       const key = row.requester !== null ? String(row.requester) : ''
@@ -328,7 +335,7 @@ export function RequestsPage() {
       map.set(key, row.requester_username || `User #${key}`)
     }
     return [...map.entries()].map(([value, label]) => ({ value, label }))
-  }, [rows])
+  }, [requesterCandidates, rows])
 
   const filteredRows = useMemo(() => {
     const normalizedSearch = debouncedSearch.trim().toLowerCase()
