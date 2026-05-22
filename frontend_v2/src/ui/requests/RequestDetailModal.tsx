@@ -171,7 +171,17 @@ function renderApprovalGroup(title: string, items: ApprovalItem[]) {
                 <Typography.Text>{item.approver_username || 'Согласующий не определён'}</Typography.Text>
                 <Tag color={getDecisionColor(item.decision)}>{translateDecision(item.decision)}</Tag>
               </Space>
-              <Typography.Text type="secondary">{item.comment || 'Без комментария'}</Typography.Text>
+              <Typography.Text
+                type="secondary"
+                style={{
+                  display: '-webkit-box',
+                  WebkitLineClamp: 3,
+                  WebkitBoxOrient: 'vertical',
+                  overflow: 'hidden',
+                }}
+              >
+                {item.comment || 'Без комментария'}
+              </Typography.Text>
               <Typography.Text type="secondary">Дата решения: {formatRequestDate(item.decided_at)}</Typography.Text>
               <Collapse
                 ghost
