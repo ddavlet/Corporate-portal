@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
-import { Alert, Button, Card, DatePicker, Input, InputNumber, Modal, Select, Space, Typography, message } from 'antd'
-import { CopyOutlined, ReloadOutlined } from '@ant-design/icons'
+import { Alert, Button, Card, DatePicker, Input, InputNumber, Modal, Select, Space, Typography, Upload, message } from 'antd'
+import type { UploadFile } from 'antd/es/upload/interface'
+import { CopyOutlined, PlusOutlined, ReloadOutlined } from '@ant-design/icons'
 import { useNavigate, useParams, useLocation } from 'react-router-dom'
 import {
   apiFetch,
@@ -16,6 +17,7 @@ import {
 import { RequestDetailContent, type ApprovalItem, type RequestDetail } from './RequestDetailModal'
 import { NoteCreateModal } from '../NoteCreateModal'
 import { useAuth } from '../auth'
+import { canResendRequestByStatus } from '../../lib/requestUtils'
 import { clampToAllowedBillingMonth, isAllowedBillingMonth } from '../../lib/billingMonth'
 import type { Dayjs } from 'dayjs'
 import { monthStartTashkent } from '../../lib/tashkentTime'
@@ -37,12 +39,6 @@ function canOpenLinkedExpense(link: RequestDetail['expense_link'] | null | undef
   )
 }
 
-function canResendByStatus(status?: string | null): boolean {
-  const raw = String(status || '').trim()
-  if (raw.toUpperCase() === 'APPROVED') return true
-  const numeric = Number(raw)
-  return Number.isFinite(numeric) && numeric >= 1 && numeric <= 5
-}
 
 function isPaymentApprovalStep(a: ApprovalItem): boolean {
   return String(a.step_type || '').toLowerCase() === 'payment'
@@ -85,7 +81,7 @@ export function RequestDetailPage({ listPath = '/requests', variant = 'portal' }
 
   const [uploadOpen, setUploadOpen] = useState(false)
   const [uploadBusy, setUploadBusy] = useState(false)
-  const [uploadFiles, setUploadFiles] = useState<File[]>([])
+  const [uploadFileList, setUploadFileList] = useState<UploadFile[]>([])
   const [paymentModalOpen, setPaymentModalOpen] = useState(false)
   const [paymentModalApproval, setPaymentModalApproval] = useState<ApprovalItem | null>(null)
   const [paymentExpenseId, setPaymentExpenseId] = useState('')
@@ -121,7 +117,7 @@ export function RequestDetailPage({ listPath = '/requests', variant = 'portal' }
     let cancelled = false
     ;(async () => {
       if (!id) {
-        setError('Request id is missing.')
+        setError('ID заявки не указан.')
         setLoading(false)
         return
       }
@@ -227,7 +223,7 @@ export function RequestDetailPage({ listPath = '/requests', variant = 'portal' }
       if (resent > 0) {
         message.success(`Заявки отправлены повторно: ${resent}`)
       } else {
-        message.info('Нет pending-согласований для повторной отправки')
+        message.info('Нет ожидающих согласований для повторной отправки')
       }
       await refreshDetail()
     } catch (e: unknown) {
@@ -251,7 +247,7 @@ export function RequestDetailPage({ listPath = '/requests', variant = 'portal' }
   const link = detail?.expense_link
   const showExpenseButton = canOpenLinkedExpense(link)
   const showExternalExpenseHint = link?.module === 'external' && link.id != null && String(link.id) !== ''
-  const resendAllowed = canResendByStatus(detail?.status)
+  const resendAllowed = canResendRequestByStatus(detail?.status)
 
   const setDecision = async (step: number, decision: 'approved' | 'rejected') => {
     if (!detail?.id) return
@@ -390,6 +386,7 @@ export function RequestDetailPage({ listPath = '/requests', variant = 'portal' }
   }
 
   const submitUpload = async () => {
+    const uploadFiles = uploadFileList.map((f) => f.originFileObj as File).filter((f): f is File => f != null)
     if (!detail?.id || uploadFiles.length === 0) return
     const alreadyAttached = detail.attachments?.length ?? 0
     if (alreadyAttached + uploadFiles.length > REQUEST_ATTACHMENT_MAX_FILES) {
@@ -410,7 +407,7 @@ export function RequestDetailPage({ listPath = '/requests', variant = 'portal' }
       }
       message.success('Файлы прикреплены')
       setUploadOpen(false)
-      setUploadFiles([])
+      setUploadFileList([])
       await refreshDetail()
     } catch (e: unknown) {
       message.error(e instanceof Error ? e.message : 'Не удалось загрузить файл')
@@ -462,7 +459,7 @@ export function RequestDetailPage({ listPath = '/requests', variant = 'portal' }
                     </Button>
                   ) : (
                     <Typography.Text type="secondary">
-                      Подтверждение выплаты выполняется через callback-интеграцию.
+                      Подтверждение выплаты выполняется через Telegram-бота.
                     </Typography.Text>
                   )}
                   <Button
@@ -537,7 +534,7 @@ export function RequestDetailPage({ listPath = '/requests', variant = 'portal' }
                   disabled={!resendAllowed}
                   title={
                     resendAllowed
-                      ? 'Повторно отправить pending-согласования текущего этапа'
+                      ? 'Повторно отправить ожидающие согласования текущего этапа'
                       : 'Доступно для этапов согласования (1–5) и для заявок со статусом APPROVED'
                   }
                   onClick={() => void resendRequest()}
@@ -547,12 +544,12 @@ export function RequestDetailPage({ listPath = '/requests', variant = 'portal' }
               ) : null}
               {detail?.id && !resendAllowed ? (
                 <Typography.Text type="secondary" style={{ display: 'block', textAlign: 'center' }}>
-                  Повторная отправка доступна на этапах согласования (1–5) и для заявок со статусом APPROVED.
+                  Повторная отправка доступна на этапах согласования (1–5) и заявок со статусом APPROVED.
                 </Typography.Text>
               ) : null}
               {canEditDraft ? (
                 <Button size="large" block onClick={() => setEditOpen(true)}>
-                  Редактировать DRAFT
+                  Редактировать черновик
                 </Button>
               ) : null}
               {canEditDraft ? (
@@ -600,7 +597,7 @@ export function RequestDetailPage({ listPath = '/requests', variant = 'portal' }
                     disabled={!resendAllowed}
                     title={
                       resendAllowed
-                        ? 'Повторно отправить pending-согласования текущего этапа'
+                        ? 'Повторно отправить ожидающие согласования текущего этапа'
                         : 'Доступно для этапов согласования (1–5) и для заявок со статусом APPROVED'
                     }
                     onClick={() => void resendRequest()}
@@ -614,9 +611,9 @@ export function RequestDetailPage({ listPath = '/requests', variant = 'portal' }
                   </Button>
                 ) : showExternalExpenseHint ? (
                   <Typography.Text type="secondary">Внешний расход (ID {String(link?.id)})</Typography.Text>
-                ) : (
+                ) : detail?.status === 'PAYED' ? (
                   <Typography.Text type="secondary">Связанный расход не найден</Typography.Text>
-                )}
+                ) : null}
               </Space>
               {pendingApprovalsEl}
             </Space>
@@ -645,7 +642,7 @@ export function RequestDetailPage({ listPath = '/requests', variant = 'portal' }
       >
         <Space direction="vertical" size={12} style={{ display: 'flex' }}>
           <Typography.Text type="secondary">
-            Укажите номер платежа (`expense_id`) для подтверждения payment-шага.
+            Укажите номер платёжного документа для подтверждения шага выплаты.
           </Typography.Text>
           <Input
             value={paymentExpenseId}
@@ -661,7 +658,7 @@ export function RequestDetailPage({ listPath = '/requests', variant = 'portal' }
 
       <Modal
         open={editOpen}
-        title="Редактировать DRAFT"
+        title="Редактировать черновик"
         onCancel={() => {
           setEditOpen(false)
         }}
@@ -754,35 +751,36 @@ export function RequestDetailPage({ listPath = '/requests', variant = 'portal' }
         title="Прикрепить файлы"
         onCancel={() => {
           setUploadOpen(false)
+          setUploadFileList([])
         }}
         footer={null}
         destroyOnClose
       >
         <Space direction="vertical" size={12} style={{ display: 'flex' }}>
-          <input
-            type="file"
+          <Upload
             multiple
-            onChange={(e) => setUploadFiles(Array.from(e.target.files || []))}
-            style={{ width: '100%' }}
-          />
-
-          <Typography.Text type="secondary" style={{ display: 'block' }}>
-            {uploadFiles.length > 0 ? `Выбрано файлов: ${uploadFiles.length}` : 'Файлы не выбраны'}
-          </Typography.Text>
+            beforeUpload={() => false}
+            fileList={uploadFileList}
+            onChange={({ fileList }) => setUploadFileList(fileList)}
+          >
+            <Button icon={<PlusOutlined />}>Выбрать файлы</Button>
+          </Upload>
           {detail?.attachments?.length ? (
-            <Space direction="vertical" size={6} style={{ display: 'flex' }}>
-              {detail.attachments.map((attachment) => (
-                <Space key={attachment.id} style={{ justifyContent: 'space-between', width: '100%' }}>
-                  <Typography.Text>{attachment.name}</Typography.Text>
-                  <Button danger size="small" loading={uploadBusy} onClick={() => void removeAttachment(attachment.id)}>
-                    Удалить
-                  </Button>
-                </Space>
-              ))}
-            </Space>
+            <>
+              <Typography.Text type="secondary">Уже прикреплено:</Typography.Text>
+              <Space direction="vertical" size={6} style={{ display: 'flex' }}>
+                {detail.attachments.map((attachment) => (
+                  <Space key={attachment.id} style={{ justifyContent: 'space-between', width: '100%' }}>
+                    <Typography.Text>{attachment.name}</Typography.Text>
+                    <Button danger size="small" loading={uploadBusy} onClick={() => void removeAttachment(attachment.id)}>
+                      Удалить
+                    </Button>
+                  </Space>
+                ))}
+              </Space>
+            </>
           ) : null}
-
-          <Button type="primary" block loading={uploadBusy} disabled={uploadFiles.length === 0} onClick={() => void submitUpload()}>
+          <Button type="primary" block loading={uploadBusy} disabled={uploadFileList.length === 0} onClick={() => void submitUpload()}>
             Загрузить
           </Button>
         </Space>

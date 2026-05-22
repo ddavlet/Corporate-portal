@@ -45,75 +45,7 @@ const SOURCES: Source[] = [
   { key: 'invest-companies', label: 'Инвестиции: компании', endpoint: '/api/investments/companies/' },
   { key: 'invest-returns', label: 'Инвестиции: выплаты', endpoint: '/api/investments/returns/' },
   { key: 'invest-payout-schedule', label: 'Инвестиции: график выплат', endpoint: '/api/investments/payout-schedule/' },
-  {
-    key: 'invest-payout-schedule-share-links',
-    label: 'Инвестиции: ссылки на график',
-    endpoint: '/api/investments/payout-schedule-share-links/',
-  },
   { key: 'invest-project-investments', label: 'Инвестиции: вложения в проект', endpoint: '/api/investments/project-investments/' },
-  {
-    key: 'invest-form-config-records',
-    label: 'Инвестиции: настройка формы (таблица)',
-    endpoint: '/api/investments/form-config-records/',
-    supportsCreate: false,
-    readOnly: true,
-  },
-  {
-    key: 'invest-approval-configs',
-    label: 'Инвестиции: конфиги согласования выплат',
-    endpoint: '/api/investments/approval-configs/',
-    supportsCreate: false,
-    readOnly: true,
-  },
-  {
-    key: 'invest-approval-config-steps',
-    label: 'Инвестиции: этапы согласования выплат',
-    endpoint: '/api/investments/approval-config-steps/',
-    supportsCreate: false,
-    readOnly: true,
-  },
-  {
-    key: 'invest-approval-config-step-approvers',
-    label: 'Инвестиции: согласующие по этапу (выплаты)',
-    endpoint: '/api/investments/approval-config-step-approvers/',
-    supportsCreate: false,
-    readOnly: true,
-  },
-  {
-    key: 'invest-return-approvals',
-    label: 'Инвестиции: согласования выплат',
-    endpoint: '/api/investments/return-approvals/',
-    supportsCreate: false,
-    readOnly: true,
-  },
-  {
-    key: 'invest-project-approval-configs',
-    label: 'Инвестиции: конфиг согласования вложений',
-    endpoint: '/api/investments/project-approval-configs/',
-    supportsCreate: false,
-    readOnly: true,
-  },
-  {
-    key: 'invest-project-approval-config-steps',
-    label: 'Инвестиции: этапы согласования вложений',
-    endpoint: '/api/investments/project-approval-config-steps/',
-    supportsCreate: false,
-    readOnly: true,
-  },
-  {
-    key: 'invest-project-approval-config-step-approvers',
-    label: 'Инвестиции: согласующие по этапу (вложения)',
-    endpoint: '/api/investments/project-approval-config-step-approvers/',
-    supportsCreate: false,
-    readOnly: true,
-  },
-  {
-    key: 'invest-project-investment-approvals',
-    label: 'Инвестиции: согласования вложений',
-    endpoint: '/api/investments/project-investment-approvals/',
-    supportsCreate: false,
-    readOnly: true,
-  },
 ]
 
 function normalizeRows(payload: unknown): AnyRow[] {
@@ -132,6 +64,16 @@ type RoleMatrixRow = {
 }
 
 type AdminSectionKey = 'matrix' | 'crud'
+
+function extractApiError(json: unknown, status: number): string {
+  if (json && typeof json === 'object') {
+    const j = json as Record<string, unknown>
+    if (typeof j.detail === 'string') return j.detail
+    if (typeof j.message === 'string') return j.message
+    if (typeof j.error === 'string') return j.error
+  }
+  return `Ошибка сервера (${status})`
+}
 
 function isPrimitive(value: unknown): value is string | number | boolean | null {
   return (
@@ -207,7 +149,7 @@ export function AdminModulePage() {
     try {
       const res = await apiFetch(currentSource.endpoint)
       const json = await res.json().catch(() => null)
-      if (!res.ok) throw new Error(typeof json === 'object' && json ? JSON.stringify(json) : `HTTP ${res.status}`)
+      if (!res.ok) throw new Error(extractApiError(json, res.status))
       setRows(normalizeRows(json))
     } catch (e: unknown) {
       setRows([])
@@ -266,7 +208,7 @@ export function AdminModulePage() {
     const res = await apiFetch(`${currentSource.endpoint}${id}/`, { method: 'DELETE' })
     if (!res.ok) {
       const json = await res.json().catch(() => null)
-      message.error(typeof json === 'object' && json ? JSON.stringify(json) : `HTTP ${res.status}`)
+      message.error(extractApiError(json, res.status))
       return
     }
     message.success('Удалено')
@@ -429,7 +371,7 @@ export function AdminModulePage() {
         body: JSON.stringify(body),
       })
       const json = await res.json().catch(() => null)
-      if (!res.ok) throw new Error(typeof json === 'object' && json ? JSON.stringify(json) : `HTTP ${res.status}`)
+      if (!res.ok) throw new Error(extractApiError(json, res.status))
       message.success('Создано')
       closeRecordModal()
       await loadRows()
@@ -456,7 +398,7 @@ export function AdminModulePage() {
         body: JSON.stringify(payload),
       })
       const json = await res.json().catch(() => null)
-      if (!res.ok) throw new Error(typeof json === 'object' && json ? JSON.stringify(json) : `HTTP ${res.status}`)
+      if (!res.ok) throw new Error(extractApiError(json, res.status))
       message.success('Сохранено')
       closeRecordModal()
       await loadRows()

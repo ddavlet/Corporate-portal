@@ -13,6 +13,7 @@ import {
   Space,
   Table,
   Tag,
+  Tooltip,
   Typography,
   message,
 } from 'antd'
@@ -339,10 +340,14 @@ export function ScheduleTab({
           <Typography.Text type="secondary">Записей: {filtered.length}</Typography.Text>
         </Space>
         <Space wrap>
-          <Button onClick={openSeries}>Создать серию выплат</Button>
-          <Button type="primary" onClick={openSingle}>
-            Создать выплату
-          </Button>
+          <Tooltip title="Создать несколько выплат за несколько месяцев сразу">
+            <Button onClick={openSeries}>Создать серию выплат</Button>
+          </Tooltip>
+          <Tooltip title="Создать одну выплату на конкретную дату">
+            <Button type="primary" onClick={openSingle}>
+              Создать выплату
+            </Button>
+          </Tooltip>
         </Space>
       </Space>
 
@@ -409,10 +414,14 @@ export function ScheduleTab({
             emptyText: (
               <Empty description="Расписание пусто" image={Empty.PRESENTED_IMAGE_SIMPLE}>
                 <Space>
-                  <Button onClick={openSeries}>Создать серию</Button>
-                  <Button type="primary" onClick={openSingle}>
-                    Создать выплату
-                  </Button>
+                  <Tooltip title="Создать несколько выплат за несколько месяцев сразу">
+                    <Button onClick={openSeries}>Создать серию</Button>
+                  </Tooltip>
+                  <Tooltip title="Создать одну выплату на конкретную дату">
+                    <Button type="primary" onClick={openSingle}>
+                      Создать выплату
+                    </Button>
+                  </Tooltip>
                 </Space>
               </Empty>
             ),

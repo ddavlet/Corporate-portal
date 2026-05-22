@@ -49,7 +49,16 @@ export function PublicInvestmentsSchedulePage() {
           paid_filter: data.filters.paid_filter,
         })
       } catch (e: unknown) {
-        if (!cancelled) setError(e instanceof Error ? e.message : 'Ошибка загрузки')
+        if (!cancelled) {
+          const msg = e instanceof Error ? e.message : ''
+          if (msg.includes('404') || msg.toLowerCase().includes('не найдено') || msg.toLowerCase().includes('not found')) {
+            setError('Ссылка недействительна или была удалена. Запросите новую ссылку у отправителя.')
+          } else if (msg.includes('403') || msg.toLowerCase().includes('forbidden')) {
+            setError('Срок действия ссылки истёк. Запросите новую ссылку у отправителя.')
+          } else {
+            setError(msg || 'Не удалось загрузить расписание. Попробуйте позже.')
+          }
+        }
       } finally {
         if (!cancelled) setLoading(false)
       }

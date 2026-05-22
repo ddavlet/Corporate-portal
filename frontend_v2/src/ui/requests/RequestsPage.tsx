@@ -11,8 +11,10 @@ import {
   getRequestFormOptions,
   resendRequestApprovals,
   type RequestFormOptionsPaymentType,
+  type RequestFormOptionsRequester,
 } from '../../lib/api'
 import { isPayedMissingLinkedExpense, type RequestExpenseLink } from '../../lib/requestExpense'
+import { canResendRequestByStatus, formatRequestBillingMonth, formatRequestDate, getRequestStatusColor } from '../../lib/requestUtils'
 import { RequestDetailModal, type RequestDetail } from './RequestDetailModal'
 import { labelBlockAboveField } from '../formSpacing'
 import { RequestAiChatButton } from './RequestAiChatButton'
@@ -120,38 +122,6 @@ function normalizeRows(payload: unknown): RequestRow[] {
   return []
 }
 
-const dateFormatterTashkent = new Intl.DateTimeFormat('ru-RU', {
-  day: '2-digit',
-  month: '2-digit',
-  year: 'numeric',
-  timeZone: 'Asia/Tashkent',
-})
-const billingMonthFormatterTashkent = new Intl.DateTimeFormat('ru-RU', {
-  month: 'long',
-  year: 'numeric',
-  timeZone: 'Asia/Tashkent',
-})
-
-function formatDateDDMMYYYY(value?: string | null): string {
-  if (!value) return '-'
-  const parsed = new Date(value)
-  if (Number.isNaN(parsed.getTime())) return '-'
-  return dateFormatterTashkent.format(parsed)
-}
-
-function formatBillingMonthYear(value?: string | null): string {
-  if (!value) return '-'
-  const parsed = new Date(value)
-  if (Number.isNaN(parsed.getTime())) return '-'
-  return billingMonthFormatterTashkent.format(parsed)
-}
-
-function canResendByStatus(status?: string | null): boolean {
-  const raw = String(status || '').trim()
-  if (raw.toUpperCase() === 'APPROVED') return true
-  const numeric = Number(raw)
-  return Number.isFinite(numeric) && numeric >= 1 && numeric <= 5
-}
 
 export function RequestsPage() {
   const navigate = useNavigate()
@@ -185,6 +155,7 @@ export function RequestsPage() {
   const [editSaving, setEditSaving] = useState(false)
   const [editDraft, setEditDraft] = useState<RequestModalEditDraft | null>(null)
   const [requestFormPaymentTypes, setRequestFormPaymentTypes] = useState<RequestFormOptionsPaymentType[]>([])
+  const [requesterCandidates, setRequesterCandidates] = useState<RequestFormOptionsRequester[]>([])
   const [vendorSearchApi, setVendorSearchApi] = useState('')
   const [debouncedVendorSearchApi, setDebouncedVendorSearchApi] = useState('')
   const [amortizedOnly, setAmortizedOnly] = useState(false)
@@ -255,6 +226,7 @@ export function RequestsPage() {
         if (!cancelled) {
           setIsTenantAdmin(Boolean(opts.is_tenant_admin))
           setRequestFormPaymentTypes(opts.payment_types ?? [])
+          setRequesterCandidates(opts.requester_candidates ?? [])
         }
       } catch {
         if (!cancelled) {
@@ -352,6 +324,10 @@ export function RequestsPage() {
   }, [editPaymentTypeFormConfig])
 
   const requesterOptions = useMemo(() => {
+    if (requesterCandidates.length > 0) {
+      return requesterCandidates.map((c) => ({ value: String(c.id), label: c.username }))
+    }
+    // Fallback: build from loaded rows (e.g. requester-only users see only their own requests)
     const map = new Map<string, string>()
     for (const row of rows) {
       const key = row.requester !== null ? String(row.requester) : ''
@@ -359,7 +335,7 @@ export function RequestsPage() {
       map.set(key, row.requester_username || `User #${key}`)
     }
     return [...map.entries()].map(([value, label]) => ({ value, label }))
-  }, [rows])
+  }, [requesterCandidates, rows])
 
   const filteredRows = useMemo(() => {
     const normalizedSearch = debouncedSearch.trim().toLowerCase()
@@ -402,16 +378,6 @@ export function RequestsPage() {
     setCurrentPage(1)
   }, [debouncedSearch, status, urgency, paymentType, currency, category, vendor, requester, amountMin, amountMax, submittedRange, billingRange, debouncedVendorSearchApi, amortizedOnly])
 
-  const getStatusColor = (value: string): string | undefined => {
-    const normalized = String(value || '').trim().toUpperCase()
-    if (normalized === 'REJECTED') return 'error'
-    if (normalized === 'APPROVED') return 'success'
-    if (normalized === 'PAYED') return '#8c8c8c'
-    if (normalized === '1-5') return 'warning'
-    const numericStatus = Number(normalized)
-    if (Number.isFinite(numericStatus) && numericStatus >= 1 && numericStatus <= 5) return 'warning'
-    return undefined
-  }
 
   const saveDetailEdit = async () => {
     if (!selectedRow || !selectedDetail || !editDraft) return
@@ -573,7 +539,7 @@ export function RequestsPage() {
       title: 'Статус',
       dataIndex: 'status',
       sorter: true,
-      render: (value: string) => <Tag color={getStatusColor(value)}>{value}</Tag>,
+      render: (value: string) => <Tag color={getRequestStatusColor(value)}>{value}</Tag>,
     },
     { title: 'Тип оплаты', dataIndex: 'payment_type', sorter: true },
     {
@@ -586,13 +552,13 @@ export function RequestsPage() {
       title: 'Отправлено',
       dataIndex: 'submitted_at',
       sorter: true,
-      render: (value: string) => formatDateDDMMYYYY(value),
+      render: (value: string) => formatRequestDate(value),
     },
     {
       title: 'Дата биллинга',
       dataIndex: 'billing_date',
       sorter: true,
-      render: (value: string) => formatBillingMonthYear(value),
+      render: (value: string) => formatRequestBillingMonth(value),
     },
     {
       title: 'Амортизация',
@@ -642,10 +608,10 @@ export function RequestsPage() {
         message.success(`Заявки отправлены повторно: ${resent}`)
       } else if (pendingCurrentStep > 0) {
         message.warning(
-          `На текущем этапе есть pending-согласования (${pendingCurrentStep}), но отправка не удалась. Проверьте bridge URL/token.`,
+          `На текущем этапе есть ожидающие согласования (${pendingCurrentStep}), но отправка не удалась. Проверьте настройки интеграции.`,
         )
       } else {
-        message.info('Нет pending-согласований для повторной отправки')
+        message.info('Нет ожидающих согласований для повторной отправки')
       }
     } catch (e: any) {
       message.error(e?.message || 'Не удалось отправить запрос повторно')
@@ -701,7 +667,7 @@ export function RequestsPage() {
       <Space direction="vertical" size={12} style={{ display: 'flex', marginTop: 12, marginBottom: 12 }}>
         <Space wrap>
           <Input
-            placeholder="Поиск: категория, поставщик, назначение, описание"
+            placeholder="Поиск по всем полям (из загруженных данных)"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             allowClear
@@ -734,7 +700,7 @@ export function RequestsPage() {
               children: (
                 <Space direction="vertical" size={12} style={{ display: 'flex' }}>
                   <Input
-                    placeholder="Поставщик: поиск на сервере (название)"
+                    placeholder="Фильтр по поставщику с сервера — перезагружает список"
                     value={vendorSearchApi}
                     onChange={(e) => setVendorSearchApi(e.target.value)}
                     allowClear
@@ -790,12 +756,12 @@ export function RequestsPage() {
                     <DatePicker.RangePicker
                       value={submittedRange}
                       onChange={(value) => setSubmittedRange(value)}
-                      placeholder={['submitted_from', 'submitted_to']}
+                      placeholder={['Отправлено с', 'Отправлено по']}
                     />
                     <DatePicker.RangePicker
                       value={billingRange}
                       onChange={(value) => setBillingRange(value)}
-                      placeholder={['billing_from', 'billing_to']}
+                      placeholder={['Биллинг с', 'Биллинг по']}
                     />
                     <InputNumber
                       placeholder="Мин. сумма"
@@ -890,10 +856,10 @@ export function RequestsPage() {
                 type="primary"
                 icon={<ReloadOutlined />}
                 loading={resendLoading}
-                disabled={!canResendByStatus(selectedRow.status)}
+                disabled={!canResendRequestByStatus(selectedRow.status)}
                 title={
-                  canResendByStatus(selectedRow.status)
-                    ? 'Повторно отправить pending-согласования текущего этапа'
+                  canResendRequestByStatus(selectedRow.status)
+                    ? 'Повторно отправить ожидающие согласования текущего этапа'
                     : 'Доступно для этапов согласования (1–5) и для заявок со статусом APPROVED'
                 }
                 onClick={() => resendRequest(selectedRow.id)}

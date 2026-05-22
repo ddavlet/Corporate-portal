@@ -79,9 +79,11 @@ export function BudgetsPage() {
   const [detailBudget, setDetailBudget] = useState<Budget | null>(null)
   const [detailItems, setDetailItems] = useState<BudgetSpendDetailItem[]>([])
   const [detailLoading, setDetailLoading] = useState(false)
+  const [categoriesLoading, setCategoriesLoading] = useState(false)
 
   useEffect(() => {
-    getBudgetCategories().then(setCategories).catch(() => setCategories([]))
+    setCategoriesLoading(true)
+    getBudgetCategories().then(setCategories).catch(() => setCategories([])).finally(() => setCategoriesLoading(false))
   }, [])
 
   const load = () => {
@@ -207,9 +209,10 @@ export function BudgetsPage() {
           <Space direction="vertical" size={2} style={{ width: '100%' }}>
             <Progress
               percent={Math.min(pct, 100)}
-              strokeColor={utilizationColor(pct)}
+              strokeColor={pct < 100 ? utilizationColor(pct) : undefined}
+              status={pct >= 100 ? 'exception' : undefined}
               size="small"
-              format={() => `${pct}%`}
+              format={() => <span style={pct > 100 ? { color: '#ff4d4f', fontWeight: 600 } : undefined}>{pct}%</span>}
             />
             <Text style={{ fontSize: 12 }}>
               {Number(row.spent_amount).toLocaleString('ru-RU')} / {Number(row.limit_amount).toLocaleString('ru-RU')} {row.currency}
@@ -331,6 +334,8 @@ export function BudgetsPage() {
           <Form.Item name="category" label="Категория" rules={[{ required: true, message: 'Выберите категорию' }]}>
             <Select
               placeholder="Выберите категорию"
+              loading={categoriesLoading}
+              notFoundContent={categoriesLoading ? 'Загрузка...' : 'Нет категорий'}
               options={categories.map((c) => ({ label: c.name, value: c.id }))}
             />
           </Form.Item>

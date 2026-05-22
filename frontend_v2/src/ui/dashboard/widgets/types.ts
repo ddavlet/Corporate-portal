@@ -2,6 +2,7 @@ import type { MyApprovalGroup } from '../../../lib/api'
 
 export type DashboardWidgetKey =
   | 'pendingApprovals'
+  | 'activeRequests'
   | 'incomeBreakdown'
   | 'expenseBreakdown'
   | 'pnlNetPrevMonth'

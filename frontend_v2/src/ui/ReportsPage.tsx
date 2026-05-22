@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { Alert, Button, Card, DatePicker, Descriptions, Input, Segmented, Skeleton, Space, Table, Tag, Typography } from 'antd'
+import { Alert, Button, Card, DatePicker, Descriptions, Input, Segmented, Skeleton, Space, Table, Tag, Tooltip, Typography } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
 import type { Dayjs } from 'dayjs'
 import { useNavigate } from 'react-router-dom'
@@ -23,7 +23,11 @@ type MatrixRow = {
 
 const moneyFmt = new Intl.NumberFormat('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 const REPORT_TZ = 'Asia/Tashkent'
-const MONTH_LABELS = ['Янв', 'Фев', 'Мар', 'Апр', 'Май', 'Июн', 'Июл', 'Авг', 'Сен', 'Окт', 'Ноя', 'Дек']
+const monthFmt = new Intl.DateTimeFormat('ru-RU', { month: 'short' })
+const MONTH_LABELS = Array.from({ length: 12 }, (_, i) => {
+  const s = monthFmt.format(new Date(2000, i, 1))
+  return s.charAt(0).toUpperCase() + s.slice(1).replace('.', '')
+})
 
 /** Календарный год в зоне отчёта (как у дат операций). */
 function currentReportCalendarYear(date = new Date()): number {
@@ -604,17 +608,19 @@ export function ReportsPage() {
         const content =
           value < 0 ? <Typography.Text type="danger">({text})</Typography.Text> : <Typography.Text>{text}</Typography.Text>
         return (
-          <Button
-            type="text"
-            size="small"
-            onClick={(event) => {
-              event.stopPropagation()
-              openFilteredOperations(direction, category, clickMonth)
-            }}
-            style={{ paddingInline: 6, whiteSpace: 'nowrap', height: 'auto' }}
-          >
-            {content}
-          </Button>
+          <Tooltip title="Нажмите, чтобы посмотреть операции" mouseEnterDelay={0.6}>
+            <Button
+              type="text"
+              size="small"
+              onClick={(event) => {
+                event.stopPropagation()
+                openFilteredOperations(direction, category, clickMonth)
+              }}
+              style={{ paddingInline: 6, whiteSpace: 'nowrap', height: 'auto', cursor: 'pointer' }}
+            >
+              {content}
+            </Button>
+          </Tooltip>
         )
       },
     })),
