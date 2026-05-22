@@ -2270,6 +2270,39 @@ export interface PortalRequestCreateBody {
   amortization_months?: number
 }
 
+export type InProgressRequestRow = {
+  id: number
+  title: string
+  description?: string | null
+  amount: number | string
+  currency: string
+  status: string
+  urgency?: string | null
+  payment_type?: string | null
+  category?: string | null
+  vendor?: string | null
+  payment_purpose?: string | null
+  requester_username?: string | null
+  submitted_at?: string | null
+  billing_date?: string | null
+}
+
+/** Fetch all non-terminal requests (excludes PAYED and REJECTED). */
+export async function getInProgressRequests(): Promise<InProgressRequestRow[]> {
+  const res = await apiFetch('/api/requests/')
+  if (!res.ok) throw new Error(await parseErrorBody(res))
+  const json = await res.json().catch(() => null)
+  const rows: InProgressRequestRow[] = Array.isArray(json)
+    ? json
+    : json && typeof json === 'object' && 'results' in json && Array.isArray((json as { results: unknown[] }).results)
+      ? (json as { results: InProgressRequestRow[] }).results
+      : []
+  return rows.filter((r) => {
+    const s = String(r.status || '').trim().toUpperCase()
+    return s !== 'PAYED' && s !== 'REJECTED'
+  })
+}
+
 /** Insert a new request only (POST create). No update. */
 export async function createPortalRequest(body: PortalRequestCreateBody): Promise<CreatedPortalRequest> {
   const res = await apiFetch('/api/requests/', {

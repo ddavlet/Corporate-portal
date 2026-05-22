@@ -2,11 +2,14 @@ import { useEffect, useMemo, useState } from 'react'
 import { Alert, Button, Card, Col, Divider, Input, Modal, Row, Skeleton, Space, Switch, Tag, Tooltip, Typography, message } from 'antd'
 import { EyeInvisibleOutlined, EyeOutlined } from '@ant-design/icons'
 import {
+  apiFetch,
   confirmPaymentViaWebApp,
   getCashflowReportData,
+  getInProgressRequests,
   getMyApprovals,
   getPnlReportData,
   setRequestApprovalDecision,
+  type InProgressRequestRow,
   type LegacyReportPayload,
 } from '../lib/api'
 import { ExpensePieWidget } from './dashboard/widgets/ExpensePieWidget'
@@ -14,6 +17,7 @@ import { IncomePieWidget } from './dashboard/widgets/IncomePieWidget'
 import { PendingApprovalsWidget } from './dashboard/widgets/PendingApprovalsWidget'
 import { PnlNetProfitPrevMonthWidget } from './dashboard/widgets/PnlNetProfitPrevMonthWidget'
 import { CashflowProfitCurrentMonthWidget } from './dashboard/widgets/CashflowProfitCurrentMonthWidget'
+import { ActiveRequestsWidget } from './dashboard/widgets/ActiveRequestsWidget'
 import {
   buildCategorySlices,
   getCurrentMonthRef,
@@ -22,12 +26,14 @@ import {
   toPendingApprovals,
 } from './dashboard/widgets/adapters'
 import type { DashboardWidgetKey, PendingApprovalItem, WidgetVisibility } from './dashboard/widgets/types'
+import { RequestDetailModal, type RequestDetail } from './requests/RequestDetailModal'
 import { useUserPreference } from '../lib/useUserPreference'
 import { useModuleAccess } from './moduleAccess'
 
 const DASHBOARD_WIDGETS_PREF_KEY = 'dashboard.widgets.v1'
 const defaultVisibility: WidgetVisibility = {
   pendingApprovals: true,
+  activeRequests: true,
   incomeBreakdown: true,
   expenseBreakdown: true,
   pnlNetPrevMonth: true,
@@ -57,12 +63,57 @@ export function DashboardPage() {
   const [paymentModalItem, setPaymentModalItem] = useState<PendingApprovalItem | null>(null)
   const [paymentExpenseId, setPaymentExpenseId] = useState('')
 
+  const [inProgressRequests, setInProgressRequests] = useState<InProgressRequestRow[]>([])
+  const [inProgressLoading, setInProgressLoading] = useState(true)
+  const [inProgressError, setInProgressError] = useState<string | null>(null)
+
+  const [selectedRequestId, setSelectedRequestId] = useState<number | null>(null)
+  const [requestDetail, setRequestDetail] = useState<RequestDetail | null>(null)
+  const [requestDetailLoading, setRequestDetailLoading] = useState(false)
+  const [requestDetailError, setRequestDetailError] = useState<string | null>(null)
+
   const { value: widgetVisibility, setValue: setWidgetVisibility } = useUserPreference<WidgetVisibility>({
     key: DASHBOARD_WIDGETS_PREF_KEY,
     defaultValue: defaultVisibility,
     normalize: (raw) => normalizeWidgetVisibility(raw),
     debounceMs: 250,
   })
+
+  const loadInProgress = async () => {
+    setInProgressLoading(true)
+    setInProgressError(null)
+    try {
+      const data = await getInProgressRequests()
+      setInProgressRequests(data)
+    } catch (e: unknown) {
+      setInProgressError(e instanceof Error ? e.message : 'Не удалось загрузить заявки')
+    } finally {
+      setInProgressLoading(false)
+    }
+  }
+
+  const openRequestDetail = async (id: number) => {
+    setSelectedRequestId(id)
+    setRequestDetail(null)
+    setRequestDetailError(null)
+    setRequestDetailLoading(true)
+    try {
+      const res = await apiFetch(`/api/requests/${id}/`)
+      const json = (await res.json().catch(() => null)) as RequestDetail | null
+      if (!res.ok) throw new Error(json && typeof json === 'object' && 'detail' in (json as Record<string, unknown>) ? String((json as Record<string, unknown>).detail) : `Ошибка ${res.status}`)
+      setRequestDetail(json)
+    } catch (e: unknown) {
+      setRequestDetailError(e instanceof Error ? e.message : 'Не удалось загрузить заявку')
+    } finally {
+      setRequestDetailLoading(false)
+    }
+  }
+
+  const closeRequestDetail = () => {
+    setSelectedRequestId(null)
+    setRequestDetail(null)
+    setRequestDetailError(null)
+  }
 
   const loadApprovals = async () => {
     setApprovalsLoading(true)
@@ -93,6 +144,7 @@ export function DashboardPage() {
 
   useEffect(() => {
     void loadApprovals()
+    void loadInProgress()
     if (canViewReports) {
       void loadReports()
       return
@@ -190,6 +242,15 @@ const pnlExpenseItems = useMemo(() => {
             />
           </Tooltip>
           <Typography.Text type="secondary" style={{ fontSize: 12 }}>Согласования</Typography.Text>
+          <Tooltip title="Заявки в процессе">
+            <Switch
+              checked={widgetVisibility.activeRequests}
+              onChange={(checked) => toggleWidget('activeRequests', checked)}
+              checkedChildren={<EyeOutlined />}
+              unCheckedChildren={<EyeInvisibleOutlined />}
+            />
+          </Tooltip>
+          <Typography.Text type="secondary" style={{ fontSize: 12 }}>Заявки в процессе</Typography.Text>
           {canViewReports ? (
             <>
               <Tooltip title="Доходы">
@@ -264,6 +325,20 @@ const pnlExpenseItems = useMemo(() => {
         ) : null}
       </Row>
 
+      {widgetVisibility.activeRequests ? (
+        <Row gutter={[16, 16]}>
+          <Col xs={24}>
+            <ActiveRequestsWidget
+              requests={inProgressRequests}
+              loading={inProgressLoading}
+              error={inProgressError}
+              pendingApprovals={pendingApprovals}
+              onOpen={openRequestDetail}
+            />
+          </Col>
+        </Row>
+      ) : null}
+
       <Row gutter={[16, 16]}>
         {canViewReports && widgetVisibility.incomeBreakdown ? (
           <Col xs={24} lg={12}>
@@ -276,6 +351,14 @@ const pnlExpenseItems = useMemo(() => {
           </Col>
         ) : null}
       </Row>
+
+      <RequestDetailModal
+        open={selectedRequestId !== null}
+        onCancel={closeRequestDetail}
+        detail={requestDetail}
+        loading={requestDetailLoading}
+        error={requestDetailError}
+      />
 
       <Modal
         open={paymentModalOpen}
