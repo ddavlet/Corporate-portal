@@ -1,12 +1,13 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Alert, Card, Col, Row, Tooltip, Typography } from 'antd'
-import { LockOutlined } from '@ant-design/icons'
+import { Alert, Button, Card, Col, Row, Tooltip, Typography } from 'antd'
+import { ArrowLeftOutlined, LockOutlined } from '@ant-design/icons'
 import { useNavigate } from 'react-router-dom'
-import { SETTINGS_MODULES } from '../settings/settingsModules'
+import { SETTINGS_GROUPS, SETTINGS_MODULES } from '../settings/settingsModules'
 import { getSettingsAccess } from '../lib/api'
 
 export function SettingsPage() {
   const navigate = useNavigate()
+  const [selectedGroup, setSelectedGroup] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [canOpenSettings, setCanOpenSettings] = useState<boolean | null>(null)
   const [access, setAccess] = useState<{
@@ -52,57 +53,101 @@ export function SettingsPage() {
     return new Map(SETTINGS_MODULES.map((m) => [m.path, check(m)]))
   }, [access])
 
+  const activeGroup = selectedGroup ? SETTINGS_GROUPS.find((g) => g.key === selectedGroup) : null
+  const visibleModules = selectedGroup ? SETTINGS_MODULES.filter((m) => m.group === selectedGroup) : []
+
+  if (selectedGroup && activeGroup) {
+    return (
+      <div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 4 }}>
+          <Button
+            type="text"
+            icon={<ArrowLeftOutlined />}
+            onClick={() => setSelectedGroup(null)}
+            style={{ padding: '0 8px' }}
+          >
+            Назад
+          </Button>
+          <Typography.Title level={4} style={{ margin: 0 }}>
+            {activeGroup.label}
+          </Typography.Title>
+        </div>
+        <Typography.Paragraph type="secondary" style={{ marginBottom: 16 }}>
+          {activeGroup.description}
+        </Typography.Paragraph>
+        {error ? <Alert type="error" showIcon message={error} style={{ marginBottom: 16 }} /> : null}
+        <Row gutter={[16, 16]}>
+          {visibleModules.map((m) => {
+            const canAccess = access ? (moduleAccessMap.get(m.path) ?? false) : null
+            if (canAccess === false) {
+              return (
+                <Col xs={24} sm={12} lg={8} key={m.key}>
+                  <Tooltip title="Нет доступа. Обратитесь к администратору.">
+                    <Card
+                      title={m.title}
+                      extra={<LockOutlined style={{ color: '#bfbfbf' }} />}
+                      style={{ height: '100%', opacity: 0.55, cursor: 'not-allowed' }}
+                    >
+                      <Typography.Paragraph type="secondary" style={{ marginBottom: 0 }}>
+                        {m.description}
+                      </Typography.Paragraph>
+                    </Card>
+                  </Tooltip>
+                </Col>
+              )
+            }
+            return (
+              <Col xs={24} sm={12} lg={8} key={m.key}>
+                <a
+                  href={m.path}
+                  style={{ display: 'block', color: 'inherit' }}
+                  onClick={(event) => {
+                    if (event.button === 0 && !event.metaKey && !event.ctrlKey && !event.shiftKey && !event.altKey) {
+                      event.preventDefault()
+                      navigate(m.path)
+                    }
+                  }}
+                >
+                  <Card hoverable title={m.title} extra={m.icon} style={{ height: '100%' }}>
+                    <Typography.Paragraph type="secondary" style={{ marginBottom: 0 }}>
+                      {m.description}
+                    </Typography.Paragraph>
+                  </Card>
+                </a>
+              </Col>
+            )
+          })}
+        </Row>
+      </div>
+    )
+  }
+
   return (
     <div>
       <Typography.Title level={4} style={{ marginTop: 0 }}>
         Настройки
       </Typography.Title>
       <Typography.Paragraph type="secondary">
-        Модули с отдельными страницами конфигурации. Список можно расширять.
+        Выберите раздел, чтобы перейти к его настройкам.
       </Typography.Paragraph>
       {error ? <Alert type="error" showIcon message={error} style={{ marginBottom: 16 }} /> : null}
       {canOpenSettings === false ? <Alert type="warning" showIcon message="У вас нет доступа к настройкам." /> : null}
       <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
-        {SETTINGS_MODULES.map((m) => {
-          const canAccess = access ? (moduleAccessMap.get(m.path) ?? false) : null
-          if (canAccess === false) {
-            return (
-              <Col xs={24} sm={12} lg={8} key={m.key}>
-                <Tooltip title="Нет доступа. Обратитесь к администратору.">
-                  <Card
-                    title={m.title}
-                    extra={<LockOutlined style={{ color: '#bfbfbf' }} />}
-                    style={{ height: '100%', opacity: 0.55, cursor: 'not-allowed' }}
-                  >
-                    <Typography.Paragraph type="secondary" style={{ marginBottom: 0 }}>
-                      {m.description}
-                    </Typography.Paragraph>
-                  </Card>
-                </Tooltip>
-              </Col>
-            )
-          }
-          return (
-            <Col xs={24} sm={12} lg={8} key={m.key}>
-              <a
-                href={m.path}
-                style={{ display: 'block', color: 'inherit' }}
-                onClick={(event) => {
-                  if (event.button === 0 && !event.metaKey && !event.ctrlKey && !event.shiftKey && !event.altKey) {
-                    event.preventDefault()
-                    navigate(m.path)
-                  }
-                }}
-              >
-                <Card hoverable title={m.title} extra={m.icon} style={{ height: '100%' }}>
-                  <Typography.Paragraph type="secondary" style={{ marginBottom: 0 }}>
-                    {m.description}
-                  </Typography.Paragraph>
-                </Card>
-              </a>
-            </Col>
-          )
-        })}
+        {SETTINGS_GROUPS.map((group) => (
+          <Col xs={24} sm={12} lg={8} key={group.key}>
+            <Card
+              hoverable
+              title={group.label}
+              extra={group.icon}
+              style={{ height: '100%', cursor: 'pointer' }}
+              onClick={() => setSelectedGroup(group.key)}
+            >
+              <Typography.Paragraph type="secondary" style={{ marginBottom: 0 }}>
+                {group.description}
+              </Typography.Paragraph>
+            </Card>
+          </Col>
+        ))}
       </Row>
     </div>
   )
