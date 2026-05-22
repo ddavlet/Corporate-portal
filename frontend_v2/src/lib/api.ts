@@ -653,28 +653,6 @@ async function apiError(res: Response): Promise<ApiError> {
   return new ApiError(res.status, detail ?? fallback)
 }
 
-/** Error thrown by API helpers that need callers to react to the HTTP status (e.g. 403 permission denied). */
-export class ApiError extends Error {
-  readonly status: number
-  constructor(status: number, message: string) {
-    super(message)
-    this.name = 'ApiError'
-    this.status = status
-  }
-}
-
-/** Build an ApiError from a non-OK response, preferring the DRF `detail` string over a raw JSON dump. */
-async function apiError(res: Response): Promise<ApiError> {
-  const json = await res.json().catch(() => null)
-  let detail: string | null = null
-  if (json && typeof json === 'object') {
-    const d = (json as { detail?: unknown }).detail
-    if (typeof d === 'string' && d.trim()) detail = d
-  }
-  const fallback = typeof json === 'object' && json ? JSON.stringify(json) : `HTTP ${res.status}`
-  return new ApiError(res.status, detail ?? fallback)
-}
-
 export type ApprovalDecision = 'approved' | 'rejected'
 
 export type MyApprovalRequestSummary = {
