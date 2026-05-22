@@ -43,3 +43,4 @@ settings.local.json
 .venv_ci
 scripts/
 backups/
+.claude/
