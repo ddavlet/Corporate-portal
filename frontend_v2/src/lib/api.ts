@@ -625,6 +625,28 @@ async function parseErrorBody(res: Response): Promise<string> {
   return typeof json === 'object' && json ? JSON.stringify(json) : `HTTP ${res.status}`
 }
 
+/** Error thrown by API helpers that need callers to react to the HTTP status (e.g. 403 permission denied). */
+export class ApiError extends Error {
+  readonly status: number
+  constructor(status: number, message: string) {
+    super(message)
+    this.name = 'ApiError'
+    this.status = status
+  }
+}
+
+/** Build an ApiError from a non-OK response, preferring the DRF `detail` string over a raw JSON dump. */
+async function apiError(res: Response): Promise<ApiError> {
+  const json = await res.json().catch(() => null)
+  let detail: string | null = null
+  if (json && typeof json === 'object') {
+    const d = (json as { detail?: unknown }).detail
+    if (typeof d === 'string' && d.trim()) detail = d
+  }
+  const fallback = typeof json === 'object' && json ? JSON.stringify(json) : `HTTP ${res.status}`
+  return new ApiError(res.status, detail ?? fallback)
+}
+
 export type ApprovalDecision = 'approved' | 'rejected'
 
 export type MyApprovalRequestSummary = {
@@ -2212,7 +2234,7 @@ export async function createVendor(body: CreateVendorBody): Promise<VendorDirect
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   })
-  if (!res.ok) throw new Error(await parseErrorBody(res))
+  if (!res.ok) throw await apiError(res)
   const json = (await res.json().catch(() => null)) as VendorDirectoryRow | null
   if (!json) throw new Error('Empty response')
   return json
@@ -2377,7 +2399,7 @@ export async function createContract(fields: ContractCreateMultipartFields): Pro
   const fd = new FormData()
   appendContractFormData(fd, fields)
   const res = await apiFetch('/api/contracts/', { method: 'POST', body: fd })
-  if (!res.ok) throw new Error(await parseErrorBody(res))
+  if (!res.ok) throw await apiError(res)
   const json = (await res.json().catch(() => null)) as ContractRow | null
   if (!json) throw new Error('Empty response')
   return json

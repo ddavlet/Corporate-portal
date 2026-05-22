@@ -21,6 +21,7 @@ import type { UploadFile } from 'antd/es/upload/interface'
 import { ArrowLeftOutlined, PlusOutlined } from '@ant-design/icons'
 import { useNavigate } from 'react-router-dom'
 import {
+  ApiError,
   createContract,
   createPortalRequest,
   createVendor,
@@ -388,7 +389,11 @@ export function RequestCreatePage({ requestsBasePath = '/requests', variant = 'p
       setNewVendorAccount('')
       await loadVendors('')
     } catch (e: unknown) {
-      message.error(e instanceof Error ? e.message : 'Ошибка')
+      if (e instanceof ApiError && e.status === 403) {
+        message.error('У вас нет прав на создание поставщика. Обратитесь к администратору.')
+      } else {
+        message.error(e instanceof Error ? e.message : 'Ошибка')
+      }
     } finally {
       setNewVendorSaving(false)
     }
@@ -438,7 +443,11 @@ export function RequestCreatePage({ requestsBasePath = '/requests', variant = 'p
       )
       setContractRefId(created.id)
     } catch (e: unknown) {
-      message.error(e instanceof Error ? e.message : 'Ошибка')
+      if (e instanceof ApiError && e.status === 403) {
+        message.error('У вас нет прав на создание договора. Обратитесь к администратору.')
+      } else {
+        message.error(e instanceof Error ? e.message : 'Ошибка')
+      }
     } finally {
       setNewContractSaving(false)
     }

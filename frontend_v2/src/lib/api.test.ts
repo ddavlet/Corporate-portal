@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
+  ApiError,
   apiFetch,
   askAiQuestion,
   changePassword,
@@ -223,6 +224,14 @@ describe('api module', () => {
     const [, options] = fetchMock.mock.calls[0] as [string, RequestInit]
     expect(options.method).toBe('POST')
     expect(options.body).toBe(JSON.stringify({ kind: 'transfer', name: 'OOO Test', inn: '123', account_number: '408' }))
+  })
+
+  it('throws ApiError with status 403 when createVendor is forbidden', async () => {
+    fetchMock.mockResolvedValueOnce(createJsonResponse(403, { detail: 'You do not have permission to perform this action.' }))
+    const err = await createVendor({ kind: 'cash', name: 'OOO Test' }).catch((e) => e)
+    expect(err).toBeInstanceOf(ApiError)
+    expect((err as ApiError).status).toBe(403)
+    expect((err as ApiError).message).toBe('You do not have permission to perform this action.')
   })
 
   it('returns request payload from confirmPaymentViaWebApp', async () => {
