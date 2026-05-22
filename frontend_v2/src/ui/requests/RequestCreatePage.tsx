@@ -821,7 +821,6 @@ export function RequestCreatePage({ requestsBasePath = '/requests', variant = 'p
                 beforeUpload={() => false}
                 fileList={attachmentFileList}
                 onChange={({ fileList }) => setAttachmentFileList(fileList)}
-                getPopupContainer={isTg ? tgPopupContainer : undefined}
               >
                 <Button icon={<PlusOutlined />} size={isTg ? 'large' : undefined}>
                   Выбрать файлы
