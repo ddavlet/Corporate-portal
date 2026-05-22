@@ -16,6 +16,7 @@ from apps.modules.investments.models import (
     InvestmentProjectApprovalConfigStep,
     InvestmentProjectApprovalConfigStepApprover,
     InvestmentReturnApproval,
+    InvestNotificationConfig,
     InvestPayoutSchedule,
     InvestPayoutScheduleShareLink,
     InvestReturn,
@@ -306,6 +307,12 @@ class InvestmentApprovalConfigStepSerializer(serializers.Serializer):
         allow_empty=True,
         required=False,
     )
+
+
+class InvestNotificationConfigSerializer(serializers.Serializer):
+    responsible_user_id = serializers.IntegerField(min_value=1)
+    days_before = serializers.IntegerField(min_value=1, max_value=365)
+    is_active = serializers.BooleanField()
 
 
 class InvestmentFormConfigSerializer(serializers.Serializer):

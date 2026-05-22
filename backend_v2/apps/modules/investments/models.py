@@ -345,6 +345,57 @@ class InvestmentReturnApproval(models.Model):
         ]
 
 
+class InvestNotificationConfig(models.Model):
+    """Per-tenant config: who gets notified about upcoming investment payouts and how many days in advance."""
+
+    tenant = models.OneToOneField(
+        Tenant,
+        on_delete=models.CASCADE,
+        related_name="invest_notification_config",
+    )
+    responsible_user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="invest_notification_configs",
+    )
+    days_before = models.PositiveIntegerField(default=3)
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "invest_notification_config"
+
+
+class InvestPayoutNotificationLog(models.Model):
+    """Tracks sent payout notifications to prevent duplicate dispatches on the same day."""
+
+    schedule = models.ForeignKey(
+        InvestPayoutSchedule,
+        on_delete=models.CASCADE,
+        related_name="notification_logs",
+    )
+    recipient_user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="invest_payout_notification_logs",
+    )
+    sent_at = models.DateTimeField(auto_now_add=True)
+    sent_date = models.DateField()
+
+    class Meta:
+        db_table = "invest_payout_notification_logs"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["schedule", "recipient_user", "sent_date"],
+                name="invnotlog_sched_user_date_uniq",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["schedule", "sent_date"], name="invnotlog_sched_date_idx"),
+        ]
+
+
 class InvestmentProjectApprovalConfig(models.Model):
     """Per-tenant approval chain for project investment requests (заявки на вложение)."""
 

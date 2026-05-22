@@ -5,6 +5,7 @@ import {
   DEFAULT_INVESTMENT_FORM_CONFIG,
   getInvestCompanies,
   getInvestmentFormConfig,
+  getInvestNotificationConfig,
   getInvestPayoutSchedule,
   getInvestPayoutScheduleShareLinks,
   getInvestReturns,
@@ -39,19 +40,22 @@ export function InvestmentsPage() {
   const [returns, setReturns] = useState<InvestReturnRow[]>([])
   const [shareLinks, setShareLinks] = useState<InvestPayoutScheduleShareLinkRow[]>([])
   const [invFormCfg, setInvFormCfg] = useState<InvestmentFormConfigResponse | null>(null)
+  const [notifyDaysBefore, setNotifyDaysBefore] = useState<number | null>(null)
 
   const loadAll = async () => {
     setLoading(true)
     setError(null)
     try {
       const cfgPromise = getInvestmentFormConfig().catch(() => DEFAULT_INVESTMENT_FORM_CONFIG)
-      const [c, i, s, r, links, cfg] = await Promise.all([
+      const notifyCfgPromise = getInvestNotificationConfig().catch(() => null)
+      const [c, i, s, r, links, cfg, notifyCfg] = await Promise.all([
         getInvestCompanies(),
         getProjectInvestments(),
         getInvestPayoutSchedule(),
         getInvestReturns(),
         getInvestPayoutScheduleShareLinks(),
         cfgPromise,
+        notifyCfgPromise,
       ])
       setCompanies(c)
       setInvestments(i)
@@ -59,6 +63,7 @@ export function InvestmentsPage() {
       setReturns(r)
       setShareLinks(links)
       setInvFormCfg(cfg)
+      setNotifyDaysBefore(notifyCfg?.is_active ? notifyCfg.days_before : null)
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Не удалось загрузить данные по инвестициям')
     } finally {
@@ -127,6 +132,7 @@ export function InvestmentsPage() {
             companyFilter={companyFilter}
             paidFilter={schedulePaidFilter}
             usesCompanies={effectiveFormCfg.uses_companies}
+            notifyDaysBefore={notifyDaysBefore}
             onCreated={loadAll}
             onShareLinkCreated={(l) => setShareLinks((prev) => [l, ...prev])}
             onShareLinkDeleted={(id) => setShareLinks((prev) => prev.filter((x) => x.id !== id))}

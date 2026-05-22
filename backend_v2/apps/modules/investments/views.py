@@ -24,6 +24,7 @@ from apps.modules.investments.models import (
     InvestmentProjectApprovalConfigStep,
     InvestmentProjectApprovalConfigStepApprover,
     InvestmentReturnApproval,
+    InvestNotificationConfig,
     InvestPayoutSchedule,
     InvestPayoutScheduleShareLink,
     InvestReturn,
@@ -52,6 +53,7 @@ from apps.modules.investments.serializers import (
     InvestmentProjectApprovalConfigStepApproverReadSerializer,
     InvestmentProjectApprovalConfigStepReadSerializer,
     InvestmentReturnApprovalReadSerializer,
+    InvestNotificationConfigSerializer,
     InvestPayoutScheduleSerializer,
     InvestPayoutScheduleShareLinkSerializer,
     InvestReturnSerializer,
@@ -302,6 +304,74 @@ class InvestmentFormConfigView(APIView):
             defaults={
                 "uses_companies": payload["uses_companies"],
                 "allowed_return_types": list(payload["allowed_return_types"]),
+            },
+        )
+        return Response(self._payload(request.tenant))
+
+
+class InvestNotificationConfigView(APIView):
+    permission_classes = [IsAuthenticated, HasEffectiveModuleAccess]
+    module_key = "investments"
+
+    def _payload(self, tenant):
+        cfg = InvestNotificationConfig.objects.filter(tenant=tenant).select_related("responsible_user").first()
+        User = get_user_model()
+        member_ids = TenantMembership.objects.filter(tenant=tenant, is_active=True).values_list("user_id", flat=True)
+        candidates = list(
+            User.objects.filter(id__in=member_ids, is_active=True)
+            .order_by("username")
+            .values("id", "username", "full_name")
+        )
+        approver_candidates = [
+            {"id": u["id"], "label": (u["full_name"] or u["username"]).strip(), "username": u["username"]}
+            for u in candidates
+        ]
+        if not cfg:
+            return {
+                "is_active": False,
+                "days_before": 3,
+                "responsible_user_id": None,
+                "responsible_user_name": "",
+                "approver_candidates": approver_candidates,
+            }
+        user = cfg.responsible_user
+        return {
+            "is_active": cfg.is_active,
+            "days_before": cfg.days_before,
+            "responsible_user_id": user.pk,
+            "responsible_user_name": (getattr(user, "full_name", "") or user.username or "").strip(),
+            "approver_candidates": approver_candidates,
+        }
+
+    def get(self, request):
+        self.check_permissions(request)
+        return Response(self._payload(request.tenant))
+
+    def put(self, request):
+        self.check_permissions(request)
+        serializer = InvestNotificationConfigSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        payload = serializer.validated_data
+        User = get_user_model()
+        # Scope to active members of THIS tenant: the responsible user receives Telegram
+        # notifications containing payout amounts, so a foreign user must never be assignable.
+        is_member = TenantMembership.objects.filter(
+            tenant=request.tenant,
+            user_id=payload["responsible_user_id"],
+            is_active=True,
+        ).exists()
+        if not is_member:
+            raise ValidationError({"responsible_user_id": "User is not an active member of this tenant."})
+        try:
+            user = User.objects.get(pk=payload["responsible_user_id"])
+        except User.DoesNotExist:
+            raise ValidationError({"responsible_user_id": "User not found."})
+        InvestNotificationConfig.objects.update_or_create(
+            tenant=request.tenant,
+            defaults={
+                "responsible_user": user,
+                "days_before": payload["days_before"],
+                "is_active": payload["is_active"],
             },
         )
         return Response(self._payload(request.tenant))

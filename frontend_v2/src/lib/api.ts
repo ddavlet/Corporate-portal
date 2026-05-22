@@ -1490,6 +1490,36 @@ export async function updateInvestmentFormConfig(
   return json
 }
 
+export type InvestNotificationConfigResponse = {
+  is_active: boolean
+  days_before: number
+  responsible_user_id: number | null
+  responsible_user_name: string
+  approver_candidates: Array<{ id: number; label: string; username: string }>
+}
+
+export async function getInvestNotificationConfig(): Promise<InvestNotificationConfigResponse> {
+  const res = await apiFetch('/api/investments/notification-config/')
+  if (!res.ok) throw new Error(await parseErrorBody(res))
+  const json = (await res.json().catch(() => null)) as InvestNotificationConfigResponse | null
+  if (!json) throw new Error('Empty response from server')
+  return json
+}
+
+export async function updateInvestNotificationConfig(
+  payload: { responsible_user_id: number; days_before: number; is_active: boolean },
+): Promise<InvestNotificationConfigResponse> {
+  const res = await apiFetch('/api/investments/notification-config/', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+  if (!res.ok) throw new Error(await parseErrorBody(res))
+  const json = (await res.json().catch(() => null)) as InvestNotificationConfigResponse | null
+  if (!json) throw new Error('Empty response from server')
+  return json
+}
+
 export type TelegramWebAppAuthResponse = {
   access: string
   refresh: string

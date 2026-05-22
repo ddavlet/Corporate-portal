@@ -75,6 +75,13 @@ export const SETTINGS_MODULES: SettingsModuleItem[] = [
     icon: <FileTextOutlined />,
   },
   {
+    key: 'investments-notifications',
+    title: 'Инвестиции — уведомления о выплатах',
+    description: 'Ответственный получает Telegram-уведомление перед каждой плановой выплатой и может создать заявку в один клик.',
+    path: '/settings/investment-notification-config',
+    icon: <FileTextOutlined />,
+  },
+  {
     key: 'cash-registers',
     title: 'Кошельки',
     description:

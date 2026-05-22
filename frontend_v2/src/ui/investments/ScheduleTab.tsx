@@ -54,6 +54,7 @@ type Props = {
   companyFilter: CompanyFilter
   paidFilter: SchedulePaidFilter
   usesCompanies: boolean
+  notifyDaysBefore: number | null
   onCreated: () => Promise<void> | void
   onShareLinkCreated: (link: InvestPayoutScheduleShareLinkRow) => void
   onShareLinkDeleted: (id: number) => void
@@ -86,6 +87,7 @@ export function ScheduleTab({
   companyFilter,
   paidFilter,
   usesCompanies,
+  notifyDaysBefore,
   onCreated,
   onShareLinkCreated,
   onShareLinkDeleted,
@@ -130,6 +132,8 @@ export function ScheduleTab({
     const start = watchedSeries.start as Dayjs
     return generateSeriesDates(start.year(), start.month(), Number(watchedSeries.day), Number(watchedSeries.count))
   }, [watchedSeries])
+
+  const today = useMemo(() => new Date().toISOString().slice(0, 10), [])
 
   const columns: ColumnsType<InvestPayoutScheduleRow> = useMemo(() => {
     const companyCol = {
@@ -181,8 +185,32 @@ export function ScheduleTab({
       sorter: (a, b) => asNumber(a.payment_amount) - asNumber(b.payment_amount),
     },
     { title: 'Комментарий', dataIndex: 'comment', render: (v: string) => v || '-' },
+    ...(notifyDaysBefore !== null
+      ? [
+          {
+            title: 'Уведомление',
+            dataIndex: 'payout_date',
+            key: 'notify_status',
+            width: 140,
+            render: (date: string, row: InvestPayoutScheduleRow) => {
+              if (row.is_paid) return <Tag>—</Tag>
+              const msLeft = new Date(date).getTime() - new Date(today).getTime()
+              const daysLeft = Math.ceil(msLeft / 86400000)
+              if (daysLeft < 0) return <Tag color="red">Просрочено</Tag>
+              if (daysLeft <= notifyDaysBefore) {
+                return (
+                  <Tooltip title={`Уведомление отправляется за ${notifyDaysBefore} д. до выплаты`}>
+                    <Tag color="orange">Через {daysLeft} д.</Tag>
+                  </Tooltip>
+                )
+              }
+              return <Tag color="default">Через {daysLeft} д.</Tag>
+            },
+          },
+        ]
+      : []),
     ]
-  }, [usesCompanies, companyLabel])
+  }, [usesCompanies, companyLabel, notifyDaysBefore, today])
 
   const shareLinkRows = useMemo(
     () =>

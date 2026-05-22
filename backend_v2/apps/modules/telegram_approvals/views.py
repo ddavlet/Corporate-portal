@@ -81,6 +81,63 @@ class TelegramApprovalWebhookView(APIView):
             return approval_id, Approval.DECISION_REJECTED
         raise ValidationError({"detail": "Unsupported decision value in callback payload."})
 
+    def _handle_invest_pay_callback(self, payload_str: str, event_data: dict) -> Response:
+        from apps.modules.investments.models import InvestNotificationConfig, InvestPayoutSchedule
+        from apps.modules.investments.notification_services import (
+            create_request_from_payout_schedule,
+            remove_payout_notification_button,
+        )
+
+        raw_id = payload_str[len("invest_pay:"):]
+        try:
+            schedule_id = int(raw_id)
+        except (TypeError, ValueError):
+            raise ValidationError({"detail": "Invalid invest_pay callback: bad schedule_id."})
+
+        schedule = InvestPayoutSchedule.objects.select_related("tenant", "company").filter(pk=schedule_id).first()
+        if schedule is None:
+            raise ValidationError({"detail": "Payout schedule not found."})
+
+        message_id = event_data.get("message_id")
+        recipient_id = event_data.get("recipient_id")
+
+        if schedule.is_paid:
+            # Drop the now-stale button so it can't be pressed again.
+            try:
+                remove_payout_notification_button(
+                    schedule=schedule, chat_id=recipient_id, message_id=message_id, note="✅ Already paid",
+                )
+            except Exception:
+                logger.exception("invest_pay_callback: button cleanup failed schedule_id=%s", schedule_id)
+            return Response({"detail": "Payout already marked as paid."}, status=status.HTTP_200_OK)
+
+        try:
+            cfg = InvestNotificationConfig.objects.select_related("responsible_user").get(tenant=schedule.tenant)
+        except InvestNotificationConfig.DoesNotExist:
+            raise ValidationError({"detail": "Notification config not found for tenant."})
+
+        req = create_request_from_payout_schedule(
+            schedule=schedule,
+            created_by=cfg.responsible_user,
+        )
+        logger.info(
+            "invest_pay_callback: created request_id=%s for schedule_id=%s tenant_id=%s",
+            req.pk,
+            schedule_id,
+            schedule.tenant_id,
+        )
+
+        # Remove the button so a second tap can't create a duplicate request (best-effort).
+        try:
+            remove_payout_notification_button(
+                schedule=schedule, chat_id=recipient_id, message_id=message_id,
+                note=f"✅ Payment request #{req.pk} created",
+            )
+        except Exception:
+            logger.exception("invest_pay_callback: button cleanup failed schedule_id=%s", schedule_id)
+
+        return Response({"detail": "Payment request created.", "request_id": req.pk}, status=status.HTTP_201_CREATED)
+
     def post(self, request):
         serializer = MessagingGatewayCallbackSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -95,6 +152,9 @@ class TelegramApprovalWebhookView(APIView):
         if payload_str.startswith("invp_") or payload_str.startswith("inv_"):
             from apps.modules.investments.views import InvestmentApprovalWebhookView
             return InvestmentApprovalWebhookView().post(request)
+
+        if payload_str.startswith("invest_pay:"):
+            return self._handle_invest_pay_callback(payload_str, event_data)
 
         payload_preview = (event_data.get("payload") or "")[:48]
         logger.info(
