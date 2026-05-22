@@ -225,7 +225,11 @@ export function InvestmentsTab({
               <InputNumber min={0} precision={precisionFor(watchedCurrency)} style={{ width: 180 }} />
             </Form.Item>
             <Form.Item label="Валюта" name="currency" rules={[{ required: true }]}>
-              <Select style={{ width: 120 }} options={CURRENCY_OPTIONS} />
+              <Select
+                style={{ width: 120 }}
+                options={CURRENCY_OPTIONS}
+                onChange={() => form.setFieldValue('amount', undefined)}
+              />
             </Form.Item>
           </Space>
           <Form.Item label="Комментарий" name="comment">

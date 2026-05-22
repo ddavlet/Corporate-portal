@@ -217,7 +217,7 @@ export async function getTenantIntegrationConfig(): Promise<TenantIntegrationCon
   const res = await apiFetch('/api/tenant-integration-config/')
   if (!res.ok) throw new Error(await parseErrorBody(res))
   const json = (await res.json().catch(() => null)) as TenantIntegrationConfigResponse | null
-  if (!json) throw new Error('Empty response')
+  if (!json) throw new Error('Пустой ответ от сервера')
   return json
 }
 
@@ -230,7 +230,7 @@ export async function getTenantCashExpenseIdFormat(): Promise<TenantCashExpenseI
   const res = await apiFetch('/api/tenant/cash-expense-id-format/')
   if (!res.ok) throw new Error(await parseErrorBody(res))
   const json = (await res.json().catch(() => null)) as TenantCashExpenseIdFormatDto | null
-  if (!json) throw new Error('Empty response')
+  if (!json) throw new Error('Пустой ответ от сервера')
   return json
 }
 
@@ -244,7 +244,7 @@ export async function updateTenantCashExpenseIdFormat(
   })
   if (!res.ok) throw new Error(await parseErrorBody(res))
   const json = (await res.json().catch(() => null)) as TenantCashExpenseIdFormatDto | null
-  if (!json) throw new Error('Empty response')
+  if (!json) throw new Error('Пустой ответ от сервера')
   return json
 }
 
@@ -258,7 +258,7 @@ export async function updateTenantIntegrationConfig(
   })
   if (!res.ok) throw new Error(await parseErrorBody(res))
   const json = (await res.json().catch(() => null)) as TenantIntegrationConfigResponse | null
-  if (!json) throw new Error('Empty response')
+  if (!json) throw new Error('Пустой ответ от сервера')
   return json
 }
 
@@ -275,7 +275,7 @@ export async function manageMessagingWebhook(
   })
   if (!res.ok) throw new Error(await parseErrorBody(res))
   const json = (await res.json().catch(() => null)) as MessagingWebhookManageResponse | null
-  if (!json) throw new Error('Empty response')
+  if (!json) throw new Error('Пустой ответ от сервера')
   return json
 }
 
@@ -303,7 +303,7 @@ export async function getAccessMatrix(): Promise<AccessMatrixResponse> {
   const res = await apiFetch('/api/access-matrix/')
   if (!res.ok) throw new Error(await parseErrorBody(res))
   const json = (await res.json().catch(() => null)) as AccessMatrixResponse | null
-  if (!json) throw new Error('Empty response')
+  if (!json) throw new Error('Пустой ответ от сервера')
   return {
     modules: Array.isArray(json.modules) ? json.modules : [],
     role_module_rows: Array.isArray(json.role_module_rows) ? json.role_module_rows : [],
@@ -326,7 +326,7 @@ export async function updateAccessMatrixAssignments(
   })
   if (!res.ok) throw new Error(await parseErrorBody(res))
   const json = (await res.json().catch(() => null)) as AccessMatrixResponse | null
-  if (!json) throw new Error('Empty response')
+  if (!json) throw new Error('Пустой ответ от сервера')
   return {
     modules: Array.isArray(json.modules) ? json.modules : [],
     role_module_rows: Array.isArray(json.role_module_rows) ? json.role_module_rows : [],
@@ -393,7 +393,7 @@ export async function setUserPreference(key: string, value: unknown): Promise<Us
   })
   if (!res.ok) throw new Error(await parseErrorBody(res))
   const json = (await res.json().catch(() => null)) as UserPreferencesResponseItem | null
-  if (!json?.key) throw new Error('Empty response')
+  if (!json?.key) throw new Error('Пустой ответ от сервера')
   return json
 }
 
@@ -622,7 +622,13 @@ function normalizeListPayload<T>(payload: unknown): T[] {
 
 async function parseErrorBody(res: Response): Promise<string> {
   const json = await res.json().catch(() => null)
-  return typeof json === 'object' && json ? JSON.stringify(json) : `HTTP ${res.status}`
+  if (json && typeof json === 'object') {
+    const j = json as Record<string, unknown>
+    if (typeof j.detail === 'string') return j.detail
+    if (typeof j.message === 'string') return j.message
+    if (typeof j.error === 'string') return j.error
+  }
+  return `Ошибка сервера (${res.status})`
 }
 
 export type ApprovalDecision = 'approved' | 'rejected'
@@ -695,7 +701,7 @@ export async function getRequestAuditMonthShifts(month: string): Promise<Request
   const res = await apiFetch(`/api/requests/audit-month-shifts/?month=${encodeURIComponent(key)}`)
   if (!res.ok) throw new Error(await parseErrorBody(res))
   const json = (await res.json().catch(() => null)) as RequestAuditMonthShiftsResponse | null
-  if (!json) throw new Error('Empty response')
+  if (!json) throw new Error('Пустой ответ от сервера')
   return {
     months: json.months,
     rows: Array.isArray(json.rows) ? json.rows : [],
@@ -1250,7 +1256,7 @@ export async function createInvestPayoutScheduleShareLink(
   })
   if (!res.ok) throw new Error(await parseErrorBody(res))
   const json = (await res.json().catch(() => null)) as InvestPayoutScheduleShareLinkRow | null
-  if (!json) throw new Error('Empty response')
+  if (!json) throw new Error('Пустой ответ от сервера')
   return json
 }
 
@@ -1271,7 +1277,7 @@ export async function getPublicInvestPayoutSchedule(token: string): Promise<Publ
         : `HTTP ${res.status}`
     throw new Error(detail)
   }
-  if (!json || !('rows' in json) || !Array.isArray(json.rows)) throw new Error('Empty response')
+  if (!json || !('rows' in json) || !Array.isArray(json.rows)) throw new Error('Пустой ответ от сервера')
   return json
 }
 
@@ -1301,7 +1307,7 @@ export async function createInvestReturn(payload: CreateInvestReturnPayload): Pr
   })
   if (!res.ok) throw new Error(await parseErrorBody(res))
   const json = (await res.json().catch(() => null)) as InvestReturnRow | null
-  if (!json) throw new Error('Empty response')
+  if (!json) throw new Error('Пустой ответ от сервера')
   return json
 }
 
@@ -1324,7 +1330,7 @@ export async function createInvestCompany(payload: CreateInvestCompanyPayload): 
   })
   if (!res.ok) throw new Error(await parseErrorBody(res))
   const json = (await res.json().catch(() => null)) as InvestCompanyRow | null
-  if (!json) throw new Error('Empty response')
+  if (!json) throw new Error('Пустой ответ от сервера')
   return json
 }
 
@@ -1351,7 +1357,7 @@ export async function createProjectInvestment(payload: CreateProjectInvestmentPa
   })
   if (!res.ok) throw new Error(await parseErrorBody(res))
   const json = (await res.json().catch(() => null)) as ProjectInvestmentRow | null
-  if (!json) throw new Error('Empty response')
+  if (!json) throw new Error('Пустой ответ от сервера')
   return json
 }
 
@@ -1384,7 +1390,7 @@ export async function createInvestPayoutSchedule(
   })
   if (!res.ok) throw new Error(await parseErrorBody(res))
   const json = (await res.json().catch(() => null)) as InvestPayoutScheduleRow | null
-  if (!json) throw new Error('Empty response')
+  if (!json) throw new Error('Пустой ответ от сервера')
   return json
 }
 
@@ -1400,7 +1406,7 @@ export async function getInvestmentApprovalConfig(
   const res = await apiFetch(url)
   if (!res.ok) throw new Error(await parseErrorBody(res))
   const json = (await res.json().catch(() => null)) as InvestmentApprovalConfigResponse | null
-  if (!json) throw new Error('Empty response')
+  if (!json) throw new Error('Пустой ответ от сервера')
   return json
 }
 
@@ -1414,7 +1420,7 @@ export async function updateInvestmentApprovalConfig(
   })
   if (!res.ok) throw new Error(await parseErrorBody(res))
   const json = (await res.json().catch(() => null)) as InvestmentApprovalConfigResponse | null
-  if (!json) throw new Error('Empty response')
+  if (!json) throw new Error('Пустой ответ от сервера')
   return json
 }
 
@@ -1422,7 +1428,7 @@ export async function getInvestmentProjectApprovalConfig(): Promise<InvestmentPr
   const res = await apiFetch('/api/investments/project-approval-config/')
   if (!res.ok) throw new Error(await parseErrorBody(res))
   const json = (await res.json().catch(() => null)) as InvestmentProjectApprovalConfigResponse | null
-  if (!json) throw new Error('Empty response')
+  if (!json) throw new Error('Пустой ответ от сервера')
   return json
 }
 
@@ -1436,7 +1442,7 @@ export async function updateInvestmentProjectApprovalConfig(
   })
   if (!res.ok) throw new Error(await parseErrorBody(res))
   const json = (await res.json().catch(() => null)) as InvestmentProjectApprovalConfigResponse | null
-  if (!json) throw new Error('Empty response')
+  if (!json) throw new Error('Пустой ответ от сервера')
   return json
 }
 
@@ -1444,7 +1450,7 @@ export async function getInvestmentFormConfig(): Promise<InvestmentFormConfigRes
   const res = await apiFetch('/api/investments/form-config/')
   if (!res.ok) throw new Error(await parseErrorBody(res))
   const json = (await res.json().catch(() => null)) as InvestmentFormConfigResponse | null
-  if (!json) throw new Error('Empty response')
+  if (!json) throw new Error('Пустой ответ от сервера')
   return json
 }
 
@@ -1458,7 +1464,7 @@ export async function updateInvestmentFormConfig(
   })
   if (!res.ok) throw new Error(await parseErrorBody(res))
   const json = (await res.json().catch(() => null)) as InvestmentFormConfigResponse | null
-  if (!json) throw new Error('Empty response')
+  if (!json) throw new Error('Пустой ответ от сервера')
   return json
 }
 
@@ -1945,7 +1951,7 @@ export async function getRequestFormConfig(): Promise<RequestFormConfigResponse>
   const res = await apiFetch('/api/requests/form-config/')
   if (!res.ok) throw new Error(await parseErrorBody(res))
   const json = (await res.json().catch(() => null)) as RequestFormConfigResponse | null
-  if (!json) throw new Error('Empty response')
+  if (!json) throw new Error('Пустой ответ от сервера')
   return json
 }
 
@@ -1957,7 +1963,7 @@ export async function updateRequestFormConfig(payload: RequestFormConfigUpdatePa
   })
   if (!res.ok) throw new Error(await parseErrorBody(res))
   const json = (await res.json().catch(() => null)) as RequestFormConfigResponse | null
-  if (!json) throw new Error('Empty response')
+  if (!json) throw new Error('Пустой ответ от сервера')
   return json
 }
 
@@ -1986,7 +1992,7 @@ export async function createRequesterUser(payload: CreateRequesterUserPayload): 
   })
   if (!res.ok) throw new Error(await parseErrorBody(res))
   const json = (await res.json().catch(() => null)) as RequestFormConfigResponse | null
-  if (!json) throw new Error('Empty response')
+  if (!json) throw new Error('Пустой ответ от сервера')
   return json
 }
 
@@ -1994,7 +2000,7 @@ export async function getAutoRequestConfig(): Promise<AutoRequestConfigResponse>
   const res = await apiFetch('/api/requests/auto-config/')
   if (!res.ok) throw new Error(await parseErrorBody(res))
   const json = (await res.json().catch(() => null)) as AutoRequestConfigResponse | null
-  if (!json) throw new Error('Empty response')
+  if (!json) throw new Error('Пустой ответ от сервера')
   return json
 }
 
@@ -2006,7 +2012,7 @@ export async function updateAutoRequestConfig(payload: AutoRequestConfigUpdatePa
   })
   if (!res.ok) throw new Error(await parseErrorBody(res))
   const json = (await res.json().catch(() => null)) as AutoRequestConfigResponse | null
-  if (!json) throw new Error('Empty response')
+  if (!json) throw new Error('Пустой ответ от сервера')
   return json
 }
 
@@ -2018,7 +2024,7 @@ export async function createAutoRequestCopy(templateId: number): Promise<{ reque
   })
   if (!res.ok) throw new Error(await parseErrorBody(res))
   const json = (await res.json().catch(() => null)) as { request_id?: number } | null
-  if (!json?.request_id) throw new Error('Empty response')
+  if (!json?.request_id) throw new Error('Пустой ответ от сервера')
   return { request_id: Number(json.request_id) }
 }
 
@@ -2093,7 +2099,7 @@ export async function getRequestApprovalConfig(): Promise<RequestApprovalConfigR
   const res = await apiFetch('/api/requests/approval-config/')
   if (!res.ok) throw new Error(await parseErrorBody(res))
   const json = (await res.json().catch(() => null)) as RequestApprovalConfigResponse | null
-  if (!json) throw new Error('Empty response')
+  if (!json) throw new Error('Пустой ответ от сервера')
   return json
 }
 
@@ -2107,7 +2113,7 @@ export async function updateRequestApprovalConfig(
   })
   if (!res.ok) throw new Error(await parseErrorBody(res))
   const json = (await res.json().catch(() => null)) as RequestApprovalConfigResponse | null
-  if (!json) throw new Error('Empty response')
+  if (!json) throw new Error('Пустой ответ от сервера')
   return json
 }
 
@@ -2124,7 +2130,7 @@ export async function confirmPaymentViaWebApp(payload: {
   })
   if (!res.ok) throw new Error(await parseErrorBody(res))
   const json = (await res.json().catch(() => null)) as { request?: { id: number; status: string } } | null
-  if (!json?.request) throw new Error('Empty response')
+  if (!json?.request) throw new Error('Пустой ответ от сервера')
   return { request: json.request }
 }
 
@@ -2214,7 +2220,7 @@ export async function createVendor(body: CreateVendorBody): Promise<VendorDirect
   })
   if (!res.ok) throw new Error(await parseErrorBody(res))
   const json = (await res.json().catch(() => null)) as VendorDirectoryRow | null
-  if (!json) throw new Error('Empty response')
+  if (!json) throw new Error('Пустой ответ от сервера')
   return json
 }
 
@@ -2273,7 +2279,7 @@ export async function createPortalRequest(body: PortalRequestCreateBody): Promis
   })
   if (!res.ok) throw new Error(await parseErrorBody(res))
   const json = (await res.json().catch(() => null)) as CreatedPortalRequest | null
-  if (!json) throw new Error('Empty response')
+  if (!json) throw new Error('Пустой ответ от сервера')
   return json
 }
 
@@ -2285,7 +2291,7 @@ export async function copyPortalRequest(requestId: number): Promise<{ request_id
   })
   if (!res.ok) throw new Error(await parseErrorBody(res))
   const json = (await res.json().catch(() => null)) as { request_id?: number } | null
-  if (!json?.request_id) throw new Error('Empty response')
+  if (!json?.request_id) throw new Error('Пустой ответ от сервера')
   return { request_id: Number(json.request_id) }
 }
 
@@ -2379,7 +2385,7 @@ export async function createContract(fields: ContractCreateMultipartFields): Pro
   const res = await apiFetch('/api/contracts/', { method: 'POST', body: fd })
   if (!res.ok) throw new Error(await parseErrorBody(res))
   const json = (await res.json().catch(() => null)) as ContractRow | null
-  if (!json) throw new Error('Empty response')
+  if (!json) throw new Error('Пустой ответ от сервера')
   return json
 }
 
@@ -2391,7 +2397,7 @@ export async function patchContractJson(id: number, body: Record<string, unknown
   })
   if (!res.ok) throw new Error(await parseErrorBody(res))
   const json = (await res.json().catch(() => null)) as ContractRow | null
-  if (!json) throw new Error('Empty response')
+  if (!json) throw new Error('Пустой ответ от сервера')
   return json
 }
 
@@ -2413,7 +2419,7 @@ export async function updateContract(id: number, fields: Partial<ContractCreateM
   const res = await apiFetch(`/api/contracts/${id}/`, { method: 'PATCH', body: fd })
   if (!res.ok) throw new Error(await parseErrorBody(res))
   const json = (await res.json().catch(() => null)) as ContractRow | null
-  if (!json) throw new Error('Empty response')
+  if (!json) throw new Error('Пустой ответ от сервера')
   return json
 }
 
@@ -2512,7 +2518,7 @@ export async function createBudget(payload: BudgetCreatePayload): Promise<Budget
   })
   if (!res.ok) throw new Error(await parseErrorBody(res))
   const json = (await res.json().catch(() => null)) as Budget | null
-  if (!json) throw new Error('Empty response')
+  if (!json) throw new Error('Пустой ответ от сервера')
   return json
 }
 
@@ -2524,7 +2530,7 @@ export async function updateBudget(id: number, payload: BudgetUpdatePayload): Pr
   })
   if (!res.ok) throw new Error(await parseErrorBody(res))
   const json = (await res.json().catch(() => null)) as Budget | null
-  if (!json) throw new Error('Empty response')
+  if (!json) throw new Error('Пустой ответ от сервера')
   return json
 }
 

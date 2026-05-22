@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Alert, Button, Card, Input, Skeleton, Space, Table, Tag, Typography } from 'antd'
+import { Alert, Button, Card, Input, Skeleton, Space, Table, Tag, Tooltip, Typography } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
 import { useNavigate } from 'react-router-dom'
 import { apiFetch } from '../lib/api'
@@ -73,10 +73,10 @@ export function PayrollPage() {
         ),
       },
       {
-        title: 'Строк',
+        title: <Tooltip title="Число позиций в документе">Кол-во строк</Tooltip>,
         dataIndex: 'lines_count',
         key: 'lines_count',
-        width: 90,
+        width: 110,
       },
       {
         title: 'Сумма',

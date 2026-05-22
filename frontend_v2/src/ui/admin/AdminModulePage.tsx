@@ -133,6 +133,16 @@ type RoleMatrixRow = {
 
 type AdminSectionKey = 'matrix' | 'crud'
 
+function extractApiError(json: unknown, status: number): string {
+  if (json && typeof json === 'object') {
+    const j = json as Record<string, unknown>
+    if (typeof j.detail === 'string') return j.detail
+    if (typeof j.message === 'string') return j.message
+    if (typeof j.error === 'string') return j.error
+  }
+  return `Ошибка сервера (${status})`
+}
+
 function isPrimitive(value: unknown): value is string | number | boolean | null {
   return (
     value === null ||
@@ -207,7 +217,7 @@ export function AdminModulePage() {
     try {
       const res = await apiFetch(currentSource.endpoint)
       const json = await res.json().catch(() => null)
-      if (!res.ok) throw new Error(typeof json === 'object' && json ? JSON.stringify(json) : `HTTP ${res.status}`)
+      if (!res.ok) throw new Error(extractApiError(json, res.status))
       setRows(normalizeRows(json))
     } catch (e: unknown) {
       setRows([])
@@ -266,7 +276,7 @@ export function AdminModulePage() {
     const res = await apiFetch(`${currentSource.endpoint}${id}/`, { method: 'DELETE' })
     if (!res.ok) {
       const json = await res.json().catch(() => null)
-      message.error(typeof json === 'object' && json ? JSON.stringify(json) : `HTTP ${res.status}`)
+      message.error(extractApiError(json, res.status))
       return
     }
     message.success('Удалено')
@@ -429,7 +439,7 @@ export function AdminModulePage() {
         body: JSON.stringify(body),
       })
       const json = await res.json().catch(() => null)
-      if (!res.ok) throw new Error(typeof json === 'object' && json ? JSON.stringify(json) : `HTTP ${res.status}`)
+      if (!res.ok) throw new Error(extractApiError(json, res.status))
       message.success('Создано')
       closeRecordModal()
       await loadRows()
@@ -456,7 +466,7 @@ export function AdminModulePage() {
         body: JSON.stringify(payload),
       })
       const json = await res.json().catch(() => null)
-      if (!res.ok) throw new Error(typeof json === 'object' && json ? JSON.stringify(json) : `HTTP ${res.status}`)
+      if (!res.ok) throw new Error(extractApiError(json, res.status))
       message.success('Сохранено')
       closeRecordModal()
       await loadRows()

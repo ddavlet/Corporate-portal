@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Alert, Button, Card, Col, Divider, Input, Modal, Row, Skeleton, Space, Switch, Tag, Typography, message } from 'antd'
+import { Alert, Button, Card, Col, Divider, Input, Modal, Row, Skeleton, Space, Switch, Tag, Tooltip, Typography, message } from 'antd'
+import { EyeInvisibleOutlined, EyeOutlined } from '@ant-design/icons'
 import {
   confirmPaymentViaWebApp,
   getCashflowReportData,
@@ -180,38 +181,53 @@ const pnlExpenseItems = useMemo(() => {
         <Divider style={{ margin: '12px 0' }} />
         <Space wrap>
           <Typography.Text strong>Виджеты:</Typography.Text>
-          <Switch
-            checked={widgetVisibility.pendingApprovals}
-            onChange={(checked) => toggleWidget('pendingApprovals', checked)}
-            checkedChildren="Согласования"
-            unCheckedChildren="Согласования"
-          />
+          <Tooltip title="Согласования">
+            <Switch
+              checked={widgetVisibility.pendingApprovals}
+              onChange={(checked) => toggleWidget('pendingApprovals', checked)}
+              checkedChildren={<EyeOutlined />}
+              unCheckedChildren={<EyeInvisibleOutlined />}
+            />
+          </Tooltip>
+          <Typography.Text type="secondary" style={{ fontSize: 12 }}>Согласования</Typography.Text>
           {canViewReports ? (
             <>
-              <Switch
-                checked={widgetVisibility.incomeBreakdown}
-                onChange={(checked) => toggleWidget('incomeBreakdown', checked)}
-                checkedChildren="Доходы"
-                unCheckedChildren="Доходы"
-              />
-              <Switch
-                checked={widgetVisibility.expenseBreakdown}
-                onChange={(checked) => toggleWidget('expenseBreakdown', checked)}
-                checkedChildren="Расходы"
-                unCheckedChildren="Расходы"
-              />
-              <Switch
-                checked={widgetVisibility.pnlNetPrevMonth}
-                onChange={(checked) => toggleWidget('pnlNetPrevMonth', checked)}
-                checkedChildren="P&L"
-                unCheckedChildren="P&L"
-              />
-              <Switch
-                checked={widgetVisibility.cashflowNetCurrentMonth}
-                onChange={(checked) => toggleWidget('cashflowNetCurrentMonth', checked)}
-                checkedChildren="Cashflow"
-                unCheckedChildren="Cashflow"
-              />
+              <Tooltip title="Доходы">
+                <Switch
+                  checked={widgetVisibility.incomeBreakdown}
+                  onChange={(checked) => toggleWidget('incomeBreakdown', checked)}
+                  checkedChildren={<EyeOutlined />}
+                  unCheckedChildren={<EyeInvisibleOutlined />}
+                />
+              </Tooltip>
+              <Typography.Text type="secondary" style={{ fontSize: 12 }}>Доходы</Typography.Text>
+              <Tooltip title="Расходы">
+                <Switch
+                  checked={widgetVisibility.expenseBreakdown}
+                  onChange={(checked) => toggleWidget('expenseBreakdown', checked)}
+                  checkedChildren={<EyeOutlined />}
+                  unCheckedChildren={<EyeInvisibleOutlined />}
+                />
+              </Tooltip>
+              <Typography.Text type="secondary" style={{ fontSize: 12 }}>Расходы</Typography.Text>
+              <Tooltip title="Прибыль и убытки">
+                <Switch
+                  checked={widgetVisibility.pnlNetPrevMonth}
+                  onChange={(checked) => toggleWidget('pnlNetPrevMonth', checked)}
+                  checkedChildren={<EyeOutlined />}
+                  unCheckedChildren={<EyeInvisibleOutlined />}
+                />
+              </Tooltip>
+              <Typography.Text type="secondary" style={{ fontSize: 12 }}>Прибыль и убытки</Typography.Text>
+              <Tooltip title="Денежные потоки">
+                <Switch
+                  checked={widgetVisibility.cashflowNetCurrentMonth}
+                  onChange={(checked) => toggleWidget('cashflowNetCurrentMonth', checked)}
+                  checkedChildren={<EyeOutlined />}
+                  unCheckedChildren={<EyeInvisibleOutlined />}
+                />
+              </Tooltip>
+              <Typography.Text type="secondary" style={{ fontSize: 12 }}>Денежные потоки</Typography.Text>
             </>
           ) : null}
           <Button onClick={() => setWidgetVisibility(defaultVisibility)}>Сбросить настройки виджетов</Button>
@@ -269,11 +285,11 @@ const pnlExpenseItems = useMemo(() => {
         destroyOnClose
       >
         <Space direction="vertical" size={12} style={{ display: 'flex' }}>
-          <Typography.Text type="secondary">Введите `expense_id` для подтверждения выплаты.</Typography.Text>
+          <Typography.Text type="secondary">Введите номер платёжного документа для подтверждения шага выплаты.</Typography.Text>
           <Input
             value={paymentExpenseId}
             onChange={(e) => setPaymentExpenseId(e.target.value)}
-            placeholder="Номер платежа"
+            placeholder="Номер платёжного документа"
             onPressEnter={() => void confirmPayout()}
           />
           <Button type="primary" block loading={approvalsBusy} onClick={() => void confirmPayout()}>

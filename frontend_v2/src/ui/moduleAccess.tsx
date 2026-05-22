@@ -35,7 +35,7 @@ export function ModuleAccessProvider({ children }: { children: React.ReactNode }
     return {
       loading,
       hasAccess: (moduleKey: string) => {
-        if (!rows) return true
+        if (!rows) return false
         return allowed.has(moduleKey)
       },
     }

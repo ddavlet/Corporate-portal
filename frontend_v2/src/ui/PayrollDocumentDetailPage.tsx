@@ -79,7 +79,7 @@ export function PayrollDocumentDetailPage() {
     { title: '№', dataIndex: 'line_no', width: 56 },
     { title: 'Сотрудник', dataIndex: 'employee' },
     { title: 'Вид', dataIndex: 'item', width: 140 },
-    { title: 'Сумма', dataIndex: 'sum', width: 120, render: (v) => String(v ?? '') },
+    { title: 'Сумма', dataIndex: 'sum', width: 130, render: (v) => Number(v).toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) },
     { title: 'Дни план', dataIndex: 'days_plan', width: 88 },
     { title: 'Дни факт', dataIndex: 'days_fact', width: 88 },
     {
@@ -89,9 +89,9 @@ export function PayrollDocumentDetailPage() {
       render: (_, r) => `${formatDate(r.period_start)} — ${formatDate(r.period_end)}`,
     },
     {
-      title: 'Согл.',
+      title: 'Подтверждено',
       dataIndex: 'approval',
-      width: 72,
+      width: 120,
       render: (v: boolean) => (v ? 'Да' : 'Нет'),
     },
   ]
@@ -108,8 +108,9 @@ export function PayrollDocumentDetailPage() {
               Начисление ЗП: {detail.doc_id}
             </Typography.Title>
             <Descriptions bordered size="small" column={2}>
-              <Descriptions.Item label="doc_id">{detail.doc_id}</Descriptions.Item>
-              <Descriptions.Item label="Всего по строкам">{String(detail.total_sum ?? '')}</Descriptions.Item>
+              <Descriptions.Item label="Итого">
+                {Number(detail.total_sum).toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              </Descriptions.Item>
               <Descriptions.Item label="Строк">{detail.lines?.length ?? 0}</Descriptions.Item>
               <Descriptions.Item label="Создан">{formatDate(detail.created_at)}</Descriptions.Item>
             </Descriptions>

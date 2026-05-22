@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Alert, Button, Card, Collapse, DatePicker, Descriptions, Input, InputNumber, Select, Modal, Skeleton, Space, Table, Tabs, Tag, Typography } from 'antd'
+import { Alert, Button, Card, Collapse, DatePicker, Descriptions, Input, InputNumber, Select, Modal, Skeleton, Space, Table, Tabs, Tag, Tooltip, Typography } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
 import type { Dayjs } from 'dayjs'
 import { useNavigate } from 'react-router-dom'
@@ -245,14 +245,14 @@ export function BankPage() {
     },
     { title: 'Контрагент', key: 'counterparty', render: (_, row) => getExpenseCounterparty(row) || '-' },
     {
-      title: 'Дата док.',
+      title: <Tooltip title="Дата документа из банковской выписки">Дата документа</Tooltip>,
       dataIndex: 'doc_date',
       defaultSortOrder: 'descend',
       sorter: (a, b) => compareDateStrings(a.doc_date, b.doc_date),
       render: (value: string) => formatDate(value),
     },
     {
-      title: 'Дата проводки',
+      title: <Tooltip title="Дата учётной проводки в системе">Дата проводки</Tooltip>,
       dataIndex: 'process_date',
       sorter: (a, b) => compareDateStrings(a.process_date, b.process_date),
       render: (value: string) => formatDate(value),
@@ -270,14 +270,14 @@ export function BankPage() {
     },
     { title: 'Контрагент', dataIndex: 'account_name' },
     {
-      title: 'Дата док.',
+      title: <Tooltip title="Дата документа из банковской выписки">Дата документа</Tooltip>,
       dataIndex: 'doc_date',
       defaultSortOrder: 'descend',
       sorter: (a, b) => compareDateStrings(a.doc_date, b.doc_date),
       render: (value: string) => formatDate(value),
     },
     {
-      title: 'Дата проводки',
+      title: <Tooltip title="Дата учётной проводки в системе">Дата проводки</Tooltip>,
       dataIndex: 'process_date',
       sorter: (a, b) => compareDateStrings(a.process_date, b.process_date),
       render: (value: string) => formatDate(value),

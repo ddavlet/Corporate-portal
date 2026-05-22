@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Alert, Card, Col, Row, Typography } from 'antd'
+import { Alert, Card, Col, Row, Tooltip, Typography } from 'antd'
+import { LockOutlined } from '@ant-design/icons'
 import { useNavigate } from 'react-router-dom'
 import { SETTINGS_MODULES } from '../settings/settingsModules'
 import { getSettingsAccess } from '../lib/api'
@@ -37,33 +38,18 @@ export function SettingsPage() {
     }
   }, [])
 
-  const visibleModules = useMemo(() => {
-    if (!access) return []
-    return SETTINGS_MODULES.filter((m) => {
-      if (m.path === '/settings/tenant-integration-config') {
-        return access.can_manage_tenant_settings
-      }
-      if (m.path === '/settings/request-form-config' || m.path === '/settings/request-approval-config') {
-        return access.can_manage_requests_settings
-      }
-      if (m.path === '/settings/cash-registers') {
-        return access.can_manage_wallet_settings
-      }
-      if (m.path === '/settings/users-roles') {
-        return access.can_manage_tenant_settings
-      }
-      if (
-        m.path === '/settings/investment-form-config' ||
-        m.path === '/settings/investment-approval-config' ||
-        m.path === '/settings/investment-project-approval-config'
-      ) {
-        return access.can_manage_requests_settings
-      }
-      if (m.path === '/settings/pnl-report-config' || m.path === '/settings/cashflow-report-config') {
-        return access.can_manage_tenant_settings
-      }
+  const moduleAccessMap = useMemo(() => {
+    if (!access) return new Map<string, boolean>()
+    const check = (m: { path: string }): boolean => {
+      if (m.path === '/settings/tenant-integration-config') return access.can_manage_tenant_settings
+      if (m.path === '/settings/request-form-config' || m.path === '/settings/request-approval-config') return access.can_manage_requests_settings
+      if (m.path === '/settings/cash-registers') return access.can_manage_wallet_settings
+      if (m.path === '/settings/users-roles') return access.can_manage_tenant_settings
+      if (m.path === '/settings/investment-form-config' || m.path === '/settings/investment-approval-config' || m.path === '/settings/investment-project-approval-config') return access.can_manage_requests_settings
+      if (m.path === '/settings/pnl-report-config' || m.path === '/settings/cashflow-report-config') return access.can_manage_tenant_settings
       return false
-    })
+    }
+    return new Map(SETTINGS_MODULES.map((m) => [m.path, check(m)]))
   }, [access])
 
   return (
@@ -77,32 +63,46 @@ export function SettingsPage() {
       {error ? <Alert type="error" showIcon message={error} style={{ marginBottom: 16 }} /> : null}
       {canOpenSettings === false ? <Alert type="warning" showIcon message="У вас нет доступа к настройкам." /> : null}
       <Row gutter={[16, 16]} style={{ marginTop: 16 }}>
-        {visibleModules.map((m) => (
-          <Col xs={24} sm={12} lg={8} key={m.key}>
-            <a
-              href={m.path}
-              style={{ display: 'block', color: 'inherit' }}
-              onClick={(event) => {
-                if (
-                  event.button === 0 &&
-                  !event.metaKey &&
-                  !event.ctrlKey &&
-                  !event.shiftKey &&
-                  !event.altKey
-                ) {
-                  event.preventDefault()
-                  navigate(m.path)
-                }
-              }}
-            >
-              <Card hoverable title={m.title} extra={m.icon} style={{ height: '100%' }}>
-                <Typography.Paragraph type="secondary" style={{ marginBottom: 0 }}>
-                  {m.description}
-                </Typography.Paragraph>
-              </Card>
-            </a>
-          </Col>
-        ))}
+        {SETTINGS_MODULES.map((m) => {
+          const canAccess = access ? (moduleAccessMap.get(m.path) ?? false) : null
+          if (canAccess === false) {
+            return (
+              <Col xs={24} sm={12} lg={8} key={m.key}>
+                <Tooltip title="Нет доступа. Обратитесь к администратору.">
+                  <Card
+                    title={m.title}
+                    extra={<LockOutlined style={{ color: '#bfbfbf' }} />}
+                    style={{ height: '100%', opacity: 0.55, cursor: 'not-allowed' }}
+                  >
+                    <Typography.Paragraph type="secondary" style={{ marginBottom: 0 }}>
+                      {m.description}
+                    </Typography.Paragraph>
+                  </Card>
+                </Tooltip>
+              </Col>
+            )
+          }
+          return (
+            <Col xs={24} sm={12} lg={8} key={m.key}>
+              <a
+                href={m.path}
+                style={{ display: 'block', color: 'inherit' }}
+                onClick={(event) => {
+                  if (event.button === 0 && !event.metaKey && !event.ctrlKey && !event.shiftKey && !event.altKey) {
+                    event.preventDefault()
+                    navigate(m.path)
+                  }
+                }}
+              >
+                <Card hoverable title={m.title} extra={m.icon} style={{ height: '100%' }}>
+                  <Typography.Paragraph type="secondary" style={{ marginBottom: 0 }}>
+                    {m.description}
+                  </Typography.Paragraph>
+                </Card>
+              </a>
+            </Col>
+          )
+        })}
       </Row>
     </div>
   )

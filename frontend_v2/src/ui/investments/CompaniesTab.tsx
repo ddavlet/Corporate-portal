@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Button, Empty, Form, Input, Modal, Skeleton, Space, Switch, Table, Typography, message } from 'antd'
+import { Button, Empty, Form, Input, Modal, Skeleton, Space, Switch, Table, Tag, Typography, message } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
 
 import { createInvestCompany, type InvestCompanyRow } from '../../lib/api'
@@ -23,7 +23,7 @@ export function CompaniesTab({ loading, companies, onCreated }: Props) {
       title: 'Активна',
       dataIndex: 'is_active',
       width: 110,
-      render: (v: boolean) => (v ? 'Да' : 'Нет'),
+      render: (v: boolean) => <Tag color={v ? 'success' : 'default'}>{v ? 'Активна' : 'Неактивна'}</Tag>,
       sorter: (a, b) => Number(a.is_active) - Number(b.is_active),
     },
   ]
@@ -79,13 +79,9 @@ export function CompaniesTab({ loading, companies, onCreated }: Props) {
           locale={{
             emptyText: (
               <Empty
-                description="Компаний пока нет"
+                description="Компаний пока нет — нажмите «Создать компанию» выше"
                 image={Empty.PRESENTED_IMAGE_SIMPLE}
-              >
-                <Button type="primary" onClick={openCreate}>
-                  Создать первую компанию
-                </Button>
-              </Empty>
+              />
             ),
           }}
         />
