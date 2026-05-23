@@ -335,6 +335,7 @@ class InvestNotificationConfigView(APIView):
                 "notify_hour": meta.get_field("notify_hour").default,
                 "responsible_user_id": None,
                 "responsible_user_name": "",
+                "chat_id": None,
                 "approver_candidates": approver_candidates,
             }
         user = cfg.responsible_user
@@ -345,6 +346,7 @@ class InvestNotificationConfigView(APIView):
             "notify_hour": cfg.notify_hour,
             "responsible_user_id": user.pk,
             "responsible_user_name": (getattr(user, "full_name", "") or user.username or "").strip(),
+            "chat_id": cfg.chat_id or None,
             "approver_candidates": approver_candidates,
         }
 
@@ -379,6 +381,7 @@ class InvestNotificationConfigView(APIView):
                 "overdue_notify_every_days": payload["overdue_notify_every_days"],
                 "notify_hour": payload["notify_hour"],
                 "is_active": payload["is_active"],
+                "chat_id": payload.get("chat_id") or None,
             },
         )
         return Response(self._payload(request.tenant))

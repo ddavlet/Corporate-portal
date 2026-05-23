@@ -182,6 +182,8 @@ export function InvestmentProjectApprovalConfigPage() {
                       <Typography.Text strong style={labelBlockAboveField}>
                         {step.step_type === 'notification' ? 'Chat ID для уведомления' : 'Chat ID для этапа оплаты'}
                       </Typography.Text>
+                      {/* TODO: заменить на Select из справочника чатов компании —
+                          нужно будет создать список всех Telegram-групп tenant'а, куда могут отправляться уведомления */}
                       <InputNumber
                         style={{ width: '100%' }}
                         value={step.payment_chat_id ?? undefined}

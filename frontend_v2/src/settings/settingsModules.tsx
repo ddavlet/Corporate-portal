@@ -130,6 +130,7 @@ export const SETTINGS_MODULES: SettingsModuleItem[] = [
     description: 'Ответственный получает Telegram-уведомление перед каждой плановой выплатой и может создать заявку в один клик.',
     path: '/settings/investment-notification-config',
     icon: <FileTextOutlined />,
+    group: 'investments',
   },
   {
     key: 'cash-registers',

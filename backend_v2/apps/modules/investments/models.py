@@ -377,6 +377,14 @@ class InvestNotificationConfig(models.Model):
         validators=[MinValueValidator(0), MaxValueValidator(23)],
         help_text="Hour of day (0–23, Asia/Tashkent) when notifications are dispatched.",
     )
+    # TODO: заменить на выбор из справочника чатов компании (список всех Telegram-групп tenant'а,
+    #       куда можно отправлять уведомления). Сейчас — произвольная строка с chat_id группы.
+    chat_id = models.CharField(
+        max_length=50,
+        blank=True,
+        null=True,
+        help_text="Telegram group chat ID for notifications. Overrides responsible_user's personal chat if set.",
+    )
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
