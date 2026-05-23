@@ -1046,7 +1046,7 @@ class TenantTelegramChatApiTests(APITestCase):
         self.client.force_authenticate(self.admin_b)
         res = self.client.get(self.url, HTTP_HOST=self.host_b)
         self.assertEqual(res.status_code, 200, res.content)
-        self.assertEqual(len(res.data["results"]), 0)
+        self.assertEqual(len(res.data), 0)
 
 
 # ---------------------------------------------------------------------------

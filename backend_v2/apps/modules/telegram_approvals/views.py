@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import logging
 
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.utils import timezone
 from rest_framework import status, viewsets
 from rest_framework.exceptions import ValidationError
@@ -33,7 +33,10 @@ class TenantTelegramChatViewSet(viewsets.ModelViewSet):
         return TenantTelegramChat.objects.filter(tenant=self.request.tenant)
 
     def perform_create(self, serializer):
-        serializer.save(tenant=self.request.tenant, created_by=self.request.user)
+        try:
+            serializer.save(tenant=self.request.tenant, created_by=self.request.user)
+        except IntegrityError:
+            raise ValidationError({"chat_id": "Telegram-группа с таким Chat ID уже существует."})
 
 
 class TelegramApprovalWebhookView(APIView):
