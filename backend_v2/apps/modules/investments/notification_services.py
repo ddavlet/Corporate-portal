@@ -49,8 +49,7 @@ def _dispatch_payout_notification(*, schedule, config, text: str) -> bool:
     from apps.modules.telegram_approvals.services import get_tenant_bot_token, post_messaging_gateway
 
     user = config.responsible_user
-    # TODO: заменить на выбор из справочника чатов компании
-    chat_id = config.chat_id or getattr(user, "telegram_chat_id", None)
+    chat_id = config.telegram_chat.chat_id if config.telegram_chat else getattr(user, "telegram_chat_id", None)
     if not chat_id:
         logger.warning(
             "invest_notify: responsible_user=%s has no telegram_chat_id and config has no chat_id, skipping schedule=%s",
@@ -114,7 +113,7 @@ def process_due_invest_payout_notifications(*, now_dt: dt.datetime | None = None
 
     configs = (
         InvestNotificationConfig.objects.filter(is_active=True)
-        .select_related("tenant", "responsible_user")
+        .select_related("tenant", "responsible_user", "telegram_chat")
     )
 
     def _try_send(*, schedule, config, text: str) -> bool:

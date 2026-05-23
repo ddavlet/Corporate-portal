@@ -292,11 +292,11 @@ def create_approvals_for_project_investment(*, project_investment: ProjectInvest
         return 0
 
     created = 0
-    for step in config.steps.filter(is_enabled=True).order_by("step", "id"):
+    for step in config.steps.filter(is_enabled=True).select_related("telegram_chat").order_by("step", "id"):
         if step.step_type == InvestmentProjectApprovalConfigStep.STEP_TYPE_NOTIFICATION:
             approvers = list(step.approver_users.filter(is_active=True))
             record_user = approvers[0] if approvers else project_investment.created_by
-            recipient_id = step.payment_chat_id
+            recipient_id = int(step.telegram_chat.chat_id) if step.telegram_chat else None
             ProjectInvestmentApproval.objects.create(
                 tenant=project_investment.tenant,
                 project_investment=project_investment,
@@ -309,8 +309,9 @@ def create_approvals_for_project_investment(*, project_investment: ProjectInvest
             created += 1
             continue
         for approver in step.approver_users.filter(is_active=True):
+            chat_id = int(step.telegram_chat.chat_id) if step.telegram_chat else None
             recipient_id = (
-                step.payment_chat_id
+                chat_id
                 if step.step_type == InvestmentProjectApprovalConfigStep.STEP_TYPE_CONFIRMATION
                 else approver.telegram_chat_id
             )

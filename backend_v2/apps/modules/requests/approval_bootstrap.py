@@ -27,14 +27,12 @@ def create_approval_rows_for_request(request_obj: Request) -> int:
     )
     approval_rows: list[Approval] = []
     for step_cfg in step_cfgs:
-        # For payment-type steps, prefer the stage-level chat_id when configured. This decouples
+        # For payment-type steps, prefer the stage-level chat when configured. This decouples
         # the destination chat (per-tenant group chat) from the user's personal telegram_chat_id,
         # so the same user can be wired into different tenants with distinct group chats.
-        stage_chat_id = (
-            getattr(step_cfg, "payment_chat_id", None)
-            if step_cfg.step_type == Approval.STEP_TYPE_PAYMENT
-            else None
-        )
+        tg_chat = getattr(step_cfg, "telegram_chat", None)
+        chat_int_id = int(tg_chat.chat_id) if tg_chat else None
+        stage_chat_id = chat_int_id if step_cfg.step_type == Approval.STEP_TYPE_PAYMENT else None
         for row in step_cfg.approvers.all():
             if row.approver_user_id not in active_approver_ids:
                 continue

@@ -1,12 +1,14 @@
 import { useEffect, useState } from 'react'
-import { Alert, Button, Card, Divider, Input, InputNumber, Select, Skeleton, Space, Switch, Typography, message } from 'antd'
+import { Alert, Button, Card, Divider, InputNumber, Select, Skeleton, Space, Switch, Typography, message } from 'antd'
 import { ArrowLeftOutlined } from '@ant-design/icons'
 import { useNavigate } from 'react-router-dom'
 
 import {
   getInvestNotificationConfig,
+  listTelegramChats,
   updateInvestNotificationConfig,
   type InvestNotificationConfigResponse,
+  type TenantTelegramChatDto,
 } from '../../lib/api'
 
 export function InvestmentNotificationConfigPage() {
@@ -15,6 +17,11 @@ export function InvestmentNotificationConfigPage() {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [data, setData] = useState<InvestNotificationConfigResponse | null>(null)
+  const [tgChats, setTgChats] = useState<TenantTelegramChatDto[]>([])
+
+  useEffect(() => {
+    void listTelegramChats().then(setTgChats).catch(() => setTgChats([]))
+  }, [])
 
   useEffect(() => {
     let cancelled = false
@@ -50,7 +57,7 @@ export function InvestmentNotificationConfigPage() {
         overdue_notify_every_days: data.overdue_notify_every_days,
         notify_hour: data.notify_hour,
         is_active: data.is_active,
-        chat_id: data.chat_id || null,
+        telegram_chat_id: data.telegram_chat_id ?? null,
       })
       setData(next)
       message.success('Сохранено')
@@ -106,19 +113,19 @@ export function InvestmentNotificationConfigPage() {
             />
           </div>
 
-          {/* TODO: заменить на Select из справочника чатов компании —
-              нужно будет создать список всех Telegram-групп tenant'а, куда могут отправляться уведомления */}
           <div>
-            <Typography.Text strong>Chat ID группы для уведомлений</Typography.Text>
+            <Typography.Text strong>Telegram-группа для уведомлений</Typography.Text>
             <Typography.Paragraph type="secondary" style={{ marginBottom: 8 }}>
-              Уведомления будут отправляться в указанный Telegram-чат (группу). Если не заполнено — используется
+              Уведомления будут отправляться в выбранную Telegram-группу. Если не выбрана — используется
               личный Telegram ответственного пользователя.
             </Typography.Paragraph>
-            <Input
+            <Select
               style={{ width: 320 }}
-              placeholder="-1001234567890"
-              value={data.chat_id ?? ''}
-              onChange={(e) => setData({ ...data, chat_id: e.target.value || null })}
+              allowClear
+              placeholder="Выберите Telegram-группу"
+              value={data.telegram_chat_id ?? undefined}
+              onChange={(v) => setData({ ...data, telegram_chat_id: v ?? null })}
+              options={tgChats.map((c) => ({ value: c.id, label: c.name }))}
             />
           </div>
 

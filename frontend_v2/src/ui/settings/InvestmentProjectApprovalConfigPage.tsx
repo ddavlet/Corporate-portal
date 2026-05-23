@@ -5,14 +5,16 @@ import { useNavigate } from 'react-router-dom'
 
 import {
   getInvestmentProjectApprovalConfig,
+  listTelegramChats,
   updateInvestmentProjectApprovalConfig,
   type InvestmentApprovalConfigStepItem,
   type InvestmentProjectApprovalConfigResponse,
+  type TenantTelegramChatDto,
 } from '../../lib/api'
 import { labelBlockAboveField } from '../formSpacing'
 
 function emptyStep(step: number): InvestmentApprovalConfigStepItem {
-  return { step, step_type: 'serial', is_enabled: true, payment_chat_id: null, approver_user_ids: [] }
+  return { step, step_type: 'serial', is_enabled: true, telegram_chat_id: null, approver_user_ids: [] }
 }
 
 export function InvestmentProjectApprovalConfigPage() {
@@ -21,6 +23,7 @@ export function InvestmentProjectApprovalConfigPage() {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [data, setData] = useState<InvestmentProjectApprovalConfigResponse | null>(null)
+  const [tgChats, setTgChats] = useState<TenantTelegramChatDto[]>([])
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -38,6 +41,10 @@ export function InvestmentProjectApprovalConfigPage() {
   useEffect(() => {
     void load()
   }, [load])
+
+  useEffect(() => {
+    void listTelegramChats().then(setTgChats).catch(() => setTgChats([]))
+  }, [])
 
   const approverOptions = useMemo(
     () => (data?.approver_candidates ?? []).map((u) => ({ value: u.id, label: u.username })),
@@ -78,8 +85,8 @@ export function InvestmentProjectApprovalConfigPage() {
           step: s.step,
           step_type: s.step_type ?? 'serial',
           is_enabled: s.is_enabled,
-          payment_chat_id:
-            s.step_type === 'confirmation' || s.step_type === 'notification' ? (s.payment_chat_id ?? null) : null,
+          telegram_chat_id:
+            s.step_type === 'confirmation' || s.step_type === 'notification' ? (s.telegram_chat_id ?? null) : null,
           approver_user_ids: s.approver_user_ids ?? [],
         })),
       })
@@ -140,8 +147,8 @@ export function InvestmentProjectApprovalConfigPage() {
                           const t = v as InvestmentApprovalConfigStepItem['step_type']
                           updateStep(idx, {
                             step_type: t,
-                            payment_chat_id:
-                              t === 'confirmation' || t === 'notification' ? (step.payment_chat_id ?? null) : null,
+                            telegram_chat_id:
+                              t === 'confirmation' || t === 'notification' ? (step.telegram_chat_id ?? null) : null,
                           })
                         }}
                         options={[
@@ -180,14 +187,15 @@ export function InvestmentProjectApprovalConfigPage() {
                   {step.step_type === 'confirmation' || step.step_type === 'notification' ? (
                     <div>
                       <Typography.Text strong style={labelBlockAboveField}>
-                        {step.step_type === 'notification' ? 'Chat ID для уведомления' : 'Chat ID для этапа оплаты'}
+                        {step.step_type === 'notification' ? 'Telegram-группа для уведомления' : 'Telegram-группа для этапа оплаты'}
                       </Typography.Text>
-                      {/* TODO: заменить на Select из справочника чатов компании —
-                          нужно будет создать список всех Telegram-групп tenant'а, куда могут отправляться уведомления */}
-                      <InputNumber
+                      <Select
                         style={{ width: '100%' }}
-                        value={step.payment_chat_id ?? undefined}
-                        onChange={(v) => updateStep(idx, { payment_chat_id: v == null ? null : Number(v) })}
+                        allowClear
+                        placeholder="Выберите Telegram-группу"
+                        value={step.telegram_chat_id ?? undefined}
+                        onChange={(v) => updateStep(idx, { telegram_chat_id: v ?? null })}
+                        options={tgChats.map((c) => ({ value: c.id, label: c.name }))}
                       />
                     </div>
                   ) : null}

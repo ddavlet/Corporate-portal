@@ -5,19 +5,35 @@ import logging
 
 from django.db import transaction
 from django.utils import timezone
-from rest_framework import status
+from rest_framework import status, viewsets
 from rest_framework.exceptions import ValidationError
-from rest_framework.permissions import AllowAny
+from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.modules.requests.models import Approval
 from apps.modules.requests.approval_workflow import ApprovalDecisionAlreadyMade, confirm_approval_by_id
-from apps.modules.telegram_approvals.serializers import MessagingGatewayCallbackSerializer
+from apps.modules.telegram_approvals.models import TenantTelegramChat
+from apps.modules.telegram_approvals.serializers import MessagingGatewayCallbackSerializer, TenantTelegramChatSerializer
 from apps.modules.telegram_approvals.services import deactivate_approval_message_buttons
 from apps.tenants.models import Tenant
+from apps.tenants.permissions import HasEffectiveModuleAccess
 
 logger = logging.getLogger(__name__)
+
+
+class TenantTelegramChatViewSet(viewsets.ModelViewSet):
+    permission_classes = [IsAuthenticated, HasEffectiveModuleAccess]
+    module_key = "messaging_gateway"
+    serializer_class = TenantTelegramChatSerializer
+
+    def get_queryset(self):
+        if not hasattr(self.request, "tenant") or self.request.tenant is None:
+            return TenantTelegramChat.objects.none()
+        return TenantTelegramChat.objects.filter(tenant=self.request.tenant)
+
+    def perform_create(self, serializer):
+        serializer.save(tenant=self.request.tenant, created_by=self.request.user)
 
 
 class TelegramApprovalWebhookView(APIView):

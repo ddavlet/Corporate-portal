@@ -1,4 +1,4 @@
-import { BarChartOutlined, BankOutlined, FileTextOutlined, SettingOutlined, ShopOutlined, TeamOutlined } from '@ant-design/icons'
+import { BarChartOutlined, BankOutlined, FileTextOutlined, MessageOutlined, SettingOutlined, ShopOutlined, TeamOutlined } from '@ant-design/icons'
 import type { ReactNode } from 'react'
 
 export type SettingsModuleItem = {
@@ -131,6 +131,14 @@ export const SETTINGS_MODULES: SettingsModuleItem[] = [
     path: '/settings/investment-notification-config',
     icon: <FileTextOutlined />,
     group: 'investments',
+  },
+  {
+    key: 'telegram-chats',
+    title: 'Telegram-группы',
+    description: 'Справочник Telegram-групп и каналов для согласований и уведомлений. Используется в конфигурациях этапов вместо ручного ввода Chat ID.',
+    path: '/settings/telegram-chats',
+    icon: <MessageOutlined />,
+    group: 'company',
   },
   {
     key: 'cash-registers',

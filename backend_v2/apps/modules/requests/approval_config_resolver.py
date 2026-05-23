@@ -55,11 +55,13 @@ def resolve_effective_step_configs_for_request(request_obj: Request):
                 exception_config=matched_exception,
                 is_enabled=True,
             )
+            .select_related("telegram_chat")
             .order_by("step", "id")
             .prefetch_related("approvers__approver_user")
         )
     return list(
         pt_cfg.steps.filter(is_enabled=True)
+        .select_related("telegram_chat")
         .order_by("step", "id")
         .prefetch_related("approvers__approver_user")
     )
@@ -78,9 +80,10 @@ def resolve_effective_payment_step_config_for_request(
             continue
         if getattr(step_cfg, "step_type", None) != step_type:
             continue
+        chat = getattr(step_cfg, "telegram_chat", None)
         return EffectivePaymentStepConfig(
             payment_action_mode=getattr(step_cfg, "payment_action_mode", RequestApprovalStepConfig.PAYMENT_ACTION_MODE_CALLBACK),
             payment_webapp_url=getattr(step_cfg, "payment_webapp_url", "") or "",
-            payment_chat_id=getattr(step_cfg, "payment_chat_id", None),
+            payment_chat_id=int(chat.chat_id) if chat else None,
         )
     return None

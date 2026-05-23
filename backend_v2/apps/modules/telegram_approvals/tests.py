@@ -21,6 +21,7 @@ from apps.modules.requests.models import (
     RequestFormConfig,
     RequestFormPaymentTypeConfig,
 )
+from apps.modules.telegram_approvals.models import TenantTelegramChat
 from apps.modules.telegram_approvals.services import (
     get_tenant_bot_token,
     build_approval_message,
@@ -977,6 +978,75 @@ class TelegramApprovalsTests(APITestCase):
         _args, kwargs = mock_refresh.call_args
         self.assertEqual(kwargs.get("request_obj").id, request_row.id)
         self.assertIn("обновлено карточек: 2", out.getvalue())
+
+
+# ---------------------------------------------------------------------------
+# TenantTelegramChat API tests
+# ---------------------------------------------------------------------------
+
+@override_settings(BASE_DOMAIN="example.com", ALLOWED_HOSTS=["*"])
+class TenantTelegramChatApiTests(APITestCase):
+    """
+    3 tests:
+    1. create a chat via API
+    2. unique (tenant, chat_id) constraint returns 400
+    3. tenant isolation: tenant B cannot see tenant A chats
+    """
+
+    def setUp(self):
+        self.tenant_a = Tenant.objects.create(name="Alpha", subdomain="alpha", is_active=True)
+        self.tenant_b = Tenant.objects.create(name="Beta", subdomain="beta", is_active=True)
+
+        self.admin_a = User.objects.create_user(username="chat_admin_a", password="x")
+        self.admin_b = User.objects.create_user(username="chat_admin_b", password="x")
+
+        TenantMembership.objects.create(tenant=self.tenant_a, user=self.admin_a, is_active=True)
+        TenantMembership.objects.create(tenant=self.tenant_b, user=self.admin_b, is_active=True)
+
+        TenantUserRole.objects.create(tenant=self.tenant_a, user=self.admin_a, role=TenantUserRole.ROLE_ADMIN)
+        TenantUserRole.objects.create(tenant=self.tenant_b, user=self.admin_b, role=TenantUserRole.ROLE_ADMIN)
+
+        TenantModuleConfig.objects.create(tenant=self.tenant_a, module_key="messaging_gateway", is_enabled=True)
+        TenantModuleConfig.objects.create(tenant=self.tenant_b, module_key="messaging_gateway", is_enabled=True)
+
+        self.host_a = "alpha.example.com"
+        self.host_b = "beta.example.com"
+        self.url = "/api/messaging-gateway/chats/"
+
+    def test_create_chat(self):
+        self.client.force_authenticate(self.admin_a)
+        res = self.client.post(
+            self.url,
+            {"name": "Finance group", "chat_id": "-1001234567890", "is_active": True},
+            format="json",
+            HTTP_HOST=self.host_a,
+        )
+        self.assertEqual(res.status_code, 201, res.content)
+        self.assertEqual(res.data["name"], "Finance group")
+        self.assertEqual(res.data["chat_id"], "-1001234567890")
+        self.assertTrue(TenantTelegramChat.objects.filter(tenant=self.tenant_a, chat_id="-1001234567890").exists())
+
+    def test_duplicate_chat_id_returns_400(self):
+        TenantTelegramChat.objects.create(
+            tenant=self.tenant_a, name="Existing", chat_id="-1001111111111"
+        )
+        self.client.force_authenticate(self.admin_a)
+        res = self.client.post(
+            self.url,
+            {"name": "Duplicate", "chat_id": "-1001111111111", "is_active": True},
+            format="json",
+            HTTP_HOST=self.host_a,
+        )
+        self.assertEqual(res.status_code, 400, res.content)
+
+    def test_tenant_b_cannot_see_tenant_a_chats(self):
+        TenantTelegramChat.objects.create(
+            tenant=self.tenant_a, name="Alpha only", chat_id="-1009998887771"
+        )
+        self.client.force_authenticate(self.admin_b)
+        res = self.client.get(self.url, HTTP_HOST=self.host_b)
+        self.assertEqual(res.status_code, 200, res.content)
+        self.assertEqual(len(res.data["results"]), 0)
 
 
 # ---------------------------------------------------------------------------

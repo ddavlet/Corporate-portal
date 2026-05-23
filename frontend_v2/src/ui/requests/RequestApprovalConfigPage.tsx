@@ -4,11 +4,13 @@ import { ArrowLeftOutlined, PlusOutlined, DeleteOutlined } from '@ant-design/ico
 import { useNavigate } from 'react-router-dom'
 import {
   getRequestApprovalConfig,
+  listTelegramChats,
   updateRequestApprovalConfig,
   type RequestApprovalConfigPaymentTypeItem,
   type RequestApprovalConfigResponse,
   type RequestApprovalConfigUpdatePayload,
   type RequestApprovalConfigStepItem,
+  type TenantTelegramChatDto,
 } from '../../lib/api'
 import { labelBlockAboveField } from '../formSpacing'
 
@@ -29,7 +31,7 @@ function emptyStep(step: number): RequestApprovalConfigStepItem {
     approver_user_ids: [],
     payment_action_mode: 'callback',
     payment_webapp_url: '',
-    payment_chat_id: null,
+    telegram_chat_id: null,
   }
 }
 
@@ -71,6 +73,11 @@ export function RequestApprovalConfigPage() {
 
   const [data, setData] = useState<RequestApprovalConfigResponse | null>(null)
   const [activeTab, setActiveTab] = useState<string>(PAYMENT_TYPES[0])
+  const [tgChats, setTgChats] = useState<TenantTelegramChatDto[]>([])
+
+  useEffect(() => {
+    void listTelegramChats().then(setTgChats).catch(() => setTgChats([]))
+  }, [])
 
   useEffect(() => {
     let cancelled = false
@@ -297,7 +304,7 @@ export function RequestApprovalConfigPage() {
               approver_user_ids: s.approver_user_ids,
               payment_action_mode: s.payment_action_mode ?? 'callback',
               payment_webapp_url: s.payment_webapp_url ?? '',
-              payment_chat_id: s.step_type === 'payment' ? s.payment_chat_id ?? null : null,
+              telegram_chat_id: s.step_type === 'payment' ? s.telegram_chat_id ?? null : null,
             })),
           })),
           steps: pt.steps.map((s) => ({
@@ -307,7 +314,7 @@ export function RequestApprovalConfigPage() {
             approver_user_ids: s.approver_user_ids,
             payment_action_mode: s.payment_action_mode ?? 'callback',
             payment_webapp_url: s.payment_webapp_url ?? '',
-            payment_chat_id: s.step_type === 'payment' ? s.payment_chat_id ?? null : null,
+            telegram_chat_id: s.step_type === 'payment' ? s.telegram_chat_id ?? null : null,
           })),
         })),
       }
@@ -524,18 +531,17 @@ export function RequestApprovalConfigPage() {
                                       style={{ width: 420 }}
                                     />
                                   ) : null}
-                                  {/* TODO: заменить на Select из справочника чатов компании —
-                                      нужно будет создать список всех Telegram-групп tenant'а, куда могут отправляться уведомления */}
-                                  <InputNumber
-                                    value={step.payment_chat_id ?? null}
+                                  <Select
+                                    allowClear
+                                    placeholder="Telegram-группа"
+                                    value={step.telegram_chat_id ?? undefined}
                                     onChange={(v) =>
                                       updatePurposeExceptionStep(pt.payment_type, excIdx, stepIdx, {
-                                        payment_chat_id: v === null || v === undefined ? null : Number(v),
+                                        telegram_chat_id: v ?? null,
                                       })
                                     }
-                                    placeholder="Chat ID (например, -1001234567890)"
+                                    options={tgChats.map((c) => ({ value: c.id, label: c.name }))}
                                     style={{ width: 260 }}
-                                    controls={false}
                                   />
                                   <Button danger onClick={() => removePurposeExceptionStep(pt.payment_type, excIdx, stepIdx)}>
                                     Удалить шаг
@@ -652,22 +658,21 @@ export function RequestApprovalConfigPage() {
                                       Chat ID
                                     </Typography.Text>
                                     <div style={{ height: 8 }} />
-                                    {/* TODO: заменить на Select из справочника чатов компании —
-                                        нужно будет создать список всех Telegram-групп tenant'а, куда могут отправляться уведомления */}
-                                    <InputNumber
-                                      value={step.payment_chat_id ?? null}
+                                    <Select
+                                      allowClear
+                                      placeholder="Выберите Telegram-группу"
+                                      value={step.telegram_chat_id ?? undefined}
                                       onChange={(v) =>
                                         updateStep(pt.payment_type, idx, {
-                                          payment_chat_id: v === null || v === undefined ? null : Number(v),
+                                          telegram_chat_id: v ?? null,
                                         })
                                       }
-                                      placeholder="Например, -1001234567890"
+                                      options={tgChats.map((c) => ({ value: c.id, label: c.name }))}
                                       style={{ width: 260 }}
-                                      controls={false}
                                     />
                                     <div style={{ height: 4 }} />
                                     <Typography.Text type="secondary" style={{ fontSize: 12 }}>
-                                      Используется для уведомлений на этапе оплаты. Если пусто — берётся chat_id approver-а.
+                                      Используется для уведомлений на этапе оплаты. Если пусто — берётся Telegram approver-а.
                                     </Typography.Text>
                                   </div>
                                 </>

@@ -1,19 +1,17 @@
 """
-Tests for per-stage payment_chat_id on RequestApprovalStepConfig.
+Tests for per-stage telegram_chat on RequestApprovalStepConfig.
 
 Covers:
-  1. approval_bootstrap — recipient_id resolution (stage vs user fallback)
-  2. _coerce_payment_chat_id helper
-  3. approval_config_resolver — EffectivePaymentStepConfig includes payment_chat_id
-  4. API read  — GET /api/requests/approval-config/ returns payment_chat_id
-  5. API write — PUT /api/requests/approval-config/ persists payment_chat_id
+  1. approval_bootstrap — recipient_id resolution (stage chat vs user fallback)
+  2. approval_config_resolver — EffectivePaymentStepConfig.payment_chat_id derived from FK
+  3. API read  — GET /api/requests/approval-config/ returns telegram_chat_id
+  4. API write — PUT /api/requests/approval-config/ persists telegram_chat_id
 """
 
 from datetime import date
 
 from django.contrib.auth import get_user_model
 from django.test import override_settings
-from rest_framework.exceptions import ValidationError
 from rest_framework.test import APITestCase
 
 from apps.modules.requests.approval_bootstrap import create_approval_rows_for_request
@@ -35,11 +33,12 @@ from apps.modules.requests.models import (
     RequestFormPaymentTypeConfig,
     RequestPaymentPurposeConfig,
 )
-from apps.modules.requests.views import _coerce_payment_chat_id
+from apps.modules.telegram_approvals.models import TenantTelegramChat
 from apps.tenants.models import Tenant, TenantMembership, TenantModuleConfig, TenantUserRole
 
 User = get_user_model()
 
+_STAGE_CHAT_STR = "-1009999000001"
 _STAGE_CHAT_ID = -1009999000001
 _USER_CHAT_ID = 111
 _USER_FROM_ID = 222
@@ -60,56 +59,25 @@ def _make_request(tenant, created_by, payment_type=Request.PAYMENT_TYPE_CASH):
     )
 
 
-# ---------------------------------------------------------------------------
-# 1. _coerce_payment_chat_id helper
-# ---------------------------------------------------------------------------
-
-class CoercePaymentChatIdTests(APITestCase):
-
-    def test_none_returns_none(self):
-        self.assertIsNone(_coerce_payment_chat_id(None))
-
-    def test_integer_returned_as_is(self):
-        self.assertEqual(_coerce_payment_chat_id(42), 42)
-
-    def test_negative_integer(self):
-        self.assertEqual(_coerce_payment_chat_id(-1001234567890), -1001234567890)
-
-    def test_valid_string_coerced_to_int(self):
-        self.assertEqual(_coerce_payment_chat_id("-1009999000001"), -1009999000001)
-
-    def test_empty_string_returns_none(self):
-        self.assertIsNone(_coerce_payment_chat_id(""))
-
-    def test_whitespace_only_string_returns_none(self):
-        self.assertIsNone(_coerce_payment_chat_id("   "))
-
-    def test_non_numeric_string_raises_validation_error(self):
-        with self.assertRaises(ValidationError):
-            _coerce_payment_chat_id("not-a-number")
-
-    def test_float_string_raises_validation_error(self):
-        with self.assertRaises(ValidationError):
-            _coerce_payment_chat_id("3.14")
-
-    def test_zero_is_valid(self):
-        self.assertEqual(_coerce_payment_chat_id(0), 0)
-
-    def test_string_zero_is_valid(self):
-        self.assertEqual(_coerce_payment_chat_id("0"), 0)
+def _make_tg_chat(tenant):
+    return TenantTelegramChat.objects.create(
+        tenant=tenant,
+        name="Test Chat",
+        chat_id=_STAGE_CHAT_STR,
+    )
 
 
 # ---------------------------------------------------------------------------
-# 2. approval_bootstrap — recipient_id resolution
+# 1. approval_bootstrap — recipient_id resolution
 # ---------------------------------------------------------------------------
 
 @override_settings(BASE_DOMAIN="example.com", ALLOWED_HOSTS=["*"])
 class ApprovalBootstrapPaymentChatIdTests(APITestCase):
     """
     create_approval_rows_for_request must:
-    - use step.payment_chat_id as approver_recipient_id for PAYMENT steps when set
-    - fall back to approver_user.telegram_chat_id when payment_chat_id is None
-    - always use approver_user.telegram_chat_id for SERIAL steps regardless of any step config
+    - use step.telegram_chat.chat_id as approver_recipient_id for PAYMENT steps when set
+    - fall back to approver_user.telegram_chat_id when telegram_chat is None
+    - always use approver_user.telegram_chat_id for SERIAL steps regardless of step config
     - keep approver_external_user_id = approver_user.telegram_from_id in all cases
     """
 
@@ -137,8 +105,9 @@ class ApprovalBootstrapPaymentChatIdTests(APITestCase):
             payment_type=Request.PAYMENT_TYPE_CASH,
             is_enabled=True,
         )
+        self.tg_chat = _make_tg_chat(self.tenant)
 
-    # --- payment step with stage chat_id set ---
+    # --- payment step with stage chat set ---
 
     def test_payment_step_uses_stage_chat_id_not_user_chat_id(self):
         step = RequestApprovalStepConfig.objects.create(
@@ -146,7 +115,7 @@ class ApprovalBootstrapPaymentChatIdTests(APITestCase):
             step=1,
             step_type=Approval.STEP_TYPE_PAYMENT,
             is_enabled=True,
-            payment_chat_id=_STAGE_CHAT_ID,
+            telegram_chat=self.tg_chat,
         )
         RequestApprovalStepApproverConfig.objects.create(step_config=step, approver_user=self.approver)
 
@@ -156,10 +125,9 @@ class ApprovalBootstrapPaymentChatIdTests(APITestCase):
         self.assertEqual(n, 1)
         approval = Approval.objects.get(request=req, approver_user=self.approver)
         self.assertEqual(approval.approver_recipient_id, _STAGE_CHAT_ID)
-        # from_id must remain user-level (identity check unchanged)
         self.assertEqual(approval.approver_external_user_id, _USER_FROM_ID)
 
-    def test_payment_step_stage_chat_id_overrides_even_when_user_has_different_chat_id(self):
+    def test_payment_step_stage_chat_overrides_even_when_user_has_different_chat_id(self):
         other_chat_id = 9998887776
         self.approver.telegram_chat_id = other_chat_id
         self.approver.save(update_fields=["telegram_chat_id"])
@@ -169,7 +137,7 @@ class ApprovalBootstrapPaymentChatIdTests(APITestCase):
             step=1,
             step_type=Approval.STEP_TYPE_PAYMENT,
             is_enabled=True,
-            payment_chat_id=_STAGE_CHAT_ID,
+            telegram_chat=self.tg_chat,
         )
         RequestApprovalStepApproverConfig.objects.create(step_config=step, approver_user=self.approver)
 
@@ -180,15 +148,15 @@ class ApprovalBootstrapPaymentChatIdTests(APITestCase):
         self.assertEqual(approval.approver_recipient_id, _STAGE_CHAT_ID)
         self.assertNotEqual(approval.approver_recipient_id, other_chat_id)
 
-    # --- payment step with payment_chat_id = None (fallback) ---
+    # --- payment step with no chat (fallback) ---
 
-    def test_payment_step_without_stage_chat_id_falls_back_to_user_chat_id(self):
+    def test_payment_step_without_stage_chat_falls_back_to_user_chat_id(self):
         step = RequestApprovalStepConfig.objects.create(
             payment_type_config=self.pt_cfg,
             step=1,
             step_type=Approval.STEP_TYPE_PAYMENT,
             is_enabled=True,
-            payment_chat_id=None,  # no stage override
+            telegram_chat=None,
         )
         RequestApprovalStepApproverConfig.objects.create(step_config=step, approver_user=self.approver)
 
@@ -199,7 +167,7 @@ class ApprovalBootstrapPaymentChatIdTests(APITestCase):
         self.assertEqual(approval.approver_recipient_id, _USER_CHAT_ID)
         self.assertEqual(approval.approver_external_user_id, _USER_FROM_ID)
 
-    # --- serial step is unaffected ---
+    # --- serial step ignores stage chat ---
 
     def test_serial_step_always_uses_user_chat_id_regardless_of_any_config(self):
         step = RequestApprovalStepConfig.objects.create(
@@ -207,8 +175,7 @@ class ApprovalBootstrapPaymentChatIdTests(APITestCase):
             step=1,
             step_type=Approval.STEP_TYPE_SERIAL,
             is_enabled=True,
-            # payment_chat_id is irrelevant for serial steps; set it anyway to confirm it's ignored
-            payment_chat_id=_STAGE_CHAT_ID,
+            telegram_chat=self.tg_chat,
         )
         RequestApprovalStepApproverConfig.objects.create(step_config=step, approver_user=self.approver)
 
@@ -218,7 +185,7 @@ class ApprovalBootstrapPaymentChatIdTests(APITestCase):
         approval = Approval.objects.get(request=req, approver_user=self.approver)
         self.assertEqual(approval.approver_recipient_id, _USER_CHAT_ID)
 
-    # --- multiple approvers share the same stage chat_id ---
+    # --- multiple approvers share the same stage chat ---
 
     def test_multiple_approvers_on_payment_step_all_get_stage_chat_id(self):
         second_approver = User.objects.create_user(username="pci_appr2", password="x")
@@ -233,7 +200,7 @@ class ApprovalBootstrapPaymentChatIdTests(APITestCase):
             step=1,
             step_type=Approval.STEP_TYPE_PAYMENT,
             is_enabled=True,
-            payment_chat_id=_STAGE_CHAT_ID,
+            telegram_chat=self.tg_chat,
         )
         RequestApprovalStepApproverConfig.objects.create(step_config=step, approver_user=self.approver)
         RequestApprovalStepApproverConfig.objects.create(step_config=step, approver_user=second_approver)
@@ -251,13 +218,13 @@ class ApprovalBootstrapPaymentChatIdTests(APITestCase):
 
     # --- from_id is always user-level ---
 
-    def test_from_id_always_user_level_even_with_stage_chat_id(self):
+    def test_from_id_always_user_level_even_with_stage_chat(self):
         step = RequestApprovalStepConfig.objects.create(
             payment_type_config=self.pt_cfg,
             step=1,
             step_type=Approval.STEP_TYPE_PAYMENT,
             is_enabled=True,
-            payment_chat_id=_STAGE_CHAT_ID,
+            telegram_chat=self.tg_chat,
         )
         RequestApprovalStepApproverConfig.objects.create(step_config=step, approver_user=self.approver)
 
@@ -267,7 +234,7 @@ class ApprovalBootstrapPaymentChatIdTests(APITestCase):
         approval = Approval.objects.get(request=req, approver_user=self.approver)
         self.assertEqual(approval.approver_external_user_id, _USER_FROM_ID)
 
-    # --- purpose-exception step uses payment_chat_id ---
+    # --- purpose-exception step ---
 
     def test_purpose_exception_payment_step_uses_stage_chat_id(self):
         form_cfg = RequestFormConfig.objects.create(tenant=self.tenant, updated_by=self.admin)
@@ -296,7 +263,7 @@ class ApprovalBootstrapPaymentChatIdTests(APITestCase):
             step=1,
             step_type=Approval.STEP_TYPE_PAYMENT,
             is_enabled=True,
-            payment_chat_id=_STAGE_CHAT_ID,
+            telegram_chat=self.tg_chat,
         )
         RequestApprovalPurposeExceptionStepApproverConfig.objects.create(
             step_config=exc_step, approver_user=self.approver
@@ -312,7 +279,7 @@ class ApprovalBootstrapPaymentChatIdTests(APITestCase):
         self.assertEqual(approval.approver_recipient_id, _STAGE_CHAT_ID)
         self.assertEqual(approval.approver_external_user_id, _USER_FROM_ID)
 
-    def test_purpose_exception_payment_step_without_stage_chat_id_falls_back_to_user(self):
+    def test_purpose_exception_payment_step_without_stage_chat_falls_back_to_user(self):
         form_cfg = RequestFormConfig.objects.create(tenant=self.tenant, updated_by=self.admin)
         pt_form_cfg = RequestFormPaymentTypeConfig.objects.create(
             config=form_cfg, payment_type=Request.PAYMENT_TYPE_CASH, is_enabled=True
@@ -334,7 +301,7 @@ class ApprovalBootstrapPaymentChatIdTests(APITestCase):
             step=1,
             step_type=Approval.STEP_TYPE_PAYMENT,
             is_enabled=True,
-            payment_chat_id=None,
+            telegram_chat=None,
         )
         RequestApprovalPurposeExceptionStepApproverConfig.objects.create(
             step_config=exc_step, approver_user=self.approver
@@ -351,7 +318,7 @@ class ApprovalBootstrapPaymentChatIdTests(APITestCase):
 
 
 # ---------------------------------------------------------------------------
-# 3. approval_config_resolver — EffectivePaymentStepConfig includes payment_chat_id
+# 2. approval_config_resolver — EffectivePaymentStepConfig.payment_chat_id
 # ---------------------------------------------------------------------------
 
 @override_settings(BASE_DOMAIN="example.com", ALLOWED_HOSTS=["*"])
@@ -367,6 +334,7 @@ class ResolverPaymentChatIdTests(APITestCase):
             payment_type=Request.PAYMENT_TYPE_CASH,
             is_enabled=True,
         )
+        self.tg_chat = _make_tg_chat(self.tenant)
 
     def test_effective_config_includes_payment_chat_id_when_set(self):
         step = RequestApprovalStepConfig.objects.create(
@@ -374,7 +342,7 @@ class ResolverPaymentChatIdTests(APITestCase):
             step=1,
             step_type=Approval.STEP_TYPE_PAYMENT,
             is_enabled=True,
-            payment_chat_id=_STAGE_CHAT_ID,
+            telegram_chat=self.tg_chat,
         )
         RequestApprovalStepApproverConfig.objects.create(
             step_config=step,
@@ -397,7 +365,7 @@ class ResolverPaymentChatIdTests(APITestCase):
             step=1,
             step_type=Approval.STEP_TYPE_PAYMENT,
             is_enabled=True,
-            payment_chat_id=None,
+            telegram_chat=None,
         )
         RequestApprovalStepApproverConfig.objects.create(step_config=step, approver_user=self.admin)
         req = _make_request(self.tenant, self.admin)
@@ -431,7 +399,7 @@ class ResolverPaymentChatIdTests(APITestCase):
 
 
 # ---------------------------------------------------------------------------
-# 4 & 5. API read/write — GET and PUT /api/requests/approval-config/
+# 3 & 4. API read/write — GET and PUT /api/requests/approval-config/
 # ---------------------------------------------------------------------------
 
 @override_settings(BASE_DOMAIN="example.com", N8N_INTEGRATION_TOKEN="", ALLOWED_HOSTS=["*"])
@@ -452,10 +420,11 @@ class ApprovalConfigApiPaymentChatIdTests(APITestCase):
 
         TenantModuleConfig.objects.create(tenant=self.tenant, module_key="requests", is_enabled=True)
         self.host = "acme.example.com"
+        self.tg_chat = _make_tg_chat(self.tenant)
 
     # --- write then read ---
 
-    def test_put_saves_payment_chat_id_for_payment_step(self):
+    def test_put_saves_telegram_chat_id_for_payment_step(self):
         self.client.force_authenticate(self.admin)
         payload = {
             "payment_types": [
@@ -470,7 +439,7 @@ class ApprovalConfigApiPaymentChatIdTests(APITestCase):
                             "approver_user_ids": [self.approver.id],
                             "payment_action_mode": "callback",
                             "payment_webapp_url": "",
-                            "payment_chat_id": _STAGE_CHAT_ID,
+                            "telegram_chat_id": self.tg_chat.pk,
                         }
                     ],
                 }
@@ -489,10 +458,9 @@ class ApprovalConfigApiPaymentChatIdTests(APITestCase):
             payment_type_config__payment_type="Наличные",
             step=1,
         )
-        self.assertEqual(step.payment_chat_id, _STAGE_CHAT_ID)
+        self.assertEqual(step.telegram_chat_id, self.tg_chat.pk)
 
-    def test_get_returns_payment_chat_id_in_step(self):
-        # Seed DB directly
+    def test_get_returns_telegram_chat_id_in_step(self):
         appr_cfg = RequestApprovalConfig.objects.create(tenant=self.tenant, updated_by=self.admin)
         pt_cfg = RequestApprovalPaymentTypeConfig.objects.create(
             config=appr_cfg, payment_type="Наличные", is_enabled=True
@@ -502,7 +470,7 @@ class ApprovalConfigApiPaymentChatIdTests(APITestCase):
             step=1,
             step_type=Approval.STEP_TYPE_PAYMENT,
             is_enabled=True,
-            payment_chat_id=_STAGE_CHAT_ID,
+            telegram_chat=self.tg_chat,
         )
         RequestApprovalStepApproverConfig.objects.create(step_config=step, approver_user=self.approver)
 
@@ -514,10 +482,9 @@ class ApprovalConfigApiPaymentChatIdTests(APITestCase):
             pt for pt in res.data["payment_types"] if pt["payment_type"] == "Наличные"
         )
         self.assertEqual(len(cash_pt["steps"]), 1)
-        self.assertEqual(cash_pt["steps"][0]["payment_chat_id"], _STAGE_CHAT_ID)
+        self.assertEqual(cash_pt["steps"][0]["telegram_chat_id"], self.tg_chat.pk)
 
-    def test_put_payment_chat_id_none_clears_field(self):
-        # Seed with a value then overwrite with null
+    def test_put_telegram_chat_id_none_clears_field(self):
         appr_cfg = RequestApprovalConfig.objects.create(tenant=self.tenant, updated_by=self.admin)
         pt_cfg = RequestApprovalPaymentTypeConfig.objects.create(
             config=appr_cfg, payment_type="Наличные", is_enabled=True
@@ -527,7 +494,7 @@ class ApprovalConfigApiPaymentChatIdTests(APITestCase):
             step=1,
             step_type=Approval.STEP_TYPE_PAYMENT,
             is_enabled=True,
-            payment_chat_id=_STAGE_CHAT_ID,
+            telegram_chat=self.tg_chat,
         )
 
         self.client.force_authenticate(self.admin)
@@ -543,7 +510,7 @@ class ApprovalConfigApiPaymentChatIdTests(APITestCase):
                             "is_enabled": True,
                             "approver_user_ids": [self.approver.id],
                             "payment_action_mode": "callback",
-                            "payment_chat_id": None,
+                            "telegram_chat_id": None,
                         }
                     ],
                 }
@@ -562,10 +529,10 @@ class ApprovalConfigApiPaymentChatIdTests(APITestCase):
             payment_type_config__payment_type="Наличные",
             step=1,
         )
-        self.assertIsNone(step.payment_chat_id)
+        self.assertIsNone(step.telegram_chat_id)
 
-    def test_put_omitting_payment_chat_id_defaults_to_none(self):
-        """payment_chat_id is optional — omitting it must not cause a 400."""
+    def test_put_omitting_telegram_chat_id_defaults_to_none(self):
+        """telegram_chat_id is optional — omitting it must not cause a 400."""
         self.client.force_authenticate(self.admin)
         payload = {
             "payment_types": [
@@ -579,7 +546,7 @@ class ApprovalConfigApiPaymentChatIdTests(APITestCase):
                             "is_enabled": True,
                             "approver_user_ids": [self.approver.id],
                             "payment_action_mode": "callback",
-                            # payment_chat_id deliberately omitted
+                            # telegram_chat_id deliberately omitted
                         }
                     ],
                 }
@@ -597,9 +564,9 @@ class ApprovalConfigApiPaymentChatIdTests(APITestCase):
             payment_type_config__payment_type="Наличные",
             step=1,
         )
-        self.assertIsNone(step.payment_chat_id)
+        self.assertIsNone(step.telegram_chat_id)
 
-    def test_get_returns_payment_chat_id_null_when_not_set(self):
+    def test_get_returns_telegram_chat_id_null_when_not_set(self):
         appr_cfg = RequestApprovalConfig.objects.create(tenant=self.tenant, updated_by=self.admin)
         pt_cfg = RequestApprovalPaymentTypeConfig.objects.create(
             config=appr_cfg, payment_type="Наличные", is_enabled=True
@@ -609,7 +576,7 @@ class ApprovalConfigApiPaymentChatIdTests(APITestCase):
             step=1,
             step_type=Approval.STEP_TYPE_PAYMENT,
             is_enabled=True,
-            payment_chat_id=None,
+            telegram_chat=None,
         )
         RequestApprovalStepApproverConfig.objects.create(step_config=step, approver_user=self.approver)
 
@@ -617,11 +584,11 @@ class ApprovalConfigApiPaymentChatIdTests(APITestCase):
         res = self.client.get("/api/requests/approval-config/", HTTP_HOST=self.host)
         self.assertEqual(res.status_code, 200)
         cash_pt = next(pt for pt in res.data["payment_types"] if pt["payment_type"] == "Наличные")
-        self.assertIsNone(cash_pt["steps"][0]["payment_chat_id"])
+        self.assertIsNone(cash_pt["steps"][0]["telegram_chat_id"])
 
     # --- purpose-exception steps ---
 
-    def test_put_saves_payment_chat_id_for_purpose_exception_step(self):
+    def test_put_saves_telegram_chat_id_for_purpose_exception_step(self):
         form_cfg = RequestFormConfig.objects.create(tenant=self.tenant, updated_by=self.admin)
         pt_form_cfg = RequestFormPaymentTypeConfig.objects.create(
             config=form_cfg, payment_type="Наличные", is_enabled=True
@@ -654,7 +621,7 @@ class ApprovalConfigApiPaymentChatIdTests(APITestCase):
                                     "is_enabled": True,
                                     "approver_user_ids": [self.approver.id],
                                     "payment_action_mode": "callback",
-                                    "payment_chat_id": _STAGE_CHAT_ID,
+                                    "telegram_chat_id": self.tg_chat.pk,
                                 }
                             ],
                         }
@@ -674,9 +641,9 @@ class ApprovalConfigApiPaymentChatIdTests(APITestCase):
             exception_config__payment_type_config__config__tenant=self.tenant,
             step=1,
         )
-        self.assertEqual(exc_step.payment_chat_id, _STAGE_CHAT_ID)
+        self.assertEqual(exc_step.telegram_chat_id, self.tg_chat.pk)
 
-    def test_get_returns_payment_chat_id_for_purpose_exception_step(self):
+    def test_get_returns_telegram_chat_id_for_purpose_exception_step(self):
         appr_cfg = RequestApprovalConfig.objects.create(tenant=self.tenant, updated_by=self.admin)
         pt_cfg = RequestApprovalPaymentTypeConfig.objects.create(
             config=appr_cfg, payment_type="Наличные", is_enabled=True
@@ -699,7 +666,7 @@ class ApprovalConfigApiPaymentChatIdTests(APITestCase):
             step=1,
             step_type=Approval.STEP_TYPE_PAYMENT,
             is_enabled=True,
-            payment_chat_id=_STAGE_CHAT_ID,
+            telegram_chat=self.tg_chat,
         )
         RequestApprovalPurposeExceptionStepApproverConfig.objects.create(
             step_config=exc_step, approver_user=self.approver
@@ -712,11 +679,11 @@ class ApprovalConfigApiPaymentChatIdTests(APITestCase):
         cash_pt = next(pt for pt in res.data["payment_types"] if pt["payment_type"] == "Наличные")
         exc_steps = cash_pt["purpose_exceptions"][0]["steps"]
         self.assertEqual(len(exc_steps), 1)
-        self.assertEqual(exc_steps[0]["payment_chat_id"], _STAGE_CHAT_ID)
+        self.assertEqual(exc_steps[0]["telegram_chat_id"], self.tg_chat.pk)
 
     # --- round-trip: PUT then GET returns same value ---
 
-    def test_round_trip_put_then_get_preserves_payment_chat_id(self):
+    def test_round_trip_put_then_get_preserves_telegram_chat_id(self):
         self.client.force_authenticate(self.admin)
         payload = {
             "payment_types": [
@@ -730,7 +697,7 @@ class ApprovalConfigApiPaymentChatIdTests(APITestCase):
                             "is_enabled": True,
                             "approver_user_ids": [self.approver.id],
                             "payment_action_mode": "callback",
-                            "payment_chat_id": _STAGE_CHAT_ID,
+                            "telegram_chat_id": self.tg_chat.pk,
                         }
                     ],
                 }
@@ -749,4 +716,4 @@ class ApprovalConfigApiPaymentChatIdTests(APITestCase):
         transfer_pt = next(
             pt for pt in get_res.data["payment_types"] if pt["payment_type"] == "Перечисление"
         )
-        self.assertEqual(transfer_pt["steps"][0]["payment_chat_id"], _STAGE_CHAT_ID)
+        self.assertEqual(transfer_pt["steps"][0]["telegram_chat_id"], self.tg_chat.pk)
