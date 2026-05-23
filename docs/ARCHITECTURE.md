@@ -127,7 +127,8 @@
 
 ### `apps.modules.n8n_integration`
 
-- **Аутентификация**: заголовок `X-N8N-Integration-Token` (tenant config или env) + **JWT** + **`IsTenantAdmin`** ([authentication.py](../backend_v2/apps/modules/n8n_integration/authentication.py)).
+- **Аутентификация**: для upsert/read и справочников — только `X-N8N-Integration-Token` (tenant config или env), без JWT ([authentication.py](../backend_v2/apps/modules/n8n_integration/authentication.py)). Исключение: `POST /api/n8n/requests/ai-create/` — token + JWT (нужен пользователь заявки).
+- **GET** `wallet-balances/` — остатки кошельков по каналам (как `/api/cash|bank|corporate-card/balances/`).
 - **POST upsert** по целочисленному `id` для: vendors, cash/bank/corporate expenses & revenues, notes, payroll lines ([urls.py](../backend_v2/apps/modules/n8n_integration/urls.py)).
 
 ### `apps.modules.telegram_approvals`

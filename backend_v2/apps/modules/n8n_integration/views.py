@@ -51,8 +51,11 @@ from apps.modules.n8n_integration.serializers import (
     N8nRequestImportSerializer,
     N8nVendorImportSerializer,
 )
+from apps.modules.wallets.models import Wallet
+from apps.modules.wallets.services import balances_for_tenant_channel
 from apps.tenants.integration_settings import get_n8n_integration_settings
-from apps.tenants.permissions import HasEffectiveModuleAccess, IsTenantAdmin
+from apps.tenants.models import TenantModuleConfig
+from apps.tenants.permissions import HasEffectiveModuleAccess
 
 User = get_user_model()
 logger = logging.getLogger(__name__)
@@ -191,6 +194,23 @@ def _system_user():
     return User.objects.filter(pk=1).first()
 
 
+def _n8n_actor_user_id(request) -> int:
+    """User id forwarded to n8n proxies; JWT user when present, else system user."""
+    user = getattr(request, "user", None)
+    if user is not None and user.is_authenticated:
+        return user.id
+    su = _system_user()
+    return su.id if su is not None else 0
+
+
+def _tenant_module_enabled(*, tenant, module_key: str) -> bool:
+    return TenantModuleConfig.objects.filter(
+        tenant=tenant,
+        module_key=module_key,
+        is_enabled=True,
+    ).exists()
+
+
 def _n8n_upsert(
     request,
     *,
@@ -255,8 +275,10 @@ def _n8n_upsert(
 
 
 class _N8nBaseView(APIView):
-    authentication_classes = [N8nIntegrationAuthentication]
-    permission_classes = [IsAuthenticated, IsTenantAdmin]
+    """Upsert/read n8n API: integration token only (no JWT)."""
+
+    authentication_classes = [N8nIntegrationTokenOnlyAuthentication]
+    permission_classes = [AllowAny]
 
     def handle_exception(self, exc):
         location = getattr(self.request, "path", "unknown")
@@ -438,7 +460,7 @@ def _proxy_n8n_json(request, endpoint: str):
         "Accept": "application/json",
         "X-N8N-Integration-Token": token,
         "X-Tenant": tenant.subdomain,
-        "X-User-Id": str(request.user.id),
+        "X-User-Id": str(_n8n_actor_user_id(request)),
     }
     if host_override:
         headers["Host"] = host_override
@@ -660,8 +682,9 @@ class AiChatProxyView(APIView):
             )
 
         url, host_override, transport = _build_n8n_url(tenant, endpoint)
+        actor_id = _n8n_actor_user_id(request)
         payload = {
-            "user": request.user.id,
+            "user": actor_id,
             "session_id": session_id,
             "question": question,
         }
@@ -670,7 +693,7 @@ class AiChatProxyView(APIView):
             "Content-Type": "application/json",
             "X-N8N-Integration-Token": token,
             "X-Tenant": tenant.subdomain,
-            "X-User-Id": str(request.user.id),
+            "X-User-Id": str(actor_id),
         }
         if host_override:
             headers["Host"] = host_override
@@ -1654,3 +1677,62 @@ class N8nPaymentPurposeListView(APIView):
         if tenant is None:
             return Response({"detail": "Unknown tenant."}, status=status.HTTP_400_BAD_REQUEST)
         return Response(list_payment_purposes_by_payment_type(tenant_id=tenant.id))
+
+
+_WALLET_BALANCE_CHANNELS = {
+    "cash": (Wallet.Type.CASH, "cash"),
+    "bank": (Wallet.Type.BANK, "bank"),
+    "corporate_card": (Wallet.Type.CORPORATE_CARD, "corporate_card"),
+}
+
+
+class N8nWalletBalancesView(APIView):
+    """Wallet running balances for n8n (same rows as /api/cash|bank|corporate-card/balances/).
+
+    Auth: integration token only — no JWT.
+    Query `channel`: optional `cash`, `bank`, or `corporate_card` — returns a flat list.
+    Without `channel`: returns {"cash": [...], "bank": [...], "corporate_card": [...]}.
+    Disabled tenant modules yield empty lists for that channel.
+    """
+
+    authentication_classes = [N8nIntegrationTokenOnlyAuthentication]
+    permission_classes = [AllowAny]
+
+    def get(self, request):
+        tenant = getattr(request, "tenant", None)
+        if tenant is None:
+            return Response({"detail": "Unknown tenant."}, status=status.HTTP_400_BAD_REQUEST)
+
+        channel = (request.query_params.get("channel") or "").strip().lower()
+        if channel:
+            spec = _WALLET_BALANCE_CHANNELS.get(channel)
+            if spec is None:
+                return Response(
+                    {
+                        "channel": [
+                            "Must be one of: cash, bank, corporate_card."
+                        ]
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            wallet_type, module_key = spec
+            if not _tenant_module_enabled(tenant=tenant, module_key=module_key):
+                return Response([])
+            return Response(
+                balances_for_tenant_channel(tenant_id=tenant.id, wallet_type=wallet_type)
+            )
+
+        payload: dict[str, list] = {}
+        for wallet_type, module_key in (
+            (Wallet.Type.CASH, "cash"),
+            (Wallet.Type.BANK, "bank"),
+            (Wallet.Type.CORPORATE_CARD, "corporate_card"),
+        ):
+            if _tenant_module_enabled(tenant=tenant, module_key=module_key):
+                payload[module_key] = balances_for_tenant_channel(
+                    tenant_id=tenant.id,
+                    wallet_type=wallet_type,
+                )
+            else:
+                payload[module_key] = []
+        return Response(payload)
