@@ -130,8 +130,12 @@ export function AppShell() {
         </a>
       )}
       rightContentRender={() => (
-        <Space size="middle">
-          {!isMobile && username ? <Typography.Text type="secondary">{username}</Typography.Text> : null}
+        <Space size="middle" style={{ flexWrap: 'nowrap', alignItems: 'center' }}>
+          {!isMobile && username ? (
+            <Typography.Text type="secondary" ellipsis style={{ maxWidth: 120, flexShrink: 1 }}>
+              {username}
+            </Typography.Text>
+          ) : null}
           <Button icon={<BulbOutlined />} onClick={() => setAiQuestionsOpen(true)}>
             Вопросы в ИИ
           </Button>
