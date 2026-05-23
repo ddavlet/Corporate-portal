@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Alert, Button, Card, Divider, InputNumber, Select, Skeleton, Space, Switch, Typography, message } from 'antd'
+import { Alert, Button, Card, Divider, Input, InputNumber, Select, Skeleton, Space, Switch, Typography, message } from 'antd'
 import { ArrowLeftOutlined } from '@ant-design/icons'
 import { useNavigate } from 'react-router-dom'
 
@@ -50,6 +50,7 @@ export function InvestmentNotificationConfigPage() {
         overdue_notify_every_days: data.overdue_notify_every_days,
         notify_hour: data.notify_hour,
         is_active: data.is_active,
+        chat_id: data.chat_id || null,
       })
       setData(next)
       message.success('Сохранено')
@@ -102,6 +103,22 @@ export function InvestmentNotificationConfigPage() {
               filterOption={(input, option) =>
                 String(option?.label ?? '').toLowerCase().includes(input.toLowerCase())
               }
+            />
+          </div>
+
+          {/* TODO: заменить на Select из справочника чатов компании —
+              нужно будет создать список всех Telegram-групп tenant'а, куда могут отправляться уведомления */}
+          <div>
+            <Typography.Text strong>Chat ID группы для уведомлений</Typography.Text>
+            <Typography.Paragraph type="secondary" style={{ marginBottom: 8 }}>
+              Уведомления будут отправляться в указанный Telegram-чат (группу). Если не заполнено — используется
+              личный Telegram ответственного пользователя.
+            </Typography.Paragraph>
+            <Input
+              style={{ width: 320 }}
+              placeholder="-1001234567890"
+              value={data.chat_id ?? ''}
+              onChange={(e) => setData({ ...data, chat_id: e.target.value || null })}
             />
           </div>
 
