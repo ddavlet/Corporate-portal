@@ -129,6 +129,18 @@ class TelegramApprovalWebhookView(APIView):
         except InvestNotificationConfig.DoesNotExist:
             raise ValidationError({"detail": "Notification config not found for tenant."})
 
+        try:
+            from_id = int(event_data["user_id"])
+        except (TypeError, ValueError):
+            from_id = None
+        responsible_tg_id = cfg.responsible_user.telegram_chat_id if cfg.responsible_user else None
+        if responsible_tg_id is not None and from_id != responsible_tg_id:
+            logger.warning(
+                "invest_pay_callback: unauthorized user_id=%s expected=%s schedule_id=%s",
+                from_id, responsible_tg_id, schedule_id,
+            )
+            raise ValidationError({"detail": "Only the responsible user may confirm this payout."})
+
         with transaction.atomic():
             req, was_created, note = create_or_get_request_for_schedule(
                 schedule=schedule, created_by=cfg.responsible_user,
