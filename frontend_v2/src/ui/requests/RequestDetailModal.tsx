@@ -46,6 +46,14 @@ export type RequestDetail = {
   category: string
   vendor: string
   vendor_ref?: number | null
+  contract_ref?: number | null
+  contract_ref_info?: {
+    id: number
+    contract_number: string
+    date_from: string | null
+    date_to: string | null
+  } | null
+  contract_label?: string | null
   company_payer?: string
   payment_purpose?: string
   file_link?: string | null
@@ -55,8 +63,6 @@ export type RequestDetail = {
   created_at?: string
   created_by?: number | null
   created_by_username?: string | null
-  contract_ref?: number | null
-  contract_label?: string | null
   submitted_at: string
   billing_date: string
   payed_at?: number | null
@@ -112,6 +118,16 @@ function formatPayedAt(value?: number | null): string {
   }
   return String(value)
 }
+
+function formatContractPeriod(info: RequestDetail['contract_ref_info']): string {
+  if (!info) return ''
+  const from = (info.date_from || '').trim()
+  const to = (info.date_to || '').trim()
+  if (from && to) return `${from} - ${to}`
+  if (from) return from
+  return ''
+}
+
 
 function decisionKey(decision?: string | null) {
   return String(decision || '').toLowerCase()
@@ -333,10 +349,11 @@ export function RequestDetailContent({
           <TgDetailRow label="Срочность">{detail.urgency || '—'}</TgDetailRow>
           <TgDetailRow label="Категория">{detail.category || '—'}</TgDetailRow>
           <TgDetailRow label="Поставщик">{vendorName || '—'}</TgDetailRow>
-          {detail.contract_ref != null ? (
-            <TgDetailRow label="Договор">
-              {detail.contract_label?.trim() || `Договор #${detail.contract_ref}`}
-            </TgDetailRow>
+          {detail.contract_ref_info ? (
+            <>
+              <TgDetailRow label="Договор">{detail.contract_ref_info.contract_number || '—'}</TgDetailRow>
+              <TgDetailRow label="Период договора">{formatContractPeriod(detail.contract_ref_info) || '—'}</TgDetailRow>
+            </>
           ) : null}
           <TgDetailRow label="Назначение платежа">{detail.payment_purpose || '—'}</TgDetailRow>
           {detail.description?.trim() && detail.description.trim() !== (detail.payment_purpose || '').trim() ? (
@@ -409,6 +426,14 @@ export function RequestDetailContent({
               createdByName || '-'
             )}
           </Descriptions.Item>
+          {detail.contract_ref_info ? (
+            <Descriptions.Item label="Договор">
+              {detail.contract_ref_info.contract_number || '-'}
+              {formatContractPeriod(detail.contract_ref_info)
+                ? ` · ${formatContractPeriod(detail.contract_ref_info)}`
+                : ''}
+            </Descriptions.Item>
+          ) : null}
           <Descriptions.Item label="Заявитель">
             {requesterName && detail.requester != null ? (
               <RequestEntityLink to={usersSettingsPath(detail.requester)} returnTo={returnTo}>
