@@ -609,7 +609,6 @@ services:
       # Internal n8n webhook base; bypasses Traefik+TLS so report proxies stop paying the public-hop cost.
       # Unset in .env to fall back to https://{subdomain}.{BASE_DOMAIN}.
       N8N_INTERNAL_BASE_URL: ${N8N_INTERNAL_BASE_URL:-http://n8n:5678/webhook}
-      N8N_TOKEN: ${N8N_TOKEN:-}
       MESSAGING_GATEWAY_SEND_URL: http://tg_gateway:8080/v1/messaging/send
       MESSAGING_GATEWAY_ADMIN_URL: http://tg_gateway:8080
       # MCP server OAuth issuer URL — must be the public HTTPS base without trailing slash.
@@ -766,30 +765,6 @@ services:
       - NET_ADMIN
       - SYS_MODULE
     restart: unless-stopped
-
-  # mcp-postgres:
-  #   image: node:22-alpine
-  #   container_name: mcp-postgres
-  #   restart: always
-  #   command: >
-  #     sh -c "
-  #       npm install -g @modelcontextprotocol/server-postgres mcp-proxy &&
-  #       mcp-proxy --port 3100 --transport sse npx @modelcontextprotocol/server-postgres 'postgresql://${POSGRES_MCP_USER}:${POSGRES_MCP_PASSWORD}@db:5432/backend_v2'
-  #     "
-  #   depends_on:
-  #     db:
-  #       condition: service_healthy
-  #   labels:
-  #     - traefik.enable=true
-  #     - traefik.docker.network=n8n_traefik-public
-  #     - traefik.http.routers.mcp-postgres.rule=Host(`mcp-db.kolberg.uz`)
-  #     - traefik.http.routers.mcp-postgres.entrypoints=web,websecure
-  #     - traefik.http.routers.mcp-postgres.tls=true
-  #     - traefik.http.routers.mcp-postgres.tls.certresolver=mytlschallenge
-  #     - traefik.http.services.mcp-postgres.loadbalancer.server.port=3100
-  #   networks:
-  #     - traefik-public
-  #     - backend
 
 volumes:
   n8n_data:
