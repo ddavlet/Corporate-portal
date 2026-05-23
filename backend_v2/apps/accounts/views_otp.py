@@ -16,7 +16,7 @@ from rest_framework.views import APIView
 from rest_framework_simplejwt.tokens import RefreshToken
 
 from apps.accounts.models import OtpChallenge
-from apps.modules.telegram_approvals.services import _get_tenant_bot_token, post_messaging_gateway
+from apps.modules.telegram_approvals.services import get_tenant_bot_token, post_messaging_gateway
 from apps.tenants.models import TenantMembership, TenantUserRole
 
 User = get_user_model()
@@ -142,7 +142,7 @@ class OtpRequestView(APIView):
         if not tenant.telegram_otp_enabled:
             return Response({"detail": "OTP для этого тенанта отключен."}, status=status.HTTP_400_BAD_REQUEST)
 
-        bot_token = _get_tenant_bot_token(tenant)
+        bot_token = get_tenant_bot_token(tenant)
         if not bot_token or not user.telegram_chat_id:
             return Response({"detail": "OTP недоступен для этого пользователя."}, status=status.HTTP_400_BAD_REQUEST)
 

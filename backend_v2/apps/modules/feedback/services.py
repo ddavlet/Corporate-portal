@@ -7,7 +7,7 @@ from html import escape
 import requests
 from django.conf import settings
 
-from apps.modules.telegram_approvals.services import _get_tenant_bot_token
+from apps.modules.telegram_approvals.services import get_tenant_bot_token
 from apps.tenants.integration_settings import get_n8n_integration_settings
 
 logger = logging.getLogger(__name__)
@@ -133,7 +133,7 @@ def build_portal_feedback_dispatch_payload(
         "action": action,
         "text": message_html,
         "recipient_id": str(chat_id),
-        "bot_token": _get_tenant_bot_token(tenant),
+        "bot_token": get_tenant_bot_token(tenant),
         "tenant_id": str(getattr(tenant, "id", "")),
         "buttons": [],
         "feedback_id": feedback_id,

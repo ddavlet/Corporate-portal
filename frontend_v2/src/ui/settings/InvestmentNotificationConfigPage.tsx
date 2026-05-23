@@ -25,7 +25,7 @@ export function InvestmentNotificationConfigPage() {
         const cfg = await getInvestNotificationConfig()
         if (!cancelled) setData(cfg)
       } catch (e: unknown) {
-        if (!cancelled) setError(e instanceof Error ? e.message : 'Failed to load config')
+        if (!cancelled) setError(e instanceof Error ? e.message : 'Ошибка загрузки')
       } finally {
         if (!cancelled) setLoading(false)
       }
@@ -38,7 +38,7 @@ export function InvestmentNotificationConfigPage() {
   const save = async () => {
     if (!data) return
     if (!data.responsible_user_id) {
-      message.warning('Please select a responsible user')
+      message.warning('Выберите ответственного пользователя')
       return
     }
     setSaving(true)
@@ -47,12 +47,13 @@ export function InvestmentNotificationConfigPage() {
       const next = await updateInvestNotificationConfig({
         responsible_user_id: data.responsible_user_id,
         days_before: data.days_before,
+        overdue_notify_every_days: data.overdue_notify_every_days,
         is_active: data.is_active,
       })
       setData(next)
-      message.success('Saved')
+      message.success('Сохранено')
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : 'Failed to save')
+      setError(e instanceof Error ? e.message : 'Ошибка сохранения')
     } finally {
       setSaving(false)
     }
@@ -63,14 +64,14 @@ export function InvestmentNotificationConfigPage() {
   return (
     <Card>
       <Button type="link" icon={<ArrowLeftOutlined />} onClick={() => navigate('/settings')} style={{ padding: 0 }}>
-        Back to settings
+        Назад к настройкам
       </Button>
       <Typography.Title level={4} style={{ marginTop: 0 }}>
-        Investments — Payout Notifications
+        Инвестиции — уведомления о выплатах
       </Typography.Title>
       <Typography.Paragraph type="secondary" style={{ marginBottom: 0 }}>
-        The responsible user receives a Telegram message before each upcoming investment payout. From the message
-        they can create a payment request with one tap.
+        Ответственный получает уведомление в Telegram перед каждой плановой выплатой по инвестициям. Прямо из
+        сообщения он может создать заявку на платёж в один клик.
       </Typography.Paragraph>
 
       <Divider />
@@ -81,18 +82,18 @@ export function InvestmentNotificationConfigPage() {
         <Space direction="vertical" size={16} style={{ display: 'flex' }}>
           <Space align="center">
             <Switch checked={data.is_active} onChange={(v) => setData({ ...data, is_active: v })} />
-            <Typography.Text>Notifications active</Typography.Text>
+            <Typography.Text>Уведомления включены</Typography.Text>
           </Space>
 
           <div>
-            <Typography.Text strong>Responsible user</Typography.Text>
+            <Typography.Text strong>Ответственный пользователь</Typography.Text>
             <Typography.Paragraph type="secondary" style={{ marginBottom: 8 }}>
-              This user will receive Telegram notifications and will be set as the creator of payment requests.
-              They must have a Telegram chat ID configured.
+              Этот пользователь получает уведомления в Telegram и указывается как создатель заявок на платёж.
+              У него должен быть настроен Telegram chat ID.
             </Typography.Paragraph>
             <Select
               style={{ width: 320 }}
-              placeholder="Select user"
+              placeholder="Выберите пользователя"
               value={data.responsible_user_id ?? undefined}
               onChange={(v: number) => setData({ ...data, responsible_user_id: v })}
               options={candidates.map((c) => ({ value: c.id, label: c.label || c.username }))}
@@ -104,21 +105,35 @@ export function InvestmentNotificationConfigPage() {
           </div>
 
           <div>
-            <Typography.Text strong>Notify N days before payout</Typography.Text>
+            <Typography.Text strong>Уведомлять за N дней до выплаты</Typography.Text>
             <Typography.Paragraph type="secondary" style={{ marginBottom: 8 }}>
-              A notification is sent once per day for each unpaid payout within this window.
+              Уведомление отправляется один раз в день по каждой неоплаченной выплате в этом окне.
             </Typography.Paragraph>
             <InputNumber
               min={1}
               max={365}
               value={data.days_before}
               onChange={(v) => setData({ ...data, days_before: v ?? 3 })}
-              addonAfter="days"
+              addonAfter="дн."
+            />
+          </div>
+
+          <div>
+            <Typography.Text strong>Уведомления о просрочке (каждые N дней)</Typography.Text>
+            <Typography.Paragraph type="secondary" style={{ marginBottom: 8 }}>
+              Уведомление отправляется каждые N дней, пока выплата не оплачена. 0 — отключено.
+            </Typography.Paragraph>
+            <InputNumber
+              min={0}
+              max={365}
+              value={data.overdue_notify_every_days}
+              onChange={(v) => setData({ ...data, overdue_notify_every_days: v ?? 0 })}
+              addonAfter="дн."
             />
           </div>
 
           <Button type="primary" onClick={() => void save()} loading={saving} disabled={!data.responsible_user_id}>
-            Save
+            Сохранить
           </Button>
         </Space>
       ) : null}

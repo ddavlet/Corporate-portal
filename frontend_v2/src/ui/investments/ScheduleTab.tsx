@@ -8,6 +8,7 @@ import {
   Input,
   InputNumber,
   Modal,
+  Popconfirm,
   Select,
   Skeleton,
   Space,
@@ -19,11 +20,14 @@ import {
 } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
 import dayjs, { type Dayjs } from 'dayjs'
+import { Link } from 'react-router-dom'
 
 import {
   createInvestPayoutSchedule,
   createInvestPayoutScheduleShareLink,
+  createRequestFromPayoutSchedule,
   deleteInvestPayoutScheduleShareLink,
+  markPayoutScheduleAsPaid,
   type InvestCompanyRow,
   type InvestPayoutScheduleRow,
   type InvestPayoutScheduleShareLinkRow,
@@ -100,6 +104,33 @@ export function ScheduleTab({
   const [seriesSubmitting, setSeriesSubmitting] = useState(false)
   const [creatingShareLink, setCreatingShareLink] = useState(false)
   const [deletingShareLinkId, setDeletingShareLinkId] = useState<number | null>(null)
+  const [rowActionId, setRowActionId] = useState<number | null>(null)
+
+  const handleCreateRequest = async (scheduleId: number) => {
+    setRowActionId(scheduleId)
+    try {
+      const res = await createRequestFromPayoutSchedule(scheduleId)
+      message.success(res.detail || 'Заявка создана')
+      await onCreated()
+    } catch (e: unknown) {
+      message.error(e instanceof Error ? e.message : 'Не удалось создать заявку')
+    } finally {
+      setRowActionId(null)
+    }
+  }
+
+  const handleMarkPaid = async (scheduleId: number) => {
+    setRowActionId(scheduleId)
+    try {
+      const res = await markPayoutScheduleAsPaid(scheduleId)
+      message.success(res.detail || 'Отмечено как оплачено')
+      await onCreated()
+    } catch (e: unknown) {
+      message.error(e instanceof Error ? e.message : 'Не удалось отметить как оплачено')
+    } finally {
+      setRowActionId(null)
+    }
+  }
   const [dateRange, setDateRange] = useState<[Dayjs | null, Dayjs | null] | null>(null)
   const watchedSingleCurrency = Form.useWatch('currency', singleForm) || 'USD'
   const watchedSeriesCurrency = Form.useWatch('currency', seriesForm) || 'USD'
@@ -133,7 +164,12 @@ export function ScheduleTab({
     return generateSeriesDates(start.year(), start.month(), Number(watchedSeries.day), Number(watchedSeries.count))
   }, [watchedSeries])
 
-  const today = useMemo(() => new Date().toISOString().slice(0, 10), [])
+  // Today in Asia/Tashkent (matches the backend's notification window). Plain
+  // toISOString() returns UTC, which lags by 1 day between 00:00–05:00 Tashkent.
+  const today = useMemo(
+    () => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Tashkent' }).format(new Date()),
+    [],
+  )
 
   const columns: ColumnsType<InvestPayoutScheduleRow> = useMemo(() => {
     const companyCol = {
@@ -209,8 +245,44 @@ export function ScheduleTab({
           },
         ]
       : []),
+    {
+      title: 'Действия',
+      key: 'actions',
+      width: 220,
+      render: (_: unknown, row: InvestPayoutScheduleRow) => {
+        if (row.created_request) {
+          return <Link to={`/requests/${row.created_request}`}>Заявка #{row.created_request} →</Link>
+        }
+        if (row.is_paid) return <Tag color="green">Оплачено</Tag>
+        const loading = rowActionId === row.id
+        return (
+          <Space size={4}>
+            <Popconfirm
+              title="Создать заявку на платёж?"
+              okText="Создать"
+              cancelText="Отмена"
+              onConfirm={() => handleCreateRequest(row.id)}
+            >
+              <Button size="small" type="primary" loading={loading}>
+                Создать заявку
+              </Button>
+            </Popconfirm>
+            <Popconfirm
+              title="Отметить выплату как оплаченную?"
+              okText="Отметить"
+              cancelText="Отмена"
+              onConfirm={() => handleMarkPaid(row.id)}
+            >
+              <Button size="small" loading={loading}>
+                Оплачено
+              </Button>
+            </Popconfirm>
+          </Space>
+        )
+      },
+    },
     ]
-  }, [usesCompanies, companyLabel, notifyDaysBefore, today])
+  }, [usesCompanies, companyLabel, notifyDaysBefore, today, rowActionId])
 
   const shareLinkRows = useMemo(
     () =>

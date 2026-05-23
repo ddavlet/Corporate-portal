@@ -21,18 +21,33 @@ _poller_lock = threading.Lock()
 
 def _build_payout_notification_text(schedule) -> str:
     company_name = escape(schedule.company.name) if schedule.company else ""
-    parts = ["<b>Investment payout reminder</b>"]
+    parts = ["<b>Напоминание о выплате по инвестициям</b>"]
     if company_name:
-        parts.append(f"Company: {company_name}")
-    parts.append(f"Date: {schedule.payout_date.strftime('%d.%m.%Y')}")
-    parts.append(f"Amount: {schedule.amount:,.2f} {escape(schedule.currency)}")
+        parts.append(f"Компания: {company_name}")
+    parts.append(f"Дата: {schedule.payout_date.strftime('%d.%m.%Y')}")
+    parts.append(f"Сумма: {schedule.amount:,.2f} {escape(schedule.currency)}")
     if schedule.comment:
-        parts.append(f"Note: {escape(schedule.comment)}")
+        parts.append(f"Примечание: {escape(schedule.comment)}")
     return "\n".join(parts)
 
 
-def _send_payout_notification(*, schedule, config) -> bool:
-    from apps.modules.telegram_approvals.services import _get_tenant_bot_token, post_messaging_gateway
+def _build_overdue_notification_text(schedule, days_overdue: int) -> str:
+    company_name = escape(schedule.company.name) if schedule.company else ""
+    parts = ["⚠️ <b>Просроченная выплата по инвестициям</b>"]
+    if company_name:
+        parts.append(f"Компания: {company_name}")
+    parts.append(f"Срок оплаты: {schedule.payout_date.strftime('%d.%m.%Y')}")
+    parts.append(f"Просрочка: {days_overdue} дн.")
+    parts.append(f"Сумма: {schedule.amount:,.2f} {escape(schedule.currency)}")
+    if schedule.comment:
+        parts.append(f"Примечание: {escape(schedule.comment)}")
+    return "\n".join(parts)
+
+
+def _dispatch_payout_notification(*, schedule, config, text: str) -> bool:
+    """Send an interactive Telegram message carrying the 'Create Payment' button. Shared by
+    the upcoming and overdue flows — they differ only in the message text."""
+    from apps.modules.telegram_approvals.services import get_tenant_bot_token, post_messaging_gateway
 
     user = config.responsible_user
     chat_id = getattr(user, "telegram_chat_id", None)
@@ -44,19 +59,18 @@ def _send_payout_notification(*, schedule, config) -> bool:
         )
         return False
 
-    bot_token = _get_tenant_bot_token(config.tenant)
+    bot_token = get_tenant_bot_token(config.tenant)
     if not bot_token:
         logger.warning("invest_notify: tenant=%s has no Telegram bot token, skipping", config.tenant_id)
         return False
 
-    text = _build_payout_notification_text(schedule)
     payload = {
         "action": "send_interactive",
         "text": text,
         "recipient_id": str(chat_id),
         "bot_token": bot_token,
         "tenant_id": str(config.tenant_id),
-        "buttons": [[{"label": "💳 Create Payment", "value": f"invest_pay:{schedule.pk}"}]],
+        "buttons": [[{"label": "💳 Создать заявку", "value": f"invest_pay:{schedule.pk}"}]],
     }
     result = post_messaging_gateway(tenant=config.tenant, payload=payload)
     return result is not None
@@ -68,11 +82,11 @@ def remove_payout_notification_button(*, schedule, chat_id, message_id, note: st
     Telegram's editMessageText removes the inline keyboard when reply_markup is omitted, which the
     gateway does when buttons=[]. Best-effort: failure here does not undo the created request.
     """
-    from apps.modules.telegram_approvals.services import _get_tenant_bot_token, post_messaging_gateway
+    from apps.modules.telegram_approvals.services import get_tenant_bot_token, post_messaging_gateway
 
     if not message_id or not chat_id:
         return False
-    bot_token = _get_tenant_bot_token(schedule.tenant)
+    bot_token = get_tenant_bot_token(schedule.tenant)
     if not bot_token:
         return False
 
@@ -102,43 +116,96 @@ def process_due_invest_payout_notifications(*, now_dt: dt.datetime | None = None
         .select_related("tenant", "responsible_user")
     )
 
+    def _try_send(*, schedule, config, text: str) -> bool:
+        # Create-first idempotency: the unique (schedule, recipient_user, sent_date)
+        # constraint atomically picks a single winner, even across gunicorn workers whose
+        # poller threads all wake at the same time. Only the creator sends.
+        log, created = InvestPayoutNotificationLog.objects.get_or_create(
+            schedule=schedule,
+            recipient_user=config.responsible_user,
+            sent_date=today,
+        )
+        if not created:
+            return False
+        try:
+            if _dispatch_payout_notification(schedule=schedule, config=config, text=text):
+                return True
+            log.delete()  # free the slot so a later run can retry
+        except Exception:
+            logger.exception(
+                "invest_notify: failed to send notification schedule=%s tenant=%s",
+                schedule.pk,
+                config.tenant_id,
+            )
+            log.delete()
+        return False
+
     for config in configs:
+        # Upcoming payouts: due within the lead-time window and not yet acted on.
         threshold_date = today + dt.timedelta(days=config.days_before)
-        schedules = InvestPayoutSchedule.objects.filter(
+        upcoming = InvestPayoutSchedule.objects.filter(
             tenant=config.tenant,
             is_paid=False,
+            created_request__isnull=True,
             payout_date__lte=threshold_date,
             payout_date__gte=today,
         ).select_related("company")
+        for schedule in upcoming:
+            if _try_send(schedule=schedule, config=config, text=_build_payout_notification_text(schedule)):
+                sent += 1
 
-        for schedule in schedules:
-            # Create-first idempotency: the unique (schedule, recipient_user, sent_date)
-            # constraint atomically picks a single winner, even across gunicorn workers
-            # whose poller threads all wake at the same time. Only the creator sends.
-            log, created = InvestPayoutNotificationLog.objects.get_or_create(
-                schedule=schedule,
-                recipient_user=config.responsible_user,
-                sent_date=today,
-            )
-            if not created:
-                continue
-
-            try:
-                ok = _send_payout_notification(schedule=schedule, config=config)
-                if ok:
+        # Overdue payouts: re-notify every N days until paid (0 disables this pass).
+        if config.overdue_notify_every_days > 0:
+            overdue = InvestPayoutSchedule.objects.filter(
+                tenant=config.tenant,
+                is_paid=False,
+                created_request__isnull=True,
+                payout_date__lt=today,
+            ).select_related("company")
+            for schedule in overdue:
+                days_overdue = (today - schedule.payout_date).days
+                if days_overdue % config.overdue_notify_every_days != 0:
+                    continue
+                if _try_send(
+                    schedule=schedule,
+                    config=config,
+                    text=_build_overdue_notification_text(schedule, days_overdue),
+                ):
                     sent += 1
-                else:
-                    # Free the slot so a later run can retry.
-                    log.delete()
-            except Exception:
-                logger.exception(
-                    "invest_notify: failed to send notification schedule=%s tenant=%s",
-                    schedule.pk,
-                    config.tenant_id,
-                )
-                log.delete()
 
     return sent
+
+
+def create_or_get_request_for_schedule(*, schedule, created_by) -> tuple[object, bool, str]:
+    """Atomically create-or-return the payment Request linked to a payout schedule.
+
+    The caller MUST wrap this in ``transaction.atomic()``. The function re-fetches the
+    schedule with ``SELECT FOR UPDATE OF self`` to serialize concurrent button presses —
+    the ``created_request`` FK then acts as the dupe gate.
+
+    Returns ``(request_or_None, was_created, status_note)``.
+    """
+    from apps.modules.investments.models import InvestPayoutSchedule
+
+    # select_related("tenant", "company"): fresh data for the Request creation below
+    # (avoids using the caller's potentially-stale view of the schedule).
+    locked = (
+        InvestPayoutSchedule.objects
+        .select_for_update(of=("self",))
+        .select_related("tenant", "company")
+        .get(pk=schedule.pk)
+    )
+    if locked.is_paid:
+        return locked.created_request, False, "✅ Уже оплачено"
+    if locked.created_request_id is not None:
+        return locked.created_request, False, f"✅ Заявка #{locked.created_request_id} уже создана"
+    req = create_request_from_payout_schedule(schedule=locked, created_by=created_by)
+    # Single targeted UPDATE: no full save(), no need to refresh in-memory schedule.
+    InvestPayoutSchedule.objects.filter(pk=locked.pk).update(
+        created_request=req,
+        last_edit_at=timezone.now(),
+    )
+    return req, True, f"✅ Заявка #{req.pk} создана"
 
 
 def create_request_from_payout_schedule(*, schedule, created_by):
@@ -148,16 +215,16 @@ def create_request_from_payout_schedule(*, schedule, created_by):
 
     with transaction.atomic():
         company_name = schedule.company.name if schedule.company else ""
+        # No title= — Request.save() always overwrites it from the tenant name.
         req = Request.objects.create(
             tenant=schedule.tenant,
             created_by=created_by,
             vendor=company_name,
-            title=(schedule.tenant.name or "").strip()[:200],
             description=schedule.comment or "",
             amount=schedule.amount,
             currency=schedule.currency,
-            payment_type="Перечисление",
-            urgency="Обычно",
+            payment_type=Request.PAYMENT_TYPE_TRANSFER,
+            urgency=Request.URGENCY_NORMAL,
             requester=created_by,
             payment_purpose="Investment payout",
             submitted_at=timezone.now(),

@@ -84,7 +84,7 @@ class TelegramApprovalWebhookView(APIView):
     def _handle_invest_pay_callback(self, payload_str: str, event_data: dict) -> Response:
         from apps.modules.investments.models import InvestNotificationConfig, InvestPayoutSchedule
         from apps.modules.investments.notification_services import (
-            create_request_from_payout_schedule,
+            create_or_get_request_for_schedule,
             remove_payout_notification_button,
         )
 
@@ -94,49 +94,46 @@ class TelegramApprovalWebhookView(APIView):
         except (TypeError, ValueError):
             raise ValidationError({"detail": "Invalid invest_pay callback: bad schedule_id."})
 
-        schedule = InvestPayoutSchedule.objects.select_related("tenant", "company").filter(pk=schedule_id).first()
-        if schedule is None:
-            raise ValidationError({"detail": "Payout schedule not found."})
-
         message_id = event_data.get("message_id")
         recipient_id = event_data.get("recipient_id")
 
-        if schedule.is_paid:
-            # Drop the now-stale button so it can't be pressed again.
-            try:
-                remove_payout_notification_button(
-                    schedule=schedule, chat_id=recipient_id, message_id=message_id, note="✅ Already paid",
-                )
-            except Exception:
-                logger.exception("invest_pay_callback: button cleanup failed schedule_id=%s", schedule_id)
-            return Response({"detail": "Payout already marked as paid."}, status=status.HTTP_200_OK)
+        schedule = (
+            InvestPayoutSchedule.objects
+            .select_related("tenant", "company")
+            .filter(pk=schedule_id)
+            .first()
+        )
+        if schedule is None:
+            raise ValidationError({"detail": "Payout schedule not found."})
 
         try:
             cfg = InvestNotificationConfig.objects.select_related("responsible_user").get(tenant=schedule.tenant)
         except InvestNotificationConfig.DoesNotExist:
             raise ValidationError({"detail": "Notification config not found for tenant."})
 
-        req = create_request_from_payout_schedule(
-            schedule=schedule,
-            created_by=cfg.responsible_user,
-        )
-        logger.info(
-            "invest_pay_callback: created request_id=%s for schedule_id=%s tenant_id=%s",
-            req.pk,
-            schedule_id,
-            schedule.tenant_id,
-        )
+        with transaction.atomic():
+            req, was_created, note = create_or_get_request_for_schedule(
+                schedule=schedule, created_by=cfg.responsible_user,
+            )
 
-        # Remove the button so a second tap can't create a duplicate request (best-effort).
+        request_id = req.pk if req is not None else None
+        http_status = status.HTTP_201_CREATED if was_created else status.HTTP_200_OK
+        if was_created:
+            logger.info(
+                "invest_pay_callback: created request_id=%s for schedule_id=%s tenant_id=%s",
+                request_id, schedule_id, schedule.tenant_id,
+            )
+
+        # After commit, drop the button and append the status note (best-effort; the request
+        # is already persisted, so an edit failure is cosmetic only).
         try:
             remove_payout_notification_button(
-                schedule=schedule, chat_id=recipient_id, message_id=message_id,
-                note=f"✅ Payment request #{req.pk} created",
+                schedule=schedule, chat_id=recipient_id, message_id=message_id, note=note,
             )
         except Exception:
             logger.exception("invest_pay_callback: button cleanup failed schedule_id=%s", schedule_id)
 
-        return Response({"detail": "Payment request created.", "request_id": req.pk}, status=status.HTTP_201_CREATED)
+        return Response({"detail": note, "request_id": request_id}, status=http_status)
 
     def post(self, request):
         serializer = MessagingGatewayCallbackSerializer(data=request.data)

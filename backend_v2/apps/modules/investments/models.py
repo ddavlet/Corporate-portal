@@ -80,6 +80,14 @@ class InvestPayoutSchedule(models.Model):
     is_paid = models.BooleanField(default=False)
     payment_amount = models.DecimalField(max_digits=18, decimal_places=2, default=Decimal("0.00"))
     comment = models.TextField(blank=True, default="")
+    created_request = models.OneToOneField(
+        "requests.Request",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="invest_payout_schedule",
+        help_text="Payment request created from this payout (one-click). Guards against duplicates.",
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     last_edit_at = models.DateTimeField(auto_now=True)
     created_by = models.ForeignKey(
@@ -359,6 +367,10 @@ class InvestNotificationConfig(models.Model):
         related_name="invest_notification_configs",
     )
     days_before = models.PositiveIntegerField(default=3)
+    overdue_notify_every_days = models.PositiveIntegerField(
+        default=3,
+        help_text="Notify every N days for overdue unpaid payouts (0 = disabled).",
+    )
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

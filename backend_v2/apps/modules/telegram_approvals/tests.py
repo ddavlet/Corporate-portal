@@ -22,7 +22,7 @@ from apps.modules.requests.models import (
     RequestFormPaymentTypeConfig,
 )
 from apps.modules.telegram_approvals.services import (
-    _get_tenant_bot_token,
+    get_tenant_bot_token,
     build_approval_message,
     post_messaging_gateway,
 )
@@ -86,7 +86,7 @@ class TelegramApprovalsTests(APITestCase):
         TenantIntegrationConfig.objects.get_or_create(
             tenant=self.tenant, defaults={"updated_by": self.admin}
         )
-        self.assertEqual(_get_tenant_bot_token(self.tenant), "111222333:AAATESTBOTTOKEN")
+        self.assertEqual(get_tenant_bot_token(self.tenant), "111222333:AAATESTBOTTOKEN")
 
     @patch("apps.modules.telegram_approvals.services.requests.post")
     def test_request_create_dispatches_telegram_message_and_saves_message_id(self, mocked_post):

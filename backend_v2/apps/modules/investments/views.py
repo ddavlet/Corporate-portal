@@ -330,6 +330,7 @@ class InvestNotificationConfigView(APIView):
             return {
                 "is_active": False,
                 "days_before": 3,
+                "overdue_notify_every_days": 3,
                 "responsible_user_id": None,
                 "responsible_user_name": "",
                 "approver_candidates": approver_candidates,
@@ -338,6 +339,7 @@ class InvestNotificationConfigView(APIView):
         return {
             "is_active": cfg.is_active,
             "days_before": cfg.days_before,
+            "overdue_notify_every_days": cfg.overdue_notify_every_days,
             "responsible_user_id": user.pk,
             "responsible_user_name": (getattr(user, "full_name", "") or user.username or "").strip(),
             "approver_candidates": approver_candidates,
@@ -371,10 +373,71 @@ class InvestNotificationConfigView(APIView):
             defaults={
                 "responsible_user": user,
                 "days_before": payload["days_before"],
+                "overdue_notify_every_days": payload["overdue_notify_every_days"],
                 "is_active": payload["is_active"],
             },
         )
         return Response(self._payload(request.tenant))
+
+
+class InvestPayoutScheduleCreateRequestView(APIView):
+    """Web one-click: create-or-return the payment Request for a payout schedule.
+
+    Uses the same atomic helper as the Telegram callback so concurrent presses (web tab
+    or Telegram tap) all converge on the single ``created_request`` FK — no duplicates.
+    """
+
+    permission_classes = [IsAuthenticated, HasEffectiveModuleAccess]
+    module_key = "investments"
+
+    def post(self, request, schedule_id: int):
+        self.check_permissions(request)
+        from apps.modules.investments.notification_services import create_or_get_request_for_schedule
+
+        schedule = (
+            InvestPayoutSchedule.objects
+            .select_related("tenant", "company")
+            .filter(pk=schedule_id, tenant=request.tenant)
+            .first()
+        )
+        if schedule is None:
+            return Response({"detail": "Schedule not found."}, status=status.HTTP_404_NOT_FOUND)
+        with transaction.atomic():
+            req, was_created, note = create_or_get_request_for_schedule(
+                schedule=schedule, created_by=request.user,
+            )
+        return Response(
+            {"detail": note, "request_id": req.pk if req else None},
+            status=status.HTTP_201_CREATED if was_created else status.HTTP_200_OK,
+        )
+
+
+class InvestPayoutScheduleMarkPaidView(APIView):
+    """Mark a payout as paid without going through the request flow (paid out-of-band)."""
+
+    permission_classes = [IsAuthenticated, HasEffectiveModuleAccess]
+    module_key = "investments"
+
+    def post(self, request, schedule_id: int):
+        self.check_permissions(request)
+        with transaction.atomic():
+            schedule = (
+                InvestPayoutSchedule.objects
+                .select_for_update(of=("self",))
+                .filter(pk=schedule_id, tenant=request.tenant)
+                .first()
+            )
+            if schedule is None:
+                return Response({"detail": "Schedule not found."}, status=status.HTTP_404_NOT_FOUND)
+            if schedule.is_paid:
+                return Response({"detail": "Already paid.", "is_paid": True}, status=status.HTTP_200_OK)
+            schedule.is_paid = True
+            # Quick action assumes the scheduled amount was paid in full. Users who paid a
+            # different amount can correct via the schedule edit form.
+            if not schedule.payment_amount:
+                schedule.payment_amount = schedule.amount
+            schedule.save(update_fields=["is_paid", "payment_amount", "last_edit_at"])
+        return Response({"detail": "Marked as paid.", "is_paid": True}, status=status.HTTP_200_OK)
 
 
 class InvestmentApprovalConfigView(APIView):
