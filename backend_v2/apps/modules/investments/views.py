@@ -729,9 +729,9 @@ class InvestmentApprovalWebhookView(APIView):
 
         try:
             from_id = int(event_data["user_id"])
-            chat_id = int(event_data["recipient_id"])
         except (TypeError, ValueError) as exc:
             raise ValidationError({"detail": "Invalid callback identifiers."}) from exc
+        chat_id = str(event_data["recipient_id"]).strip() if event_data.get("recipient_id") is not None else None
         message_id = event_data.get("message_id")
 
         if kind == "project":
