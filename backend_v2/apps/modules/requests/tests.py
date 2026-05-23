@@ -3271,6 +3271,21 @@ class RequestContractsRequiredTests(APITestCase):
         req = Request.objects.get(id=res.data["id"])
         self.assertIsNone(req.contract_ref_id)
 
+    def test_detail_exposes_created_by_username_and_contract_label(self):
+        self.client.force_authenticate(self.requester)
+        create = self.client.post(
+            "/api/requests/",
+            self._payload(contract_ref=self.contract.id),
+            format="json",
+            HTTP_HOST=self.host,
+        )
+        self.assertEqual(create.status_code, 201, create.content)
+        request_id = create.data["id"]
+        detail = self.client.get(f"/api/requests/{request_id}/", HTTP_HOST=self.host)
+        self.assertEqual(detail.status_code, 200, detail.content)
+        self.assertEqual(detail.data["created_by_username"], self.requester.username)
+        self.assertEqual(detail.data["contract_label"], "CV-2026-1")
+
 
 @override_settings(BASE_DOMAIN="example.com", MESSAGING_GATEWAY_SEND_URL="http://gw.example/v1/messaging/send")
 class GetRequestsMessagingGatewaySettingsTests(APITestCase):

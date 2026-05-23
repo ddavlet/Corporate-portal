@@ -3,6 +3,7 @@ import { Alert, Button, Card, DatePicker, Input, InputNumber, Modal, Select, Spa
 import type { UploadFile } from 'antd/es/upload/interface'
 import { CopyOutlined, PlusOutlined, ReloadOutlined } from '@ant-design/icons'
 import { useNavigate, useParams, useLocation } from 'react-router-dom'
+import { RequestReturnBackButton } from './RequestReturnBackButton'
 import {
   apiFetch,
   confirmPaymentViaWebApp,
@@ -19,6 +20,8 @@ import { NoteCreateModal } from '../NoteCreateModal'
 import { useAuth } from '../auth'
 import { canResendRequestByStatus } from '../../lib/requestUtils'
 import { clampToAllowedBillingMonth, isAllowedBillingMonth } from '../../lib/billingMonth'
+import { canOpenLinkedExpense, linkedExpenseFrontendPath, linkedExpenseLabel } from '../../lib/requestExpense'
+import { readRequestReturnTo, requestReturnState, requestReturnToForDetail } from '../../lib/requestNavigation'
 import type { Dayjs } from 'dayjs'
 import { monthStartTashkent } from '../../lib/tashkentTime'
 
@@ -27,16 +30,6 @@ export type RequestDetailPageProps = {
   listPath?: string
   /** Упрощённая вёрстка для Telegram Mini App */
   variant?: 'portal' | 'telegram'
-}
-
-function canOpenLinkedExpense(link: RequestDetail['expense_link'] | null | undefined): boolean {
-  if (!link || link.id == null || link.id === '') return false
-  return (
-    link.module === 'cash' ||
-    link.module === 'bank' ||
-    link.module === 'payroll' ||
-    link.module === 'corporate_card'
-  )
 }
 
 
@@ -206,13 +199,14 @@ export function RequestDetailPage({ listPath = '/requests', variant = 'portal' }
     setEditBillingDate(detail.billing_date ? monthStartTashkent(detail.billing_date) : clampToAllowedBillingMonth(monthStartTashkent()))
   }, [editOpen, detail])
 
+  const requestReturnTo =
+    detail?.id != null
+      ? requestReturnToForDetail(detail.id, { telegram: isTg })
+      : undefined
+
   const openLinkedExpense = () => {
-    const link = detail?.expense_link
-    if (!canOpenLinkedExpense(link)) return
-    const expId = String(link!.id)
-    if (link!.module === 'cash') navigate(`/cash/${expId}`)
-    if (link!.module === 'bank') navigate(`/bank/${expId}`)
-    if (link!.module === 'payroll') navigate(`/payroll/${expId}`)
+    const path = linkedExpenseFrontendPath(detail?.expense_link ?? null, { telegram: isTg })
+    if (path && requestReturnTo) navigate(path, { state: requestReturnState(requestReturnTo) })
   }
 
   const resendRequest = async () => {
@@ -244,7 +238,7 @@ export function RequestDetailPage({ listPath = '/requests', variant = 'portal' }
     }
   }
 
-  const link = detail?.expense_link
+  const link = detail?.expense_link ?? null
   const showExpenseButton = canOpenLinkedExpense(link)
   const showExternalExpenseHint = link?.module === 'external' && link.id != null && String(link.id) !== ''
   const resendAllowed = canResendRequestByStatus(detail?.status)
@@ -517,7 +511,15 @@ export function RequestDetailPage({ listPath = '/requests', variant = 'portal' }
         <Space direction="vertical" size={12} style={{ display: 'flex' }}>
           {isTg ? (
             <div className="tg-actions-stack">
-              <Button type="default" size="large" block onClick={() => navigate(listPath)}>
+              <Button
+                type="default"
+                size="large"
+                block
+                onClick={() => {
+                  const returnTo = readRequestReturnTo(locationState)
+                  navigate(returnTo?.pathname ?? listPath)
+                }}
+              >
                 ← К списку заявок
               </Button>
               {detail?.id ? (
@@ -565,19 +567,19 @@ export function RequestDetailPage({ listPath = '/requests', variant = 'portal' }
               {pendingApprovalsEl}
               {showExpenseButton ? (
                 <Button type="primary" size="large" block onClick={openLinkedExpense}>
-                  Связанный расход
+                  {linkedExpenseLabel(link) || 'Связанный расход'}
                 </Button>
               ) : null}
               {showExternalExpenseHint ? (
                 <Typography.Text type="secondary" style={{ display: 'block', textAlign: 'center' }}>
-                  Расход не в кассе/банке приложения (внешний ID: {String(link?.id)}).
+                  {linkedExpenseLabel(link) || `Внешний платёж (ID ${String(link?.id)})`}
                 </Typography.Text>
               ) : null}
             </div>
           ) : (
             <Space direction="vertical" size={12} style={{ display: 'flex', width: '100%' }}>
               <Space wrap align="start">
-                <Button onClick={() => navigate(listPath)}>Назад к списку</Button>
+                <RequestReturnBackButton fallbackPath={listPath} fallbackLabel="Назад к списку" />
                 {canEditDraft ? (
                   <>
                     <Button onClick={() => setEditOpen(true)}>Редактировать черновик</Button>
@@ -607,10 +609,12 @@ export function RequestDetailPage({ listPath = '/requests', variant = 'portal' }
                 ) : null}
                 {showExpenseButton ? (
                   <Button type="primary" onClick={openLinkedExpense}>
-                    Открыть связанный расход
+                    {linkedExpenseLabel(link) || 'Открыть связанный расход'}
                   </Button>
                 ) : showExternalExpenseHint ? (
-                  <Typography.Text type="secondary">Внешний расход (ID {String(link?.id)})</Typography.Text>
+                  <Typography.Text type="secondary">
+                    {linkedExpenseLabel(link) || `Внешний платёж (ID ${String(link?.id)})`}
+                  </Typography.Text>
                 ) : detail?.status === 'PAYED' ? (
                   <Typography.Text type="secondary">Связанный расход не найден</Typography.Text>
                 ) : null}
@@ -624,6 +628,7 @@ export function RequestDetailPage({ listPath = '/requests', variant = 'portal' }
             loading={loading}
             error={error}
             variant={isTg ? 'telegram' : 'default'}
+            returnTo={requestReturnTo}
           />
         </Space>
       </div>

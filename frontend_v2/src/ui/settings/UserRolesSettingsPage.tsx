@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Alert, Button, Card, Select, Space, Table, Typography, message } from 'antd'
+import { useSearchParams } from 'react-router-dom'
+import { RequestReturnBackButton } from '../requests/RequestReturnBackButton'
 import type { ColumnsType } from 'antd/es/table'
 import {
   getAccessMatrix,
@@ -22,6 +24,13 @@ function rolesEqual(a: string[], b: string[]): boolean {
 }
 
 export function UserRolesSettingsPage() {
+  const [searchParams] = useSearchParams()
+  const highlightUserId = useMemo(() => {
+    const raw = searchParams.get('user')
+    if (!raw) return null
+    const id = Number(raw)
+    return Number.isFinite(id) ? id : null
+  }, [searchParams])
   const [gateLoading, setGateLoading] = useState(true)
   const [allowed, setAllowed] = useState(false)
   const [gateError, setGateError] = useState<string | null>(null)
@@ -146,6 +155,7 @@ export function UserRolesSettingsPage() {
 
   return (
     <Space direction="vertical" size={12} style={{ display: 'flex' }}>
+      <RequestReturnBackButton fallbackPath="/settings/users-roles" fallbackLabel="Пользователи" />
       <Typography.Title level={4} style={{ marginTop: 0 }}>
         Настройки пользователей
       </Typography.Title>
@@ -188,6 +198,11 @@ export function UserRolesSettingsPage() {
             dataSource={dataSource}
             pagination={{ pageSize: 20, showSizeChanger: true }}
             scroll={{ x: 720 }}
+            onRow={(row) =>
+              highlightUserId === row.user_id
+                ? { style: { background: '#e6f4ff' } }
+                : {}
+            }
           />
         </Card>
       ) : null}

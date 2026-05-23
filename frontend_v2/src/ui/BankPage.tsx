@@ -5,6 +5,7 @@ import type { Dayjs } from 'dayjs'
 import { useNavigate } from 'react-router-dom'
 import { FileSearchOutlined, MessageOutlined } from '@ant-design/icons'
 import { apiFetch, getBankRevenues, type BankRevenue } from '../lib/api'
+import type { RequestReturnTo } from '../lib/requestNavigation'
 import { RequestDetailModal, type RequestDetail } from './requests/RequestDetailModal'
 import { NoteCreateModal } from './NoteCreateModal'
 import { labelBlockAboveField } from './formSpacing'
@@ -546,6 +547,14 @@ export function BankPage() {
         detail={requestDetail}
         loading={requestLoading}
         error={requestError}
+        returnTo={
+          requestDetail?.id
+            ? ({
+                pathname: selectedExpense ? `/bank/${selectedExpense.id}` : '/bank',
+                label: selectedExpense ? `Банковский расход #${selectedExpense.id}` : 'Банк',
+              } satisfies RequestReturnTo)
+            : undefined
+        }
       />
       <NoteCreateModal
         open={openNoteModal}
