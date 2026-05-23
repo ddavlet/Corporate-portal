@@ -45,6 +45,7 @@ from apps.modules.investments.services import (
 )
 from apps.modules.investments.views import PublicInvestPayoutScheduleByTokenView
 from apps.tenants.models import Tenant
+from apps.modules.telegram_approvals.models import TenantTelegramChat
 
 
 User = get_user_model()
@@ -779,6 +780,8 @@ class InvestmentApprovalFlowTests(APITestCase):
         TenantUserRole.objects.create(tenant=self.tenant, user=self.intruder, role=TenantUserRole.ROLE_DIRECTOR)
         TenantModuleConfig.objects.create(tenant=self.tenant, module_key="investments", is_enabled=True)
 
+        self.tg_chat_666 = TenantTelegramChat.objects.create(tenant=self.tenant, name="Chat 666000", chat_id="666000")
+
         self.client.force_authenticate(self.admin)
         cfg_payload = {
             "return_type": None,
@@ -795,7 +798,7 @@ class InvestmentApprovalFlowTests(APITestCase):
                     "step": 2,
                     "step_type": InvestmentApprovalConfigStep.STEP_TYPE_CONFIRMATION,
                     "is_enabled": True,
-                    "payment_chat_id": 666000,
+                    "telegram_chat_id": self.tg_chat_666.pk,
                     "approver_user_ids": [self.approver2.id],
                 },
             ],
@@ -916,7 +919,7 @@ class InvestmentApprovalFlowTests(APITestCase):
 
         second_step.refresh_from_db()
         self.assertIsNotNone(second_step.gateway_message_id)
-        self.assertEqual(second_step.approver_recipient_id, 666000)
+        self.assertEqual(second_step.approver_recipient_id, "666000")
         ok_second = self.client.post(
             "/api/investments/approvals/webhook/",
             {
@@ -1137,6 +1140,7 @@ class InvestmentApprovalFlowTests(APITestCase):
     @patch("apps.modules.investments.approval_services.post_messaging_gateway")
     def test_notification_step_dispatches_without_buttons_and_auto_approves(self, bridge_mock):
         bridge_mock.return_value = {"message_id": 801}
+        tg_chat_888 = TenantTelegramChat.objects.create(tenant=self.tenant, name="Chat 888001", chat_id="888001")
         put_res = self.client.put(
             "/api/investments/approval-config/",
             {
@@ -1148,7 +1152,7 @@ class InvestmentApprovalFlowTests(APITestCase):
                         "step": 1,
                         "step_type": InvestmentApprovalConfigStep.STEP_TYPE_NOTIFICATION,
                         "is_enabled": True,
-                        "payment_chat_id": 888001,
+                        "telegram_chat_id": tg_chat_888.pk,
                         "approver_user_ids": [],
                     },
                     {
@@ -1198,7 +1202,10 @@ class InvestmentApprovalFlowTests(APITestCase):
     def test_zz_recipient_specific_confirmation_chat_overrides_type_default(self, bridge_mock):
         bridge_mock.return_value = {"message_id": 701}
 
-        def steps_for_confirmation(chat_id: int):
+        tg_chat_111 = TenantTelegramChat.objects.create(tenant=self.tenant, name="Chat 111111", chat_id="111111")
+        tg_chat_222 = TenantTelegramChat.objects.create(tenant=self.tenant, name="Chat 222222", chat_id="222222")
+
+        def steps_for_confirmation(tg_chat_pk: int):
             return [
                 {
                     "step": 1,
@@ -1210,7 +1217,7 @@ class InvestmentApprovalFlowTests(APITestCase):
                     "step": 2,
                     "step_type": InvestmentApprovalConfigStep.STEP_TYPE_CONFIRMATION,
                     "is_enabled": True,
-                    "payment_chat_id": chat_id,
+                    "telegram_chat_id": tg_chat_pk,
                     "approver_user_ids": [self.approver2.id],
                 },
             ]
@@ -1221,7 +1228,7 @@ class InvestmentApprovalFlowTests(APITestCase):
                 "return_type": "дивиденды",
                 "recipient": None,
                 "is_enabled": True,
-                "steps": steps_for_confirmation(111111),
+                "steps": steps_for_confirmation(tg_chat_111.pk),
             },
             format="json",
             HTTP_HOST=self.host,
@@ -1233,7 +1240,7 @@ class InvestmentApprovalFlowTests(APITestCase):
                 "return_type": "дивиденды",
                 "recipient": "партнер",
                 "is_enabled": True,
-                "steps": steps_for_confirmation(222222),
+                "steps": steps_for_confirmation(tg_chat_222.pk),
             },
             format="json",
             HTTP_HOST=self.host,
@@ -1338,6 +1345,8 @@ class InvestmentProjectApprovalFlowTests(APITestCase):
         TenantUserRole.objects.create(tenant=self.tenant, user=self.approver2, role=TenantUserRole.ROLE_DIRECTOR)
         TenantModuleConfig.objects.create(tenant=self.tenant, module_key="investments", is_enabled=True)
 
+        self.tg_chat_166 = TenantTelegramChat.objects.create(tenant=self.tenant, name="Chat 166000", chat_id="166000")
+
         self.client.force_authenticate(self.admin)
         cfg_payload = {
             "is_enabled": True,
@@ -1352,7 +1361,7 @@ class InvestmentProjectApprovalFlowTests(APITestCase):
                     "step": 2,
                     "step_type": InvestmentApprovalConfigStep.STEP_TYPE_CONFIRMATION,
                     "is_enabled": True,
-                    "payment_chat_id": 166000,
+                    "telegram_chat_id": self.tg_chat_166.pk,
                     "approver_user_ids": [self.approver2.id],
                 },
             ],

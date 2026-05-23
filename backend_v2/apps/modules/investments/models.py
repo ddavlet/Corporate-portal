@@ -278,7 +278,13 @@ class InvestmentApprovalConfigStep(models.Model):
     step = models.PositiveIntegerField()
     step_type = models.CharField(max_length=16, choices=STEP_TYPE_CHOICES, default=STEP_TYPE_SERIAL)
     is_enabled = models.BooleanField(default=True)
-    payment_chat_id = models.BigIntegerField(null=True, blank=True)
+    telegram_chat = models.ForeignKey(
+        "telegram_approvals.TenantTelegramChat",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="invest_approval_steps",
+    )
     approver_users = models.ManyToManyField(
         settings.AUTH_USER_MODEL,
         through="InvestmentApprovalConfigStepApprover",
@@ -331,7 +337,7 @@ class InvestmentReturnApproval(models.Model):
         on_delete=models.PROTECT,
         related_name="investment_return_approvals",
     )
-    approver_recipient_id = models.BigIntegerField(null=True, blank=True)
+    approver_recipient_id = models.CharField(max_length=50, null=True, blank=True)
     approver_external_user_id = models.BigIntegerField(null=True, blank=True)
     decision = models.CharField(max_length=20, choices=DECISION_CHOICES, default=DECISION_PENDING)
     decision_comment = models.TextField(blank=True, default="")
@@ -377,13 +383,13 @@ class InvestNotificationConfig(models.Model):
         validators=[MinValueValidator(0), MaxValueValidator(23)],
         help_text="Hour of day (0–23, Asia/Tashkent) when notifications are dispatched.",
     )
-    # TODO: заменить на выбор из справочника чатов компании (список всех Telegram-групп tenant'а,
-    #       куда можно отправлять уведомления). Сейчас — произвольная строка с chat_id группы.
-    chat_id = models.CharField(
-        max_length=50,
-        blank=True,
+    telegram_chat = models.ForeignKey(
+        "telegram_approvals.TenantTelegramChat",
+        on_delete=models.SET_NULL,
         null=True,
-        help_text="Telegram group chat ID for notifications. Overrides responsible_user's personal chat if set.",
+        blank=True,
+        related_name="invest_notification_configs",
+        help_text="Telegram group chat for notifications. Overrides responsible_user's personal chat if set.",
     )
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -452,7 +458,13 @@ class InvestmentProjectApprovalConfigStep(models.Model):
     step = models.PositiveIntegerField()
     step_type = models.CharField(max_length=16, choices=STEP_TYPE_CHOICES, default=STEP_TYPE_SERIAL)
     is_enabled = models.BooleanField(default=True)
-    payment_chat_id = models.BigIntegerField(null=True, blank=True)
+    telegram_chat = models.ForeignKey(
+        "telegram_approvals.TenantTelegramChat",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="invest_project_approval_steps",
+    )
     approver_users = models.ManyToManyField(
         settings.AUTH_USER_MODEL,
         through="InvestmentProjectApprovalConfigStepApprover",
@@ -513,7 +525,7 @@ class ProjectInvestmentApproval(models.Model):
         on_delete=models.PROTECT,
         related_name="project_investment_approvals_made",
     )
-    approver_recipient_id = models.BigIntegerField(null=True, blank=True)
+    approver_recipient_id = models.CharField(max_length=50, null=True, blank=True)
     approver_external_user_id = models.BigIntegerField(null=True, blank=True)
     decision = models.CharField(max_length=20, choices=DECISION_CHOICES, default=DECISION_PENDING)
     decision_comment = models.TextField(blank=True, default="")

@@ -1335,7 +1335,7 @@ class N8nIntegrationAuthTests(APITestCase):
             "id": 7010,
             "request": req.id,
             "approver_user": self.approver.id,
-            "approver_recipient_id": 555001,
+            "approver_recipient_id": "555001",
             "step": 1,
             "step_type": "serial",
             "decision": "pending",
@@ -1346,7 +1346,7 @@ class N8nIntegrationAuthTests(APITestCase):
         appr = Approval.objects.get(pk=7010)
         self.assertEqual(appr.request_id, req.id)
         self.assertEqual(appr.approver_user_id, self.approver.id)
-        self.assertEqual(appr.approver_recipient_id, 555001)
+        self.assertEqual(appr.approver_recipient_id, "555001")
 
         res2 = self.client.post(
             url,

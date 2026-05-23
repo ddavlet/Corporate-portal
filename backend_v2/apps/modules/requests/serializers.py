@@ -907,7 +907,7 @@ class RequestApprovalStepPayloadSerializer(serializers.Serializer):
         default=RequestApprovalStepConfig.PAYMENT_ACTION_MODE_CALLBACK,
     )
     payment_webapp_url = serializers.CharField(required=False, allow_blank=True, default="")
-    payment_chat_id = serializers.IntegerField(required=False, allow_null=True, default=None)
+    telegram_chat_id = serializers.IntegerField(required=False, allow_null=True, default=None)
 
 
 class RequestApprovalPurposeExceptionPayloadSerializer(serializers.Serializer):
@@ -1085,7 +1085,7 @@ def build_request_approval_config_response(*, tenant) -> dict:
                             "approver_user_ids": list(step.approvers.values_list("approver_user_id", flat=True)),
                             "payment_action_mode": step.payment_action_mode,
                             "payment_webapp_url": step.payment_webapp_url or "",
-                            "payment_chat_id": step.payment_chat_id,
+                            "telegram_chat_id": step.telegram_chat_id,
                         }
                     )
                 row["purpose_candidates"] = [
@@ -1123,7 +1123,7 @@ def build_request_approval_config_response(*, tenant) -> dict:
                                     ),
                                     "payment_action_mode": step.payment_action_mode,
                                     "payment_webapp_url": step.payment_webapp_url or "",
-                                    "payment_chat_id": step.payment_chat_id,
+                                    "telegram_chat_id": step.telegram_chat_id,
                                 }
                                 for step in exc.steps.order_by("step", "id").all()
                             ],

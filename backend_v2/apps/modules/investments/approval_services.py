@@ -362,11 +362,11 @@ def create_approvals_for_invest_return(*, invest_return: InvestReturn) -> int:
         return 0
 
     created = 0
-    for step in config.steps.filter(is_enabled=True).order_by("step", "id"):
+    for step in config.steps.filter(is_enabled=True).select_related("telegram_chat").order_by("step", "id"):
         if step.step_type == InvestmentApprovalConfigStep.STEP_TYPE_NOTIFICATION:
             approvers = list(step.approver_users.filter(is_active=True))
             record_user = approvers[0] if approvers else invest_return.created_by
-            recipient_id = step.payment_chat_id
+            recipient_id = step.telegram_chat.chat_id if step.telegram_chat else None
             InvestmentReturnApproval.objects.create(
                 tenant=invest_return.tenant,
                 invest_return=invest_return,
@@ -379,10 +379,12 @@ def create_approvals_for_invest_return(*, invest_return: InvestReturn) -> int:
             created += 1
             continue
         for approver in step.approver_users.filter(is_active=True):
+            chat_id = step.telegram_chat.chat_id if step.telegram_chat else None
+            user_chat_id = approver.telegram_chat_id
             recipient_id = (
-                step.payment_chat_id
+                chat_id
                 if step.step_type == InvestmentApprovalConfigStep.STEP_TYPE_CONFIRMATION
-                else approver.telegram_chat_id
+                else (str(user_chat_id) if user_chat_id is not None else None)
             )
             InvestmentReturnApproval.objects.create(
                 tenant=invest_return.tenant,
@@ -480,7 +482,7 @@ def confirm_invest_return_approval_by_id(
     *,
     tenant,
     approval_id: int,
-    approver_recipient_id: int | None = None,
+    approver_recipient_id: str | None = None,
     approver_external_user_id: int | None = None,
     decision: str,
     comment: str = "",

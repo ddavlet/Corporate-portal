@@ -3,21 +3,40 @@ from __future__ import annotations
 import json
 import logging
 
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.utils import timezone
-from rest_framework import status
+from rest_framework import status, viewsets
 from rest_framework.exceptions import ValidationError
-from rest_framework.permissions import AllowAny
+from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.modules.requests.models import Approval
 from apps.modules.requests.approval_workflow import ApprovalDecisionAlreadyMade, confirm_approval_by_id
-from apps.modules.telegram_approvals.serializers import MessagingGatewayCallbackSerializer
+from apps.modules.telegram_approvals.models import TenantTelegramChat
+from apps.modules.telegram_approvals.serializers import MessagingGatewayCallbackSerializer, TenantTelegramChatSerializer
 from apps.modules.telegram_approvals.services import deactivate_approval_message_buttons
 from apps.tenants.models import Tenant
+from apps.tenants.permissions import HasEffectiveModuleAccess
 
 logger = logging.getLogger(__name__)
+
+
+class TenantTelegramChatViewSet(viewsets.ModelViewSet):
+    permission_classes = [IsAuthenticated, HasEffectiveModuleAccess]
+    module_key = "messaging_gateway"
+    serializer_class = TenantTelegramChatSerializer
+
+    def get_queryset(self):
+        if not hasattr(self.request, "tenant") or self.request.tenant is None:
+            return TenantTelegramChat.objects.none()
+        return TenantTelegramChat.objects.filter(tenant=self.request.tenant)
+
+    def perform_create(self, serializer):
+        try:
+            serializer.save(tenant=self.request.tenant, created_by=self.request.user)
+        except IntegrityError:
+            raise ValidationError({"chat_id": "Telegram-группа с таким Chat ID уже существует."})
 
 
 class TelegramApprovalWebhookView(APIView):
@@ -181,10 +200,9 @@ class TelegramApprovalWebhookView(APIView):
             from_id = int(event_data["user_id"])
         except (TypeError, ValueError) as exc:
             raise ValidationError({"user_id": "user_id is required and must be integer."}) from exc
-        try:
-            chat_id = int(event_data["recipient_id"])
-        except (TypeError, ValueError) as exc:
-            raise ValidationError({"recipient_id": "recipient_id is required and must be integer."}) from exc
+        chat_id = str(event_data["recipient_id"]).strip()
+        if not chat_id:
+            raise ValidationError({"recipient_id": "recipient_id is required."})
         message_id = event_data.get("message_id")
 
         approval = (
