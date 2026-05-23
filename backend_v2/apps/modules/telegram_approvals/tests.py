@@ -1006,9 +1006,6 @@ class TenantTelegramChatApiTests(APITestCase):
         TenantUserRole.objects.create(tenant=self.tenant_a, user=self.admin_a, role=TenantUserRole.ROLE_ADMIN)
         TenantUserRole.objects.create(tenant=self.tenant_b, user=self.admin_b, role=TenantUserRole.ROLE_ADMIN)
 
-        TenantModuleConfig.objects.create(tenant=self.tenant_a, module_key="messaging_gateway", is_enabled=True)
-        TenantModuleConfig.objects.create(tenant=self.tenant_b, module_key="messaging_gateway", is_enabled=True)
-
         self.host_a = "alpha.example.com"
         self.host_b = "beta.example.com"
         self.url = "/api/messaging-gateway/chats/"

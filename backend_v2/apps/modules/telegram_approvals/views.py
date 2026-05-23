@@ -17,14 +17,13 @@ from apps.modules.telegram_approvals.models import TenantTelegramChat
 from apps.modules.telegram_approvals.serializers import MessagingGatewayCallbackSerializer, TenantTelegramChatSerializer
 from apps.modules.telegram_approvals.services import deactivate_approval_message_buttons
 from apps.tenants.models import Tenant
-from apps.tenants.permissions import HasEffectiveModuleAccess
+from apps.tenants.permissions import IsTenantAdmin
 
 logger = logging.getLogger(__name__)
 
 
 class TenantTelegramChatViewSet(viewsets.ModelViewSet):
-    permission_classes = [IsAuthenticated, HasEffectiveModuleAccess]
-    module_key = "messaging_gateway"
+    permission_classes = [IsAuthenticated, IsTenantAdmin]
     serializer_class = TenantTelegramChatSerializer
 
     def get_queryset(self):

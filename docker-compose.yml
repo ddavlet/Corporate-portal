@@ -636,6 +636,14 @@ services:
       - traefik.http.routers.django-v2-api.service=django-v2
       - traefik.http.routers.django-v2-api.priority=1100
 
+      # Telegram chats registry API: overrides the messaging-gateway exclusion in django-v2-api
+      - traefik.http.routers.django-v2-tg-chats.rule=(${TRAEFIK_BACKEND_V2_HOST_RULE}) && PathPrefix(`/api/messaging-gateway/chats`)
+      - traefik.http.routers.django-v2-tg-chats.entrypoints=web,websecure
+      - traefik.http.routers.django-v2-tg-chats.tls=true
+      - traefik.http.routers.django-v2-tg-chats.tls.certresolver=mytlschallenge
+      - traefik.http.routers.django-v2-tg-chats.service=django-v2
+      - traefik.http.routers.django-v2-tg-chats.priority=1200
+
       # Integration API: must beat Host-only n8n webhooks on the same hosts (priority > django-v2-api)
       - traefik.http.routers.django-v2-n8n.rule=${TRAEFIK_BACKEND_V2_N8N_RULE}
       - traefik.http.routers.django-v2-n8n.entrypoints=web,websecure
