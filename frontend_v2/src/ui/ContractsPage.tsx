@@ -23,11 +23,11 @@ import {
   EditOutlined,
   DeleteOutlined,
   DownloadOutlined,
-  ArrowLeftOutlined,
 } from '@ant-design/icons'
 import dayjs from 'dayjs'
 import 'dayjs/locale/ru'
-import { useNavigate } from 'react-router-dom'
+import { useSearchParams } from 'react-router-dom'
+import { RequestReturnBackButton } from './requests/RequestReturnBackButton'
 import {
   createContract,
   deleteContract,
@@ -54,7 +54,9 @@ const DISPLAY_LABELS: Record<string, string> = {
 }
 
 export function ContractsPage() {
-  const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
+  const vendorFilter = searchParams.get('vendor')
+  const contractFilter = searchParams.get('contract')
   const [rows, setRows] = useState<ContractRow[]>([])
   const [vendors, setVendors] = useState<RequestFormConfigCandidateVendor[]>([])
   const [loading, setLoading] = useState(false)
@@ -85,6 +87,13 @@ export function ContractsPage() {
   useEffect(() => {
     load()
   }, [load])
+
+  const filteredRows = useMemo(() => {
+    if (!vendorFilter) return rows
+    const vendorId = Number(vendorFilter)
+    if (!Number.isFinite(vendorId)) return rows
+    return rows.filter((row) => row.vendor === vendorId)
+  }, [rows, vendorFilter])
 
   const vendorLabel = useMemo(() => {
     const m = new Map<number, string>()
@@ -125,6 +134,15 @@ export function ContractsPage() {
     setUploadFiles([])
     setDrawerOpen(true)
   }
+
+  useEffect(() => {
+    if (!contractFilter || loading || rows.length === 0) return
+    const contractId = Number(contractFilter)
+    if (!Number.isFinite(contractId)) return
+    const row = rows.find((r) => r.id === contractId)
+    if (row) openEdit(row)
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- open drawer when deep-linked
+  }, [contractFilter, loading, rows])
 
   const handleDownload = async (r: ContractRow) => {
     try {
@@ -261,12 +279,17 @@ export function ContractsPage() {
 
   return (
     <Card>
-      <Button type="link" icon={<ArrowLeftOutlined />} onClick={() => navigate('/requests')} style={{ padding: 0 }}>
-        Назад к заявкам
-      </Button>
-      <Typography.Title level={4} style={{ marginTop: 8 }}>
+      <Space style={{ marginBottom: 8 }}>
+        <RequestReturnBackButton fallbackPath="/contracts" fallbackLabel="Договоры" />
+      </Space>
+      <Typography.Title level={4} style={{ marginTop: 0 }}>
         Договоры
       </Typography.Title>
+      {vendorFilter ? (
+        <Typography.Paragraph type="secondary" style={{ marginBottom: 8 }}>
+          Фильтр по поставщику: {vendorLabel.get(Number(vendorFilter)) ?? `#${vendorFilter}`}
+        </Typography.Paragraph>
+      ) : null}
       <Typography.Paragraph type="secondary">
         Договоры привязаны к поставщику из справочника. Файл хранится на сервере (до 10 МБ: pdf, офисные форматы,
         изображения).
@@ -283,7 +306,7 @@ export function ContractsPage() {
       <Table<ContractRow>
         rowKey="id"
         loading={loading}
-        dataSource={rows}
+        dataSource={filteredRows}
         columns={columns}
         pagination={{ pageSize: 20 }}
         onRow={(record) =>

@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react'
 import { Alert, Button, Card, Descriptions, Skeleton, Space, Tag, Typography } from 'antd'
 import { useNavigate, useParams } from 'react-router-dom'
+import { requestReturnState } from '../lib/requestNavigation'
+import { RequestReturnBackButton } from './requests/RequestReturnBackButton'
 import { apiFetch } from '../lib/api'
 import { NoteCreateModal } from './NoteCreateModal'
 import { renderExpenseRequestStatusTag } from './expenseRequestStatus'
@@ -102,10 +104,20 @@ export function CashExpenseDetailPage() {
     <Card>
       <Space direction="vertical" size={12} style={{ display: 'flex' }}>
         <Space>
-          <Button onClick={() => navigate('/cash')}>Назад к списку</Button>
+          <RequestReturnBackButton fallbackPath="/cash" fallbackLabel="Назад к списку" />
           {detail?.id ? <Button onClick={() => setOpenNoteModal(true)}>Добавить заметку</Button> : null}
           {detail?.matched_request_id ? (
-            <Button type="primary" onClick={() => navigate(`/requests/${detail.matched_request_id}`)}>
+            <Button
+              type="primary"
+              onClick={() =>
+                navigate(`/requests/${detail.matched_request_id}`, {
+                  state: requestReturnState({
+                    pathname: `/cash/${detail.id}`,
+                    label: `Кассовый расход #${detail.id}`,
+                  }),
+                })
+              }
+            >
               Открыть связанную заявку
             </Button>
           ) : null}

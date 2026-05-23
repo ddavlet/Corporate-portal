@@ -26,6 +26,7 @@ import {
   type RequestFormConfigResponse,
 } from '../../lib/api'
 import { labelBlockAboveField } from '../formSpacing'
+import { RequestReturnBackButton } from './RequestReturnBackButton'
 
 const PAYMENT_TYPES = ['Наличные', 'Перечисление', 'Пополнение', 'Платежная карта'] as const
 
@@ -282,9 +283,12 @@ export function RequestFormConfigPage() {
 
   return (
     <Card>
-      <Button type="link" icon={<ArrowLeftOutlined />} onClick={() => navigate('/settings')} style={{ padding: 0 }}>
-        Назад к настройкам
-      </Button>
+      <Space style={{ marginBottom: 8 }}>
+        <RequestReturnBackButton fallbackPath="/settings" fallbackLabel="Настройки" />
+        <Button type="link" icon={<ArrowLeftOutlined />} onClick={() => navigate('/settings')} style={{ padding: 0 }}>
+          Настройки
+        </Button>
+      </Space>
       <Typography.Title level={4} style={{ marginTop: 0 }}>
         Настройка формы заявки
       </Typography.Title>

@@ -99,6 +99,8 @@ class PortalRequestSerializer(serializers.ModelSerializer):
     # So `requester` must be optional at serializer level.
     requester = serializers.PrimaryKeyRelatedField(queryset=User.objects.all(), allow_null=True, required=False)
     requester_username = serializers.SerializerMethodField()
+    created_by_username = serializers.SerializerMethodField()
+    contract_label = serializers.SerializerMethodField()
     is_amortized = serializers.SerializerMethodField()
     amortization_schedule = serializers.SerializerMethodField()
     vendor_ref = serializers.PrimaryKeyRelatedField(queryset=Vendor.objects.all(), allow_null=True, required=False)
@@ -114,6 +116,7 @@ class PortalRequestSerializer(serializers.ModelSerializer):
             "id",
             "created_at",
             "created_by",
+            "created_by_username",
             "expense_id",
             "expense_link",
             "company_payer",
@@ -121,6 +124,7 @@ class PortalRequestSerializer(serializers.ModelSerializer):
             "vendor",
             "vendor_ref",
             "contract_ref",
+            "contract_label",
             "title",
             "description",
             "amount",
@@ -144,7 +148,15 @@ class PortalRequestSerializer(serializers.ModelSerializer):
             "is_amortized",
             "amortization_schedule",
         ]
-        read_only_fields = ["expense_link", "created_at", "created_by", "status", "attachments"]
+        read_only_fields = [
+            "expense_link",
+            "created_at",
+            "created_by",
+            "created_by_username",
+            "contract_label",
+            "status",
+            "attachments",
+        ]
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -428,6 +440,18 @@ class PortalRequestSerializer(serializers.ModelSerializer):
 
     def get_requester_username(self, obj):
         return _display_user_name(obj.requester)
+
+    def get_created_by_username(self, obj):
+        if not obj.created_by_id:
+            return None
+        return _display_user_name(getattr(obj, "created_by", None))
+
+    def get_contract_label(self, obj):
+        cref = getattr(obj, "contract_ref", None)
+        if cref is None:
+            return None
+        number = (getattr(cref, "contract_number", None) or "").strip()
+        return number or None
 
     def get_is_amortized(self, obj):
         return is_request_amortized(obj)

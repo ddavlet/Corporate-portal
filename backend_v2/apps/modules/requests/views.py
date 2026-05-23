@@ -280,6 +280,7 @@ class PortalRequestViewSet(viewsets.ModelViewSet):
             qs = qs.filter(amortization_months__gt=1)
 
         if self.action == "retrieve":
+            qs = qs.select_related("created_by", "requester", "vendor_ref", "contract_ref")
             if "approvals" in connection.introspection.table_names():
                 qs = qs.prefetch_related("approvals", "approvals__approver_user")
             return qs
