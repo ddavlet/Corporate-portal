@@ -8,6 +8,7 @@ import { linkedExpenseFrontendPath, linkedExpenseLabel } from '../../lib/request
 import type { RequestReturnTo } from '../../lib/requestNavigation'
 import { formatRequestDate, formatRequestBillingMonth, getRequestStatusColor } from '../../lib/requestUtils'
 import {
+  RequestDetailFieldValue,
   RequestEntityLink,
   REQUEST_FORM_CONFIG_PATH,
   contractsPath,
@@ -139,7 +140,13 @@ function translateStepType(stepType?: string | null): string {
   return stepType || ''
 }
 
-function renderApprovalGroup(title: string, items: ApprovalItem[], returnTo?: RequestReturnTo) {
+function renderApprovalGroup(
+  title: string,
+  items: ApprovalItem[],
+  options?: { returnTo?: RequestReturnTo; variant?: 'default' | 'telegram' },
+) {
+  const returnTo = options?.returnTo
+  const isTg = options?.variant === 'telegram'
   return (
     <Space direction="vertical" size={8} style={{ display: 'flex' }}>
       <Typography.Text strong>{title}</Typography.Text>
@@ -151,13 +158,7 @@ function renderApprovalGroup(title: string, items: ApprovalItem[], returnTo?: Re
             <Space direction="vertical" size={4} style={{ display: 'flex' }}>
               <Space wrap>
                 <Typography.Text type="secondary">{`Этап ${item.step} · ${translateStepType(item.step_type)}`}</Typography.Text>
-                {item.approver_user != null && item.approver_username ? (
-                  <RequestEntityLink to={usersSettingsPath(item.approver_user)} returnTo={returnTo}>
-                    {item.approver_username}
-                  </RequestEntityLink>
-                ) : (
-                  <Typography.Text>{item.approver_username || 'Согласующий не определён'}</Typography.Text>
-                )}
+                <Typography.Text>{item.approver_username || 'Согласующий не определён'}</Typography.Text>
                 <Tag color={getDecisionColor(item.decision)}>{translateDecision(item.decision)}</Tag>
               </Space>
               <Typography.Text
@@ -172,28 +173,30 @@ function renderApprovalGroup(title: string, items: ApprovalItem[], returnTo?: Re
                 {item.comment || 'Без комментария'}
               </Typography.Text>
               <Typography.Text type="secondary">Дата решения: {formatRequestDate(item.decided_at)}</Typography.Text>
-              <Collapse
-                ghost
-                size="small"
-                items={[{
-                  key: 'tech',
-                  label: <Typography.Text type="secondary" style={{ fontSize: 11 }}>Детали</Typography.Text>,
-                  children: (
-                    <Typography.Text type="secondary" style={{ fontSize: 11 }}>
-                      approval id: {item.id}
-                      {item.message_id != null ? ` · message_id: ${item.message_id}` : ''}
-                      {item.message_sent != null ? ` · message_sent: ${item.message_sent ? 'да' : 'нет'}` : ''}
-                      {item.message_sent_at ? ` · sent_at: ${formatDateTime(item.message_sent_at)}` : ''}
-                      {item.approver_tg_id != null && item.approver_tg_id !== ''
-                        ? ` · tg_id: ${item.approver_tg_id}`
-                        : ''}
-                      {item.approver_tg_from_id != null && item.approver_tg_from_id !== ''
-                        ? ` · tg_from: ${item.approver_tg_from_id}`
-                        : ''}
-                    </Typography.Text>
-                  ),
-                }]}
-              />
+              {!isTg ? (
+                <Collapse
+                  ghost
+                  size="small"
+                  items={[{
+                    key: 'tech',
+                    label: <Typography.Text type="secondary" style={{ fontSize: 11 }}>Детали</Typography.Text>,
+                    children: (
+                      <Typography.Text type="secondary" style={{ fontSize: 11 }}>
+                        approval id: {item.id}
+                        {item.message_id != null ? ` · message_id: ${item.message_id}` : ''}
+                        {item.message_sent != null ? ` · message_sent: ${item.message_sent ? 'да' : 'нет'}` : ''}
+                        {item.message_sent_at ? ` · sent_at: ${formatDateTime(item.message_sent_at)}` : ''}
+                        {item.approver_tg_id != null && item.approver_tg_id !== ''
+                          ? ` · tg_id: ${item.approver_tg_id}`
+                          : ''}
+                        {item.approver_tg_from_id != null && item.approver_tg_from_id !== ''
+                          ? ` · tg_from: ${item.approver_tg_from_id}`
+                          : ''}
+                      </Typography.Text>
+                    ),
+                  }]}
+                />
+              ) : null}
             </Space>
           </Card>
         ))
@@ -311,8 +314,11 @@ export function RequestDetailContent({
         <div>
           <div className="tg-detail-hero">
             <Typography.Title level={4} style={{ margin: 0, fontSize: 18, lineHeight: 1.35 }}>
-              {detail.title || `Заявка #${detail.id}`}
+              {detail.payment_purpose?.trim() || detail.title?.trim() || `Заявка #${detail.id}`}
             </Typography.Title>
+            <Typography.Text type="secondary" style={{ display: 'block', marginTop: 4 }}>
+              Заявка #{detail.id}
+            </Typography.Text>
             <div style={{ marginTop: 8 }}>
               <Tag color={getRequestStatusColor(detail.status)}>{detail.status}</Tag>
             </div>
@@ -320,95 +326,23 @@ export function RequestDetailContent({
               {`${Number(detail.amount).toLocaleString('ru-RU')} ${detail.currency}`}
             </div>
           </div>
-          <TgDetailRow label="ID заявки">{detail.id}</TgDetailRow>
           <TgDetailRow label="Создано">{formatDateTime(detail.created_at)}</TgDetailRow>
-          <TgDetailRow label="Кем создано">
-            {createdByName && detail.created_by != null ? (
-              <RequestEntityLink to={usersSettingsPath(detail.created_by)} returnTo={returnTo}>
-                {createdByName}
-              </RequestEntityLink>
-            ) : (
-              createdByName || '—'
-            )}
-          </TgDetailRow>
-          <TgDetailRow label="Компания-плательщик">
-            {detail.company_payer?.trim() ? (
-              <RequestEntityLink to={REQUEST_FORM_CONFIG_PATH} returnTo={returnTo}>
-                {detail.company_payer.trim()}
-              </RequestEntityLink>
-            ) : (
-              '—'
-            )}
-          </TgDetailRow>
-          <TgDetailRow label="Тип оплаты">
-            {detail.payment_type ? (
-              <RequestEntityLink to={REQUEST_FORM_CONFIG_PATH} returnTo={returnTo}>
-                {detail.payment_type}
-              </RequestEntityLink>
-            ) : (
-              '—'
-            )}
-          </TgDetailRow>
-          <TgDetailRow label="Срочность">
-            {detail.urgency ? (
-              <RequestEntityLink to={REQUEST_FORM_CONFIG_PATH} returnTo={returnTo}>
-                {detail.urgency}
-              </RequestEntityLink>
-            ) : (
-              '—'
-            )}
-          </TgDetailRow>
-          <TgDetailRow label="Категория">
-            {detail.category ? (
-              <RequestEntityLink to={REQUEST_FORM_CONFIG_PATH} returnTo={returnTo}>
-                {detail.category}
-              </RequestEntityLink>
-            ) : (
-              '—'
-            )}
-          </TgDetailRow>
-          <TgDetailRow label="Поставщик">
-            {vendorName && detail.vendor_ref != null ? (
-              <RequestEntityLink to={contractsPath({ vendorId: detail.vendor_ref })} returnTo={returnTo}>
-                {vendorName}
-              </RequestEntityLink>
-            ) : vendorName ? (
-              <RequestEntityLink to={vendorDirectoryPath()} returnTo={returnTo}>
-                {vendorName}
-              </RequestEntityLink>
-            ) : (
-              '—'
-            )}
-          </TgDetailRow>
+          <TgDetailRow label="Кем создано">{createdByName || '—'}</TgDetailRow>
+          <TgDetailRow label="Компания-плательщик">{detail.company_payer?.trim() || '—'}</TgDetailRow>
+          <TgDetailRow label="Тип оплаты">{detail.payment_type || '—'}</TgDetailRow>
+          <TgDetailRow label="Срочность">{detail.urgency || '—'}</TgDetailRow>
+          <TgDetailRow label="Категория">{detail.category || '—'}</TgDetailRow>
+          <TgDetailRow label="Поставщик">{vendorName || '—'}</TgDetailRow>
           {detail.contract_ref != null ? (
             <TgDetailRow label="Договор">
-              <RequestEntityLink
-                to={contractsPath({ contractId: detail.contract_ref, vendorId: detail.vendor_ref ?? undefined })}
-                returnTo={returnTo}
-              >
-                {detail.contract_label?.trim() || `Договор #${detail.contract_ref}`}
-              </RequestEntityLink>
+              {detail.contract_label?.trim() || `Договор #${detail.contract_ref}`}
             </TgDetailRow>
           ) : null}
-          <TgDetailRow label="Назначение платежа">
-            {detail.payment_purpose ? (
-              <RequestEntityLink to={REQUEST_FORM_CONFIG_PATH} returnTo={returnTo}>
-                {detail.payment_purpose}
-              </RequestEntityLink>
-            ) : (
-              '—'
-            )}
-          </TgDetailRow>
-          <TgDetailRow label="Описание">{detail.description || '—'}</TgDetailRow>
-          <TgDetailRow label="Заявитель">
-            {requesterName && detail.requester != null ? (
-              <RequestEntityLink to={usersSettingsPath(detail.requester)} returnTo={returnTo}>
-                {requesterName}
-              </RequestEntityLink>
-            ) : (
-              requesterName || '—'
-            )}
-          </TgDetailRow>
+          <TgDetailRow label="Назначение платежа">{detail.payment_purpose || '—'}</TgDetailRow>
+          {detail.description?.trim() && detail.description.trim() !== (detail.payment_purpose || '').trim() ? (
+            <TgDetailRow label="Описание">{detail.description}</TgDetailRow>
+          ) : null}
+          <TgDetailRow label="Заявитель">{requesterName || '—'}</TgDetailRow>
           <TgDetailRow label="Отправлено">{formatDateTime(detail.submitted_at)}</TgDetailRow>
           <TgDetailRow label="Дата биллинга">{formatRequestBillingMonth(detail.billing_date)}</TgDetailRow>
           <TgDetailRow label="Амортизация">{detail.is_amortized ? `Да (${detail.amortization_months || 0} мес.)` : 'Нет'}</TgDetailRow>
@@ -426,9 +360,9 @@ export function RequestDetailContent({
           ) : null}
           <TgDetailRow label="Связанный расход">
             {linkedExpensePath && linkedExpenseText ? (
-              <RequestEntityLink to={linkedExpensePath} returnTo={returnTo}>
+              <RequestDetailFieldValue variant={variant} to={linkedExpensePath} returnTo={returnTo}>
                 {linkedExpenseText}
-              </RequestEntityLink>
+              </RequestDetailFieldValue>
             ) : linkedExpenseText ? (
               linkedExpenseText
             ) : (
@@ -610,9 +544,18 @@ export function RequestDetailContent({
         <>
           <Divider />
           <Space direction="vertical" size={12} style={{ display: 'flex' }}>
-            {renderApprovalGroup(`Одобрено (${approvedApprovals.length})`, approvedApprovals, returnTo)}
-            {renderApprovalGroup(`Отклонено (${rejectedApprovals.length})`, rejectedApprovals, returnTo)}
-            {renderApprovalGroup(`В ожидании (${pendingApprovals.length})`, pendingApprovals, returnTo)}
+            {renderApprovalGroup(`Одобрено (${approvedApprovals.length})`, approvedApprovals, {
+              returnTo,
+              variant,
+            })}
+            {renderApprovalGroup(`Отклонено (${rejectedApprovals.length})`, rejectedApprovals, {
+              returnTo,
+              variant,
+            })}
+            {renderApprovalGroup(`В ожидании (${pendingApprovals.length})`, pendingApprovals, {
+              returnTo,
+              variant,
+            })}
           </Space>
         </>
       ) : null}
