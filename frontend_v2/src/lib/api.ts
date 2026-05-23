@@ -1127,7 +1127,9 @@ export type InvestPayoutScheduleRow = {
   is_paid: boolean
   payment_amount: string | number
   comment: string
-  created_request: number | null
+  return_type: string | null
+  recipient: string | null
+  created_return: number | null
   created_at: string
 }
 
@@ -1441,6 +1443,8 @@ export type CreateInvestPayoutSchedulePayload = {
   comment?: string
   is_paid?: boolean
   payment_amount?: string | number
+  return_type?: string | null
+  recipient?: string | null
 }
 
 export async function createInvestPayoutSchedule(
@@ -1455,6 +1459,8 @@ export async function createInvestPayoutSchedule(
     payment_amount: payload.payment_amount ?? '0',
   }
   if (payload.company !== undefined) body.company = payload.company
+  if (payload.return_type !== undefined) body.return_type = payload.return_type
+  if (payload.recipient !== undefined) body.recipient = payload.recipient
   const res = await apiFetch('/api/investments/payout-schedule/', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -1573,12 +1579,12 @@ export async function updateInvestNotificationConfig(
   return json
 }
 
-export async function createRequestFromPayoutSchedule(
+export async function createReturnFromPayoutSchedule(
   scheduleId: number,
-): Promise<{ detail: string; request_id: number | null }> {
-  const res = await apiFetch(`/api/investments/payout-schedule/${scheduleId}/create-request/`, { method: 'POST' })
+): Promise<{ detail: string; return_id: number | null }> {
+  const res = await apiFetch(`/api/investments/payout-schedule/${scheduleId}/create-return/`, { method: 'POST' })
   if (!res.ok) throw new Error(await parseErrorBody(res))
-  const json = (await res.json().catch(() => null)) as { detail: string; request_id: number | null } | null
+  const json = (await res.json().catch(() => null)) as { detail: string; return_id: number | null } | null
   if (!json) throw new Error('Empty response from server')
   return json
 }

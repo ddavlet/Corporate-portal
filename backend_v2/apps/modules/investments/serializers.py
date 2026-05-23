@@ -200,12 +200,14 @@ class InvestPayoutScheduleSerializer(_CompanyScopeMixin, serializers.ModelSerial
             "is_paid",
             "payment_amount",
             "comment",
-            "created_request",
+            "return_type",
+            "recipient",
+            "created_return",
             "created_at",
             "last_edit_at",
             "created_by",
         ]
-        read_only_fields = ["id", "tenant", "created_request", "created_at", "last_edit_at", "created_by"]
+        read_only_fields = ["id", "tenant", "created_return", "created_at", "last_edit_at", "created_by"]
 
     def validate(self, attrs):
         reject_client_pk_on_create(self)

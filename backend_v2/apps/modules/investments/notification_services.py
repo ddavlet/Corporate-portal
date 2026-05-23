@@ -9,6 +9,7 @@ from zoneinfo import ZoneInfo
 
 from django.db import transaction
 from django.utils import timezone
+from rest_framework.exceptions import ValidationError
 
 logger = logging.getLogger(__name__)
 
@@ -148,7 +149,7 @@ def process_due_invest_payout_notifications(*, now_dt: dt.datetime | None = None
         upcoming = InvestPayoutSchedule.objects.filter(
             tenant=config.tenant,
             is_paid=False,
-            created_request__isnull=True,
+            created_return__isnull=True,
             payout_date__lte=threshold_date,
             payout_date__gte=today,
         ).select_related("company")
@@ -161,7 +162,7 @@ def process_due_invest_payout_notifications(*, now_dt: dt.datetime | None = None
             overdue = InvestPayoutSchedule.objects.filter(
                 tenant=config.tenant,
                 is_paid=False,
-                created_request__isnull=True,
+                created_return__isnull=True,
                 payout_date__lt=today,
             ).select_related("company")
             for schedule in overdue:
@@ -178,19 +179,22 @@ def process_due_invest_payout_notifications(*, now_dt: dt.datetime | None = None
     return sent
 
 
-def create_or_get_request_for_schedule(*, schedule, created_by) -> tuple[object, bool, str]:
-    """Atomically create-or-return the payment Request linked to a payout schedule.
+def create_or_get_return_for_schedule(*, schedule, created_by) -> tuple[object, bool, str]:
+    """Atomically create-or-return the InvestReturn linked to a payout schedule.
 
     The caller MUST wrap this in ``transaction.atomic()``. The function re-fetches the
     schedule with ``SELECT FOR UPDATE OF self`` to serialize concurrent button presses —
-    the ``created_request`` FK then acts as the dupe gate.
+    the ``created_return`` FK then acts as the dupe gate.
 
-    Returns ``(request_or_None, was_created, status_note)``.
+    Returns ``(invest_return_or_None, was_created, status_note)``.
     """
-    from apps.modules.investments.models import InvestPayoutSchedule
+    from apps.modules.investments.models import InvestPayoutSchedule, InvestReturn
+    from apps.modules.investments.approval_services import (
+        create_approvals_for_invest_return,
+        route_invest_return_approvals,
+    )
+    import datetime as dt
 
-    # select_related("tenant", "company"): fresh data for the Request creation below
-    # (avoids using the caller's potentially-stale view of the schedule).
     locked = (
         InvestPayoutSchedule.objects
         .select_for_update(of=("self",))
@@ -198,47 +202,34 @@ def create_or_get_request_for_schedule(*, schedule, created_by) -> tuple[object,
         .get(pk=schedule.pk)
     )
     if locked.is_paid:
-        return locked.created_request, False, "✅ Уже оплачено"
-    if locked.created_request_id is not None:
-        return locked.created_request, False, f"✅ Заявка #{locked.created_request_id} уже создана"
-    req = create_request_from_payout_schedule(schedule=locked, created_by=created_by)
-    # Single targeted UPDATE: no full save(), no need to refresh in-memory schedule.
+        return locked.created_return, False, "✅ Уже оплачено"
+    if locked.created_return_id is not None:
+        return locked.created_return, False, f"✅ Выплата #{locked.created_return_id} уже создана"
+    if not locked.return_type or not locked.recipient:
+        raise ValidationError(
+            {"detail": "Укажите тип выплаты и получателя в расписании перед созданием."}
+        )
+    billing_date = locked.payout_date.replace(day=1)
+    invest_return = InvestReturn.objects.create(
+        tenant=locked.tenant,
+        company=locked.company,
+        date=locked.payout_date,
+        billing_date=billing_date,
+        sum=locked.amount,
+        currency=locked.currency,
+        comment=locked.comment or "",
+        type=locked.return_type,
+        recipient=locked.recipient,
+        confirmed=False,
+        created_by=created_by,
+    )
     InvestPayoutSchedule.objects.filter(pk=locked.pk).update(
-        created_request=req,
+        created_return=invest_return,
         last_edit_at=timezone.now(),
     )
-    return req, True, f"✅ Заявка #{req.pk} создана"
-
-
-def create_request_from_payout_schedule(*, schedule, created_by):
-    from apps.modules.requests.approval_bootstrap import create_approval_rows_for_request
-    from apps.modules.requests.approval_workflow import _recalculate_request_status, route_request_approvals
-    from apps.modules.requests.models import Request
-
-    with transaction.atomic():
-        company_name = schedule.company.name if schedule.company else ""
-        # No title= — Request.save() always overwrites it from the tenant name.
-        req = Request.objects.create(
-            tenant=schedule.tenant,
-            created_by=created_by,
-            vendor=company_name,
-            description=schedule.comment or "",
-            amount=schedule.amount,
-            currency=schedule.currency,
-            payment_type=Request.PAYMENT_TYPE_TRANSFER,
-            urgency=Request.URGENCY_NORMAL,
-            requester=created_by,
-            payment_purpose="Выплата по инвестициям",
-            submitted_at=timezone.now(),
-            status=Request.STATUS_DRAFT,
-            billing_date=schedule.payout_date,
-        )
-        n = create_approval_rows_for_request(req)
-        if n:
-            if req.status == Request.STATUS_DRAFT:
-                _recalculate_request_status(req)
-            route_request_approvals(request_obj=req)
-    return req
+    create_approvals_for_invest_return(invest_return=invest_return)
+    route_invest_return_approvals(invest_return=invest_return)
+    return invest_return, True, f"✅ Выплата #{invest_return.pk} создана"
 
 
 def _next_notify_run_at(now_dt: dt.datetime) -> dt.datetime:

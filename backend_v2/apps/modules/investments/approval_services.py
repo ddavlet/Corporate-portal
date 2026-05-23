@@ -456,6 +456,11 @@ def route_invest_return_approvals(*, invest_return: InvestReturn) -> int:
             if invest_return.confirmed:
                 invest_return.confirmed = False
                 invest_return.save(update_fields=["confirmed"])
+            from apps.modules.investments.models import InvestPayoutSchedule
+            InvestPayoutSchedule.objects.filter(created_return=invest_return).update(
+                created_return=None,
+                last_edit_at=timezone.now(),
+            )
             return 0
         if not invest_return.confirmed:
             invest_return.confirmed = True

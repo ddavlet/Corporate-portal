@@ -102,7 +102,7 @@ class TelegramApprovalWebhookView(APIView):
     def _handle_invest_pay_callback(self, payload_str: str, event_data: dict) -> Response:
         from apps.modules.investments.models import InvestNotificationConfig, InvestPayoutSchedule
         from apps.modules.investments.notification_services import (
-            create_or_get_request_for_schedule,
+            create_or_get_return_for_schedule,
             remove_payout_notification_button,
         )
 
@@ -142,19 +142,19 @@ class TelegramApprovalWebhookView(APIView):
             raise ValidationError({"detail": "Only the responsible user may confirm this payout."})
 
         with transaction.atomic():
-            req, was_created, note = create_or_get_request_for_schedule(
+            invest_return, was_created, note = create_or_get_return_for_schedule(
                 schedule=schedule, created_by=cfg.responsible_user,
             )
 
-        request_id = req.pk if req is not None else None
+        return_id = invest_return.pk if invest_return is not None else None
         http_status = status.HTTP_201_CREATED if was_created else status.HTTP_200_OK
         if was_created:
             logger.info(
-                "invest_pay_callback: created request_id=%s for schedule_id=%s tenant_id=%s",
-                request_id, schedule_id, schedule.tenant_id,
+                "invest_pay_callback: created return_id=%s for schedule_id=%s tenant_id=%s",
+                return_id, schedule_id, schedule.tenant_id,
             )
 
-        # After commit, drop the button and append the status note (best-effort; the request
+        # After commit, drop the button and append the status note (best-effort; the return
         # is already persisted, so an edit failure is cosmetic only).
         try:
             remove_payout_notification_button(
@@ -163,7 +163,7 @@ class TelegramApprovalWebhookView(APIView):
         except Exception:
             logger.exception("invest_pay_callback: button cleanup failed schedule_id=%s", schedule_id)
 
-        return Response({"detail": note, "request_id": request_id}, status=http_status)
+        return Response({"detail": note, "return_id": return_id}, status=http_status)
 
     def post(self, request):
         serializer = MessagingGatewayCallbackSerializer(data=request.data)

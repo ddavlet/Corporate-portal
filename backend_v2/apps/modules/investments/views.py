@@ -387,11 +387,11 @@ class InvestNotificationConfigView(APIView):
         return Response(self._payload(request.tenant))
 
 
-class InvestPayoutScheduleCreateRequestView(APIView):
-    """Web one-click: create-or-return the payment Request for a payout schedule.
+class InvestPayoutScheduleCreateReturnView(APIView):
+    """Web one-click: create-or-return the InvestReturn for a payout schedule.
 
     Uses the same atomic helper as the Telegram callback so concurrent presses (web tab
-    or Telegram tap) all converge on the single ``created_request`` FK — no duplicates.
+    or Telegram tap) all converge on the single ``created_return`` FK — no duplicates.
     """
 
     permission_classes = [IsAuthenticated, HasEffectiveModuleAccess]
@@ -399,7 +399,7 @@ class InvestPayoutScheduleCreateRequestView(APIView):
 
     def post(self, request, schedule_id: int):
         self.check_permissions(request)
-        from apps.modules.investments.notification_services import create_or_get_request_for_schedule
+        from apps.modules.investments.notification_services import create_or_get_return_for_schedule
 
         schedule = (
             InvestPayoutSchedule.objects
@@ -410,11 +410,11 @@ class InvestPayoutScheduleCreateRequestView(APIView):
         if schedule is None:
             return Response({"detail": "Schedule not found."}, status=status.HTTP_404_NOT_FOUND)
         with transaction.atomic():
-            req, was_created, note = create_or_get_request_for_schedule(
+            invest_return, was_created, note = create_or_get_return_for_schedule(
                 schedule=schedule, created_by=request.user,
             )
         return Response(
-            {"detail": note, "request_id": req.pk if req else None},
+            {"detail": note, "return_id": invest_return.pk if invest_return else None},
             status=status.HTTP_201_CREATED if was_created else status.HTTP_200_OK,
         )
 

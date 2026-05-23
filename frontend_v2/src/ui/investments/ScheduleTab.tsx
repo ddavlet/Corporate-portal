@@ -20,12 +20,12 @@ import {
 } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
 import dayjs, { type Dayjs } from 'dayjs'
-import { Link } from 'react-router-dom'
+
 
 import {
   createInvestPayoutSchedule,
   createInvestPayoutScheduleShareLink,
-  createRequestFromPayoutSchedule,
+  createReturnFromPayoutSchedule,
   deleteInvestPayoutScheduleShareLink,
   markPayoutScheduleAsPaid,
   type InvestCompanyRow,
@@ -64,12 +64,26 @@ type Props = {
   onShareLinkDeleted: (id: number) => void
 }
 
+const RETURN_TYPE_OPTIONS = [
+  { value: 'дивиденды', label: 'Дивиденды' },
+  { value: 'проценты', label: 'Проценты' },
+  { value: 'доля_прибыли', label: 'Доля прибыли' },
+  { value: 'тело_инвестиций', label: 'Тело инвестиций' },
+]
+
+const RECIPIENT_OPTIONS = [
+  { value: 'инвестор', label: 'Инвестор' },
+  { value: 'партнер', label: 'Партнер' },
+]
+
 type SingleFormValues = {
   company?: number | null
   payout_date: Dayjs
   amount: number
   currency: string
   comment?: string
+  return_type?: string | null
+  recipient?: string | null
 }
 
 type SeriesFormValues = {
@@ -80,6 +94,8 @@ type SeriesFormValues = {
   amount: number
   currency: string
   comment?: string
+  return_type?: string | null
+  recipient?: string | null
 }
 
 export function ScheduleTab({
@@ -106,14 +122,14 @@ export function ScheduleTab({
   const [deletingShareLinkId, setDeletingShareLinkId] = useState<number | null>(null)
   const [rowActionId, setRowActionId] = useState<number | null>(null)
 
-  const handleCreateRequest = async (scheduleId: number) => {
+  const handleCreateReturn = async (scheduleId: number) => {
     setRowActionId(scheduleId)
     try {
-      const res = await createRequestFromPayoutSchedule(scheduleId)
-      message.success(res.detail || 'Заявка создана')
+      const res = await createReturnFromPayoutSchedule(scheduleId)
+      message.success(res.detail || 'Выплата создана')
       await onCreated()
     } catch (e: unknown) {
-      message.error(e instanceof Error ? e.message : 'Не удалось создать заявку')
+      message.error(e instanceof Error ? e.message : 'Не удалось создать выплату')
     } finally {
       setRowActionId(null)
     }
@@ -250,21 +266,21 @@ export function ScheduleTab({
       key: 'actions',
       width: 220,
       render: (_: unknown, row: InvestPayoutScheduleRow) => {
-        if (row.created_request) {
-          return <Link to={`/requests/${row.created_request}`}>Заявка #{row.created_request} →</Link>
+        if (row.created_return) {
+          return <Typography.Text type="secondary">Выплата #{row.created_return} создана</Typography.Text>
         }
         if (row.is_paid) return <Tag color="green">Оплачено</Tag>
         const loading = rowActionId === row.id
         return (
           <Space size={4}>
             <Popconfirm
-              title="Создать заявку на платёж?"
+              title="Создать выплату по расписанию?"
               okText="Создать"
               cancelText="Отмена"
-              onConfirm={() => handleCreateRequest(row.id)}
+              onConfirm={() => handleCreateReturn(row.id)}
             >
               <Button size="small" type="primary" loading={loading}>
-                Создать заявку
+                Создать выплату
               </Button>
             </Popconfirm>
             <Popconfirm
@@ -376,6 +392,8 @@ export function ScheduleTab({
         amount: String(values.amount),
         currency: values.currency,
         comment: values.comment ?? '',
+        return_type: values.return_type ?? null,
+        recipient: values.recipient ?? null,
       })
       message.success('Выплата добавлена')
       setSingleOpen(false)
@@ -410,6 +428,8 @@ export function ScheduleTab({
             amount: String(values.amount),
             currency: values.currency,
             comment: `${values.comment ? values.comment + ' · ' : ''}${seriesTag} (${i + 1}/${dates.length})`,
+            return_type: values.return_type ?? null,
+            recipient: values.recipient ?? null,
           }),
         ),
       )
@@ -577,6 +597,14 @@ export function ScheduleTab({
               <Select style={{ width: 120 }} options={CURRENCY_OPTIONS} />
             </Form.Item>
           </Space>
+          <Space style={{ width: '100%' }} align="start" wrap>
+            <Form.Item label="Тип выплаты" name="return_type">
+              <Select allowClear style={{ width: 180 }} options={RETURN_TYPE_OPTIONS} placeholder="Не указан" />
+            </Form.Item>
+            <Form.Item label="Получатель" name="recipient">
+              <Select allowClear style={{ width: 140 }} options={RECIPIENT_OPTIONS} placeholder="Не указан" />
+            </Form.Item>
+          </Space>
           <Form.Item label="Комментарий" name="comment">
             <Input.TextArea rows={3} maxLength={1000} />
           </Form.Item>
@@ -640,6 +668,14 @@ export function ScheduleTab({
             </Form.Item>
             <Form.Item label="Валюта" name="currency" rules={[{ required: true }]}>
               <Select style={{ width: 120 }} options={CURRENCY_OPTIONS} />
+            </Form.Item>
+          </Space>
+          <Space style={{ width: '100%' }} align="start" wrap>
+            <Form.Item label="Тип выплаты" name="return_type">
+              <Select allowClear style={{ width: 180 }} options={RETURN_TYPE_OPTIONS} placeholder="Не указан" />
+            </Form.Item>
+            <Form.Item label="Получатель" name="recipient">
+              <Select allowClear style={{ width: 140 }} options={RECIPIENT_OPTIONS} placeholder="Не указан" />
             </Form.Item>
           </Space>
           <Form.Item label="Комментарий" name="comment">

@@ -1616,7 +1616,7 @@ class InvestReturnPnLBillingMonthTests(TestCase):
 
 
 class InvestNotificationDupeGuardTests(TestCase):
-    """The created_request FK + select_for_update gate must produce exactly one Request,
+    """The created_return FK + select_for_update gate must produce exactly one InvestReturn,
     even if the helper is called twice for the same schedule."""
 
     def setUp(self):
@@ -1628,56 +1628,58 @@ class InvestNotificationDupeGuardTests(TestCase):
             amount=Decimal("100.00"),
             currency="USD",
             is_paid=False,
+            return_type=InvestReturn.ReturnType.DIVIDEND,
+            recipient=InvestReturn.Recipient.INVESTOR,
             created_by=self.user,
         )
 
-    def test_second_call_returns_existing_request(self):
+    def test_second_call_returns_existing_return(self):
         from django.db import transaction
-        from apps.modules.investments.notification_services import create_or_get_request_for_schedule
-        from apps.modules.requests.models import Request
+        from apps.modules.investments.notification_services import create_or_get_return_for_schedule
+        from apps.modules.investments.models import InvestReturn
 
         with transaction.atomic():
-            req1, was_created1, note1 = create_or_get_request_for_schedule(
+            ret1, was_created1, note1 = create_or_get_return_for_schedule(
                 schedule=self.schedule, created_by=self.user,
             )
         self.assertTrue(was_created1)
-        self.assertIsNotNone(req1)
+        self.assertIsNotNone(ret1)
         self.assertIn("создана", note1)
 
         # FK is set on the schedule.
         self.schedule.refresh_from_db()
-        self.assertEqual(self.schedule.created_request_id, req1.pk)
+        self.assertEqual(self.schedule.created_return_id, ret1.pk)
 
-        # Second call: gate fires, no new request.
+        # Second call: gate fires, no new return.
         with transaction.atomic():
-            req2, was_created2, note2 = create_or_get_request_for_schedule(
+            ret2, was_created2, note2 = create_or_get_return_for_schedule(
                 schedule=self.schedule, created_by=self.user,
             )
         self.assertFalse(was_created2)
-        self.assertEqual(req2.pk, req1.pk)
+        self.assertEqual(ret2.pk, ret1.pk)
         self.assertIn("уже создана", note2)
 
-        # Exactly one request linked to this schedule.
+        # Exactly one InvestReturn linked to this schedule.
         self.assertEqual(
-            Request.objects.filter(invest_payout_schedule__pk=self.schedule.pk).count(), 1,
+            InvestReturn.objects.filter(payout_schedule__pk=self.schedule.pk).count(), 1,
         )
 
     def test_already_paid_skipped(self):
         from django.db import transaction
-        from apps.modules.investments.notification_services import create_or_get_request_for_schedule
-        from apps.modules.requests.models import Request
+        from apps.modules.investments.notification_services import create_or_get_return_for_schedule
+        from apps.modules.investments.models import InvestReturn
 
         self.schedule.is_paid = True
         self.schedule.save(update_fields=["is_paid"])
 
         with transaction.atomic():
-            req, was_created, note = create_or_get_request_for_schedule(
+            ret, was_created, note = create_or_get_return_for_schedule(
                 schedule=self.schedule, created_by=self.user,
             )
         self.assertFalse(was_created)
-        self.assertIsNone(req)
+        self.assertIsNone(ret)
         self.assertIn("Уже оплачено", note)
-        self.assertEqual(Request.objects.count(), 0)
+        self.assertEqual(InvestReturn.objects.count(), 0)
 
 
 class InvestNotificationOverdueModuloTests(TestCase):
@@ -1758,43 +1760,43 @@ class InvestNotificationOverdueModuloTests(TestCase):
         self.assertEqual(sent, 0)
         self.assertEqual(mock_send.call_count, 0)
 
-    def test_created_request_excludes_schedule_from_both_passes(self):
+    def test_created_return_excludes_schedule_from_both_passes(self):
         from datetime import timedelta
         from apps.modules.investments.notification_services import (
             process_due_invest_payout_notifications,
         )
-        from apps.modules.requests.models import Request
+        from apps.modules.investments.models import InvestReturn
 
         today = date(2026, 5, 22)
         sched_upcoming = self._make_schedule(today + timedelta(days=1))
         sched_overdue = self._make_schedule(today - timedelta(days=3))
 
-        # Pre-link both to an arbitrary Request → both passes should skip them.
-        req = Request.objects.create(
+        # Pre-link both to an arbitrary InvestReturn → both passes should skip them.
+        ret1 = InvestReturn.objects.create(
             tenant=self.tenant,
-            created_by=self.user,
-            billing_date=today,
-            amount=Decimal("100"),
+            date=today,
+            billing_date=today.replace(day=1),
+            sum=Decimal("100"),
             currency="USD",
-            payment_type=Request.PAYMENT_TYPE_TRANSFER,
-            urgency=Request.URGENCY_NORMAL,
-            status=Request.STATUS_PROGRESS_1,
+            type=InvestReturn.ReturnType.DIVIDEND,
+            recipient=InvestReturn.Recipient.INVESTOR,
+            created_by=self.user,
         )
-        sched_upcoming.created_request = req
-        sched_upcoming.save(update_fields=["created_request"])
+        sched_upcoming.created_return = ret1
+        sched_upcoming.save(update_fields=["created_return"])
 
-        req2 = Request.objects.create(
+        ret2 = InvestReturn.objects.create(
             tenant=self.tenant,
-            created_by=self.user,
-            billing_date=today,
-            amount=Decimal("100"),
+            date=today,
+            billing_date=today.replace(day=1),
+            sum=Decimal("100"),
             currency="USD",
-            payment_type=Request.PAYMENT_TYPE_TRANSFER,
-            urgency=Request.URGENCY_NORMAL,
-            status=Request.STATUS_PROGRESS_1,
+            type=InvestReturn.ReturnType.DIVIDEND,
+            recipient=InvestReturn.Recipient.INVESTOR,
+            created_by=self.user,
         )
-        sched_overdue.created_request = req2
-        sched_overdue.save(update_fields=["created_request"])
+        sched_overdue.created_return = ret2
+        sched_overdue.save(update_fields=["created_return"])
 
         with patch(
             "apps.modules.investments.notification_services._dispatch_payout_notification",
@@ -1879,9 +1881,9 @@ class InvestNotificationPayloadContractTests(TestCase):
         mock_post.assert_not_called()
 
 
-class InvestNotificationRejectionSignalTests(TestCase):
-    """The post_save signal must clear schedule.created_request when its Request is rejected,
-    so the next poller pass resumes notifications and the user can act again."""
+class InvestNotificationRejectionTests(TestCase):
+    """When an InvestReturn linked to a schedule is rejected, route_invest_return_approvals
+    must clear schedule.created_return so the next poller pass resumes notifications."""
 
     def setUp(self):
         self.tenant = Tenant.objects.create(name="RejCo", subdomain="rejco", is_active=True)
@@ -1891,39 +1893,50 @@ class InvestNotificationRejectionSignalTests(TestCase):
             payout_date=date(2026, 6, 1),
             amount=Decimal("100"),
             currency="USD",
+            return_type=InvestReturn.ReturnType.DIVIDEND,
+            recipient=InvestReturn.Recipient.INVESTOR,
             created_by=self.user,
         )
-        from apps.modules.requests.models import Request
-        self.request = Request.objects.create(
+        self.invest_return = InvestReturn.objects.create(
             tenant=self.tenant,
-            created_by=self.user,
+            date=date(2026, 6, 1),
             billing_date=date(2026, 6, 1),
-            amount=Decimal("100"),
+            sum=Decimal("100"),
             currency="USD",
-            payment_type=Request.PAYMENT_TYPE_TRANSFER,
-            urgency=Request.URGENCY_NORMAL,
-            status=Request.STATUS_PROGRESS_1,
+            type=InvestReturn.ReturnType.DIVIDEND,
+            recipient=InvestReturn.Recipient.INVESTOR,
+            confirmed=False,
+            created_by=self.user,
         )
-        self.schedule.created_request = self.request
-        self.schedule.save(update_fields=["created_request"])
+        self.schedule.created_return = self.invest_return
+        self.schedule.save(update_fields=["created_return"])
 
     def test_rejection_clears_fk(self):
-        from apps.modules.requests.models import Request
-        self.request.status = Request.STATUS_REJECTED
-        self.request.save(update_fields=["status"])
-        self.schedule.refresh_from_db()
-        self.assertIsNone(self.schedule.created_request_id)
+        from apps.modules.investments.models import InvestmentReturnApproval
+        from apps.modules.investments.approval_services import route_invest_return_approvals
 
-    def test_approval_keeps_fk(self):
-        from apps.modules.requests.models import Request
-        self.request.status = Request.STATUS_APPROVED
-        self.request.save(update_fields=["status"])
+        InvestmentReturnApproval.objects.create(
+            tenant=self.tenant,
+            invest_return=self.invest_return,
+            step=1,
+            approver_user=self.user,
+            decision=InvestmentReturnApproval.DECISION_REJECTED,
+        )
+        route_invest_return_approvals(invest_return=self.invest_return)
         self.schedule.refresh_from_db()
-        self.assertEqual(self.schedule.created_request_id, self.request.pk)
+        self.assertIsNone(self.schedule.created_return_id)
 
-    def test_payed_keeps_fk(self):
-        from apps.modules.requests.models import Request
-        self.request.status = Request.STATUS_PAYED
-        self.request.save(update_fields=["status"])
+    def test_pending_keeps_fk(self):
+        from apps.modules.investments.models import InvestmentReturnApproval
+        from apps.modules.investments.approval_services import route_invest_return_approvals
+
+        InvestmentReturnApproval.objects.create(
+            tenant=self.tenant,
+            invest_return=self.invest_return,
+            step=1,
+            approver_user=self.user,
+            decision=InvestmentReturnApproval.DECISION_PENDING,
+        )
+        route_invest_return_approvals(invest_return=self.invest_return)
         self.schedule.refresh_from_db()
-        self.assertEqual(self.schedule.created_request_id, self.request.pk)
+        self.assertEqual(self.schedule.created_return_id, self.invest_return.pk)

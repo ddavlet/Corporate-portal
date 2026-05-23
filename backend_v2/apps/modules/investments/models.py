@@ -81,13 +81,25 @@ class InvestPayoutSchedule(models.Model):
     is_paid = models.BooleanField(default=False)
     payment_amount = models.DecimalField(max_digits=18, decimal_places=2, default=Decimal("0.00"))
     comment = models.TextField(blank=True, default="")
-    created_request = models.OneToOneField(
-        "requests.Request",
+    return_type = models.CharField(
+        max_length=25,
+        choices=InvestReturn.ReturnType.choices,
+        null=True,
+        blank=True,
+    )
+    recipient = models.CharField(
+        max_length=20,
+        choices=InvestReturn.Recipient.choices,
+        null=True,
+        blank=True,
+    )
+    created_return = models.OneToOneField(
+        "InvestReturn",
         on_delete=models.SET_NULL,
         null=True,
         blank=True,
-        related_name="invest_payout_schedule",
-        help_text="Payment request created from this payout (one-click). Guards against duplicates.",
+        related_name="payout_schedule",
+        help_text="InvestReturn created from this payout (one-click). Guards against duplicates.",
     )
     created_at = models.DateTimeField(auto_now_add=True)
     last_edit_at = models.DateTimeField(auto_now=True)

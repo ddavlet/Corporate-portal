@@ -18,7 +18,7 @@ from apps.modules.investments.views import (
     InvestmentProjectApprovalDecisionView,
     InvestmentReturnApprovalReadViewSet,
     InvestNotificationConfigView,
-    InvestPayoutScheduleCreateRequestView,
+    InvestPayoutScheduleCreateReturnView,
     InvestPayoutScheduleMarkPaidView,
     InvestPayoutScheduleViewSet,
     InvestPayoutScheduleShareLinkViewSet,
@@ -71,9 +71,9 @@ urlpatterns = [
     path("form-config/", InvestmentFormConfigView.as_view(), name="invest-form-config"),
     path("notification-config/", InvestNotificationConfigView.as_view(), name="invest-notification-config"),
     path(
-        "payout-schedule/<int:schedule_id>/create-request/",
-        InvestPayoutScheduleCreateRequestView.as_view(),
-        name="invest-payout-create-request",
+        "payout-schedule/<int:schedule_id>/create-return/",
+        InvestPayoutScheduleCreateReturnView.as_view(),
+        name="invest-payout-create-return",
     ),
     path(
         "payout-schedule/<int:schedule_id>/mark-paid/",
