@@ -15,6 +15,30 @@ type RequestEntityLinkProps = {
   children: ReactNode
 }
 
+type RequestDetailFieldValueProps = {
+  variant?: 'default' | 'telegram'
+  to?: string
+  returnTo?: RequestReturnTo
+  children: ReactNode
+}
+
+/** В Telegram WebApp — только текст; в портале — ссылка на связанный раздел. */
+export function RequestDetailFieldValue({
+  variant = 'default',
+  to,
+  returnTo,
+  children,
+}: RequestDetailFieldValueProps) {
+  if (variant === 'telegram' || !to) {
+    return <>{children}</>
+  }
+  return (
+    <RequestEntityLink to={to} returnTo={returnTo}>
+      {children}
+    </RequestEntityLink>
+  )
+}
+
 export function RequestEntityLink({ to, returnTo, children }: RequestEntityLinkProps) {
   return (
     <Link

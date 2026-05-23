@@ -541,7 +541,7 @@ export function RequestDetailPage({ listPath = '/requests', variant = 'portal' }
                   }
                   onClick={() => void resendRequest()}
                 >
-                  Отправить запрос повторно
+                  Отправить повторно
                 </Button>
               ) : null}
               {detail?.id && !resendAllowed ? (
