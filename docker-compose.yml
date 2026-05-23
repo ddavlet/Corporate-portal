@@ -159,17 +159,6 @@ services:
        - traefik.http.routers.n8n-whp-lemonfit.middlewares=n8n-lemonfit-whp@docker,n8n@docker,n8n-error-pages@docker
        - traefik.http.routers.n8n-whp-lemonfit.service=n8n
 
-       # Short paths: https://lemonfit.kolberg.uz/<path> -> n8n /webhook/lemonfit/<path>
-       - traefik.http.middlewares.n8n-lemonfit-webhook.replacepathregex.regex=^/(.*)$
-       - traefik.http.middlewares.n8n-lemonfit-webhook.replacepathregex.replacement=/webhook/lemonfit/$1
-       - traefik.http.routers.n8n-webhook-lemonfit.rule=Host(`lemonfit.kolberg.uz`)
-       - traefik.http.routers.n8n-webhook-lemonfit.priority=1
-       - traefik.http.routers.n8n-webhook-lemonfit.entrypoints=web,websecure
-       - traefik.http.routers.n8n-webhook-lemonfit.tls=true
-       - traefik.http.routers.n8n-webhook-lemonfit.tls.certresolver=mytlschallenge
-       - traefik.http.routers.n8n-webhook-lemonfit.middlewares=n8n-lemonfit-webhook@docker,n8n@docker,n8n-error-pages@docker
-       - traefik.http.routers.n8n-webhook-lemonfit.service=n8n
-
       # ---------- Webhooks & Forms for construction.kolberg.uz ----------
        # Form: https://construction.kolberg.uz/form/<path> -> n8n /form/construction/<path>
        - traefik.http.middlewares.n8n-construction-form.replacepathregex.regex=^/form/(.*)$
@@ -192,27 +181,6 @@ services:
        - traefik.http.routers.n8n-whp-construction.priority=100
        - traefik.http.routers.n8n-whp-construction.middlewares=n8n-construction-whp@docker,n8n@docker,n8n-error-pages@docker
        - traefik.http.routers.n8n-whp-construction.service=n8n
-
-       # Bare /request opens the Form workflow path construction/request; does not match /requests-data etc.
-       - traefik.http.middlewares.n8n-construction-form-request.replacepath.path=/form/construction/request
-       - traefik.http.routers.n8n-form-request-construction.rule=Host(`construction.kolberg.uz`) && PathRegexp(`^/request/?$`)
-       - traefik.http.routers.n8n-form-request-construction.entrypoints=web,websecure
-       - traefik.http.routers.n8n-form-request-construction.tls=true
-       - traefik.http.routers.n8n-form-request-construction.tls.certresolver=mytlschallenge
-       - traefik.http.routers.n8n-form-request-construction.priority=100
-       - traefik.http.routers.n8n-form-request-construction.middlewares=n8n-construction-form-request@docker,n8n@docker,n8n-error-pages@docker
-       - traefik.http.routers.n8n-form-request-construction.service=n8n
-
-       # Short paths: https://construction.kolberg.uz/<path> -> n8n /webhook/construction/<path>
-       - traefik.http.middlewares.n8n-construction-webhook.replacepathregex.regex=^/(.*)$
-       - traefik.http.middlewares.n8n-construction-webhook.replacepathregex.replacement=/webhook/construction/$1
-       - traefik.http.routers.n8n-webhook-construction.rule=Host(`construction.kolberg.uz`)
-       - traefik.http.routers.n8n-webhook-construction.priority=1
-       - traefik.http.routers.n8n-webhook-construction.entrypoints=web,websecure
-       - traefik.http.routers.n8n-webhook-construction.tls=true
-       - traefik.http.routers.n8n-webhook-construction.tls.certresolver=mytlschallenge
-       - traefik.http.routers.n8n-webhook-construction.middlewares=n8n-construction-webhook@docker,n8n@docker,n8n-error-pages@docker
-       - traefik.http.routers.n8n-webhook-construction.service=n8n
 
       # ---------- Webhooks & Forms for neuron.kolberg.uz ----------
        # Form: https://neuron.kolberg.uz/form/<path> -> n8n /form/neuron/<path>
@@ -237,27 +205,6 @@ services:
        - traefik.http.routers.n8n-whp-neuron.middlewares=n8n-neuron-whp@docker,n8n@docker,n8n-error-pages@docker
        - traefik.http.routers.n8n-whp-neuron.service=n8n
 
-       # Bare /request opens the Form workflow path neuron/request; does not match /requests-data etc.
-       - traefik.http.middlewares.n8n-neuron-form-request.replacepath.path=/form/neuron/request
-       - traefik.http.routers.n8n-form-request-neuron.rule=Host(`neuron.kolberg.uz`) && PathRegexp(`^/request/?$`)
-       - traefik.http.routers.n8n-form-request-neuron.entrypoints=web,websecure
-       - traefik.http.routers.n8n-form-request-neuron.tls=true
-       - traefik.http.routers.n8n-form-request-neuron.tls.certresolver=mytlschallenge
-       - traefik.http.routers.n8n-form-request-neuron.priority=100
-       - traefik.http.routers.n8n-form-request-neuron.middlewares=n8n-neuron-form-request@docker,n8n@docker,n8n-error-pages@docker
-       - traefik.http.routers.n8n-form-request-neuron.service=n8n
-
-       # Short paths: https://neuron.kolberg.uz/<path> -> n8n /webhook/neuron/<path>
-       - traefik.http.middlewares.n8n-neuron-webhook.replacepathregex.regex=^/(.*)$
-       - traefik.http.middlewares.n8n-neuron-webhook.replacepathregex.replacement=/webhook/neuron/$1
-       - traefik.http.routers.n8n-webhook-neuron.rule=Host(`neuron.kolberg.uz`)
-       - traefik.http.routers.n8n-webhook-neuron.priority=1
-       - traefik.http.routers.n8n-webhook-neuron.entrypoints=web,websecure
-       - traefik.http.routers.n8n-webhook-neuron.tls=true
-       - traefik.http.routers.n8n-webhook-neuron.tls.certresolver=mytlschallenge
-       - traefik.http.routers.n8n-webhook-neuron.middlewares=n8n-neuron-webhook@docker,n8n@docker,n8n-error-pages@docker
-       - traefik.http.routers.n8n-webhook-neuron.service=n8n
-
       # ---------- Webhooks & Forms for lemonfit2.kolberg.uz ----------
        # Form: https://lemonfit2.kolberg.uz/form/<path> -> n8n /form/lemonfit2/<path>
        - traefik.http.middlewares.n8n-lemonfit2-form.replacepathregex.regex=^/form/(.*)$
@@ -280,17 +227,6 @@ services:
        - traefik.http.routers.n8n-whp-lemonfit2.priority=100
        - traefik.http.routers.n8n-whp-lemonfit2.middlewares=n8n-lemonfit2-whp@docker,n8n@docker,n8n-error-pages@docker
        - traefik.http.routers.n8n-whp-lemonfit2.service=n8n
-
-       # Short paths: https://lemonfit2.kolberg.uz/<path> -> n8n /webhook/lemonfit2/<path>
-       - traefik.http.middlewares.n8n-lemonfit2-webhook.replacepathregex.regex=^/(.*)$
-       - traefik.http.middlewares.n8n-lemonfit2-webhook.replacepathregex.replacement=/webhook/lemonfit2/$1
-       - traefik.http.routers.n8n-webhook-lemonfit2.rule=Host(`lemonfit2.kolberg.uz`)
-       - traefik.http.routers.n8n-webhook-lemonfit2.priority=1
-       - traefik.http.routers.n8n-webhook-lemonfit2.entrypoints=web,websecure
-       - traefik.http.routers.n8n-webhook-lemonfit2.tls=true
-       - traefik.http.routers.n8n-webhook-lemonfit2.tls.certresolver=mytlschallenge
-       - traefik.http.routers.n8n-webhook-lemonfit2.middlewares=n8n-lemonfit2-webhook@docker,n8n@docker,n8n-error-pages@docker
-       - traefik.http.routers.n8n-webhook-lemonfit2.service=n8n
 
       # ---------- Webhooks & Forms for lemonaqua.kolberg.uz ----------
        # Form: https://lemonaqua.kolberg.uz/form/<path> -> n8n /form/lemonaqua/<path>
@@ -315,17 +251,6 @@ services:
        - traefik.http.routers.n8n-whp-lemonaqua.middlewares=n8n-lemonaqua-whp@docker,n8n@docker,n8n-error-pages@docker
        - traefik.http.routers.n8n-whp-lemonaqua.service=n8n
 
-       # Short paths: https://lemonaqua.kolberg.uz/<path> -> n8n /webhook/lemonaqua/<path>
-       - traefik.http.middlewares.n8n-lemonaqua-webhook.replacepathregex.regex=^/(.*)$
-       - traefik.http.middlewares.n8n-lemonaqua-webhook.replacepathregex.replacement=/webhook/lemonaqua/$1
-       - traefik.http.routers.n8n-webhook-lemonaqua.rule=Host(`lemonaqua.kolberg.uz`)
-       - traefik.http.routers.n8n-webhook-lemonaqua.priority=1
-       - traefik.http.routers.n8n-webhook-lemonaqua.entrypoints=web,websecure
-       - traefik.http.routers.n8n-webhook-lemonaqua.tls=true
-       - traefik.http.routers.n8n-webhook-lemonaqua.tls.certresolver=mytlschallenge
-       - traefik.http.routers.n8n-webhook-lemonaqua.middlewares=n8n-lemonaqua-webhook@docker,n8n@docker,n8n-error-pages@docker
-       - traefik.http.routers.n8n-webhook-lemonaqua.service=n8n
-
       # ---------- Webhooks & Forms for main.kolberg.uz ----------
        # Form: https://main.kolberg.uz/form/<path> -> n8n /form/main/<path>
        - traefik.http.middlewares.n8n-main-form.replacepathregex.regex=^/form/(.*)$
@@ -348,17 +273,6 @@ services:
        - traefik.http.routers.n8n-whp-main.priority=100
        - traefik.http.routers.n8n-whp-main.middlewares=n8n-main-whp@docker,n8n@docker,n8n-error-pages@docker
        - traefik.http.routers.n8n-whp-main.service=n8n
-
-       # Short paths: https://main.kolberg.uz/<path> -> n8n /webhook/main/<path>
-       - traefik.http.middlewares.n8n-main-webhook.replacepathregex.regex=^/(.*)$
-       - traefik.http.middlewares.n8n-main-webhook.replacepathregex.replacement=/webhook/main/$1
-       - traefik.http.routers.n8n-webhook-main.rule=Host(`main.kolberg.uz`)
-       - traefik.http.routers.n8n-webhook-main.priority=1
-       - traefik.http.routers.n8n-webhook-main.entrypoints=web,websecure
-       - traefik.http.routers.n8n-webhook-main.tls=true
-       - traefik.http.routers.n8n-webhook-main.tls.certresolver=mytlschallenge
-       - traefik.http.routers.n8n-webhook-main.middlewares=n8n-main-webhook@docker,n8n@docker,n8n-error-pages@docker
-       - traefik.http.routers.n8n-webhook-main.service=n8n
 
       # ---------- Webhooks & Forms for zarqand.kolberg.uz ----------
        # Form: https://zarqand.kolberg.uz/form/<path> -> n8n /form/zarqand/<path>
@@ -383,17 +297,6 @@ services:
        - traefik.http.routers.n8n-whp-zarqand.middlewares=n8n-zarqand-whp@docker,n8n@docker,n8n-error-pages@docker
        - traefik.http.routers.n8n-whp-zarqand.service=n8n
 
-       # Short paths: https://zarqand.kolberg.uz/<path> -> n8n /webhook/zarqand/<path>
-       - traefik.http.middlewares.n8n-zarqand-webhook.replacepathregex.regex=^/(.*)$
-       - traefik.http.middlewares.n8n-zarqand-webhook.replacepathregex.replacement=/webhook/zarqand/$1
-       - traefik.http.routers.n8n-webhook-zarqand.rule=Host(`zarqand.kolberg.uz`)
-       - traefik.http.routers.n8n-webhook-zarqand.priority=1
-       - traefik.http.routers.n8n-webhook-zarqand.entrypoints=web,websecure
-       - traefik.http.routers.n8n-webhook-zarqand.tls=true
-       - traefik.http.routers.n8n-webhook-zarqand.tls.certresolver=mytlschallenge
-       - traefik.http.routers.n8n-webhook-zarqand.middlewares=n8n-zarqand-webhook@docker,n8n@docker,n8n-error-pages@docker
-       - traefik.http.routers.n8n-webhook-zarqand.service=n8n
-
       # ---------- Webhooks & Forms for invest.kolberg.uz ----------
        # Form: https://invest.kolberg.uz/form/<path> -> n8n /form/invest/<path>
        - traefik.http.middlewares.n8n-invest-form.replacepathregex.regex=^/form/(.*)$
@@ -416,17 +319,6 @@ services:
        - traefik.http.routers.n8n-whp-invest.priority=100
        - traefik.http.routers.n8n-whp-invest.middlewares=n8n-invest-whp@docker,n8n@docker,n8n-error-pages@docker
        - traefik.http.routers.n8n-whp-invest.service=n8n
-
-       # Short paths: https://invest.kolberg.uz/<path> -> n8n /webhook/invest/<path>
-       - traefik.http.middlewares.n8n-invest-webhook.replacepathregex.regex=^/(.*)$
-       - traefik.http.middlewares.n8n-invest-webhook.replacepathregex.replacement=/webhook/invest/$1
-       - traefik.http.routers.n8n-webhook-invest.rule=Host(`invest.kolberg.uz`)
-       - traefik.http.routers.n8n-webhook-invest.priority=1
-       - traefik.http.routers.n8n-webhook-invest.entrypoints=web,websecure
-       - traefik.http.routers.n8n-webhook-invest.tls=true
-       - traefik.http.routers.n8n-webhook-invest.tls.certresolver=mytlschallenge
-       - traefik.http.routers.n8n-webhook-invest.middlewares=n8n-invest-webhook@docker,n8n@docker,n8n-error-pages@docker
-       - traefik.http.routers.n8n-webhook-invest.service=n8n
 
       # ---------- Webhooks & Forms for syrop.kolberg.uz ----------
        # Form: https://syrop.kolberg.uz/form/<path> -> n8n /form/syrop/<path>
@@ -451,17 +343,6 @@ services:
        - traefik.http.routers.n8n-whp-syrop.middlewares=n8n-syrop-whp@docker,n8n@docker,n8n-error-pages@docker
        - traefik.http.routers.n8n-whp-syrop.service=n8n
 
-       # Short paths: https://syrop.kolberg.uz/<path> -> n8n /webhook/syrop/<path>
-       - traefik.http.middlewares.n8n-syrop-webhook.replacepathregex.regex=^/(.*)$
-       - traefik.http.middlewares.n8n-syrop-webhook.replacepathregex.replacement=/webhook/syrop/$1
-       - traefik.http.routers.n8n-webhook-syrop.rule=Host(`syrop.kolberg.uz`)
-       - traefik.http.routers.n8n-webhook-syrop.priority=1
-       - traefik.http.routers.n8n-webhook-syrop.entrypoints=web,websecure
-       - traefik.http.routers.n8n-webhook-syrop.tls=true
-       - traefik.http.routers.n8n-webhook-syrop.tls.certresolver=mytlschallenge
-       - traefik.http.routers.n8n-webhook-syrop.middlewares=n8n-syrop-webhook@docker,n8n@docker,n8n-error-pages@docker
-       - traefik.http.routers.n8n-webhook-syrop.service=n8n
-
       # ---------- Webhooks & Forms for qulay.kolberg.uz ----------
        # Form: https://qulay.kolberg.uz/form/<path> -> n8n /form/qulay/<path>
        - traefik.http.middlewares.n8n-qulay-form.replacepathregex.regex=^/form/(.*)$
@@ -484,17 +365,6 @@ services:
        - traefik.http.routers.n8n-whp-qulay.priority=100
        - traefik.http.routers.n8n-whp-qulay.middlewares=n8n-qulay-whp@docker,n8n@docker,n8n-error-pages@docker
        - traefik.http.routers.n8n-whp-qulay.service=n8n
-
-       # Short paths: https://qulay.kolberg.uz/<path> -> n8n /webhook/qulay/<path>
-       - traefik.http.middlewares.n8n-qulay-webhook.replacepathregex.regex=^/(.*)$
-       - traefik.http.middlewares.n8n-qulay-webhook.replacepathregex.replacement=/webhook/qulay/$1
-       - traefik.http.routers.n8n-webhook-qulay.rule=Host(`qulay.kolberg.uz`)
-       - traefik.http.routers.n8n-webhook-qulay.priority=1
-       - traefik.http.routers.n8n-webhook-qulay.entrypoints=web,websecure
-       - traefik.http.routers.n8n-webhook-qulay.tls=true
-       - traefik.http.routers.n8n-webhook-qulay.tls.certresolver=mytlschallenge
-       - traefik.http.routers.n8n-webhook-qulay.middlewares=n8n-qulay-webhook@docker,n8n@docker,n8n-error-pages@docker
-       - traefik.http.routers.n8n-webhook-qulay.service=n8n
 
       # ---------- Webhooks & Forms for lemonelectro.kolberg.uz ----------
        # Form: https://lemonelectro.kolberg.uz/form/<path> -> n8n /form/lemonelectro/<path>
@@ -519,17 +389,6 @@ services:
        - traefik.http.routers.n8n-whp-lemonelectro.middlewares=n8n-lemonelectro-whp@docker,n8n@docker,n8n-error-pages@docker
        - traefik.http.routers.n8n-whp-lemonelectro.service=n8n
 
-       # Short paths: https://lemonelectro.kolberg.uz/<path> -> n8n /webhook/lemonelectro/<path>
-       - traefik.http.middlewares.n8n-lemonelectro-webhook.replacepathregex.regex=^/(.*)$
-       - traefik.http.middlewares.n8n-lemonelectro-webhook.replacepathregex.replacement=/webhook/lemonelectro/$1
-       - traefik.http.routers.n8n-webhook-lemonelectro.rule=Host(`lemonelectro.kolberg.uz`)
-       - traefik.http.routers.n8n-webhook-lemonelectro.priority=1
-       - traefik.http.routers.n8n-webhook-lemonelectro.entrypoints=web,websecure
-       - traefik.http.routers.n8n-webhook-lemonelectro.tls=true
-       - traefik.http.routers.n8n-webhook-lemonelectro.tls.certresolver=mytlschallenge
-       - traefik.http.routers.n8n-webhook-lemonelectro.middlewares=n8n-lemonelectro-webhook@docker,n8n@docker,n8n-error-pages@docker
-       - traefik.http.routers.n8n-webhook-lemonelectro.service=n8n
-
       # ---------- Final n8n service config ----------
        - traefik.http.services.n8n.loadbalancer.server.port=5678
 
@@ -545,9 +404,6 @@ services:
       - TZ=${GENERIC_TIMEZONE}
       - N8N_CONCURRENCY_PRODUCTION_LIMIT=10
       - N8N_PROXY_HOPS=1
-
-      - N8N_DEFAULT_CORS=true
-      - N8N_CORS_ALLOW_ORIGIN=https://neuron.kolberg.uz,https://construction.kolberg.uz,https://lemonfit.kolberg.uz,https://lemonaqua.kolberg.uz,https://main.kolberg.uz
 
       - EXECUTIONS_DATA_PRUNE=true
       - EXECUTIONS_DATA_MAX_AGE=720
@@ -660,75 +516,75 @@ services:
       - /opt/backups/postgres:/backups/postgres:ro
       - ${RCLONE_CONFIG_DIR:-/opt/backups/rclone}:/config/rclone:ro
 
-  portainer:
-    image: portainer/portainer-ce:latest
-    container_name: portainer
-    restart: always
-    security_opt:
-      - no-new-privileges:true
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
-      - portainer_data:/data
-    labels:
-      - traefik.enable=true
-      - traefik.docker.network=n8n_traefik-public
+  # portainer:
+  #   image: portainer/portainer-ce:latest
+  #   container_name: portainer
+  #   restart: always
+  #   security_opt:
+  #     - no-new-privileges:true
+  #   volumes:
+  #     - /var/run/docker.sock:/var/run/docker.sock
+  #     - portainer_data:/data
+  #   labels:
+  #     - traefik.enable=true
+  #     - traefik.docker.network=n8n_traefik-public
 
-      - traefik.http.routers.portainer.rule=Host(`docker.kolberg.uz`)
-      - traefik.http.routers.portainer.entrypoints=web,websecure
-      - traefik.http.routers.portainer.tls=true
-      - traefik.http.routers.portainer.tls.certresolver=mytlschallenge
+  #     - traefik.http.routers.portainer.rule=Host(`docker.kolberg.uz`)
+  #     - traefik.http.routers.portainer.entrypoints=web,websecure
+  #     - traefik.http.routers.portainer.tls=true
+  #     - traefik.http.routers.portainer.tls.certresolver=mytlschallenge
 
-      - traefik.http.services.portainer.loadbalancer.server.port=9000
-    networks:
-      - traefik-public
+  #     - traefik.http.services.portainer.loadbalancer.server.port=9000
+  #   networks:
+  #     - traefik-public
 
-  backend:
-    build: ./backend
-    container_name: django
-    restart: always
-    environment:
-      POSTGRES_DB: ${POSTGRES_WEB_DB}
-      POSTGRES_USER: ${POSTGRES_WEB_USER}
-      POSTGRES_PASSWORD: ${POSTGRES_WEB_PASSWORD}
-      POSTGRES_HOST: "db"
-      POSTGRES_PORT: 5432
-      DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:-change-me-to-a-long-random-secret-key-32-plus-bytes}
-      DJANGO_DEBUG: "False"
-      N8N_TOKEN: ${N8N_TOKEN}
-      CORPORATE_INVESTMENTS_ALLOWED_USER: ddavlet, r.davletyarov
-    volumes:
-      - ./backend:/app
-    depends_on:
-      - db
-    command: >
-      sh -c "
-      python manage.py migrate &&
-      gunicorn config.wsgi:application --bind 0.0.0.0:8000
-      "
-    labels:
-      - traefik.enable=true
-      - traefik.docker.network=n8n_traefik-public
-      - traefik.http.services.django.loadbalancer.server.port=8000
+  # backend:
+  #   build: ./backend
+  #   container_name: django
+  #   restart: always
+  #   environment:
+  #     POSTGRES_DB: ${POSTGRES_WEB_DB}
+  #     POSTGRES_USER: ${POSTGRES_WEB_USER}
+  #     POSTGRES_PASSWORD: ${POSTGRES_WEB_PASSWORD}
+  #     POSTGRES_HOST: "db"
+  #     POSTGRES_PORT: 5432
+  #     DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:-change-me-to-a-long-random-secret-key-32-plus-bytes}
+  #     DJANGO_DEBUG: "False"
+  #     N8N_TOKEN: ${N8N_TOKEN}
+  #     CORPORATE_INVESTMENTS_ALLOWED_USER: ddavlet, r.davletyarov
+  #   volumes:
+  #     - ./backend:/app
+  #   depends_on:
+  #     - db
+  #   command: >
+  #     sh -c "
+  #     python manage.py migrate &&
+  #     gunicorn config.wsgi:application --bind 0.0.0.0:8000
+  #     "
+  #   labels:
+  #     - traefik.enable=true
+  #     - traefik.docker.network=n8n_traefik-public
+  #     - traefik.http.services.django.loadbalancer.server.port=8000
 
-      # login.kolberg.uz (оставляем как есть)
-      - traefik.http.routers.django-login.rule=Host(`login.kolberg.uz`)
-      - traefik.http.routers.django-login.entrypoints=web,websecure
-      - traefik.http.routers.django-login.tls=true
-      - traefik.http.routers.django-login.tls.certresolver=mytlschallenge
-      - traefik.http.routers.django-login.service=django
-      - traefik.http.routers.django-login.priority=1000
+  #     # login.kolberg.uz (оставляем как есть)
+  #     - traefik.http.routers.django-login.rule=Host(`login.kolberg.uz`)
+  #     - traefik.http.routers.django-login.entrypoints=web,websecure
+  #     - traefik.http.routers.django-login.tls=true
+  #     - traefik.http.routers.django-login.tls.certresolver=mytlschallenge
+  #     - traefik.http.routers.django-login.service=django
+  #     - traefik.http.routers.django-login.priority=1000
 
-      # tenants: только /web/*
-      - traefik.http.routers.django-web.rule=(Host(`lemonfit.kolberg.uz`) || Host(`lemonfit2.kolberg.uz`) || Host(`neuron.kolberg.uz`)) && PathPrefix(`/web/`)
-      - traefik.http.routers.django-web.entrypoints=web,websecure
-      - traefik.http.routers.django-web.tls=true
-      - traefik.http.routers.django-web.tls.certresolver=mytlschallenge
-      - traefik.http.routers.django-web.service=django
-      - traefik.http.routers.django-web.priority=1000
+  #     # tenants: только /web/*
+  #     - traefik.http.routers.django-web.rule=(Host(`lemonfit.kolberg.uz`) || Host(`lemonfit2.kolberg.uz`) || Host(`neuron.kolberg.uz`)) && PathPrefix(`/web/`)
+  #     - traefik.http.routers.django-web.entrypoints=web,websecure
+  #     - traefik.http.routers.django-web.tls=true
+  #     - traefik.http.routers.django-web.tls.certresolver=mytlschallenge
+  #     - traefik.http.routers.django-web.service=django
+  #     - traefik.http.routers.django-web.priority=1000
 
-    networks:
-      - traefik-public
-      - backend
+  #   networks:
+  #     - traefik-public
+  #     - backend
 
   backend_v2:
     build: ./backend_v2
@@ -753,7 +609,6 @@ services:
       # Internal n8n webhook base; bypasses Traefik+TLS so report proxies stop paying the public-hop cost.
       # Unset in .env to fall back to https://{subdomain}.{BASE_DOMAIN}.
       N8N_INTERNAL_BASE_URL: ${N8N_INTERNAL_BASE_URL:-http://n8n:5678/webhook}
-      N8N_TOKEN: ${N8N_TOKEN:-}
       MESSAGING_GATEWAY_SEND_URL: http://tg_gateway:8080/v1/messaging/send
       MESSAGING_GATEWAY_ADMIN_URL: http://tg_gateway:8080
       # MCP server OAuth issuer URL — must be the public HTTPS base without trailing slash.
@@ -910,30 +765,6 @@ services:
       - NET_ADMIN
       - SYS_MODULE
     restart: unless-stopped
-
-  # mcp-postgres:
-  #   image: node:22-alpine
-  #   container_name: mcp-postgres
-  #   restart: always
-  #   command: >
-  #     sh -c "
-  #       npm install -g @modelcontextprotocol/server-postgres mcp-proxy &&
-  #       mcp-proxy --port 3100 --transport sse npx @modelcontextprotocol/server-postgres 'postgresql://${POSGRES_MCP_USER}:${POSGRES_MCP_PASSWORD}@db:5432/backend_v2'
-  #     "
-  #   depends_on:
-  #     db:
-  #       condition: service_healthy
-  #   labels:
-  #     - traefik.enable=true
-  #     - traefik.docker.network=n8n_traefik-public
-  #     - traefik.http.routers.mcp-postgres.rule=Host(`mcp-db.kolberg.uz`)
-  #     - traefik.http.routers.mcp-postgres.entrypoints=web,websecure
-  #     - traefik.http.routers.mcp-postgres.tls=true
-  #     - traefik.http.routers.mcp-postgres.tls.certresolver=mytlschallenge
-  #     - traefik.http.services.mcp-postgres.loadbalancer.server.port=3100
-  #   networks:
-  #     - traefik-public
-  #     - backend
 
 volumes:
   n8n_data:
