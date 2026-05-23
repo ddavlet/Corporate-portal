@@ -434,7 +434,7 @@ class ResolverPaymentChatIdTests(APITestCase):
 # 4 & 5. API read/write — GET and PUT /api/requests/approval-config/
 # ---------------------------------------------------------------------------
 
-@override_settings(BASE_DOMAIN="example.com", N8N_TOKEN="", N8N_INTEGRATION_TOKEN="", ALLOWED_HOSTS=["*"])
+@override_settings(BASE_DOMAIN="example.com", N8N_INTEGRATION_TOKEN="", ALLOWED_HOSTS=["*"])
 class ApprovalConfigApiPaymentChatIdTests(APITestCase):
     def setUp(self):
         self.tenant = Tenant.objects.create(name="Acme", subdomain="acme", is_active=True)

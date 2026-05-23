@@ -3,7 +3,18 @@ import type { ReactNode } from 'react'
 import { Alert, Button, Card, Collapse, Descriptions, Divider, Modal, Skeleton, Space, Tag, Typography, message } from 'antd'
 import { apiFetch } from '../../lib/api'
 import type { RequestAttachment } from '../../lib/api'
+import { buildRequestFileRows } from '../../lib/requestFiles'
+import { linkedExpenseFrontendPath, linkedExpenseLabel } from '../../lib/requestExpense'
+import type { RequestReturnTo } from '../../lib/requestNavigation'
 import { formatRequestDate, formatRequestBillingMonth, getRequestStatusColor } from '../../lib/requestUtils'
+import {
+  RequestDetailFieldValue,
+  RequestEntityLink,
+  REQUEST_FORM_CONFIG_PATH,
+  contractsPath,
+  usersSettingsPath,
+  vendorDirectoryPath,
+} from './RequestEntityLink'
 
 export type ApprovalItem = {
   id: number
@@ -42,6 +53,7 @@ export type RequestDetail = {
     date_from: string | null
     date_to: string | null
   } | null
+  contract_label?: string | null
   company_payer?: string
   payment_purpose?: string
   file_link?: string | null
@@ -50,6 +62,7 @@ export type RequestDetail = {
   requester_username?: string | null
   created_at?: string
   created_by?: number | null
+  created_by_username?: string | null
   submitted_at: string
   billing_date: string
   payed_at?: number | null
@@ -106,17 +119,6 @@ function formatPayedAt(value?: number | null): string {
   return String(value)
 }
 
-function formatExpenseCalendar(
-  y?: number | null,
-  m?: number | null,
-  d?: number | null,
-): string {
-  if (y == null && m == null && d == null) return '-'
-  return [y ?? '—', m != null ? String(m).padStart(2, '0') : '—', d != null ? String(d).padStart(2, '0') : '—'].join(
-    '.',
-  )
-}
-
 function formatContractPeriod(info: RequestDetail['contract_ref_info']): string {
   if (!info) return ''
   const from = (info.date_from || '').trim()
@@ -124,24 +126,6 @@ function formatContractPeriod(info: RequestDetail['contract_ref_info']): string 
   if (from && to) return `${from} - ${to}`
   if (from) return from
   return ''
-}
-
-function expenseLinkSummary(link: RequestDetail['expense_link']): string {
-  if (!link) return '-'
-  const parts: string[] = []
-  if (link.module) parts.push(`модуль: ${link.module}`)
-  if (link.expense_type) parts.push(`тип: ${link.expense_type}`)
-  if (link.doc_id != null && String(link.doc_id).trim() !== '') parts.push(`№ документа: ${link.doc_id}`)
-  if (link.id != null && link.id !== '') parts.push(`связанный id: ${link.id}`)
-  return parts.length ? parts.join(' · ') : '-'
-}
-
-function formatAttachmentSize(sizeBytes?: number): string {
-  const size = Number(sizeBytes || 0)
-  if (!Number.isFinite(size) || size <= 0) return '-'
-  if (size < 1024) return `${size} B`
-  if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`
-  return `${(size / (1024 * 1024)).toFixed(1)} MB`
 }
 
 
@@ -172,7 +156,13 @@ function translateStepType(stepType?: string | null): string {
   return stepType || ''
 }
 
-function renderApprovalGroup(title: string, items: ApprovalItem[]) {
+function renderApprovalGroup(
+  title: string,
+  items: ApprovalItem[],
+  options?: { returnTo?: RequestReturnTo; variant?: 'default' | 'telegram' },
+) {
+  const returnTo = options?.returnTo
+  const isTg = options?.variant === 'telegram'
   return (
     <Space direction="vertical" size={8} style={{ display: 'flex' }}>
       <Typography.Text strong>{title}</Typography.Text>
@@ -199,28 +189,30 @@ function renderApprovalGroup(title: string, items: ApprovalItem[]) {
                 {item.comment || 'Без комментария'}
               </Typography.Text>
               <Typography.Text type="secondary">Дата решения: {formatRequestDate(item.decided_at)}</Typography.Text>
-              <Collapse
-                ghost
-                size="small"
-                items={[{
-                  key: 'tech',
-                  label: <Typography.Text type="secondary" style={{ fontSize: 11 }}>Детали</Typography.Text>,
-                  children: (
-                    <Typography.Text type="secondary" style={{ fontSize: 11 }}>
-                      approval id: {item.id}
-                      {item.message_id != null ? ` · message_id: ${item.message_id}` : ''}
-                      {item.message_sent != null ? ` · message_sent: ${item.message_sent ? 'да' : 'нет'}` : ''}
-                      {item.message_sent_at ? ` · sent_at: ${formatDateTime(item.message_sent_at)}` : ''}
-                      {item.approver_tg_id != null && item.approver_tg_id !== ''
-                        ? ` · tg_id: ${item.approver_tg_id}`
-                        : ''}
-                      {item.approver_tg_from_id != null && item.approver_tg_from_id !== ''
-                        ? ` · tg_from: ${item.approver_tg_from_id}`
-                        : ''}
-                    </Typography.Text>
-                  ),
-                }]}
-              />
+              {!isTg ? (
+                <Collapse
+                  ghost
+                  size="small"
+                  items={[{
+                    key: 'tech',
+                    label: <Typography.Text type="secondary" style={{ fontSize: 11 }}>Детали</Typography.Text>,
+                    children: (
+                      <Typography.Text type="secondary" style={{ fontSize: 11 }}>
+                        approval id: {item.id}
+                        {item.message_id != null ? ` · message_id: ${item.message_id}` : ''}
+                        {item.message_sent != null ? ` · message_sent: ${item.message_sent ? 'да' : 'нет'}` : ''}
+                        {item.message_sent_at ? ` · sent_at: ${formatDateTime(item.message_sent_at)}` : ''}
+                        {item.approver_tg_id != null && item.approver_tg_id !== ''
+                          ? ` · tg_id: ${item.approver_tg_id}`
+                          : ''}
+                        {item.approver_tg_from_id != null && item.approver_tg_from_id !== ''
+                          ? ` · tg_from: ${item.approver_tg_from_id}`
+                          : ''}
+                      </Typography.Text>
+                    ),
+                  }]}
+                />
+              ) : null}
             </Space>
           </Card>
         ))
@@ -236,6 +228,8 @@ type RequestDetailModalProps = {
   loading?: boolean
   error?: string | null
   actions?: React.ReactNode
+  /** Куда вернуть пользователя из связанных документов/справочников. */
+  returnTo?: RequestReturnTo
 }
 
 export function RequestDetailModal({
@@ -245,10 +239,11 @@ export function RequestDetailModal({
   loading = false,
   error = null,
   actions = null,
+  returnTo,
 }: RequestDetailModalProps) {
   return (
     <Modal open={open} title={detail ? `Заявка #${detail.id}` : 'Заявка'} footer={null} onCancel={onCancel} width={760}>
-      <RequestDetailContent detail={detail} loading={loading} error={error} actions={actions} />
+      <RequestDetailContent detail={detail} loading={loading} error={error} actions={actions} returnTo={returnTo} />
     </Modal>
   )
 }
@@ -260,6 +255,7 @@ type RequestDetailContentProps = {
   actions?: React.ReactNode
   /** Компактные блоки для Telegram WebApp на телефоне */
   variant?: 'default' | 'telegram'
+  returnTo?: RequestReturnTo
 }
 
 function TgDetailRow({ label, children }: { label: string; children: ReactNode }) {
@@ -277,12 +273,25 @@ export function RequestDetailContent({
   error = null,
   actions = null,
   variant = 'default',
+  returnTo,
 }: RequestDetailContentProps) {
   const approvals = detail?.approvals || []
   const amortizationSchedule = detail?.amortization_schedule || []
   const approvedApprovals = approvals.filter((a) => decisionKey(a.decision) === 'approved')
   const rejectedApprovals = approvals.filter((a) => decisionKey(a.decision) === 'rejected')
   const pendingApprovals = approvals.filter((a) => decisionKey(a.decision) === 'pending')
+  const linkedExpensePath = linkedExpenseFrontendPath(detail?.expense_link ?? null, {
+    telegram: variant === 'telegram',
+  })
+  const linkedExpenseText = linkedExpenseLabel(detail?.expense_link ?? null)
+  const createdByName =
+    detail?.created_by_username?.trim() ||
+    (detail?.created_by != null ? `Пользователь #${detail.created_by}` : null)
+  const requesterName =
+    detail?.requester_username?.trim() ||
+    (detail?.requester != null ? `Пользователь #${detail.requester}` : null)
+  const vendorName = detail?.vendor?.trim() || null
+  const fileRows = detail ? buildRequestFileRows(detail) : []
 
   const [fileBusy, setFileBusy] = useState(false)
 
@@ -316,13 +325,16 @@ export function RequestDetailContent({
 
   return (
     <>
-      {actions ? <Space style={{ marginBottom: 12 }}>{actions}</Space> : null}
+      {actions ? <div style={{ marginBottom: 12, maxWidth: '100%' }}>{actions}</div> : null}
       {detail && variant === 'telegram' ? (
         <div>
           <div className="tg-detail-hero">
             <Typography.Title level={4} style={{ margin: 0, fontSize: 18, lineHeight: 1.35 }}>
-              {detail.title || `Заявка #${detail.id}`}
+              {detail.payment_purpose?.trim() || detail.title?.trim() || `Заявка #${detail.id}`}
             </Typography.Title>
+            <Typography.Text type="secondary" style={{ display: 'block', marginTop: 4 }}>
+              Заявка #{detail.id}
+            </Typography.Text>
             <div style={{ marginTop: 8 }}>
               <Tag color={getRequestStatusColor(detail.status)}>{detail.status}</Tag>
             </div>
@@ -330,19 +342,13 @@ export function RequestDetailContent({
               {`${Number(detail.amount).toLocaleString('ru-RU')} ${detail.currency}`}
             </div>
           </div>
-          <TgDetailRow label="ID заявки">{detail.id}</TgDetailRow>
           <TgDetailRow label="Создано">{formatDateTime(detail.created_at)}</TgDetailRow>
-          <TgDetailRow label="Кем создано">
-            {detail.created_by != null && detail.created_by !== undefined ? `User #${detail.created_by}` : '—'}
-          </TgDetailRow>
+          <TgDetailRow label="Кем создано">{createdByName || '—'}</TgDetailRow>
           <TgDetailRow label="Компания-плательщик">{detail.company_payer?.trim() || '—'}</TgDetailRow>
           <TgDetailRow label="Тип оплаты">{detail.payment_type || '—'}</TgDetailRow>
           <TgDetailRow label="Срочность">{detail.urgency || '—'}</TgDetailRow>
           <TgDetailRow label="Категория">{detail.category || '—'}</TgDetailRow>
-          <TgDetailRow label="Поставщик">{detail.vendor || '—'}</TgDetailRow>
-          <TgDetailRow label="ID поставщика (справочник)">
-            {detail.vendor_ref != null && detail.vendor_ref !== undefined ? String(detail.vendor_ref) : '—'}
-          </TgDetailRow>
+          <TgDetailRow label="Поставщик">{vendorName || '—'}</TgDetailRow>
           {detail.contract_ref_info ? (
             <>
               <TgDetailRow label="Договор">{detail.contract_ref_info.contract_number || '—'}</TgDetailRow>
@@ -350,10 +356,10 @@ export function RequestDetailContent({
             </>
           ) : null}
           <TgDetailRow label="Назначение платежа">{detail.payment_purpose || '—'}</TgDetailRow>
-          <TgDetailRow label="Описание">{detail.description || '—'}</TgDetailRow>
-          <TgDetailRow label="Заявитель">
-            {detail.requester_username || (detail.requester ? `User #${detail.requester}` : '—')}
-          </TgDetailRow>
+          {detail.description?.trim() && detail.description.trim() !== (detail.payment_purpose || '').trim() ? (
+            <TgDetailRow label="Описание">{detail.description}</TgDetailRow>
+          ) : null}
+          <TgDetailRow label="Заявитель">{requesterName || '—'}</TgDetailRow>
           <TgDetailRow label="Отправлено">{formatDateTime(detail.submitted_at)}</TgDetailRow>
           <TgDetailRow label="Дата биллинга">{formatRequestBillingMonth(detail.billing_date)}</TgDetailRow>
           <TgDetailRow label="Амортизация">{detail.is_amortized ? `Да (${detail.amortization_months || 0} мес.)` : 'Нет'}</TgDetailRow>
@@ -369,33 +375,31 @@ export function RequestDetailContent({
               </Space>
             </TgDetailRow>
           ) : null}
-          <TgDetailRow label="ID расхода (expense_id)">{detail.expense_id?.trim() || '—'}</TgDetailRow>
-          <TgDetailRow label="Календарь расхода (год.мес.день)">
-            {formatExpenseCalendar(detail.expense_year, detail.expense_month, detail.expense_day)}
-          </TgDetailRow>
-          <TgDetailRow label="Связь с расходом">{expenseLinkSummary(detail.expense_link)}</TgDetailRow>
-          <TgDetailRow label="Дата оплаты (payed_at)">{formatPayedAt(detail.payed_at)}</TgDetailRow>
-          <TgDetailRow label="Файл">
-            {detail.file_link ? (
-              <Button type="link" onClick={() => void openFileViaAuthBlob(detail.file_link!)} disabled={fileBusy} loading={fileBusy}>
-                Открыть файл
-              </Button>
+          <TgDetailRow label="Связанный расход">
+            {linkedExpensePath && linkedExpenseText ? (
+              <RequestDetailFieldValue variant={variant} to={linkedExpensePath} returnTo={returnTo}>
+                {linkedExpenseText}
+              </RequestDetailFieldValue>
+            ) : linkedExpenseText ? (
+              linkedExpenseText
             ) : (
               '—'
             )}
           </TgDetailRow>
-          <TgDetailRow label="Вложения">
-            {detail.attachments?.length ? (
+          <TgDetailRow label="Дата оплаты">{formatPayedAt(detail.payed_at)}</TgDetailRow>
+          <TgDetailRow label="Файлы">
+            {fileRows.length ? (
               <Space direction="vertical" size={6} style={{ display: 'flex' }}>
-                {detail.attachments.map((attachment) => (
+                {fileRows.map((file) => (
                   <Button
-                    key={attachment.id}
+                    key={file.key}
                     type="link"
-                    onClick={() => attachment.url && void openFileViaAuthBlob(attachment.url)}
-                    disabled={fileBusy || !attachment.url}
+                    onClick={() => void openFileViaAuthBlob(file.url)}
+                    disabled={fileBusy}
+                    loading={fileBusy}
                     style={{ padding: 0, justifyContent: 'flex-start' }}
                   >
-                    {`${attachment.name} (${formatAttachmentSize(attachment.size_bytes)})`}
+                    {file.label}
                   </Button>
                 ))}
               </Space>
@@ -408,22 +412,19 @@ export function RequestDetailContent({
       {detail && variant !== 'telegram' ? (
         <Descriptions bordered size="small" column={1}>
           <Descriptions.Item label="ID заявки">{detail.id}</Descriptions.Item>
-          <Descriptions.Item label="Создано">{formatDateTime(detail.created_at)}</Descriptions.Item>
-          <Descriptions.Item label="Кем создано (user id)">
-            {detail.created_by != null && detail.created_by !== undefined ? detail.created_by : '-'}
-          </Descriptions.Item>
-          <Descriptions.Item label="Название">{detail.title || '-'}</Descriptions.Item>
           <Descriptions.Item label="Статус">
             <Tag color={getRequestStatusColor(detail.status)}>{detail.status}</Tag>
           </Descriptions.Item>
-          <Descriptions.Item label="Компания-плательщик">{detail.company_payer?.trim() || '-'}</Descriptions.Item>
           <Descriptions.Item label="Сумма">{`${Number(detail.amount).toLocaleString('ru-RU')} ${detail.currency}`}</Descriptions.Item>
-          <Descriptions.Item label="Тип оплаты">{detail.payment_type || '-'}</Descriptions.Item>
-          <Descriptions.Item label="Срочность">{detail.urgency || '-'}</Descriptions.Item>
-          <Descriptions.Item label="Категория">{detail.category || '-'}</Descriptions.Item>
-          <Descriptions.Item label="Поставщик">{detail.vendor || '-'}</Descriptions.Item>
-          <Descriptions.Item label="ID поставщика (справочник)">
-            {detail.vendor_ref != null && detail.vendor_ref !== undefined ? detail.vendor_ref : '-'}
+          <Descriptions.Item label="Создано">{formatDateTime(detail.created_at)}</Descriptions.Item>
+          <Descriptions.Item label="Кем создано">
+            {createdByName && detail.created_by != null ? (
+              <RequestEntityLink to={usersSettingsPath(detail.created_by)} returnTo={returnTo}>
+                {createdByName}
+              </RequestEntityLink>
+            ) : (
+              createdByName || '-'
+            )}
           </Descriptions.Item>
           {detail.contract_ref_info ? (
             <Descriptions.Item label="Договор">
@@ -433,13 +434,86 @@ export function RequestDetailContent({
                 : ''}
             </Descriptions.Item>
           ) : null}
-          <Descriptions.Item label="Назначение платежа">{detail.payment_purpose || '-'}</Descriptions.Item>
-          <Descriptions.Item label="Описание">{detail.description || '-'}</Descriptions.Item>
           <Descriptions.Item label="Заявитель">
-            {detail.requester_username || (detail.requester ? `User #${detail.requester}` : '-')}
+            {requesterName && detail.requester != null ? (
+              <RequestEntityLink to={usersSettingsPath(detail.requester)} returnTo={returnTo}>
+                {requesterName}
+              </RequestEntityLink>
+            ) : (
+              requesterName || '-'
+            )}
           </Descriptions.Item>
           <Descriptions.Item label="Отправлено">{formatDateTime(detail.submitted_at)}</Descriptions.Item>
           <Descriptions.Item label="Дата биллинга">{formatRequestBillingMonth(detail.billing_date)}</Descriptions.Item>
+          <Descriptions.Item label="Компания-плательщик">
+            {detail.company_payer?.trim() ? (
+              <RequestEntityLink to={REQUEST_FORM_CONFIG_PATH} returnTo={returnTo}>
+                {detail.company_payer.trim()}
+              </RequestEntityLink>
+            ) : (
+              '-'
+            )}
+          </Descriptions.Item>
+          <Descriptions.Item label="Тип оплаты">
+            {detail.payment_type ? (
+              <RequestEntityLink to={REQUEST_FORM_CONFIG_PATH} returnTo={returnTo}>
+                {detail.payment_type}
+              </RequestEntityLink>
+            ) : (
+              '-'
+            )}
+          </Descriptions.Item>
+          <Descriptions.Item label="Срочность">
+            {detail.urgency ? (
+              <RequestEntityLink to={REQUEST_FORM_CONFIG_PATH} returnTo={returnTo}>
+                {detail.urgency}
+              </RequestEntityLink>
+            ) : (
+              '-'
+            )}
+          </Descriptions.Item>
+          <Descriptions.Item label="Категория">
+            {detail.category ? (
+              <RequestEntityLink to={REQUEST_FORM_CONFIG_PATH} returnTo={returnTo}>
+                {detail.category}
+              </RequestEntityLink>
+            ) : (
+              '-'
+            )}
+          </Descriptions.Item>
+          <Descriptions.Item label="Поставщик">
+            {vendorName && detail.vendor_ref != null ? (
+              <RequestEntityLink to={contractsPath({ vendorId: detail.vendor_ref })} returnTo={returnTo}>
+                {vendorName}
+              </RequestEntityLink>
+            ) : vendorName ? (
+              <RequestEntityLink to={vendorDirectoryPath()} returnTo={returnTo}>
+                {vendorName}
+              </RequestEntityLink>
+            ) : (
+              '-'
+            )}
+          </Descriptions.Item>
+          {detail.contract_ref != null ? (
+            <Descriptions.Item label="Договор">
+              <RequestEntityLink
+                to={contractsPath({ contractId: detail.contract_ref, vendorId: detail.vendor_ref ?? undefined })}
+                returnTo={returnTo}
+              >
+                {detail.contract_label?.trim() || `Договор #${detail.contract_ref}`}
+              </RequestEntityLink>
+            </Descriptions.Item>
+          ) : null}
+          <Descriptions.Item label="Назначение платежа">
+            {detail.payment_purpose ? (
+              <RequestEntityLink to={REQUEST_FORM_CONFIG_PATH} returnTo={returnTo}>
+                {detail.payment_purpose}
+              </RequestEntityLink>
+            ) : (
+              '-'
+            )}
+          </Descriptions.Item>
+          <Descriptions.Item label="Описание">{detail.description || '-'}</Descriptions.Item>
           <Descriptions.Item label="Амортизация">
             {detail.is_amortized ? `Да (${detail.amortization_months || 0} мес.)` : 'Нет'}
           </Descriptions.Item>
@@ -457,42 +531,29 @@ export function RequestDetailContent({
               </Space>
             </Descriptions.Item>
           ) : null}
-          <Descriptions.Item label="ID расхода (expense_id)">{detail.expense_id?.trim() || '-'}</Descriptions.Item>
-          <Descriptions.Item label="Календарь расхода (год · мес · день)">
-            {formatExpenseCalendar(detail.expense_year, detail.expense_month, detail.expense_day)}
-          </Descriptions.Item>
-          <Descriptions.Item label="Связь с расходом">
-            <Space direction="vertical" size={4}>
-              <Typography.Text>{expenseLinkSummary(detail.expense_link)}</Typography.Text>
-              {detail.expense_link?.url ? (
-                <Typography.Link href={detail.expense_link.url} target="_blank" rel="noopener noreferrer">
-                  Открыть расход
-                </Typography.Link>
-              ) : null}
-            </Space>
-          </Descriptions.Item>
-          <Descriptions.Item label="Дата оплаты (payed_at)">{formatPayedAt(detail.payed_at)}</Descriptions.Item>
-          <Descriptions.Item label="Файл">
-            {detail.file_link ? (
-              <Button type="link" onClick={() => void openFileViaAuthBlob(detail.file_link!)} disabled={fileBusy} loading={fileBusy}>
-                Открыть файл
-              </Button>
+          <Descriptions.Item label="Связанный расход">
+            {linkedExpensePath && linkedExpenseText ? (
+              <RequestEntityLink to={linkedExpensePath} returnTo={returnTo}>
+                {linkedExpenseText}
+              </RequestEntityLink>
             ) : (
-              '-'
+              linkedExpenseText || '-'
             )}
           </Descriptions.Item>
-          <Descriptions.Item label="Вложения">
-            {detail.attachments?.length ? (
+          <Descriptions.Item label="Дата оплаты">{formatPayedAt(detail.payed_at)}</Descriptions.Item>
+          <Descriptions.Item label="Файлы">
+            {fileRows.length ? (
               <Space direction="vertical" size={4} style={{ display: 'flex' }}>
-                {detail.attachments.map((attachment) => (
+                {fileRows.map((file) => (
                   <Button
-                    key={attachment.id}
+                    key={file.key}
                     type="link"
-                    onClick={() => attachment.url && void openFileViaAuthBlob(attachment.url)}
-                    disabled={fileBusy || !attachment.url}
+                    onClick={() => void openFileViaAuthBlob(file.url)}
+                    disabled={fileBusy}
+                    loading={fileBusy}
                     style={{ paddingInline: 0, justifyContent: 'flex-start' }}
                   >
-                    {`${attachment.name} (${formatAttachmentSize(attachment.size_bytes)})`}
+                    {file.label}
                   </Button>
                 ))}
               </Space>
@@ -508,9 +569,18 @@ export function RequestDetailContent({
         <>
           <Divider />
           <Space direction="vertical" size={12} style={{ display: 'flex' }}>
-            {renderApprovalGroup(`Одобрено (${approvedApprovals.length})`, approvedApprovals)}
-            {renderApprovalGroup(`Отклонено (${rejectedApprovals.length})`, rejectedApprovals)}
-            {renderApprovalGroup(`В ожидании (${pendingApprovals.length})`, pendingApprovals)}
+            {renderApprovalGroup(`Одобрено (${approvedApprovals.length})`, approvedApprovals, {
+              returnTo,
+              variant,
+            })}
+            {renderApprovalGroup(`Отклонено (${rejectedApprovals.length})`, rejectedApprovals, {
+              returnTo,
+              variant,
+            })}
+            {renderApprovalGroup(`В ожидании (${pendingApprovals.length})`, pendingApprovals, {
+              returnTo,
+              variant,
+            })}
           </Space>
         </>
       ) : null}

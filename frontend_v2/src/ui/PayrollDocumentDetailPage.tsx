@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Alert, Button, Card, Descriptions, Skeleton, Space, Table, Typography } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
 import { useNavigate, useParams } from 'react-router-dom'
+import { RequestReturnBackButton } from './requests/RequestReturnBackButton'
 import { apiFetch } from '../lib/api'
 
 type PayrollLineRow = {
@@ -99,7 +100,7 @@ export function PayrollDocumentDetailPage() {
   return (
     <Card>
       <Space direction="vertical" size={12} style={{ display: 'flex' }}>
-        <Button onClick={() => navigate('/payroll')}>Назад к списку</Button>
+        <RequestReturnBackButton fallbackPath="/payroll" fallbackLabel="Назад к списку" />
         {loading ? <Skeleton active /> : null}
         {error ? <Alert type="error" showIcon message={error} /> : null}
         {!loading && !error && detail ? (

@@ -112,9 +112,7 @@ def get_n8n_integration_settings(*, tenant: Tenant | None) -> N8nIntegrationSett
 
 def get_requests_gateway_settings(*, tenant: Tenant | None) -> RequestsGatewaySettings:
     cfg = _integration_config(tenant)
-    bearer_token = (cfg.get_requests_file_gateway_token() if cfg else "") or (
-        getattr(settings, "N8N_TOKEN", "") or ""
-    ).strip()
+    bearer_token = (cfg.get_requests_file_gateway_token() if cfg else "").strip()
     return RequestsGatewaySettings(bearer_token=bearer_token)
 
 

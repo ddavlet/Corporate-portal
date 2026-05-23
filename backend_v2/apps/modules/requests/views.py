@@ -280,6 +280,7 @@ class PortalRequestViewSet(viewsets.ModelViewSet):
             qs = qs.filter(amortization_months__gt=1)
 
         if self.action == "retrieve":
+            qs = qs.select_related("created_by", "requester", "vendor_ref", "contract_ref")
             if "approvals" in connection.introspection.table_names():
                 qs = qs.prefetch_related("approvals", "approvals__approver_user")
             return qs
@@ -979,7 +980,7 @@ class PortalRequestViewSet(viewsets.ModelViewSet):
 
 class FileGatewayView(APIView):
     """
-    Proxies file fetch through backend with N8N token from environment.
+    Proxies file fetch through backend using tenant requests_file_gateway_token.
     """
 
     permission_classes = [IsAuthenticated]
@@ -993,7 +994,10 @@ class FileGatewayView(APIView):
 
         token = get_requests_gateway_settings(tenant=getattr(request, "tenant", None)).bearer_token
         if not token:
-            return Response({"detail": "N8N_TOKEN is not configured."}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+            return Response(
+                {"detail": "Requests file gateway token is not configured for this tenant."},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
 
         try:
             upstream = requests.get(

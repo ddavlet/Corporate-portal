@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Alert, Button, Skeleton, Space, Tag, Typography } from 'antd'
 import { useNavigate, useParams } from 'react-router-dom'
 import { apiFetch } from '../../lib/api'
+import { requestReturnState } from '../../lib/requestNavigation'
 import { NoteCreateModal } from '../NoteCreateModal'
 import { renderExpenseRequestStatusTag } from '../expenseRequestStatus'
 
@@ -13,18 +14,9 @@ type CashExpenseDetail = {
   amount: string | number
   currency?: string
   expense_at: string | null
-  expense_year?: number
-  expense_month?: number
-  expense_day?: number
   note?: string
-  payload?: unknown
-  vendor?: number | null
-  has_request?: boolean
-  has_paid_request?: boolean
   matched_request_id?: number | null
   request_required?: boolean
-  created_at?: string
-  created_by?: number | null
 }
 
 const dateTimeFormatter = new Intl.DateTimeFormat('ru-RU', {
@@ -41,14 +33,6 @@ function formatDateTime(value?: string | null): string {
   const d = new Date(value)
   if (Number.isNaN(d.getTime())) return '—'
   return dateTimeFormatter.format(d)
-}
-
-function formatExpenseCalendar(y?: number, m?: number, d?: number): string {
-  if (y == null && m == null && d == null) return '—'
-  const year = Number.isFinite(y) ? String(y) : '—'
-  const month = m != null ? String(m).padStart(2, '0') : '—'
-  const day = d != null ? String(d).padStart(2, '0') : '—'
-  return [year, month, day].join('.')
 }
 
 function DetailRow({ label, children }: { label: string; children: React.ReactNode }) {
@@ -96,6 +80,8 @@ export function TgCashExpenseDetailPage() {
     }
   }, [id])
 
+  const externalNo = detail?.external_id?.trim()
+
   return (
     <div className="tg-detail-page">
       <Space direction="vertical" size={12} style={{ display: 'flex' }}>
@@ -110,8 +96,13 @@ export function TgCashExpenseDetailPage() {
           <>
             <div className="tg-detail-hero">
               <Typography.Title level={5} style={{ margin: 0, fontWeight: 700 }}>
-                {detail.title || `Расход #${detail.id}`}
+                {detail.title || `Кассовый расход #${detail.id}`}
               </Typography.Title>
+              {externalNo ? (
+                <Typography.Text type="secondary" style={{ display: 'block', marginTop: 4 }}>
+                  № {externalNo}
+                </Typography.Text>
+              ) : null}
               <div className="tg-detail-amount">
                 {Number(detail.amount).toLocaleString('ru-RU')} {detail.currency || ''}
               </div>
@@ -125,20 +116,8 @@ export function TgCashExpenseDetailPage() {
               </Space>
             </div>
 
-            <DetailRow label="PK">{detail.id}</DetailRow>
-            <DetailRow label="Внешний ID">{detail.external_id || '—'}</DetailRow>
-            <DetailRow label="Дата/время расхода">{formatDateTime(detail.expense_at)}</DetailRow>
-            <DetailRow label="Календарь (год · мес · день)">
-              {formatExpenseCalendar(detail.expense_year, detail.expense_month, detail.expense_day)}
-            </DetailRow>
-            <DetailRow label="Поставщик (vendor id)">
-              {detail.vendor != null ? detail.vendor : '—'}
-            </DetailRow>
+            <DetailRow label="Дата и время">{formatDateTime(detail.expense_at)}</DetailRow>
             <DetailRow label="Примечание">{detail.note || '—'}</DetailRow>
-            <DetailRow label="Создано">{formatDateTime(detail.created_at)}</DetailRow>
-            <DetailRow label="Кем создано (user id)">
-              {detail.created_by != null ? detail.created_by : '—'}
-            </DetailRow>
 
             <div className="tg-actions-stack" style={{ marginTop: 16 }}>
               <Button size="large" onClick={() => setOpenNoteModal(true)}>
@@ -148,7 +127,14 @@ export function TgCashExpenseDetailPage() {
                 <Button
                   type="primary"
                   size="large"
-                  onClick={() => navigate(`/tg/requests/${detail.matched_request_id}`)}
+                  onClick={() =>
+                    navigate(`/tg/requests/${detail.matched_request_id}`, {
+                      state: requestReturnState({
+                        pathname: `/tg/cash/expenses/${detail.id}`,
+                        label: `Кассовый расход #${detail.id}`,
+                      }),
+                    })
+                  }
                 >
                   Открыть связанную заявку
                 </Button>

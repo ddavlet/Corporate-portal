@@ -2,6 +2,7 @@ from decimal import Decimal
 import secrets
 
 from django.conf import settings
+from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
 from django.db.models import Q
 
@@ -370,6 +371,11 @@ class InvestNotificationConfig(models.Model):
     overdue_notify_every_days = models.PositiveIntegerField(
         default=3,
         help_text="Notify every N days for overdue unpaid payouts (0 = disabled).",
+    )
+    notify_hour = models.PositiveSmallIntegerField(
+        default=9,
+        validators=[MinValueValidator(0), MaxValueValidator(23)],
+        help_text="Hour of day (0–23, Asia/Tashkent) when notifications are dispatched.",
     )
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)

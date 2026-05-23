@@ -1,4 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
+import { RequestReturnBackButton } from '../requests/RequestReturnBackButton'
 import { Alert, Button, Card, Col, Form, Input, InputNumber, Modal, Popconfirm, Row, Select, Space, Switch, Table, Typography, message } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
 import {
@@ -115,6 +117,7 @@ function formatAmount(value: unknown): string | null {
 }
 
 export function AdminModulePage() {
+  const [searchParams] = useSearchParams()
   const [form] = Form.useForm<Record<string, unknown>>()
   const [activeSection, setActiveSection] = useState<AdminSectionKey>('matrix')
   const [sourceKey, setSourceKey] = useState<string>(SOURCES[0].key)
@@ -176,9 +179,24 @@ export function AdminModulePage() {
   }
 
   useEffect(() => {
+    const source = searchParams.get('source')
+    if (source && SOURCES.some((item) => item.key === source)) {
+      setSourceKey(source)
+      setActiveSection('crud')
+    }
+  }, [searchParams])
+
+  useEffect(() => {
     void loadRows()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sourceKey])
+
+  useEffect(() => {
+    const rowId = searchParams.get('row')
+    if (!rowId || rows.length === 0) return
+    const found = rows.find((row) => String(row.id) === rowId)
+    if (found) setSearch(rowCaption(found))
+  }, [rows, searchParams])
 
   useEffect(() => {
     setCrudPage(1)
@@ -411,6 +429,7 @@ export function AdminModulePage() {
 
   return (
     <div style={{ maxWidth: 1500 }}>
+      <RequestReturnBackButton fallbackPath="/admin" fallbackLabel="Админка" />
       <Typography.Title level={4} style={{ marginTop: 0 }}>
         Админка
       </Typography.Title>

@@ -67,7 +67,7 @@
 | `/api/telegram-approvals/webhook/` | callback от Telegram (без JWT, проверка интеграционного токена) |
 | `/api/<n8n_prefix>/` | upsert из n8n (дублирование префикса при кастомном пути — см. settings) |
 
-Переменные окружения (фрагмент): [settings.py](../backend_v2/config/settings.py) — `BASE_DOMAIN`, `N8N_INTEGRATION_*`, `N8N_TOKEN`, webhooks для feedback и Telegram bridge.
+Переменные окружения (фрагмент): [settings.py](../backend_v2/config/settings.py) — `BASE_DOMAIN`, `N8N_INTEGRATION_*`, webhooks для feedback и Telegram bridge. Токен file gateway — только в `TenantIntegrationConfig.requests_file_gateway_token`.
 
 Подробный контракт n8n: [n8n_integration.md](../backend_v2/n8n_integration.md).
 
@@ -127,7 +127,8 @@
 
 ### `apps.modules.n8n_integration`
 
-- **Аутентификация**: заголовок `X-N8N-Integration-Token` (tenant config или env) + **JWT** + **`IsTenantAdmin`** ([authentication.py](../backend_v2/apps/modules/n8n_integration/authentication.py)).
+- **Аутентификация**: для upsert/read и справочников — только `X-N8N-Integration-Token` (tenant config или env), без JWT ([authentication.py](../backend_v2/apps/modules/n8n_integration/authentication.py)). Исключение: `POST /api/n8n/requests/ai-create/` — token + JWT (нужен пользователь заявки).
+- **GET** `wallet-balances/` — остатки кошельков по каналам (как `/api/cash|bank|corporate-card/balances/`).
 - **POST upsert** по целочисленному `id` для: vendors, cash/bank/corporate expenses & revenues, notes, payroll lines ([urls.py](../backend_v2/apps/modules/n8n_integration/urls.py)).
 
 ### `apps.modules.telegram_approvals`

@@ -487,7 +487,7 @@ class RequestFormConfigTests(APITestCase):
         self.assertEqual(res.data["category_candidates"], ["ConfiguredCategory"])
 
 
-@override_settings(BASE_DOMAIN="example.com", N8N_TOKEN="", N8N_INTEGRATION_TOKEN="", ALLOWED_HOSTS=["*"])
+@override_settings(BASE_DOMAIN="example.com", N8N_INTEGRATION_TOKEN="", ALLOWED_HOSTS=["*"])
 class RequestApprovalsTests(APITestCase):
     def setUp(self):
         from django.utils import timezone
@@ -2344,7 +2344,7 @@ class AutoRequestTests(APITestCase):
         self.assertGreaterEqual(Approval.objects.filter(request=req).count(), 1)
 
 
-@override_settings(BASE_DOMAIN="example.com", N8N_TOKEN="", N8N_INTEGRATION_TOKEN="", ALLOWED_HOSTS=["*"])
+@override_settings(BASE_DOMAIN="example.com", N8N_INTEGRATION_TOKEN="", ALLOWED_HOSTS=["*"])
 class RequestRoleVisibilityTests(APITestCase):
     def setUp(self):
         self.tenant = Tenant.objects.create(name="Roles", subdomain="roles", is_active=True)
@@ -2741,7 +2741,7 @@ class AuditMonthShiftsTests(APITestCase):
         self.assertIsNotNone(amort_row["amort_current"])
 
 
-@override_settings(BASE_DOMAIN="example.com", N8N_TOKEN="", N8N_INTEGRATION_TOKEN="", ALLOWED_HOSTS=["*"])
+@override_settings(BASE_DOMAIN="example.com", N8N_INTEGRATION_TOKEN="", ALLOWED_HOSTS=["*"])
 class DraftRequestPatchSubmitTests(APITestCase):
     """DRAFT-only PATCH and submit-for-approval."""
 
@@ -3139,7 +3139,7 @@ class DraftRequestPatchSubmitTests(APITestCase):
         self.assertIn(f"https://{self.tenant.subdomain}.example.com/app/requests/{req.id}", payload["text"])
 
 
-@override_settings(BASE_DOMAIN="example.com", N8N_TOKEN="", N8N_INTEGRATION_TOKEN="", ALLOWED_HOSTS=["*"])
+@override_settings(BASE_DOMAIN="example.com", N8N_INTEGRATION_TOKEN="", ALLOWED_HOSTS=["*"])
 class RequestContractsRequiredTests(APITestCase):
     """Portal request creation when contracts_required is enabled on the payment type."""
 
@@ -3270,6 +3270,21 @@ class RequestContractsRequiredTests(APITestCase):
         self.assertEqual(res.status_code, 201, res.content)
         req = Request.objects.get(id=res.data["id"])
         self.assertIsNone(req.contract_ref_id)
+
+    def test_detail_exposes_created_by_username_and_contract_label(self):
+        self.client.force_authenticate(self.requester)
+        create = self.client.post(
+            "/api/requests/",
+            self._payload(contract_ref=self.contract.id),
+            format="json",
+            HTTP_HOST=self.host,
+        )
+        self.assertEqual(create.status_code, 201, create.content)
+        request_id = create.data["id"]
+        detail = self.client.get(f"/api/requests/{request_id}/", HTTP_HOST=self.host)
+        self.assertEqual(detail.status_code, 200, detail.content)
+        self.assertEqual(detail.data["created_by_username"], self.requester.username)
+        self.assertEqual(detail.data["contract_label"], "CV-2026-1")
 
 
 @override_settings(BASE_DOMAIN="example.com", MESSAGING_GATEWAY_SEND_URL="http://gw.example/v1/messaging/send")

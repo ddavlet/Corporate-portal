@@ -15,6 +15,7 @@ import {
 } from '../../lib/api'
 import { isPayedMissingLinkedExpense, type RequestExpenseLink } from '../../lib/requestExpense'
 import { canResendRequestByStatus, formatRequestBillingMonth, formatRequestDate, getRequestStatusColor } from '../../lib/requestUtils'
+import { requestReturnToForDetail } from '../../lib/requestNavigation'
 import { RequestDetailModal, type RequestDetail } from './RequestDetailModal'
 import { labelBlockAboveField } from '../formSpacing'
 import { RequestAiChatButton } from './RequestAiChatButton'
@@ -811,9 +812,12 @@ export function RequestsPage() {
         detail={activeDetail}
         loading={detailLoading}
         error={detailError}
+        returnTo={
+          selectedRow ? requestReturnToForDetail(selectedRow.id, { fromList: true }) : undefined
+        }
         actions={
           selectedRow ? (
-            <Space>
+            <Space wrap size={[8, 8]} style={{ width: '100%' }}>
               <Button icon={<FileSearchOutlined />} onClick={() => navigate(`/requests/${selectedRow.id}`)}>
                 Открыть страницу
               </Button>
@@ -864,7 +868,7 @@ export function RequestsPage() {
                 }
                 onClick={() => resendRequest(selectedRow.id)}
               >
-                Отправить запрос(ы) повторно
+                Отправить повторно
               </Button>
             </Space>
           ) : null
