@@ -448,6 +448,7 @@ class PortalRequestViewSet(viewsets.ModelViewSet):
     class PaymentWebAppConfirmPayloadSerializer(serializers.Serializer):
         approval_id = serializers.IntegerField(min_value=1)
         expense_id = serializers.CharField(required=False, allow_blank=True, allow_null=True)
+        comment = serializers.CharField(required=False, allow_blank=True, allow_null=True)
 
     class AutoDraftSubmitAmountPayloadSerializer(serializers.Serializer):
         request_id = serializers.IntegerField(min_value=1)
@@ -656,12 +657,14 @@ class PortalRequestViewSet(viewsets.ModelViewSet):
             request_obj.expense_ref_target = tgt
             request_obj.save(update_fields=["expense_id", "expense_ref_id", "expense_ref_target"])
 
+        comment = str(payload.validated_data.get("comment") or "").strip() or None
         data = confirm_approval_by_id(
             tenant=tenant,
             approval_id=approval.id,
             request_id=request_obj.id,
             approver_user_id=request.user.id,
             decision=Approval.DECISION_APPROVED,
+            comment=comment,
         )
         return Response(
             ApprovalFullContextSerializer(data, context={"request": request}).data,

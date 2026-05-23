@@ -2198,6 +2198,7 @@ export async function updateRequestApprovalConfig(
 export async function confirmPaymentViaWebApp(payload: {
   approval_id: number
   expense_id: string
+  comment?: string
 }): Promise<{
   request: { id: number; status: string }
 }> {

@@ -177,17 +177,19 @@ function renderApprovalGroup(
                 <Typography.Text>{item.approver_username || 'Согласующий не определён'}</Typography.Text>
                 <Tag color={getDecisionColor(item.decision)}>{translateDecision(item.decision)}</Tag>
               </Space>
-              <Typography.Text
-                type="secondary"
-                style={{
-                  display: '-webkit-box',
-                  WebkitLineClamp: 3,
-                  WebkitBoxOrient: 'vertical',
-                  overflow: 'hidden',
-                }}
-              >
-                {item.comment || 'Без комментария'}
-              </Typography.Text>
+              {item.decision !== 'pending' ? (
+                <Typography.Text
+                  type="secondary"
+                  style={{
+                    display: '-webkit-box',
+                    WebkitLineClamp: 3,
+                    WebkitBoxOrient: 'vertical',
+                    overflow: 'hidden',
+                  }}
+                >
+                  {item.comment || 'Без комментария'}
+                </Typography.Text>
+              ) : null}
               <Typography.Text type="secondary">Дата решения: {formatRequestDate(item.decided_at)}</Typography.Text>
               {!isTg ? (
                 <Collapse

@@ -78,6 +78,11 @@ export function RequestDetailPage({ listPath = '/requests', variant = 'portal' }
   const [paymentModalOpen, setPaymentModalOpen] = useState(false)
   const [paymentModalApproval, setPaymentModalApproval] = useState<ApprovalItem | null>(null)
   const [paymentExpenseId, setPaymentExpenseId] = useState('')
+  const [paymentComment, setPaymentComment] = useState('')
+
+  const [decisionModalOpen, setDecisionModalOpen] = useState(false)
+  const [pendingDecision, setPendingDecision] = useState<{ step: number; decision: 'approved' | 'rejected' } | null>(null)
+  const [decisionComment, setDecisionComment] = useState('')
 
   const decodeJwtUserId = (token: string | null): number | null => {
     if (!token) return null
@@ -243,14 +248,16 @@ export function RequestDetailPage({ listPath = '/requests', variant = 'portal' }
   const showExternalExpenseHint = link?.module === 'external' && link.id != null && String(link.id) !== ''
   const resendAllowed = canResendRequestByStatus(detail?.status)
 
-  const setDecision = async (step: number, decision: 'approved' | 'rejected') => {
+  const setDecision = async (step: number, decision: 'approved' | 'rejected', comment?: string) => {
     if (!detail?.id) return
     setApprovalBusy(true)
     try {
+      const body: Record<string, unknown> = { step, decision }
+      if (comment && comment.trim()) body.comment = comment.trim()
       const res = await apiFetch(`/api/requests/${detail.id}/approvals/decision/`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ step, decision }),
+        body: JSON.stringify(body),
       })
       if (!res.ok) {
         const text = await res.text().catch(() => '')
@@ -265,6 +272,26 @@ export function RequestDetailPage({ listPath = '/requests', variant = 'portal' }
     }
   }
 
+  const openDecisionModal = (step: number, decision: 'approved' | 'rejected') => {
+    setPendingDecision({ step, decision })
+    setDecisionComment('')
+    setDecisionModalOpen(true)
+  }
+
+  const confirmDecision = async () => {
+    if (!pendingDecision) return
+    setDecisionModalOpen(false)
+    await setDecision(pendingDecision.step, pendingDecision.decision, decisionComment)
+    setPendingDecision(null)
+    setDecisionComment('')
+  }
+
+  const cancelDecision = () => {
+    setDecisionModalOpen(false)
+    setPendingDecision(null)
+    setDecisionComment('')
+  }
+
   const openPaymentConfirmModal = (approval: ApprovalItem) => {
     setPaymentModalApproval(approval)
     setPaymentExpenseId((detail?.expense_id || '').trim())
@@ -275,6 +302,7 @@ export function RequestDetailPage({ listPath = '/requests', variant = 'portal' }
     setPaymentModalOpen(false)
     setPaymentModalApproval(null)
     setPaymentExpenseId('')
+    setPaymentComment('')
   }
 
   const confirmPaymentStep = async () => {
@@ -287,7 +315,11 @@ export function RequestDetailPage({ listPath = '/requests', variant = 'portal' }
     }
     setApprovalBusy(true)
     try {
-      await confirmPaymentViaWebApp({ approval_id: approval.id, expense_id: expenseId })
+      await confirmPaymentViaWebApp({
+        approval_id: approval.id,
+        expense_id: expenseId,
+        ...(paymentComment.trim() ? { comment: paymentComment.trim() } : {}),
+      })
       message.success('Выплата подтверждена')
       closePaymentConfirmModal()
       await refreshDetail()
@@ -461,7 +493,7 @@ export function RequestDetailPage({ listPath = '/requests', variant = 'portal' }
                     size={approvalBtnSize}
                     block
                     loading={approvalBusy}
-                    onClick={() => void setDecision(a.step, 'rejected')}
+                    onClick={() => openDecisionModal(a.step, 'rejected')}
                   >
                     Отклонить
                   </Button>
@@ -473,7 +505,7 @@ export function RequestDetailPage({ listPath = '/requests', variant = 'portal' }
                     size={approvalBtnSize}
                     block
                     loading={approvalBusy}
-                    onClick={() => void setDecision(a.step, 'approved')}
+                    onClick={() => openDecisionModal(a.step, 'approved')}
                   >
                     Одобрить
                   </Button>
@@ -482,7 +514,7 @@ export function RequestDetailPage({ listPath = '/requests', variant = 'portal' }
                     size={approvalBtnSize}
                     block
                     loading={approvalBusy}
-                    onClick={() => void setDecision(a.step, 'rejected')}
+                    onClick={() => openDecisionModal(a.step, 'rejected')}
                   >
                     Отклонить
                   </Button>
@@ -655,6 +687,17 @@ export function RequestDetailPage({ listPath = '/requests', variant = 'portal' }
             placeholder="Номер платежа"
             onPressEnter={() => void confirmPaymentStep()}
           />
+          <div>
+            <Typography.Text strong style={{ display: 'block', marginBottom: 6 }}>
+              Комментарий (необязательно)
+            </Typography.Text>
+            <Input.TextArea
+              rows={3}
+              value={paymentComment}
+              onChange={(e) => setPaymentComment(e.target.value)}
+              placeholder="Укажите примечание..."
+            />
+          </div>
           <Button type="primary" block loading={approvalBusy} onClick={() => void confirmPaymentStep()}>
             Подтвердить выплату
           </Button>
@@ -747,6 +790,41 @@ export function RequestDetailPage({ listPath = '/requests', variant = 'portal' }
           </Button>
           <Button type="primary" block loading={editSaving} disabled={loading} onClick={() => void submitDraftForApproval()}>
             Отправить на согласование
+          </Button>
+        </Space>
+      </Modal>
+
+      <Modal
+        open={decisionModalOpen}
+        title={pendingDecision?.decision === 'approved' ? `Одобрить шаг ${pendingDecision.step}` : `Отклонить шаг ${pendingDecision?.step ?? ''}`}
+        onCancel={cancelDecision}
+        footer={null}
+        destroyOnClose
+      >
+        <Space direction="vertical" size={12} style={{ display: 'flex' }}>
+          <div>
+            <Typography.Text strong style={{ display: 'block', marginBottom: 6 }}>
+              Комментарий (необязательно)
+            </Typography.Text>
+            <Input.TextArea
+              rows={3}
+              value={decisionComment}
+              onChange={(e) => setDecisionComment(e.target.value)}
+              placeholder="Укажите причину или примечание..."
+              autoFocus
+            />
+          </div>
+          <Button
+            type={pendingDecision?.decision === 'approved' ? 'primary' : 'default'}
+            danger={pendingDecision?.decision === 'rejected'}
+            block
+            loading={approvalBusy}
+            onClick={() => void confirmDecision()}
+          >
+            {pendingDecision?.decision === 'approved' ? 'Одобрить' : 'Отклонить'}
+          </Button>
+          <Button block onClick={cancelDecision}>
+            Отмена
           </Button>
         </Space>
       </Modal>
