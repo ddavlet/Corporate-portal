@@ -524,6 +524,8 @@ export function RequestApprovalConfigPage() {
                                       style={{ width: 420 }}
                                     />
                                   ) : null}
+                                  {/* TODO: заменить на Select из справочника чатов компании —
+                                      нужно будет создать список всех Telegram-групп tenant'а, куда могут отправляться уведомления */}
                                   <InputNumber
                                     value={step.payment_chat_id ?? null}
                                     onChange={(v) =>
@@ -650,6 +652,8 @@ export function RequestApprovalConfigPage() {
                                       Chat ID
                                     </Typography.Text>
                                     <div style={{ height: 8 }} />
+                                    {/* TODO: заменить на Select из справочника чатов компании —
+                                        нужно будет создать список всех Telegram-групп tenant'а, куда могут отправляться уведомления */}
                                     <InputNumber
                                       value={step.payment_chat_id ?? null}
                                       onChange={(v) =>

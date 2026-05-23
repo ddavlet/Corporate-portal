@@ -1498,6 +1498,8 @@ export type InvestNotificationConfigResponse = {
   notify_hour: number
   responsible_user_id: number | null
   responsible_user_name: string
+  // TODO: заменить на выбор из справочника чатов компании (список Telegram-групп tenant'а)
+  chat_id: string | null
   approver_candidates: Array<{ id: number; label: string; username: string }>
 }
 
@@ -1510,7 +1512,8 @@ export async function getInvestNotificationConfig(): Promise<InvestNotificationC
 }
 
 export async function updateInvestNotificationConfig(
-  payload: { responsible_user_id: number; days_before: number; overdue_notify_every_days: number; notify_hour: number; is_active: boolean },
+  // TODO: chat_id заменить на выбор из справочника чатов компании
+  payload: { responsible_user_id: number; days_before: number; overdue_notify_every_days: number; notify_hour: number; is_active: boolean; chat_id: string | null },
 ): Promise<InvestNotificationConfigResponse> {
   const res = await apiFetch('/api/investments/notification-config/', {
     method: 'PUT',

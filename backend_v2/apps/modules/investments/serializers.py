@@ -316,6 +316,8 @@ class InvestNotificationConfigSerializer(serializers.Serializer):
     overdue_notify_every_days = serializers.IntegerField(min_value=0, max_value=365)
     notify_hour = serializers.IntegerField(min_value=0, max_value=23)
     is_active = serializers.BooleanField()
+    # TODO: заменить на ссылку из справочника чатов компании
+    chat_id = serializers.CharField(required=False, allow_null=True, allow_blank=True, max_length=50)
 
 
 class InvestmentFormConfigSerializer(serializers.Serializer):

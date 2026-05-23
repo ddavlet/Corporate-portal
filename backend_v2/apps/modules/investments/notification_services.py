@@ -49,10 +49,11 @@ def _dispatch_payout_notification(*, schedule, config, text: str) -> bool:
     from apps.modules.telegram_approvals.services import get_tenant_bot_token, post_messaging_gateway
 
     user = config.responsible_user
-    chat_id = getattr(user, "telegram_chat_id", None)
+    # TODO: заменить на выбор из справочника чатов компании
+    chat_id = config.chat_id or getattr(user, "telegram_chat_id", None)
     if not chat_id:
         logger.warning(
-            "invest_notify: responsible_user=%s has no telegram_chat_id, skipping schedule=%s",
+            "invest_notify: responsible_user=%s has no telegram_chat_id and config has no chat_id, skipping schedule=%s",
             user.pk,
             schedule.pk,
         )
