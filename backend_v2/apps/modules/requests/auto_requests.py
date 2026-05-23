@@ -254,7 +254,7 @@ def process_due_auto_requests(*, now_dt: dt.datetime | None = None) -> int:
                 has_lock = bool(cursor.fetchone()[0])
             if not has_lock:
                 return 0
-            rows = AutoRequestTemplate.objects.select_for_update().select_related("requester", "vendor_ref", "contract_ref").filter(is_enabled=True).order_by("tenant_id", "id")
+            rows = AutoRequestTemplate.objects.select_for_update(of=("self",)).select_related("requester", "vendor_ref", "contract_ref").filter(is_enabled=True).order_by("tenant_id", "id")
             for template in rows:
                 try:
                     if _maybe_create_request_for_template(template, today=today, now_dt=now_dt):

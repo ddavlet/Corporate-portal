@@ -264,7 +264,7 @@ def confirm_approval_by_id(
         if approval.decision != Approval.DECISION_PENDING:
             raise ApprovalDecisionAlreadyMade()
 
-        request_obj = Request.objects.select_for_update().select_related("contract_ref", "vendor_ref").filter(id=approval.request_id, tenant=tenant).first()
+        request_obj = Request.objects.select_for_update(of=("self",)).select_related("contract_ref", "vendor_ref").filter(id=approval.request_id, tenant=tenant).first()
         if request_obj is None:
             raise NotFound("Request not found.")
         if request_id is not None and request_obj.id != request_id:

@@ -584,7 +584,7 @@ def current_pending_step_approvals_count(*, request_obj: Request) -> int:
 
 @transaction.atomic
 def dispatch_pending_approvals(*, request_obj: Request, step: int | None = None, step_type: str | None = None) -> int:
-    locked = Request.objects.select_for_update().select_related("contract_ref", "vendor_ref").get(pk=request_obj.pk)
+    locked = Request.objects.select_for_update(of=("self",)).select_related("contract_ref", "vendor_ref").get(pk=request_obj.pk)
     current_step = step or _current_pending_step(locked)
     if current_step is None:
         return 0
@@ -714,7 +714,7 @@ def refresh_request_messages(*, request_obj: Request) -> int:
 
 @transaction.atomic
 def resend_current_pending_step(*, request_obj: Request, idempotency_key: str | None = None) -> int:
-    locked = Request.objects.select_for_update().select_related("contract_ref", "vendor_ref").get(pk=request_obj.pk)
+    locked = Request.objects.select_for_update(of=("self",)).select_related("contract_ref", "vendor_ref").get(pk=request_obj.pk)
     current_step = _current_pending_step(locked)
     if current_step is None:
         raise ValidationError({"detail": "Current request status has no active approval step."})
