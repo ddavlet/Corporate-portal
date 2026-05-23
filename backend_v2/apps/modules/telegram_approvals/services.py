@@ -63,7 +63,7 @@ def _display_user_name(user) -> str:
     return full or (getattr(user, "username", "") or "-")
 
 
-def _get_tenant_bot_token(tenant) -> str:
+def get_tenant_bot_token(tenant) -> str:
     """Telegram bot token lives only on `Tenant` (encrypted field)."""
     if tenant is None:
         return ""
@@ -159,7 +159,7 @@ def dispatch_draft_request_notification(
         "action": action,
         "text": message_text,
         "recipient_id": str(chat_id),
-        "bot_token": _get_tenant_bot_token(request_obj.tenant),
+        "bot_token": get_tenant_bot_token(request_obj.tenant),
         "tenant_id": str(request_obj.tenant_id),
         "request_id": request_obj.pk,
         "buttons": [],
@@ -444,7 +444,7 @@ def _dispatch_payload(
         "action": action,
         "text": message_text,
         "recipient_id": str(approval.approver_recipient_id),
-        "bot_token": _get_tenant_bot_token(request_obj.tenant),
+        "bot_token": get_tenant_bot_token(request_obj.tenant),
         "tenant_id": str(request_obj.tenant_id),
         "approval_id": str(approval.id),
         "request_id": approval.request_id,

@@ -14,7 +14,7 @@ from django.core.cache import cache
 from django.utils import timezone
 
 from apps.accounts.models import OtpChallenge, User
-from apps.modules.telegram_approvals.services import _get_tenant_bot_token, post_messaging_gateway
+from apps.modules.telegram_approvals.services import get_tenant_bot_token, post_messaging_gateway
 from apps.tenants.models import Tenant, TenantMembership
 
 OTP_TTL_SECONDS = int(os.getenv("OTP_TTL_SECONDS", "300"))
@@ -103,7 +103,7 @@ def send_otp(*, user: User, tenant: Tenant | None = None, ip: str = "") -> None:
     if not tenant.telegram_otp_enabled:
         raise OtpError("OTP для этой организации отключён.")
 
-    bot_token = _get_tenant_bot_token(tenant)
+    bot_token = get_tenant_bot_token(tenant)
     if not bot_token or not user.telegram_chat_id:
         raise OtpError("OTP недоступен: нет Telegram chat_id или бота организации.")
 

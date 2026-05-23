@@ -125,6 +125,13 @@ export const SETTINGS_MODULES: SettingsModuleItem[] = [
     group: 'reports',
   },
   {
+    key: 'investments-notifications',
+    title: 'Инвестиции — уведомления о выплатах',
+    description: 'Ответственный получает Telegram-уведомление перед каждой плановой выплатой и может создать заявку в один клик.',
+    path: '/settings/investment-notification-config',
+    icon: <FileTextOutlined />,
+  },
+  {
     key: 'cash-registers',
     title: 'Кошельки и счета',
     description: 'Касса — формат номера расхода для заявок; банк (выписка), корпкарта: счета, остаток на 1 янв, удаление без движений.',

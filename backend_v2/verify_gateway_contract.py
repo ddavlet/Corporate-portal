@@ -133,7 +133,7 @@ mock_qs.first.return_value = None
 
 with patch("apps.modules.telegram_approvals.services.Approval.objects", mock_qs), \
      patch("apps.modules.telegram_approvals.services.RequestApprovalStepConfig.objects", mock_qs), \
-     patch("apps.modules.telegram_approvals.services._get_tenant_bot_token", return_value=BOT_TOKEN):
+     patch("apps.modules.telegram_approvals.services.get_tenant_bot_token", return_value=BOT_TOKEN):
 
     message_text = build_approval_message(request_obj=approval.request, approval=approval)
     payload = _dispatch_payload(
@@ -168,7 +168,7 @@ if message_id:
 
     with patch("apps.modules.telegram_approvals.services.Approval.objects", mock_qs), \
          patch("apps.modules.telegram_approvals.services.RequestApprovalStepConfig.objects", mock_qs), \
-         patch("apps.modules.telegram_approvals.services._get_tenant_bot_token", return_value=BOT_TOKEN):
+         patch("apps.modules.telegram_approvals.services.get_tenant_bot_token", return_value=BOT_TOKEN):
         edit_payload = _dispatch_payload(
             action="edit",
             request_obj=approval2.request,

@@ -10,6 +10,7 @@ from apps.modules.investments.project_investment_approval_services import (
 from django.contrib.auth import get_user_model
 from django.test import SimpleTestCase, TestCase
 from django.test import override_settings
+from django.utils import timezone
 from rest_framework import serializers
 from rest_framework.test import APIRequestFactory
 from rest_framework.test import APITestCase
@@ -20,6 +21,8 @@ from apps.modules.investments.models import (
     InvestmentApprovalConfigStep,
     InvestmentFormConfig,
     InvestmentReturnApproval,
+    InvestNotificationConfig,
+    InvestPayoutNotificationLog,
     InvestPayoutSchedule,
     InvestPayoutScheduleShareLink,
     InvestReturn,
@@ -1596,3 +1599,322 @@ class InvestReturnPnLBillingMonthTests(TestCase):
         payload = build_pnl_payload_from_db(tenant=self.tenant, query_params={})
         ids = {r["id"] for r in payload["operational_expenses"]}
         self.assertNotIn(str(ir.id), ids)
+
+
+# ---------------------------------------------------------------------------
+# Payout notifications: dupe guard, overdue modulo, signal, payload contract
+# ---------------------------------------------------------------------------
+
+
+class InvestNotificationDupeGuardTests(TestCase):
+    """The created_request FK + select_for_update gate must produce exactly one Request,
+    even if the helper is called twice for the same schedule."""
+
+    def setUp(self):
+        self.tenant = Tenant.objects.create(name="DupeCo", subdomain="dupeco", is_active=True)
+        self.user = User.objects.create_user(username="dupe-user", password="x")
+        self.schedule = InvestPayoutSchedule.objects.create(
+            tenant=self.tenant,
+            payout_date=date(2026, 6, 1),
+            amount=Decimal("100.00"),
+            currency="USD",
+            is_paid=False,
+            created_by=self.user,
+        )
+
+    def test_second_call_returns_existing_request(self):
+        from django.db import transaction
+        from apps.modules.investments.notification_services import create_or_get_request_for_schedule
+        from apps.modules.requests.models import Request
+
+        with transaction.atomic():
+            req1, was_created1, note1 = create_or_get_request_for_schedule(
+                schedule=self.schedule, created_by=self.user,
+            )
+        self.assertTrue(was_created1)
+        self.assertIsNotNone(req1)
+        self.assertIn("создана", note1)
+
+        # FK is set on the schedule.
+        self.schedule.refresh_from_db()
+        self.assertEqual(self.schedule.created_request_id, req1.pk)
+
+        # Second call: gate fires, no new request.
+        with transaction.atomic():
+            req2, was_created2, note2 = create_or_get_request_for_schedule(
+                schedule=self.schedule, created_by=self.user,
+            )
+        self.assertFalse(was_created2)
+        self.assertEqual(req2.pk, req1.pk)
+        self.assertIn("уже создана", note2)
+
+        # Exactly one request linked to this schedule.
+        self.assertEqual(
+            Request.objects.filter(invest_payout_schedule__pk=self.schedule.pk).count(), 1,
+        )
+
+    def test_already_paid_skipped(self):
+        from django.db import transaction
+        from apps.modules.investments.notification_services import create_or_get_request_for_schedule
+        from apps.modules.requests.models import Request
+
+        self.schedule.is_paid = True
+        self.schedule.save(update_fields=["is_paid"])
+
+        with transaction.atomic():
+            req, was_created, note = create_or_get_request_for_schedule(
+                schedule=self.schedule, created_by=self.user,
+            )
+        self.assertFalse(was_created)
+        self.assertIsNone(req)
+        self.assertIn("Уже оплачено", note)
+        self.assertEqual(Request.objects.count(), 0)
+
+
+class InvestNotificationOverdueModuloTests(TestCase):
+    """Overdue pass must send only on days where days_overdue % overdue_notify_every_days == 0
+    and respect the disable-when-zero setting."""
+
+    def setUp(self):
+        self.tenant = Tenant.objects.create(name="OverCo", subdomain="overco", is_active=True)
+        self.user = User.objects.create_user(
+            username="over-user", password="x", telegram_chat_id=12345,
+        )
+        self.cfg = InvestNotificationConfig.objects.create(
+            tenant=self.tenant,
+            responsible_user=self.user,
+            days_before=3,
+            overdue_notify_every_days=3,
+            is_active=True,
+        )
+
+    def _make_schedule(self, payout_date):
+        return InvestPayoutSchedule.objects.create(
+            tenant=self.tenant,
+            payout_date=payout_date,
+            amount=Decimal("100"),
+            currency="USD",
+            created_by=self.user,
+        )
+
+    def _now(self, today):
+        import datetime as dt
+        return timezone.make_aware(dt.datetime.combine(today, dt.time(9, 0)))
+
+    def test_sends_only_on_modulo_matching_days(self):
+        from datetime import timedelta
+        from apps.modules.investments.notification_services import (
+            process_due_invest_payout_notifications,
+        )
+
+        today = date(2026, 5, 22)
+        s1 = self._make_schedule(today - timedelta(days=1))  # 1 % 3 = 1 → skip
+        s2 = self._make_schedule(today - timedelta(days=2))  # 2 % 3 = 2 → skip
+        s3 = self._make_schedule(today - timedelta(days=3))  # 3 % 3 = 0 → send
+        s6 = self._make_schedule(today - timedelta(days=6))  # 6 % 3 = 0 → send
+
+        with patch(
+            "apps.modules.investments.notification_services._dispatch_payout_notification",
+            return_value=True,
+        ) as mock_send:
+            sent = process_due_invest_payout_notifications(now_dt=self._now(today))
+
+        self.assertEqual(sent, 2)
+        self.assertEqual(mock_send.call_count, 2)
+        sent_schedule_ids = {call.kwargs["schedule"].pk for call in mock_send.call_args_list}
+        self.assertEqual(sent_schedule_ids, {s3.pk, s6.pk})
+        # Logs created for the two sent schedules.
+        self.assertEqual(
+            InvestPayoutNotificationLog.objects.filter(sent_date=today).count(), 2,
+        )
+
+    def test_overdue_zero_disables_overdue_pass(self):
+        from datetime import timedelta
+        from apps.modules.investments.notification_services import (
+            process_due_invest_payout_notifications,
+        )
+
+        self.cfg.overdue_notify_every_days = 0
+        self.cfg.save(update_fields=["overdue_notify_every_days"])
+
+        today = date(2026, 5, 22)
+        self._make_schedule(today - timedelta(days=3))
+
+        with patch(
+            "apps.modules.investments.notification_services._dispatch_payout_notification",
+            return_value=True,
+        ) as mock_send:
+            sent = process_due_invest_payout_notifications(now_dt=self._now(today))
+
+        self.assertEqual(sent, 0)
+        self.assertEqual(mock_send.call_count, 0)
+
+    def test_created_request_excludes_schedule_from_both_passes(self):
+        from datetime import timedelta
+        from apps.modules.investments.notification_services import (
+            process_due_invest_payout_notifications,
+        )
+        from apps.modules.requests.models import Request
+
+        today = date(2026, 5, 22)
+        sched_upcoming = self._make_schedule(today + timedelta(days=1))
+        sched_overdue = self._make_schedule(today - timedelta(days=3))
+
+        # Pre-link both to an arbitrary Request → both passes should skip them.
+        req = Request.objects.create(
+            tenant=self.tenant,
+            created_by=self.user,
+            billing_date=today,
+            amount=Decimal("100"),
+            currency="USD",
+            payment_type=Request.PAYMENT_TYPE_TRANSFER,
+            urgency=Request.URGENCY_NORMAL,
+            status=Request.STATUS_PROGRESS_1,
+        )
+        sched_upcoming.created_request = req
+        sched_upcoming.save(update_fields=["created_request"])
+
+        req2 = Request.objects.create(
+            tenant=self.tenant,
+            created_by=self.user,
+            billing_date=today,
+            amount=Decimal("100"),
+            currency="USD",
+            payment_type=Request.PAYMENT_TYPE_TRANSFER,
+            urgency=Request.URGENCY_NORMAL,
+            status=Request.STATUS_PROGRESS_1,
+        )
+        sched_overdue.created_request = req2
+        sched_overdue.save(update_fields=["created_request"])
+
+        with patch(
+            "apps.modules.investments.notification_services._dispatch_payout_notification",
+            return_value=True,
+        ) as mock_send:
+            sent = process_due_invest_payout_notifications(now_dt=self._now(today))
+
+        self.assertEqual(sent, 0)
+        self.assertEqual(mock_send.call_count, 0)
+
+
+class InvestNotificationPayloadContractTests(TestCase):
+    """Verify the payload sent to the messaging gateway matches the contract the gateway
+    expects (action, recipient_id as string, bot_token, button {label, value} shape)."""
+
+    def setUp(self):
+        self.tenant = Tenant.objects.create(name="PaylCo", subdomain="paylco", is_active=True)
+        self.user = User.objects.create_user(
+            username="payl-user", password="x", telegram_chat_id=987654,
+        )
+        self.cfg = InvestNotificationConfig.objects.create(
+            tenant=self.tenant,
+            responsible_user=self.user,
+            days_before=3,
+            overdue_notify_every_days=3,
+            is_active=True,
+        )
+        self.schedule = InvestPayoutSchedule.objects.create(
+            tenant=self.tenant,
+            payout_date=date(2026, 6, 1),
+            amount=Decimal("100"),
+            currency="USD",
+            created_by=self.user,
+        )
+
+    def test_dispatch_payload_matches_gateway_contract(self):
+        from apps.modules.investments.notification_services import _dispatch_payout_notification
+
+        captured: dict = {}
+
+        def fake_post(*, tenant, payload):
+            captured.update(payload)
+            return {"message_id": 999}
+
+        with patch(
+            "apps.modules.telegram_approvals.services.get_tenant_bot_token", return_value="BOT_TOKEN_X",
+        ), patch(
+            "apps.modules.telegram_approvals.services.post_messaging_gateway", side_effect=fake_post,
+        ):
+            ok = _dispatch_payout_notification(
+                schedule=self.schedule, config=self.cfg, text="<b>hello</b>",
+            )
+
+        self.assertTrue(ok)
+        self.assertEqual(captured["action"], "send_interactive")
+        self.assertEqual(captured["recipient_id"], "987654")  # string, not int
+        self.assertEqual(captured["bot_token"], "BOT_TOKEN_X")
+        self.assertEqual(captured["tenant_id"], str(self.tenant.pk))
+        self.assertEqual(captured["text"], "<b>hello</b>")
+        buttons = captured["buttons"]
+        self.assertEqual(len(buttons), 1)
+        self.assertEqual(len(buttons[0]), 1)
+        btn = buttons[0][0]
+        self.assertEqual(btn["label"], "💳 Создать заявку")
+        self.assertEqual(btn["value"], f"invest_pay:{self.schedule.pk}")
+
+    def test_skips_when_responsible_has_no_telegram_chat_id(self):
+        from apps.modules.investments.notification_services import _dispatch_payout_notification
+
+        self.user.telegram_chat_id = None
+        self.user.save(update_fields=["telegram_chat_id"])
+        self.cfg.refresh_from_db()
+
+        with patch(
+            "apps.modules.telegram_approvals.services.post_messaging_gateway",
+        ) as mock_post:
+            ok = _dispatch_payout_notification(
+                schedule=self.schedule, config=self.cfg, text="x",
+            )
+
+        self.assertFalse(ok)
+        mock_post.assert_not_called()
+
+
+class InvestNotificationRejectionSignalTests(TestCase):
+    """The post_save signal must clear schedule.created_request when its Request is rejected,
+    so the next poller pass resumes notifications and the user can act again."""
+
+    def setUp(self):
+        self.tenant = Tenant.objects.create(name="RejCo", subdomain="rejco", is_active=True)
+        self.user = User.objects.create_user(username="rej-user", password="x")
+        self.schedule = InvestPayoutSchedule.objects.create(
+            tenant=self.tenant,
+            payout_date=date(2026, 6, 1),
+            amount=Decimal("100"),
+            currency="USD",
+            created_by=self.user,
+        )
+        from apps.modules.requests.models import Request
+        self.request = Request.objects.create(
+            tenant=self.tenant,
+            created_by=self.user,
+            billing_date=date(2026, 6, 1),
+            amount=Decimal("100"),
+            currency="USD",
+            payment_type=Request.PAYMENT_TYPE_TRANSFER,
+            urgency=Request.URGENCY_NORMAL,
+            status=Request.STATUS_PROGRESS_1,
+        )
+        self.schedule.created_request = self.request
+        self.schedule.save(update_fields=["created_request"])
+
+    def test_rejection_clears_fk(self):
+        from apps.modules.requests.models import Request
+        self.request.status = Request.STATUS_REJECTED
+        self.request.save(update_fields=["status"])
+        self.schedule.refresh_from_db()
+        self.assertIsNone(self.schedule.created_request_id)
+
+    def test_approval_keeps_fk(self):
+        from apps.modules.requests.models import Request
+        self.request.status = Request.STATUS_APPROVED
+        self.request.save(update_fields=["status"])
+        self.schedule.refresh_from_db()
+        self.assertEqual(self.schedule.created_request_id, self.request.pk)
+
+    def test_payed_keeps_fk(self):
+        from apps.modules.requests.models import Request
+        self.request.status = Request.STATUS_PAYED
+        self.request.save(update_fields=["status"])
+        self.schedule.refresh_from_db()
+        self.assertEqual(self.schedule.created_request_id, self.request.pk)

@@ -1127,6 +1127,7 @@ export type InvestPayoutScheduleRow = {
   is_paid: boolean
   payment_amount: string | number
   comment: string
+  created_request: number | null
   created_at: string
 }
 
@@ -1487,6 +1488,58 @@ export async function updateInvestmentFormConfig(
   if (!res.ok) throw new Error(await parseErrorBody(res))
   const json = (await res.json().catch(() => null)) as InvestmentFormConfigResponse | null
   if (!json) throw new Error('Пустой ответ от сервера')
+  return json
+}
+
+export type InvestNotificationConfigResponse = {
+  is_active: boolean
+  days_before: number
+  overdue_notify_every_days: number
+  notify_hour: number
+  responsible_user_id: number | null
+  responsible_user_name: string
+  approver_candidates: Array<{ id: number; label: string; username: string }>
+}
+
+export async function getInvestNotificationConfig(): Promise<InvestNotificationConfigResponse> {
+  const res = await apiFetch('/api/investments/notification-config/')
+  if (!res.ok) throw new Error(await parseErrorBody(res))
+  const json = (await res.json().catch(() => null)) as InvestNotificationConfigResponse | null
+  if (!json) throw new Error('Empty response from server')
+  return json
+}
+
+export async function updateInvestNotificationConfig(
+  payload: { responsible_user_id: number; days_before: number; overdue_notify_every_days: number; notify_hour: number; is_active: boolean },
+): Promise<InvestNotificationConfigResponse> {
+  const res = await apiFetch('/api/investments/notification-config/', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+  if (!res.ok) throw new Error(await parseErrorBody(res))
+  const json = (await res.json().catch(() => null)) as InvestNotificationConfigResponse | null
+  if (!json) throw new Error('Empty response from server')
+  return json
+}
+
+export async function createRequestFromPayoutSchedule(
+  scheduleId: number,
+): Promise<{ detail: string; request_id: number | null }> {
+  const res = await apiFetch(`/api/investments/payout-schedule/${scheduleId}/create-request/`, { method: 'POST' })
+  if (!res.ok) throw new Error(await parseErrorBody(res))
+  const json = (await res.json().catch(() => null)) as { detail: string; request_id: number | null } | null
+  if (!json) throw new Error('Empty response from server')
+  return json
+}
+
+export async function markPayoutScheduleAsPaid(
+  scheduleId: number,
+): Promise<{ detail: string; is_paid: boolean }> {
+  const res = await apiFetch(`/api/investments/payout-schedule/${scheduleId}/mark-paid/`, { method: 'POST' })
+  if (!res.ok) throw new Error(await parseErrorBody(res))
+  const json = (await res.json().catch(() => null)) as { detail: string; is_paid: boolean } | null
+  if (!json) throw new Error('Empty response from server')
   return json
 }
 

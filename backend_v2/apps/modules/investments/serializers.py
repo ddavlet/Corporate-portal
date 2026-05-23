@@ -16,6 +16,7 @@ from apps.modules.investments.models import (
     InvestmentProjectApprovalConfigStep,
     InvestmentProjectApprovalConfigStepApprover,
     InvestmentReturnApproval,
+    InvestNotificationConfig,
     InvestPayoutSchedule,
     InvestPayoutScheduleShareLink,
     InvestReturn,
@@ -199,11 +200,12 @@ class InvestPayoutScheduleSerializer(_CompanyScopeMixin, serializers.ModelSerial
             "is_paid",
             "payment_amount",
             "comment",
+            "created_request",
             "created_at",
             "last_edit_at",
             "created_by",
         ]
-        read_only_fields = ["id", "tenant", "created_at", "last_edit_at", "created_by"]
+        read_only_fields = ["id", "tenant", "created_request", "created_at", "last_edit_at", "created_by"]
 
     def validate(self, attrs):
         reject_client_pk_on_create(self)
@@ -306,6 +308,14 @@ class InvestmentApprovalConfigStepSerializer(serializers.Serializer):
         allow_empty=True,
         required=False,
     )
+
+
+class InvestNotificationConfigSerializer(serializers.Serializer):
+    responsible_user_id = serializers.IntegerField(min_value=1)
+    days_before = serializers.IntegerField(min_value=1, max_value=365)
+    overdue_notify_every_days = serializers.IntegerField(min_value=0, max_value=365)
+    notify_hour = serializers.IntegerField(min_value=0, max_value=23)
+    is_active = serializers.BooleanField()
 
 
 class InvestmentFormConfigSerializer(serializers.Serializer):

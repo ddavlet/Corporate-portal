@@ -24,6 +24,7 @@ from apps.modules.investments.models import (
     InvestmentProjectApprovalConfigStep,
     InvestmentProjectApprovalConfigStepApprover,
     InvestmentReturnApproval,
+    InvestNotificationConfig,
     InvestPayoutSchedule,
     InvestPayoutScheduleShareLink,
     InvestReturn,
@@ -52,6 +53,7 @@ from apps.modules.investments.serializers import (
     InvestmentProjectApprovalConfigStepApproverReadSerializer,
     InvestmentProjectApprovalConfigStepReadSerializer,
     InvestmentReturnApprovalReadSerializer,
+    InvestNotificationConfigSerializer,
     InvestPayoutScheduleSerializer,
     InvestPayoutScheduleShareLinkSerializer,
     InvestReturnSerializer,
@@ -305,6 +307,141 @@ class InvestmentFormConfigView(APIView):
             },
         )
         return Response(self._payload(request.tenant))
+
+
+class InvestNotificationConfigView(APIView):
+    permission_classes = [IsAuthenticated, HasEffectiveModuleAccess]
+    module_key = "investments"
+
+    def _payload(self, tenant):
+        cfg = InvestNotificationConfig.objects.filter(tenant=tenant).select_related("responsible_user").first()
+        User = get_user_model()
+        member_ids = TenantMembership.objects.filter(tenant=tenant, is_active=True).values_list("user_id", flat=True)
+        candidates = list(
+            User.objects.filter(id__in=member_ids, is_active=True)
+            .order_by("username")
+            .values("id", "username", "full_name")
+        )
+        approver_candidates = [
+            {"id": u["id"], "label": (u["full_name"] or u["username"]).strip(), "username": u["username"]}
+            for u in candidates
+        ]
+        meta = InvestNotificationConfig._meta
+        if not cfg:
+            return {
+                "is_active": False,
+                "days_before": meta.get_field("days_before").default,
+                "overdue_notify_every_days": meta.get_field("overdue_notify_every_days").default,
+                "notify_hour": meta.get_field("notify_hour").default,
+                "responsible_user_id": None,
+                "responsible_user_name": "",
+                "approver_candidates": approver_candidates,
+            }
+        user = cfg.responsible_user
+        return {
+            "is_active": cfg.is_active,
+            "days_before": cfg.days_before,
+            "overdue_notify_every_days": cfg.overdue_notify_every_days,
+            "notify_hour": cfg.notify_hour,
+            "responsible_user_id": user.pk,
+            "responsible_user_name": (getattr(user, "full_name", "") or user.username or "").strip(),
+            "approver_candidates": approver_candidates,
+        }
+
+    def get(self, request):
+        self.check_permissions(request)
+        return Response(self._payload(request.tenant))
+
+    def put(self, request):
+        self.check_permissions(request)
+        serializer = InvestNotificationConfigSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        payload = serializer.validated_data
+        User = get_user_model()
+        # Scope to active members of THIS tenant: the responsible user receives Telegram
+        # notifications containing payout amounts, so a foreign user must never be assignable.
+        is_member = TenantMembership.objects.filter(
+            tenant=request.tenant,
+            user_id=payload["responsible_user_id"],
+            is_active=True,
+        ).exists()
+        if not is_member:
+            raise ValidationError({"responsible_user_id": "User is not an active member of this tenant."})
+        try:
+            user = User.objects.get(pk=payload["responsible_user_id"])
+        except User.DoesNotExist:
+            raise ValidationError({"responsible_user_id": "User not found."})
+        InvestNotificationConfig.objects.update_or_create(
+            tenant=request.tenant,
+            defaults={
+                "responsible_user": user,
+                "days_before": payload["days_before"],
+                "overdue_notify_every_days": payload["overdue_notify_every_days"],
+                "notify_hour": payload["notify_hour"],
+                "is_active": payload["is_active"],
+            },
+        )
+        return Response(self._payload(request.tenant))
+
+
+class InvestPayoutScheduleCreateRequestView(APIView):
+    """Web one-click: create-or-return the payment Request for a payout schedule.
+
+    Uses the same atomic helper as the Telegram callback so concurrent presses (web tab
+    or Telegram tap) all converge on the single ``created_request`` FK — no duplicates.
+    """
+
+    permission_classes = [IsAuthenticated, HasEffectiveModuleAccess]
+    module_key = "investments"
+
+    def post(self, request, schedule_id: int):
+        self.check_permissions(request)
+        from apps.modules.investments.notification_services import create_or_get_request_for_schedule
+
+        schedule = (
+            InvestPayoutSchedule.objects
+            .select_related("tenant", "company")
+            .filter(pk=schedule_id, tenant=request.tenant)
+            .first()
+        )
+        if schedule is None:
+            return Response({"detail": "Schedule not found."}, status=status.HTTP_404_NOT_FOUND)
+        with transaction.atomic():
+            req, was_created, note = create_or_get_request_for_schedule(
+                schedule=schedule, created_by=request.user,
+            )
+        return Response(
+            {"detail": note, "request_id": req.pk if req else None},
+            status=status.HTTP_201_CREATED if was_created else status.HTTP_200_OK,
+        )
+
+
+class InvestPayoutScheduleMarkPaidView(APIView):
+    """Mark a payout as paid without going through the request flow (paid out-of-band)."""
+
+    permission_classes = [IsAuthenticated, HasEffectiveModuleAccess]
+    module_key = "investments"
+
+    def post(self, request, schedule_id: int):
+        self.check_permissions(request)
+        with transaction.atomic():
+            schedule = (
+                InvestPayoutSchedule.objects
+                .select_for_update(of=("self",))
+                .filter(pk=schedule_id, tenant=request.tenant)
+                .first()
+            )
+            if schedule is None:
+                return Response({"detail": "Schedule not found."}, status=status.HTTP_404_NOT_FOUND)
+            if schedule.is_paid:
+                return Response({"detail": "Already paid.", "is_paid": True}, status=status.HTTP_200_OK)
+            schedule.is_paid = True
+            # Quick action assumes the scheduled amount was paid in full. Users who paid a
+            # different amount can correct via the schedule edit form.
+            if not schedule.payment_amount:
+                schedule.payment_amount = schedule.amount
+            schedule.save(update_fields=["is_paid", "payment_amount", "last_edit_at"])
+        return Response({"detail": "Marked as paid.", "is_paid": True}, status=status.HTTP_200_OK)
 
 
 class InvestmentApprovalConfigView(APIView):

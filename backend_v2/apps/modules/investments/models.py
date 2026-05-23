@@ -2,6 +2,7 @@ from decimal import Decimal
 import secrets
 
 from django.conf import settings
+from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
 from django.db.models import Q
 
@@ -80,6 +81,14 @@ class InvestPayoutSchedule(models.Model):
     is_paid = models.BooleanField(default=False)
     payment_amount = models.DecimalField(max_digits=18, decimal_places=2, default=Decimal("0.00"))
     comment = models.TextField(blank=True, default="")
+    created_request = models.OneToOneField(
+        "requests.Request",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="invest_payout_schedule",
+        help_text="Payment request created from this payout (one-click). Guards against duplicates.",
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     last_edit_at = models.DateTimeField(auto_now=True)
     created_by = models.ForeignKey(
@@ -342,6 +351,66 @@ class InvestmentReturnApproval(models.Model):
             models.Index(fields=["tenant", "decision"], name="invrapp_tenant_dec_idx"),
             models.Index(fields=["approver_recipient_id"], name="invrapp_recipient_idx"),
             models.Index(fields=["gateway_message_id"], name="invrapp_gateway_msg_idx"),
+        ]
+
+
+class InvestNotificationConfig(models.Model):
+    """Per-tenant config: who gets notified about upcoming investment payouts and how many days in advance."""
+
+    tenant = models.OneToOneField(
+        Tenant,
+        on_delete=models.CASCADE,
+        related_name="invest_notification_config",
+    )
+    responsible_user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="invest_notification_configs",
+    )
+    days_before = models.PositiveIntegerField(default=3)
+    overdue_notify_every_days = models.PositiveIntegerField(
+        default=3,
+        help_text="Notify every N days for overdue unpaid payouts (0 = disabled).",
+    )
+    notify_hour = models.PositiveSmallIntegerField(
+        default=9,
+        validators=[MinValueValidator(0), MaxValueValidator(23)],
+        help_text="Hour of day (0–23, Asia/Tashkent) when notifications are dispatched.",
+    )
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "invest_notification_config"
+
+
+class InvestPayoutNotificationLog(models.Model):
+    """Tracks sent payout notifications to prevent duplicate dispatches on the same day."""
+
+    schedule = models.ForeignKey(
+        InvestPayoutSchedule,
+        on_delete=models.CASCADE,
+        related_name="notification_logs",
+    )
+    recipient_user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="invest_payout_notification_logs",
+    )
+    sent_at = models.DateTimeField(auto_now_add=True)
+    sent_date = models.DateField()
+
+    class Meta:
+        db_table = "invest_payout_notification_logs"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["schedule", "recipient_user", "sent_date"],
+                name="invnotlog_sched_user_date_uniq",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["schedule", "sent_date"], name="invnotlog_sched_date_idx"),
         ]
 
 

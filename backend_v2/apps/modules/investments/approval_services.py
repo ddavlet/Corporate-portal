@@ -20,7 +20,7 @@ from apps.modules.requests.integration_settings import get_requests_messaging_ga
 from apps.modules.telegram_approvals.services import (
     _display_user_name,
     _format_amount_for_telegram,
-    _get_tenant_bot_token,
+    get_tenant_bot_token,
     post_messaging_gateway,
 )
 
@@ -252,7 +252,7 @@ def _investment_messaging_payload(
         "action": action,
         "text": message_text,
         "recipient_id": str(approval.approver_recipient_id),
-        "bot_token": _get_tenant_bot_token(approval.tenant),
+        "bot_token": get_tenant_bot_token(approval.tenant),
         "tenant_id": str(approval.tenant_id),
         "approval_id": str(approval.id),
         "request_id": approval.invest_return_id,
