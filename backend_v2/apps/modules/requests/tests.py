@@ -487,7 +487,7 @@ class RequestFormConfigTests(APITestCase):
         self.assertEqual(res.data["category_candidates"], ["ConfiguredCategory"])
 
 
-@override_settings(BASE_DOMAIN="example.com", N8N_TOKEN="", N8N_INTEGRATION_TOKEN="", ALLOWED_HOSTS=["*"])
+@override_settings(BASE_DOMAIN="example.com", N8N_INTEGRATION_TOKEN="", ALLOWED_HOSTS=["*"])
 class RequestApprovalsTests(APITestCase):
     def setUp(self):
         from django.utils import timezone
@@ -2344,7 +2344,7 @@ class AutoRequestTests(APITestCase):
         self.assertGreaterEqual(Approval.objects.filter(request=req).count(), 1)
 
 
-@override_settings(BASE_DOMAIN="example.com", N8N_TOKEN="", N8N_INTEGRATION_TOKEN="", ALLOWED_HOSTS=["*"])
+@override_settings(BASE_DOMAIN="example.com", N8N_INTEGRATION_TOKEN="", ALLOWED_HOSTS=["*"])
 class RequestRoleVisibilityTests(APITestCase):
     def setUp(self):
         self.tenant = Tenant.objects.create(name="Roles", subdomain="roles", is_active=True)
@@ -2741,7 +2741,7 @@ class AuditMonthShiftsTests(APITestCase):
         self.assertIsNotNone(amort_row["amort_current"])
 
 
-@override_settings(BASE_DOMAIN="example.com", N8N_TOKEN="", N8N_INTEGRATION_TOKEN="", ALLOWED_HOSTS=["*"])
+@override_settings(BASE_DOMAIN="example.com", N8N_INTEGRATION_TOKEN="", ALLOWED_HOSTS=["*"])
 class DraftRequestPatchSubmitTests(APITestCase):
     """DRAFT-only PATCH and submit-for-approval."""
 
@@ -3139,7 +3139,7 @@ class DraftRequestPatchSubmitTests(APITestCase):
         self.assertIn(f"https://{self.tenant.subdomain}.example.com/app/requests/{req.id}", payload["text"])
 
 
-@override_settings(BASE_DOMAIN="example.com", N8N_TOKEN="", N8N_INTEGRATION_TOKEN="", ALLOWED_HOSTS=["*"])
+@override_settings(BASE_DOMAIN="example.com", N8N_INTEGRATION_TOKEN="", ALLOWED_HOSTS=["*"])
 class RequestContractsRequiredTests(APITestCase):
     """Portal request creation when contracts_required is enabled on the payment type."""
 

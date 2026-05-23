@@ -242,9 +242,6 @@ MCP_ALLOWED_ORIGINS = [
     if o.strip()
 ]
 
-# Outbound authorization token for calling n8n webhooks (X-N8N-Token header).
-N8N_TOKEN = os.getenv("N8N_TOKEN", "").strip()
-
 # Portal feedback: path on tenant host, e.g. https://lemonfit.kolberg.uz/n8n/ai/dispatch/
 N8N_FEEDBACK_AI_WEBHOOK_PATH = (
     os.getenv("N8N_FEEDBACK_AI_WEBHOOK_PATH", "n8n/ai/dispatch") or "n8n/ai/dispatch"
