@@ -31,12 +31,12 @@ def create_approval_rows_for_request(request_obj: Request) -> int:
         # the destination chat (per-tenant group chat) from the user's personal telegram_chat_id,
         # so the same user can be wired into different tenants with distinct group chats.
         tg_chat = getattr(step_cfg, "telegram_chat", None)
-        chat_int_id = int(tg_chat.chat_id) if tg_chat else None
-        stage_chat_id = chat_int_id if step_cfg.step_type == Approval.STEP_TYPE_PAYMENT else None
+        stage_chat_id = tg_chat.chat_id if (tg_chat and step_cfg.step_type == Approval.STEP_TYPE_PAYMENT) else None
         for row in step_cfg.approvers.all():
             if row.approver_user_id not in active_approver_ids:
                 continue
-            recipient_id = stage_chat_id if stage_chat_id is not None else row.approver_user.telegram_chat_id
+            user_chat_id = row.approver_user.telegram_chat_id
+            recipient_id = stage_chat_id if stage_chat_id is not None else (str(user_chat_id) if user_chat_id is not None else None)
             approval_rows.append(
                 Approval(
                     request=request_obj,

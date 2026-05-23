@@ -919,7 +919,7 @@ class InvestmentApprovalFlowTests(APITestCase):
 
         second_step.refresh_from_db()
         self.assertIsNotNone(second_step.gateway_message_id)
-        self.assertEqual(second_step.approver_recipient_id, 666000)
+        self.assertEqual(second_step.approver_recipient_id, "666000")
         ok_second = self.client.post(
             "/api/investments/approvals/webhook/",
             {

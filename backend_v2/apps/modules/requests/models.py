@@ -221,7 +221,7 @@ class Approval(models.Model):
         on_delete=models.PROTECT,
         related_name="request_approvals",
     )
-    approver_recipient_id = models.BigIntegerField(null=True, blank=True)
+    approver_recipient_id = models.CharField(max_length=50, null=True, blank=True)
     # Platform user id (e.g. Telegram from.id); distinct from FK `approver_user` / `approver_user_id`.
     approver_external_user_id = models.BigIntegerField(null=True, blank=True)
     gateway_message_id = models.BigIntegerField(null=True, blank=True)

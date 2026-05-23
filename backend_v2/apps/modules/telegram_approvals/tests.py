@@ -217,7 +217,7 @@ class TelegramApprovalsTests(APITestCase):
         approval = Approval.objects.create(
             request=request_row,
             approver_user=self.approver,
-            approver_recipient_id=555001,
+            approver_recipient_id="555001",
             approver_external_user_id=777001,
             gateway_message_id=4321,
             message_sent=True,
@@ -272,7 +272,7 @@ class TelegramApprovalsTests(APITestCase):
         Approval.objects.create(
             request=request_row,
             approver_user=self.approver,
-            approver_recipient_id=555001,
+            approver_recipient_id="555001",
             approver_external_user_id=777001,
             gateway_message_id=4321,
             message_sent=True,
@@ -319,7 +319,7 @@ class TelegramApprovalsTests(APITestCase):
         Approval.objects.create(
             request=request_row,
             approver_user=self.approver,
-            approver_recipient_id=555001,
+            approver_recipient_id="555001",
             approver_external_user_id=777001,
             gateway_message_id=4321,
             message_sent=True,
@@ -356,7 +356,7 @@ class TelegramApprovalsTests(APITestCase):
         old_payment = Approval.objects.create(
             request=request_row,
             approver_user=self.approver,
-            approver_recipient_id=555001,
+            approver_recipient_id="555001",
             approver_external_user_id=777001,
             gateway_message_id=7654,
             message_sent=True,
@@ -400,7 +400,7 @@ class TelegramApprovalsTests(APITestCase):
         approval = Approval.objects.create(
             request=request_row,
             approver_user=self.approver,
-            approver_recipient_id=555001,
+            approver_recipient_id="555001",
             approver_external_user_id=777001,
             gateway_message_id=4321,
             message_sent=True,
@@ -467,7 +467,7 @@ class TelegramApprovalsTests(APITestCase):
         approval = Approval.objects.create(
             request=request_row,
             approver_user=self.approver,
-            approver_recipient_id=555001,
+            approver_recipient_id="555001",
             approver_external_user_id=777001,
             gateway_message_id=4321,
             message_sent=True,
@@ -510,7 +510,7 @@ class TelegramApprovalsTests(APITestCase):
         approval = Approval.objects.create(
             request=request_row,
             approver_user=self.approver,
-            approver_recipient_id=555001,
+            approver_recipient_id="555001",
             approver_external_user_id=777001,
             gateway_message_id=4321,
             message_sent=True,
@@ -556,7 +556,7 @@ class TelegramApprovalsTests(APITestCase):
         approval = Approval.objects.create(
             request=request_row,
             approver_user=self.approver,
-            approver_recipient_id=555001,
+            approver_recipient_id="555001",
             approver_external_user_id=777001,
             gateway_message_id=None,
             message_sent=True,
@@ -603,7 +603,7 @@ class TelegramApprovalsTests(APITestCase):
         approval = Approval.objects.create(
             request=request_row,
             approver_user=self.approver,
-            approver_recipient_id=555001,
+            approver_recipient_id="555001",
             approver_external_user_id=777001,
             gateway_message_id=None,
             message_sent=False,
@@ -644,7 +644,7 @@ class TelegramApprovalsTests(APITestCase):
         approval = Approval.objects.create(
             request=request_row,
             approver_user=self.approver,
-            approver_recipient_id=555001,
+            approver_recipient_id="555001",
             approver_external_user_id=777001,
             gateway_message_id=None,
             message_sent=False,
@@ -810,7 +810,7 @@ class TelegramApprovalsTests(APITestCase):
         approval = Approval.objects.create(
             request=request_row,
             approver_user=self.approver,
-            approver_recipient_id=555001,
+            approver_recipient_id="555001",
             approver_external_user_id=777001,
             step=1,
             step_type=Approval.STEP_TYPE_PAYMENT,
@@ -834,7 +834,7 @@ class TelegramApprovalsTests(APITestCase):
         approval = Approval.objects.create(
             request=request_row,
             approver_user=self.approver,
-            approver_recipient_id=555001,
+            approver_recipient_id="555001",
             approver_external_user_id=777001,
             step=1,
             step_type=Approval.STEP_TYPE_SERIAL,
@@ -858,7 +858,7 @@ class TelegramApprovalsTests(APITestCase):
         approval = Approval.objects.create(
             request=request_row,
             approver_user=self.approver,
-            approver_recipient_id=555001,
+            approver_recipient_id="555001",
             approver_external_user_id=777001,
             step=2,
             step_type=Approval.STEP_TYPE_PAYMENT,
@@ -882,7 +882,7 @@ class TelegramApprovalsTests(APITestCase):
         Approval.objects.create(
             request=request_row,
             approver_user=self.approver,
-            approver_recipient_id=555001,
+            approver_recipient_id="555001",
             approver_external_user_id=777001,
             step=1,
             step_type=Approval.STEP_TYPE_SERIAL,
@@ -904,7 +904,7 @@ class TelegramApprovalsTests(APITestCase):
         approval = Approval.objects.create(
             request=request_row,
             approver_user=self.approver,
-            approver_recipient_id=555001,
+            approver_recipient_id="555001",
             step=1,
             step_type=Approval.STEP_TYPE_SERIAL,
             decision=Approval.DECISION_APPROVED,
@@ -929,7 +929,7 @@ class TelegramApprovalsTests(APITestCase):
         approval = Approval.objects.create(
             request=request_row,
             approver_user=self.approver,
-            approver_recipient_id=555001,
+            approver_recipient_id="555001",
             step=1,
             step_type=Approval.STEP_TYPE_SERIAL,
             decision=Approval.DECISION_PENDING,
@@ -953,7 +953,7 @@ class TelegramApprovalsTests(APITestCase):
         approval = Approval.objects.create(
             request=request_row,
             approver_user=self.approver,
-            approver_recipient_id=555001,
+            approver_recipient_id="555001",
             step=1,
             step_type=Approval.STEP_TYPE_SERIAL,
             decision=Approval.DECISION_PENDING,

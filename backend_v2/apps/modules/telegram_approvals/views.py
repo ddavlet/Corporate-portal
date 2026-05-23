@@ -200,10 +200,9 @@ class TelegramApprovalWebhookView(APIView):
             from_id = int(event_data["user_id"])
         except (TypeError, ValueError) as exc:
             raise ValidationError({"user_id": "user_id is required and must be integer."}) from exc
-        try:
-            chat_id = int(event_data["recipient_id"])
-        except (TypeError, ValueError) as exc:
-            raise ValidationError({"recipient_id": "recipient_id is required and must be integer."}) from exc
+        chat_id = str(event_data["recipient_id"]).strip()
+        if not chat_id:
+            raise ValidationError({"recipient_id": "recipient_id is required."})
         message_id = event_data.get("message_id")
 
         approval = (

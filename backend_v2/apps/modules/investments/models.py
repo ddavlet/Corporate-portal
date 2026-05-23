@@ -337,7 +337,7 @@ class InvestmentReturnApproval(models.Model):
         on_delete=models.PROTECT,
         related_name="investment_return_approvals",
     )
-    approver_recipient_id = models.BigIntegerField(null=True, blank=True)
+    approver_recipient_id = models.CharField(max_length=50, null=True, blank=True)
     approver_external_user_id = models.BigIntegerField(null=True, blank=True)
     decision = models.CharField(max_length=20, choices=DECISION_CHOICES, default=DECISION_PENDING)
     decision_comment = models.TextField(blank=True, default="")
@@ -525,7 +525,7 @@ class ProjectInvestmentApproval(models.Model):
         on_delete=models.PROTECT,
         related_name="project_investment_approvals_made",
     )
-    approver_recipient_id = models.BigIntegerField(null=True, blank=True)
+    approver_recipient_id = models.CharField(max_length=50, null=True, blank=True)
     approver_external_user_id = models.BigIntegerField(null=True, blank=True)
     decision = models.CharField(max_length=20, choices=DECISION_CHOICES, default=DECISION_PENDING)
     decision_comment = models.TextField(blank=True, default="")

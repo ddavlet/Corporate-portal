@@ -16,7 +16,7 @@ from apps.modules.requests.models import (
 class EffectivePaymentStepConfig:
     payment_action_mode: str
     payment_webapp_url: str
-    payment_chat_id: int | None
+    payment_chat_id: str | None
 
 
 def _resolve_payment_type_config_for_request(request_obj: Request):
@@ -84,6 +84,6 @@ def resolve_effective_payment_step_config_for_request(
         return EffectivePaymentStepConfig(
             payment_action_mode=getattr(step_cfg, "payment_action_mode", RequestApprovalStepConfig.PAYMENT_ACTION_MODE_CALLBACK),
             payment_webapp_url=getattr(step_cfg, "payment_webapp_url", "") or "",
-            payment_chat_id=int(chat.chat_id) if chat else None,
+            payment_chat_id=chat.chat_id if chat else None,
         )
     return None

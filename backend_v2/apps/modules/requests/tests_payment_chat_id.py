@@ -39,7 +39,7 @@ from apps.tenants.models import Tenant, TenantMembership, TenantModuleConfig, Te
 User = get_user_model()
 
 _STAGE_CHAT_STR = "-1009999000001"
-_STAGE_CHAT_ID = -1009999000001
+_STAGE_CHAT_ID = _STAGE_CHAT_STR
 _USER_CHAT_ID = 111
 _USER_FROM_ID = 222
 
@@ -164,7 +164,7 @@ class ApprovalBootstrapPaymentChatIdTests(APITestCase):
         create_approval_rows_for_request(req)
 
         approval = Approval.objects.get(request=req, approver_user=self.approver)
-        self.assertEqual(approval.approver_recipient_id, _USER_CHAT_ID)
+        self.assertEqual(approval.approver_recipient_id, str(_USER_CHAT_ID))
         self.assertEqual(approval.approver_external_user_id, _USER_FROM_ID)
 
     # --- serial step ignores stage chat ---
@@ -183,7 +183,7 @@ class ApprovalBootstrapPaymentChatIdTests(APITestCase):
         create_approval_rows_for_request(req)
 
         approval = Approval.objects.get(request=req, approver_user=self.approver)
-        self.assertEqual(approval.approver_recipient_id, _USER_CHAT_ID)
+        self.assertEqual(approval.approver_recipient_id, str(_USER_CHAT_ID))
 
     # --- multiple approvers share the same stage chat ---
 
@@ -314,7 +314,7 @@ class ApprovalBootstrapPaymentChatIdTests(APITestCase):
         create_approval_rows_for_request(req)
 
         approval = Approval.objects.get(request=req, approver_user=self.approver)
-        self.assertEqual(approval.approver_recipient_id, _USER_CHAT_ID)
+        self.assertEqual(approval.approver_recipient_id, str(_USER_CHAT_ID))
 
 
 # ---------------------------------------------------------------------------
