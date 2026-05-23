@@ -223,7 +223,7 @@ def get_approval_full_context(*, request_obj: Request, trigger_approval: Approva
 def lookup_approval_by_message_id(*, tenant, message_id: int) -> dict:
     approval = (
         Approval.objects.filter(request__tenant=tenant, gateway_message_id=message_id)
-        .select_related("approver_user", "request", "request__requester")
+        .select_related("approver_user", "request", "request__requester", "request__contract_ref", "request__vendor_ref")
         .first()
     )
     if approval is None:
@@ -264,7 +264,7 @@ def confirm_approval_by_id(
         if approval.decision != Approval.DECISION_PENDING:
             raise ApprovalDecisionAlreadyMade()
 
-        request_obj = Request.objects.select_for_update().filter(id=approval.request_id, tenant=tenant).first()
+        request_obj = Request.objects.select_for_update().select_related("contract_ref", "vendor_ref").filter(id=approval.request_id, tenant=tenant).first()
         if request_obj is None:
             raise NotFound("Request not found.")
         if request_id is not None and request_obj.id != request_id:
@@ -311,5 +311,8 @@ def confirm_approval_by_id(
 
         _recalculate_request_status(request_obj)
         request_obj.refresh_from_db()
+        # Warm FK caches after refresh_from_db clears them.
+        _ = request_obj.contract_ref
+        _ = request_obj.vendor_ref
         route_request_approvals(request_obj=request_obj)
         return get_approval_full_context(request_obj=request_obj, trigger_approval=approval)

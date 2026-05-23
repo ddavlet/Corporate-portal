@@ -139,13 +139,15 @@ def dispatch_draft_request_notification(
     payment_purpose_text = str(request_obj.payment_purpose or "-")
     description_text = str(request_obj.description or "-")
     urgency_text = str(request_obj.urgency or "-")
+    contract_block = _format_contract_block(request_obj)
     message_text = (
         f"<b>📝 Черновик заявки № {request_obj.pk}</b>\n"
         f"{title}\n\n"
         f"<b>💰 Финансы</b>\n"
         f"• Поставщик: {escape(str(vendor_name))}\n"
         f"• Сумма: {escape(amount_text)} {escape(currency_text)}\n"
-        f"• Тип оплаты: {escape(payment_type_text)}\n\n"
+        f"• Тип оплаты: {escape(payment_type_text)}"
+        f"{contract_block}\n\n"
         f"<b>📌 Назначение</b>\n"
         f"• Назначение платежа: {escape(payment_purpose_text)}\n"
         f"• Описание: {escape(description_text)}\n"
@@ -166,6 +168,23 @@ def dispatch_draft_request_notification(
     }
     response_data = _post_to_gateway(request_obj=request_obj, payload=payload)
     return response_data is not None
+
+
+def _format_contract_block(request_obj: Request) -> str:
+    """Telegram contract section. Empty string when the request has no contract — no placeholder line."""
+    contract = getattr(request_obj, "contract_ref", None)
+    if not contract:
+        return ""
+    number = escape(str(contract.contract_number or "").strip() or "-")
+    date_from = contract.date_from
+    date_to = contract.date_to
+    if date_from and date_to:
+        period = f"{date_from.strftime('%d.%m.%Y')} - {date_to.strftime('%d.%m.%Y')}"
+    elif date_from:
+        period = date_from.strftime("%d.%m.%Y")
+    else:
+        period = "-"
+    return f"\n\n<b>📄 Договор</b>\n• Номер: {number}\n• Период: {escape(period)}"
 
 
 def _format_billing_month(request_obj: Request) -> str:
@@ -293,6 +312,8 @@ def build_approval_message(*, request_obj: Request, approval: Approval | None = 
     requester_name = _display_user_name(request_obj.requester if request_obj.requester_id else None)
     template = get_requests_messaging_gateway_settings(tenant=request_obj.tenant).message_template
     billing_month_escaped = escape(_format_billing_month(request_obj))
+    # Already pre-escaped HTML — must not be re-escaped when interpolated.
+    contract_block = _format_contract_block(request_obj)
     context = {
         "header": escape(header),
         "subheader": escape(subheader or ""),
@@ -311,6 +332,7 @@ def build_approval_message(*, request_obj: Request, approval: Approval | None = 
         "urgency": escape(str(request_obj.urgency or "-")),
         "requester": escape(str(requester_name)),
         "submitted_at": escape(_format_submitted_at(request_obj)),
+        "contract_block": contract_block,
     }
     try:
         body = template.format_map(context)
@@ -326,7 +348,8 @@ def build_approval_message(*, request_obj: Request, approval: Approval | None = 
             f"• Поставщик: {context['vendor']}\n"
             f"• Категория: {context['category']}\n"
             f"• Сумма: {context['amount']} {context['currency']}\n"
-            f"• Тип оплаты: {context['payment_type']}\n\n"
+            f"• Тип оплаты: {context['payment_type']}"
+            f"{context['contract_block']}\n\n"
             f"<b>📌 Назначение</b>\n"
             f"• Назначение платежа: {context['payment_purpose']}\n"
             f"• Описание: {context['description']}\n"
@@ -561,7 +584,7 @@ def current_pending_step_approvals_count(*, request_obj: Request) -> int:
 
 @transaction.atomic
 def dispatch_pending_approvals(*, request_obj: Request, step: int | None = None, step_type: str | None = None) -> int:
-    locked = Request.objects.select_for_update().get(pk=request_obj.pk)
+    locked = Request.objects.select_for_update().select_related("contract_ref", "vendor_ref").get(pk=request_obj.pk)
     current_step = step or _current_pending_step(locked)
     if current_step is None:
         return 0
@@ -662,6 +685,9 @@ def refresh_request_messages(*, request_obj: Request) -> int:
     where the step is no longer actionable.
     """
     request_obj.refresh_from_db()
+    # Warm FK caches after refresh so the approval-card loop doesn't hit DB per card.
+    _ = request_obj.contract_ref
+    _ = request_obj.vendor_ref
     approvals = list(
         Approval.objects.filter(
             request=request_obj,
@@ -688,7 +714,7 @@ def refresh_request_messages(*, request_obj: Request) -> int:
 
 @transaction.atomic
 def resend_current_pending_step(*, request_obj: Request, idempotency_key: str | None = None) -> int:
-    locked = Request.objects.select_for_update().get(pk=request_obj.pk)
+    locked = Request.objects.select_for_update().select_related("contract_ref", "vendor_ref").get(pk=request_obj.pk)
     current_step = _current_pending_step(locked)
     if current_step is None:
         raise ValidationError({"detail": "Current request status has no active approval step."})

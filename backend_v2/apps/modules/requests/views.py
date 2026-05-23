@@ -213,7 +213,7 @@ class PortalRequestViewSet(viewsets.ModelViewSet):
         if not tenant:
             return Request.objects.none()
 
-        qs = Request.objects.filter(tenant=tenant)
+        qs = Request.objects.filter(tenant=tenant).select_related("vendor_ref", "contract_ref", "requester")
 
         # Requesters can only see items they created.
         is_admin = self._has_role(tenant, TenantUserRole.ROLE_ADMIN)
@@ -1740,7 +1740,7 @@ class AutoRequestConfigView(APIView):
         payload.is_valid(raise_exception=True)
         template_id = payload.validated_data["template_id"]
         template = (
-            AutoRequestTemplate.objects.select_related("requester", "vendor_ref")
+            AutoRequestTemplate.objects.select_related("requester", "vendor_ref", "contract_ref")
             .filter(tenant=tenant, id=template_id)
             .first()
         )

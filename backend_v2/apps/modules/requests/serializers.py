@@ -103,6 +103,7 @@ class PortalRequestSerializer(serializers.ModelSerializer):
     amortization_schedule = serializers.SerializerMethodField()
     vendor_ref = serializers.PrimaryKeyRelatedField(queryset=Vendor.objects.all(), allow_null=True, required=False)
     contract_ref = serializers.PrimaryKeyRelatedField(queryset=Contract.objects.all(), allow_null=True, required=False)
+    contract_ref_info = serializers.SerializerMethodField(read_only=True)
     # `accounts/User` sends empty descriptions from UI/tests; model does not set `blank=True`,
     # so we allow blank explicitly at serializer level.
     description = serializers.CharField(allow_blank=True, required=False, default="")
@@ -121,6 +122,7 @@ class PortalRequestSerializer(serializers.ModelSerializer):
             "vendor",
             "vendor_ref",
             "contract_ref",
+            "contract_ref_info",
             "title",
             "description",
             "amount",
@@ -428,6 +430,17 @@ class PortalRequestSerializer(serializers.ModelSerializer):
 
     def get_requester_username(self, obj):
         return _display_user_name(obj.requester)
+
+    def get_contract_ref_info(self, obj):
+        contract = obj.contract_ref
+        if not contract:
+            return None
+        return {
+            "id": contract.id,
+            "contract_number": contract.contract_number,
+            "date_from": contract.date_from.strftime("%d.%m.%Y") if contract.date_from else None,
+            "date_to": contract.date_to.strftime("%d.%m.%Y") if contract.date_to else None,
+        }
 
     def get_is_amortized(self, obj):
         return is_request_amortized(obj)

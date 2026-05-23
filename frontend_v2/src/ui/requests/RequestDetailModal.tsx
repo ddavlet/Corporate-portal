@@ -35,6 +35,13 @@ export type RequestDetail = {
   category: string
   vendor: string
   vendor_ref?: number | null
+  contract_ref?: number | null
+  contract_ref_info?: {
+    id: number
+    contract_number: string
+    date_from: string | null
+    date_to: string | null
+  } | null
   company_payer?: string
   payment_purpose?: string
   file_link?: string | null
@@ -108,6 +115,15 @@ function formatExpenseCalendar(
   return [y ?? '—', m != null ? String(m).padStart(2, '0') : '—', d != null ? String(d).padStart(2, '0') : '—'].join(
     '.',
   )
+}
+
+function formatContractPeriod(info: RequestDetail['contract_ref_info']): string {
+  if (!info) return ''
+  const from = (info.date_from || '').trim()
+  const to = (info.date_to || '').trim()
+  if (from && to) return `${from} - ${to}`
+  if (from) return from
+  return ''
 }
 
 function expenseLinkSummary(link: RequestDetail['expense_link']): string {
@@ -327,6 +343,12 @@ export function RequestDetailContent({
           <TgDetailRow label="ID поставщика (справочник)">
             {detail.vendor_ref != null && detail.vendor_ref !== undefined ? String(detail.vendor_ref) : '—'}
           </TgDetailRow>
+          {detail.contract_ref_info ? (
+            <>
+              <TgDetailRow label="Договор">{detail.contract_ref_info.contract_number || '—'}</TgDetailRow>
+              <TgDetailRow label="Период договора">{formatContractPeriod(detail.contract_ref_info) || '—'}</TgDetailRow>
+            </>
+          ) : null}
           <TgDetailRow label="Назначение платежа">{detail.payment_purpose || '—'}</TgDetailRow>
           <TgDetailRow label="Описание">{detail.description || '—'}</TgDetailRow>
           <TgDetailRow label="Заявитель">
@@ -403,6 +425,14 @@ export function RequestDetailContent({
           <Descriptions.Item label="ID поставщика (справочник)">
             {detail.vendor_ref != null && detail.vendor_ref !== undefined ? detail.vendor_ref : '-'}
           </Descriptions.Item>
+          {detail.contract_ref_info ? (
+            <Descriptions.Item label="Договор">
+              {detail.contract_ref_info.contract_number || '-'}
+              {formatContractPeriod(detail.contract_ref_info)
+                ? ` · ${formatContractPeriod(detail.contract_ref_info)}`
+                : ''}
+            </Descriptions.Item>
+          ) : null}
           <Descriptions.Item label="Назначение платежа">{detail.payment_purpose || '-'}</Descriptions.Item>
           <Descriptions.Item label="Описание">{detail.description || '-'}</Descriptions.Item>
           <Descriptions.Item label="Заявитель">
