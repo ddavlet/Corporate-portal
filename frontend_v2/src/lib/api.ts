@@ -1495,6 +1495,7 @@ export type InvestNotificationConfigResponse = {
   is_active: boolean
   days_before: number
   overdue_notify_every_days: number
+  notify_hour: number
   responsible_user_id: number | null
   responsible_user_name: string
   approver_candidates: Array<{ id: number; label: string; username: string }>
@@ -1509,7 +1510,7 @@ export async function getInvestNotificationConfig(): Promise<InvestNotificationC
 }
 
 export async function updateInvestNotificationConfig(
-  payload: { responsible_user_id: number; days_before: number; overdue_notify_every_days: number; is_active: boolean },
+  payload: { responsible_user_id: number; days_before: number; overdue_notify_every_days: number; notify_hour: number; is_active: boolean },
 ): Promise<InvestNotificationConfigResponse> {
   const res = await apiFetch('/api/investments/notification-config/', {
     method: 'PUT',

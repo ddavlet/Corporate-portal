@@ -48,6 +48,7 @@ export function InvestmentNotificationConfigPage() {
         responsible_user_id: data.responsible_user_id,
         days_before: data.days_before,
         overdue_notify_every_days: data.overdue_notify_every_days,
+        notify_hour: data.notify_hour,
         is_active: data.is_active,
       })
       setData(next)
@@ -129,6 +130,20 @@ export function InvestmentNotificationConfigPage() {
               value={data.overdue_notify_every_days}
               onChange={(v) => setData({ ...data, overdue_notify_every_days: v ?? 0 })}
               addonAfter="дн."
+            />
+          </div>
+
+          <div>
+            <Typography.Text strong>Час отправки уведомлений</Typography.Text>
+            <Typography.Paragraph type="secondary" style={{ marginBottom: 8 }}>
+              Уведомления отправляются в указанный час по Ташкентскому времени (Asia/Tashkent).
+            </Typography.Paragraph>
+            <InputNumber
+              min={0}
+              max={23}
+              value={data.notify_hour}
+              onChange={(v) => setData({ ...data, notify_hour: v ?? 9 })}
+              addonAfter=":00 Ташкент"
             />
           </div>
 

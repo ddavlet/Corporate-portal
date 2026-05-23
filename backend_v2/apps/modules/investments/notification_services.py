@@ -13,7 +13,6 @@ from django.utils import timezone
 logger = logging.getLogger(__name__)
 
 TASHKENT_TZ = ZoneInfo("Asia/Tashkent")
-_NOTIFY_DAILY_HOUR = 9  # 09:00 Tashkent
 
 _poller_started = False
 _poller_lock = threading.Lock()
@@ -109,6 +108,7 @@ def process_due_invest_payout_notifications(*, now_dt: dt.datetime | None = None
 
     now_dt = now_dt or timezone.now()
     today = now_dt.date()
+    local_hour = timezone.localtime(now_dt, TASHKENT_TZ).hour
     sent = 0
 
     configs = (
@@ -141,6 +141,8 @@ def process_due_invest_payout_notifications(*, now_dt: dt.datetime | None = None
         return False
 
     for config in configs:
+        if local_hour != config.notify_hour:
+            continue
         # Upcoming payouts: due within the lead-time window and not yet acted on.
         threshold_date = today + dt.timedelta(days=config.days_before)
         upcoming = InvestPayoutSchedule.objects.filter(
@@ -226,7 +228,7 @@ def create_request_from_payout_schedule(*, schedule, created_by):
             payment_type=Request.PAYMENT_TYPE_TRANSFER,
             urgency=Request.URGENCY_NORMAL,
             requester=created_by,
-            payment_purpose="Investment payout",
+            payment_purpose="Выплата по инвестициям",
             submitted_at=timezone.now(),
             status=Request.STATUS_DRAFT,
             billing_date=schedule.payout_date,
@@ -240,10 +242,20 @@ def create_request_from_payout_schedule(*, schedule, created_by):
 
 
 def _next_notify_run_at(now_dt: dt.datetime) -> dt.datetime:
+    from apps.modules.investments.models import InvestNotificationConfig
+    hours = set(
+        InvestNotificationConfig.objects.filter(is_active=True)
+        .values_list("notify_hour", flat=True)
+        .distinct()
+    ) or {9}
     local_now = timezone.localtime(now_dt, TASHKENT_TZ)
-    run_at_local = local_now.replace(hour=_NOTIFY_DAILY_HOUR, minute=0, second=0, microsecond=0)
-    if local_now >= run_at_local:
-        run_at_local += dt.timedelta(days=1)
+    future = sorted(h for h in hours if h > local_now.hour)
+    if future:
+        run_at_local = local_now.replace(hour=future[0], minute=0, second=0, microsecond=0)
+    else:
+        run_at_local = (local_now + dt.timedelta(days=1)).replace(
+            hour=min(hours), minute=0, second=0, microsecond=0
+        )
     return run_at_local.astimezone(now_dt.tzinfo)
 
 

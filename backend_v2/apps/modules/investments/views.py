@@ -326,11 +326,13 @@ class InvestNotificationConfigView(APIView):
             {"id": u["id"], "label": (u["full_name"] or u["username"]).strip(), "username": u["username"]}
             for u in candidates
         ]
+        meta = InvestNotificationConfig._meta
         if not cfg:
             return {
                 "is_active": False,
-                "days_before": 3,
-                "overdue_notify_every_days": 3,
+                "days_before": meta.get_field("days_before").default,
+                "overdue_notify_every_days": meta.get_field("overdue_notify_every_days").default,
+                "notify_hour": meta.get_field("notify_hour").default,
                 "responsible_user_id": None,
                 "responsible_user_name": "",
                 "approver_candidates": approver_candidates,
@@ -340,6 +342,7 @@ class InvestNotificationConfigView(APIView):
             "is_active": cfg.is_active,
             "days_before": cfg.days_before,
             "overdue_notify_every_days": cfg.overdue_notify_every_days,
+            "notify_hour": cfg.notify_hour,
             "responsible_user_id": user.pk,
             "responsible_user_name": (getattr(user, "full_name", "") or user.username or "").strip(),
             "approver_candidates": approver_candidates,
@@ -374,6 +377,7 @@ class InvestNotificationConfigView(APIView):
                 "responsible_user": user,
                 "days_before": payload["days_before"],
                 "overdue_notify_every_days": payload["overdue_notify_every_days"],
+                "notify_hour": payload["notify_hour"],
                 "is_active": payload["is_active"],
             },
         )
