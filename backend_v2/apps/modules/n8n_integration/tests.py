@@ -27,6 +27,11 @@ from apps.modules.requests.models import (
 from apps.modules.requests.services import list_payment_purposes_by_payment_type
 from apps.modules.vendors.models import Vendor
 from apps.modules.wallets.models import CashRegister, Wallet
+from apps.modules.wallets.resolution import (
+    get_or_create_bank_wallet,
+    get_or_create_cash_wallet,
+    get_or_create_corporate_wallet,
+)
 
 User = get_user_model()
 
@@ -97,7 +102,7 @@ class N8nIntegrationAuthTests(APITestCase):
         )
         self.assertEqual(res.status_code, 401)
 
-    def test_missing_jwt_401(self):
+    def test_upsert_works_without_jwt(self):
         res = self.client.post(
             self.vendor_url,
             {"id": 1, "kind": Vendor.KIND_CASH, "name": "V"},
@@ -105,16 +110,7 @@ class N8nIntegrationAuthTests(APITestCase):
             HTTP_HOST="acme.example.com",
             HTTP_X_N8N_INTEGRATION_TOKEN="integ-test-secret",
         )
-        self.assertEqual(res.status_code, 401)
-
-    def test_non_admin_403(self):
-        res = self.client.post(
-            self.vendor_url,
-            {"id": 1, "kind": Vendor.KIND_CASH, "name": "V"},
-            format="json",
-            **self._headers(self.other),
-        )
-        self.assertEqual(res.status_code, 403)
+        self.assertEqual(res.status_code, 201, res.content)
 
     def test_vendors_list_returns_id_and_name_grouped_by_payment_type(self):
         cash_vendor = Vendor.objects.create(
@@ -200,6 +196,45 @@ class N8nIntegrationAuthTests(APITestCase):
 
     def test_payment_purposes_list_requires_integration_token(self):
         url = f"{self.n8n_prefix}/payment-purposes/"
+        res = self.client.get(url, HTTP_HOST="acme.example.com")
+        self.assertEqual(res.status_code, 401)
+
+    def test_wallet_balances_without_jwt(self):
+        TenantModuleConfig.objects.create(tenant=self.tenant, module_key="cash", is_enabled=True)
+        TenantModuleConfig.objects.create(tenant=self.tenant, module_key="bank", is_enabled=True)
+        cash_wallet = get_or_create_cash_wallet(tenant=self.tenant, currency="UZS")
+        bank_wallet = get_or_create_bank_wallet(tenant=self.tenant)
+        url = f"{self.n8n_prefix}/wallet-balances/"
+        res = self.client.get(
+            url,
+            HTTP_HOST="acme.example.com",
+            HTTP_X_N8N_INTEGRATION_TOKEN="integ-test-secret",
+        )
+        self.assertEqual(res.status_code, 200, res.content)
+        data = res.json()
+        self.assertIn("cash", data)
+        self.assertIn("bank", data)
+        self.assertIn("corporate_card", data)
+        self.assertTrue(any(row["wallet_id"] == cash_wallet.id for row in data["cash"]))
+        self.assertTrue(any(row["wallet_id"] == bank_wallet.id for row in data["bank"]))
+        self.assertEqual(data["corporate_card"], [])
+
+    def test_wallet_balances_channel_filter(self):
+        TenantModuleConfig.objects.create(tenant=self.tenant, module_key="cash", is_enabled=True)
+        cash_wallet = get_or_create_cash_wallet(tenant=self.tenant, currency="UZS")
+        url = f"{self.n8n_prefix}/wallet-balances/?channel=cash"
+        res = self.client.get(
+            url,
+            HTTP_HOST="acme.example.com",
+            HTTP_X_N8N_INTEGRATION_TOKEN="integ-test-secret",
+        )
+        self.assertEqual(res.status_code, 200, res.content)
+        rows = res.json()
+        self.assertIsInstance(rows, list)
+        self.assertTrue(any(row["wallet_id"] == cash_wallet.id for row in rows))
+
+    def test_wallet_balances_requires_integration_token(self):
+        url = f"{self.n8n_prefix}/wallet-balances/"
         res = self.client.get(url, HTTP_HOST="acme.example.com")
         self.assertEqual(res.status_code, 401)
 
@@ -799,11 +834,14 @@ class N8nIntegrationAuthTests(APITestCase):
         res = self.client.post(url, body, format="json", **self._headers(self.other))
         self.assertEqual(res.status_code, 403)
 
-    def test_requests_amortization_endpoint_requires_admin(self):
+    def test_requests_amortization_endpoint_works_without_jwt(self):
         url = f"{self.n8n_prefix}/requests/amortization/"
-        self.client.force_authenticate(self.other)
-        res = self.client.get(url, **self._headers(self.other))
-        self.assertEqual(res.status_code, 403)
+        res = self.client.get(
+            url,
+            HTTP_HOST="acme.example.com",
+            HTTP_X_N8N_INTEGRATION_TOKEN="integ-test-secret",
+        )
+        self.assertEqual(res.status_code, 200, res.content)
 
     def test_requests_amortization_endpoint_returns_only_amortized_by_default(self):
         Request.objects.create(
