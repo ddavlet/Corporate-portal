@@ -280,6 +280,7 @@ export function RequestApprovalConfigPage() {
     setError(null)
     try {
       const payload: RequestApprovalConfigUpdatePayload = {
+        comment_webapp_url: data.comment_webapp_url ?? '',
         payment_types: data.payment_types.map((pt) => ({
           payment_type: pt.payment_type,
           is_enabled: pt.is_enabled,
@@ -692,6 +693,22 @@ export function RequestApprovalConfigPage() {
           />
 
           <Divider />
+
+          <Space direction="vertical" size={4} style={{ display: 'flex', marginBottom: 16 }}>
+            <Typography.Text strong style={labelBlockAboveField}>
+              URL для кнопки «💬 Оставить комментарий» (Telegram Mini App)
+            </Typography.Text>
+            <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+              Прямая ссылка вида <Typography.Text code>t.me/ВашБот/ИмяПриложения</Typography.Text> — к ней автоматически добавится{' '}
+              <Typography.Text code>startapp=req_&lt;id заявки&gt;</Typography.Text>. Оставьте пустым, чтобы кнопка не показывалась.
+            </Typography.Text>
+            <Input
+              value={data.comment_webapp_url ?? ''}
+              onChange={(e) => setData((prev) => prev ? { ...prev, comment_webapp_url: e.target.value } : prev)}
+              placeholder="https://t.me/ВашБот/ИмяПриложения"
+              allowClear
+            />
+          </Space>
 
           <Button type="primary" onClick={() => void save()} loading={saving} disabled={loading}>
             Сохранить

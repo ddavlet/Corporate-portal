@@ -1,9 +1,12 @@
 import base64
 from datetime import date
 from decimal import Decimal
+import logging
 import uuid
 import mimetypes
 import os
+
+logger = logging.getLogger(__name__)
 
 from django.contrib.auth import get_user_model
 from django.db import connection
@@ -28,6 +31,7 @@ from apps.modules.requests.models import (
     Approval,
     Request,
     RequestAttachment,
+    RequestComment,
     UserRequestApproval,
     RequestFormConfig,
     RequestFormPaymentTypeConfig,
@@ -54,6 +58,7 @@ from apps.modules.requests.serializers import (
     PortalRequestDetailSerializer,
     PortalRequestSerializer,
     MyApprovalsRequestSummarySerializer,
+    RequestCommentSerializer,
     UserRequestApprovalStepSerializer,
     RequestFormConfigPayloadSerializer,
     CreateTenantRequesterSerializer,
@@ -424,16 +429,13 @@ class PortalRequestViewSet(viewsets.ModelViewSet):
         decision = serializers.ChoiceField(
             choices=[Approval.DECISION_APPROVED, Approval.DECISION_REJECTED]
         )
-        comment = serializers.CharField(required=False, allow_blank=True, allow_null=True)
 
     class ApprovalConfirmPayloadSerializer(serializers.Serializer):
         approval_id = serializers.IntegerField(min_value=1)
-        comment = serializers.CharField(required=False, allow_blank=True, allow_null=True)
 
     class PaymentWebAppConfirmPayloadSerializer(serializers.Serializer):
         approval_id = serializers.IntegerField(min_value=1)
         expense_id = serializers.CharField(required=False, allow_blank=True, allow_null=True)
-        comment = serializers.CharField(required=False, allow_blank=True, allow_null=True)
 
     class AutoDraftSubmitAmountPayloadSerializer(serializers.Serializer):
         request_id = serializers.IntegerField(min_value=1)
@@ -467,6 +469,29 @@ class PortalRequestViewSet(viewsets.ModelViewSet):
             status=status.HTTP_200_OK,
         )
 
+    @action(detail=True, methods=["get", "post"], url_path="comments")
+    def comments(self, request, pk=None):
+        request_obj = self.get_object()
+        if request.method == "GET":
+            qs = RequestComment.objects.filter(request=request_obj).select_related("created_by").order_by("-created_at")
+            return Response(RequestCommentSerializer(qs, many=True).data)
+        body = str(request.data.get("body", "") or "").strip()
+        if not body:
+            raise ValidationError({"body": "Comment body cannot be empty."})
+        if len(body) > 4000:
+            raise ValidationError({"body": "Comment is too long (max 4000 characters)."})
+        comment = RequestComment.objects.create(
+            request=request_obj,
+            created_by=request.user,
+            body=body,
+        )
+        try:
+            from apps.modules.telegram_approvals.services import refresh_request_messages
+            refresh_request_messages(request_obj=request_obj)
+        except Exception:
+            logger.exception("Failed to refresh messages after comment creation request_id=%s", request_obj.pk)
+        return Response(RequestCommentSerializer(comment).data, status=status.HTTP_201_CREATED)
+
     @action(detail=True, methods=["post"], url_path="approvals/decision")
     def approvals_decision(self, request, pk=None):
         """
@@ -482,9 +507,6 @@ class PortalRequestViewSet(viewsets.ModelViewSet):
 
         step = payload.validated_data["step"]
         decision = payload.validated_data["decision"]
-        comment = payload.validated_data.get("comment")
-        if comment is not None and isinstance(comment, str):
-            comment = comment.strip() or None
 
         can_manage = (
             self._has_role(request_obj.tenant, TenantUserRole.ROLE_ADMIN)
@@ -533,7 +555,7 @@ class PortalRequestViewSet(viewsets.ModelViewSet):
                 request_id=locked_request.id,
                 approver_user_id=request.user.id,
                 decision=decision,
-                comment=comment,
+                comment=None,
             )
 
         return Response(
@@ -546,9 +568,6 @@ class PortalRequestViewSet(viewsets.ModelViewSet):
         payload = self.ApprovalConfirmPayloadSerializer(data=request.data)
         payload.is_valid(raise_exception=True)
         approval_id = payload.validated_data["approval_id"]
-        comment = payload.validated_data.get("comment")
-        if isinstance(comment, str):
-            comment = comment.strip() or None
 
         request_obj = self.get_object()
         data = confirm_approval_by_id(
@@ -556,7 +575,7 @@ class PortalRequestViewSet(viewsets.ModelViewSet):
             approval_id=approval_id,
             request_id=request_obj.id,
             approver_user_id=request.user.id,
-            comment=comment,
+            comment=None,
         )
         return Response(
             ApprovalFullContextSerializer(data, context={"request": request}).data,
@@ -642,14 +661,13 @@ class PortalRequestViewSet(viewsets.ModelViewSet):
             request_obj.expense_ref_target = tgt
             request_obj.save(update_fields=["expense_id", "expense_ref_id", "expense_ref_target"])
 
-        comment = str(payload.validated_data.get("comment") or "").strip() or None
         data = confirm_approval_by_id(
             tenant=tenant,
             approval_id=approval.id,
             request_id=request_obj.id,
             approver_user_id=request.user.id,
             decision=Approval.DECISION_APPROVED,
-            comment=comment,
+            comment=None,
         )
         return Response(
             ApprovalFullContextSerializer(data, context={"request": request}).data,
@@ -1463,6 +1481,7 @@ class RequestApprovalConfigView(APIView):
         payload = RequestApprovalConfigPayloadSerializer(data=request.data, context={"request": request})
         payload.is_valid(raise_exception=True)
         payment_types = payload.validated_data.get("payment_types", [])
+        comment_webapp_url = str(payload.validated_data.get("comment_webapp_url") or "").strip()
 
         active_member_ids = set(
             TenantMembership.objects.filter(tenant=tenant, is_active=True).values_list("user_id", flat=True)
@@ -1473,7 +1492,8 @@ class RequestApprovalConfigView(APIView):
                 tenant=tenant, defaults={"updated_by": request.user}
             )
             cfg.updated_by = request.user
-            cfg.save(update_fields=["updated_by"])
+            cfg.comment_webapp_url = comment_webapp_url
+            cfg.save(update_fields=["updated_by", "comment_webapp_url"])
 
             existing_pt = {
                 row.payment_type: row

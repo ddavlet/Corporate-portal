@@ -44,6 +44,7 @@ import { TgRequestsPage } from '../ui/tg/TgRequestsPage'
 import { TgRequestCreatePage } from '../ui/tg/TgRequestCreatePage'
 import { TgRequestDetailPage } from '../ui/tg/TgRequestDetailPage'
 import { TgPaymentConfirmPage } from '../ui/tg/TgPaymentConfirmPage'
+import { TgCommentPage } from '../ui/tg/TgCommentPage'
 import { TgInvestmentsPage } from '../ui/tg/TgInvestmentsPage'
 import { TgInvestmentsCompaniesPage } from '../ui/tg/TgInvestmentsCompaniesPage'
 import { TgInvestmentsProjectsPage } from '../ui/tg/TgInvestmentsProjectsPage'
@@ -99,6 +100,7 @@ export function App() {
         <Route path="bank/revenues" element={<TgBankListPage mode="revenues" />} />
         <Route path="bank/expenses/:id" element={<TgBankExpenseDetailPage />} />
         <Route path="payment" element={<TgPaymentConfirmPage />} />
+        <Route path="comment" element={<TgCommentPage />} />
       </Route>
 
       <Route

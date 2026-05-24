@@ -13,6 +13,7 @@ from apps.modules.requests.models import (
     Approval,
     Request,
     RequestAttachment,
+    RequestComment,
     UserRequestApproval,
     RequestFormConfig,
     RequestFormPaymentTypeConfig,
@@ -667,11 +668,25 @@ class ApprovalSerializer(serializers.ModelSerializer):
         return (cfg.payment_webapp_url or "") if cfg else ""
 
 
+class RequestCommentSerializer(serializers.ModelSerializer):
+    created_by_full_name = serializers.SerializerMethodField()
+
+    class Meta:
+        model = RequestComment
+        fields = ["id", "body", "created_at", "created_by", "created_by_full_name"]
+        read_only_fields = ["id", "created_at", "created_by", "created_by_full_name"]
+
+    def get_created_by_full_name(self, obj):
+        full_name = (getattr(obj.created_by, "full_name", "") or "").strip()
+        return full_name or getattr(obj.created_by, "username", "")
+
+
 class PortalRequestDetailSerializer(PortalRequestSerializer):
     approvals = serializers.SerializerMethodField()
+    comments = serializers.SerializerMethodField()
 
     class Meta(PortalRequestSerializer.Meta):
-        fields = PortalRequestSerializer.Meta.fields + ["approvals"]
+        fields = PortalRequestSerializer.Meta.fields + ["approvals", "comments"]
 
     def get_approvals(self, obj):
         # Some environments may not have applied approvals-table migration yet.
@@ -679,6 +694,12 @@ class PortalRequestDetailSerializer(PortalRequestSerializer):
             return []
         queryset = Approval.objects.filter(request=obj).select_related("approver_user").order_by("step", "id")
         return ApprovalSerializer(queryset, many=True).data
+
+    def get_comments(self, obj):
+        if RequestComment._meta.db_table not in connection.introspection.table_names():
+            return []
+        queryset = RequestComment.objects.filter(request=obj).select_related("created_by").order_by("-created_at")
+        return RequestCommentSerializer(queryset, many=True).data
 
 
 class MyApprovalsRequestSummarySerializer(serializers.ModelSerializer):
@@ -952,6 +973,7 @@ class RequestApprovalPaymentTypePayloadSerializer(serializers.Serializer):
 
 
 class RequestApprovalConfigPayloadSerializer(serializers.Serializer):
+    comment_webapp_url = serializers.CharField(required=False, allow_blank=True, default="")
     payment_types = serializers.ListField(child=RequestApprovalPaymentTypePayloadSerializer())
 
     def validate(self, attrs):
@@ -1145,6 +1167,7 @@ def build_request_approval_config_response(*, tenant) -> dict:
         payment_types_rows.append(row)
 
     return {
+        "comment_webapp_url": (cfg.comment_webapp_url if cfg else "") or "",
         "payment_types": payment_types_rows,
         "approver_candidates": approver_candidates,
     }

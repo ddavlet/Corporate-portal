@@ -15,6 +15,15 @@ import {
   usersSettingsPath,
   vendorDirectoryPath,
 } from './RequestEntityLink'
+import { RequestCommentsSection } from './RequestCommentsSection'
+
+export type RequestComment = {
+  id: number
+  body: string
+  created_at: string
+  created_by: number
+  created_by_full_name: string
+}
 
 export type ApprovalItem = {
   id: number
@@ -86,6 +95,7 @@ export type RequestDetail = {
     monthly_amount: string
   }>
   approvals: ApprovalItem[]
+  comments?: RequestComment[]
 }
 
 const dateTimeFormatterTashkent = new Intl.DateTimeFormat('ru-RU', {
@@ -258,6 +268,7 @@ type RequestDetailContentProps = {
   /** Компактные блоки для Telegram WebApp на телефоне */
   variant?: 'default' | 'telegram'
   returnTo?: RequestReturnTo
+  onCommentAdded?: () => Promise<void>
 }
 
 function TgDetailRow({ label, children }: { label: string; children: ReactNode }) {
@@ -276,6 +287,7 @@ export function RequestDetailContent({
   actions = null,
   variant = 'default',
   returnTo,
+  onCommentAdded,
 }: RequestDetailContentProps) {
   const approvals = detail?.approvals || []
   const amortizationSchedule = detail?.amortization_schedule || []
@@ -569,6 +581,13 @@ export function RequestDetailContent({
       {error ? <Alert type="error" showIcon message={error} style={{ marginTop: 12 }} /> : null}
       {!loading && detail ? (
         <>
+          <Divider />
+          <RequestCommentsSection
+            requestId={detail.id}
+            comments={detail.comments ?? []}
+            onCommentAdded={onCommentAdded ?? (async () => {})}
+            variant={variant}
+          />
           <Divider />
           <Space direction="vertical" size={12} style={{ display: 'flex' }}>
             {renderApprovalGroup(`Одобрено (${approvedApprovals.length})`, approvedApprovals, {

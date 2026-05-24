@@ -78,11 +78,9 @@ export function RequestDetailPage({ listPath = '/requests', variant = 'portal' }
   const [paymentModalOpen, setPaymentModalOpen] = useState(false)
   const [paymentModalApproval, setPaymentModalApproval] = useState<ApprovalItem | null>(null)
   const [paymentExpenseId, setPaymentExpenseId] = useState('')
-  const [paymentComment, setPaymentComment] = useState('')
 
   const [decisionModalOpen, setDecisionModalOpen] = useState(false)
   const [pendingDecision, setPendingDecision] = useState<{ step: number; decision: 'approved' | 'rejected' } | null>(null)
-  const [decisionComment, setDecisionComment] = useState('')
 
   const decodeJwtUserId = (token: string | null): number | null => {
     if (!token) return null
@@ -274,22 +272,19 @@ export function RequestDetailPage({ listPath = '/requests', variant = 'portal' }
 
   const openDecisionModal = (step: number, decision: 'approved' | 'rejected') => {
     setPendingDecision({ step, decision })
-    setDecisionComment('')
     setDecisionModalOpen(true)
   }
 
   const confirmDecision = async () => {
     if (!pendingDecision) return
     setDecisionModalOpen(false)
-    await setDecision(pendingDecision.step, pendingDecision.decision, decisionComment)
+    await setDecision(pendingDecision.step, pendingDecision.decision)
     setPendingDecision(null)
-    setDecisionComment('')
   }
 
   const cancelDecision = () => {
     setDecisionModalOpen(false)
     setPendingDecision(null)
-    setDecisionComment('')
   }
 
   const openPaymentConfirmModal = (approval: ApprovalItem) => {
@@ -302,7 +297,6 @@ export function RequestDetailPage({ listPath = '/requests', variant = 'portal' }
     setPaymentModalOpen(false)
     setPaymentModalApproval(null)
     setPaymentExpenseId('')
-    setPaymentComment('')
   }
 
   const confirmPaymentStep = async () => {
@@ -318,7 +312,6 @@ export function RequestDetailPage({ listPath = '/requests', variant = 'portal' }
       await confirmPaymentViaWebApp({
         approval_id: approval.id,
         expense_id: expenseId,
-        ...(paymentComment.trim() ? { comment: paymentComment.trim() } : {}),
       })
       message.success('Выплата подтверждена')
       closePaymentConfirmModal()
@@ -458,12 +451,27 @@ export function RequestDetailPage({ listPath = '/requests', variant = 'portal' }
 
   const approvalBtnSize = isTg ? ('large' as const) : undefined
 
+  const commentCount = detail?.comments?.length ?? 0
+
   const pendingApprovalsEl =
     pendingApprovalsForMe.length > 0 ? (
       <div style={{ width: '100%', marginTop: isTg ? 4 : 12 }}>
         <Typography.Text strong style={{ display: 'block', marginBottom: 8 }}>
           На рассмотрении
         </Typography.Text>
+        {commentCount > 0 ? (
+          <Typography.Text type="secondary" style={{ display: 'block', marginBottom: 10, fontSize: 13 }}>
+            <a
+              href="#request-comments-section"
+              onClick={(e) => {
+                e.preventDefault()
+                document.getElementById('request-comments-section')?.scrollIntoView({ behavior: 'smooth' })
+              }}
+            >
+              💬 {commentCount} {commentCount === 1 ? 'комментарий' : commentCount < 5 ? 'комментария' : 'комментариев'} · перейти к обсуждению
+            </a>
+          </Typography.Text>
+        ) : null}
         <Space direction="vertical" size={8} style={{ width: '100%' }}>
           {pendingApprovalsForMe.map((a) => (
             <div key={String(a.id)} style={{ width: '100%' }}>
@@ -661,6 +669,7 @@ export function RequestDetailPage({ listPath = '/requests', variant = 'portal' }
             error={error}
             variant={isTg ? 'telegram' : 'default'}
             returnTo={requestReturnTo}
+            onCommentAdded={refreshDetail}
           />
         </Space>
       </div>
@@ -687,17 +696,6 @@ export function RequestDetailPage({ listPath = '/requests', variant = 'portal' }
             placeholder="Номер платежа"
             onPressEnter={() => void confirmPaymentStep()}
           />
-          <div>
-            <Typography.Text strong style={{ display: 'block', marginBottom: 6 }}>
-              Комментарий (необязательно)
-            </Typography.Text>
-            <Input.TextArea
-              rows={3}
-              value={paymentComment}
-              onChange={(e) => setPaymentComment(e.target.value)}
-              placeholder="Укажите примечание..."
-            />
-          </div>
           <Button type="primary" block loading={approvalBusy} onClick={() => void confirmPaymentStep()}>
             Подтвердить выплату
           </Button>
@@ -802,18 +800,6 @@ export function RequestDetailPage({ listPath = '/requests', variant = 'portal' }
         destroyOnClose
       >
         <Space direction="vertical" size={12} style={{ display: 'flex' }}>
-          <div>
-            <Typography.Text strong style={{ display: 'block', marginBottom: 6 }}>
-              Комментарий (необязательно)
-            </Typography.Text>
-            <Input.TextArea
-              rows={3}
-              value={decisionComment}
-              onChange={(e) => setDecisionComment(e.target.value)}
-              placeholder="Укажите причину или примечание..."
-              autoFocus
-            />
-          </div>
           <Button
             type={pendingDecision?.decision === 'approved' ? 'primary' : 'default'}
             danger={pendingDecision?.decision === 'rejected'}
