@@ -125,7 +125,7 @@ export function ContractsPage() {
       contract_number: r.contract_number,
       date_from: r.date_from,
       date_to: r.date_to ?? undefined,
-      contract_amount: parseFloat(r.contract_amount),
+      contract_amount: r.contract_amount != null ? parseFloat(r.contract_amount) : undefined,
       currency: r.currency,
       contract_status: r.contract_status,
       contract_terms: r.contract_terms,
@@ -179,7 +179,7 @@ export function ContractsPage() {
         contract_number: String(values.contract_number || '').trim(),
         date_from: String(values.date_from || ''),
         date_to: values.date_to ? String(values.date_to) : null,
-        contract_amount: String(values.contract_amount ?? ''),
+        contract_amount: values.contract_amount != null ? String(values.contract_amount) : null,
         currency: String(values.currency || 'UZS'),
         contract_status: String(values.contract_status || 'accepted'),
         contract_terms: String(values.contract_terms || ''),
@@ -244,7 +244,7 @@ export function ContractsPage() {
     {
       title: 'Сумма',
       key: 'amt',
-      render: (_, r) => `${r.contract_amount} ${r.currency}`,
+      render: (_, r) => r.contract_amount != null ? `${r.contract_amount} ${r.currency}` : '—',
     },
     {
       title: 'Статус',
@@ -359,7 +359,7 @@ export function ContractsPage() {
             </Form.Item>
           </Space>
           <Space size={12} wrap style={{ width: '100%' }}>
-            <Form.Item name="contract_amount" label="Сумма" rules={[{ required: true }]} style={{ minWidth: 160 }}>
+            <Form.Item name="contract_amount" label="Сумма" style={{ minWidth: 160 }}>
               <InputNumber min={0.01} step={0.01} style={{ width: '100%' }} />
             </Form.Item>
             <Form.Item name="currency" label="Валюта" rules={[{ required: true }]} style={{ width: 120 }}>

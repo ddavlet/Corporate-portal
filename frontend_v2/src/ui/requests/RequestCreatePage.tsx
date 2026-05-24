@@ -411,10 +411,6 @@ export function RequestCreatePage({ requestsBasePath = '/requests', variant = 'p
       message.warning('Укажите дату начала')
       return
     }
-    if (ncAmount == null || ncAmount <= 0) {
-      message.warning('Укажите сумму договора')
-      return
-    }
     const f = ncFileList[0]?.originFileObj as File | undefined
     if (!f) {
       message.warning('Прикрепите файл договора')
@@ -427,7 +423,7 @@ export function RequestCreatePage({ requestsBasePath = '/requests', variant = 'p
         contract_number: num,
         date_from: ncDateFrom.trim(),
         date_to: ncDateTo.trim() || undefined,
-        contract_amount: String(ncAmount),
+        contract_amount: ncAmount != null ? String(ncAmount) : undefined,
         currency: ncCurrency,
         contract_terms: ncTerms.trim(),
         acc_number: ncAcc.trim(),
@@ -909,7 +905,7 @@ export function RequestCreatePage({ requestsBasePath = '/requests', variant = 'p
             </Form.Item>
           </Space>
           <Space wrap>
-            <Form.Item label="Сумма" required>
+            <Form.Item label="Сумма">
               <InputNumber min={0.01} step={0.01} value={ncAmount ?? undefined} onChange={(v) => setNcAmount(typeof v === 'number' ? v : null)} />
             </Form.Item>
             <Form.Item label="Валюта">

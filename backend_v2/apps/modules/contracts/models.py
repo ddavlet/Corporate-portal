@@ -50,6 +50,8 @@ class Contract(models.Model):
     contract_amount = models.DecimalField(
         max_digits=18,
         decimal_places=2,
+        null=True,
+        blank=True,
         validators=[MinValueValidator(Decimal("0.01"))],
     )
     currency = models.CharField(max_length=10, default=CURRENCY_UZS, choices=CURRENCY_CHOICES)
