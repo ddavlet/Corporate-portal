@@ -221,7 +221,7 @@ class Approval(models.Model):
         on_delete=models.PROTECT,
         related_name="request_approvals",
     )
-    approver_recipient_id = models.BigIntegerField(null=True, blank=True)
+    approver_recipient_id = models.CharField(max_length=50, null=True, blank=True)
     # Platform user id (e.g. Telegram from.id); distinct from FK `approver_user` / `approver_user_id`.
     approver_external_user_id = models.BigIntegerField(null=True, blank=True)
     gateway_message_id = models.BigIntegerField(null=True, blank=True)
@@ -469,10 +469,13 @@ class RequestApprovalStepConfig(models.Model):
         default=PAYMENT_ACTION_MODE_CALLBACK,
     )
     payment_webapp_url = models.TextField(blank=True, default="")
-    # Per-tenant payment-stage destination chat. When set on a payment step, dispatch uses this
-    # instead of the approver's user.telegram_chat_id, allowing the same user to serve different
-    # tenants/groups with distinct group chats.
-    payment_chat_id = models.BigIntegerField(null=True, blank=True)
+    telegram_chat = models.ForeignKey(
+        "telegram_approvals.TenantTelegramChat",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="request_approval_steps",
+    )
 
     class Meta:
         db_table = "request_approval_step_configs"
@@ -575,7 +578,13 @@ class RequestApprovalPurposeExceptionStepConfig(models.Model):
         default=RequestApprovalStepConfig.PAYMENT_ACTION_MODE_CALLBACK,
     )
     payment_webapp_url = models.TextField(blank=True, default="")
-    payment_chat_id = models.BigIntegerField(null=True, blank=True)
+    telegram_chat = models.ForeignKey(
+        "telegram_approvals.TenantTelegramChat",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="request_purpose_exception_steps",
+    )
 
     class Meta:
         db_table = "request_approval_purpose_exception_step_configs"

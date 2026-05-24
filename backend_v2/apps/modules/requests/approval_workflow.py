@@ -191,7 +191,7 @@ def _approval_match_queryset(
     *,
     approval_id: int,
     approver_user_id: int | None,
-    approver_recipient_id: int | None,
+    approver_recipient_id: str | None,
     approver_external_user_id: int | None,
     require_pending: bool,
 ):

@@ -3,21 +3,39 @@ from __future__ import annotations
 import json
 import logging
 
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.utils import timezone
-from rest_framework import status
+from rest_framework import status, viewsets
 from rest_framework.exceptions import ValidationError
-from rest_framework.permissions import AllowAny
+from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from apps.modules.requests.models import Approval
 from apps.modules.requests.approval_workflow import ApprovalDecisionAlreadyMade, confirm_approval_by_id
-from apps.modules.telegram_approvals.serializers import MessagingGatewayCallbackSerializer
+from apps.modules.telegram_approvals.models import TenantTelegramChat
+from apps.modules.telegram_approvals.serializers import MessagingGatewayCallbackSerializer, TenantTelegramChatSerializer
 from apps.modules.telegram_approvals.services import deactivate_approval_message_buttons
 from apps.tenants.models import Tenant
+from apps.tenants.permissions import IsTenantAdmin
 
 logger = logging.getLogger(__name__)
+
+
+class TenantTelegramChatViewSet(viewsets.ModelViewSet):
+    permission_classes = [IsAuthenticated, IsTenantAdmin]
+    serializer_class = TenantTelegramChatSerializer
+
+    def get_queryset(self):
+        if not hasattr(self.request, "tenant") or self.request.tenant is None:
+            return TenantTelegramChat.objects.none()
+        return TenantTelegramChat.objects.filter(tenant=self.request.tenant)
+
+    def perform_create(self, serializer):
+        try:
+            serializer.save(tenant=self.request.tenant, created_by=self.request.user)
+        except IntegrityError:
+            raise ValidationError({"chat_id": "Telegram-группа с таким Chat ID уже существует."})
 
 
 class TelegramApprovalWebhookView(APIView):
@@ -84,7 +102,7 @@ class TelegramApprovalWebhookView(APIView):
     def _handle_invest_pay_callback(self, payload_str: str, event_data: dict) -> Response:
         from apps.modules.investments.models import InvestNotificationConfig, InvestPayoutSchedule
         from apps.modules.investments.notification_services import (
-            create_or_get_request_for_schedule,
+            create_or_get_return_for_schedule,
             remove_payout_notification_button,
         )
 
@@ -111,20 +129,32 @@ class TelegramApprovalWebhookView(APIView):
         except InvestNotificationConfig.DoesNotExist:
             raise ValidationError({"detail": "Notification config not found for tenant."})
 
+        try:
+            from_id = int(event_data["user_id"])
+        except (TypeError, ValueError):
+            from_id = None
+        responsible_tg_id = cfg.responsible_user.telegram_chat_id if cfg.responsible_user else None
+        if responsible_tg_id is not None and from_id != responsible_tg_id:
+            logger.warning(
+                "invest_pay_callback: unauthorized user_id=%s expected=%s schedule_id=%s",
+                from_id, responsible_tg_id, schedule_id,
+            )
+            raise ValidationError({"detail": "Only the responsible user may confirm this payout."})
+
         with transaction.atomic():
-            req, was_created, note = create_or_get_request_for_schedule(
+            invest_return, was_created, note = create_or_get_return_for_schedule(
                 schedule=schedule, created_by=cfg.responsible_user,
             )
 
-        request_id = req.pk if req is not None else None
+        return_id = invest_return.pk if invest_return is not None else None
         http_status = status.HTTP_201_CREATED if was_created else status.HTTP_200_OK
         if was_created:
             logger.info(
-                "invest_pay_callback: created request_id=%s for schedule_id=%s tenant_id=%s",
-                request_id, schedule_id, schedule.tenant_id,
+                "invest_pay_callback: created return_id=%s for schedule_id=%s tenant_id=%s",
+                return_id, schedule_id, schedule.tenant_id,
             )
 
-        # After commit, drop the button and append the status note (best-effort; the request
+        # After commit, drop the button and append the status note (best-effort; the return
         # is already persisted, so an edit failure is cosmetic only).
         try:
             remove_payout_notification_button(
@@ -133,7 +163,7 @@ class TelegramApprovalWebhookView(APIView):
         except Exception:
             logger.exception("invest_pay_callback: button cleanup failed schedule_id=%s", schedule_id)
 
-        return Response({"detail": note, "request_id": request_id}, status=http_status)
+        return Response({"detail": note, "return_id": return_id}, status=http_status)
 
     def post(self, request):
         serializer = MessagingGatewayCallbackSerializer(data=request.data)
@@ -181,10 +211,9 @@ class TelegramApprovalWebhookView(APIView):
             from_id = int(event_data["user_id"])
         except (TypeError, ValueError) as exc:
             raise ValidationError({"user_id": "user_id is required and must be integer."}) from exc
-        try:
-            chat_id = int(event_data["recipient_id"])
-        except (TypeError, ValueError) as exc:
-            raise ValidationError({"recipient_id": "recipient_id is required and must be integer."}) from exc
+        chat_id = str(event_data["recipient_id"]).strip()
+        if not chat_id:
+            raise ValidationError({"recipient_id": "recipient_id is required."})
         message_id = event_data.get("message_id")
 
         approval = (

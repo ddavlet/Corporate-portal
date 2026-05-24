@@ -1127,7 +1127,9 @@ export type InvestPayoutScheduleRow = {
   is_paid: boolean
   payment_amount: string | number
   comment: string
-  created_request: number | null
+  return_type: string | null
+  recipient: string | null
+  created_return: number | null
   created_at: string
 }
 
@@ -1195,11 +1197,60 @@ export type CreateInvestReturnPayload = {
   recipient: string
 }
 
+export type TenantTelegramChatDto = {
+  id: number
+  name: string
+  chat_id: string
+  is_active: boolean
+  created_at: string
+}
+
+export async function listTelegramChats(): Promise<TenantTelegramChatDto[]> {
+  const res = await apiFetch('/api/messaging-gateway/chats/')
+  if (!res.ok) return []
+  const json = await res.json().catch(() => null)
+  return normalizeListPayload<TenantTelegramChatDto>(json)
+}
+
+export async function createTelegramChat(
+  payload: Pick<TenantTelegramChatDto, 'name' | 'chat_id' | 'is_active'>,
+): Promise<TenantTelegramChatDto> {
+  const res = await apiFetch('/api/messaging-gateway/chats/', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+  if (!res.ok) throw new Error(await parseErrorBody(res))
+  const json = (await res.json().catch(() => null)) as TenantTelegramChatDto | null
+  if (!json) throw new Error('Пустой ответ от сервера')
+  return json
+}
+
+export async function patchTelegramChat(
+  id: number,
+  payload: Partial<Pick<TenantTelegramChatDto, 'name' | 'chat_id' | 'is_active'>>,
+): Promise<TenantTelegramChatDto> {
+  const res = await apiFetch(`/api/messaging-gateway/chats/${id}/`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+  if (!res.ok) throw new Error(await parseErrorBody(res))
+  const json = (await res.json().catch(() => null)) as TenantTelegramChatDto | null
+  if (!json) throw new Error('Пустой ответ от сервера')
+  return json
+}
+
+export async function deleteTelegramChat(id: number): Promise<void> {
+  const res = await apiFetch(`/api/messaging-gateway/chats/${id}/`, { method: 'DELETE' })
+  if (!res.ok) throw new Error(await parseErrorBody(res))
+}
+
 export type InvestmentApprovalConfigStepItem = {
   step: number
   step_type: 'serial' | 'confirmation' | 'notification'
   is_enabled: boolean
-  payment_chat_id?: number | null
+  telegram_chat_id?: number | null
   approver_user_ids: number[]
 }
 
@@ -1392,6 +1443,8 @@ export type CreateInvestPayoutSchedulePayload = {
   comment?: string
   is_paid?: boolean
   payment_amount?: string | number
+  return_type?: string | null
+  recipient?: string | null
 }
 
 export async function createInvestPayoutSchedule(
@@ -1406,6 +1459,8 @@ export async function createInvestPayoutSchedule(
     payment_amount: payload.payment_amount ?? '0',
   }
   if (payload.company !== undefined) body.company = payload.company
+  if (payload.return_type !== undefined) body.return_type = payload.return_type
+  if (payload.recipient !== undefined) body.recipient = payload.recipient
   const res = await apiFetch('/api/investments/payout-schedule/', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -1498,8 +1553,7 @@ export type InvestNotificationConfigResponse = {
   notify_hour: number
   responsible_user_id: number | null
   responsible_user_name: string
-  // TODO: заменить на выбор из справочника чатов компании (список Telegram-групп tenant'а)
-  chat_id: string | null
+  telegram_chat_id: number | null
   approver_candidates: Array<{ id: number; label: string; username: string }>
 }
 
@@ -1512,8 +1566,7 @@ export async function getInvestNotificationConfig(): Promise<InvestNotificationC
 }
 
 export async function updateInvestNotificationConfig(
-  // TODO: chat_id заменить на выбор из справочника чатов компании
-  payload: { responsible_user_id: number; days_before: number; overdue_notify_every_days: number; notify_hour: number; is_active: boolean; chat_id: string | null },
+  payload: { responsible_user_id: number; days_before: number; overdue_notify_every_days: number; notify_hour: number; is_active: boolean; telegram_chat_id: number | null },
 ): Promise<InvestNotificationConfigResponse> {
   const res = await apiFetch('/api/investments/notification-config/', {
     method: 'PUT',
@@ -1526,12 +1579,12 @@ export async function updateInvestNotificationConfig(
   return json
 }
 
-export async function createRequestFromPayoutSchedule(
+export async function createReturnFromPayoutSchedule(
   scheduleId: number,
-): Promise<{ detail: string; request_id: number | null }> {
-  const res = await apiFetch(`/api/investments/payout-schedule/${scheduleId}/create-request/`, { method: 'POST' })
+): Promise<{ detail: string; return_id: number | null }> {
+  const res = await apiFetch(`/api/investments/payout-schedule/${scheduleId}/create-return/`, { method: 'POST' })
   if (!res.ok) throw new Error(await parseErrorBody(res))
-  const json = (await res.json().catch(() => null)) as { detail: string; request_id: number | null } | null
+  const json = (await res.json().catch(() => null)) as { detail: string; return_id: number | null } | null
   if (!json) throw new Error('Empty response from server')
   return json
 }
@@ -2113,7 +2166,7 @@ export type RequestApprovalConfigStepItem = {
   approver_user_ids: number[]
   payment_action_mode?: 'callback' | 'webapp' | 'create'
   payment_webapp_url?: string
-  payment_chat_id?: number | null
+  telegram_chat_id?: number | null
 }
 
 export type RequestApprovalPurposeExceptionItem = {
@@ -2158,7 +2211,7 @@ export type RequestApprovalConfigUpdatePayload = {
         approver_user_ids: number[]
         payment_action_mode?: 'callback' | 'webapp' | 'create'
         payment_webapp_url?: string
-        payment_chat_id?: number | null
+        telegram_chat_id?: number | null
       }>
     }>
     steps: Array<{

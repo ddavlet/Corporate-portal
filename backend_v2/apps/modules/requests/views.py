@@ -109,21 +109,6 @@ def _display_user_name(user) -> str:
     return full or user.username
 
 
-def _coerce_payment_chat_id(value) -> int | None:
-    if value is None:
-        return None
-    if isinstance(value, str):
-        text = value.strip()
-        if not text:
-            return None
-        try:
-            return int(text)
-        except ValueError as exc:
-            raise ValidationError({"payment_chat_id": "payment_chat_id must be an integer."}) from exc
-    try:
-        return int(value)
-    except (TypeError, ValueError) as exc:
-        raise ValidationError({"payment_chat_id": "payment_chat_id must be an integer."}) from exc
 
 
 def _ensure_app_user_for_auto_requests(tenant):
@@ -1530,7 +1515,7 @@ class RequestApprovalConfigView(APIView):
                             RequestApprovalStepConfig.PAYMENT_ACTION_MODE_CALLBACK,
                         ),
                         payment_webapp_url=str(step_item.get("payment_webapp_url", "") or "").strip(),
-                        payment_chat_id=_coerce_payment_chat_id(step_item.get("payment_chat_id")),
+                        telegram_chat_id=step_item.get("telegram_chat_id"),
                     )
                     step_rows.append(step_cfg)
                 if step_rows:
@@ -1607,7 +1592,7 @@ class RequestApprovalConfigView(APIView):
                                     RequestApprovalStepConfig.PAYMENT_ACTION_MODE_CALLBACK,
                                 ),
                                 payment_webapp_url=str(step_item.get("payment_webapp_url", "") or "").strip(),
-                                payment_chat_id=_coerce_payment_chat_id(step_item.get("payment_chat_id")),
+                                telegram_chat_id=step_item.get("telegram_chat_id"),
                             )
                         )
                     if exc_step_rows:

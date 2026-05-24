@@ -200,12 +200,14 @@ class InvestPayoutScheduleSerializer(_CompanyScopeMixin, serializers.ModelSerial
             "is_paid",
             "payment_amount",
             "comment",
-            "created_request",
+            "return_type",
+            "recipient",
+            "created_return",
             "created_at",
             "last_edit_at",
             "created_by",
         ]
-        read_only_fields = ["id", "tenant", "created_request", "created_at", "last_edit_at", "created_by"]
+        read_only_fields = ["id", "tenant", "created_return", "created_at", "last_edit_at", "created_by"]
 
     def validate(self, attrs):
         reject_client_pk_on_create(self)
@@ -302,7 +304,7 @@ class InvestmentApprovalConfigStepSerializer(serializers.Serializer):
         default=InvestmentApprovalConfigStep.STEP_TYPE_SERIAL,
     )
     is_enabled = serializers.BooleanField(default=True)
-    payment_chat_id = serializers.IntegerField(required=False, allow_null=True, default=None)
+    telegram_chat_id = serializers.IntegerField(required=False, allow_null=True, default=None)
     approver_user_ids = serializers.ListField(
         child=serializers.IntegerField(min_value=1),
         allow_empty=True,
@@ -316,8 +318,7 @@ class InvestNotificationConfigSerializer(serializers.Serializer):
     overdue_notify_every_days = serializers.IntegerField(min_value=0, max_value=365)
     notify_hour = serializers.IntegerField(min_value=0, max_value=23)
     is_active = serializers.BooleanField()
-    # TODO: заменить на ссылку из справочника чатов компании
-    chat_id = serializers.CharField(required=False, allow_null=True, allow_blank=True, max_length=50)
+    telegram_chat_id = serializers.IntegerField(required=False, allow_null=True, default=None)
 
 
 class InvestmentFormConfigSerializer(serializers.Serializer):
@@ -383,17 +384,17 @@ class InvestmentApprovalConfigSerializer(serializers.Serializer):
                     InvestmentApprovalConfigStep.STEP_TYPE_CONFIRMATION,
                     InvestmentApprovalConfigStep.STEP_TYPE_NOTIFICATION,
                 ):
-                    chat_id = row.get("payment_chat_id")
+                    chat_id = row.get("telegram_chat_id")
                     if chat_id in (None, ""):
-                        chat_id = raw.get("payment_chat_id")
+                        chat_id = raw.get("telegram_chat_id")
                     if chat_id in (None, ""):
                         raise serializers.ValidationError(
-                            "Для этапов confirmation и notification нужен payment_chat_id (Telegram chat)."
+                            "Для этапов confirmation и notification нужен telegram_chat_id (Telegram чат)."
                         )
-                    row["payment_chat_id"] = chat_id
+                    row["telegram_chat_id"] = chat_id
             row["step_type"] = step_type
             if step_type == InvestmentApprovalConfigStep.STEP_TYPE_SERIAL:
-                row["payment_chat_id"] = None
+                row["telegram_chat_id"] = None
         return value
 
 
@@ -441,17 +442,17 @@ class InvestmentProjectApprovalConfigSerializer(serializers.Serializer):
                     InvestmentProjectApprovalConfigStep.STEP_TYPE_CONFIRMATION,
                     InvestmentProjectApprovalConfigStep.STEP_TYPE_NOTIFICATION,
                 ):
-                    chat_id = row.get("payment_chat_id")
+                    chat_id = row.get("telegram_chat_id")
                     if chat_id in (None, ""):
-                        chat_id = raw.get("payment_chat_id")
+                        chat_id = raw.get("telegram_chat_id")
                     if chat_id in (None, ""):
                         raise serializers.ValidationError(
-                            "Для этапов confirmation и notification нужен payment_chat_id (Telegram chat)."
+                            "Для этапов confirmation и notification нужен telegram_chat_id (Telegram чат)."
                         )
-                    row["payment_chat_id"] = chat_id
+                    row["telegram_chat_id"] = chat_id
             row["step_type"] = step_type
             if step_type == InvestmentProjectApprovalConfigStep.STEP_TYPE_SERIAL:
-                row["payment_chat_id"] = None
+                row["telegram_chat_id"] = None
         return value
 
 
@@ -484,7 +485,7 @@ class InvestmentApprovalConfigReadSerializer(serializers.ModelSerializer):
 class InvestmentApprovalConfigStepReadSerializer(serializers.ModelSerializer):
     class Meta:
         model = InvestmentApprovalConfigStep
-        fields = ["id", "config", "step", "step_type", "is_enabled", "payment_chat_id"]
+        fields = ["id", "config", "step", "step_type", "is_enabled", "telegram_chat_id"]
         read_only_fields = fields
 
 
