@@ -79,9 +79,6 @@ export function RequestDetailPage({ listPath = '/requests', variant = 'portal' }
   const [paymentModalApproval, setPaymentModalApproval] = useState<ApprovalItem | null>(null)
   const [paymentExpenseId, setPaymentExpenseId] = useState('')
 
-  const [decisionModalOpen, setDecisionModalOpen] = useState(false)
-  const [pendingDecision, setPendingDecision] = useState<{ step: number; decision: 'approved' | 'rejected' } | null>(null)
-
   const decodeJwtUserId = (token: string | null): number | null => {
     if (!token) return null
     try {
@@ -246,16 +243,14 @@ export function RequestDetailPage({ listPath = '/requests', variant = 'portal' }
   const showExternalExpenseHint = link?.module === 'external' && link.id != null && String(link.id) !== ''
   const resendAllowed = canResendRequestByStatus(detail?.status)
 
-  const setDecision = async (step: number, decision: 'approved' | 'rejected', comment?: string) => {
+  const setDecision = async (step: number, decision: 'approved' | 'rejected') => {
     if (!detail?.id) return
     setApprovalBusy(true)
     try {
-      const body: Record<string, unknown> = { step, decision }
-      if (comment && comment.trim()) body.comment = comment.trim()
       const res = await apiFetch(`/api/requests/${detail.id}/approvals/decision/`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
+        body: JSON.stringify({ step, decision }),
       })
       if (!res.ok) {
         const text = await res.text().catch(() => '')
@@ -268,23 +263,6 @@ export function RequestDetailPage({ listPath = '/requests', variant = 'portal' }
     } finally {
       setApprovalBusy(false)
     }
-  }
-
-  const openDecisionModal = (step: number, decision: 'approved' | 'rejected') => {
-    setPendingDecision({ step, decision })
-    setDecisionModalOpen(true)
-  }
-
-  const confirmDecision = async () => {
-    if (!pendingDecision) return
-    setDecisionModalOpen(false)
-    await setDecision(pendingDecision.step, pendingDecision.decision)
-    setPendingDecision(null)
-  }
-
-  const cancelDecision = () => {
-    setDecisionModalOpen(false)
-    setPendingDecision(null)
   }
 
   const openPaymentConfirmModal = (approval: ApprovalItem) => {
@@ -501,7 +479,7 @@ export function RequestDetailPage({ listPath = '/requests', variant = 'portal' }
                     size={approvalBtnSize}
                     block
                     loading={approvalBusy}
-                    onClick={() => openDecisionModal(a.step, 'rejected')}
+                    onClick={() => void setDecision(a.step, 'rejected')}
                   >
                     Отклонить
                   </Button>
@@ -513,7 +491,7 @@ export function RequestDetailPage({ listPath = '/requests', variant = 'portal' }
                     size={approvalBtnSize}
                     block
                     loading={approvalBusy}
-                    onClick={() => openDecisionModal(a.step, 'approved')}
+                    onClick={() => void setDecision(a.step, 'approved')}
                   >
                     Одобрить
                   </Button>
@@ -522,7 +500,7 @@ export function RequestDetailPage({ listPath = '/requests', variant = 'portal' }
                     size={approvalBtnSize}
                     block
                     loading={approvalBusy}
-                    onClick={() => openDecisionModal(a.step, 'rejected')}
+                    onClick={() => void setDecision(a.step, 'rejected')}
                   >
                     Отклонить
                   </Button>
@@ -788,29 +766,6 @@ export function RequestDetailPage({ listPath = '/requests', variant = 'portal' }
           </Button>
           <Button type="primary" block loading={editSaving} disabled={loading} onClick={() => void submitDraftForApproval()}>
             Отправить на согласование
-          </Button>
-        </Space>
-      </Modal>
-
-      <Modal
-        open={decisionModalOpen}
-        title={pendingDecision?.decision === 'approved' ? `Одобрить шаг ${pendingDecision.step}` : `Отклонить шаг ${pendingDecision?.step ?? ''}`}
-        onCancel={cancelDecision}
-        footer={null}
-        destroyOnClose
-      >
-        <Space direction="vertical" size={12} style={{ display: 'flex' }}>
-          <Button
-            type={pendingDecision?.decision === 'approved' ? 'primary' : 'default'}
-            danger={pendingDecision?.decision === 'rejected'}
-            block
-            loading={approvalBusy}
-            onClick={() => void confirmDecision()}
-          >
-            {pendingDecision?.decision === 'approved' ? 'Одобрить' : 'Отклонить'}
-          </Button>
-          <Button block onClick={cancelDecision}>
-            Отмена
           </Button>
         </Space>
       </Modal>

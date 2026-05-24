@@ -429,9 +429,11 @@ class PortalRequestViewSet(viewsets.ModelViewSet):
         decision = serializers.ChoiceField(
             choices=[Approval.DECISION_APPROVED, Approval.DECISION_REJECTED]
         )
+        comment = serializers.CharField(required=False, allow_blank=True, allow_null=True)
 
     class ApprovalConfirmPayloadSerializer(serializers.Serializer):
         approval_id = serializers.IntegerField(min_value=1)
+        comment = serializers.CharField(required=False, allow_blank=True, allow_null=True)
 
     class PaymentWebAppConfirmPayloadSerializer(serializers.Serializer):
         approval_id = serializers.IntegerField(min_value=1)
@@ -507,6 +509,9 @@ class PortalRequestViewSet(viewsets.ModelViewSet):
 
         step = payload.validated_data["step"]
         decision = payload.validated_data["decision"]
+        comment = payload.validated_data.get("comment")
+        if comment is not None and isinstance(comment, str):
+            comment = comment.strip() or None
 
         can_manage = (
             self._has_role(request_obj.tenant, TenantUserRole.ROLE_ADMIN)
@@ -555,7 +560,7 @@ class PortalRequestViewSet(viewsets.ModelViewSet):
                 request_id=locked_request.id,
                 approver_user_id=request.user.id,
                 decision=decision,
-                comment=None,
+                comment=comment,
             )
 
         return Response(
@@ -568,6 +573,9 @@ class PortalRequestViewSet(viewsets.ModelViewSet):
         payload = self.ApprovalConfirmPayloadSerializer(data=request.data)
         payload.is_valid(raise_exception=True)
         approval_id = payload.validated_data["approval_id"]
+        comment = payload.validated_data.get("comment")
+        if isinstance(comment, str):
+            comment = comment.strip() or None
 
         request_obj = self.get_object()
         data = confirm_approval_by_id(
@@ -575,7 +583,7 @@ class PortalRequestViewSet(viewsets.ModelViewSet):
             approval_id=approval_id,
             request_id=request_obj.id,
             approver_user_id=request.user.id,
-            comment=None,
+            comment=comment,
         )
         return Response(
             ApprovalFullContextSerializer(data, context={"request": request}).data,
@@ -667,7 +675,6 @@ class PortalRequestViewSet(viewsets.ModelViewSet):
             request_id=request_obj.id,
             approver_user_id=request.user.id,
             decision=Approval.DECISION_APPROVED,
-            comment=None,
         )
         return Response(
             ApprovalFullContextSerializer(data, context={"request": request}).data,
