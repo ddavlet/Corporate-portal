@@ -24,7 +24,6 @@ from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework import status
-from rest_framework import serializers
 from rest_framework.views import APIView
 
 from apps.modules.requests.models import (
@@ -69,6 +68,12 @@ from apps.modules.requests.serializers import (
     AutoRequestConfigPayloadSerializer,
     build_auto_request_config_response,
     validate_auto_template_against_form_config,
+    ApprovalDecisionPayloadSerializer,
+    ApprovalConfirmPayloadSerializer,
+    PaymentWebAppConfirmPayloadSerializer,
+    AutoDraftSubmitAmountPayloadSerializer,
+    ApprovalResendPayloadSerializer,
+    AutoRequestCreateCopyPayloadSerializer,
 )
 from apps.modules.requests.expense_refs import (
     expense_ref_target_for,
@@ -115,7 +120,6 @@ def _display_user_name(user) -> str:
 
 
 
-
 def _ensure_app_user_for_auto_requests(tenant):
     """
     Системный пользователь `app` — заявитель создаваемых по расписанию заявок.
@@ -157,7 +161,403 @@ def _requester_candidates_for_options(tenant) -> list[dict]:
     ]
 
 
-class PortalRequestViewSet(viewsets.ModelViewSet):
+class RequestApprovalsMixin:
+    """
+    Approval workflow @action methods for PortalRequestViewSet.
+    Requires _has_role() and _user_can_patch_draft_request() from the host ViewSet.
+    """
+
+    @action(detail=True, methods=["get", "post"], url_path="approvals")
+    def approvals(self, request, pk=None):
+        request_obj = self.get_object()
+
+        if Approval._meta.db_table not in connection.introspection.table_names():
+            raise ValidationError({"approvals": "Approvals table is not available yet. Apply migrations first."})
+
+        queryset = Approval.objects.filter(request=request_obj).select_related("approver_user").order_by("step", "id")
+
+        if request.method == "GET":
+            return Response(ApprovalSerializer(queryset, many=True).data)
+
+        can_manage = (
+            self._has_role(request_obj.tenant, TenantUserRole.ROLE_ADMIN)
+            or self._has_role(request_obj.tenant, TenantUserRole.ROLE_DIRECTOR)
+            or self._has_role(request_obj.tenant, TenantUserRole.ROLE_APPROVER)
+        )
+        if not can_manage:
+            raise PermissionDenied("Only admins or approvers can add approvals.")
+
+        serializer = ApprovalSerializer(data=request.data, context={"request": request})
+        serializer.is_valid(raise_exception=True)
+        serializer.save(request=request_obj)
+        request_obj.refresh_from_db()
+        route_request_approvals(request_obj=request_obj)
+        return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+    @action(detail=True, methods=["post"], url_path="approvals/resend")
+    def approvals_resend(self, request, pk=None):
+        request_obj = self.get_object()
+        can_manage = (
+            self._has_role(request_obj.tenant, TenantUserRole.ROLE_ADMIN)
+            or self._has_role(request_obj.tenant, TenantUserRole.ROLE_DIRECTOR)
+            or self._has_role(request_obj.tenant, TenantUserRole.ROLE_APPROVER)
+        )
+        if not can_manage:
+            raise PermissionDenied("Only admins or approvers can resend approvals.")
+        payload = ApprovalResendPayloadSerializer(data=request.data or {})
+        payload.is_valid(raise_exception=True)
+        # Keep resend_key non-null for traceability even if legacy clients omit the key.
+        idempotency_key = payload.validated_data.get("idempotency_key") or f"auto:{uuid.uuid4().hex}"
+        pending_current_step = current_pending_step_approvals_count(request_obj=request_obj)
+        resent = resend_current_pending_step(request_obj=request_obj, idempotency_key=idempotency_key)
+        route_request_approvals(request_obj=request_obj)
+        return Response(
+            {
+                "resent": resent,
+                "pending_current_step": pending_current_step,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+    @action(detail=True, methods=["post"], url_path="approvals/decision")
+    def approvals_decision(self, request, pk=None):
+        """
+        Update existing approval decision for current approver.
+
+        This endpoint is intentionally "decision-only":
+        it updates the existing `Approval` row instead of creating a new one (to avoid unique constraint errors).
+        """
+        request_obj = self.get_object()
+
+        payload = ApprovalDecisionPayloadSerializer(data=request.data)
+        payload.is_valid(raise_exception=True)
+
+        step = payload.validated_data["step"]
+        decision = payload.validated_data["decision"]
+        comment = payload.validated_data.get("comment")
+        if comment is not None and isinstance(comment, str):
+            comment = comment.strip() or None
+
+        can_manage = (
+            self._has_role(request_obj.tenant, TenantUserRole.ROLE_ADMIN)
+            or self._has_role(request_obj.tenant, TenantUserRole.ROLE_DIRECTOR)
+            or self._has_role(request_obj.tenant, TenantUserRole.ROLE_APPROVER)
+        )
+        if not can_manage:
+            can_manage = Approval.objects.filter(
+                request_id=request_obj.id,
+                approver_user=request.user,
+                step=step,
+            ).exists()
+        if not can_manage:
+            raise PermissionDenied("Only assigned approvers can set approval decisions.")
+
+        with transaction.atomic():
+            locked_request = Request.objects.select_for_update().get(pk=request_obj.pk)
+            approval = (
+                Approval.objects.select_for_update()
+                .filter(
+                    request_id=locked_request.pk,
+                    approver_user=request.user,
+                    step=step,
+                )
+                .select_related("approver_user")
+                .first()
+            )
+
+            if not approval:
+                return Response(
+                    {"detail": "Approval row not found for this step and approver."},
+                    status=status.HTTP_404_NOT_FOUND,
+                )
+
+            active_step = min_pending_approval_step(request_id=locked_request.pk)
+            if active_step is None or approval.step != active_step:
+                raise ValidationError(
+                    {
+                        "detail": "Этот этап согласования ещё не активен. Сначала завершите предыдущие шаги.",
+                    }
+                )
+
+            data = confirm_approval_by_id(
+                tenant=locked_request.tenant,
+                approval_id=approval.id,
+                request_id=locked_request.id,
+                approver_user_id=request.user.id,
+                decision=decision,
+                comment=comment,
+            )
+
+        return Response(
+            ApprovalFullContextSerializer(data, context={"request": request}).data,
+            status=status.HTTP_200_OK,
+        )
+
+    @action(detail=True, methods=["post"], url_path="approvals/confirm")
+    def approvals_confirm(self, request, pk=None):
+        payload = ApprovalConfirmPayloadSerializer(data=request.data)
+        payload.is_valid(raise_exception=True)
+        approval_id = payload.validated_data["approval_id"]
+        comment = payload.validated_data.get("comment")
+        if isinstance(comment, str):
+            comment = comment.strip() or None
+
+        request_obj = self.get_object()
+        data = confirm_approval_by_id(
+            tenant=request_obj.tenant,
+            approval_id=approval_id,
+            request_id=request_obj.id,
+            approver_user_id=request.user.id,
+            comment=comment,
+        )
+        return Response(
+            ApprovalFullContextSerializer(data, context={"request": request}).data,
+            status=status.HTTP_200_OK,
+        )
+
+    @action(detail=False, methods=["get"], url_path="approvals/by-message-id")
+    def approvals_by_message_id(self, request):
+        tenant = getattr(request, "tenant", None)
+        if not tenant:
+            raise ValidationError({"detail": "Unknown tenant."})
+
+        raw_message_id = (request.query_params.get("message_id") or "").strip()
+        if not raw_message_id:
+            raise ValidationError({"message_id": "This query param is required."})
+        try:
+            message_id = int(raw_message_id)
+        except (TypeError, ValueError) as exc:
+            raise ValidationError({"message_id": "Must be an integer."}) from exc
+
+        data = lookup_approval_by_message_id(tenant=tenant, message_id=message_id)
+        return Response(
+            ApprovalFullContextSerializer(data, context={"request": request}).data,
+            status=status.HTTP_200_OK,
+        )
+
+    @action(detail=False, methods=["post"], url_path="approvals/payment-webapp/confirm")
+    def approvals_payment_webapp_confirm(self, request):
+        tenant = getattr(request, "tenant", None)
+        if not tenant:
+            raise ValidationError({"detail": "Unknown tenant."})
+
+        payload = PaymentWebAppConfirmPayloadSerializer(data=request.data)
+        payload.is_valid(raise_exception=True)
+        approval_id = payload.validated_data["approval_id"]
+        approval = (
+            Approval.objects.select_related("request", "request__tenant")
+            .filter(id=approval_id, request__tenant=tenant, approver_user=request.user)
+            .first()
+        )
+        if approval is None:
+            raise PermissionDenied("Approver is not assigned to this approval.")
+        if approval.step_type != Approval.STEP_TYPE_PAYMENT:
+            raise ValidationError({"approval_id": "Approval is not a payment step."})
+
+        step_cfg = resolve_effective_payment_step_config_for_request(
+            request_obj=approval.request,
+            step=approval.step,
+            step_type=approval.step_type,
+        )
+        if (
+            step_cfg
+            and step_cfg.payment_action_mode == RequestApprovalStepConfig.PAYMENT_ACTION_MODE_CALLBACK
+        ):
+            raise ValidationError({"approval_id": "Payment step is configured for callback mode."})
+
+        expense_id = str(payload.validated_data.get("expense_id") or "").strip()
+        if (
+            step_cfg
+            and step_cfg.payment_action_mode == RequestApprovalStepConfig.PAYMENT_ACTION_MODE_WEBAPP
+            and not expense_id
+        ):
+            raise ValidationError({"expense_id": "Expense id is required for webapp mode."})
+
+        request_obj = approval.request
+        if expense_id:
+            request_obj.expense_id = expense_id
+            ref, normalized_expense_id = resolve_request_expense_ref(
+                tenant=tenant,
+                payment_type=request_obj.payment_type,
+                category=request_obj.category,
+                expense_id_raw=expense_id,
+                expense_year=request_obj.expense_year,
+                amount=request_obj.amount,
+            )
+            if normalized_expense_id and request_obj.payment_type == Request.PAYMENT_TYPE_CASH:
+                request_obj.expense_id = normalized_expense_id
+            tgt = expense_ref_target_for(
+                payment_type=request_obj.payment_type,
+                category=request_obj.category,
+            ) if ref else None
+            request_obj.expense_ref_id = ref
+            request_obj.expense_ref_target = tgt
+            request_obj.save(update_fields=["expense_id", "expense_ref_id", "expense_ref_target"])
+
+        data = confirm_approval_by_id(
+            tenant=tenant,
+            approval_id=approval.id,
+            request_id=request_obj.id,
+            approver_user_id=request.user.id,
+            decision=Approval.DECISION_APPROVED,
+        )
+        return Response(
+            ApprovalFullContextSerializer(data, context={"request": request}).data,
+            status=status.HTTP_200_OK,
+        )
+
+    @action(detail=False, methods=["post"], url_path="auto-draft/submit-amount")
+    def auto_draft_submit_amount(self, request):
+        tenant = getattr(request, "tenant", None)
+        if not tenant:
+            raise ValidationError({"detail": "Unknown tenant."})
+
+        payload = AutoDraftSubmitAmountPayloadSerializer(data=request.data or {})
+        payload.is_valid(raise_exception=True)
+        request_id = payload.validated_data["request_id"]
+        amount = payload.validated_data["amount"]
+
+        with transaction.atomic():
+            request_obj = Request.objects.select_for_update().filter(id=request_id, tenant=tenant).first()
+            if request_obj is None:
+                raise ValidationError({"request_id": "Request not found."})
+            if request_obj.status != Request.STATUS_DRAFT:
+                return Response(
+                    {"detail": "Request already submitted for approval."},
+                    status=status.HTTP_409_CONFLICT,
+                )
+            if Approval.objects.filter(request=request_obj).exists():
+                return Response(
+                    {"detail": "Request already has approvals."},
+                    status=status.HTTP_409_CONFLICT,
+                )
+            if not self._user_can_patch_draft_request(request.user, request_obj):
+                raise PermissionDenied("You cannot submit this draft.")
+
+            serializer = self.get_serializer(
+                request_obj,
+                data={"amount": amount},
+                partial=True,
+                context={**self.get_serializer_context(), "submit_for_approval": True},
+            )
+            serializer.is_valid(raise_exception=True)
+            serializer.save()
+            n = create_approval_rows_for_request(request_obj)
+            if n and request_obj.status == Request.STATUS_DRAFT:
+                _recalculate_request_status(request_obj)
+
+        route_request_approvals(request_obj=request_obj)
+        detail_qs = self.get_queryset().filter(pk=request_obj.pk)
+        obj = detail_qs.get()
+        return Response(
+            PortalRequestDetailSerializer(obj, context=self.get_serializer_context()).data,
+            status=status.HTTP_200_OK,
+        )
+
+
+class RequestFilesMixin:
+    """File management @action methods for PortalRequestViewSet."""
+
+    @action(detail=True, methods=["post"], url_path="file-upload")
+    def file_upload(self, request, pk=None):
+        """
+        Telegram/Web client multipart upload.
+
+        Stores file into Django filesystem storage under:
+          requests/<tenant_id>/<request_id>/<filename>
+        and updates `Request.file_link`.
+        """
+        request_obj = self.get_object()
+
+        # For safety and UX: only allow attaching files to drafts.
+        if request_obj.status != Request.STATUS_DRAFT:
+            raise ValidationError({"detail": "Files can be attached only to DRAFT requests."})
+
+        upload = request.FILES.get("file")
+        if not upload:
+            raise ValidationError({"file": "Multipart field `file` is required."})
+
+        tenant_id = request_obj.tenant_id
+        req_id = request_obj.id
+        if not tenant_id or not req_id:
+            raise ValidationError({"detail": "Cannot resolve tenant_id/request_id for storage."})
+
+        filename = os.path.basename(upload.name or "file") or "file"
+        filename = filename.replace("\x00", "").replace("/", "_").replace("\\", "_")
+        filename = filename.strip() or "file"
+        ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
+        if ext not in ALLOWED_ATTACHMENT_EXTENSIONS:
+            raise ValidationError(
+                {"file": f"Unsupported file type. Allowed: {', '.join(sorted(ALLOWED_ATTACHMENT_EXTENSIONS))}."}
+            )
+        if int(getattr(upload, "size", 0) or 0) > MAX_ATTACHMENT_SIZE_BYTES:
+            raise ValidationError({"file": "File is too large. Max allowed size is 10 MB."})
+        if RequestAttachment.objects.filter(request=request_obj).count() >= MAX_ATTACHMENTS_PER_REQUEST:
+            raise ValidationError({"file": "Attachments limit reached (max 5 files per request)."})
+
+        storage_rel_path = f"requests/{tenant_id}/{req_id}/{filename}"
+        saved_name = default_storage.save(storage_rel_path, upload)
+
+        attachment = RequestAttachment.objects.create(
+            request=request_obj,
+            tenant_id=request_obj.tenant_id,
+            created_by=request.user,
+            file_path=saved_name,
+            file_name=filename,
+            content_type=str(getattr(upload, "content_type", "") or ""),
+            size_bytes=int(getattr(upload, "size", 0) or 0),
+        )
+        if not request_obj.file_link:
+            request_obj.file_link = saved_name
+            request_obj.save(update_fields=["file_link"])
+
+        return Response(
+            {
+                "id": attachment.id,
+                "file_link": saved_name,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+    @action(detail=True, methods=["delete"], url_path=r"attachments/(?P<attachment_id>[^/.]+)")
+    def attachment_delete(self, request, pk=None, attachment_id=None):
+        request_obj = self.get_object()
+        if request_obj.status != Request.STATUS_DRAFT:
+            raise ValidationError({"detail": "Files can be deleted only for DRAFT requests."})
+        try:
+            attachment_id_int = int(str(attachment_id or "").strip())
+        except (TypeError, ValueError) as exc:
+            raise ValidationError({"attachment_id": "Invalid attachment id."}) from exc
+
+        attachment = RequestAttachment.objects.filter(
+            id=attachment_id_int,
+            request=request_obj,
+            tenant=request_obj.tenant,
+        ).first()
+        if not attachment:
+            return Response({"detail": "Attachment not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        file_path = attachment.file_path
+        attachment.delete()
+        if file_path and default_storage.exists(file_path):
+            try:
+                default_storage.delete(file_path)
+            except Exception:
+                pass
+
+        if request_obj.file_link and request_obj.file_link == file_path:
+            next_path = (
+                RequestAttachment.objects.filter(request=request_obj)
+                .order_by("created_at", "id")
+                .values_list("file_path", flat=True)
+                .first()
+            )
+            request_obj.file_link = next_path or None
+            request_obj.save(update_fields=["file_link"])
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class PortalRequestViewSet(RequestApprovalsMixin, RequestFilesMixin, viewsets.ModelViewSet):
     """
     Placeholder CRUD for the Requests module.
     Replace/add fields once you provide the exact requests schema.
@@ -397,80 +797,6 @@ class PortalRequestViewSet(viewsets.ModelViewSet):
             status=status.HTTP_200_OK,
         )
 
-    @action(detail=True, methods=["get", "post"], url_path="approvals")
-    def approvals(self, request, pk=None):
-        request_obj = self.get_object()
-
-        if Approval._meta.db_table not in connection.introspection.table_names():
-            raise ValidationError({"approvals": "Approvals table is not available yet. Apply migrations first."})
-
-        queryset = Approval.objects.filter(request=request_obj).select_related("approver_user").order_by("step", "id")
-
-        if request.method == "GET":
-            return Response(ApprovalSerializer(queryset, many=True).data)
-
-        can_manage = (
-            self._has_role(request_obj.tenant, TenantUserRole.ROLE_ADMIN)
-            or self._has_role(request_obj.tenant, TenantUserRole.ROLE_DIRECTOR)
-            or self._has_role(request_obj.tenant, TenantUserRole.ROLE_APPROVER)
-        )
-        if not can_manage:
-            raise PermissionDenied("Only admins or approvers can add approvals.")
-
-        serializer = ApprovalSerializer(data=request.data, context={"request": request})
-        serializer.is_valid(raise_exception=True)
-        serializer.save(request=request_obj)
-        request_obj.refresh_from_db()
-        route_request_approvals(request_obj=request_obj)
-        return Response(serializer.data, status=status.HTTP_201_CREATED)
-
-    class ApprovalDecisionPayloadSerializer(serializers.Serializer):
-        step = serializers.IntegerField(min_value=1)
-        decision = serializers.ChoiceField(
-            choices=[Approval.DECISION_APPROVED, Approval.DECISION_REJECTED]
-        )
-        comment = serializers.CharField(required=False, allow_blank=True, allow_null=True)
-
-    class ApprovalConfirmPayloadSerializer(serializers.Serializer):
-        approval_id = serializers.IntegerField(min_value=1)
-        comment = serializers.CharField(required=False, allow_blank=True, allow_null=True)
-
-    class PaymentWebAppConfirmPayloadSerializer(serializers.Serializer):
-        approval_id = serializers.IntegerField(min_value=1)
-        expense_id = serializers.CharField(required=False, allow_blank=True, allow_null=True)
-
-    class AutoDraftSubmitAmountPayloadSerializer(serializers.Serializer):
-        request_id = serializers.IntegerField(min_value=1)
-        amount = serializers.DecimalField(max_digits=12, decimal_places=2, min_value=Decimal("0.01"))
-
-    class ApprovalResendPayloadSerializer(serializers.Serializer):
-        idempotency_key = serializers.CharField(required=False, allow_blank=False, max_length=128)
-
-    @action(detail=True, methods=["post"], url_path="approvals/resend")
-    def approvals_resend(self, request, pk=None):
-        request_obj = self.get_object()
-        can_manage = (
-            self._has_role(request_obj.tenant, TenantUserRole.ROLE_ADMIN)
-            or self._has_role(request_obj.tenant, TenantUserRole.ROLE_DIRECTOR)
-            or self._has_role(request_obj.tenant, TenantUserRole.ROLE_APPROVER)
-        )
-        if not can_manage:
-            raise PermissionDenied("Only admins or approvers can resend approvals.")
-        payload = self.ApprovalResendPayloadSerializer(data=request.data or {})
-        payload.is_valid(raise_exception=True)
-        # Keep resend_key non-null for traceability even if legacy clients omit the key.
-        idempotency_key = payload.validated_data.get("idempotency_key") or f"auto:{uuid.uuid4().hex}"
-        pending_current_step = current_pending_step_approvals_count(request_obj=request_obj)
-        resent = resend_current_pending_step(request_obj=request_obj, idempotency_key=idempotency_key)
-        route_request_approvals(request_obj=request_obj)
-        return Response(
-            {
-                "resent": resent,
-                "pending_current_step": pending_current_step,
-            },
-            status=status.HTTP_200_OK,
-        )
-
     @action(detail=True, methods=["get", "post"], url_path="comments")
     def comments(self, request, pk=None):
         request_obj = self.get_object()
@@ -493,339 +819,6 @@ class PortalRequestViewSet(viewsets.ModelViewSet):
         except Exception:
             logger.exception("Failed to refresh messages after comment creation request_id=%s", request_obj.pk)
         return Response(RequestCommentSerializer(comment).data, status=status.HTTP_201_CREATED)
-
-    @action(detail=True, methods=["post"], url_path="approvals/decision")
-    def approvals_decision(self, request, pk=None):
-        """
-        Update existing approval decision for current approver.
-
-        This endpoint is intentionally "decision-only":
-        it updates the existing `Approval` row instead of creating a new one (to avoid unique constraint errors).
-        """
-        request_obj = self.get_object()
-
-        payload = self.ApprovalDecisionPayloadSerializer(data=request.data)
-        payload.is_valid(raise_exception=True)
-
-        step = payload.validated_data["step"]
-        decision = payload.validated_data["decision"]
-        comment = payload.validated_data.get("comment")
-        if comment is not None and isinstance(comment, str):
-            comment = comment.strip() or None
-
-        can_manage = (
-            self._has_role(request_obj.tenant, TenantUserRole.ROLE_ADMIN)
-            or self._has_role(request_obj.tenant, TenantUserRole.ROLE_DIRECTOR)
-            or self._has_role(request_obj.tenant, TenantUserRole.ROLE_APPROVER)
-        )
-        if not can_manage:
-            can_manage = Approval.objects.filter(
-                request_id=request_obj.id,
-                approver_user=request.user,
-                step=step,
-            ).exists()
-        if not can_manage:
-            raise PermissionDenied("Only assigned approvers can set approval decisions.")
-
-        with transaction.atomic():
-            locked_request = Request.objects.select_for_update().get(pk=request_obj.pk)
-            approval = (
-                Approval.objects.select_for_update()
-                .filter(
-                    request_id=locked_request.pk,
-                    approver_user=request.user,
-                    step=step,
-                )
-                .select_related("approver_user")
-                .first()
-            )
-
-            if not approval:
-                return Response(
-                    {"detail": "Approval row not found for this step and approver."},
-                    status=status.HTTP_404_NOT_FOUND,
-                )
-
-            active_step = min_pending_approval_step(request_id=locked_request.pk)
-            if active_step is None or approval.step != active_step:
-                raise ValidationError(
-                    {
-                        "detail": "Этот этап согласования ещё не активен. Сначала завершите предыдущие шаги.",
-                    }
-                )
-
-            data = confirm_approval_by_id(
-                tenant=locked_request.tenant,
-                approval_id=approval.id,
-                request_id=locked_request.id,
-                approver_user_id=request.user.id,
-                decision=decision,
-                comment=comment,
-            )
-
-        return Response(
-            ApprovalFullContextSerializer(data, context={"request": request}).data,
-            status=status.HTTP_200_OK,
-        )
-
-    @action(detail=True, methods=["post"], url_path="approvals/confirm")
-    def approvals_confirm(self, request, pk=None):
-        payload = self.ApprovalConfirmPayloadSerializer(data=request.data)
-        payload.is_valid(raise_exception=True)
-        approval_id = payload.validated_data["approval_id"]
-        comment = payload.validated_data.get("comment")
-        if isinstance(comment, str):
-            comment = comment.strip() or None
-
-        request_obj = self.get_object()
-        data = confirm_approval_by_id(
-            tenant=request_obj.tenant,
-            approval_id=approval_id,
-            request_id=request_obj.id,
-            approver_user_id=request.user.id,
-            comment=comment,
-        )
-        return Response(
-            ApprovalFullContextSerializer(data, context={"request": request}).data,
-            status=status.HTTP_200_OK,
-        )
-
-    @action(detail=False, methods=["get"], url_path="approvals/by-message-id")
-    def approvals_by_message_id(self, request):
-        tenant = getattr(request, "tenant", None)
-        if not tenant:
-            raise ValidationError({"detail": "Unknown tenant."})
-
-        raw_message_id = (request.query_params.get("message_id") or "").strip()
-        if not raw_message_id:
-            raise ValidationError({"message_id": "This query param is required."})
-        try:
-            message_id = int(raw_message_id)
-        except (TypeError, ValueError) as exc:
-            raise ValidationError({"message_id": "Must be an integer."}) from exc
-
-        data = lookup_approval_by_message_id(tenant=tenant, message_id=message_id)
-        return Response(
-            ApprovalFullContextSerializer(data, context={"request": request}).data,
-            status=status.HTTP_200_OK,
-        )
-
-    @action(detail=False, methods=["post"], url_path="approvals/payment-webapp/confirm")
-    def approvals_payment_webapp_confirm(self, request):
-        tenant = getattr(request, "tenant", None)
-        if not tenant:
-            raise ValidationError({"detail": "Unknown tenant."})
-
-        payload = self.PaymentWebAppConfirmPayloadSerializer(data=request.data)
-        payload.is_valid(raise_exception=True)
-        approval_id = payload.validated_data["approval_id"]
-        approval = (
-            Approval.objects.select_related("request", "request__tenant")
-            .filter(id=approval_id, request__tenant=tenant, approver_user=request.user)
-            .first()
-        )
-        if approval is None:
-            raise PermissionDenied("Approver is not assigned to this approval.")
-        if approval.step_type != Approval.STEP_TYPE_PAYMENT:
-            raise ValidationError({"approval_id": "Approval is not a payment step."})
-
-        step_cfg = resolve_effective_payment_step_config_for_request(
-            request_obj=approval.request,
-            step=approval.step,
-            step_type=approval.step_type,
-        )
-        if (
-            step_cfg
-            and step_cfg.payment_action_mode == RequestApprovalStepConfig.PAYMENT_ACTION_MODE_CALLBACK
-        ):
-            raise ValidationError({"approval_id": "Payment step is configured for callback mode."})
-
-        expense_id = str(payload.validated_data.get("expense_id") or "").strip()
-        if (
-            step_cfg
-            and step_cfg.payment_action_mode == RequestApprovalStepConfig.PAYMENT_ACTION_MODE_WEBAPP
-            and not expense_id
-        ):
-            raise ValidationError({"expense_id": "Expense id is required for webapp mode."})
-
-        request_obj = approval.request
-        if expense_id:
-            request_obj.expense_id = expense_id
-            ref, normalized_expense_id = resolve_request_expense_ref(
-                tenant=tenant,
-                payment_type=request_obj.payment_type,
-                category=request_obj.category,
-                expense_id_raw=expense_id,
-                expense_year=request_obj.expense_year,
-                amount=request_obj.amount,
-            )
-            if normalized_expense_id and request_obj.payment_type == Request.PAYMENT_TYPE_CASH:
-                request_obj.expense_id = normalized_expense_id
-            tgt = expense_ref_target_for(
-                payment_type=request_obj.payment_type,
-                category=request_obj.category,
-            ) if ref else None
-            request_obj.expense_ref_id = ref
-            request_obj.expense_ref_target = tgt
-            request_obj.save(update_fields=["expense_id", "expense_ref_id", "expense_ref_target"])
-
-        data = confirm_approval_by_id(
-            tenant=tenant,
-            approval_id=approval.id,
-            request_id=request_obj.id,
-            approver_user_id=request.user.id,
-            decision=Approval.DECISION_APPROVED,
-        )
-        return Response(
-            ApprovalFullContextSerializer(data, context={"request": request}).data,
-            status=status.HTTP_200_OK,
-        )
-
-    @action(detail=False, methods=["post"], url_path="auto-draft/submit-amount")
-    def auto_draft_submit_amount(self, request):
-        tenant = getattr(request, "tenant", None)
-        if not tenant:
-            raise ValidationError({"detail": "Unknown tenant."})
-
-        payload = self.AutoDraftSubmitAmountPayloadSerializer(data=request.data or {})
-        payload.is_valid(raise_exception=True)
-        request_id = payload.validated_data["request_id"]
-        amount = payload.validated_data["amount"]
-
-        with transaction.atomic():
-            request_obj = Request.objects.select_for_update().filter(id=request_id, tenant=tenant).first()
-            if request_obj is None:
-                raise ValidationError({"request_id": "Request not found."})
-            if request_obj.status != Request.STATUS_DRAFT:
-                return Response(
-                    {"detail": "Request already submitted for approval."},
-                    status=status.HTTP_409_CONFLICT,
-                )
-            if Approval.objects.filter(request=request_obj).exists():
-                return Response(
-                    {"detail": "Request already has approvals."},
-                    status=status.HTTP_409_CONFLICT,
-                )
-            if not self._user_can_patch_draft_request(request.user, request_obj):
-                raise PermissionDenied("You cannot submit this draft.")
-
-            serializer = self.get_serializer(
-                request_obj,
-                data={"amount": amount},
-                partial=True,
-                context={**self.get_serializer_context(), "submit_for_approval": True},
-            )
-            serializer.is_valid(raise_exception=True)
-            serializer.save()
-            n = create_approval_rows_for_request(request_obj)
-            if n and request_obj.status == Request.STATUS_DRAFT:
-                _recalculate_request_status(request_obj)
-
-        route_request_approvals(request_obj=request_obj)
-        detail_qs = self.get_queryset().filter(pk=request_obj.pk)
-        obj = detail_qs.get()
-        return Response(
-            PortalRequestDetailSerializer(obj, context=self.get_serializer_context()).data,
-            status=status.HTTP_200_OK,
-        )
-
-    @action(detail=True, methods=["post"], url_path="file-upload")
-    def file_upload(self, request, pk=None):
-        """
-        Telegram/Web client multipart upload.
-
-        Stores file into Django filesystem storage under:
-          requests/<tenant_id>/<request_id>/<filename>
-        and updates `Request.file_link`.
-        """
-        request_obj = self.get_object()
-
-        # For safety and UX: only allow attaching files to drafts.
-        if request_obj.status != Request.STATUS_DRAFT:
-            raise ValidationError({"detail": "Files can be attached only to DRAFT requests."})
-
-        upload = request.FILES.get("file")
-        if not upload:
-            raise ValidationError({"file": "Multipart field `file` is required."})
-
-        tenant_id = request_obj.tenant_id
-        req_id = request_obj.id
-        if not tenant_id or not req_id:
-            raise ValidationError({"detail": "Cannot resolve tenant_id/request_id for storage."})
-
-        filename = os.path.basename(upload.name or "file") or "file"
-        filename = filename.replace("\x00", "").replace("/", "_").replace("\\", "_")
-        filename = filename.strip() or "file"
-        ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
-        if ext not in ALLOWED_ATTACHMENT_EXTENSIONS:
-            raise ValidationError(
-                {"file": f"Unsupported file type. Allowed: {', '.join(sorted(ALLOWED_ATTACHMENT_EXTENSIONS))}."}
-            )
-        if int(getattr(upload, "size", 0) or 0) > MAX_ATTACHMENT_SIZE_BYTES:
-            raise ValidationError({"file": "File is too large. Max allowed size is 10 MB."})
-        if RequestAttachment.objects.filter(request=request_obj).count() >= MAX_ATTACHMENTS_PER_REQUEST:
-            raise ValidationError({"file": "Attachments limit reached (max 5 files per request)."})
-
-        storage_rel_path = f"requests/{tenant_id}/{req_id}/{filename}"
-        saved_name = default_storage.save(storage_rel_path, upload)
-
-        attachment = RequestAttachment.objects.create(
-            request=request_obj,
-            tenant_id=request_obj.tenant_id,
-            created_by=request.user,
-            file_path=saved_name,
-            file_name=filename,
-            content_type=str(getattr(upload, "content_type", "") or ""),
-            size_bytes=int(getattr(upload, "size", 0) or 0),
-        )
-        if not request_obj.file_link:
-            request_obj.file_link = saved_name
-            request_obj.save(update_fields=["file_link"])
-
-        return Response(
-            {
-                "id": attachment.id,
-                "file_link": saved_name,
-            },
-            status=status.HTTP_200_OK,
-        )
-
-    @action(detail=True, methods=["delete"], url_path=r"attachments/(?P<attachment_id>[^/.]+)")
-    def attachment_delete(self, request, pk=None, attachment_id=None):
-        request_obj = self.get_object()
-        if request_obj.status != Request.STATUS_DRAFT:
-            raise ValidationError({"detail": "Files can be deleted only for DRAFT requests."})
-        try:
-            attachment_id_int = int(str(attachment_id or "").strip())
-        except (TypeError, ValueError) as exc:
-            raise ValidationError({"attachment_id": "Invalid attachment id."}) from exc
-
-        attachment = RequestAttachment.objects.filter(
-            id=attachment_id_int,
-            request=request_obj,
-            tenant=request_obj.tenant,
-        ).first()
-        if not attachment:
-            return Response({"detail": "Attachment not found."}, status=status.HTTP_404_NOT_FOUND)
-
-        file_path = attachment.file_path
-        attachment.delete()
-        if file_path and default_storage.exists(file_path):
-            try:
-                default_storage.delete(file_path)
-            except Exception:
-                pass
-
-        if request_obj.file_link and request_obj.file_link == file_path:
-            next_path = (
-                RequestAttachment.objects.filter(request=request_obj)
-                .order_by("created_at", "id")
-                .values_list("file_path", flat=True)
-                .first()
-            )
-            request_obj.file_link = next_path or None
-            request_obj.save(update_fields=["file_link"])
-        return Response(status=status.HTTP_204_NO_CONTENT)
 
     @action(detail=False, methods=["get"], url_path="my-approvals")
     def my_approvals(self, request):
@@ -1747,15 +1740,12 @@ class AutoRequestConfigView(APIView):
 
         return Response(build_auto_request_config_response(tenant=tenant))
 
-    class CreateCopyPayloadSerializer(serializers.Serializer):
-        template_id = serializers.IntegerField(min_value=1)
-
     def post(self, request):
         tenant = getattr(request, "tenant", None)
         if not tenant:
             raise ValidationError({"detail": "Unknown tenant."})
 
-        payload = self.CreateCopyPayloadSerializer(data=request.data or {})
+        payload = AutoRequestCreateCopyPayloadSerializer(data=request.data or {})
         payload.is_valid(raise_exception=True)
         template_id = payload.validated_data["template_id"]
         template = (
@@ -1847,4 +1837,3 @@ class RequestAiChatProxyView(APIView):
 
         content_type = upstream.headers.get("Content-Type", "application/json")
         return HttpResponse(upstream.content, status=upstream.status_code, content_type=content_type)
-

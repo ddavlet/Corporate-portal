@@ -1300,3 +1300,34 @@ def build_auto_request_config_response(*, tenant) -> dict:
         "requester_candidates": form_cfg["requester_candidates"],
     }
 
+
+class ApprovalDecisionPayloadSerializer(serializers.Serializer):
+    step = serializers.IntegerField(min_value=1)
+    decision = serializers.ChoiceField(
+        choices=[Approval.DECISION_APPROVED, Approval.DECISION_REJECTED]
+    )
+    comment = serializers.CharField(required=False, allow_blank=True, allow_null=True)
+
+
+class ApprovalConfirmPayloadSerializer(serializers.Serializer):
+    approval_id = serializers.IntegerField(min_value=1)
+    comment = serializers.CharField(required=False, allow_blank=True, allow_null=True)
+
+
+class PaymentWebAppConfirmPayloadSerializer(serializers.Serializer):
+    approval_id = serializers.IntegerField(min_value=1)
+    expense_id = serializers.CharField(required=False, allow_blank=True, allow_null=True)
+
+
+class AutoDraftSubmitAmountPayloadSerializer(serializers.Serializer):
+    request_id = serializers.IntegerField(min_value=1)
+    amount = serializers.DecimalField(max_digits=12, decimal_places=2, min_value=Decimal("0.01"))
+
+
+class ApprovalResendPayloadSerializer(serializers.Serializer):
+    idempotency_key = serializers.CharField(required=False, allow_blank=False, max_length=128)
+
+
+class AutoRequestCreateCopyPayloadSerializer(serializers.Serializer):
+    template_id = serializers.IntegerField(min_value=1)
+
