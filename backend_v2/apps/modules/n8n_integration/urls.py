@@ -76,4 +76,9 @@ urlpatterns = [
     path("vendors-list/", views.N8nVendorListView.as_view(), name="n8n-vendors-list"),
     path("payment-purposes/", views.N8nPaymentPurposeListView.as_view(), name="n8n-payment-purposes"),
     path("wallet-balances/", views.N8nWalletBalancesView.as_view(), name="n8n-wallet-balances"),
+    path(
+        "unmatched-expenses/",
+        views.N8nUnmatchedExpensesView.as_view(),
+        name="n8n-unmatched-expenses",
+    ),
 ]

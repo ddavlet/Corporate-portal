@@ -7,15 +7,13 @@ from rest_framework.decorators import action
 from rest_framework import serializers
 from rest_framework.views import APIView
 from django.db import IntegrityError
-from django.db.models import Exists, OuterRef, Q, Subquery
-
 from apps.modules.bank_expenses.models import BankExpense, BankRevenue
 from apps.modules.bank_expenses.serializers import BankExpenseSerializer, BankRevenueSerializer
 from apps.modules.bank_expenses.tashkent_dates import (
     TashkentFlexibleDateField,
     doc_date_candidates_for_composite_lookup,
 )
-from apps.modules.requests.models import Request
+from apps.modules.requests.expense_compliance import annotate_bank_expense_compliance
 from apps.tenants.permissions import HasEffectiveModuleAccess
 from apps.modules.wallets.models import Wallet
 from apps.modules.wallets.services import balances_for_tenant_channel
@@ -43,25 +41,9 @@ class BankExpenseViewSet(viewsets.ModelViewSet):
         tenant = getattr(self.request, "tenant", None)
         if not tenant:
             return BankExpense.objects.none()
-        request_subquery = Request.objects.filter(
+        qs = annotate_bank_expense_compliance(
+            BankExpense.objects.filter(tenant=tenant),
             tenant=tenant,
-            payment_type__in=(
-                Request.PAYMENT_TYPE_TRANSFER,
-                Request.PAYMENT_TYPE_TOPUP,
-            ),
-        ).filter(
-            Q(expense_ref_id=OuterRef("id"))
-            | (
-                Q(expense_id=OuterRef("doc_no"))
-                & Q(expense_year=OuterRef("expense_year"))
-                & Q(amount=OuterRef("debit_turnover"))
-            )
-        )
-        paid_request_subquery = request_subquery.filter(status=Request.STATUS_PAYED)
-        qs = BankExpense.objects.filter(tenant=tenant).annotate(
-            has_request=Exists(request_subquery),
-            has_paid_request=Exists(paid_request_subquery),
-            matched_request_id=Subquery(request_subquery.order_by("-created_at").values("id")[:1]),
         )
         vendor_search = (self.request.query_params.get("vendor_search") or "").strip()
         if vendor_search:

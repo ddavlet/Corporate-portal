@@ -1736,3 +1736,42 @@ class N8nWalletBalancesView(APIView):
             else:
                 payload[module_key] = []
         return Response(payload)
+
+
+class N8nUnmatchedExpensesView(_N8nBaseView):
+    """Unmatched expenses + approval rules for n8n notification workflows."""
+
+    def get(self, request):
+        tenant = getattr(request, "tenant", None)
+        if tenant is None:
+            return Response({"detail": "Unknown tenant."}, status=status.HTTP_400_BAD_REQUEST)
+
+        from apps.modules.requests.expense_compliance import (
+            build_unmatched_expenses_payload,
+            parse_unmatched_expenses_query_params,
+        )
+
+        try:
+            date_from, date_to, channel, limit = parse_unmatched_expenses_query_params(
+                query_params=request.query_params,
+            )
+        except ValueError as exc:
+            if str(exc) == "channel":
+                return Response(
+                    {"channel": ["Must be one of: cash, bank, corporate_card, payroll."]},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            return Response(
+                {"date_from": ["Use YYYY-MM-DD format."]},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        return Response(
+            build_unmatched_expenses_payload(
+                tenant=tenant,
+                date_from=date_from,
+                date_to=date_to,
+                channel=channel,
+                limit=limit,
+            )
+        )

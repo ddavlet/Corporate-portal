@@ -6,14 +6,9 @@ from rest_framework.views import APIView
 from rest_framework.decorators import action
 from rest_framework.response import Response
 from django.db import IntegrityError
-from django.db.models import Exists, OuterRef, Subquery
-from django.db.models import Q
-
 from apps.modules.cashier.models import CashExpense, CashRevenue
 from apps.modules.cashier.serializers import CashExpenseSerializer, CashRevenueSerializer
-from apps.modules.payroll.constants import SALARY_CATEGORY
-from apps.modules.payroll.utils import tenant_has_payroll_module_enabled
-from apps.modules.requests.models import Request
+from apps.modules.requests.expense_compliance import annotate_cash_expense_compliance
 from apps.tenants.permissions import HasEffectiveModuleAccess
 from apps.modules.wallets.models import Wallet
 from apps.modules.wallets.services import balances_for_tenant_channel
@@ -41,20 +36,9 @@ class CashExpenseViewSet(viewsets.ModelViewSet):
         tenant = getattr(self.request, "tenant", None)
         if not tenant:
             return CashExpense.objects.none()
-        request_subquery = Request.objects.filter(
+        qs = annotate_cash_expense_compliance(
+            CashExpense.objects.filter(tenant=tenant),
             tenant=tenant,
-            payment_type=Request.PAYMENT_TYPE_CASH,
-        ).filter(Q(expense_ref_id=OuterRef("id")) | Q(expense_id=OuterRef("external_id")))
-        if tenant_has_payroll_module_enabled(tenant):
-            request_subquery = request_subquery.exclude(
-                payment_type=Request.PAYMENT_TYPE_CASH,
-                category=SALARY_CATEGORY,
-            )
-        paid_request_subquery = request_subquery.filter(status=Request.STATUS_PAYED)
-        qs = CashExpense.objects.filter(tenant=tenant).annotate(
-            has_request=Exists(request_subquery),
-            has_paid_request=Exists(paid_request_subquery),
-            matched_request_id=Subquery(request_subquery.order_by("-created_at").values("id")[:1]),
         )
         if self.action == "list":
             qs = qs.filter(wallet__is_visible_in_cash_section=True)

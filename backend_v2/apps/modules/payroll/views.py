@@ -1,18 +1,15 @@
-from django.db.models import Count, Exists, OuterRef, Prefetch, Q, Subquery, Sum
-from django.db.models.functions import Coalesce
-from django.db.models import DecimalField, Value
-from decimal import Decimal
+from django.db.models import Exists, OuterRef, Prefetch
 
 from rest_framework import viewsets
 from rest_framework.permissions import IsAuthenticated
 
-from apps.modules.payroll.constants import MODULE_KEY, SALARY_CATEGORY
+from apps.modules.payroll.constants import MODULE_KEY
 from apps.modules.payroll.models import PayrollDocument, PayrollLine
 from apps.modules.payroll.serializers import (
     PayrollDocumentDetailSerializer,
     PayrollDocumentListSerializer,
 )
-from apps.modules.requests.models import Request
+from apps.modules.requests.expense_compliance import annotate_payroll_compliance
 from apps.tenants.permissions import HasEffectiveModuleAccess
 
 
@@ -26,24 +23,10 @@ class PayrollDocumentViewSet(viewsets.ReadOnlyModelViewSet):
         if not tenant:
             return PayrollDocument.objects.none()
 
-        request_subquery = Request.objects.filter(
+        qs = annotate_payroll_compliance(
+            PayrollDocument.objects.filter(tenant=tenant),
             tenant=tenant,
-            payment_type=Request.PAYMENT_TYPE_CASH,
-            category=SALARY_CATEGORY,
-        ).filter(Q(expense_ref_id=OuterRef("pk")) | Q(expense_id=OuterRef("doc_id")))
-        paid_request_subquery = request_subquery.filter(status=Request.STATUS_PAYED)
-
-        qs = (
-            PayrollDocument.objects.filter(tenant=tenant)
-            .annotate(
-                total_sum=Coalesce(Sum("lines__sum"), Value(Decimal("0")), output_field=DecimalField(max_digits=18, decimal_places=2)),
-                lines_count=Count("lines", distinct=True),
-                has_request=Exists(request_subquery),
-                has_paid_request=Exists(paid_request_subquery),
-                matched_request_id=Subquery(request_subquery.order_by("-id").values("id")[:1]),
-            )
-            .order_by("-created_at", "-id")
-        )
+        ).order_by("-created_at", "-id")
 
         doc_id = (self.request.query_params.get("doc_id") or "").strip()
         if doc_id:
