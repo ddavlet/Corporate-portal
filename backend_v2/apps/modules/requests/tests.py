@@ -16,6 +16,7 @@ from apps.modules.requests.models import (
     Approval,
     Request,
     RequestCategory,
+    RequestComment,
     RequestFormConfig,
     RequestFormPaymentTypeConfig,
     RequestFormPaymentTypeRequester,
@@ -3379,5 +3380,95 @@ class RequestAiChatProxyTests(APITestCase):
             HTTP_HOST=self.host,
         )
         self.assertEqual(res.status_code, 401)
+
+
+@override_settings(BASE_DOMAIN="example.com", N8N_INTEGRATION_TOKEN="", ALLOWED_HOSTS=["*"])
+class RequestCommentTests(APITestCase):
+    def setUp(self):
+        self.tenant = Tenant.objects.create(name="Acme", subdomain="acme", is_active=True)
+        self.requester = User.objects.create_user(username="req_comment", password="x")
+        self.other = User.objects.create_user(username="other_member", password="x")
+        self.outsider = User.objects.create_user(username="outsider", password="x")
+
+        for u in (self.requester, self.other):
+            TenantMembership.objects.create(tenant=self.tenant, user=u, is_active=True)
+
+        TenantUserRole.objects.create(tenant=self.tenant, user=self.requester, role=TenantUserRole.ROLE_REQUESTER)
+        TenantUserRole.objects.create(tenant=self.tenant, user=self.other, role=TenantUserRole.ROLE_APPROVER)
+
+        TenantModuleConfig.objects.create(tenant=self.tenant, module_key="requests", is_enabled=True)
+
+        self.host = "acme.example.com"
+
+        req_form_cfg = RequestFormConfig.objects.create(tenant=self.tenant, updated_by=self.requester)
+        RequestFormPaymentTypeConfig.objects.create(config=req_form_cfg, payment_type="Наличные", is_enabled=True)
+
+        self.client.force_authenticate(self.requester)
+        res = self.client.post(
+            "/api/requests/",
+            {
+                "title": "Test request",
+                "description": "",
+                "amount": 100,
+                "currency": "UZS",
+                "payment_type": "Наличные",
+                "urgency": "Обычно",
+                "billing_date": "2026-01-01",
+            },
+            format="json",
+            HTTP_HOST=self.host,
+        )
+        self.assertEqual(res.status_code, 201, res.content)
+        self.request_id = res.json()["id"]
+
+    def _url(self):
+        return f"/api/requests/{self.request_id}/comments/"
+
+    def test_post_comment_creates_and_returns_201(self):
+        self.client.force_authenticate(self.requester)
+        res = self.client.post(self._url(), {"body": "Первый комментарий"}, format="json", HTTP_HOST=self.host)
+        self.assertEqual(res.status_code, 201, res.content)
+        data = res.json()
+        self.assertEqual(data["body"], "Первый комментарий")
+        self.assertEqual(data["created_by"], self.requester.pk)
+        self.assertTrue(RequestComment.objects.filter(pk=data["id"]).exists())
+
+    def test_get_comments_returns_list(self):
+        RequestComment.objects.create(request_id=self.request_id, created_by=self.requester, body="Комментарий A")
+        RequestComment.objects.create(request_id=self.request_id, created_by=self.other, body="Комментарий B")
+        self.client.force_authenticate(self.requester)
+        res = self.client.get(self._url(), HTTP_HOST=self.host)
+        self.assertEqual(res.status_code, 200, res.content)
+        bodies = [c["body"] for c in res.json()]
+        self.assertIn("Комментарий A", bodies)
+        self.assertIn("Комментарий B", bodies)
+
+    def test_post_empty_body_returns_400(self):
+        self.client.force_authenticate(self.requester)
+        res = self.client.post(self._url(), {"body": "   "}, format="json", HTTP_HOST=self.host)
+        self.assertEqual(res.status_code, 400, res.content)
+
+    def test_post_too_long_body_returns_400(self):
+        self.client.force_authenticate(self.requester)
+        res = self.client.post(self._url(), {"body": "x" * 4001}, format="json", HTTP_HOST=self.host)
+        self.assertEqual(res.status_code, 400, res.content)
+
+    def test_outsider_cannot_comment(self):
+        self.client.force_authenticate(self.outsider)
+        res = self.client.post(self._url(), {"body": "Не должен попасть"}, format="json", HTTP_HOST=self.host)
+        self.assertIn(res.status_code, (403, 404))
+
+    def test_unauthenticated_cannot_comment(self):
+        self.client.logout()
+        res = self.client.post(self._url(), {"body": "Анонимный комментарий"}, format="json", HTTP_HOST=self.host)
+        self.assertEqual(res.status_code, 401)
+
+    def test_comments_appear_in_request_detail(self):
+        RequestComment.objects.create(request_id=self.request_id, created_by=self.requester, body="Видимый")
+        self.client.force_authenticate(self.requester)
+        res = self.client.get(f"/api/requests/{self.request_id}/", HTTP_HOST=self.host)
+        self.assertEqual(res.status_code, 200, res.content)
+        comments = res.json().get("comments", [])
+        self.assertTrue(any(c["body"] == "Видимый" for c in comments))
 
 

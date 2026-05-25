@@ -2,7 +2,7 @@ import { useState } from 'react'
 import type { ReactNode } from 'react'
 import { Alert, Button, Card, Collapse, Descriptions, Divider, Modal, Skeleton, Space, Tag, Typography, message } from 'antd'
 import { apiFetch } from '../../lib/api'
-import type { RequestAttachment } from '../../lib/api'
+import type { RequestAttachment, RequestComment } from '../../lib/api'
 import { buildRequestFileRows } from '../../lib/requestFiles'
 import { linkedExpenseFrontendPath, linkedExpenseLabel } from '../../lib/requestExpense'
 import type { RequestReturnTo } from '../../lib/requestNavigation'
@@ -16,14 +16,6 @@ import {
   vendorDirectoryPath,
 } from './RequestEntityLink'
 import { RequestCommentsSection } from './RequestCommentsSection'
-
-export type RequestComment = {
-  id: number
-  body: string
-  created_at: string
-  created_by: number
-  created_by_full_name: string
-}
 
 export type ApprovalItem = {
   id: number

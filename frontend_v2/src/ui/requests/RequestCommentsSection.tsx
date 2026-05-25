@@ -1,7 +1,7 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Button, Card, Input, Space, Typography, message } from 'antd'
 import { createRequestComment } from '../../lib/api'
-import type { RequestComment } from './RequestDetailModal'
+import type { RequestComment } from '../../lib/api'
 
 const COMMENT_MAX_LENGTH = 4000
 const EXCERPT_CHAR_THRESHOLD = 180
@@ -79,7 +79,6 @@ export function RequestCommentsSection({ requestId, comments, onCommentAdded, va
   const [formOpen, setFormOpen] = useState(false)
   const [body, setBody] = useState('')
   const [saving, setSaving] = useState(false)
-  const textareaRef = useRef<HTMLTextAreaElement>(null)
 
   const isTg = variant === 'telegram'
 
@@ -90,7 +89,6 @@ export function RequestCommentsSection({ requestId, comments, onCommentAdded, va
 
   const openForm = () => {
     setFormOpen(true)
-    setTimeout(() => textareaRef.current?.focus(), 50)
   }
 
   const cancel = () => {
@@ -135,7 +133,7 @@ export function RequestCommentsSection({ requestId, comments, onCommentAdded, va
         <Card size="small" style={{ marginBottom: 8 }}>
           <Space direction="vertical" size={8} style={{ display: 'flex' }}>
             <Input.TextArea
-              ref={textareaRef as React.RefObject<HTMLTextAreaElement>}
+              autoFocus
               rows={3}
               value={body}
               maxLength={COMMENT_MAX_LENGTH}
