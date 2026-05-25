@@ -3110,9 +3110,9 @@ class DraftRequestPatchSubmitTests(APITestCase):
 
     def test_auto_draft_submit_amount_field_uses_decimal_min_not_float(self):
         """DRF emits UserWarning if DecimalField.min_value is a float."""
-        from apps.modules.requests.views import PortalRequestViewSet
+        from apps.modules.requests.serializers import AutoDraftSubmitAmountPayloadSerializer
 
-        ser = PortalRequestViewSet.AutoDraftSubmitAmountPayloadSerializer()
+        ser = AutoDraftSubmitAmountPayloadSerializer()
         min_v = ser.fields["amount"].min_value
         self.assertIsInstance(min_v, Decimal)
         self.assertEqual(min_v, Decimal("0.01"))
