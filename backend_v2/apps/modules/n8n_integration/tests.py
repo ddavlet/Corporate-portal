@@ -1606,3 +1606,224 @@ class NotifyRequestPayedTests(APITestCase):
         notify_request_payed(request_obj=req)
         mock_post.assert_not_called()
 
+
+@override_settings(
+    BASE_DOMAIN="example.com",
+    N8N_INTEGRATION_TOKEN="integ-test-secret",
+    ALLOWED_HOSTS=["acme.example.com", "testserver"],
+)
+class N8nUnmatchedExpensesTests(APITestCase):
+    def setUp(self):
+        su, _ = User.objects.update_or_create(pk=1, defaults={"username": "n8n_system"})
+        if not su.has_usable_password():
+            su.set_unusable_password()
+            su.save(update_fields=["password"])
+
+        self.tenant = Tenant.objects.create(name="Acme", subdomain="acme", is_active=True)
+        self.admin = User.objects.create_user(username="unmatched_admin", password="pass12345")
+        self.approver = User.objects.create_user(username="unmatched_approver", password="pass12345")
+        TenantMembership.objects.create(tenant=self.tenant, user=self.admin, is_active=True)
+        TenantMembership.objects.create(tenant=self.tenant, user=self.approver, is_active=True)
+        TenantUserRole.objects.create(tenant=self.tenant, user=self.admin, role=TenantUserRole.ROLE_ADMIN)
+        TenantUserRole.objects.create(tenant=self.tenant, user=self.approver, role=TenantUserRole.ROLE_APPROVER)
+
+        for module_key in ("cash", "bank", "requests", "vendors"):
+            TenantModuleConfig.objects.create(tenant=self.tenant, module_key=module_key, is_enabled=True)
+
+        appr_cfg = RequestApprovalConfig.objects.create(tenant=self.tenant, updated_by=self.admin)
+        self.cash_pt_cfg = RequestApprovalPaymentTypeConfig.objects.create(
+            config=appr_cfg,
+            payment_type=Request.PAYMENT_TYPE_CASH,
+            is_enabled=True,
+        )
+        cash_step = RequestApprovalStepConfig.objects.create(
+            payment_type_config=self.cash_pt_cfg,
+            step=1,
+            step_type=Approval.STEP_TYPE_SERIAL,
+            is_enabled=True,
+        )
+        RequestApprovalStepApproverConfig.objects.create(step_config=cash_step, approver_user=self.approver)
+
+        self.transfer_pt_cfg = RequestApprovalPaymentTypeConfig.objects.create(
+            config=appr_cfg,
+            payment_type=Request.PAYMENT_TYPE_TRANSFER,
+            is_enabled=True,
+        )
+        for step_no in (1, 2):
+            step_cfg = RequestApprovalStepConfig.objects.create(
+                payment_type_config=self.transfer_pt_cfg,
+                step=step_no,
+                step_type=Approval.STEP_TYPE_SERIAL,
+                is_enabled=True,
+            )
+            RequestApprovalStepApproverConfig.objects.create(
+                step_config=step_cfg,
+                approver_user=self.approver,
+            )
+
+        self.cash_wallet = get_or_create_cash_wallet(tenant=self.tenant, currency="UZS")
+        self.bank_wallet = get_or_create_bank_wallet(tenant=self.tenant)
+        self.vendor = Vendor.objects.create(
+            tenant=self.tenant,
+            kind=Vendor.KIND_TRANSFER,
+            name="Transfer Vendor",
+            inn="123456789",
+            account_number="20208000999999999999",
+            created_by=self.admin,
+        )
+        self.n8n_prefix = settings.N8N_INTEGRATION_URL_PREFIX.rstrip("/")
+        self.url = f"{self.n8n_prefix}/unmatched-expenses/"
+
+    def _headers(self, *, integration=True):
+        h = {"HTTP_HOST": "acme.example.com"}
+        if integration:
+            h["HTTP_X_N8N_INTEGRATION_TOKEN"] = "integ-test-secret"
+        return h
+
+    def test_unmatched_expenses_requires_integration_token(self):
+        res = self.client.get(self.url, **self._headers(integration=False))
+        self.assertEqual(res.status_code, 401)
+
+    def test_cash_missing_paid_request_respects_optional_rules(self):
+        dt = datetime(2026, 5, 20, 12, 0, 0)
+        required_missing = CashExpense.objects.create(
+            tenant=self.tenant,
+            external_id="n8n-cash-req-miss",
+            confirmed=True,
+            title="Required missing",
+            amount="10.00",
+            currency="UZS",
+            wallet=self.cash_wallet,
+            expense_at=dt,
+            expense_year=2026,
+            expense_month=5,
+            expense_day=20,
+            payload={},
+            created_by=self.admin,
+        )
+        CashExpense.objects.create(
+            tenant=self.tenant,
+            external_id="n8n-cash-opt",
+            confirmed=True,
+            title="Optional by rule",
+            amount="30.00",
+            currency="UZS",
+            wallet=self.cash_wallet,
+            expense_at=dt,
+            expense_year=2026,
+            expense_month=5,
+            expense_day=20,
+            payload={},
+            created_by=self.admin,
+        )
+        self.cash_pt_cfg.request_not_required_rules = [
+            {"field": "title", "operator": "eq", "value": "Optional by rule"},
+        ]
+        self.cash_pt_cfg.save(update_fields=["request_not_required_rules"])
+
+        res = self.client.get(self.url, **self._headers())
+        self.assertEqual(res.status_code, 200, res.content)
+        data = res.json()
+        missing_ids = {row["id"] for row in data["cash"]["missing_paid_request"]}
+        self.assertIn(required_missing.id, missing_ids)
+        self.assertEqual(data["cash"]["counts"]["missing_paid_request"], 1)
+        self.assertIn("rules", data["cash"])
+        self.assertIn("request_not_required_rules", data["cash"]["rules"])
+
+    def test_bank_expense_with_linked_request_in_progress(self):
+        d = date(2026, 5, 21)
+        bank_expense = BankExpense.objects.create(
+            tenant=self.tenant,
+            created_by=self.admin,
+            wallet=self.bank_wallet,
+            row_no=1,
+            doc_date=d,
+            process_date=d,
+            expense_year=2026,
+            expense_month=5,
+            expense_day=21,
+            doc_no="N8N-LINKED",
+            debit_turnover="100.00",
+            payment_purpose="Linked purpose",
+            vendor=self.vendor,
+        )
+        req = Request.objects.create(
+            tenant=self.tenant,
+            created_by=self.admin,
+            requester=self.admin,
+            title="Linked",
+            amount="100.00",
+            currency="UZS",
+            payment_type=Request.PAYMENT_TYPE_TRANSFER,
+            urgency=Request.URGENCY_NORMAL,
+            billing_date=d,
+            status=Request.STATUS_PROGRESS_1,
+            expense_ref_id=bank_expense.id,
+            expense_ref_target=Request.EXPENSE_REF_TARGET_BANK,
+            expense_id=bank_expense.doc_no,
+            expense_year=bank_expense.expense_year,
+        )
+        Approval.objects.create(
+            request=req,
+            approver_user=self.approver,
+            step=1,
+            step_type=Approval.STEP_TYPE_SERIAL,
+            decision=Approval.DECISION_PENDING,
+        )
+
+        res = self.client.get(self.url, **self._headers())
+        self.assertEqual(res.status_code, 200, res.content)
+        data = res.json()
+        linked_ids = {row["id"] for row in data["bank"]["linked_request_in_progress"]}
+        self.assertIn(bank_expense.id, linked_ids)
+        row = next(r for r in data["bank"]["linked_request_in_progress"] if r["id"] == bank_expense.id)
+        self.assertEqual(row["matched_request_id"], req.id)
+        self.assertEqual(row["matched_request_status"], Request.STATUS_PROGRESS_1)
+        self.assertEqual(row["pending_approval_step"], 1)
+
+    def test_transfer_request_without_expense_in_pending_approval(self):
+        d = date(2026, 5, 22)
+        req = Request.objects.create(
+            tenant=self.tenant,
+            created_by=self.admin,
+            requester=self.admin,
+            title="No expense yet",
+            amount="5000.00",
+            currency="UZS",
+            payment_type=Request.PAYMENT_TYPE_TRANSFER,
+            urgency=Request.URGENCY_NORMAL,
+            billing_date=d,
+            status=Request.STATUS_PROGRESS_2,
+            payment_purpose="Аванс",
+        )
+        Approval.objects.create(
+            request=req,
+            approver_user=self.approver,
+            step=1,
+            step_type=Approval.STEP_TYPE_SERIAL,
+            decision=Approval.DECISION_APPROVED,
+        )
+        Approval.objects.create(
+            request=req,
+            approver_user=self.approver,
+            step=2,
+            step_type=Approval.STEP_TYPE_SERIAL,
+            decision=Approval.DECISION_PENDING,
+        )
+
+        res = self.client.get(self.url, **self._headers())
+        self.assertEqual(res.status_code, 200, res.content)
+        data = res.json()
+        pt_block = data["requests_pending_approval"][Request.PAYMENT_TYPE_TRANSFER]
+        without = pt_block["without_expense_link"]
+        self.assertEqual(len(without), 1)
+        self.assertEqual(without[0]["id"], req.id)
+        self.assertFalse(without[0]["expense_linked"])
+        self.assertIsNone(without[0]["expense_ref_id"])
+        self.assertEqual(without[0]["pending_approval_step"], 2)
+        self.assertEqual(without[0]["pending_approver_user_ids"], [self.approver.id])
+        bank_missing_ids = {row["id"] for row in data["bank"]["missing_paid_request"]}
+        bank_linked_ids = {row["id"] for row in data["bank"]["linked_request_in_progress"]}
+        self.assertNotIn(req.id, bank_missing_ids)
+        self.assertNotIn(req.id, bank_linked_ids)
+
