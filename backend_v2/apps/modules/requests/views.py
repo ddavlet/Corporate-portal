@@ -1,9 +1,12 @@
 import base64
 from datetime import date
 from decimal import Decimal
+import logging
 import uuid
 import mimetypes
 import os
+
+logger = logging.getLogger(__name__)
 
 from django.contrib.auth import get_user_model
 from django.db import connection
@@ -28,6 +31,7 @@ from apps.modules.requests.models import (
     Approval,
     Request,
     RequestAttachment,
+    RequestComment,
     UserRequestApproval,
     RequestFormConfig,
     RequestFormPaymentTypeConfig,
@@ -54,6 +58,7 @@ from apps.modules.requests.serializers import (
     PortalRequestDetailSerializer,
     PortalRequestSerializer,
     MyApprovalsRequestSummarySerializer,
+    RequestCommentSerializer,
     UserRequestApprovalStepSerializer,
     RequestFormConfigPayloadSerializer,
     CreateTenantRequesterSerializer,
@@ -465,6 +470,29 @@ class PortalRequestViewSet(viewsets.ModelViewSet):
             },
             status=status.HTTP_200_OK,
         )
+
+    @action(detail=True, methods=["get", "post"], url_path="comments")
+    def comments(self, request, pk=None):
+        request_obj = self.get_object()
+        if request.method == "GET":
+            qs = RequestComment.objects.filter(request=request_obj).select_related("created_by").order_by("-created_at")
+            return Response(RequestCommentSerializer(qs, many=True).data)
+        body = str(request.data.get("body", "") or "").strip()
+        if not body:
+            raise ValidationError({"body": "Comment body cannot be empty."})
+        if len(body) > 4000:
+            raise ValidationError({"body": "Comment is too long (max 4000 characters)."})
+        comment = RequestComment.objects.create(
+            request=request_obj,
+            created_by=request.user,
+            body=body,
+        )
+        try:
+            from apps.modules.telegram_approvals.services import refresh_request_messages
+            refresh_request_messages(request_obj=request_obj)
+        except Exception:
+            logger.exception("Failed to refresh messages after comment creation request_id=%s", request_obj.pk)
+        return Response(RequestCommentSerializer(comment).data, status=status.HTTP_201_CREATED)
 
     @action(detail=True, methods=["post"], url_path="approvals/decision")
     def approvals_decision(self, request, pk=None):
@@ -1460,6 +1488,7 @@ class RequestApprovalConfigView(APIView):
         payload = RequestApprovalConfigPayloadSerializer(data=request.data, context={"request": request})
         payload.is_valid(raise_exception=True)
         payment_types = payload.validated_data.get("payment_types", [])
+        comment_webapp_url = str(payload.validated_data.get("comment_webapp_url") or "").strip()
 
         active_member_ids = set(
             TenantMembership.objects.filter(tenant=tenant, is_active=True).values_list("user_id", flat=True)
@@ -1470,7 +1499,8 @@ class RequestApprovalConfigView(APIView):
                 tenant=tenant, defaults={"updated_by": request.user}
             )
             cfg.updated_by = request.user
-            cfg.save(update_fields=["updated_by"])
+            cfg.comment_webapp_url = comment_webapp_url
+            cfg.save(update_fields=["updated_by", "comment_webapp_url"])
 
             existing_pt = {
                 row.payment_type: row

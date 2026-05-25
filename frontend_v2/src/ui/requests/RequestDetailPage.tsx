@@ -287,7 +287,10 @@ export function RequestDetailPage({ listPath = '/requests', variant = 'portal' }
     }
     setApprovalBusy(true)
     try {
-      await confirmPaymentViaWebApp({ approval_id: approval.id, expense_id: expenseId })
+      await confirmPaymentViaWebApp({
+        approval_id: approval.id,
+        expense_id: expenseId,
+      })
       message.success('Выплата подтверждена')
       closePaymentConfirmModal()
       await refreshDetail()
@@ -426,12 +429,27 @@ export function RequestDetailPage({ listPath = '/requests', variant = 'portal' }
 
   const approvalBtnSize = isTg ? ('large' as const) : undefined
 
+  const commentCount = detail?.comments?.length ?? 0
+
   const pendingApprovalsEl =
     pendingApprovalsForMe.length > 0 ? (
       <div style={{ width: '100%', marginTop: isTg ? 4 : 12 }}>
         <Typography.Text strong style={{ display: 'block', marginBottom: 8 }}>
           На рассмотрении
         </Typography.Text>
+        {commentCount > 0 ? (
+          <Typography.Text type="secondary" style={{ display: 'block', marginBottom: 10, fontSize: 13 }}>
+            <a
+              href="#request-comments-section"
+              onClick={(e) => {
+                e.preventDefault()
+                document.getElementById('request-comments-section')?.scrollIntoView({ behavior: 'smooth' })
+              }}
+            >
+              💬 {commentCount} {commentCount === 1 ? 'комментарий' : commentCount < 5 ? 'комментария' : 'комментариев'} · перейти к обсуждению
+            </a>
+          </Typography.Text>
+        ) : null}
         <Space direction="vertical" size={8} style={{ width: '100%' }}>
           {pendingApprovalsForMe.map((a) => (
             <div key={String(a.id)} style={{ width: '100%' }}>
@@ -629,6 +647,7 @@ export function RequestDetailPage({ listPath = '/requests', variant = 'portal' }
             error={error}
             variant={isTg ? 'telegram' : 'default'}
             returnTo={requestReturnTo}
+            onCommentAdded={refreshDetail}
           />
         </Space>
       </div>

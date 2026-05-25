@@ -14,7 +14,7 @@ from django.utils import timezone
 from rest_framework.exceptions import ValidationError
 
 from apps.modules.requests.integration_settings import get_requests_messaging_gateway_settings
-from apps.modules.requests.models import Approval, Request, RequestApprovalStepConfig
+from apps.modules.requests.models import Approval, Request, RequestApprovalConfig, RequestApprovalStepConfig, RequestComment
 
 logger = logging.getLogger(__name__)
 
@@ -306,6 +306,27 @@ def _expected_decision_footer(*, request_obj: Request, approval: Approval | None
     return f"\n\n✍️ Сейчас ожидается решение от: <b>{escape(who)}</b>"
 
 
+def _format_comments_indicator(*, request_obj: Request) -> str:
+    total = RequestComment.objects.filter(request=request_obj).count()
+    if total == 0:
+        return ""
+    last = (
+        RequestComment.objects.filter(request=request_obj)
+        .select_related("created_by")
+        .order_by("-created_at")
+        .first()
+    )
+    author = _display_user_name(getattr(last, "created_by", None)) if last else "-"
+    excerpt = (last.body if last else "").strip().replace("\n", " ")
+    if len(excerpt) > 120:
+        excerpt = excerpt[:120].rstrip() + "…"
+    return (
+        f"\n\n💬 <b>Комментариев: {total}</b>\n"
+        f"Последний от {escape(author)}:\n"
+        f"<i>«{escape(excerpt)}»</i>"
+    )
+
+
 def build_approval_message(*, request_obj: Request, approval: Approval | None = None) -> str:
     header, subheader = _message_header(request_obj=request_obj, approval=approval)
     vendor_name = (request_obj.vendor_ref.name if request_obj.vendor_ref_id and request_obj.vendor_ref else request_obj.vendor) or "-"
@@ -359,7 +380,8 @@ def build_approval_message(*, request_obj: Request, approval: Approval | None = 
             f"• Заявитель: {context['requester']}\n\n"
             f"🕒 Подано: {context['submitted_at']}"
         )
-    return f"{body}{_expected_decision_footer(request_obj=request_obj, approval=approval)}"
+    comments_block = _format_comments_indicator(request_obj=request_obj)
+    return f"{body}{comments_block}{_expected_decision_footer(request_obj=request_obj, approval=approval)}"
 
 
 def _button_data(*, approval: Approval, decision: str) -> str:
@@ -404,6 +426,23 @@ def _ensure_tme_miniapp_startapp(url: str, approval_id: int) -> str:
     return urlunsplit((parts.scheme, parts.netloc, parts.path, new_query, parts.fragment))
 
 
+def _resolve_comment_webapp_url(*, request_obj: Request) -> str:
+    cfg = RequestApprovalConfig.objects.filter(tenant=request_obj.tenant).first()
+    template = (cfg.comment_webapp_url if cfg else "") or ""
+    if not template.strip():
+        return ""
+    u = template.strip()
+    parts = urlsplit(u)
+    host = (parts.hostname or "").lower()
+    if host not in ("t.me", "www.t.me", "telegram.me", "www.telegram.me"):
+        return u
+    pairs = list(parse_qsl(parts.query, keep_blank_values=True))
+    if not any(k.lower() == "startapp" for k, _ in pairs):
+        pairs.append(("startapp", f"req_{request_obj.pk}"))
+    new_query = urlencode(pairs)
+    return urlunsplit((parts.scheme, parts.netloc, parts.path, new_query, parts.fragment))
+
+
 def _resolve_payment_webapp_url(*, approval: Approval) -> str:
     step_cfg = _step_config_for_approval(approval=approval)
     template = (step_cfg.payment_webapp_url if step_cfg else "") or ""
@@ -441,18 +480,23 @@ def _buttons(*, approval: Approval) -> list[list[dict]]:
                 first_btn = {"label": "💰 Выплатить", "value": _button_data(approval=approval, decision="approved")}
         else:
             first_btn = {"label": "💰 Выплатить", "value": _button_data(approval=approval, decision="approved")}
-        return [
+        rows = [
             [
                 first_btn,
                 {"label": "❌ Отменить", "value": _button_data(approval=approval, decision="rejected")},
             ]
         ]
-    return [
-        [
-            {"label": "✅Одобрить", "value": _button_data(approval=approval, decision="approved")},
-            {"label": "❌ Отклонить", "value": _button_data(approval=approval, decision="rejected")},
+    else:
+        rows = [
+            [
+                {"label": "✅Одобрить", "value": _button_data(approval=approval, decision="approved")},
+                {"label": "❌ Отклонить", "value": _button_data(approval=approval, decision="rejected")},
+            ]
         ]
-    ]
+    comment_url = _resolve_comment_webapp_url(request_obj=approval.request)
+    if comment_url:
+        rows.append([{"label": "💬 Оставить комментарий", "url": comment_url}])
+    return rows
 
 
 def _dispatch_payload(

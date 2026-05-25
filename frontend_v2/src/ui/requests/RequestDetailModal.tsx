@@ -2,7 +2,7 @@ import { useState } from 'react'
 import type { ReactNode } from 'react'
 import { Alert, Button, Card, Collapse, Descriptions, Divider, Modal, Skeleton, Space, Tag, Typography, message } from 'antd'
 import { apiFetch } from '../../lib/api'
-import type { RequestAttachment } from '../../lib/api'
+import type { RequestAttachment, RequestComment } from '../../lib/api'
 import { buildRequestFileRows } from '../../lib/requestFiles'
 import { linkedExpenseFrontendPath, linkedExpenseLabel } from '../../lib/requestExpense'
 import type { RequestReturnTo } from '../../lib/requestNavigation'
@@ -15,6 +15,7 @@ import {
   usersSettingsPath,
   vendorDirectoryPath,
 } from './RequestEntityLink'
+import { RequestCommentsSection } from './RequestCommentsSection'
 
 export type ApprovalItem = {
   id: number
@@ -86,6 +87,7 @@ export type RequestDetail = {
     monthly_amount: string
   }>
   approvals: ApprovalItem[]
+  comments?: RequestComment[]
 }
 
 const dateTimeFormatterTashkent = new Intl.DateTimeFormat('ru-RU', {
@@ -177,17 +179,19 @@ function renderApprovalGroup(
                 <Typography.Text>{item.approver_username || 'Согласующий не определён'}</Typography.Text>
                 <Tag color={getDecisionColor(item.decision)}>{translateDecision(item.decision)}</Tag>
               </Space>
-              <Typography.Text
-                type="secondary"
-                style={{
-                  display: '-webkit-box',
-                  WebkitLineClamp: 3,
-                  WebkitBoxOrient: 'vertical',
-                  overflow: 'hidden',
-                }}
-              >
-                {item.comment || 'Без комментария'}
-              </Typography.Text>
+              {item.decision !== 'pending' ? (
+                <Typography.Text
+                  type="secondary"
+                  style={{
+                    display: '-webkit-box',
+                    WebkitLineClamp: 3,
+                    WebkitBoxOrient: 'vertical',
+                    overflow: 'hidden',
+                  }}
+                >
+                  {item.comment || 'Без комментария'}
+                </Typography.Text>
+              ) : null}
               <Typography.Text type="secondary">Дата решения: {formatRequestDate(item.decided_at)}</Typography.Text>
               {!isTg ? (
                 <Collapse
@@ -256,6 +260,7 @@ type RequestDetailContentProps = {
   /** Компактные блоки для Telegram WebApp на телефоне */
   variant?: 'default' | 'telegram'
   returnTo?: RequestReturnTo
+  onCommentAdded?: () => Promise<void>
 }
 
 function TgDetailRow({ label, children }: { label: string; children: ReactNode }) {
@@ -274,6 +279,7 @@ export function RequestDetailContent({
   actions = null,
   variant = 'default',
   returnTo,
+  onCommentAdded,
 }: RequestDetailContentProps) {
   const approvals = detail?.approvals || []
   const amortizationSchedule = detail?.amortization_schedule || []
@@ -567,6 +573,13 @@ export function RequestDetailContent({
       {error ? <Alert type="error" showIcon message={error} style={{ marginTop: 12 }} /> : null}
       {!loading && detail ? (
         <>
+          <Divider />
+          <RequestCommentsSection
+            requestId={detail.id}
+            comments={detail.comments ?? []}
+            onCommentAdded={onCommentAdded ?? (async () => {})}
+            variant={variant}
+          />
           <Divider />
           <Space direction="vertical" size={12} style={{ display: 'flex' }}>
             {renderApprovalGroup(`Одобрено (${approvedApprovals.length})`, approvedApprovals, {

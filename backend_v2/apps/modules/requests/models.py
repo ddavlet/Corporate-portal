@@ -425,6 +425,7 @@ class RequestApprovalConfig(models.Model):
         null=True,
         blank=True,
     )
+    comment_webapp_url = models.TextField(blank=True, default="")
 
     class Meta:
         db_table = "request_approval_configs"
@@ -728,4 +729,22 @@ class AutoRequestTemplate(models.Model):
             models.Index(fields=["tenant", "is_enabled"], name="auto_req_tenant_enabled_idx"),
             models.Index(fields=["tenant", "payment_type"], name="auto_req_tenant_payment_idx"),
             models.Index(fields=["tenant", "last_run_month"], name="auto_req_tenant_run_month_idx"),
+        ]
+
+
+class RequestComment(models.Model):
+    request = models.ForeignKey(Request, on_delete=models.CASCADE, related_name="comments")
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name="request_comments",
+    )
+    body = models.TextField()
+    created_at = models.DateTimeField(default=timezone.now)
+
+    class Meta:
+        db_table = "request_comments"
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(fields=["request", "created_at"], name="reqcomments_req_created_idx"),
         ]

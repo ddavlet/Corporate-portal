@@ -2190,11 +2190,13 @@ export type RequestApprovalConfigPaymentTypeItem = {
 
 export type RequestApprovalConfigResponse = {
   is_tenant_admin?: boolean
+  comment_webapp_url?: string
   payment_types: RequestApprovalConfigPaymentTypeItem[]
   approver_candidates: Array<{ id: number; username: string }>
 }
 
 export type RequestApprovalConfigUpdatePayload = {
+  comment_webapp_url?: string
   payment_types: Array<{
     payment_type: string
     is_enabled: boolean
@@ -2715,5 +2717,25 @@ export async function getBudgetSpendDetail(
   if (!res.ok) throw new Error(await parseErrorBody(res))
   const json = (await res.json().catch(() => null)) as { results?: BudgetSpendDetailItem[] } | null
   return Array.isArray(json?.results) ? json.results : []
+}
+
+export type RequestComment = {
+  id: number
+  body: string
+  created_at: string
+  created_by: number
+  created_by_full_name: string
+}
+
+export async function createRequestComment(requestId: number, body: string): Promise<RequestComment> {
+  const res = await apiFetch(`/api/requests/${requestId}/comments/`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ body }),
+  })
+  if (!res.ok) throw new Error(await parseErrorBody(res))
+  const json = (await res.json().catch(() => null)) as RequestComment | null
+  if (!json) throw new Error('Пустой ответ от сервера')
+  return json
 }
 
