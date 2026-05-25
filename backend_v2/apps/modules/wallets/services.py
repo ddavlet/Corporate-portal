@@ -1,7 +1,5 @@
 """
-Balance math for wallets.
-
-Calendar boundaries use Asia/Tashkent (local midnight Jan 1 → UTC for datetime fields).
+Balance aggregation for wallets.
 
 current_balance = opening_balance (as of Jan 1 current year, stored on Wallet)
                 + movements_net (YTD through "now" in Tashkent calendar year).
@@ -11,48 +9,17 @@ Full prior-year net (for suggested carry) is computed separately, not mixed into
 
 from __future__ import annotations
 
-import zoneinfo
 from datetime import date, datetime
 from decimal import Decimal
 from typing import Any
 
 from django.db.models import Q, Sum
-from django.utils import timezone
 
 from apps.modules.bank_expenses.models import BankExpense, BankRevenue
 from apps.modules.cashier.models import CashExpense, CashRevenue
 from apps.modules.corporate_card.models import CardExpense, CardRevenue
-
+from apps.modules.wallets.calendar_utils import now_tashkent, prior_year_bounds, ytd_bounds
 from apps.modules.wallets.models import Wallet
-
-TASHKENT = zoneinfo.ZoneInfo("Asia/Tashkent")
-
-
-def _now_tashkent() -> datetime:
-    return timezone.now().astimezone(TASHKENT)
-
-
-def _start_of_year_utc(year: int) -> datetime:
-    local = datetime(year, 1, 1, 0, 0, 0, tzinfo=TASHKENT)
-    return local.astimezone(zoneinfo.ZoneInfo("UTC"))
-
-
-def _end_of_year_utc(year: int) -> datetime:
-    local = datetime(year, 12, 31, 23, 59, 59, 999999, tzinfo=TASHKENT)
-    return local.astimezone(zoneinfo.ZoneInfo("UTC"))
-
-
-def ytd_bounds() -> tuple[datetime, datetime, int]:
-    """Return (start_utc, now_utc_exclusive_cap, calendar_year_tashkent)."""
-    now_t = _now_tashkent()
-    y = now_t.year
-    start = _start_of_year_utc(y)
-    end_cap = timezone.now()
-    return start, end_cap, y
-
-
-def prior_year_bounds(prior_year: int) -> tuple[datetime, datetime]:
-    return _start_of_year_utc(prior_year), _end_of_year_utc(prior_year)
 
 
 def movements_net_cash_ytd(*, wallet: Wallet, start_utc: datetime, end_utc: datetime) -> Decimal:
@@ -190,18 +157,17 @@ def movements_net_full_year_card(*, wallet: Wallet, year: int) -> Decimal:
 
 def wallet_balance_payload(*, wallet: Wallet) -> dict[str, Any]:
     start_utc, end_utc, y = ytd_bounds()
-    now_t = _now_tashkent()
+    now_t = now_tashkent()
 
     if wallet.wallet_type == Wallet.Type.CASH:
         net = movements_net_cash_ytd(wallet=wallet, start_utc=start_utc, end_utc=end_utc)
     elif wallet.wallet_type == Wallet.Type.BANK:
-        # Upper bound for bank YTD: «сегодня» по календарю Ташкента (doc_date — date).
         net = movements_net_bank_ytd(wallet=wallet, year=y, end_date=now_t.date())
     else:
         net = movements_net_card_ytd(wallet=wallet, start_utc=start_utc, end_utc=end_utc)
 
     ob = wallet.opening_balance
-    prior_y = _now_tashkent().year - 1
+    prior_y = now_tashkent().year - 1
     if wallet.wallet_type == Wallet.Type.CASH:
         prior_full = movements_net_full_year_cash(wallet=wallet, year=prior_y)
     elif wallet.wallet_type == Wallet.Type.BANK:
