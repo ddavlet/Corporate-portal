@@ -2496,7 +2496,7 @@ export type ContractRow = {
   contract_number: string
   date_from: string
   date_to: string | null
-  contract_amount: string
+  contract_amount: string | null
   currency: string
   contract_status: string
   contract_terms: string
@@ -2524,7 +2524,7 @@ export type ContractCreateMultipartFields = {
   contract_number: string
   date_from: string
   date_to?: string | null
-  contract_amount: string
+  contract_amount?: string | null
   currency?: string
   contract_status?: string
   contract_terms?: string
@@ -2537,7 +2537,7 @@ function appendContractFormData(fd: FormData, fields: ContractCreateMultipartFie
   fd.append('contract_number', fields.contract_number)
   fd.append('date_from', fields.date_from)
   if (fields.date_to != null && fields.date_to !== '') fd.append('date_to', fields.date_to)
-  fd.append('contract_amount', fields.contract_amount)
+  if (fields.contract_amount != null && fields.contract_amount !== '') fd.append('contract_amount', fields.contract_amount)
   fd.append('currency', fields.currency ?? 'UZS')
   fd.append('contract_status', fields.contract_status ?? 'accepted')
   fd.append('contract_terms', fields.contract_terms ?? '')
