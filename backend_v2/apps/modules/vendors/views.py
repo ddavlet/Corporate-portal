@@ -29,7 +29,7 @@ class CanWriteVendorDirectory(BasePermission):
 
 
 class VendorCursorPagination(PortalCursorPagination):
-    ordering = "name"
+    ordering = "name,id"
 
 
 class VendorViewSet(PortalListViewSetMixin, viewsets.ModelViewSet):

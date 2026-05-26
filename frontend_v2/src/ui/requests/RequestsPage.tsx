@@ -117,8 +117,10 @@ const defaultRequestsPreferences: RequestsPagePreferences = {
 
 function orderingFromSort(sort: SortState): string | undefined {
   if (!sort.field || !sort.order) return undefined
+  if (sort.field === 'id') return sort.order === 'descend' ? '-id' : 'id'
   const prefix = sort.order === 'descend' ? '-' : ''
-  return `${prefix}${sort.field}`
+  const tiebreaker = sort.order === 'descend' ? ',-id' : ',id'
+  return `${prefix}${sort.field}${tiebreaker}`
 }
 
 function parseStoredRange(raw: [string | null, string | null] | null | undefined): [Dayjs | null, Dayjs | null] | null {
@@ -177,6 +179,7 @@ export function RequestsPage() {
     debounceMs: 300,
   })
   const hydratedFromPrefsRef = useRef(false)
+  const [prefsHydrated, setPrefsHydrated] = useState(false)
 
   useEffect(() => {
     if (prefsLoading || hydratedFromPrefsRef.current) return
@@ -195,6 +198,7 @@ export function RequestsPage() {
     setBillingRange(parseStoredRange(storedPrefs.billingRange))
     setAmortizedOnly(Boolean(storedPrefs.amortizedOnly))
     setPayedMissingExpense(Boolean(storedPrefs.payedMissingExpense))
+    setPrefsHydrated(true)
   }, [storedPrefs, prefsLoading])
 
   useEffect(() => {
@@ -320,7 +324,7 @@ export function RequestsPage() {
     loadMore,
     sentinelRef,
     pagesLoaded,
-  } = useInfiniteList<RequestRow>({ url: listUrl, enabled: !prefsLoading })
+  } = useInfiniteList<RequestRow>({ url: listUrl, enabled: !prefsLoading && prefsHydrated })
 
   useRestoreInfinitePages({
     targetPages: restorePages,

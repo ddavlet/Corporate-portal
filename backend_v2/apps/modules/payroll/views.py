@@ -17,7 +17,7 @@ from apps.tenants.permissions import HasEffectiveModuleAccess
 
 
 class PayrollDocumentCursorPagination(PortalCursorPagination):
-    ordering = "-created_at"
+    ordering = "-created_at,-id"
 
 
 class PayrollDocumentViewSet(PortalListViewSetMixin, viewsets.ReadOnlyModelViewSet):

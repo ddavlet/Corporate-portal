@@ -43,7 +43,7 @@ def _parse_period_params(query_params):
 
 
 class BudgetCursorPagination(PortalCursorPagination):
-    ordering = "name"
+    ordering = "name,id"
 
 
 class BudgetViewSet(PortalListViewSetMixin, viewsets.ModelViewSet):
