@@ -41,7 +41,7 @@ from apps.modules.bank_expenses.models import BankExpense
 from apps.modules.cashier.models import CashExpense
 from apps.modules.corporate_card.models import CardExpense
 from apps.modules.payroll.constants import SALARY_CATEGORY
-from apps.modules.payroll.models import PayrollDocument
+from apps.modules.payroll.models import PayrollDocument, PayrollLine
 from apps.modules.requests.expense_refs import resolve_request_expense_ref
 from apps.modules.vendors.models import Vendor
 from apps.modules.contracts.models import Contract
@@ -1598,6 +1598,19 @@ class RequestApprovalsTests(APITestCase):
             step_type=Approval.STEP_TYPE_PAYMENT,
         )
         payroll_doc = PayrollDocument.objects.create(tenant=self.tenant, doc_id="1-000000421")
+        PayrollLine.objects.create(
+            document=payroll_doc,
+            line_no=1,
+            employee="Test",
+            item="Salary",
+            description="",
+            sum="10.00",
+            days_plan=20,
+            days_fact=20,
+            period_start=date(2026, 1, 1),
+            period_end=date(2026, 1, 31),
+            approval=False,
+        )
 
         self.client.force_authenticate(self.approver)
         res = self.client.post(
