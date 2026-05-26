@@ -8,6 +8,8 @@ export type UseInfiniteListOptions = {
   pageSize?: number
 }
 
+const SENTINEL_ROOT_MARGIN_PX = 240
+
 function withPageSize(url: string, pageSize: number): string {
   if (url.includes('page_size=')) return url
   const sep = url.includes('?') ? '&' : '?'
@@ -26,6 +28,11 @@ function resolveApiUrl(pathOrUrl: string): string {
   return pathOrUrl
 }
 
+function isSentinelNearViewport(node: HTMLElement): boolean {
+  const rect = node.getBoundingClientRect()
+  return rect.top <= window.innerHeight + SENTINEL_ROOT_MARGIN_PX
+}
+
 export function useInfiniteList<T>({ url, enabled = true, pageSize = 50 }: UseInfiniteListOptions) {
   const [items, setItems] = useState<T[]>([])
   const [next, setNext] = useState<string | null>(null)
@@ -33,6 +40,21 @@ export function useInfiniteList<T>({ url, enabled = true, pageSize = 50 }: UseIn
   const [loadingMore, setLoadingMore] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const sentinelRef = useRef<HTMLDivElement | null>(null)
+  const nextRef = useRef<string | null>(null)
+  const loadingRef = useRef(false)
+  const loadingMoreRef = useRef(false)
+
+  useEffect(() => {
+    nextRef.current = next
+  }, [next])
+
+  useEffect(() => {
+    loadingRef.current = loading
+  }, [loading])
+
+  useEffect(() => {
+    loadingMoreRef.current = loadingMore
+  }, [loadingMore])
 
   const loadFirstPage = useCallback(async () => {
     if (!enabled) return
@@ -42,9 +64,11 @@ export function useInfiniteList<T>({ url, enabled = true, pageSize = 50 }: UseIn
       const page = await fetchCursorListPage<T>(withPageSize(url, pageSize))
       setItems(page.results)
       setNext(page.next)
+      nextRef.current = page.next
     } catch (e: unknown) {
       setItems([])
       setNext(null)
+      nextRef.current = null
       setError(e instanceof Error ? e.message : 'Ошибка запроса')
     } finally {
       setLoading(false)
@@ -56,18 +80,29 @@ export function useInfiniteList<T>({ url, enabled = true, pageSize = 50 }: UseIn
   }, [loadFirstPage])
 
   const loadMore = useCallback(async () => {
-    if (!next || loadingMore || loading) return
+    const nextUrl = nextRef.current
+    if (!nextUrl || loadingMoreRef.current || loadingRef.current) return
+    loadingMoreRef.current = true
     setLoadingMore(true)
     try {
-      const page = await fetchCursorListPage<T>(resolveApiUrl(next))
+      const page = await fetchCursorListPage<T>(resolveApiUrl(nextUrl))
       setItems((prev) => [...prev, ...page.results])
       setNext(page.next)
+      nextRef.current = page.next
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Ошибка запроса')
     } finally {
+      loadingMoreRef.current = false
       setLoadingMore(false)
     }
-  }, [next, loadingMore, loading])
+  }, [])
+
+  const loadMoreIfSentinelVisible = useCallback(() => {
+    if (!enabled || loadingRef.current || loadingMoreRef.current || !nextRef.current) return
+    const node = sentinelRef.current
+    if (!node || !isSentinelNearViewport(node)) return
+    void loadMore()
+  }, [enabled, loadMore])
 
   useEffect(() => {
     const node = sentinelRef.current
@@ -76,11 +111,18 @@ export function useInfiniteList<T>({ url, enabled = true, pageSize = 50 }: UseIn
       (entries) => {
         if (entries.some((entry) => entry.isIntersecting)) void loadMore()
       },
-      { rootMargin: '240px' },
+      { rootMargin: `${SENTINEL_ROOT_MARGIN_PX}px` },
     )
     observer.observe(node)
     return () => observer.disconnect()
-  }, [loadMore, enabled])
+  }, [loadMore, enabled, items.length])
+
+  /** IntersectionObserver does not re-fire when the sentinel stays visible after append — drain while in view. */
+  useEffect(() => {
+    if (!enabled || loading || loadingMore || !next) return
+    const frame = requestAnimationFrame(() => loadMoreIfSentinelVisible())
+    return () => cancelAnimationFrame(frame)
+  }, [items.length, loading, loadingMore, next, enabled, loadMoreIfSentinelVisible])
 
   const pagesLoaded = Math.max(1, Math.ceil(items.length / pageSize))
 

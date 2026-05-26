@@ -6,6 +6,7 @@ from django.test import override_settings
 from django.utils import timezone
 from rest_framework.test import APITestCase
 
+from apps.common.test_utils import list_results
 from apps.modules.clients_debt.models import ClientDebtSnapshot
 from apps.modules.clients_debt.serializers import ClientDebtSnapshotSerializer
 from apps.tenants.models import Tenant, TenantMembership, TenantModuleConfig, TenantUserRole
@@ -47,13 +48,13 @@ class ClientDebtApiTests(APITestCase):
         self.client.force_authenticate(self.admin)
         res = self.client.get("/api/clients-debt/", HTTP_HOST=self.host)
         self.assertEqual(res.status_code, 200, res.content)
-        self.assertEqual(len(res.data), 1)
+        self.assertEqual(len(list_results(res)), 1)
 
     def test_director_has_access(self):
         self.client.force_authenticate(self.director)
         res = self.client.get("/api/clients-debt/", HTTP_HOST=self.host)
         self.assertEqual(res.status_code, 200, res.content)
-        self.assertEqual(len(res.data), 1)
+        self.assertEqual(len(list_results(res)), 1)
 
     def test_other_roles_are_forbidden(self):
         self.client.force_authenticate(self.cashier)
@@ -64,8 +65,50 @@ class ClientDebtApiTests(APITestCase):
         self.client.force_authenticate(self.admin)
         res = self.client.get("/api/clients-debt/?client_search=000000006", HTTP_HOST=self.host)
         self.assertEqual(res.status_code, 200, res.content)
-        self.assertEqual(len(res.data), 1)
-        self.assertEqual(res.data[0]["id"], self.row.id)
+        rows = list_results(res)
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["id"], self.row.id)
+
+    def test_cursor_pagination_terminates_when_snapshot_at_is_duplicated(self):
+        same_ts = datetime.fromisoformat("2026-05-16T19:00:00+05:00")
+        for i in range(5):
+            ClientDebtSnapshot.objects.create(
+                tenant=self.tenant,
+                snapshot_at=same_ts,
+                doc_type="client_debt_total",
+                organization="LEMONFIT",
+                client=f"Client {i}",
+                client_id=f"dup-{i}",
+                debt_sum="100.00",
+                quantity="0.00",
+                cert_discount="0.00",
+                payload={},
+                created_by=self.admin,
+            )
+
+        self.client.force_authenticate(self.admin)
+        seen_ids: set[int] = set()
+        url: str | None = "/api/clients-debt/?page_size=2"
+        pages = 0
+        while url and pages < 20:
+            res = self.client.get(url, HTTP_HOST=self.host)
+            self.assertEqual(res.status_code, 200, res.content)
+            payload = res.json()
+            for row in payload["results"]:
+                self.assertNotIn(row["id"], seen_ids)
+                seen_ids.add(row["id"])
+            next_link = payload.get("next")
+            if next_link:
+                from urllib.parse import urlparse
+
+                parsed = urlparse(next_link)
+                url = parsed.path + (f"?{parsed.query}" if parsed.query else "")
+            else:
+                url = None
+            pages += 1
+
+        self.assertGreaterEqual(len(seen_ids), 6)
+        self.assertIsNone(payload.get("next"))
 
 
 @override_settings(TIME_ZONE="Asia/Tashkent", USE_TZ=True)
