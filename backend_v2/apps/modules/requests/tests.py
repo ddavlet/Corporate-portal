@@ -3888,7 +3888,7 @@ class RequestPaginationAndFilterTests(APITestCase):
         self.assertTrue(all("офис" in r["category"].lower() for r in results))
 
     def test_filter_by_vendor_search(self):
-        vendor = Vendor.objects.create(tenant=self.tenant, name="АльфаТрейд", kind=Vendor.KIND_TRANSFER)
+        vendor = Vendor.objects.create(tenant=self.tenant, name="АльфаТрейд", kind=Vendor.KIND_TRANSFER, created_by=self.admin)
         r_match = self._make(vendor_ref=vendor, vendor="АльфаТрейд")
         r_other = self._make(vendor="Другой поставщик")
         res = self._list("?vendor_search=АльфаТрейд")
