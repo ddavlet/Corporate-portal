@@ -40,8 +40,8 @@ export function linkedExpenseFrontendPath(
   if (!canOpenLinkedExpense(link)) return null
   const expId = String(link!.id)
   const tg = Boolean(options?.telegram)
-  if (link!.module === 'cash') return tg ? `/tg/cash/expenses/${expId}` : `/cash/${expId}`
-  if (link!.module === 'bank') return tg ? `/tg/bank/expenses/${expId}` : `/bank/${expId}`
+  if (link!.module === 'cash') return tg ? `/tg/cash/expenses/${expId}` : `/cash/expenses/${expId}`
+  if (link!.module === 'bank') return tg ? `/tg/bank/expenses/${expId}` : `/bank/expenses/${expId}`
   if (link!.module === 'payroll') return `/payroll/${expId}`
   return null
 }

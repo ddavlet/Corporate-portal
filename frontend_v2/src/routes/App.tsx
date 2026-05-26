@@ -1,11 +1,14 @@
 import { useEffect } from 'react'
-import { Navigate, Route, Routes, useNavigate } from 'react-router-dom'
+import { Navigate, Route, Routes, useNavigate, useParams } from 'react-router-dom'
 import { AppShell } from '../ui/AppShell'
 import { LoginPage } from '../ui/LoginPage'
 import { DashboardPage } from '../ui/DashboardPage'
 import { CashPage } from '../ui/CashPage'
+import { CashSectionPage } from '../ui/CashSectionPage'
 import { BankPage } from '../ui/BankPage'
+import { BankSectionPage } from '../ui/BankSectionPage'
 import { CorporateCardPage } from '../ui/CorporateCardPage'
+import { CorporateCardSectionPage } from '../ui/CorporateCardSectionPage'
 import { PayrollPage } from '../ui/PayrollPage'
 import { ReportsPage } from '../ui/ReportsPage'
 import { InvestmentsPage } from '../ui/InvestmentsPage'
@@ -60,6 +63,16 @@ import { TgBankExpenseDetailPage } from '../ui/tg/TgBankExpenseDetailPage'
 import { useAuth } from '../ui/auth'
 import { ModuleAccessProvider } from '../ui/moduleAccess'
 import { setUnauthorizedHandler } from '../lib/api'
+
+function CashExpenseLegacyRedirect() {
+  const { id } = useParams()
+  return <Navigate to={`/cash/expenses/${id}`} replace />
+}
+
+function BankExpenseLegacyRedirect() {
+  const { id } = useParams()
+  return <Navigate to={`/bank/expenses/${id}`} replace />
+}
 
 export function App() {
   const navigate = useNavigate()
@@ -122,10 +135,21 @@ export function App() {
         <Route path="requests/auto-config" element={<AutoRequestsConfigPage />} />
         <Route path="requests/:id" element={<RequestDetailPage />} />
         <Route path="cash" element={<CashPage />} />
-        <Route path="cash/:id" element={<CashExpenseDetailPage />} />
+        <Route path="cash/all" element={<CashSectionPage mode="all" />} />
+        <Route path="cash/expenses" element={<CashSectionPage mode="expenses" />} />
+        <Route path="cash/revenues" element={<CashSectionPage mode="revenues" />} />
+        <Route path="cash/expenses/:id" element={<CashExpenseDetailPage />} />
+        <Route path="cash/:id" element={<CashExpenseLegacyRedirect />} />
         <Route path="bank" element={<BankPage />} />
-        <Route path="bank/:id" element={<BankExpenseDetailPage />} />
+        <Route path="bank/all" element={<BankSectionPage mode="all" />} />
+        <Route path="bank/expenses" element={<BankSectionPage mode="expenses" />} />
+        <Route path="bank/revenues" element={<BankSectionPage mode="revenues" />} />
+        <Route path="bank/expenses/:id" element={<BankExpenseDetailPage />} />
+        <Route path="bank/:id" element={<BankExpenseLegacyRedirect />} />
         <Route path="corporate-card" element={<CorporateCardPage />} />
+        <Route path="corporate-card/all" element={<CorporateCardSectionPage mode="all" />} />
+        <Route path="corporate-card/expenses" element={<CorporateCardSectionPage mode="expenses" />} />
+        <Route path="corporate-card/revenues" element={<CorporateCardSectionPage mode="revenues" />} />
         <Route path="payroll" element={<PayrollPage />} />
         <Route path="reports" element={<ReportsPage />} />
         <Route path="investments" element={<InvestmentsPage />} />
