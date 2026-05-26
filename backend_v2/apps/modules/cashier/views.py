@@ -33,7 +33,7 @@ class CashBalancesView(APIView):
 
 
 class CashExpenseCursorPagination(PortalCursorPagination):
-    ordering = "-expense_at"
+    ordering = "-expense_at,-id"
 
 
 class CashRevenueCursorPagination(PortalCursorPagination):

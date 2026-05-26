@@ -104,14 +104,24 @@ export function BankPage() {
     return q ? `/api/bank/expenses/?${q}` : '/api/bank/expenses/'
   }, [search, counterpartyFilter, docDateRange, amountMin, amountMax, missingRequestOnly])
 
+  const [activeTab, setActiveTab] = useState('all')
+
   const {
     items: rows,
     loading,
     loadingMore,
     error,
     hasMore: expensesHasMore,
+    loadMore: loadMoreExpenses,
     sentinelRef: expensesSentinelRef,
+    resumeLoading: resumeExpensesLoading,
   } = useInfiniteList<BankExpenseRow>({ url: expenseListUrl })
+
+  useEffect(() => {
+    if (activeTab === 'expenses' || activeTab === 'all') {
+      resumeExpensesLoading()
+    }
+  }, [activeTab, resumeExpensesLoading, loading, rows.length])
 
   useEffect(() => {
     let cancelled = false
@@ -386,6 +396,8 @@ export function BankPage() {
       {error ? <Alert type="error" showIcon message={error} style={{ marginTop: 16 }} /> : null}
       {!loading && !error ? (
         <Tabs
+          activeKey={activeTab}
+          onChange={setActiveTab}
           items={[
             {
               key: 'all',
@@ -435,12 +447,6 @@ export function BankPage() {
                     pagination={false}
                     scroll={{ x: 1100 }}
                   />
-                  <ListInfiniteScrollFooter
-                    sentinelRef={expensesSentinelRef}
-                    hasMore={expensesHasMore}
-                    loadingMore={loadingMore}
-                    visibleCount={filteredRows.length}
-                  />
                 </>
               ),
             },
@@ -472,6 +478,14 @@ export function BankPage() {
               ),
             },
           ]}
+        />
+        <ListInfiniteScrollFooter
+          sentinelRef={expensesSentinelRef}
+          hasMore={expensesHasMore}
+          loadingMore={loadingMore}
+          visibleCount={activeTab === 'expenses' ? filteredRows.length : rows.length}
+          loadedCount={rows.length}
+          onLoadMore={loadMoreExpenses}
         />
       ) : null}
 
