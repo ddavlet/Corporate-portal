@@ -1,15 +1,13 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
+import { useFinanceInfiniteScrollFooter } from '../lib/useFinanceInfiniteScrollFooter'
+import { useInfiniteList } from '../lib/useInfiniteList'
+import { ListInfiniteScrollFooter } from './ListInfiniteScrollFooter'
 import { Alert, Button, Card, Collapse, DatePicker, Descriptions, Input, InputNumber, Select, Modal, Skeleton, Space, Table, Tag, Typography } from 'antd'
 import { ArrowLeftOutlined } from '@ant-design/icons'
 import type { ColumnsType } from 'antd/es/table'
 import type { Dayjs } from 'dayjs'
 import { useNavigate } from 'react-router-dom'
-import {
-  getCorporateCardExpenses,
-  getCorporateCardRevenues,
-  type CorporateCardExpense,
-  type CorporateCardRevenue,
-} from '../lib/api'
+import type { CorporateCardExpense, CorporateCardRevenue } from '../lib/api'
 import { labelBlockAboveField } from './formSpacing'
 import { ChannelBalancesSummary } from './ChannelBalancesSummary'
 import { renderExpenseRequestStatusTag, shouldHighlightMissingRequiredRequest } from './expenseRequestStatus'
@@ -54,10 +52,6 @@ export function CorporateCardSectionPage({ mode }: { mode: CorporateCardSectionM
   const navigate = useNavigate()
   const needExpenses = mode !== 'revenues'
   const needRevenues = mode !== 'expenses'
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
-  const [expenses, setExpenses] = useState<CorporateCardExpense[]>([])
-  const [revenues, setRevenues] = useState<CorporateCardRevenue[]>([])
   const [search, setSearch] = useState('')
   const [currencyFilter, setCurrencyFilter] = useState<string | undefined>(undefined)
   const [confirmedFilter, setConfirmedFilter] = useState<string | undefined>(undefined)
@@ -66,39 +60,92 @@ export function CorporateCardSectionPage({ mode }: { mode: CorporateCardSectionM
   const [amountMin, setAmountMin] = useState<number | null>(null)
   const [amountMax, setAmountMax] = useState<number | null>(null)
   const [dateRange, setDateRange] = useState<[Dayjs | null, Dayjs | null] | null>(null)
-  const [currentExpensePage, setCurrentExpensePage] = useState(1)
-  const [expensePageSize, setExpensePageSize] = useState(10)
-  const [currentRevenuePage, setCurrentRevenuePage] = useState(1)
-  const [revenuePageSize, setRevenuePageSize] = useState(10)
-  const [currentAllPage, setCurrentAllPage] = useState(1)
-  const [allPageSize, setAllPageSize] = useState(10)
   const [selectedExpense, setSelectedExpense] = useState<CorporateCardExpense | null>(null)
   const [selectedRevenue, setSelectedRevenue] = useState<CorporateCardRevenue | null>(null)
 
-  useEffect(() => {
-    let cancelled = false
-    ;(async () => {
-      setLoading(true)
-      setError(null)
-      try {
-        const [expenseRows, revenueRows] = await Promise.all([
-          needExpenses ? getCorporateCardExpenses() : Promise.resolve([] as CorporateCardExpense[]),
-          needRevenues ? getCorporateCardRevenues() : Promise.resolve([] as CorporateCardRevenue[]),
-        ])
-        if (!cancelled) {
-          setExpenses(expenseRows)
-          setRevenues(revenueRows)
-        }
-      } catch (e: any) {
-        if (!cancelled) setError(e?.message || 'Ошибка загрузки corporate card данных')
-      } finally {
-        if (!cancelled) setLoading(false)
-      }
-    })()
-    return () => {
-      cancelled = true
-    }
-  }, [needExpenses, needRevenues])
+  const expenseListUrl = useMemo(() => {
+    const params = new URLSearchParams()
+    if (search.trim()) params.set('search', search.trim())
+    const from = dateRange?.[0]?.format('YYYY-MM-DD')
+    const to = dateRange?.[1]?.format('YYYY-MM-DD')
+    if (from) params.set('expense_from', from)
+    if (to) params.set('expense_to', to)
+    if (amountMin !== null) params.set('amount_min', String(amountMin))
+    if (amountMax !== null) params.set('amount_max', String(amountMax))
+    const q = params.toString()
+    return q ? `/api/corporate-card/expenses/?${q}` : '/api/corporate-card/expenses/'
+  }, [search, dateRange, amountMin, amountMax])
+
+  const revenueListUrl = useMemo(() => {
+    const params = new URLSearchParams()
+    const from = dateRange?.[0]?.format('YYYY-MM-DD')
+    const to = dateRange?.[1]?.format('YYYY-MM-DD')
+    if (from) params.set('expense_from', from)
+    if (to) params.set('expense_to', to)
+    const q = params.toString()
+    return q ? `/api/corporate-card/revenues/?${q}` : '/api/corporate-card/revenues/'
+  }, [dateRange])
+
+  const {
+    items: expenses,
+    loading: expensesLoading,
+    loadingMore: expensesLoadingMore,
+    error: expensesError,
+    hasMore: expensesHasMore,
+    loadMore: loadMoreExpenses,
+  } = useInfiniteList<CorporateCardExpense>({ url: expenseListUrl, enabled: needExpenses })
+
+  const {
+    items: revenues,
+    loading: revenuesLoading,
+    loadingMore: revenuesLoadingMore,
+    error: revenuesError,
+    hasMore: revenuesHasMore,
+    loadMore: loadMoreRevenues,
+  } = useInfiniteList<CorporateCardRevenue>({ url: revenueListUrl, enabled: needRevenues })
+
+  const listLoading = (needExpenses && expensesLoading) || (needRevenues && revenuesLoading)
+  const listError = expensesError || revenuesError
+
+  const scrollSources = useMemo(
+    () => [
+      ...(needExpenses
+        ? [
+            {
+              hasMore: expensesHasMore,
+              loadingMore: expensesLoadingMore,
+              loadMore: loadMoreExpenses,
+              itemsLength: expenses.length,
+            },
+          ]
+        : []),
+      ...(needRevenues
+        ? [
+            {
+              hasMore: revenuesHasMore,
+              loadingMore: revenuesLoadingMore,
+              loadMore: loadMoreRevenues,
+              itemsLength: revenues.length,
+            },
+          ]
+        : []),
+    ],
+    [
+      needExpenses,
+      needRevenues,
+      expensesHasMore,
+      revenuesHasMore,
+      expensesLoadingMore,
+      revenuesLoadingMore,
+      loadMoreExpenses,
+      loadMoreRevenues,
+      expenses.length,
+      revenues.length,
+    ],
+  )
+
+  const { sentinelRef: listSentinelRef, hasMore: listHasMore, loadingMore: listLoadingMore, loadMoreAll } =
+    useFinanceInfiniteScrollFooter(scrollSources)
 
   const normalizedSearch = search.trim().toLowerCase()
   const optionize = (values: string[]) =>
@@ -187,12 +234,6 @@ export function CorporateCardSectionPage({ mode }: { mode: CorporateCardSectionM
       return haystack.includes(normalizedSearch)
     })
   }, [revenues, normalizedSearch, currencyFilter, operationFilter, counterpartyFilter, confirmedFilter, amountMin, amountMax, dateRange])
-
-  useEffect(() => {
-    setCurrentAllPage(1)
-    setCurrentExpensePage(1)
-    setCurrentRevenuePage(1)
-  }, [search, currencyFilter, confirmedFilter, operationFilter, counterpartyFilter, amountMin, amountMax, dateRange])
 
   type AllRow = (typeof allRows)[number]
   const allColumns: ColumnsType<AllRow> = [
@@ -385,10 +426,10 @@ export function CorporateCardSectionPage({ mode }: { mode: CorporateCardSectionM
         />
       </div>
 
-      {loading ? <Skeleton active style={{ marginTop: 16 }} /> : null}
-      {error ? <Alert type="error" showIcon message={error} style={{ marginTop: 16, marginBottom: 16 }} /> : null}
+      {listLoading ? <Skeleton active style={{ marginTop: 16 }} /> : null}
+      {listError ? <Alert type="error" showIcon message={listError} style={{ marginTop: 16, marginBottom: 16 }} /> : null}
 
-      {!loading && !error && mode === 'all' ? (
+      {!listLoading && !listError && mode === 'all' ? (
         <Table<AllRow>
           rowKey={(r) => `${r.kind}:${r.id}`}
           size="small"
@@ -402,20 +443,11 @@ export function CorporateCardSectionPage({ mode }: { mode: CorporateCardSectionM
             },
             style: { cursor: 'pointer' },
           })}
-          pagination={{
-            current: currentAllPage,
-            pageSize: allPageSize,
-            showSizeChanger: true,
-            pageSizeOptions: [10, 20, 50, 100, 200],
-          }}
-          onChange={(pagination) => {
-            if (pagination.current) setCurrentAllPage(pagination.current)
-            if (pagination.pageSize) setAllPageSize(pagination.pageSize)
-          }}
+          pagination={false}
           scroll={{ x: 1100 }}
         />
       ) : null}
-      {!loading && !error && mode === 'expenses' ? (
+      {!listLoading && !listError && mode === 'expenses' ? (
         <Table<CorporateCardExpense>
           rowKey="id"
           size="small"
@@ -423,16 +455,7 @@ export function CorporateCardSectionPage({ mode }: { mode: CorporateCardSectionM
           dataSource={filteredExpenses}
           style={{ marginTop: 16 }}
           rowClassName={(record) => (shouldHighlightMissingRequiredRequest(record) ? 'card-row-unmatched' : '')}
-          onChange={(pagination) => {
-            if (pagination.current) setCurrentExpensePage(pagination.current)
-            if (pagination.pageSize) setExpensePageSize(pagination.pageSize)
-          }}
-          pagination={{
-            current: currentExpensePage,
-            pageSize: expensePageSize,
-            showSizeChanger: true,
-            pageSizeOptions: [10, 20, 50, 100, 200],
-          }}
+          pagination={false}
           onRow={(record) => ({
             onClick: () => setSelectedExpense(record),
             style: { cursor: 'pointer' },
@@ -440,28 +463,36 @@ export function CorporateCardSectionPage({ mode }: { mode: CorporateCardSectionM
           scroll={{ x: 980 }}
         />
       ) : null}
-      {!loading && !error && mode === 'revenues' ? (
+      {!listLoading && !listError && mode === 'revenues' ? (
         <Table<CorporateCardRevenue>
           rowKey="id"
           size="small"
           columns={revenueColumns}
           dataSource={filteredRevenues}
           style={{ marginTop: 16 }}
-          onChange={(pagination) => {
-            if (pagination.current) setCurrentRevenuePage(pagination.current)
-            if (pagination.pageSize) setRevenuePageSize(pagination.pageSize)
-          }}
-          pagination={{
-            current: currentRevenuePage,
-            pageSize: revenuePageSize,
-            showSizeChanger: true,
-            pageSizeOptions: [10, 20, 50, 100, 200],
-          }}
+          pagination={false}
           onRow={(record) => ({
             onClick: () => setSelectedRevenue(record),
             style: { cursor: 'pointer' },
           })}
           scroll={{ x: 1800 }}
+        />
+      ) : null}
+
+      {(mode === 'all' || mode === 'expenses' || mode === 'revenues') && !listLoading && !listError ? (
+        <ListInfiniteScrollFooter
+          sentinelRef={listSentinelRef}
+          hasMore={listHasMore}
+          loadingMore={listLoadingMore}
+          visibleCount={
+            mode === 'expenses'
+              ? filteredExpenses.length
+              : mode === 'revenues'
+                ? filteredRevenues.length
+                : filteredAllRows.length
+          }
+          loadedCount={mode === 'expenses' ? expenses.length : mode === 'revenues' ? revenues.length : expenses.length + revenues.length}
+          onLoadMore={loadMoreAll}
         />
       ) : null}
 

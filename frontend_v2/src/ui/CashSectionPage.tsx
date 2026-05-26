@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { useFinanceInfiniteScrollFooter } from '../lib/useFinanceInfiniteScrollFooter'
 import { useInfiniteList } from '../lib/useInfiniteList'
 import { ListInfiniteScrollFooter } from './ListInfiniteScrollFooter'
 import { Alert, Button, Card, Collapse, DatePicker, Descriptions, Modal, Input, InputNumber, Select, Skeleton, Space, Switch, Table, Tag, Typography } from 'antd'
@@ -7,7 +8,7 @@ import type { ColumnsType } from 'antd/es/table'
 import type { Dayjs } from 'dayjs'
 import { useNavigate } from 'react-router-dom'
 import { FileSearchOutlined, MessageOutlined } from '@ant-design/icons'
-import { apiFetch, getCashRegisters, getCashRevenues, type CashRevenue } from '../lib/api'
+import { apiFetch, getCashRegisters, type CashRevenue } from '../lib/api'
 import type { RequestReturnTo } from '../lib/requestNavigation'
 import { RequestDetailModal, type RequestDetail } from './requests/RequestDetailModal'
 import { NoteCreateModal } from './NoteCreateModal'
@@ -80,8 +81,6 @@ export function CashSectionPage({ mode }: { mode: CashSectionMode }) {
   const needExpenses = mode !== 'revenues'
   const needRevenues = mode !== 'expenses'
   const [missingRequestOnly, setMissingRequestOnly] = useState(false)
-  const [revenues, setRevenues] = useState<CashRevenueRow[]>([])
-  const [revenuesLoading, setRevenuesLoading] = useState(true)
   const [cashRegisterByWalletId, setCashRegisterByWalletId] = useState<Record<number, string>>({})
   const [search, setSearch] = useState('')
   const [confirmedFilter, setConfirmedFilter] = useState<string | undefined>(undefined)
@@ -90,12 +89,6 @@ export function CashSectionPage({ mode }: { mode: CashSectionMode }) {
   const [amountMin, setAmountMin] = useState<number | null>(null)
   const [amountMax, setAmountMax] = useState<number | null>(null)
   const [dateRange, setDateRange] = useState<[Dayjs | null, Dayjs | null] | null>(null)
-  const [currentAllPage, setCurrentAllPage] = useState(1)
-  const [allPageSize, setAllPageSize] = useState(10)
-  const [currentPage, setCurrentPage] = useState(1)
-  const [pageSize, setPageSize] = useState(10)
-  const [currentRevenuePage, setCurrentRevenuePage] = useState(1)
-  const [revenuePageSize, setRevenuePageSize] = useState(10)
   const [selectedExpense, setSelectedExpense] = useState<CashExpenseRow | null>(null)
   const [selectedRevenue, setSelectedRevenue] = useState<CashRevenueRow | null>(null)
   const [requestDetail, setRequestDetail] = useState<RequestDetail | null>(null)
@@ -120,24 +113,41 @@ export function CashSectionPage({ mode }: { mode: CashSectionMode }) {
     return q ? `/api/cash/expenses/?${q}` : '/api/cash/expenses/'
   }, [currencyFilter, cashRegisterFilter, amountMin, amountMax, dateRange, search, missingRequestOnly])
 
+  const revenueListUrl = useMemo(() => {
+    const params = new URLSearchParams()
+    const from = dateRange?.[0]?.format('YYYY-MM-DD')
+    const to = dateRange?.[1]?.format('YYYY-MM-DD')
+    if (from) params.set('expense_from', from)
+    if (to) params.set('expense_to', to)
+    const q = params.toString()
+    return q ? `/api/cash/revenues/?${q}` : '/api/cash/revenues/'
+  }, [dateRange])
+
   const {
     items: rows,
-    loading,
-    loadingMore,
-    error,
+    loading: expensesLoading,
+    loadingMore: expensesLoadingMore,
+    error: expensesError,
     hasMore: expensesHasMore,
     loadMore: loadMoreExpenses,
-    sentinelRef: expensesSentinelRef,
   } = useInfiniteList<CashExpenseRow>({ url: expenseListUrl, enabled: needExpenses })
 
+  const {
+    items: revenues,
+    loading: revenuesLoading,
+    loadingMore: revenuesLoadingMore,
+    error: revenuesError,
+    hasMore: revenuesHasMore,
+    loadMore: loadMoreRevenues,
+  } = useInfiniteList<CashRevenueRow>({ url: revenueListUrl, enabled: needRevenues })
+
   useEffect(() => {
-    if (!needRevenues) return
+    if (!needExpenses && !needRevenues) return
     let cancelled = false
     ;(async () => {
       try {
-        const [revenueRows, cashRegisters] = await Promise.all([getCashRevenues(), getCashRegisters()])
+        const cashRegisters = await getCashRegisters()
         if (!cancelled) {
-          setRevenues(revenueRows)
           const byWallet: Record<number, string> = {}
           for (const reg of cashRegisters) {
             byWallet[reg.wallet_id] = reg.name || `Касса #${reg.id}`
@@ -145,15 +155,56 @@ export function CashSectionPage({ mode }: { mode: CashSectionMode }) {
           setCashRegisterByWalletId(byWallet)
         }
       } catch {
-        // revenues/registers are auxiliary; expense list errors come from useInfiniteList
-      } finally {
-        if (!cancelled) setRevenuesLoading(false)
+        // register names are auxiliary for display
       }
     })()
     return () => {
       cancelled = true
     }
-  }, [needRevenues])
+  }, [needExpenses, needRevenues])
+
+  const listLoading = (needExpenses && expensesLoading) || (needRevenues && revenuesLoading)
+  const listError = expensesError || revenuesError
+
+  const scrollSources = useMemo(
+    () => [
+      ...(needExpenses
+        ? [
+            {
+              hasMore: expensesHasMore,
+              loadingMore: expensesLoadingMore,
+              loadMore: loadMoreExpenses,
+              itemsLength: rows.length,
+            },
+          ]
+        : []),
+      ...(needRevenues
+        ? [
+            {
+              hasMore: revenuesHasMore,
+              loadingMore: revenuesLoadingMore,
+              loadMore: loadMoreRevenues,
+              itemsLength: revenues.length,
+            },
+          ]
+        : []),
+    ],
+    [
+      needExpenses,
+      needRevenues,
+      expensesHasMore,
+      revenuesHasMore,
+      expensesLoadingMore,
+      revenuesLoadingMore,
+      loadMoreExpenses,
+      loadMoreRevenues,
+      rows.length,
+      revenues.length,
+    ],
+  )
+
+  const { sentinelRef: listSentinelRef, hasMore: listHasMore, loadingMore: listLoadingMore, loadMoreAll } =
+    useFinanceInfiniteScrollFooter(scrollSources)
 
   const cashRegisterNameByWallet = (walletId?: number | null): string => {
     if (!walletId) return '-'
@@ -266,12 +317,6 @@ export function CashSectionPage({ mode }: { mode: CashSectionMode }) {
       )
     })
   }, [allRows, search, currencyFilter, cashRegisterFilter, confirmedFilter, amountMin, amountMax, dateRange])
-
-  useEffect(() => {
-    setCurrentAllPage(1)
-    setCurrentPage(1)
-    setCurrentRevenuePage(1)
-  }, [search, confirmedFilter, currencyFilter, cashRegisterFilter, amountMin, amountMax, dateRange])
 
   useEffect(() => {
     if (!selectedExpense?.matched_request_id) {
@@ -421,7 +466,10 @@ export function CashSectionPage({ mode }: { mode: CashSectionMode }) {
     { title: 'Примечание', dataIndex: 'note' },
   ]
 
-  const showExpenseInfiniteFooter = needExpenses && (mode === 'expenses' || mode === 'all')
+  const showInfiniteFooter = mode === 'expenses' || mode === 'revenues' || mode === 'all'
+  const footerVisibleCount =
+    mode === 'expenses' ? filteredRows.length : mode === 'revenues' ? filteredRevenueRows.length : filteredAllRows.length
+  const footerLoadedCount = mode === 'expenses' ? rows.length : mode === 'revenues' ? revenues.length : rows.length + revenues.length
 
   return (
     <Card>
@@ -514,25 +562,16 @@ export function CashSectionPage({ mode }: { mode: CashSectionMode }) {
           ]}
         />
       </div>
-      {needExpenses && loading ? <Skeleton active style={{ marginTop: 16 }} /> : null}
-      {needExpenses && error ? <Alert type="error" showIcon message={error} style={{ marginTop: 16 }} /> : null}
-      {needExpenses && !loading && !error && mode === 'all' ? (
+      {listLoading ? <Skeleton active style={{ marginTop: 16 }} /> : null}
+      {listError ? <Alert type="error" showIcon message={listError} style={{ marginTop: 16 }} /> : null}
+      {!listLoading && !listError && mode === 'all' ? (
         <Table<AllRow>
           rowKey={(r) => `${r.kind}:${r.id}`}
           columns={allColumns}
           dataSource={filteredAllRows}
           size="small"
           style={{ marginTop: 16 }}
-          pagination={{
-            current: currentAllPage,
-            pageSize: allPageSize,
-            showSizeChanger: true,
-            pageSizeOptions: [10, 20, 50, 100, 200],
-          }}
-          onChange={(pagination) => {
-            if (pagination.current) setCurrentAllPage(pagination.current)
-            if (pagination.pageSize) setAllPageSize(pagination.pageSize)
-          }}
+          pagination={false}
           onRow={(record) => ({
             onClick: () => {
               if (record.kind === 'expense') setSelectedExpense(record.raw as CashExpenseRow)
@@ -543,7 +582,7 @@ export function CashSectionPage({ mode }: { mode: CashSectionMode }) {
           scroll={{ x: 900 }}
         />
       ) : null}
-      {needExpenses && !loading && !error && mode === 'expenses' ? (
+      {!listLoading && !listError && mode === 'expenses' ? (
         <Table<CashExpenseRow>
           rowKey="id"
           columns={columns}
@@ -563,42 +602,29 @@ export function CashSectionPage({ mode }: { mode: CashSectionMode }) {
           scroll={{ x: 1100 }}
         />
       ) : null}
-      {needRevenues && !needExpenses ? (
-        revenuesLoading ? (
-          <Skeleton active style={{ marginTop: 16 }} />
-        ) : (
-          <Table<CashRevenueRow>
-            rowKey="id"
-            columns={revenueColumns}
-            dataSource={filteredRevenueRows}
-            size="small"
-            style={{ marginTop: 16 }}
-            pagination={{
-              current: currentRevenuePage,
-              pageSize: revenuePageSize,
-              showSizeChanger: true,
-              pageSizeOptions: [10, 20, 50, 100, 200],
-            }}
-            onChange={(pagination) => {
-              if (pagination.current) setCurrentRevenuePage(pagination.current)
-              if (pagination.pageSize) setRevenuePageSize(pagination.pageSize)
-            }}
-            onRow={(record) => ({
-              onClick: () => setSelectedRevenue(record),
-              style: { cursor: 'pointer' },
-            })}
-            scroll={{ x: 1200 }}
-          />
-        )
+      {!listLoading && !listError && mode === 'revenues' ? (
+        <Table<CashRevenueRow>
+          rowKey="id"
+          columns={revenueColumns}
+          dataSource={filteredRevenueRows}
+          size="small"
+          style={{ marginTop: 16 }}
+          pagination={false}
+          onRow={(record) => ({
+            onClick: () => setSelectedRevenue(record),
+            style: { cursor: 'pointer' },
+          })}
+          scroll={{ x: 1200 }}
+        />
       ) : null}
-      {showExpenseInfiniteFooter && !loading && !error ? (
+      {showInfiniteFooter && !listLoading && !listError ? (
         <ListInfiniteScrollFooter
-          sentinelRef={expensesSentinelRef}
-          hasMore={expensesHasMore}
-          loadingMore={loadingMore}
-          visibleCount={mode === 'expenses' ? filteredRows.length : rows.length}
-          loadedCount={rows.length}
-          onLoadMore={loadMoreExpenses}
+          sentinelRef={listSentinelRef}
+          hasMore={listHasMore}
+          loadingMore={listLoadingMore}
+          visibleCount={footerVisibleCount}
+          loadedCount={footerLoadedCount}
+          onLoadMore={loadMoreAll}
         />
       ) : null}
       <Modal
