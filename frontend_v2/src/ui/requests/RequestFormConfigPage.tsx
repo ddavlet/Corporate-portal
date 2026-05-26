@@ -25,10 +25,11 @@ import {
   type RequestFormConfigPurposeItem,
   type RequestFormConfigResponse,
 } from '../../lib/api'
+import { REQUEST_PAYMENT_TYPES } from '../../lib/requestPaymentTypes'
 import { labelBlockAboveField } from '../formSpacing'
 import { RequestReturnBackButton } from './RequestReturnBackButton'
 
-const PAYMENT_TYPES = ['Наличные', 'Перечисление', 'Пополнение', 'Платежная карта', 'Начисление ЗП'] as const
+const PAYMENT_TYPES = REQUEST_PAYMENT_TYPES
 
 function emptyPaymentTypeRow(pt: string): RequestFormConfigPaymentTypeItem {
   return {
