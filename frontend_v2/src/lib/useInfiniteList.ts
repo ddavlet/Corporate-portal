@@ -43,6 +43,7 @@ export function useInfiniteList<T>({ url, enabled = true, pageSize = 50 }: UseIn
   const nextRef = useRef<string | null>(null)
   const loadingRef = useRef(false)
   const loadingMoreRef = useRef(false)
+  const enabledRef = useRef(enabled)
 
   useEffect(() => {
     nextRef.current = next
@@ -55,6 +56,38 @@ export function useInfiniteList<T>({ url, enabled = true, pageSize = 50 }: UseIn
   useEffect(() => {
     loadingMoreRef.current = loadingMore
   }, [loadingMore])
+
+  useEffect(() => {
+    enabledRef.current = enabled
+  }, [enabled])
+
+  const drainIfSentinelVisibleRef = useRef<() => void>(() => {})
+
+  const loadMore = useCallback(async () => {
+    const nextUrl = nextRef.current
+    if (!nextUrl || loadingMoreRef.current || loadingRef.current) return
+    loadingMoreRef.current = true
+    setLoadingMore(true)
+    try {
+      const page = await fetchCursorListPage<T>(resolveApiUrl(nextUrl))
+      setItems((prev) => [...prev, ...page.results])
+      setNext(page.next)
+      nextRef.current = page.next
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Ошибка запроса')
+    } finally {
+      loadingMoreRef.current = false
+      setLoadingMore(false)
+      requestAnimationFrame(() => drainIfSentinelVisibleRef.current())
+    }
+  }, [])
+
+  drainIfSentinelVisibleRef.current = () => {
+    if (!enabledRef.current || loadingRef.current || loadingMoreRef.current || !nextRef.current) return
+    const node = sentinelRef.current
+    if (!node || !isSentinelNearViewport(node)) return
+    void loadMore()
+  }
 
   const loadFirstPage = useCallback(async () => {
     if (!enabled) return
@@ -72,37 +105,13 @@ export function useInfiniteList<T>({ url, enabled = true, pageSize = 50 }: UseIn
       setError(e instanceof Error ? e.message : 'Ошибка запроса')
     } finally {
       setLoading(false)
+      requestAnimationFrame(() => drainIfSentinelVisibleRef.current())
     }
   }, [url, enabled, pageSize])
 
   useEffect(() => {
     void loadFirstPage()
   }, [loadFirstPage])
-
-  const loadMore = useCallback(async () => {
-    const nextUrl = nextRef.current
-    if (!nextUrl || loadingMoreRef.current || loadingRef.current) return
-    loadingMoreRef.current = true
-    setLoadingMore(true)
-    try {
-      const page = await fetchCursorListPage<T>(resolveApiUrl(nextUrl))
-      setItems((prev) => [...prev, ...page.results])
-      setNext(page.next)
-      nextRef.current = page.next
-    } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : 'Ошибка запроса')
-    } finally {
-      loadingMoreRef.current = false
-      setLoadingMore(false)
-    }
-  }, [])
-
-  const loadMoreIfSentinelVisible = useCallback(() => {
-    if (!enabled || loadingRef.current || loadingMoreRef.current || !nextRef.current) return
-    const node = sentinelRef.current
-    if (!node || !isSentinelNearViewport(node)) return
-    void loadMore()
-  }, [enabled, loadMore])
 
   useEffect(() => {
     const node = sentinelRef.current
@@ -120,9 +129,9 @@ export function useInfiniteList<T>({ url, enabled = true, pageSize = 50 }: UseIn
   /** IntersectionObserver does not re-fire when the sentinel stays visible after append — drain while in view. */
   useEffect(() => {
     if (!enabled || loading || loadingMore || !next) return
-    const frame = requestAnimationFrame(() => loadMoreIfSentinelVisible())
+    const frame = requestAnimationFrame(() => drainIfSentinelVisibleRef.current())
     return () => cancelAnimationFrame(frame)
-  }, [items.length, loading, loadingMore, next, enabled, loadMoreIfSentinelVisible])
+  }, [items.length, loading, loadingMore, next, enabled])
 
   const pagesLoaded = Math.max(1, Math.ceil(items.length / pageSize))
 
@@ -138,6 +147,8 @@ export function useInfiniteList<T>({ url, enabled = true, pageSize = 50 }: UseIn
     reload: loadFirstPage,
     sentinelRef,
     pagesLoaded,
+    /** Call when sentinel mounts or tab becomes visible (e.g. after switching Ant Design Tabs). */
+    resumeLoading: () => drainIfSentinelVisibleRef.current(),
   }
 }
 

@@ -118,14 +118,24 @@ export function CashPage() {
     return q ? `/api/cash/expenses/?${q}` : '/api/cash/expenses/'
   }, [currencyFilter, cashRegisterFilter, amountMin, amountMax, dateRange, search, missingRequestOnly])
 
+  const [activeTab, setActiveTab] = useState('all')
+
   const {
     items: rows,
     loading,
     loadingMore,
     error,
     hasMore: expensesHasMore,
+    loadMore: loadMoreExpenses,
     sentinelRef: expensesSentinelRef,
+    resumeLoading: resumeExpensesLoading,
   } = useInfiniteList<CashExpenseRow>({ url: expenseListUrl })
+
+  useEffect(() => {
+    if (activeTab === 'expenses' || activeTab === 'all') {
+      resumeExpensesLoading()
+    }
+  }, [activeTab, resumeExpensesLoading, loading, rows.length])
 
   useEffect(() => {
     let cancelled = false
@@ -505,6 +515,8 @@ export function CashPage() {
       {error ? <Alert type="error" showIcon message={error} style={{ marginTop: 16 }} /> : null}
       {!loading && !error ? (
         <Tabs
+          activeKey={activeTab}
+          onChange={setActiveTab}
           items={[
             {
               key: 'all',
@@ -558,12 +570,6 @@ export function CashPage() {
                     })}
                     scroll={{ x: 1100 }}
                   />
-                  <ListInfiniteScrollFooter
-                    sentinelRef={expensesSentinelRef}
-                    hasMore={expensesHasMore}
-                    loadingMore={loadingMore}
-                    visibleCount={filteredRows.length}
-                  />
                 </>
               ),
             },
@@ -595,6 +601,14 @@ export function CashPage() {
               ),
             },
           ]}
+        />
+        <ListInfiniteScrollFooter
+          sentinelRef={expensesSentinelRef}
+          hasMore={expensesHasMore}
+          loadingMore={loadingMore}
+          visibleCount={activeTab === 'expenses' ? filteredRows.length : rows.length}
+          loadedCount={rows.length}
+          onLoadMore={loadMoreExpenses}
         />
       ) : null}
       <Modal

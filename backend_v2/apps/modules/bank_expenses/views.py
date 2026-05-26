@@ -37,7 +37,7 @@ class BankBalancesView(APIView):
 
 
 class BankExpenseCursorPagination(PortalCursorPagination):
-    ordering = "-doc_date"
+    ordering = "-doc_date,-process_date,-id"
 
 
 class BankRevenueCursorPagination(PortalCursorPagination):
