@@ -514,6 +514,7 @@ export function CashPage() {
       {loading ? <Skeleton active style={{ marginTop: 16 }} /> : null}
       {error ? <Alert type="error" showIcon message={error} style={{ marginTop: 16 }} /> : null}
       {!loading && !error ? (
+        <>
         <Tabs
           activeKey={activeTab}
           onChange={setActiveTab}
@@ -610,6 +611,7 @@ export function CashPage() {
           loadedCount={rows.length}
           onLoadMore={loadMoreExpenses}
         />
+        </>
       ) : null}
       <Modal
         open={Boolean(selectedExpense)}
