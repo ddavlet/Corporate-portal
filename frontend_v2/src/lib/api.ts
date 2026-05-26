@@ -684,7 +684,7 @@ export async function fetchAllCursorPages<T>(
   let nextUrl: string | null = `${path}${sep}page_size=${pageSize}`
   const all: T[] = []
   while (nextUrl) {
-    const page = await fetchCursorListPage<T>(nextUrl, init, options)
+    const page: CursorListPage<T> = await fetchCursorListPage<T>(nextUrl, init, options)
     all.push(...page.results)
     nextUrl = page.next ? resolveCursorFetchUrl(page.next) : null
   }

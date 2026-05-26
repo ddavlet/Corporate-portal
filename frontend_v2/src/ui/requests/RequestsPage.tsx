@@ -670,8 +670,8 @@ export function RequestsPage() {
     setSubmittedRange(null)
     setBillingRange(null)
     setAmortizedOnly(false)
+    setPayedMissingExpense(false)
     setSort({ field: null, order: null })
-    setInfiniteVisibleCount(50)
   }
 
   return (
