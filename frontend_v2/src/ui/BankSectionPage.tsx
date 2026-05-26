@@ -5,7 +5,8 @@ import type { ColumnsType } from 'antd/es/table'
 import type { Dayjs } from 'dayjs'
 import { useNavigate } from 'react-router-dom'
 import { FileSearchOutlined, MessageOutlined } from '@ant-design/icons'
-import { apiFetch, getBankRevenues, type BankRevenue } from '../lib/api'
+import { apiFetch, type BankRevenue } from '../lib/api'
+import { useFinanceInfiniteScrollFooter } from '../lib/useFinanceInfiniteScrollFooter'
 import { useInfiniteList } from '../lib/useInfiniteList'
 import { ListInfiniteScrollFooter } from './ListInfiniteScrollFooter'
 import type { RequestReturnTo } from '../lib/requestNavigation'
@@ -35,15 +36,6 @@ type BankExpenseRow = {
 }
 
 type BankRevenueRow = BankRevenue
-
-function normalizeRows(payload: unknown): BankExpenseRow[] {
-  if (Array.isArray(payload)) return payload as BankExpenseRow[]
-  if (payload && typeof payload === 'object' && 'results' in payload) {
-    const results = (payload as { results?: unknown }).results
-    return Array.isArray(results) ? (results as BankExpenseRow[]) : []
-  }
-  return []
-}
 
 const dateFormatterTashkent = new Intl.DateTimeFormat('ru-RU', {
   day: '2-digit',
@@ -80,18 +72,11 @@ export function BankSectionPage({ mode }: { mode: BankSectionMode }) {
   const needExpenses = mode !== 'revenues'
   const needRevenues = mode !== 'expenses'
   const [missingRequestOnly, setMissingRequestOnly] = useState(false)
-  const [revenues, setRevenues] = useState<BankRevenueRow[]>([])
   const [search, setSearch] = useState('')
   const [counterpartyFilter, setCounterpartyFilter] = useState<string | undefined>(undefined)
   const [amountMin, setAmountMin] = useState<number | null>(null)
   const [amountMax, setAmountMax] = useState<number | null>(null)
   const [docDateRange, setDocDateRange] = useState<[Dayjs | null, Dayjs | null] | null>(null)
-  const [currentAllPage, setCurrentAllPage] = useState(1)
-  const [allPageSize, setAllPageSize] = useState(20)
-  const [currentExpensePage, setCurrentExpensePage] = useState(1)
-  const [expensePageSize, setExpensePageSize] = useState(20)
-  const [currentRevenuePage, setCurrentRevenuePage] = useState(1)
-  const [revenuePageSize, setRevenuePageSize] = useState(20)
   const [selectedExpense, setSelectedExpense] = useState<BankExpenseRow | null>(null)
   const [selectedRevenue, setSelectedRevenue] = useState<BankRevenueRow | null>(null)
   const [requestDetail, setRequestDetail] = useState<RequestDetail | null>(null)
@@ -115,31 +100,76 @@ export function BankSectionPage({ mode }: { mode: BankSectionMode }) {
     return q ? `/api/bank/expenses/?${q}` : '/api/bank/expenses/'
   }, [search, counterpartyFilter, docDateRange, amountMin, amountMax, missingRequestOnly])
 
+  const revenueListUrl = useMemo(() => {
+    const params = new URLSearchParams()
+    const docFrom = docDateRange?.[0]?.format('YYYY-MM-DD')
+    const docTo = docDateRange?.[1]?.format('YYYY-MM-DD')
+    if (docFrom) params.set('doc_from', docFrom)
+    if (docTo) params.set('doc_to', docTo)
+    const q = params.toString()
+    return q ? `/api/bank/revenues/?${q}` : '/api/bank/revenues/'
+  }, [docDateRange])
+
   const {
     items: rows,
-    loading,
-    loadingMore,
-    error,
+    loading: expensesLoading,
+    loadingMore: expensesLoadingMore,
+    error: expensesError,
     hasMore: expensesHasMore,
     loadMore: loadMoreExpenses,
-    sentinelRef: expensesSentinelRef,
   } = useInfiniteList<BankExpenseRow>({ url: expenseListUrl, enabled: needExpenses })
 
-  useEffect(() => {
-    if (!needRevenues) return
-    let cancelled = false
-    ;(async () => {
-      try {
-        const revenueRows = await getBankRevenues()
-        if (!cancelled) setRevenues(revenueRows)
-      } catch {
-        // auxiliary
-      }
-    })()
-    return () => {
-      cancelled = true
-    }
-  }, [needRevenues])
+  const {
+    items: revenues,
+    loading: revenuesLoading,
+    loadingMore: revenuesLoadingMore,
+    error: revenuesError,
+    hasMore: revenuesHasMore,
+    loadMore: loadMoreRevenues,
+  } = useInfiniteList<BankRevenueRow>({ url: revenueListUrl, enabled: needRevenues })
+
+  const listLoading = (needExpenses && expensesLoading) || (needRevenues && revenuesLoading)
+  const listError = expensesError || revenuesError
+
+  const scrollSources = useMemo(
+    () => [
+      ...(needExpenses
+        ? [
+            {
+              hasMore: expensesHasMore,
+              loadingMore: expensesLoadingMore,
+              loadMore: loadMoreExpenses,
+              itemsLength: rows.length,
+            },
+          ]
+        : []),
+      ...(needRevenues
+        ? [
+            {
+              hasMore: revenuesHasMore,
+              loadingMore: revenuesLoadingMore,
+              loadMore: loadMoreRevenues,
+              itemsLength: revenues.length,
+            },
+          ]
+        : []),
+    ],
+    [
+      needExpenses,
+      needRevenues,
+      expensesHasMore,
+      revenuesHasMore,
+      expensesLoadingMore,
+      revenuesLoadingMore,
+      loadMoreExpenses,
+      loadMoreRevenues,
+      rows.length,
+      revenues.length,
+    ],
+  )
+
+  const { sentinelRef: listSentinelRef, hasMore: listHasMore, loadingMore: listLoadingMore, loadMoreAll } =
+    useFinanceInfiniteScrollFooter(scrollSources)
 
   const allRows = useMemo(() => {
     const expenseRows = rows.map((e) => ({
@@ -248,12 +278,6 @@ export function BankSectionPage({ mode }: { mode: BankSectionMode }) {
     })
   }, [allRows, search, counterpartyFilter, amountMin, amountMax, docDateRange])
 
-  useEffect(() => {
-    setCurrentAllPage(1)
-    setCurrentExpensePage(1)
-    setCurrentRevenuePage(1)
-  }, [search, counterpartyFilter, amountMin, amountMax, docDateRange])
-
   const columns: ColumnsType<BankExpenseRow> = [
     { title: 'PK', dataIndex: 'id', width: 80, sorter: (a, b) => a.id - b.id },
     { title: 'Док. №', dataIndex: 'doc_no', sorter: (a, b) => String(a.doc_no || '').localeCompare(String(b.doc_no || '')) },
@@ -337,7 +361,10 @@ export function BankSectionPage({ mode }: { mode: BankSectionMode }) {
     },
   ]
 
-  const showExpenseInfiniteFooter = needExpenses && (mode === 'expenses' || mode === 'all')
+  const showInfiniteFooter = mode === 'expenses' || mode === 'revenues' || mode === 'all'
+  const footerVisibleCount =
+    mode === 'expenses' ? filteredRows.length : mode === 'revenues' ? filteredRevenueRows.length : filteredAllRows.length
+  const footerLoadedCount = mode === 'expenses' ? rows.length : mode === 'revenues' ? revenues.length : rows.length + revenues.length
 
   return (
     <Card>
@@ -404,9 +431,9 @@ export function BankSectionPage({ mode }: { mode: BankSectionMode }) {
           ]}
         />
       </div>
-      {needExpenses && loading ? <Skeleton active style={{ marginTop: 16 }} /> : null}
-      {needExpenses && error ? <Alert type="error" showIcon message={error} style={{ marginTop: 16 }} /> : null}
-      {needExpenses && !loading && !error && mode === 'all' ? (
+      {listLoading ? <Skeleton active style={{ marginTop: 16 }} /> : null}
+      {listError ? <Alert type="error" showIcon message={listError} style={{ marginTop: 16 }} /> : null}
+      {!listLoading && !listError && mode === 'all' ? (
         <Table<AllRow>
           rowKey={(r) => `${r.kind}:${r.id}`}
           size="small"
@@ -420,20 +447,11 @@ export function BankSectionPage({ mode }: { mode: BankSectionMode }) {
             },
             style: { cursor: 'pointer' },
           })}
-          pagination={{
-            current: currentAllPage,
-            pageSize: allPageSize,
-            showSizeChanger: true,
-            pageSizeOptions: [20, 50, 100, 200],
-          }}
-          onChange={(pagination) => {
-            if (pagination.current) setCurrentAllPage(pagination.current)
-            if (pagination.pageSize) setAllPageSize(pagination.pageSize)
-          }}
+          pagination={false}
           scroll={{ x: 1100 }}
         />
       ) : null}
-      {needExpenses && !loading && !error && mode === 'expenses' ? (
+      {!listLoading && !listError && mode === 'expenses' ? (
         <Table<BankExpenseRow>
           rowKey="id"
           size="small"
@@ -449,7 +467,7 @@ export function BankSectionPage({ mode }: { mode: BankSectionMode }) {
           scroll={{ x: 1100 }}
         />
       ) : null}
-      {needRevenues && !needExpenses ? (
+      {!listLoading && !listError && mode === 'revenues' ? (
         <Table<BankRevenueRow>
           rowKey="id"
           size="small"
@@ -460,27 +478,18 @@ export function BankSectionPage({ mode }: { mode: BankSectionMode }) {
             onClick: () => setSelectedRevenue(record),
             style: { cursor: 'pointer' },
           })}
-          pagination={{
-            current: currentRevenuePage,
-            pageSize: revenuePageSize,
-            showSizeChanger: true,
-            pageSizeOptions: [20, 50, 100, 200],
-          }}
-          onChange={(pagination) => {
-            if (pagination.current) setCurrentRevenuePage(pagination.current)
-            if (pagination.pageSize) setRevenuePageSize(pagination.pageSize)
-          }}
+          pagination={false}
           scroll={{ x: 1100 }}
         />
       ) : null}
-      {showExpenseInfiniteFooter && !loading && !error ? (
+      {showInfiniteFooter && !listLoading && !listError ? (
         <ListInfiniteScrollFooter
-          sentinelRef={expensesSentinelRef}
-          hasMore={expensesHasMore}
-          loadingMore={loadingMore}
-          visibleCount={mode === 'expenses' ? filteredRows.length : rows.length}
-          loadedCount={rows.length}
-          onLoadMore={loadMoreExpenses}
+          sentinelRef={listSentinelRef}
+          hasMore={listHasMore}
+          loadingMore={listLoadingMore}
+          visibleCount={footerVisibleCount}
+          loadedCount={footerLoadedCount}
+          onLoadMore={loadMoreAll}
         />
       ) : null}
 
