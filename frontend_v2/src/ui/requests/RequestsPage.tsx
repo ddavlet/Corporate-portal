@@ -9,10 +9,12 @@ import {
   apiFetch,
   copyPortalRequest,
   getRequestFormOptions,
+  parseErrorBody,
   resendRequestApprovals,
   type RequestFormOptionsPaymentType,
   type RequestFormOptionsRequester,
 } from '../../lib/api'
+import { notifyApiSuccess } from '../../lib/apiNotify'
 import { isPayedMissingLinkedExpense, type RequestExpenseLink } from '../../lib/requestExpense'
 import { canResendRequestByStatus, formatRequestBillingMonth, formatRequestDate, getRequestStatusColor } from '../../lib/requestUtils'
 import { requestReturnToForDetail } from '../../lib/requestNavigation'
@@ -412,15 +414,19 @@ export function RequestsPage() {
         billing_date: editDraft.billing_date ? editDraft.billing_date.startOf('month').format('YYYY-MM-DD') : undefined,
         amortization_months: editDraft.amortization_enabled ? editDraft.amortization_months : 1,
       }
-      const res = await apiFetch(`/api/requests/${selectedRow.id}/`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      })
-      const json = await res.json().catch(() => null)
+      const res = await apiFetch(
+        `/api/requests/${selectedRow.id}/`,
+        {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        },
+        { notifyOnError: true },
+      )
       if (!res.ok) {
-        throw new Error(typeof json === 'object' && json ? JSON.stringify(json) : `HTTP ${res.status}`)
+        throw new Error(await parseErrorBody(res))
       }
+      const json = await res.json().catch(() => null)
       const nextDetail: RequestDetail = {
         ...selectedDetail,
         title: payload.title,
@@ -484,10 +490,10 @@ export function RequestsPage() {
             : row,
         ),
       )
-      message.success('Заявка обновлена')
+      notifyApiSuccess('Заявка обновлена')
       setEditOpen(false)
-    } catch (e: any) {
-      message.error(e?.message || 'Не удалось сохранить заявку')
+    } catch {
+      // HTTP/network errors already show toast via apiFetch (notifyOnError)
     } finally {
       setEditSaving(false)
     }
