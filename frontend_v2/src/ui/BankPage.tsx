@@ -395,6 +395,7 @@ export function BankPage() {
       {loading ? <Skeleton active style={{ marginTop: 16 }} /> : null}
       {error ? <Alert type="error" showIcon message={error} style={{ marginTop: 16 }} /> : null}
       {!loading && !error ? (
+        <>
         <Tabs
           activeKey={activeTab}
           onChange={setActiveTab}
@@ -487,6 +488,7 @@ export function BankPage() {
           loadedCount={rows.length}
           onLoadMore={loadMoreExpenses}
         />
+        </>
       ) : null}
 
       <Modal
