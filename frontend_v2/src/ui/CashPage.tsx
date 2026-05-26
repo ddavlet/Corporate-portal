@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Alert, Button, Card, Collapse, DatePicker, Descriptions, Modal, Input, InputNumber, Select, Skeleton, Space, Table, Tabs, Tag, Typography } from 'antd'
+import { useInfiniteList } from '../lib/useInfiniteList'
+import { ListInfiniteScrollFooter } from './ListInfiniteScrollFooter'
+import { Alert, Button, Card, Collapse, DatePicker, Descriptions, Modal, Input, InputNumber, Select, Skeleton, Space, Switch, Table, Tabs, Tag, Typography } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
 import type { Dayjs } from 'dayjs'
 import { useNavigate } from 'react-router-dom'
@@ -75,11 +77,10 @@ function formatDateTime(value?: string | null): string {
 
 export function CashPage() {
   const navigate = useNavigate()
-  const [loading, setLoading] = useState(true)
-  const [rows, setRows] = useState<CashExpenseRow[]>([])
+  const [missingRequestOnly, setMissingRequestOnly] = useState(false)
   const [revenues, setRevenues] = useState<CashRevenueRow[]>([])
+  const [revenuesLoading, setRevenuesLoading] = useState(true)
   const [cashRegisterByWalletId, setCashRegisterByWalletId] = useState<Record<number, string>>({})
-  const [error, setError] = useState<string | null>(null)
   const [search, setSearch] = useState('')
   const [confirmedFilter, setConfirmedFilter] = useState<string | undefined>(undefined)
   const [currencyFilter, setCurrencyFilter] = useState<string | undefined>(undefined)
@@ -101,22 +102,37 @@ export function CashPage() {
   const [openFullRequestModal, setOpenFullRequestModal] = useState(false)
   const [openNoteModal, setOpenNoteModal] = useState(false)
 
+  const expenseListUrl = useMemo(() => {
+    const params = new URLSearchParams()
+    if (currencyFilter) params.set('currency', currencyFilter)
+    if (cashRegisterFilter) params.set('wallet', cashRegisterFilter)
+    if (amountMin !== null) params.set('amount_min', String(amountMin))
+    if (amountMax !== null) params.set('amount_max', String(amountMax))
+    const from = dateRange?.[0]?.format('YYYY-MM-DD')
+    const to = dateRange?.[1]?.format('YYYY-MM-DD')
+    if (from) params.set('expense_from', from)
+    if (to) params.set('expense_to', to)
+    if (search.trim()) params.set('search', search.trim())
+    if (missingRequestOnly) params.set('missing_request', '1')
+    const q = params.toString()
+    return q ? `/api/cash/expenses/?${q}` : '/api/cash/expenses/'
+  }, [currencyFilter, cashRegisterFilter, amountMin, amountMax, dateRange, search, missingRequestOnly])
+
+  const {
+    items: rows,
+    loading,
+    loadingMore,
+    error,
+    hasMore: expensesHasMore,
+    sentinelRef: expensesSentinelRef,
+  } = useInfiniteList<CashExpenseRow>({ url: expenseListUrl })
+
   useEffect(() => {
     let cancelled = false
     ;(async () => {
-      setError(null)
-      setLoading(true)
       try {
-        const [res, revenueRows, cashRegisters] = await Promise.all([
-          apiFetch('/api/cash/expenses/'),
-          getCashRevenues(),
-          getCashRegisters(),
-        ])
-        const json = await res.json().catch(() => null)
-        if (!res.ok) throw new Error(typeof json === 'object' && json ? JSON.stringify(json) : `HTTP ${res.status}`)
+        const [revenueRows, cashRegisters] = await Promise.all([getCashRevenues(), getCashRegisters()])
         if (!cancelled) {
-          const normalized = normalizeRows(json)
-          setRows(normalized)
           setRevenues(revenueRows)
           const byWallet: Record<number, string> = {}
           for (const reg of cashRegisters) {
@@ -124,10 +140,10 @@ export function CashPage() {
           }
           setCashRegisterByWalletId(byWallet)
         }
-      } catch (e: any) {
-        if (!cancelled) setError(e?.message || 'Ошибка запроса')
+      } catch {
+        // revenues/registers are auxiliary; expense list errors come from useInfiniteList
       } finally {
-        if (!cancelled) setLoading(false)
+        if (!cancelled) setRevenuesLoading(false)
       }
     })()
     return () => {
@@ -425,7 +441,7 @@ export function CashPage() {
             {
               key: 'advanced',
               label: (() => {
-                const count = [confirmedFilter, currencyFilter, cashRegisterFilter, amountMin, amountMax, dateRange].filter(Boolean).length
+                const count = [confirmedFilter, currencyFilter, cashRegisterFilter, amountMin, amountMax, dateRange, missingRequestOnly].filter(Boolean).length
                 return count > 0 ? `Расширенные фильтры (${count} активно)` : 'Расширенные фильтры'
               })(),
               children: (
@@ -462,6 +478,10 @@ export function CashPage() {
                   <DatePicker.RangePicker value={dateRange} onChange={(v) => setDateRange(v)} placeholder={['Дата от', 'Дата до']} />
                   <InputNumber placeholder="Мин. сумма" min={0} value={amountMin} onChange={setAmountMin} />
                   <InputNumber placeholder="Макс. сумма" min={0} value={amountMax} onChange={setAmountMax} />
+                  <Space align="center">
+                    <Typography.Text style={{ marginBottom: 0 }}>Без заявки (обязательна)</Typography.Text>
+                    <Switch checked={missingRequestOnly} onChange={setMissingRequestOnly} />
+                  </Space>
                   <Button
                     onClick={() => {
                       setConfirmedFilter(undefined)
@@ -470,6 +490,7 @@ export function CashPage() {
                       setAmountMin(null)
                       setAmountMax(null)
                       setDateRange(null)
+                      setMissingRequestOnly(false)
                     }}
                   >
                     Сбросить фильтры
@@ -519,32 +540,31 @@ export function CashPage() {
               key: 'expenses',
               label: 'Расходы',
               children: (
-                <Table<CashExpenseRow>
-                  rowKey="id"
-                  columns={columns}
-                  dataSource={filteredRows}
-                  size="small"
-                  onChange={(pagination) => {
-                    if (pagination.current) setCurrentPage(pagination.current)
-                    if (pagination.pageSize) setPageSize(pagination.pageSize)
-                  }}
-                  rowClassName={(record) => {
-                    if (record.confirmed === false) return 'cash-row-unconfirmed'
-                    if (shouldHighlightMissingRequiredRequest(record)) return 'cash-row-unmatched'
-                    return ''
-                  }}
-                  pagination={{
-                    current: currentPage,
-                    pageSize,
-                    showSizeChanger: true,
-                    pageSizeOptions: [10, 20, 50, 100, 200],
-                  }}
-                  onRow={(record) => ({
-                    onClick: () => setSelectedExpense(record),
-                    style: { cursor: 'pointer' },
-                  })}
-                  scroll={{ x: 1100 }}
-                />
+                <>
+                  <Table<CashExpenseRow>
+                    rowKey="id"
+                    columns={columns}
+                    dataSource={filteredRows}
+                    size="small"
+                    rowClassName={(record) => {
+                      if (record.confirmed === false) return 'cash-row-unconfirmed'
+                      if (shouldHighlightMissingRequiredRequest(record)) return 'cash-row-unmatched'
+                      return ''
+                    }}
+                    pagination={false}
+                    onRow={(record) => ({
+                      onClick: () => setSelectedExpense(record),
+                      style: { cursor: 'pointer' },
+                    })}
+                    scroll={{ x: 1100 }}
+                  />
+                  <ListInfiniteScrollFooter
+                    sentinelRef={expensesSentinelRef}
+                    hasMore={expensesHasMore}
+                    loadingMore={loadingMore}
+                    visibleCount={filteredRows.length}
+                  />
+                </>
               ),
             },
             {

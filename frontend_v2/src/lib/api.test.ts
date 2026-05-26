@@ -18,6 +18,7 @@ import {
   changePassword,
   confirmPaymentViaWebApp,
   createVendor,
+  fetchCursorListPage,
   getCashBalances,
   getModuleCatalog,
   getMyApprovals,
@@ -303,5 +304,19 @@ describe('api module', () => {
     fetchMock.mockResolvedValueOnce(createJsonResponse(200, { request: { id: 11, status: 'approved' } }))
     const result = await confirmPaymentViaWebApp({ approval_id: 44, expense_id: 'INV-1' })
     expect(result.request).toEqual({ id: 11, status: 'approved' })
+  })
+
+  it('fetchCursorListPage parses cursor envelope and legacy array', async () => {
+    fetchMock.mockResolvedValueOnce(
+      createJsonResponse(200, { results: [{ id: 1 }], next: 'https://host/api/items/?cursor=x', previous: null }),
+    )
+    const page = await fetchCursorListPage<{ id: number }>('/api/items/')
+    expect(page.results).toEqual([{ id: 1 }])
+    expect(page.next).toContain('cursor=x')
+
+    fetchMock.mockResolvedValueOnce(createJsonResponse(200, [{ id: 2 }]))
+    const legacy = await fetchCursorListPage<{ id: number }>('/api/items/')
+    expect(legacy.results).toEqual([{ id: 2 }])
+    expect(legacy.next).toBeNull()
   })
 })

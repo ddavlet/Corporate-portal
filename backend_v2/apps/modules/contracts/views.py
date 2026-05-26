@@ -10,6 +10,11 @@ from rest_framework.parsers import FormParser, JSONParser, MultiPartParser
 from rest_framework.permissions import BasePermission, IsAuthenticated
 from rest_framework.response import Response
 
+from django.db.models import Q
+
+from apps.common.pagination import PortalCursorPagination
+from apps.common.query_params import parse_date_query
+from apps.common.viewsets import PortalListViewSetMixin
 from apps.modules.contracts.models import Contract
 from apps.modules.contracts.serializers import ContractSerializer
 from apps.tenants.models import TenantUserRole
@@ -33,21 +38,40 @@ class CanManageContracts(BasePermission):
         ).exists()
 
 
-class ContractViewSet(viewsets.ModelViewSet):
+class ContractCursorPagination(PortalCursorPagination):
+    ordering = "-date_from"
+
+
+class ContractViewSet(PortalListViewSetMixin, viewsets.ModelViewSet):
     module_key = "contracts"
     serializer_class = ContractSerializer
     parser_classes = [JSONParser, MultiPartParser, FormParser]
+    pagination_class = ContractCursorPagination
+    ordering_fields = ["date_from", "date_to", "contract_number", "id", "amount"]
+    ordering = ["-date_from", "-id"]
 
     def get_queryset(self):
         tenant = getattr(self.request, "tenant", None)
         if not tenant:
             return Contract.objects.none()
-        qs = Contract.objects.filter(tenant=tenant).select_related("vendor").order_by("-date_from", "contract_number", "id")
+        qs = Contract.objects.filter(tenant=tenant).select_related("vendor")
         vendor_id = (self.request.query_params.get("vendor") or "").strip()
         if vendor_id.isdigit():
             qs = qs.filter(vendor_id=int(vendor_id))
             qs = qs.exclude(contract_status=Contract.STATUS_REFUSED)
-        return qs
+        status_raw = (self.request.query_params.get("status") or "").strip()
+        if status_raw:
+            qs = qs.filter(contract_status=status_raw)
+        search = (self.request.query_params.get("search") or "").strip()
+        if search:
+            qs = qs.filter(Q(contract_number__icontains=search) | Q(vendor__name__icontains=search))
+        date_from = parse_date_query(self.request, "date_from")
+        date_to = parse_date_query(self.request, "date_to")
+        if date_from:
+            qs = qs.filter(date_from__gte=date_from)
+        if date_to:
+            qs = qs.filter(date_from__lte=date_to)
+        return qs.order_by("-date_from", "-id")
 
     def get_permissions(self):
         base = [IsAuthenticated(), HasEffectiveModuleAccess()]

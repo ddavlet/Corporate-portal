@@ -781,6 +781,75 @@ def build_unmatched_expenses_payload(
     return payload
 
 
+PORTAL_EXPENSE_MODULES = frozenset({"cash", "bank", "payroll", "corporate_card"})
+
+
+def resolve_request_portal_expense_module(request_obj: Request, *, tenant) -> str | None:
+    """Portal expense module for request; aligns with isPayedMissingLinkedExpense on the frontend."""
+    ref_id = request_obj.expense_ref_id
+    raw = str(getattr(request_obj, "expense_id", None) or "").strip()
+    pt = request_obj.payment_type
+    category = (request_obj.category or "").strip()
+
+    if ref_id is not None and pt == Request.PAYMENT_TYPE_CASH and category == SALARY_CATEGORY:
+        if PayrollDocument.objects.filter(tenant=tenant, id=ref_id).exists():
+            return "payroll"
+    if ref_id is not None and pt == Request.PAYMENT_TYPE_CASH:
+        if CashExpense.objects.filter(tenant=tenant, id=ref_id).exists():
+            return "cash"
+    if ref_id is not None and pt in (Request.PAYMENT_TYPE_TRANSFER, Request.PAYMENT_TYPE_TOPUP):
+        if BankExpense.objects.filter(tenant=tenant, id=ref_id).exists():
+            return "bank"
+    if ref_id is not None and pt == Request.PAYMENT_TYPE_CARD:
+        if CardExpense.objects.filter(tenant=tenant, id=ref_id).exists():
+            return "corporate_card"
+    if raw:
+        return "external"
+    return None
+
+
+def request_is_payed_missing_portal_expense(request_obj: Request, *, tenant) -> bool:
+    if request_obj.status != Request.STATUS_PAYED:
+        return False
+    mod = resolve_request_portal_expense_module(request_obj, tenant=tenant)
+    if mod is None:
+        return True
+    if mod == "external":
+        return True
+    if mod in PORTAL_EXPENSE_MODULES:
+        return False
+    return True
+
+
+def filter_requests_payed_missing_expense(qs, *, tenant):
+    qs = qs.filter(status=Request.STATUS_PAYED)
+    matched_ids = [
+        obj.pk
+        for obj in qs.iterator(chunk_size=500)
+        if request_is_payed_missing_portal_expense(obj, tenant=tenant)
+    ]
+    if not matched_ids:
+        return qs.none()
+    return qs.filter(pk__in=matched_ids)
+
+
+def filter_expenses_missing_request(qs, *, tenant, payment_type: str, payroll: bool = False):
+    matched_ids: list[int] = []
+    for obj in qs.iterator(chunk_size=500):
+        if payroll:
+            if not obj.has_paid_request:
+                matched_ids.append(obj.pk)
+        elif is_request_required_for_expense(
+            tenant=tenant,
+            payment_type=payment_type,
+            expense_obj=obj,
+        ) and not obj.has_paid_request:
+            matched_ids.append(obj.pk)
+    if not matched_ids:
+        return qs.none()
+    return qs.filter(pk__in=matched_ids)
+
+
 def parse_unmatched_expenses_query_params(*, query_params) -> tuple[date | None, date | None, str | None, int]:
     channel = (query_params.get("channel") or "").strip().lower() or None
     if channel and channel not in ("cash", "bank", "corporate_card", "payroll"):
