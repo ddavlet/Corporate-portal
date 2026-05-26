@@ -1,3 +1,5 @@
+import { notifyApiError, notifyNetworkError } from './apiNotify'
+
 type Tokens = { access: string; refresh: string }
 
 const STORAGE_KEY = 'kolberg_v2_tokens'
@@ -106,6 +108,24 @@ export type ApiFetchOptions = {
   treatAuthErrorsAsGlobal?: boolean
   /** For binary endpoints (file download): omit Accept: application/json. */
   omitAcceptJson?: boolean
+  /** Do not show a global error toast (caller handles UI). */
+  silent?: boolean
+  /** Do not toast on HTTP 403 (e.g. optional balances when module is disabled). */
+  ignoreForbidden?: boolean
+}
+
+function isReadMethod(init: RequestInit): boolean {
+  const method = (init.method || 'GET').toUpperCase()
+  return method === 'GET' || method === 'HEAD'
+}
+
+async function maybeNotifyHttpError(res: Response, init: RequestInit, options?: ApiFetchOptions): Promise<void> {
+  if (options?.silent || res.ok) return
+  if (res.status === 401) return
+  if (res.status === 403 && options?.ignoreForbidden) return
+  if (!isReadMethod(init)) return
+  const msg = await parseErrorBody(res.clone())
+  notifyApiError(msg)
 }
 
 export async function apiFetch(input: string, init: RequestInit = {}, options?: ApiFetchOptions) {
@@ -120,7 +140,13 @@ export async function apiFetch(input: string, init: RequestInit = {}, options?: 
       headers,
     })
 
-  let res = await doFetch()
+  let res: Response
+  try {
+    res = await doFetch()
+  } catch (e) {
+    if (!options?.silent) notifyNetworkError()
+    throw e
+  }
 
   // try refresh once
   if (res.status === 401 && tokens?.refresh) {
@@ -130,7 +156,12 @@ export async function apiFetch(input: string, init: RequestInit = {}, options?: 
       if (readTgTokens()?.refresh === tokens.refresh) setTgTokens(next)
       if (readPortalTokens()?.refresh === tokens.refresh) setTokens(next)
       headers.set('Authorization', `Bearer ${next.access}`)
-      res = await doFetch()
+      try {
+        res = await doFetch()
+      } catch (e) {
+        if (!options?.silent) notifyNetworkError()
+        throw e
+      }
     } else {
       if (readTgTokens()?.refresh === tokens.refresh) setTgTokens(null)
       if (readPortalTokens()?.refresh === tokens.refresh) setTokens(null)
@@ -143,6 +174,8 @@ export async function apiFetch(input: string, init: RequestInit = {}, options?: 
     if (readPortalTokens()?.refresh === tokens.refresh) setTokens(null)
     unauthorizedHandler?.()
   }
+
+  await maybeNotifyHttpError(res, init, options)
 
   return res
 }
@@ -620,7 +653,7 @@ function normalizeListPayload<T>(payload: unknown): T[] {
   return []
 }
 
-async function parseErrorBody(res: Response): Promise<string> {
+export async function parseErrorBody(res: Response): Promise<string> {
   const json = await res.json().catch(() => null)
   if (json && typeof json === 'object') {
     const j = json as Record<string, unknown>
@@ -1739,7 +1772,7 @@ export type ChannelBalanceRow = {
 }
 
 export async function getCashBalances(): Promise<ChannelBalanceRow[]> {
-  const res = await apiFetch('/api/cash/balances/', {}, { treatAuthErrorsAsGlobal: false })
+  const res = await apiFetch('/api/cash/balances/', {}, { treatAuthErrorsAsGlobal: false, ignoreForbidden: true })
   if (res.status === 403) return []
   if (!res.ok) throw new Error(await parseErrorBody(res))
   const json = await res.json().catch(() => null)
@@ -1747,7 +1780,7 @@ export async function getCashBalances(): Promise<ChannelBalanceRow[]> {
 }
 
 export async function getBankBalances(): Promise<ChannelBalanceRow[]> {
-  const res = await apiFetch('/api/bank/balances/', {}, { treatAuthErrorsAsGlobal: false })
+  const res = await apiFetch('/api/bank/balances/', {}, { treatAuthErrorsAsGlobal: false, ignoreForbidden: true })
   if (res.status === 403) return []
   if (!res.ok) throw new Error(await parseErrorBody(res))
   const json = await res.json().catch(() => null)
@@ -1755,7 +1788,7 @@ export async function getBankBalances(): Promise<ChannelBalanceRow[]> {
 }
 
 export async function getCorporateCardBalances(): Promise<ChannelBalanceRow[]> {
-  const res = await apiFetch('/api/corporate-card/balances/', {}, { treatAuthErrorsAsGlobal: false })
+  const res = await apiFetch('/api/corporate-card/balances/', {}, { treatAuthErrorsAsGlobal: false, ignoreForbidden: true })
   if (res.status === 403) return []
   if (!res.ok) throw new Error(await parseErrorBody(res))
   const json = await res.json().catch(() => null)
