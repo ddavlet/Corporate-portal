@@ -60,6 +60,7 @@ type RequestModalEditDraft = {
   category: string
   vendor: string
   payment_purpose: string
+  expense_id: string
   billing_date: Dayjs | null
   requester: string
   amortization_enabled: boolean
@@ -406,6 +407,7 @@ export function RequestsPage() {
         category: editDraft.category,
         vendor: editDraft.vendor,
         payment_purpose: editDraft.payment_purpose.trim() || undefined,
+        expense_id: editDraft.expense_id.trim() || null,
         requester: editDraft.requester ? Number(editDraft.requester) : null,
         billing_date: editDraft.billing_date ? editDraft.billing_date.startOf('month').format('YYYY-MM-DD') : undefined,
         amortization_months: editDraft.amortization_enabled ? editDraft.amortization_months : 1,
@@ -431,6 +433,7 @@ export function RequestsPage() {
         category: payload.category,
         vendor: payload.vendor,
         payment_purpose: payload.payment_purpose || '',
+        expense_id: payload.expense_id,
         requester: payload.requester,
         billing_date: payload.billing_date || selectedDetail.billing_date,
         amortization_months: payload.amortization_months,
@@ -842,6 +845,7 @@ export function RequestsPage() {
                       category: selectedDetail.category || '',
                       vendor: selectedDetail.vendor || '',
                       payment_purpose: selectedDetail.payment_purpose || '',
+                      expense_id: (selectedDetail.expense_id || '').trim(),
                       billing_date: selectedDetail.billing_date ? dayjs(selectedDetail.billing_date) : null,
                       requester: selectedDetail.requester != null ? String(selectedDetail.requester) : '',
                       amortization_enabled: Number(selectedDetail.amortization_months || 1) > 1,
@@ -1005,6 +1009,17 @@ export function RequestsPage() {
               onChange={(e) => setEditDraft((prev) => (prev ? { ...prev, payment_purpose: e.target.value } : prev))}
             />
           )}
+          <div>
+            <Typography.Text strong style={labelBlockAboveField}>
+              ID расхода (expense_id)
+            </Typography.Text>
+            <Input
+              allowClear
+              placeholder="Номер расхода / документа"
+              value={editDraft?.expense_id || ''}
+              onChange={(e) => setEditDraft((prev) => (prev ? { ...prev, expense_id: e.target.value } : prev))}
+            />
+          </div>
           <Space wrap>
             <DatePicker
               picker="month"
