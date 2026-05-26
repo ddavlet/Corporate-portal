@@ -283,6 +283,33 @@ export async function updateTenantCashExpenseIdFormat(
   return json
 }
 
+export type TenantPayrollDocIdFormatDto = {
+  payroll_doc_id_prefix: string
+  payroll_doc_id_digit_width: number
+}
+
+export async function getTenantPayrollDocIdFormat(): Promise<TenantPayrollDocIdFormatDto> {
+  const res = await apiFetch('/api/tenant/payroll-doc-id-format/')
+  if (!res.ok) throw new Error(await parseErrorBody(res))
+  const json = (await res.json().catch(() => null)) as TenantPayrollDocIdFormatDto | null
+  if (!json) throw new Error('Пустой ответ от сервера')
+  return json
+}
+
+export async function updateTenantPayrollDocIdFormat(
+  payload: TenantPayrollDocIdFormatDto,
+): Promise<TenantPayrollDocIdFormatDto> {
+  const res = await apiFetch('/api/tenant/payroll-doc-id-format/', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+  if (!res.ok) throw new Error(await parseErrorBody(res))
+  const json = (await res.json().catch(() => null)) as TenantPayrollDocIdFormatDto | null
+  if (!json) throw new Error('Пустой ответ от сервера')
+  return json
+}
+
 export async function updateTenantIntegrationConfig(
   payload: TenantIntegrationConfigUpdatePayload,
 ): Promise<TenantIntegrationConfigResponse> {

@@ -28,7 +28,7 @@ import {
 import { labelBlockAboveField } from '../formSpacing'
 import { RequestReturnBackButton } from './RequestReturnBackButton'
 
-const PAYMENT_TYPES = ['Наличные', 'Перечисление', 'Пополнение', 'Платежная карта'] as const
+const PAYMENT_TYPES = ['Наличные', 'Перечисление', 'Пополнение', 'Платежная карта', 'Начисление ЗП'] as const
 
 function emptyPaymentTypeRow(pt: string): RequestFormConfigPaymentTypeItem {
   return {

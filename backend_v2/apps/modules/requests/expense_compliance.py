@@ -11,9 +11,8 @@ from django.db.models import DecimalField, Value
 from apps.modules.bank_expenses.models import BankExpense
 from apps.modules.cashier.models import CashExpense
 from apps.modules.corporate_card.models import CardExpense
-from apps.modules.payroll.constants import MODULE_KEY as PAYROLL_MODULE_KEY, SALARY_CATEGORY
+from apps.modules.payroll.constants import MODULE_KEY as PAYROLL_MODULE_KEY
 from apps.modules.payroll.models import PayrollDocument, PayrollLine
-from apps.modules.payroll.utils import tenant_has_payroll_module_enabled
 from apps.modules.requests.approval_workflow import min_pending_approval_step
 from apps.modules.requests.expense_refs import resolve_request_expense_ref
 from apps.modules.requests.models import Approval, Request
@@ -153,11 +152,6 @@ def annotate_cash_expense_compliance(qs, *, tenant):
         payment_type=Request.PAYMENT_TYPE_CASH,
         amount=OuterRef("amount"),
     ).filter(Q(expense_ref_id=OuterRef("id")) | Q(expense_id=OuterRef("external_id")))
-    if tenant_has_payroll_module_enabled(tenant):
-        request_subquery = request_subquery.exclude(
-            payment_type=Request.PAYMENT_TYPE_CASH,
-            category=SALARY_CATEGORY,
-        )
     paid_request_subquery = request_subquery.filter(status=Request.STATUS_PAYED)
     return qs.annotate(
         has_request=Exists(request_subquery),
@@ -189,8 +183,7 @@ def annotate_payroll_compliance(qs, *, tenant):
     )
     request_subquery = Request.objects.filter(
         tenant=tenant,
-        payment_type=Request.PAYMENT_TYPE_CASH,
-        category=SALARY_CATEGORY,
+        payment_type=Request.PAYMENT_TYPE_PAYROLL,
         amount=Subquery(payroll_total_subquery),
     ).filter(Q(expense_ref_id=OuterRef("pk")) | Q(expense_id=OuterRef("doc_id")))
     paid_request_subquery = request_subquery.filter(status=Request.STATUS_PAYED)
@@ -553,10 +546,9 @@ def collect_payroll_channel_payload(
     date_to: date | None,
     limit: int,
 ) -> dict:
-    rules = rules_by_pt[Request.PAYMENT_TYPE_CASH]
+    rules = rules_by_pt[Request.PAYMENT_TYPE_PAYROLL]
     base = {
-        "payment_type": Request.PAYMENT_TYPE_CASH,
-        "category": SALARY_CATEGORY,
+        "payment_type": Request.PAYMENT_TYPE_PAYROLL,
         "rules": rules,
         "missing_paid_request": [],
         "linked_request_in_progress": [],
@@ -763,9 +755,8 @@ def build_unmatched_expenses_payload(
     else:
         payload["payroll"] = {
             "enabled": False,
-            "payment_type": Request.PAYMENT_TYPE_CASH,
-            "category": SALARY_CATEGORY,
-            "rules": rules_by_pt[Request.PAYMENT_TYPE_CASH],
+            "payment_type": Request.PAYMENT_TYPE_PAYROLL,
+            "rules": rules_by_pt[Request.PAYMENT_TYPE_PAYROLL],
             "missing_paid_request": [],
             "linked_request_in_progress": [],
             "counts": {"missing_paid_request": 0, "linked_request_in_progress": 0},
@@ -791,7 +782,7 @@ def resolve_request_portal_expense_module(request_obj: Request, *, tenant) -> st
     pt = request_obj.payment_type
     category = (request_obj.category or "").strip()
 
-    if ref_id is not None and pt == Request.PAYMENT_TYPE_CASH and category == SALARY_CATEGORY:
+    if ref_id is not None and pt == Request.PAYMENT_TYPE_PAYROLL:
         if PayrollDocument.objects.filter(tenant=tenant, id=ref_id).exists():
             return "payroll"
     if ref_id is not None and pt == Request.PAYMENT_TYPE_CASH:

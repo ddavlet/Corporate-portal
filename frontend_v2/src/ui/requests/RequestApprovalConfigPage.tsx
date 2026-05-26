@@ -14,7 +14,7 @@ import {
 } from '../../lib/api'
 import { labelBlockAboveField } from '../formSpacing'
 
-const PAYMENT_TYPES = ['Наличные', 'Перечисление', 'Пополнение', 'Платежная карта'] as const
+const PAYMENT_TYPES = ['Наличные', 'Перечисление', 'Пополнение', 'Платежная карта', 'Начисление ЗП'] as const
 type PaymentType = (typeof PAYMENT_TYPES)[number]
 
 const STEP_TYPES: Array<{ value: string; label: string }> = [

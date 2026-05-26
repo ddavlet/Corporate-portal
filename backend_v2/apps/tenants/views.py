@@ -22,12 +22,14 @@ from apps.tenants.permissions import (
     HasEffectiveModuleAccess,
     HasWalletsFinancialWriteAccess,
     IsTenantAdmin,
+    IsTenantAdminOrDirector,
     build_role_module_matrix,
     role_allows_module,
 )
 from apps.tenants.serializers import (
     AccessMatrixUpdateSerializer,
     TenantCashExpenseIdFormatSerializer,
+    TenantPayrollDocIdFormatSerializer,
     TenantIntegrationConfigSerializer,
     TenantModuleConfigUpdateSerializer,
     TenantUserPreferenceSerializer,
@@ -431,5 +433,40 @@ class TenantCashExpenseIdFormatView(APIView):
         tenant.save(
             update_fields=["cash_expense_external_id_prefix", "cash_expense_external_id_digit_width"]
         )
+        return self.get(request)
+
+
+class TenantPayrollDocIdFormatView(APIView):
+    """
+    Read/update how payroll document `doc_id` is matched from short numeric input
+    (prefix + zero-padded width). Requires payroll module; admin or director to change.
+    """
+
+    module_key = "payroll"
+
+    def get_permissions(self):
+        return [IsAuthenticated(), HasEffectiveModuleAccess(), IsTenantAdminOrDirector()]
+
+    def get(self, request):
+        tenant = getattr(request, "tenant", None)
+        if not tenant:
+            return Response({"detail": "Unknown tenant."}, status=status.HTTP_404_NOT_FOUND)
+        return Response(
+            {
+                "payroll_doc_id_prefix": tenant.payroll_doc_id_prefix,
+                "payroll_doc_id_digit_width": tenant.payroll_doc_id_digit_width,
+            }
+        )
+
+    def put(self, request):
+        tenant = getattr(request, "tenant", None)
+        if not tenant:
+            return Response({"detail": "Unknown tenant."}, status=status.HTTP_404_NOT_FOUND)
+        serializer = TenantPayrollDocIdFormatSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+        tenant.payroll_doc_id_prefix = data["payroll_doc_id_prefix"]
+        tenant.payroll_doc_id_digit_width = data["payroll_doc_id_digit_width"]
+        tenant.save(update_fields=["payroll_doc_id_prefix", "payroll_doc_id_digit_width"])
         return self.get(request)
 

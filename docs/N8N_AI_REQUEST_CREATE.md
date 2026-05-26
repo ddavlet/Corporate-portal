@@ -56,7 +56,7 @@ Endpoint accepts frontend-like request fields (`PortalRequestSerializer` flow).
 - `description`: string (optional, blank allowed)
 - `amount`: decimal string (required in practice)
 - `currency`: `UZS | USD | EUR | RUB`
-- `payment_type`: `Наличные | Перечисление | Пополнение | Платежная карта`
+- `payment_type`: `Наличные | Перечисление | Пополнение | Платежная карта | Начисление ЗП`
 - `urgency`: `Низко | Обычно | Срочно`
 - `requester`: integer (conditional, see below)
 - `payment_purpose`: string (required if tenant form config enforces it)

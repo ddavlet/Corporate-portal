@@ -6,6 +6,7 @@ from rest_framework.exceptions import ValidationError
 from apps.modules.bank_expenses.models import BankExpense
 from apps.modules.cashier.models import CashExpense
 from apps.modules.corporate_card.models import CardExpense
+from apps.modules.payroll.models import PayrollDocument
 from apps.modules.requests.models import Request, RequestPaymentPurposeConfig
 from apps.modules.wallets.serializer_integration import (
     assign_wallet_for_bank_movement,
@@ -46,6 +47,8 @@ def _already_linked(request_obj: Request) -> bool:
         return BankExpense.objects.filter(tenant=request_obj.tenant, id=ref_id).exists()
     if target == Request.EXPENSE_REF_TARGET_CARD:
         return CardExpense.objects.filter(tenant=request_obj.tenant, id=ref_id).exists()
+    if target == Request.EXPENSE_REF_TARGET_PAYROLL:
+        return PayrollDocument.objects.filter(tenant=request_obj.tenant, id=ref_id).exists()
     return False
 
 

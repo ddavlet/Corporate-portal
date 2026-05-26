@@ -62,7 +62,7 @@ def list_requests(
     Filters (all optional):
     - status: DRAFT | 1 | 2 | 3 | 4 | 5 | APPROVED | PAYED | REJECTED
     - currency: UZS | USD | EUR | RUB
-    - payment_type: Наличные | Перечисление | Пополнение | Платежная карта
+    - payment_type: Наличные | Перечисление | Пополнение | Платежная карта | Начисление ЗП
     - urgency: Низко | Обычно | Срочно
     - date_from / date_to: ISO date strings (YYYY-MM-DD), filter on created_at
     - limit: max records to return (default 50, max 200)

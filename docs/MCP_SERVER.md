@@ -155,7 +155,7 @@ Lists payment requests with optional filters. **Roles:** admin, director, approv
 |-----------|------|-------|
 | `status` | str | `DRAFT`, `1`–`5`, `APPROVED`, `PAYED`, `REJECTED` |
 | `currency` | str | `UZS`, `USD`, `EUR`, `RUB` |
-| `payment_type` | str | `Наличные`, `Перечисление`, `Пополнение`, `Платежная карта` |
+| `payment_type` | str | `Наличные`, `Перечисление`, `Пополнение`, `Платежная карта`, `Начисление ЗП` |
 | `urgency` | str | `Низко`, `Обычно`, `Срочно` |
 | `date_from` / `date_to` | str | Filters on `created_at` (date part) |
 | `limit` | int | Default 50, max 200 |
@@ -314,6 +314,7 @@ When reporting "spend for month X", filter by the **accrual period**, not by `cr
 | `Перечисление` | Bank transfer |
 | `Пополнение` | Top-up / replenishment |
 | `Платежная карта` | Payment card |
+| `Начисление ЗП` | Payroll accrual (links to `PayrollDocument.doc_id` via `expense_id`) |
 
 ### Approval chain
 

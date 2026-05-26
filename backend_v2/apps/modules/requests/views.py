@@ -51,6 +51,7 @@ from apps.modules.requests.models import (
 from apps.modules.contracts.models import Contract
 from apps.modules.vendors.models import Vendor
 from apps.modules.requests.amortization import build_amortization_schedule_rows
+from apps.modules.payroll.utils import tenant_has_payroll_module_enabled
 from apps.modules.requests.serializers import (
     ApprovalSerializer,
     ApprovalFullContextSerializer,
@@ -389,7 +390,10 @@ class RequestApprovalsMixin:
                 expense_year=request_obj.expense_year,
                 amount=request_obj.amount,
             )
-            if normalized_expense_id and request_obj.payment_type == Request.PAYMENT_TYPE_CASH:
+            if normalized_expense_id and request_obj.payment_type in (
+                Request.PAYMENT_TYPE_CASH,
+                Request.PAYMENT_TYPE_PAYROLL,
+            ):
                 request_obj.expense_id = normalized_expense_id
             tgt = expense_ref_target_for(
                 payment_type=request_obj.payment_type,
@@ -650,6 +654,7 @@ class PortalRequestViewSet(
                         Request.PAYMENT_TYPE_TRANSFER,
                         Request.PAYMENT_TYPE_TOPUP,
                         Request.PAYMENT_TYPE_CARD,
+                        Request.PAYMENT_TYPE_PAYROLL,
                     }
                 )
             if is_cashier:
@@ -1493,6 +1498,8 @@ class RequestFormOptionsView(APIView):
                         "defaults": form_defaults(pt),
                     }
                     for pt in pt_qs
+                    if pt.payment_type != Request.PAYMENT_TYPE_PAYROLL
+                    or tenant_has_payroll_module_enabled(tenant)
                 ],
             }
         )
