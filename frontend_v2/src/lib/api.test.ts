@@ -62,13 +62,22 @@ describe('api module', () => {
     expect(notifyApiErrorMock).toHaveBeenCalledWith('Сервер недоступен')
   })
 
-  it('does not toast on failed POST (caller handles mutation errors)', async () => {
+  it('does not toast on failed POST by default (caller handles mutation errors)', async () => {
     fetchMock.mockResolvedValueOnce(createJsonResponse(400, { detail: 'Неверные данные' }))
 
     const res = await apiFetch('/api/example', { method: 'POST' })
 
     expect(res.status).toBe(400)
     expect(notifyApiErrorMock).not.toHaveBeenCalled()
+  })
+
+  it('shows toast on failed PATCH when notifyOnError is set', async () => {
+    fetchMock.mockResolvedValueOnce(createJsonResponse(400, { detail: 'Нельзя изменить статус' }))
+
+    const res = await apiFetch('/api/requests/1/', { method: 'PATCH' }, { notifyOnError: true })
+
+    expect(res.status).toBe(400)
+    expect(notifyApiErrorMock).toHaveBeenCalledWith('Нельзя изменить статус')
   })
 
   it('respects silent option for GET errors', async () => {

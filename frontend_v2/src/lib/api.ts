@@ -110,6 +110,8 @@ export type ApiFetchOptions = {
   omitAcceptJson?: boolean
   /** Do not show a global error toast (caller handles UI). */
   silent?: boolean
+  /** Show error toast for POST/PATCH/PUT/DELETE (default: only GET/HEAD). */
+  notifyOnError?: boolean
   /** Do not toast on HTTP 403 (e.g. optional balances when module is disabled). */
   ignoreForbidden?: boolean
 }
@@ -123,7 +125,7 @@ async function maybeNotifyHttpError(res: Response, init: RequestInit, options?: 
   if (options?.silent || res.ok) return
   if (res.status === 401) return
   if (res.status === 403 && options?.ignoreForbidden) return
-  if (!isReadMethod(init)) return
+  if (!isReadMethod(init) && !options?.notifyOnError) return
   const msg = await parseErrorBody(res.clone())
   notifyApiError(msg)
 }
