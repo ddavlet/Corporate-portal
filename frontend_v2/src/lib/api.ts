@@ -683,10 +683,19 @@ export async function fetchAllCursorPages<T>(
   const sep = path.includes('?') ? '&' : '?'
   let nextUrl: string | null = `${path}${sep}page_size=${pageSize}`
   const all: T[] = []
-  while (nextUrl) {
+  const maxPages = 500
+  let pages = 0
+  let prevNext: string | null = null
+  while (nextUrl && pages < maxPages) {
     const page: CursorListPage<T> = await fetchCursorListPage<T>(nextUrl, init, options)
     all.push(...page.results)
-    nextUrl = page.next ? resolveCursorFetchUrl(page.next) : null
+    const resolvedNext = page.next ? resolveCursorFetchUrl(page.next) : null
+    if (resolvedNext === prevNext || (page.results.length === 0 && resolvedNext)) {
+      break
+    }
+    prevNext = resolvedNext
+    nextUrl = resolvedNext
+    pages += 1
   }
   return all
 }

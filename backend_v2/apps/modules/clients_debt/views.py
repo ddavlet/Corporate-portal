@@ -11,7 +11,7 @@ from apps.tenants.permissions import HasEffectiveModuleAccess
 
 
 class ClientDebtCursorPagination(PortalCursorPagination):
-    ordering = "-snapshot_at"
+    ordering = "-snapshot_at,-id"
 
 
 class ClientDebtSnapshotViewSet(PortalListViewSetMixin, viewsets.ReadOnlyModelViewSet):
