@@ -61,25 +61,31 @@ from apps.modules.investments.serializers import (
     ProjectInvestmentApprovalReadSerializer,
     ProjectInvestmentSerializer,
 )
+from apps.common.pagination import PortalCursorPagination
+from apps.common.query_params import parse_bool_query, parse_date_query
+from apps.common.viewsets import NoPortalPaginationMixin, PortalListViewSetMixin
 from apps.tenants.models import TenantMembership
 from apps.tenants.permissions import HasEffectiveModuleAccess
 
 
-class _InvestmentsTenantViewSet(viewsets.ModelViewSet):
+class _InvestmentsTenantViewSet(PortalListViewSetMixin, viewsets.ModelViewSet):
     module_key = "investments"
     permission_classes = [IsAuthenticated, HasEffectiveModuleAccess]
+    pagination_class = PortalCursorPagination
+    ordering_fields = ["id", "created_at"]
+    ordering = ["-id"]
 
     def get_queryset(self):
         tenant = getattr(self.request, "tenant", None)
         if not tenant:
             return self.queryset.none()
-        return self.queryset.filter(tenant=tenant)
+        return self.queryset.filter(tenant=tenant).order_by("-id")
 
     def perform_create(self, serializer):
         serializer.save(tenant=self.request.tenant, created_by=self.request.user)
 
 
-class _ReadOnlyInvestmentsTenantViewSet(viewsets.ReadOnlyModelViewSet):
+class _ReadOnlyInvestmentsTenantViewSet(NoPortalPaginationMixin, viewsets.ReadOnlyModelViewSet):
     """Список строк таблицы модуля «Инвестиции» для админ-просмотра (без изменений через API)."""
 
     module_key = "investments"
@@ -178,6 +184,26 @@ class InvestReturnViewSet(_InvestmentsTenantViewSet):
 class InvestPayoutScheduleViewSet(_InvestmentsTenantViewSet):
     serializer_class = InvestPayoutScheduleSerializer
     queryset = InvestPayoutSchedule.objects.all()
+    ordering_fields = ["payout_date", "amount", "id", "is_paid"]
+    ordering = ["-payout_date", "-id"]
+
+    def get_queryset(self):
+        qs = super().get_queryset()
+        company_id = (self.request.query_params.get("company") or "").strip()
+        if company_id.isdigit():
+            qs = qs.filter(company_id=int(company_id))
+        is_paid = parse_bool_query(self.request, "is_paid")
+        if is_paid is True:
+            qs = qs.filter(is_paid=True)
+        elif is_paid is False:
+            qs = qs.filter(is_paid=False)
+        payout_from = parse_date_query(self.request, "payout_from")
+        payout_to = parse_date_query(self.request, "payout_to")
+        if payout_from:
+            qs = qs.filter(payout_date__gte=payout_from)
+        if payout_to:
+            qs = qs.filter(payout_date__lte=payout_to)
+        return qs.order_by("-payout_date", "-id")
 
 
 class ProjectInvestmentViewSet(_InvestmentsTenantViewSet):
@@ -193,6 +219,17 @@ class ProjectInvestmentViewSet(_InvestmentsTenantViewSet):
 class InvestCompanyViewSet(_InvestmentsTenantViewSet):
     serializer_class = InvestCompanySerializer
     queryset = InvestCompany.objects.all()
+    ordering_fields = ["name", "id", "created_at"]
+    ordering = ["name", "id"]
+
+    def get_queryset(self):
+        qs = super().get_queryset()
+        search = (self.request.query_params.get("search") or "").strip()
+        if search:
+            from django.db.models import Q
+
+            qs = qs.filter(Q(name__icontains=search))
+        return qs.order_by("name", "id")
 
     def perform_create(self, serializer):
         cfg = InvestmentFormConfig.objects.filter(tenant=self.request.tenant).first()

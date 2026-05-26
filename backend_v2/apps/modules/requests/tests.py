@@ -11,6 +11,7 @@ from django.utils import timezone
 from rest_framework.test import APITestCase
 from urllib.parse import parse_qs, urlparse
 
+from apps.common.test_utils import list_results
 from apps.tenants.models import Tenant, TenantIntegrationConfig, TenantMembership, TenantModuleConfig, TenantUserRole
 from apps.modules.requests.models import (
     Approval,
@@ -711,7 +712,7 @@ class RequestApprovalsTests(APITestCase):
         self.client.force_authenticate(self.approver)
         res = self.client.get("/api/requests/", HTTP_HOST=self.host)
         self.assertEqual(res.status_code, 200, res.content)
-        ids = {row["id"] for row in res.data}
+        ids = {row["id"] for row in list_results(res)}
         self.assertIn(visible_request_id, ids)
         self.assertIn(own_request.id, ids)
         self.assertNotIn(hidden_request.id, ids)
@@ -2391,7 +2392,7 @@ class RequestRoleVisibilityTests(APITestCase):
         self.client.force_authenticate(self.accountant)
         res = self.client.get("/api/requests/", HTTP_HOST=self.host)
         self.assertEqual(res.status_code, 200, res.content)
-        visible_types = {row["payment_type"] for row in res.data}
+        visible_types = {row["payment_type"] for row in list_results(res)}
         self.assertEqual(
             visible_types,
             {
@@ -2405,14 +2406,14 @@ class RequestRoleVisibilityTests(APITestCase):
         self.client.force_authenticate(self.cashier)
         res = self.client.get("/api/requests/", HTTP_HOST=self.host)
         self.assertEqual(res.status_code, 200, res.content)
-        visible_types = {row["payment_type"] for row in res.data}
+        visible_types = {row["payment_type"] for row in list_results(res)}
         self.assertEqual(visible_types, {Request.PAYMENT_TYPE_CASH})
 
     def test_admin_sees_all_requests(self):
         self.client.force_authenticate(self.admin)
         res = self.client.get("/api/requests/", HTTP_HOST=self.host)
         self.assertEqual(res.status_code, 200, res.content)
-        visible_types = {row["payment_type"] for row in res.data}
+        visible_types = {row["payment_type"] for row in list_results(res)}
         self.assertEqual(
             visible_types,
             {
@@ -2427,7 +2428,7 @@ class RequestRoleVisibilityTests(APITestCase):
         self.client.force_authenticate(self.director)
         res = self.client.get("/api/requests/", HTTP_HOST=self.host)
         self.assertEqual(res.status_code, 200, res.content)
-        visible_types = {row["payment_type"] for row in res.data}
+        visible_types = {row["payment_type"] for row in list_results(res)}
         self.assertEqual(
             visible_types,
             {
@@ -2479,7 +2480,7 @@ class RequestRoleVisibilityTests(APITestCase):
         self.client.force_authenticate(requester)
         res = self.client.get("/api/requests/", HTTP_HOST=self.host)
         self.assertEqual(res.status_code, 200, res.content)
-        ids = {row["id"] for row in res.data}
+        ids = {row["id"] for row in list_results(res)}
         self.assertIn(visible.id, ids)
         self.assertNotIn(hidden.id, ids)
 
@@ -2529,7 +2530,7 @@ class RequestRoleVisibilityTests(APITestCase):
         self.client.force_authenticate(requester)
         res = self.client.get("/api/requests/", HTTP_HOST=self.host)
         self.assertEqual(res.status_code, 200, res.content)
-        ids = {row["id"] for row in res.data}
+        ids = {row["id"] for row in list_results(res)}
         self.assertIn(visible.id, ids)
         self.assertNotIn(hidden.id, ids)
 
@@ -2583,7 +2584,7 @@ class RequestRoleVisibilityTests(APITestCase):
         self.client.force_authenticate(approver)
         res = self.client.get("/api/requests/", HTTP_HOST=self.host)
         self.assertEqual(res.status_code, 200, res.content)
-        ids = {row["id"] for row in res.data}
+        ids = {row["id"] for row in list_results(res)}
         self.assertIn(visible_req.id, ids)
         self.assertNotIn(hidden_req.id, ids)
 
@@ -2625,9 +2626,79 @@ class RequestRoleVisibilityTests(APITestCase):
         self.client.force_authenticate(self.admin)
         res = self.client.get("/api/requests/?amortized_only=1", HTTP_HOST=self.host)
         self.assertEqual(res.status_code, 200, res.content)
-        ids = {row["id"] for row in res.data}
+        ids = {row["id"] for row in list_results(res)}
         self.assertIn(amortized.id, ids)
         self.assertNotIn(plain.id, ids)
+
+
+@override_settings(BASE_DOMAIN="example.com", ALLOWED_HOSTS=["*"])
+class PayedMissingExpenseFilterTests(APITestCase):
+    def setUp(self):
+        self.tenant = Tenant.objects.create(name="PayedGap", subdomain="payedgap", is_active=True)
+        self.admin = User.objects.create_user(username="payedgap_admin", password="x")
+        TenantMembership.objects.create(tenant=self.tenant, user=self.admin, is_active=True)
+        TenantUserRole.objects.create(tenant=self.tenant, user=self.admin, role=TenantUserRole.ROLE_ADMIN)
+        TenantModuleConfig.objects.create(tenant=self.tenant, module_key="requests", is_enabled=True)
+        TenantModuleConfig.objects.create(tenant=self.tenant, module_key="cash", is_enabled=True)
+        self.host = "payedgap.example.com"
+        self.client.force_authenticate(self.admin)
+
+    def test_payed_missing_expense_filter_excludes_linked_cash(self):
+        from apps.modules.cashier.models import CashExpense
+        from apps.modules.wallets.models import CashRegister, Wallet
+
+        register = CashRegister.objects.create(
+            tenant=self.tenant,
+            name="Main",
+            currency="UZS",
+            is_active=True,
+            sort_order=1,
+        )
+        wallet = Wallet.objects.create(tenant=self.tenant, type=Wallet.Type.CASH, cash_register=register)
+        expense = CashExpense.objects.create(
+            tenant=self.tenant,
+            created_by=self.admin,
+            wallet=wallet,
+            external_id="E-1",
+            expense_year=2026,
+            title="Office",
+            amount="50.00",
+            currency="UZS",
+            expense_at=timezone.now(),
+        )
+        missing = Request.objects.create(
+            tenant=self.tenant,
+            created_by=self.admin,
+            requester=self.admin,
+            title="Paid no link",
+            amount="10.00",
+            currency="UZS",
+            payment_type=Request.PAYMENT_TYPE_CASH,
+            urgency=Request.URGENCY_NORMAL,
+            billing_date=date(2026, 1, 1),
+            status=Request.STATUS_PAYED,
+        )
+        linked = Request.objects.create(
+            tenant=self.tenant,
+            created_by=self.admin,
+            requester=self.admin,
+            title="Paid with cash",
+            amount="50.00",
+            currency="UZS",
+            payment_type=Request.PAYMENT_TYPE_CASH,
+            urgency=Request.URGENCY_NORMAL,
+            billing_date=date(2026, 1, 1),
+            status=Request.STATUS_PAYED,
+            expense_ref_id=expense.id,
+            expense_ref_target=Request.EXPENSE_REF_TARGET_CASH,
+            expense_id=expense.external_id,
+            expense_year=expense.expense_year,
+        )
+        res = self.client.get("/api/requests/?payed_missing_expense=1", HTTP_HOST=self.host)
+        self.assertEqual(res.status_code, 200, res.content)
+        ids = {row["id"] for row in list_results(res)}
+        self.assertIn(missing.id, ids)
+        self.assertNotIn(linked.id, ids)
 
 
 @override_settings(BASE_DOMAIN="example.com", N8N_INTEGRATION_TOKEN="", ALLOWED_HOSTS=["*"])

@@ -186,6 +186,8 @@ REST_FRAMEWORK = {
     "DEFAULT_PERMISSION_CLASSES": (
         "rest_framework.permissions.IsAuthenticated",
     ),
+    "DEFAULT_PAGINATION_CLASS": "apps.common.pagination.PortalCursorPagination",
+    "PAGE_SIZE": 50,
 }
 
 # n8n integration API (path prefix + shared secret)

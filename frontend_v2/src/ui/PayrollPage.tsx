@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import {
   Alert,
   Button,
@@ -18,7 +18,8 @@ import {
 import type { ColumnsType } from 'antd/es/table'
 import type { Dayjs } from 'dayjs'
 import { useNavigate } from 'react-router-dom'
-import { apiFetch } from '../lib/api'
+import { useInfiniteList } from '../lib/useInfiniteList'
+import { ListInfiniteScrollFooter } from './ListInfiniteScrollFooter'
 import { labelBlockAboveField } from './formSpacing'
 
 type PayrollDocumentRow = {
@@ -50,20 +51,8 @@ function compareDateStrings(a?: string | null, b?: string | null): number {
   return String(a || '').localeCompare(String(b || ''))
 }
 
-function normalizeRows(payload: unknown): PayrollDocumentRow[] {
-  if (Array.isArray(payload)) return payload as PayrollDocumentRow[]
-  if (payload && typeof payload === 'object' && 'results' in payload) {
-    const results = (payload as { results?: unknown }).results
-    return Array.isArray(results) ? (results as PayrollDocumentRow[]) : []
-  }
-  return []
-}
-
 export function PayrollPage() {
   const navigate = useNavigate()
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
-  const [rows, setRows] = useState<PayrollDocumentRow[]>([])
   const [search, setSearch] = useState('')
   const [docIdFilter, setDocIdFilter] = useState('')
   const [employeeSearch, setEmployeeSearch] = useState('')
@@ -72,68 +61,37 @@ export function PayrollPage() {
   const [amountMin, setAmountMin] = useState<number | null>(null)
   const [amountMax, setAmountMax] = useState<number | null>(null)
   const [requestFilter, setRequestFilter] = useState<string | undefined>(undefined)
-  const [currentPage, setCurrentPage] = useState(1)
-  const [pageSize, setPageSize] = useState(50)
 
-  useEffect(() => {
-    let cancelled = false
-    ;(async () => {
-      setLoading(true)
-      setError(null)
-      try {
-        const params = new URLSearchParams()
-        if (docIdFilter.trim()) params.set('doc_id', docIdFilter.trim())
-        if (employeeSearch.trim()) params.set('employee_search', employeeSearch.trim())
-        const periodFrom = periodRange?.[0]?.format('YYYY-MM-DD')
-        const periodTo = periodRange?.[1]?.format('YYYY-MM-DD')
-        if (periodFrom) params.set('period_from', periodFrom)
-        if (periodTo) params.set('period_to', periodTo)
-        const q = params.toString()
-        const res = await apiFetch(q ? `/api/payroll/documents/?${q}` : '/api/payroll/documents/')
-        const json = await res.json().catch(() => null)
-        if (!res.ok) {
-          throw new Error(typeof json === 'object' && json ? JSON.stringify(json) : `HTTP ${res.status}`)
-        }
-        if (!cancelled) setRows(normalizeRows(json))
-      } catch (e: unknown) {
-        if (!cancelled) setError(e instanceof Error ? e.message : 'Ошибка загрузки')
-      } finally {
-        if (!cancelled) setLoading(false)
-      }
-    })()
-    return () => {
-      cancelled = true
-    }
-  }, [docIdFilter, employeeSearch, periodRange])
-
-  const filteredRows = useMemo(() => {
-    const normalized = search.trim().toLowerCase()
+  const listUrl = useMemo(() => {
+    const params = new URLSearchParams()
+    if (docIdFilter.trim()) params.set('doc_id', docIdFilter.trim())
+    if (employeeSearch.trim()) params.set('employee_search', employeeSearch.trim())
+    const periodFrom = periodRange?.[0]?.format('YYYY-MM-DD')
+    const periodTo = periodRange?.[1]?.format('YYYY-MM-DD')
+    if (periodFrom) params.set('period_from', periodFrom)
+    if (periodTo) params.set('period_to', periodTo)
     const createdFrom = createdRange?.[0]?.format('YYYY-MM-DD')
     const createdTo = createdRange?.[1]?.format('YYYY-MM-DD')
+    if (createdFrom) params.set('created_from', createdFrom)
+    if (createdTo) params.set('created_to', createdTo)
+    if (amountMin !== null) params.set('amount_min', String(amountMin))
+    if (amountMax !== null) params.set('amount_max', String(amountMax))
+    if (search.trim()) params.set('search', search.trim())
+    if (requestFilter === 'with_request') params.set('has_request', '1')
+    if (requestFilter === 'without_request') params.set('has_request', '0')
+    if (requestFilter === 'unpaid') params.set('missing_request', '1')
+    const q = params.toString()
+    return q ? `/api/payroll/documents/?${q}` : '/api/payroll/documents/'
+  }, [docIdFilter, employeeSearch, periodRange, createdRange, amountMin, amountMax, search, requestFilter])
 
-    return rows.filter((row) => {
-      const amountNum = Number(row.total_sum)
-      if (amountMin !== null && amountNum < amountMin) return false
-      if (amountMax !== null && amountNum > amountMax) return false
-
-      const createdDate = String(row.created_at || '').slice(0, 10)
-      if (createdFrom && (!createdDate || createdDate < createdFrom)) return false
-      if (createdTo && (!createdDate || createdDate > createdTo)) return false
-
-      if (requestFilter === 'with_request' && !row.has_request) return false
-      if (requestFilter === 'without_request' && row.has_request) return false
-      if (requestFilter === 'paid' && !row.has_paid_request) return false
-      if (requestFilter === 'unpaid' && row.has_paid_request) return false
-
-      if (!normalized) return true
-      const haystack = JSON.stringify(row).toLowerCase()
-      return haystack.includes(normalized)
-    })
-  }, [rows, search, createdRange, amountMin, amountMax, requestFilter])
-
-  useEffect(() => {
-    setCurrentPage(1)
-  }, [search, createdRange, amountMin, amountMax, requestFilter, docIdFilter, employeeSearch, periodRange])
+  const {
+    items: rows,
+    loading,
+    error,
+    hasMore,
+    loadingMore,
+    sentinelRef,
+  } = useInfiniteList<PayrollDocumentRow>({ url: listUrl })
 
   const columns: ColumnsType<PayrollDocumentRow> = useMemo(
     () => [
@@ -307,21 +265,20 @@ export function PayrollPage() {
       {loading ? <Skeleton active /> : null}
       {error ? <Alert type="error" showIcon message={error} style={{ marginBottom: 16 }} /> : null}
       {!loading && !error ? (
-        <Table<PayrollDocumentRow>
-          rowKey="id"
-          columns={columns}
-          dataSource={filteredRows}
-          pagination={{
-            current: currentPage,
-            pageSize,
-            showSizeChanger: true,
-            pageSizeOptions: [20, 50, 100, 200],
-            onChange: (page, size) => {
-              setCurrentPage(page)
-              if (size) setPageSize(size)
-            },
-          }}
-        />
+        <>
+          <Table<PayrollDocumentRow>
+            rowKey="id"
+            columns={columns}
+            dataSource={rows}
+            pagination={false}
+          />
+          <ListInfiniteScrollFooter
+            sentinelRef={sentinelRef}
+            hasMore={hasMore}
+            loadingMore={loadingMore}
+            visibleCount={rows.length}
+          />
+        </>
       ) : null}
     </Card>
   )

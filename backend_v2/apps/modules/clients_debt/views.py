@@ -2,16 +2,25 @@ from django.db.models import Q
 from rest_framework import viewsets
 from rest_framework.permissions import IsAuthenticated
 
+from apps.common.pagination import PortalCursorPagination
+from apps.common.viewsets import PortalListViewSetMixin
 from apps.modules.clients_debt.models import ClientDebtSnapshot
 from apps.modules.clients_debt.serializers import ClientDebtSnapshotSerializer
 from apps.modules.clients_debt.registry import MODULE_KEY
 from apps.tenants.permissions import HasEffectiveModuleAccess
 
 
-class ClientDebtSnapshotViewSet(viewsets.ReadOnlyModelViewSet):
+class ClientDebtCursorPagination(PortalCursorPagination):
+    ordering = "-snapshot_at"
+
+
+class ClientDebtSnapshotViewSet(PortalListViewSetMixin, viewsets.ReadOnlyModelViewSet):
     module_key = MODULE_KEY
     permission_classes = [IsAuthenticated, HasEffectiveModuleAccess]
     serializer_class = ClientDebtSnapshotSerializer
+    pagination_class = ClientDebtCursorPagination
+    ordering_fields = ["snapshot_at", "client", "id", "amount"]
+    ordering = ["-snapshot_at", "-id"]
 
     def get_queryset(self):
         tenant = getattr(self.request, "tenant", None)

@@ -99,6 +99,11 @@ from apps.modules.telegram_approvals.services import (
 )
 from apps.tenants.integration_settings import get_requests_gateway_settings
 
+from apps.common.pagination import PortalCursorPagination
+from apps.common.query_params import parse_bool_query, parse_date_query, parse_decimal_query, parse_int_query
+from apps.common.viewsets import PortalListViewSetMixin
+from apps.modules.requests.expense_compliance import filter_requests_payed_missing_expense
+
 from apps.tenants.permissions import (
     HasEffectiveModuleAccess,
     IsTenantAdmin,
@@ -557,7 +562,16 @@ class RequestFilesMixin:
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
-class PortalRequestViewSet(RequestApprovalsMixin, RequestFilesMixin, viewsets.ModelViewSet):
+class RequestListCursorPagination(PortalCursorPagination):
+    ordering = "-submitted_at"
+
+
+class PortalRequestViewSet(
+    RequestApprovalsMixin,
+    RequestFilesMixin,
+    PortalListViewSetMixin,
+    viewsets.ModelViewSet,
+):
     """
     Placeholder CRUD for the Requests module.
     Replace/add fields once you provide the exact requests schema.
@@ -566,6 +580,17 @@ class PortalRequestViewSet(RequestApprovalsMixin, RequestFilesMixin, viewsets.Mo
     module_key = "requests"
     permission_classes = [IsAuthenticated, HasEffectiveModuleAccess]
     serializer_class = PortalRequestSerializer
+    pagination_class = RequestListCursorPagination
+    ordering_fields = [
+        "submitted_at",
+        "billing_date",
+        "amount",
+        "id",
+        "status",
+        "created_at",
+        "title",
+    ]
+    ordering = ["-submitted_at", "-id"]
 
     def get_serializer_class(self):
         if self.action == "retrieve":
@@ -669,13 +694,50 @@ class PortalRequestViewSet(RequestApprovalsMixin, RequestFilesMixin, viewsets.Mo
         if amortized_only:
             qs = qs.filter(amortization_months__gt=1)
 
+        status_raw = (self.request.query_params.get("status") or "").strip()
+        if status_raw:
+            qs = qs.filter(status=status_raw)
+        urgency_raw = (self.request.query_params.get("urgency") or "").strip()
+        if urgency_raw:
+            qs = qs.filter(urgency=urgency_raw)
+        payment_type_raw = (self.request.query_params.get("payment_type") or "").strip()
+        if payment_type_raw:
+            qs = qs.filter(payment_type=payment_type_raw)
+        currency_raw = (self.request.query_params.get("currency") or "").strip()
+        if currency_raw:
+            qs = qs.filter(currency=currency_raw)
+        category_raw = (self.request.query_params.get("category") or "").strip()
+        if category_raw:
+            qs = qs.filter(category__icontains=category_raw)
+        requester_id = parse_int_query(self.request, "requester")
+        if requester_id is not None:
+            qs = qs.filter(requester_id=requester_id)
+        search = (self.request.query_params.get("search") or "").strip()
+        if search:
+            qs = qs.filter(
+                Q(title__icontains=search)
+                | Q(vendor__icontains=search)
+                | Q(vendor_ref__name__icontains=search)
+                | Q(category__icontains=search)
+                | Q(description__icontains=search)
+            )
+        amount_min = parse_decimal_query(self.request, "amount_min")
+        amount_max = parse_decimal_query(self.request, "amount_max")
+        if amount_min is not None:
+            qs = qs.filter(amount__gte=amount_min)
+        if amount_max is not None:
+            qs = qs.filter(amount__lte=amount_max)
+        payed_missing = parse_bool_query(self.request, "payed_missing_expense")
+        if payed_missing:
+            qs = filter_requests_payed_missing_expense(qs, tenant=tenant)
+
         if self.action == "retrieve":
             qs = qs.select_related("created_by", "requester", "vendor_ref", "contract_ref")
             if "approvals" in connection.introspection.table_names():
                 qs = qs.prefetch_related("approvals", "approvals__approver_user")
             return qs
 
-        return qs.order_by("-submitted_at")
+        return qs.order_by("-submitted_at", "-id")
 
     def perform_create(self, serializer):
         tenant = self.request.tenant

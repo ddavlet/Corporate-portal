@@ -171,3 +171,13 @@ class CashExpenseRequestRequiredApiTests(APITestCase):
         self.assertFalse(by_id[optional_missing.id]["request_required"])
         self.assertFalse(by_id[optional_missing.id]["has_paid_request"])
 
+    def test_missing_request_filter_returns_only_required_without_paid(self):
+        res = self.client.get("/api/cash/expenses/?missing_request=1", **self._headers())
+        self.assertEqual(res.status_code, 200, res.content)
+        payload = res.json()
+        rows = payload if isinstance(payload, list) else payload.get("results", [])
+        ids = {row["id"] for row in rows}
+        self.assertIn(required_missing.id, ids)
+        self.assertNotIn(required_paid.id, ids)
+        self.assertNotIn(optional_missing.id, ids)
+

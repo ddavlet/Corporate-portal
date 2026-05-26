@@ -1,14 +1,19 @@
-from rest_framework import viewsets
-from rest_framework import status
+from django.db import IntegrityError
+from django.db.models import Q
+from rest_framework import status, viewsets
+from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
 from rest_framework.permissions import IsAuthenticated
-from rest_framework.views import APIView
-from rest_framework.decorators import action
 from rest_framework.response import Response
-from django.db import IntegrityError
+from rest_framework.views import APIView
+
+from apps.common.pagination import PortalCursorPagination
+from apps.common.query_params import parse_bool_query, parse_date_query, parse_decimal_query
+from apps.common.viewsets import PortalListViewSetMixin
 from apps.modules.cashier.models import CashExpense, CashRevenue
 from apps.modules.cashier.serializers import CashExpenseSerializer, CashRevenueSerializer
-from apps.modules.requests.expense_compliance import annotate_cash_expense_compliance
+from apps.modules.requests.expense_compliance import annotate_cash_expense_compliance, filter_expenses_missing_request
+from apps.modules.requests.models import Request
 from apps.tenants.permissions import HasEffectiveModuleAccess
 from apps.modules.wallets.models import Wallet
 from apps.modules.wallets.services import balances_for_tenant_channel
@@ -27,10 +32,21 @@ class CashBalancesView(APIView):
         )
 
 
-class CashExpenseViewSet(viewsets.ModelViewSet):
+class CashExpenseCursorPagination(PortalCursorPagination):
+    ordering = "-expense_at"
+
+
+class CashRevenueCursorPagination(PortalCursorPagination):
+    ordering = "-expense_at"
+
+
+class CashExpenseViewSet(PortalListViewSetMixin, viewsets.ModelViewSet):
     module_key = "cash"
     permission_classes = [IsAuthenticated, HasEffectiveModuleAccess]
     serializer_class = CashExpenseSerializer
+    pagination_class = CashExpenseCursorPagination
+    ordering_fields = ["expense_at", "amount", "id", "created_at", "external_id"]
+    ordering = ["-expense_at", "-id"]
 
     def get_queryset(self):
         tenant = getattr(self.request, "tenant", None)
@@ -45,7 +61,34 @@ class CashExpenseViewSet(viewsets.ModelViewSet):
         vendor_search = (self.request.query_params.get("vendor_search") or "").strip()
         if vendor_search:
             qs = qs.filter(Q(title__icontains=vendor_search) | Q(vendor__name__icontains=vendor_search))
-        return qs
+        search = (self.request.query_params.get("search") or "").strip()
+        if search:
+            qs = qs.filter(Q(title__icontains=search) | Q(vendor__name__icontains=search) | Q(external_id__icontains=search))
+        expense_from = parse_date_query(self.request, "expense_from")
+        expense_to = parse_date_query(self.request, "expense_to")
+        if expense_from:
+            qs = qs.filter(expense_at__date__gte=expense_from)
+        if expense_to:
+            qs = qs.filter(expense_at__date__lte=expense_to)
+        amount_min = parse_decimal_query(self.request, "amount_min")
+        amount_max = parse_decimal_query(self.request, "amount_max")
+        if amount_min is not None:
+            qs = qs.filter(amount__gte=amount_min)
+        if amount_max is not None:
+            qs = qs.filter(amount__lte=amount_max)
+        wallet_id = (self.request.query_params.get("wallet") or "").strip()
+        if wallet_id.isdigit():
+            qs = qs.filter(wallet_id=int(wallet_id))
+        currency = (self.request.query_params.get("currency") or "").strip()
+        if currency:
+            qs = qs.filter(currency=currency)
+        if parse_bool_query(self.request, "missing_request"):
+            qs = filter_expenses_missing_request(
+                qs,
+                tenant=tenant,
+                payment_type=Request.PAYMENT_TYPE_CASH,
+            )
+        return qs.order_by("-expense_at", "-id")
 
     def perform_create(self, serializer):
         try:
@@ -99,10 +142,13 @@ class CashExpenseViewSet(viewsets.ModelViewSet):
         return Response(serializer.data, status=status.HTTP_200_OK)
 
 
-class CashRevenueViewSet(viewsets.ModelViewSet):
+class CashRevenueViewSet(PortalListViewSetMixin, viewsets.ModelViewSet):
     module_key = "cash"
     permission_classes = [IsAuthenticated, HasEffectiveModuleAccess]
     serializer_class = CashRevenueSerializer
+    pagination_class = CashRevenueCursorPagination
+    ordering_fields = ["expense_at", "amount", "id", "created_at"]
+    ordering = ["-expense_at", "-id"]
 
     def get_queryset(self):
         tenant = getattr(self.request, "tenant", None)
@@ -111,7 +157,13 @@ class CashRevenueViewSet(viewsets.ModelViewSet):
         qs = CashRevenue.objects.filter(tenant=tenant)
         if self.action == "list":
             qs = qs.filter(wallet__is_visible_in_cash_section=True)
-        return qs
+        expense_from = parse_date_query(self.request, "expense_from")
+        expense_to = parse_date_query(self.request, "expense_to")
+        if expense_from:
+            qs = qs.filter(expense_at__date__gte=expense_from)
+        if expense_to:
+            qs = qs.filter(expense_at__date__lte=expense_to)
+        return qs.order_by("-expense_at", "-id")
 
     def perform_create(self, serializer):
         serializer.save(tenant=self.request.tenant, created_by=self.request.user)

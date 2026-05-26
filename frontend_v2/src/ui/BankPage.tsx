@@ -1,10 +1,12 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Alert, Button, Card, Collapse, DatePicker, Descriptions, Input, InputNumber, Select, Modal, Skeleton, Space, Table, Tabs, Tag, Tooltip, Typography } from 'antd'
+import { Alert, Button, Card, Collapse, DatePicker, Descriptions, Input, InputNumber, Select, Modal, Skeleton, Space, Switch, Table, Tabs, Tag, Tooltip, Typography } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
 import type { Dayjs } from 'dayjs'
 import { useNavigate } from 'react-router-dom'
 import { FileSearchOutlined, MessageOutlined } from '@ant-design/icons'
 import { apiFetch, getBankRevenues, type BankRevenue } from '../lib/api'
+import { useInfiniteList } from '../lib/useInfiniteList'
+import { ListInfiniteScrollFooter } from './ListInfiniteScrollFooter'
 import type { RequestReturnTo } from '../lib/requestNavigation'
 import { RequestDetailModal, type RequestDetail } from './requests/RequestDetailModal'
 import { NoteCreateModal } from './NoteCreateModal'
@@ -66,10 +68,8 @@ function getExpenseCounterparty(row: BankExpenseRow): string {
 
 export function BankPage() {
   const navigate = useNavigate()
-  const [loading, setLoading] = useState(true)
-  const [rows, setRows] = useState<BankExpenseRow[]>([])
+  const [missingRequestOnly, setMissingRequestOnly] = useState(false)
   const [revenues, setRevenues] = useState<BankRevenueRow[]>([])
-  const [error, setError] = useState<string | null>(null)
   const [search, setSearch] = useState('')
   const [counterpartyFilter, setCounterpartyFilter] = useState<string | undefined>(undefined)
   const [amountMin, setAmountMin] = useState<number | null>(null)
@@ -89,26 +89,38 @@ export function BankPage() {
   const [openFullRequestModal, setOpenFullRequestModal] = useState(false)
   const [openNoteModal, setOpenNoteModal] = useState(false)
 
+  const expenseListUrl = useMemo(() => {
+    const params = new URLSearchParams()
+    if (search.trim()) params.set('search', search.trim())
+    if (counterpartyFilter) params.set('vendor_search', counterpartyFilter)
+    const docFrom = docDateRange?.[0]?.format('YYYY-MM-DD')
+    const docTo = docDateRange?.[1]?.format('YYYY-MM-DD')
+    if (docFrom) params.set('doc_from', docFrom)
+    if (docTo) params.set('doc_to', docTo)
+    if (amountMin !== null) params.set('amount_min', String(amountMin))
+    if (amountMax !== null) params.set('amount_max', String(amountMax))
+    if (missingRequestOnly) params.set('missing_request', '1')
+    const q = params.toString()
+    return q ? `/api/bank/expenses/?${q}` : '/api/bank/expenses/'
+  }, [search, counterpartyFilter, docDateRange, amountMin, amountMax, missingRequestOnly])
+
+  const {
+    items: rows,
+    loading,
+    loadingMore,
+    error,
+    hasMore: expensesHasMore,
+    sentinelRef: expensesSentinelRef,
+  } = useInfiniteList<BankExpenseRow>({ url: expenseListUrl })
+
   useEffect(() => {
     let cancelled = false
     ;(async () => {
-      setError(null)
-      setLoading(true)
       try {
-        const [res, revenueRows] = await Promise.all([apiFetch('/api/bank/expenses/'), getBankRevenues()])
-        const json = await res.json().catch(() => null)
-        if (!res.ok) {
-          throw new Error(typeof json === 'object' && json ? JSON.stringify(json) : `HTTP ${res.status}`)
-        }
-        if (!cancelled) {
-          const normalized = normalizeRows(json)
-          setRows(normalized)
-          setRevenues(revenueRows)
-        }
-      } catch (e: any) {
-        if (!cancelled) setError(e?.message || 'Ошибка запроса')
-      } finally {
-        if (!cancelled) setLoading(false)
+        const revenueRows = await getBankRevenues()
+        if (!cancelled) setRevenues(revenueRows)
+      } catch {
+        // auxiliary
       }
     })()
     return () => {
@@ -349,12 +361,17 @@ export function BankPage() {
                   <DatePicker.RangePicker value={docDateRange} onChange={setDocDateRange} placeholder={['Дата док. от', 'Дата док. до']} />
                   <InputNumber placeholder="Мин. сумма" min={0} value={amountMin} onChange={setAmountMin} />
                   <InputNumber placeholder="Макс. сумма" min={0} value={amountMax} onChange={setAmountMax} />
+                  <Space align="center">
+                    <Typography.Text style={{ marginBottom: 0 }}>Без заявки (обязательна)</Typography.Text>
+                    <Switch checked={missingRequestOnly} onChange={setMissingRequestOnly} />
+                  </Space>
                   <Button
                     onClick={() => {
                       setCounterpartyFilter(undefined)
                       setAmountMin(null)
                       setAmountMax(null)
                       setDocDateRange(null)
+                      setMissingRequestOnly(false)
                     }}
                   >
                     Сбросить фильтры
@@ -404,28 +421,27 @@ export function BankPage() {
               key: 'expenses',
               label: 'Расходы',
               children: (
-                <Table<BankExpenseRow>
-                  rowKey="id"
-                  size="small"
-                  columns={columns}
-                  dataSource={filteredRows}
-                  rowClassName={(record) => (shouldHighlightMissingRequiredRequest(record) ? 'bank-row-unmatched' : '')}
-                  onRow={(record) => ({
-                    onClick: () => setSelectedExpense(record),
-                    style: { cursor: 'pointer' },
-                  })}
-                  pagination={{
-                    current: currentExpensePage,
-                    pageSize: expensePageSize,
-                    showSizeChanger: true,
-                    pageSizeOptions: [20, 50, 100, 200],
-                  }}
-                  onChange={(pagination) => {
-                    if (pagination.current) setCurrentExpensePage(pagination.current)
-                    if (pagination.pageSize) setExpensePageSize(pagination.pageSize)
-                  }}
-                  scroll={{ x: 1100 }}
-                />
+                <>
+                  <Table<BankExpenseRow>
+                    rowKey="id"
+                    size="small"
+                    columns={columns}
+                    dataSource={filteredRows}
+                    rowClassName={(record) => (shouldHighlightMissingRequiredRequest(record) ? 'bank-row-unmatched' : '')}
+                    onRow={(record) => ({
+                      onClick: () => setSelectedExpense(record),
+                      style: { cursor: 'pointer' },
+                    })}
+                    pagination={false}
+                    scroll={{ x: 1100 }}
+                  />
+                  <ListInfiniteScrollFooter
+                    sentinelRef={expensesSentinelRef}
+                    hasMore={expensesHasMore}
+                    loadingMore={loadingMore}
+                    visibleCount={filteredRows.length}
+                  />
+                </>
               ),
             },
             {
