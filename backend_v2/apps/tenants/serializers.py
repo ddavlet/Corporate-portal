@@ -39,6 +39,17 @@ class TenantCashExpenseIdFormatSerializer(serializers.Serializer):
             raise serializers.ValidationError(str(exc)) from exc
 
 
+class TenantPayrollDocIdFormatSerializer(serializers.Serializer):
+    payroll_doc_id_prefix = serializers.CharField(max_length=32, allow_blank=True)
+    payroll_doc_id_digit_width = serializers.IntegerField(min_value=1, max_value=32)
+
+    def validate_payroll_doc_id_prefix(self, value):
+        try:
+            return validate_cash_expense_external_id_prefix(value)
+        except ValueError as exc:
+            raise serializers.ValidationError(str(exc)) from exc
+
+
 _ALLOWED_TENANT_ROLE_VALUES = {choice[0] for choice in TenantUserRole.ROLE_CHOICES}
 
 

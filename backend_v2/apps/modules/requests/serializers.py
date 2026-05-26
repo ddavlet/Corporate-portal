@@ -34,7 +34,7 @@ from apps.modules.vendors.models import Vendor
 from apps.modules.cashier.models import CashExpense
 from apps.modules.bank_expenses.models import BankExpense
 from apps.modules.corporate_card.models import CardExpense
-from apps.modules.payroll.constants import MODULE_KEY as PAYROLL_MODULE_KEY, SALARY_CATEGORY
+from apps.modules.payroll.constants import MODULE_KEY as PAYROLL_MODULE_KEY
 from apps.modules.payroll.models import PayrollDocument
 from apps.modules.requests.expense_refs import (
     expense_ref_target_for,
@@ -75,6 +75,8 @@ def payment_type_to_create_module_key(payment_type: str) -> str | None:
         return "bank"
     if payment_type == Request.PAYMENT_TYPE_CARD:
         return "corporate_card"
+    if payment_type == Request.PAYMENT_TYPE_PAYROLL:
+        return None
     return None
 
 
@@ -404,7 +406,10 @@ class PortalRequestSerializer(serializers.ModelSerializer):
             tgt = expense_ref_target_for(payment_type=effective_pt, category=effective_cat) if ref else None
             attrs["expense_ref_id"] = ref
             attrs["expense_ref_target"] = tgt
-            if normalized_expense_id and effective_pt == Request.PAYMENT_TYPE_CASH:
+            if normalized_expense_id and effective_pt in (
+                Request.PAYMENT_TYPE_CASH,
+                Request.PAYMENT_TYPE_PAYROLL,
+            ):
                 attrs["expense_id"] = normalized_expense_id
 
         if self.context.get("submit_for_approval"):
@@ -487,20 +492,20 @@ class PortalRequestSerializer(serializers.ModelSerializer):
 
         pt = obj.payment_type
 
-        # Наличные + зарплатная категория + модуль начислений: связь с документом ЗП по doc_id (не касса).
-        if ref_id is not None and pt == Request.PAYMENT_TYPE_CASH and (obj.category or "").strip() == SALARY_CATEGORY:
-            if has_effective_module_access(user=user, tenant=tenant, module_key=PAYROLL_MODULE_KEY):
-                payroll_doc = PayrollDocument.objects.filter(tenant=tenant, id=ref_id).first()
-                if payroll_doc:
-                    rel = reverse("payroll-documents-detail", kwargs={"pk": payroll_doc.pk})
-                    url = request.build_absolute_uri(rel) if request else rel
-                    return {
-                        "module": "payroll",
-                        "expense_type": "payroll",
-                        "id": payroll_doc.pk,
-                        "doc_id": payroll_doc.doc_id,
-                        "url": url,
-                    }
+        if ref_id is not None and pt == Request.PAYMENT_TYPE_PAYROLL and has_effective_module_access(
+            user=user, tenant=tenant, module_key=PAYROLL_MODULE_KEY
+        ):
+            payroll_doc = PayrollDocument.objects.filter(tenant=tenant, id=ref_id).first()
+            if payroll_doc:
+                rel = reverse("payroll-documents-detail", kwargs={"pk": payroll_doc.pk})
+                url = request.build_absolute_uri(rel) if request else rel
+                return {
+                    "module": "payroll",
+                    "expense_type": "payroll",
+                    "id": payroll_doc.pk,
+                    "doc_id": payroll_doc.doc_id,
+                    "url": url,
+                }
 
         if ref_id is not None and pt == Request.PAYMENT_TYPE_CASH and has_effective_module_access(
             user=user, tenant=tenant, module_key="cash"

@@ -15,7 +15,7 @@ import {
 } from '../../lib/api'
 import { labelBlockAboveField } from '../formSpacing'
 
-const PAYMENT_TYPES_FALLBACK = ['Наличные', 'Перечисление', 'Пополнение', 'Платежная карта'] as const
+const PAYMENT_TYPES_FALLBACK = ['Наличные', 'Перечисление', 'Пополнение', 'Платежная карта', 'Начисление ЗП'] as const
 
 const BILLING_MONTH_OPTIONS: { value: AutoRequestBillingMonthMode; label: string }[] = [
   { value: 'previous', label: 'Предыдущий месяц' },

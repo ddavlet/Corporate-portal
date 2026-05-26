@@ -23,11 +23,13 @@ class Request(models.Model):
     PAYMENT_TYPE_TRANSFER = "Перечисление"
     PAYMENT_TYPE_TOPUP = "Пополнение"
     PAYMENT_TYPE_CARD = "Платежная карта"
+    PAYMENT_TYPE_PAYROLL = "Начисление ЗП"
     PAYMENT_TYPE_CHOICES = [
         (PAYMENT_TYPE_CASH, PAYMENT_TYPE_CASH),
         (PAYMENT_TYPE_TRANSFER, PAYMENT_TYPE_TRANSFER),
         (PAYMENT_TYPE_TOPUP, PAYMENT_TYPE_TOPUP),
         (PAYMENT_TYPE_CARD, PAYMENT_TYPE_CARD),
+        (PAYMENT_TYPE_PAYROLL, PAYMENT_TYPE_PAYROLL),
     ]
 
     URGENCY_LOW = "Низко"

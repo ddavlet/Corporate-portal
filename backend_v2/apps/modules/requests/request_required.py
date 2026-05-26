@@ -9,6 +9,7 @@ RULE_OPERATOR_EQ = "eq"
 
 RULE_FIELD_OPTIONS: dict[str, tuple[str, ...]] = {
     Request.PAYMENT_TYPE_CASH: ("title",),
+    Request.PAYMENT_TYPE_PAYROLL: ("title",),
     Request.PAYMENT_TYPE_TRANSFER: ("payment_purpose", "category", "vendor"),
     Request.PAYMENT_TYPE_TOPUP: ("payment_purpose", "category", "vendor"),
     Request.PAYMENT_TYPE_CARD: ("payment_purpose", "category"),

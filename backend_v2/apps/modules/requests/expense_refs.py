@@ -5,11 +5,11 @@ from django.db.models import Sum
 from apps.modules.bank_expenses.models import BankExpense
 from apps.modules.cashier.models import CashExpense
 from apps.modules.corporate_card.models import CardExpense
-from apps.modules.payroll.constants import SALARY_CATEGORY
 from apps.modules.payroll.models import PayrollDocument
 from apps.modules.payroll.utils import tenant_has_payroll_module_enabled
 from apps.modules.requests.models import Request
 from apps.tenants.cash_expense_id_format import cash_expense_external_id_match_candidates
+from apps.tenants.payroll_doc_id_format import payroll_doc_id_match_candidates
 
 
 def _decimal_or_none(value) -> Decimal | None:
@@ -39,6 +39,10 @@ def _single_match(qs, *, limit: int = 2):
     return None
 
 
+def _normalize_expense_id_on_match(*, payment_type: str) -> bool:
+    return payment_type in (Request.PAYMENT_TYPE_CASH, Request.PAYMENT_TYPE_PAYROLL)
+
+
 def resolve_request_expense_ref(
     *,
     tenant,
@@ -60,15 +64,19 @@ def resolve_request_expense_ref(
 
     amount_value = _decimal_or_none(amount)
 
-    if payment_type == Request.PAYMENT_TYPE_CASH and (category or "").strip() == SALARY_CATEGORY:
+    if payment_type == Request.PAYMENT_TYPE_PAYROLL:
         if not tenant_has_payroll_module_enabled(tenant):
             return None, None
-        payroll_doc = PayrollDocument.objects.filter(tenant=tenant, doc_id=raw).first()
-        if not payroll_doc:
+        candidates = payroll_doc_id_match_candidates(raw, tenant)
+        qs = PayrollDocument.objects.filter(tenant=tenant, doc_id__in=candidates).order_by("-id")
+        if amount_value is None:
             return None, None
-        if amount_value is None or _payroll_document_total(payroll_doc) != amount_value:
-            return None, None
-        return payroll_doc.id, str(payroll_doc.doc_id or "").strip() or raw
+        matching_docs = [doc for doc in qs[:5] if _payroll_document_total(doc) == amount_value]
+        if len(matching_docs) == 1:
+            match = matching_docs[0]
+            normalized = str(match.doc_id or "").strip() or raw
+            return match.id, normalized
+        return None, None
 
     if payment_type == Request.PAYMENT_TYPE_CASH:
         candidates = cash_expense_external_id_match_candidates(raw, tenant)
@@ -112,7 +120,7 @@ def resolve_request_expense_ref(
 
 
 def expense_ref_target_for(*, payment_type: str, category: str) -> str | None:
-    if payment_type == Request.PAYMENT_TYPE_CASH and (category or "").strip() == SALARY_CATEGORY:
+    if payment_type == Request.PAYMENT_TYPE_PAYROLL:
         return Request.EXPENSE_REF_TARGET_PAYROLL
     if payment_type == Request.PAYMENT_TYPE_CASH:
         return Request.EXPENSE_REF_TARGET_CASH
@@ -159,7 +167,11 @@ def maybe_persist_request_expense_ref(*, request_obj: Request, tenant) -> int | 
             expense_year=request_obj.expense_year,
             amount=request_obj.amount,
         )
-        if normalized and request_obj.payment_type == Request.PAYMENT_TYPE_CASH and request_obj.expense_id != normalized:
+        if (
+            normalized
+            and _normalize_expense_id_on_match(payment_type=request_obj.payment_type)
+            and request_obj.expense_id != normalized
+        ):
             Request.objects.filter(pk=request_obj.pk, tenant_id=tenant.id).update(expense_id=normalized)
             request_obj.expense_id = normalized
     target = expense_ref_target_for(

@@ -40,6 +40,9 @@ from apps.modules.requests.integration_settings import get_requests_messaging_ga
 from apps.modules.bank_expenses.models import BankExpense
 from apps.modules.cashier.models import CashExpense
 from apps.modules.corporate_card.models import CardExpense
+from apps.modules.payroll.constants import SALARY_CATEGORY
+from apps.modules.payroll.models import PayrollDocument
+from apps.modules.requests.expense_refs import resolve_request_expense_ref
 from apps.modules.vendors.models import Vendor
 from apps.modules.contracts.models import Contract
 from apps.modules.wallets.models import (
@@ -1578,6 +1581,54 @@ class RequestApprovalsTests(APITestCase):
         self.assertEqual(req.expense_ref_id, cash_expense.id)
         self.assertEqual(req.expense_id, "00000000459")
 
+    def test_payment_webapp_confirm_payroll_resolves_numeric_doc_id_to_canonical(self):
+        TenantModuleConfig.objects.update_or_create(
+            tenant=self.tenant,
+            module_key="payroll",
+            defaults={"is_enabled": True},
+        )
+        self._configure_payment_step(
+            payment_type=Request.PAYMENT_TYPE_PAYROLL,
+            mode=RequestApprovalStepConfig.PAYMENT_ACTION_MODE_WEBAPP,
+        )
+        request_id = self._create_request_for_payment_type(Request.PAYMENT_TYPE_PAYROLL)
+        approval = Approval.objects.get(
+            request_id=request_id,
+            approver_user=self.approver,
+            step_type=Approval.STEP_TYPE_PAYMENT,
+        )
+        payroll_doc = PayrollDocument.objects.create(tenant=self.tenant, doc_id="1-000000421")
+
+        self.client.force_authenticate(self.approver)
+        res = self.client.post(
+            "/api/requests/approvals/payment-webapp/confirm/",
+            {"approval_id": approval.id, "expense_id": "421"},
+            format="json",
+            HTTP_HOST=self.host,
+        )
+        self.assertEqual(res.status_code, 200, res.content)
+        req = Request.objects.get(pk=request_id)
+        self.assertEqual(req.expense_ref_id, payroll_doc.id)
+        self.assertEqual(req.expense_ref_target, Request.EXPENSE_REF_TARGET_PAYROLL)
+        self.assertEqual(req.expense_id, "1-000000421")
+
+    def test_cash_salary_category_does_not_resolve_payroll_document(self):
+        TenantModuleConfig.objects.update_or_create(
+            tenant=self.tenant,
+            module_key="payroll",
+            defaults={"is_enabled": True},
+        )
+        PayrollDocument.objects.create(tenant=self.tenant, doc_id="DOC-PAY-1")
+        ref_id, normalized = resolve_request_expense_ref(
+            tenant=self.tenant,
+            payment_type=Request.PAYMENT_TYPE_CASH,
+            category=SALARY_CATEGORY,
+            expense_id_raw="DOC-PAY-1",
+            expense_year=None,
+        )
+        self.assertIsNone(ref_id)
+        self.assertIsNone(normalized)
+
     def test_payment_webapp_confirm_bank_resolves_same_doc_no_by_amount(self):
         self._configure_payment_step(
             payment_type=Request.PAYMENT_TYPE_TRANSFER,
@@ -2504,6 +2555,7 @@ class RequestRoleVisibilityTests(APITestCase):
                 Request.PAYMENT_TYPE_TRANSFER,
                 Request.PAYMENT_TYPE_TOPUP,
                 Request.PAYMENT_TYPE_CARD,
+                Request.PAYMENT_TYPE_PAYROLL,
             ],
             start=1,
         ):
@@ -2523,7 +2575,7 @@ class RequestRoleVisibilityTests(APITestCase):
                 company_payer="",
             )
 
-    def test_accountant_sees_only_transfer_topup_and_card_requests(self):
+    def test_accountant_sees_transfer_topup_card_and_payroll_requests(self):
         self.client.force_authenticate(self.accountant)
         res = self.client.get("/api/requests/", HTTP_HOST=self.host)
         self.assertEqual(res.status_code, 200, res.content)
@@ -2534,6 +2586,7 @@ class RequestRoleVisibilityTests(APITestCase):
                 Request.PAYMENT_TYPE_TRANSFER,
                 Request.PAYMENT_TYPE_TOPUP,
                 Request.PAYMENT_TYPE_CARD,
+                Request.PAYMENT_TYPE_PAYROLL,
             },
         )
 
@@ -2556,6 +2609,7 @@ class RequestRoleVisibilityTests(APITestCase):
                 Request.PAYMENT_TYPE_TRANSFER,
                 Request.PAYMENT_TYPE_TOPUP,
                 Request.PAYMENT_TYPE_CARD,
+                Request.PAYMENT_TYPE_PAYROLL,
             },
         )
 
@@ -2571,6 +2625,7 @@ class RequestRoleVisibilityTests(APITestCase):
                 Request.PAYMENT_TYPE_TRANSFER,
                 Request.PAYMENT_TYPE_TOPUP,
                 Request.PAYMENT_TYPE_CARD,
+                Request.PAYMENT_TYPE_PAYROLL,
             },
         )
 
