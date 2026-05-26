@@ -1638,6 +1638,141 @@ class RequestApprovalsTests(APITestCase):
         self.assertNotEqual(req.expense_ref_id, wrong_amount_expense.id)
         self.assertEqual(req.expense_ref_target, Request.EXPENSE_REF_TARGET_BANK)
 
+    def test_payment_webapp_confirm_cash_skips_link_when_amount_mismatch(self):
+        self._configure_payment_step(
+            payment_type=Request.PAYMENT_TYPE_CASH,
+            mode=RequestApprovalStepConfig.PAYMENT_ACTION_MODE_WEBAPP,
+        )
+        request_id = self._create_request_for_payment_type(Request.PAYMENT_TYPE_CASH)
+        approval = Approval.objects.get(
+            request_id=request_id,
+            approver_user=self.approver,
+            step_type=Approval.STEP_TYPE_PAYMENT,
+        )
+        cash_register = CashRegister.objects.create(tenant=self.tenant, currency="UZS", name="Cash amount")
+        cash_wallet = Wallet.objects.create(
+            tenant=self.tenant,
+            wallet_type=Wallet.Type.CASH,
+            currency="UZS",
+            cash_register=cash_register,
+        )
+        CashExpense.objects.create(
+            tenant=self.tenant,
+            external_id="CASH-AMT-1",
+            confirmed=True,
+            title="Wrong amount expense",
+            amount=Decimal("99.00"),
+            currency="UZS",
+            expense_at=datetime(2026, 1, 2, 10, 0, 0),
+            expense_year=2026,
+            expense_month=1,
+            expense_day=2,
+            created_by=self.admin,
+            wallet=cash_wallet,
+        )
+
+        self.client.force_authenticate(self.approver)
+        res = self.client.post(
+            "/api/requests/approvals/payment-webapp/confirm/",
+            {"approval_id": approval.id, "expense_id": "CASH-AMT-1"},
+            format="json",
+            HTTP_HOST=self.host,
+        )
+        self.assertEqual(res.status_code, 200, res.content)
+        req = Request.objects.get(pk=request_id)
+        self.assertEqual(req.expense_id, "CASH-AMT-1")
+        self.assertIsNone(req.expense_ref_id)
+
+    def test_payment_webapp_confirm_card_skips_link_when_amount_mismatch(self):
+        TenantModuleConfig.objects.update_or_create(
+            tenant=self.tenant,
+            module_key="corporate_card",
+            defaults={"is_enabled": True},
+        )
+        self._configure_payment_step(
+            payment_type=Request.PAYMENT_TYPE_CARD,
+            mode=RequestApprovalStepConfig.PAYMENT_ACTION_MODE_WEBAPP,
+        )
+        request_id = self._create_request_for_payment_type(Request.PAYMENT_TYPE_CARD)
+        approval = Approval.objects.get(
+            request_id=request_id,
+            approver_user=self.approver,
+            step_type=Approval.STEP_TYPE_PAYMENT,
+        )
+        card_account = CorporateCardAccount.objects.create(tenant=self.tenant, currency="UZS", label="Corp amt")
+        card_wallet = Wallet.objects.create(
+            tenant=self.tenant,
+            wallet_type=Wallet.Type.CORPORATE_CARD,
+            currency="UZS",
+            corporate_card_account=card_account,
+        )
+        card_expense = CardExpense.objects.create(
+            tenant=self.tenant,
+            title="Card wrong amount",
+            amount=Decimal("99.00"),
+            currency="UZS",
+            expense_at=datetime(2026, 1, 2, 10, 0, 0),
+            created_by=self.admin,
+            wallet=card_wallet,
+        )
+
+        self.client.force_authenticate(self.approver)
+        res = self.client.post(
+            "/api/requests/approvals/payment-webapp/confirm/",
+            {"approval_id": approval.id, "expense_id": str(card_expense.id)},
+            format="json",
+            HTTP_HOST=self.host,
+        )
+        self.assertEqual(res.status_code, 200, res.content)
+        req = Request.objects.get(pk=request_id)
+        self.assertEqual(req.expense_id, str(card_expense.id))
+        self.assertIsNone(req.expense_ref_id)
+
+    def test_payment_webapp_confirm_bank_skips_link_when_only_amount_mismatch(self):
+        self._configure_payment_step(
+            payment_type=Request.PAYMENT_TYPE_TRANSFER,
+            mode=RequestApprovalStepConfig.PAYMENT_ACTION_MODE_WEBAPP,
+        )
+        request_id = self._create_request_for_payment_type(Request.PAYMENT_TYPE_TRANSFER)
+        approval = Approval.objects.get(
+            request_id=request_id,
+            approver_user=self.approver,
+            step_type=Approval.STEP_TYPE_PAYMENT,
+        )
+        bank_account = BankAccount.objects.create(tenant=self.tenant, label="Bank amt only")
+        bank_wallet = Wallet.objects.create(
+            tenant=self.tenant,
+            wallet_type=Wallet.Type.BANK,
+            currency="UZS",
+            bank_account=bank_account,
+        )
+        BankExpense.objects.create(
+            tenant=self.tenant,
+            created_by=self.admin,
+            row_no=1,
+            doc_date=date(2026, 1, 2),
+            process_date=date(2026, 1, 2),
+            expense_year=2026,
+            expense_month=1,
+            expense_day=2,
+            doc_no="BANK-AMT-ONLY",
+            debit_turnover=Decimal("99.00"),
+            payment_purpose="wrong amount only",
+            wallet=bank_wallet,
+        )
+
+        self.client.force_authenticate(self.approver)
+        res = self.client.post(
+            "/api/requests/approvals/payment-webapp/confirm/",
+            {"approval_id": approval.id, "expense_id": "BANK-AMT-ONLY"},
+            format="json",
+            HTTP_HOST=self.host,
+        )
+        self.assertEqual(res.status_code, 200, res.content)
+        req = Request.objects.get(pk=request_id)
+        self.assertEqual(req.expense_id, "BANK-AMT-ONLY")
+        self.assertIsNone(req.expense_ref_id)
+
     def _configure_payment_step(self, *, payment_type: str, mode: str) -> None:
         appr_cfg = RequestApprovalConfig.objects.get(tenant=self.tenant)
         RequestApprovalPaymentTypeConfig.objects.filter(
