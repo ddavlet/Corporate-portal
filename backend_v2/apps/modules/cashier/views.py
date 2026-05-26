@@ -37,7 +37,7 @@ class CashExpenseCursorPagination(PortalCursorPagination):
 
 
 class CashRevenueCursorPagination(PortalCursorPagination):
-    ordering = "-expense_at"
+    ordering = "-created_at,-id"
 
 
 class CashExpenseViewSet(PortalListViewSetMixin, viewsets.ModelViewSet):
@@ -147,8 +147,8 @@ class CashRevenueViewSet(PortalListViewSetMixin, viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated, HasEffectiveModuleAccess]
     serializer_class = CashRevenueSerializer
     pagination_class = CashRevenueCursorPagination
-    ordering_fields = ["expense_at", "amount", "id", "created_at"]
-    ordering = ["-expense_at", "-id"]
+    ordering_fields = ["revenue_at", "created_at", "total_sum", "id"]
+    ordering = ["-created_at", "-id"]
 
     def get_queryset(self):
         tenant = getattr(self.request, "tenant", None)
@@ -157,13 +157,13 @@ class CashRevenueViewSet(PortalListViewSetMixin, viewsets.ModelViewSet):
         qs = CashRevenue.objects.filter(tenant=tenant)
         if self.action == "list":
             qs = qs.filter(wallet__is_visible_in_cash_section=True)
-        expense_from = parse_date_query(self.request, "expense_from")
-        expense_to = parse_date_query(self.request, "expense_to")
-        if expense_from:
-            qs = qs.filter(expense_at__date__gte=expense_from)
-        if expense_to:
-            qs = qs.filter(expense_at__date__lte=expense_to)
-        return qs.order_by("-expense_at", "-id")
+        revenue_from = parse_date_query(self.request, "expense_from")
+        revenue_to = parse_date_query(self.request, "expense_to")
+        if revenue_from:
+            qs = qs.filter(revenue_at__date__gte=revenue_from)
+        if revenue_to:
+            qs = qs.filter(revenue_at__date__lte=revenue_to)
+        return qs.order_by("-created_at", "-id")
 
     def perform_create(self, serializer):
         serializer.save(tenant=self.request.tenant, created_by=self.request.user)

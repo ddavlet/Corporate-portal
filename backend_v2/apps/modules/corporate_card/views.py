@@ -36,7 +36,7 @@ class CardExpenseCursorPagination(PortalCursorPagination):
 
 
 class CardRevenueCursorPagination(PortalCursorPagination):
-    ordering = "-expense_at"
+    ordering = "-revenue_at,-id"
 
 
 class CardExpenseViewSet(PortalListViewSetMixin, viewsets.ModelViewSet):
@@ -87,21 +87,21 @@ class CardRevenueViewSet(PortalListViewSetMixin, viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated, HasEffectiveModuleAccess]
     serializer_class = CardRevenueSerializer
     pagination_class = CardRevenueCursorPagination
-    ordering_fields = ["expense_at", "amount", "id"]
-    ordering = ["-expense_at", "-id"]
+    ordering_fields = ["revenue_at", "revenue_date", "amount", "id", "created_at"]
+    ordering = ["-revenue_at", "-id"]
 
     def get_queryset(self):
         tenant = getattr(self.request, "tenant", None)
         if not tenant:
             return CardRevenue.objects.none()
         qs = CardRevenue.objects.filter(tenant=tenant)
-        expense_from = parse_date_query(self.request, "expense_from")
-        expense_to = parse_date_query(self.request, "expense_to")
-        if expense_from:
-            qs = qs.filter(expense_at__date__gte=expense_from)
-        if expense_to:
-            qs = qs.filter(expense_at__date__lte=expense_to)
-        return qs.order_by("-expense_at", "-id")
+        revenue_from = parse_date_query(self.request, "expense_from")
+        revenue_to = parse_date_query(self.request, "expense_to")
+        if revenue_from:
+            qs = qs.filter(revenue_at__date__gte=revenue_from)
+        if revenue_to:
+            qs = qs.filter(revenue_at__date__lte=revenue_to)
+        return qs.order_by("-revenue_at", "-id")
 
     def perform_create(self, serializer):
         serializer.save(tenant=self.request.tenant, created_by=self.request.user)
