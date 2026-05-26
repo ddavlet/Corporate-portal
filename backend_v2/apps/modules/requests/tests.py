@@ -3757,3 +3757,272 @@ class RequestCommentTests(APITestCase):
         self.assertTrue(any(c["body"] == "Видимый" for c in comments))
 
 
+@override_settings(BASE_DOMAIN="example.com", N8N_INTEGRATION_TOKEN="", ALLOWED_HOSTS=["*"])
+class RequestPaginationAndFilterTests(APITestCase):
+    """Tests for cursor pagination correctness and all list filters."""
+
+    def setUp(self):
+        self.tenant = Tenant.objects.create(name="PagTenant", subdomain="pag", is_active=True)
+        self.admin = User.objects.create_user(username="pag_admin", password="x")
+        TenantMembership.objects.create(tenant=self.tenant, user=self.admin, is_active=True)
+        TenantUserRole.objects.create(tenant=self.tenant, user=self.admin, role=TenantUserRole.ROLE_ADMIN)
+        TenantModuleConfig.objects.create(tenant=self.tenant, module_key="requests", is_enabled=True)
+        self.host = "pag.example.com"
+        self.client.force_authenticate(self.admin)
+
+    def _make(self, **kwargs):
+        defaults = dict(
+            tenant=self.tenant,
+            created_by=self.admin,
+            requester=self.admin,
+            title="Request",
+            description="",
+            amount=Decimal("100"),
+            currency="UZS",
+            payment_type=Request.PAYMENT_TYPE_CASH,
+            urgency=Request.URGENCY_NORMAL,
+            billing_date=date(2026, 1, 1),
+            status=Request.STATUS_DRAFT,
+            submitted_at=datetime(2026, 1, 1, tzinfo=ZoneInfo("UTC")),
+            company_payer="",
+            category="",
+            vendor="",
+        )
+        defaults.update(kwargs)
+        return Request.objects.create(**defaults)
+
+    def _list(self, qs=""):
+        return self.client.get(f"/api/requests/{qs}", HTTP_HOST=self.host)
+
+    # ── Cursor pagination ────────────────────────────────────────────────────
+
+    def test_cursor_pagination_returns_next_link_when_more_records_exist(self):
+        for i in range(3):
+            self._make(title=f"R{i}")
+        res = self._list("?page_size=2")
+        self.assertEqual(res.status_code, 200)
+        data = res.json()
+        self.assertIsNotNone(data["next"])
+        self.assertEqual(len(data["results"]), 2)
+
+    def test_cursor_pagination_next_is_null_when_all_records_fit(self):
+        for i in range(2):
+            self._make(title=f"R{i}")
+        res = self._list("?page_size=10")
+        self.assertEqual(res.status_code, 200)
+        self.assertIsNone(res.json()["next"])
+        self.assertEqual(len(res.json()["results"]), 2)
+
+    def test_page_size_param_is_respected(self):
+        for i in range(10):
+            self._make(title=f"R{i}")
+        res = self._list("?page_size=3")
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(len(res.json()["results"]), 3)
+
+    def test_cursor_pages_return_all_records_without_duplicates(self):
+        """Cursor must not skip or duplicate rows when submitted_at values are identical."""
+        shared_ts = datetime(2026, 3, 1, tzinfo=ZoneInfo("UTC"))
+        for i in range(5):
+            self._make(title=f"Dup{i}", submitted_at=shared_ts)
+
+        ids_seen = set()
+        url = "/api/requests/?page_size=2"
+        pages = 0
+        while url:
+            parsed = urlparse(url)
+            path = parsed.path + ("?" + parsed.query if parsed.query else "")
+            res = self.client.get(path, HTTP_HOST=self.host)
+            self.assertEqual(res.status_code, 200)
+            data = res.json()
+            for row in data["results"]:
+                self.assertNotIn(row["id"], ids_seen, "Cursor pagination returned a duplicate row")
+                ids_seen.add(row["id"])
+            url = data.get("next")
+            pages += 1
+            self.assertLess(pages, 10, "Pagination loop did not terminate")
+
+        self.assertEqual(len(ids_seen), 5)
+
+    # ── Filters ──────────────────────────────────────────────────────────────
+
+    def test_filter_by_status(self):
+        self._make(title="Draft", status=Request.STATUS_DRAFT)
+        self._make(title="Approved", status=Request.STATUS_APPROVED)
+        res = self._list(f"?status={Request.STATUS_APPROVED}")
+        self.assertEqual(res.status_code, 200)
+        statuses = {r["status"] for r in list_results(res)}
+        self.assertEqual(statuses, {Request.STATUS_APPROVED})
+
+    def test_filter_by_payment_type(self):
+        self._make(payment_type=Request.PAYMENT_TYPE_CASH)
+        self._make(payment_type=Request.PAYMENT_TYPE_TRANSFER)
+        res = self._list(f"?payment_type={Request.PAYMENT_TYPE_TRANSFER}")
+        self.assertEqual(res.status_code, 200)
+        types = {r["payment_type"] for r in list_results(res)}
+        self.assertEqual(types, {Request.PAYMENT_TYPE_TRANSFER})
+
+    def test_filter_by_urgency(self):
+        self._make(urgency=Request.URGENCY_NORMAL)
+        self._make(urgency=Request.URGENCY_HIGH)
+        res = self._list(f"?urgency={Request.URGENCY_HIGH}")
+        self.assertEqual(res.status_code, 200)
+        urgencies = {r["urgency"] for r in list_results(res)}
+        self.assertEqual(urgencies, {Request.URGENCY_HIGH})
+
+    def test_filter_by_currency(self):
+        self._make(currency="UZS")
+        self._make(currency="USD")
+        res = self._list("?currency=USD")
+        self.assertEqual(res.status_code, 200)
+        currencies = {r["currency"] for r in list_results(res)}
+        self.assertEqual(currencies, {"USD"})
+
+    def test_filter_by_category(self):
+        self._make(category="Офис")
+        self._make(category="Транспорт")
+        res = self._list("?category=Офис")
+        self.assertEqual(res.status_code, 200)
+        results = list_results(res)
+        self.assertTrue(len(results) >= 1)
+        self.assertTrue(all("офис" in r["category"].lower() for r in results))
+
+    def test_filter_by_vendor_search(self):
+        vendor = Vendor.objects.create(tenant=self.tenant, name="АльфаТрейд", kind=Vendor.KIND_TRANSFER)
+        r_match = self._make(vendor_ref=vendor, vendor="АльфаТрейд")
+        r_other = self._make(vendor="Другой поставщик")
+        res = self._list("?vendor_search=АльфаТрейд")
+        self.assertEqual(res.status_code, 200)
+        ids = {r["id"] for r in list_results(res)}
+        self.assertIn(r_match.id, ids)
+        self.assertNotIn(r_other.id, ids)
+
+    def test_filter_by_requester(self):
+        other = User.objects.create_user(username="pag_req2", password="x")
+        TenantMembership.objects.create(tenant=self.tenant, user=other, is_active=True)
+        TenantUserRole.objects.create(tenant=self.tenant, user=other, role=TenantUserRole.ROLE_REQUESTER)
+        r_admin = self._make(requester=self.admin)
+        r_other = self._make(requester=other)
+        res = self._list(f"?requester={other.pk}")
+        self.assertEqual(res.status_code, 200)
+        ids = {r["id"] for r in list_results(res)}
+        self.assertIn(r_other.id, ids)
+        self.assertNotIn(r_admin.id, ids)
+
+    # ── Date range filters ───────────────────────────────────────────────────
+
+    def test_filter_submitted_from(self):
+        r_old = self._make(title="Old", submitted_at=datetime(2025, 6, 1, tzinfo=ZoneInfo("UTC")))
+        r_new = self._make(title="New", submitted_at=datetime(2026, 3, 1, tzinfo=ZoneInfo("UTC")))
+        res = self._list("?submitted_from=2026-01-01")
+        self.assertEqual(res.status_code, 200)
+        ids = {r["id"] for r in list_results(res)}
+        self.assertIn(r_new.id, ids)
+        self.assertNotIn(r_old.id, ids)
+
+    def test_filter_submitted_to(self):
+        r_old = self._make(title="Old", submitted_at=datetime(2025, 6, 1, tzinfo=ZoneInfo("UTC")))
+        r_new = self._make(title="New", submitted_at=datetime(2026, 3, 1, tzinfo=ZoneInfo("UTC")))
+        res = self._list("?submitted_to=2025-12-31")
+        self.assertEqual(res.status_code, 200)
+        ids = {r["id"] for r in list_results(res)}
+        self.assertIn(r_old.id, ids)
+        self.assertNotIn(r_new.id, ids)
+
+    def test_filter_billing_from(self):
+        r_early = self._make(billing_date=date(2025, 6, 1))
+        r_late = self._make(billing_date=date(2026, 6, 1))
+        res = self._list("?billing_from=2026-01-01")
+        self.assertEqual(res.status_code, 200)
+        ids = {r["id"] for r in list_results(res)}
+        self.assertIn(r_late.id, ids)
+        self.assertNotIn(r_early.id, ids)
+
+    def test_filter_billing_to(self):
+        r_early = self._make(billing_date=date(2025, 6, 1))
+        r_late = self._make(billing_date=date(2026, 6, 1))
+        res = self._list("?billing_to=2025-12-31")
+        self.assertEqual(res.status_code, 200)
+        ids = {r["id"] for r in list_results(res)}
+        self.assertIn(r_early.id, ids)
+        self.assertNotIn(r_late.id, ids)
+
+    # ── Amount range filters ─────────────────────────────────────────────────
+
+    def test_filter_amount_min(self):
+        r_small = self._make(amount=Decimal("50"))
+        r_large = self._make(amount=Decimal("500"))
+        res = self._list("?amount_min=200")
+        self.assertEqual(res.status_code, 200)
+        ids = {r["id"] for r in list_results(res)}
+        self.assertIn(r_large.id, ids)
+        self.assertNotIn(r_small.id, ids)
+
+    def test_filter_amount_max(self):
+        r_small = self._make(amount=Decimal("50"))
+        r_large = self._make(amount=Decimal("500"))
+        res = self._list("?amount_max=200")
+        self.assertEqual(res.status_code, 200)
+        ids = {r["id"] for r in list_results(res)}
+        self.assertIn(r_small.id, ids)
+        self.assertNotIn(r_large.id, ids)
+
+    def test_filter_amount_range_combined(self):
+        r_low = self._make(amount=Decimal("50"))
+        r_mid = self._make(amount=Decimal("200"))
+        r_high = self._make(amount=Decimal("500"))
+        res = self._list("?amount_min=100&amount_max=300")
+        self.assertEqual(res.status_code, 200)
+        ids = {r["id"] for r in list_results(res)}
+        self.assertIn(r_mid.id, ids)
+        self.assertNotIn(r_low.id, ids)
+        self.assertNotIn(r_high.id, ids)
+
+    # ── Ordering ─────────────────────────────────────────────────────────────
+
+    def test_ordering_by_submitted_at_desc_default(self):
+        r_early = self._make(submitted_at=datetime(2026, 1, 1, tzinfo=ZoneInfo("UTC")))
+        r_late = self._make(submitted_at=datetime(2026, 3, 1, tzinfo=ZoneInfo("UTC")))
+        res = self._list()
+        self.assertEqual(res.status_code, 200)
+        ids = [r["id"] for r in list_results(res)]
+        self.assertLess(ids.index(r_late.id), ids.index(r_early.id))
+
+    def test_ordering_by_amount_asc_with_id_tiebreaker(self):
+        shared_ts = datetime(2026, 1, 1, tzinfo=ZoneInfo("UTC"))
+        r_small = self._make(amount=Decimal("100"), submitted_at=shared_ts)
+        r_large = self._make(amount=Decimal("200"), submitted_at=shared_ts)
+        res = self._list("?ordering=amount,id")
+        self.assertEqual(res.status_code, 200)
+        ids = [r["id"] for r in list_results(res)]
+        self.assertLess(ids.index(r_small.id), ids.index(r_large.id))
+
+    def test_ordering_by_billing_date_asc_with_id_tiebreaker(self):
+        r_early = self._make(billing_date=date(2026, 1, 1))
+        r_late = self._make(billing_date=date(2026, 6, 1))
+        res = self._list("?ordering=billing_date,id")
+        self.assertEqual(res.status_code, 200)
+        ids = [r["id"] for r in list_results(res)]
+        self.assertLess(ids.index(r_early.id), ids.index(r_late.id))
+
+    def test_ordering_desc_submitted_at_with_tiebreaker_stable_across_pages(self):
+        """Two records with the same submitted_at must not be missed or repeated across pages."""
+        shared_ts = datetime(2026, 5, 1, tzinfo=ZoneInfo("UTC"))
+        created = [self._make(title=f"Same{i}", submitted_at=shared_ts) for i in range(4)]
+
+        ids_seen = set()
+        url = f"/api/requests/?ordering=-submitted_at,-id&page_size=2"
+        while url:
+            parsed = urlparse(url)
+            path = parsed.path + ("?" + parsed.query if parsed.query else "")
+            res = self.client.get(path, HTTP_HOST=self.host)
+            self.assertEqual(res.status_code, 200)
+            for row in res.json()["results"]:
+                self.assertNotIn(row["id"], ids_seen, "Duplicate detected in ordered cursor pages")
+                ids_seen.add(row["id"])
+            url = res.json().get("next")
+
+        expected_ids = {r.id for r in created}
+        self.assertEqual(ids_seen & expected_ids, expected_ids)
+
+

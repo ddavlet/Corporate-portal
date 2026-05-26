@@ -1,6 +1,6 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest'
-import { renderHook, waitFor } from '@testing-library/react'
-import { useInfiniteList } from './useInfiniteList'
+import { renderHook, waitFor, act } from '@testing-library/react'
+import { useInfiniteList, useRestoreInfinitePages } from './useInfiniteList'
 
 vi.mock('./api', () => ({
   fetchCursorListPage: vi.fn(),
@@ -101,5 +101,151 @@ describe('useInfiniteList', () => {
     rerender({ url: '/api/items/?status=B' })
     await waitFor(() => expect(result.current.items).toEqual([{ id: 2 }]))
     expect(fetchCursorListPage).toHaveBeenLastCalledWith('/api/items/?status=B&page_size=50')
+  })
+
+  it('does not fetch when enabled is false', () => {
+    renderHook(() => useInfiniteList<{ id: number }>({ url: '/api/items/', enabled: false }))
+    expect(fetchCursorListPage).not.toHaveBeenCalled()
+  })
+
+  it('fetches when enabled changes from false to true', async () => {
+    vi.mocked(fetchCursorListPage).mockResolvedValueOnce({
+      results: [{ id: 1 }],
+      next: null,
+      previous: null,
+    })
+
+    const { result, rerender } = renderHook(
+      ({ enabled }) => useInfiniteList<{ id: number }>({ url: '/api/items/', enabled }),
+      { initialProps: { enabled: false } },
+    )
+
+    expect(fetchCursorListPage).not.toHaveBeenCalled()
+
+    rerender({ enabled: true })
+    await waitFor(() => expect(result.current.items).toEqual([{ id: 1 }]))
+    expect(fetchCursorListPage).toHaveBeenCalledTimes(1)
+  })
+
+  it('discards stale loadFirstPage response when URL changes mid-fetch', async () => {
+    let resolveFirst!: (val: { results: { id: number }[]; next: string | null; previous: null }) => void
+    const firstRequest = new Promise<{ results: { id: number }[]; next: string | null; previous: null }>(
+      (r) => { resolveFirst = r },
+    )
+
+    vi.mocked(fetchCursorListPage)
+      .mockReturnValueOnce(firstRequest as never)
+      .mockResolvedValueOnce({ results: [{ id: 2 }], next: null, previous: null })
+
+    const { result, rerender } = renderHook(
+      ({ url }) => useInfiniteList<{ id: number }>({ url }),
+      { initialProps: { url: '/api/items/?v=1' } },
+    )
+
+    // First fetch in-flight; immediately change URL to increment epoch
+    rerender({ url: '/api/items/?v=2' })
+
+    // Wait for fresh second fetch to settle
+    await waitFor(() => expect(result.current.loading).toBe(false))
+    expect(result.current.items).toEqual([{ id: 2 }])
+
+    // Resolve stale first response after epoch has advanced
+    await act(async () => {
+      resolveFirst({ results: [{ id: 1 }], next: '/api/items/?cursor=stale', previous: null })
+    })
+
+    expect(result.current.items).toEqual([{ id: 2 }])
+    expect(result.current.hasMore).toBe(false)
+  })
+
+  it('discards stale loadMore response when URL changes mid-loadMore', async () => {
+    let resolveMore!: (val: { results: { id: number }[]; next: string | null; previous: null }) => void
+    const moreRequest = new Promise<{ results: { id: number }[]; next: string | null; previous: null }>(
+      (r) => { resolveMore = r },
+    )
+
+    vi.mocked(fetchCursorListPage)
+      .mockResolvedValueOnce({ results: [{ id: 1 }], next: '/api/items/?cursor=page2', previous: null })
+      .mockReturnValueOnce(moreRequest as never)
+      .mockResolvedValueOnce({ results: [{ id: 3 }], next: null, previous: null })
+
+    const { result, rerender } = renderHook(
+      ({ url }) => useInfiniteList<{ id: number }>({ url }),
+      { initialProps: { url: '/api/items/' } },
+    )
+
+    await waitFor(() => expect(result.current.loading).toBe(false))
+    expect(result.current.items).toEqual([{ id: 1 }])
+
+    // Manually start loadMore — it suspends on moreRequest
+    void result.current.loadMore()
+    await waitFor(() => expect(result.current.loadingMore).toBe(true))
+
+    // URL changes → new epoch, loadFirstPage for v=2 starts and resolves
+    rerender({ url: '/api/items/?v=2' })
+    await waitFor(() => expect(result.current.loading).toBe(false))
+    expect(result.current.items).toEqual([{ id: 3 }])
+
+    // Resolve the stale loadMore — must not append {id:2} to the new list
+    await act(async () => {
+      resolveMore({ results: [{ id: 2 }], next: null, previous: null })
+    })
+
+    expect(result.current.items).toEqual([{ id: 3 }])
+  })
+})
+
+describe('useRestoreInfinitePages', () => {
+  it('does not call loadMore while hasMore is false', () => {
+    const loadMore = vi.fn().mockResolvedValue(undefined)
+
+    renderHook(() =>
+      useRestoreInfinitePages({ targetPages: 3, hasMore: false, loading: false, loadMore }),
+    )
+
+    expect(loadMore).not.toHaveBeenCalled()
+  })
+
+  it('calls loadMore targetPages-1 times once hasMore becomes true', async () => {
+    const loadMore = vi.fn().mockResolvedValue(undefined)
+
+    const { rerender } = renderHook(
+      ({ hasMore }: { hasMore: boolean }) =>
+        useRestoreInfinitePages({ targetPages: 3, hasMore, loading: false, loadMore }),
+      { initialProps: { hasMore: false } },
+    )
+
+    expect(loadMore).not.toHaveBeenCalled()
+
+    rerender({ hasMore: true })
+    await waitFor(() => expect(loadMore).toHaveBeenCalledTimes(2))
+  })
+
+  it('skips restore when targetPages is 1', () => {
+    const loadMore = vi.fn().mockResolvedValue(undefined)
+
+    renderHook(() =>
+      useRestoreInfinitePages({ targetPages: 1, hasMore: true, loading: false, loadMore }),
+    )
+
+    expect(loadMore).not.toHaveBeenCalled()
+  })
+
+  it('does not re-fire after completing restore', async () => {
+    const loadMore = vi.fn().mockResolvedValue(undefined)
+
+    const { rerender } = renderHook(
+      ({ loading }: { loading: boolean }) =>
+        useRestoreInfinitePages({ targetPages: 2, hasMore: true, loading, loadMore }),
+      { initialProps: { loading: false } },
+    )
+
+    await waitFor(() => expect(loadMore).toHaveBeenCalledTimes(1))
+
+    // Simulate state updates that re-run the effect — loadMore must not fire again
+    rerender({ loading: false })
+    await act(async () => {})
+
+    expect(loadMore).toHaveBeenCalledTimes(1)
   })
 })
