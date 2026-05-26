@@ -2789,17 +2789,28 @@ class PayedMissingExpenseFilterTests(APITestCase):
             is_active=True,
             sort_order=1,
         )
-        wallet = Wallet.objects.create(tenant=self.tenant, type=Wallet.Type.CASH, cash_register=register)
+        wallet = Wallet.objects.create(
+            tenant=self.tenant,
+            wallet_type=Wallet.Type.CASH,
+            currency="UZS",
+            cash_register=register,
+        )
+        expense_at = timezone.now()
         expense = CashExpense.objects.create(
             tenant=self.tenant,
             created_by=self.admin,
             wallet=wallet,
             external_id="E-1",
-            expense_year=2026,
+            confirmed=True,
+            expense_year=expense_at.year,
+            expense_month=expense_at.month,
+            expense_day=expense_at.day,
             title="Office",
             amount="50.00",
             currency="UZS",
-            expense_at=timezone.now(),
+            expense_at=expense_at,
+            note="",
+            payload={},
         )
         missing = Request.objects.create(
             tenant=self.tenant,

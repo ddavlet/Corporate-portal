@@ -11,6 +11,7 @@ from django.contrib.auth import get_user_model
 from django.test import override_settings
 from rest_framework.test import APITestCase
 
+from apps.common.test_utils import list_results
 from apps.modules.requests.models import (
     Approval,
     Request,
@@ -1043,7 +1044,7 @@ class TenantTelegramChatApiTests(APITestCase):
         self.client.force_authenticate(self.admin_b)
         res = self.client.get(self.url, HTTP_HOST=self.host_b)
         self.assertEqual(res.status_code, 200, res.content)
-        self.assertEqual(len(res.data), 0)
+        self.assertEqual(len(list_results(res)), 0)
 
 
 # ---------------------------------------------------------------------------
