@@ -67,14 +67,17 @@ export function useInfiniteList<T>({ url, enabled = true, pageSize = 50 }: UseIn
   const loadMore = useCallback(async () => {
     const nextUrl = nextRef.current
     if (!nextUrl || loadingMoreRef.current || loadingRef.current) return
+    const epoch = loadEpochRef.current
     loadingMoreRef.current = true
     setLoadingMore(true)
     try {
       const page = await fetchCursorListPage<T>(resolveApiUrl(nextUrl))
+      if (epoch !== loadEpochRef.current) return
       setItems((prev) => [...prev, ...page.results])
       setNext(page.next)
       nextRef.current = page.next
     } catch (e: unknown) {
+      if (epoch !== loadEpochRef.current) return
       setError(e instanceof Error ? e.message : 'Ошибка запроса')
     } finally {
       loadingMoreRef.current = false
