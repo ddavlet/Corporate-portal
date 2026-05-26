@@ -5,6 +5,7 @@ from django.test import override_settings
 from rest_framework.test import APITestCase
 from rest_framework_simplejwt.tokens import RefreshToken
 
+from apps.common.test_utils import list_results
 from apps.tenants.models import Tenant
 from apps.modules.cashier.models import CashExpense, CashRevenue
 from apps.modules.wallets.resolution import get_or_create_cash_wallet
@@ -57,6 +58,42 @@ class CashierSmokeTests(TestCase):
         )
         self.assertIsNotNone(obj.id)
         self.assertEqual(CashRevenue.objects.filter(tenant=self.tenant).count(), 1)
+
+
+@override_settings(BASE_DOMAIN="example.com", ALLOWED_HOSTS=["*"])
+class CashRevenueListApiTests(APITestCase):
+    def setUp(self):
+        self.tenant = Tenant.objects.create(name="Acme", subdomain="acme", is_active=True)
+        self.admin = User.objects.create_user(username="cash_rev_admin", password="x")
+        TenantMembership.objects.create(tenant=self.tenant, user=self.admin, is_active=True)
+        TenantUserRole.objects.create(tenant=self.tenant, user=self.admin, role=TenantUserRole.ROLE_ADMIN)
+        TenantModuleConfig.objects.create(tenant=self.tenant, module_key="cash", is_enabled=True)
+        self.wallet = get_or_create_cash_wallet(tenant=self.tenant, currency="UZS")
+        CashRevenue.objects.create(
+            tenant=self.tenant,
+            external_id="rev-list-1",
+            total_sum=50,
+            confirmed=True,
+            wallet=self.wallet,
+            operation="Sale",
+            revenue_at=timezone.now(),
+            payload={},
+            created_by=self.admin,
+        )
+
+    def _headers(self):
+        token = str(RefreshToken.for_user(self.admin).access_token)
+        return {
+            "HTTP_HOST": "acme.example.com",
+            "HTTP_AUTHORIZATION": f"Bearer {token}",
+        }
+
+    def test_list_with_cursor_page_size_200(self):
+        res = self.client.get("/api/cash/revenues/?page_size=200", **self._headers())
+        self.assertEqual(res.status_code, 200, res.content)
+        rows = list_results(res)
+        self.assertGreaterEqual(len(rows), 1)
+        self.assertIn("revenue_at", rows[0])
 
 
 @override_settings(BASE_DOMAIN="example.com", ALLOWED_HOSTS=["*"])
