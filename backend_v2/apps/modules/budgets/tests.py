@@ -6,6 +6,7 @@ from django.test import TestCase, override_settings
 from rest_framework.test import APITestCase
 from rest_framework_simplejwt.tokens import RefreshToken
 
+from apps.common.test_utils import list_results
 from apps.tenants.models import Tenant, TenantMembership, TenantModuleConfig, TenantUserRole
 from apps.modules.budgets.models import Budget
 from apps.modules.budgets.serializers import _period_date_range
@@ -223,7 +224,6 @@ class BudgetSpendComputeTests(APITestCase):
     def test_list_utilization_reflects_spend(self):
         resp = self.client.get("/api/budgets/?year=2026&period=1", **self._headers())
         self.assertEqual(resp.status_code, 200)
-        results = resp.json()
-        budget_data = next(b for b in results if b["id"] == self.budget.pk)
+        budget_data = next(b for b in list_results(resp) if b["id"] == self.budget.pk)
         self.assertEqual(Decimal(budget_data["spent_amount"]), Decimal("300000"))
         self.assertGreater(float(budget_data["utilization_pct"]), 0)

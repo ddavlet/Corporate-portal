@@ -121,9 +121,9 @@ class CashExpenseRequestRequiredApiTests(APITestCase):
             "HTTP_AUTHORIZATION": f"Bearer {token}",
         }
 
-    def test_request_highlight_contract_scenarios(self):
+    def _seed_contract_expenses(self):
         dt = timezone.now()
-        required_missing = CashExpense.objects.create(
+        self.required_missing = CashExpense.objects.create(
             tenant=self.tenant,
             external_id="cash-req-miss",
             confirmed=True,
@@ -139,7 +139,7 @@ class CashExpenseRequestRequiredApiTests(APITestCase):
             payload={},
             created_by=self.admin,
         )
-        required_paid = CashExpense.objects.create(
+        self.required_paid = CashExpense.objects.create(
             tenant=self.tenant,
             external_id="cash-req-paid",
             confirmed=True,
@@ -155,7 +155,7 @@ class CashExpenseRequestRequiredApiTests(APITestCase):
             payload={},
             created_by=self.admin,
         )
-        optional_missing = CashExpense.objects.create(
+        self.optional_missing = CashExpense.objects.create(
             tenant=self.tenant,
             external_id="cash-opt-miss",
             confirmed=True,
@@ -187,34 +187,37 @@ class CashExpenseRequestRequiredApiTests(APITestCase):
             urgency=Request.URGENCY_NORMAL,
             billing_date=dt.date(),
             status=Request.STATUS_PAYED,
-            expense_ref_id=required_paid.id,
+            expense_ref_id=self.required_paid.id,
             expense_ref_target=Request.EXPENSE_REF_TARGET_CASH,
-            expense_id=required_paid.external_id,
-            expense_year=required_paid.expense_year,
+            expense_id=self.required_paid.external_id,
+            expense_year=self.required_paid.expense_year,
         )
 
+    def test_request_highlight_contract_scenarios(self):
+        self._seed_contract_expenses()
         res = self.client.get("/api/cash/expenses/", **self._headers())
         self.assertEqual(res.status_code, 200, res.content)
         payload = res.json()
         rows = payload if isinstance(payload, list) else payload.get("results", [])
         by_id = {row["id"]: row for row in rows}
 
-        self.assertTrue(by_id[required_missing.id]["request_required"])
-        self.assertFalse(by_id[required_missing.id]["has_paid_request"])
+        self.assertTrue(by_id[self.required_missing.id]["request_required"])
+        self.assertFalse(by_id[self.required_missing.id]["has_paid_request"])
 
-        self.assertTrue(by_id[required_paid.id]["request_required"])
-        self.assertTrue(by_id[required_paid.id]["has_paid_request"])
+        self.assertTrue(by_id[self.required_paid.id]["request_required"])
+        self.assertTrue(by_id[self.required_paid.id]["has_paid_request"])
 
-        self.assertFalse(by_id[optional_missing.id]["request_required"])
-        self.assertFalse(by_id[optional_missing.id]["has_paid_request"])
+        self.assertFalse(by_id[self.optional_missing.id]["request_required"])
+        self.assertFalse(by_id[self.optional_missing.id]["has_paid_request"])
 
     def test_missing_request_filter_returns_only_required_without_paid(self):
+        self._seed_contract_expenses()
         res = self.client.get("/api/cash/expenses/?missing_request=1", **self._headers())
         self.assertEqual(res.status_code, 200, res.content)
         payload = res.json()
         rows = payload if isinstance(payload, list) else payload.get("results", [])
         ids = {row["id"] for row in rows}
-        self.assertIn(required_missing.id, ids)
-        self.assertNotIn(required_paid.id, ids)
-        self.assertNotIn(optional_missing.id, ids)
+        self.assertIn(self.required_missing.id, ids)
+        self.assertNotIn(self.required_paid.id, ids)
+        self.assertNotIn(self.optional_missing.id, ids)
 
