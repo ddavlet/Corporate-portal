@@ -150,7 +150,7 @@ class Request(models.Model):
                 condition=models.Q(payment_purpose__gt=""),
             ),
             models.Index(fields=["tenant", "submitted_at", "id"], name="req_tenant_submitted_id_idx"),
-            models.Index(fields=["tenant", "status", "submitted_at"], name="req_tenant_status_submitted_idx"),
+            models.Index(fields=["tenant", "status", "submitted_at"], name="req_tnt_stat_submitted_idx"),
         ]
 
     def _resolve_title_from_tenant(self) -> str:
