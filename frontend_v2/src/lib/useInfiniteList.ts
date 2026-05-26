@@ -44,6 +44,7 @@ export function useInfiniteList<T>({ url, enabled = true, pageSize = 50 }: UseIn
   const loadingRef = useRef(false)
   const loadingMoreRef = useRef(false)
   const enabledRef = useRef(enabled)
+  const loadEpochRef = useRef(0)
 
   useEffect(() => {
     nextRef.current = next
@@ -91,21 +92,26 @@ export function useInfiniteList<T>({ url, enabled = true, pageSize = 50 }: UseIn
 
   const loadFirstPage = useCallback(async () => {
     if (!enabled) return
+    const epoch = ++loadEpochRef.current
     setLoading(true)
     setError(null)
     try {
       const page = await fetchCursorListPage<T>(withPageSize(url, pageSize))
+      if (epoch !== loadEpochRef.current) return
       setItems(page.results)
       setNext(page.next)
       nextRef.current = page.next
     } catch (e: unknown) {
+      if (epoch !== loadEpochRef.current) return
       setItems([])
       setNext(null)
       nextRef.current = null
       setError(e instanceof Error ? e.message : 'Ошибка запроса')
     } finally {
-      setLoading(false)
-      requestAnimationFrame(() => drainIfSentinelVisibleRef.current())
+      if (epoch === loadEpochRef.current) {
+        setLoading(false)
+        requestAnimationFrame(() => drainIfSentinelVisibleRef.current())
+      }
     }
   }, [url, enabled, pageSize])
 
@@ -175,6 +181,7 @@ export function useRestoreInfinitePages({
       if (!loading) doneRef.current = true
       return
     }
+    if (!hasMore) return
     let cancelled = false
     ;(async () => {
       let pages = 1

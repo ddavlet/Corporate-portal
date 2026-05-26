@@ -41,7 +41,7 @@ class BankExpenseCursorPagination(PortalCursorPagination):
 
 
 class BankRevenueCursorPagination(PortalCursorPagination):
-    ordering = "-doc_date"
+    ordering = "-doc_date,-process_date,-id"
 
 
 class BankExpenseViewSet(PortalListViewSetMixin, viewsets.ModelViewSet):

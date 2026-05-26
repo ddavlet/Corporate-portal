@@ -567,7 +567,7 @@ class RequestFilesMixin:
 
 
 class RequestListCursorPagination(PortalCursorPagination):
-    ordering = "-submitted_at"
+    ordering = "-submitted_at,-id"
 
 
 class PortalRequestViewSet(

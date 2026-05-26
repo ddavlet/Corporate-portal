@@ -39,7 +39,7 @@ class CanManageContracts(BasePermission):
 
 
 class ContractCursorPagination(PortalCursorPagination):
-    ordering = "-date_from"
+    ordering = "-date_from,-id"
 
 
 class ContractViewSet(PortalListViewSetMixin, viewsets.ModelViewSet):
