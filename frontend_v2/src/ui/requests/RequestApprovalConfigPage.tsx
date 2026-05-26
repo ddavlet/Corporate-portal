@@ -12,9 +12,10 @@ import {
   type RequestApprovalConfigStepItem,
   type TenantTelegramChatDto,
 } from '../../lib/api'
+import { REQUEST_PAYMENT_TYPES } from '../../lib/requestPaymentTypes'
 import { labelBlockAboveField } from '../formSpacing'
 
-const PAYMENT_TYPES = ['Наличные', 'Перечисление', 'Пополнение', 'Платежная карта', 'Начисление ЗП'] as const
+const PAYMENT_TYPES = REQUEST_PAYMENT_TYPES
 type PaymentType = (typeof PAYMENT_TYPES)[number]
 
 const STEP_TYPES: Array<{ value: string; label: string }> = [

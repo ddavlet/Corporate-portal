@@ -13,9 +13,10 @@ import {
   type RequestFormConfigCandidateUser,
   type RequestFormConfigPaymentTypeItem,
 } from '../../lib/api'
+import { REQUEST_PAYMENT_TYPES } from '../../lib/requestPaymentTypes'
 import { labelBlockAboveField } from '../formSpacing'
 
-const PAYMENT_TYPES_FALLBACK = ['Наличные', 'Перечисление', 'Пополнение', 'Платежная карта', 'Начисление ЗП'] as const
+const PAYMENT_TYPES_FALLBACK = REQUEST_PAYMENT_TYPES
 
 const BILLING_MONTH_OPTIONS: { value: AutoRequestBillingMonthMode; label: string }[] = [
   { value: 'previous', label: 'Предыдущий месяц' },
