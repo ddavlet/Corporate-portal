@@ -1,5 +1,7 @@
 from decimal import Decimal, InvalidOperation
 
+from django.db.models import Sum
+
 from apps.modules.bank_expenses.models import BankExpense
 from apps.modules.cashier.models import CashExpense
 from apps.modules.corporate_card.models import CardExpense
@@ -19,6 +21,24 @@ def _decimal_or_none(value) -> Decimal | None:
         return None
 
 
+def _payroll_document_total(doc: PayrollDocument) -> Decimal:
+    val = doc.lines.aggregate(s=Sum("sum")).get("s")
+    return val if val is not None else Decimal("0")
+
+
+def _filter_queryset_by_amount(qs, *, amount_field: str, amount_value: Decimal | None):
+    if amount_value is None:
+        return qs.none()
+    return qs.filter(**{amount_field: amount_value})
+
+
+def _single_match(qs, *, limit: int = 2):
+    matches = list(qs[:limit])
+    if len(matches) == 1:
+        return matches[0]
+    return None
+
+
 def resolve_request_expense_ref(
     *,
     tenant,
@@ -31,17 +51,22 @@ def resolve_request_expense_ref(
     """
     Resolve business `expense_id` (+ context) to concrete expense PK and canonical `expense_id`.
 
-    Never raises: returns `(None, None)` if the row is missing, ambiguous, or inputs are insufficient.
+    Amount must match the expense row (or payroll document total). Never raises: returns
+    `(None, None)` if the row is missing, ambiguous, or inputs are insufficient.
     """
     raw = str(expense_id_raw or "").strip()
     if not raw:
         return None, None
+
+    amount_value = _decimal_or_none(amount)
 
     if payment_type == Request.PAYMENT_TYPE_CASH and (category or "").strip() == SALARY_CATEGORY:
         if not tenant_has_payroll_module_enabled(tenant):
             return None, None
         payroll_doc = PayrollDocument.objects.filter(tenant=tenant, doc_id=raw).first()
         if not payroll_doc:
+            return None, None
+        if amount_value is None or _payroll_document_total(payroll_doc) != amount_value:
             return None, None
         return payroll_doc.id, str(payroll_doc.doc_id or "").strip() or raw
 
@@ -50,37 +75,38 @@ def resolve_request_expense_ref(
         qs = CashExpense.objects.filter(tenant=tenant, external_id__in=candidates).order_by("-expense_year", "-id")
         if expense_year is not None:
             qs = qs.filter(expense_year=expense_year)
-        matches = list(qs[:2])
-        if len(matches) == 1:
-            match = matches[0]
-            normalized = str(match.external_id or "").strip() or raw
-            return match.id, normalized
-        return None, None
+        qs = _filter_queryset_by_amount(qs, amount_field="amount", amount_value=amount_value)
+        match = _single_match(qs)
+        if match is None:
+            return None, None
+        normalized = str(match.external_id or "").strip() or raw
+        return match.id, normalized
 
     if payment_type in (Request.PAYMENT_TYPE_TRANSFER, Request.PAYMENT_TYPE_TOPUP):
         if expense_year is None:
             return None, None
-        amount_value = _decimal_or_none(amount)
         qs = BankExpense.objects.filter(
             tenant=tenant,
             doc_no=raw,
             expense_year=expense_year,
         ).order_by("-doc_date", "-id")
-        if amount_value is not None:
-            qs = qs.filter(debit_turnover=amount_value)
-        matches = list(qs[:2])
-        if len(matches) == 1:
-            return matches[0].id, raw
-        return None, None
+        qs = _filter_queryset_by_amount(qs, amount_field="debit_turnover", amount_value=amount_value)
+        match = _single_match(qs)
+        if match is None:
+            return None, None
+        return match.id, raw
 
     if payment_type == Request.PAYMENT_TYPE_CARD:
         try:
             card_id = int(raw)
         except (TypeError, ValueError):
             return None, None
-        if CardExpense.objects.filter(tenant=tenant, id=card_id).exists():
-            return card_id, raw
-        return None, None
+        qs = CardExpense.objects.filter(tenant=tenant, id=card_id)
+        qs = _filter_queryset_by_amount(qs, amount_field="amount", amount_value=amount_value)
+        match = _single_match(qs, limit=1)
+        if match is None:
+            return None, None
+        return match.id, raw
 
     return None, None
 

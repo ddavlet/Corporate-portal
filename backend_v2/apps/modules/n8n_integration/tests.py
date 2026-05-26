@@ -547,6 +547,38 @@ class N8nIntegrationAuthTests(APITestCase):
         self.assertEqual(req.expense_ref_target, Request.EXPENSE_REF_TARGET_BANK)
         self.assertEqual(req.expense_ref_id, 93010)
 
+    def test_bank_expense_upsert_does_not_relink_when_amount_mismatch(self):
+        req = Request.objects.create(
+            tenant=self.tenant,
+            created_by=self.admin,
+            requester=self.requester,
+            title="Bank relink amount mismatch",
+            description="",
+            amount="500.00",
+            currency="UZS",
+            payment_type=Request.PAYMENT_TYPE_TRANSFER,
+            urgency=Request.URGENCY_NORMAL,
+            billing_date=date(2026, 3, 30),
+            expense_id="BEXP-REL-AMT",
+            expense_year=2026,
+            status=Request.STATUS_PAYED,
+        )
+        url = f"{self.n8n_prefix}/bank/expenses/"
+        body = {
+            "id": 93011,
+            "row_no": 1,
+            "doc_date": "2026-03-30",
+            "process_date": "2026-03-30",
+            "doc_no": "BEXP-REL-AMT",
+            "account_no": "20208000999999999999",
+            "debit_turnover": "999.00",
+            "payment_purpose": "Другая сумма",
+        }
+        res = self.client.post(url, body, format="json", **self._headers(self.admin))
+        self.assertEqual(res.status_code, 201, res.content)
+        req.refresh_from_db()
+        self.assertIsNone(req.expense_ref_id)
+
     @patch("apps.modules.n8n_integration.views._relink_requests_to_bank_expenses")
     def test_bank_expense_batch_runs_relink_once(self, relink_mock):
         url = f"{self.n8n_prefix}/bank/expenses/batch/"
@@ -1233,6 +1265,49 @@ class N8nIntegrationAuthTests(APITestCase):
         self.assertEqual(res2.status_code, 201, res2.content)
         req2 = Request.objects.get(pk=5021)
         self.assertEqual(req2.expense_ref_id, cash_expense.id)
+
+    def test_request_upsert_does_not_resolve_cash_expense_when_amount_mismatch(self):
+        cash_register = CashRegister.objects.create(tenant=self.tenant, currency="UZS", name="Cash amt mismatch")
+        cash_wallet = Wallet.objects.create(
+            tenant=self.tenant,
+            wallet_type=Wallet.Type.CASH,
+            currency="UZS",
+            cash_register=cash_register,
+        )
+        CashExpense.objects.create(
+            tenant=self.tenant,
+            external_id="CASH-AMT-MIS",
+            confirmed=True,
+            title="Imported expense",
+            amount="1200.00",
+            currency="UZS",
+            expense_at=datetime(2026, 4, 1, 10, 0, 0),
+            expense_year=2026,
+            expense_month=4,
+            expense_day=1,
+            created_by=self.admin,
+            wallet=cash_wallet,
+        )
+        url = f"{self.n8n_prefix}/requests/"
+        body = {
+            "id": 5014,
+            "title": "Amount mismatch",
+            "description": "from n8n",
+            "amount": "500.00",
+            "currency": "UZS",
+            "payment_type": "Наличные",
+            "urgency": "Обычно",
+            "requester": self.requester.id,
+            "status": "DRAFT",
+            "billing_date": "2026-04-01",
+            "expense_id": "CASH-AMT-MIS",
+            "expense_year": 2026,
+        }
+        res = self.client.post(url, body, format="json", **self._headers(self.admin))
+        self.assertEqual(res.status_code, 201, res.content)
+        req = Request.objects.get(pk=5014)
+        self.assertEqual(req.expense_id, "CASH-AMT-MIS")
+        self.assertIsNone(req.expense_ref_id)
 
     def test_request_upsert_keeps_expense_id_when_expense_not_yet_imported(self):
         url = f"{self.n8n_prefix}/requests/"

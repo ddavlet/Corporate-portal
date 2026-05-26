@@ -12,7 +12,7 @@ from apps.modules.bank_expenses.models import BankExpense
 from apps.modules.cashier.models import CashExpense
 from apps.modules.corporate_card.models import CardExpense
 from apps.modules.payroll.constants import MODULE_KEY as PAYROLL_MODULE_KEY, SALARY_CATEGORY
-from apps.modules.payroll.models import PayrollDocument
+from apps.modules.payroll.models import PayrollDocument, PayrollLine
 from apps.modules.payroll.utils import tenant_has_payroll_module_enabled
 from apps.modules.requests.approval_workflow import min_pending_approval_step
 from apps.modules.requests.expense_refs import resolve_request_expense_ref
@@ -131,12 +131,12 @@ def annotate_bank_expense_compliance(qs, *, tenant):
     request_subquery = Request.objects.filter(
         tenant=tenant,
         payment_type__in=(Request.PAYMENT_TYPE_TRANSFER, Request.PAYMENT_TYPE_TOPUP),
+        amount=OuterRef("debit_turnover"),
     ).filter(
         Q(expense_ref_id=OuterRef("id"))
         | (
             Q(expense_id=OuterRef("doc_no"))
             & Q(expense_year=OuterRef("expense_year"))
-            & Q(amount=OuterRef("debit_turnover"))
         )
     )
     paid_request_subquery = request_subquery.filter(status=Request.STATUS_PAYED)
@@ -151,6 +151,7 @@ def annotate_cash_expense_compliance(qs, *, tenant):
     request_subquery = Request.objects.filter(
         tenant=tenant,
         payment_type=Request.PAYMENT_TYPE_CASH,
+        amount=OuterRef("amount"),
     ).filter(Q(expense_ref_id=OuterRef("id")) | Q(expense_id=OuterRef("external_id")))
     if tenant_has_payroll_module_enabled(tenant):
         request_subquery = request_subquery.exclude(
@@ -169,6 +170,7 @@ def annotate_card_expense_compliance(qs, *, tenant):
     request_subquery = Request.objects.filter(
         tenant=tenant,
         payment_type=Request.PAYMENT_TYPE_CARD,
+        amount=OuterRef("amount"),
     ).filter(Q(expense_ref_id=OuterRef("id")))
     paid_request_subquery = request_subquery.filter(status=Request.STATUS_PAYED)
     return qs.annotate(
@@ -179,10 +181,17 @@ def annotate_card_expense_compliance(qs, *, tenant):
 
 
 def annotate_payroll_compliance(qs, *, tenant):
+    payroll_total_subquery = (
+        PayrollLine.objects.filter(document_id=OuterRef("pk"))
+        .values("document_id")
+        .annotate(total=Sum("sum"))
+        .values("total")[:1]
+    )
     request_subquery = Request.objects.filter(
         tenant=tenant,
         payment_type=Request.PAYMENT_TYPE_CASH,
         category=SALARY_CATEGORY,
+        amount=Subquery(payroll_total_subquery),
     ).filter(Q(expense_ref_id=OuterRef("pk")) | Q(expense_id=OuterRef("doc_id")))
     paid_request_subquery = request_subquery.filter(status=Request.STATUS_PAYED)
     return qs.annotate(
