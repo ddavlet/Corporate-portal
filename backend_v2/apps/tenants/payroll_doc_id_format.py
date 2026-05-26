@@ -19,9 +19,7 @@ def validate_payroll_doc_id_prefix(value: str) -> str:
 
 def tenant_payroll_doc_id_layout(tenant: Tenant) -> tuple[str, int]:
     p = getattr(tenant, "payroll_doc_id_prefix", None)
-    if p is None:
-        p = "1-"
-    prefix = "" if p is None else str(p).strip()
+    prefix = str(p).strip() if p is not None else "1-"
 
     raw_w = getattr(tenant, "payroll_doc_id_digit_width", None)
     try:
