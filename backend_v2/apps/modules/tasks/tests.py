@@ -24,7 +24,12 @@ def _setup_tenant(subdomain="acme", module_key="tasks"):
 
 
 def _add_member(tenant, username, role=None, tg_chat_id=None):
-    user = User.objects.create_user(username=username, password="x", telegram_chat_id=tg_chat_id)
+    user = User.objects.create_user(
+        username=username,
+        password="x",
+        telegram_chat_id=tg_chat_id,
+        telegram_from_id=tg_chat_id,
+    )
     TenantMembership.objects.create(tenant=tenant, user=user, is_active=True)
     if role:
         TenantUserRole.objects.create(tenant=tenant, user=user, role=role)
