@@ -35,7 +35,7 @@ class Command(BaseCommand):
             user = membership.user
             tenant = membership.tenant
 
-            if not user.telegram_chat_id:
+            if not user.telegram_from_id:
                 skipped_no_tg += 1
                 continue
 
@@ -73,7 +73,7 @@ class Command(BaseCommand):
             payload = {
                 "action": "send",
                 "text": message_text,
-                "recipient_id": str(user.telegram_chat_id),
+                "recipient_id": str(user.telegram_from_id),
                 "bot_token": bot_token,
                 "tenant_id": str(tenant.pk),
                 "buttons": digest_buttons(tasks_webapp_url=webapp_url),

@@ -44,6 +44,7 @@ _SERIALIZER_MAP: dict[str, type] = {
 class TaskViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated, CanViewTask]
     http_method_names = ["get", "post", "patch", "head", "options"]
+    pagination_class = None
 
     # ------------------------------------------------------------------
     # Queryset
