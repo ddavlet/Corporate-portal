@@ -70,6 +70,20 @@ export async function changeTaskStatus(id: number, newStatus: TaskStatus): Promi
   return json
 }
 
+export async function deleteTask(id: number): Promise<void> {
+  const res = await apiFetch(`${BASE}/${id}/`, { method: 'DELETE' })
+  if (!res.ok) throw new Error(await parseErrorBody(res))
+}
+
+export async function remindTask(id: number): Promise<void> {
+  const res = await apiFetch(`${BASE}/${id}/remind/`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({}),
+  })
+  if (!res.ok) throw new Error(await parseErrorBody(res))
+}
+
 export async function addTaskComment(id: number, body: string): Promise<TaskComment> {
   const res = await apiFetch(`${BASE}/${id}/comments/`, {
     method: 'POST',

@@ -99,3 +99,42 @@ class CanChangeStatus(BasePermission):
         if obj.assignee_id == user.id:
             return True
         return _task_belongs_to_tenant(obj, tenant) and _is_tenant_admin_or_director(user, tenant)
+
+
+class CanEditTask(BasePermission):
+    """Creator or admin/director can PATCH a task."""
+
+    def has_permission(self, request, view) -> bool:
+        return _is_authenticated(request)
+
+    def has_object_permission(self, request, view, obj) -> bool:
+        user = request.user
+        tenant = getattr(request, "tenant", None)
+        if obj.created_by_id == user.id:
+            return True
+        return _task_belongs_to_tenant(obj, tenant) and _is_tenant_admin_or_director(user, tenant)
+
+
+class CanDeleteTask(BasePermission):
+    """Creator or admin/director can DELETE a task."""
+
+    def has_permission(self, request, view) -> bool:
+        return _is_authenticated(request)
+
+    def has_object_permission(self, request, view, obj) -> bool:
+        user = request.user
+        tenant = getattr(request, "tenant", None)
+        if obj.created_by_id == user.id:
+            return True
+        return _task_belongs_to_tenant(obj, tenant) and _is_tenant_admin_or_director(user, tenant)
+
+
+class CanRemindTask(BasePermission):
+    """Only admin/director can send Telegram reminders on tasks."""
+
+    def has_permission(self, request, view) -> bool:
+        return _is_authenticated(request)
+
+    def has_object_permission(self, request, view, obj) -> bool:
+        tenant = getattr(request, "tenant", None)
+        return _task_belongs_to_tenant(obj, tenant) and _is_tenant_admin_or_director(request.user, tenant)

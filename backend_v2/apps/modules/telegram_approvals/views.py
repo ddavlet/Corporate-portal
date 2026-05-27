@@ -99,6 +99,63 @@ class TelegramApprovalWebhookView(APIView):
             return approval_id, Approval.DECISION_REJECTED
         raise ValidationError({"detail": "Unsupported decision value in callback payload."})
 
+    def _handle_task_callback(self, payload_str: str, event_data: dict) -> Response:
+        """Handle task inline-button callbacks.
+
+        Payload format: "task_<action>_<task_id>"
+          task_p_<id>  → move to in_progress
+          task_a_<id>  → archive (move to done)
+        """
+        from apps.modules.tasks.models import Task
+        from apps.modules.tasks.services import task_service
+        from apps.modules.tasks.notifications.task_notifier import edit_task_notification
+        from apps.modules.telegram_approvals.services import get_tenant_bot_token
+
+        parts = payload_str.split("_", 2)
+        if len(parts) != 3:
+            raise ValidationError({"detail": "Invalid task callback format."})
+        action = parts[1]
+        try:
+            task_id = int(parts[2])
+        except (TypeError, ValueError):
+            raise ValidationError({"detail": "Invalid task_id in task callback."})
+
+        task = (
+            Task.objects.select_related("tenant", "assignee")
+            .filter(pk=task_id)
+            .first()
+        )
+        if task is None:
+            logger.warning("task_callback: task_id=%s not found", task_id)
+            return Response({"detail": "Task not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        # Only the assignee may interact with task buttons.
+        from_id = str(event_data.get("user_id") or "").strip()
+        assignee_from_id = str(getattr(task.assignee, "telegram_from_id", None) or "")
+        if not from_id or from_id != assignee_from_id:
+            logger.warning(
+                "task_callback: unauthorized user_id=%s expected=%s task_id=%s",
+                from_id, assignee_from_id, task_id,
+            )
+            return Response({"detail": "Not authorized."}, status=status.HTTP_403_FORBIDDEN)
+
+        new_status = Task.STATUS_IN_PROGRESS if action == "p" else Task.STATUS_DONE
+        try:
+            task = task_service.set_status(task=task, new_status=new_status, actor=task.assignee)
+        except Exception:
+            logger.info("task_callback: status transition skipped task_id=%s action=%s", task_id, action)
+
+        task.refresh_from_db()
+
+        bot_token = get_tenant_bot_token(task.tenant)
+        if bot_token:
+            try:
+                edit_task_notification(task=task, tenant=task.tenant, bot_token=bot_token)
+            except Exception:
+                logger.exception("task_callback: edit_task_notification failed task_id=%s", task_id)
+
+        return Response({"detail": "ok"}, status=status.HTTP_200_OK)
+
     def _handle_invest_pay_callback(self, payload_str: str, event_data: dict) -> Response:
         from apps.modules.investments.models import InvestNotificationConfig, InvestPayoutSchedule
         from apps.modules.investments.notification_services import (
@@ -182,6 +239,9 @@ class TelegramApprovalWebhookView(APIView):
 
         if payload_str.startswith("invest_pay:"):
             return self._handle_invest_pay_callback(payload_str, event_data)
+
+        if payload_str.startswith("task_"):
+            return self._handle_task_callback(payload_str, event_data)
 
         payload_preview = (event_data.get("payload") or "")[:48]
         logger.info(

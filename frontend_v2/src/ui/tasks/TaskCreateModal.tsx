@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Alert, Button, Form, Input, Modal, Select, Space, message } from 'antd'
+import { Alert, Button, Form, Input, Modal, Select, Space, Switch, message } from 'antd'
 import { createTask, listAssigneeCandidates } from '../../lib/tasksApi'
 import type { AssigneeCandidate } from '../../lib/tasksApi'
 
@@ -7,6 +7,7 @@ interface FormValues {
   title: string
   description?: string
   assignee_id: number
+  notify: boolean
 }
 
 interface Props {
@@ -51,6 +52,7 @@ export function TaskCreateModal({ onClose }: Props) {
         title: values.title.trim(),
         description: values.description?.trim() ?? '',
         assignee_id: values.assignee_id,
+        notify: values.notify ?? false,
       })
       void message.success('Задача создана')
       onClose(true)
@@ -109,6 +111,16 @@ export function TaskCreateModal({ onClose }: Props) {
             showCount
             placeholder="Подробности (необязательно)"
           />
+        </Form.Item>
+
+        <Form.Item
+          name="notify"
+          valuePropName="checked"
+          initialValue={false}
+          label="Уведомить исполнителя в Telegram"
+          style={{ marginBottom: 8 }}
+        >
+          <Switch size="small" />
         </Form.Item>
 
         {!isSingleCandidate && (

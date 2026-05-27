@@ -85,6 +85,11 @@ class Task(models.Model):
     last_admin_comment_at = models.DateTimeField(null=True, blank=True)
     last_seen_at = models.DateTimeField(null=True, blank=True)
 
+    # Tracks the last Telegram notification message sent for this task.
+    # Used to edit (update) the message when status changes via button press.
+    tg_notify_message_id = models.BigIntegerField(null=True, blank=True)
+    tg_notify_recipient_id = models.BigIntegerField(null=True, blank=True)
+
     class Meta:
         db_table = "tasks"
         ordering = ["-created_at"]

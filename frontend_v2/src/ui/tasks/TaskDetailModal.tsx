@@ -5,13 +5,15 @@ import {
   Divider,
   Input,
   Modal,
+  Popconfirm,
   Skeleton,
   Space,
   Tag,
   Typography,
   message,
 } from 'antd'
-import { addTaskComment, changeTaskStatus, getTask } from '../../lib/tasksApi'
+import { BellOutlined, DeleteOutlined, EditOutlined } from '@ant-design/icons'
+import { addTaskComment, changeTaskStatus, deleteTask, getTask, patchTask, remindTask } from '../../lib/tasksApi'
 import type { TaskDetail, TaskComment, TaskStatus } from './types'
 
 const STATUS_LABEL: Record<TaskStatus, string> = {
@@ -86,15 +88,23 @@ function CommentCard({ comment }: { comment: TaskComment }) {
 interface Props {
   taskId: number
   onClose: () => void
+  currentUserId?: number | null
+  isAdminOrDirector?: boolean
 }
 
-export function TaskDetailModal({ taskId, onClose }: Props) {
+export function TaskDetailModal({ taskId, onClose, currentUserId, isAdminOrDirector }: Props) {
   const [task, setTask] = useState<TaskDetail | null>(null)
   const [loading, setLoading] = useState(true)
   const [statusChanging, setStatusChanging] = useState(false)
   const [commentBody, setCommentBody] = useState('')
   const [commentSaving, setCommentSaving] = useState(false)
   const [commentFormOpen, setCommentFormOpen] = useState(false)
+  const [editing, setEditing] = useState(false)
+  const [editTitle, setEditTitle] = useState('')
+  const [editDescription, setEditDescription] = useState('')
+  const [editSaving, setEditSaving] = useState(false)
+  const [reminding, setReminding] = useState(false)
+  const [deleting, setDeleting] = useState(false)
 
   // Keep a stable ref so the fetch effect never re-runs due to onClose identity changes.
   const onCloseRef = useRef(onClose)
@@ -152,6 +162,85 @@ export function TaskDetailModal({ taskId, onClose }: Props) {
     }
   }
 
+  const handleStartEdit = () => {
+    if (!task) return
+    setEditTitle(task.title)
+    setEditDescription(task.description ?? '')
+    setEditing(true)
+  }
+
+  const handleCancelEdit = () => {
+    setEditing(false)
+    setEditTitle('')
+    setEditDescription('')
+  }
+
+  const handleSaveEdit = async () => {
+    if (!task) return
+    const title = editTitle.trim()
+    if (!title) {
+      void message.warning('Введите название задачи')
+      return
+    }
+    setEditSaving(true)
+    try {
+      const updated = await patchTask(task.id, {
+        title,
+        description: editDescription.trim(),
+      })
+      setTask(updated)
+      setEditing(false)
+      void message.success('Задача сохранена')
+    } catch (err) {
+      void message.error(err instanceof Error ? err.message : 'Не удалось сохранить задачу')
+    } finally {
+      setEditSaving(false)
+    }
+  }
+
+  const handleRemind = async () => {
+    if (!task) return
+    setReminding(true)
+    try {
+      await remindTask(task.id)
+      void message.success('Напоминание отправлено')
+    } catch (err) {
+      void message.error(err instanceof Error ? err.message : 'Не удалось отправить напоминание')
+    } finally {
+      setReminding(false)
+    }
+  }
+
+  const handleDelete = async () => {
+    if (!task) return
+    setDeleting(true)
+    try {
+      await deleteTask(task.id)
+      void message.success('Задача удалена')
+      onClose()
+    } catch (err) {
+      void message.error(err instanceof Error ? err.message : 'Не удалось удалить задачу')
+      setDeleting(false)
+    }
+  }
+
+  const canEdit =
+    task != null &&
+    (isAdminOrDirector ||
+      (currentUserId != null && task.created_by?.id === currentUserId))
+
+  const canDelete =
+    task != null &&
+    (isAdminOrDirector ||
+      (currentUserId != null && task.created_by?.id === currentUserId))
+
+  const canRemind =
+    task != null &&
+    task.status !== 'done' &&
+    !!isAdminOrDirector &&
+    task.assignee?.id != null &&
+    task.assignee.id !== currentUserId
+
   const nextOptions = task ? (NEXT_STATUSES[task.status] ?? []) : []
 
   return (
@@ -188,16 +277,86 @@ export function TaskDetailModal({ taskId, onClose }: Props) {
             ))}
           </Space>
 
-          <Typography.Title level={5} style={{ marginTop: 0, marginBottom: 8 }}>
-            {task.title}
-          </Typography.Title>
-
-          {task.description && (
-            <Typography.Paragraph
-              style={{ whiteSpace: 'pre-wrap', color: '#595959', marginBottom: 16 }}
-            >
-              {task.description}
-            </Typography.Paragraph>
+          {editing ? (
+            <div style={{ marginBottom: 16 }}>
+              <Input
+                value={editTitle}
+                onChange={(e) => setEditTitle(e.target.value)}
+                maxLength={255}
+                placeholder="Название задачи"
+                style={{ marginBottom: 8, fontSize: 15, fontWeight: 600 }}
+              />
+              <Input.TextArea
+                value={editDescription}
+                onChange={(e) => setEditDescription(e.target.value)}
+                rows={3}
+                maxLength={4000}
+                showCount
+                placeholder="Описание (необязательно)"
+                style={{ marginBottom: 8 }}
+              />
+              <Space>
+                <Button type="primary" size="small" loading={editSaving} onClick={() => void handleSaveEdit()}>
+                  Сохранить
+                </Button>
+                <Button size="small" onClick={handleCancelEdit} disabled={editSaving}>
+                  Отмена
+                </Button>
+              </Space>
+            </div>
+          ) : (
+            <>
+              <div style={{ display: 'flex', alignItems: 'flex-start', gap: 4, marginBottom: 8 }}>
+                <Typography.Title level={5} style={{ margin: 0, flex: 1 }}>
+                  {task.title}
+                </Typography.Title>
+                {canRemind && (
+                  <Button
+                    size="small"
+                    type="text"
+                    icon={<BellOutlined />}
+                    title="Напомнить исполнителю"
+                    loading={reminding}
+                    style={{ color: '#faad14' }}
+                    onClick={() => void handleRemind()}
+                  />
+                )}
+                {canEdit && (
+                  <Button
+                    size="small"
+                    type="text"
+                    icon={<EditOutlined />}
+                    title="Редактировать"
+                    onClick={handleStartEdit}
+                  />
+                )}
+                {canDelete && (
+                  <Popconfirm
+                    title="Удалить задачу?"
+                    description="Действие необратимо."
+                    okText="Удалить"
+                    okButtonProps={{ danger: true, loading: deleting }}
+                    cancelText="Отмена"
+                    onConfirm={() => void handleDelete()}
+                  >
+                    <Button
+                      size="small"
+                      type="text"
+                      danger
+                      icon={<DeleteOutlined />}
+                      title="Удалить задачу"
+                    />
+                  </Popconfirm>
+                )}
+              </div>
+              {task.description && (
+                <Typography.Paragraph
+                  style={{ whiteSpace: 'pre-wrap', color: '#595959', marginBottom: 16 }}
+                >
+                  {task.description}
+                </Typography.Paragraph>
+              )}
+            </>
           )}
 
           <Descriptions size="small" column={1} bordered style={{ marginBottom: 16 }}>

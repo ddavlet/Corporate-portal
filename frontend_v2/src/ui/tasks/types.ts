@@ -27,6 +27,7 @@ export interface Task {
   status: TaskStatus
   source_type: TaskSourceType
   assignee: TaskUser | null
+  created_by_id: number | null
   source_request_id: number | null
   source_approval_id: number | null
   created_at: string
@@ -54,6 +55,7 @@ export interface TaskCreatePayload {
   description?: string
   assignee_id: number
   source_request_id?: number | null
+  notify?: boolean
 }
 
 export interface TaskPatchPayload {

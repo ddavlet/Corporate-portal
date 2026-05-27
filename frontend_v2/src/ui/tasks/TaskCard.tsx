@@ -1,5 +1,5 @@
-import { Badge, Tag, Typography } from 'antd'
-import { CommentOutlined } from '@ant-design/icons'
+import { Badge, Button, Popconfirm, Space, Tag, Typography } from 'antd'
+import { BellOutlined, CheckOutlined, CommentOutlined, DeleteOutlined } from '@ant-design/icons'
 import type { Task, TaskSourceType } from './types'
 
 const SOURCE_LABEL: Record<TaskSourceType, string> = {
@@ -25,6 +25,11 @@ interface TaskCardProps {
   onClick: () => void
   showAssignee?: boolean
   isDragOverlay?: boolean
+  currentUserId?: number | null
+  isAdminOrDirector?: boolean
+  onArchive?: (id: number) => void
+  onDelete?: (id: number) => void
+  onRemind?: (id: number) => void
 }
 
 function formatCardDate(task: Task): string {
@@ -32,10 +37,51 @@ function formatCardDate(task: Task): string {
   return new Date(raw).toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', year: '2-digit' })
 }
 
-export function TaskCard({ task, onClick, showAssignee, isDragOverlay }: TaskCardProps) {
+export function TaskCard({
+  task,
+  onClick,
+  showAssignee,
+  isDragOverlay,
+  currentUserId,
+  isAdminOrDirector,
+  onArchive,
+  onDelete,
+  onRemind,
+}: TaskCardProps) {
   const label = SOURCE_LABEL[task.source_type] ?? task.source_type
   const color = SOURCE_COLOR[task.source_type] ?? 'default'
   const dateStr = formatCardDate(task)
+
+  // Archive (move-to-done) maps to backend CanChangeStatus: assignee OR admin/director.
+  const canArchive =
+    !isDragOverlay &&
+    task.status !== 'done' &&
+    onArchive != null &&
+    (isAdminOrDirector || (currentUserId != null && task.assignee?.id === currentUserId))
+
+  const canDelete =
+    !isDragOverlay &&
+    onDelete != null &&
+    (isAdminOrDirector || (currentUserId != null && task.created_by_id === currentUserId))
+
+  // Remind only makes sense when assignee is someone other than the current user.
+  const canRemind =
+    !isDragOverlay &&
+    task.status !== 'done' &&
+    isAdminOrDirector &&
+    onRemind != null &&
+    task.assignee?.id != null &&
+    task.assignee.id !== currentUserId
+
+  const hasActions = canArchive || canDelete || canRemind
+
+  const stopAndCall = (e: React.MouseEvent, fn: () => void) => {
+    e.stopPropagation()
+    fn()
+  }
+
+  // Prevent dnd-kit from picking up pointer events on action buttons.
+  const stopPointer = (e: React.PointerEvent) => e.stopPropagation()
 
   return (
     <div
@@ -76,6 +122,60 @@ export function TaskCard({ task, onClick, showAssignee, isDragOverlay }: TaskCar
           {dateStr}
         </Typography.Text>
       </div>
+
+      {hasActions && (
+        <div style={{ marginTop: 8, display: 'flex', justifyContent: 'flex-end' }}>
+          <Space size={4}>
+            {canArchive && (
+              <Button
+                size="small"
+                type="text"
+                icon={<CheckOutlined />}
+                title="Выполнено"
+                style={{ color: '#52c41a', padding: '0 4px', height: 22 }}
+                onPointerDown={stopPointer}
+                onClick={(e) => stopAndCall(e, () => onArchive!(task.id))}
+              />
+            )}
+            {canRemind && (
+              <Button
+                size="small"
+                type="text"
+                icon={<BellOutlined />}
+                title="Напомнить исполнителю"
+                style={{ color: '#faad14', padding: '0 4px', height: 22 }}
+                onPointerDown={stopPointer}
+                onClick={(e) => stopAndCall(e, () => onRemind!(task.id))}
+              />
+            )}
+            {canDelete && (
+              <Popconfirm
+                title="Удалить задачу?"
+                description="Действие необратимо."
+                okText="Удалить"
+                okButtonProps={{ danger: true }}
+                cancelText="Отмена"
+                onConfirm={(e) => {
+                  e?.stopPropagation()
+                  onDelete!(task.id)
+                }}
+                onCancel={(e) => e?.stopPropagation()}
+              >
+                <Button
+                  size="small"
+                  type="text"
+                  icon={<DeleteOutlined />}
+                  title="Удалить задачу"
+                  danger
+                  style={{ padding: '0 4px', height: 22 }}
+                  onPointerDown={stopPointer}
+                  onClick={(e) => e.stopPropagation()}
+                />
+              </Popconfirm>
+            )}
+          </Space>
+        </div>
+      )}
     </div>
   )
 }

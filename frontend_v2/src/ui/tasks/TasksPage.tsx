@@ -14,7 +14,7 @@ import { useDroppable } from '@dnd-kit/core'
 import { useDraggable } from '@dnd-kit/core'
 import { CSS } from '@dnd-kit/utilities'
 import { getSettingsAccess } from '../../lib/api'
-import { changeTaskStatus, getTaskDashboard, listAssigneeCandidates, listTasks } from '../../lib/tasksApi'
+import { changeTaskStatus, deleteTask, getTaskDashboard, listAssigneeCandidates, listTasks, remindTask } from '../../lib/tasksApi'
 import type { AssigneeCandidate } from '../../lib/tasksApi'
 import type { Task, TaskDashboard, TaskStatus } from './types'
 import { TaskCard } from './TaskCard'
@@ -99,6 +99,7 @@ export function TasksPage() {
   const [board, setBoard] = useState<BoardData | null>(null)
   const [loading, setLoading] = useState(true)
   const [isWideScope, setIsWideScope] = useState(false)
+  const [currentUserId, setCurrentUserId] = useState<number | null>(null)
   const [showAll, setShowAll] = useState(true)
   const [filters, setFilters] = useState<FiltersState>({})
   const [candidates, setCandidates] = useState<AssigneeCandidate[]>([])
@@ -159,6 +160,7 @@ export function TasksPage() {
         const wide = access.roles.includes('admin') || access.roles.includes('director')
         if (!cancelled) {
           setIsWideScope(wide)
+          setCurrentUserId(access.user_id ?? null)
           setCandidates(cands)
           await fetchBoard(wide, true, {})
         }
@@ -234,6 +236,41 @@ export function TasksPage() {
       void message.error(err instanceof Error ? err.message : 'Не удалось изменить статус')
       void fetchBoard(isWideScope, showAll, filters, true)
     })
+  }
+
+  const handleArchive = (taskId: number) => {
+    setBoard((prev) => {
+      if (!prev) return prev
+      const fromStatus: TaskStatus =
+        prev.new.some((t) => t.id === taskId) ? 'new' : 'in_progress'
+      return moveTaskBetweenColumns(prev, taskId, fromStatus, 'done')
+    })
+    void changeTaskStatus(taskId, 'done').catch((err) => {
+      void message.error(err instanceof Error ? err.message : 'Не удалось архивировать задачу')
+      void fetchBoard(isWideScope, showAll, filters, true)
+    })
+  }
+
+  const handleDelete = (taskId: number) => {
+    setBoard((prev) => {
+      if (!prev) return prev
+      return {
+        ...prev,
+        new: prev.new.filter((t) => t.id !== taskId),
+        in_progress: prev.in_progress.filter((t) => t.id !== taskId),
+        done_recent: prev.done_recent.filter((t) => t.id !== taskId),
+      }
+    })
+    void deleteTask(taskId).catch((err) => {
+      void message.error(err instanceof Error ? err.message : 'Не удалось удалить задачу')
+      void fetchBoard(isWideScope, showAll, filters, true)
+    })
+  }
+
+  const handleRemind = (taskId: number) => {
+    void remindTask(taskId)
+      .then(() => void message.success('Напоминание отправлено'))
+      .catch((err) => void message.error(err instanceof Error ? err.message : 'Не удалось отправить напоминание'))
   }
 
   const isArchiveMode = filters.status === 'done'
@@ -318,6 +355,11 @@ export function TasksPage() {
             onTaskClick={setSelectedTaskId}
             draggingTaskId={draggingTask?.id ?? null}
             isMobile={isMobile}
+            currentUserId={currentUserId}
+            isAdminOrDirector={isWideScope}
+            onArchive={handleArchive}
+            onDelete={handleDelete}
+            onRemind={handleRemind}
           />
           <DroppableBoardColumn
             columnStatus="in_progress"
@@ -328,6 +370,11 @@ export function TasksPage() {
             onTaskClick={setSelectedTaskId}
             draggingTaskId={draggingTask?.id ?? null}
             isMobile={isMobile}
+            currentUserId={currentUserId}
+            isAdminOrDirector={isWideScope}
+            onArchive={handleArchive}
+            onDelete={handleDelete}
+            onRemind={handleRemind}
           />
           <DroppableBoardColumn
             columnStatus="done"
@@ -339,6 +386,9 @@ export function TasksPage() {
             caption={doneCaptionExtra}
             draggingTaskId={draggingTask?.id ?? null}
             isMobile={isMobile}
+            currentUserId={currentUserId}
+            isAdminOrDirector={isWideScope}
+            onDelete={handleDelete}
             onViewArchive={
               isDashboardMode && !isArchiveMode
                 ? () => handleFiltersChange({ status: 'done' })
@@ -362,6 +412,8 @@ export function TasksPage() {
       {selectedTaskId != null && (
         <TaskDetailModal
           taskId={selectedTaskId}
+          currentUserId={currentUserId}
+          isAdminOrDirector={isWideScope}
           onClose={() => {
             setSelectedTaskId(null)
             void fetchBoard(isWideScope, showAll, filters, true)
@@ -392,6 +444,11 @@ interface DroppableBoardColumnProps {
   onViewArchive?: () => void
   draggingTaskId: number | null
   isMobile: boolean
+  currentUserId?: number | null
+  isAdminOrDirector?: boolean
+  onArchive?: (id: number) => void
+  onDelete?: (id: number) => void
+  onRemind?: (id: number) => void
 }
 
 function DroppableBoardColumn({
@@ -405,6 +462,11 @@ function DroppableBoardColumn({
   onViewArchive,
   draggingTaskId,
   isMobile,
+  currentUserId,
+  isAdminOrDirector,
+  onArchive,
+  onDelete,
+  onRemind,
 }: DroppableBoardColumnProps) {
   const { setNodeRef, isOver } = useDroppable({
     id: `column-${columnStatus}`,
@@ -463,6 +525,11 @@ function DroppableBoardColumn({
               onClick={() => onTaskClick(t.id)}
               isDragging={draggingTaskId === t.id}
               dndDisabled={isMobile}
+              currentUserId={currentUserId}
+              isAdminOrDirector={isAdminOrDirector}
+              onArchive={onArchive}
+              onDelete={onDelete}
+              onRemind={onRemind}
             />
           ))
         )}
@@ -491,9 +558,14 @@ interface DraggableTaskCardProps {
   onClick: () => void
   isDragging: boolean
   dndDisabled: boolean
+  currentUserId?: number | null
+  isAdminOrDirector?: boolean
+  onArchive?: (id: number) => void
+  onDelete?: (id: number) => void
+  onRemind?: (id: number) => void
 }
 
-function DraggableTaskCard({ task, showAssignee, onClick, isDragging, dndDisabled }: DraggableTaskCardProps) {
+function DraggableTaskCard({ task, showAssignee, onClick, isDragging, dndDisabled, currentUserId, isAdminOrDirector, onArchive, onDelete, onRemind }: DraggableTaskCardProps) {
   const { attributes, listeners, setNodeRef, transform } = useDraggable({
     id: `task-${task.id}`,
     data: { taskId: task.id, status: task.status },
@@ -511,7 +583,16 @@ function DraggableTaskCard({ task, showAssignee, onClick, isDragging, dndDisable
 
   return (
     <div ref={setNodeRef} style={style} {...listeners} {...attributes}>
-      <TaskCard task={task} showAssignee={showAssignee} onClick={onClick} />
+      <TaskCard
+        task={task}
+        showAssignee={showAssignee}
+        onClick={onClick}
+        currentUserId={currentUserId}
+        isAdminOrDirector={isAdminOrDirector}
+        onArchive={onArchive}
+        onDelete={onDelete}
+        onRemind={onRemind}
+      />
     </div>
   )
 }

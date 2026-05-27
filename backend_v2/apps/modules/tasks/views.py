@@ -11,7 +11,11 @@ from apps.modules.tasks.models import Task
 from apps.modules.tasks.permissions import (
     CanChangeStatus,
     CanCommentOnTask,
+    CanDeleteTask,
+    CanEditTask,
+    CanRemindTask,
     CanViewTask,
+    _is_tenant_admin_or_director,
     tenant_admin_director_user_ids,
 )
 from apps.modules.tasks.querysets.resolver import resolve_scope_for_user
@@ -43,7 +47,7 @@ _SERIALIZER_MAP: dict[str, type] = {
 
 class TaskViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated, CanViewTask]
-    http_method_names = ["get", "post", "patch", "head", "options"]
+    http_method_names = ["get", "post", "patch", "delete", "head", "options"]
     pagination_class = None
 
     # ------------------------------------------------------------------
@@ -136,6 +140,12 @@ class TaskViewSet(viewsets.ModelViewSet):
             return [IsAuthenticated(), CanChangeStatus()]
         if self.action == "add_comment":
             return [IsAuthenticated(), CanCommentOnTask()]
+        if self.action == "partial_update":
+            return [IsAuthenticated(), CanEditTask()]
+        if self.action == "destroy":
+            return [IsAuthenticated(), CanDeleteTask()]
+        if self.action == "remind":
+            return [IsAuthenticated(), CanRemindTask()]
         return super().get_permissions()
 
     @action(detail=True, methods=["post"], url_path="status")
@@ -198,6 +208,21 @@ class TaskViewSet(viewsets.ModelViewSet):
         cfg = TasksConfig.objects.filter(tenant=tenant).first()
         return Response({"tasks_webapp_url": (cfg.tasks_webapp_url if cfg else "") or ""})
 
+    @action(detail=True, methods=["post"], url_path="remind")
+    def remind(self, request, pk=None):
+        task = self.get_object()
+        try:
+            from apps.modules.tasks.notifications.task_notifier import send_task_notification
+            from apps.modules.telegram_approvals.services import get_tenant_bot_token
+            tenant = getattr(request, "tenant", None)
+            bot_token = get_tenant_bot_token(tenant)
+            if bot_token:
+                send_task_notification(task=task, tenant=tenant, bot_token=bot_token, is_reminder=True)
+        except Exception:
+            logger.exception("remind: failed to send reminder task_id=%s", task.pk)
+        out = TaskDetailSerializer(task, context=self.get_serializer_context())
+        return Response(out.data)
+
     @action(detail=False, methods=["get"], url_path="assignee-candidates")
     def assignee_candidates(self, request):
         from django.contrib.auth import get_user_model
@@ -206,6 +231,10 @@ class TaskViewSet(viewsets.ModelViewSet):
         tenant = getattr(request, "tenant", None)
         if not tenant:
             return Response([])
+
+        # Non-admin/director users can only assign tasks to themselves.
+        if not _is_tenant_admin_or_director(request.user, tenant):
+            return Response([{"id": request.user.id, "username": request.user.username}])
 
         User = get_user_model()
         active_ids = TenantMembership.objects.filter(

@@ -11,6 +11,25 @@ User = get_user_model()
 
 
 # ---------------------------------------------------------------------------
+# Internal helpers
+# ---------------------------------------------------------------------------
+
+def _send_new_task_notification(*, task, tenant) -> None:
+    """Fire-and-forget: send Telegram notification for a newly created task."""
+    try:
+        from apps.modules.tasks.notifications.task_notifier import send_task_notification
+        from apps.modules.telegram_approvals.services import get_tenant_bot_token
+        bot_token = get_tenant_bot_token(tenant)
+        if bot_token:
+            send_task_notification(task=task, tenant=tenant, bot_token=bot_token)
+    except Exception:
+        import logging
+        logging.getLogger(__name__).exception(
+            "Failed to send new-task notification task_id=%s", getattr(task, "pk", None)
+        )
+
+
+# ---------------------------------------------------------------------------
 # Shared helpers
 # ---------------------------------------------------------------------------
 
@@ -83,6 +102,7 @@ class TaskListSerializer(serializers.ModelSerializer):
             "status",
             "source_type",
             "assignee",
+            "created_by_id",
             "source_request_id",
             "source_approval_id",
             "created_at",
@@ -134,9 +154,9 @@ class TaskCreateSerializer(serializers.Serializer):
     description = serializers.CharField(required=False, default="", allow_blank=True, trim_whitespace=True)
     assignee_id = serializers.IntegerField()
     source_request_id = serializers.IntegerField(required=False, allow_null=True)
+    notify = serializers.BooleanField(default=False, write_only=True)
 
     def _request_tenant(self):
-        """Tenant from the request context — required for cross-tenant checks."""
         request = self.context.get("request")
         return getattr(request, "tenant", None) if request else None
 
@@ -145,7 +165,6 @@ class TaskCreateSerializer(serializers.Serializer):
         tenant = self._request_tenant()
         if tenant is None:
             raise serializers.ValidationError("Tenant context is required.")
-        # Tenant-scoped check: the assignee must be an active member of THIS tenant.
         if not TenantMembership.objects.filter(
             tenant=tenant, user_id=value, is_active=True
         ).exists():
@@ -163,6 +182,19 @@ class TaskCreateSerializer(serializers.Serializer):
             raise serializers.ValidationError("Source request not found in this tenant.")
         return value
 
+    def validate(self, data):
+        from apps.modules.tasks.permissions import _is_tenant_admin_or_director
+        request = self.context.get("request")
+        user = request.user if request else None
+        tenant = self._request_tenant()
+        # Non-admin/director users can only create tasks for themselves.
+        if user and not _is_tenant_admin_or_director(user, tenant):
+            if data.get("assignee_id") != user.id:
+                raise serializers.ValidationError(
+                    {"assignee_id": "You can only create tasks assigned to yourself."}
+                )
+        return data
+
     def create(self, validated_data):
         from apps.modules.tasks.services import task_service
         from apps.modules.requests.models import Request
@@ -170,13 +202,14 @@ class TaskCreateSerializer(serializers.Serializer):
         request = self.context["request"]
         tenant = request.tenant
         actor = request.user
+        notify = validated_data.pop("notify", False)
 
         assignee = User.objects.get(id=validated_data["assignee_id"])
         source_request = None
         if validated_data.get("source_request_id"):
             source_request = Request.objects.get(id=validated_data["source_request_id"])
 
-        return task_service.create_task(
+        task = task_service.create_task(
             tenant=tenant,
             assignee=assignee,
             title=validated_data["title"],
@@ -185,6 +218,11 @@ class TaskCreateSerializer(serializers.Serializer):
             source_type=Task.SOURCE_MANUAL,
             source_request=source_request,
         )
+
+        if notify:
+            _send_new_task_notification(task=task, tenant=tenant)
+
+        return task
 
 
 # ---------------------------------------------------------------------------
