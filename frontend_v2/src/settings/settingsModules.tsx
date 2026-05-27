@@ -1,4 +1,4 @@
-import { BarChartOutlined, BankOutlined, FileTextOutlined, MessageOutlined, SettingOutlined, ShopOutlined, TeamOutlined } from '@ant-design/icons'
+import { BarChartOutlined, BankOutlined, CheckSquareOutlined, FileTextOutlined, MessageOutlined, SettingOutlined, ShopOutlined, TeamOutlined } from '@ant-design/icons'
 import type { ReactNode } from 'react'
 
 export type SettingsModuleItem = {
@@ -138,6 +138,14 @@ export const SETTINGS_MODULES: SettingsModuleItem[] = [
     description: 'Справочник Telegram-групп и каналов для согласований и уведомлений. Используется в конфигурациях этапов вместо ручного ввода Chat ID.',
     path: '/settings/telegram-chats',
     icon: <MessageOutlined />,
+    group: 'company',
+  },
+  {
+    key: 'tasks-config',
+    title: 'Задачи — уведомления',
+    description: 'URL Telegram WebApp для кнопки в ежедневном дайджесте задач.',
+    path: '/settings/tasks-config',
+    icon: <CheckSquareOutlined />,
     group: 'company',
   },
   {

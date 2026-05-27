@@ -84,6 +84,14 @@ ROLE_MODULE_ACCESS: dict[str, set[str]] = {
         TenantUserRole.ROLE_ADMIN,
         TenantUserRole.ROLE_DIRECTOR,
     },
+    "tasks": {
+        TenantUserRole.ROLE_ADMIN,
+        TenantUserRole.ROLE_DIRECTOR,
+        TenantUserRole.ROLE_ACCOUNTANT,
+        TenantUserRole.ROLE_CASHIER,
+        TenantUserRole.ROLE_APPROVER,
+        TenantUserRole.ROLE_REQUESTER,
+    },
     "messaging_gateway": {
         TenantUserRole.ROLE_ADMIN,
     },

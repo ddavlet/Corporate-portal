@@ -8,6 +8,7 @@ from apps.modules.requests.approval_config_resolver import resolve_effective_pay
 from apps.modules.requests.models import Approval, Request, RequestApprovalStepConfig
 from apps.modules.requests.services import create_expense_for_request_payment
 from apps.modules.requests.status_events import dispatch_request_payed_event_handlers
+from apps.modules.tasks.triggers.registry import task_trigger_registry
 
 # Set on remaining pending rows when another step already rejected the request.
 _STOPPED_BY_OTHER_STEP_COMMENT = "Автоматически: заявка отклонена на другом этапе."
@@ -128,7 +129,12 @@ def _recalculate_request_status(request_obj: Request) -> str:
                 request_obj.expense_day = now.day
                 update_fields.extend(["expense_year", "expense_month", "expense_day"])
         request_obj.save(update_fields=update_fields)
+        if next_status == Request.STATUS_APPROVED:
+            task_trigger_registry.dispatch("request_approved", request_obj=request_obj)
+        if next_status == Request.STATUS_REJECTED:
+            task_trigger_registry.dispatch("request_rejected", request_obj=request_obj)
         if next_status == Request.STATUS_PAYED:
+            task_trigger_registry.dispatch("payment_confirmed", request_obj=request_obj)
             dispatch_request_payed_event_handlers(request_obj=request_obj)
     return request_obj.status
 
@@ -168,7 +174,17 @@ def route_request_approvals(*, request_obj: Request) -> None:
                 decision=Approval.DECISION_PENDING,
             ).exists()
             if has_pending_on_step:
+                step_approvals = list(
+                    find_approvals(request_obj=locked, step=current_step, decision=Approval.DECISION_PENDING)
+                    .select_related("approver_user")
+                )
                 dispatch_pending_approvals(request_obj=locked, step=current_step)
+                for _approval in step_approvals:
+                    task_trigger_registry.dispatch(
+                        "approval_step_activated",
+                        approval=_approval,
+                        request_obj=locked,
+                    )
                 still_pending = find_approvals(
                     request_obj=locked,
                     step=current_step,
@@ -308,6 +324,12 @@ def confirm_approval_by_id(
         approval.comment = comment
         approval.decided_at = decided_at or timezone.now()
         approval.save(update_fields=["decision", "comment", "decided_at"])
+
+        task_trigger_registry.dispatch(
+            "approval_step_decided",
+            approval=approval,
+            request_obj=request_obj,
+        )
 
         _recalculate_request_status(request_obj)
         request_obj.refresh_from_db()
