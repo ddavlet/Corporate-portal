@@ -200,14 +200,46 @@ class TasksApiTests(APITestCase):
     # Assignee candidates
     # ------------------------------------------------------------------
 
-    def test_assignee_candidates_returns_active_members(self):
-        self._auth(self.regular)
+    def test_assignee_candidates_admin_sees_all_active_members(self):
+        self._auth(self.admin)
         res = self.client.get("/api/tasks/assignee-candidates/", HTTP_HOST=HOST)
         self.assertEqual(res.status_code, 200)
         usernames = [c["username"] for c in res.data]
         self.assertIn("admin_user", usernames)
         self.assertIn("regular_user", usernames)
         self.assertIn("other_user", usernames)
+
+    def test_assignee_candidates_regular_user_sees_only_self(self):
+        # Non-admin/director users can only assign tasks to themselves, so the
+        # candidate list must be limited to the requesting user — exposing other
+        # members would suggest a capability they do not have.
+        self._auth(self.regular)
+        res = self.client.get("/api/tasks/assignee-candidates/", HTTP_HOST=HOST)
+        self.assertEqual(res.status_code, 200)
+        usernames = [c["username"] for c in res.data]
+        self.assertEqual(usernames, ["regular_user"])
+
+    def test_create_task_regular_user_cannot_assign_to_others(self):
+        self._auth(self.regular)
+        res = self.client.post(
+            "/api/tasks/",
+            {"title": "Task for other", "assignee_id": self.other.id},
+            format="json",
+            HTTP_HOST=HOST,
+        )
+        self.assertEqual(res.status_code, 400)
+        self.assertIn("assignee_id", res.data)
+
+    def test_create_task_regular_user_can_self_assign(self):
+        self._auth(self.regular)
+        res = self.client.post(
+            "/api/tasks/",
+            {"title": "My own task", "assignee_id": self.regular.id},
+            format="json",
+            HTTP_HOST=HOST,
+        )
+        self.assertEqual(res.status_code, 201)
+        self.assertEqual(res.data["assignee"]["id"], self.regular.id)
 
     # ------------------------------------------------------------------
     # Dashboard
@@ -236,3 +268,99 @@ class TasksApiTests(APITestCase):
         res = self.client.get("/api/tasks/dashboard/", HTTP_HOST=HOST)
         self.assertEqual(res.status_code, 200)
         self.assertLessEqual(len(res.data["done_recent"]), 3)
+
+    # ------------------------------------------------------------------
+    # Delete (CanDeleteTask)
+    # ------------------------------------------------------------------
+
+    def _make_task_with_creator(self, *, assignee, created_by, title="Test"):
+        return Task.objects.create(
+            tenant=self.tenant,
+            assignee=assignee,
+            created_by=created_by,
+            title=title,
+            status=Task.STATUS_NEW,
+            source_type=Task.SOURCE_MANUAL,
+        )
+
+    def test_creator_can_delete_own_task(self):
+        task = self._make_task_with_creator(assignee=self.regular, created_by=self.regular)
+        self._auth(self.regular)
+        res = self.client.delete(f"/api/tasks/{task.id}/", HTTP_HOST=HOST)
+        self.assertEqual(res.status_code, 204)
+        self.assertFalse(Task.objects.filter(pk=task.id).exists())
+
+    def test_admin_can_delete_any_task(self):
+        task = self._make_task_with_creator(assignee=self.regular, created_by=self.regular)
+        self._auth(self.admin)
+        res = self.client.delete(f"/api/tasks/{task.id}/", HTTP_HOST=HOST)
+        self.assertEqual(res.status_code, 204)
+
+    def test_non_creator_non_admin_cannot_delete(self):
+        task = self._make_task_with_creator(assignee=self.regular, created_by=self.admin)
+        self._auth(self.regular)
+        res = self.client.delete(f"/api/tasks/{task.id}/", HTTP_HOST=HOST)
+        self.assertEqual(res.status_code, 403)
+        self.assertTrue(Task.objects.filter(pk=task.id).exists())
+
+    # ------------------------------------------------------------------
+    # Edit (CanEditTask)
+    # ------------------------------------------------------------------
+
+    def test_creator_can_patch_own_task(self):
+        task = self._make_task_with_creator(assignee=self.regular, created_by=self.regular)
+        self._auth(self.regular)
+        res = self.client.patch(
+            f"/api/tasks/{task.id}/",
+            {"title": "Updated title", "description": "New body"},
+            format="json",
+            HTTP_HOST=HOST,
+        )
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(res.data["title"], "Updated title")
+        self.assertEqual(res.data["description"], "New body")
+
+    def test_admin_can_patch_any_task(self):
+        task = self._make_task_with_creator(assignee=self.regular, created_by=self.regular)
+        self._auth(self.admin)
+        res = self.client.patch(
+            f"/api/tasks/{task.id}/",
+            {"title": "Admin edit"},
+            format="json",
+            HTTP_HOST=HOST,
+        )
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(res.data["title"], "Admin edit")
+
+    def test_non_creator_non_admin_cannot_patch(self):
+        # Assignee who didn't create the task cannot edit title/description —
+        # editing is a creator/admin power, not an assignee power.
+        task = self._make_task_with_creator(assignee=self.regular, created_by=self.admin)
+        self._auth(self.regular)
+        res = self.client.patch(
+            f"/api/tasks/{task.id}/",
+            {"title": "Hacked title"},
+            format="json",
+            HTTP_HOST=HOST,
+        )
+        self.assertEqual(res.status_code, 403)
+        task.refresh_from_db()
+        self.assertNotEqual(task.title, "Hacked title")
+
+    # ------------------------------------------------------------------
+    # Remind (CanRemindTask)
+    # ------------------------------------------------------------------
+
+    def test_admin_can_call_remind(self):
+        task = self._make_task_with_creator(assignee=self.regular, created_by=self.admin)
+        self._auth(self.admin)
+        res = self.client.post(f"/api/tasks/{task.id}/remind/", {}, format="json", HTTP_HOST=HOST)
+        # The endpoint logs+swallows Telegram errors; what we verify is that
+        # the permission layer accepts the call (200), not that a message was sent.
+        self.assertEqual(res.status_code, 200)
+
+    def test_regular_user_cannot_call_remind(self):
+        task = self._make_task_with_creator(assignee=self.regular, created_by=self.admin)
+        self._auth(self.regular)
+        res = self.client.post(f"/api/tasks/{task.id}/remind/", {}, format="json", HTTP_HOST=HOST)
+        self.assertEqual(res.status_code, 403)
