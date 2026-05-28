@@ -338,6 +338,7 @@ class SettingsAccessView(APIView):
         return Response(
             {
                 "tenant_name": tenant.name,
+                "user_id": user.id,
                 "can_open_settings": can_open_settings,
                 # React «Админка» (/admin): только tenant role admin (не Django staff).
                 "can_open_admin": TenantUserRole.ROLE_ADMIN in roles,

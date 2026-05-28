@@ -19,6 +19,7 @@ def list_modules():
     from apps.modules.investments.registry import MODULE_KEY as INVESTMENTS_KEY, display_name as INVESTMENTS_NAME
     from apps.modules.budgets.registry import MODULE_KEY as BUDGETS_KEY, display_name as BUDGETS_NAME
     from apps.modules.contracts.registry import MODULE_KEY as CONTRACTS_KEY, display_name as CONTRACTS_NAME
+    from apps.modules.tasks.registry import MODULE_KEY as TASKS_KEY, display_name as TASKS_NAME
 
     return [
         {"module_key": REQUESTS_KEY, "display_name": REQUESTS_NAME},
@@ -36,5 +37,6 @@ def list_modules():
         {"module_key": INVESTMENTS_KEY, "display_name": INVESTMENTS_NAME},
         {"module_key": BUDGETS_KEY, "display_name": BUDGETS_NAME},
         {"module_key": CONTRACTS_KEY, "display_name": CONTRACTS_NAME},
+        {"module_key": TASKS_KEY, "display_name": TASKS_NAME},
     ]
 

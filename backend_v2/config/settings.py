@@ -71,6 +71,7 @@ INSTALLED_APPS = [
     "apps.modules.budgets",
     "apps.modules.contracts",
     "apps.modules.reports",
+    "apps.modules.tasks",
 
     # MCP server
     "apps.mcp_server",
