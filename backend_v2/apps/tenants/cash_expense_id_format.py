@@ -40,18 +40,18 @@ def format_canonical_cash_expense_external_id(*, tenant: Tenant, numeric: int) -
     return f"{prefix}{int(numeric):0{width}d}"
 
 
-def cash_expense_external_id_match_candidates(raw: str, tenant: Tenant) -> list[str]:
+def expense_doc_match_candidates(raw: str, *, prefix: str, width: int) -> list[str]:
     """
-    Values to try against `CashExpense.external_id` for this tenant.
+    Candidate strings for matching a business document id (raw + numeric variants).
 
-    Always includes the raw string (for non-numeric / legacy ids), plus plain and
-    zero-padded numeric forms when the input can be parsed as such.
+    Always includes the raw string, plus plain and zero-padded numeric forms when parseable.
     """
     value = str(raw or "").strip()
     if not value:
         return []
 
-    prefix, width = tenant_cash_expense_external_id_layout(tenant)
+    prefix = "" if prefix is None else str(prefix).strip()
+    width = max(1, min(int(width), 32))
     candidates: list[str] = []
 
     def add(c: str) -> None:
@@ -77,3 +77,9 @@ def cash_expense_external_id_match_candidates(raw: str, tenant: Tenant) -> list[
     for c in (plain, canonical):
         add(c)
     return candidates
+
+
+def cash_expense_external_id_match_candidates(raw: str, tenant: Tenant) -> list[str]:
+    """Values to try against `CashExpense.external_id` for this tenant."""
+    prefix, width = tenant_cash_expense_external_id_layout(tenant)
+    return expense_doc_match_candidates(raw, prefix=prefix, width=width)

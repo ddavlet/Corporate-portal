@@ -6,6 +6,8 @@ from rest_framework.exceptions import PermissionDenied
 from rest_framework.permissions import BasePermission, IsAuthenticated
 from rest_framework.response import Response
 
+from apps.common.pagination import PortalCursorPagination
+from apps.common.viewsets import PortalListViewSetMixin
 from apps.modules.budgets.models import Budget
 from apps.modules.budgets.serializers import BudgetSerializer, _period_date_range
 from apps.modules.requests.models import Request
@@ -40,9 +42,16 @@ def _parse_period_params(query_params):
     return year, period_index
 
 
-class BudgetViewSet(viewsets.ModelViewSet):
+class BudgetCursorPagination(PortalCursorPagination):
+    ordering = "name,id"
+
+
+class BudgetViewSet(PortalListViewSetMixin, viewsets.ModelViewSet):
     module_key = "budgets"
     serializer_class = BudgetSerializer
+    pagination_class = BudgetCursorPagination
+    ordering_fields = ["name", "id", "is_active"]
+    ordering = ["name", "id"]
 
     def get_permissions(self):
         base = [IsAuthenticated(), HasEffectiveModuleAccess()]

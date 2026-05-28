@@ -1,9 +1,11 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { Alert, Card, DatePicker, Input, Skeleton, Space, Table, Typography } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
 import type { Dayjs } from 'dayjs'
 
-import { getClientsDebtSnapshots, type ClientDebtSnapshot } from '../lib/api'
+import { type ClientDebtSnapshot } from '../lib/api'
+import { useInfiniteList } from '../lib/useInfiniteList'
+import { ListInfiniteScrollFooter } from './ListInfiniteScrollFooter'
 
 const moneyFmt = new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 2 })
 
@@ -24,31 +26,18 @@ function dateText(value: string): string {
 }
 
 export function ClientsDebtPage() {
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
-  const [rows, setRows] = useState<ClientDebtSnapshot[]>([])
   const [search, setSearch] = useState('')
   const [range, setRange] = useState<[Dayjs | null, Dayjs | null] | null>(null)
 
-  useEffect(() => {
-    let cancelled = false
-    ;(async () => {
-      setError(null)
-      setLoading(true)
-      try {
-        const data = await getClientsDebtSnapshots()
-        if (cancelled) return
-        setRows(data)
-      } catch (e: unknown) {
-        if (!cancelled) setError(e instanceof Error ? e.message : 'Не удалось загрузить долги клиентов')
-      } finally {
-        if (!cancelled) setLoading(false)
-      }
-    })()
-    return () => {
-      cancelled = true
-    }
-  }, [])
+  const {
+    items: rows,
+    loading,
+    loadingMore,
+    error,
+    hasMore,
+    loadMore,
+    sentinelRef,
+  } = useInfiniteList<ClientDebtSnapshot>({ url: '/api/clients-debt/', pageSize: 50 })
 
   const filtered = useMemo(() => {
     const query = search.trim().toLowerCase()
@@ -129,11 +118,18 @@ export function ClientsDebtPage() {
             dataSource={filtered}
             size="small"
             scroll={{ x: 1200 }}
-            pagination={{ pageSize: 50, showSizeChanger: true, pageSizeOptions: [20, 50, 100, 200] }}
+            pagination={false}
+          />
+          <ListInfiniteScrollFooter
+            sentinelRef={sentinelRef}
+            hasMore={hasMore}
+            loadingMore={loadingMore}
+            visibleCount={filtered.length}
+            loadedCount={rows.length}
+            onLoadMore={loadMore}
           />
         </Card>
       ) : null}
     </Space>
   )
 }
-

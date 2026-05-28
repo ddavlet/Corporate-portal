@@ -23,11 +23,13 @@ export function createStorageMock(): MockStorage {
 }
 
 export function createJsonResponse(status: number, payload: unknown): Response {
-  return {
+  const base = {
     ok: status >= 200 && status < 300,
     status,
     json: async () => payload,
-  } as Response
+    clone: () => createJsonResponse(status, payload),
+  }
+  return base as Response
 }
 
 export function setWindowLocation(pathname = '/', search = '') {

@@ -11,6 +11,8 @@ import {
   type AdminCrudDynamicField,
 } from '../../lib/adminModuleCrudFields'
 import { apiFetch, getAccessMatrix, type AccessMatrixRoleModuleRow } from '../../lib/api'
+import { useInfiniteList } from '../../lib/useInfiniteList'
+import { ListInfiniteScrollFooter } from '../ListInfiniteScrollFooter'
 import { tenantRoleLabel } from '../../lib/tenantRoles'
 
 type AnyRow = Record<string, unknown> & { id?: number | string }
@@ -121,12 +123,7 @@ export function AdminModulePage() {
   const [form] = Form.useForm<Record<string, unknown>>()
   const [activeSection, setActiveSection] = useState<AdminSectionKey>('matrix')
   const [sourceKey, setSourceKey] = useState<string>(SOURCES[0].key)
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const [rows, setRows] = useState<AnyRow[]>([])
   const [search, setSearch] = useState('')
-  const [crudPage, setCrudPage] = useState(1)
-  const [crudPageSize, setCrudPageSize] = useState(20)
   const [editing, setEditing] = useState<AnyRow | null>(null)
   const [editableFields, setEditableFields] = useState<AdminCrudDynamicField[]>([])
   const [nonEditableFields, setNonEditableFields] = useState<Array<{ key: string; value: unknown }>>([])
@@ -146,21 +143,15 @@ export function AdminModulePage() {
   const currentSource = SOURCES.find((s) => s.key === sourceKey) || SOURCES[0]
   const canCreateHere = Boolean(!currentSource.readOnly && currentSource.supportsCreate !== false)
 
-  const loadRows = async () => {
-    setLoading(true)
-    setError(null)
-    try {
-      const res = await apiFetch(currentSource.endpoint)
-      const json = await res.json().catch(() => null)
-      if (!res.ok) throw new Error(extractApiError(json, res.status))
-      setRows(normalizeRows(json))
-    } catch (e: unknown) {
-      setRows([])
-      setError(e instanceof Error ? e.message : 'Не удалось загрузить данные')
-    } finally {
-      setLoading(false)
-    }
-  }
+  const {
+    items: rows,
+    loading,
+    loadingMore,
+    error,
+    hasMore,
+    reload: loadRows,
+    sentinelRef,
+  } = useInfiniteList<AnyRow>({ url: currentSource.endpoint })
 
   const loadMatrix = async () => {
     setMxLoading(true)
@@ -187,20 +178,11 @@ export function AdminModulePage() {
   }, [searchParams])
 
   useEffect(() => {
-    void loadRows()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sourceKey])
-
-  useEffect(() => {
     const rowId = searchParams.get('row')
     if (!rowId || rows.length === 0) return
     const found = rows.find((row) => String(row.id) === rowId)
     if (found) setSearch(rowCaption(found))
   }, [rows, searchParams])
-
-  useEffect(() => {
-    setCrudPage(1)
-  }, [sourceKey, search])
 
   useEffect(() => {
     void loadMatrix()
@@ -524,16 +506,14 @@ export function AdminModulePage() {
                 loading={loading}
                 columns={columns}
                 dataSource={filteredRows}
-                pagination={{
-                  current: crudPage,
-                  pageSize: crudPageSize,
-                  showSizeChanger: true,
-                }}
-                onChange={(pagination) => {
-                  if (pagination.current) setCrudPage(pagination.current)
-                  if (pagination.pageSize) setCrudPageSize(pagination.pageSize)
-                }}
+                pagination={false}
                 scroll={{ x: 1200 }}
+              />
+              <ListInfiniteScrollFooter
+                sentinelRef={sentinelRef}
+                hasMore={hasMore}
+                loadingMore={loadingMore}
+                visibleCount={filteredRows.length}
               />
             </Card>
           )}

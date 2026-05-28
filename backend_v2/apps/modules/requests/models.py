@@ -23,11 +23,13 @@ class Request(models.Model):
     PAYMENT_TYPE_TRANSFER = "Перечисление"
     PAYMENT_TYPE_TOPUP = "Пополнение"
     PAYMENT_TYPE_CARD = "Платежная карта"
+    PAYMENT_TYPE_PAYROLL = "Начисление ЗП"
     PAYMENT_TYPE_CHOICES = [
         (PAYMENT_TYPE_CASH, PAYMENT_TYPE_CASH),
         (PAYMENT_TYPE_TRANSFER, PAYMENT_TYPE_TRANSFER),
         (PAYMENT_TYPE_TOPUP, PAYMENT_TYPE_TOPUP),
         (PAYMENT_TYPE_CARD, PAYMENT_TYPE_CARD),
+        (PAYMENT_TYPE_PAYROLL, PAYMENT_TYPE_PAYROLL),
     ]
 
     URGENCY_LOW = "Низко"
@@ -149,6 +151,8 @@ class Request(models.Model):
                 name="req_tenant_pt_purpose_idx",
                 condition=models.Q(payment_purpose__gt=""),
             ),
+            models.Index(fields=["tenant", "submitted_at", "id"], name="req_tenant_submitted_id_idx"),
+            models.Index(fields=["tenant", "status", "submitted_at"], name="req_tnt_stat_submitted_idx"),
         ]
 
     def _resolve_title_from_tenant(self) -> str:

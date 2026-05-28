@@ -8,13 +8,7 @@ import {
   type PnlDiagnosticsItem,
   type PnlReportSettingsSnapshot,
 } from '../../lib/api'
-
-const REQUEST_PAYMENT_OPTIONS = [
-  { value: 'Наличные', label: 'Наличные' },
-  { value: 'Перечисление', label: 'Перечисление' },
-  { value: 'Пополнение', label: 'Пополнение' },
-  { value: 'Платежная карта', label: 'Платежная карта' },
-] as const
+import { requestPaymentTypeSelectOptions } from '../../lib/requestPaymentTypes'
 
 const INVEST_RETURN_TYPES = [
   { value: 'дивиденды', label: 'Дивиденды' },
@@ -474,7 +468,7 @@ export function PnlReportSettingsPage() {
                 setRequestPaymentTypes(v)
                 void refetchPurposePool(v)
               }}
-              options={[...REQUEST_PAYMENT_OPTIONS]}
+              options={requestPaymentTypeSelectOptions()}
             />
           </div>
 

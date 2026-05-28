@@ -3,8 +3,8 @@ import { canOpenLinkedExpense, linkedExpenseFrontendPath, linkedExpenseLabel } f
 
 describe('linkedExpenseFrontendPath', () => {
   it('returns portal paths for cash, bank, payroll', () => {
-    expect(linkedExpenseFrontendPath({ module: 'cash', id: 12 })).toBe('/cash/12')
-    expect(linkedExpenseFrontendPath({ module: 'bank', id: 34 })).toBe('/bank/34')
+    expect(linkedExpenseFrontendPath({ module: 'cash', id: 12 })).toBe('/cash/expenses/12')
+    expect(linkedExpenseFrontendPath({ module: 'bank', id: 34 })).toBe('/bank/expenses/34')
     expect(linkedExpenseFrontendPath({ module: 'payroll', id: 5 })).toBe('/payroll/5')
   })
 
@@ -26,7 +26,7 @@ describe('linkedExpenseFrontendPath', () => {
         id: 9,
         url: 'https://example.com/api/cash/expenses/9/',
       }),
-    ).toBe('/cash/9')
+    ).toBe('/cash/expenses/9')
     expect(linkedExpenseFrontendPath({ module: 'corporate_card', id: 1 })).toBeNull()
     expect(linkedExpenseFrontendPath({ module: 'external', id: 'x' })).toBeNull()
     expect(canOpenLinkedExpense({ module: 'corporate_card', id: 1 })).toBe(false)

@@ -1,3 +1,5 @@
+import { notifyApiError, notifyNetworkError } from './apiNotify'
+
 type Tokens = { access: string; refresh: string }
 
 const STORAGE_KEY = 'kolberg_v2_tokens'
@@ -106,6 +108,26 @@ export type ApiFetchOptions = {
   treatAuthErrorsAsGlobal?: boolean
   /** For binary endpoints (file download): omit Accept: application/json. */
   omitAcceptJson?: boolean
+  /** Do not show a global error toast (caller handles UI). */
+  silent?: boolean
+  /** Show error toast for POST/PATCH/PUT/DELETE (default: only GET/HEAD). */
+  notifyOnError?: boolean
+  /** Do not toast on HTTP 403 (e.g. optional balances when module is disabled). */
+  ignoreForbidden?: boolean
+}
+
+function isReadMethod(init: RequestInit): boolean {
+  const method = (init.method || 'GET').toUpperCase()
+  return method === 'GET' || method === 'HEAD'
+}
+
+async function maybeNotifyHttpError(res: Response, init: RequestInit, options?: ApiFetchOptions): Promise<void> {
+  if (options?.silent || res.ok) return
+  if (res.status === 401) return
+  if (res.status === 403 && options?.ignoreForbidden) return
+  if (!isReadMethod(init) && !options?.notifyOnError) return
+  const msg = await parseErrorBody(res.clone())
+  notifyApiError(msg)
 }
 
 export async function apiFetch(input: string, init: RequestInit = {}, options?: ApiFetchOptions) {
@@ -120,7 +142,13 @@ export async function apiFetch(input: string, init: RequestInit = {}, options?: 
       headers,
     })
 
-  let res = await doFetch()
+  let res: Response
+  try {
+    res = await doFetch()
+  } catch (e) {
+    if (!options?.silent) notifyNetworkError()
+    throw e
+  }
 
   // try refresh once
   if (res.status === 401 && tokens?.refresh) {
@@ -130,7 +158,12 @@ export async function apiFetch(input: string, init: RequestInit = {}, options?: 
       if (readTgTokens()?.refresh === tokens.refresh) setTgTokens(next)
       if (readPortalTokens()?.refresh === tokens.refresh) setTokens(next)
       headers.set('Authorization', `Bearer ${next.access}`)
-      res = await doFetch()
+      try {
+        res = await doFetch()
+      } catch (e) {
+        if (!options?.silent) notifyNetworkError()
+        throw e
+      }
     } else {
       if (readTgTokens()?.refresh === tokens.refresh) setTgTokens(null)
       if (readPortalTokens()?.refresh === tokens.refresh) setTokens(null)
@@ -143,6 +176,8 @@ export async function apiFetch(input: string, init: RequestInit = {}, options?: 
     if (readPortalTokens()?.refresh === tokens.refresh) setTokens(null)
     unauthorizedHandler?.()
   }
+
+  await maybeNotifyHttpError(res, init, options)
 
   return res
 }
@@ -244,6 +279,33 @@ export async function updateTenantCashExpenseIdFormat(
   })
   if (!res.ok) throw new Error(await parseErrorBody(res))
   const json = (await res.json().catch(() => null)) as TenantCashExpenseIdFormatDto | null
+  if (!json) throw new Error('Пустой ответ от сервера')
+  return json
+}
+
+export type TenantPayrollDocIdFormatDto = {
+  payroll_doc_id_prefix: string
+  payroll_doc_id_digit_width: number
+}
+
+export async function getTenantPayrollDocIdFormat(): Promise<TenantPayrollDocIdFormatDto> {
+  const res = await apiFetch('/api/tenant/payroll-doc-id-format/')
+  if (!res.ok) throw new Error(await parseErrorBody(res))
+  const json = (await res.json().catch(() => null)) as TenantPayrollDocIdFormatDto | null
+  if (!json) throw new Error('Пустой ответ от сервера')
+  return json
+}
+
+export async function updateTenantPayrollDocIdFormat(
+  payload: TenantPayrollDocIdFormatDto,
+): Promise<TenantPayrollDocIdFormatDto> {
+  const res = await apiFetch('/api/tenant/payroll-doc-id-format/', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+  if (!res.ok) throw new Error(await parseErrorBody(res))
+  const json = (await res.json().catch(() => null)) as TenantPayrollDocIdFormatDto | null
   if (!json) throw new Error('Пустой ответ от сервера')
   return json
 }
@@ -611,7 +673,7 @@ export type BankRevenue = {
   created_at: string
 }
 
-function normalizeListPayload<T>(payload: unknown): T[] {
+export function normalizeListPayload<T>(payload: unknown): T[] {
   if (Array.isArray(payload)) return payload as T[]
   if (payload && typeof payload === 'object' && 'results' in payload) {
     const results = (payload as { results?: unknown }).results
@@ -620,7 +682,76 @@ function normalizeListPayload<T>(payload: unknown): T[] {
   return []
 }
 
-async function parseErrorBody(res: Response): Promise<string> {
+export type CursorListPage<T> = {
+  results: T[]
+  next: string | null
+  previous: string | null
+}
+
+function resolveCursorFetchUrl(pathOrUrl: string): string {
+  if (pathOrUrl.startsWith('http://') || pathOrUrl.startsWith('https://')) {
+    try {
+      const u = new URL(pathOrUrl)
+      return `${u.pathname}${u.search}`
+    } catch {
+      return pathOrUrl
+    }
+  }
+  return pathOrUrl
+}
+
+/** Load all cursor pages (for selects and legacy screens not yet on infinite scroll). */
+export async function fetchAllCursorPages<T>(
+  path: string,
+  init?: RequestInit,
+  options?: ApiFetchOptions,
+  pageSize = 200,
+): Promise<T[]> {
+  const sep = path.includes('?') ? '&' : '?'
+  let nextUrl: string | null = `${path}${sep}page_size=${pageSize}`
+  const all: T[] = []
+  const maxPages = 500
+  let pages = 0
+  let prevNext: string | null = null
+  while (nextUrl && pages < maxPages) {
+    const page: CursorListPage<T> = await fetchCursorListPage<T>(nextUrl, init, options)
+    all.push(...page.results)
+    const resolvedNext = page.next ? resolveCursorFetchUrl(page.next) : null
+    if (resolvedNext === prevNext || (page.results.length === 0 && resolvedNext)) {
+      break
+    }
+    prevNext = resolvedNext
+    nextUrl = resolvedNext
+    pages += 1
+  }
+  return all
+}
+
+export async function fetchCursorListPage<T>(
+  pathOrUrl: string,
+  init?: RequestInit,
+  options?: ApiFetchOptions,
+): Promise<CursorListPage<T>> {
+  const res = await apiFetch(resolveCursorFetchUrl(pathOrUrl), init, options)
+  const json = await res.json().catch(() => null)
+  if (!res.ok) {
+    throw new ApiError(res.status, await parseErrorBody(res))
+  }
+  if (Array.isArray(json)) {
+    return { results: json as T[], next: null, previous: null }
+  }
+  if (json && typeof json === 'object' && 'results' in json) {
+    const obj = json as { results?: unknown; next?: unknown; previous?: unknown }
+    return {
+      results: Array.isArray(obj.results) ? (obj.results as T[]) : [],
+      next: typeof obj.next === 'string' ? obj.next : null,
+      previous: typeof obj.previous === 'string' ? obj.previous : null,
+    }
+  }
+  return { results: [], next: null, previous: null }
+}
+
+export async function parseErrorBody(res: Response): Promise<string> {
   const json = await res.json().catch(() => null)
   if (json && typeof json === 'object') {
     const j = json as Record<string, unknown>
@@ -1291,31 +1422,19 @@ export const DEFAULT_INVESTMENT_FORM_CONFIG: InvestmentFormConfigResponse = {
 }
 
 export async function getInvestCompanies(): Promise<InvestCompanyRow[]> {
-  const res = await apiFetch('/api/investments/companies/')
-  if (!res.ok) throw new Error(await parseErrorBody(res))
-  const json = await res.json().catch(() => null)
-  return normalizeListPayload<InvestCompanyRow>(json)
+  return fetchAllCursorPages<InvestCompanyRow>('/api/investments/companies/')
 }
 
 export async function getProjectInvestments(): Promise<ProjectInvestmentRow[]> {
-  const res = await apiFetch('/api/investments/project-investments/')
-  if (!res.ok) throw new Error(await parseErrorBody(res))
-  const json = await res.json().catch(() => null)
-  return normalizeListPayload<ProjectInvestmentRow>(json)
+  return fetchAllCursorPages<ProjectInvestmentRow>('/api/investments/project-investments/')
 }
 
 export async function getInvestPayoutSchedule(): Promise<InvestPayoutScheduleRow[]> {
-  const res = await apiFetch('/api/investments/payout-schedule/')
-  if (!res.ok) throw new Error(await parseErrorBody(res))
-  const json = await res.json().catch(() => null)
-  return normalizeListPayload<InvestPayoutScheduleRow>(json)
+  return fetchAllCursorPages<InvestPayoutScheduleRow>('/api/investments/payout-schedule/')
 }
 
 export async function getInvestPayoutScheduleShareLinks(): Promise<InvestPayoutScheduleShareLinkRow[]> {
-  const res = await apiFetch('/api/investments/payout-schedule-share-links/')
-  if (!res.ok) throw new Error(await parseErrorBody(res))
-  const json = await res.json().catch(() => null)
-  return normalizeListPayload<InvestPayoutScheduleShareLinkRow>(json)
+  return fetchAllCursorPages<InvestPayoutScheduleShareLinkRow>('/api/investments/payout-schedule-share-links/')
 }
 
 export async function createInvestPayoutScheduleShareLink(
@@ -1356,10 +1475,7 @@ export async function getPublicInvestPayoutSchedule(token: string): Promise<Publ
 }
 
 export async function getInvestReturns(): Promise<InvestReturnRow[]> {
-  const res = await apiFetch('/api/investments/returns/')
-  if (!res.ok) throw new Error(await parseErrorBody(res))
-  const json = await res.json().catch(() => null)
-  return normalizeListPayload<InvestReturnRow>(json)
+  return fetchAllCursorPages<InvestReturnRow>('/api/investments/returns/')
 }
 
 export async function createInvestReturn(payload: CreateInvestReturnPayload): Promise<InvestReturnRow> {
@@ -1695,31 +1811,19 @@ export async function exchangeTelegramOidc(
 }
 
 export async function getCorporateCardExpenses(): Promise<CorporateCardExpense[]> {
-  const res = await apiFetch('/api/corporate-card/expenses/')
-  if (!res.ok) throw new Error(await parseErrorBody(res))
-  const json = await res.json().catch(() => null)
-  return normalizeListPayload<CorporateCardExpense>(json)
+  return fetchAllCursorPages<CorporateCardExpense>('/api/corporate-card/expenses/')
 }
 
 export async function getCorporateCardRevenues(): Promise<CorporateCardRevenue[]> {
-  const res = await apiFetch('/api/corporate-card/revenues/')
-  if (!res.ok) throw new Error(await parseErrorBody(res))
-  const json = await res.json().catch(() => null)
-  return normalizeListPayload<CorporateCardRevenue>(json)
+  return fetchAllCursorPages<CorporateCardRevenue>('/api/corporate-card/revenues/')
 }
 
 export async function getCashRevenues(): Promise<CashRevenue[]> {
-  const res = await apiFetch('/api/cash/revenues/')
-  if (!res.ok) throw new Error(await parseErrorBody(res))
-  const json = await res.json().catch(() => null)
-  return normalizeListPayload<CashRevenue>(json)
+  return fetchAllCursorPages<CashRevenue>('/api/cash/revenues/')
 }
 
 export async function getClientsDebtSnapshots(): Promise<ClientDebtSnapshot[]> {
-  const res = await apiFetch('/api/clients-debt/')
-  if (!res.ok) throw new Error(await parseErrorBody(res))
-  const json = await res.json().catch(() => null)
-  return normalizeListPayload<ClientDebtSnapshot>(json)
+  return fetchAllCursorPages<ClientDebtSnapshot>('/api/clients-debt/')
 }
 
 /** Row from GET /api/cash|bank|corporate-card/balances/ */
@@ -1739,7 +1843,7 @@ export type ChannelBalanceRow = {
 }
 
 export async function getCashBalances(): Promise<ChannelBalanceRow[]> {
-  const res = await apiFetch('/api/cash/balances/', {}, { treatAuthErrorsAsGlobal: false })
+  const res = await apiFetch('/api/cash/balances/', {}, { treatAuthErrorsAsGlobal: false, ignoreForbidden: true })
   if (res.status === 403) return []
   if (!res.ok) throw new Error(await parseErrorBody(res))
   const json = await res.json().catch(() => null)
@@ -1747,7 +1851,7 @@ export async function getCashBalances(): Promise<ChannelBalanceRow[]> {
 }
 
 export async function getBankBalances(): Promise<ChannelBalanceRow[]> {
-  const res = await apiFetch('/api/bank/balances/', {}, { treatAuthErrorsAsGlobal: false })
+  const res = await apiFetch('/api/bank/balances/', {}, { treatAuthErrorsAsGlobal: false, ignoreForbidden: true })
   if (res.status === 403) return []
   if (!res.ok) throw new Error(await parseErrorBody(res))
   const json = await res.json().catch(() => null)
@@ -1755,7 +1859,7 @@ export async function getBankBalances(): Promise<ChannelBalanceRow[]> {
 }
 
 export async function getCorporateCardBalances(): Promise<ChannelBalanceRow[]> {
-  const res = await apiFetch('/api/corporate-card/balances/', {}, { treatAuthErrorsAsGlobal: false })
+  const res = await apiFetch('/api/corporate-card/balances/', {}, { treatAuthErrorsAsGlobal: false, ignoreForbidden: true })
   if (res.status === 403) return []
   if (!res.ok) throw new Error(await parseErrorBody(res))
   const json = await res.json().catch(() => null)
@@ -2332,10 +2436,7 @@ export async function listVendors(params: { kind: 'cash' | 'transfer'; search?: 
   const sp = new URLSearchParams()
   sp.set('kind', params.kind)
   if (params.search?.trim()) sp.set('search', params.search.trim())
-  const res = await apiFetch(`/api/vendors/?${sp.toString()}`)
-  if (!res.ok) throw new Error(await parseErrorBody(res))
-  const json = await res.json().catch(() => null)
-  return normalizeListPayload<VendorDirectoryRow>(json)
+  return fetchAllCursorPages<VendorDirectoryRow>(`/api/vendors/?${sp.toString()}`)
 }
 
 export type CreateVendorBody = {
@@ -2513,10 +2614,8 @@ export async function listContracts(params: { vendor?: number }): Promise<Contra
   const sp = new URLSearchParams()
   if (params.vendor != null) sp.set('vendor', String(params.vendor))
   const q = sp.toString()
-  const res = await apiFetch(`/api/contracts/${q ? `?${q}` : ''}`)
-  if (!res.ok) throw new Error(await parseErrorBody(res))
-  const json = await res.json().catch(() => null)
-  return normalizeListPayload<ContractRow>(json)
+  const path = q ? `/api/contracts/?${q}` : '/api/contracts/'
+  return fetchAllCursorPages<ContractRow>(path)
 }
 
 export type ContractCreateMultipartFields = {
@@ -2670,10 +2769,8 @@ export async function getBudgets(params?: BudgetListParams): Promise<Budget[]> {
   if (params?.year) q.set('year', String(params.year))
   if (params?.period) q.set('period', String(params.period))
   const query = q.toString()
-  const res = await apiFetch(`/api/budgets/${query ? `?${query}` : ''}`)
-  if (!res.ok) throw new Error(await parseErrorBody(res))
-  const json = await res.json().catch(() => null)
-  return normalizeListPayload<Budget>(json)
+  const path = query ? `/api/budgets/?${query}` : '/api/budgets/'
+  return fetchAllCursorPages<Budget>(path)
 }
 
 export async function createBudget(payload: BudgetCreatePayload): Promise<Budget> {

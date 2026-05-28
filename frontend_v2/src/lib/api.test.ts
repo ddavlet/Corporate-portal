@@ -1,4 +1,16 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+
+const { notifyApiErrorMock, notifyNetworkErrorMock } = vi.hoisted(() => ({
+  notifyApiErrorMock: vi.fn(),
+  notifyNetworkErrorMock: vi.fn(),
+}))
+
+vi.mock('./apiNotify', () => ({
+  notifyApiError: notifyApiErrorMock,
+  notifyNetworkError: notifyNetworkErrorMock,
+  notifyApiSuccess: vi.fn(),
+}))
+
 import {
   ApiError,
   apiFetch,
@@ -6,6 +18,7 @@ import {
   changePassword,
   confirmPaymentViaWebApp,
   createVendor,
+  fetchCursorListPage,
   getCashBalances,
   getModuleCatalog,
   getMyApprovals,
@@ -32,11 +45,64 @@ describe('api module', () => {
     localStorageMock.clear()
     sessionStorageMock.clear()
     fetchMock.mockReset()
+    notifyApiErrorMock.mockReset()
+    notifyNetworkErrorMock.mockReset()
     setUnauthorizedHandler(null)
   })
 
   afterEach(() => {
     setUnauthorizedHandler(null)
+  })
+
+  it('shows toast on failed GET', async () => {
+    fetchMock.mockResolvedValueOnce(createJsonResponse(500, { detail: 'Сервер недоступен' }))
+
+    const res = await apiFetch('/api/example')
+
+    expect(res.status).toBe(500)
+    expect(notifyApiErrorMock).toHaveBeenCalledWith('Сервер недоступен')
+  })
+
+  it('does not toast on failed POST by default (caller handles mutation errors)', async () => {
+    fetchMock.mockResolvedValueOnce(createJsonResponse(400, { detail: 'Неверные данные' }))
+
+    const res = await apiFetch('/api/example', { method: 'POST' })
+
+    expect(res.status).toBe(400)
+    expect(notifyApiErrorMock).not.toHaveBeenCalled()
+  })
+
+  it('shows toast on failed PATCH when notifyOnError is set', async () => {
+    fetchMock.mockResolvedValueOnce(createJsonResponse(400, { detail: 'Нельзя изменить статус' }))
+
+    const res = await apiFetch('/api/requests/1/', { method: 'PATCH' }, { notifyOnError: true })
+
+    expect(res.status).toBe(400)
+    expect(notifyApiErrorMock).toHaveBeenCalledWith('Нельзя изменить статус')
+  })
+
+  it('respects silent option for GET errors', async () => {
+    fetchMock.mockResolvedValueOnce(createJsonResponse(404, { detail: 'Не найдено' }))
+
+    await apiFetch('/api/example', {}, { silent: true })
+
+    expect(notifyApiErrorMock).not.toHaveBeenCalled()
+  })
+
+  it('does not toast on optional balances 403', async () => {
+    fetchMock.mockResolvedValueOnce(createJsonResponse(403, { detail: 'forbidden' }))
+
+    const balances = await getCashBalances()
+
+    expect(balances).toEqual([])
+    expect(notifyApiErrorMock).not.toHaveBeenCalled()
+  })
+
+  it('shows network toast when fetch throws', async () => {
+    fetchMock.mockRejectedValueOnce(new TypeError('Failed to fetch'))
+
+    await expect(apiFetch('/api/example')).rejects.toThrow('Failed to fetch')
+    expect(notifyNetworkErrorMock).toHaveBeenCalledTimes(1)
   })
 
   it('stores and reads telegram tokens', () => {
@@ -238,5 +304,19 @@ describe('api module', () => {
     fetchMock.mockResolvedValueOnce(createJsonResponse(200, { request: { id: 11, status: 'approved' } }))
     const result = await confirmPaymentViaWebApp({ approval_id: 44, expense_id: 'INV-1' })
     expect(result.request).toEqual({ id: 11, status: 'approved' })
+  })
+
+  it('fetchCursorListPage parses cursor envelope and legacy array', async () => {
+    fetchMock.mockResolvedValueOnce(
+      createJsonResponse(200, { results: [{ id: 1 }], next: 'https://host/api/items/?cursor=x', previous: null }),
+    )
+    const page = await fetchCursorListPage<{ id: number }>('/api/items/')
+    expect(page.results).toEqual([{ id: 1 }])
+    expect(page.next).toContain('cursor=x')
+
+    fetchMock.mockResolvedValueOnce(createJsonResponse(200, [{ id: 2 }]))
+    const legacy = await fetchCursorListPage<{ id: number }>('/api/items/')
+    expect(legacy.results).toEqual([{ id: 2 }])
+    expect(legacy.next).toBeNull()
   })
 })

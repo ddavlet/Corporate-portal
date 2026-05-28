@@ -174,11 +174,19 @@ def _relink_requests_to_bank_expenses(*, tenant, candidates: list[tuple[str, int
     updated = 0
     deduped = set(candidates)
     for doc_no, expense_year, expense_id in deduped:
+        expense = (
+            BankExpense.objects.filter(tenant=tenant, pk=expense_id)
+            .values("debit_turnover")
+            .first()
+        )
+        if not expense:
+            continue
         updated += Request.objects.filter(
             tenant=tenant,
             payment_type__in=(Request.PAYMENT_TYPE_TRANSFER, Request.PAYMENT_TYPE_TOPUP),
             expense_id=doc_no,
             expense_year=expense_year,
+            amount=expense["debit_turnover"],
         ).filter(
             Q(expense_ref_id__isnull=True)
             | ~Q(expense_ref_id=expense_id)

@@ -11,6 +11,7 @@ from django.utils import timezone
 from rest_framework.test import APITestCase
 from urllib.parse import parse_qs, urlparse
 
+from apps.common.test_utils import list_results
 from apps.tenants.models import Tenant, TenantIntegrationConfig, TenantMembership, TenantModuleConfig, TenantUserRole
 from apps.modules.requests.models import (
     Approval,
@@ -39,6 +40,9 @@ from apps.modules.requests.integration_settings import get_requests_messaging_ga
 from apps.modules.bank_expenses.models import BankExpense
 from apps.modules.cashier.models import CashExpense
 from apps.modules.corporate_card.models import CardExpense
+from apps.modules.payroll.constants import SALARY_CATEGORY
+from apps.modules.payroll.models import PayrollDocument, PayrollLine
+from apps.modules.requests.expense_refs import resolve_request_expense_ref
 from apps.modules.vendors.models import Vendor
 from apps.modules.contracts.models import Contract
 from apps.modules.wallets.models import (
@@ -711,7 +715,7 @@ class RequestApprovalsTests(APITestCase):
         self.client.force_authenticate(self.approver)
         res = self.client.get("/api/requests/", HTTP_HOST=self.host)
         self.assertEqual(res.status_code, 200, res.content)
-        ids = {row["id"] for row in res.data}
+        ids = {row["id"] for row in list_results(res)}
         self.assertIn(visible_request_id, ids)
         self.assertIn(own_request.id, ids)
         self.assertNotIn(hidden_request.id, ids)
@@ -1577,6 +1581,67 @@ class RequestApprovalsTests(APITestCase):
         self.assertEqual(req.expense_ref_id, cash_expense.id)
         self.assertEqual(req.expense_id, "00000000459")
 
+    def test_payment_webapp_confirm_payroll_resolves_numeric_doc_id_to_canonical(self):
+        TenantModuleConfig.objects.update_or_create(
+            tenant=self.tenant,
+            module_key="payroll",
+            defaults={"is_enabled": True},
+        )
+        self._configure_payment_step(
+            payment_type=Request.PAYMENT_TYPE_PAYROLL,
+            mode=RequestApprovalStepConfig.PAYMENT_ACTION_MODE_WEBAPP,
+        )
+        request_id = self._create_request_for_payment_type(Request.PAYMENT_TYPE_PAYROLL)
+        approval = Approval.objects.get(
+            request_id=request_id,
+            approver_user=self.approver,
+            step_type=Approval.STEP_TYPE_PAYMENT,
+        )
+        payroll_doc = PayrollDocument.objects.create(tenant=self.tenant, doc_id="1-000000421")
+        PayrollLine.objects.create(
+            document=payroll_doc,
+            line_no=1,
+            employee="Test",
+            item="Salary",
+            description="",
+            sum="10.00",
+            days_plan=20,
+            days_fact=20,
+            period_start=date(2026, 1, 1),
+            period_end=date(2026, 1, 31),
+            approval=False,
+        )
+
+        self.client.force_authenticate(self.approver)
+        res = self.client.post(
+            "/api/requests/approvals/payment-webapp/confirm/",
+            {"approval_id": approval.id, "expense_id": "421"},
+            format="json",
+            HTTP_HOST=self.host,
+        )
+        self.assertEqual(res.status_code, 200, res.content)
+        req = Request.objects.get(pk=request_id)
+        self.assertEqual(req.expense_ref_id, payroll_doc.id)
+        self.assertEqual(req.expense_ref_target, Request.EXPENSE_REF_TARGET_PAYROLL)
+        self.assertEqual(req.expense_id, "1-000000421")
+
+    def test_cash_salary_category_does_not_resolve_payroll_document(self):
+        TenantModuleConfig.objects.update_or_create(
+            tenant=self.tenant,
+            module_key="payroll",
+            defaults={"is_enabled": True},
+        )
+        PayrollDocument.objects.create(tenant=self.tenant, doc_id="DOC-PAY-1")
+        ref_id, normalized = resolve_request_expense_ref(
+            tenant=self.tenant,
+            payment_type=Request.PAYMENT_TYPE_CASH,
+            category=SALARY_CATEGORY,
+            expense_id_raw="DOC-PAY-1",
+            expense_year=None,
+        )
+        self.assertIsNone(ref_id)
+        self.assertIsNone(normalized)
+
     def test_payment_webapp_confirm_bank_resolves_same_doc_no_by_amount(self):
         self._configure_payment_step(
             payment_type=Request.PAYMENT_TYPE_TRANSFER,
@@ -1637,6 +1702,141 @@ class RequestApprovalsTests(APITestCase):
         self.assertEqual(req.expense_ref_id, matching_expense.id)
         self.assertNotEqual(req.expense_ref_id, wrong_amount_expense.id)
         self.assertEqual(req.expense_ref_target, Request.EXPENSE_REF_TARGET_BANK)
+
+    def test_payment_webapp_confirm_cash_skips_link_when_amount_mismatch(self):
+        self._configure_payment_step(
+            payment_type=Request.PAYMENT_TYPE_CASH,
+            mode=RequestApprovalStepConfig.PAYMENT_ACTION_MODE_WEBAPP,
+        )
+        request_id = self._create_request_for_payment_type(Request.PAYMENT_TYPE_CASH)
+        approval = Approval.objects.get(
+            request_id=request_id,
+            approver_user=self.approver,
+            step_type=Approval.STEP_TYPE_PAYMENT,
+        )
+        cash_register = CashRegister.objects.create(tenant=self.tenant, currency="UZS", name="Cash amount")
+        cash_wallet = Wallet.objects.create(
+            tenant=self.tenant,
+            wallet_type=Wallet.Type.CASH,
+            currency="UZS",
+            cash_register=cash_register,
+        )
+        CashExpense.objects.create(
+            tenant=self.tenant,
+            external_id="CASH-AMT-1",
+            confirmed=True,
+            title="Wrong amount expense",
+            amount=Decimal("99.00"),
+            currency="UZS",
+            expense_at=datetime(2026, 1, 2, 10, 0, 0),
+            expense_year=2026,
+            expense_month=1,
+            expense_day=2,
+            created_by=self.admin,
+            wallet=cash_wallet,
+        )
+
+        self.client.force_authenticate(self.approver)
+        res = self.client.post(
+            "/api/requests/approvals/payment-webapp/confirm/",
+            {"approval_id": approval.id, "expense_id": "CASH-AMT-1"},
+            format="json",
+            HTTP_HOST=self.host,
+        )
+        self.assertEqual(res.status_code, 200, res.content)
+        req = Request.objects.get(pk=request_id)
+        self.assertEqual(req.expense_id, "CASH-AMT-1")
+        self.assertIsNone(req.expense_ref_id)
+
+    def test_payment_webapp_confirm_card_skips_link_when_amount_mismatch(self):
+        TenantModuleConfig.objects.update_or_create(
+            tenant=self.tenant,
+            module_key="corporate_card",
+            defaults={"is_enabled": True},
+        )
+        self._configure_payment_step(
+            payment_type=Request.PAYMENT_TYPE_CARD,
+            mode=RequestApprovalStepConfig.PAYMENT_ACTION_MODE_WEBAPP,
+        )
+        request_id = self._create_request_for_payment_type(Request.PAYMENT_TYPE_CARD)
+        approval = Approval.objects.get(
+            request_id=request_id,
+            approver_user=self.approver,
+            step_type=Approval.STEP_TYPE_PAYMENT,
+        )
+        card_account = CorporateCardAccount.objects.create(tenant=self.tenant, currency="UZS", label="Corp amt")
+        card_wallet = Wallet.objects.create(
+            tenant=self.tenant,
+            wallet_type=Wallet.Type.CORPORATE_CARD,
+            currency="UZS",
+            corporate_card_account=card_account,
+        )
+        card_expense = CardExpense.objects.create(
+            tenant=self.tenant,
+            title="Card wrong amount",
+            amount=Decimal("99.00"),
+            currency="UZS",
+            expense_at=datetime(2026, 1, 2, 10, 0, 0),
+            created_by=self.admin,
+            wallet=card_wallet,
+        )
+
+        self.client.force_authenticate(self.approver)
+        res = self.client.post(
+            "/api/requests/approvals/payment-webapp/confirm/",
+            {"approval_id": approval.id, "expense_id": str(card_expense.id)},
+            format="json",
+            HTTP_HOST=self.host,
+        )
+        self.assertEqual(res.status_code, 200, res.content)
+        req = Request.objects.get(pk=request_id)
+        self.assertEqual(req.expense_id, str(card_expense.id))
+        self.assertIsNone(req.expense_ref_id)
+
+    def test_payment_webapp_confirm_bank_skips_link_when_only_amount_mismatch(self):
+        self._configure_payment_step(
+            payment_type=Request.PAYMENT_TYPE_TRANSFER,
+            mode=RequestApprovalStepConfig.PAYMENT_ACTION_MODE_WEBAPP,
+        )
+        request_id = self._create_request_for_payment_type(Request.PAYMENT_TYPE_TRANSFER)
+        approval = Approval.objects.get(
+            request_id=request_id,
+            approver_user=self.approver,
+            step_type=Approval.STEP_TYPE_PAYMENT,
+        )
+        bank_account = BankAccount.objects.create(tenant=self.tenant, label="Bank amt only")
+        bank_wallet = Wallet.objects.create(
+            tenant=self.tenant,
+            wallet_type=Wallet.Type.BANK,
+            currency="UZS",
+            bank_account=bank_account,
+        )
+        BankExpense.objects.create(
+            tenant=self.tenant,
+            created_by=self.admin,
+            row_no=1,
+            doc_date=date(2026, 1, 2),
+            process_date=date(2026, 1, 2),
+            expense_year=2026,
+            expense_month=1,
+            expense_day=2,
+            doc_no="BANK-AMT-ONLY",
+            debit_turnover=Decimal("99.00"),
+            payment_purpose="wrong amount only",
+            wallet=bank_wallet,
+        )
+
+        self.client.force_authenticate(self.approver)
+        res = self.client.post(
+            "/api/requests/approvals/payment-webapp/confirm/",
+            {"approval_id": approval.id, "expense_id": "BANK-AMT-ONLY"},
+            format="json",
+            HTTP_HOST=self.host,
+        )
+        self.assertEqual(res.status_code, 200, res.content)
+        req = Request.objects.get(pk=request_id)
+        self.assertEqual(req.expense_id, "BANK-AMT-ONLY")
+        self.assertIsNone(req.expense_ref_id)
 
     def _configure_payment_step(self, *, payment_type: str, mode: str) -> None:
         appr_cfg = RequestApprovalConfig.objects.get(tenant=self.tenant)
@@ -2368,6 +2568,7 @@ class RequestRoleVisibilityTests(APITestCase):
                 Request.PAYMENT_TYPE_TRANSFER,
                 Request.PAYMENT_TYPE_TOPUP,
                 Request.PAYMENT_TYPE_CARD,
+                Request.PAYMENT_TYPE_PAYROLL,
             ],
             start=1,
         ):
@@ -2387,17 +2588,18 @@ class RequestRoleVisibilityTests(APITestCase):
                 company_payer="",
             )
 
-    def test_accountant_sees_only_transfer_topup_and_card_requests(self):
+    def test_accountant_sees_transfer_topup_card_and_payroll_requests(self):
         self.client.force_authenticate(self.accountant)
         res = self.client.get("/api/requests/", HTTP_HOST=self.host)
         self.assertEqual(res.status_code, 200, res.content)
-        visible_types = {row["payment_type"] for row in res.data}
+        visible_types = {row["payment_type"] for row in list_results(res)}
         self.assertEqual(
             visible_types,
             {
                 Request.PAYMENT_TYPE_TRANSFER,
                 Request.PAYMENT_TYPE_TOPUP,
                 Request.PAYMENT_TYPE_CARD,
+                Request.PAYMENT_TYPE_PAYROLL,
             },
         )
 
@@ -2405,14 +2607,14 @@ class RequestRoleVisibilityTests(APITestCase):
         self.client.force_authenticate(self.cashier)
         res = self.client.get("/api/requests/", HTTP_HOST=self.host)
         self.assertEqual(res.status_code, 200, res.content)
-        visible_types = {row["payment_type"] for row in res.data}
+        visible_types = {row["payment_type"] for row in list_results(res)}
         self.assertEqual(visible_types, {Request.PAYMENT_TYPE_CASH})
 
     def test_admin_sees_all_requests(self):
         self.client.force_authenticate(self.admin)
         res = self.client.get("/api/requests/", HTTP_HOST=self.host)
         self.assertEqual(res.status_code, 200, res.content)
-        visible_types = {row["payment_type"] for row in res.data}
+        visible_types = {row["payment_type"] for row in list_results(res)}
         self.assertEqual(
             visible_types,
             {
@@ -2420,6 +2622,7 @@ class RequestRoleVisibilityTests(APITestCase):
                 Request.PAYMENT_TYPE_TRANSFER,
                 Request.PAYMENT_TYPE_TOPUP,
                 Request.PAYMENT_TYPE_CARD,
+                Request.PAYMENT_TYPE_PAYROLL,
             },
         )
 
@@ -2427,7 +2630,7 @@ class RequestRoleVisibilityTests(APITestCase):
         self.client.force_authenticate(self.director)
         res = self.client.get("/api/requests/", HTTP_HOST=self.host)
         self.assertEqual(res.status_code, 200, res.content)
-        visible_types = {row["payment_type"] for row in res.data}
+        visible_types = {row["payment_type"] for row in list_results(res)}
         self.assertEqual(
             visible_types,
             {
@@ -2435,6 +2638,7 @@ class RequestRoleVisibilityTests(APITestCase):
                 Request.PAYMENT_TYPE_TRANSFER,
                 Request.PAYMENT_TYPE_TOPUP,
                 Request.PAYMENT_TYPE_CARD,
+                Request.PAYMENT_TYPE_PAYROLL,
             },
         )
 
@@ -2479,7 +2683,7 @@ class RequestRoleVisibilityTests(APITestCase):
         self.client.force_authenticate(requester)
         res = self.client.get("/api/requests/", HTTP_HOST=self.host)
         self.assertEqual(res.status_code, 200, res.content)
-        ids = {row["id"] for row in res.data}
+        ids = {row["id"] for row in list_results(res)}
         self.assertIn(visible.id, ids)
         self.assertNotIn(hidden.id, ids)
 
@@ -2529,7 +2733,7 @@ class RequestRoleVisibilityTests(APITestCase):
         self.client.force_authenticate(requester)
         res = self.client.get("/api/requests/", HTTP_HOST=self.host)
         self.assertEqual(res.status_code, 200, res.content)
-        ids = {row["id"] for row in res.data}
+        ids = {row["id"] for row in list_results(res)}
         self.assertIn(visible.id, ids)
         self.assertNotIn(hidden.id, ids)
 
@@ -2583,7 +2787,7 @@ class RequestRoleVisibilityTests(APITestCase):
         self.client.force_authenticate(approver)
         res = self.client.get("/api/requests/", HTTP_HOST=self.host)
         self.assertEqual(res.status_code, 200, res.content)
-        ids = {row["id"] for row in res.data}
+        ids = {row["id"] for row in list_results(res)}
         self.assertIn(visible_req.id, ids)
         self.assertNotIn(hidden_req.id, ids)
 
@@ -2625,9 +2829,90 @@ class RequestRoleVisibilityTests(APITestCase):
         self.client.force_authenticate(self.admin)
         res = self.client.get("/api/requests/?amortized_only=1", HTTP_HOST=self.host)
         self.assertEqual(res.status_code, 200, res.content)
-        ids = {row["id"] for row in res.data}
+        ids = {row["id"] for row in list_results(res)}
         self.assertIn(amortized.id, ids)
         self.assertNotIn(plain.id, ids)
+
+
+@override_settings(BASE_DOMAIN="example.com", ALLOWED_HOSTS=["*"])
+class PayedMissingExpenseFilterTests(APITestCase):
+    def setUp(self):
+        self.tenant = Tenant.objects.create(name="PayedGap", subdomain="payedgap", is_active=True)
+        self.admin = User.objects.create_user(username="payedgap_admin", password="x")
+        TenantMembership.objects.create(tenant=self.tenant, user=self.admin, is_active=True)
+        TenantUserRole.objects.create(tenant=self.tenant, user=self.admin, role=TenantUserRole.ROLE_ADMIN)
+        TenantModuleConfig.objects.create(tenant=self.tenant, module_key="requests", is_enabled=True)
+        TenantModuleConfig.objects.create(tenant=self.tenant, module_key="cash", is_enabled=True)
+        self.host = "payedgap.example.com"
+        self.client.force_authenticate(self.admin)
+
+    def test_payed_missing_expense_filter_excludes_linked_cash(self):
+        from apps.modules.cashier.models import CashExpense
+        from apps.modules.wallets.models import CashRegister, Wallet
+
+        register = CashRegister.objects.create(
+            tenant=self.tenant,
+            name="Main",
+            currency="UZS",
+            is_active=True,
+            sort_order=1,
+        )
+        wallet = Wallet.objects.create(
+            tenant=self.tenant,
+            wallet_type=Wallet.Type.CASH,
+            currency="UZS",
+            cash_register=register,
+        )
+        expense_at = timezone.now()
+        expense = CashExpense.objects.create(
+            tenant=self.tenant,
+            created_by=self.admin,
+            wallet=wallet,
+            external_id="E-1",
+            confirmed=True,
+            expense_year=expense_at.year,
+            expense_month=expense_at.month,
+            expense_day=expense_at.day,
+            title="Office",
+            amount="50.00",
+            currency="UZS",
+            expense_at=expense_at,
+            note="",
+            payload={},
+        )
+        missing = Request.objects.create(
+            tenant=self.tenant,
+            created_by=self.admin,
+            requester=self.admin,
+            title="Paid no link",
+            amount="10.00",
+            currency="UZS",
+            payment_type=Request.PAYMENT_TYPE_CASH,
+            urgency=Request.URGENCY_NORMAL,
+            billing_date=date(2026, 1, 1),
+            status=Request.STATUS_PAYED,
+        )
+        linked = Request.objects.create(
+            tenant=self.tenant,
+            created_by=self.admin,
+            requester=self.admin,
+            title="Paid with cash",
+            amount="50.00",
+            currency="UZS",
+            payment_type=Request.PAYMENT_TYPE_CASH,
+            urgency=Request.URGENCY_NORMAL,
+            billing_date=date(2026, 1, 1),
+            status=Request.STATUS_PAYED,
+            expense_ref_id=expense.id,
+            expense_ref_target=Request.EXPENSE_REF_TARGET_CASH,
+            expense_id=expense.external_id,
+            expense_year=expense.expense_year,
+        )
+        res = self.client.get("/api/requests/?payed_missing_expense=1", HTTP_HOST=self.host)
+        self.assertEqual(res.status_code, 200, res.content)
+        ids = {row["id"] for row in list_results(res)}
+        self.assertIn(missing.id, ids)
+        self.assertNotIn(linked.id, ids)
 
 
 @override_settings(BASE_DOMAIN="example.com", N8N_INTEGRATION_TOKEN="", ALLOWED_HOSTS=["*"])
@@ -3470,5 +3755,274 @@ class RequestCommentTests(APITestCase):
         self.assertEqual(res.status_code, 200, res.content)
         comments = res.json().get("comments", [])
         self.assertTrue(any(c["body"] == "Видимый" for c in comments))
+
+
+@override_settings(BASE_DOMAIN="example.com", N8N_INTEGRATION_TOKEN="", ALLOWED_HOSTS=["*"])
+class RequestPaginationAndFilterTests(APITestCase):
+    """Tests for cursor pagination correctness and all list filters."""
+
+    def setUp(self):
+        self.tenant = Tenant.objects.create(name="PagTenant", subdomain="pag", is_active=True)
+        self.admin = User.objects.create_user(username="pag_admin", password="x")
+        TenantMembership.objects.create(tenant=self.tenant, user=self.admin, is_active=True)
+        TenantUserRole.objects.create(tenant=self.tenant, user=self.admin, role=TenantUserRole.ROLE_ADMIN)
+        TenantModuleConfig.objects.create(tenant=self.tenant, module_key="requests", is_enabled=True)
+        self.host = "pag.example.com"
+        self.client.force_authenticate(self.admin)
+
+    def _make(self, **kwargs):
+        defaults = dict(
+            tenant=self.tenant,
+            created_by=self.admin,
+            requester=self.admin,
+            title="Request",
+            description="",
+            amount=Decimal("100"),
+            currency="UZS",
+            payment_type=Request.PAYMENT_TYPE_CASH,
+            urgency=Request.URGENCY_NORMAL,
+            billing_date=date(2026, 1, 1),
+            status=Request.STATUS_DRAFT,
+            submitted_at=datetime(2026, 1, 1, tzinfo=ZoneInfo("UTC")),
+            company_payer="",
+            category="",
+            vendor="",
+        )
+        defaults.update(kwargs)
+        return Request.objects.create(**defaults)
+
+    def _list(self, qs=""):
+        return self.client.get(f"/api/requests/{qs}", HTTP_HOST=self.host)
+
+    # ── Cursor pagination ────────────────────────────────────────────────────
+
+    def test_cursor_pagination_returns_next_link_when_more_records_exist(self):
+        for i in range(3):
+            self._make(title=f"R{i}")
+        res = self._list("?page_size=2")
+        self.assertEqual(res.status_code, 200)
+        data = res.json()
+        self.assertIsNotNone(data["next"])
+        self.assertEqual(len(data["results"]), 2)
+
+    def test_cursor_pagination_next_is_null_when_all_records_fit(self):
+        for i in range(2):
+            self._make(title=f"R{i}")
+        res = self._list("?page_size=10")
+        self.assertEqual(res.status_code, 200)
+        self.assertIsNone(res.json()["next"])
+        self.assertEqual(len(res.json()["results"]), 2)
+
+    def test_page_size_param_is_respected(self):
+        for i in range(10):
+            self._make(title=f"R{i}")
+        res = self._list("?page_size=3")
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(len(res.json()["results"]), 3)
+
+    def test_cursor_pages_return_all_records_without_duplicates(self):
+        """Cursor must not skip or duplicate rows when submitted_at values are identical."""
+        shared_ts = datetime(2026, 3, 1, tzinfo=ZoneInfo("UTC"))
+        for i in range(5):
+            self._make(title=f"Dup{i}", submitted_at=shared_ts)
+
+        ids_seen = set()
+        url = "/api/requests/?page_size=2"
+        pages = 0
+        while url:
+            parsed = urlparse(url)
+            path = parsed.path + ("?" + parsed.query if parsed.query else "")
+            res = self.client.get(path, HTTP_HOST=self.host)
+            self.assertEqual(res.status_code, 200)
+            data = res.json()
+            for row in data["results"]:
+                self.assertNotIn(row["id"], ids_seen, "Cursor pagination returned a duplicate row")
+                ids_seen.add(row["id"])
+            url = data.get("next")
+            pages += 1
+            self.assertLess(pages, 10, "Pagination loop did not terminate")
+
+        self.assertEqual(len(ids_seen), 5)
+
+    # ── Filters ──────────────────────────────────────────────────────────────
+
+    def test_filter_by_status(self):
+        self._make(title="Draft", status=Request.STATUS_DRAFT)
+        self._make(title="Approved", status=Request.STATUS_APPROVED)
+        res = self._list(f"?status={Request.STATUS_APPROVED}")
+        self.assertEqual(res.status_code, 200)
+        statuses = {r["status"] for r in list_results(res)}
+        self.assertEqual(statuses, {Request.STATUS_APPROVED})
+
+    def test_filter_by_payment_type(self):
+        self._make(payment_type=Request.PAYMENT_TYPE_CASH)
+        self._make(payment_type=Request.PAYMENT_TYPE_TRANSFER)
+        res = self._list(f"?payment_type={Request.PAYMENT_TYPE_TRANSFER}")
+        self.assertEqual(res.status_code, 200)
+        types = {r["payment_type"] for r in list_results(res)}
+        self.assertEqual(types, {Request.PAYMENT_TYPE_TRANSFER})
+
+    def test_filter_by_urgency(self):
+        self._make(urgency=Request.URGENCY_NORMAL)
+        self._make(urgency=Request.URGENCY_HIGH)
+        res = self._list(f"?urgency={Request.URGENCY_HIGH}")
+        self.assertEqual(res.status_code, 200)
+        urgencies = {r["urgency"] for r in list_results(res)}
+        self.assertEqual(urgencies, {Request.URGENCY_HIGH})
+
+    def test_filter_by_currency(self):
+        self._make(currency="UZS")
+        self._make(currency="USD")
+        res = self._list("?currency=USD")
+        self.assertEqual(res.status_code, 200)
+        currencies = {r["currency"] for r in list_results(res)}
+        self.assertEqual(currencies, {"USD"})
+
+    def test_filter_by_category(self):
+        self._make(category="Офис")
+        self._make(category="Транспорт")
+        res = self._list("?category=Офис")
+        self.assertEqual(res.status_code, 200)
+        results = list_results(res)
+        self.assertTrue(len(results) >= 1)
+        self.assertTrue(all("офис" in r["category"].lower() for r in results))
+
+    def test_filter_by_vendor_search(self):
+        vendor = Vendor.objects.create(tenant=self.tenant, name="АльфаТрейд", kind=Vendor.KIND_TRANSFER, created_by=self.admin)
+        r_match = self._make(vendor_ref=vendor, vendor="АльфаТрейд")
+        r_other = self._make(vendor="Другой поставщик")
+        res = self._list("?vendor_search=АльфаТрейд")
+        self.assertEqual(res.status_code, 200)
+        ids = {r["id"] for r in list_results(res)}
+        self.assertIn(r_match.id, ids)
+        self.assertNotIn(r_other.id, ids)
+
+    def test_filter_by_requester(self):
+        other = User.objects.create_user(username="pag_req2", password="x")
+        TenantMembership.objects.create(tenant=self.tenant, user=other, is_active=True)
+        TenantUserRole.objects.create(tenant=self.tenant, user=other, role=TenantUserRole.ROLE_REQUESTER)
+        r_admin = self._make(requester=self.admin)
+        r_other = self._make(requester=other)
+        res = self._list(f"?requester={other.pk}")
+        self.assertEqual(res.status_code, 200)
+        ids = {r["id"] for r in list_results(res)}
+        self.assertIn(r_other.id, ids)
+        self.assertNotIn(r_admin.id, ids)
+
+    # ── Date range filters ───────────────────────────────────────────────────
+
+    def test_filter_submitted_from(self):
+        r_old = self._make(title="Old", submitted_at=datetime(2025, 6, 1, tzinfo=ZoneInfo("UTC")))
+        r_new = self._make(title="New", submitted_at=datetime(2026, 3, 1, tzinfo=ZoneInfo("UTC")))
+        res = self._list("?submitted_from=2026-01-01")
+        self.assertEqual(res.status_code, 200)
+        ids = {r["id"] for r in list_results(res)}
+        self.assertIn(r_new.id, ids)
+        self.assertNotIn(r_old.id, ids)
+
+    def test_filter_submitted_to(self):
+        r_old = self._make(title="Old", submitted_at=datetime(2025, 6, 1, tzinfo=ZoneInfo("UTC")))
+        r_new = self._make(title="New", submitted_at=datetime(2026, 3, 1, tzinfo=ZoneInfo("UTC")))
+        res = self._list("?submitted_to=2025-12-31")
+        self.assertEqual(res.status_code, 200)
+        ids = {r["id"] for r in list_results(res)}
+        self.assertIn(r_old.id, ids)
+        self.assertNotIn(r_new.id, ids)
+
+    def test_filter_billing_from(self):
+        r_early = self._make(billing_date=date(2025, 6, 1))
+        r_late = self._make(billing_date=date(2026, 6, 1))
+        res = self._list("?billing_from=2026-01-01")
+        self.assertEqual(res.status_code, 200)
+        ids = {r["id"] for r in list_results(res)}
+        self.assertIn(r_late.id, ids)
+        self.assertNotIn(r_early.id, ids)
+
+    def test_filter_billing_to(self):
+        r_early = self._make(billing_date=date(2025, 6, 1))
+        r_late = self._make(billing_date=date(2026, 6, 1))
+        res = self._list("?billing_to=2025-12-31")
+        self.assertEqual(res.status_code, 200)
+        ids = {r["id"] for r in list_results(res)}
+        self.assertIn(r_early.id, ids)
+        self.assertNotIn(r_late.id, ids)
+
+    # ── Amount range filters ─────────────────────────────────────────────────
+
+    def test_filter_amount_min(self):
+        r_small = self._make(amount=Decimal("50"))
+        r_large = self._make(amount=Decimal("500"))
+        res = self._list("?amount_min=200")
+        self.assertEqual(res.status_code, 200)
+        ids = {r["id"] for r in list_results(res)}
+        self.assertIn(r_large.id, ids)
+        self.assertNotIn(r_small.id, ids)
+
+    def test_filter_amount_max(self):
+        r_small = self._make(amount=Decimal("50"))
+        r_large = self._make(amount=Decimal("500"))
+        res = self._list("?amount_max=200")
+        self.assertEqual(res.status_code, 200)
+        ids = {r["id"] for r in list_results(res)}
+        self.assertIn(r_small.id, ids)
+        self.assertNotIn(r_large.id, ids)
+
+    def test_filter_amount_range_combined(self):
+        r_low = self._make(amount=Decimal("50"))
+        r_mid = self._make(amount=Decimal("200"))
+        r_high = self._make(amount=Decimal("500"))
+        res = self._list("?amount_min=100&amount_max=300")
+        self.assertEqual(res.status_code, 200)
+        ids = {r["id"] for r in list_results(res)}
+        self.assertIn(r_mid.id, ids)
+        self.assertNotIn(r_low.id, ids)
+        self.assertNotIn(r_high.id, ids)
+
+    # ── Ordering ─────────────────────────────────────────────────────────────
+
+    def test_ordering_by_submitted_at_desc_default(self):
+        r_early = self._make(submitted_at=datetime(2026, 1, 1, tzinfo=ZoneInfo("UTC")))
+        r_late = self._make(submitted_at=datetime(2026, 3, 1, tzinfo=ZoneInfo("UTC")))
+        res = self._list()
+        self.assertEqual(res.status_code, 200)
+        ids = [r["id"] for r in list_results(res)]
+        self.assertLess(ids.index(r_late.id), ids.index(r_early.id))
+
+    def test_ordering_by_amount_asc_with_id_tiebreaker(self):
+        shared_ts = datetime(2026, 1, 1, tzinfo=ZoneInfo("UTC"))
+        r_small = self._make(amount=Decimal("100"), submitted_at=shared_ts)
+        r_large = self._make(amount=Decimal("200"), submitted_at=shared_ts)
+        res = self._list("?ordering=amount,id")
+        self.assertEqual(res.status_code, 200)
+        ids = [r["id"] for r in list_results(res)]
+        self.assertLess(ids.index(r_small.id), ids.index(r_large.id))
+
+    def test_ordering_by_billing_date_asc_with_id_tiebreaker(self):
+        r_early = self._make(billing_date=date(2026, 1, 1))
+        r_late = self._make(billing_date=date(2026, 6, 1))
+        res = self._list("?ordering=billing_date,id")
+        self.assertEqual(res.status_code, 200)
+        ids = [r["id"] for r in list_results(res)]
+        self.assertLess(ids.index(r_early.id), ids.index(r_late.id))
+
+    def test_ordering_desc_submitted_at_with_tiebreaker_stable_across_pages(self):
+        """Two records with the same submitted_at must not be missed or repeated across pages."""
+        shared_ts = datetime(2026, 5, 1, tzinfo=ZoneInfo("UTC"))
+        created = [self._make(title=f"Same{i}", submitted_at=shared_ts) for i in range(4)]
+
+        ids_seen = set()
+        url = f"/api/requests/?ordering=-submitted_at,-id&page_size=2"
+        while url:
+            parsed = urlparse(url)
+            path = parsed.path + ("?" + parsed.query if parsed.query else "")
+            res = self.client.get(path, HTTP_HOST=self.host)
+            self.assertEqual(res.status_code, 200)
+            for row in res.json()["results"]:
+                self.assertNotIn(row["id"], ids_seen, "Duplicate detected in ordered cursor pages")
+                ids_seen.add(row["id"])
+            url = res.json().get("next")
+
+        expected_ids = {r.id for r in created}
+        self.assertEqual(ids_seen & expected_ids, expected_ids)
 
 

@@ -117,7 +117,7 @@ export function BankExpenseDetailPage() {
     <Card>
       <Space direction="vertical" size={12} style={{ display: 'flex' }}>
         <Space>
-          <RequestReturnBackButton fallbackPath="/bank" fallbackLabel="Назад к списку" />
+          <RequestReturnBackButton fallbackPath="/bank/expenses" fallbackLabel="Назад к расходам" />
           {detail?.id ? <Button onClick={() => setOpenNoteModal(true)}>Добавить заметку</Button> : null}
           {detail?.matched_request_id ? (
             <Button
@@ -125,7 +125,7 @@ export function BankExpenseDetailPage() {
               onClick={() =>
                 navigate(`/requests/${detail.matched_request_id}`, {
                   state: requestReturnState({
-                    pathname: `/bank/${detail.id}`,
+                    pathname: `/bank/expenses/${detail.id}`,
                     label: `Банковский расход #${detail.id}`,
                   }),
                 })

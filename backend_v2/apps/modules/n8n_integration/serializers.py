@@ -451,7 +451,10 @@ class N8nRequestImportSerializer(serializers.ModelSerializer):
             tgt = expense_ref_target_for(payment_type=effective_payment_type, category=effective_category) if ref else None
             attrs["expense_ref_id"] = ref
             attrs["expense_ref_target"] = tgt
-            if normalized_expense_id and effective_payment_type == Request.PAYMENT_TYPE_CASH:
+            if normalized_expense_id and effective_payment_type in (
+                Request.PAYMENT_TYPE_CASH,
+                Request.PAYMENT_TYPE_PAYROLL,
+            ):
                 attrs["expense_id"] = normalized_expense_id
         return attrs
 

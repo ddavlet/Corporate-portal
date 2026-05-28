@@ -110,7 +110,9 @@ class ContractApiTests(APITestCase):
         )
         lst = self.client.get("/api/contracts/", **self._headers(self.requester))
         self.assertEqual(lst.status_code, 200, lst.content)
-        self.assertGreaterEqual(len(lst.data), 1)
+        from apps.common.test_utils import list_results
+
+        self.assertGreaterEqual(len(list_results(lst)), 1)
         cre = self.client.post(
             "/api/contracts/",
             {

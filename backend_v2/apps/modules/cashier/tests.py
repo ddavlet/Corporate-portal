@@ -5,6 +5,7 @@ from django.test import override_settings
 from rest_framework.test import APITestCase
 from rest_framework_simplejwt.tokens import RefreshToken
 
+from apps.common.test_utils import list_results
 from apps.tenants.models import Tenant
 from apps.modules.cashier.models import CashExpense, CashRevenue
 from apps.modules.wallets.resolution import get_or_create_cash_wallet
@@ -60,6 +61,42 @@ class CashierSmokeTests(TestCase):
 
 
 @override_settings(BASE_DOMAIN="example.com", ALLOWED_HOSTS=["*"])
+class CashRevenueListApiTests(APITestCase):
+    def setUp(self):
+        self.tenant = Tenant.objects.create(name="Acme", subdomain="acme", is_active=True)
+        self.admin = User.objects.create_user(username="cash_rev_admin", password="x")
+        TenantMembership.objects.create(tenant=self.tenant, user=self.admin, is_active=True)
+        TenantUserRole.objects.create(tenant=self.tenant, user=self.admin, role=TenantUserRole.ROLE_ADMIN)
+        TenantModuleConfig.objects.create(tenant=self.tenant, module_key="cash", is_enabled=True)
+        self.wallet = get_or_create_cash_wallet(tenant=self.tenant, currency="UZS")
+        CashRevenue.objects.create(
+            tenant=self.tenant,
+            external_id="rev-list-1",
+            total_sum=50,
+            confirmed=True,
+            wallet=self.wallet,
+            operation="Sale",
+            revenue_at=timezone.now(),
+            payload={},
+            created_by=self.admin,
+        )
+
+    def _headers(self):
+        token = str(RefreshToken.for_user(self.admin).access_token)
+        return {
+            "HTTP_HOST": "acme.example.com",
+            "HTTP_AUTHORIZATION": f"Bearer {token}",
+        }
+
+    def test_list_with_cursor_page_size_200(self):
+        res = self.client.get("/api/cash/revenues/?page_size=200", **self._headers())
+        self.assertEqual(res.status_code, 200, res.content)
+        rows = list_results(res)
+        self.assertGreaterEqual(len(rows), 1)
+        self.assertIn("revenue_at", rows[0])
+
+
+@override_settings(BASE_DOMAIN="example.com", ALLOWED_HOSTS=["*"])
 class CashExpenseRequestRequiredApiTests(APITestCase):
     def setUp(self):
         self.tenant = Tenant.objects.create(name="Acme", subdomain="acme", is_active=True)
@@ -84,9 +121,9 @@ class CashExpenseRequestRequiredApiTests(APITestCase):
             "HTTP_AUTHORIZATION": f"Bearer {token}",
         }
 
-    def test_request_highlight_contract_scenarios(self):
+    def _seed_contract_expenses(self):
         dt = timezone.now()
-        required_missing = CashExpense.objects.create(
+        self.required_missing = CashExpense.objects.create(
             tenant=self.tenant,
             external_id="cash-req-miss",
             confirmed=True,
@@ -102,7 +139,7 @@ class CashExpenseRequestRequiredApiTests(APITestCase):
             payload={},
             created_by=self.admin,
         )
-        required_paid = CashExpense.objects.create(
+        self.required_paid = CashExpense.objects.create(
             tenant=self.tenant,
             external_id="cash-req-paid",
             confirmed=True,
@@ -118,7 +155,7 @@ class CashExpenseRequestRequiredApiTests(APITestCase):
             payload={},
             created_by=self.admin,
         )
-        optional_missing = CashExpense.objects.create(
+        self.optional_missing = CashExpense.objects.create(
             tenant=self.tenant,
             external_id="cash-opt-miss",
             confirmed=True,
@@ -150,24 +187,37 @@ class CashExpenseRequestRequiredApiTests(APITestCase):
             urgency=Request.URGENCY_NORMAL,
             billing_date=dt.date(),
             status=Request.STATUS_PAYED,
-            expense_ref_id=required_paid.id,
+            expense_ref_id=self.required_paid.id,
             expense_ref_target=Request.EXPENSE_REF_TARGET_CASH,
-            expense_id=required_paid.external_id,
-            expense_year=required_paid.expense_year,
+            expense_id=self.required_paid.external_id,
+            expense_year=self.required_paid.expense_year,
         )
 
+    def test_request_highlight_contract_scenarios(self):
+        self._seed_contract_expenses()
         res = self.client.get("/api/cash/expenses/", **self._headers())
         self.assertEqual(res.status_code, 200, res.content)
         payload = res.json()
         rows = payload if isinstance(payload, list) else payload.get("results", [])
         by_id = {row["id"]: row for row in rows}
 
-        self.assertTrue(by_id[required_missing.id]["request_required"])
-        self.assertFalse(by_id[required_missing.id]["has_paid_request"])
+        self.assertTrue(by_id[self.required_missing.id]["request_required"])
+        self.assertFalse(by_id[self.required_missing.id]["has_paid_request"])
 
-        self.assertTrue(by_id[required_paid.id]["request_required"])
-        self.assertTrue(by_id[required_paid.id]["has_paid_request"])
+        self.assertTrue(by_id[self.required_paid.id]["request_required"])
+        self.assertTrue(by_id[self.required_paid.id]["has_paid_request"])
 
-        self.assertFalse(by_id[optional_missing.id]["request_required"])
-        self.assertFalse(by_id[optional_missing.id]["has_paid_request"])
+        self.assertFalse(by_id[self.optional_missing.id]["request_required"])
+        self.assertFalse(by_id[self.optional_missing.id]["has_paid_request"])
+
+    def test_missing_request_filter_returns_only_required_without_paid(self):
+        self._seed_contract_expenses()
+        res = self.client.get("/api/cash/expenses/?missing_request=1", **self._headers())
+        self.assertEqual(res.status_code, 200, res.content)
+        payload = res.json()
+        rows = payload if isinstance(payload, list) else payload.get("results", [])
+        ids = {row["id"] for row in rows}
+        self.assertIn(self.required_missing.id, ids)
+        self.assertNotIn(self.required_paid.id, ids)
+        self.assertNotIn(self.optional_missing.id, ids)
 

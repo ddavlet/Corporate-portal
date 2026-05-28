@@ -7,6 +7,8 @@ from rest_framework.response import Response
 from apps.modules.bank_expenses.models import BankExpense, BankRevenue
 from apps.modules.cashier.models import CashExpense, CashRevenue
 from apps.modules.corporate_card.models import CardExpense, CardRevenue
+from apps.common.pagination import PortalCursorPagination
+from apps.common.viewsets import PortalListViewSetMixin
 from apps.modules.wallets.models import BankAccount, CashRegister, CorporateCardAccount, Wallet
 from apps.modules.wallets.serializers import (
     BankAccountSerializer,
@@ -20,9 +22,12 @@ from apps.tenants.permissions import (
 )
 
 
-class CashRegisterViewSet(viewsets.ModelViewSet):
+class CashRegisterViewSet(PortalListViewSetMixin, viewsets.ModelViewSet):
     module_key = "wallets"
     serializer_class = CashRegisterSerializer
+    pagination_class = PortalCursorPagination
+    ordering_fields = ["sort_order", "name", "id"]
+    ordering = ["sort_order", "id"]
 
     def get_permissions(self):
         perms = [IsAuthenticated(), HasEffectiveModuleAccess()]
@@ -76,9 +81,12 @@ class CashRegisterViewSet(viewsets.ModelViewSet):
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
-class BankAccountViewSet(viewsets.ModelViewSet):
+class BankAccountViewSet(PortalListViewSetMixin, viewsets.ModelViewSet):
     module_key = "wallets"
     serializer_class = BankAccountSerializer
+    pagination_class = PortalCursorPagination
+    ordering_fields = ["name", "id"]
+    ordering = ["id"]
 
     def get_permissions(self):
         perms = [IsAuthenticated(), HasEffectiveModuleAccess()]
@@ -120,9 +128,12 @@ class BankAccountViewSet(viewsets.ModelViewSet):
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
-class CorporateCardAccountViewSet(viewsets.ModelViewSet):
+class CorporateCardAccountViewSet(PortalListViewSetMixin, viewsets.ModelViewSet):
     module_key = "wallets"
     serializer_class = CorporateCardAccountSerializer
+    pagination_class = PortalCursorPagination
+    ordering_fields = ["name", "id"]
+    ordering = ["id"]
 
     def get_permissions(self):
         perms = [IsAuthenticated(), HasEffectiveModuleAccess()]
@@ -170,6 +181,7 @@ class CorporateCardAccountViewSet(viewsets.ModelViewSet):
 
 
 class WalletViewSet(
+    PortalListViewSetMixin,
     mixins.ListModelMixin,
     mixins.RetrieveModelMixin,
     mixins.UpdateModelMixin,
@@ -177,6 +189,9 @@ class WalletViewSet(
 ):
     module_key = "wallets"
     serializer_class = WalletSerializer
+    pagination_class = PortalCursorPagination
+    ordering_fields = ["id", "type"]
+    ordering = ["id"]
 
     def get_permissions(self):
         perms = [IsAuthenticated(), HasEffectiveModuleAccess()]

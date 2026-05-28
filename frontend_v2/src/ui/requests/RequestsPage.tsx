@@ -9,10 +9,12 @@ import {
   apiFetch,
   copyPortalRequest,
   getRequestFormOptions,
+  parseErrorBody,
   resendRequestApprovals,
   type RequestFormOptionsPaymentType,
   type RequestFormOptionsRequester,
 } from '../../lib/api'
+import { notifyApiSuccess } from '../../lib/apiNotify'
 import { isPayedMissingLinkedExpense, type RequestExpenseLink } from '../../lib/requestExpense'
 import { canResendRequestByStatus, formatRequestBillingMonth, formatRequestDate, getRequestStatusColor } from '../../lib/requestUtils'
 import { requestReturnToForDetail } from '../../lib/requestNavigation'
@@ -20,7 +22,10 @@ import { RequestDetailModal, type RequestDetail } from './RequestDetailModal'
 import { labelBlockAboveField } from '../formSpacing'
 import { RequestAiChatButton } from './RequestAiChatButton'
 import { NoteCreateModal } from '../NoteCreateModal'
+import { useInfiniteList, useRestoreInfinitePages } from '../../lib/useInfiniteList'
+import { useListPageSession } from '../../lib/useListPageSession'
 import { useUserPreference } from '../../lib/useUserPreference'
+import { ListInfiniteScrollFooter } from '../ListInfiniteScrollFooter'
 
 type RequestRow = {
   id: number
@@ -60,6 +65,7 @@ type RequestModalEditDraft = {
   category: string
   vendor: string
   payment_purpose: string
+  expense_id: string
   billing_date: Dayjs | null
   requester: string
   amortization_enabled: boolean
@@ -80,9 +86,18 @@ type RequestsPagePreferences = {
   submittedRange: [string | null, string | null] | null
   billingRange: [string | null, string | null] | null
   amortizedOnly: boolean
+  payedMissingExpense: boolean
 }
 
 const REQUESTS_FILTER_PREF_KEY = 'requests.page.filters.v1'
+const REQUESTS_LIST_SESSION_KEY = 'list-session:/requests'
+
+type RequestsListSession = {
+  scrollY: number
+  pagesLoaded?: number
+  selectedRowId?: number | null
+  sort?: SortState
+}
 const defaultRequestsPreferences: RequestsPagePreferences = {
   search: '',
   status: undefined,
@@ -97,6 +112,15 @@ const defaultRequestsPreferences: RequestsPagePreferences = {
   submittedRange: null,
   billingRange: null,
   amortizedOnly: false,
+  payedMissingExpense: false,
+}
+
+function orderingFromSort(sort: SortState): string | undefined {
+  if (!sort.field || !sort.order) return undefined
+  if (sort.field === 'id') return sort.order === 'descend' ? '-id' : 'id'
+  const prefix = sort.order === 'descend' ? '-' : ''
+  const tiebreaker = sort.order === 'descend' ? ',-id' : ',id'
+  return `${prefix}${sort.field}${tiebreaker}`
 }
 
 function parseStoredRange(raw: [string | null, string | null] | null | undefined): [Dayjs | null, Dayjs | null] | null {
@@ -114,21 +138,9 @@ function serializeRange(value: [Dayjs | null, Dayjs | null] | null): [string | n
   ]
 }
 
-function normalizeRows(payload: unknown): RequestRow[] {
-  if (Array.isArray(payload)) return payload as RequestRow[]
-  if (payload && typeof payload === 'object' && 'results' in payload) {
-    const results = (payload as { results?: unknown }).results
-    return Array.isArray(results) ? (results as RequestRow[]) : []
-  }
-  return []
-}
-
-
 export function RequestsPage() {
   const navigate = useNavigate()
-  const [loading, setLoading] = useState(true)
-  const [rows, setRows] = useState<RequestRow[]>([])
-  const [error, setError] = useState<string | null>(null)
+  const [restorePages, setRestorePages] = useState<number | undefined>(undefined)
   const [search, setSearch] = useState('')
   const [debouncedSearch, setDebouncedSearch] = useState('')
   const [status, setStatus] = useState<string | undefined>(undefined)
@@ -143,9 +155,8 @@ export function RequestsPage() {
   const [submittedRange, setSubmittedRange] = useState<[Dayjs | null, Dayjs | null] | null>(null)
   const [billingRange, setBillingRange] = useState<[Dayjs | null, Dayjs | null] | null>(null)
   const [sort, setSort] = useState<SortState>({ field: null, order: null })
-  const [currentPage, setCurrentPage] = useState(1)
-  const [pageSize, setPageSize] = useState(20)
   const [selectedRow, setSelectedRow] = useState<RequestRow | null>(null)
+  const pendingSelectedRowIdRef = useRef<number | null>(null)
   const [selectedDetail, setSelectedDetail] = useState<RequestDetail | null>(null)
   const [detailLoading, setDetailLoading] = useState(false)
   const [detailError, setDetailError] = useState<string | null>(null)
@@ -160,6 +171,7 @@ export function RequestsPage() {
   const [vendorSearchApi, setVendorSearchApi] = useState('')
   const [debouncedVendorSearchApi, setDebouncedVendorSearchApi] = useState('')
   const [amortizedOnly, setAmortizedOnly] = useState(false)
+  const [payedMissingExpense, setPayedMissingExpense] = useState(false)
   const { value: storedPrefs, setValue: setStoredPrefs, isLoading: prefsLoading } = useUserPreference<RequestsPagePreferences>({
     key: REQUESTS_FILTER_PREF_KEY,
     defaultValue: defaultRequestsPreferences,
@@ -167,6 +179,7 @@ export function RequestsPage() {
     debounceMs: 300,
   })
   const hydratedFromPrefsRef = useRef(false)
+  const [prefsHydrated, setPrefsHydrated] = useState(false)
 
   useEffect(() => {
     if (prefsLoading || hydratedFromPrefsRef.current) return
@@ -184,6 +197,8 @@ export function RequestsPage() {
     setSubmittedRange(parseStoredRange(storedPrefs.submittedRange))
     setBillingRange(parseStoredRange(storedPrefs.billingRange))
     setAmortizedOnly(Boolean(storedPrefs.amortizedOnly))
+    setPayedMissingExpense(Boolean(storedPrefs.payedMissingExpense))
+    setPrefsHydrated(true)
   }, [storedPrefs, prefsLoading])
 
   useEffect(() => {
@@ -201,6 +216,7 @@ export function RequestsPage() {
       submittedRange: serializeRange(submittedRange),
       billingRange: serializeRange(billingRange),
       amortizedOnly,
+      payedMissingExpense,
     })
   }, [
     search,
@@ -216,6 +232,7 @@ export function RequestsPage() {
     submittedRange,
     billingRange,
     amortizedOnly,
+    payedMissingExpense,
     setStoredPrefs,
   ])
 
@@ -251,48 +268,70 @@ export function RequestsPage() {
     return () => window.clearTimeout(id)
   }, [vendorSearchApi])
 
-  useEffect(() => {
-    let cancelled = false
-    ;(async () => {
-      setError(null)
-      setLoading(true)
-      try {
-        const params = new URLSearchParams()
-        const submittedFrom = submittedRange?.[0]?.format('YYYY-MM-DD')
-        const submittedTo = submittedRange?.[1]?.format('YYYY-MM-DD')
-        const billingFrom = billingRange?.[0]?.format('YYYY-MM-DD')
-        const billingTo = billingRange?.[1]?.format('YYYY-MM-DD')
-        if (submittedFrom) params.set('submitted_from', submittedFrom)
-        if (submittedTo) params.set('submitted_to', submittedTo)
-        if (billingFrom) params.set('billing_from', billingFrom)
-        if (billingTo) params.set('billing_to', billingTo)
-        if (debouncedVendorSearchApi) params.set('vendor_search', debouncedVendorSearchApi)
-        if (amortizedOnly) params.set('amortized_only', '1')
-        const query = params.toString()
-        const endpoint = query ? `/api/requests/?${query}` : '/api/requests/'
+  const listUrl = useMemo(() => {
+    const params = new URLSearchParams()
+    const submittedFrom = submittedRange?.[0]?.format('YYYY-MM-DD')
+    const submittedTo = submittedRange?.[1]?.format('YYYY-MM-DD')
+    const billingFrom = billingRange?.[0]?.format('YYYY-MM-DD')
+    const billingTo = billingRange?.[1]?.format('YYYY-MM-DD')
+    if (submittedFrom) params.set('submitted_from', submittedFrom)
+    if (submittedTo) params.set('submitted_to', submittedTo)
+    if (billingFrom) params.set('billing_from', billingFrom)
+    if (billingTo) params.set('billing_to', billingTo)
+    if (debouncedVendorSearchApi) params.set('vendor_search', debouncedVendorSearchApi)
+    if (amortizedOnly) params.set('amortized_only', '1')
+    if (payedMissingExpense) params.set('payed_missing_expense', '1')
+    if (status) params.set('status', status)
+    if (urgency) params.set('urgency', urgency)
+    if (paymentType) params.set('payment_type', paymentType)
+    if (currency) params.set('currency', currency)
+    if (category) params.set('category', category)
+    if (vendor) params.set('vendor', vendor)
+    if (requester) params.set('requester', requester)
+    if (amountMin !== null) params.set('amount_min', String(amountMin))
+    if (amountMax !== null) params.set('amount_max', String(amountMax))
+    if (debouncedSearch.trim()) params.set('search', debouncedSearch.trim())
+    const ordering = orderingFromSort(sort)
+    if (ordering) params.set('ordering', ordering)
+    const query = params.toString()
+    return query ? `/api/requests/?${query}` : '/api/requests/'
+  }, [
+    submittedRange,
+    billingRange,
+    debouncedVendorSearchApi,
+    amortizedOnly,
+    payedMissingExpense,
+    status,
+    urgency,
+    paymentType,
+    currency,
+    category,
+    vendor,
+    requester,
+    amountMin,
+    amountMax,
+    debouncedSearch,
+    sort,
+  ])
 
-        const res = await apiFetch(endpoint)
-        const json = await res.json().catch(() => null)
-        if (!res.ok) {
-          throw new Error(typeof json === 'object' && json ? JSON.stringify(json) : `HTTP ${res.status}`)
-        }
-        if (!cancelled) {
-          const normalized = normalizeRows(json)
-          setRows(normalized)
-        }
-      } catch (e: any) {
-        if (!cancelled) {
-          setRows([])
-          setError(e?.message || 'Ошибка запроса')
-        }
-      } finally {
-        if (!cancelled) setLoading(false)
-      }
-    })()
-    return () => {
-      cancelled = true
-    }
-  }, [submittedRange, billingRange, debouncedVendorSearchApi, amortizedOnly])
+  const {
+    items: rows,
+    setItems: setRows,
+    loading,
+    loadingMore,
+    error,
+    hasMore: hasMoreRows,
+    loadMore,
+    sentinelRef,
+    pagesLoaded,
+  } = useInfiniteList<RequestRow>({ url: listUrl, enabled: !prefsLoading && prefsHydrated })
+
+  useRestoreInfinitePages({
+    targetPages: restorePages,
+    hasMore: hasMoreRows,
+    loading,
+    loadMore,
+  })
 
   const optionize = (values: string[]) =>
     [...new Set(values.filter(Boolean))].sort((a, b) => a.localeCompare(b)).map((value) => ({
@@ -338,47 +377,32 @@ export function RequestsPage() {
     return [...map.entries()].map(([value, label]) => ({ value, label }))
   }, [requesterCandidates, rows])
 
-  const filteredRows = useMemo(() => {
-    const normalizedSearch = debouncedSearch.trim().toLowerCase()
-    let data = rows.filter((row) => {
-      if (status && row.status !== status) return false
-      if (urgency && row.urgency !== urgency) return false
-      if (paymentType && row.payment_type !== paymentType) return false
-      if (currency && row.currency !== currency) return false
-      if (category && row.category !== category) return false
-      if (vendor && row.vendor !== vendor) return false
-      if (requester && String(row.requester) !== requester) return false
-      if (amountMin !== null && Number(row.amount) < amountMin) return false
-      if (amountMax !== null && Number(row.amount) > amountMax) return false
-      if (!normalizedSearch) return true
-      const haystack = JSON.stringify(row).toLowerCase()
-      return haystack.includes(normalizedSearch)
-    })
-
-    if (sort.field && sort.order) {
-      const dir = sort.order === 'ascend' ? 1 : -1
-      data = [...data].sort((a, b) => {
-        const av = a[sort.field as keyof RequestRow]
-        const bv = b[sort.field as keyof RequestRow]
-        if (av === bv) return 0
-        if (av === null || av === undefined) return -1 * dir
-        if (bv === null || bv === undefined) return 1 * dir
-        if (sort.field === 'amount') {
-          const an = Number(av)
-          const bn = Number(bv)
-          if (!Number.isNaN(an) && !Number.isNaN(bn)) return (an - bn) * dir
-        }
-        if (typeof av === 'number' && typeof bv === 'number') return (av - bv) * dir
-        return String(av).localeCompare(String(bv)) * dir
-      })
-    }
-    return data
-  }, [rows, debouncedSearch, status, urgency, paymentType, currency, category, vendor, requester, amountMin, amountMax, sort])
+  const { persist: persistListSession } = useListPageSession<RequestsListSession>({
+    storageKey: REQUESTS_LIST_SESSION_KEY,
+    ready: !loading && !error,
+    onRestore: (saved) => {
+      if (typeof saved.pagesLoaded === 'number' && saved.pagesLoaded > 1) {
+        setRestorePages(saved.pagesLoaded)
+      }
+      if (saved.sort) setSort(saved.sort)
+      if (saved.selectedRowId != null) pendingSelectedRowIdRef.current = Number(saved.selectedRowId)
+    },
+    getSnapshot: () => ({
+      pagesLoaded,
+      selectedRowId: selectedRow?.id ?? null,
+      sort,
+    }),
+  })
 
   useEffect(() => {
-    setCurrentPage(1)
-  }, [debouncedSearch, status, urgency, paymentType, currency, category, vendor, requester, amountMin, amountMax, submittedRange, billingRange, debouncedVendorSearchApi, amortizedOnly])
-
+    const pendingId = pendingSelectedRowIdRef.current
+    if (!pendingId || rows.length === 0) return
+    const row = rows.find((r) => r.id === pendingId)
+    if (row) {
+      setSelectedRow(row)
+      pendingSelectedRowIdRef.current = null
+    }
+  }, [rows])
 
   const saveDetailEdit = async () => {
     if (!selectedRow || !selectedDetail || !editDraft) return
@@ -406,19 +430,24 @@ export function RequestsPage() {
         category: editDraft.category,
         vendor: editDraft.vendor,
         payment_purpose: editDraft.payment_purpose.trim() || undefined,
+        expense_id: editDraft.expense_id.trim() || null,
         requester: editDraft.requester ? Number(editDraft.requester) : null,
         billing_date: editDraft.billing_date ? editDraft.billing_date.startOf('month').format('YYYY-MM-DD') : undefined,
         amortization_months: editDraft.amortization_enabled ? editDraft.amortization_months : 1,
       }
-      const res = await apiFetch(`/api/requests/${selectedRow.id}/`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      })
-      const json = await res.json().catch(() => null)
+      const res = await apiFetch(
+        `/api/requests/${selectedRow.id}/`,
+        {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        },
+        { notifyOnError: true },
+      )
       if (!res.ok) {
-        throw new Error(typeof json === 'object' && json ? JSON.stringify(json) : `HTTP ${res.status}`)
+        throw new Error(await parseErrorBody(res))
       }
+      const json = await res.json().catch(() => null)
       const nextDetail: RequestDetail = {
         ...selectedDetail,
         title: payload.title,
@@ -431,6 +460,7 @@ export function RequestsPage() {
         category: payload.category,
         vendor: payload.vendor,
         payment_purpose: payload.payment_purpose || '',
+        expense_id: payload.expense_id,
         requester: payload.requester,
         billing_date: payload.billing_date || selectedDetail.billing_date,
         amortization_months: payload.amortization_months,
@@ -481,10 +511,10 @@ export function RequestsPage() {
             : row,
         ),
       )
-      message.success('Заявка обновлена')
+      notifyApiSuccess('Заявка обновлена')
       setEditOpen(false)
-    } catch (e: any) {
-      message.error(e?.message || 'Не удалось сохранить заявку')
+    } catch {
+      // HTTP/network errors already show toast via apiFetch (notifyOnError)
     } finally {
       setEditSaving(false)
     }
@@ -586,8 +616,6 @@ export function RequestsPage() {
   ]
 
   const onTableChange: TableProps<RequestRow>['onChange'] = (_, __, sorter) => {
-    if (_?.current) setCurrentPage(_.current)
-    if (_?.pageSize) setPageSize(_.pageSize)
     const normalized = Array.isArray(sorter) ? sorter[0] : sorter
     if (!normalized?.field || !normalized.order) {
       setSort({ field: null, order: null })
@@ -646,8 +674,8 @@ export function RequestsPage() {
     setSubmittedRange(null)
     setBillingRange(null)
     setAmortizedOnly(false)
+    setPayedMissingExpense(false)
     setSort({ field: null, order: null })
-    setCurrentPage(1)
   }
 
   return (
@@ -711,6 +739,10 @@ export function RequestsPage() {
                     <Space align="center">
                       <Typography.Text style={{ marginBottom: 0 }}>Только с амортизацией</Typography.Text>
                       <Switch checked={amortizedOnly} onChange={setAmortizedOnly} />
+                    </Space>
+                    <Space align="center">
+                      <Typography.Text style={{ marginBottom: 0 }}>PAYED без расхода</Typography.Text>
+                      <Switch checked={payedMissingExpense} onChange={setPayedMissingExpense} />
                     </Space>
                     <Select
                       placeholder="Срочность"
@@ -786,25 +818,28 @@ export function RequestsPage() {
       {loading ? <Skeleton active style={{ marginTop: 16 }} /> : null}
       {error ? <Alert type="error" showIcon message={error} style={{ marginTop: 16 }} /> : null}
       {!loading && !error ? (
-        <Table<RequestRow>
-          rowKey="id"
-          size="small"
-          columns={columns}
-          dataSource={filteredRows}
-          onChange={onTableChange}
-          onRow={(record) => ({
-            onClick: () => setSelectedRow(record),
-            className: isPayedMissingLinkedExpense(record) ? 'requests-row--payed-no-expense' : undefined,
-            style: { cursor: 'pointer' },
-          })}
-          pagination={{
-            current: currentPage,
-            pageSize,
-            showSizeChanger: true,
-            pageSizeOptions: [20, 50, 100, 200],
-          }}
-          scroll={{ x: 1200 }}
-        />
+        <>
+          <Table<RequestRow>
+            rowKey="id"
+            size="small"
+            columns={columns}
+            dataSource={rows}
+            onChange={onTableChange}
+            onRow={(record) => ({
+              onClick: () => setSelectedRow(record),
+              className: isPayedMissingLinkedExpense(record) ? 'requests-row--payed-no-expense' : undefined,
+              style: { cursor: 'pointer' },
+            })}
+            pagination={false}
+            scroll={{ x: 1200 }}
+          />
+          <ListInfiniteScrollFooter
+            sentinelRef={sentinelRef}
+            hasMore={hasMoreRows}
+            loadingMore={loadingMore}
+            visibleCount={rows.length}
+          />
+        </>
       ) : null}
       <RequestDetailModal
         open={Boolean(selectedRow)}
@@ -818,7 +853,13 @@ export function RequestsPage() {
         actions={
           selectedRow ? (
             <Space wrap size={[8, 8]} style={{ width: '100%' }}>
-              <Button icon={<FileSearchOutlined />} onClick={() => navigate(`/requests/${selectedRow.id}`)}>
+              <Button
+                icon={<FileSearchOutlined />}
+                onClick={() => {
+                  persistListSession()
+                  navigate(`/requests/${selectedRow.id}`)
+                }}
+              >
                 Открыть страницу
               </Button>
               <Button icon={<MessageOutlined />} onClick={() => setOpenNoteModal(true)}>
@@ -842,6 +883,7 @@ export function RequestsPage() {
                       category: selectedDetail.category || '',
                       vendor: selectedDetail.vendor || '',
                       payment_purpose: selectedDetail.payment_purpose || '',
+                      expense_id: (selectedDetail.expense_id || '').trim(),
                       billing_date: selectedDetail.billing_date ? dayjs(selectedDetail.billing_date) : null,
                       requester: selectedDetail.requester != null ? String(selectedDetail.requester) : '',
                       amortization_enabled: Number(selectedDetail.amortization_months || 1) > 1,
@@ -1005,6 +1047,17 @@ export function RequestsPage() {
               onChange={(e) => setEditDraft((prev) => (prev ? { ...prev, payment_purpose: e.target.value } : prev))}
             />
           )}
+          <div>
+            <Typography.Text strong style={labelBlockAboveField}>
+              ID расхода (expense_id)
+            </Typography.Text>
+            <Input
+              allowClear
+              placeholder="Номер расхода / документа"
+              value={editDraft?.expense_id || ''}
+              onChange={(e) => setEditDraft((prev) => (prev ? { ...prev, expense_id: e.target.value } : prev))}
+            />
+          </div>
           <Space wrap>
             <DatePicker
               picker="month"

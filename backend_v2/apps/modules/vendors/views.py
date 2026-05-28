@@ -3,6 +3,8 @@ from rest_framework import viewsets
 from rest_framework.exceptions import PermissionDenied
 from rest_framework.permissions import BasePermission, IsAuthenticated
 
+from apps.common.pagination import PortalCursorPagination
+from apps.common.viewsets import PortalListViewSetMixin
 from apps.modules.vendors.models import Vendor
 from apps.modules.vendors.serializers import VendorSerializer
 from apps.tenants.models import TenantUserRole
@@ -26,9 +28,16 @@ class CanWriteVendorDirectory(BasePermission):
         ).exists()
 
 
-class VendorViewSet(viewsets.ModelViewSet):
+class VendorCursorPagination(PortalCursorPagination):
+    ordering = "name,id"
+
+
+class VendorViewSet(PortalListViewSetMixin, viewsets.ModelViewSet):
     module_key = "vendors"
     serializer_class = VendorSerializer
+    pagination_class = VendorCursorPagination
+    ordering_fields = ["name", "id", "inn"]
+    ordering = ["name", "id"]
 
     def get_permissions(self):
         base = [IsAuthenticated(), HasEffectiveModuleAccess()]

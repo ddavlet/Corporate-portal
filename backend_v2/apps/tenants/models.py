@@ -17,6 +17,10 @@ class Tenant(models.Model):
     cash_expense_external_id_prefix = models.CharField(max_length=32, default="1-")
     cash_expense_external_id_digit_width = models.PositiveSmallIntegerField(default=9)
 
+    # Payroll document `doc_id` (matched from request `expense_id`): prefix + zero-padded numeric part.
+    payroll_doc_id_prefix = models.CharField(max_length=32, default="1-")
+    payroll_doc_id_digit_width = models.PositiveSmallIntegerField(default=9)
+
     def set_telegram_bot_token(self, token: str) -> None:
         self.telegram_bot_token_enc = encrypt_secret(token.strip())
 

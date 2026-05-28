@@ -11,9 +11,8 @@ from django.db.models import DecimalField, Value
 from apps.modules.bank_expenses.models import BankExpense
 from apps.modules.cashier.models import CashExpense
 from apps.modules.corporate_card.models import CardExpense
-from apps.modules.payroll.constants import MODULE_KEY as PAYROLL_MODULE_KEY, SALARY_CATEGORY
-from apps.modules.payroll.models import PayrollDocument
-from apps.modules.payroll.utils import tenant_has_payroll_module_enabled
+from apps.modules.payroll.constants import MODULE_KEY as PAYROLL_MODULE_KEY
+from apps.modules.payroll.models import PayrollDocument, PayrollLine
 from apps.modules.requests.approval_workflow import min_pending_approval_step
 from apps.modules.requests.expense_refs import resolve_request_expense_ref
 from apps.modules.requests.models import Approval, Request
@@ -131,12 +130,12 @@ def annotate_bank_expense_compliance(qs, *, tenant):
     request_subquery = Request.objects.filter(
         tenant=tenant,
         payment_type__in=(Request.PAYMENT_TYPE_TRANSFER, Request.PAYMENT_TYPE_TOPUP),
+        amount=OuterRef("debit_turnover"),
     ).filter(
         Q(expense_ref_id=OuterRef("id"))
         | (
             Q(expense_id=OuterRef("doc_no"))
             & Q(expense_year=OuterRef("expense_year"))
-            & Q(amount=OuterRef("debit_turnover"))
         )
     )
     paid_request_subquery = request_subquery.filter(status=Request.STATUS_PAYED)
@@ -151,12 +150,8 @@ def annotate_cash_expense_compliance(qs, *, tenant):
     request_subquery = Request.objects.filter(
         tenant=tenant,
         payment_type=Request.PAYMENT_TYPE_CASH,
+        amount=OuterRef("amount"),
     ).filter(Q(expense_ref_id=OuterRef("id")) | Q(expense_id=OuterRef("external_id")))
-    if tenant_has_payroll_module_enabled(tenant):
-        request_subquery = request_subquery.exclude(
-            payment_type=Request.PAYMENT_TYPE_CASH,
-            category=SALARY_CATEGORY,
-        )
     paid_request_subquery = request_subquery.filter(status=Request.STATUS_PAYED)
     return qs.annotate(
         has_request=Exists(request_subquery),
@@ -169,6 +164,7 @@ def annotate_card_expense_compliance(qs, *, tenant):
     request_subquery = Request.objects.filter(
         tenant=tenant,
         payment_type=Request.PAYMENT_TYPE_CARD,
+        amount=OuterRef("amount"),
     ).filter(Q(expense_ref_id=OuterRef("id")))
     paid_request_subquery = request_subquery.filter(status=Request.STATUS_PAYED)
     return qs.annotate(
@@ -179,10 +175,16 @@ def annotate_card_expense_compliance(qs, *, tenant):
 
 
 def annotate_payroll_compliance(qs, *, tenant):
+    payroll_total_subquery = (
+        PayrollLine.objects.filter(document_id=OuterRef("pk"))
+        .values("document_id")
+        .annotate(total=Sum("sum"))
+        .values("total")[:1]
+    )
     request_subquery = Request.objects.filter(
         tenant=tenant,
-        payment_type=Request.PAYMENT_TYPE_CASH,
-        category=SALARY_CATEGORY,
+        payment_type=Request.PAYMENT_TYPE_PAYROLL,
+        amount=Subquery(payroll_total_subquery),
     ).filter(Q(expense_ref_id=OuterRef("pk")) | Q(expense_id=OuterRef("doc_id")))
     paid_request_subquery = request_subquery.filter(status=Request.STATUS_PAYED)
     return qs.annotate(
@@ -544,10 +546,9 @@ def collect_payroll_channel_payload(
     date_to: date | None,
     limit: int,
 ) -> dict:
-    rules = rules_by_pt[Request.PAYMENT_TYPE_CASH]
+    rules = rules_by_pt[Request.PAYMENT_TYPE_PAYROLL]
     base = {
-        "payment_type": Request.PAYMENT_TYPE_CASH,
-        "category": SALARY_CATEGORY,
+        "payment_type": Request.PAYMENT_TYPE_PAYROLL,
         "rules": rules,
         "missing_paid_request": [],
         "linked_request_in_progress": [],
@@ -754,9 +755,8 @@ def build_unmatched_expenses_payload(
     else:
         payload["payroll"] = {
             "enabled": False,
-            "payment_type": Request.PAYMENT_TYPE_CASH,
-            "category": SALARY_CATEGORY,
-            "rules": rules_by_pt[Request.PAYMENT_TYPE_CASH],
+            "payment_type": Request.PAYMENT_TYPE_PAYROLL,
+            "rules": rules_by_pt[Request.PAYMENT_TYPE_PAYROLL],
             "missing_paid_request": [],
             "linked_request_in_progress": [],
             "counts": {"missing_paid_request": 0, "linked_request_in_progress": 0},
@@ -770,6 +770,75 @@ def build_unmatched_expenses_payload(
         limit=limit,
     )
     return payload
+
+
+PORTAL_EXPENSE_MODULES = frozenset({"cash", "bank", "payroll", "corporate_card"})
+
+
+def resolve_request_portal_expense_module(request_obj: Request, *, tenant) -> str | None:
+    """Portal expense module for request; aligns with isPayedMissingLinkedExpense on the frontend."""
+    ref_id = request_obj.expense_ref_id
+    raw = str(getattr(request_obj, "expense_id", None) or "").strip()
+    pt = request_obj.payment_type
+    category = (request_obj.category or "").strip()
+
+    if ref_id is not None and pt == Request.PAYMENT_TYPE_PAYROLL:
+        if PayrollDocument.objects.filter(tenant=tenant, id=ref_id).exists():
+            return "payroll"
+    if ref_id is not None and pt == Request.PAYMENT_TYPE_CASH:
+        if CashExpense.objects.filter(tenant=tenant, id=ref_id).exists():
+            return "cash"
+    if ref_id is not None and pt in (Request.PAYMENT_TYPE_TRANSFER, Request.PAYMENT_TYPE_TOPUP):
+        if BankExpense.objects.filter(tenant=tenant, id=ref_id).exists():
+            return "bank"
+    if ref_id is not None and pt == Request.PAYMENT_TYPE_CARD:
+        if CardExpense.objects.filter(tenant=tenant, id=ref_id).exists():
+            return "corporate_card"
+    if raw:
+        return "external"
+    return None
+
+
+def request_is_payed_missing_portal_expense(request_obj: Request, *, tenant) -> bool:
+    if request_obj.status != Request.STATUS_PAYED:
+        return False
+    mod = resolve_request_portal_expense_module(request_obj, tenant=tenant)
+    if mod is None:
+        return True
+    if mod == "external":
+        return True
+    if mod in PORTAL_EXPENSE_MODULES:
+        return False
+    return True
+
+
+def filter_requests_payed_missing_expense(qs, *, tenant):
+    qs = qs.filter(status=Request.STATUS_PAYED)
+    matched_ids = [
+        obj.pk
+        for obj in qs.iterator(chunk_size=500)
+        if request_is_payed_missing_portal_expense(obj, tenant=tenant)
+    ]
+    if not matched_ids:
+        return qs.none()
+    return qs.filter(pk__in=matched_ids)
+
+
+def filter_expenses_missing_request(qs, *, tenant, payment_type: str, payroll: bool = False):
+    matched_ids: list[int] = []
+    for obj in qs.iterator(chunk_size=500):
+        if payroll:
+            if not obj.has_paid_request:
+                matched_ids.append(obj.pk)
+        elif is_request_required_for_expense(
+            tenant=tenant,
+            payment_type=payment_type,
+            expense_obj=obj,
+        ) and not obj.has_paid_request:
+            matched_ids.append(obj.pk)
+    if not matched_ids:
+        return qs.none()
+    return qs.filter(pk__in=matched_ids)
 
 
 def parse_unmatched_expenses_query_params(*, query_params) -> tuple[date | None, date | None, str | None, int]:
