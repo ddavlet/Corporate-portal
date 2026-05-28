@@ -8,7 +8,6 @@ from django.utils import timezone
 
 from apps.modules.requests.models import Request
 from apps.modules.tasks.models import Task
-from apps.modules.tasks.querysets.resolver import resolve_scope_for_user
 from apps.tenants.models import TenantUserRole
 
 logger = logging.getLogger(__name__)
@@ -176,13 +175,10 @@ def assignee_for_payment(request_obj) -> object | None:
 
 def get_user_dashboard(user, tenant, include_all_done: bool = False) -> dict:
     """Return task counts/lists for the Telegram digest and the dashboard endpoint."""
-    scope = resolve_scope_for_user(user, tenant)
-    base_qs = scope.filter_queryset(
+    base_qs = (
         Task.objects
         .filter(tenant=tenant, assignee=user)
-        .select_related("assignee", "source_request"),
-        user,
-        tenant,
+        .select_related("assignee", "source_request")
     )
 
     new_tasks = list(base_qs.filter(status=Task.STATUS_NEW))

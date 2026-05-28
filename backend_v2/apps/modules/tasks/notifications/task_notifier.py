@@ -10,9 +10,9 @@ logger = logging.getLogger(__name__)
 
 # Callback data format: "task_<action>_<task_id>"
 # task_p_<id>  → move to in_progress
-# task_a_<id>  → archive (move to done)
+# task_a_<id>  → move to done
 _CB_PROGRESS = "task_p_{}"
-_CB_ARCHIVE = "task_a_{}"
+_CB_DONE = "task_a_{}"
 
 
 def _task_buttons(task_id: int, current_status: str) -> list:
@@ -20,12 +20,11 @@ def _task_buttons(task_id: int, current_status: str) -> list:
     if current_status == "new":
         return [[
             {"label": "▶ Взять в работу", "callback_data": _CB_PROGRESS.format(task_id)},
-            {"label": "✅ Архивировать", "callback_data": _CB_ARCHIVE.format(task_id)},
+            {"label": "✅ Выполнено", "callback_data": _CB_DONE.format(task_id)},
         ]]
     if current_status == "in_progress":
         return [[
-            {"label": "✅ Выполнено", "callback_data": _CB_ARCHIVE.format(task_id)},
-            {"label": "📦 Архивировать", "callback_data": _CB_ARCHIVE.format(task_id)},
+            {"label": "✅ Выполнено", "callback_data": _CB_DONE.format(task_id)},
         ]]
     return []
 
