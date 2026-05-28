@@ -12,7 +12,8 @@ class EscalationTrigger(AbstractTaskTrigger):
     """Creates an escalation task for an admin/director when a task goes stale.
 
     Idempotent: skips creation if an open escalation task already exists for
-    the same stale task (identified via source_expense_type + source_expense_id).
+    the same source_request + assignee pair. For manual tasks (source_request=None),
+    at most one open escalation per admin/director is created at a time.
     """
 
     event_name = "escalation"
@@ -44,8 +45,7 @@ class EscalationTrigger(AbstractTaskTrigger):
         for assignee in directors:
             if Task.objects.filter(
                 source_type=Task.SOURCE_ESCALATION,
-                source_expense_type="task_escalation",
-                source_expense_id=task.pk,
+                source_request=task.source_request,
                 assignee=assignee,
                 status__in=[Task.STATUS_NEW, Task.STATUS_IN_PROGRESS],
             ).exists():
@@ -63,10 +63,7 @@ class EscalationTrigger(AbstractTaskTrigger):
                 description=f"Задача #{task.pk} не обновлялась более 3 дней.",
                 created_by=None,
                 source_type=Task.SOURCE_ESCALATION,
-                source_approval=None,
                 source_request=task.source_request,
-                source_expense_type="task_escalation",
-                source_expense_id=task.pk,
             )
 
 

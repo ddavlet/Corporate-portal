@@ -21,8 +21,6 @@ def _task_to_dict(t) -> dict[str, Any]:
         "created_by_id": t.created_by_id,
         "source_request_id": t.source_request_id,
         "source_approval_id": t.source_approval_id,
-        "source_expense_type": t.source_expense_type,
-        "source_expense_id": t.source_expense_id,
         "created_at": t.created_at.isoformat() if t.created_at else None,
         "updated_at": t.updated_at.isoformat() if t.updated_at else None,
         "completed_at": t.completed_at.isoformat() if t.completed_at else None,

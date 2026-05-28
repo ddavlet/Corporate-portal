@@ -46,8 +46,6 @@ def create_task(
     source_type: str = Task.SOURCE_MANUAL,
     source_approval=None,
     source_request=None,
-    source_expense_type: str = "",
-    source_expense_id: int | None = None,
 ) -> Task:
     with transaction.atomic():
         return Task.objects.create(
@@ -60,8 +58,6 @@ def create_task(
             source_type=source_type,
             source_approval=source_approval,
             source_request=source_request,
-            source_expense_type=source_expense_type or "",
-            source_expense_id=source_expense_id,
         )
 
 

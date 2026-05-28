@@ -137,8 +137,6 @@ class TaskDetailSerializer(TaskListSerializer):
             "description",
             "created_by",
             "updated_at",
-            "source_expense_type",
-            "source_expense_id",
             "comments",
         )
         read_only_fields = fields

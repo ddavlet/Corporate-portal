@@ -48,10 +48,7 @@ class RequestApprovedTrigger(AbstractTaskTrigger):
             description=request_obj.title or "",
             created_by=None,
             source_type=Task.SOURCE_REQUEST_APPROVED,
-            source_approval=None,
             source_request=request_obj,
-            source_expense_type="",
-            source_expense_id=None,
         )
 
 

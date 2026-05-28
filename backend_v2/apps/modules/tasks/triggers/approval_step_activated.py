@@ -44,8 +44,6 @@ class ApprovalStepActivatedTrigger(AbstractTaskTrigger):
             source_type=Task.SOURCE_APPROVAL_STEP,
             source_approval=approval,
             source_request=request_obj,
-            source_expense_type="",
-            source_expense_id=None,
         )
 
 

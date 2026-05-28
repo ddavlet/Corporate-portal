@@ -75,9 +75,6 @@ class Task(models.Model):
         blank=True,
         related_name="tasks",
     )
-    source_expense_type = models.CharField(max_length=32, blank=True, default="")
-    source_expense_id = models.BigIntegerField(null=True, blank=True)
-
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     completed_at = models.DateTimeField(null=True, blank=True)
