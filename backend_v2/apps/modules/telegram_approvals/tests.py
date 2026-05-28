@@ -9,6 +9,7 @@ import requests as _real_requests
 from django.core.management import call_command
 from django.contrib.auth import get_user_model
 from django.test import override_settings
+from rest_framework.exceptions import ValidationError
 from rest_framework.test import APITestCase
 
 from apps.common.test_utils import list_results
@@ -24,8 +25,10 @@ from apps.modules.requests.models import (
 )
 from apps.modules.telegram_approvals.models import TenantTelegramChat
 from apps.modules.telegram_approvals.services import (
+    ensure_callback_identity,
     get_tenant_bot_token,
     build_approval_message,
+    normalize_gateway_buttons,
     post_messaging_gateway,
 )
 from apps.tenants.models import Tenant, TenantIntegrationConfig, TenantMembership, TenantModuleConfig, TenantUserRole
@@ -89,6 +92,24 @@ class TelegramApprovalsTests(APITestCase):
             tenant=self.tenant, defaults={"updated_by": self.admin}
         )
         self.assertEqual(get_tenant_bot_token(self.tenant), "111222333:AAATESTBOTTOKEN")
+
+    def test_normalize_gateway_buttons_converts_callback_data_to_value(self):
+        rows = normalize_gateway_buttons(
+            [[{"label": "Done", "callback_data": "task_a_1"}, {"label": "Web", "url": "https://t.me/bot"}]]
+        )
+        self.assertEqual(rows[0][0], {"label": "Done", "value": "task_a_1"})
+        self.assertEqual(rows[0][1], {"label": "Web", "url": "https://t.me/bot"})
+
+    def test_ensure_callback_identity_raises_on_recipient_mismatch(self):
+        with self.assertRaises(ValidationError):
+            ensure_callback_identity(
+                callback_message_id=10,
+                stored_message_id=10,
+                callback_recipient_id="111",
+                stored_recipient_id="222",
+                callback_external_user_id=7,
+                stored_external_user_id=7,
+            )
 
     @patch("apps.modules.telegram_approvals.services.requests.post")
     def test_request_create_dispatches_telegram_message_and_saves_message_id(self, mocked_post):

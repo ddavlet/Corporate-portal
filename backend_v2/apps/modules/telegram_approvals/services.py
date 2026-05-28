@@ -29,6 +29,135 @@ class TelegramDispatchMissingMessageId(ValidationError):
     pass
 
 
+def normalize_gateway_buttons(buttons: list | None) -> list[list[dict]]:
+    """
+    Normalize module-specific button payloads to gateway format.
+    Supported button actions:
+    - {"value": "..."} for callback actions
+    - {"callback_data": "..."} (legacy alias) -> converted to value
+    - {"url": "..."} for webapp links
+    """
+    if not buttons:
+        return []
+    normalized_rows: list[list[dict]] = []
+    for row in buttons:
+        if not isinstance(row, list):
+            continue
+        normalized_row: list[dict] = []
+        for button in row:
+            if not isinstance(button, dict):
+                continue
+            label = str(button.get("label") or "").strip()
+            if not label:
+                continue
+            if button.get("url"):
+                normalized_row.append({"label": label, "url": str(button.get("url"))})
+                continue
+            action_value = button.get("value")
+            if action_value in (None, ""):
+                action_value = button.get("callback_data")
+            if action_value in (None, ""):
+                continue
+            normalized_row.append({"label": label, "value": str(action_value)})
+        if normalized_row:
+            normalized_rows.append(normalized_row)
+    return normalized_rows
+
+
+def build_gateway_payload(
+    *,
+    action: str,
+    tenant_id: int | str | None,
+    recipient_id: int | str | None,
+    bot_token: str,
+    message_text: str,
+    approval_id: int | str | None = None,
+    request_id: int | str | None = None,
+    message_id: int | None = None,
+    buttons: list | None = None,
+) -> dict:
+    payload: dict = {
+        "action": action,
+        "text": message_text,
+        "recipient_id": str(recipient_id) if recipient_id is not None else "",
+        "bot_token": bot_token,
+        "tenant_id": str(tenant_id) if tenant_id is not None else "",
+        "buttons": normalize_gateway_buttons(buttons),
+    }
+    if approval_id is not None:
+        payload["approval_id"] = str(approval_id)
+    if request_id is not None:
+        payload["request_id"] = request_id
+    if message_id is not None:
+        payload["message_id"] = message_id
+    return payload
+
+
+def apply_gateway_message_lifecycle(
+    *,
+    obj,
+    message_id: int | None,
+    message_field: str = "gateway_message_id",
+    sent_field: str = "message_sent",
+    sent_at_field: str = "message_sent_at",
+) -> bool:
+    """
+    Apply transport delivery lifecycle fields to approval-like models.
+    Returns True when at least one field was updated.
+    """
+    if message_id is None:
+        return False
+    updates: list[str] = []
+    if getattr(obj, message_field, None) != message_id:
+        setattr(obj, message_field, message_id)
+        updates.append(message_field)
+    if not getattr(obj, sent_field, False):
+        setattr(obj, sent_field, True)
+        updates.append(sent_field)
+    if getattr(obj, sent_at_field, None) is None:
+        setattr(obj, sent_at_field, timezone.now())
+        updates.append(sent_at_field)
+    if updates:
+        obj.save(update_fields=updates)
+        return True
+    return False
+
+
+def ensure_callback_identity(
+    *,
+    callback_message_id: int | None,
+    stored_message_id: int | None,
+    callback_recipient_id: str | None,
+    stored_recipient_id: str | None,
+    callback_external_user_id: int | None,
+    stored_external_user_id: int | None,
+    message_id_error: str = "Callback message_id does not match stored message_id.",
+    recipient_error: str = "Recipient is not allowed for this approval.",
+    user_error: str = "User is not allowed for this approval.",
+) -> None:
+    """
+    Shared callback identity guard for approval-like entities.
+    Validates optional message/chat/user bindings when they are configured.
+    """
+    if (
+        callback_message_id is not None
+        and stored_message_id is not None
+        and stored_message_id != callback_message_id
+    ):
+        raise ValidationError({"message_id": message_id_error})
+    if (
+        stored_recipient_id is not None
+        and str(stored_recipient_id).strip() != (str(callback_recipient_id or "").strip())
+    ):
+        raise ValidationError({"recipient_id": recipient_error})
+    if (
+        stored_external_user_id is not None
+        and callback_external_user_id is not None
+        and int(stored_external_user_id) != int(callback_external_user_id)
+    ):
+        raise ValidationError({"user_id": user_error})
+
+
 def _ensure_bridge_message_id(
     *,
     approval: Approval,
@@ -132,15 +261,15 @@ def dispatch_draft_request_notification(
         f"• Заявитель: {escape(requester_name)}\n\n"
         f"Укажите сумму и отправьте заявку на согласование кнопкой в этом сообщении.{url_part}{template_part}"
     )
-    payload = {
-        "action": action,
-        "text": message_text,
-        "recipient_id": str(chat_id),
-        "bot_token": get_tenant_bot_token(request_obj.tenant),
-        "tenant_id": str(request_obj.tenant_id),
-        "request_id": request_obj.pk,
-        "buttons": [],
-    }
+    payload = build_gateway_payload(
+        action=action,
+        tenant_id=request_obj.tenant_id,
+        recipient_id=chat_id,
+        bot_token=get_tenant_bot_token(request_obj.tenant),
+        message_text=message_text,
+        request_id=request_obj.pk,
+        buttons=[],
+    )
     response_data = _post_to_gateway(request_obj=request_obj, payload=payload)
     return response_data is not None
 
@@ -153,19 +282,17 @@ def _dispatch_payload(
     message_text: str,
     include_buttons: bool = True,
 ) -> dict:
-    payload: dict = {
-        "action": action,
-        "text": message_text,
-        "recipient_id": str(approval.approver_recipient_id),
-        "bot_token": get_tenant_bot_token(request_obj.tenant),
-        "tenant_id": str(request_obj.tenant_id),
-        "approval_id": str(approval.id),
-        "request_id": approval.request_id,
-    }
-    payload["buttons"] = _buttons(approval=approval) if include_buttons else []
-    if approval.gateway_message_id:
-        payload["message_id"] = approval.gateway_message_id
-    return payload
+    return build_gateway_payload(
+        action=action,
+        tenant_id=request_obj.tenant_id,
+        recipient_id=approval.approver_recipient_id,
+        bot_token=get_tenant_bot_token(request_obj.tenant),
+        message_text=message_text,
+        approval_id=approval.id,
+        request_id=approval.request_id,
+        message_id=approval.gateway_message_id,
+        buttons=_buttons(approval=approval) if include_buttons else [],
+    )
 
 
 def _parse_bridge_response(resp: requests.Response) -> dict | None:
@@ -229,19 +356,7 @@ def extract_message_id(response_data: dict | None) -> int | None:
 
 def _maybe_set_message_id(*, approval: Approval, response_data: dict | None) -> None:
     message_id = extract_message_id(response_data)
-    if message_id is None:
-        return
-    updates = []
-    approval.gateway_message_id = message_id
-    updates.append("gateway_message_id")
-    if not approval.message_sent:
-        approval.message_sent = True
-        updates.append("message_sent")
-    if approval.message_sent_at is None:
-        approval.message_sent_at = timezone.now()
-        updates.append("message_sent_at")
-    if updates:
-        approval.save(update_fields=updates)
+    apply_gateway_message_lifecycle(obj=approval, message_id=message_id)
 
 
 def _current_pending_step(request_obj: Request) -> int | None:
