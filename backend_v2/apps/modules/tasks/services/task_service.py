@@ -128,6 +128,15 @@ def close_task_for_request_payment(*, request_obj) -> Task | None:
     return set_status(task=task, new_status=Task.STATUS_DONE, actor=None)
 
 
+def record_edit(*, task: Task, actor) -> None:
+    """Stamp last_edit_at / last_edit_by when a user manually patches a task."""
+    if actor is None:
+        return
+    task.last_edit_at = timezone.now()
+    task.last_edit_by = actor
+    task.save(update_fields=["last_edit_at", "last_edit_by"])
+
+
 def mark_task_seen(*, task: Task, user) -> None:
     """Clear the unread admin-comment badge for the assignee."""
     if task.assignee_id != user.id:

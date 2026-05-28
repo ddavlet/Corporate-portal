@@ -107,6 +107,8 @@ class TaskListSerializer(serializers.ModelSerializer):
             "source_approval_id",
             "created_at",
             "completed_at",
+            "last_edit_at",
+            "last_edit_by_id",
             "has_unseen_admin_comment",
         )
         read_only_fields = fields
@@ -238,6 +240,9 @@ class TaskPatchSerializer(serializers.ModelSerializer):
         instance.title = validated_data.get("title", instance.title)
         instance.description = validated_data.get("description", instance.description)
         instance.save(update_fields=["title", "description", "updated_at"])
+        actor = self.context.get("request") and self.context["request"].user
+        if actor:
+            task_service.record_edit(task=instance, actor=actor)
         return instance
 
 

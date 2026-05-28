@@ -89,3 +89,149 @@ def get_task_detail(tenant_id: int, task_id: int) -> dict[str, Any]:
         for c in task.comments.all().order_by("created_at")
     ])
     return data
+
+
+def _require_admin_or_director(user, tenant) -> None:
+    from apps.modules.tasks.permissions import _is_tenant_admin_or_director
+    if not _is_tenant_admin_or_director(user, tenant):
+        raise PermissionError("Только admin или director могут выполнять это действие.")
+
+
+def _require_task_access(user, tenant, task) -> None:
+    """Raise PermissionError if user cannot act on this task."""
+    from apps.modules.tasks.permissions import _is_tenant_admin_or_director
+    if task.assignee_id == user.id:
+        return
+    if task.tenant_id != tenant.id:
+        raise PermissionError("Задача не принадлежит этому тенанту.")
+    if not _is_tenant_admin_or_director(user, tenant):
+        raise PermissionError("Доступ запрещён: вы не являетесь исполнителем задачи.")
+
+
+def create_task(
+    tenant_id: int,
+    assignee_id: int,
+    title: str,
+    description: str = "",
+) -> dict[str, Any]:
+    """Create a manual task and assign it to a tenant member.
+
+    Only admins and directors can assign tasks to other users.
+    Regular users may only create tasks for themselves — use the web UI for that.
+
+    Args:
+        tenant_id: Tenant primary key.
+        assignee_id: User ID of the person who will own the task.
+        title: Task title (max 255 chars).
+        description: Optional detailed description.
+    """
+    user, tenant = require_module_access(tenant_id, MODULE)
+    _require_admin_or_director(user, tenant)
+
+    from django.contrib.auth import get_user_model
+    from apps.tenants.models import TenantMembership
+    from apps.modules.tasks.models import Task
+    from apps.modules.tasks.services import task_service
+
+    User = get_user_model()
+    if not TenantMembership.objects.filter(tenant=tenant, user_id=assignee_id, is_active=True).exists():
+        raise ValueError(f"Пользователь {assignee_id} не является активным участником тенанта.")
+
+    assignee = User.objects.get(pk=assignee_id)
+    task = task_service.create_task(
+        tenant=tenant,
+        assignee=assignee,
+        title=title.strip(),
+        description=description.strip(),
+        created_by=user,
+        source_type=Task.SOURCE_MANUAL,
+    )
+    return json_safe(_task_to_dict(task))
+
+
+def update_task_status(
+    tenant_id: int,
+    task_id: int,
+    new_status: str,
+) -> dict[str, Any]:
+    """Change the status of a task.
+
+    Allowed transitions:
+      new → in_progress | done
+      in_progress → new | done
+      done → (no transitions allowed)
+
+    Admins and directors can change status of any task in the tenant.
+    Other roles can only change status of tasks assigned to themselves.
+
+    Args:
+        tenant_id: Tenant primary key.
+        task_id: Task primary key.
+        new_status: One of: new, in_progress, done.
+    """
+    user, tenant = require_module_access(tenant_id, MODULE)
+
+    from apps.modules.tasks.models import Task
+    from apps.modules.tasks.services import task_service
+    from apps.modules.tasks.querysets.resolver import resolve_scope_for_user
+
+    scope = resolve_scope_for_user(user, tenant)
+    qs = scope.filter_queryset(Task.objects.filter(tenant=tenant), user, tenant)
+    try:
+        task = qs.get(id=task_id)
+    except Task.DoesNotExist:
+        raise ValueError(f"Задача {task_id} не найдена или недоступна.")
+
+    _require_task_access(user, tenant, task)
+
+    from django.core.exceptions import ValidationError as DjangoValidationError
+    try:
+        updated = task_service.set_status(task=task, new_status=new_status, actor=user)
+    except DjangoValidationError as e:
+        raise ValueError(str(e))
+    return json_safe(_task_to_dict(updated))
+
+
+def add_task_comment(
+    tenant_id: int,
+    task_id: int,
+    body: str,
+) -> dict[str, Any]:
+    """Post a comment on a task.
+
+    Admins and directors can comment on any task in the tenant (their comments
+    appear with an admin badge visible to the assignee).
+    Other roles can only comment on their own tasks.
+
+    Args:
+        tenant_id: Tenant primary key.
+        task_id: Task primary key.
+        body: Comment text (must not be empty).
+    """
+    user, tenant = require_module_access(tenant_id, MODULE)
+
+    from apps.modules.tasks.models import Task
+    from apps.modules.tasks.querysets.resolver import resolve_scope_for_user
+    from apps.modules.tasks.services import comment_service
+
+    scope = resolve_scope_for_user(user, tenant)
+    qs = scope.filter_queryset(Task.objects.filter(tenant=tenant), user, tenant)
+    try:
+        task = qs.get(id=task_id)
+    except Task.DoesNotExist:
+        raise ValueError(f"Задача {task_id} не найдена или недоступна.")
+
+    _require_task_access(user, tenant, task)
+
+    from django.core.exceptions import ValidationError as DjangoValidationError
+    try:
+        comment = comment_service.add_comment(task=task, author=user, body=body)
+    except DjangoValidationError as e:
+        raise ValueError(str(e))
+    return json_safe({
+        "id": comment.id,
+        "task_id": comment.task_id,
+        "author_id": comment.author_id,
+        "body": comment.body,
+        "created_at": comment.created_at.isoformat() if comment.created_at else None,
+    })

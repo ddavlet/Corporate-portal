@@ -196,6 +196,16 @@ class TaskViewSet(viewsets.ModelViewSet):
                 from rest_framework.exceptions import PermissionDenied
                 raise PermissionDenied()
             url = str(request.data.get("tasks_webapp_url", "") or "").strip()
+            if url:
+                from django.core.validators import URLValidator
+                from django.core.exceptions import ValidationError as DjangoValidationError
+                from rest_framework.exceptions import ValidationError as DRFValidationError
+                try:
+                    URLValidator()(url)
+                except DjangoValidationError:
+                    raise DRFValidationError(
+                        {"tasks_webapp_url": "Введите корректный URL (например: https://t.me/mybot/tasks)."}
+                    )
             # update_or_create handles the OneToOne race more gracefully than the
             # get_or_create + save pattern, which can hit IntegrityError under
             # simultaneous PATCH requests.
