@@ -15,7 +15,7 @@ class TaskAdmin(admin.ModelAdmin):
     list_display = ("id", "tenant", "assignee", "status", "created_at", "completed_at")
     list_filter = ("status", "tenant")
     search_fields = ("title", "description", "assignee__username")
-    readonly_fields = ("created_at", "updated_at", "completed_at", "last_admin_comment_at", "last_seen_at", "last_edit_at", "last_edit_by")
+    readonly_fields = ("created_at", "updated_at", "completed_at", "last_edit_at", "last_edit_by")
     raw_id_fields = ("tenant", "assignee", "created_by", "last_edit_by")
     date_hierarchy = "created_at"
     inlines = [TaskCommentInline]

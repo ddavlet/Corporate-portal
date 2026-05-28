@@ -79,7 +79,7 @@ class TaskViewSet(viewsets.ModelViewSet):
         # Archive of done tasks should be ordered by completion time, not creation.
         # The include_all_done flag controls whether we cap to "last 3" (done in the
         # dashboard endpoint); ordering is the same either way.
-        if status_filter == Task.STATUS_DONE:
+        if status_filter == Task.Status.DONE:
             qs = qs.order_by("-completed_at")
 
         return qs
@@ -127,7 +127,6 @@ class TaskViewSet(viewsets.ModelViewSet):
 
     def retrieve(self, request, *args, **kwargs):
         instance = self.get_object()
-        task_service.mark_task_seen(task=instance, user=request.user)
         serializer = self.get_serializer(instance)
         return Response(serializer.data)
 

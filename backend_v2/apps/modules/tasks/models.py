@@ -5,15 +5,10 @@ from apps.tenants.models import Tenant
 
 
 class Task(models.Model):
-    STATUS_NEW = "new"
-    STATUS_IN_PROGRESS = "in_progress"
-    STATUS_DONE = "done"
-
-    STATUS_CHOICES = [
-        (STATUS_NEW, "New"),
-        (STATUS_IN_PROGRESS, "In Progress"),
-        (STATUS_DONE, "Done"),
-    ]
+    class Status(models.TextChoices):
+        NEW = "new", "New"
+        IN_PROGRESS = "in_progress", "In Progress"
+        DONE = "done", "Done"
 
     tenant = models.ForeignKey(
         Tenant,
@@ -27,38 +22,26 @@ class Task(models.Model):
     )
     created_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
+        on_delete=models.PROTECT,
         related_name="created_tasks",
     )
     title = models.CharField(max_length=255)
     description = models.TextField(blank=True, default="")
     status = models.CharField(
         max_length=16,
-        choices=STATUS_CHOICES,
-        default=STATUS_NEW,
+        choices=Status.choices,
+        default=Status.NEW,
     )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     completed_at = models.DateTimeField(null=True, blank=True)
 
-    last_admin_comment_at = models.DateTimeField(null=True, blank=True)
-    last_seen_at = models.DateTimeField(null=True, blank=True)
-
-    last_edit_at = models.DateTimeField(null=True, blank=True)
+    last_edit_at = models.DateTimeField()
     last_edit_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
+        on_delete=models.PROTECT,
         related_name="last_edited_tasks",
     )
-
-    # Tracks the last Telegram notification message sent for this task.
-    # Used to edit (update) the message when status changes via button press.
-    tg_notify_message_id = models.BigIntegerField(null=True, blank=True)
-    tg_notify_recipient_id = models.BigIntegerField(null=True, blank=True)
 
     class Meta:
         db_table = "tasks"

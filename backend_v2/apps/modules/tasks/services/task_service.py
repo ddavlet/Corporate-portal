@@ -13,9 +13,9 @@ logger = logging.getLogger(__name__)
 # Valid one-way status transitions.
 # OCP: extend the set for a status to allow new paths; never edit transition logic.
 _ALLOWED_TRANSITIONS: dict[str, set[str]] = {
-    Task.STATUS_NEW: {Task.STATUS_IN_PROGRESS, Task.STATUS_DONE},
-    Task.STATUS_IN_PROGRESS: {Task.STATUS_NEW, Task.STATUS_DONE},
-    Task.STATUS_DONE: set(),
+    Task.Status.NEW: {Task.Status.IN_PROGRESS, Task.Status.DONE},
+    Task.Status.IN_PROGRESS: {Task.Status.NEW, Task.Status.DONE},
+    Task.Status.DONE: set(),
 }
 
 
@@ -29,8 +29,9 @@ def create_task(
     assignee,
     title: str,
     description: str = "",
-    created_by=None,
+    created_by,
 ) -> Task:
+    now = timezone.now()
     with transaction.atomic():
         return Task.objects.create(
             tenant=tenant,
@@ -38,7 +39,9 @@ def create_task(
             title=title,
             description=description,
             created_by=created_by,
-            status=Task.STATUS_NEW,
+            status=Task.Status.NEW,
+            last_edit_at=now,
+            last_edit_by=created_by,
         )
 
 
@@ -61,7 +64,7 @@ def set_status(*, task: Task, new_status: str, actor) -> Task:
             )
         locked.status = new_status
         update_fields = ["status", "updated_at"]
-        if new_status == Task.STATUS_DONE:
+        if new_status == Task.Status.DONE:
             locked.completed_at = timezone.now()
             update_fields.append("completed_at")
         if actor is not None:
@@ -72,14 +75,6 @@ def set_status(*, task: Task, new_status: str, actor) -> Task:
     return locked
 
 
-def mark_task_seen(*, task: Task, user) -> None:
-    """Clear the unread admin-comment badge for the assignee."""
-    if task.assignee_id != user.id:
-        return
-    task.last_seen_at = timezone.now()
-    task.save(update_fields=["last_seen_at"])
-
-
 def get_user_dashboard(user, tenant, include_all_done: bool = False) -> dict:
     """Return task counts/lists for the Telegram digest and the dashboard endpoint."""
     base_qs = (
@@ -88,10 +83,10 @@ def get_user_dashboard(user, tenant, include_all_done: bool = False) -> dict:
         .select_related("assignee")
     )
 
-    new_tasks = list(base_qs.filter(status=Task.STATUS_NEW))
-    in_progress_tasks = list(base_qs.filter(status=Task.STATUS_IN_PROGRESS))
+    new_tasks = list(base_qs.filter(status=Task.Status.NEW))
+    in_progress_tasks = list(base_qs.filter(status=Task.Status.IN_PROGRESS))
 
-    done_qs = base_qs.filter(status=Task.STATUS_DONE).order_by("-completed_at")
+    done_qs = base_qs.filter(status=Task.Status.DONE).order_by("-completed_at")
     if not include_all_done:
         done_qs = done_qs[:3]
 

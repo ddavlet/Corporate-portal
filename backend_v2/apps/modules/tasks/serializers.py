@@ -92,7 +92,6 @@ class TaskCommentCreateSerializer(serializers.Serializer):
 
 class TaskListSerializer(serializers.ModelSerializer):
     assignee = serializers.SerializerMethodField()
-    has_unseen_admin_comment = serializers.SerializerMethodField()
 
     class Meta:
         model = Task
@@ -106,19 +105,11 @@ class TaskListSerializer(serializers.ModelSerializer):
             "completed_at",
             "last_edit_at",
             "last_edit_by_id",
-            "has_unseen_admin_comment",
         )
         read_only_fields = fields
 
     def get_assignee(self, obj) -> dict | None:
         return _user_dict(obj.assignee)
-
-    def get_has_unseen_admin_comment(self, obj) -> bool:
-        if not obj.last_admin_comment_at:
-            return False
-        if not obj.last_seen_at:
-            return True
-        return obj.last_seen_at < obj.last_admin_comment_at
 
 
 # ---------------------------------------------------------------------------
@@ -232,7 +223,7 @@ class TaskPatchSerializer(serializers.ModelSerializer):
 # ---------------------------------------------------------------------------
 
 class TaskStatusChangeSerializer(serializers.Serializer):
-    status = serializers.ChoiceField(choices=Task.STATUS_CHOICES)
+    status = serializers.ChoiceField(choices=Task.Status.choices)
 
     def update(self, instance, validated_data):
         from apps.modules.tasks.services import task_service

@@ -602,7 +602,7 @@ class Command(BaseCommand):
                 "Согласовать договор с ООО ТехСервис",
                 "Проверить реквизиты и условия. Срок — до конца недели.",
                 accountant,
-                Task.STATUS_NEW,
+                Task.Status.NEW,
                 None,
                 0,
             ),
@@ -610,7 +610,7 @@ class Command(BaseCommand):
                 "Проверить остаток по корпоративной карте",
                 "Сверить фактический остаток со сводкой за апрель.",
                 accountant,
-                Task.STATUS_NEW,
+                Task.Status.NEW,
                 None,
                 1,
             ),
@@ -618,7 +618,7 @@ class Command(BaseCommand):
                 "Подготовить отчёт за май 2026",
                 "Включить все статьи расходов: касса, банк, карта.",
                 director,
-                Task.STATUS_NEW,
+                Task.Status.NEW,
                 None,
                 2,
             ),
@@ -626,7 +626,7 @@ class Command(BaseCommand):
                 "Оформить авансовый отчёт — командировка Ташкент",
                 "Приложить чеки и посадочные талоны.",
                 accountant,
-                Task.STATUS_IN_PROGRESS,
+                Task.Status.IN_PROGRESS,
                 None,
                 3,
             ),
@@ -634,7 +634,7 @@ class Command(BaseCommand):
                 "Обновить реквизиты контрагента ИП Иванов",
                 "Новый расчётный счёт с 15 мая. Уточнить у менеджера.",
                 admin,
-                Task.STATUS_IN_PROGRESS,
+                Task.Status.IN_PROGRESS,
                 None,
                 4,
             ),
@@ -642,7 +642,7 @@ class Command(BaseCommand):
                 "Согласовать бюджет на маркетинг Q3",
                 "",
                 director,
-                Task.STATUS_IN_PROGRESS,
+                Task.Status.IN_PROGRESS,
                 None,
                 5,
             ),
@@ -650,7 +650,7 @@ class Command(BaseCommand):
                 "Выгрузить банковскую выписку за апрель",
                 "Отправить главному бухгалтеру до 5-го числа.",
                 accountant,
-                Task.STATUS_DONE,
+                Task.Status.DONE,
                 now - timedelta(days=2),
                 10,
             ),
@@ -658,7 +658,7 @@ class Command(BaseCommand):
                 "Проверить оплату по заявке #1",
                 "Заявка на ноутбук для разработчика — подтвердить списание.",
                 admin,
-                Task.STATUS_DONE,
+                Task.Status.DONE,
                 now - timedelta(days=5),
                 15,
             ),
@@ -666,7 +666,7 @@ class Command(BaseCommand):
                 "Закрыть подписку на неиспользуемый сервис",
                 "",
                 admin,
-                Task.STATUS_DONE,
+                Task.Status.DONE,
                 now - timedelta(days=8),
                 20,
             ),
@@ -682,6 +682,8 @@ class Command(BaseCommand):
                 description=description,
                 status=status,
                 completed_at=completed_at,
+                last_edit_at=now,
+                last_edit_by=admin,
             )
             if days_ago:
                 Task.objects.filter(pk=task.pk).update(
@@ -700,10 +702,6 @@ class Command(BaseCommand):
         TaskComment.objects.filter(pk=comment1.pk).update(
             created_at=now - timedelta(hours=5),
         )
-        Task.objects.filter(pk=task_with_comments.pk).update(
-            last_admin_comment_at=now - timedelta(hours=5),
-        )
-
         # Add a comment from the assignee on a new task (no badge — non-admin comment)
         task_with_reply = created_tasks[0]  # "Согласовать договор"
         comment2 = TaskComment.objects.create(

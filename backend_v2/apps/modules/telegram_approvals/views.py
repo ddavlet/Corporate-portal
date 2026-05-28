@@ -108,7 +108,6 @@ class TelegramApprovalWebhookView(APIView):
         """
         from apps.modules.tasks.models import Task
         from apps.modules.tasks.services import task_service
-        from apps.modules.tasks.notifications.task_notifier import edit_task_notification
         from apps.modules.telegram_approvals.services import get_tenant_bot_token
 
         parts = payload_str.split("_", 2)
@@ -139,20 +138,13 @@ class TelegramApprovalWebhookView(APIView):
             )
             return Response({"detail": "Not authorized."}, status=status.HTTP_403_FORBIDDEN)
 
-        new_status = Task.STATUS_IN_PROGRESS if action == "p" else Task.STATUS_DONE
+        new_status = Task.Status.IN_PROGRESS if action == "p" else Task.Status.DONE
         try:
             task = task_service.set_status(task=task, new_status=new_status, actor=task.assignee)
         except Exception:
             logger.info("task_callback: status transition skipped task_id=%s action=%s", task_id, action)
 
         task.refresh_from_db()
-
-        bot_token = get_tenant_bot_token(task.tenant)
-        if bot_token:
-            try:
-                edit_task_notification(task=task, tenant=task.tenant, bot_token=bot_token)
-            except Exception:
-                logger.exception("task_callback: edit_task_notification failed task_id=%s", task_id)
 
         return Response({"detail": "ok"}, status=status.HTTP_200_OK)
 

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from django.contrib.auth import get_user_model
 from django.test import override_settings
+from django.utils import timezone
 from rest_framework.test import APITestCase
 
 from apps.modules.tasks.models import Task, TaskComment
@@ -31,12 +32,16 @@ def _add_member(tenant, username, role=None, tg_chat_id=None):
     return user
 
 
-def _make_task(tenant, assignee, title="Test task", status=Task.STATUS_NEW):
+def _make_task(tenant, assignee, title="Test task", status=Task.Status.NEW, created_by=None):
+    creator = created_by or assignee
     return Task.objects.create(
         tenant=tenant,
         assignee=assignee,
+        created_by=creator,
         title=title,
         status=status,
+        last_edit_at=timezone.now(),
+        last_edit_by=creator,
     )
 
 
@@ -93,8 +98,8 @@ class TasksApiTests(APITestCase):
     # ------------------------------------------------------------------
 
     def test_status_filter_returns_only_matching(self):
-        _make_task(self.tenant, self.regular, "New task", Task.STATUS_NEW)
-        _make_task(self.tenant, self.regular, "Done task", Task.STATUS_DONE)
+        _make_task(self.tenant, self.regular, "New task", Task.Status.NEW)
+        _make_task(self.tenant, self.regular, "Done task", Task.Status.DONE)
 
         self._auth(self.regular)
         res = self.client.get("/api/tasks/?status=new", HTTP_HOST=HOST)
@@ -130,7 +135,7 @@ class TasksApiTests(APITestCase):
         self.assertIsNotNone(res.data["completed_at"])
 
     def test_done_task_cannot_transition(self):
-        task = _make_task(self.tenant, self.regular, "Done task", Task.STATUS_DONE)
+        task = _make_task(self.tenant, self.regular, "Done task", Task.Status.DONE)
         self._auth(self.regular)
         res = self.client.post(
             f"/api/tasks/{task.id}/status/",
@@ -245,9 +250,9 @@ class TasksApiTests(APITestCase):
     # ------------------------------------------------------------------
 
     def test_dashboard_returns_three_columns(self):
-        _make_task(self.tenant, self.regular, "New", Task.STATUS_NEW)
-        _make_task(self.tenant, self.regular, "WIP", Task.STATUS_IN_PROGRESS)
-        _make_task(self.tenant, self.regular, "Done", Task.STATUS_DONE)
+        _make_task(self.tenant, self.regular, "New", Task.Status.NEW)
+        _make_task(self.tenant, self.regular, "WIP", Task.Status.IN_PROGRESS)
+        _make_task(self.tenant, self.regular, "Done", Task.Status.DONE)
 
         self._auth(self.regular)
         res = self.client.get("/api/tasks/dashboard/", HTTP_HOST=HOST)
@@ -261,7 +266,7 @@ class TasksApiTests(APITestCase):
 
     def test_dashboard_done_capped_at_3(self):
         for i in range(5):
-            _make_task(self.tenant, self.regular, f"Done {i}", Task.STATUS_DONE)
+            _make_task(self.tenant, self.regular, f"Done {i}", Task.Status.DONE)
 
         self._auth(self.regular)
         res = self.client.get("/api/tasks/dashboard/", HTTP_HOST=HOST)
@@ -278,7 +283,9 @@ class TasksApiTests(APITestCase):
             assignee=assignee,
             created_by=created_by,
             title=title,
-            status=Task.STATUS_NEW,
+            status=Task.Status.NEW,
+            last_edit_at=timezone.now(),
+            last_edit_by=created_by,
         )
 
     def test_creator_can_delete_own_task(self):
