@@ -100,6 +100,28 @@ class TaskViewSet(viewsets.ModelViewSet):
         return ctx
 
     # ------------------------------------------------------------------
+    # Object lookup — scope filter applies to list only; detail uses full
+    # tenant queryset so permission classes can return 403 (not 404) when
+    # a user tries to access a task they don't own.
+    # ------------------------------------------------------------------
+
+    def get_object(self):
+        from django.shortcuts import get_object_or_404
+        from rest_framework.exceptions import NotFound
+
+        tenant = getattr(self.request, "tenant", None)
+        if not tenant:
+            raise NotFound()
+        qs = (
+            Task.objects.filter(tenant=tenant)
+            .select_related("assignee", "created_by", "tenant")
+            .prefetch_related("comments__author")
+        )
+        obj = get_object_or_404(qs, pk=self.kwargs["pk"])
+        self.check_object_permissions(self.request, obj)
+        return obj
+
+    # ------------------------------------------------------------------
     # Standard actions
     # ------------------------------------------------------------------
 

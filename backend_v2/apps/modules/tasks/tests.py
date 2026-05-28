@@ -82,11 +82,11 @@ class TasksApiTests(APITestCase):
         self.assertIn("Regular task", titles)
         self.assertIn("Other task", titles)
 
-    def test_regular_user_cannot_access_other_users_task(self):
+    def test_regular_user_gets_403_on_other_users_task(self):
         task = _make_task(self.tenant, self.other, "Private task")
         self._auth(self.regular)
         res = self.client.get(f"/api/tasks/{task.id}/", HTTP_HOST=HOST)
-        self.assertEqual(res.status_code, 404)
+        self.assertEqual(res.status_code, 403)
 
     # ------------------------------------------------------------------
     # Status filter
