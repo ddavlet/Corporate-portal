@@ -38,9 +38,11 @@ import { InvestmentProjectApprovalConfigPage } from '../ui/settings/InvestmentPr
 import { InvestmentFormConfigPage } from '../ui/settings/InvestmentFormConfigPage'
 import { InvestmentNotificationConfigPage } from '../ui/settings/InvestmentNotificationConfigPage'
 import { CashflowReportSettingsPage } from '../ui/settings/CashflowReportSettingsPage'
+import { TasksConfigPage } from '../ui/settings/TasksConfigPage'
 import { PnlReportSettingsPage } from '../ui/settings/PnlReportSettingsPage'
 import { AdminRouteGate } from '../ui/admin/AdminRouteGate'
 import { TrainingPage } from '../ui/training/TrainingPage'
+import { TasksPage } from '../ui/tasks/TasksPage'
 import { TgWebAppLayout } from '../ui/tg/TgWebAppLayout'
 import { TgHomePage } from '../ui/tg/TgHomePage'
 import { TgRequestsPage } from '../ui/tg/TgRequestsPage'
@@ -170,7 +172,9 @@ export function App() {
         <Route path="settings/telegram-chats" element={<TelegramChatsConfigPage />} />
         <Route path="settings/pnl-report-config" element={<PnlReportSettingsPage />} />
         <Route path="settings/cashflow-report-config" element={<CashflowReportSettingsPage />} />
+        <Route path="settings/tasks-config" element={<TasksConfigPage />} />
         <Route path="admin" element={<AdminRouteGate />} />
+        <Route path="tasks" element={<TasksPage />} />
         <Route path="training" element={<TrainingPage />} />
       </Route>
 

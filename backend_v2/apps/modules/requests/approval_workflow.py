@@ -8,7 +8,6 @@ from apps.modules.requests.approval_config_resolver import resolve_effective_pay
 from apps.modules.requests.models import Approval, Request, RequestApprovalStepConfig
 from apps.modules.requests.services import create_expense_for_request_payment
 from apps.modules.requests.status_events import dispatch_request_payed_event_handlers
-
 # Set on remaining pending rows when another step already rejected the request.
 _STOPPED_BY_OTHER_STEP_COMMENT = "Автоматически: заявка отклонена на другом этапе."
 
@@ -168,6 +167,10 @@ def route_request_approvals(*, request_obj: Request) -> None:
                 decision=Approval.DECISION_PENDING,
             ).exists()
             if has_pending_on_step:
+                step_approvals = list(
+                    find_approvals(request_obj=locked, step=current_step, decision=Approval.DECISION_PENDING)
+                    .select_related("approver_user")
+                )
                 dispatch_pending_approvals(request_obj=locked, step=current_step)
                 still_pending = find_approvals(
                     request_obj=locked,

@@ -99,6 +99,7 @@ urlpatterns = [
 
     path("api/budgets/", include("apps.modules.budgets.urls")),
     path("api/contracts/", include("apps.modules.contracts.urls")),
+    path("api/tasks/", include("apps.modules.tasks.urls")),
 
     # Messaging gateway webhook
     path("api/messaging-gateway/", include("apps.modules.telegram_approvals.urls")),
