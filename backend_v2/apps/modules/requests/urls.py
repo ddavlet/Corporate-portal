@@ -9,6 +9,8 @@ from apps.modules.requests.views import (
     RequestApprovalConfigView,
     AutoRequestConfigView,
     RequestAiChatProxyView,
+    RequestCategoriesView,
+    RequestVendorsView,
 )
 
 
@@ -26,6 +28,8 @@ urlpatterns = [
     path("approval-config/", RequestApprovalConfigView.as_view(), name="requests_approval_config"),
     path("auto-config/", AutoRequestConfigView.as_view(), name="requests_auto_config"),
     path("form-options/", RequestFormOptionsView.as_view(), name="requests_form_options"),
+    path("categories/", RequestCategoriesView.as_view(), name="requests_categories"),
+    path("vendors/", RequestVendorsView.as_view(), name="requests_vendors"),
     path("", include(router.urls)),
 ]
 

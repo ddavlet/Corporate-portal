@@ -593,6 +593,9 @@ class PortalRequestViewSet(
         "status",
         "created_at",
         "title",
+        "vendor",
+        "category",
+        "payment_type",
     ]
     ordering = ["-submitted_at", "-id"]
 
@@ -695,6 +698,9 @@ class PortalRequestViewSet(
             qs = qs.filter(
                 Q(vendor_ref__name__icontains=vendor_search) | Q(vendor__icontains=vendor_search)
             )
+        vendor_raw = (self.request.query_params.get("vendor") or "").strip()
+        if vendor_raw:
+            qs = qs.filter(Q(vendor=vendor_raw) | Q(vendor_ref__name=vendor_raw))
         amortized_only = self._parse_bool_query("amortized_only")
         if amortized_only:
             qs = qs.filter(amortization_months__gt=1)
@@ -1906,3 +1912,37 @@ class RequestAiChatProxyView(APIView):
 
         content_type = upstream.headers.get("Content-Type", "application/json")
         return HttpResponse(upstream.content, status=upstream.status_code, content_type=content_type)
+
+
+class RequestCategoriesView(APIView):
+    module_key = "requests"
+    permission_classes = [IsAuthenticated, HasEffectiveModuleAccess]
+
+    def get(self, request):
+        tenant = getattr(request, "tenant", None)
+        if not tenant:
+            raise ValidationError({"detail": "Unknown tenant."})
+        categories = (
+            RequestCategory.objects.filter(tenant=tenant, is_active=True)
+            .order_by("name")
+            .values("id", "name")
+        )
+        return Response(list(categories))
+
+
+class RequestVendorsView(APIView):
+    module_key = "requests"
+    permission_classes = [IsAuthenticated, HasEffectiveModuleAccess]
+
+    def get(self, request):
+        tenant = getattr(request, "tenant", None)
+        if not tenant:
+            raise ValidationError({"detail": "Unknown tenant."})
+        vendor_names = (
+            Request.objects.filter(tenant=tenant)
+            .exclude(vendor="")
+            .order_by("vendor")
+            .values_list("vendor", flat=True)
+            .distinct()
+        )
+        return Response(list(vendor_names))

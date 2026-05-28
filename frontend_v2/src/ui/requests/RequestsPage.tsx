@@ -9,8 +9,11 @@ import {
   apiFetch,
   copyPortalRequest,
   getRequestFormOptions,
+  getRequestCategories,
+  getRequestVendors,
   parseErrorBody,
   resendRequestApprovals,
+  type RequestCategoryOption,
   type RequestFormOptionsPaymentType,
   type RequestFormOptionsRequester,
 } from '../../lib/api'
@@ -92,6 +95,11 @@ type RequestsPagePreferences = {
 const REQUESTS_FILTER_PREF_KEY = 'requests.page.filters.v1'
 const REQUESTS_LIST_SESSION_KEY = 'list-session:/requests'
 
+const STATUS_OPTIONS = ['DRAFT', '1', '2', '3', '4', '5', 'APPROVED', 'PAYED', 'REJECTED'].map((v) => ({ label: v, value: v }))
+const PAYMENT_TYPE_OPTIONS = ['Наличные', 'Перечисление', 'Пополнение', 'Платежная карта', 'Начисление ЗП'].map((v) => ({ label: v, value: v }))
+const URGENCY_OPTIONS = ['Низко', 'Обычно', 'Срочно'].map((v) => ({ label: v, value: v }))
+const CURRENCY_OPTIONS = ['UZS', 'USD', 'EUR', 'RUB'].map((v) => ({ label: v, value: v }))
+
 type RequestsListSession = {
   scrollY: number
   pagesLoaded?: number
@@ -155,6 +163,8 @@ export function RequestsPage() {
   const [submittedRange, setSubmittedRange] = useState<[Dayjs | null, Dayjs | null] | null>(null)
   const [billingRange, setBillingRange] = useState<[Dayjs | null, Dayjs | null] | null>(null)
   const [sort, setSort] = useState<SortState>({ field: null, order: null })
+  const [categoryOptions, setCategoryOptions] = useState<RequestCategoryOption[]>([])
+  const [vendorOptions, setVendorOptions] = useState<string[]>([])
   const [selectedRow, setSelectedRow] = useState<RequestRow | null>(null)
   const pendingSelectedRowIdRef = useRef<number | null>(null)
   const [selectedDetail, setSelectedDetail] = useState<RequestDetail | null>(null)
@@ -256,6 +266,17 @@ export function RequestsPage() {
     return () => {
       cancelled = true
     }
+  }, [])
+
+  useEffect(() => {
+    let cancelled = false
+    Promise.all([getRequestCategories(), getRequestVendors()]).then(([cats, vendors]) => {
+      if (!cancelled) {
+        setCategoryOptions(cats)
+        setVendorOptions(vendors)
+      }
+    })
+    return () => { cancelled = true }
   }, [])
 
   useEffect(() => {
@@ -576,7 +597,6 @@ export function RequestsPage() {
     {
       title: 'Заявитель',
       key: 'requester_label',
-      sorter: true,
       render: (_, row) => row.requester_username || (row.requester ? `User #${row.requester}` : '-'),
     },
     {
@@ -696,7 +716,7 @@ export function RequestsPage() {
       <Space direction="vertical" size={12} style={{ display: 'flex', marginTop: 12, marginBottom: 12 }}>
         <Space wrap>
           <Input
-            placeholder="Поиск по всем полям (из загруженных данных)"
+            placeholder="Поиск по заголовку, поставщику, категории, описанию"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             allowClear
@@ -708,7 +728,7 @@ export function RequestsPage() {
             style={{ width: 180 }}
             value={status}
             onChange={(value) => setStatus(value)}
-            options={optionize(rows.map((r) => r.status))}
+            options={STATUS_OPTIONS}
           />
           <Select
             placeholder="Тип оплаты"
@@ -716,7 +736,7 @@ export function RequestsPage() {
             style={{ width: 200 }}
             value={paymentType}
             onChange={(value) => setPaymentType(value)}
-            options={optionize(rows.map((r) => r.payment_type))}
+            options={PAYMENT_TYPE_OPTIONS}
           />
           <Button onClick={resetFilters}>Сбросить фильтры</Button>
         </Space>
@@ -750,7 +770,7 @@ export function RequestsPage() {
                       style={{ width: 180 }}
                       value={urgency}
                       onChange={(value) => setUrgency(value)}
-                      options={optionize(rows.map((r) => r.urgency))}
+                      options={URGENCY_OPTIONS}
                     />
                     <Select
                       placeholder="Валюта"
@@ -758,23 +778,27 @@ export function RequestsPage() {
                       style={{ width: 140 }}
                       value={currency}
                       onChange={(value) => setCurrency(value)}
-                      options={optionize(rows.map((r) => r.currency))}
+                      options={CURRENCY_OPTIONS}
                     />
                     <Select
                       placeholder="Категория"
                       allowClear
+                      showSearch
+                      filterOption={(input, opt) => (opt?.label as string ?? '').toLowerCase().includes(input.toLowerCase())}
                       style={{ width: 220 }}
                       value={category}
                       onChange={(value) => setCategory(value)}
-                      options={optionize(rows.map((r) => r.category))}
+                      options={categoryOptions.map((c) => ({ label: c.name, value: c.name }))}
                     />
                     <Select
                       placeholder="Поставщик"
                       allowClear
+                      showSearch
+                      filterOption={(input, opt) => (opt?.label as string ?? '').toLowerCase().includes(input.toLowerCase())}
                       style={{ width: 220 }}
                       value={vendor}
                       onChange={(value) => setVendor(value)}
-                      options={optionize(rows.map((r) => r.vendor))}
+                      options={vendorOptions.map((v) => ({ label: v, value: v }))}
                     />
                     <Select
                       placeholder="Заявитель"
