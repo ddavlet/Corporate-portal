@@ -71,6 +71,9 @@ def set_status(*, task: Task, new_status: str, actor) -> Task:
     Two writers racing on the same task (e.g. drag-and-drop + status button) cannot
     both pass the transition check: select_for_update serializes them, and we
     re-read + re-validate after acquiring the lock.
+
+    When actor is not None (human-initiated change), last_edit_at / last_edit_by
+    are stamped in the same save. actor=None means a system/trigger change — not tracked.
     """
     with transaction.atomic():
         locked = Task.objects.select_for_update().get(pk=task.pk)
@@ -84,6 +87,10 @@ def set_status(*, task: Task, new_status: str, actor) -> Task:
         if new_status == Task.STATUS_DONE:
             locked.completed_at = timezone.now()
             update_fields.append("completed_at")
+        if actor is not None:
+            locked.last_edit_at = timezone.now()
+            locked.last_edit_by = actor
+            update_fields += ["last_edit_at", "last_edit_by"]
         locked.save(update_fields=update_fields)
     return locked
 
@@ -126,15 +133,6 @@ def close_task_for_request_payment(*, request_obj) -> Task | None:
     if task is None:
         return None
     return set_status(task=task, new_status=Task.STATUS_DONE, actor=None)
-
-
-def record_edit(*, task: Task, actor) -> None:
-    """Stamp last_edit_at / last_edit_by when a user manually patches a task."""
-    if actor is None:
-        return
-    task.last_edit_at = timezone.now()
-    task.last_edit_by = actor
-    task.save(update_fields=["last_edit_at", "last_edit_by"])
 
 
 def mark_task_seen(*, task: Task, user) -> None:

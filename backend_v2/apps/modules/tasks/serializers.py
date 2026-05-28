@@ -237,12 +237,16 @@ class TaskPatchSerializer(serializers.ModelSerializer):
         fields = ("title", "description")
 
     def update(self, instance, validated_data):
+        from django.utils import timezone
         instance.title = validated_data.get("title", instance.title)
         instance.description = validated_data.get("description", instance.description)
-        instance.save(update_fields=["title", "description", "updated_at"])
-        actor = self.context.get("request") and self.context["request"].user
+        update_fields = ["title", "description", "updated_at"]
+        actor = getattr(self.context.get("request"), "user", None)
         if actor:
-            task_service.record_edit(task=instance, actor=actor)
+            instance.last_edit_at = timezone.now()
+            instance.last_edit_by = actor
+            update_fields += ["last_edit_at", "last_edit_by"]
+        instance.save(update_fields=update_fields)
         return instance
 
 
