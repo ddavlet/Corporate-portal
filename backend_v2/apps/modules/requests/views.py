@@ -725,13 +725,25 @@ class PortalRequestViewSet(
             qs = qs.filter(requester_id=requester_id)
         search = (self.request.query_params.get("search") or "").strip()
         if search:
-            qs = qs.filter(
+            search_q = (
                 Q(title__icontains=search)
                 | Q(vendor__icontains=search)
                 | Q(vendor_ref__name__icontains=search)
                 | Q(category__icontains=search)
                 | Q(description__icontains=search)
+                | Q(company_payer__icontains=search)
+                | Q(payment_purpose__icontains=search)
+                | Q(status__icontains=search)
+                | Q(payment_type__icontains=search)
+                | Q(urgency__icontains=search)
+                | Q(currency__icontains=search)
+                | Q(requester__username__icontains=search)
             )
+            try:
+                search_q |= Q(id=int(search))
+            except (ValueError, TypeError):
+                pass
+            qs = qs.filter(search_q)
         amount_min = parse_decimal_query(self.request, "amount_min")
         amount_max = parse_decimal_query(self.request, "amount_max")
         if amount_min is not None:
