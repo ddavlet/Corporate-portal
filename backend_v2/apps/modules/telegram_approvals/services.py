@@ -212,16 +212,24 @@ def _post_to_gateway(*, request_obj: Request, payload: dict) -> dict | None:
     return post_messaging_gateway(tenant=getattr(request_obj, "tenant", None), payload=payload)
 
 
-def _maybe_set_message_id(*, approval: Approval, response_data: dict | None) -> None:
+def extract_message_id(response_data: dict | None) -> int | None:
+    """Extract Telegram message_id from a gateway response dict (handles nested result.message_id)."""
     if not isinstance(response_data, dict):
-        return
+        return None
     raw = response_data.get("message_id")
     if raw in (None, ""):
-        result = response_data.get("result") if isinstance(response_data.get("result"), dict) else {}
-        raw = result.get("message_id")
+        result = response_data.get("result")
+        if isinstance(result, dict):
+            raw = result.get("message_id")
     try:
-        message_id = int(raw)
+        return int(raw)
     except (TypeError, ValueError):
+        return None
+
+
+def _maybe_set_message_id(*, approval: Approval, response_data: dict | None) -> None:
+    message_id = extract_message_id(response_data)
+    if message_id is None:
         return
     updates = []
     approval.gateway_message_id = message_id
