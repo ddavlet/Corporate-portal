@@ -25,6 +25,7 @@ TEST_DDAVLET_TELEGRAM_ID = 1387986
 MODULES = [
     "requests", "cash", "bank", "corporate_card", "payroll",
     "reports", "clients_debt", "budgets", "vendors", "contracts", "notes", "investments",
+    "tasks",
 ]
 
 
@@ -91,6 +92,7 @@ class Command(BaseCommand):
         self._seed_demo_clients_debt(tenant, admin)
         self._seed_demo_investments(tenant, admin)
         self._seed_demo_notes(tenant, admin, director)
+        self._seed_demo_tasks(tenant, admin, director, accountant)
 
         self.stdout.write(self.style.SUCCESS(
             "\n✓ Test data seeded successfully!\n"
@@ -116,10 +118,13 @@ class Command(BaseCommand):
         from apps.modules.investments.models import InvestReturn
         from apps.modules.notes.models import Note
         from apps.modules.vendors.models import Vendor
+        from apps.modules.tasks.models import Task, TaskComment
 
         qs = Tenant.objects.filter(subdomain=TENANT_SUBDOMAIN)
         tenant_ids = list(qs.values_list("id", flat=True))
         if tenant_ids:
+            TaskComment.objects.filter(task__tenant_id__in=tenant_ids).delete()
+            Task.objects.filter(tenant_id__in=tenant_ids).delete()
             Request.objects.filter(tenant_id__in=tenant_ids).delete()
             CashExpense.objects.filter(tenant_id__in=tenant_ids).delete()
             CashRevenue.objects.filter(tenant_id__in=tenant_ids).delete()
@@ -265,12 +270,14 @@ class Command(BaseCommand):
             Request.PAYMENT_TYPE_TRANSFER: "Test Transfer LLC",
             Request.PAYMENT_TYPE_TOPUP: "Test Topup LLC",
             Request.PAYMENT_TYPE_CARD: "Test Card LLC",
+            Request.PAYMENT_TYPE_PAYROLL: "Test Payroll LLC",
         }
         purpose_by_type = {
             Request.PAYMENT_TYPE_CASH: ("Хозрасходы", "IT"),
             Request.PAYMENT_TYPE_TRANSFER: ("Оплата поставщику", "Marketing"),
             Request.PAYMENT_TYPE_TOPUP: ("Пополнение счета", "HR"),
             Request.PAYMENT_TYPE_CARD: ("Онлайн подписки", "IT"),
+            Request.PAYMENT_TYPE_PAYROLL: ("Начисление зарплаты", "HR"),
         }
 
         for payment_type, _label in Request.PAYMENT_TYPE_CHOICES:
@@ -583,3 +590,130 @@ class Command(BaseCommand):
                 message=msg,
             )
         self.stdout.write("  Notes: 3 created")
+
+    def _seed_demo_tasks(self, tenant, admin, director, accountant):
+        from apps.modules.tasks.models import Task, TaskComment
+
+        now = timezone.now()
+
+        task_rows = [
+            # (title, description, assignee, status, completed_at, days_ago)
+            (
+                "Согласовать договор с ООО ТехСервис",
+                "Проверить реквизиты и условия. Срок — до конца недели.",
+                accountant,
+                Task.Status.NEW,
+                None,
+                0,
+            ),
+            (
+                "Проверить остаток по корпоративной карте",
+                "Сверить фактический остаток со сводкой за апрель.",
+                accountant,
+                Task.Status.NEW,
+                None,
+                1,
+            ),
+            (
+                "Подготовить отчёт за май 2026",
+                "Включить все статьи расходов: касса, банк, карта.",
+                director,
+                Task.Status.NEW,
+                None,
+                2,
+            ),
+            (
+                "Оформить авансовый отчёт — командировка Ташкент",
+                "Приложить чеки и посадочные талоны.",
+                accountant,
+                Task.Status.IN_PROGRESS,
+                None,
+                3,
+            ),
+            (
+                "Обновить реквизиты контрагента ИП Иванов",
+                "Новый расчётный счёт с 15 мая. Уточнить у менеджера.",
+                admin,
+                Task.Status.IN_PROGRESS,
+                None,
+                4,
+            ),
+            (
+                "Согласовать бюджет на маркетинг Q3",
+                "",
+                director,
+                Task.Status.IN_PROGRESS,
+                None,
+                5,
+            ),
+            (
+                "Выгрузить банковскую выписку за апрель",
+                "Отправить главному бухгалтеру до 5-го числа.",
+                accountant,
+                Task.Status.DONE,
+                now - timedelta(days=2),
+                10,
+            ),
+            (
+                "Проверить оплату по заявке #1",
+                "Заявка на ноутбук для разработчика — подтвердить списание.",
+                admin,
+                Task.Status.DONE,
+                now - timedelta(days=5),
+                15,
+            ),
+            (
+                "Закрыть подписку на неиспользуемый сервис",
+                "",
+                admin,
+                Task.Status.DONE,
+                now - timedelta(days=8),
+                20,
+            ),
+        ]
+
+        created_tasks = []
+        for title, description, assignee, status, completed_at, days_ago in task_rows:
+            task = Task.objects.create(
+                tenant=tenant,
+                assignee=assignee,
+                created_by=admin,
+                title=title,
+                description=description,
+                status=status,
+                completed_at=completed_at,
+                last_edit_at=now,
+                last_edit_by=admin,
+            )
+            if days_ago:
+                Task.objects.filter(pk=task.pk).update(
+                    created_at=now - timedelta(days=days_ago),
+                    updated_at=now - timedelta(days=days_ago),
+                )
+            created_tasks.append(task)
+
+        # Add comments to first in-progress task (accountant task) to demo the admin badge
+        task_with_comments = created_tasks[3]  # "Оформить авансовый отчёт"
+        comment1 = TaskComment.objects.create(
+            task=task_with_comments,
+            author=admin,
+            body="Не забудьте приложить оригиналы чеков, а не ксерокопии.",
+        )
+        TaskComment.objects.filter(pk=comment1.pk).update(
+            created_at=now - timedelta(hours=5),
+        )
+        # Add a comment from the assignee on a new task (no badge — non-admin comment)
+        task_with_reply = created_tasks[0]  # "Согласовать договор"
+        comment2 = TaskComment.objects.create(
+            task=task_with_reply,
+            author=accountant,
+            body="Запросил договор у менеджера, жду ответа.",
+        )
+        TaskComment.objects.filter(pk=comment2.pk).update(
+            created_at=now - timedelta(hours=2),
+        )
+
+        self.stdout.write(
+            f"  Tasks: {len(created_tasks)} created "
+            f"(3 new, 3 in-progress, 3 done | 2 with comments)"
+        )

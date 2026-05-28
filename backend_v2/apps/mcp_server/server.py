@@ -45,6 +45,7 @@ from apps.mcp_server.tools import (
     tenant_config as cfg_tools,
     investments as inv_tools,
     budgets as bud_tools,
+    tasks as task_tools,
 )
 
 mcp = FastMCP(
@@ -127,6 +128,13 @@ Budgets (module: "budgets"):
   list_budgets               — limits vs spend by category and period
   get_budget                 — one budget with utilization
   list_budget_spend_requests — requests counted toward a budget
+
+Tasks (module: "tasks"):
+  list_my_tasks           — tasks visible to the current user (own tasks, or all if admin/director)
+  get_task                — full task detail with comment thread
+  create_task             — create a manual task (admin/director only; can assign to any member)
+  update_task_status      — change task status (assignee, admin, or director)
+  add_task_comment        — post a comment on a task (assignee, admin, or director)
 
 Directories (modules: "vendors", "wallets"):
   list_vendors            — vendor directory; filter by kind or name
@@ -962,6 +970,172 @@ def list_budget_spend_requests(
         return _list_err(str(e))
     except Exception as e:
         return _list_err(f"Unexpected error: {e}")
+
+
+# ---------------------------------------------------------------------------
+# Tasks (задачи)
+# ---------------------------------------------------------------------------
+
+@tool
+def list_my_tasks(
+    tenant_id: int,
+    status: str = "",
+    limit: int = 50,
+) -> list:
+    """List tasks visible to the current user for a tenant.
+
+    Admins and directors see all tasks in the tenant. Every other role
+    sees only tasks assigned to themselves. Use this to check your
+    pending work or to audit outstanding tasks as a manager.
+
+    Status values: new | in_progress | done
+
+    Source types explain why a task was created:
+      approval_step    — an approval step awaiting a decision
+      request_approved — a payment ready to be processed
+      payment_verify   — payment verification step
+      request_rejected — cleanup/follow-up after rejection
+      escalation       — a stale task flagged for review
+      manual           — created directly by a user
+
+    Required roles: any (scope is automatically restricted by role).
+
+    Args:
+        tenant_id: Tenant primary key (get from list_my_tenants).
+        status: Filter by status. One of: new, in_progress, done.
+        limit: Max tasks to return (1–200, default 50).
+    """
+    try:
+        return task_tools.list_tasks(tenant_id=tenant_id, status=status, limit=limit)
+    except (PermissionError, ValueError) as e:
+        return _list_err(str(e))
+    except Exception as e:
+        return _list_err(f"Unexpected error: {e}")
+
+
+@tool
+def get_task(tenant_id: int, task_id: int) -> dict:
+    """Get full details of a single task including its comment thread.
+
+    Returns all task fields plus an ordered list of comments. Comments
+    are append-only — they record the discussion history between the
+    assignee and admins/directors.
+
+    Access rules: assignee can always read their own task; admins and
+    directors can read any task in the tenant.
+
+    Required roles: any (access is restricted to visible tasks).
+
+    Args:
+        tenant_id: Tenant primary key (get from list_my_tenants).
+        task_id: Task primary key (get from list_my_tasks).
+    """
+    try:
+        return task_tools.get_task_detail(tenant_id=tenant_id, task_id=task_id)
+    except (PermissionError, ValueError) as e:
+        return _err(str(e))
+    except Exception as e:
+        return _err(f"Unexpected error: {e}")
+
+
+@tool
+def create_task(
+    tenant_id: int,
+    assignee_id: int,
+    title: str,
+    description: str = "",
+) -> dict:
+    """Create a manual task and assign it to a tenant member.
+
+    Only admins and directors can use this tool — it allows assigning tasks
+    to any active user in the tenant. Use this to delegate work, create
+    follow-up tasks after reviewing financials, or set up ad-hoc assignments.
+
+    Required roles: admin, director.
+
+    Args:
+        tenant_id: Tenant primary key (get from list_my_tenants).
+        assignee_id: User ID of the person who will own the task (get from list_active_users).
+        title: Short task title (max 255 chars).
+        description: Optional detailed description.
+    """
+    try:
+        return task_tools.create_task(
+            tenant_id=tenant_id,
+            assignee_id=assignee_id,
+            title=title,
+            description=description,
+        )
+    except (PermissionError, ValueError) as e:
+        return _err(str(e))
+    except Exception as e:
+        return _err(f"Unexpected error: {e}")
+
+
+@tool
+def update_task_status(
+    tenant_id: int,
+    task_id: int,
+    new_status: str,
+) -> dict:
+    """Change the status of a task.
+
+    Allowed transitions: new → in_progress | done; in_progress → new | done.
+    Tasks in 'done' status cannot be transitioned further.
+
+    Admins and directors can update any task in the tenant.
+    Other roles can only update tasks assigned to themselves.
+
+    Status values: new | in_progress | done
+
+    Required roles: any (scope restricted by role).
+
+    Args:
+        tenant_id: Tenant primary key (get from list_my_tenants).
+        task_id: Task primary key (get from list_my_tasks).
+        new_status: Target status — one of: new, in_progress, done.
+    """
+    try:
+        return task_tools.update_task_status(
+            tenant_id=tenant_id,
+            task_id=task_id,
+            new_status=new_status,
+        )
+    except (PermissionError, ValueError) as e:
+        return _err(str(e))
+    except Exception as e:
+        return _err(f"Unexpected error: {e}")
+
+
+@tool
+def add_task_comment(
+    tenant_id: int,
+    task_id: int,
+    body: str,
+) -> dict:
+    """Post a comment on a task.
+
+    Admins and directors can comment on any task — their comments are shown
+    with a special badge so the assignee is notified. Regular users can only
+    comment on their own tasks.
+
+    Required roles: any (scope restricted by role).
+
+    Args:
+        tenant_id: Tenant primary key (get from list_my_tenants).
+        task_id: Task primary key (get from list_my_tasks).
+        body: Comment text (must not be empty).
+    """
+    try:
+        return task_tools.add_task_comment(
+            tenant_id=tenant_id,
+            task_id=task_id,
+            body=body,
+        )
+    except (PermissionError, ValueError) as e:
+        return _err(str(e))
+    except Exception as e:
+        return _err(f"Unexpected error: {e}")
 
 
 # ---------------------------------------------------------------------------

@@ -404,6 +404,7 @@ export type SettingsAccessResponse = {
   can_manage_requests_settings: boolean
   can_manage_wallet_settings: boolean
   roles: string[]
+  user_id?: number
 }
 
 export type UserPreferencesResponseItem = {
@@ -423,6 +424,7 @@ export async function getSettingsAccess(): Promise<SettingsAccessResponse> {
     can_manage_requests_settings: Boolean(json?.can_manage_requests_settings),
     can_manage_wallet_settings: Boolean(json?.can_manage_wallet_settings),
     roles: Array.isArray(json?.roles) ? (json?.roles as string[]) : [],
+    user_id: typeof json?.user_id === 'number' ? json.user_id : undefined,
   }
 }
 
