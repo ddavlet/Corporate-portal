@@ -54,7 +54,9 @@ def send_task_notification(
     is_reminder: bool = False,
 ) -> None:
     """Send a Telegram notification for a task (new assignment or reminder)."""
-    from apps.modules.telegram_approvals.services import post_messaging_gateway
+    from django.utils import timezone
+    from apps.modules.telegram_approvals.models import TelegramMessage
+    from apps.modules.telegram_approvals.services import extract_message_id, post_messaging_gateway
 
     recipient_id = getattr(task.assignee, "telegram_from_id", None)
     if not recipient_id:
@@ -70,4 +72,15 @@ def send_task_notification(
         "tenant_id": str(tenant.pk),
         "buttons": _task_buttons(task.id, task.status) + _webapp_button(tenant),
     }
-    post_messaging_gateway(tenant=tenant, payload=payload)
+    response = post_messaging_gateway(tenant=tenant, payload=payload)
+    message_id = extract_message_id(response)
+    if message_id:
+        tg_msg = TelegramMessage.objects.create(
+            tenant=tenant,
+            recipient_id=str(recipient_id),
+            external_user_id=recipient_id,
+            message_id=message_id,
+            sent_at=timezone.now(),
+        )
+        task.telegram_message = tg_msg
+        task.save(update_fields=["telegram_message"])

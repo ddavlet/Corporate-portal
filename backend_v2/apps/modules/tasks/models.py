@@ -42,6 +42,13 @@ class Task(models.Model):
         on_delete=models.PROTECT,
         related_name="last_edited_tasks",
     )
+    telegram_message = models.OneToOneField(
+        "telegram_approvals.TelegramMessage",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="task",
+    )
 
     class Meta:
         db_table = "tasks"
