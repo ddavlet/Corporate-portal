@@ -7,6 +7,7 @@ import { Grid } from 'antd'
 import {
   BankOutlined,
   BulbOutlined,
+  CheckSquareOutlined,
   ContactsOutlined,
   CommentOutlined,
   FundOutlined,
@@ -80,6 +81,7 @@ export function AppShell() {
       ([
         { path: '/', name: 'Панель', icon: <DashboardOutlined /> },
         { path: '/requests', name: 'Заявки', icon: <FileTextOutlined />, moduleKey: 'requests' },
+        { path: '/tasks', name: 'Задачи', icon: <CheckSquareOutlined />, moduleKey: 'tasks' },
         { path: '/cash', name: 'Касса', icon: <DollarOutlined />, moduleKey: 'cash' },
         { path: '/bank', name: 'Банк', icon: <BankOutlined />, moduleKey: 'bank' },
         { path: '/corporate-card', name: 'Корпоративная карта', icon: <CreditCardOutlined />, moduleKey: 'corporate_card' },

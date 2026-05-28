@@ -674,6 +674,39 @@ services:
         aliases:
           - kolberg-django-v2
 
+  task_cron:
+    build: ./backend_v2
+    container_name: task_cron
+    restart: always
+    depends_on:
+      - db
+    environment:
+      POSTGRES_DB: ${POSTGRES_V2_DB}
+      POSTGRES_USER: ${POSTGRES_V2_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_V2_PASSWORD}
+      POSTGRES_HOST: "db"
+      POSTGRES_PORT: 5432
+      BASE_DOMAIN: ${DOMAIN_NAME}
+      DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:-change-me-to-a-long-random-secret-key-32-plus-bytes}
+      DJANGO_DEBUG: "${DJANGO_DEBUG:-False}"
+      DJANGO_ALLOWED_HOSTS: "localhost"
+      N8N_INTEGRATION_URL_PATH: ${N8N_INTEGRATION_URL_PATH:-n8n}
+      N8N_INTEGRATION_TOKEN: ${N8N_INTEGRATION_TOKEN:-}
+      N8N_INTERNAL_BASE_URL: ${N8N_INTERNAL_BASE_URL:-http://n8n:5678/webhook}
+      MESSAGING_GATEWAY_SEND_URL: http://tg_gateway:8080/v1/messaging/send
+      MESSAGING_GATEWAY_ADMIN_URL: http://tg_gateway:8080
+      MCP_BASE_URL: ${MCP_BASE_URL:-https://${MCP_HOST:-api.kolberg.uz}/mcp}
+    volumes:
+      - ./backend_v2:/app
+    command: >
+      bash -c "
+      while true; do
+        python manage.py check_task_escalations;
+        sleep 3600;
+      done"
+    networks:
+      - backend
+
   tg-gateway:
     build: ./tg-gateway
     container_name: tg_gateway
