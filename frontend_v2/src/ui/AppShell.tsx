@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, type ReactElement } from 'react'
 import { Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { ProLayout } from '@ant-design/pro-layout'
 import type { MenuProps } from 'antd'
@@ -29,8 +29,14 @@ import { FeedbackModal } from './feedback/FeedbackModal'
 import { ChangePasswordModal } from './user/ChangePasswordModal'
 import { AiQuestionsModal } from './ai/AiQuestionsModal'
 import { useModuleAccess } from './moduleAccess'
-import { filterInvestorMenuRoutes, type ShellMenuRoute } from './investorMenu'
 import { getSettingsAccess } from '../lib/api'
+
+type ShellMenuRoute = {
+  path: string
+  name: string
+  icon: ReactElement
+  moduleKey?: string
+}
 
 export function AppShell() {
   const screens = Grid.useBreakpoint()
@@ -44,7 +50,6 @@ export function AppShell() {
   const [passwordModalOpen, setPasswordModalOpen] = useState(false)
   const [canOpenSettings, setCanOpenSettings] = useState(false)
   const [canOpenAdmin, setCanOpenAdmin] = useState(false)
-  const [roles, setRoles] = useState<string[]>([])
   const [tenantName, setTenantName] = useState<string>('')
 
   useEffect(() => {
@@ -56,14 +61,12 @@ export function AppShell() {
           setTenantName(String(data.tenant_name || '').trim())
           setCanOpenSettings(Boolean(data.can_open_settings))
           setCanOpenAdmin(Boolean(data.can_open_admin))
-          setRoles(Array.isArray(data.roles) ? data.roles : [])
         }
       } catch {
         if (!cancelled) {
           setTenantName('')
           setCanOpenSettings(false)
           setCanOpenAdmin(false)
-          setRoles([])
         }
       }
     })()
@@ -71,8 +74,6 @@ export function AppShell() {
       cancelled = true
     }
   }, [])
-
-  const isInvestor = roles.includes('investor')
 
   const menuRoutes = useMemo(
     () =>
@@ -92,9 +93,8 @@ export function AppShell() {
         ...(canOpenAdmin ? [{ path: '/admin', name: 'Админка', icon: <SafetyOutlined /> }] : []),
         ...(canOpenSettings ? [{ path: '/settings', name: 'Настройки', icon: <SettingOutlined /> }] : []),
       ] as ShellMenuRoute[])
-        .filter((r) => !r.moduleKey || hasAccess(r.moduleKey))
-        .filter((r) => filterInvestorMenuRoutes({ isInvestor, path: r.path })),
-    [hasAccess, canOpenSettings, canOpenAdmin, isInvestor],
+        .filter((r) => !r.moduleKey || hasAccess(r.moduleKey)),
+    [hasAccess, canOpenSettings, canOpenAdmin],
   )
 
   const profileMenu: MenuProps['items'] = [
