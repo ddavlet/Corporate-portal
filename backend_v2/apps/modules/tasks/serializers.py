@@ -100,11 +100,8 @@ class TaskListSerializer(serializers.ModelSerializer):
             "id",
             "title",
             "status",
-            "source_type",
             "assignee",
             "created_by_id",
-            "source_request_id",
-            "source_approval_id",
             "created_at",
             "completed_at",
             "last_edit_at",
@@ -153,7 +150,6 @@ class TaskCreateSerializer(serializers.Serializer):
     title = serializers.CharField(max_length=255, min_length=1, trim_whitespace=True)
     description = serializers.CharField(required=False, default="", allow_blank=True, trim_whitespace=True)
     assignee_id = serializers.IntegerField()
-    source_request_id = serializers.IntegerField(required=False, allow_null=True)
     notify = serializers.BooleanField(default=False, write_only=True)
 
     def _request_tenant(self):
@@ -171,17 +167,6 @@ class TaskCreateSerializer(serializers.Serializer):
             raise serializers.ValidationError("Assignee is not a member of this tenant.")
         return value
 
-    def validate_source_request_id(self, value):
-        if value is None:
-            return value
-        from apps.modules.requests.models import Request
-        tenant = self._request_tenant()
-        if tenant is None:
-            raise serializers.ValidationError("Tenant context is required.")
-        if not Request.objects.filter(id=value, tenant=tenant).exists():
-            raise serializers.ValidationError("Source request not found in this tenant.")
-        return value
-
     def validate(self, data):
         from apps.modules.tasks.permissions import _is_tenant_admin_or_director
         request = self.context.get("request")
@@ -197,7 +182,6 @@ class TaskCreateSerializer(serializers.Serializer):
 
     def create(self, validated_data):
         from apps.modules.tasks.services import task_service
-        from apps.modules.requests.models import Request
 
         request = self.context["request"]
         tenant = request.tenant
@@ -205,9 +189,6 @@ class TaskCreateSerializer(serializers.Serializer):
         notify = validated_data.pop("notify", False)
 
         assignee = User.objects.get(id=validated_data["assignee_id"])
-        source_request = None
-        if validated_data.get("source_request_id"):
-            source_request = Request.objects.get(id=validated_data["source_request_id"])
 
         task = task_service.create_task(
             tenant=tenant,
@@ -215,8 +196,6 @@ class TaskCreateSerializer(serializers.Serializer):
             title=validated_data["title"],
             description=validated_data.get("description", ""),
             created_by=actor,
-            source_type=Task.SOURCE_MANUAL,
-            source_request=source_request,
         )
 
         if notify:

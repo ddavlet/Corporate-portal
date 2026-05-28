@@ -15,22 +15,6 @@ class Task(models.Model):
         (STATUS_DONE, "Done"),
     ]
 
-    SOURCE_APPROVAL_STEP = "approval_step"
-    SOURCE_REQUEST_APPROVED = "request_approved"
-    SOURCE_PAYMENT_VERIFY = "payment_verify"
-    SOURCE_REQUEST_REJECTED = "request_rejected"
-    SOURCE_ESCALATION = "escalation"
-    SOURCE_MANUAL = "manual"
-
-    SOURCE_TYPE_CHOICES = [
-        (SOURCE_APPROVAL_STEP, "Approval Step"),
-        (SOURCE_REQUEST_APPROVED, "Request Approved"),
-        (SOURCE_PAYMENT_VERIFY, "Payment Verify"),
-        (SOURCE_REQUEST_REJECTED, "Request Rejected"),
-        (SOURCE_ESCALATION, "Escalation"),
-        (SOURCE_MANUAL, "Manual"),
-    ]
-
     tenant = models.ForeignKey(
         Tenant,
         on_delete=models.CASCADE,
@@ -54,26 +38,6 @@ class Task(models.Model):
         max_length=16,
         choices=STATUS_CHOICES,
         default=STATUS_NEW,
-    )
-    source_type = models.CharField(
-        max_length=32,
-        choices=SOURCE_TYPE_CHOICES,
-        default=SOURCE_MANUAL,
-        blank=True,
-    )
-    source_approval = models.ForeignKey(
-        "requests.Approval",
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        related_name="tasks",
-    )
-    source_request = models.ForeignKey(
-        "requests.Request",
-        on_delete=models.SET_NULL,
-        null=True,
-        blank=True,
-        related_name="tasks",
     )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -102,8 +66,6 @@ class Task(models.Model):
         indexes = [
             models.Index(fields=["tenant", "assignee", "status"], name="task_asgn_status_idx"),
             models.Index(fields=["tenant", "status", "completed_at"], name="task_tenant_status_done_idx"),
-            models.Index(fields=["source_approval"], name="task_source_approval_idx"),
-            models.Index(fields=["source_request"], name="task_source_request_idx"),
         ]
 
     def __str__(self):

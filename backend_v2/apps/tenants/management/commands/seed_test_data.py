@@ -597,13 +597,12 @@ class Command(BaseCommand):
         now = timezone.now()
 
         task_rows = [
-            # (title, description, assignee, status, source_type, completed_at, days_ago)
+            # (title, description, assignee, status, completed_at, days_ago)
             (
                 "Согласовать договор с ООО ТехСервис",
                 "Проверить реквизиты и условия. Срок — до конца недели.",
                 accountant,
                 Task.STATUS_NEW,
-                Task.SOURCE_MANUAL,
                 None,
                 0,
             ),
@@ -612,7 +611,6 @@ class Command(BaseCommand):
                 "Сверить фактический остаток со сводкой за апрель.",
                 accountant,
                 Task.STATUS_NEW,
-                Task.SOURCE_MANUAL,
                 None,
                 1,
             ),
@@ -621,7 +619,6 @@ class Command(BaseCommand):
                 "Включить все статьи расходов: касса, банк, карта.",
                 director,
                 Task.STATUS_NEW,
-                Task.SOURCE_MANUAL,
                 None,
                 2,
             ),
@@ -630,7 +627,6 @@ class Command(BaseCommand):
                 "Приложить чеки и посадочные талоны.",
                 accountant,
                 Task.STATUS_IN_PROGRESS,
-                Task.SOURCE_MANUAL,
                 None,
                 3,
             ),
@@ -639,7 +635,6 @@ class Command(BaseCommand):
                 "Новый расчётный счёт с 15 мая. Уточнить у менеджера.",
                 admin,
                 Task.STATUS_IN_PROGRESS,
-                Task.SOURCE_MANUAL,
                 None,
                 4,
             ),
@@ -648,7 +643,6 @@ class Command(BaseCommand):
                 "",
                 director,
                 Task.STATUS_IN_PROGRESS,
-                Task.SOURCE_MANUAL,
                 None,
                 5,
             ),
@@ -657,7 +651,6 @@ class Command(BaseCommand):
                 "Отправить главному бухгалтеру до 5-го числа.",
                 accountant,
                 Task.STATUS_DONE,
-                Task.SOURCE_MANUAL,
                 now - timedelta(days=2),
                 10,
             ),
@@ -666,7 +659,6 @@ class Command(BaseCommand):
                 "Заявка на ноутбук для разработчика — подтвердить списание.",
                 admin,
                 Task.STATUS_DONE,
-                Task.SOURCE_REQUEST_APPROVED,
                 now - timedelta(days=5),
                 15,
             ),
@@ -675,14 +667,13 @@ class Command(BaseCommand):
                 "",
                 admin,
                 Task.STATUS_DONE,
-                Task.SOURCE_MANUAL,
                 now - timedelta(days=8),
                 20,
             ),
         ]
 
         created_tasks = []
-        for title, description, assignee, status, source_type, completed_at, days_ago in task_rows:
+        for title, description, assignee, status, completed_at, days_ago in task_rows:
             task = Task.objects.create(
                 tenant=tenant,
                 assignee=assignee,
@@ -690,7 +681,6 @@ class Command(BaseCommand):
                 title=title,
                 description=description,
                 status=status,
-                source_type=source_type,
                 completed_at=completed_at,
             )
             if days_ago:

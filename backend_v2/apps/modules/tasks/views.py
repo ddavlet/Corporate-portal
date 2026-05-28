@@ -63,7 +63,6 @@ class TaskViewSet(viewsets.ModelViewSet):
         qs = scope.filter_queryset(
             Task.objects.filter(tenant=tenant).select_related(
                 "assignee", "created_by", "tenant",
-                "source_approval", "source_request",
             ).prefetch_related("comments__author"),
             self.request.user,
             tenant,
@@ -76,10 +75,6 @@ class TaskViewSet(viewsets.ModelViewSet):
         assignee_filter = self.request.query_params.get("assignee")
         if assignee_filter:
             qs = qs.filter(assignee_id=assignee_filter)
-
-        source_type_filter = self.request.query_params.get("source_type")
-        if source_type_filter:
-            qs = qs.filter(source_type=source_type_filter)
 
         # Archive of done tasks should be ordered by completion time, not creation.
         # The include_all_done flag controls whether we cap to "last 3" (done in the

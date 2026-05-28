@@ -16,11 +16,8 @@ def _task_to_dict(t) -> dict[str, Any]:
         "id": t.id,
         "title": t.title,
         "status": t.status,
-        "source_type": t.source_type,
         "assignee_id": t.assignee_id,
         "created_by_id": t.created_by_id,
-        "source_request_id": t.source_request_id,
-        "source_approval_id": t.source_approval_id,
         "created_at": t.created_at.isoformat() if t.created_at else None,
         "updated_at": t.updated_at.isoformat() if t.updated_at else None,
         "completed_at": t.completed_at.isoformat() if t.completed_at else None,
@@ -142,7 +139,6 @@ def create_task(
         title=title.strip(),
         description=description.strip(),
         created_by=user,
-        source_type=Task.SOURCE_MANUAL,
     )
     return json_safe(_task_to_dict(task))
 

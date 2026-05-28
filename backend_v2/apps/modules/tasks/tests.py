@@ -37,7 +37,6 @@ def _make_task(tenant, assignee, title="Test task", status=Task.STATUS_NEW):
         assignee=assignee,
         title=title,
         status=status,
-        source_type=Task.SOURCE_MANUAL,
     )
 
 
@@ -280,7 +279,6 @@ class TasksApiTests(APITestCase):
             created_by=created_by,
             title=title,
             status=Task.STATUS_NEW,
-            source_type=Task.SOURCE_MANUAL,
         )
 
     def test_creator_can_delete_own_task(self):
@@ -402,77 +400,3 @@ class TasksApiTests(APITestCase):
         self.assertEqual(res.status_code, 200)
 
 
-# ---------------------------------------------------------------------------
-# Trigger integration — approval step creates / closes tasks
-# ---------------------------------------------------------------------------
-
-@override_settings(BASE_DOMAIN="example.com", ALLOWED_HOSTS=["*"])
-class TaskTriggerTests(APITestCase):
-    def setUp(self):
-        from apps.tenants.models import TenantModuleConfig
-        self.tenant = Tenant.objects.create(name="TriggerCo", subdomain="trigger", is_active=True)
-        TenantModuleConfig.objects.create(tenant=self.tenant, module_key="tasks", is_enabled=True)
-        TenantModuleConfig.objects.create(tenant=self.tenant, module_key="requests", is_enabled=True)
-        self.approver = _add_member(self.tenant, "trig_approver", role=TenantUserRole.ROLE_APPROVER)
-
-    def _make_request(self):
-        from apps.modules.requests.models import Request
-        return Request.objects.create(
-            tenant=self.tenant,
-            created_by=self.approver,
-            payment_type=Request.PAYMENT_TYPE_CASH,
-            status=Request.STATUS_PROGRESS_1,
-        )
-
-    def _make_approval(self, request_obj):
-        from apps.modules.requests.models import Approval
-        return Approval.objects.create(
-            request=request_obj,
-            approver_user=self.approver,
-            step=1,
-            decision=Approval.DECISION_PENDING,
-        )
-
-    def test_approval_step_activated_creates_task(self):
-        from apps.modules.tasks.triggers.approval_step_activated import ApprovalStepActivatedTrigger
-        request_obj = self._make_request()
-        approval = self._make_approval(request_obj)
-
-        ApprovalStepActivatedTrigger().handle(approval=approval, request_obj=request_obj)
-
-        task = Task.objects.filter(source_approval=approval, assignee=self.approver).first()
-        self.assertIsNotNone(task)
-        self.assertEqual(task.status, Task.STATUS_NEW)
-        self.assertEqual(task.source_type, Task.SOURCE_APPROVAL_STEP)
-        self.assertEqual(task.tenant, self.tenant)
-
-    def test_approval_step_decided_closes_task(self):
-        from apps.modules.tasks.triggers.approval_step_decided import ApprovalStepDecidedTrigger
-        request_obj = self._make_request()
-        approval = self._make_approval(request_obj)
-        task = Task.objects.create(
-            tenant=self.tenant,
-            assignee=self.approver,
-            title="Approve task",
-            status=Task.STATUS_NEW,
-            source_type=Task.SOURCE_APPROVAL_STEP,
-            source_approval=approval,
-        )
-
-        ApprovalStepDecidedTrigger().handle(approval=approval, request_obj=request_obj)
-
-        task.refresh_from_db()
-        self.assertEqual(task.status, Task.STATUS_DONE)
-        self.assertIsNotNone(task.completed_at)
-
-    def test_approval_step_activated_is_idempotent(self):
-        from apps.modules.tasks.triggers.approval_step_activated import ApprovalStepActivatedTrigger
-        request_obj = self._make_request()
-        approval = self._make_approval(request_obj)
-        trigger = ApprovalStepActivatedTrigger()
-
-        trigger.handle(approval=approval, request_obj=request_obj)
-        trigger.handle(approval=approval, request_obj=request_obj)
-
-        count = Task.objects.filter(source_approval=approval).count()
-        self.assertEqual(count, 1)
