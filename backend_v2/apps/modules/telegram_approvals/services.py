@@ -10,6 +10,7 @@ from rest_framework.exceptions import ValidationError
 
 from apps.modules.requests.integration_settings import get_requests_messaging_gateway_settings
 from apps.modules.requests.models import Approval, Request
+from apps.modules.telegram_approvals.models import TelegramMessage
 from apps.modules.telegram_approvals.formatter import (
     build_approval_message,
     build_request_draft_public_url,
@@ -354,9 +355,33 @@ def extract_message_id(response_data: dict | None) -> int | None:
         return None
 
 
+def record_approval_telegram_message(*, approval: Approval) -> None:
+    """
+    Persist a TelegramMessage history row for a sent approval card and link it on the approval.
+
+    Idempotent: the row is created once, the first time a gateway_message_id appears.
+    Later edits / button deactivations of the same approval reuse the existing record,
+    so this never duplicates and never overwrites an existing link.
+    """
+    if approval.gateway_message_id is None:
+        return
+    if approval.telegram_message_id is not None:
+        return
+    tg_msg = TelegramMessage.objects.create(
+        tenant=approval.request.tenant,
+        recipient_id=str(approval.approver_recipient_id or ""),
+        external_user_id=approval.approver_external_user_id,
+        message_id=approval.gateway_message_id,
+        sent_at=approval.message_sent_at or timezone.now(),
+    )
+    approval.telegram_message = tg_msg
+    approval.save(update_fields=["telegram_message"])
+
+
 def _maybe_set_message_id(*, approval: Approval, response_data: dict | None) -> None:
     message_id = extract_message_id(response_data)
     apply_gateway_message_lifecycle(obj=approval, message_id=message_id)
+    record_approval_telegram_message(approval=approval)
 
 
 def _current_pending_step(request_obj: Request) -> int | None:

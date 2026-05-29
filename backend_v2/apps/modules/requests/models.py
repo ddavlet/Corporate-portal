@@ -231,6 +231,13 @@ class Approval(models.Model):
     gateway_message_id = models.BigIntegerField(null=True, blank=True)
     message_sent = models.BooleanField(default=False)
     message_sent_at = models.DateTimeField(null=True, blank=True)
+    telegram_message = models.OneToOneField(
+        "telegram_approvals.TelegramMessage",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="request_approval",
+    )
     step = models.IntegerField(default=1)
     step_type = models.CharField(max_length=16, default=STEP_TYPE_SERIAL, choices=STEP_TYPE_CHOICES)
     decision = models.CharField(max_length=12, default=DECISION_PENDING, choices=DECISION_CHOICES)
