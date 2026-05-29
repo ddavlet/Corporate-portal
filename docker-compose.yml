@@ -78,16 +78,16 @@ services:
       - traefik.enable=true
       - traefik.docker.network=n8n_traefik-public
 
-      # Redirect only root path on old frontend domains: https://<sub>.kolberg.uz[/] -> https://<sub>.korberg.uz/app
+      # Redirect only root path on frontend domains: https://<sub>.kolberg.uz[/] -> https://<sub>.kolberg.uz/app
       - traefik.http.routers.kolberg-frontend-root-redirect.rule=(${TRAEFIK_FRONTEND_HOST_RULE}) && Path(`/`)
       - traefik.http.routers.kolberg-frontend-root-redirect.entrypoints=web,websecure
       - traefik.http.routers.kolberg-frontend-root-redirect.tls=true
       - traefik.http.routers.kolberg-frontend-root-redirect.tls.certresolver=mytlschallenge
       - traefik.http.routers.kolberg-frontend-root-redirect.priority=1500
-      - traefik.http.routers.kolberg-frontend-root-redirect.middlewares=kolberg-frontend-root-to-korberg@docker
-      - traefik.http.middlewares.kolberg-frontend-root-to-korberg.redirectregex.regex=^https?://([a-z0-9-]+)\.kolberg\.uz/?$
-      - traefik.http.middlewares.kolberg-frontend-root-to-korberg.redirectregex.replacement=https://$${1}.korberg.uz/app
-      - traefik.http.middlewares.kolberg-frontend-root-to-korberg.redirectregex.permanent=true
+      - traefik.http.routers.kolberg-frontend-root-redirect.middlewares=kolberg-frontend-root-to-app@docker
+      - traefik.http.middlewares.kolberg-frontend-root-to-app.redirectregex.regex=^https?://([a-z0-9-]+)\.kolberg\.uz/?$
+      - traefik.http.middlewares.kolberg-frontend-root-to-app.redirectregex.replacement=https://$${1}.kolberg.uz/app
+      - traefik.http.middlewares.kolberg-frontend-root-to-app.redirectregex.permanent=true
     # >>> CHANGE: traefik только в public
     networks:
       - traefik-public

@@ -1,6 +1,6 @@
 import base64
 from datetime import date
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 import logging
 import uuid
 import mimetypes
@@ -11,7 +11,8 @@ logger = logging.getLogger(__name__)
 from django.contrib.auth import get_user_model
 from django.db import connection
 from django.db import transaction
-from django.db.models import Q
+from django.db.models import CharField, Q
+from django.db.models.functions import Cast
 from django.core.files.storage import default_storage
 from django.conf import settings
 from django.http import FileResponse, HttpResponse
@@ -124,6 +125,15 @@ def _display_user_name(user) -> str:
     full = (getattr(user, "full_name", "") or "").strip()
     return full or user.username
 
+
+def _search_decimal_from_text(raw: str) -> Decimal | None:
+    normalized = raw.replace(",", ".").replace(" ", "")
+    if not normalized:
+        return None
+    try:
+        return Decimal(normalized)
+    except (InvalidOperation, ValueError):
+        return None
 
 
 def _ensure_app_user_for_auto_requests(tenant):
@@ -593,6 +603,9 @@ class PortalRequestViewSet(
         "status",
         "created_at",
         "title",
+        "vendor",
+        "category",
+        "payment_type",
     ]
     ordering = ["-submitted_at", "-id"]
 
@@ -695,6 +708,9 @@ class PortalRequestViewSet(
             qs = qs.filter(
                 Q(vendor_ref__name__icontains=vendor_search) | Q(vendor__icontains=vendor_search)
             )
+        vendor_raw = (self.request.query_params.get("vendor") or "").strip()
+        if vendor_raw:
+            qs = qs.filter(Q(vendor=vendor_raw) | Q(vendor_ref__name=vendor_raw))
         amortized_only = self._parse_bool_query("amortized_only")
         if amortized_only:
             qs = qs.filter(amortization_months__gt=1)
@@ -719,13 +735,32 @@ class PortalRequestViewSet(
             qs = qs.filter(requester_id=requester_id)
         search = (self.request.query_params.get("search") or "").strip()
         if search:
-            qs = qs.filter(
+            search_q = (
                 Q(title__icontains=search)
                 | Q(vendor__icontains=search)
                 | Q(vendor_ref__name__icontains=search)
                 | Q(category__icontains=search)
                 | Q(description__icontains=search)
+                | Q(company_payer__icontains=search)
+                | Q(payment_purpose__icontains=search)
+                | Q(status__icontains=search)
+                | Q(payment_type__icontains=search)
+                | Q(urgency__icontains=search)
+                | Q(currency__icontains=search)
+                | Q(requester__username__icontains=search)
             )
+            try:
+                search_q |= Q(id=int(search))
+            except (ValueError, TypeError):
+                pass
+            amount_decimal = _search_decimal_from_text(search)
+            if amount_decimal is not None:
+                search_q |= Q(amount=amount_decimal)
+            if any(ch.isdigit() for ch in search):
+                amount_needle = search.replace(",", "").replace(" ", "")
+                qs = qs.annotate(_amount_search_text=Cast("amount", CharField(max_length=32)))
+                search_q |= Q(_amount_search_text__icontains=amount_needle)
+            qs = qs.filter(search_q)
         amount_min = parse_decimal_query(self.request, "amount_min")
         amount_max = parse_decimal_query(self.request, "amount_max")
         if amount_min is not None:
@@ -1906,3 +1941,37 @@ class RequestAiChatProxyView(APIView):
 
         content_type = upstream.headers.get("Content-Type", "application/json")
         return HttpResponse(upstream.content, status=upstream.status_code, content_type=content_type)
+
+
+class RequestCategoriesView(APIView):
+    module_key = "requests"
+    permission_classes = [IsAuthenticated, HasEffectiveModuleAccess]
+
+    def get(self, request):
+        tenant = getattr(request, "tenant", None)
+        if not tenant:
+            raise ValidationError({"detail": "Unknown tenant."})
+        categories = (
+            RequestCategory.objects.filter(tenant=tenant, is_active=True)
+            .order_by("name")
+            .values("id", "name")
+        )
+        return Response(list(categories))
+
+
+class RequestVendorsView(APIView):
+    module_key = "requests"
+    permission_classes = [IsAuthenticated, HasEffectiveModuleAccess]
+
+    def get(self, request):
+        tenant = getattr(request, "tenant", None)
+        if not tenant:
+            raise ValidationError({"detail": "Unknown tenant."})
+        vendor_names = (
+            Request.objects.filter(tenant=tenant)
+            .exclude(vendor="")
+            .order_by("vendor")
+            .values_list("vendor", flat=True)
+            .distinct()
+        )
+        return Response(list(vendor_names))
