@@ -18,8 +18,11 @@ from apps.modules.investments.models import (
 )
 from apps.modules.requests.integration_settings import get_requests_messaging_gateway_settings
 from apps.modules.telegram_approvals.services import (
+    apply_gateway_message_lifecycle,
+    build_gateway_payload,
     _display_user_name,
     _format_amount_for_telegram,
+    extract_message_id,
     get_tenant_bot_token,
     post_messaging_gateway,
 )
@@ -248,19 +251,17 @@ def _investment_messaging_payload(
     message_text: str,
     include_buttons: bool,
 ) -> dict:
-    payload: dict = {
-        "action": action,
-        "text": message_text,
-        "recipient_id": str(approval.approver_recipient_id),
-        "bot_token": get_tenant_bot_token(approval.tenant),
-        "tenant_id": str(approval.tenant_id),
-        "approval_id": str(approval.id),
-        "request_id": approval.invest_return_id,
-        "buttons": _build_buttons(approval=approval) if include_buttons else [],
-    }
-    if approval.gateway_message_id:
-        payload["message_id"] = approval.gateway_message_id
-    return payload
+    return build_gateway_payload(
+        action=action,
+        tenant_id=approval.tenant_id,
+        recipient_id=approval.approver_recipient_id,
+        bot_token=get_tenant_bot_token(approval.tenant),
+        message_text=message_text,
+        approval_id=approval.id,
+        request_id=approval.invest_return_id,
+        message_id=approval.gateway_message_id,
+        buttons=_build_buttons(approval=approval) if include_buttons else [],
+    )
 
 
 def _dispatch_approval_message(*, approval: InvestmentReturnApproval, include_buttons: bool = True) -> bool:
@@ -280,23 +281,10 @@ def _dispatch_approval_message(*, approval: InvestmentReturnApproval, include_bu
         message_text=message_text,
         include_buttons=include_buttons,
     )
-    response_data = post_messaging_gateway(tenant=approval.tenant, payload=payload) or {}
-    message_id = response_data.get("message_id")
-    if message_id in (None, "") and isinstance(response_data.get("result"), dict):
-        message_id = response_data["result"].get("message_id")
-    updates = []
-    if isinstance(message_id, int):
-        approval.gateway_message_id = message_id
-        updates.append("gateway_message_id")
-    if not approval.message_sent:
-        approval.message_sent = True
-        updates.append("message_sent")
-    if approval.message_sent_at is None:
-        approval.message_sent_at = timezone.now()
-        updates.append("message_sent_at")
-    if updates:
-        approval.save(update_fields=updates)
-    return isinstance(message_id, int)
+    response_data = post_messaging_gateway(tenant=approval.tenant, payload=payload)
+    message_id = extract_message_id(response_data)
+    apply_gateway_message_lifecycle(obj=approval, message_id=message_id)
+    return message_id is not None
 
 
 def refresh_invest_return_approval_messages(*, invest_return: InvestReturn) -> int:

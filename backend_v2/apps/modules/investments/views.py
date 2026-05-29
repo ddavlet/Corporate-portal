@@ -64,6 +64,7 @@ from apps.modules.investments.serializers import (
 from apps.common.pagination import PortalCursorPagination
 from apps.common.query_params import parse_bool_query, parse_date_query
 from apps.common.viewsets import NoPortalPaginationMixin, PortalListViewSetMixin
+from apps.modules.telegram_approvals.services import ensure_callback_identity
 from apps.tenants.models import TenantMembership
 from apps.tenants.permissions import HasEffectiveModuleAccess
 
@@ -777,12 +778,14 @@ class InvestmentApprovalWebhookView(APIView):
                 raise ValidationError({"approval_id": "Approval not found."})
             if approval.step_type == InvestmentProjectApprovalConfigStep.STEP_TYPE_NOTIFICATION:
                 raise ValidationError({"detail": "Этап notification не принимает ответы по кнопкам."})
-            if message_id is not None and approval.gateway_message_id is not None and approval.gateway_message_id != message_id:
-                raise ValidationError({"message_id": "Callback message_id does not match stored message_id."})
-            if approval.approver_recipient_id is not None and approval.approver_recipient_id != chat_id:
-                raise ValidationError({"recipient_id": "Recipient is not allowed for this approval."})
-            if approval.approver_external_user_id is not None and approval.approver_external_user_id != from_id:
-                raise ValidationError({"user_id": "User is not allowed for this approval."})
+            ensure_callback_identity(
+                callback_message_id=message_id,
+                stored_message_id=approval.gateway_message_id,
+                callback_recipient_id=chat_id,
+                stored_recipient_id=approval.approver_recipient_id,
+                callback_external_user_id=from_id,
+                stored_external_user_id=approval.approver_external_user_id,
+            )
 
             if message_id is not None and approval.gateway_message_id is None:
                 approval.gateway_message_id = message_id
@@ -814,12 +817,14 @@ class InvestmentApprovalWebhookView(APIView):
             raise ValidationError({"approval_id": "Approval not found."})
         if approval.step_type == InvestmentApprovalConfigStep.STEP_TYPE_NOTIFICATION:
             raise ValidationError({"detail": "Этап notification не принимает ответы по кнопкам."})
-        if message_id is not None and approval.gateway_message_id is not None and approval.gateway_message_id != message_id:
-            raise ValidationError({"message_id": "Callback message_id does not match stored message_id."})
-        if approval.approver_recipient_id is not None and approval.approver_recipient_id != chat_id:
-            raise ValidationError({"recipient_id": "Recipient is not allowed for this approval."})
-        if approval.approver_external_user_id is not None and approval.approver_external_user_id != from_id:
-            raise ValidationError({"user_id": "User is not allowed for this approval."})
+        ensure_callback_identity(
+            callback_message_id=message_id,
+            stored_message_id=approval.gateway_message_id,
+            callback_recipient_id=chat_id,
+            stored_recipient_id=approval.approver_recipient_id,
+            callback_external_user_id=from_id,
+            stored_external_user_id=approval.approver_external_user_id,
+        )
 
         if message_id is not None and approval.gateway_message_id is None:
             approval.gateway_message_id = message_id

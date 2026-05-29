@@ -54,7 +54,13 @@ def send_task_notification(
     is_reminder: bool = False,
 ) -> None:
     """Send a Telegram notification for a task (new assignment or reminder)."""
-    from apps.modules.telegram_approvals.services import post_messaging_gateway
+    from django.utils import timezone
+    from apps.modules.telegram_approvals.models import TelegramMessage
+    from apps.modules.telegram_approvals.services import (
+        build_gateway_payload,
+        extract_message_id,
+        post_messaging_gateway,
+    )
 
     recipient_id = getattr(task.assignee, "telegram_from_id", None)
     if not recipient_id:
@@ -62,12 +68,23 @@ def send_task_notification(
         return
 
     prefix = "⏰ <b>Напоминание о задаче</b>\n\n" if is_reminder else "📋 <b>Вам назначена новая задача</b>\n\n"
-    payload = {
-        "action": "send",
-        "text": _format_message(task, prefix),
-        "recipient_id": str(recipient_id),
-        "bot_token": bot_token,
-        "tenant_id": str(tenant.pk),
-        "buttons": _task_buttons(task.id, task.status) + _webapp_button(tenant),
-    }
-    post_messaging_gateway(tenant=tenant, payload=payload)
+    payload = build_gateway_payload(
+        action="send",
+        tenant_id=tenant.pk,
+        recipient_id=recipient_id,
+        bot_token=bot_token,
+        message_text=_format_message(task, prefix),
+        buttons=_task_buttons(task.id, task.status) + _webapp_button(tenant),
+    )
+    response = post_messaging_gateway(tenant=tenant, payload=payload)
+    message_id = extract_message_id(response)
+    if message_id:
+        tg_msg = TelegramMessage.objects.create(
+            tenant=tenant,
+            recipient_id=str(recipient_id),
+            external_user_id=recipient_id,
+            message_id=message_id,
+            sent_at=timezone.now(),
+        )
+        task.telegram_message = tg_msg
+        task.save(update_fields=["telegram_message"])
