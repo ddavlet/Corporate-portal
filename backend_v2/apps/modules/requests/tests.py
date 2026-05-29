@@ -3897,6 +3897,24 @@ class RequestPaginationAndFilterTests(APITestCase):
         self.assertIn(r_match.id, ids)
         self.assertNotIn(r_other.id, ids)
 
+    def test_search_by_amount_exact(self):
+        r_match = self._make(title="Large payment", amount=Decimal("150000.00"))
+        r_other = self._make(title="Small payment", amount=Decimal("99.00"))
+        res = self._list("?search=150000")
+        self.assertEqual(res.status_code, 200)
+        ids = {r["id"] for r in list_results(res)}
+        self.assertIn(r_match.id, ids)
+        self.assertNotIn(r_other.id, ids)
+
+    def test_search_by_amount_with_decimal_separator(self):
+        r_match = self._make(amount=Decimal("1234.56"))
+        r_other = self._make(amount=Decimal("9999.00"))
+        res = self._list("?search=1234,56")
+        self.assertEqual(res.status_code, 200)
+        ids = {r["id"] for r in list_results(res)}
+        self.assertIn(r_match.id, ids)
+        self.assertNotIn(r_other.id, ids)
+
     def test_filter_by_requester(self):
         other = User.objects.create_user(username="pag_req2", password="x")
         TenantMembership.objects.create(tenant=self.tenant, user=other, is_active=True)

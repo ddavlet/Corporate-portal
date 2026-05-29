@@ -716,7 +716,7 @@ export function RequestsPage() {
       <Space direction="vertical" size={12} style={{ display: 'flex', marginTop: 12, marginBottom: 12 }}>
         <Space wrap>
           <Input
-            placeholder="Поиск по заголовку, поставщику, категории, описанию"
+            placeholder="Поиск по всем полям"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             allowClear

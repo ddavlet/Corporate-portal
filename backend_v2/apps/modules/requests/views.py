@@ -1,6 +1,6 @@
 import base64
 from datetime import date
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 import logging
 import uuid
 import mimetypes
@@ -11,7 +11,8 @@ logger = logging.getLogger(__name__)
 from django.contrib.auth import get_user_model
 from django.db import connection
 from django.db import transaction
-from django.db.models import Q
+from django.db.models import CharField, Q
+from django.db.models.functions import Cast
 from django.core.files.storage import default_storage
 from django.conf import settings
 from django.http import FileResponse, HttpResponse
@@ -124,6 +125,15 @@ def _display_user_name(user) -> str:
     full = (getattr(user, "full_name", "") or "").strip()
     return full or user.username
 
+
+def _search_decimal_from_text(raw: str) -> Decimal | None:
+    normalized = raw.replace(",", ".").replace(" ", "")
+    if not normalized:
+        return None
+    try:
+        return Decimal(normalized)
+    except (InvalidOperation, ValueError):
+        return None
 
 
 def _ensure_app_user_for_auto_requests(tenant):
@@ -743,6 +753,13 @@ class PortalRequestViewSet(
                 search_q |= Q(id=int(search))
             except (ValueError, TypeError):
                 pass
+            amount_decimal = _search_decimal_from_text(search)
+            if amount_decimal is not None:
+                search_q |= Q(amount=amount_decimal)
+            if any(ch.isdigit() for ch in search):
+                amount_needle = search.replace(",", "").replace(" ", "")
+                qs = qs.annotate(_amount_search_text=Cast("amount", CharField(max_length=32)))
+                search_q |= Q(_amount_search_text__icontains=amount_needle)
             qs = qs.filter(search_q)
         amount_min = parse_decimal_query(self.request, "amount_min")
         amount_max = parse_decimal_query(self.request, "amount_max")
