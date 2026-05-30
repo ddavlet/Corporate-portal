@@ -2583,6 +2583,17 @@ export async function copyPortalRequest(requestId: number): Promise<{ request_id
   return { request_id: Number(json.request_id) }
 }
 
+export async function submitRequestForApproval(requestId: number): Promise<{ status: string }> {
+  const res = await apiFetch(`/api/requests/${requestId}/submit-for-approval/`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({}),
+  })
+  if (!res.ok) throw new Error(await parseErrorBody(res))
+  const json = (await res.json().catch(() => null)) as { status?: string } | null
+  return { status: json?.status ?? '' }
+}
+
 export async function uploadRequestAttachment(requestId: number, file: File): Promise<RequestAttachment> {
   const fd = new FormData()
   fd.append('file', file)
