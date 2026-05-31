@@ -192,8 +192,10 @@ class McpOAuthLongStateTest(TestCase):
     """create_authorization_code must not fail when state exceeds 255 chars."""
 
     def setUp(self):
+        from django.contrib.auth import get_user_model
         from apps.mcp_server.oauth.models import OAuthClient
 
+        self.user = get_user_model().objects.create_user(username="n8n_state_test", password="x")
         self.client_obj = OAuthClient.objects.create(
             client_id="n8n-test",
             redirect_uris=["https://dev.kolberg.uz/rest/oauth2-credential/callback"],
@@ -207,7 +209,7 @@ class McpOAuthLongStateTest(TestCase):
         long_state = "x" * 512
         code = create_authorization_code(
             client_id="n8n-test",
-            user_id=999,
+            user_id=self.user.id,
             redirect_uri="https://dev.kolberg.uz/rest/oauth2-credential/callback",
             redirect_uri_provided_explicitly=True,
             code_challenge="A" * 43,
