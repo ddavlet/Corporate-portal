@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Alert, Button, Card, DatePicker, Input, InputNumber, Modal, Select, Space, Typography, Upload, message } from 'antd'
 import type { UploadFile } from 'antd/es/upload/interface'
-import { CopyOutlined, PlusOutlined, ReloadOutlined } from '@ant-design/icons'
+import { CopyOutlined, PlusOutlined, ReloadOutlined, SendOutlined } from '@ant-design/icons'
 import { useNavigate, useParams, useLocation } from 'react-router-dom'
 import { RequestReturnBackButton } from './RequestReturnBackButton'
 import {
@@ -11,6 +11,7 @@ import {
   getRequestFormOptions,
   deleteRequestAttachment,
   resendRequestApprovals,
+  submitRequestForApproval,
   REQUEST_ATTACHMENT_MAX_FILES,
   uploadRequestAttachment,
   validateRequestAttachment,
@@ -60,6 +61,7 @@ export function RequestDetailPage({ listPath = '/requests', variant = 'portal' }
   const [error, setError] = useState<string | null>(null)
   const [openNoteModal, setOpenNoteModal] = useState(false)
   const [resendLoading, setResendLoading] = useState(false)
+  const [submitLoading, setSubmitLoading] = useState(false)
   const [approvalBusy, setApprovalBusy] = useState(false)
   const [isTenantAdmin, setIsTenantAdmin] = useState(false)
 
@@ -224,6 +226,26 @@ export function RequestDetailPage({ listPath = '/requests', variant = 'portal' }
       message.error(e instanceof Error ? e.message : 'Не удалось отправить запрос повторно')
     } finally {
       setResendLoading(false)
+    }
+  }
+
+  const submitDraft = async () => {
+    if (!detail?.id) return
+    setSubmitLoading(true)
+    try {
+      const { status: newStatus } = await submitRequestForApproval(detail.id)
+      if (!newStatus || newStatus === 'DRAFT') {
+        // Backend returns 200 but keeps DRAFT when no approval steps/approvers are configured
+        // for this payment type, so nothing was actually routed.
+        message.warning('Заявка осталась черновиком: для этого типа оплаты не настроены согласующие.')
+      } else {
+        message.success('Заявка отправлена на согласование')
+      }
+      await refreshDetail()
+    } catch (e: unknown) {
+      message.error(e instanceof Error ? e.message : 'Не удалось отправить заявку на согласование')
+    } finally {
+      setSubmitLoading(false)
     }
   }
 
@@ -568,6 +590,18 @@ export function RequestDetailPage({ listPath = '/requests', variant = 'portal' }
                 </Typography.Text>
               ) : null}
               {canEditDraft ? (
+                <Button
+                  type="primary"
+                  size="large"
+                  block
+                  icon={<SendOutlined />}
+                  loading={submitLoading}
+                  onClick={() => void submitDraft()}
+                >
+                  Отправить на согласование
+                </Button>
+              ) : null}
+              {canEditDraft ? (
                 <Button size="large" block onClick={() => setEditOpen(true)}>
                   Редактировать черновик
                 </Button>
@@ -600,6 +634,14 @@ export function RequestDetailPage({ listPath = '/requests', variant = 'portal' }
                 <RequestReturnBackButton fallbackPath={listPath} fallbackLabel="Назад к списку" />
                 {canEditDraft ? (
                   <>
+                    <Button
+                      type="primary"
+                      icon={<SendOutlined />}
+                      loading={submitLoading}
+                      onClick={() => void submitDraft()}
+                    >
+                      Отправить на согласование
+                    </Button>
                     <Button onClick={() => setEditOpen(true)}>Редактировать черновик</Button>
                     <Button onClick={() => setUploadOpen(true)}>Прикрепить файл</Button>
                   </>

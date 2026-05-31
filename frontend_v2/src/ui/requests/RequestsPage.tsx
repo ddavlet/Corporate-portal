@@ -4,7 +4,7 @@ import type { ColumnsType, TableProps } from 'antd/es/table'
 import type { Dayjs } from 'dayjs'
 import dayjs from 'dayjs'
 import { useNavigate } from 'react-router-dom'
-import { CopyOutlined, FileAddOutlined, FileSearchOutlined, MessageOutlined, ReloadOutlined } from '@ant-design/icons'
+import { CopyOutlined, FileAddOutlined, FileSearchOutlined, MessageOutlined, ReloadOutlined, SendOutlined } from '@ant-design/icons'
 import {
   apiFetch,
   copyPortalRequest,
@@ -13,6 +13,7 @@ import {
   getRequestVendors,
   parseErrorBody,
   resendRequestApprovals,
+  submitRequestForApproval,
   type RequestCategoryOption,
   type RequestFormOptionsPaymentType,
   type RequestFormOptionsRequester,
@@ -172,6 +173,7 @@ export function RequestsPage() {
   const [detailError, setDetailError] = useState<string | null>(null)
   const [openNoteModal, setOpenNoteModal] = useState(false)
   const [resendLoading, setResendLoading] = useState(false)
+  const [submitLoading, setSubmitLoading] = useState(false)
   const [isTenantAdmin, setIsTenantAdmin] = useState(false)
   const [editOpen, setEditOpen] = useState(false)
   const [editSaving, setEditSaving] = useState(false)
@@ -669,6 +671,28 @@ export function RequestsPage() {
     }
   }
 
+  const submitDraft = async (requestId: number) => {
+    setSubmitLoading(true)
+    try {
+      const { status: newStatus } = await submitRequestForApproval(requestId)
+      if (!newStatus || newStatus === 'DRAFT') {
+        // Backend returns 200 but keeps DRAFT when no approval steps/approvers are configured
+        // for this payment type, so nothing was actually routed.
+        message.warning('Заявка осталась черновиком: для этого типа оплаты не настроены согласующие.')
+        return
+      }
+      // Changing selectedRow re-triggers the detail fetch, refreshing the approvals list too.
+      setSelectedRow((prev) => (prev ? { ...prev, status: newStatus } : prev))
+      setSelectedDetail((prev) => (prev ? { ...prev, status: newStatus } : prev))
+      setRows((prev) => prev.map((row) => (row.id === requestId ? { ...row, status: newStatus } : row)))
+      message.success('Заявка отправлена на согласование')
+    } catch (e: any) {
+      message.error(e?.message || 'Не удалось отправить заявку на согласование')
+    } finally {
+      setSubmitLoading(false)
+    }
+  }
+
   async function duplicateRequest(requestId: number) {
     try {
       const created = await copyPortalRequest(requestId)
@@ -892,6 +916,16 @@ export function RequestsPage() {
               <Button icon={<CopyOutlined />} onClick={() => selectedRow && void duplicateRequest(selectedRow.id)}>
                 Копировать
               </Button>
+              {selectedRow.status === 'DRAFT' ? (
+                <Button
+                  type="primary"
+                  icon={<SendOutlined />}
+                  loading={submitLoading}
+                  onClick={() => submitDraft(selectedRow.id)}
+                >
+                  Отправить на согласование
+                </Button>
+              ) : null}
               {isTenantAdmin ? (
                 <Button
                   onClick={() => {
