@@ -135,6 +135,9 @@ Tasks (module: "tasks"):
   create_task             — create a manual task (admin/director only; can assign to any member)
   update_task_status      — change task status (assignee, admin, or director)
   add_task_comment        — post a comment on a task (assignee, admin, or director)
+  edit_task               — update title, description, or assignee (creator, admin, or director)
+  delete_task             — permanently delete a task (creator, admin, or director)
+  list_assignee_candidates — users eligible as task assignees (admin/director: all; others: self only)
 
 Directories (modules: "vendors", "wallets"):
   list_vendors            — vendor directory; filter by kind or name
@@ -1136,6 +1139,85 @@ def add_task_comment(
         return _err(str(e))
     except Exception as e:
         return _err(f"Unexpected error: {e}")
+
+
+@tool
+def edit_task(
+    tenant_id: int,
+    task_id: int,
+    title: str = "",
+    description: str = "",
+    assignee_id: int = 0,
+) -> dict:
+    """Update a task's title, description, or assignee.
+
+    Only the task creator, admin, or director can edit a task.
+    Pass only the fields you want to change — omitted fields stay unchanged.
+    Reassigning to a different user requires admin or director role.
+
+    Required roles: creator, admin, or director.
+
+    Args:
+        tenant_id: Tenant primary key (get from list_my_tenants).
+        task_id: Task primary key (get from list_my_tasks).
+        title: New title (omit to keep current).
+        description: New description (omit to keep current).
+        assignee_id: New assignee user ID (0 = keep current; get from list_assignee_candidates).
+    """
+    try:
+        return task_tools.edit_task(
+            tenant_id=tenant_id,
+            task_id=task_id,
+            title=title,
+            description=description,
+            assignee_id=assignee_id,
+        )
+    except (PermissionError, ValueError) as e:
+        return _err(str(e))
+    except Exception as e:
+        return _err(f"Unexpected error: {e}")
+
+
+@tool
+def delete_task(tenant_id: int, task_id: int) -> dict:
+    """Delete a task permanently.
+
+    Only the task creator, admin, or director can delete a task.
+
+    Required roles: creator, admin, or director.
+
+    Args:
+        tenant_id: Tenant primary key (get from list_my_tenants).
+        task_id: Task primary key (get from list_my_tasks).
+    """
+    try:
+        return task_tools.delete_task(tenant_id=tenant_id, task_id=task_id)
+    except (PermissionError, ValueError) as e:
+        return _err(str(e))
+    except Exception as e:
+        return _err(f"Unexpected error: {e}")
+
+
+@tool
+def list_assignee_candidates(tenant_id: int) -> list:
+    """List users who can be assigned a task in this tenant.
+
+    Admins and directors see all active members.
+    Other roles see only themselves (they may only self-assign via the web UI).
+
+    Use this before create_task or edit_task to find valid assignee_id values.
+
+    Required roles: any.
+
+    Args:
+        tenant_id: Tenant primary key (get from list_my_tenants).
+    """
+    try:
+        return task_tools.list_assignee_candidates(tenant_id=tenant_id)
+    except (PermissionError, ValueError) as e:
+        return _list_err(str(e))
+    except Exception as e:
+        return _list_err(f"Unexpected error: {e}")
 
 
 # ---------------------------------------------------------------------------

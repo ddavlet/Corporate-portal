@@ -229,3 +229,130 @@ def add_task_comment(
         "body": comment.body,
         "created_at": comment.created_at.isoformat() if comment.created_at else None,
     })
+
+
+def _require_can_edit_or_delete(user, tenant, task) -> None:
+    """Raise PermissionError if user is neither the creator nor admin/director."""
+    from apps.modules.tasks.permissions import _is_tenant_admin_or_director
+    if task.created_by_id == user.id:
+        return
+    if task.tenant_id != tenant.id or not _is_tenant_admin_or_director(user, tenant):
+        raise PermissionError("Только создатель задачи, admin или director могут выполнить это действие.")
+
+
+def edit_task(
+    tenant_id: int,
+    task_id: int,
+    title: str = "",
+    description: str = "",
+    assignee_id: int = 0,
+) -> dict[str, Any]:
+    """Update a task's title, description, or assignee.
+
+    Only the task creator, admin, or director can edit a task.
+    Pass only the fields you want to change — omitted fields are left unchanged.
+    Reassigning to a different user requires admin or director role.
+
+    Args:
+        tenant_id: Tenant primary key (get from list_my_tenants).
+        task_id: Task primary key (get from list_my_tasks).
+        title: New title (leave empty to keep current).
+        description: New description (leave empty to keep current).
+        assignee_id: New assignee user ID (0 = keep current).
+    """
+    user, tenant = require_module_access(tenant_id, MODULE)
+
+    from apps.modules.tasks.models import Task
+    from apps.modules.tasks.querysets.resolver import resolve_scope_for_user
+    from apps.modules.tasks.permissions import _is_tenant_admin_or_director
+
+    scope = resolve_scope_for_user(user, tenant)
+    qs = scope.filter_queryset(Task.objects.filter(tenant=tenant), user, tenant)
+    try:
+        task = qs.get(id=task_id)
+    except Task.DoesNotExist:
+        raise ValueError(f"Задача {task_id} не найдена или недоступна.")
+
+    _require_can_edit_or_delete(user, tenant, task)
+
+    update_fields: list[str] = []
+    if title and title.strip() != task.title:
+        task.title = title.strip()
+        update_fields.append("title")
+    if description != "" and description != task.description:
+        task.description = description
+        update_fields.append("description")
+    if assignee_id and assignee_id != task.assignee_id:
+        if not _is_tenant_admin_or_director(user, tenant):
+            raise PermissionError("Только admin или director могут переназначить задачу.")
+        from apps.tenants.models import TenantMembership
+        if not TenantMembership.objects.filter(tenant=tenant, user_id=assignee_id, is_active=True).exists():
+            raise ValueError(f"Пользователь {assignee_id} не является активным участником тенанта.")
+        task.assignee_id = assignee_id
+        update_fields.append("assignee_id")
+
+    if update_fields:
+        update_fields.append("updated_at")
+        task.save(update_fields=update_fields)
+        task.refresh_from_db()
+
+    return json_safe(_task_to_dict(task))
+
+
+def delete_task(tenant_id: int, task_id: int) -> dict[str, Any]:
+    """Delete a task permanently.
+
+    Only the task creator, admin, or director can delete a task.
+
+    Args:
+        tenant_id: Tenant primary key (get from list_my_tenants).
+        task_id: Task primary key (get from list_my_tasks).
+    """
+    user, tenant = require_module_access(tenant_id, MODULE)
+
+    from apps.modules.tasks.models import Task
+    from apps.modules.tasks.querysets.resolver import resolve_scope_for_user
+
+    scope = resolve_scope_for_user(user, tenant)
+    qs = scope.filter_queryset(Task.objects.filter(tenant=tenant), user, tenant)
+    try:
+        task = qs.get(id=task_id)
+    except Task.DoesNotExist:
+        raise ValueError(f"Задача {task_id} не найдена или недоступна.")
+
+    _require_can_edit_or_delete(user, tenant, task)
+    task_id_deleted = task.id
+    task.delete()
+    return {"deleted": True, "task_id": task_id_deleted}
+
+
+def list_assignee_candidates(tenant_id: int) -> list[dict[str, Any]]:
+    """List users who can be assigned a task in this tenant.
+
+    Admins and directors see all active members.
+    All other roles see only themselves (they may only self-assign).
+
+    Use this before create_task or edit_task to find valid assignee_id values.
+
+    Args:
+        tenant_id: Tenant primary key (get from list_my_tenants).
+    """
+    user, tenant = require_module_access(tenant_id, MODULE)
+
+    from apps.modules.tasks.permissions import _is_tenant_admin_or_director
+    from apps.tenants.models import TenantMembership
+
+    if _is_tenant_admin_or_director(user, tenant):
+        memberships = (
+            TenantMembership.objects.filter(tenant=tenant, is_active=True)
+            .select_related("user")
+            .order_by("user__full_name")
+        )
+        return json_safe([
+            {"id": m.user_id, "full_name": m.user.get_full_name() or m.user.username, "username": m.user.username}
+            for m in memberships
+        ])
+    else:
+        return json_safe([
+            {"id": user.id, "full_name": user.get_full_name() or user.username, "username": user.username}
+        ])
