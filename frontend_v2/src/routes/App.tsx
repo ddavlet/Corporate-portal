@@ -62,6 +62,7 @@ import { TgCashExpenseDetailPage } from '../ui/tg/TgCashExpenseDetailPage'
 import { TgBankPage } from '../ui/tg/TgBankPage'
 import { TgBankListPage } from '../ui/tg/TgBankListPage'
 import { TgBankExpenseDetailPage } from '../ui/tg/TgBankExpenseDetailPage'
+import { TgTasksPage } from '../ui/tg/TgTasksPage'
 import { useAuth } from '../ui/auth'
 import { ModuleAccessProvider } from '../ui/moduleAccess'
 import { setUnauthorizedHandler } from '../lib/api'
@@ -114,6 +115,7 @@ export function App() {
         <Route path="bank/expenses" element={<TgBankListPage mode="expenses" />} />
         <Route path="bank/revenues" element={<TgBankListPage mode="revenues" />} />
         <Route path="bank/expenses/:id" element={<TgBankExpenseDetailPage />} />
+        <Route path="tasks" element={<TgTasksPage />} />
         <Route path="payment" element={<TgPaymentConfirmPage />} />
         <Route path="comment" element={<TgCommentPage />} />
       </Route>
