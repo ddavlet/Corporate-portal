@@ -16,7 +16,7 @@ class Migration(migrations.Migration):
 
     operations = [
         migrations.SeparateDatabaseAndState(
-            state=[
+            state_operations=[
                 migrations.AddField(
                     model_name="userrequestapproval",
                     name="telegram_message",
@@ -29,6 +29,6 @@ class Migration(migrations.Migration):
                     ),
                 ),
             ],
-            database=[],
+            database_operations=[],
         ),
     ]
