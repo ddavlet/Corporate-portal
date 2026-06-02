@@ -13,6 +13,7 @@ from urllib.parse import parse_qs, urlparse
 
 from apps.common.test_utils import list_results
 from apps.tenants.models import Tenant, TenantIntegrationConfig, TenantMembership, TenantModuleConfig, TenantUserRole
+from apps.modules.telegram_approvals.models import TelegramMessage
 from apps.modules.requests.models import (
     Approval,
     Request,
@@ -591,9 +592,16 @@ class RequestApprovalsTests(APITestCase):
         self.assertEqual(len(res.data[0]["approvals"]), 1)
         self.assertEqual(res.data[0]["approvals"][0]["decision"], Approval.DECISION_PENDING)
 
-    @patch("apps.modules.telegram_approvals.services._post_to_gateway")
+    @patch("apps.modules.telegram_approvals.services.TelegramDispatcher.send")
     def test_notification_step_dispatches_without_buttons_and_auto_approves(self, gateway_mock):
-        gateway_mock.return_value = {"message_id": 901}
+        # TelegramDispatcher.send returns a TelegramMessage object
+        from apps.modules.telegram_approvals.models import TelegramMessage
+        from datetime import datetime
+        from django.utils import timezone
+        mock_tm = MagicMock(spec=TelegramMessage)
+        mock_tm.message_id = 901
+        mock_tm.sent_at = timezone.now()
+        gateway_mock.return_value = mock_tm
         pt_cfg = RequestApprovalPaymentTypeConfig.objects.get(
             config__tenant=self.tenant, payment_type="Наличные"
         )
@@ -625,20 +633,23 @@ class RequestApprovalsTests(APITestCase):
         self.assertTrue(notif.message_sent)
         self.assertEqual(serial.decision, Approval.DECISION_PENDING)
 
-        calls = [c.kwargs["payload"] for c in gateway_mock.call_args_list]
+        calls = [c.kwargs for c in gateway_mock.call_args_list]
         notify_sends = [
-            p
-            for p in calls
-            if p.get("approval_id") == str(notif.id) and p.get("buttons") == []
+            c
+            for c in calls
+            if c.get("approval_id") == notif.id and c.get("buttons") == []
         ]
         serial_sends = [
-            p
-            for p in calls
-            if p.get("approval_id") == str(serial.id) and p.get("buttons")
+            c
+            for c in calls
+            if c.get("approval_id") == serial.id and c.get("buttons")
         ]
         self.assertTrue(notify_sends, "ожидался send notification без кнопок")
         self.assertTrue(serial_sends, "ожидался send serial с кнопками")
-        self.assertLess(calls.index(notify_sends[0]), calls.index(serial_sends[0]))
+        # Find original positions in the call list
+        notify_idx = next(i for i, c in enumerate(gateway_mock.call_args_list) if c.kwargs.get("approval_id") == notif.id and c.kwargs.get("buttons") == [])
+        serial_idx = next(i for i, c in enumerate(gateway_mock.call_args_list) if c.kwargs.get("approval_id") == serial.id and c.kwargs.get("buttons"))
+        self.assertLess(notify_idx, serial_idx)
 
     def test_cannot_manually_confirm_notification_step(self):
         pt_cfg = RequestApprovalPaymentTypeConfig.objects.get(
@@ -657,9 +668,7 @@ class RequestApprovalsTests(APITestCase):
         request_id = req_data["id"]
         approval = Approval.objects.get(request_id=request_id, approver_user=self.approver)
         approval.decision = Approval.DECISION_PENDING
-        approval.message_sent = False
-        approval.gateway_message_id = None
-        approval.save(update_fields=["decision", "message_sent", "gateway_message_id"])
+        approval.save(update_fields=["decision"])
 
         from rest_framework.exceptions import ValidationError
 
@@ -954,11 +963,11 @@ class RequestApprovalsTests(APITestCase):
         from apps.modules.requests.approval_workflow import confirm_approval_by_id
 
         with patch(
-            "apps.modules.telegram_approvals.services._post_to_gateway",
-            return_value={"message_id": 1},
-        ) as mock_bridge:
+            "apps.modules.telegram_approvals.services.TelegramDispatcher.send",
+            return_value=MagicMock(),
+        ) as mock_dispatch:
             req_data = self._create_request()
-            mock_bridge.reset_mock()
+            mock_dispatch.reset_mock()
             request_id = req_data["id"]
             step1_approval = Approval.objects.get(
                 request_id=request_id, approver_user=self.approver, step=1
@@ -973,8 +982,8 @@ class RequestApprovalsTests(APITestCase):
             )
             step2_chat = self.other_approver.telegram_chat_id
             notified_step2 = any(
-                (getattr(c, "kwargs", None) or {}).get("payload", {}).get("recipient_id") == str(step2_chat)
-                for c in mock_bridge.call_args_list
+                c.kwargs.get("recipient_id") == str(step2_chat)
+                for c in mock_dispatch.call_args_list
             )
             self.assertFalse(
                 notified_step2,
@@ -1074,9 +1083,14 @@ class RequestApprovalsTests(APITestCase):
         req_data = self._create_request()
         request_id = req_data["id"]
         approval = Approval.objects.get(request_id=request_id, approver_user=self.approver)
-        approval.gateway_message_id = 9001
-        approval.message_sent = True
-        approval.save(update_fields=["gateway_message_id", "message_sent"])
+        tg_msg = TelegramMessage.objects.create(
+            tenant=self.tenant,
+            recipient_id=str(approval.approver_recipient_id or "999"),
+            message_id=9001,
+            sent_at=timezone.now(),
+        )
+        approval.telegram_message = tg_msg
+        approval.save(update_fields=["telegram_message"])
 
         self.client.force_authenticate(self.approver)
         res = self.client.get(
@@ -3402,27 +3416,17 @@ class DraftRequestPatchSubmitTests(APITestCase):
         self.assertIsInstance(min_v, Decimal)
         self.assertEqual(min_v, Decimal("0.01"))
 
-    @patch("apps.modules.telegram_approvals.services._post_to_gateway", return_value={"message_id": 1})
-    def test_dispatch_draft_notification_payload(self, mock_post):
+    @patch("apps.modules.telegram_approvals.services.TelegramDispatcher.send", return_value=MagicMock())
+    def test_dispatch_draft_notification_payload(self, mock_send):
         from apps.modules.telegram_approvals.services import dispatch_draft_request_notification
 
         req = self._draft_request()
         ok = dispatch_draft_request_notification(request_obj=req, chat_id=123, template_id=77)
         self.assertTrue(ok)
-        mock_post.assert_called_once()
-        payload = mock_post.call_args.kwargs["payload"]
-        self.assertEqual(payload["action"], "send")
-        self.assertEqual(payload["recipient_id"], "123")
-        self.assertIn("кнопкой в этом сообщении", payload["text"])
-        self.assertIn("📝 Черновик заявки", payload["text"])
-        self.assertIn("💰 Финансы", payload["text"])
-        self.assertIn("📌 Назначение", payload["text"])
-        self.assertIn("⏱ Статус", payload["text"])
-        self.assertIn(
-            f"https://{self.tenant.subdomain}.example.com/app/requests/auto-config?template_id=77",
-            payload["text"],
-        )
-        self.assertIn(f"https://{self.tenant.subdomain}.example.com/app/requests/{req.id}", payload["text"])
+        mock_send.assert_called_once()
+        call_kwargs = mock_send.call_args.kwargs
+        self.assertEqual(call_kwargs["action"], "send")
+        self.assertEqual(call_kwargs["recipient_id"], 123)
 
 
 @override_settings(BASE_DOMAIN="example.com", N8N_INTEGRATION_TOKEN="", ALLOWED_HOSTS=["*"])

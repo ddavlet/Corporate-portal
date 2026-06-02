@@ -9,6 +9,7 @@ import requests as _real_requests
 from django.core.management import call_command
 from django.contrib.auth import get_user_model
 from django.test import override_settings
+from django.utils import timezone
 from rest_framework.exceptions import ValidationError
 from rest_framework.test import APITestCase
 
@@ -83,6 +84,20 @@ class TelegramApprovalsTests(APITestCase):
         RequestApprovalStepApproverConfig.objects.create(step_config=step_cfg, approver_user=self.approver)
         self.host = "acme.example.com"
         self.webhook_token = "test-n8n-token"
+
+    def _create_approval_with_message(self, message_id, **kwargs):
+        """Create an Approval linked to a TelegramMessage (gateway_message_id and message_sent are now properties)."""
+        tm = TelegramMessage.objects.create(
+            tenant=self.tenant,
+            recipient_id=kwargs.get("approver_recipient_id", "999"),
+            external_user_id=kwargs.get("approver_external_user_id"),
+            message_id=message_id,
+            sent_at=timezone.now(),
+        )
+        return Approval.objects.create(
+            telegram_message=tm,
+            **{k: v for k, v in kwargs.items() if k != "approver_recipient_id" and k != "approver_external_user_id"},
+        )
 
     def test_tenant_bot_token_is_read_from_tenant_model(self):
         """Regression: token must not be taken from TenantIntegrationConfig (no bot token there)."""
@@ -236,13 +251,12 @@ class TelegramApprovalsTests(APITestCase):
             status=Request.STATUS_PROGRESS_1,
             billing_date=date(2026, 3, 31),
         )
-        approval = Approval.objects.create(
+        approval = self._create_approval_with_message(
+            message_id=4321,
             request=request_row,
             approver_user=self.approver,
             approver_recipient_id="555001",
             approver_external_user_id=777001,
-            gateway_message_id=4321,
-            message_sent=True,
             step=1,
             step_type=Approval.STEP_TYPE_SERIAL,
             decision=Approval.DECISION_PENDING,
@@ -291,13 +305,12 @@ class TelegramApprovalsTests(APITestCase):
             status=Request.STATUS_PROGRESS_1,
             billing_date=date(2026, 3, 31),
         )
-        Approval.objects.create(
+        self._create_approval_with_message(
+            message_id=4321,
             request=request_row,
             approver_user=self.approver,
             approver_recipient_id="555001",
             approver_external_user_id=777001,
-            gateway_message_id=4321,
-            message_sent=True,
             step=1,
             step_type=Approval.STEP_TYPE_SERIAL,
             decision=Approval.DECISION_PENDING,
@@ -338,13 +351,12 @@ class TelegramApprovalsTests(APITestCase):
             status=Request.STATUS_PROGRESS_1,
             billing_date=date(2026, 3, 31),
         )
-        Approval.objects.create(
+        self._create_approval_with_message(
+            message_id=4321,
             request=request_row,
             approver_user=self.approver,
             approver_recipient_id="555001",
             approver_external_user_id=777001,
-            gateway_message_id=4321,
-            message_sent=True,
             step=1,
             step_type=Approval.STEP_TYPE_SERIAL,
             decision=Approval.DECISION_APPROVED,
@@ -375,13 +387,12 @@ class TelegramApprovalsTests(APITestCase):
             payment_type="Перечисление",
             billing_date=date(2026, 3, 31),
         )
-        old_payment = Approval.objects.create(
+        old_payment = self._create_approval_with_message(
+            message_id=7654,
             request=request_row,
             approver_user=self.approver,
             approver_recipient_id="555001",
             approver_external_user_id=777001,
-            gateway_message_id=7654,
-            message_sent=True,
             step=2,
             step_type=Approval.STEP_TYPE_PAYMENT,
             decision=Approval.DECISION_PENDING,
@@ -419,13 +430,12 @@ class TelegramApprovalsTests(APITestCase):
             status=Request.STATUS_PROGRESS_1,
             billing_date=date(2026, 3, 31),
         )
-        approval = Approval.objects.create(
+        approval = self._create_approval_with_message(
+            message_id=4321,
             request=request_row,
             approver_user=self.approver,
             approver_recipient_id="555001",
             approver_external_user_id=777001,
-            gateway_message_id=4321,
-            message_sent=True,
             step=1,
             step_type=Approval.STEP_TYPE_SERIAL,
             decision=Approval.DECISION_PENDING,
@@ -603,13 +613,12 @@ class TelegramApprovalsTests(APITestCase):
             status=Request.STATUS_PROGRESS_1,
             billing_date=date(2026, 3, 31),
         )
-        approval = Approval.objects.create(
+        approval = self._create_approval_with_message(
+            message_id=4321,
             request=request_row,
             approver_user=self.approver,
             approver_recipient_id="555001",
             approver_external_user_id=777001,
-            gateway_message_id=4321,
-            message_sent=True,
             step=1,
             step_type=Approval.STEP_TYPE_SERIAL,
             decision=Approval.DECISION_PENDING,
@@ -646,13 +655,12 @@ class TelegramApprovalsTests(APITestCase):
             status=Request.STATUS_APPROVED,
             billing_date=date(2026, 3, 31),
         )
-        approval = Approval.objects.create(
+        approval = self._create_approval_with_message(
+            message_id=4321,
             request=request_row,
             approver_user=self.approver,
             approver_recipient_id="555001",
             approver_external_user_id=777001,
-            gateway_message_id=4321,
-            message_sent=True,
             step=1,
             step_type=Approval.STEP_TYPE_SERIAL,
             decision=Approval.DECISION_APPROVED,
@@ -697,8 +705,6 @@ class TelegramApprovalsTests(APITestCase):
             approver_user=self.approver,
             approver_recipient_id="555001",
             approver_external_user_id=777001,
-            gateway_message_id=None,
-            message_sent=True,
             step=1,
             step_type=Approval.STEP_TYPE_SERIAL,
             decision=Approval.DECISION_APPROVED,
@@ -744,8 +750,6 @@ class TelegramApprovalsTests(APITestCase):
             approver_user=self.approver,
             approver_recipient_id="555001",
             approver_external_user_id=777001,
-            gateway_message_id=None,
-            message_sent=False,
             step=1,
             step_type=Approval.STEP_TYPE_SERIAL,
             decision=Approval.DECISION_PENDING,
@@ -785,8 +789,6 @@ class TelegramApprovalsTests(APITestCase):
             approver_user=self.approver,
             approver_recipient_id="555001",
             approver_external_user_id=777001,
-            gateway_message_id=None,
-            message_sent=False,
             step=1,
             step_type=Approval.STEP_TYPE_SERIAL,
             decision=Approval.DECISION_PENDING,
@@ -1274,6 +1276,19 @@ class TelegramGatewayIntegrationTests(APITestCase):
         RequestApprovalStepApproverConfig.objects.create(step_config=step_cfg, approver_user=self.approver)
         self.host = "integ.example.com"
 
+    def _create_approval_with_message(self, message_id, **kwargs):
+        tm = TelegramMessage.objects.create(
+            tenant=self.tenant,
+            recipient_id=kwargs.get("approver_recipient_id", "999"),
+            external_user_id=kwargs.get("approver_external_user_id"),
+            message_id=message_id,
+            sent_at=timezone.now(),
+        )
+        return Approval.objects.create(
+            telegram_message=tm,
+            **{k: v for k, v in kwargs.items() if k != "approver_recipient_id" and k != "approver_external_user_id"},
+        )
+
     def tearDown(self):
         for mid in self._cleanup_message_ids:
             try:
@@ -1358,13 +1373,12 @@ class TelegramGatewayIntegrationTests(APITestCase):
             title="editMessage test", status=Request.STATUS_PROGRESS_1,
             billing_date=date(2026, 4, 30),
         )
-        approval = Approval.objects.create(
+        approval = self._create_approval_with_message(
+            message_id=mid,
             request=request_row,
             approver_user=self.approver,
             approver_recipient_id=int(_RECIPIENT_ID),
             approver_external_user_id=int(_RECIPIENT_ID),
-            gateway_message_id=mid,
-            message_sent=True,
             step=1,
             step_type=Approval.STEP_TYPE_SERIAL,
             decision=Approval.DECISION_PENDING,
@@ -1426,13 +1440,12 @@ class TelegramGatewayIntegrationTests(APITestCase):
             title="Conflict deactivate test", status=Request.STATUS_APPROVED,
             billing_date=date(2026, 4, 30),
         )
-        approval = Approval.objects.create(
+        approval = self._create_approval_with_message(
+            message_id=mid,
             request=request_row,
             approver_user=self.approver,
             approver_recipient_id=int(_RECIPIENT_ID),
             approver_external_user_id=int(_RECIPIENT_ID),
-            gateway_message_id=mid,
-            message_sent=True,
             step=1,
             step_type=Approval.STEP_TYPE_SERIAL,
             decision=Approval.DECISION_APPROVED,
