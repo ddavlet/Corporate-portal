@@ -2826,6 +2826,13 @@ export type RequestComment = {
   created_by_full_name: string
 }
 
+export async function listRequestComments(requestId: number): Promise<RequestComment[]> {
+  const res = await apiFetch(`/api/requests/${requestId}/comments/`)
+  if (!res.ok) throw new Error(await parseErrorBody(res))
+  const json = (await res.json().catch(() => null)) as RequestComment[] | null
+  return Array.isArray(json) ? json : []
+}
+
 export async function createRequestComment(requestId: number, body: string): Promise<RequestComment> {
   const res = await apiFetch(`/api/requests/${requestId}/comments/`, {
     method: 'POST',
