@@ -151,7 +151,16 @@ def create_expense_for_request_payment(*, request_obj: Request, actor_user):
     else:
         raise ValidationError({"payment_type": "Unsupported payment type for create mode."})
 
-    request_obj.expense_id = str(created_id)
+    # Set expense_id to the value the resolver uses for lookups, not the raw PK.
+    # Cash: resolver matches by external_id; Bank: by doc_no; Card: by PK (str).
+    if request_obj.payment_type == Request.PAYMENT_TYPE_CASH:
+        created_expense_id = expense.external_id
+    elif request_obj.payment_type in (Request.PAYMENT_TYPE_TRANSFER, Request.PAYMENT_TYPE_TOPUP):
+        created_expense_id = expense.doc_no
+    else:
+        created_expense_id = str(created_id)
+
+    request_obj.expense_id = created_expense_id
     request_obj.expense_ref_id = created_id
     request_obj.expense_ref_target = created_target
     request_obj.save(update_fields=["expense_id", "expense_ref_id", "expense_ref_target"])
