@@ -904,9 +904,9 @@ class InvestmentApprovalFlowTests(APITestCase):
         first_step.refresh_from_db()
         self.assertEqual(first_step.decision, "approved")
         stripped = [
-            c.kwargs["payload"]
+            c.kwargs
             for c in bridge_mock.call_args_list
-            if c.kwargs.get("payload", {}).get("buttons") == []
+            if c.kwargs.get("buttons") == []
         ]
         self.assertGreaterEqual(len(stripped), 1)
 
@@ -1053,8 +1053,8 @@ class InvestmentApprovalFlowTests(APITestCase):
         dup = self.client.post("/api/investments/approvals/webhook/", body, format="json", HTTP_HOST=self.host)
         self.assertEqual(dup.status_code, 409)
         last_call_kw = bridge_mock.call_args.kwargs
-        self.assertEqual(last_payload.get("buttons"), [])
-        self.assertIn("message_id", last_payload)
+        self.assertEqual(last_call_kw.get("buttons"), [])
+        self.assertIn("message_id", last_call_kw)
 
     def test_get_approval_config_rejects_invalid_return_type_query(self):
         res = self.client.get("/api/investments/approval-config/?return_type=invalid_type", HTTP_HOST=self.host)
@@ -1187,17 +1187,19 @@ class InvestmentApprovalFlowTests(APITestCase):
         serial = inv_return.approvals.get(step=2)
         self.assertEqual(notif.decision, InvestmentReturnApproval.DECISION_APPROVED)
         self.assertEqual(serial.decision, InvestmentReturnApproval.DECISION_PENDING)
-        calls = [c.kwargs["payload"] for c in bridge_mock.call_args_list]
-        notify_sends = [p for p in calls if p.get("recipient_id") == "888001" and p.get("buttons") == []]
+        calls = [c.kwargs for c in bridge_mock.call_args_list]
+        notify_sends = [c for c in calls if c.get("recipient_id") == "888001" and c.get("buttons") == []]
         serial_sends = [
-            p
-            for p in calls
-            if p.get("recipient_id") == str(self.approver1.telegram_chat_id) and p.get("buttons")
+            c
+            for c in calls
+            if c.get("recipient_id") == str(self.approver1.telegram_chat_id) and c.get("buttons")
         ]
         self.assertTrue(notify_sends, "ожидался send в chat notification без кнопок")
         self.assertIn("Уведомление", notify_sends[0]["text"])
         self.assertTrue(serial_sends, "ожидался send serial с кнопками")
-        self.assertLess(calls.index(notify_sends[0]), calls.index(serial_sends[0]))
+        notify_idx = next(i for i, c in enumerate(bridge_mock.call_args_list) if c.kwargs.get("recipient_id") == "888001" and c.kwargs.get("buttons") == [])
+        serial_idx = next(i for i, c in enumerate(bridge_mock.call_args_list) if c.kwargs.get("recipient_id") == str(self.approver1.telegram_chat_id) and c.kwargs.get("buttons"))
+        self.assertLess(notify_idx, serial_idx)
 
     @patch("apps.modules.telegram_approvals.services.TelegramDispatcher.send")
     def test_zz_recipient_specific_confirmation_chat_overrides_type_default(self, bridge_mock):
@@ -1280,8 +1282,8 @@ class InvestmentApprovalFlowTests(APITestCase):
             ).status_code,
             200,
         )
-        payload_partner = bridge_mock.call_args.kwargs["payload"]
-        self.assertEqual(payload_partner["recipient_id"], "222222")
+        call_kw_partner = bridge_mock.call_args.kwargs
+        self.assertEqual(call_kw_partner["recipient_id"], "222222")
 
         bridge_mock.reset_mock()
         bridge_mock.return_value = MagicMock()
@@ -1317,8 +1319,8 @@ class InvestmentApprovalFlowTests(APITestCase):
             ).status_code,
             200,
         )
-        payload_investor = bridge_mock.call_args.kwargs["payload"]
-        self.assertEqual(payload_investor["recipient_id"], "111111")
+        call_kw_investor = bridge_mock.call_args.kwargs
+        self.assertEqual(call_kw_investor["recipient_id"], "111111")
 
 
 @override_settings(BASE_DOMAIN="example.com", N8N_INTEGRATION_TOKEN="", ALLOWED_HOSTS=["*"])
@@ -1435,12 +1437,12 @@ class InvestmentProjectApprovalFlowTests(APITestCase):
             ).status_code,
             200,
         )
-        texts = [c.kwargs["payload"]["text"] for c in bridge_mock.call_args_list if "payload" in c.kwargs]
+        texts = [c.kwargs["text"] for c in bridge_mock.call_args_list if "text" in c.kwargs]
         self.assertTrue(any("Подтверждение вложения" in t for t in texts))
         self.assertTrue(any("Подтвердите вложение средств по заявке" in t for t in texts))
         labels: list[str] = []
         for c in bridge_mock.call_args_list:
-            for row in c.kwargs.get("payload", {}).get("buttons") or []:
+            for row in c.kwargs.get("buttons") or []:
                 for b in row:
                     labels.append(b.get("label", ""))
         self.assertIn("✅ Выплачено", labels)
@@ -1498,7 +1500,7 @@ class InvestmentProjectApprovalFlowTests(APITestCase):
         self.assertEqual(
             ProjectInvestmentApproval.objects.filter(project_investment=pi, decision="approved").count(), 2
         )
-        texts = [c.kwargs["payload"]["text"] for c in bridge_mock.call_args_list if "payload" in c.kwargs]
+        texts = [c.kwargs["text"] for c in bridge_mock.call_args_list if "text" in c.kwargs]
         self.assertTrue(any("Заявка на вложение подтверждена" in t for t in texts))
 
     @patch("apps.modules.telegram_approvals.services.TelegramDispatcher.send")

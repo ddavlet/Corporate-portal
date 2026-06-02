@@ -3434,7 +3434,7 @@ class DraftRequestPatchSubmitTests(APITestCase):
         from apps.modules.telegram_approvals.services import dispatch_draft_request_notification
         from apps.modules.telegram_approvals.models import TelegramMessage
 
-        tm = TelegramMessage(
+        tm = TelegramMessage.objects.create(
             tenant=self.tenant,
             recipient_id="123",
             message_id=1,

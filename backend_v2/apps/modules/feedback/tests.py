@@ -64,7 +64,7 @@ class FeedbackApiTests(APITestCase):
     @patch("apps.modules.feedback.views.TelegramDispatcher.send")
     def test_submit_saves_and_dispatches_when_chat_configured(self, mocked_send):
         from apps.modules.telegram_approvals.models import TelegramMessage
-        tm = TelegramMessage(
+        tm = TelegramMessage.objects.create(
             tenant=self.tenant,
             recipient_id="42424242",
             message_id=12345,
