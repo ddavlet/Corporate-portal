@@ -6,6 +6,7 @@ import {
   RiseOutlined,
 } from '@ant-design/icons'
 import { useModuleAccess } from '../moduleAccess'
+import { tgHaptic } from './tgHaptic'
 
 type NavItem = {
   key: string
@@ -43,7 +44,7 @@ export function TgBottomNav() {
             type="button"
             className={`tg-bottom-nav-btn${active ? ' tg-bottom-nav-btn--active' : ''}`}
             onClick={() => {
-              if (!active) navigate(item.path)
+              if (!active) { tgHaptic.tap(); navigate(item.path) }
             }}
             aria-current={active ? 'page' : undefined}
           >

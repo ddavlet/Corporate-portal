@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Alert, Button, Skeleton, Space, Typography } from 'antd'
 import { useNavigate, useParams } from 'react-router-dom'
 import { apiFetch } from '../../lib/api'
+import { tgHaptic } from './tgHaptic'
 import { requestReturnState } from '../../lib/requestNavigation'
 import { NoteCreateModal } from '../NoteCreateModal'
 import { renderExpenseRequestStatusTag } from '../expenseRequestStatus'
@@ -83,7 +84,7 @@ export function TgBankExpenseDetailPage() {
   return (
     <div className="tg-detail-page">
       <Space direction="vertical" size={12} style={{ display: 'flex' }}>
-        <Button block size="large" onClick={() => navigate('/tg/bank/expenses')} style={{ borderRadius: 12 }}>
+        <Button block size="large" onClick={() => { tgHaptic.tap(); navigate('/tg/bank/expenses') }} style={{ borderRadius: 12 }}>
           ← Назад к расходам
         </Button>
 
@@ -110,21 +111,22 @@ export function TgBankExpenseDetailPage() {
             <DetailRow label="Назначение платежа">{detail.payment_purpose || '—'}</DetailRow>
 
             <div className="tg-actions-stack" style={{ marginTop: 16 }}>
-              <Button size="large" onClick={() => setOpenNoteModal(true)}>
+              <Button size="large" onClick={() => { tgHaptic.impact('light'); setOpenNoteModal(true) }}>
                 Добавить заметку
               </Button>
               {detail.matched_request_id ? (
                 <Button
                   type="primary"
                   size="large"
-                  onClick={() =>
+                  onClick={() => {
+                    tgHaptic.tap()
                     navigate(`/tg/requests/${detail.matched_request_id}`, {
                       state: requestReturnState({
                         pathname: `/tg/bank/expenses/${detail.id}`,
                         label: `Банковский платёж #${detail.id}`,
                       }),
                     })
-                  }
+                  }}
                 >
                   Открыть связанную заявку
                 </Button>

@@ -3,6 +3,7 @@ import { Alert, Button, Input, Skeleton, Tag, Typography } from 'antd'
 import { useNavigate } from 'react-router-dom'
 import { ArrowLeftOutlined, SearchOutlined } from '@ant-design/icons'
 import { apiFetch, getCashRegisters, getCashRevenues, type CashRevenue } from '../../lib/api'
+import { tgHaptic } from './tgHaptic'
 
 export type TgCashListMode = 'all' | 'expenses' | 'revenues'
 
@@ -147,7 +148,7 @@ export function TgCashListPage({ mode }: { mode: TgCashListMode }) {
       <Button
         icon={<ArrowLeftOutlined />}
         size="large"
-        onClick={() => navigate('/tg/cash')}
+        onClick={() => { tgHaptic.tap(); navigate('/tg/cash') }}
         style={{ marginBottom: 12, borderRadius: 12 }}
       >
         Назад
@@ -185,7 +186,7 @@ export function TgCashListPage({ mode }: { mode: TgCashListMode }) {
               key={`exp-${row.id}`}
               type="button"
               className="tg-request-row"
-              onClick={() => navigate(`/tg/cash/expenses/${row.id}`)}
+              onClick={() => { tgHaptic.tap(); navigate(`/tg/cash/expenses/${row.id}`) }}
             >
               <div className="tg-request-row-title">
                 {mode === 'all' ? '↑ ' : ''}

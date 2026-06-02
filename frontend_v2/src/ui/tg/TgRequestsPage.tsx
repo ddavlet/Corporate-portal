@@ -5,6 +5,7 @@ import { CalendarOutlined, FileAddOutlined, SearchOutlined } from '@ant-design/i
 import { apiFetch } from '../../lib/api'
 import { isPayedMissingLinkedExpense, type RequestExpenseLink } from '../../lib/requestExpense'
 import { RequestAiChatButton } from '../requests/RequestAiChatButton'
+import { tgHaptic } from './tgHaptic'
 
 type RequestRow = {
   id: number
@@ -97,7 +98,7 @@ export function TgRequestsPage() {
         size="large"
         icon={<CalendarOutlined />}
         style={{ marginBottom: 12, borderRadius: 12 }}
-        onClick={() => navigate('/tg/investments/schedule')}
+        onClick={() => { tgHaptic.tap(); navigate('/tg/investments/schedule') }}
       >
         Расписание выплат
       </Button>
@@ -130,7 +131,7 @@ export function TgRequestsPage() {
               key={r.id}
               type="button"
               className={`tg-request-row${isPayedMissingLinkedExpense(r) ? ' tg-request-row--payed-no-expense' : ''}`}
-              onClick={() => navigate(`/tg/requests/${r.id}`)}
+              onClick={() => { tgHaptic.tap(); navigate(`/tg/requests/${r.id}`) }}
             >
               <div className="tg-request-row-title">{r.title || `Заявка #${r.id}`}</div>
               <div className="tg-request-row-meta">
@@ -145,7 +146,7 @@ export function TgRequestsPage() {
           ))
         : null}
 
-      <button type="button" className="tg-fab-new" onClick={() => navigate('/tg/requests/new')}>
+      <button type="button" className="tg-fab-new" onClick={() => { tgHaptic.impact('light'); navigate('/tg/requests/new') }}>
         <FileAddOutlined style={{ marginRight: 8 }} />
         Новая заявка
       </button>
