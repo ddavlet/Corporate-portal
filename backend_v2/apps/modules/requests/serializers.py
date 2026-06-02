@@ -615,6 +615,10 @@ class ApprovalSerializer(serializers.ModelSerializer):
     approver_username = serializers.SerializerMethodField()
     payment_action_mode = serializers.SerializerMethodField()
     payment_webapp_url = serializers.SerializerMethodField()
+    # Derived from the single source of truth (`telegram_message`); kept for API stability.
+    gateway_message_id = serializers.ReadOnlyField()
+    message_sent = serializers.ReadOnlyField()
+    message_sent_at = serializers.ReadOnlyField()
 
     def validate(self, attrs):
         reject_client_pk_on_create(self)

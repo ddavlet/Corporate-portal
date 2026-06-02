@@ -44,15 +44,12 @@ def find_approvals(
     *,
     request_obj: Request,
     step: int | None = None,
-    message_sent: bool | None = None,
     decision: str | None = None,
     step_type: str | None = None,
 ):
     qs = Approval.objects.filter(request=request_obj)
     if step is not None:
         qs = qs.filter(step=step)
-    if message_sent is not None:
-        qs = qs.filter(message_sent=message_sent)
     if decision is not None:
         qs = qs.filter(decision=decision)
     if step_type is not None:
@@ -225,7 +222,7 @@ def get_approval_full_context(*, request_obj: Request, trigger_approval: Approva
 
 def lookup_approval_by_message_id(*, tenant, message_id: int) -> dict:
     approval = (
-        Approval.objects.filter(request__tenant=tenant, gateway_message_id=message_id)
+        Approval.objects.filter(request__tenant=tenant, telegram_message__message_id=message_id)
         .select_related("approver_user", "request", "request__requester", "request__contract_ref", "request__vendor_ref")
         .first()
     )
