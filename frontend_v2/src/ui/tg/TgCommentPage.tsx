@@ -1,18 +1,36 @@
-import { useEffect, useRef, useState } from 'react'
-import { Alert, Button, Card, Input, Typography, message } from 'antd'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { Alert, Button, Card, Empty, Input, List, Spin, Typography, message } from 'antd'
 import { useSearchParams } from 'react-router-dom'
-import { createRequestComment } from '../../lib/api'
+import { createRequestComment, listRequestComments, type RequestComment } from '../../lib/api'
 import { resolveCommentRequestId } from './tgCommentRequestId'
 
 const COMMENT_MAX_LENGTH = 4000
+
+const dateTimeFormatter = new Intl.DateTimeFormat('ru-RU', {
+  day: '2-digit',
+  month: '2-digit',
+  year: 'numeric',
+  hour: '2-digit',
+  minute: '2-digit',
+  timeZone: 'Asia/Tashkent',
+})
+
+function formatDateTime(value?: string | null): string {
+  if (!value) return ''
+  const d = new Date(value)
+  if (Number.isNaN(d.getTime())) return ''
+  return dateTimeFormatter.format(d)
+}
 
 export function TgCommentPage() {
   const [searchParams] = useSearchParams()
   const [body, setBody] = useState('')
   const [saving, setSaving] = useState(false)
-  const [done, setDone] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [requestId, setRequestId] = useState(0)
+  const [comments, setComments] = useState<RequestComment[]>([])
+  const [loadingComments, setLoadingComments] = useState(false)
+  const [listError, setListError] = useState<string | null>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
   useEffect(() => {
@@ -39,6 +57,24 @@ export function TgCommentPage() {
 
   const isRequestValid = Number.isInteger(requestId) && requestId > 0
 
+  const loadComments = useCallback(async () => {
+    if (!isRequestValid) return
+    setLoadingComments(true)
+    setListError(null)
+    try {
+      const items = await listRequestComments(requestId)
+      setComments(items)
+    } catch (e: unknown) {
+      setListError(e instanceof Error ? e.message : 'Не удалось загрузить комментарии')
+    } finally {
+      setLoadingComments(false)
+    }
+  }, [isRequestValid, requestId])
+
+  useEffect(() => {
+    void loadComments()
+  }, [loadComments])
+
   const submit = async () => {
     const trimmed = body.trim()
     if (!isRequestValid) {
@@ -58,10 +94,8 @@ export function TgCommentPage() {
     try {
       await createRequestComment(requestId, trimmed)
       message.success('Комментарий сохранён')
-      setDone(true)
-      window.setTimeout(() => {
-        window.Telegram?.WebApp?.close?.()
-      }, 800)
+      setBody('')
+      await loadComments()
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Не удалось сохранить комментарий')
     } finally {
@@ -72,21 +106,53 @@ export function TgCommentPage() {
   return (
     <div className="tg-create-page">
       <Card className="tg-create-card" bordered>
-        <Typography.Title level={4}>Комментарий к заявке</Typography.Title>
-        {isRequestValid ? (
-          <Typography.Paragraph type="secondary">
-            Заявка #{requestId}
-          </Typography.Paragraph>
-        ) : (
+        <Typography.Title level={4}>
+          {isRequestValid ? `Комментарии к заявке #${requestId}` : 'Комментарии к заявке'}
+        </Typography.Title>
+        {!isRequestValid ? (
           <Typography.Paragraph type="warning">
             Идентификатор заявки не определён.
           </Typography.Paragraph>
+        ) : null}
+
+        {listError ? <Alert type="error" showIcon message={listError} style={{ marginBottom: 12 }} /> : null}
+
+        {loadingComments ? (
+          <div style={{ textAlign: 'center', padding: '16px 0' }}>
+            <Spin />
+          </div>
+        ) : comments.length === 0 ? (
+          isRequestValid ? <Empty description="Пока нет комментариев" /> : null
+        ) : (
+          <List
+            dataSource={comments}
+            renderItem={(item) => (
+              <List.Item key={item.id}>
+                <List.Item.Meta
+                  title={
+                    <span>
+                      <Typography.Text strong>{item.created_by_full_name || 'Пользователь'}</Typography.Text>
+                      <Typography.Text type="secondary" style={{ marginLeft: 8, fontWeight: 400 }}>
+                        {formatDateTime(item.created_at)}
+                      </Typography.Text>
+                    </span>
+                  }
+                  description={
+                    <Typography.Paragraph style={{ whiteSpace: 'pre-wrap', marginBottom: 0 }}>
+                      {item.body}
+                    </Typography.Paragraph>
+                  }
+                />
+              </List.Item>
+            )}
+          />
         )}
+      </Card>
 
+      <Card className="tg-create-card" bordered style={{ marginTop: 12 }}>
         {error ? <Alert type="error" showIcon message={error} style={{ marginBottom: 12 }} /> : null}
-        {done ? <Alert type="success" showIcon message="Комментарий сохранён" style={{ marginBottom: 12 }} /> : null}
 
-        <Typography.Text strong>Комментарий</Typography.Text>
+        <Typography.Text strong>Новый комментарий</Typography.Text>
         <div style={{ height: 8 }} />
         <Input.TextArea
           ref={textareaRef as React.RefObject<HTMLTextAreaElement>}
@@ -96,8 +162,6 @@ export function TgCommentPage() {
           showCount
           onChange={(e) => setBody(e.target.value)}
           placeholder="Напишите комментарий..."
-          disabled={done}
-          autoFocus
         />
       </Card>
 
@@ -107,7 +171,7 @@ export function TgCommentPage() {
           block
           onClick={() => void submit()}
           loading={saving}
-          disabled={done || !body.trim()}
+          disabled={!body.trim() || !isRequestValid}
         >
           Отправить комментарий
         </Button>

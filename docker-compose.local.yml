@@ -34,8 +34,8 @@ services:
       BASE_DOMAIN: localhost
       DJANGO_CSRF_TRUSTED_ORIGINS: "http://localhost:8001,http://localhost:3000,http://test.localhost:8001,http://test.localhost:3000"
       # Шлюз один на деплой; опционально: MESSAGING_GATEWAY_SEND_ACTION, EDIT_ACTION, DRAFT_ACTION
-      MESSAGING_GATEWAY_SEND_URL: http://tg_gateway_local:8080/v1/messaging/send
-      MESSAGING_GATEWAY_ADMIN_URL: http://tg_gateway_local:8080
+      MESSAGING_GATEWAY_SEND_URL: http://tg-gateway:8080/v1/messaging/send
+      MESSAGING_GATEWAY_ADMIN_URL: http://tg-gateway:8080
       # Секрет не коммитить: положите токен бота в `.env` как SEED_TEST_TELEGRAM_BOT_TOKEN=...
       SEED_TEST_TELEGRAM_BOT_TOKEN: ${SEED_TEST_TELEGRAM_BOT_TOKEN:-}
     ports:
@@ -56,18 +56,14 @@ services:
       - gateway
 
   tg-gateway:
-    build: ./tg-gateway
-    container_name: tg_gateway_local
+    build: ./fake-tg-gateway
+    container_name: tg_gateway_fake_local
     environment:
       BACKEND_WEBHOOK_URL: http://kolberg_backend_local:8001/api/messaging-gateway/webhook/
-      PUBLIC_WEBHOOK_BASE_URL: ${TG_GATEWAY_PUBLIC_BASE_URL:-http://localhost:8080}
-      CALLBACK_COOLDOWN_SECS: ${CALLBACK_COOLDOWN_SECS:-10}
-      DATABASE_URL: ${TG_GATEWAY_DATABASE_URL:-}
+      BACKEND_WEBHOOK_HTTP_HOST: ${BACKEND_WEBHOOK_HTTP_HOST:-test.localhost:8001}
     ports:
       - "127.0.0.1:8080:8080"
     depends_on:
-      db:
-        condition: service_healthy
       backend_v2:
         condition: service_started
     networks:

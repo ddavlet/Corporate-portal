@@ -7,7 +7,7 @@ DEPLOY_TEST_PATH ?= $(TEST_PATH)
 BRANCH     := $(shell git rev-parse --abbrev-ref HEAD)
 
 .DEFAULT_GOAL := help
-.PHONY: help push test deploy makemigrations showmigrations backup-db rollback refresh-approval-messages local-up local-down local-logs
+.PHONY: help push test deploy makemigrations showmigrations backup-db rollback refresh-approval-messages local-up local-down local-logs test_local
 
 help:
 	@echo ""
@@ -24,6 +24,7 @@ help:
 	@echo "  make local-up        — поднять docker-compose.local.yml локально"
 	@echo "  make local-down      — остановить локальный compose (без удаления volumes)"
 	@echo "  make local-logs      — логи локального compose"
+	@echo "  make test_local      — запустить комплексные тесты Telegram gateway локально"
 	@echo "  make rollback        — откатить production на предыдущий образ"
 	@echo ""
 
@@ -126,3 +127,12 @@ local-down:
 
 local-logs:
 	docker compose -f docker-compose.local.yml --env-file .env.local logs -f --tail=200
+
+# ── 10. Локальные тесты Telegram gateway (fake-tg-gateway) ────────────────
+test_local:
+	@if [ "$$(docker inspect -f '{{.State.Running}}' kolberg_backend_local 2>/dev/null)" != "true" ]; then \
+		echo "❌  Backend контейнер не запущен. Сначала: make local-up"; \
+		exit 1; \
+	fi
+	@echo "▶ Запуск комплексных тестов Telegram gateway..."
+	@docker exec kolberg_backend_local python manage.py shell -c "exec(open('/app/test_telegram_unified.py').read())"

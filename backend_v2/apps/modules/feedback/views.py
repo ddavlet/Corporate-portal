@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 
 import requests
+from django.contrib.contenttypes.models import ContentType
 from django.utils import timezone
 from rest_framework import serializers, status
 from rest_framework.permissions import IsAuthenticated
@@ -11,11 +12,11 @@ from rest_framework.views import APIView
 
 from apps.modules.feedback.models import PortalFeedback
 from apps.modules.feedback.services import (
-    build_portal_feedback_dispatch_payload,
     build_portal_feedback_telegram_message,
     post_feedback_ai_refine,
 )
-from apps.modules.telegram_approvals.services import post_messaging_gateway
+from apps.modules.telegram_approvals.models import Notification
+from apps.modules.telegram_approvals.services import TelegramDispatcher
 from apps.tenants.integration_settings import get_portal_feedback_settings
 
 logger = logging.getLogger(__name__)
@@ -145,16 +146,23 @@ class FeedbackSubmitView(APIView):
             page_path=page_path,
             body=body,
         )
-        dispatch_payload = build_portal_feedback_dispatch_payload(
+        dispatcher = TelegramDispatcher(tenant)
+        message = dispatcher.send(
             action=pf.action,
-            chat_id=int(pf.recipient_id),
-            message_html=message_html,
-            feedback_id=fb.pk,
-            kind=kind,
-            tenant=tenant,
+            recipient_id=int(pf.recipient_id),
+            text=message_html,
+            buttons=[],
+            link=None,
+            request_id=fb.pk,
         )
-        bridge_result = post_messaging_gateway(tenant=tenant, payload=dispatch_payload)
-        if bridge_result is not None:
+        if message is not None:
+            Notification.objects.create(
+                tenant=tenant,
+                kind=Notification.KIND_PORTAL_FEEDBACK,
+                telegram_message=message,
+                content_type=ContentType.objects.get_for_model(PortalFeedback),
+                object_id=fb.pk,
+            )
             fb.delivery_status = PortalFeedback.DELIVERY_SENT
             fb.delivery_error = ""
             fb.sent_at = timezone.now()

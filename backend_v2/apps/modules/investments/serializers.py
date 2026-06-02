@@ -497,6 +497,11 @@ class InvestmentApprovalConfigStepApproverReadSerializer(serializers.ModelSerial
 
 
 class InvestmentReturnApprovalReadSerializer(serializers.ModelSerializer):
+    # Derived from the single source of truth (`telegram_message`); kept for API stability.
+    gateway_message_id = serializers.ReadOnlyField()
+    message_sent = serializers.ReadOnlyField()
+    message_sent_at = serializers.ReadOnlyField()
+
     class Meta:
         model = InvestmentReturnApproval
         fields = [
@@ -542,6 +547,11 @@ class InvestmentProjectApprovalConfigStepApproverReadSerializer(serializers.Mode
 
 
 class ProjectInvestmentApprovalReadSerializer(serializers.ModelSerializer):
+    # Derived from the single source of truth (`telegram_message`); kept for API stability.
+    gateway_message_id = serializers.ReadOnlyField()
+    message_sent = serializers.ReadOnlyField()
+    message_sent_at = serializers.ReadOnlyField()
+
     class Meta:
         model = ProjectInvestmentApproval
         fields = [

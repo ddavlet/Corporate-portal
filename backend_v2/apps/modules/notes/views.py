@@ -7,7 +7,7 @@ from rest_framework.views import APIView
 
 from apps.modules.notes.models import Note
 from apps.modules.notes.serializers import NoteCreateSerializer, NoteSerializer, RecipientOptionSerializer
-from apps.modules.telegram_approvals.services import post_messaging_gateway
+from apps.modules.telegram_approvals.services import build_gateway_payload, post_messaging_gateway
 from apps.tenants.integration_settings import get_notes_integration_settings
 from apps.tenants.permissions import HasEffectiveModuleAccess
 
@@ -33,13 +33,13 @@ def _target_path(*, target_type: str, target_id: int, tenant) -> str:
 
 
 def _send_note_via_gateway(*, bot_token: str, chat_id: int, text: str, tenant) -> bool:
-    payload = {
-        "action": "send",
-        "bot_token": bot_token,
-        "tenant_id": str(getattr(tenant, "id", "")),
-        "recipient_id": str(chat_id),
-        "text": text,
-    }
+    payload = build_gateway_payload(
+        action="send",
+        tenant_id=getattr(tenant, "id", ""),
+        recipient_id=chat_id,
+        bot_token=bot_token,
+        message_text=text,
+    )
     return post_messaging_gateway(tenant=tenant, payload=payload) is not None
 
 

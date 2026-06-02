@@ -54,7 +54,7 @@ def send_task_notification(
     is_reminder: bool = False,
 ) -> None:
     """Send a Telegram notification for a task (new assignment or reminder)."""
-    from apps.modules.telegram_approvals.services import post_messaging_gateway
+    from apps.modules.telegram_approvals.services import TelegramDispatcher
 
     recipient_id = getattr(task.assignee, "telegram_from_id", None)
     if not recipient_id:
@@ -62,12 +62,12 @@ def send_task_notification(
         return
 
     prefix = "⏰ <b>Напоминание о задаче</b>\n\n" if is_reminder else "📋 <b>Вам назначена новая задача</b>\n\n"
-    payload = {
-        "action": "send",
-        "text": _format_message(task, prefix),
-        "recipient_id": str(recipient_id),
-        "bot_token": bot_token,
-        "tenant_id": str(tenant.pk),
-        "buttons": _task_buttons(task.id, task.status) + _webapp_button(tenant),
-    }
-    post_messaging_gateway(tenant=tenant, payload=payload)
+    dispatcher = TelegramDispatcher(tenant)
+    dispatcher.send(
+        action="send",
+        recipient_id=recipient_id,
+        text=_format_message(task, prefix),
+        buttons=_task_buttons(task.id, task.status) + _webapp_button(tenant),
+        link=task,
+        external_user_id=recipient_id,
+    )

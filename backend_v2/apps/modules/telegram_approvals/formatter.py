@@ -369,5 +369,5 @@ def _buttons(*, approval: Approval) -> list[list[dict]]:
         ]
     comment_url = _resolve_comment_webapp_url(request_obj=approval.request)
     if comment_url:
-        rows.append([{"label": "💬 Оставить комментарий", "url": comment_url}])
+        rows.append([{"label": "💬 Комментарии", "url": comment_url}])
     return rows

@@ -3,6 +3,7 @@ import logging
 from html import escape
 
 import requests
+from django.contrib.contenttypes.models import ContentType
 from django.conf import settings
 from django.db import transaction
 from django.utils import timezone
@@ -10,6 +11,7 @@ from rest_framework.exceptions import ValidationError
 
 from apps.modules.requests.integration_settings import get_requests_messaging_gateway_settings
 from apps.modules.requests.models import Approval, Request
+from apps.modules.telegram_approvals.models import Notification, TelegramMessage
 from apps.modules.telegram_approvals.formatter import (
     build_approval_message,
     build_request_draft_public_url,
@@ -29,35 +31,133 @@ class TelegramDispatchMissingMessageId(ValidationError):
     pass
 
 
-def _ensure_bridge_message_id(
+def normalize_gateway_buttons(buttons: list | None) -> list[list[dict]]:
+    """
+    Normalize module-specific button payloads to gateway format.
+    Supported button actions:
+    - {"value": "..."} for callback actions
+    - {"callback_data": "..."} (legacy alias) -> converted to value
+    - {"url": "..."} for webapp links
+    """
+    if not buttons:
+        return []
+    normalized_rows: list[list[dict]] = []
+    for row in buttons:
+        if not isinstance(row, list):
+            continue
+        normalized_row: list[dict] = []
+        for button in row:
+            if not isinstance(button, dict):
+                continue
+            label = str(button.get("label") or "").strip()
+            if not label:
+                continue
+            if button.get("url"):
+                normalized_row.append({"label": label, "url": str(button.get("url"))})
+                continue
+            action_value = button.get("value")
+            if action_value in (None, ""):
+                action_value = button.get("callback_data")
+            if action_value in (None, ""):
+                continue
+            normalized_row.append({"label": label, "value": str(action_value)})
+        if normalized_row:
+            normalized_rows.append(normalized_row)
+    return normalized_rows
+
+
+def build_gateway_payload(
     *,
-    approval: Approval,
-    response_data: dict | None,
-    request_id: int,
     action: str,
+    tenant_id: int | str | None,
+    recipient_id: int | str | None,
+    bot_token: str,
+    message_text: str,
+    approval_id: int | str | None = None,
+    request_id: int | str | None = None,
+    message_id: int | None = None,
+    buttons: list | None = None,
+) -> dict:
+    payload: dict = {
+        "action": action,
+        "text": message_text,
+        "recipient_id": str(recipient_id) if recipient_id is not None else "",
+        "bot_token": bot_token,
+        "tenant_id": str(tenant_id) if tenant_id is not None else "",
+        "buttons": normalize_gateway_buttons(buttons),
+    }
+    if approval_id is not None:
+        payload["approval_id"] = str(approval_id)
+    if request_id is not None:
+        payload["request_id"] = request_id
+    if message_id is not None:
+        payload["message_id"] = message_id
+    return payload
+
+
+def apply_gateway_message_lifecycle(
+    *,
+    obj,
+    message_id: int | None,
+    message_field: str = "gateway_message_id",
+    sent_field: str = "message_sent",
+    sent_at_field: str = "message_sent_at",
+) -> bool:
+    """
+    Apply transport delivery lifecycle fields to approval-like models.
+    Returns True when at least one field was updated.
+    """
+    if message_id is None:
+        return False
+    updates: list[str] = []
+    if getattr(obj, message_field, None) != message_id:
+        setattr(obj, message_field, message_id)
+        updates.append(message_field)
+    if not getattr(obj, sent_field, False):
+        setattr(obj, sent_field, True)
+        updates.append(sent_field)
+    if getattr(obj, sent_at_field, None) is None:
+        setattr(obj, sent_at_field, timezone.now())
+        updates.append(sent_at_field)
+    if updates:
+        obj.save(update_fields=updates)
+        return True
+    return False
+
+
+def ensure_callback_identity(
+    *,
+    callback_message_id: int | None,
+    stored_message_id: int | None,
+    callback_recipient_id: str | None,
+    stored_recipient_id: str | None,
+    callback_external_user_id: int | None,
+    stored_external_user_id: int | None,
+    message_id_error: str = "Callback message_id does not match stored message_id.",
+    recipient_error: str = "Recipient is not allowed for this approval.",
+    user_error: str = "User is not allowed for this approval.",
 ) -> None:
-    _maybe_set_message_id(approval=approval, response_data=response_data)
-    if approval.gateway_message_id is not None:
-        return
-    response_type = type(response_data).__name__
-    response_keys = list(response_data.keys()) if isinstance(response_data, dict) else []
-    logger.error(
-        "Telegram bridge response missing message_id approval_id=%s request_id=%s payload_action=%s response_type=%s response_keys=%s",
-        approval.id,
-        request_id,
-        action,
-        response_type,
-        response_keys,
-    )
-    raise TelegramDispatchMissingMessageId(
-        {
-            "telegram": (
-                "Bridge dispatch must return message_id for action. "
-                f"approval_id={approval.id} request_id={request_id} action={action} "
-                f"(response_type={response_type}, response_keys={response_keys})"
-            )
-        }
-    )
+    """
+    Shared callback identity guard for approval-like entities.
+    Validates optional message/chat/user bindings when they are configured.
+    """
+    if (
+        callback_message_id is not None
+        and stored_message_id is not None
+        and stored_message_id != callback_message_id
+    ):
+        raise ValidationError({"message_id": message_id_error})
+    if (
+        stored_recipient_id is not None
+        and str(stored_recipient_id).strip() != (str(callback_recipient_id or "").strip())
+    ):
+        raise ValidationError({"recipient_id": recipient_error})
+    if (
+        stored_external_user_id is not None
+        and callback_external_user_id is not None
+        and int(stored_external_user_id) != int(callback_external_user_id)
+    ):
+        raise ValidationError({"user_id": user_error})
 
 
 def get_tenant_bot_token(tenant) -> str:
@@ -90,6 +190,7 @@ def dispatch_draft_request_notification(
 ) -> bool:
     """
     Outbound n8n/Telegram: action from settings (default send_draft_notification), no Approval row.
+    Records a Notification linked to the sent TelegramMessage for debugging.
     """
     if chat_id is None:
         logger.info("draft notification skipped: no chat_id for request_id=%s", request_obj.pk)
@@ -132,40 +233,25 @@ def dispatch_draft_request_notification(
         f"• Заявитель: {escape(requester_name)}\n\n"
         f"Укажите сумму и отправьте заявку на согласование кнопкой в этом сообщении.{url_part}{template_part}"
     )
-    payload = {
-        "action": action,
-        "text": message_text,
-        "recipient_id": str(chat_id),
-        "bot_token": get_tenant_bot_token(request_obj.tenant),
-        "tenant_id": str(request_obj.tenant_id),
-        "request_id": request_obj.pk,
-        "buttons": [],
-    }
-    response_data = _post_to_gateway(request_obj=request_obj, payload=payload)
-    return response_data is not None
-
-
-def _dispatch_payload(
-    *,
-    action: str,
-    request_obj: Request,
-    approval: Approval,
-    message_text: str,
-    include_buttons: bool = True,
-) -> dict:
-    payload: dict = {
-        "action": action,
-        "text": message_text,
-        "recipient_id": str(approval.approver_recipient_id),
-        "bot_token": get_tenant_bot_token(request_obj.tenant),
-        "tenant_id": str(request_obj.tenant_id),
-        "approval_id": str(approval.id),
-        "request_id": approval.request_id,
-    }
-    payload["buttons"] = _buttons(approval=approval) if include_buttons else []
-    if approval.gateway_message_id:
-        payload["message_id"] = approval.gateway_message_id
-    return payload
+    dispatcher = TelegramDispatcher(request_obj.tenant)
+    message = dispatcher.send(
+        action=action,
+        recipient_id=chat_id,
+        text=message_text,
+        buttons=[],
+        link=None,
+        request_id=request_obj.pk,
+    )
+    if message is not None:
+        Notification.objects.create(
+            tenant=request_obj.tenant,
+            kind=Notification.KIND_DRAFT,
+            telegram_message=message,
+            content_type=ContentType.objects.get_for_model(Request),
+            object_id=request_obj.pk,
+        )
+        return True
+    return False
 
 
 def _parse_bridge_response(resp: requests.Response) -> dict | None:
@@ -212,28 +298,167 @@ def _post_to_gateway(*, request_obj: Request, payload: dict) -> dict | None:
     return post_messaging_gateway(tenant=getattr(request_obj, "tenant", None), payload=payload)
 
 
-def _maybe_set_message_id(*, approval: Approval, response_data: dict | None) -> None:
+def extract_message_id(response_data: dict | None) -> int | None:
+    """Extract Telegram message_id from a gateway response dict (handles nested result.message_id)."""
     if not isinstance(response_data, dict):
-        return
+        return None
     raw = response_data.get("message_id")
     if raw in (None, ""):
-        result = response_data.get("result") if isinstance(response_data.get("result"), dict) else {}
-        raw = result.get("message_id")
+        result = response_data.get("result")
+        if isinstance(result, dict):
+            raw = result.get("message_id")
     try:
-        message_id = int(raw)
+        return int(raw)
     except (TypeError, ValueError):
-        return
-    updates = []
-    approval.gateway_message_id = message_id
-    updates.append("gateway_message_id")
-    if not approval.message_sent:
-        approval.message_sent = True
-        updates.append("message_sent")
-    if approval.message_sent_at is None:
-        approval.message_sent_at = timezone.now()
-        updates.append("message_sent_at")
-    if updates:
-        approval.save(update_fields=updates)
+        return None
+
+
+class TelegramDispatcher:
+    """
+    Single outbound hub for tg-gateway.
+
+    Owns gateway mechanics (payload build + POST + message_id parsing) and persistence of
+    the sent message as a ``TelegramMessage`` row. Callers supply content (text, buttons,
+    recipient) and an optional ``link`` — a domain object with a OneToOne ``telegram_message``
+    (e.g. ``Approval`` / ``Task``) — which gets wired to the created record. ``TelegramMessage``
+    stays a passive model; all logic lives here (CLAUDE.md: models are not business logic).
+    """
+
+    def __init__(self, tenant):
+        self.tenant = tenant
+        self.bot_token = get_tenant_bot_token(tenant)
+
+    def _post(self, payload: dict) -> dict | None:
+        return post_messaging_gateway(tenant=self.tenant, payload=payload)
+
+    @staticmethod
+    def _link(link, message: TelegramMessage) -> None:
+        if link is None:
+            return
+        link.telegram_message = message
+        link.save(update_fields=["telegram_message"])
+
+    def send(
+        self,
+        *,
+        action: str,
+        recipient_id,
+        text: str,
+        buttons: list | None = None,
+        link=None,
+        external_user_id: int | None = None,
+        approval_id: int | str | None = None,
+        request_id: int | str | None = None,
+        require_message_id: bool = False,
+    ) -> TelegramMessage | None:
+        """Send a new message. Returns the persisted TelegramMessage, or None when the
+        gateway is unreachable. With ``require_message_id`` a reachable gateway that returns
+        no message_id raises ``TelegramDispatchMissingMessageId`` (hard error for dispatch)."""
+        payload = build_gateway_payload(
+            action=action,
+            tenant_id=getattr(self.tenant, "id", None),
+            recipient_id=recipient_id,
+            bot_token=self.bot_token,
+            message_text=text,
+            approval_id=approval_id,
+            request_id=request_id,
+            buttons=buttons or [],
+        )
+        response_data = self._post(payload)
+        if response_data is None:
+            return None
+        message_id = extract_message_id(response_data)
+        if message_id is None:
+            if require_message_id:
+                response_type = type(response_data).__name__
+                response_keys = list(response_data.keys()) if isinstance(response_data, dict) else []
+                logger.error(
+                    "Telegram bridge response missing message_id approval_id=%s request_id=%s action=%s response_type=%s response_keys=%s",
+                    approval_id,
+                    request_id,
+                    action,
+                    response_type,
+                    response_keys,
+                )
+                raise TelegramDispatchMissingMessageId(
+                    {
+                        "telegram": (
+                            "Bridge dispatch must return message_id for action. "
+                            f"approval_id={approval_id} request_id={request_id} action={action} "
+                            f"(response_type={response_type}, response_keys={response_keys})"
+                        )
+                    }
+                )
+            return None
+        message = TelegramMessage.objects.create(
+            tenant=self.tenant,
+            recipient_id=str(recipient_id or ""),
+            external_user_id=external_user_id,
+            message_id=message_id,
+            sent_at=timezone.now(),
+        )
+        self._link(link, message)
+        return message
+
+    def edit(
+        self,
+        message: TelegramMessage,
+        *,
+        action: str,
+        text: str,
+        buttons: list | None = None,
+        recipient_id=None,
+        approval_id: int | str | None = None,
+        request_id: int | str | None = None,
+    ) -> TelegramMessage | None:
+        """Edit an existing message in place. Returns the message, or None on gateway failure."""
+        payload = build_gateway_payload(
+            action=action,
+            tenant_id=getattr(self.tenant, "id", None),
+            recipient_id=recipient_id if recipient_id is not None else message.recipient_id,
+            bot_token=self.bot_token,
+            message_text=text,
+            approval_id=approval_id,
+            request_id=request_id,
+            message_id=message.message_id,
+            buttons=buttons or [],
+        )
+        response_data = self._post(payload)
+        if response_data is None:
+            return None
+        return message
+
+    def deactivate(
+        self,
+        message: TelegramMessage,
+        *,
+        action: str,
+        text: str,
+        recipient_id=None,
+        approval_id: int | str | None = None,
+        request_id: int | str | None = None,
+    ) -> TelegramMessage | None:
+        """Re-render the message without buttons (drops the inline keyboard)."""
+        return self.edit(
+            message,
+            action=action,
+            text=text,
+            buttons=[],
+            recipient_id=recipient_id,
+            approval_id=approval_id,
+            request_id=request_id,
+        )
+
+    def delete(self, message: TelegramMessage, *, action: str = "delete", recipient_id=None) -> None:
+        payload = build_gateway_payload(
+            action=action,
+            tenant_id=getattr(self.tenant, "id", None),
+            recipient_id=recipient_id if recipient_id is not None else message.recipient_id,
+            bot_token=self.bot_token,
+            message_text="",
+            message_id=message.message_id,
+        )
+        self._post(payload)
 
 
 def _current_pending_step(request_obj: Request) -> int | None:
@@ -282,7 +507,7 @@ def dispatch_pending_approvals(*, request_obj: Request, step: int | None = None,
         request_id=locked.pk,
         step=current_step,
         decision=Approval.DECISION_PENDING,
-        message_sent=False,
+        telegram_message__isnull=True,
         approver_recipient_id__isnull=False,
     )
     if step_type is not None:
@@ -290,27 +515,26 @@ def dispatch_pending_approvals(*, request_obj: Request, step: int | None = None,
     approvals = list(approvals_qs.select_related("approver_user").order_by("id"))
     if not approvals:
         return 0
+    dispatcher = TelegramDispatcher(locked.tenant)
+    send_action = get_requests_messaging_gateway_settings(tenant=locked.tenant).send_action
     sent_count = 0
     for approval in approvals:
         message_text = build_approval_message(request_obj=locked, approval=approval)
         include_buttons = approval.step_type != Approval.STEP_TYPE_NOTIFICATION
-        payload = _dispatch_payload(
-            action=get_requests_messaging_gateway_settings(tenant=locked.tenant).send_action,
-            request_obj=locked,
-            approval=approval,
-            message_text=message_text,
-            include_buttons=include_buttons,
+        message = dispatcher.send(
+            action=send_action,
+            recipient_id=approval.approver_recipient_id,
+            text=message_text,
+            buttons=_buttons(approval=approval) if include_buttons else [],
+            link=approval,
+            external_user_id=approval.approver_external_user_id,
+            approval_id=approval.id,
+            request_id=approval.request_id,
+            require_message_id=True,
         )
-        response_data = _post_to_gateway(request_obj=locked, payload=payload)
-        if response_data is None:
+        if message is None:
+            # Gateway unreachable — leave this approver for a later dispatch.
             continue
-
-        _ensure_bridge_message_id(
-            approval=approval,
-            response_data=response_data,
-            request_id=locked.id,
-            action=str(payload.get("action") or ""),
-        )
         sent_count += 1
         if approval.step_type == Approval.STEP_TYPE_NOTIFICATION:
             Approval.objects.filter(
@@ -324,48 +548,36 @@ def dispatch_pending_approvals(*, request_obj: Request, step: int | None = None,
 
 
 def edit_approval_message(*, approval: Approval, request_context: Request | None = None) -> bool:
-    if not approval.gateway_message_id or approval.approver_recipient_id is None:
+    if approval.telegram_message_id is None or approval.approver_recipient_id is None:
         return False
     req = request_context or approval.request
-    payload = _dispatch_payload(
+    dispatcher = TelegramDispatcher(req.tenant)
+    message = dispatcher.edit(
+        approval.telegram_message,
         action=get_requests_messaging_gateway_settings(tenant=req.tenant).edit_action,
-        request_obj=req,
-        approval=approval,
-        message_text=build_approval_message(request_obj=req, approval=approval),
+        text=build_approval_message(request_obj=req, approval=approval),
+        buttons=_buttons(approval=approval),
+        recipient_id=approval.approver_recipient_id,
+        approval_id=approval.id,
+        request_id=approval.request_id,
     )
-    response_data = _post_to_gateway(request_obj=req, payload=payload)
-    if response_data is None:
-        return False
-    _ensure_bridge_message_id(
-        approval=approval,
-        response_data=response_data,
-        request_id=req.id,
-        action=str(payload.get("action") or ""),
-    )
-    return response_data is not None
+    return message is not None
 
 
 def deactivate_approval_message_buttons(*, approval: Approval, request_context: Request | None = None) -> bool:
-    if not approval.gateway_message_id or approval.approver_recipient_id is None:
+    if approval.telegram_message_id is None or approval.approver_recipient_id is None:
         return False
     req = request_context or approval.request
-    payload = _dispatch_payload(
+    dispatcher = TelegramDispatcher(req.tenant)
+    message = dispatcher.deactivate(
+        approval.telegram_message,
         action=get_requests_messaging_gateway_settings(tenant=req.tenant).edit_action,
-        request_obj=req,
-        approval=approval,
-        message_text=build_approval_message(request_obj=req, approval=approval),
-        include_buttons=False,
+        text=build_approval_message(request_obj=req, approval=approval),
+        recipient_id=approval.approver_recipient_id,
+        approval_id=approval.id,
+        request_id=approval.request_id,
     )
-    response_data = _post_to_gateway(request_obj=req, payload=payload)
-    if response_data is None:
-        return False
-    _ensure_bridge_message_id(
-        approval=approval,
-        response_data=response_data,
-        request_id=req.id,
-        action=str(payload.get("action") or ""),
-    )
-    return response_data is not None
+    return message is not None
 
 
 def refresh_request_messages(*, request_obj: Request) -> int:
@@ -381,11 +593,10 @@ def refresh_request_messages(*, request_obj: Request) -> int:
     approvals = list(
         Approval.objects.filter(
             request=request_obj,
-            message_sent=True,
-            gateway_message_id__isnull=False,
+            telegram_message__isnull=False,
             approver_recipient_id__isnull=False,
         )
-        .select_related("request", "request__tenant", "approver_user")
+        .select_related("request", "request__tenant", "approver_user", "telegram_message")
         .order_by("id")
     )
     updated = 0
@@ -435,14 +646,15 @@ def resend_current_pending_step(*, request_obj: Request, idempotency_key: str | 
 
     created = 0
     for approval in approvals:
-        if approval.gateway_message_id:
+        if approval.telegram_message_id is not None:
             deactivate_approval_message_buttons(approval=approval, request_context=locked)
         approval.decision = Approval.DECISION_CANCELED
         approval.decided_at = timezone.now()
         approval.comment = "Автоматически: отменено повторной отправкой шага."
-        # Prevent an extra edit in subsequent refresh cycle for the canceled row.
-        approval.message_sent = False
-        approval.save(update_fields=["decision", "decided_at", "comment", "message_sent"])
+        # Unlink so the next refresh cycle skips this canceled row (no longer counts as
+        # "sent"); the TelegramMessage history row itself is left intact.
+        approval.telegram_message = None
+        approval.save(update_fields=["decision", "decided_at", "comment", "telegram_message"])
         Approval.objects.create(
             request=locked,
             approver_user=approval.approver_user,
@@ -451,8 +663,6 @@ def resend_current_pending_step(*, request_obj: Request, idempotency_key: str | 
             step=approval.step,
             step_type=approval.step_type,
             decision=Approval.DECISION_PENDING,
-            message_sent=False,
-            gateway_message_id=None,
             resend_key=idempotency_key,
             replaced_approval=approval,
         )
