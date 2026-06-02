@@ -594,14 +594,27 @@ class RequestApprovalsTests(APITestCase):
 
     @patch("apps.modules.telegram_approvals.services.TelegramDispatcher.send")
     def test_notification_step_dispatches_without_buttons_and_auto_approves(self, gateway_mock):
-        # TelegramDispatcher.send returns a TelegramMessage object
+        # TelegramDispatcher.send creates a TelegramMessage and links it to the approval
         from apps.modules.telegram_approvals.models import TelegramMessage
-        from datetime import datetime
         from django.utils import timezone
-        mock_tm = MagicMock(spec=TelegramMessage)
-        mock_tm.message_id = 901
-        mock_tm.sent_at = timezone.now()
-        gateway_mock.return_value = mock_tm
+
+        call_count = [0]
+        def mock_send(**kwargs):
+            call_count[0] += 1
+            tm = TelegramMessage.objects.create(
+                tenant=self.tenant,
+                recipient_id=str(kwargs.get("recipient_id", "999")),
+                external_user_id=kwargs.get("external_user_id"),
+                message_id=900 + call_count[0],
+                sent_at=timezone.now(),
+            )
+            # Link to approval if provided
+            link = kwargs.get("link")
+            if link is not None:
+                link.telegram_message = tm
+                link.save(update_fields=["telegram_message"])
+            return tm
+        gateway_mock.side_effect = mock_send
         pt_cfg = RequestApprovalPaymentTypeConfig.objects.get(
             config__tenant=self.tenant, payment_type="Наличные"
         )
@@ -3416,9 +3429,18 @@ class DraftRequestPatchSubmitTests(APITestCase):
         self.assertIsInstance(min_v, Decimal)
         self.assertEqual(min_v, Decimal("0.01"))
 
-    @patch("apps.modules.telegram_approvals.services.TelegramDispatcher.send", return_value=MagicMock())
+    @patch("apps.modules.telegram_approvals.services.TelegramDispatcher.send")
     def test_dispatch_draft_notification_payload(self, mock_send):
         from apps.modules.telegram_approvals.services import dispatch_draft_request_notification
+        from apps.modules.telegram_approvals.models import TelegramMessage
+
+        tm = TelegramMessage(
+            tenant=self.tenant,
+            recipient_id="123",
+            message_id=1,
+            sent_at=timezone.now(),
+        )
+        mock_send.return_value = tm
 
         req = self._draft_request()
         ok = dispatch_draft_request_notification(request_obj=req, chat_id=123, template_id=77)
@@ -3427,6 +3449,11 @@ class DraftRequestPatchSubmitTests(APITestCase):
         call_kwargs = mock_send.call_args.kwargs
         self.assertEqual(call_kwargs["action"], "send")
         self.assertEqual(call_kwargs["recipient_id"], 123)
+        self.assertIn("кнопкой в этом сообщении", call_kwargs["text"])
+        self.assertIn("📝 Черновик заявки", call_kwargs["text"])
+        self.assertIn("💰 Финансы", call_kwargs["text"])
+        self.assertIn("📌 Назначение", call_kwargs["text"])
+        self.assertIn("⏱ Статус", call_kwargs["text"])
 
 
 @override_settings(BASE_DOMAIN="example.com", N8N_INTEGRATION_TOKEN="", ALLOWED_HOSTS=["*"])

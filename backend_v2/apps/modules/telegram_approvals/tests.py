@@ -87,16 +87,18 @@ class TelegramApprovalsTests(APITestCase):
 
     def _create_approval_with_message(self, message_id, **kwargs):
         """Create an Approval linked to a TelegramMessage (gateway_message_id and message_sent are now properties)."""
+        recipient_id = kwargs.get("approver_recipient_id")
+        external_user_id = kwargs.get("approver_external_user_id")
         tm = TelegramMessage.objects.create(
             tenant=self.tenant,
-            recipient_id=kwargs.get("approver_recipient_id", "999"),
-            external_user_id=kwargs.get("approver_external_user_id"),
+            recipient_id=str(recipient_id or "999"),
+            external_user_id=external_user_id,
             message_id=message_id,
             sent_at=timezone.now(),
         )
         return Approval.objects.create(
             telegram_message=tm,
-            **{k: v for k, v in kwargs.items() if k != "approver_recipient_id" and k != "approver_external_user_id"},
+            **kwargs,
         )
 
     def test_tenant_bot_token_is_read_from_tenant_model(self):
@@ -1277,16 +1279,18 @@ class TelegramGatewayIntegrationTests(APITestCase):
         self.host = "integ.example.com"
 
     def _create_approval_with_message(self, message_id, **kwargs):
+        recipient_id = kwargs.get("approver_recipient_id")
+        external_user_id = kwargs.get("approver_external_user_id")
         tm = TelegramMessage.objects.create(
             tenant=self.tenant,
-            recipient_id=kwargs.get("approver_recipient_id", "999"),
-            external_user_id=kwargs.get("approver_external_user_id"),
+            recipient_id=str(recipient_id or "999"),
+            external_user_id=external_user_id,
             message_id=message_id,
             sent_at=timezone.now(),
         )
         return Approval.objects.create(
             telegram_message=tm,
-            **{k: v for k, v in kwargs.items() if k != "approver_recipient_id" and k != "approver_external_user_id"},
+            **kwargs,
         )
 
     def tearDown(self):
