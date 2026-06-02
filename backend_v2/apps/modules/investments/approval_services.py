@@ -18,13 +18,10 @@ from apps.modules.investments.models import (
 )
 from apps.modules.requests.integration_settings import get_requests_messaging_gateway_settings
 from apps.modules.telegram_approvals.services import (
-    apply_gateway_message_lifecycle,
-    build_gateway_payload,
+    TelegramDispatcher,
     _display_user_name,
     _format_amount_for_telegram,
-    extract_message_id,
     get_tenant_bot_token,
-    post_messaging_gateway,
 )
 
 INVESTMENT_APPROVAL_CASCADE_REJECTION_COMMENT = (
@@ -244,29 +241,10 @@ def _build_buttons(*, approval: InvestmentReturnApproval) -> list[list[dict]]:
     ]
 
 
-def _investment_messaging_payload(
-    *,
-    action: str,
-    approval: InvestmentReturnApproval,
-    message_text: str,
-    include_buttons: bool,
-) -> dict:
-    return build_gateway_payload(
-        action=action,
-        tenant_id=approval.tenant_id,
-        recipient_id=approval.approver_recipient_id,
-        bot_token=get_tenant_bot_token(approval.tenant),
-        message_text=message_text,
-        approval_id=approval.id,
-        request_id=approval.invest_return_id,
-        message_id=approval.gateway_message_id,
-        buttons=_build_buttons(approval=approval) if include_buttons else [],
-    )
-
-
 def _dispatch_approval_message(*, approval: InvestmentReturnApproval, include_buttons: bool = True) -> bool:
     if approval.approver_recipient_id is None:
         return False
+    dispatcher = TelegramDispatcher(approval.tenant)
     settings_obj = get_requests_messaging_gateway_settings(tenant=approval.tenant)
     blocked, current_step = _investment_flow_flags(invest_return=approval.invest_return)
     message_text = build_investment_return_approval_telegram_message(
@@ -275,16 +253,17 @@ def _dispatch_approval_message(*, approval: InvestmentReturnApproval, include_bu
         blocked_by_rejection=blocked,
         current_pending_step=current_step,
     )
-    payload = _investment_messaging_payload(
+    message = dispatcher.send(
         action=settings_obj.send_action,
-        approval=approval,
-        message_text=message_text,
-        include_buttons=include_buttons,
+        recipient_id=approval.approver_recipient_id,
+        text=message_text,
+        buttons=_build_buttons(approval=approval) if include_buttons else [],
+        link=approval,
+        external_user_id=approval.approver_external_user_id,
+        approval_id=approval.id,
+        request_id=approval.invest_return_id,
     )
-    response_data = post_messaging_gateway(tenant=approval.tenant, payload=payload)
-    message_id = extract_message_id(response_data)
-    apply_gateway_message_lifecycle(obj=approval, message_id=message_id)
-    return message_id is not None
+    return message is not None
 
 
 def refresh_invest_return_approval_messages(*, invest_return: InvestReturn) -> int:
@@ -297,47 +276,60 @@ def refresh_invest_return_approval_messages(*, invest_return: InvestReturn) -> i
     approvals = list(
         InvestmentReturnApproval.objects.filter(
             invest_return=invest_return,
-            message_sent=True,
-            gateway_message_id__isnull=False,
+            telegram_message__isnull=False,
             approver_recipient_id__isnull=False,
-        ).select_related("invest_return", "invest_return__company", "tenant", "approver_user")
+        ).select_related("invest_return", "invest_return__company", "tenant", "approver_user", "telegram_message")
     )
     updated = 0
+    dispatcher = TelegramDispatcher(invest_return.tenant)
+    settings_obj = get_requests_messaging_gateway_settings(tenant=invest_return.tenant)
     for approval in approvals:
         readonly = _investment_telegram_card_should_be_readonly(
             approval=approval,
             blocked_by_rejection=blocked,
             current_pending_step=current_step,
         )
-        if _edit_investment_return_approval_message(approval=approval, include_buttons=not readonly):
+        if approval.telegram_message_id is None:
+            continue
+        message = dispatcher.edit(
+            approval.telegram_message,
+            action=settings_obj.edit_action,
+            text=build_investment_return_approval_telegram_message(
+                invest_return=invest_return,
+                approval=approval,
+                blocked_by_rejection=blocked,
+                current_pending_step=current_step,
+            ),
+            buttons=_build_buttons(approval=approval) if not readonly else [],
+            recipient_id=approval.approver_recipient_id,
+            approval_id=approval.id,
+            request_id=approval.invest_return_id,
+        )
+        if message is not None:
             updated += 1
     return updated
 
 
-def _edit_investment_return_approval_message(*, approval: InvestmentReturnApproval, include_buttons: bool) -> bool:
-    if not approval.gateway_message_id or approval.approver_recipient_id is None:
-        return False
-    ir = approval.invest_return
-    blocked, current_step = _investment_flow_flags(invest_return=ir)
-    message_text = build_investment_return_approval_telegram_message(
-        invest_return=ir,
-        approval=approval,
-        blocked_by_rejection=blocked,
-        current_pending_step=current_step,
-    )
-    settings_obj = get_requests_messaging_gateway_settings(tenant=approval.tenant)
-    payload = _investment_messaging_payload(
-        action=settings_obj.edit_action,
-        approval=approval,
-        message_text=message_text,
-        include_buttons=include_buttons,
-    )
-    return post_messaging_gateway(tenant=approval.tenant, payload=payload) is not None
-
-
 def deactivate_investment_return_approval_buttons(*, approval: InvestmentReturnApproval) -> bool:
     """editMessage with empty buttons — e.g. duplicate callback after decision."""
-    return _edit_investment_return_approval_message(approval=approval, include_buttons=False)
+    if approval.telegram_message_id is None or approval.approver_recipient_id is None:
+        return False
+    dispatcher = TelegramDispatcher(approval.tenant)
+    settings_obj = get_requests_messaging_gateway_settings(tenant=approval.tenant)
+    message = dispatcher.deactivate(
+        approval.telegram_message,
+        action=settings_obj.edit_action,
+        text=build_investment_return_approval_telegram_message(
+            invest_return=approval.invest_return,
+            approval=approval,
+            blocked_by_rejection=False,
+            current_pending_step=None,
+        ),
+        recipient_id=approval.approver_recipient_id,
+        approval_id=approval.id,
+        request_id=approval.invest_return_id,
+    )
+    return message is not None
 
 
 def create_approvals_for_invest_return(*, invest_return: InvestReturn) -> int:

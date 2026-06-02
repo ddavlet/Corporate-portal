@@ -17,13 +17,10 @@ from apps.modules.investments.models import (
 )
 from apps.modules.requests.integration_settings import get_requests_messaging_gateway_settings
 from apps.modules.telegram_approvals.services import (
-    apply_gateway_message_lifecycle,
-    build_gateway_payload,
+    TelegramDispatcher,
     _display_user_name,
     _format_amount_for_telegram,
-    extract_message_id,
     get_tenant_bot_token,
-    post_messaging_gateway,
 )
 
 _TG_CARD_SEP = "\u2500" * 17
@@ -183,29 +180,10 @@ def _build_buttons(*, approval: ProjectInvestmentApproval) -> list[list[dict]]:
     ]
 
 
-def _project_investment_messaging_payload(
-    *,
-    action: str,
-    approval: ProjectInvestmentApproval,
-    message_text: str,
-    include_buttons: bool,
-) -> dict:
-    return build_gateway_payload(
-        action=action,
-        tenant_id=approval.tenant_id,
-        recipient_id=approval.approver_recipient_id,
-        bot_token=get_tenant_bot_token(approval.tenant),
-        message_text=message_text,
-        approval_id=approval.id,
-        request_id=approval.project_investment_id,
-        message_id=approval.gateway_message_id,
-        buttons=_build_buttons(approval=approval) if include_buttons else [],
-    )
-
-
 def _dispatch_approval_message(*, approval: ProjectInvestmentApproval, include_buttons: bool = True) -> bool:
     if approval.approver_recipient_id is None:
         return False
+    dispatcher = TelegramDispatcher(approval.tenant)
     settings_obj = get_requests_messaging_gateway_settings(tenant=approval.tenant)
     blocked, current_step = _project_investment_flow_flags(project_investment=approval.project_investment)
     message_text = build_project_investment_approval_telegram_message(
@@ -214,16 +192,17 @@ def _dispatch_approval_message(*, approval: ProjectInvestmentApproval, include_b
         blocked_by_rejection=blocked,
         current_pending_step=current_step,
     )
-    payload = _project_investment_messaging_payload(
+    message = dispatcher.send(
         action=settings_obj.send_action,
-        approval=approval,
-        message_text=message_text,
-        include_buttons=include_buttons,
+        recipient_id=approval.approver_recipient_id,
+        text=message_text,
+        buttons=_build_buttons(approval=approval) if include_buttons else [],
+        link=approval,
+        external_user_id=approval.approver_external_user_id,
+        approval_id=approval.id,
+        request_id=approval.project_investment_id,
     )
-    response_data = post_messaging_gateway(tenant=approval.tenant, payload=payload)
-    message_id = extract_message_id(response_data)
-    apply_gateway_message_lifecycle(obj=approval, message_id=message_id)
-    return message_id is not None
+    return message is not None
 
 
 def refresh_project_investment_approval_messages(*, project_investment: ProjectInvestment) -> int:
@@ -232,46 +211,59 @@ def refresh_project_investment_approval_messages(*, project_investment: ProjectI
     approvals = list(
         ProjectInvestmentApproval.objects.filter(
             project_investment=project_investment,
-            message_sent=True,
-            gateway_message_id__isnull=False,
+            telegram_message__isnull=False,
             approver_recipient_id__isnull=False,
-        ).select_related("project_investment", "project_investment__company", "tenant")
+        ).select_related("project_investment", "project_investment__company", "tenant", "telegram_message")
     )
     updated = 0
+    dispatcher = TelegramDispatcher(project_investment.tenant)
+    settings_obj = get_requests_messaging_gateway_settings(tenant=project_investment.tenant)
     for approval in approvals:
         readonly = _project_investment_telegram_card_should_be_readonly(
             approval=approval,
             blocked_by_rejection=blocked,
             current_pending_step=current_step,
         )
-        if _edit_project_investment_approval_message(approval=approval, include_buttons=not readonly):
+        if approval.telegram_message_id is None:
+            continue
+        message = dispatcher.edit(
+            approval.telegram_message,
+            action=settings_obj.edit_action,
+            text=build_project_investment_approval_telegram_message(
+                project_investment=project_investment,
+                approval=approval,
+                blocked_by_rejection=blocked,
+                current_pending_step=current_step,
+            ),
+            buttons=_build_buttons(approval=approval) if not readonly else [],
+            recipient_id=approval.approver_recipient_id,
+            approval_id=approval.id,
+            request_id=approval.project_investment_id,
+        )
+        if message is not None:
             updated += 1
     return updated
 
 
-def _edit_project_investment_approval_message(*, approval: ProjectInvestmentApproval, include_buttons: bool) -> bool:
-    if not approval.gateway_message_id or approval.approver_recipient_id is None:
-        return False
-    pi = approval.project_investment
-    blocked, current_step = _project_investment_flow_flags(project_investment=pi)
-    message_text = build_project_investment_approval_telegram_message(
-        project_investment=pi,
-        approval=approval,
-        blocked_by_rejection=blocked,
-        current_pending_step=current_step,
-    )
-    settings_obj = get_requests_messaging_gateway_settings(tenant=approval.tenant)
-    payload = _project_investment_messaging_payload(
-        action=settings_obj.edit_action,
-        approval=approval,
-        message_text=message_text,
-        include_buttons=include_buttons,
-    )
-    return post_messaging_gateway(tenant=approval.tenant, payload=payload) is not None
-
-
 def deactivate_project_investment_approval_buttons(*, approval: ProjectInvestmentApproval) -> bool:
-    return _edit_project_investment_approval_message(approval=approval, include_buttons=False)
+    if approval.telegram_message_id is None or approval.approver_recipient_id is None:
+        return False
+    dispatcher = TelegramDispatcher(approval.tenant)
+    settings_obj = get_requests_messaging_gateway_settings(tenant=approval.tenant)
+    message = dispatcher.deactivate(
+        approval.telegram_message,
+        action=settings_obj.edit_action,
+        text=build_project_investment_approval_telegram_message(
+            project_investment=approval.project_investment,
+            approval=approval,
+            blocked_by_rejection=False,
+            current_pending_step=None,
+        ),
+        recipient_id=approval.approver_recipient_id,
+        approval_id=approval.id,
+        request_id=approval.project_investment_id,
+    )
+    return message is not None
 
 
 def create_approvals_for_project_investment(*, project_investment: ProjectInvestment) -> int:
