@@ -813,9 +813,9 @@ class InvestmentApprovalFlowTests(APITestCase):
         cbu_patcher.start()
         self.addCleanup(cbu_patcher.stop)
 
-    @patch("apps.modules.investments.approval_services.post_messaging_gateway")
+    @patch("apps.modules.telegram_approvals.services.TelegramDispatcher.send")
     def test_create_return_creates_approvals_and_dispatches_first_step(self, bridge_mock):
-        bridge_mock.return_value = {"message_id": 101}
+        bridge_mock.return_value = MagicMock()
         response = self.client.post(
             "/api/investments/returns/",
             {
@@ -837,22 +837,23 @@ class InvestmentApprovalFlowTests(APITestCase):
         self.assertEqual(created.cbu_usd_uzs_rate, Decimal("10000"))
         self.assertEqual(created.approvals.count(), 2)
         self.assertEqual(bridge_mock.call_count, 1)
-        payload = bridge_mock.call_args.kwargs["payload"]
-        self.assertIn("📅 Месяц:", payload["text"])
-        self.assertIn("InvestFlow", payload["text"])
-        self.assertIn("1 200.00", payload["text"])
-        self.assertIn("Выплата №", payload["text"])
-        self.assertIn("🔍 Проверка выплаты", payload["text"])
-        self.assertIn("Курс CBU", payload["text"])
-        self.assertIn("Auto approval", payload["text"])
-        self.assertIn("Ожидается подтверждение от", payload["text"])
-        self.assertIn("Первый Согласующий", payload["text"])
-        self.assertTrue(payload["text"].strip().startswith("<b>"))
-        self.assertEqual(payload["buttons"][0][0]["label"], "✅ Проверено")
+        call_kw = bridge_mock.call_args.kwargs
+        text = call_kw["text"]
+        self.assertIn("📅 Месяц:", text)
+        self.assertIn("InvestFlow", text)
+        self.assertIn("1 200.00", text)
+        self.assertIn("Выплата №", text)
+        self.assertIn("🔍 Проверка выплаты", text)
+        self.assertIn("Курс CBU", text)
+        self.assertIn("Auto approval", text)
+        self.assertIn("Ожидается подтверждение от", text)
+        self.assertIn("Первый Согласующий", text)
+        self.assertTrue(text.strip().startswith("<b>"))
+        self.assertEqual(call_kw["buttons"][0][0]["label"], "✅ Проверено")
 
-    @patch("apps.modules.investments.approval_services.post_messaging_gateway")
+    @patch("apps.modules.telegram_approvals.services.TelegramDispatcher.send")
     def test_callback_enforces_authorization_and_final_confirmation(self, bridge_mock):
-        bridge_mock.return_value = {"message_id": 202}
+        bridge_mock.return_value = MagicMock()
         response = self.client.post(
             "/api/investments/returns/",
             {
@@ -937,9 +938,9 @@ class InvestmentApprovalFlowTests(APITestCase):
         inv_return.refresh_from_db()
         self.assertTrue(inv_return.confirmed)
 
-    @patch("apps.modules.investments.approval_services.post_messaging_gateway")
+    @patch("apps.modules.telegram_approvals.services.TelegramDispatcher.send")
     def test_reject_keeps_return_unconfirmed(self, bridge_mock):
-        bridge_mock.return_value = {"message_id": 404}
+        bridge_mock.return_value = MagicMock()
         response = self.client.post(
             "/api/investments/returns/",
             {
@@ -977,9 +978,9 @@ class InvestmentApprovalFlowTests(APITestCase):
         self.assertEqual(second_step.decision, InvestmentReturnApproval.DECISION_REJECTED)
         self.assertEqual(second_step.decision_comment, INVESTMENT_APPROVAL_CASCADE_REJECTION_COMMENT)
 
-    @patch("apps.modules.investments.approval_services.post_messaging_gateway")
+    @patch("apps.modules.telegram_approvals.services.TelegramDispatcher.send")
     def test_payment_step_uses_payment_buttons_and_chat_id(self, bridge_mock):
-        bridge_mock.return_value = {"message_id": 505}
+        bridge_mock.return_value = MagicMock()
         create_res = self.client.post(
             "/api/investments/returns/",
             {
@@ -1010,17 +1011,17 @@ class InvestmentApprovalFlowTests(APITestCase):
             HTTP_HOST=self.host,
         )
         self.assertEqual(first_ok.status_code, 200)
-        payload = bridge_mock.call_args.kwargs["payload"]
-        self.assertEqual(payload["recipient_id"], "666000")
-        self.assertEqual(payload["buttons"][0][0]["label"], "✅ Подтвердить")
-        self.assertIn("750.00", payload["text"])
-        self.assertIn("💰 Подтверждение получения", payload["text"])
-        self.assertIn("Ожидается подтверждение от", payload["text"])
-        self.assertIn("Второй Подтверждающий", payload["text"])
+        call_kw = bridge_mock.call_args.kwargs
+        self.assertEqual(call_kw["recipient_id"], "666000")
+        self.assertEqual(call_kw["buttons"][0][0]["label"], "✅ Подтвердить")
+        self.assertIn("750.00", call_kw["text"])
+        self.assertIn("💰 Подтверждение получения", call_kw["text"])
+        self.assertIn("Ожидается подтверждение от", call_kw["text"])
+        self.assertIn("Второй Подтверждающий", call_kw["text"])
 
-    @patch("apps.modules.investments.approval_services.post_messaging_gateway")
+    @patch("apps.modules.telegram_approvals.services.TelegramDispatcher.send")
     def test_duplicate_webhook_callback_strips_inline_buttons(self, bridge_mock):
-        bridge_mock.return_value = {"message_id": 909}
+        bridge_mock.return_value = MagicMock()
         response = self.client.post(
             "/api/investments/returns/",
             {
@@ -1051,7 +1052,7 @@ class InvestmentApprovalFlowTests(APITestCase):
         )
         dup = self.client.post("/api/investments/approvals/webhook/", body, format="json", HTTP_HOST=self.host)
         self.assertEqual(dup.status_code, 409)
-        last_payload = bridge_mock.call_args.kwargs["payload"]
+        last_call_kw = bridge_mock.call_args.kwargs
         self.assertEqual(last_payload.get("buttons"), [])
         self.assertIn("message_id", last_payload)
 
@@ -1063,9 +1064,9 @@ class InvestmentApprovalFlowTests(APITestCase):
         res = self.client.get("/api/investments/approval-config/?recipient=invalid", HTTP_HOST=self.host)
         self.assertEqual(res.status_code, 400)
 
-    @patch("apps.modules.investments.approval_services.post_messaging_gateway")
+    @patch("apps.modules.telegram_approvals.services.TelegramDispatcher.send")
     def test_uses_return_type_specific_config_when_present(self, bridge_mock):
-        bridge_mock.return_value = {"message_id": 303}
+        bridge_mock.return_value = MagicMock()
         self.client.put(
             "/api/investments/approval-config/",
             {
@@ -1116,10 +1117,10 @@ class InvestmentApprovalFlowTests(APITestCase):
             HTTP_HOST=self.host,
         )
         self.assertEqual(div_res.status_code, 201, div_res.data)
-        div_payload = bridge_mock.call_args.kwargs["payload"]
-        self.assertEqual(div_payload["recipient_id"], str(self.approver1.telegram_chat_id))
+        div_call_kw = bridge_mock.call_args.kwargs
+        self.assertEqual(div_call_kw["recipient_id"], str(self.approver1.telegram_chat_id))
         bridge_mock.reset_mock()
-        bridge_mock.return_value = {"message_id": 304}
+        bridge_mock.return_value = MagicMock()
         pct_res = self.client.post(
             "/api/investments/returns/",
             {
@@ -1134,12 +1135,12 @@ class InvestmentApprovalFlowTests(APITestCase):
             HTTP_HOST=self.host,
         )
         self.assertEqual(pct_res.status_code, 201, pct_res.data)
-        pct_payload = bridge_mock.call_args.kwargs["payload"]
-        self.assertEqual(pct_payload["recipient_id"], str(self.approver2.telegram_chat_id))
+        pct_call_kw = bridge_mock.call_args.kwargs
+        self.assertEqual(pct_call_kw["recipient_id"], str(self.approver2.telegram_chat_id))
 
-    @patch("apps.modules.investments.approval_services.post_messaging_gateway")
+    @patch("apps.modules.telegram_approvals.services.TelegramDispatcher.send")
     def test_notification_step_dispatches_without_buttons_and_auto_approves(self, bridge_mock):
-        bridge_mock.return_value = {"message_id": 801}
+        bridge_mock.return_value = MagicMock()
         tg_chat_888 = TenantTelegramChat.objects.create(tenant=self.tenant, name="Chat 888001", chat_id="888001")
         put_res = self.client.put(
             "/api/investments/approval-config/",
@@ -1198,9 +1199,9 @@ class InvestmentApprovalFlowTests(APITestCase):
         self.assertTrue(serial_sends, "ожидался send serial с кнопками")
         self.assertLess(calls.index(notify_sends[0]), calls.index(serial_sends[0]))
 
-    @patch("apps.modules.investments.approval_services.post_messaging_gateway")
+    @patch("apps.modules.telegram_approvals.services.TelegramDispatcher.send")
     def test_zz_recipient_specific_confirmation_chat_overrides_type_default(self, bridge_mock):
-        bridge_mock.return_value = {"message_id": 701}
+        bridge_mock.return_value = MagicMock()
 
         tg_chat_111 = TenantTelegramChat.objects.create(tenant=self.tenant, name="Chat 111111", chat_id="111111")
         tg_chat_222 = TenantTelegramChat.objects.create(tenant=self.tenant, name="Chat 222222", chat_id="222222")
@@ -1283,7 +1284,7 @@ class InvestmentApprovalFlowTests(APITestCase):
         self.assertEqual(payload_partner["recipient_id"], "222222")
 
         bridge_mock.reset_mock()
-        bridge_mock.return_value = {"message_id": 702}
+        bridge_mock.return_value = MagicMock()
         create_i = self.client.post(
             "/api/investments/returns/",
             {
@@ -1371,9 +1372,9 @@ class InvestmentProjectApprovalFlowTests(APITestCase):
         )
         self.assertEqual(response.status_code, 200)
 
-    @patch("apps.modules.investments.project_investment_approval_services.post_messaging_gateway")
+    @patch("apps.modules.telegram_approvals.services.TelegramDispatcher.send")
     def test_create_placement_creates_approvals_and_telegram_card(self, bridge_mock):
-        bridge_mock.return_value = {"message_id": 501}
+        bridge_mock.return_value = MagicMock()
         response = self.client.post(
             "/api/investments/project-investments/",
             {
@@ -1390,19 +1391,19 @@ class InvestmentProjectApprovalFlowTests(APITestCase):
         self.assertFalse(created.confirmed)
         self.assertEqual(created.approvals.count(), 2)
         self.assertEqual(bridge_mock.call_count, 1)
-        payload = bridge_mock.call_args.kwargs["payload"]
-        self.assertIn("Заявка на вложение №", payload["text"])
-        self.assertIn("ProjInvFlow", payload["text"])
-        self.assertIn("250 000.00", payload["text"])
-        self.assertIn("Проверка заявки на вложение", payload["text"])
-        self.assertIn("Seed round", payload["text"])
-        self.assertTrue(payload["text"].strip().startswith("<b>"))
-        self.assertEqual(payload["buttons"][0][0]["label"], "✅ Проверено")
+        call_kw = bridge_mock.call_args.kwargs
+        self.assertIn("Заявка на вложение №", call_kw["text"])
+        self.assertIn("ProjInvFlow", call_kw["text"])
+        self.assertIn("250 000.00", call_kw["text"])
+        self.assertIn("Проверка заявки на вложение", call_kw["text"])
+        self.assertIn("Seed round", call_kw["text"])
+        self.assertTrue(call_kw["text"].strip().startswith("<b>"))
+        self.assertEqual(call_kw["buttons"][0][0]["label"], "✅ Проверено")
 
-    @patch("apps.modules.investments.project_investment_approval_services.post_messaging_gateway")
+    @patch("apps.modules.telegram_approvals.services.TelegramDispatcher.send")
     def test_project_investment_confirmation_step_uses_investment_wording(self, bridge_mock):
         """Текст шага confirmation — про вложение; кнопка подтверждения остаётся «Выплачено»."""
-        bridge_mock.return_value = {"message_id": 600}
+        bridge_mock.return_value = MagicMock()
         response = self.client.post(
             "/api/investments/project-investments/",
             {
@@ -1417,7 +1418,7 @@ class InvestmentProjectApprovalFlowTests(APITestCase):
         self.assertEqual(response.status_code, 201)
         pi = ProjectInvestment.objects.get(id=response.data["id"])
         first_step = pi.approvals.get(step=1)
-        bridge_mock.return_value = {"message_id": 601}
+        bridge_mock.return_value = MagicMock()
         self.assertEqual(
             self.client.post(
                 "/api/investments/approvals/webhook/",
@@ -1445,9 +1446,9 @@ class InvestmentProjectApprovalFlowTests(APITestCase):
         self.assertIn("✅ Выплачено", labels)
         self.assertNotIn("✅ Вложено", labels)
 
-    @patch("apps.modules.investments.project_investment_approval_services.post_messaging_gateway")
+    @patch("apps.modules.telegram_approvals.services.TelegramDispatcher.send")
     def test_webhook_invp_prefix_sets_confirmed(self, bridge_mock):
-        bridge_mock.return_value = {"message_id": 502}
+        bridge_mock.return_value = MagicMock()
         response = self.client.post(
             "/api/investments/project-investments/",
             {
@@ -1500,9 +1501,9 @@ class InvestmentProjectApprovalFlowTests(APITestCase):
         texts = [c.kwargs["payload"]["text"] for c in bridge_mock.call_args_list if "payload" in c.kwargs]
         self.assertTrue(any("Заявка на вложение подтверждена" in t for t in texts))
 
-    @patch("apps.modules.investments.project_investment_approval_services.post_messaging_gateway")
+    @patch("apps.modules.telegram_approvals.services.TelegramDispatcher.send")
     def test_reject_on_first_step_cascades_all_pending(self, bridge_mock):
-        bridge_mock.return_value = {"message_id": 503}
+        bridge_mock.return_value = MagicMock()
         response = self.client.post(
             "/api/investments/project-investments/",
             {
