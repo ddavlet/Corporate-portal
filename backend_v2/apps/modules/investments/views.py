@@ -38,6 +38,7 @@ from apps.modules.investments.project_investment_approval_services import (
     deactivate_project_investment_approval_buttons,
     route_project_investment_approvals,
 )
+from apps.modules.telegram_approvals.models import TelegramMessage
 from apps.modules.investments.serializers import (
     InvestCompanySerializer,
     InvestmentApprovalConfigReadSerializer,
@@ -787,14 +788,16 @@ class InvestmentApprovalWebhookView(APIView):
                 stored_external_user_id=approval.approver_external_user_id,
             )
 
-            if message_id is not None and approval.gateway_message_id is None:
-                approval.gateway_message_id = message_id
-                approval.message_sent = True
-                if approval.message_sent_at is None:
-                    from django.utils import timezone
-
-                    approval.message_sent_at = timezone.now()
-                approval.save(update_fields=["gateway_message_id", "message_sent", "message_sent_at"])
+            if message_id is not None and approval.telegram_message_id is None:
+                tg_message = TelegramMessage.objects.create(
+                    tenant=approval.tenant,
+                    recipient_id=str(approval.approver_recipient_id or chat_id or ""),
+                    external_user_id=approval.approver_external_user_id,
+                    message_id=message_id,
+                    sent_at=timezone.now(),
+                )
+                approval.telegram_message = tg_message
+                approval.save(update_fields=["telegram_message"])
 
             try:
                 confirm_project_investment_approval_by_id(
@@ -826,14 +829,16 @@ class InvestmentApprovalWebhookView(APIView):
             stored_external_user_id=approval.approver_external_user_id,
         )
 
-        if message_id is not None and approval.gateway_message_id is None:
-            approval.gateway_message_id = message_id
-            approval.message_sent = True
-            if approval.message_sent_at is None:
-                from django.utils import timezone
-
-                approval.message_sent_at = timezone.now()
-            approval.save(update_fields=["gateway_message_id", "message_sent", "message_sent_at"])
+        if message_id is not None and approval.telegram_message_id is None:
+            tg_message = TelegramMessage.objects.create(
+                tenant=approval.tenant,
+                recipient_id=str(approval.approver_recipient_id or chat_id or ""),
+                external_user_id=approval.approver_external_user_id,
+                message_id=message_id,
+                sent_at=timezone.now(),
+            )
+            approval.telegram_message = tg_message
+            approval.save(update_fields=["telegram_message"])
 
         try:
             confirm_invest_return_approval_by_id(
