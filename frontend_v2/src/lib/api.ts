@@ -606,28 +606,16 @@ export type CorporateCardExpense = {
 export type CorporateCardRevenue = {
   id: number
   external_id?: string
-  revenue_date?: string | null
   confirmed?: boolean
-  direction?: string
-  organization?: string
-  unit?: string
-  employee?: string
-  cash_type?: string
-  operation?: string
-  account?: string
-  counterparty?: string
-  total_sum?: string | number
-  comment?: string
-  source_year?: number | null
   title: string
   amount: string | number
   currency: string
   revenue_at: string
   note: string
   payload?: Record<string, unknown>
-  bank_expense_id: number | null
-  bank_expense_exists: boolean
+  wallet_id?: number | null
   created_at: string
+  created_by?: number
 }
 
 export type CashRevenue = {

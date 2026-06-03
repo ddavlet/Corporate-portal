@@ -276,7 +276,7 @@ class N8nCardRevenueImportSerializer(CardRevenueSerializer):
     id = serializers.IntegerField(required=False)
 
     class Meta(CardRevenueSerializer.Meta):
-        read_only_fields = ["created_at", "created_by", "bank_expense_exists"]
+        read_only_fields = ["created_at", "created_by"]
 
 
 class N8nClientDebtImportSerializer(ClientDebtSnapshotSerializer):
