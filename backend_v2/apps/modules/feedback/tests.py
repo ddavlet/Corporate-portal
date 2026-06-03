@@ -2,6 +2,7 @@ from unittest.mock import MagicMock, patch
 
 from django.contrib.auth import get_user_model
 from django.test import TestCase, override_settings
+from django.utils import timezone
 from rest_framework import status
 from rest_framework.test import APITestCase
 from rest_framework_simplejwt.tokens import RefreshToken
@@ -62,7 +63,14 @@ class FeedbackApiTests(APITestCase):
 
     @patch("apps.modules.feedback.views.TelegramDispatcher.send")
     def test_submit_saves_and_dispatches_when_chat_configured(self, mocked_send):
-        mocked_send.return_value = MagicMock()  # fake TelegramMessage
+        from apps.modules.telegram_approvals.models import TelegramMessage
+        tm = TelegramMessage.objects.create(
+            tenant=self.tenant,
+            recipient_id="42424242",
+            message_id=12345,
+            sent_at=timezone.now(),
+        )
+        mocked_send.return_value = tm
         from apps.tenants.models import TenantIntegrationConfig
 
         cfg, _ = TenantIntegrationConfig.objects.get_or_create(tenant=self.tenant)

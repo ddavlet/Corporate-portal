@@ -307,6 +307,32 @@ def run_all():
     assert cb_result2["backend_status"] in (409, 200)
     _ok("Double-approval handled (idempotency)")
 
+    ir_reject = InvestReturn.objects.create(
+        tenant=tenant,
+        company=company,
+        date=timezone.now().date(),
+        billing_date=timezone.now().date(),
+        sum=50000,
+        currency="UZS",
+        comment="Reject callback test",
+        type=InvestReturn.ReturnType.DIVIDEND,
+        recipient=InvestReturn.Recipient.INVESTOR,
+        created_by=admin,
+        confirmed=False,
+    )
+    a_ir_rej = InvestmentReturnApproval.objects.create(
+        invest_return=ir_reject, tenant=tenant, approver_user=ddavlet,
+        approver_recipient_id=str(ddavlet.telegram_chat_id),
+        step=1, decision="pending",
+    )
+    assert _invest_dispatch(approval=a_ir_rej) is True
+    a_ir_rej.refresh_from_db()
+    cb_rej = _fake_callback(f"inv_{a_ir_rej.id}:r", message_id=a_ir_rej.gateway_message_id)
+    assert cb_rej.get("ok") is True, cb_rej
+    a_ir_rej.refresh_from_db()
+    assert a_ir_rej.decision == "rejected"
+    _ok("Investment Return reject via inv_:r callback")
+
     # ── 10. Project Investment Approval webhook callback ─────────────────────
     print(); print("=" * 60); print("TEST 10: Project Investment Approval webhook callback")
     print("=" * 60)
@@ -327,6 +353,24 @@ def run_all():
     a_pi2.refresh_from_db()
     assert a_pi2.decision == "approved"
     _ok("Project Investment approval confirmed via callback")
+
+    pi_rej = ProjectInvestment.objects.create(
+        tenant=tenant, company=company, amount=1500000,
+        currency="UZS", date=timezone.now().date(), comment="Reject proj test",
+        created_by=admin, confirmed=False,
+    )
+    a_pi_rej = ProjectInvestmentApproval.objects.create(
+        project_investment=pi_rej, tenant=tenant, approver_user=ddavlet,
+        approver_recipient_id=str(ddavlet.telegram_chat_id),
+        step=1, decision="pending",
+    )
+    assert dispatch_pending_project_investment_approvals(project_investment=pi_rej) >= 1
+    a_pi_rej.refresh_from_db()
+    cb_pi_rej = _fake_callback(f"invp_{a_pi_rej.id}:r", message_id=a_pi_rej.gateway_message_id)
+    assert cb_pi_rej.get("ok") is True, cb_pi_rej
+    a_pi_rej.refresh_from_db()
+    assert a_pi_rej.decision == "rejected"
+    _ok("Project Investment reject via invp_:r callback")
 
     # ── 11. Task notification via TelegramDispatcher ─────────────────────────
     print(); print("=" * 60); print("TEST 11: Task notification → TelegramMessage")
@@ -357,6 +401,33 @@ def run_all():
     task2.refresh_from_db()
     assert task2.telegram_message_id is not None
     _ok("Task reminder → TelegramMessage linked")
+
+    # Task buttons use callback_data in notifier; gateway payload must expose "value".
+    log_after_task = _get_log()
+    task_send_entries = [
+        e for e in log_after_task["entries"]
+        if e.get("action") == "send" and any(
+            "task_p_" in str(btn.get("value") or btn.get("callback_data") or "")
+            for row in (e.get("buttons") or [])
+            for btn in row
+        )
+    ]
+    assert task_send_entries, "task notification should include progress/done buttons"
+    for row in task_send_entries[-1].get("buttons") or []:
+        for btn in row:
+            assert btn.get("value"), f"normalized button missing value: {btn}"
+    _ok("Task buttons normalized to gateway value field")
+
+    cb_task = _fake_callback(
+        f"task_p_{task.pk}",
+        user_id=str(ddavlet.telegram_from_id),
+        recipient_id=str(ddavlet.telegram_chat_id or ddavlet.telegram_from_id),
+        message_id=tm_task.message_id,
+    )
+    assert cb_task.get("ok") is True, cb_task
+    task.refresh_from_db()
+    assert task.status == "in_progress"
+    _ok("task_p_ webhook → in_progress via messaging gateway")
 
     # ── 12. Portal feedback dispatch → Notification ──────────────────────────
     print(); print("=" * 60); print("TEST 12: Portal feedback → Notification → TelegramMessage")
@@ -528,9 +599,32 @@ def run_all():
     assert total - orphaned >= 10  # at least 10 should be linked by our tests
     _ok("TelegramMessage reverse relation integrity verified")
 
-    # ── 17. Summary ─────────────────────────────────────────────────────────
+    # ── 17. TelegramDispatcher helper contract ───────────────────────────────
     print(); print("=" * 60)
-    print("TEST 17: Fake gateway captured all dispatches")
+    print("TEST 17: normalize_gateway_buttons + build_gateway_payload")
+    print("=" * 60)
+    from apps.modules.telegram_approvals.services import (
+        build_gateway_payload,
+        normalize_gateway_buttons,
+    )
+    rows = normalize_gateway_buttons(
+        [[{"label": "X", "callback_data": "task_p_99"}]]
+    )
+    assert rows[0][0]["value"] == "task_p_99"
+    payload = build_gateway_payload(
+        action="send",
+        tenant_id=tenant.pk,
+        recipient_id=1,
+        bot_token="tok",
+        message_text="t",
+        buttons=rows,
+    )
+    assert payload["buttons"][0][0]["value"] == "task_p_99"
+    _ok("Dispatcher helpers produce gateway-ready button rows")
+
+    # ── 18. Summary ─────────────────────────────────────────────────────────
+    print(); print("=" * 60)
+    print("TEST 18: Fake gateway captured all dispatches")
     print("=" * 60)
 
     log = _get_log()
@@ -541,12 +635,12 @@ def run_all():
     new_entries = log["count"] - initial_log_count
     print(f"  New dispatches this run: {new_entries}")
     print(f"  Actions: {actions}")
-    assert new_entries >= 15  # at least 15 messages dispatched in this run
+    assert new_entries >= 18  # dispatches grow as webhook/callback paths expand
     _ok(f"All {new_entries} dispatches captured by fake gateway")
 
     print()
     print("=" * 60)
-    print("ALL 17 TESTS PASSED ✅")
+    print("ALL 18 TESTS PASSED ✅")
     print("=" * 60)
 
 

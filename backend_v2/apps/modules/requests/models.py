@@ -668,8 +668,13 @@ class UserRequestApproval(models.Model):
     )
     approver_recipient_id = models.BigIntegerField(null=True, blank=True)
     approver_external_user_id = models.BigIntegerField(null=True, blank=True)
-    gateway_message_id = models.BigIntegerField(null=True, blank=True)
-    message_sent = models.BooleanField(default=False)
+    telegram_message = models.OneToOneField(
+        "telegram_approvals.TelegramMessage",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="user_request_approval",
+    )
     step = models.IntegerField(default=1)
     step_type = models.CharField(max_length=16, default=Approval.STEP_TYPE_SERIAL, choices=Approval.STEP_TYPE_CHOICES)
     decision = models.CharField(max_length=12, default=Approval.DECISION_PENDING, choices=Approval.DECISION_CHOICES)
@@ -680,6 +685,21 @@ class UserRequestApproval(models.Model):
     )
     comment = models.TextField(null=True, blank=True)
     decided_at = models.DateTimeField(null=True, blank=True)
+
+    # --- Derived read-only accessors (mirrors Approval) ---
+    @property
+    def gateway_message_id(self):
+        tm = self.telegram_message
+        return tm.message_id if tm else None
+
+    @property
+    def message_sent(self) -> bool:
+        return self.telegram_message_id is not None
+
+    @property
+    def message_sent_at(self):
+        tm = self.telegram_message
+        return tm.sent_at if tm else None
 
     class Meta:
         db_table = "approvals"

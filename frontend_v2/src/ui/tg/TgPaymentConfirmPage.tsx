@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react'
-import { Alert, Button, Card, Input, Typography, message } from 'antd'
+import { Alert, Card, Input, Typography, message } from 'antd'
 import { useSearchParams } from 'react-router-dom'
 import { confirmPaymentViaWebApp } from '../../lib/api'
 import { resolvePaymentApprovalId } from './tgPaymentApprovalId'
+import { useTgMainButton } from './useTgMainButton'
 
 export function TgPaymentConfirmPage() {
   const [searchParams] = useSearchParams()
@@ -62,6 +63,13 @@ export function TgPaymentConfirmPage() {
     }
   }
 
+  useTgMainButton({
+    text: 'Подтвердить выплату',
+    onClick: () => void submit(),
+    loading: saving,
+    disabled: !isApprovalValid,
+  })
+
   return (
     <div className="tg-create-page">
       <Card className="tg-create-card" bordered>
@@ -74,12 +82,6 @@ export function TgPaymentConfirmPage() {
         <div style={{ height: 8 }} />
         <Input value={expenseId} onChange={(e) => setExpenseId(e.target.value)} placeholder="Например, INV-2026-001" />
       </Card>
-
-      <div className="tg-sticky-actions">
-        <Button type="primary" block onClick={() => void submit()} loading={saving}>
-          Подтвердить выплату
-        </Button>
-      </div>
     </div>
   )
 }

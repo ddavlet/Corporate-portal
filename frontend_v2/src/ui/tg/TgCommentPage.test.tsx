@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { TgCommentPage } from './TgCommentPage'
@@ -24,6 +24,24 @@ vi.mock('antd', async () => {
   }
 })
 
+// Captures the handler registered by useTgMainButton so tests can simulate a tap.
+let mainButtonHandler: (() => void) | null = null
+const mainButtonMock = {
+  onClick: vi.fn((fn: () => void) => { mainButtonHandler = fn }),
+  offClick: vi.fn(),
+  show: vi.fn(),
+  hide: vi.fn(),
+  showProgress: vi.fn(),
+  hideProgress: vi.fn(),
+  disable: vi.fn(),
+  enable: vi.fn(),
+  setText: vi.fn(),
+}
+
+function tapMainButton() {
+  act(() => { mainButtonHandler?.() })
+}
+
 function renderPage(url: string) {
   window.history.pushState({}, '', url)
   return render(
@@ -41,12 +59,16 @@ describe('TgCommentPage', () => {
     createRequestCommentMock.mockReset()
     successMock.mockReset()
     closeMock.mockReset()
+    mainButtonHandler = null
+    mainButtonMock.onClick.mockClear()
     ;(window as Window).Telegram = {
       WebApp: {
         initData: '',
         initDataUnsafe: {},
         ready: vi.fn(),
         close: closeMock,
+        MainButton: mainButtonMock,
+        HapticFeedback: { impactOccurred: vi.fn(), notificationOccurred: vi.fn(), selectionChanged: vi.fn() },
       },
     }
   })
@@ -78,9 +100,10 @@ describe('TgCommentPage', () => {
     await waitFor(() => {
       expect(listRequestCommentsMock).toHaveBeenCalledTimes(1)
     })
+    await waitFor(() => expect(mainButtonHandler).not.toBeNull())
 
     fireEvent.change(screen.getByPlaceholderText('Напишите комментарий...'), { target: { value: 'Новый' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Отправить комментарий' }))
+    tapMainButton()
 
     await waitFor(() => {
       expect(createRequestCommentMock).toHaveBeenCalledWith(42, 'Новый')

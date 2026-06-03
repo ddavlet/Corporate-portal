@@ -3,6 +3,7 @@ import { Typography } from 'antd'
 import { useNavigate } from 'react-router-dom'
 
 import { DEFAULT_INVESTMENT_FORM_CONFIG, getInvestmentFormConfig } from '../../lib/api'
+import { tgHaptic } from './tgHaptic'
 import {
   BankOutlined,
   CalendarOutlined,
@@ -84,7 +85,7 @@ export function TgInvestmentsPage() {
             key={tile.key}
             type="button"
             className="tg-section-tile"
-            onClick={() => navigate(tile.path)}
+            onClick={() => { tgHaptic.tap(); navigate(tile.path) }}
           >
             <span className={`tg-section-tile-icon ${tile.iconClass || ''}`.trim()} aria-hidden>
               {tile.icon}

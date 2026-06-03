@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Alert, Button, Input, Skeleton, Tag, Typography } from 'antd'
 import { useNavigate } from 'react-router-dom'
-import { ArrowLeftOutlined, SearchOutlined } from '@ant-design/icons'
+import { ArrowLeftOutlined, PlusOutlined, SearchOutlined } from '@ant-design/icons'
 import {
   DEFAULT_INVESTMENT_FORM_CONFIG,
   getInvestmentFormConfig,
@@ -10,6 +10,7 @@ import {
   type InvestCompanyRow,
   type InvestReturnRow,
 } from '../../lib/api'
+import { tgHaptic } from './tgHaptic'
 
 const dateFormatter = new Intl.DateTimeFormat('ru-RU', {
   day: '2-digit',
@@ -107,7 +108,7 @@ export function TgInvestmentsReturnsPage() {
       <Button
         icon={<ArrowLeftOutlined />}
         size="large"
-        onClick={() => navigate('/tg/investments')}
+        onClick={() => { tgHaptic.tap(); navigate('/tg/investments') }}
         style={{ marginBottom: 12, borderRadius: 12 }}
       >
         Назад
@@ -116,6 +117,16 @@ export function TgInvestmentsReturnsPage() {
       <Typography.Title level={4} style={{ margin: '0 0 16px', fontWeight: 700 }}>
         Выплаты
       </Typography.Title>
+
+      <Button
+        type="primary"
+        icon={<PlusOutlined />}
+        size="large"
+        onClick={() => { tgHaptic.impact(); navigate('/tg/investments/returns/new') }}
+        style={{ marginBottom: 12, borderRadius: 12, width: '100%' }}
+      >
+        Создать выплату
+      </Button>
 
       <div className="tg-list-search">
         <Input

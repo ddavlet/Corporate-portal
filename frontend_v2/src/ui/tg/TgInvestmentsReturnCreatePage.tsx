@@ -1,18 +1,26 @@
 import { useEffect, useState } from 'react'
-import { Alert, DatePicker, Form, Input, InputNumber, Select, Skeleton, Typography } from 'antd'
+import { Alert, Button, DatePicker, Form, Input, InputNumber, Select, Skeleton, Typography } from 'antd'
 import { useNavigate } from 'react-router-dom'
+import { ArrowLeftOutlined } from '@ant-design/icons'
 import dayjs from 'dayjs'
+import { useTgMainButton } from './useTgMainButton'
 import {
   DEFAULT_INVESTMENT_FORM_CONFIG,
   getInvestmentFormConfig,
   getInvestCompanies,
-  createProjectInvestment,
+  createInvestReturn,
   type InvestCompanyRow,
 } from '../../lib/api'
-import { CURRENCY_OPTIONS } from '../investments/utils'
-import { useTgMainButton } from './useTgMainButton'
+import { RETURN_CURRENCY_OPTIONS } from '../investments/utils'
+import { isAllowedBillingMonth } from '../../lib/billingMonth'
+import { monthStartTashkent, nowTashkent } from '../../lib/tashkentTime'
 
-export function TgInvestmentsCreatePage() {
+const RECIPIENT_OPTIONS = [
+  { value: 'инвестор', label: 'Инвестор' },
+  { value: 'партнер', label: 'Партнер' },
+]
+
+export function TgInvestmentsReturnCreatePage() {
   const navigate = useNavigate()
   const [form] = Form.useForm()
   const [loading, setLoading] = useState(true)
@@ -20,6 +28,7 @@ export function TgInvestmentsCreatePage() {
   const [error, setError] = useState<string | null>(null)
   const [companies, setCompanies] = useState<InvestCompanyRow[]>([])
   const [usesCompanies, setUsesCompanies] = useState(false)
+  const [returnTypeOptions, setReturnTypeOptions] = useState<{ value: string; label: string }[]>([])
 
   useEffect(() => {
     let cancelled = false
@@ -28,12 +37,24 @@ export function TgInvestmentsCreatePage() {
         const cfg = await getInvestmentFormConfig().catch(() => DEFAULT_INVESTMENT_FORM_CONFIG)
         if (cancelled) return
         setUsesCompanies(cfg.uses_companies)
+        const allowed = new Set(cfg.allowed_return_types)
+        const opts = cfg.return_type_choices.filter((c) => allowed.has(c.value))
+        setReturnTypeOptions(opts)
+        const defaultType = opts[0]?.value ?? 'дивиденды'
+        const bm = monthStartTashkent(nowTashkent())
+        form.setFieldsValue({
+          date: dayjs(),
+          billing_date: bm,
+          currency: 'USD',
+          type: defaultType,
+          recipient: 'инвестор',
+        })
         if (cfg.uses_companies) {
           const rows = await getInvestCompanies()
           if (!cancelled) setCompanies(rows)
         }
       } catch {
-        // non-fatal — form still usable without companies
+        // non-fatal
       } finally {
         if (!cancelled) setLoading(false)
       }
@@ -41,7 +62,7 @@ export function TgInvestmentsCreatePage() {
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [form])
 
   async function handleSubmit() {
     let values: Record<string, unknown>
@@ -50,17 +71,25 @@ export function TgInvestmentsCreatePage() {
     } catch {
       return
     }
+    const billingDayjs = values.billing_date as dayjs.Dayjs
+    if (!billingDayjs || !isAllowedBillingMonth(billingDayjs)) {
+      setError('Выберите допустимый месяц начисления')
+      return
+    }
     setSubmitting(true)
     setError(null)
     try {
-      await createProjectInvestment({
+      await createInvestReturn({
         company: usesCompanies ? (values.company as number | null) ?? null : null,
         date: dayjs(values.date as dayjs.ConfigType).format('YYYY-MM-DD'),
-        amount: String(values.amount),
+        billing_date: monthStartTashkent(billingDayjs).format('YYYY-MM-DD'),
+        sum: String(values.sum),
         currency: values.currency as string,
+        type: values.type as string,
+        recipient: values.recipient as string,
         comment: (values.comment as string | undefined) ?? '',
       })
-      navigate('/tg/investments/projects', { replace: true })
+      navigate('/tg/investments/returns', { replace: true })
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Ошибка создания')
     } finally {
@@ -69,20 +98,34 @@ export function TgInvestmentsCreatePage() {
   }
 
   useTgMainButton({
-    text: 'Создать заявку',
+    text: 'Создать выплату',
     onClick: () => void handleSubmit(),
     loading: submitting,
     disabled: loading,
   })
 
+  function disabledBillingMonth(current: dayjs.Dayjs): boolean {
+    if (!current) return false
+    return !isAllowedBillingMonth(current)
+  }
+
   return (
     <div className="tg-investments-page" style={{ paddingBottom: 88 }}>
+      <Button
+        icon={<ArrowLeftOutlined />}
+        size="large"
+        onClick={() => navigate('/tg/investments/returns')}
+        style={{ marginBottom: 12, borderRadius: 12 }}
+      >
+        Назад
+      </Button>
+
       <Typography.Title level={4} style={{ margin: '0 0 20px', fontWeight: 700 }}>
-        Новая заявка на вложение
+        Новая выплата инвестиции
       </Typography.Title>
 
       {loading ? (
-        <Skeleton active paragraph={{ rows: 5 }} />
+        <Skeleton active paragraph={{ rows: 6 }} />
       ) : (
         <Form form={form} layout="vertical">
           {usesCompanies ? (
@@ -105,13 +148,26 @@ export function TgInvestmentsCreatePage() {
               size="large"
               style={{ width: '100%' }}
               format="DD.MM.YYYY"
-              defaultPickerValue={dayjs()}
+            />
+          </Form.Item>
+
+          <Form.Item
+            label="Месяц начисления"
+            name="billing_date"
+            rules={[{ required: true, message: 'Укажите месяц начисления' }]}
+          >
+            <DatePicker
+              picker="month"
+              size="large"
+              style={{ width: '100%' }}
+              format="MM.YYYY"
+              disabledDate={disabledBillingMonth}
             />
           </Form.Item>
 
           <Form.Item
             label="Сумма"
-            name="amount"
+            name="sum"
             rules={[{ required: true, message: 'Укажите сумму' }]}
           >
             <InputNumber
@@ -125,10 +181,26 @@ export function TgInvestmentsCreatePage() {
           <Form.Item
             label="Валюта"
             name="currency"
-            initialValue="UZS"
+            initialValue="USD"
             rules={[{ required: true }]}
           >
-            <Select size="large" options={CURRENCY_OPTIONS} />
+            <Select size="large" options={RETURN_CURRENCY_OPTIONS} />
+          </Form.Item>
+
+          <Form.Item
+            label="Тип выплаты"
+            name="type"
+            rules={[{ required: true, message: 'Укажите тип выплаты' }]}
+          >
+            <Select size="large" options={returnTypeOptions} />
+          </Form.Item>
+
+          <Form.Item
+            label="Получатель"
+            name="recipient"
+            rules={[{ required: true, message: 'Укажите получателя' }]}
+          >
+            <Select size="large" options={RECIPIENT_OPTIONS} />
           </Form.Item>
 
           <Form.Item label="Комментарий" name="comment">

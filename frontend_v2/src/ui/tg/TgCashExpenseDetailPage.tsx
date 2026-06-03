@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Alert, Button, Skeleton, Space, Tag, Typography } from 'antd'
 import { useNavigate, useParams } from 'react-router-dom'
 import { apiFetch } from '../../lib/api'
+import { tgHaptic } from './tgHaptic'
 import { requestReturnState } from '../../lib/requestNavigation'
 import { NoteCreateModal } from '../NoteCreateModal'
 import { renderExpenseRequestStatusTag } from '../expenseRequestStatus'
@@ -85,7 +86,7 @@ export function TgCashExpenseDetailPage() {
   return (
     <div className="tg-detail-page">
       <Space direction="vertical" size={12} style={{ display: 'flex' }}>
-        <Button block size="large" onClick={() => navigate('/tg/cash/expenses')} style={{ borderRadius: 12 }}>
+        <Button block size="large" onClick={() => { tgHaptic.tap(); navigate('/tg/cash/expenses') }} style={{ borderRadius: 12 }}>
           ← Назад к расходам
         </Button>
 
@@ -120,21 +121,22 @@ export function TgCashExpenseDetailPage() {
             <DetailRow label="Примечание">{detail.note || '—'}</DetailRow>
 
             <div className="tg-actions-stack" style={{ marginTop: 16 }}>
-              <Button size="large" onClick={() => setOpenNoteModal(true)}>
+              <Button size="large" onClick={() => { tgHaptic.impact(); setOpenNoteModal(true) }}>
                 Добавить заметку
               </Button>
               {detail.matched_request_id ? (
                 <Button
                   type="primary"
                   size="large"
-                  onClick={() =>
+                  onClick={() => {
+                    tgHaptic.tap()
                     navigate(`/tg/requests/${detail.matched_request_id}`, {
                       state: requestReturnState({
                         pathname: `/tg/cash/expenses/${detail.id}`,
                         label: `Кассовый расход #${detail.id}`,
                       }),
                     })
-                  }
+                  }}
                 >
                   Открыть связанную заявку
                 </Button>

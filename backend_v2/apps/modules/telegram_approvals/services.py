@@ -95,36 +95,6 @@ def build_gateway_payload(
     return payload
 
 
-def apply_gateway_message_lifecycle(
-    *,
-    obj,
-    message_id: int | None,
-    message_field: str = "gateway_message_id",
-    sent_field: str = "message_sent",
-    sent_at_field: str = "message_sent_at",
-) -> bool:
-    """
-    Apply transport delivery lifecycle fields to approval-like models.
-    Returns True when at least one field was updated.
-    """
-    if message_id is None:
-        return False
-    updates: list[str] = []
-    if getattr(obj, message_field, None) != message_id:
-        setattr(obj, message_field, message_id)
-        updates.append(message_field)
-    if not getattr(obj, sent_field, False):
-        setattr(obj, sent_field, True)
-        updates.append(sent_field)
-    if getattr(obj, sent_at_field, None) is None:
-        setattr(obj, sent_at_field, timezone.now())
-        updates.append(sent_at_field)
-    if updates:
-        obj.save(update_fields=updates)
-        return True
-    return False
-
-
 def ensure_callback_identity(
     *,
     callback_message_id: int | None,

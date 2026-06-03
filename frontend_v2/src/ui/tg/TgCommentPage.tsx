@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Alert, Button, Card, Empty, Input, List, Spin, Typography, message } from 'antd'
+import { Alert, Card, Empty, Input, List, Spin, Typography, message } from 'antd'
 import { useSearchParams } from 'react-router-dom'
 import { createRequestComment, listRequestComments, type RequestComment } from '../../lib/api'
 import { resolveCommentRequestId } from './tgCommentRequestId'
+import { useTgMainButton } from './useTgMainButton'
 
 const COMMENT_MAX_LENGTH = 4000
 
@@ -103,6 +104,13 @@ export function TgCommentPage() {
     }
   }
 
+  useTgMainButton({
+    text: 'Отправить комментарий',
+    onClick: () => void submit(),
+    loading: saving,
+    disabled: !body.trim() || !isRequestValid,
+  })
+
   return (
     <div className="tg-create-page">
       <Card className="tg-create-card" bordered>
@@ -164,18 +172,6 @@ export function TgCommentPage() {
           placeholder="Напишите комментарий..."
         />
       </Card>
-
-      <div className="tg-sticky-actions">
-        <Button
-          type="primary"
-          block
-          onClick={() => void submit()}
-          loading={saving}
-          disabled={!body.trim() || !isRequestValid}
-        >
-          Отправить комментарий
-        </Button>
-      </div>
     </div>
   )
 }

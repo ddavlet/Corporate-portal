@@ -13,7 +13,7 @@ from rest_framework.views import APIView
 
 from apps.modules.requests.models import Approval
 from apps.modules.requests.approval_workflow import ApprovalDecisionAlreadyMade, confirm_approval_by_id
-from apps.modules.telegram_approvals.models import TenantTelegramChat
+from apps.modules.telegram_approvals.models import TelegramMessage, TenantTelegramChat
 from apps.modules.telegram_approvals.serializers import MessagingGatewayCallbackSerializer, TenantTelegramChatSerializer
 from apps.modules.telegram_approvals.services import (
     deactivate_approval_message_buttons,
@@ -302,16 +302,16 @@ class TelegramApprovalWebhookView(APIView):
         tenant: Tenant = approval.request.tenant
 
         with transaction.atomic():
-            if message_id is not None and approval.gateway_message_id is None:
-                updates = ["gateway_message_id"]
-                approval.gateway_message_id = message_id
-                if not approval.message_sent:
-                    approval.message_sent = True
-                    updates.append("message_sent")
-                if approval.message_sent_at is None:
-                    approval.message_sent_at = timezone.now()
-                    updates.append("message_sent_at")
-                approval.save(update_fields=updates)
+            if message_id is not None and approval.telegram_message_id is None:
+                tg_message = TelegramMessage.objects.create(
+                    tenant=tenant,
+                    recipient_id=str(approval.approver_recipient_id or chat_id or ""),
+                    external_user_id=approval.approver_external_user_id,
+                    message_id=message_id,
+                    sent_at=timezone.now(),
+                )
+                approval.telegram_message = tg_message
+                approval.save(update_fields=["telegram_message"])
             try:
                 confirm_approval_by_id(
                     tenant=tenant,
@@ -333,9 +333,17 @@ class TelegramApprovalWebhookView(APIView):
                     approval=approval,
                     request_context=approval.request,
                 )
-                if not updated and message_id:
-                    # Fallback for legacy rows where approval message id was not persisted
-                    approval.gateway_message_id = message_id
+                if not updated and message_id and approval.telegram_message_id is None:
+                    # Fallback for legacy rows where the approval message was not persisted
+                    tg_message = TelegramMessage.objects.create(
+                        tenant=tenant,
+                        recipient_id=str(approval.approver_recipient_id or chat_id or ""),
+                        external_user_id=approval.approver_external_user_id,
+                        message_id=message_id,
+                        sent_at=timezone.now(),
+                    )
+                    approval.telegram_message = tg_message
+                    approval.save(update_fields=["telegram_message"])
                     deactivate_approval_message_buttons(approval=approval, request_context=approval.request)
                 raise
 

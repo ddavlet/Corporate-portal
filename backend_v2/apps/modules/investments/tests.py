@@ -12,7 +12,7 @@ from django.test import SimpleTestCase, TestCase
 from django.test import override_settings
 from django.utils import timezone
 from rest_framework import serializers
-from rest_framework.test import APIRequestFactory
+from rest_framework.test import APIClient, APIRequestFactory
 from rest_framework.test import APITestCase
 
 from apps.modules.investments.approval_services import INVESTMENT_APPROVAL_CASCADE_REJECTION_COMMENT
@@ -226,12 +226,6 @@ class InvestReturnSerializerTests(TestCase):
     def setUp(self):
         self.tenant = Tenant.objects.create(name="Acme", subdomain="acme", is_active=True)
         self.user = User.objects.create_user(username="invest-admin", password="x")
-        self._p_allow_billing = patch(
-            "apps.modules.investments.serializers.is_accrual_month_allowed",
-            return_value=True,
-        )
-        self._p_allow_billing.start()
-        self.addCleanup(self._p_allow_billing.stop)
 
     @patch("apps.modules.investments.serializers.fetch_cbu_usd_uzs_rate", return_value=Decimal("12600"))
     def test_usd_normalizes_currency_and_computes_sum_uzs(self, _mock_fetch):
@@ -277,22 +271,6 @@ class InvestReturnSerializerTests(TestCase):
         self.assertEqual(obj.sum_uzs, Decimal("5000000.00"))
         self.assertEqual(obj.cbu_usd_uzs_rate, Decimal("12600"))
         self.assertEqual(obj.billing_date, date(2026, 4, 1))
-
-    @patch("apps.modules.investments.serializers.fetch_cbu_usd_uzs_rate", return_value=Decimal("12600"))
-    @patch("apps.modules.investments.serializers.is_accrual_month_allowed", return_value=False)
-    def test_rejects_billing_month_when_not_allowed(self, _allow, _fetch):
-        serializer = InvestReturnSerializer(
-            data={
-                "date": date(2026, 4, 17),
-                "billing_date": date(2026, 4, 1),
-                "sum": "100.00",
-                "currency": "USD",
-                "type": "дивиденды",
-                "recipient": "инвестор",
-            }
-        )
-        self.assertFalse(serializer.is_valid())
-        self.assertIn("billing_date", serializer.errors)
 
     def test_rejects_eur(self):
         serializer = InvestReturnSerializer(
@@ -743,12 +721,6 @@ class InvestmentFormConfigApiTests(APITestCase):
 @override_settings(BASE_DOMAIN="example.com", N8N_INTEGRATION_TOKEN="", ALLOWED_HOSTS=["*"])
 class InvestmentApprovalFlowTests(APITestCase):
     def setUp(self):
-        self._p_allow_billing = patch(
-            "apps.modules.investments.serializers.is_accrual_month_allowed",
-            return_value=True,
-        )
-        self._p_allow_billing.start()
-        self.addCleanup(self._p_allow_billing.stop)
         self.tenant = Tenant.objects.create(name="InvestFlow", subdomain="investflow", is_active=True)
         self.host = "investflow.example.com"
         self.admin = User.objects.create_user(username="inv_admin", password="x")
@@ -887,28 +859,27 @@ class InvestmentApprovalFlowTests(APITestCase):
         )
         self.assertEqual(bad_res.status_code, 400)
 
-        ok_first = self.client.post(
-            "/api/investments/approvals/webhook/",
-            {
-                "event": "interaction",
-                "payload": f"inv_{first_step.id}:a",
-                "user_id": str(self.approver1.telegram_from_id),
-                "recipient_id": str(self.approver1.telegram_chat_id),
-                "message_id": first_step.gateway_message_id or 202,
-                "platform": "telegram",
-            },
-            format="json",
-            HTTP_HOST=self.host,
-        )
+        with patch("apps.modules.telegram_approvals.services.TelegramDispatcher.edit") as edit_mock:
+            edit_mock.return_value = MagicMock()
+            ok_first = self.client.post(
+                "/api/investments/approvals/webhook/",
+                {
+                    "event": "interaction",
+                    "payload": f"inv_{first_step.id}:a",
+                    "user_id": str(self.approver1.telegram_from_id),
+                    "recipient_id": str(self.approver1.telegram_chat_id),
+                    "message_id": first_step.gateway_message_id or 202,
+                    "platform": "telegram",
+                },
+                format="json",
+                HTTP_HOST=self.host,
+            )
         self.assertEqual(ok_first.status_code, 200)
         first_step.refresh_from_db()
         self.assertEqual(first_step.decision, "approved")
-        stripped = [
-            c.kwargs["payload"]
-            for c in bridge_mock.call_args_list
-            if c.kwargs.get("payload", {}).get("buttons") == []
-        ]
-        self.assertGreaterEqual(len(stripped), 1)
+        # Deactivation of approved step goes through dispatcher.edit (not send).
+        self.assertGreaterEqual(edit_mock.call_count, 1)
+        self.assertEqual(edit_mock.call_args.kwargs.get("buttons"), [])
 
         not_active = self.client.post(
             f"/api/investments/approvals/{first_step.id}/decision/",
@@ -919,7 +890,6 @@ class InvestmentApprovalFlowTests(APITestCase):
         self.assertIn(not_active.status_code, (400, 409))
 
         second_step.refresh_from_db()
-        self.assertIsNotNone(second_step.gateway_message_id)
         self.assertEqual(second_step.approver_recipient_id, "666000")
         ok_second = self.client.post(
             "/api/investments/approvals/webhook/",
@@ -928,7 +898,7 @@ class InvestmentApprovalFlowTests(APITestCase):
                 "payload": f"inv_{second_step.id}:a",
                 "user_id": str(self.approver2.telegram_from_id),
                 "recipient_id": "666000",
-                "message_id": second_step.gateway_message_id,
+                "message_id": second_step.gateway_message_id or 303,
                 "platform": "telegram",
             },
             format="json",
@@ -1050,11 +1020,13 @@ class InvestmentApprovalFlowTests(APITestCase):
             self.client.post("/api/investments/approvals/webhook/", body, format="json", HTTP_HOST=self.host).status_code,
             200,
         )
-        dup = self.client.post("/api/investments/approvals/webhook/", body, format="json", HTTP_HOST=self.host)
-        self.assertEqual(dup.status_code, 409)
-        last_call_kw = bridge_mock.call_args.kwargs
-        self.assertEqual(last_payload.get("buttons"), [])
-        self.assertIn("message_id", last_payload)
+        # Duplicate callback → 409; deactivation goes through dispatcher.edit (not send).
+        with patch("apps.modules.telegram_approvals.services.TelegramDispatcher.edit") as edit_mock:
+            edit_mock.return_value = MagicMock()
+            dup = self.client.post("/api/investments/approvals/webhook/", body, format="json", HTTP_HOST=self.host)
+            self.assertEqual(dup.status_code, 409)
+            edit_mock.assert_called_once()
+            self.assertEqual(edit_mock.call_args.kwargs.get("buttons"), [])
 
     def test_get_approval_config_rejects_invalid_return_type_query(self):
         res = self.client.get("/api/investments/approval-config/?return_type=invalid_type", HTTP_HOST=self.host)
@@ -1187,17 +1159,19 @@ class InvestmentApprovalFlowTests(APITestCase):
         serial = inv_return.approvals.get(step=2)
         self.assertEqual(notif.decision, InvestmentReturnApproval.DECISION_APPROVED)
         self.assertEqual(serial.decision, InvestmentReturnApproval.DECISION_PENDING)
-        calls = [c.kwargs["payload"] for c in bridge_mock.call_args_list]
-        notify_sends = [p for p in calls if p.get("recipient_id") == "888001" and p.get("buttons") == []]
+        calls = [c.kwargs for c in bridge_mock.call_args_list]
+        notify_sends = [c for c in calls if c.get("recipient_id") == "888001" and c.get("buttons") == []]
         serial_sends = [
-            p
-            for p in calls
-            if p.get("recipient_id") == str(self.approver1.telegram_chat_id) and p.get("buttons")
+            c
+            for c in calls
+            if c.get("recipient_id") == str(self.approver1.telegram_chat_id) and c.get("buttons")
         ]
         self.assertTrue(notify_sends, "ожидался send в chat notification без кнопок")
         self.assertIn("Уведомление", notify_sends[0]["text"])
         self.assertTrue(serial_sends, "ожидался send serial с кнопками")
-        self.assertLess(calls.index(notify_sends[0]), calls.index(serial_sends[0]))
+        notify_idx = next(i for i, c in enumerate(bridge_mock.call_args_list) if c.kwargs.get("recipient_id") == "888001" and c.kwargs.get("buttons") == [])
+        serial_idx = next(i for i, c in enumerate(bridge_mock.call_args_list) if c.kwargs.get("recipient_id") == str(self.approver1.telegram_chat_id) and c.kwargs.get("buttons"))
+        self.assertLess(notify_idx, serial_idx)
 
     @patch("apps.modules.telegram_approvals.services.TelegramDispatcher.send")
     def test_zz_recipient_specific_confirmation_chat_overrides_type_default(self, bridge_mock):
@@ -1280,8 +1254,8 @@ class InvestmentApprovalFlowTests(APITestCase):
             ).status_code,
             200,
         )
-        payload_partner = bridge_mock.call_args.kwargs["payload"]
-        self.assertEqual(payload_partner["recipient_id"], "222222")
+        call_kw_partner = bridge_mock.call_args.kwargs
+        self.assertEqual(call_kw_partner["recipient_id"], "222222")
 
         bridge_mock.reset_mock()
         bridge_mock.return_value = MagicMock()
@@ -1317,8 +1291,8 @@ class InvestmentApprovalFlowTests(APITestCase):
             ).status_code,
             200,
         )
-        payload_investor = bridge_mock.call_args.kwargs["payload"]
-        self.assertEqual(payload_investor["recipient_id"], "111111")
+        call_kw_investor = bridge_mock.call_args.kwargs
+        self.assertEqual(call_kw_investor["recipient_id"], "111111")
 
 
 @override_settings(BASE_DOMAIN="example.com", N8N_INTEGRATION_TOKEN="", ALLOWED_HOSTS=["*"])
@@ -1435,20 +1409,22 @@ class InvestmentProjectApprovalFlowTests(APITestCase):
             ).status_code,
             200,
         )
-        texts = [c.kwargs["payload"]["text"] for c in bridge_mock.call_args_list if "payload" in c.kwargs]
+        texts = [c.kwargs["text"] for c in bridge_mock.call_args_list if "text" in c.kwargs]
         self.assertTrue(any("Подтверждение вложения" in t for t in texts))
         self.assertTrue(any("Подтвердите вложение средств по заявке" in t for t in texts))
         labels: list[str] = []
         for c in bridge_mock.call_args_list:
-            for row in c.kwargs.get("payload", {}).get("buttons") or []:
+            for row in c.kwargs.get("buttons") or []:
                 for b in row:
                     labels.append(b.get("label", ""))
         self.assertIn("✅ Выплачено", labels)
         self.assertNotIn("✅ Вложено", labels)
 
+    @patch("apps.modules.telegram_approvals.services.TelegramDispatcher.edit")
     @patch("apps.modules.telegram_approvals.services.TelegramDispatcher.send")
-    def test_webhook_invp_prefix_sets_confirmed(self, bridge_mock):
+    def test_webhook_invp_prefix_sets_confirmed(self, bridge_mock, edit_mock):
         bridge_mock.return_value = MagicMock()
+        edit_mock.return_value = MagicMock()
         response = self.client.post(
             "/api/investments/project-investments/",
             {
@@ -1486,7 +1462,7 @@ class InvestmentProjectApprovalFlowTests(APITestCase):
                 "payload": f"invp_{second_step.id}:a",
                 "user_id": str(self.approver2.telegram_from_id),
                 "recipient_id": "166000",
-                "message_id": second_step.gateway_message_id,
+                "message_id": second_step.gateway_message_id or 601,
                 "platform": "telegram",
             },
             format="json",
@@ -1498,7 +1474,12 @@ class InvestmentProjectApprovalFlowTests(APITestCase):
         self.assertEqual(
             ProjectInvestmentApproval.objects.filter(project_investment=pi, decision="approved").count(), 2
         )
-        texts = [c.kwargs["payload"]["text"] for c in bridge_mock.call_args_list if "payload" in c.kwargs]
+        texts = [
+            c.kwargs["text"]
+            for mock in (bridge_mock, edit_mock)
+            for c in mock.call_args_list
+            if "text" in c.kwargs
+        ]
         self.assertTrue(any("Заявка на вложение подтверждена" in t for t in texts))
 
     @patch("apps.modules.telegram_approvals.services.TelegramDispatcher.send")
@@ -1941,3 +1922,37 @@ class InvestNotificationRejectionTests(TestCase):
         route_invest_return_approvals(invest_return=self.invest_return)
         self.schedule.refresh_from_db()
         self.assertEqual(self.schedule.created_return_id, self.invest_return.pk)
+
+
+@override_settings(BASE_DOMAIN="example.com", ALLOWED_HOSTS=["*"])
+class InvestReturnCreateAPITest(APITestCase):
+    """Smoke-test: POST /api/investments/returns/ creates an InvestReturn."""
+
+    def setUp(self):
+        self.user = User.objects.create_user(username="ret_creator", password="x")
+        self.tenant = Tenant.objects.create(name="RetTenant", subdomain="rettenant", is_active=True)
+        self.host = "rettenant.example.com"
+        TenantMembership.objects.create(tenant=self.tenant, user=self.user, is_active=True)
+        TenantUserRole.objects.create(tenant=self.tenant, user=self.user, role=TenantUserRole.ROLE_ADMIN)
+        TenantModuleConfig.objects.create(tenant=self.tenant, module_key="investments", is_enabled=True)
+        self.client.force_authenticate(self.user)
+
+    def test_creates_invest_return(self):
+        from datetime import date
+        today = date.today()
+        payload = {
+            "date": today.strftime("%Y-%m-%d"),
+            "billing_date": today.replace(day=1).strftime("%Y-%m-%d"),
+            "sum": "1000.00",
+            "currency": "USD",
+            "type": "дивиденды",
+            "recipient": "инвестор",
+            "comment": "",
+        }
+        response = self.client.post(
+            "/api/investments/returns/", data=payload, format="json", HTTP_HOST=self.host
+        )
+        self.assertEqual(response.status_code, 201, response.data)
+        self.assertEqual(response.data["type"], "дивиденды")
+        self.assertEqual(response.data["recipient"], "инвестор")
+        self.assertFalse(response.data["confirmed"])

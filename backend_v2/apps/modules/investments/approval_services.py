@@ -427,6 +427,12 @@ def route_invest_return_approvals(*, invest_return: InvestReturn) -> int:
         decision=InvestmentReturnApproval.DECISION_PENDING,
     ).exists()
     if not pending:
+        has_any_approval = InvestmentReturnApproval.objects.filter(
+            tenant=invest_return.tenant,
+            invest_return=invest_return,
+        ).exists()
+        if not has_any_approval:
+            return 0
         has_rejected = InvestmentReturnApproval.objects.filter(
             tenant=invest_return.tenant,
             invest_return=invest_return,

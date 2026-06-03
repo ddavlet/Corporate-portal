@@ -8,6 +8,7 @@ import {
   RiseOutlined,
 } from '@ant-design/icons'
 import { useModuleAccess } from '../moduleAccess'
+import { tgHaptic } from './tgHaptic'
 
 type Tile = {
   key: string
@@ -83,7 +84,7 @@ export function TgHomePage() {
             key={tile.key}
             type="button"
             className="tg-section-tile"
-            onClick={() => navigate(tile.path)}
+            onClick={() => { tgHaptic.tap(); navigate(tile.path) }}
           >
             <span className={`tg-section-tile-icon ${tile.iconClass || ''}`.trim()} aria-hidden>
               {tile.icon}

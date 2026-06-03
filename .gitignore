@@ -15,6 +15,7 @@ dist/
 .cursor/
 .worktrees/
 diagrams/
+docs/superpowers/
 
 # Env
 .env
@@ -44,3 +45,9 @@ settings.local.json
 scripts/
 backups/
 .claude/
+
+.qwen/
+gha-creds-*.json
+
+.agents/
+skills-lock.json

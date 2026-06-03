@@ -10,6 +10,7 @@ import {
   type InvestCompanyRow,
   type ProjectInvestmentRow,
 } from '../../lib/api'
+import { tgHaptic } from './tgHaptic'
 
 const dateFormatter = new Intl.DateTimeFormat('ru-RU', {
   day: '2-digit',
@@ -89,7 +90,7 @@ export function TgInvestmentsProjectsPage() {
       <Button
         icon={<ArrowLeftOutlined />}
         size="large"
-        onClick={() => navigate('/tg/investments')}
+        onClick={() => { tgHaptic.tap(); navigate('/tg/investments') }}
         style={{ marginBottom: 12, borderRadius: 12 }}
       >
         Назад
@@ -103,7 +104,7 @@ export function TgInvestmentsProjectsPage() {
         type="primary"
         className="tg-fab"
         icon={<PlusOutlined />}
-        onClick={() => navigate('/tg/investments/projects/new')}
+        onClick={() => { tgHaptic.impact(); navigate('/tg/investments/projects/new') }}
         aria-label="Создать заявку на вложение"
       />
 
