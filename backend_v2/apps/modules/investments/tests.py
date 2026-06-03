@@ -1928,3 +1928,37 @@ class InvestNotificationRejectionTests(TestCase):
         route_invest_return_approvals(invest_return=self.invest_return)
         self.schedule.refresh_from_db()
         self.assertEqual(self.schedule.created_return_id, self.invest_return.pk)
+
+
+@override_settings(BASE_DOMAIN="example.com", ALLOWED_HOSTS=["*"])
+class InvestReturnCreateAPITest(APITestCase):
+    """Smoke-test: POST /api/investments/returns/ creates an InvestReturn."""
+
+    def setUp(self):
+        self.user = User.objects.create_user(username="ret_creator", password="x")
+        self.tenant = Tenant.objects.create(name="RetTenant", subdomain="rettenant", is_active=True)
+        self.host = "rettenant.example.com"
+        TenantMembership.objects.create(tenant=self.tenant, user=self.user, is_active=True)
+        TenantUserRole.objects.create(tenant=self.tenant, user=self.user, role=TenantUserRole.ROLE_ADMIN)
+        TenantModuleConfig.objects.create(tenant=self.tenant, module_key="investments", is_enabled=True)
+        self.client.force_authenticate(self.user)
+
+    def test_creates_invest_return(self):
+        from datetime import date
+        today = date.today()
+        payload = {
+            "date": today.strftime("%Y-%m-%d"),
+            "billing_date": today.replace(day=1).strftime("%Y-%m-%d"),
+            "sum": "1000.00",
+            "currency": "USD",
+            "type": "дивиденды",
+            "recipient": "инвестор",
+            "comment": "",
+        }
+        response = self.client.post(
+            "/api/investments/returns/", data=payload, format="json", HTTP_HOST=self.host
+        )
+        self.assertEqual(response.status_code, 201, response.data)
+        self.assertEqual(response.data["type"], "дивиденды")
+        self.assertEqual(response.data["recipient"], "инвестор")
+        self.assertFalse(response.data["confirmed"])
