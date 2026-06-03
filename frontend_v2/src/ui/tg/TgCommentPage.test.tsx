@@ -1,13 +1,15 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { TgCommentPage } from './TgCommentPage'
 
+const listRequestCommentsMock = vi.fn()
 const createRequestCommentMock = vi.fn()
 const successMock = vi.fn()
 const closeMock = vi.fn()
 
 vi.mock('../../lib/api', () => ({
+  listRequestComments: (...args: unknown[]) => listRequestCommentsMock(...args),
   createRequestComment: (...args: unknown[]) => createRequestCommentMock(...args),
 }))
 
@@ -22,6 +24,24 @@ vi.mock('antd', async () => {
   }
 })
 
+// Captures the handler registered by useTgMainButton so tests can simulate a tap.
+let mainButtonHandler: (() => void) | null = null
+const mainButtonMock = {
+  onClick: vi.fn((fn: () => void) => { mainButtonHandler = fn }),
+  offClick: vi.fn(),
+  show: vi.fn(),
+  hide: vi.fn(),
+  showProgress: vi.fn(),
+  hideProgress: vi.fn(),
+  disable: vi.fn(),
+  enable: vi.fn(),
+  setText: vi.fn(),
+}
+
+function tapMainButton() {
+  act(() => { mainButtonHandler?.() })
+}
+
 function renderPage(url: string) {
   window.history.pushState({}, '', url)
   return render(
@@ -35,28 +55,39 @@ function renderPage(url: string) {
 
 describe('TgCommentPage', () => {
   beforeEach(() => {
+    listRequestCommentsMock.mockReset()
     createRequestCommentMock.mockReset()
     successMock.mockReset()
     closeMock.mockReset()
+    mainButtonHandler = null
+    mainButtonMock.onClick.mockClear()
     ;(window as Window).Telegram = {
       WebApp: {
         initData: '',
         initDataUnsafe: {},
         ready: vi.fn(),
         close: closeMock,
+        MainButton: mainButtonMock,
+        HapticFeedback: { impactOccurred: vi.fn() },
       },
     }
   })
 
-  it('shows request id and comment form when request_id is valid', async () => {
+  it('loads and renders existing comments for the request', async () => {
+    listRequestCommentsMock.mockResolvedValue([
+      { id: 1, body: 'Первый комментарий', created_at: '2026-05-29T10:00:00Z', created_by: 7, created_by_full_name: 'Иван Иванов' },
+    ])
     renderPage('/tg/comment?request_id=42')
 
-    expect(await screen.findByText(/Заявка #42/)).toBeInTheDocument()
-    expect(screen.getByPlaceholderText('Напишите комментарий...')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Отправить комментарий' })).toBeDisabled()
+    await waitFor(() => {
+      expect(listRequestCommentsMock).toHaveBeenCalledWith(42)
+    })
+    expect(await screen.findByText('Первый комментарий')).toBeInTheDocument()
+    expect(screen.getByText('Иван Иванов')).toBeInTheDocument()
   })
 
-  it('submits a comment and closes the WebApp after success', async () => {
+  it('submits a new comment and refreshes the list without closing the app', async () => {
+    listRequestCommentsMock.mockResolvedValue([])
     createRequestCommentMock.mockResolvedValueOnce({
       id: 2,
       body: 'Новый',
@@ -66,23 +97,27 @@ describe('TgCommentPage', () => {
     })
     renderPage('/tg/comment?request_id=42')
 
-    await screen.findByText(/Заявка #42/)
+    await waitFor(() => {
+      expect(listRequestCommentsMock).toHaveBeenCalledTimes(1)
+    })
+    await waitFor(() => expect(mainButtonHandler).not.toBeNull())
 
     fireEvent.change(screen.getByPlaceholderText('Напишите комментарий...'), { target: { value: 'Новый' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Отправить комментарий' }))
+    tapMainButton()
 
     await waitFor(() => {
       expect(createRequestCommentMock).toHaveBeenCalledWith(42, 'Новый')
     })
     expect(successMock).toHaveBeenCalled()
-    expect(await screen.findByText('Комментарий сохранён')).toBeInTheDocument()
-
-    await waitFor(() => expect(closeMock).toHaveBeenCalled(), { timeout: 1500 })
+    await waitFor(() => {
+      expect(listRequestCommentsMock).toHaveBeenCalledTimes(2)
+    })
+    expect(closeMock).not.toHaveBeenCalled()
   })
 
-  it('shows warning when request id is missing', async () => {
+  it('shows error when request id is missing', async () => {
     renderPage('/tg/comment')
     expect(await screen.findByText(/Идентификатор заявки не определён/)).toBeInTheDocument()
-    expect(createRequestCommentMock).not.toHaveBeenCalled()
+    expect(listRequestCommentsMock).not.toHaveBeenCalled()
   })
 })

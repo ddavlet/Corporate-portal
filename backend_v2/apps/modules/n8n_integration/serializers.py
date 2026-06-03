@@ -463,6 +463,10 @@ class N8nApprovalImportSerializer(serializers.ModelSerializer):
     id = serializers.IntegerField(required=False)
     approver_user = serializers.PrimaryKeyRelatedField(queryset=User.objects.all(), required=False, allow_null=True)
     request = serializers.PrimaryKeyRelatedField(queryset=Request.objects.all())
+    # Derived from telegram_message (single source of truth); kept for API stability.
+    gateway_message_id = serializers.ReadOnlyField()
+    message_sent = serializers.ReadOnlyField()
+    message_sent_at = serializers.ReadOnlyField()
 
     class Meta:
         model = Approval
@@ -488,7 +492,6 @@ class N8nApprovalImportSerializer(serializers.ModelSerializer):
             "step": {"required": False},
             "step_type": {"required": False},
             "decision": {"required": False},
-            "message_sent": {"required": False},
         }
 
     def validate_request(self, value):

@@ -1,6 +1,7 @@
 import json
 from django.contrib.auth import get_user_model
 from django.db import transaction
+from django.utils import timezone
 from rest_framework import status, viewsets
 from rest_framework.exceptions import ValidationError
 from rest_framework.permissions import AllowAny, IsAuthenticated
@@ -38,6 +39,7 @@ from apps.modules.investments.project_investment_approval_services import (
     deactivate_project_investment_approval_buttons,
     route_project_investment_approvals,
 )
+from apps.modules.telegram_approvals.models import TelegramMessage
 from apps.modules.investments.serializers import (
     InvestCompanySerializer,
     InvestmentApprovalConfigReadSerializer,
@@ -64,6 +66,7 @@ from apps.modules.investments.serializers import (
 from apps.common.pagination import PortalCursorPagination
 from apps.common.query_params import parse_bool_query, parse_date_query
 from apps.common.viewsets import NoPortalPaginationMixin, PortalListViewSetMixin
+from apps.modules.telegram_approvals.services import ensure_callback_identity
 from apps.tenants.models import TenantMembership
 from apps.tenants.permissions import HasEffectiveModuleAccess
 
@@ -777,21 +780,25 @@ class InvestmentApprovalWebhookView(APIView):
                 raise ValidationError({"approval_id": "Approval not found."})
             if approval.step_type == InvestmentProjectApprovalConfigStep.STEP_TYPE_NOTIFICATION:
                 raise ValidationError({"detail": "Этап notification не принимает ответы по кнопкам."})
-            if message_id is not None and approval.gateway_message_id is not None and approval.gateway_message_id != message_id:
-                raise ValidationError({"message_id": "Callback message_id does not match stored message_id."})
-            if approval.approver_recipient_id is not None and approval.approver_recipient_id != chat_id:
-                raise ValidationError({"recipient_id": "Recipient is not allowed for this approval."})
-            if approval.approver_external_user_id is not None and approval.approver_external_user_id != from_id:
-                raise ValidationError({"user_id": "User is not allowed for this approval."})
+            ensure_callback_identity(
+                callback_message_id=message_id,
+                stored_message_id=approval.gateway_message_id,
+                callback_recipient_id=chat_id,
+                stored_recipient_id=approval.approver_recipient_id,
+                callback_external_user_id=from_id,
+                stored_external_user_id=approval.approver_external_user_id,
+            )
 
-            if message_id is not None and approval.gateway_message_id is None:
-                approval.gateway_message_id = message_id
-                approval.message_sent = True
-                if approval.message_sent_at is None:
-                    from django.utils import timezone
-
-                    approval.message_sent_at = timezone.now()
-                approval.save(update_fields=["gateway_message_id", "message_sent", "message_sent_at"])
+            if message_id is not None and approval.telegram_message_id is None:
+                tg_message = TelegramMessage.objects.create(
+                    tenant=approval.tenant,
+                    recipient_id=str(approval.approver_recipient_id or chat_id or ""),
+                    external_user_id=approval.approver_external_user_id,
+                    message_id=message_id,
+                    sent_at=timezone.now(),
+                )
+                approval.telegram_message = tg_message
+                approval.save(update_fields=["telegram_message"])
 
             try:
                 confirm_project_investment_approval_by_id(
@@ -814,21 +821,25 @@ class InvestmentApprovalWebhookView(APIView):
             raise ValidationError({"approval_id": "Approval not found."})
         if approval.step_type == InvestmentApprovalConfigStep.STEP_TYPE_NOTIFICATION:
             raise ValidationError({"detail": "Этап notification не принимает ответы по кнопкам."})
-        if message_id is not None and approval.gateway_message_id is not None and approval.gateway_message_id != message_id:
-            raise ValidationError({"message_id": "Callback message_id does not match stored message_id."})
-        if approval.approver_recipient_id is not None and approval.approver_recipient_id != chat_id:
-            raise ValidationError({"recipient_id": "Recipient is not allowed for this approval."})
-        if approval.approver_external_user_id is not None and approval.approver_external_user_id != from_id:
-            raise ValidationError({"user_id": "User is not allowed for this approval."})
+        ensure_callback_identity(
+            callback_message_id=message_id,
+            stored_message_id=approval.gateway_message_id,
+            callback_recipient_id=chat_id,
+            stored_recipient_id=approval.approver_recipient_id,
+            callback_external_user_id=from_id,
+            stored_external_user_id=approval.approver_external_user_id,
+        )
 
-        if message_id is not None and approval.gateway_message_id is None:
-            approval.gateway_message_id = message_id
-            approval.message_sent = True
-            if approval.message_sent_at is None:
-                from django.utils import timezone
-
-                approval.message_sent_at = timezone.now()
-            approval.save(update_fields=["gateway_message_id", "message_sent", "message_sent_at"])
+        if message_id is not None and approval.telegram_message_id is None:
+            tg_message = TelegramMessage.objects.create(
+                tenant=approval.tenant,
+                recipient_id=str(approval.approver_recipient_id or chat_id or ""),
+                external_user_id=approval.approver_external_user_id,
+                message_id=message_id,
+                sent_at=timezone.now(),
+            )
+            approval.telegram_message = tg_message
+            approval.save(update_fields=["telegram_message"])
 
         try:
             confirm_invest_return_approval_by_id(

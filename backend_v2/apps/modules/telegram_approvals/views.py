@@ -13,9 +13,12 @@ from rest_framework.views import APIView
 
 from apps.modules.requests.models import Approval
 from apps.modules.requests.approval_workflow import ApprovalDecisionAlreadyMade, confirm_approval_by_id
-from apps.modules.telegram_approvals.models import TenantTelegramChat
+from apps.modules.telegram_approvals.models import TelegramMessage, TenantTelegramChat
 from apps.modules.telegram_approvals.serializers import MessagingGatewayCallbackSerializer, TenantTelegramChatSerializer
-from apps.modules.telegram_approvals.services import deactivate_approval_message_buttons
+from apps.modules.telegram_approvals.services import (
+    deactivate_approval_message_buttons,
+    ensure_callback_identity,
+)
 from apps.tenants.models import Tenant
 from apps.tenants.permissions import IsTenantAdmin
 
@@ -276,44 +279,39 @@ class TelegramApprovalWebhookView(APIView):
         if approval is None:
             logger.warning("messaging_gateway_webhook unknown approval_id=%s", approval_id)
             raise ValidationError({"approval_id": "Approval not found."})
-        if message_id is not None and approval.gateway_message_id is not None and approval.gateway_message_id != message_id:
+        try:
+            ensure_callback_identity(
+                callback_message_id=message_id,
+                stored_message_id=approval.gateway_message_id,
+                callback_recipient_id=chat_id,
+                stored_recipient_id=approval.approver_recipient_id,
+                callback_external_user_id=from_id,
+                stored_external_user_id=approval.approver_external_user_id,
+                message_id_error="Callback message_id does not match stored approval message_id.",
+            )
+        except ValidationError:
             logger.warning(
-                "messaging_gateway_webhook message_id mismatch approval_id=%s stored=%s callback=%s",
+                "messaging_gateway_webhook identity mismatch approval_id=%s callback_message_id=%s callback_recipient_id=%s callback_user_id=%s",
                 approval_id,
-                approval.gateway_message_id,
                 message_id,
-            )
-            raise ValidationError({"message_id": "Callback message_id does not match stored approval message_id."})
-        if approval.approver_recipient_id is not None and approval.approver_recipient_id != chat_id:
-            logger.warning(
-                "messaging_gateway_webhook recipient mismatch approval_id=%s expected=%s got=%s",
-                approval_id,
-                approval.approver_recipient_id,
                 chat_id,
-            )
-            raise ValidationError({"recipient_id": "Recipient is not allowed for this approval."})
-        if approval.approver_external_user_id is not None and approval.approver_external_user_id != from_id:
-            logger.warning(
-                "messaging_gateway_webhook user mismatch approval_id=%s expected=%s got=%s",
-                approval_id,
-                approval.approver_external_user_id,
                 from_id,
             )
-            raise ValidationError({"user_id": "User is not allowed for this approval."})
+            raise
 
         tenant: Tenant = approval.request.tenant
 
         with transaction.atomic():
-            if message_id is not None and approval.gateway_message_id is None:
-                updates = ["gateway_message_id"]
-                approval.gateway_message_id = message_id
-                if not approval.message_sent:
-                    approval.message_sent = True
-                    updates.append("message_sent")
-                if approval.message_sent_at is None:
-                    approval.message_sent_at = timezone.now()
-                    updates.append("message_sent_at")
-                approval.save(update_fields=updates)
+            if message_id is not None and approval.telegram_message_id is None:
+                tg_message = TelegramMessage.objects.create(
+                    tenant=tenant,
+                    recipient_id=str(approval.approver_recipient_id or chat_id or ""),
+                    external_user_id=approval.approver_external_user_id,
+                    message_id=message_id,
+                    sent_at=timezone.now(),
+                )
+                approval.telegram_message = tg_message
+                approval.save(update_fields=["telegram_message"])
             try:
                 confirm_approval_by_id(
                     tenant=tenant,
@@ -335,9 +333,17 @@ class TelegramApprovalWebhookView(APIView):
                     approval=approval,
                     request_context=approval.request,
                 )
-                if not updated and message_id:
-                    # Fallback for legacy rows where approval message id was not persisted
-                    approval.gateway_message_id = message_id
+                if not updated and message_id and approval.telegram_message_id is None:
+                    # Fallback for legacy rows where the approval message was not persisted
+                    tg_message = TelegramMessage.objects.create(
+                        tenant=tenant,
+                        recipient_id=str(approval.approver_recipient_id or chat_id or ""),
+                        external_user_id=approval.approver_external_user_id,
+                        message_id=message_id,
+                        sent_at=timezone.now(),
+                    )
+                    approval.telegram_message = tg_message
+                    approval.save(update_fields=["telegram_message"])
                     deactivate_approval_message_buttons(approval=approval, request_context=approval.request)
                 raise
 

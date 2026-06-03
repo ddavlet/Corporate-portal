@@ -351,12 +351,16 @@ class InvestmentReturnApproval(models.Model):
     )
     approver_recipient_id = models.CharField(max_length=50, null=True, blank=True)
     approver_external_user_id = models.BigIntegerField(null=True, blank=True)
+    telegram_message = models.OneToOneField(
+        "telegram_approvals.TelegramMessage",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="investment_return_approval",
+    )
     decision = models.CharField(max_length=20, choices=DECISION_CHOICES, default=DECISION_PENDING)
     decision_comment = models.TextField(blank=True, default="")
     decided_at = models.DateTimeField(null=True, blank=True)
-    gateway_message_id = models.BigIntegerField(null=True, blank=True)
-    message_sent = models.BooleanField(default=False)
-    message_sent_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -368,8 +372,22 @@ class InvestmentReturnApproval(models.Model):
             models.Index(fields=["tenant", "invest_return"], name="invrapp_tenant_ret_idx"),
             models.Index(fields=["tenant", "decision"], name="invrapp_tenant_dec_idx"),
             models.Index(fields=["approver_recipient_id"], name="invrapp_recipient_idx"),
-            models.Index(fields=["gateway_message_id"], name="invrapp_gateway_msg_idx"),
         ]
+
+    # --- Derived read-only accessors (same pattern as requests.Approval) --------
+    @property
+    def gateway_message_id(self):
+        tm = self.telegram_message
+        return tm.message_id if tm else None
+
+    @property
+    def message_sent(self) -> bool:
+        return self.telegram_message_id is not None
+
+    @property
+    def message_sent_at(self):
+        tm = self.telegram_message
+        return tm.sent_at if tm else None
 
 
 class InvestNotificationConfig(models.Model):
@@ -539,12 +557,16 @@ class ProjectInvestmentApproval(models.Model):
     )
     approver_recipient_id = models.CharField(max_length=50, null=True, blank=True)
     approver_external_user_id = models.BigIntegerField(null=True, blank=True)
+    telegram_message = models.OneToOneField(
+        "telegram_approvals.TelegramMessage",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="project_investment_approval",
+    )
     decision = models.CharField(max_length=20, choices=DECISION_CHOICES, default=DECISION_PENDING)
     decision_comment = models.TextField(blank=True, default="")
     decided_at = models.DateTimeField(null=True, blank=True)
-    gateway_message_id = models.BigIntegerField(null=True, blank=True)
-    message_sent = models.BooleanField(default=False)
-    message_sent_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -556,5 +578,19 @@ class ProjectInvestmentApproval(models.Model):
             models.Index(fields=["tenant", "project_investment"], name="invpiapp_tenant_pi_idx"),
             models.Index(fields=["tenant", "decision"], name="invpiapp_tenant_dec_idx"),
             models.Index(fields=["approver_recipient_id"], name="invpiapp_recipient_idx"),
-            models.Index(fields=["gateway_message_id"], name="invpiapp_gateway_msg_idx"),
         ]
+
+    # --- Derived read-only accessors (same pattern as requests.Approval) --------
+    @property
+    def gateway_message_id(self):
+        tm = self.telegram_message
+        return tm.message_id if tm else None
+
+    @property
+    def message_sent(self) -> bool:
+        return self.telegram_message_id is not None
+
+    @property
+    def message_sent_at(self):
+        tm = self.telegram_message
+        return tm.sent_at if tm else None

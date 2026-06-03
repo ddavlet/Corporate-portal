@@ -228,9 +228,13 @@ class Approval(models.Model):
     approver_recipient_id = models.CharField(max_length=50, null=True, blank=True)
     # Platform user id (e.g. Telegram from.id); distinct from FK `approver_user` / `approver_user_id`.
     approver_external_user_id = models.BigIntegerField(null=True, blank=True)
-    gateway_message_id = models.BigIntegerField(null=True, blank=True)
-    message_sent = models.BooleanField(default=False)
-    message_sent_at = models.DateTimeField(null=True, blank=True)
+    telegram_message = models.OneToOneField(
+        "telegram_approvals.TelegramMessage",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="request_approval",
+    )
     step = models.IntegerField(default=1)
     step_type = models.CharField(max_length=16, default=STEP_TYPE_SERIAL, choices=STEP_TYPE_CHOICES)
     decision = models.CharField(max_length=12, default=DECISION_PENDING, choices=DECISION_CHOICES)
@@ -255,8 +259,25 @@ class Approval(models.Model):
             models.Index(fields=["decision"], name="approvals_decision_idx"),
             models.Index(fields=["approver_recipient_id"], name="approvals_appr_rcpt_idx"),
             models.Index(fields=["approver_external_user_id"], name="approvals_ext_uid_idx"),
-            models.Index(fields=["message_sent"], name="approvals_message_sent_idx"),
         ]
+
+    # --- Derived read-only accessors -------------------------------------------------
+    # The single source of truth for a sent approval card is `telegram_message`
+    # (a TelegramMessage row). These properties keep the historical field names working
+    # for readers (API, callers) without storing duplicate data on the approval.
+    @property
+    def gateway_message_id(self):
+        tm = self.telegram_message
+        return tm.message_id if tm else None
+
+    @property
+    def message_sent(self) -> bool:
+        return self.telegram_message_id is not None
+
+    @property
+    def message_sent_at(self):
+        tm = self.telegram_message
+        return tm.sent_at if tm else None
 
 
 class RequestFormConfig(models.Model):
@@ -647,8 +668,13 @@ class UserRequestApproval(models.Model):
     )
     approver_recipient_id = models.BigIntegerField(null=True, blank=True)
     approver_external_user_id = models.BigIntegerField(null=True, blank=True)
-    gateway_message_id = models.BigIntegerField(null=True, blank=True)
-    message_sent = models.BooleanField(default=False)
+    telegram_message = models.OneToOneField(
+        "telegram_approvals.TelegramMessage",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="user_request_approval",
+    )
     step = models.IntegerField(default=1)
     step_type = models.CharField(max_length=16, default=Approval.STEP_TYPE_SERIAL, choices=Approval.STEP_TYPE_CHOICES)
     decision = models.CharField(max_length=12, default=Approval.DECISION_PENDING, choices=Approval.DECISION_CHOICES)
@@ -659,6 +685,21 @@ class UserRequestApproval(models.Model):
     )
     comment = models.TextField(null=True, blank=True)
     decided_at = models.DateTimeField(null=True, blank=True)
+
+    # --- Derived read-only accessors (mirrors Approval) ---
+    @property
+    def gateway_message_id(self):
+        tm = self.telegram_message
+        return tm.message_id if tm else None
+
+    @property
+    def message_sent(self) -> bool:
+        return self.telegram_message_id is not None
+
+    @property
+    def message_sent_at(self):
+        tm = self.telegram_message
+        return tm.sent_at if tm else None
 
     class Meta:
         db_table = "approvals"

@@ -2,10 +2,7 @@ from decimal import Decimal, ROUND_HALF_UP
 
 from rest_framework import serializers
 
-from apps.modules.investments.billing_month_rules import (
-    is_accrual_month_allowed,
-    month_first_day,
-)
+from apps.modules.investments.billing_month_rules import month_first_day
 from apps.modules.investments.models import (
     InvestCompany,
     InvestmentApprovalConfig,
@@ -98,7 +95,6 @@ class InvestReturnSerializer(_CompanyScopeMixin, serializers.ModelSerializer):
         if merged_currency not in ("USD", "UZS"):
             raise serializers.ValidationError({"currency": "Допустимы только USD и UZS."})
 
-        skip_bd_window = bool(self.context.get("skip_invest_return_billing_window"))
         merged_date = attrs.get("date")
         if merged_date is None and self.instance is not None:
             merged_date = self.instance.date
@@ -110,27 +106,11 @@ class InvestReturnSerializer(_CompanyScopeMixin, serializers.ModelSerializer):
             if merged_date is None:
                 raise serializers.ValidationError({"date": "Укажите дату выплаты."})
             billing_source = billing_explicit if billing_explicit is not None else merged_date
-            bd = month_first_day(billing_source)
-            if not skip_bd_window and not is_accrual_month_allowed(bd):
-                raise serializers.ValidationError(
-                    {
-                        "billing_date": "Месяц назначения недоступен. Выберите один из допустимых месяцев "
-                        "(как при создании заявки на расход ДС)."
-                    }
-                )
-            attrs["billing_date"] = bd
+            attrs["billing_date"] = month_first_day(billing_source)
         elif billing_in_attrs:
             if billing_explicit is None:
                 raise serializers.ValidationError({"billing_date": "Укажите месяц назначения."})
-            bd = month_first_day(billing_explicit)
-            if not skip_bd_window and not is_accrual_month_allowed(bd):
-                raise serializers.ValidationError(
-                    {
-                        "billing_date": "Месяц назначения недоступен. Выберите один из допустимых месяцев "
-                        "(как при создании заявки на расход ДС)."
-                    }
-                )
-            attrs["billing_date"] = bd
+            attrs["billing_date"] = month_first_day(billing_explicit)
 
         tenant = getattr(self.context.get("request"), "tenant", None)
         if tenant:
@@ -497,6 +477,11 @@ class InvestmentApprovalConfigStepApproverReadSerializer(serializers.ModelSerial
 
 
 class InvestmentReturnApprovalReadSerializer(serializers.ModelSerializer):
+    # Derived from the single source of truth (`telegram_message`); kept for API stability.
+    gateway_message_id = serializers.ReadOnlyField()
+    message_sent = serializers.ReadOnlyField()
+    message_sent_at = serializers.ReadOnlyField()
+
     class Meta:
         model = InvestmentReturnApproval
         fields = [
@@ -542,6 +527,11 @@ class InvestmentProjectApprovalConfigStepApproverReadSerializer(serializers.Mode
 
 
 class ProjectInvestmentApprovalReadSerializer(serializers.ModelSerializer):
+    # Derived from the single source of truth (`telegram_message`); kept for API stability.
+    gateway_message_id = serializers.ReadOnlyField()
+    message_sent = serializers.ReadOnlyField()
+    message_sent_at = serializers.ReadOnlyField()
+
     class Meta:
         model = ProjectInvestmentApproval
         fields = [

@@ -697,7 +697,7 @@ export function RequestApprovalConfigPage() {
 
           <Space direction="vertical" size={4} style={{ display: 'flex', marginBottom: 16 }}>
             <Typography.Text strong style={labelBlockAboveField}>
-              URL для кнопки «💬 Оставить комментарий» (Telegram Mini App)
+              URL для кнопки «💬 Комментарии» (Telegram Mini App)
             </Typography.Text>
             <Typography.Text type="secondary" style={{ fontSize: 12 }}>
               Прямая ссылка вида <Typography.Text code>t.me/ВашБот/ИмяПриложения</Typography.Text> — к ней автоматически добавится{' '}
