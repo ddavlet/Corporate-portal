@@ -1,6 +1,7 @@
 import { useLocation, useNavigate } from 'react-router-dom'
 import {
   BankOutlined,
+  CheckSquareOutlined,
   DollarOutlined,
   FileTextOutlined,
   RiseOutlined,
@@ -21,6 +22,7 @@ const NAV_ITEMS: NavItem[] = [
   { key: 'cash', label: 'Касса', path: '/tg/cash', moduleKey: 'cash', icon: <DollarOutlined /> },
   { key: 'bank', label: 'Банк', path: '/tg/bank', moduleKey: 'bank', icon: <BankOutlined /> },
   { key: 'investments', label: 'Инвестиции', path: '/tg/investments', moduleKey: 'investments', icon: <RiseOutlined /> },
+  { key: 'tasks', label: 'Задачи', path: '/tg/tasks', moduleKey: 'tasks', icon: <CheckSquareOutlined /> },
 ]
 
 function isActive(pathname: string, itemPath: string): boolean {

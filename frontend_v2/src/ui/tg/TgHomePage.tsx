@@ -2,6 +2,7 @@ import { Typography } from 'antd'
 import { useNavigate } from 'react-router-dom'
 import {
   BankOutlined,
+  CheckSquareOutlined,
   DollarOutlined,
   FileTextOutlined,
   RiseOutlined,
@@ -53,6 +54,14 @@ const TILES: Tile[] = [
     moduleKey: 'investments',
     icon: <RiseOutlined />,
     iconClass: 'tg-section-tile-icon--revenue',
+  },
+  {
+    key: 'tasks',
+    title: 'Задачи',
+    subtitle: 'Доска задач команды',
+    path: '/tg/tasks',
+    moduleKey: 'tasks',
+    icon: <CheckSquareOutlined />,
   },
 ]
 

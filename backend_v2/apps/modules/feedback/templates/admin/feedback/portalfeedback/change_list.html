@@ -1,0 +1,11 @@
+{% extends "admin/change_list.html" %}
+{% load i18n %}
+
+{% block result_list %}
+  {% if cl.formset and cl.result_count %}
+    <p>
+      <input type="submit" value="{% translate "Save" %}" class="default" name="_save">
+    </p>
+  {% endif %}
+  {{ block.super }}
+{% endblock %}

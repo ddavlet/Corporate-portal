@@ -2423,6 +2423,25 @@ export async function getRequestFormOptions(): Promise<RequestFormOptionsRespons
   }
 }
 
+export type RequestCategoryOption = {
+  id: number
+  name: string
+}
+
+export async function getRequestCategories(): Promise<RequestCategoryOption[]> {
+  const res = await apiFetch('/api/requests/categories/')
+  if (!res.ok) return []
+  const json = (await res.json().catch(() => null)) as RequestCategoryOption[] | null
+  return Array.isArray(json) ? json : []
+}
+
+export async function getRequestVendors(): Promise<string[]> {
+  const res = await apiFetch('/api/requests/vendors/')
+  if (!res.ok) return []
+  const json = (await res.json().catch(() => null)) as string[] | null
+  return Array.isArray(json) ? json : []
+}
+
 export type VendorDirectoryRow = {
   id: number
   tenant: number
@@ -2562,6 +2581,17 @@ export async function copyPortalRequest(requestId: number): Promise<{ request_id
   const json = (await res.json().catch(() => null)) as { request_id?: number } | null
   if (!json?.request_id) throw new Error('Пустой ответ от сервера')
   return { request_id: Number(json.request_id) }
+}
+
+export async function submitRequestForApproval(requestId: number): Promise<{ status: string }> {
+  const res = await apiFetch(`/api/requests/${requestId}/submit-for-approval/`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({}),
+  })
+  if (!res.ok) throw new Error(await parseErrorBody(res))
+  const json = (await res.json().catch(() => null)) as { status?: string } | null
+  return { status: json?.status ?? '' }
 }
 
 export async function uploadRequestAttachment(requestId: number, file: File): Promise<RequestAttachment> {

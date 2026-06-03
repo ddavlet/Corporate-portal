@@ -28,6 +28,7 @@ import {
   readTgTokens,
   setTgTokens,
   setUnauthorizedHandler,
+  submitRequestForApproval,
   validateRequestAttachment,
 } from './api'
 import { createJsonResponse, createStorageMock, setWindowLocation } from '../test/helpers'
@@ -304,6 +305,20 @@ describe('api module', () => {
     fetchMock.mockResolvedValueOnce(createJsonResponse(200, { request: { id: 11, status: 'approved' } }))
     const result = await confirmPaymentViaWebApp({ approval_id: 44, expense_id: 'INV-1' })
     expect(result.request).toEqual({ id: 11, status: 'approved' })
+  })
+
+  it('submitRequestForApproval posts to submit-for-approval and returns new status', async () => {
+    fetchMock.mockResolvedValueOnce(createJsonResponse(200, { id: 6323, status: '1' }))
+    const result = await submitRequestForApproval(6323)
+    expect(result).toEqual({ status: '1' })
+    const [input, options] = fetchMock.mock.calls[0] as [string, RequestInit]
+    expect(input).toContain('/api/requests/6323/submit-for-approval/')
+    expect(options.method).toBe('POST')
+  })
+
+  it('submitRequestForApproval surfaces conflict detail when already submitted', async () => {
+    fetchMock.mockResolvedValueOnce(createJsonResponse(409, { detail: 'Request already submitted for approval.' }))
+    await expect(submitRequestForApproval(7)).rejects.toThrow('Request already submitted for approval.')
   })
 
   it('fetchCursorListPage parses cursor envelope and legacy array', async () => {

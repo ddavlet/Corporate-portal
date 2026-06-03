@@ -183,6 +183,43 @@ class McpOAuthLoginFlowTests(TestCase):
         self.assertIn(b"otp", r.content.lower())
 
 
+@override_settings(
+    MCP_BASE_URL="https://api.kolberg.uz/mcp",
+    MCP_OAUTH_LOGIN_URL="https://api.kolberg.uz/oauth/login",
+    ALLOWED_HOSTS=[_MCP_TEST_HOST, "testserver"],
+)
+class McpOAuthLongStateTest(TestCase):
+    """create_authorization_code must not fail when state exceeds 255 chars."""
+
+    def setUp(self):
+        from django.contrib.auth import get_user_model
+        from apps.mcp_server.oauth.models import OAuthClient
+
+        self.user = get_user_model().objects.create_user(username="n8n_state_test", password="x")
+        self.client_obj = OAuthClient.objects.create(
+            client_id="n8n-test",
+            redirect_uris=["https://dev.kolberg.uz/rest/oauth2-credential/callback"],
+            grant_types=["authorization_code"],
+            response_types=["code"],
+        )
+
+    def test_long_state_does_not_raise(self):
+        from apps.mcp_server.oauth.provider import create_authorization_code
+
+        long_state = "x" * 512
+        code = create_authorization_code(
+            client_id="n8n-test",
+            user_id=self.user.id,
+            redirect_uri="https://dev.kolberg.uz/rest/oauth2-credential/callback",
+            redirect_uri_provided_explicitly=True,
+            code_challenge="A" * 43,
+            code_challenge_method="S256",
+            scopes=["mcp"],
+            state=long_state,
+        )
+        self.assertTrue(len(code) > 10)
+
+
 class McpInvestmentsBudgetsToolsTests(TestCase):
     def setUp(self):
         from django.contrib.auth import get_user_model
