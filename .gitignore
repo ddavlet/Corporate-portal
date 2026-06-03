@@ -19,6 +19,7 @@ docs/superpowers/
 
 # Env
 .env
+.env.bak.*
 env/
 n8n_dev/
 
