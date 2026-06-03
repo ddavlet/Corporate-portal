@@ -104,7 +104,7 @@ export function TgInvestmentsProjectsPage() {
         type="primary"
         className="tg-fab"
         icon={<PlusOutlined />}
-        onClick={() => { tgHaptic.impact('light'); navigate('/tg/investments/projects/new') }}
+        onClick={() => { tgHaptic.impact(); navigate('/tg/investments/projects/new') }}
         aria-label="Создать заявку на вложение"
       />
 

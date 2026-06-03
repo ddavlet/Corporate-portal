@@ -146,7 +146,7 @@ export function TgRequestsPage() {
           ))
         : null}
 
-      <button type="button" className="tg-fab-new" onClick={() => { tgHaptic.impact('light'); navigate('/tg/requests/new') }}>
+      <button type="button" className="tg-fab-new" onClick={() => { tgHaptic.impact(); navigate('/tg/requests/new') }}>
         <FileAddOutlined style={{ marginRight: 8 }} />
         Новая заявка
       </button>

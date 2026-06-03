@@ -122,7 +122,7 @@ export function TgInvestmentsReturnsPage() {
         type="primary"
         icon={<PlusOutlined />}
         size="large"
-        onClick={() => { tgHaptic.tap(); navigate('/tg/investments/returns/new') }}
+        onClick={() => { tgHaptic.impact(); navigate('/tg/investments/returns/new') }}
         style={{ marginBottom: 12, borderRadius: 12, width: '100%' }}
       >
         Создать выплату

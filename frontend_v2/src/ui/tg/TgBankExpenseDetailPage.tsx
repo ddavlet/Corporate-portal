@@ -111,7 +111,7 @@ export function TgBankExpenseDetailPage() {
             <DetailRow label="Назначение платежа">{detail.payment_purpose || '—'}</DetailRow>
 
             <div className="tg-actions-stack" style={{ marginTop: 16 }}>
-              <Button size="large" onClick={() => { tgHaptic.impact('light'); setOpenNoteModal(true) }}>
+              <Button size="large" onClick={() => { tgHaptic.impact(); setOpenNoteModal(true) }}>
                 Добавить заметку
               </Button>
               {detail.matched_request_id ? (
