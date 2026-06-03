@@ -25,13 +25,14 @@ def populate_telegram_messages_for_investments(apps, schema_editor):
             .filter(
                 gateway_message_id__isnull=False,
                 telegram_message__isnull=True,
-                approver_recipient_id__isnull=False,
             )
             .iterator(chunk_size=200)
         ):
+            # Match on recipient too (message_id is unique per chat, not per tenant).
             existing = TelegramMessage.objects.filter(
                 message_id=approval.gateway_message_id,
                 tenant=approval.tenant,
+                recipient_id=str(approval.approver_recipient_id or ""),
             ).first()
             if existing:
                 approval.telegram_message = existing
@@ -39,7 +40,7 @@ def populate_telegram_messages_for_investments(apps, schema_editor):
             else:
                 tm = TelegramMessage.objects.create(
                     tenant=approval.tenant,
-                    recipient_id=str(approval.approver_recipient_id),
+                    recipient_id=str(approval.approver_recipient_id or ""),
                     external_user_id=approval.approver_external_user_id,
                     message_id=approval.gateway_message_id,
                     sent_at=approval.message_sent_at or timezone.now(),
@@ -59,13 +60,14 @@ def populate_telegram_messages_for_investments(apps, schema_editor):
             .filter(
                 gateway_message_id__isnull=False,
                 telegram_message__isnull=True,
-                approver_recipient_id__isnull=False,
             )
             .iterator(chunk_size=200)
         ):
+            # Match on recipient too (message_id is unique per chat, not per tenant).
             existing = TelegramMessage.objects.filter(
                 message_id=approval.gateway_message_id,
                 tenant=approval.tenant,
+                recipient_id=str(approval.approver_recipient_id or ""),
             ).first()
             if existing:
                 approval.telegram_message = existing
@@ -73,7 +75,7 @@ def populate_telegram_messages_for_investments(apps, schema_editor):
             else:
                 tm = TelegramMessage.objects.create(
                     tenant=approval.tenant,
-                    recipient_id=str(approval.approver_recipient_id),
+                    recipient_id=str(approval.approver_recipient_id or ""),
                     external_user_id=approval.approver_external_user_id,
                     message_id=approval.gateway_message_id,
                     sent_at=approval.message_sent_at or timezone.now(),

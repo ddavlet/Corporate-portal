@@ -2,6 +2,12 @@
 # The column already exists on the 'approvals' table from migration 0054.
 # This migration uses SeparateDatabaseAndState to register the field in Django's
 # model state without running a database operation.
+#
+# NOTE: gateway_message_id / message_sent / message_sent_at are intentionally NOT
+# removed here. UserRequestApproval's migration state has never tracked those
+# "mirror" fields (see the comment in 0040_gateway_neutral_field_renames) — they
+# live only on the live managed=False model as @property accessors. RemoveField on
+# them would raise FieldDoesNotExist and break `migrate`.
 
 from django.db import migrations, models
 import django.db.models.deletion
