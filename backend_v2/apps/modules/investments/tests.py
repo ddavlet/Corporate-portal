@@ -12,7 +12,7 @@ from django.test import SimpleTestCase, TestCase
 from django.test import override_settings
 from django.utils import timezone
 from rest_framework import serializers
-from rest_framework.test import APIRequestFactory
+from rest_framework.test import APIClient, APIRequestFactory
 from rest_framework.test import APITestCase
 
 from apps.modules.investments.approval_services import INVESTMENT_APPROVAL_CASCADE_REJECTION_COMMENT
@@ -1940,3 +1940,33 @@ class InvestNotificationRejectionTests(TestCase):
         route_invest_return_approvals(invest_return=self.invest_return)
         self.schedule.refresh_from_db()
         self.assertEqual(self.schedule.created_return_id, self.invest_return.pk)
+
+
+class InvestReturnCreateAPITest(APITestCase):
+    """Smoke-test: POST /api/investments/returns/ creates an InvestReturn."""
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.user = User.objects.create_user(username="ret_creator", password="x")
+        cls.tenant = Tenant.objects.create(name="RetTenant", subdomain="rettenant", is_active=True)
+        TenantMembership.objects.create(tenant=cls.tenant, user=cls.user, is_active=True)
+        TenantModuleConfig.objects.create(tenant=cls.tenant, module_key="investments", is_enabled=True)
+
+    def test_creates_invest_return(self):
+        client = APIClient()
+        client.force_authenticate(user=self.user)
+        client.credentials(HTTP_X_TENANT_ID=str(self.tenant.id))
+        payload = {
+            "date": "2026-06-03",
+            "billing_date": "2026-06-01",
+            "sum": "1000.00",
+            "currency": "USD",
+            "type": "дивиденды",
+            "recipient": "инвестор",
+            "comment": "",
+        }
+        response = client.post("/api/investments/returns/", data=payload, format="json")
+        self.assertEqual(response.status_code, 201, response.data)
+        self.assertEqual(response.data["type"], "дивиденды")
+        self.assertEqual(response.data["recipient"], "инвестор")
+        self.assertFalse(response.data["confirmed"])
