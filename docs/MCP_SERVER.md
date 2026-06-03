@@ -197,6 +197,10 @@ Fields: `id`, `doc_no`, `doc_date`, `process_date`, `kredit_turnover` (credited 
 Corporate-card outflows. **Roles:** admin, director, accountant, cashier. Filters: `date_from`/`date_to` (on `expense_at`), `limit` (50/200).
 Fields: `id`, `title`, `amount`, `currency`, `expense_at`, `note`, `wallet_id`, `created_at`.
 
+#### `list_card_revenues`
+Corporate-card inflows. **Roles:** admin, director, accountant, cashier. Filters: `date_from`/`date_to` (on `revenue_at`), `limit` (50/200).
+Fields: `id`, `external_id`, `title`, `amount`, `currency`, `revenue_at`, `note`, `confirmed`, `wallet_id`, `created_at`.
+
 ### 7.5 Payroll (начисления ЗП) — module `payroll`
 
 #### `list_payroll_documents`
