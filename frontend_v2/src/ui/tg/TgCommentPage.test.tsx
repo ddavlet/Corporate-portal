@@ -1,5 +1,5 @@
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { TgCommentPage } from './TgCommentPage'
 
@@ -35,7 +35,6 @@ function renderPage(url: string) {
 
 describe('TgCommentPage', () => {
   beforeEach(() => {
-    vi.useFakeTimers()
     createRequestCommentMock.mockReset()
     successMock.mockReset()
     closeMock.mockReset()
@@ -49,16 +48,10 @@ describe('TgCommentPage', () => {
     }
   })
 
-  afterEach(() => {
-    vi.useRealTimers()
-  })
-
   it('shows request id and comment form when request_id is valid', async () => {
     renderPage('/tg/comment?request_id=42')
 
-    await waitFor(() => {
-      expect(screen.getByText(/Заявка #42/)).toBeInTheDocument()
-    })
+    expect(await screen.findByText(/Заявка #42/)).toBeInTheDocument()
     expect(screen.getByPlaceholderText('Напишите комментарий...')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Отправить комментарий' })).toBeDisabled()
   })
@@ -73,9 +66,7 @@ describe('TgCommentPage', () => {
     })
     renderPage('/tg/comment?request_id=42')
 
-    await waitFor(() => {
-      expect(screen.getByText(/Заявка #42/)).toBeInTheDocument()
-    })
+    await screen.findByText(/Заявка #42/)
 
     fireEvent.change(screen.getByPlaceholderText('Напишите комментарий...'), { target: { value: 'Новый' } })
     fireEvent.click(screen.getByRole('button', { name: 'Отправить комментарий' }))
@@ -86,10 +77,7 @@ describe('TgCommentPage', () => {
     expect(successMock).toHaveBeenCalled()
     expect(await screen.findByText('Комментарий сохранён')).toBeInTheDocument()
 
-    act(() => {
-      vi.advanceTimersByTime(800)
-    })
-    expect(closeMock).toHaveBeenCalled()
+    await waitFor(() => expect(closeMock).toHaveBeenCalled(), { timeout: 1500 })
   })
 
   it('shows warning when request id is missing', async () => {
