@@ -3782,6 +3782,19 @@ class RequestCommentTests(APITestCase):
         res = self.client.post(self._url(), {"body": "Не должен попасть"}, format="json", HTTP_HOST=self.host)
         self.assertIn(res.status_code, (403, 404))
 
+    def test_unauthenticated_cannot_comment(self):
+        self.client.logout()
+        res = self.client.post(self._url(), {"body": "Анонимный комментарий"}, format="json", HTTP_HOST=self.host)
+        self.assertEqual(res.status_code, 401)
+
+    def test_comments_appear_in_request_detail(self):
+        RequestComment.objects.create(request_id=self.request_id, created_by=self.requester, body="Видимый")
+        self.client.force_authenticate(self.requester)
+        res = self.client.get(f"/api/requests/{self.request_id}/", HTTP_HOST=self.host)
+        self.assertEqual(res.status_code, 200, res.content)
+        comments = res.json().get("comments", [])
+        self.assertTrue(any(c["body"] == "Видимый" for c in comments))
+
 
 class Migration0055BackfillGuardTest(TestCase):
     """Regression guard for the 0055 backfill 'column exists' guard.
@@ -3828,19 +3841,6 @@ class Migration0055BackfillGuardTest(TestCase):
                 ["requests_approval", "decision"],
             )
             self.assertEqual(cursor.fetchone()[0], 0)
-
-    def test_unauthenticated_cannot_comment(self):
-        self.client.logout()
-        res = self.client.post(self._url(), {"body": "Анонимный комментарий"}, format="json", HTTP_HOST=self.host)
-        self.assertEqual(res.status_code, 401)
-
-    def test_comments_appear_in_request_detail(self):
-        RequestComment.objects.create(request_id=self.request_id, created_by=self.requester, body="Видимый")
-        self.client.force_authenticate(self.requester)
-        res = self.client.get(f"/api/requests/{self.request_id}/", HTTP_HOST=self.host)
-        self.assertEqual(res.status_code, 200, res.content)
-        comments = res.json().get("comments", [])
-        self.assertTrue(any(c["body"] == "Видимый" for c in comments))
 
 
 @override_settings(BASE_DOMAIN="example.com", N8N_INTEGRATION_TOKEN="", ALLOWED_HOSTS=["*"])
