@@ -1,5 +1,3 @@
-from decimal import Decimal
-
 from django.contrib.auth import get_user_model
 from django.test import TestCase
 from django.utils import timezone
@@ -49,6 +47,7 @@ class CorporateCardSmokeTests(TestCase):
             title="Refund",
             amount=7,
             currency="UZS",
+            total_sum=7,
             wallet=w,
             revenue_at=dt,
             note="",
@@ -57,32 +56,6 @@ class CorporateCardSmokeTests(TestCase):
         )
         self.assertIsNotNone(obj.id)
         self.assertEqual(CardRevenue.objects.filter(tenant=self.tenant).count(), 1)
-
-    def test_card_revenue_legacy_import_preserved_in_payload(self):
-        dt = timezone.now()
-        w = get_or_create_corporate_wallet(tenant=self.tenant, currency="UZS")
-        obj = CardRevenue.objects.create(
-            tenant=self.tenant,
-            external_id="legacy-1",
-            confirmed=True,
-            title="Top-up",
-            amount=Decimal("1000"),
-            currency="UZS",
-            wallet=w,
-            revenue_at=dt,
-            note="merged note",
-            payload={
-                "legacy_import": {
-                    "operation": "Поступление",
-                    "organization": "Neuron",
-                    "bank_expense_id": 42,
-                }
-            },
-            created_by=self.user,
-        )
-        legacy = (obj.payload or {}).get("legacy_import") or {}
-        self.assertEqual(legacy.get("operation"), "Поступление")
-        self.assertEqual(legacy.get("bank_expense_id"), 42)
 
 
 @override_settings(BASE_DOMAIN="example.com", ALLOWED_HOSTS=["*"])

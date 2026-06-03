@@ -87,7 +87,7 @@ class CardRevenueViewSet(PortalListViewSetMixin, viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated, HasEffectiveModuleAccess]
     serializer_class = CardRevenueSerializer
     pagination_class = CardRevenueCursorPagination
-    ordering_fields = ["revenue_at", "amount", "id", "created_at"]
+    ordering_fields = ["revenue_at", "revenue_date", "amount", "id", "created_at"]
     ordering = ["-revenue_at", "-id"]
 
     def get_queryset(self):

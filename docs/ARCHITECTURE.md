@@ -114,7 +114,7 @@
 
 ### `apps.modules.corporate_card`
 
-- **`CardExpense`**, **`CardRevenue`** (как расход: `title`, `amount`, `revenue_at`, `note`, `payload`; плюс `external_id`, `confirmed`), **`Wallet`**.
+- **`CardExpense`**, **`CardRevenue`** (в т.ч. `bank_expense_id` как soft link), **`Wallet`**.
 
 ### `apps.modules.payroll`
 

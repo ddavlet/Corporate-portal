@@ -12,7 +12,7 @@ from django.test import SimpleTestCase, TestCase
 from django.test import override_settings
 from django.utils import timezone
 from rest_framework import serializers
-from rest_framework.test import APIRequestFactory
+from rest_framework.test import APIClient, APIRequestFactory
 from rest_framework.test import APITestCase
 
 from apps.modules.investments.approval_services import INVESTMENT_APPROVAL_CASCADE_REJECTION_COMMENT

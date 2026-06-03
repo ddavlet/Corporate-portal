@@ -28,6 +28,18 @@ function formatDateTime(value?: string | null): string {
   return dateTimeFormatterTashkent.format(parsed)
 }
 
+function formatDate(value?: string | null): string {
+  if (!value) return '-'
+  const parsed = new Date(value)
+  if (Number.isNaN(parsed.getTime())) return '-'
+  return new Intl.DateTimeFormat('ru-RU', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    timeZone: 'Asia/Tashkent',
+  }).format(parsed)
+}
+
 export type CorporateCardSectionMode = 'all' | 'expenses' | 'revenues'
 
 const SECTION_TITLES: Record<CorporateCardSectionMode, string> = {
@@ -43,6 +55,8 @@ export function CorporateCardSectionPage({ mode }: { mode: CorporateCardSectionM
   const [search, setSearch] = useState('')
   const [currencyFilter, setCurrencyFilter] = useState<string | undefined>(undefined)
   const [confirmedFilter, setConfirmedFilter] = useState<string | undefined>(undefined)
+  const [operationFilter, setOperationFilter] = useState<string | undefined>(undefined)
+  const [counterpartyFilter, setCounterpartyFilter] = useState<string | undefined>(undefined)
   const [amountMin, setAmountMin] = useState<number | null>(null)
   const [amountMax, setAmountMax] = useState<number | null>(null)
   const [dateRange, setDateRange] = useState<[Dayjs | null, Dayjs | null] | null>(null)
@@ -92,30 +106,56 @@ export function CorporateCardSectionPage({ mode }: { mode: CorporateCardSectionM
 
   const listLoading = (needExpenses && expensesLoading) || (needRevenues && revenuesLoading)
   const listError = expensesError || revenuesError
-  const listHasMore = (needExpenses && expensesHasMore) || (needRevenues && revenuesHasMore)
-  const listLoadingMore = (needExpenses && expensesLoadingMore) || (needRevenues && revenuesLoadingMore)
 
-  const loadMoreAll = () => {
-    if (needExpenses && expensesHasMore) loadMoreExpenses()
-    if (needRevenues && revenuesHasMore) loadMoreRevenues()
-  }
+  const scrollSources = useMemo(
+    () => [
+      ...(needExpenses
+        ? [
+            {
+              hasMore: expensesHasMore,
+              loadingMore: expensesLoadingMore,
+              loadMore: loadMoreExpenses,
+              itemsLength: expenses.length,
+            },
+          ]
+        : []),
+      ...(needRevenues
+        ? [
+            {
+              hasMore: revenuesHasMore,
+              loadingMore: revenuesLoadingMore,
+              loadMore: loadMoreRevenues,
+              itemsLength: revenues.length,
+            },
+          ]
+        : []),
+    ],
+    [
+      needExpenses,
+      needRevenues,
+      expensesHasMore,
+      revenuesHasMore,
+      expensesLoadingMore,
+      revenuesLoadingMore,
+      loadMoreExpenses,
+      loadMoreRevenues,
+      expenses.length,
+      revenues.length,
+    ],
+  )
 
-  const listSentinelRef = useFinanceInfiniteScrollFooter({
-    hasMore: listHasMore,
-    loadingMore: listLoadingMore,
-    onLoadMore: loadMoreAll,
-  })
-
-  const optionize = (values: string[]) =>
-    [...new Set(values.filter(Boolean))].sort().map((value) => ({ value, label: value }))
+  const { sentinelRef: listSentinelRef, hasMore: listHasMore, loadingMore: listLoadingMore, loadMoreAll } =
+    useFinanceInfiniteScrollFooter(scrollSources)
 
   const normalizedSearch = search.trim().toLowerCase()
+  const optionize = (values: string[]) =>
+    [...new Set(values.filter(Boolean))].sort((a, b) => a.localeCompare(b)).map((value) => ({ label: value, value }))
 
   const allRows = useMemo(() => {
     const expenseRows = expenses.map((e) => ({
       kind: 'expense' as const,
       id: e.id,
-      title: e.title || '',
+      title: e.title,
       amount: e.amount,
       currency: e.currency,
       at: e.expense_at,
@@ -126,10 +166,10 @@ export function CorporateCardSectionPage({ mode }: { mode: CorporateCardSectionM
       kind: 'revenue' as const,
       id: r.id,
       title: r.title || r.external_id || '',
-      amount: r.amount,
+      amount: r.total_sum ?? r.amount,
       currency: r.currency,
       at: r.revenue_at,
-      note: r.note || '',
+      note: r.comment || r.note || '',
       raw: r,
     }))
     return [...expenseRows, ...revenueRows].sort((a, b) => String(b.at || '').localeCompare(String(a.at || '')))
@@ -138,8 +178,12 @@ export function CorporateCardSectionPage({ mode }: { mode: CorporateCardSectionM
   const filteredAllRows = useMemo(() => {
     return allRows.filter((row) => {
       const raw = row.raw as CorporateCardExpense | CorporateCardRevenue
-      const confirmed = 'confirmed' in raw ? raw.confirmed : undefined
+      const op = (raw as CorporateCardRevenue).operation || ''
+      const cp = (raw as CorporateCardRevenue).counterparty || ''
+      const confirmed = (raw as CorporateCardRevenue).confirmed
       if (currencyFilter && row.currency !== currencyFilter) return false
+      if (operationFilter && op !== operationFilter) return false
+      if (counterpartyFilter && cp !== counterpartyFilter) return false
       if (confirmedFilter === 'confirmed' && confirmed === false) return false
       if (confirmedFilter === 'unconfirmed' && confirmed !== false) return false
       if (amountMin !== null && Number(row.amount) < amountMin) return false
@@ -153,7 +197,7 @@ export function CorporateCardSectionPage({ mode }: { mode: CorporateCardSectionM
       const haystack = JSON.stringify(row).toLowerCase()
       return haystack.includes(normalizedSearch)
     })
-  }, [allRows, normalizedSearch, currencyFilter, confirmedFilter, amountMin, amountMax, dateRange])
+  }, [allRows, normalizedSearch, currencyFilter, operationFilter, counterpartyFilter, confirmedFilter, amountMin, amountMax, dateRange])
 
   const filteredExpenses = useMemo(() => {
     return expenses.filter((row) => {
@@ -174,20 +218,22 @@ export function CorporateCardSectionPage({ mode }: { mode: CorporateCardSectionM
   const filteredRevenues = useMemo(() => {
     return revenues.filter((row) => {
       if (currencyFilter && row.currency !== currencyFilter) return false
+      if (operationFilter && (row.operation || '') !== operationFilter) return false
+      if (counterpartyFilter && (row.counterparty || '') !== counterpartyFilter) return false
       if (confirmedFilter === 'confirmed' && row.confirmed === false) return false
       if (confirmedFilter === 'unconfirmed' && row.confirmed !== false) return false
-      if (amountMin !== null && Number(row.amount) < amountMin) return false
-      if (amountMax !== null && Number(row.amount) > amountMax) return false
+      if (amountMin !== null && Number(row.total_sum ?? row.amount) < amountMin) return false
+      if (amountMax !== null && Number(row.total_sum ?? row.amount) > amountMax) return false
       const from = dateRange?.[0]?.format('YYYY-MM-DD')
       const to = dateRange?.[1]?.format('YYYY-MM-DD')
-      const currentDate = String(row.revenue_at || '').slice(0, 10)
+      const currentDate = String(row.revenue_at || row.revenue_date || '').slice(0, 10)
       if (from && (!currentDate || currentDate < from)) return false
       if (to && (!currentDate || currentDate > to)) return false
       if (!normalizedSearch) return true
       const haystack = JSON.stringify(row).toLowerCase()
       return haystack.includes(normalizedSearch)
     })
-  }, [revenues, normalizedSearch, currencyFilter, confirmedFilter, amountMin, amountMax, dateRange])
+  }, [revenues, normalizedSearch, currencyFilter, operationFilter, counterpartyFilter, confirmedFilter, amountMin, amountMax, dateRange])
 
   type AllRow = (typeof allRows)[number]
   const allColumns: ColumnsType<AllRow> = [
@@ -248,12 +294,11 @@ export function CorporateCardSectionPage({ mode }: { mode: CorporateCardSectionM
       width: 120,
       sorter: (a, b) => String(a.external_id || '').localeCompare(String(b.external_id || '')),
     },
-    { title: 'Название', dataIndex: 'title', sorter: (a, b) => String(a.title || '').localeCompare(String(b.title || '')) },
     {
-      title: 'Сумма',
-      dataIndex: 'amount',
-      sorter: (a, b) => Number(a.amount) - Number(b.amount),
-      render: (_, row) => `${Number(row.amount).toLocaleString('ru-RU')} ${row.currency || ''}`.trim(),
+      title: 'Дата',
+      dataIndex: 'revenue_date',
+      sorter: (a, b) => String(a.revenue_date || '').localeCompare(String(b.revenue_date || '')),
+      render: (value: string | null | undefined, row) => formatDate(value || row.revenue_at),
     },
     {
       title: 'Подтв.',
@@ -261,13 +306,35 @@ export function CorporateCardSectionPage({ mode }: { mode: CorporateCardSectionM
       width: 100,
       render: (value: boolean | undefined) => (value === false ? <Tag color="default">Нет</Tag> : <Tag color="processing">Да</Tag>),
     },
+    { title: 'Направление', dataIndex: 'direction' },
+    { title: 'Организация', dataIndex: 'organization' },
+    { title: 'Сотрудник', dataIndex: 'employee' },
+    { title: 'Операция', dataIndex: 'operation' },
     {
-      title: 'Дата',
-      dataIndex: 'revenue_at',
-      sorter: (a, b) => String(a.revenue_at || '').localeCompare(String(b.revenue_at || '')),
-      render: (value: string) => formatDateTime(value),
+      title: 'Сумма',
+      dataIndex: 'total_sum',
+      sorter: (a, b) => Number(a.total_sum ?? a.amount) - Number(b.total_sum ?? b.amount),
+      render: (_, row) => `${Number(row.total_sum ?? row.amount).toLocaleString('ru-RU')} ${row.currency || ''}`.trim(),
     },
-    { title: 'Примечание', dataIndex: 'note' },
+    {
+      title: 'Счёт',
+      dataIndex: 'account',
+    },
+    {
+      title: 'Контрагент',
+      dataIndex: 'counterparty',
+    },
+    {
+      title: 'Связь с банком',
+      dataIndex: 'bank_expense_id',
+      render: (_, row) =>
+        row.bank_expense_id ? (
+          <Tag color={row.bank_expense_exists ? 'success' : 'warning'}>{`#${row.bank_expense_id}`}</Tag>
+        ) : (
+          <Tag>Нет</Tag>
+        ),
+    },
+    { title: 'Комментарий', dataIndex: 'comment', render: (_, row) => row.comment || row.note || '-' },
   ]
 
   return (
@@ -286,7 +353,7 @@ export function CorporateCardSectionPage({ mode }: { mode: CorporateCardSectionM
           Расходы и пополнения корпоративной карты
         </Typography.Text>
         <Input
-          placeholder="Поиск: ID, название, внешний ID, примечание"
+          placeholder="Поиск: ID, организация, сотрудник, операция, комментарий, ID расхода банка"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           allowClear
@@ -320,6 +387,22 @@ export function CorporateCardSectionPage({ mode }: { mode: CorporateCardSectionM
                     onChange={setCurrencyFilter}
                     options={optionize(allRows.map((r) => r.currency || ''))}
                   />
+                  <Select
+                    placeholder="Операция"
+                    allowClear
+                    style={{ width: 220 }}
+                    value={operationFilter}
+                    onChange={setOperationFilter}
+                    options={optionize(revenues.map((r) => r.operation || ''))}
+                  />
+                  <Select
+                    placeholder="Контрагент"
+                    allowClear
+                    style={{ width: 220 }}
+                    value={counterpartyFilter}
+                    onChange={setCounterpartyFilter}
+                    options={optionize(revenues.map((r) => r.counterparty || ''))}
+                  />
                   <DatePicker.RangePicker value={dateRange} onChange={setDateRange} placeholder={['Дата от', 'Дата до']} />
                   <InputNumber placeholder="Мин. сумма" min={0} value={amountMin} onChange={setAmountMin} />
                   <InputNumber placeholder="Макс. сумма" min={0} value={amountMax} onChange={setAmountMax} />
@@ -327,6 +410,8 @@ export function CorporateCardSectionPage({ mode }: { mode: CorporateCardSectionM
                     onClick={() => {
                       setCurrencyFilter(undefined)
                       setConfirmedFilter(undefined)
+                      setOperationFilter(undefined)
+                      setCounterpartyFilter(undefined)
                       setAmountMin(null)
                       setAmountMax(null)
                       setDateRange(null)
@@ -390,7 +475,7 @@ export function CorporateCardSectionPage({ mode }: { mode: CorporateCardSectionM
             onClick: () => setSelectedRevenue(record),
             style: { cursor: 'pointer' },
           })}
-          scroll={{ x: 1100 }}
+          scroll={{ x: 1800 }}
         />
       ) : null}
 
@@ -452,15 +537,27 @@ export function CorporateCardSectionPage({ mode }: { mode: CorporateCardSectionM
           <Descriptions bordered size="small" column={1}>
             <Descriptions.Item label="ID">{selectedRevenue.id}</Descriptions.Item>
             <Descriptions.Item label="Внешний ID">{selectedRevenue.external_id || '-'}</Descriptions.Item>
-            <Descriptions.Item label="Название">{selectedRevenue.title || '-'}</Descriptions.Item>
-            <Descriptions.Item label="Сумма">
-              {`${Number(selectedRevenue.amount).toLocaleString('ru-RU')} ${selectedRevenue.currency || ''}`.trim()}
-            </Descriptions.Item>
-            <Descriptions.Item label="Дата">{formatDateTime(selectedRevenue.revenue_at)}</Descriptions.Item>
+            <Descriptions.Item label="Дата">{formatDate(selectedRevenue.revenue_date || selectedRevenue.revenue_at)}</Descriptions.Item>
             <Descriptions.Item label="Подтверждено">
               {selectedRevenue.confirmed === false ? <Tag color="default">Нет</Tag> : <Tag color="processing">Да</Tag>}
             </Descriptions.Item>
-            <Descriptions.Item label="Примечание">{selectedRevenue.note || '-'}</Descriptions.Item>
+            <Descriptions.Item label="Направление">{selectedRevenue.direction || '-'}</Descriptions.Item>
+            <Descriptions.Item label="Организация">{selectedRevenue.organization || '-'}</Descriptions.Item>
+            <Descriptions.Item label="Подразделение">{selectedRevenue.unit || '-'}</Descriptions.Item>
+            <Descriptions.Item label="Сотрудник">{selectedRevenue.employee || '-'}</Descriptions.Item>
+            <Descriptions.Item label="Тип кассы">{selectedRevenue.cash_type || '-'}</Descriptions.Item>
+            <Descriptions.Item label="Операция">{selectedRevenue.operation || '-'}</Descriptions.Item>
+            <Descriptions.Item label="Счёт">{selectedRevenue.account || '-'}</Descriptions.Item>
+            <Descriptions.Item label="Контрагент">{selectedRevenue.counterparty || '-'}</Descriptions.Item>
+            <Descriptions.Item label="Сумма">
+              {`${Number(selectedRevenue.total_sum ?? selectedRevenue.amount).toLocaleString('ru-RU')} ${selectedRevenue.currency || ''}`.trim()}
+            </Descriptions.Item>
+            <Descriptions.Item label="Год источника">{selectedRevenue.source_year ?? '-'}</Descriptions.Item>
+            <Descriptions.Item label="ID расхода банка">{selectedRevenue.bank_expense_id ?? '-'}</Descriptions.Item>
+            <Descriptions.Item label="Связь найдена">
+              {selectedRevenue.bank_expense_exists ? <Tag color="success">Да</Tag> : <Tag>Нет</Tag>}
+            </Descriptions.Item>
+            <Descriptions.Item label="Комментарий">{selectedRevenue.comment || selectedRevenue.note || '-'}</Descriptions.Item>
             <Descriptions.Item label="Создано">{formatDateTime(selectedRevenue.created_at)}</Descriptions.Item>
           </Descriptions>
         ) : null}
@@ -473,3 +570,4 @@ export function CorporateCardSectionPage({ mode }: { mode: CorporateCardSectionM
     </Card>
   )
 }
+
