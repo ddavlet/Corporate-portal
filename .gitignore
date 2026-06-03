@@ -44,3 +44,9 @@ settings.local.json
 scripts/
 backups/
 .claude/
+
+.qwen/
+gha-creds-*.json
+
+.agents/
+skills-lock.json
