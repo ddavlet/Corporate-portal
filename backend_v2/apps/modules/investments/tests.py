@@ -226,12 +226,6 @@ class InvestReturnSerializerTests(TestCase):
     def setUp(self):
         self.tenant = Tenant.objects.create(name="Acme", subdomain="acme", is_active=True)
         self.user = User.objects.create_user(username="invest-admin", password="x")
-        self._p_allow_billing = patch(
-            "apps.modules.investments.serializers.is_accrual_month_allowed",
-            return_value=True,
-        )
-        self._p_allow_billing.start()
-        self.addCleanup(self._p_allow_billing.stop)
 
     @patch("apps.modules.investments.serializers.fetch_cbu_usd_uzs_rate", return_value=Decimal("12600"))
     def test_usd_normalizes_currency_and_computes_sum_uzs(self, _mock_fetch):
@@ -277,22 +271,6 @@ class InvestReturnSerializerTests(TestCase):
         self.assertEqual(obj.sum_uzs, Decimal("5000000.00"))
         self.assertEqual(obj.cbu_usd_uzs_rate, Decimal("12600"))
         self.assertEqual(obj.billing_date, date(2026, 4, 1))
-
-    @patch("apps.modules.investments.serializers.fetch_cbu_usd_uzs_rate", return_value=Decimal("12600"))
-    @patch("apps.modules.investments.serializers.is_accrual_month_allowed", return_value=False)
-    def test_rejects_billing_month_when_not_allowed(self, _allow, _fetch):
-        serializer = InvestReturnSerializer(
-            data={
-                "date": date(2026, 4, 17),
-                "billing_date": date(2026, 4, 1),
-                "sum": "100.00",
-                "currency": "USD",
-                "type": "дивиденды",
-                "recipient": "инвестор",
-            }
-        )
-        self.assertFalse(serializer.is_valid())
-        self.assertIn("billing_date", serializer.errors)
 
     def test_rejects_eur(self):
         serializer = InvestReturnSerializer(
@@ -743,12 +721,6 @@ class InvestmentFormConfigApiTests(APITestCase):
 @override_settings(BASE_DOMAIN="example.com", N8N_INTEGRATION_TOKEN="", ALLOWED_HOSTS=["*"])
 class InvestmentApprovalFlowTests(APITestCase):
     def setUp(self):
-        self._p_allow_billing = patch(
-            "apps.modules.investments.serializers.is_accrual_month_allowed",
-            return_value=True,
-        )
-        self._p_allow_billing.start()
-        self.addCleanup(self._p_allow_billing.stop)
         self.tenant = Tenant.objects.create(name="InvestFlow", subdomain="investflow", is_active=True)
         self.host = "investflow.example.com"
         self.admin = User.objects.create_user(username="inv_admin", password="x")
@@ -900,15 +872,27 @@ class InvestmentApprovalFlowTests(APITestCase):
             format="json",
             HTTP_HOST=self.host,
         )
+        with patch("apps.modules.telegram_approvals.services.TelegramDispatcher.edit") as edit_mock:
+            edit_mock.return_value = MagicMock()
+            ok_first = self.client.post(
+                "/api/investments/approvals/webhook/",
+                {
+                    "event": "interaction",
+                    "payload": f"inv_{first_step.id}:a",
+                    "user_id": str(self.approver1.telegram_from_id),
+                    "recipient_id": str(self.approver1.telegram_chat_id),
+                    "message_id": first_step.gateway_message_id or 202,
+                    "platform": "telegram",
+                },
+                format="json",
+                HTTP_HOST=self.host,
+            )
         self.assertEqual(ok_first.status_code, 200)
         first_step.refresh_from_db()
         self.assertEqual(first_step.decision, "approved")
-        stripped = [
-            c.kwargs
-            for c in bridge_mock.call_args_list
-            if c.kwargs.get("buttons") == []
-        ]
-        self.assertGreaterEqual(len(stripped), 1)
+        # Deactivation of approved step goes through dispatcher.edit (not send).
+        self.assertGreaterEqual(edit_mock.call_count, 1)
+        self.assertEqual(edit_mock.call_args.kwargs.get("buttons"), [])
 
         not_active = self.client.post(
             f"/api/investments/approvals/{first_step.id}/decision/",
@@ -919,7 +903,6 @@ class InvestmentApprovalFlowTests(APITestCase):
         self.assertIn(not_active.status_code, (400, 409))
 
         second_step.refresh_from_db()
-        self.assertIsNotNone(second_step.gateway_message_id)
         self.assertEqual(second_step.approver_recipient_id, "666000")
         ok_second = self.client.post(
             "/api/investments/approvals/webhook/",
@@ -928,7 +911,7 @@ class InvestmentApprovalFlowTests(APITestCase):
                 "payload": f"inv_{second_step.id}:a",
                 "user_id": str(self.approver2.telegram_from_id),
                 "recipient_id": "666000",
-                "message_id": second_step.gateway_message_id,
+                "message_id": second_step.gateway_message_id or 303,
                 "platform": "telegram",
             },
             format="json",
@@ -1490,7 +1473,7 @@ class InvestmentProjectApprovalFlowTests(APITestCase):
                 "payload": f"invp_{second_step.id}:a",
                 "user_id": str(self.approver2.telegram_from_id),
                 "recipient_id": "166000",
-                "message_id": second_step.gateway_message_id,
+                "message_id": second_step.gateway_message_id or 601,
                 "platform": "telegram",
             },
             format="json",

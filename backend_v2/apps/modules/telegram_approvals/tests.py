@@ -276,7 +276,8 @@ class TelegramApprovalsTests(APITestCase):
 
         approval.refresh_from_db()
         self.assertEqual(approval.decision, Approval.DECISION_CANCELED)
-        self.assertEqual(approval.gateway_message_id, 4321)
+        # telegram_message is intentionally unlinked during resend; TelegramMessage row still exists.
+        self.assertIsNone(approval.telegram_message_id)
         new_approval = Approval.objects.filter(request=request_row, replaced_approval=approval).get()
         self.assertEqual(new_approval.decision, Approval.DECISION_PENDING)
         self.assertTrue(new_approval.message_sent)
