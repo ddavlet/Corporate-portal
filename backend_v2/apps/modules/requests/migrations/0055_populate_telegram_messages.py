@@ -10,7 +10,7 @@ def populate_telegram_messages_for_approvals(apps, schema_editor):
     with connection.cursor() as cursor:
         cursor.execute("""
             SELECT COUNT(*) FROM information_schema.columns
-            WHERE table_name = 'requests_approval'
+            WHERE table_name = 'approvals'
               AND column_name = 'gateway_message_id'
         """)
         if cursor.fetchone()[0] == 0:
