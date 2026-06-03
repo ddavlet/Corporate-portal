@@ -15,6 +15,7 @@ dist/
 .cursor/
 .worktrees/
 diagrams/
+docs/superpowers/
 
 # Env
 .env
