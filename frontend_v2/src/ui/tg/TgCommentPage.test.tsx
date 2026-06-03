@@ -68,7 +68,7 @@ describe('TgCommentPage', () => {
         ready: vi.fn(),
         close: closeMock,
         MainButton: mainButtonMock,
-        HapticFeedback: { impactOccurred: vi.fn() },
+        HapticFeedback: { impactOccurred: vi.fn(), notificationOccurred: vi.fn(), selectionChanged: vi.fn() },
       },
     }
   })
