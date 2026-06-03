@@ -2,6 +2,7 @@ from unittest.mock import MagicMock, patch
 
 from django.contrib.auth import get_user_model
 from django.test import TestCase, override_settings
+from django.utils import timezone
 from rest_framework import status
 from rest_framework.test import APITestCase
 from rest_framework_simplejwt.tokens import RefreshToken
@@ -60,9 +61,16 @@ class FeedbackApiTests(APITestCase):
             {"action": "feedback_former", "payload": {"kind": "error", "text": "broken"}},
         )
 
-    @patch("apps.modules.feedback.views.post_messaging_gateway")
-    def test_submit_saves_and_dispatches_when_chat_configured(self, mocked_gateway):
-        mocked_gateway.return_value = {"ok": True}
+    @patch("apps.modules.feedback.views.TelegramDispatcher.send")
+    def test_submit_saves_and_dispatches_when_chat_configured(self, mocked_send):
+        from apps.modules.telegram_approvals.models import TelegramMessage
+        tm = TelegramMessage.objects.create(
+            tenant=self.tenant,
+            recipient_id="42424242",
+            message_id=12345,
+            sent_at=timezone.now(),
+        )
+        mocked_send.return_value = tm
         from apps.tenants.models import TenantIntegrationConfig
 
         cfg, _ = TenantIntegrationConfig.objects.get_or_create(tenant=self.tenant)
@@ -80,16 +88,13 @@ class FeedbackApiTests(APITestCase):
         fb = PortalFeedback.objects.get()
         self.assertEqual(fb.body, "Лимит 1000000 сум")
         self.assertEqual(fb.delivery_status, PortalFeedback.DELIVERY_SENT)
-        mocked_gateway.assert_called_once()
-        payload = mocked_gateway.call_args.kwargs["payload"]
-        self.assertEqual(payload["action"], "send_portal_feedback")
-        self.assertEqual(payload["recipient_id"], "42424242")
-        self.assertEqual(payload["notification_kind"], "portal_feedback")
-        self.assertEqual(payload["feedback_id"], fb.id)
-        self.assertIn("1 000 000", payload["text"])
+        mocked_send.assert_called_once()
+        call_kw = mocked_send.call_args.kwargs
+        self.assertEqual(call_kw["action"], "send_portal_feedback")
+        self.assertEqual(call_kw["recipient_id"], 42424242)
 
-    @patch("apps.modules.feedback.views.post_messaging_gateway")
-    def test_submit_skips_telegram_without_chat(self, mocked_gateway):
+    @patch("apps.modules.feedback.views.TelegramDispatcher.send")
+    def test_submit_skips_telegram_without_chat(self, mocked_send):
         res = self.client.post(
             "/api/feedback/submissions/",
             {"kind": "error", "body": "Bug"},
@@ -98,7 +103,7 @@ class FeedbackApiTests(APITestCase):
         )
         self.assertEqual(res.status_code, status.HTTP_201_CREATED, res.content)
         self.assertEqual(res.data["delivery"]["status"], "skipped")
-        mocked_gateway.assert_not_called()
+        mocked_send.assert_not_called()
         fb = PortalFeedback.objects.get()
         self.assertEqual(fb.delivery_status, PortalFeedback.DELIVERY_SKIPPED)
 

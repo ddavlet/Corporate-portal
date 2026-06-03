@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react'
-import { Alert, Button, DatePicker, Form, Input, InputNumber, Select, Skeleton, Typography } from 'antd'
+import { Alert, DatePicker, Form, Input, InputNumber, Select, Skeleton, Typography } from 'antd'
 import { useNavigate } from 'react-router-dom'
-import { ArrowLeftOutlined } from '@ant-design/icons'
 import dayjs from 'dayjs'
 import {
   DEFAULT_INVESTMENT_FORM_CONFIG,
@@ -11,6 +10,7 @@ import {
   type InvestCompanyRow,
 } from '../../lib/api'
 import { CURRENCY_OPTIONS } from '../investments/utils'
+import { useTgMainButton } from './useTgMainButton'
 
 export function TgInvestmentsCreatePage() {
   const navigate = useNavigate()
@@ -68,17 +68,15 @@ export function TgInvestmentsCreatePage() {
     }
   }
 
+  useTgMainButton({
+    text: 'Создать заявку',
+    onClick: () => void handleSubmit(),
+    loading: submitting,
+    disabled: loading,
+  })
+
   return (
     <div className="tg-investments-page" style={{ paddingBottom: 88 }}>
-      <Button
-        icon={<ArrowLeftOutlined />}
-        size="large"
-        onClick={() => navigate('/tg/investments/projects')}
-        style={{ marginBottom: 12, borderRadius: 12 }}
-      >
-        Назад
-      </Button>
-
       <Typography.Title level={4} style={{ margin: '0 0 20px', fontWeight: 700 }}>
         Новая заявка на вложение
       </Typography.Title>
@@ -142,19 +140,6 @@ export function TgInvestmentsCreatePage() {
       {error ? (
         <Alert type="error" showIcon message={error} style={{ marginBottom: 12, borderRadius: 12 }} />
       ) : null}
-
-      <div className="tg-sticky-action-bar">
-        <Button
-          type="primary"
-          size="large"
-          block
-          loading={submitting}
-          disabled={loading}
-          onClick={handleSubmit}
-        >
-          Создать заявку
-        </Button>
-      </div>
     </div>
   )
 }

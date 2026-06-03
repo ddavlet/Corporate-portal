@@ -24,6 +24,27 @@ interface TelegramWebAppInitDataUnsafe {
   [key: string]: unknown
 }
 
+interface TelegramMainButton {
+  setText: (text: string) => void
+  show: () => void
+  hide: () => void
+  enable: () => void
+  disable: () => void
+  showProgress: () => void
+  hideProgress: () => void
+  onClick: (callback: () => void) => void
+  offClick: (callback: () => void) => void
+}
+
+type TelegramHapticImpact = 'light' | 'medium' | 'heavy' | 'rigid' | 'soft'
+type TelegramHapticNotification = 'error' | 'success' | 'warning'
+
+interface TelegramHapticFeedback {
+  impactOccurred: (style: TelegramHapticImpact) => void
+  notificationOccurred: (type: TelegramHapticNotification) => void
+  selectionChanged: () => void
+}
+
 interface TelegramWebApp {
   initData: string
   initDataUnsafe: TelegramWebAppInitDataUnsafe
@@ -36,6 +57,8 @@ interface TelegramWebApp {
   setBackgroundColor?: (color: string) => void
   onEvent?: (eventType: string, callback: () => void) => void
   offEvent?: (eventType: string, callback: () => void) => void
+  MainButton?: TelegramMainButton
+  HapticFeedback?: TelegramHapticFeedback
 }
 
 interface Window {

@@ -8,6 +8,7 @@ import {
   getInvestCompanies,
   type InvestCompanyRow,
 } from '../../lib/api'
+import { tgHaptic } from './tgHaptic'
 
 export function TgInvestmentsCompaniesPage() {
   const navigate = useNavigate()
@@ -60,7 +61,7 @@ export function TgInvestmentsCompaniesPage() {
       <Button
         icon={<ArrowLeftOutlined />}
         size="large"
-        onClick={() => navigate('/tg/investments')}
+        onClick={() => { tgHaptic.tap(); navigate('/tg/investments') }}
         style={{ marginBottom: 12, borderRadius: 12 }}
       >
         Назад

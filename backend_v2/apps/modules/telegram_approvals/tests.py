@@ -9,6 +9,8 @@ import requests as _real_requests
 from django.core.management import call_command
 from django.contrib.auth import get_user_model
 from django.test import override_settings
+from django.utils import timezone
+from rest_framework.exceptions import ValidationError
 from rest_framework.test import APITestCase
 
 from apps.common.test_utils import list_results
@@ -22,10 +24,12 @@ from apps.modules.requests.models import (
     RequestFormConfig,
     RequestFormPaymentTypeConfig,
 )
-from apps.modules.telegram_approvals.models import TenantTelegramChat
+from apps.modules.telegram_approvals.models import TelegramMessage, TenantTelegramChat
 from apps.modules.telegram_approvals.services import (
+    ensure_callback_identity,
     get_tenant_bot_token,
     build_approval_message,
+    normalize_gateway_buttons,
     post_messaging_gateway,
 )
 from apps.tenants.models import Tenant, TenantIntegrationConfig, TenantMembership, TenantModuleConfig, TenantUserRole
@@ -81,6 +85,22 @@ class TelegramApprovalsTests(APITestCase):
         self.host = "acme.example.com"
         self.webhook_token = "test-n8n-token"
 
+    def _create_approval_with_message(self, message_id, **kwargs):
+        """Create an Approval linked to a TelegramMessage (gateway_message_id and message_sent are now properties)."""
+        recipient_id = kwargs.get("approver_recipient_id")
+        external_user_id = kwargs.get("approver_external_user_id")
+        tm = TelegramMessage.objects.create(
+            tenant=self.tenant,
+            recipient_id=str(recipient_id or "999"),
+            external_user_id=external_user_id,
+            message_id=message_id,
+            sent_at=timezone.now(),
+        )
+        return Approval.objects.create(
+            telegram_message=tm,
+            **kwargs,
+        )
+
     def test_tenant_bot_token_is_read_from_tenant_model(self):
         """Regression: token must not be taken from TenantIntegrationConfig (no bot token there)."""
         self.tenant.set_telegram_bot_token("111222333:AAATESTBOTTOKEN")
@@ -89,6 +109,24 @@ class TelegramApprovalsTests(APITestCase):
             tenant=self.tenant, defaults={"updated_by": self.admin}
         )
         self.assertEqual(get_tenant_bot_token(self.tenant), "111222333:AAATESTBOTTOKEN")
+
+    def test_normalize_gateway_buttons_converts_callback_data_to_value(self):
+        rows = normalize_gateway_buttons(
+            [[{"label": "Done", "callback_data": "task_a_1"}, {"label": "Web", "url": "https://t.me/bot"}]]
+        )
+        self.assertEqual(rows[0][0], {"label": "Done", "value": "task_a_1"})
+        self.assertEqual(rows[0][1], {"label": "Web", "url": "https://t.me/bot"})
+
+    def test_ensure_callback_identity_raises_on_recipient_mismatch(self):
+        with self.assertRaises(ValidationError):
+            ensure_callback_identity(
+                callback_message_id=10,
+                stored_message_id=10,
+                callback_recipient_id="111",
+                stored_recipient_id="222",
+                callback_external_user_id=7,
+                stored_external_user_id=7,
+            )
 
     @patch("apps.modules.telegram_approvals.services.requests.post")
     def test_request_create_dispatches_telegram_message_and_saves_message_id(self, mocked_post):
@@ -215,13 +253,12 @@ class TelegramApprovalsTests(APITestCase):
             status=Request.STATUS_PROGRESS_1,
             billing_date=date(2026, 3, 31),
         )
-        approval = Approval.objects.create(
+        approval = self._create_approval_with_message(
+            message_id=4321,
             request=request_row,
             approver_user=self.approver,
             approver_recipient_id="555001",
             approver_external_user_id=777001,
-            gateway_message_id=4321,
-            message_sent=True,
             step=1,
             step_type=Approval.STEP_TYPE_SERIAL,
             decision=Approval.DECISION_PENDING,
@@ -239,7 +276,8 @@ class TelegramApprovalsTests(APITestCase):
 
         approval.refresh_from_db()
         self.assertEqual(approval.decision, Approval.DECISION_CANCELED)
-        self.assertEqual(approval.gateway_message_id, 4321)
+        # telegram_message is intentionally unlinked during resend; TelegramMessage row still exists.
+        self.assertIsNone(approval.telegram_message_id)
         new_approval = Approval.objects.filter(request=request_row, replaced_approval=approval).get()
         self.assertEqual(new_approval.decision, Approval.DECISION_PENDING)
         self.assertTrue(new_approval.message_sent)
@@ -270,13 +308,12 @@ class TelegramApprovalsTests(APITestCase):
             status=Request.STATUS_PROGRESS_1,
             billing_date=date(2026, 3, 31),
         )
-        Approval.objects.create(
+        self._create_approval_with_message(
+            message_id=4321,
             request=request_row,
             approver_user=self.approver,
             approver_recipient_id="555001",
             approver_external_user_id=777001,
-            gateway_message_id=4321,
-            message_sent=True,
             step=1,
             step_type=Approval.STEP_TYPE_SERIAL,
             decision=Approval.DECISION_PENDING,
@@ -317,13 +354,12 @@ class TelegramApprovalsTests(APITestCase):
             status=Request.STATUS_PROGRESS_1,
             billing_date=date(2026, 3, 31),
         )
-        Approval.objects.create(
+        self._create_approval_with_message(
+            message_id=4321,
             request=request_row,
             approver_user=self.approver,
             approver_recipient_id="555001",
             approver_external_user_id=777001,
-            gateway_message_id=4321,
-            message_sent=True,
             step=1,
             step_type=Approval.STEP_TYPE_SERIAL,
             decision=Approval.DECISION_APPROVED,
@@ -354,13 +390,12 @@ class TelegramApprovalsTests(APITestCase):
             payment_type="Перечисление",
             billing_date=date(2026, 3, 31),
         )
-        old_payment = Approval.objects.create(
+        old_payment = self._create_approval_with_message(
+            message_id=7654,
             request=request_row,
             approver_user=self.approver,
             approver_recipient_id="555001",
             approver_external_user_id=777001,
-            gateway_message_id=7654,
-            message_sent=True,
             step=2,
             step_type=Approval.STEP_TYPE_PAYMENT,
             decision=Approval.DECISION_PENDING,
@@ -398,13 +433,12 @@ class TelegramApprovalsTests(APITestCase):
             status=Request.STATUS_PROGRESS_1,
             billing_date=date(2026, 3, 31),
         )
-        approval = Approval.objects.create(
+        approval = self._create_approval_with_message(
+            message_id=4321,
             request=request_row,
             approver_user=self.approver,
             approver_recipient_id="555001",
             approver_external_user_id=777001,
-            gateway_message_id=4321,
-            message_sent=True,
             step=1,
             step_type=Approval.STEP_TYPE_SERIAL,
             decision=Approval.DECISION_PENDING,
@@ -430,6 +464,123 @@ class TelegramApprovalsTests(APITestCase):
         request_row.refresh_from_db()
         self.assertEqual(approval.decision, Approval.DECISION_APPROVED)
         self.assertEqual(request_row.status, Request.STATUS_APPROVED)
+
+    @patch("apps.modules.telegram_approvals.services.requests.post")
+    def test_request_lifecycle_records_history_telegram_message_and_callback_approves(self, mocked_post):
+        """Full flow: new request → approval dispatched → history fields + TelegramMessage
+        recorded → callback (using the stored identifiers) confirms the decision, and the
+        TelegramMessage is not duplicated by the post-decision message edit."""
+        mocked_post.return_value.status_code = 200
+        mocked_post.return_value.content = b'{"result":{"message_id":9100}}'
+        mocked_post.return_value.json.return_value = {"result": {"message_id": 9100}}
+
+        self.client.force_authenticate(self.requester)
+        res = self.client.post(
+            "/api/requests/",
+            {
+                "title": "Lemonfit",
+                "description": "TEST",
+                "amount": 100,
+                "currency": "UZS",
+                "payment_type": "Наличные",
+                "urgency": "Обычно",
+                "requester": self.requester.id,
+                "billing_date": "2026-03-31",
+            },
+            format="json",
+            HTTP_HOST=self.host,
+        )
+        self.assertEqual(res.status_code, 201, res.content)
+
+        approval = Approval.objects.get(request_id=res.data["id"], approver_user=self.approver)
+        # History recorded on the approval itself.
+        self.assertEqual(approval.gateway_message_id, 9100)
+        self.assertTrue(approval.message_sent)
+        self.assertIsNotNone(approval.message_sent_at)
+        # TelegramMessage history row created and linked.
+        self.assertIsNotNone(approval.telegram_message)
+        tg_msg = approval.telegram_message
+        self.assertEqual(tg_msg.message_id, 9100)
+        self.assertEqual(tg_msg.recipient_id, approval.approver_recipient_id)
+        self.assertEqual(tg_msg.external_user_id, approval.approver_external_user_id)
+        self.assertEqual(tg_msg.tenant_id, self.tenant.id)
+        self.assertIsNotNone(tg_msg.sent_at)
+        self.assertEqual(TelegramMessage.objects.filter(tenant=self.tenant).count(), 1)
+
+        # Simulate the gateway callback using exactly what was stored (round-trip).
+        self.client.force_authenticate(None)
+        res = self.client.post(
+            "/api/messaging-gateway/webhook/",
+            {
+                "event": "interaction",
+                "payload": json.dumps({"approval_id": approval.id, "decision": "approved"}),
+                "user_id": str(approval.approver_external_user_id),
+                "recipient_id": approval.approver_recipient_id,
+                "message_id": approval.gateway_message_id,
+                "platform": "telegram",
+            },
+            format="json",
+            HTTP_HOST=self.host,
+        )
+        self.assertEqual(res.status_code, 200, res.content)
+
+        approval.refresh_from_db()
+        self.assertEqual(approval.decision, Approval.DECISION_APPROVED)
+        self.assertEqual(approval.request.status, Request.STATUS_APPROVED)
+        # Post-decision message edit must reuse the same TelegramMessage, not create a new one.
+        self.assertEqual(approval.telegram_message_id, tg_msg.id)
+        self.assertEqual(TelegramMessage.objects.filter(tenant=self.tenant).count(), 1)
+
+    @patch("apps.modules.telegram_approvals.services.requests.post")
+    def test_request_lifecycle_callback_rejects(self, mocked_post):
+        """Reject path still records history + TelegramMessage and applies the decision."""
+        mocked_post.return_value.status_code = 200
+        mocked_post.return_value.content = b'{"result":{"message_id":9200}}'
+        mocked_post.return_value.json.return_value = {"result": {"message_id": 9200}}
+
+        self.client.force_authenticate(self.requester)
+        res = self.client.post(
+            "/api/requests/",
+            {
+                "title": "Lemonfit",
+                "description": "TEST",
+                "amount": 100,
+                "currency": "UZS",
+                "payment_type": "Наличные",
+                "urgency": "Обычно",
+                "requester": self.requester.id,
+                "billing_date": "2026-03-31",
+            },
+            format="json",
+            HTTP_HOST=self.host,
+        )
+        self.assertEqual(res.status_code, 201, res.content)
+
+        approval = Approval.objects.get(request_id=res.data["id"], approver_user=self.approver)
+        self.assertEqual(approval.gateway_message_id, 9200)
+        self.assertIsNotNone(approval.telegram_message)
+        self.assertEqual(approval.telegram_message.message_id, 9200)
+
+        self.client.force_authenticate(None)
+        res = self.client.post(
+            "/api/messaging-gateway/webhook/",
+            {
+                "event": "interaction",
+                "payload": json.dumps({"approval_id": approval.id, "decision": "rejected"}),
+                "user_id": str(approval.approver_external_user_id),
+                "recipient_id": approval.approver_recipient_id,
+                "message_id": approval.gateway_message_id,
+                "platform": "telegram",
+            },
+            format="json",
+            HTTP_HOST=self.host,
+        )
+        self.assertEqual(res.status_code, 200, res.content)
+
+        approval.refresh_from_db()
+        self.assertEqual(approval.decision, Approval.DECISION_REJECTED)
+        self.assertEqual(approval.request.status, Request.STATUS_REJECTED)
+        self.assertEqual(TelegramMessage.objects.filter(tenant=self.tenant).count(), 1)
 
     def test_webhook_invp_prefix_delegates_to_investment_handler(self):
         """Regression: project investment inline buttons use invp_<id>:a|r — not inv_."""
@@ -465,13 +616,12 @@ class TelegramApprovalsTests(APITestCase):
             status=Request.STATUS_PROGRESS_1,
             billing_date=date(2026, 3, 31),
         )
-        approval = Approval.objects.create(
+        approval = self._create_approval_with_message(
+            message_id=4321,
             request=request_row,
             approver_user=self.approver,
             approver_recipient_id="555001",
             approver_external_user_id=777001,
-            gateway_message_id=4321,
-            message_sent=True,
             step=1,
             step_type=Approval.STEP_TYPE_SERIAL,
             decision=Approval.DECISION_PENDING,
@@ -508,13 +658,12 @@ class TelegramApprovalsTests(APITestCase):
             status=Request.STATUS_APPROVED,
             billing_date=date(2026, 3, 31),
         )
-        approval = Approval.objects.create(
+        approval = self._create_approval_with_message(
+            message_id=4321,
             request=request_row,
             approver_user=self.approver,
             approver_recipient_id="555001",
             approver_external_user_id=777001,
-            gateway_message_id=4321,
-            message_sent=True,
             step=1,
             step_type=Approval.STEP_TYPE_SERIAL,
             decision=Approval.DECISION_APPROVED,
@@ -559,8 +708,6 @@ class TelegramApprovalsTests(APITestCase):
             approver_user=self.approver,
             approver_recipient_id="555001",
             approver_external_user_id=777001,
-            gateway_message_id=None,
-            message_sent=True,
             step=1,
             step_type=Approval.STEP_TYPE_SERIAL,
             decision=Approval.DECISION_APPROVED,
@@ -606,8 +753,6 @@ class TelegramApprovalsTests(APITestCase):
             approver_user=self.approver,
             approver_recipient_id="555001",
             approver_external_user_id=777001,
-            gateway_message_id=None,
-            message_sent=False,
             step=1,
             step_type=Approval.STEP_TYPE_SERIAL,
             decision=Approval.DECISION_PENDING,
@@ -647,8 +792,6 @@ class TelegramApprovalsTests(APITestCase):
             approver_user=self.approver,
             approver_recipient_id="555001",
             approver_external_user_id=777001,
-            gateway_message_id=None,
-            message_sent=False,
             step=1,
             step_type=Approval.STEP_TYPE_SERIAL,
             decision=Approval.DECISION_PENDING,
@@ -1136,6 +1279,21 @@ class TelegramGatewayIntegrationTests(APITestCase):
         RequestApprovalStepApproverConfig.objects.create(step_config=step_cfg, approver_user=self.approver)
         self.host = "integ.example.com"
 
+    def _create_approval_with_message(self, message_id, **kwargs):
+        recipient_id = kwargs.get("approver_recipient_id")
+        external_user_id = kwargs.get("approver_external_user_id")
+        tm = TelegramMessage.objects.create(
+            tenant=self.tenant,
+            recipient_id=str(recipient_id or "999"),
+            external_user_id=external_user_id,
+            message_id=message_id,
+            sent_at=timezone.now(),
+        )
+        return Approval.objects.create(
+            telegram_message=tm,
+            **kwargs,
+        )
+
     def tearDown(self):
         for mid in self._cleanup_message_ids:
             try:
@@ -1220,13 +1378,12 @@ class TelegramGatewayIntegrationTests(APITestCase):
             title="editMessage test", status=Request.STATUS_PROGRESS_1,
             billing_date=date(2026, 4, 30),
         )
-        approval = Approval.objects.create(
+        approval = self._create_approval_with_message(
+            message_id=mid,
             request=request_row,
             approver_user=self.approver,
             approver_recipient_id=int(_RECIPIENT_ID),
             approver_external_user_id=int(_RECIPIENT_ID),
-            gateway_message_id=mid,
-            message_sent=True,
             step=1,
             step_type=Approval.STEP_TYPE_SERIAL,
             decision=Approval.DECISION_PENDING,
@@ -1288,13 +1445,12 @@ class TelegramGatewayIntegrationTests(APITestCase):
             title="Conflict deactivate test", status=Request.STATUS_APPROVED,
             billing_date=date(2026, 4, 30),
         )
-        approval = Approval.objects.create(
+        approval = self._create_approval_with_message(
+            message_id=mid,
             request=request_row,
             approver_user=self.approver,
             approver_recipient_id=int(_RECIPIENT_ID),
             approver_external_user_id=int(_RECIPIENT_ID),
-            gateway_message_id=mid,
-            message_sent=True,
             step=1,
             step_type=Approval.STEP_TYPE_SERIAL,
             decision=Approval.DECISION_APPROVED,

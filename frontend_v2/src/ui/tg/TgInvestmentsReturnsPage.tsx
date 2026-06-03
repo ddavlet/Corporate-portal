@@ -10,6 +10,7 @@ import {
   type InvestCompanyRow,
   type InvestReturnRow,
 } from '../../lib/api'
+import { tgHaptic } from './tgHaptic'
 
 const dateFormatter = new Intl.DateTimeFormat('ru-RU', {
   day: '2-digit',
@@ -107,7 +108,7 @@ export function TgInvestmentsReturnsPage() {
       <Button
         icon={<ArrowLeftOutlined />}
         size="large"
-        onClick={() => navigate('/tg/investments')}
+        onClick={() => { tgHaptic.tap(); navigate('/tg/investments') }}
         style={{ marginBottom: 12, borderRadius: 12 }}
       >
         Назад

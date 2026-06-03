@@ -4,6 +4,7 @@ from django.contrib.auth import get_user_model
 from django.test import override_settings
 from django.utils import timezone
 from rest_framework.test import APITestCase
+from unittest.mock import patch
 
 from apps.modules.tasks.models import Task, TaskComment
 from apps.tenants.models import Tenant, TenantMembership, TenantModuleConfig, TenantUserRole
@@ -406,4 +407,24 @@ class TasksApiTests(APITestCase):
         )
         self.assertEqual(res.status_code, 200)
 
+
+@override_settings(BASE_DOMAIN="example.com", ALLOWED_HOSTS=["*"])
+class TaskNotifierTransportTests(APITestCase):
+    def setUp(self):
+        self.tenant = _setup_tenant()
+        self.admin = _add_member(self.tenant, "task_admin", role=TenantUserRole.ROLE_ADMIN, tg_chat_id=10101)
+        self.task = _make_task(self.tenant, self.admin, "Transport task", Task.Status.NEW, created_by=self.admin)
+
+    @patch("apps.modules.telegram_approvals.services.post_messaging_gateway")
+    def test_task_notifier_uses_gateway_value_buttons(self, mocked_gateway):
+        from apps.modules.tasks.notifications.task_notifier import send_task_notification
+
+        mocked_gateway.return_value = {"message_id": 777}
+        send_task_notification(task=self.task, tenant=self.tenant, bot_token="token")
+
+        self.assertTrue(mocked_gateway.called)
+        payload = mocked_gateway.call_args.kwargs["payload"]
+        first_button = payload["buttons"][0][0]
+        self.assertIn("value", first_button)
+        self.assertNotIn("callback_data", first_button)
 
