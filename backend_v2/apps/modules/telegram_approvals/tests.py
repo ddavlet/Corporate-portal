@@ -230,6 +230,8 @@ class TelegramApprovalsTests(APITestCase):
     @patch("apps.modules.telegram_approvals.services.requests.post")
     def test_post_gateway_survives_telegram_settings_resolution_error(self, mocked_post, mocked_settings_get):
         mocked_settings_get.side_effect = RuntimeError("broken tenant integration settings")
+        mocked_post.return_value.status_code = 500
+        mocked_post.return_value.content = b"Gateway Error"
         result = post_messaging_gateway(
             tenant=self.tenant,
             payload={"action": "send", "text": "hello"},
