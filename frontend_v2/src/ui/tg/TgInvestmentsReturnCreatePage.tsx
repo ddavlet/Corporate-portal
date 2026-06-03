@@ -3,6 +3,7 @@ import { Alert, Button, DatePicker, Form, Input, InputNumber, Select, Skeleton, 
 import { useNavigate } from 'react-router-dom'
 import { ArrowLeftOutlined } from '@ant-design/icons'
 import dayjs from 'dayjs'
+import { useTgMainButton } from './useTgMainButton'
 import {
   DEFAULT_INVESTMENT_FORM_CONFIG,
   getInvestmentFormConfig,
@@ -95,6 +96,13 @@ export function TgInvestmentsReturnCreatePage() {
       setSubmitting(false)
     }
   }
+
+  useTgMainButton({
+    text: 'Создать выплату',
+    onClick: () => void handleSubmit(),
+    loading: submitting,
+    disabled: loading,
+  })
 
   function disabledBillingMonth(current: dayjs.Dayjs): boolean {
     if (!current) return false
@@ -204,19 +212,6 @@ export function TgInvestmentsReturnCreatePage() {
       {error ? (
         <Alert type="error" showIcon message={error} style={{ marginBottom: 12, borderRadius: 12 }} />
       ) : null}
-
-      <div className="tg-sticky-action-bar">
-        <Button
-          type="primary"
-          size="large"
-          block
-          loading={submitting}
-          disabled={loading}
-          onClick={() => void handleSubmit()}
-        >
-          Создать выплату
-        </Button>
-      </div>
     </div>
   )
 }
