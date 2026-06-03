@@ -357,6 +357,12 @@ def route_project_investment_approvals(*, project_investment: ProjectInvestment)
         decision=ProjectInvestmentApproval.DECISION_PENDING,
     ).exists()
     if not pending:
+        has_any_approval = ProjectInvestmentApproval.objects.filter(
+            tenant=project_investment.tenant,
+            project_investment=project_investment,
+        ).exists()
+        if not has_any_approval:
+            return 0
         has_rejected = ProjectInvestmentApproval.objects.filter(
             tenant=project_investment.tenant,
             project_investment=project_investment,

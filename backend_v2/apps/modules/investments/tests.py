@@ -859,19 +859,6 @@ class InvestmentApprovalFlowTests(APITestCase):
         )
         self.assertEqual(bad_res.status_code, 400)
 
-        ok_first = self.client.post(
-            "/api/investments/approvals/webhook/",
-            {
-                "event": "interaction",
-                "payload": f"inv_{first_step.id}:a",
-                "user_id": str(self.approver1.telegram_from_id),
-                "recipient_id": str(self.approver1.telegram_chat_id),
-                "message_id": first_step.gateway_message_id or 202,
-                "platform": "telegram",
-            },
-            format="json",
-            HTTP_HOST=self.host,
-        )
         with patch("apps.modules.telegram_approvals.services.TelegramDispatcher.edit") as edit_mock:
             edit_mock.return_value = MagicMock()
             ok_first = self.client.post(
@@ -1433,9 +1420,11 @@ class InvestmentProjectApprovalFlowTests(APITestCase):
         self.assertIn("✅ Выплачено", labels)
         self.assertNotIn("✅ Вложено", labels)
 
+    @patch("apps.modules.telegram_approvals.services.TelegramDispatcher.edit")
     @patch("apps.modules.telegram_approvals.services.TelegramDispatcher.send")
-    def test_webhook_invp_prefix_sets_confirmed(self, bridge_mock):
+    def test_webhook_invp_prefix_sets_confirmed(self, bridge_mock, edit_mock):
         bridge_mock.return_value = MagicMock()
+        edit_mock.return_value = MagicMock()
         response = self.client.post(
             "/api/investments/project-investments/",
             {
@@ -1485,7 +1474,12 @@ class InvestmentProjectApprovalFlowTests(APITestCase):
         self.assertEqual(
             ProjectInvestmentApproval.objects.filter(project_investment=pi, decision="approved").count(), 2
         )
-        texts = [c.kwargs["text"] for c in bridge_mock.call_args_list if "text" in c.kwargs]
+        texts = [
+            c.kwargs["text"]
+            for mock in (bridge_mock, edit_mock)
+            for c in mock.call_args_list
+            if "text" in c.kwargs
+        ]
         self.assertTrue(any("Заявка на вложение подтверждена" in t for t in texts))
 
     @patch("apps.modules.telegram_approvals.services.TelegramDispatcher.send")
