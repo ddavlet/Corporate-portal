@@ -2,7 +2,6 @@ import { useEffect, useMemo, useState } from 'react'
 import { Alert, Button, Input, Skeleton, Tag, Typography } from 'antd'
 import { useNavigate } from 'react-router-dom'
 import { ArrowLeftOutlined, PlusOutlined, SearchOutlined } from '@ant-design/icons'
-import { tgHaptic } from './tgHaptic'
 import {
   DEFAULT_INVESTMENT_FORM_CONFIG,
   getInvestmentFormConfig,
@@ -108,7 +107,7 @@ export function TgInvestmentsReturnsPage() {
       <Button
         icon={<ArrowLeftOutlined />}
         size="large"
-        onClick={() => { tgHaptic.tap(); navigate('/tg/investments') }}
+        onClick={() => navigate('/tg/investments')}
         style={{ marginBottom: 12, borderRadius: 12 }}
       >
         Назад
@@ -122,7 +121,7 @@ export function TgInvestmentsReturnsPage() {
         type="primary"
         icon={<PlusOutlined />}
         size="large"
-        onClick={() => { tgHaptic.tap(); navigate('/tg/investments/returns/new') }}
+        onClick={() => navigate('/tg/investments/returns/new')}
         style={{ marginBottom: 12, borderRadius: 12, width: '100%' }}
       >
         Создать выплату
