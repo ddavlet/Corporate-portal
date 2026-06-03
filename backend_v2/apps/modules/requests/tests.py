@@ -3454,6 +3454,14 @@ class DraftRequestPatchSubmitTests(APITestCase):
         self.assertIn("💰 Финансы", call_kwargs["text"])
         self.assertIn("📌 Назначение", call_kwargs["text"])
         self.assertIn("⏱ Статус", call_kwargs["text"])
+        self.assertIn(
+            f"https://{self.tenant.subdomain}.example.com/app/requests/auto-config?template_id=77",
+            call_kwargs["text"],
+        )
+        self.assertIn(
+            f"https://{self.tenant.subdomain}.example.com/app/requests/{req.id}",
+            call_kwargs["text"],
+        )
 
 
 @override_settings(BASE_DOMAIN="example.com", N8N_INTEGRATION_TOKEN="", ALLOWED_HOSTS=["*"])

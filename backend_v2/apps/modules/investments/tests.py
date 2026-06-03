@@ -1050,11 +1050,13 @@ class InvestmentApprovalFlowTests(APITestCase):
             self.client.post("/api/investments/approvals/webhook/", body, format="json", HTTP_HOST=self.host).status_code,
             200,
         )
-        dup = self.client.post("/api/investments/approvals/webhook/", body, format="json", HTTP_HOST=self.host)
-        self.assertEqual(dup.status_code, 409)
-        last_call_kw = bridge_mock.call_args.kwargs
-        self.assertEqual(last_call_kw.get("buttons"), [])
-        self.assertIn("message_id", last_call_kw)
+        # Duplicate callback → 409; deactivation goes through dispatcher.edit (not send).
+        with patch("apps.modules.telegram_approvals.services.TelegramDispatcher.edit") as edit_mock:
+            edit_mock.return_value = MagicMock()
+            dup = self.client.post("/api/investments/approvals/webhook/", body, format="json", HTTP_HOST=self.host)
+            self.assertEqual(dup.status_code, 409)
+            edit_mock.assert_called_once()
+            self.assertEqual(edit_mock.call_args.kwargs.get("buttons"), [])
 
     def test_get_approval_config_rejects_invalid_return_type_query(self):
         res = self.client.get("/api/investments/approval-config/?return_type=invalid_type", HTTP_HOST=self.host)
