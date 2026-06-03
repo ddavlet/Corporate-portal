@@ -12,16 +12,22 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        migrations.RemoveField(
-            model_name="approval",
-            name="gateway_message_id",
-        ),
-        migrations.RemoveField(
-            model_name="approval",
-            name="message_sent",
-        ),
-        migrations.RemoveField(
-            model_name="approval",
-            name="message_sent_at",
+        migrations.SeparateDatabaseAndState(
+            state_operations=[
+                migrations.RemoveField(model_name="approval", name="gateway_message_id"),
+                migrations.RemoveField(model_name="approval", name="message_sent"),
+                migrations.RemoveField(model_name="approval", name="message_sent_at"),
+            ],
+            database_operations=[
+                migrations.RunSQL(
+                    sql="""
+                        ALTER TABLE approvals
+                            DROP COLUMN IF EXISTS gateway_message_id,
+                            DROP COLUMN IF EXISTS message_sent,
+                            DROP COLUMN IF EXISTS message_sent_at;
+                    """,
+                    reverse_sql=migrations.RunSQL.noop,
+                ),
+            ],
         ),
     ]

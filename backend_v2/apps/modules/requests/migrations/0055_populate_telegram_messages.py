@@ -1,22 +1,38 @@
 # Data migration: copy existing Approval.gateway_message_id → TelegramMessage rows
 # before the column removal migration (applied separately to avoid race conditions).
 
-from django.db import migrations
+from django.db import migrations, connection
 from django.utils import timezone
 
 
 def populate_telegram_messages_for_approvals(apps, schema_editor):
+    # Guard: skip if gateway_message_id was already removed (re-run / prior partial deploy)
+    with connection.cursor() as cursor:
+        cursor.execute("""
+            SELECT COUNT(*) FROM information_schema.columns
+            WHERE table_name = 'requests_approval'
+              AND column_name = 'gateway_message_id'
+        """)
+        if cursor.fetchone()[0] == 0:
+            return
+
     Approval = apps.get_model("requests", "Approval")
     TelegramMessage = apps.get_model("telegram_approvals", "TelegramMessage")
 
-    approvals = Approval.objects.filter(
-        gateway_message_id__isnull=False,
-        telegram_message__isnull=True,
-        approver_recipient_id__isnull=False,
+    approvals = (
+        Approval.objects
+        .filter(
+            gateway_message_id__isnull=False,
+            telegram_message__isnull=True,
+            approver_recipient_id__isnull=False,
+        )
+        .select_related("request__tenant")
+        .iterator(chunk_size=200)
     )
+
     created = 0
+    linked = 0
     for approval in approvals:
-        # Check if a TelegramMessage already exists for this gateway_message_id
         existing = TelegramMessage.objects.filter(
             message_id=approval.gateway_message_id,
             tenant=approval.request.tenant,
@@ -24,6 +40,7 @@ def populate_telegram_messages_for_approvals(apps, schema_editor):
         if existing:
             approval.telegram_message = existing
             approval.save(update_fields=["telegram_message"])
+            linked += 1
         else:
             tm = TelegramMessage.objects.create(
                 tenant=approval.request.tenant,
@@ -36,7 +53,7 @@ def populate_telegram_messages_for_approvals(apps, schema_editor):
             approval.save(update_fields=["telegram_message"])
             created += 1
 
-    print(f"  Created {created} TelegramMessage rows, linked {approvals.count() - created} existing")
+    print(f"  Created {created} TelegramMessage rows, linked {linked} existing")
 
 
 class Migration(migrations.Migration):
