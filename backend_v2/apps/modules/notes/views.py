@@ -5,8 +5,11 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from django.contrib.contenttypes.models import ContentType
+
 from apps.modules.notes.models import Note
 from apps.modules.notes.serializers import NoteCreateSerializer, NoteSerializer, RecipientOptionSerializer
+from apps.modules.telegram_approvals.models import Notification
 from apps.modules.telegram_approvals.services import TelegramDispatcher
 from apps.tenants.integration_settings import get_notes_integration_settings
 from apps.tenants.permissions import HasEffectiveModuleAccess
@@ -32,16 +35,15 @@ def _target_path(*, target_type: str, target_id: int, tenant) -> str:
     return template.replace("{id}", str(target_id))
 
 
-def _send_note_via_gateway(*, bot_token: str, chat_id: int, text: str, tenant) -> bool:
+def _send_note_via_gateway(*, bot_token: str, chat_id: int, text: str, tenant):
     dispatcher = TelegramDispatcher(tenant)
-    message = dispatcher.send(
+    return dispatcher.send(
         action="send",
         recipient_id=chat_id,
         text=text,
         buttons=[],
         link=None,
     )
-    return message is not None
 
 
 class NoteRecipientsView(APIView):
@@ -94,26 +96,32 @@ class NotesCreateView(APIView):
 
         bot_token = tenant.get_telegram_bot_token()
         delivery_error = ""
-        sent = False
+        tg_message = None
         if not bot_token:
             delivery_error = "Токен бота для messaging gateway не настроен для компании."
         elif not recipient.telegram_chat_id:
             delivery_error = "У получателя не настроен recipient_id (telegram_chat_id)."
         else:
             try:
-                sent = _send_note_via_gateway(
+                tg_message = _send_note_via_gateway(
                     bot_token=bot_token,
                     chat_id=recipient.telegram_chat_id,
                     text=text,
                     tenant=tenant,
                 )
-                if not sent:
+                if tg_message is None:
                     delivery_error = "Messaging gateway вернул ошибку при отправке."
             except Exception as exc:  # noqa: BLE001
                 delivery_error = str(exc)
-                sent = False
 
-        if sent:
+        if tg_message is not None:
+            Notification.objects.create(
+                tenant=tenant,
+                kind=Notification.KIND_NOTE,
+                telegram_message=tg_message,
+                content_type=ContentType.objects.get_for_model(Note),
+                object_id=note.pk,
+            )
             note.delivery_status = Note.DELIVERY_SENT
             note.sent_at = timezone.now()
             note.delivery_error = ""

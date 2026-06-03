@@ -903,7 +903,7 @@ class PortalRequestViewSet(
     def comments(self, request, pk=None):
         request_obj = self.get_object()
         if request.method == "GET":
-            qs = RequestComment.objects.filter(request=request_obj).select_related("created_by").order_by("-created_at")
+            qs = RequestComment.objects.filter(request=request_obj).select_related("created_by").order_by("-created_at")[:200]
             return Response(RequestCommentSerializer(qs, many=True).data)
         body = str(request.data.get("body", "") or "").strip()
         if not body:

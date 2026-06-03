@@ -6,7 +6,7 @@ from zoneinfo import ZoneInfo
 
 from django.contrib.auth import get_user_model
 from django.core.files.uploadedfile import SimpleUploadedFile
-from django.test import override_settings
+from django.test import TestCase, override_settings
 from django.utils import timezone
 from rest_framework.test import APITestCase
 from urllib.parse import parse_qs, urlparse
@@ -3781,6 +3781,53 @@ class RequestCommentTests(APITestCase):
         self.client.force_authenticate(self.outsider)
         res = self.client.post(self._url(), {"body": "Не должен попасть"}, format="json", HTTP_HOST=self.host)
         self.assertIn(res.status_code, (403, 404))
+
+
+class Migration0055BackfillGuardTest(TestCase):
+    """Regression guard for the 0055 backfill 'column exists' guard.
+
+    Bug (CRITICAL): the guard hardcoded the table name as ``requests_approval``
+    (Django's default app_model name). Approval sets ``db_table = "approvals"``,
+    so that information_schema lookup matched nothing, ``COUNT(*)`` was always 0,
+    and the data migration silently skipped the entire backfill — right before
+    0056 dropped gateway_message_id/message_sent/message_sent_at. On a populated
+    database this permanently severs the approval↔TelegramMessage linkage.
+
+    The fix resolves the table from ``Approval._meta.db_table`` so the guard can
+    never drift from the real schema. This test pins that invariant and the
+    behaviour of the exact lookup the migration performs.
+    """
+
+    def test_guard_resolves_real_approvals_table(self):
+        from django.db import connection
+
+        # The fix depends on this; a rename must be matched in the migration guard.
+        self.assertEqual(Approval._meta.db_table, "approvals")
+
+        with connection.cursor() as cursor:
+            # Real table → the guard finds columns and proceeds with the backfill.
+            cursor.execute(
+                """
+                SELECT COUNT(*) FROM information_schema.columns
+                WHERE table_name = %s AND column_name = %s
+                """,
+                [Approval._meta.db_table, "decision"],
+            )
+            self.assertGreater(
+                cursor.fetchone()[0], 0,
+                "Backfill guard must resolve the real 'approvals' table.",
+            )
+
+            # The old hardcoded name matches nothing — proving why the buggy
+            # guard always early-returned and skipped the backfill.
+            cursor.execute(
+                """
+                SELECT COUNT(*) FROM information_schema.columns
+                WHERE table_name = %s AND column_name = %s
+                """,
+                ["requests_approval", "decision"],
+            )
+            self.assertEqual(cursor.fetchone()[0], 0)
 
     def test_unauthenticated_cannot_comment(self):
         self.client.logout()

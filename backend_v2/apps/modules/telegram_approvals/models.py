@@ -37,9 +37,11 @@ class Notification(models.Model):
 
     KIND_DRAFT = "draft"
     KIND_PORTAL_FEEDBACK = "portal_feedback"
+    KIND_NOTE = "note"
     KIND_CHOICES = [
         (KIND_DRAFT, "Draft request notification"),
         (KIND_PORTAL_FEEDBACK, "Portal feedback delivery"),
+        (KIND_NOTE, "Note delivery"),
     ]
 
     tenant = models.ForeignKey(Tenant, on_delete=models.CASCADE, related_name="notifications")
