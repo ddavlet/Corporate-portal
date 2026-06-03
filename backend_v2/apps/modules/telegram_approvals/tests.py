@@ -1474,3 +1474,162 @@ class TelegramGatewayIntegrationTests(APITestCase):
         self.assertEqual(res.status_code, 409, res.content)
         self.assertEqual(res.data.get("detail"), "Решение по согласованию уже принято.")
 
+
+@override_settings(
+    BASE_DOMAIN="example.com",
+    MESSAGING_GATEWAY_SEND_URL="https://acme.example.com/v1/messaging/send",
+    ALLOWED_HOSTS=["*"],
+)
+class MessagingGatewayAuxiliaryCallbackTests(APITestCase):
+    """Task buttons and invest_pay callbacks routed through the main messaging webhook."""
+
+    def setUp(self):
+        from decimal import Decimal
+
+        from apps.modules.investments.models import InvestNotificationConfig, InvestPayoutSchedule
+        from apps.modules.tasks.models import Task
+
+        self._Decimal = Decimal
+        self._InvestNotificationConfig = InvestNotificationConfig
+        self._InvestPayoutSchedule = InvestPayoutSchedule
+        self._Task = Task
+
+        self.tenant = Tenant.objects.create(name="AuxCo", subdomain="auxco", is_active=True)
+        self.assignee = User.objects.create_user(
+            username="task-assignee",
+            password="x",
+            telegram_chat_id=88001,
+            telegram_from_id=88001,
+        )
+        self.responsible = User.objects.create_user(
+            username="invest-responsible",
+            password="x",
+            telegram_chat_id=88002,
+        )
+        for user in (self.assignee, self.responsible):
+            TenantMembership.objects.create(tenant=self.tenant, user=user, is_active=True)
+        self.host = "auxco.example.com"
+
+    def _webhook(self, payload: dict):
+        return self.client.post(
+            "/api/messaging-gateway/webhook/",
+            {"event": "interaction", "platform": "telegram", **payload},
+            format="json",
+            HTTP_HOST=self.host,
+        )
+
+    def test_task_progress_callback_moves_task_to_in_progress(self):
+        now = timezone.now()
+        task = self._Task.objects.create(
+            tenant=self.tenant,
+            title="Callback task",
+            description="",
+            status=self._Task.Status.NEW,
+            assignee=self.assignee,
+            created_by=self.assignee,
+            last_edit_at=now,
+            last_edit_by=self.assignee,
+        )
+        res = self._webhook(
+            {
+                "payload": f"task_p_{task.pk}",
+                "user_id": str(self.assignee.telegram_from_id),
+                "recipient_id": str(self.assignee.telegram_chat_id),
+            }
+        )
+        self.assertEqual(res.status_code, 200, res.content)
+        task.refresh_from_db()
+        self.assertEqual(task.status, self._Task.Status.IN_PROGRESS)
+
+    def test_task_done_callback_archives_task(self):
+        now = timezone.now()
+        task = self._Task.objects.create(
+            tenant=self.tenant,
+            title="Done task",
+            description="",
+            status=self._Task.Status.IN_PROGRESS,
+            assignee=self.assignee,
+            created_by=self.assignee,
+            last_edit_at=now,
+            last_edit_by=self.assignee,
+        )
+        res = self._webhook(
+            {
+                "payload": f"task_a_{task.pk}",
+                "user_id": str(self.assignee.telegram_from_id),
+                "recipient_id": str(self.assignee.telegram_chat_id),
+            }
+        )
+        self.assertEqual(res.status_code, 200, res.content)
+        task.refresh_from_db()
+        self.assertEqual(task.status, self._Task.Status.DONE)
+
+    def test_task_callback_rejects_non_assignee(self):
+        now = timezone.now()
+        other = User.objects.create_user(
+            username="other-user",
+            password="x",
+            telegram_from_id=99999,
+        )
+        task = self._Task.objects.create(
+            tenant=self.tenant,
+            title="Protected task",
+            description="",
+            status=self._Task.Status.NEW,
+            assignee=self.assignee,
+            created_by=self.assignee,
+            last_edit_at=now,
+            last_edit_by=self.assignee,
+        )
+        res = self._webhook(
+            {
+                "payload": f"task_p_{task.pk}",
+                "user_id": str(other.telegram_from_id),
+                "recipient_id": str(other.telegram_from_id),
+            }
+        )
+        self.assertEqual(res.status_code, 403, res.content)
+        task.refresh_from_db()
+        self.assertEqual(task.status, self._Task.Status.NEW)
+
+    @patch(
+        "apps.modules.telegram_approvals.views.remove_payout_notification_button",
+        return_value=True,
+    )
+    def test_invest_pay_callback_creates_return_for_schedule(self, _cleanup_mock):
+        from apps.modules.investments.models import InvestCompany, InvestReturn
+
+        company = InvestCompany.objects.create(
+            tenant=self.tenant,
+            name="Aux invest co",
+            created_by=self.responsible,
+        )
+        self._InvestNotificationConfig.objects.create(
+            tenant=self.tenant,
+            responsible_user=self.responsible,
+            days_before=3,
+            is_active=True,
+        )
+        schedule = self._InvestPayoutSchedule.objects.create(
+            tenant=self.tenant,
+            company=company,
+            payout_date=date(2026, 6, 15),
+            amount=self._Decimal("1000.00"),
+            currency="USD",
+            return_type=InvestReturn.ReturnType.DIVIDEND,
+            recipient=InvestReturn.Recipient.INVESTOR,
+            created_by=self.responsible,
+        )
+        res = self._webhook(
+            {
+                "payload": f"invest_pay:{schedule.pk}",
+                "user_id": str(self.responsible.telegram_chat_id),
+                "recipient_id": str(self.responsible.telegram_chat_id),
+                "message_id": 12001,
+            }
+        )
+        self.assertEqual(res.status_code, 201, res.content)
+        schedule.refresh_from_db()
+        self.assertIsNotNone(schedule.created_return_id)
+        self.assertIn("создана", res.data.get("detail", "").lower())
+
