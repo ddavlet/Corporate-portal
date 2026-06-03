@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
-import { Alert, DatePicker, Form, Input, InputNumber, Select, Skeleton, Typography } from 'antd'
+import { Alert, Button, DatePicker, Form, Input, InputNumber, Select, Skeleton, Typography } from 'antd'
 import { useNavigate } from 'react-router-dom'
+import { ArrowLeftOutlined } from '@ant-design/icons'
 import dayjs from 'dayjs'
 import {
   DEFAULT_INVESTMENT_FORM_CONFIG,
@@ -12,6 +13,7 @@ import {
 import { RETURN_CURRENCY_OPTIONS } from '../investments/utils'
 import { isAllowedBillingMonth } from '../../lib/billingMonth'
 import { monthStartTashkent, nowTashkent } from '../../lib/tashkentTime'
+import { tgHaptic } from './tgHaptic'
 import { useTgMainButton } from './useTgMainButton'
 
 const RECIPIENT_OPTIONS = [
@@ -110,6 +112,15 @@ export function TgInvestmentsReturnCreatePage() {
 
   return (
     <div className="tg-investments-page" style={{ paddingBottom: 88 }}>
+      <Button
+        icon={<ArrowLeftOutlined />}
+        size="large"
+        onClick={() => { tgHaptic.tap(); navigate('/tg/investments/returns') }}
+        style={{ marginBottom: 12, borderRadius: 12 }}
+      >
+        Назад
+      </Button>
+
       <Typography.Title level={4} style={{ margin: '0 0 20px', fontWeight: 700 }}>
         Новая выплата инвестиции
       </Typography.Title>
@@ -138,7 +149,6 @@ export function TgInvestmentsReturnCreatePage() {
               size="large"
               style={{ width: '100%' }}
               format="DD.MM.YYYY"
-              defaultPickerValue={dayjs()}
             />
           </Form.Item>
 
