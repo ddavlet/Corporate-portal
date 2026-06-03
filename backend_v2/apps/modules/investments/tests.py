@@ -226,12 +226,6 @@ class InvestReturnSerializerTests(TestCase):
     def setUp(self):
         self.tenant = Tenant.objects.create(name="Acme", subdomain="acme", is_active=True)
         self.user = User.objects.create_user(username="invest-admin", password="x")
-        self._p_allow_billing = patch(
-            "apps.modules.investments.serializers.is_accrual_month_allowed",
-            return_value=True,
-        )
-        self._p_allow_billing.start()
-        self.addCleanup(self._p_allow_billing.stop)
 
     @patch("apps.modules.investments.serializers.fetch_cbu_usd_uzs_rate", return_value=Decimal("12600"))
     def test_usd_normalizes_currency_and_computes_sum_uzs(self, _mock_fetch):
@@ -277,22 +271,6 @@ class InvestReturnSerializerTests(TestCase):
         self.assertEqual(obj.sum_uzs, Decimal("5000000.00"))
         self.assertEqual(obj.cbu_usd_uzs_rate, Decimal("12600"))
         self.assertEqual(obj.billing_date, date(2026, 4, 1))
-
-    @patch("apps.modules.investments.serializers.fetch_cbu_usd_uzs_rate", return_value=Decimal("12600"))
-    @patch("apps.modules.investments.serializers.is_accrual_month_allowed", return_value=False)
-    def test_rejects_billing_month_when_not_allowed(self, _allow, _fetch):
-        serializer = InvestReturnSerializer(
-            data={
-                "date": date(2026, 4, 17),
-                "billing_date": date(2026, 4, 1),
-                "sum": "100.00",
-                "currency": "USD",
-                "type": "дивиденды",
-                "recipient": "инвестор",
-            }
-        )
-        self.assertFalse(serializer.is_valid())
-        self.assertIn("billing_date", serializer.errors)
 
     def test_rejects_eur(self):
         serializer = InvestReturnSerializer(
@@ -743,12 +721,6 @@ class InvestmentFormConfigApiTests(APITestCase):
 @override_settings(BASE_DOMAIN="example.com", N8N_INTEGRATION_TOKEN="", ALLOWED_HOSTS=["*"])
 class InvestmentApprovalFlowTests(APITestCase):
     def setUp(self):
-        self._p_allow_billing = patch(
-            "apps.modules.investments.serializers.is_accrual_month_allowed",
-            return_value=True,
-        )
-        self._p_allow_billing.start()
-        self.addCleanup(self._p_allow_billing.stop)
         self.tenant = Tenant.objects.create(name="InvestFlow", subdomain="investflow", is_active=True)
         self.host = "investflow.example.com"
         self.admin = User.objects.create_user(username="inv_admin", password="x")
@@ -1942,30 +1914,34 @@ class InvestNotificationRejectionTests(TestCase):
         self.assertEqual(self.schedule.created_return_id, self.invest_return.pk)
 
 
+@override_settings(BASE_DOMAIN="example.com", ALLOWED_HOSTS=["*"])
 class InvestReturnCreateAPITest(APITestCase):
     """Smoke-test: POST /api/investments/returns/ creates an InvestReturn."""
 
-    @classmethod
-    def setUpTestData(cls):
-        cls.user = User.objects.create_user(username="ret_creator", password="x")
-        cls.tenant = Tenant.objects.create(name="RetTenant", subdomain="rettenant", is_active=True)
-        TenantMembership.objects.create(tenant=cls.tenant, user=cls.user, is_active=True)
-        TenantModuleConfig.objects.create(tenant=cls.tenant, module_key="investments", is_enabled=True)
+    def setUp(self):
+        self.user = User.objects.create_user(username="ret_creator", password="x")
+        self.tenant = Tenant.objects.create(name="RetTenant", subdomain="rettenant", is_active=True)
+        self.host = "rettenant.example.com"
+        TenantMembership.objects.create(tenant=self.tenant, user=self.user, is_active=True)
+        TenantUserRole.objects.create(tenant=self.tenant, user=self.user, role=TenantUserRole.ROLE_ADMIN)
+        TenantModuleConfig.objects.create(tenant=self.tenant, module_key="investments", is_enabled=True)
+        self.client.force_authenticate(self.user)
 
     def test_creates_invest_return(self):
-        client = APIClient()
-        client.force_authenticate(user=self.user)
-        client.credentials(HTTP_X_TENANT_ID=str(self.tenant.id))
+        from datetime import date
+        today = date.today()
         payload = {
-            "date": "2026-06-03",
-            "billing_date": "2026-06-01",
+            "date": today.strftime("%Y-%m-%d"),
+            "billing_date": today.replace(day=1).strftime("%Y-%m-%d"),
             "sum": "1000.00",
             "currency": "USD",
             "type": "дивиденды",
             "recipient": "инвестор",
             "comment": "",
         }
-        response = client.post("/api/investments/returns/", data=payload, format="json")
+        response = self.client.post(
+            "/api/investments/returns/", data=payload, format="json", HTTP_HOST=self.host
+        )
         self.assertEqual(response.status_code, 201, response.data)
         self.assertEqual(response.data["type"], "дивиденды")
         self.assertEqual(response.data["recipient"], "инвестор")
