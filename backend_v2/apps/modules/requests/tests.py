@@ -899,21 +899,54 @@ class RequestApprovalsTests(APITestCase):
         self.assertEqual(res.data["trigger_approval"]["id"], approval.id)
         self.assertEqual(len(res.data["approvals"]), 1)
 
-    def test_director_can_resend_approvals(self):
+    def test_director_can_resend_approval_card(self):
         req_data = self._create_request()
         request_id = req_data["id"]
+        approval = Approval.objects.get(request_id=request_id, approver_user=self.approver)
+        # Give the approval a TelegramMessage so the resend guard passes.
+        tm = TelegramMessage.objects.create(
+            tenant=self.tenant,
+            recipient_id=str(approval.approver_recipient_id or "999"),
+            message_id=8001,
+            sent_at=timezone.now(),
+        )
+        approval.telegram_message = tm
+        approval.save(update_fields=["telegram_message"])
 
         self.client.force_authenticate(self.director)
-        with patch("apps.modules.requests.views.resend_current_pending_step", return_value=1):
-            with patch("apps.modules.requests.views.route_request_approvals", return_value=None):
-                res = self.client.post(
-                    f"/api/requests/{request_id}/approvals/resend/",
-                    {},
-                    format="json",
-                    HTTP_HOST=self.host,
-                )
+        with patch("apps.modules.telegram_approvals.services.TelegramDispatcher.resend") as mock_resend:
+            mock_resend.return_value = tm
+            res = self.client.post(
+                f"/api/requests/{request_id}/approvals/{approval.id}/resend/",
+                {},
+                format="json",
+                HTTP_HOST=self.host,
+            )
         self.assertEqual(res.status_code, 200, res.content)
-        self.assertEqual(res.data["resent"], 1)
+
+    def test_resend_card_blocked_after_3(self):
+        req_data = self._create_request()
+        request_id = req_data["id"]
+        approval = Approval.objects.get(request_id=request_id, approver_user=self.approver)
+        tm = TelegramMessage.objects.create(
+            tenant=self.tenant,
+            recipient_id=str(approval.approver_recipient_id or "999"),
+            message_id=8002,
+            sent_at=timezone.now(),
+            resend_count=3,
+        )
+        approval.telegram_message = tm
+        approval.save(update_fields=["telegram_message"])
+
+        self.client.force_authenticate(self.director)
+        res = self.client.post(
+            f"/api/requests/{request_id}/approvals/{approval.id}/resend/",
+            {},
+            format="json",
+            HTTP_HOST=self.host,
+        )
+        self.assertEqual(res.status_code, 400, res.content)
+        self.assertIn("лимит", res.data.get("detail", "").lower())
 
     def test_cannot_confirm_or_decide_inactive_step_while_earlier_step_pending(self):
         pt_cfg = RequestApprovalPaymentTypeConfig.objects.get(

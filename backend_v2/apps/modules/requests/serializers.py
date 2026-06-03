@@ -619,6 +619,10 @@ class ApprovalSerializer(serializers.ModelSerializer):
     gateway_message_id = serializers.ReadOnlyField()
     message_sent = serializers.ReadOnlyField()
     message_sent_at = serializers.ReadOnlyField()
+    # Resend tracking fields.
+    resend_count = serializers.SerializerMethodField()
+    can_resend = serializers.SerializerMethodField()
+    resend_available_at = serializers.SerializerMethodField()
 
     def validate(self, attrs):
         reject_client_pk_on_create(self)
@@ -642,11 +646,39 @@ class ApprovalSerializer(serializers.ModelSerializer):
             "gateway_message_id",
             "message_sent",
             "message_sent_at",
+            "resend_count",
+            "can_resend",
+            "resend_available_at",
         ]
         read_only_fields = ["approver_username"]
 
     def get_approver_username(self, obj):
         return _display_user_name(getattr(obj, "approver_user", None))
+
+    def get_resend_count(self, obj):
+        tm = obj.telegram_message if obj.telegram_message_id else None
+        return tm.resend_count if tm else 0
+
+    def get_can_resend(self, obj):
+        from apps.modules.telegram_approvals.services import RESEND_MAX
+        if obj.decision != Approval.DECISION_PENDING:
+            return False
+        tm = obj.telegram_message if obj.telegram_message_id else None
+        if tm is None:
+            return False
+        return tm.resend_count < RESEND_MAX
+
+    def get_resend_available_at(self, obj):
+        from apps.modules.telegram_approvals.services import RESEND_COOLDOWN_SECONDS
+        from django.utils import timezone as tz
+        import datetime
+        tm = obj.telegram_message if obj.telegram_message_id else None
+        if tm is None or tm.last_resend_at is None:
+            return None
+        available = tm.last_resend_at + datetime.timedelta(seconds=RESEND_COOLDOWN_SECONDS)
+        if available <= tz.now():
+            return None
+        return available.isoformat()
 
     def _get_payment_step_cfg(self, obj):
         if getattr(obj, "step_type", None) != Approval.STEP_TYPE_PAYMENT:
@@ -701,7 +733,7 @@ class PortalRequestDetailSerializer(PortalRequestSerializer):
         # Some environments may not have applied approvals-table migration yet.
         if Approval._meta.db_table not in connection.introspection.table_names():
             return []
-        queryset = Approval.objects.filter(request=obj).select_related("approver_user").order_by("step", "id")
+        queryset = Approval.objects.filter(request=obj).select_related("approver_user", "telegram_message").order_by("step", "id")
         return ApprovalSerializer(queryset, many=True).data
 
     def get_comments(self, obj):

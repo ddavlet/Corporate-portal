@@ -1,7 +1,8 @@
-import { useState } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import type { ReactNode } from 'react'
 import { Alert, Button, Card, Collapse, Descriptions, Divider, Modal, Skeleton, Space, Tag, Typography, message } from 'antd'
-import { apiFetch } from '../../lib/api'
+import { ReloadOutlined } from '@ant-design/icons'
+import { apiFetch, resendApprovalCard } from '../../lib/api'
 import type { RequestAttachment, RequestComment } from '../../lib/api'
 import { buildRequestFileRows } from '../../lib/requestFiles'
 import { linkedExpenseFrontendPath, linkedExpenseLabel } from '../../lib/requestExpense'
@@ -33,6 +34,10 @@ export type ApprovalItem = {
   message_id?: number | null
   message_sent?: boolean
   message_sent_at?: string | null
+  // Resend tracking
+  resend_count?: number
+  can_resend?: boolean
+  resend_available_at?: string | null
 }
 
 export type RequestDetail = {
@@ -158,13 +163,86 @@ function translateStepType(stepType?: string | null): string {
   return stepType || ''
 }
 
+const RESEND_MAX = 3
+const RESEND_COOLDOWN_MS = 10_000
+
+function ApprovalResendButton({ item, requestId, onResent }: {
+  item: ApprovalItem
+  requestId: number
+  onResent: () => void
+}) {
+  const [loading, setLoading] = useState(false)
+  const [secondsLeft, setSecondsLeft] = useState(0)
+
+  const computeSecondsLeft = useCallback(() => {
+    if (!item.resend_available_at) return 0
+    const diff = Math.ceil((new Date(item.resend_available_at).getTime() - Date.now()) / 1000)
+    return Math.max(0, diff)
+  }, [item.resend_available_at])
+
+  useEffect(() => {
+    const secs = computeSecondsLeft()
+    if (secs <= 0) { setSecondsLeft(0); return }
+    setSecondsLeft(secs)
+    const timer = setInterval(() => {
+      const remaining = computeSecondsLeft()
+      setSecondsLeft(remaining)
+      if (remaining <= 0) clearInterval(timer)
+    }, 1000)
+    return () => clearInterval(timer)
+  }, [computeSecondsLeft])
+
+  if (!item.can_resend) return null
+
+  const inCooldown = secondsLeft > 0
+
+  const handleResend = async () => {
+    setLoading(true)
+    try {
+      await resendApprovalCard(requestId, item.id)
+      message.success('Сообщение переотправлено')
+      onResent()
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : 'Не удалось переотправить'
+      if (msg.includes('429') || msg.toLowerCase().includes('подождите')) {
+        message.warning(msg)
+      } else {
+        message.error(msg)
+      }
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <Button
+      size="small"
+      icon={<ReloadOutlined />}
+      loading={loading}
+      disabled={inCooldown}
+      title={
+        inCooldown
+          ? `Переотправка доступна через ${secondsLeft}с`
+          : `Переотправить карточку (осталось ${RESEND_MAX - (item.resend_count ?? 0)} из ${RESEND_MAX})`
+      }
+      onClick={() => void handleResend()}
+    >
+      {inCooldown
+        ? `Подождите ${secondsLeft}с`
+        : `Переотправить (${RESEND_MAX - (item.resend_count ?? 0)} из ${RESEND_MAX})`}
+    </Button>
+  )
+}
+
 function renderApprovalGroup(
   title: string,
   items: ApprovalItem[],
-  options?: { returnTo?: RequestReturnTo; variant?: 'default' | 'telegram' },
+  options?: { returnTo?: RequestReturnTo; variant?: 'default' | 'telegram'; requestId?: number; onApprovalResent?: () => void },
 ) {
   const returnTo = options?.returnTo
   const isTg = options?.variant === 'telegram'
+  const requestId = options?.requestId
+  const onApprovalResent = options?.onApprovalResent
   return (
     <Space direction="vertical" size={8} style={{ display: 'flex' }}>
       <Typography.Text strong>{title}</Typography.Text>
@@ -206,6 +284,7 @@ function renderApprovalGroup(
                         {item.message_id != null ? ` · message_id: ${item.message_id}` : ''}
                         {item.message_sent != null ? ` · message_sent: ${item.message_sent ? 'да' : 'нет'}` : ''}
                         {item.message_sent_at ? ` · sent_at: ${formatDateTime(item.message_sent_at)}` : ''}
+                        {item.resend_count != null ? ` · resends: ${item.resend_count}/${RESEND_MAX}` : ''}
                         {item.approver_tg_id != null && item.approver_tg_id !== ''
                           ? ` · tg_id: ${item.approver_tg_id}`
                           : ''}
@@ -216,6 +295,9 @@ function renderApprovalGroup(
                     ),
                   }]}
                 />
+              ) : null}
+              {requestId != null && onApprovalResent != null ? (
+                <ApprovalResendButton item={item} requestId={requestId} onResent={onApprovalResent} />
               ) : null}
             </Space>
           </Card>
@@ -261,6 +343,7 @@ type RequestDetailContentProps = {
   variant?: 'default' | 'telegram'
   returnTo?: RequestReturnTo
   onCommentAdded?: () => Promise<void>
+  onRefresh?: () => Promise<void>
 }
 
 function TgDetailRow({ label, children }: { label: string; children: ReactNode }) {
@@ -280,6 +363,7 @@ export function RequestDetailContent({
   variant = 'default',
   returnTo,
   onCommentAdded,
+  onRefresh,
 }: RequestDetailContentProps) {
   const approvals = detail?.approvals || []
   const amortizationSchedule = detail?.amortization_schedule || []
@@ -593,6 +677,8 @@ export function RequestDetailContent({
             {renderApprovalGroup(`В ожидании (${pendingApprovals.length})`, pendingApprovals, {
               returnTo,
               variant,
+              requestId: detail.id,
+              onApprovalResent: onRefresh,
             })}
           </Space>
         </>

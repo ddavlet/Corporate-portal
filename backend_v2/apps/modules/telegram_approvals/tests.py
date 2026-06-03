@@ -1347,3 +1347,145 @@ class MessagingGatewayAuxiliaryCallbackTests(APITestCase):
         self.assertIsNotNone(schedule.created_return_id)
         self.assertIn("создана", res.data.get("detail", "").lower())
 
+
+
+# ── TelegramMessageHistory tests ──────────────────────────────────────────────
+
+@override_settings(
+    BASE_DOMAIN="example.com",
+    MESSAGING_GATEWAY_SEND_URL="http://fake-gateway/send",
+    N8N_INTEGRATION_TOKEN="test-n8n-token",
+    ALLOWED_HOSTS=["*"],
+)
+class TelegramMessageHistoryTests(APITestCase):
+    """Verify that TelegramDispatcher records history rows correctly."""
+
+    def setUp(self):
+        from apps.tenants.models import Tenant, TenantMembership
+        self.tenant = Tenant.objects.create(name="HistTenant", subdomain="hist", is_active=True)
+
+    def _make_tm(self, message_id=100):
+        return TelegramMessage.objects.create(
+            tenant=self.tenant,
+            recipient_id="123456",
+            message_id=message_id,
+            sent_at=timezone.now(),
+        )
+
+    @patch("apps.modules.telegram_approvals.services.requests.post")
+    def test_send_creates_history_row(self, mock_post):
+        from apps.modules.telegram_approvals.models import TelegramMessageHistory
+        from apps.modules.telegram_approvals.services import TelegramDispatcher
+
+        resp = type("R", (), {"status_code": 200, "content": b'{"message_id":42}'})()
+        resp.json = lambda: {"message_id": 42}
+        mock_post.return_value = resp
+
+        dispatcher = TelegramDispatcher(self.tenant)
+        msg = dispatcher.send(action="send", recipient_id="123", text="Hello", buttons=[])
+
+        self.assertIsNotNone(msg)
+        history = TelegramMessageHistory.objects.filter(telegram_message=msg, action=TelegramMessageHistory.ACTION_SEND)
+        self.assertEqual(history.count(), 1)
+        row = history.first()
+        self.assertEqual(row.message_id, 42)
+        self.assertTrue(row.success)
+
+    @patch("apps.modules.telegram_approvals.services.requests.post")
+    def test_send_history_redacts_bot_token(self, mock_post):
+        from apps.modules.telegram_approvals.models import TelegramMessageHistory
+        from apps.modules.telegram_approvals.services import TelegramDispatcher
+
+        resp = type("R", (), {"status_code": 200, "content": b'{"message_id":99}'})()
+        resp.json = lambda: {"message_id": 99}
+        mock_post.return_value = resp
+
+        dispatcher = TelegramDispatcher(self.tenant)
+        dispatcher.bot_token = "secret-token-12345"
+        msg = dispatcher.send(action="send", recipient_id="123", text="Test")
+
+        row = TelegramMessageHistory.objects.get(telegram_message=msg, action=TelegramMessageHistory.ACTION_SEND)
+        stored = row.request_payload or {}
+        self.assertEqual(stored.get("bot_token"), "***", "bot_token must be redacted in history")
+        self.assertNotIn("secret-token-12345", str(stored))
+
+    @patch("apps.modules.telegram_approvals.services.requests.post")
+    def test_edit_creates_history_row(self, mock_post):
+        from apps.modules.telegram_approvals.models import TelegramMessageHistory
+        from apps.modules.telegram_approvals.services import TelegramDispatcher
+
+        resp = type("R", (), {"status_code": 200, "content": b'{}'})()
+        resp.json = lambda: {}
+        mock_post.return_value = resp
+
+        tm = self._make_tm(200)
+        dispatcher = TelegramDispatcher(self.tenant)
+        dispatcher.edit(tm, action="edit", text="Edited text")
+
+        row = TelegramMessageHistory.objects.get(telegram_message=tm, action=TelegramMessageHistory.ACTION_EDIT)
+        self.assertTrue(row.success)
+        self.assertEqual(row.message_id, 200)
+
+    @patch("apps.modules.telegram_approvals.services.requests.post")
+    def test_deactivate_records_deactivate_action(self, mock_post):
+        from apps.modules.telegram_approvals.models import TelegramMessageHistory
+        from apps.modules.telegram_approvals.services import TelegramDispatcher
+
+        resp = type("R", (), {"status_code": 200, "content": b'{}'})()
+        resp.json = lambda: {}
+        mock_post.return_value = resp
+
+        tm = self._make_tm(300)
+        dispatcher = TelegramDispatcher(self.tenant)
+        dispatcher.deactivate(tm, action="edit", text="Closed")
+
+        row = TelegramMessageHistory.objects.get(telegram_message=tm, action=TelegramMessageHistory.ACTION_DEACTIVATE)
+        self.assertIsNotNone(row)
+
+    @patch("apps.modules.telegram_approvals.services.requests.post")
+    def test_resend_creates_two_history_rows_and_mutates_message_id(self, mock_post):
+        from apps.modules.telegram_approvals.models import TelegramMessageHistory
+        from apps.modules.telegram_approvals.services import TelegramDispatcher
+
+        deact_resp = type("R", (), {"status_code": 200, "content": b'{}'})()
+        deact_resp.json = lambda: {}
+        new_send_resp = type("R", (), {"status_code": 200, "content": b'{"message_id":999}'})()
+        new_send_resp.json = lambda: {"message_id": 999}
+        mock_post.side_effect = [deact_resp, new_send_resp]
+
+        tm = self._make_tm(500)
+        original_id = tm.pk
+        dispatcher = TelegramDispatcher(self.tenant)
+        result = dispatcher.resend(tm, action_deactivate="edit", action_send="send", text="New card")
+
+        self.assertIsNotNone(result)
+        self.assertEqual(result.message_id, 999)
+        self.assertEqual(result.resend_count, 1)
+
+        tm.refresh_from_db()
+        self.assertEqual(tm.message_id, 999)
+        self.assertEqual(tm.resend_count, 1)
+
+        old_row = TelegramMessageHistory.objects.get(telegram_message_id=original_id, action=TelegramMessageHistory.ACTION_RESEND_OLD)
+        self.assertEqual(old_row.message_id, 500)
+        new_row = TelegramMessageHistory.objects.get(telegram_message_id=original_id, action=TelegramMessageHistory.ACTION_RESEND_NEW)
+        self.assertEqual(new_row.message_id, 999)
+
+    @patch("apps.modules.telegram_approvals.services.requests.post")
+    def test_resend_gateway_failure_returns_none(self, mock_post):
+        from apps.modules.telegram_approvals.services import TelegramDispatcher
+
+        deact_resp = type("R", (), {"status_code": 200, "content": b'{}'})()
+        deact_resp.json = lambda: {}
+        fail_resp = type("R", (), {"status_code": 500, "content": b'error'})()
+        mock_post.side_effect = [deact_resp, fail_resp]
+
+        tm = self._make_tm(600)
+        dispatcher = TelegramDispatcher(self.tenant)
+        result = dispatcher.resend(tm, action_deactivate="edit", action_send="send", text="New")
+
+        self.assertIsNone(result)
+        # message_id must NOT have changed
+        tm.refresh_from_db()
+        self.assertEqual(tm.message_id, 600)
+        self.assertEqual(tm.resend_count, 0)

@@ -11,7 +11,7 @@ from rest_framework.exceptions import ValidationError
 
 from apps.modules.requests.integration_settings import get_requests_messaging_gateway_settings
 from apps.modules.requests.models import Approval, Request
-from apps.modules.telegram_approvals.models import Notification, TelegramMessage
+from apps.modules.telegram_approvals.models import Notification, TelegramMessage, TelegramMessageHistory
 from apps.modules.telegram_approvals.formatter import (
     build_approval_message,
     build_request_draft_public_url,
@@ -302,6 +302,51 @@ class TelegramDispatcher:
         return post_messaging_gateway(tenant=self.tenant, payload=payload)
 
     @staticmethod
+    def _redact(payload: dict | None) -> dict | None:
+        """Return a copy of the gateway payload with bot_token replaced by '***'."""
+        if payload is None:
+            return None
+        return {k: ("***" if k == "bot_token" else v) for k, v in payload.items()}
+
+    def _record(
+        self,
+        *,
+        message: TelegramMessage,
+        action: str,
+        message_id: int | None,
+        text: str = "",
+        buttons: list | None = None,
+        request_payload: dict | None = None,
+        response_payload: dict | None = None,
+        success: bool = True,
+        error_message: str = "",
+        actor_user=None,
+        actor_external_user_id: int | None = None,
+    ) -> None:
+        """Write one history row. Swallows all errors so recording never breaks dispatch."""
+        try:
+            TelegramMessageHistory.objects.create(
+                telegram_message=message,
+                action=action,
+                message_id=message_id,
+                recipient_id=message.recipient_id,
+                external_user_id=message.external_user_id,
+                text=text,
+                buttons=buttons,
+                request_payload=self._redact(request_payload),
+                response_payload=response_payload,
+                success=success,
+                error_message=error_message,
+                actor_user=actor_user,
+                actor_external_user_id=actor_external_user_id,
+            )
+        except Exception:
+            logger.exception(
+                "TelegramDispatcher._record: failed to write history action=%s telegram_message_id=%s",
+                action, message.pk,
+            )
+
+    @staticmethod
     def _link(link, message: TelegramMessage) -> None:
         if link is None:
             return
@@ -368,6 +413,16 @@ class TelegramDispatcher:
             sent_at=timezone.now(),
         )
         self._link(link, message)
+        self._record(
+            message=message,
+            action=TelegramMessageHistory.ACTION_SEND,
+            message_id=message_id,
+            text=text,
+            buttons=normalize_gateway_buttons(buttons or []),
+            request_payload=payload,
+            response_payload=response_data,
+            success=True,
+        )
         return message
 
     def edit(
@@ -380,6 +435,7 @@ class TelegramDispatcher:
         recipient_id=None,
         approval_id: int | str | None = None,
         request_id: int | str | None = None,
+        _history_action: str = TelegramMessageHistory.ACTION_EDIT,
     ) -> TelegramMessage | None:
         """Edit an existing message in place. Returns the message, or None on gateway failure."""
         payload = build_gateway_payload(
@@ -394,7 +450,19 @@ class TelegramDispatcher:
             buttons=buttons or [],
         )
         response_data = self._post(payload)
-        if response_data is None:
+        success = response_data is not None
+        self._record(
+            message=message,
+            action=_history_action,
+            message_id=message.message_id,
+            text=text,
+            buttons=normalize_gateway_buttons(buttons or []),
+            request_payload=payload,
+            response_payload=response_data,
+            success=success,
+            error_message="" if success else "Gateway unreachable or returned error.",
+        )
+        if not success:
             return None
         return message
 
@@ -417,6 +485,7 @@ class TelegramDispatcher:
             recipient_id=recipient_id,
             approval_id=approval_id,
             request_id=request_id,
+            _history_action=TelegramMessageHistory.ACTION_DEACTIVATE,
         )
 
     def delete(self, message: TelegramMessage, *, action: str = "delete", recipient_id=None) -> None:
@@ -428,7 +497,103 @@ class TelegramDispatcher:
             message_text="",
             message_id=message.message_id,
         )
-        self._post(payload)
+        response_data = self._post(payload)
+        self._record(
+            message=message,
+            action=TelegramMessageHistory.ACTION_DELETE,
+            message_id=message.message_id,
+            request_payload=payload,
+            response_payload=response_data,
+            success=response_data is not None,
+        )
+
+    def resend(
+        self,
+        message: TelegramMessage,
+        *,
+        action_deactivate: str,
+        action_send: str,
+        text: str,
+        buttons: list | None = None,
+        approval_id: int | str | None = None,
+        request_id: int | str | None = None,
+        actor_user=None,
+    ) -> TelegramMessage | None:
+        """
+        Deactivate the current card and send a new one. Mutates ``message.message_id``
+        to the new Telegram message id, increments ``resend_count``, sets ``last_resend_at``.
+        Returns the updated ``message`` on success, or ``None`` if the new send fails
+        (in which case the deactivation of the old card is still best-effort).
+        """
+        old_message_id = message.message_id
+
+        # Step 1: deactivate old card (best-effort; even if this fails we proceed).
+        deact_payload = build_gateway_payload(
+            action=action_deactivate,
+            tenant_id=getattr(self.tenant, "id", None),
+            recipient_id=message.recipient_id,
+            bot_token=self.bot_token,
+            message_text=text,
+            approval_id=approval_id,
+            request_id=request_id,
+            message_id=old_message_id,
+            buttons=[],
+        )
+        deact_response = self._post(deact_payload)
+        self._record(
+            message=message,
+            action=TelegramMessageHistory.ACTION_RESEND_OLD,
+            message_id=old_message_id,
+            text=text,
+            buttons=[],
+            request_payload=deact_payload,
+            response_payload=deact_response,
+            success=deact_response is not None,
+            error_message="" if deact_response is not None else "Deactivation request failed (best-effort).",
+            actor_user=actor_user,
+        )
+
+        # Step 2: send new card.
+        send_payload = build_gateway_payload(
+            action=action_send,
+            tenant_id=getattr(self.tenant, "id", None),
+            recipient_id=message.recipient_id,
+            bot_token=self.bot_token,
+            message_text=text,
+            approval_id=approval_id,
+            request_id=request_id,
+            buttons=normalize_gateway_buttons(buttons or []),
+        )
+        send_response = self._post(send_payload)
+        new_message_id = extract_message_id(send_response) if send_response is not None else None
+        send_ok = new_message_id is not None
+        self._record(
+            message=message,
+            action=TelegramMessageHistory.ACTION_RESEND_NEW,
+            message_id=new_message_id,
+            text=text,
+            buttons=normalize_gateway_buttons(buttons or []),
+            request_payload=send_payload,
+            response_payload=send_response,
+            success=send_ok,
+            error_message="" if send_ok else "Gateway did not return a new message_id.",
+            actor_user=actor_user,
+        )
+
+        if not send_ok:
+            return None
+
+        # Step 3: atomically mutate the TelegramMessage row.
+        now = timezone.now()
+        TelegramMessage.objects.filter(pk=message.pk).update(
+            message_id=new_message_id,
+            resend_count=message.resend_count + 1,
+            last_resend_at=now,
+        )
+        message.message_id = new_message_id
+        message.resend_count += 1
+        message.last_resend_at = now
+        return message
 
 
 def _current_pending_step(request_obj: Request) -> int | None:
@@ -583,58 +748,68 @@ def refresh_request_messages(*, request_obj: Request) -> int:
     return updated
 
 
+RESEND_MAX = 3
+RESEND_COOLDOWN_SECONDS = 10
+
+
 @transaction.atomic
-def resend_current_pending_step(*, request_obj: Request, idempotency_key: str | None = None) -> int:
-    locked = Request.objects.select_for_update(of=("self",)).select_related("contract_ref", "vendor_ref").get(pk=request_obj.pk)
-    current_step = _current_pending_step(locked)
-    if current_step is None:
-        raise ValidationError({"detail": "Current request status has no active approval step."})
+def resend_approval_card(*, approval_pk: int, actor_user) -> TelegramMessage:
+    """
+    Re-send one approval card:
+    1. Guards: approval PENDING, has a card, resend_count < 3, cooldown >= 10s.
+    2. Deactivates old card + sends new one via TelegramDispatcher.resend().
+    3. The same TelegramMessage row is kept; only message_id mutates.
+    """
+    from rest_framework.exceptions import Throttled
 
-    if idempotency_key:
-        existing = Approval.objects.filter(
-            request_id=locked.pk,
-            step=current_step,
-            decision=Approval.DECISION_PENDING,
-            resend_key=idempotency_key,
-        ).count()
-        if existing:
-            return existing
-
-    approvals = list(
-        Approval.objects.select_for_update()
-        .filter(
-            request_id=locked.pk,
-            step=current_step,
-            decision=Approval.DECISION_PENDING,
-            approver_recipient_id__isnull=False,
+    # Lock the approval + telegram_message to prevent concurrent resends on the same card.
+    approval = (
+        Approval.objects
+        .select_for_update()
+        .select_related(
+            "telegram_message",
+            "request", "request__tenant",
+            "request__vendor_ref", "request__contract_ref",
+            "approver_user",
         )
-        .select_related("request", "request__tenant", "approver_user")
-        .order_by("id")
+        .get(pk=approval_pk)
     )
-    if not approvals:
-        raise ValidationError({"detail": "No pending approvals on current step for resend."})
 
-    created = 0
-    for approval in approvals:
-        if approval.telegram_message_id is not None:
-            deactivate_approval_message_buttons(approval=approval, request_context=locked)
-        approval.decision = Approval.DECISION_CANCELED
-        approval.decided_at = timezone.now()
-        approval.comment = "Автоматически: отменено повторной отправкой шага."
-        # Unlink so the next refresh cycle skips this canceled row (no longer counts as
-        # "sent"); the TelegramMessage history row itself is left intact.
-        approval.telegram_message = None
-        approval.save(update_fields=["decision", "decided_at", "comment", "telegram_message"])
-        Approval.objects.create(
-            request=locked,
-            approver_user=approval.approver_user,
-            approver_recipient_id=approval.approver_recipient_id,
-            approver_external_user_id=approval.approver_external_user_id,
-            step=approval.step,
-            step_type=approval.step_type,
-            decision=Approval.DECISION_PENDING,
-            resend_key=idempotency_key,
-            replaced_approval=approval,
-        )
-        created += 1
-    return created
+    if approval.decision != Approval.DECISION_PENDING:
+        raise ValidationError({"detail": "Согласование уже завершено."})
+
+    tm = approval.telegram_message
+    if tm is None:
+        raise ValidationError({"detail": "Telegram-сообщение ещё не было отправлено для этого согласования."})
+
+    if tm.resend_count >= RESEND_MAX:
+        raise ValidationError({"detail": f"Достигнут лимит переотправок ({RESEND_MAX})."})
+
+    now = timezone.now()
+    if tm.last_resend_at is not None:
+        elapsed = (now - tm.last_resend_at).total_seconds()
+        if elapsed < RESEND_COOLDOWN_SECONDS:
+            wait = int(RESEND_COOLDOWN_SECONDS - elapsed) + 1
+            raise Throttled(wait=wait)
+
+    req = approval.request
+    settings_obj = get_requests_messaging_gateway_settings(tenant=req.tenant)
+    dispatcher = TelegramDispatcher(req.tenant)
+
+    result = dispatcher.resend(
+        tm,
+        action_deactivate=settings_obj.edit_action,
+        action_send=settings_obj.send_action,
+        text=build_approval_message(request_obj=req, approval=approval),
+        buttons=_buttons(approval=approval),
+        approval_id=approval.id,
+        request_id=approval.request_id,
+        actor_user=actor_user,
+    )
+
+    if result is None:
+        raise ValidationError({"detail": "Не удалось отправить сообщение через messaging gateway."})
+
+    return result
+
+

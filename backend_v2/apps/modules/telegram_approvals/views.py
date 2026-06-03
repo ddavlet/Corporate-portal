@@ -13,7 +13,7 @@ from rest_framework.views import APIView
 
 from apps.modules.requests.models import Approval
 from apps.modules.requests.approval_workflow import ApprovalDecisionAlreadyMade, confirm_approval_by_id
-from apps.modules.telegram_approvals.models import TelegramMessage, TenantTelegramChat
+from apps.modules.telegram_approvals.models import TelegramMessage, TelegramMessageHistory, TenantTelegramChat
 from apps.modules.telegram_approvals.serializers import MessagingGatewayCallbackSerializer, TenantTelegramChatSerializer
 from apps.modules.telegram_approvals.services import (
     deactivate_approval_message_buttons,
@@ -354,4 +354,25 @@ class TelegramApprovalWebhookView(APIView):
             tenant.id,
             decision,
         )
+
+        # Record callback in message history so developers can see every button press.
+        approval.refresh_from_db()
+        if approval.telegram_message_id is not None:
+            try:
+                TelegramMessageHistory.objects.create(
+                    telegram_message_id=approval.telegram_message_id,
+                    action=TelegramMessageHistory.ACTION_CALLBACK,
+                    message_id=message_id,
+                    recipient_id=chat_id,
+                    external_user_id=from_id,
+                    text="",
+                    success=True,
+                    actor_external_user_id=from_id,
+                )
+            except Exception:
+                logger.exception(
+                    "messaging_gateway_webhook: failed to record callback history approval_id=%s",
+                    approval.id,
+                )
+
         return Response({"detail": "Callback processed."}, status=status.HTTP_200_OK)

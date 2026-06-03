@@ -182,19 +182,11 @@ export async function apiFetch(input: string, init: RequestInit = {}, options?: 
   return res
 }
 
-export async function resendRequestApprovals(requestId: number): Promise<{ resent: number; pendingCurrentStep: number }> {
-  const idempotencyKey = `resend:${requestId}:${Date.now()}:${Math.random().toString(36).slice(2, 10)}`
-  const res = await apiFetch(`/api/requests/${requestId}/approvals/resend/`, {
+export async function resendApprovalCard(requestId: number, approvalId: number): Promise<void> {
+  const res = await apiFetch(`/api/requests/${requestId}/approvals/${approvalId}/resend/`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ idempotency_key: idempotencyKey }),
   })
   if (!res.ok) throw new Error(await parseErrorBody(res))
-  const json = (await res.json().catch(() => null)) as { resent?: number; pending_current_step?: number } | null
-  return {
-    resent: Number(json?.resent ?? 0),
-    pendingCurrentStep: Number(json?.pending_current_step ?? 0),
-  }
 }
 
 export type TenantIntegrationConfigResponse = {
