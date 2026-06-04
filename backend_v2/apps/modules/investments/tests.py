@@ -1937,7 +1937,8 @@ class InvestReturnCreateAPITest(APITestCase):
         TenantModuleConfig.objects.create(tenant=self.tenant, module_key="investments", is_enabled=True)
         self.client.force_authenticate(self.user)
 
-    def test_creates_invest_return(self):
+    @patch("apps.modules.investments.serializers.fetch_cbu_usd_uzs_rate", return_value=Decimal("10000"))
+    def test_creates_invest_return(self, _mock_fetch_cbu):
         from datetime import date
         today = date.today()
         payload = {
