@@ -4,7 +4,7 @@ import type { ColumnsType, TableProps } from 'antd/es/table'
 import type { Dayjs } from 'dayjs'
 import dayjs from 'dayjs'
 import { useNavigate } from 'react-router-dom'
-import { CopyOutlined, FileAddOutlined, FileSearchOutlined, MessageOutlined, ReloadOutlined, SendOutlined } from '@ant-design/icons'
+import { CopyOutlined, FileAddOutlined, FileSearchOutlined, MessageOutlined, SendOutlined } from '@ant-design/icons'
 import {
   apiFetch,
   copyPortalRequest,
@@ -12,7 +12,6 @@ import {
   getRequestCategories,
   getRequestVendors,
   parseErrorBody,
-  resendRequestApprovals,
   submitRequestForApproval,
   type RequestCategoryOption,
   type RequestFormOptionsPaymentType,
@@ -20,7 +19,7 @@ import {
 } from '../../lib/api'
 import { notifyApiSuccess } from '../../lib/apiNotify'
 import { isPayedMissingLinkedExpense, type RequestExpenseLink } from '../../lib/requestExpense'
-import { canResendRequestByStatus, formatRequestBillingMonth, formatRequestDate, getRequestStatusColor } from '../../lib/requestUtils'
+import { formatRequestBillingMonth, formatRequestDate, getRequestStatusColor } from '../../lib/requestUtils'
 import { requestReturnToForDetail } from '../../lib/requestNavigation'
 import { RequestDetailModal, type RequestDetail } from './RequestDetailModal'
 import { labelBlockAboveField } from '../formSpacing'
@@ -172,7 +171,6 @@ export function RequestsPage() {
   const [detailLoading, setDetailLoading] = useState(false)
   const [detailError, setDetailError] = useState<string | null>(null)
   const [openNoteModal, setOpenNoteModal] = useState(false)
-  const [resendLoading, setResendLoading] = useState(false)
   const [submitLoading, setSubmitLoading] = useState(false)
   const [isTenantAdmin, setIsTenantAdmin] = useState(false)
   const [editOpen, setEditOpen] = useState(false)
@@ -651,26 +649,6 @@ export function RequestsPage() {
 
   const activeDetail = selectedDetail
 
-  const resendRequest = async (requestId: number) => {
-    setResendLoading(true)
-    try {
-      const { resent, pendingCurrentStep } = await resendRequestApprovals(requestId)
-      if (resent > 0) {
-        message.success(`Заявки отправлены повторно: ${resent}`)
-      } else if (pendingCurrentStep > 0) {
-        message.warning(
-          `На текущем этапе есть ожидающие согласования (${pendingCurrentStep}), но отправка не удалась. Проверьте настройки интеграции.`,
-        )
-      } else {
-        message.info('Нет ожидающих согласований для повторной отправки')
-      }
-    } catch (e: any) {
-      message.error(e?.message || 'Не удалось отправить запрос повторно')
-    } finally {
-      setResendLoading(false)
-    }
-  }
-
   const submitDraft = async (requestId: number) => {
     setSubmitLoading(true)
     try {
@@ -956,20 +934,6 @@ export function RequestsPage() {
                   Редактировать
                 </Button>
               ) : null}
-              <Button
-                type="primary"
-                icon={<ReloadOutlined />}
-                loading={resendLoading}
-                disabled={!canResendRequestByStatus(selectedRow.status)}
-                title={
-                  canResendRequestByStatus(selectedRow.status)
-                    ? 'Повторно отправить ожидающие согласования текущего этапа'
-                    : 'Доступно для этапов согласования (1–5) и для заявок со статусом APPROVED'
-                }
-                onClick={() => resendRequest(selectedRow.id)}
-              >
-                Отправить повторно
-              </Button>
             </Space>
           ) : null
         }

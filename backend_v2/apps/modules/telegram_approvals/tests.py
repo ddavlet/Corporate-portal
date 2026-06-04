@@ -237,11 +237,12 @@ class TelegramApprovalsTests(APITestCase):
         self.assertEqual(mocked_post.call_count, 1)
 
     @patch("apps.modules.telegram_approvals.services.requests.post")
-    def test_resend_pending_step_deactivates_old_and_sends_new_message(self, mocked_post):
-        send_response = type("Resp", (), {"status_code": 200, "content": b'{"result":{"message_id":9999}}'})()
-        send_response.json = lambda: {"result": {"message_id": 9999}}
+    def test_resend_card_deactivates_old_and_sends_new_message(self, mocked_post):
+        """Per-card resend: same Approval + same TelegramMessage stay; only message_id mutates."""
         edit_response = type("Resp", (), {"status_code": 200, "content": b'{"result":{"message_id":4321}}'})()
         edit_response.json = lambda: {"result": {"message_id": 4321}}
+        send_response = type("Resp", (), {"status_code": 200, "content": b'{"result":{"message_id":9999}}'})()
+        send_response.json = lambda: {"result": {"message_id": 9999}}
         mocked_post.side_effect = [edit_response, send_response]
 
         request_row = Request.objects.create(
@@ -262,52 +263,50 @@ class TelegramApprovalsTests(APITestCase):
             step_type=Approval.STEP_TYPE_SERIAL,
             decision=Approval.DECISION_PENDING,
         )
+        tm_pk = approval.telegram_message_id
 
         self.client.force_authenticate(self.admin)
         res = self.client.post(
-            f"/api/requests/{request_row.id}/approvals/resend/",
+            f"/api/requests/{request_row.id}/approvals/{approval.id}/resend/",
             {},
             format="json",
             HTTP_HOST=self.host,
         )
         self.assertEqual(res.status_code, 200, res.content)
-        self.assertEqual(res.data.get("resent"), 1)
 
+        # Approval row stays PENDING — no cancel+create churn.
         approval.refresh_from_db()
-        self.assertEqual(approval.decision, Approval.DECISION_CANCELED)
-        # telegram_message is intentionally unlinked during resend; TelegramMessage row still exists.
-        self.assertIsNone(approval.telegram_message_id)
-        new_approval = Approval.objects.filter(request=request_row, replaced_approval=approval).get()
-        self.assertEqual(new_approval.decision, Approval.DECISION_PENDING)
-        self.assertTrue(new_approval.message_sent)
-        self.assertEqual(new_approval.gateway_message_id, 9999)
-        self.assertIsNotNone(new_approval.resend_key)
-        self.assertTrue(str(new_approval.resend_key).startswith("auto:"))
+        self.assertEqual(approval.decision, Approval.DECISION_PENDING)
+        # Same TelegramMessage row, new message_id, resend_count incremented.
+        self.assertEqual(approval.telegram_message_id, tm_pk)
+        tm = approval.telegram_message
+        self.assertEqual(tm.message_id, 9999)
+        self.assertEqual(tm.resend_count, 1)
+        # Gateway called twice: deactivate (no buttons) then send (with buttons).
         self.assertEqual(mocked_post.call_count, 2)
-        first_payload = mocked_post.call_args_list[0].kwargs.get("json", {})
-        second_payload = mocked_post.call_args_list[1].kwargs.get("json", {})
-        self.assertEqual(first_payload.get("action"), "edit_interactive")
-        self.assertEqual(first_payload.get("buttons"), [])
-        self.assertEqual(second_payload.get("action"), "send_interactive")
-        self.assertTrue(second_payload.get("buttons"))
+        deact_payload = mocked_post.call_args_list[0].kwargs.get("json", {})
+        send_payload = mocked_post.call_args_list[1].kwargs.get("json", {})
+        self.assertEqual(deact_payload.get("buttons"), [])
+        self.assertTrue(send_payload.get("buttons"))
 
     @patch("apps.modules.telegram_approvals.services.requests.post")
-    def test_resend_with_same_idempotency_key_is_noop(self, mocked_post):
+    def test_resend_card_cooldown_returns_429(self, mocked_post):
+        """Second resend within 10s must be rejected with 429 (cooldown)."""
+        edit_response = type("Resp", (), {"status_code": 200, "content": b'{}'})()
+        edit_response.json = lambda: {}
         send_response = type("Resp", (), {"status_code": 200, "content": b'{"result":{"message_id":9999}}'})()
         send_response.json = lambda: {"result": {"message_id": 9999}}
-        edit_response = type("Resp", (), {"status_code": 200, "content": b'{"result":{"message_id":4321}}'})()
-        edit_response.json = lambda: {"result": {"message_id": 4321}}
         mocked_post.side_effect = [edit_response, send_response]
 
         request_row = Request.objects.create(
             tenant=self.tenant,
             created_by=self.admin,
             requester=self.requester,
-            title="Needs resend",
+            title="Cooldown test",
             status=Request.STATUS_PROGRESS_1,
             billing_date=date(2026, 3, 31),
         )
-        self._create_approval_with_message(
+        approval = self._create_approval_with_message(
             message_id=4321,
             request=request_row,
             approver_user=self.approver,
@@ -317,34 +316,25 @@ class TelegramApprovalsTests(APITestCase):
             step_type=Approval.STEP_TYPE_SERIAL,
             decision=Approval.DECISION_PENDING,
         )
-        self.client.force_authenticate(self.admin)
 
-        payload = {"idempotency_key": "r-1"}
+        self.client.force_authenticate(self.admin)
         res1 = self.client.post(
-            f"/api/requests/{request_row.id}/approvals/resend/",
-            payload,
+            f"/api/requests/{request_row.id}/approvals/{approval.id}/resend/",
             format="json",
             HTTP_HOST=self.host,
         )
         self.assertEqual(res1.status_code, 200, res1.content)
-        self.assertEqual(Approval.objects.filter(request=request_row, decision=Approval.DECISION_PENDING).count(), 1)
 
-        mocked_post.reset_mock()
+        # Immediate second resend must be throttled.
         res2 = self.client.post(
-            f"/api/requests/{request_row.id}/approvals/resend/",
-            payload,
+            f"/api/requests/{request_row.id}/approvals/{approval.id}/resend/",
             format="json",
             HTTP_HOST=self.host,
         )
-        self.assertEqual(res2.status_code, 200, res2.content)
-        self.assertEqual(res2.data.get("resent"), 1)
-        self.assertEqual(Approval.objects.filter(request=request_row, decision=Approval.DECISION_PENDING).count(), 1)
-        self.assertEqual(
-            Approval.objects.filter(request=request_row, resend_key="r-1", decision=Approval.DECISION_PENDING).count(),
-            1,
-        )
+        self.assertEqual(res2.status_code, 429, res2.content)
 
-    def test_resend_fails_when_no_pending_on_current_step(self):
+    def test_resend_card_fails_when_approval_already_decided(self):
+        """Resend must fail when the approval is not PENDING (already approved/rejected)."""
         request_row = Request.objects.create(
             tenant=self.tenant,
             created_by=self.admin,
@@ -353,7 +343,7 @@ class TelegramApprovalsTests(APITestCase):
             status=Request.STATUS_PROGRESS_1,
             billing_date=date(2026, 3, 31),
         )
-        self._create_approval_with_message(
+        approval = self._create_approval_with_message(
             message_id=4321,
             request=request_row,
             approver_user=self.approver,
@@ -365,7 +355,7 @@ class TelegramApprovalsTests(APITestCase):
         )
         self.client.force_authenticate(self.admin)
         res = self.client.post(
-            f"/api/requests/{request_row.id}/approvals/resend/",
+            f"/api/requests/{request_row.id}/approvals/{approval.id}/resend/",
             {},
             format="json",
             HTTP_HOST=self.host,
@@ -373,11 +363,12 @@ class TelegramApprovalsTests(APITestCase):
         self.assertEqual(res.status_code, 400, res.content)
 
     @patch("apps.modules.telegram_approvals.services.requests.post")
-    def test_resend_works_for_approved_status_with_pending_payment(self, mocked_post):
+    def test_resend_card_works_for_payment_step(self, mocked_post):
+        """Payment-step cards can be resent with the same per-card mechanism."""
+        edit_response = type("Resp", (), {"status_code": 200, "content": b'{}'})()
+        edit_response.json = lambda: {}
         send_response = type("Resp", (), {"status_code": 200, "content": b'{"result":{"message_id":10001}}'})()
         send_response.json = lambda: {"result": {"message_id": 10001}}
-        edit_response = type("Resp", (), {"status_code": 200, "content": b'{"result":{"message_id":7654}}'})()
-        edit_response.json = lambda: {"result": {"message_id": 7654}}
         mocked_post.side_effect = [edit_response, send_response]
 
         request_row = Request.objects.create(
@@ -389,7 +380,7 @@ class TelegramApprovalsTests(APITestCase):
             payment_type="Перечисление",
             billing_date=date(2026, 3, 31),
         )
-        old_payment = self._create_approval_with_message(
+        payment_approval = self._create_approval_with_message(
             message_id=7654,
             request=request_row,
             approver_user=self.approver,
@@ -402,21 +393,17 @@ class TelegramApprovalsTests(APITestCase):
 
         self.client.force_authenticate(self.admin)
         res = self.client.post(
-            f"/api/requests/{request_row.id}/approvals/resend/",
-            {"idempotency_key": "payment-resend-1"},
+            f"/api/requests/{request_row.id}/approvals/{payment_approval.id}/resend/",
+            {},
             format="json",
             HTTP_HOST=self.host,
         )
         self.assertEqual(res.status_code, 200, res.content)
-        self.assertEqual(res.data.get("resent"), 1)
 
-        old_payment.refresh_from_db()
-        self.assertEqual(old_payment.decision, Approval.DECISION_CANCELED)
-        new_payment = Approval.objects.get(request=request_row, replaced_approval=old_payment)
-        self.assertEqual(new_payment.decision, Approval.DECISION_PENDING)
-        self.assertEqual(new_payment.step_type, Approval.STEP_TYPE_PAYMENT)
-        self.assertEqual(new_payment.gateway_message_id, 10001)
-        self.assertTrue(new_payment.message_sent)
+        payment_approval.refresh_from_db()
+        self.assertEqual(payment_approval.decision, Approval.DECISION_PENDING)
+        self.assertEqual(payment_approval.telegram_message.message_id, 10001)
+        self.assertEqual(payment_approval.telegram_message.resend_count, 1)
         self.assertEqual(mocked_post.call_count, 2)
 
     @patch("apps.modules.telegram_approvals.services.requests.post")
@@ -1347,3 +1334,145 @@ class MessagingGatewayAuxiliaryCallbackTests(APITestCase):
         self.assertIsNotNone(schedule.created_return_id)
         self.assertIn("создана", res.data.get("detail", "").lower())
 
+
+
+# ── TelegramMessageHistory tests ──────────────────────────────────────────────
+
+@override_settings(
+    BASE_DOMAIN="example.com",
+    MESSAGING_GATEWAY_SEND_URL="http://fake-gateway/send",
+    N8N_INTEGRATION_TOKEN="test-n8n-token",
+    ALLOWED_HOSTS=["*"],
+)
+class TelegramMessageHistoryTests(APITestCase):
+    """Verify that TelegramDispatcher records history rows correctly."""
+
+    def setUp(self):
+        from apps.tenants.models import Tenant, TenantMembership
+        self.tenant = Tenant.objects.create(name="HistTenant", subdomain="hist", is_active=True)
+
+    def _make_tm(self, message_id=100):
+        return TelegramMessage.objects.create(
+            tenant=self.tenant,
+            recipient_id="123456",
+            message_id=message_id,
+            sent_at=timezone.now(),
+        )
+
+    @patch("apps.modules.telegram_approvals.services.requests.post")
+    def test_send_creates_history_row(self, mock_post):
+        from apps.modules.telegram_approvals.models import TelegramMessageHistory
+        from apps.modules.telegram_approvals.services import TelegramDispatcher
+
+        resp = type("R", (), {"status_code": 200, "content": b'{"message_id":42}'})()
+        resp.json = lambda: {"message_id": 42}
+        mock_post.return_value = resp
+
+        dispatcher = TelegramDispatcher(self.tenant)
+        msg = dispatcher.send(action="send", recipient_id="123", text="Hello", buttons=[])
+
+        self.assertIsNotNone(msg)
+        history = TelegramMessageHistory.objects.filter(telegram_message=msg, action=TelegramMessageHistory.ACTION_SEND)
+        self.assertEqual(history.count(), 1)
+        row = history.first()
+        self.assertEqual(row.message_id, 42)
+        self.assertTrue(row.success)
+
+    @patch("apps.modules.telegram_approvals.services.requests.post")
+    def test_send_history_redacts_bot_token(self, mock_post):
+        from apps.modules.telegram_approvals.models import TelegramMessageHistory
+        from apps.modules.telegram_approvals.services import TelegramDispatcher
+
+        resp = type("R", (), {"status_code": 200, "content": b'{"message_id":99}'})()
+        resp.json = lambda: {"message_id": 99}
+        mock_post.return_value = resp
+
+        dispatcher = TelegramDispatcher(self.tenant)
+        dispatcher.bot_token = "secret-token-12345"
+        msg = dispatcher.send(action="send", recipient_id="123", text="Test")
+
+        row = TelegramMessageHistory.objects.get(telegram_message=msg, action=TelegramMessageHistory.ACTION_SEND)
+        stored = row.request_payload or {}
+        self.assertEqual(stored.get("bot_token"), "***", "bot_token must be redacted in history")
+        self.assertNotIn("secret-token-12345", str(stored))
+
+    @patch("apps.modules.telegram_approvals.services.requests.post")
+    def test_edit_creates_history_row(self, mock_post):
+        from apps.modules.telegram_approvals.models import TelegramMessageHistory
+        from apps.modules.telegram_approvals.services import TelegramDispatcher
+
+        resp = type("R", (), {"status_code": 200, "content": b'{}'})()
+        resp.json = lambda: {}
+        mock_post.return_value = resp
+
+        tm = self._make_tm(200)
+        dispatcher = TelegramDispatcher(self.tenant)
+        dispatcher.edit(tm, action="edit", text="Edited text")
+
+        row = TelegramMessageHistory.objects.get(telegram_message=tm, action=TelegramMessageHistory.ACTION_EDIT)
+        self.assertTrue(row.success)
+        self.assertEqual(row.message_id, 200)
+
+    @patch("apps.modules.telegram_approvals.services.requests.post")
+    def test_deactivate_records_deactivate_action(self, mock_post):
+        from apps.modules.telegram_approvals.models import TelegramMessageHistory
+        from apps.modules.telegram_approvals.services import TelegramDispatcher
+
+        resp = type("R", (), {"status_code": 200, "content": b'{}'})()
+        resp.json = lambda: {}
+        mock_post.return_value = resp
+
+        tm = self._make_tm(300)
+        dispatcher = TelegramDispatcher(self.tenant)
+        dispatcher.deactivate(tm, action="edit", text="Closed")
+
+        row = TelegramMessageHistory.objects.get(telegram_message=tm, action=TelegramMessageHistory.ACTION_DEACTIVATE)
+        self.assertIsNotNone(row)
+
+    @patch("apps.modules.telegram_approvals.services.requests.post")
+    def test_resend_creates_two_history_rows_and_mutates_message_id(self, mock_post):
+        from apps.modules.telegram_approvals.models import TelegramMessageHistory
+        from apps.modules.telegram_approvals.services import TelegramDispatcher
+
+        deact_resp = type("R", (), {"status_code": 200, "content": b'{}'})()
+        deact_resp.json = lambda: {}
+        new_send_resp = type("R", (), {"status_code": 200, "content": b'{"message_id":999}'})()
+        new_send_resp.json = lambda: {"message_id": 999}
+        mock_post.side_effect = [deact_resp, new_send_resp]
+
+        tm = self._make_tm(500)
+        original_id = tm.pk
+        dispatcher = TelegramDispatcher(self.tenant)
+        result = dispatcher.resend(tm, action_deactivate="edit", action_send="send", text="New card")
+
+        self.assertIsNotNone(result)
+        self.assertEqual(result.message_id, 999)
+        self.assertEqual(result.resend_count, 1)
+
+        tm.refresh_from_db()
+        self.assertEqual(tm.message_id, 999)
+        self.assertEqual(tm.resend_count, 1)
+
+        old_row = TelegramMessageHistory.objects.get(telegram_message_id=original_id, action=TelegramMessageHistory.ACTION_RESEND_OLD)
+        self.assertEqual(old_row.message_id, 500)
+        new_row = TelegramMessageHistory.objects.get(telegram_message_id=original_id, action=TelegramMessageHistory.ACTION_RESEND_NEW)
+        self.assertEqual(new_row.message_id, 999)
+
+    @patch("apps.modules.telegram_approvals.services.requests.post")
+    def test_resend_gateway_failure_returns_none(self, mock_post):
+        from apps.modules.telegram_approvals.services import TelegramDispatcher
+
+        deact_resp = type("R", (), {"status_code": 200, "content": b'{}'})()
+        deact_resp.json = lambda: {}
+        fail_resp = type("R", (), {"status_code": 500, "content": b'error'})()
+        mock_post.side_effect = [deact_resp, fail_resp]
+
+        tm = self._make_tm(600)
+        dispatcher = TelegramDispatcher(self.tenant)
+        result = dispatcher.resend(tm, action_deactivate="edit", action_send="send", text="New")
+
+        self.assertIsNone(result)
+        # message_id must NOT have changed
+        tm.refresh_from_db()
+        self.assertEqual(tm.message_id, 600)
+        self.assertEqual(tm.resend_count, 0)

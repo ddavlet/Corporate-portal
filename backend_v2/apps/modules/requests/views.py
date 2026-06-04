@@ -2,7 +2,6 @@ import base64
 from datetime import date
 from decimal import Decimal, InvalidOperation
 import logging
-import uuid
 import mimetypes
 import os
 
@@ -74,7 +73,6 @@ from apps.modules.requests.serializers import (
     ApprovalConfirmPayloadSerializer,
     PaymentWebAppConfirmPayloadSerializer,
     AutoDraftSubmitAmountPayloadSerializer,
-    ApprovalResendPayloadSerializer,
     AutoRequestCreateCopyPayloadSerializer,
 )
 from apps.modules.requests.expense_refs import (
@@ -94,10 +92,9 @@ from apps.modules.requests.approval_workflow import (
 from apps.modules.n8n_integration.views import _n8n_session
 from apps.tenants.integration_settings import get_n8n_integration_settings, get_request_ai_chat_webhook_url
 from apps.modules.telegram_approvals.services import (
-    current_pending_step_approvals_count,
     dispatch_pending_approvals,
     refresh_request_messages,
-    resend_current_pending_step,
+    resend_approval_card,
 )
 from apps.tenants.integration_settings import get_requests_gateway_settings
 
@@ -210,8 +207,9 @@ class RequestApprovalsMixin:
         route_request_approvals(request_obj=request_obj)
         return Response(serializer.data, status=status.HTTP_201_CREATED)
 
-    @action(detail=True, methods=["post"], url_path="approvals/resend")
-    def approvals_resend(self, request, pk=None):
+    @action(detail=True, methods=["post"], url_path=r"approvals/(?P<approval_id>[0-9]+)/resend")
+    def approval_card_resend(self, request, pk=None, approval_id=None):
+        """Re-send one approval card. Guards: PENDING, has a card, ≤3 resends, 10s cooldown."""
         request_obj = self.get_object()
         can_manage = (
             self._has_role(request_obj.tenant, TenantUserRole.ROLE_ADMIN)
@@ -219,21 +217,20 @@ class RequestApprovalsMixin:
             or self._has_role(request_obj.tenant, TenantUserRole.ROLE_APPROVER)
         )
         if not can_manage:
-            raise PermissionDenied("Only admins or approvers can resend approvals.")
-        payload = ApprovalResendPayloadSerializer(data=request.data or {})
-        payload.is_valid(raise_exception=True)
-        # Keep resend_key non-null for traceability even if legacy clients omit the key.
-        idempotency_key = payload.validated_data.get("idempotency_key") or f"auto:{uuid.uuid4().hex}"
-        pending_current_step = current_pending_step_approvals_count(request_obj=request_obj)
-        resent = resend_current_pending_step(request_obj=request_obj, idempotency_key=idempotency_key)
-        route_request_approvals(request_obj=request_obj)
-        return Response(
-            {
-                "resent": resent,
-                "pending_current_step": pending_current_step,
-            },
-            status=status.HTTP_200_OK,
-        )
+            raise PermissionDenied("Only admins, directors, or approvers can resend approval cards.")
+        try:
+            approval_pk = int(approval_id)
+        except (TypeError, ValueError):
+            raise ValidationError({"approval_id": "Must be an integer."})
+        # Verify the approval belongs to this request (tenant-scoped via get_object).
+        if not Approval.objects.filter(pk=approval_pk, request=request_obj).exists():
+            raise ValidationError({"approval_id": "Approval not found on this request."})
+        # resend_approval_card returns None on gateway failure (after committing the
+        # failed-attempt history). Raise here, outside its transaction, so history persists.
+        result = resend_approval_card(approval_pk=approval_pk, actor_user=request.user)
+        if result is None:
+            raise ValidationError({"detail": "Не удалось отправить сообщение через messaging gateway."})
+        return Response({"detail": "Approval card resent."}, status=status.HTTP_200_OK)
 
     @action(detail=True, methods=["post"], url_path="approvals/decision")
     def approvals_decision(self, request, pk=None):

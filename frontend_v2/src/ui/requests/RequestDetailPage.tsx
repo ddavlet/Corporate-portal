@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Alert, Button, Card, DatePicker, Input, InputNumber, Modal, Select, Space, Typography, Upload, message } from 'antd'
 import type { UploadFile } from 'antd/es/upload/interface'
-import { CopyOutlined, PlusOutlined, ReloadOutlined, SendOutlined } from '@ant-design/icons'
+import { CopyOutlined, PlusOutlined, SendOutlined } from '@ant-design/icons'
 import { useNavigate, useParams, useLocation } from 'react-router-dom'
 import { RequestReturnBackButton } from './RequestReturnBackButton'
 import {
@@ -10,7 +10,6 @@ import {
   copyPortalRequest,
   getRequestFormOptions,
   deleteRequestAttachment,
-  resendRequestApprovals,
   submitRequestForApproval,
   REQUEST_ATTACHMENT_MAX_FILES,
   uploadRequestAttachment,
@@ -19,7 +18,6 @@ import {
 import { RequestDetailContent, type ApprovalItem, type RequestDetail } from './RequestDetailModal'
 import { NoteCreateModal } from '../NoteCreateModal'
 import { useAuth } from '../auth'
-import { canResendRequestByStatus } from '../../lib/requestUtils'
 import { clampToAllowedBillingMonth, isAllowedBillingMonth } from '../../lib/billingMonth'
 import { canOpenLinkedExpense, linkedExpenseFrontendPath, linkedExpenseLabel } from '../../lib/requestExpense'
 import { readRequestReturnTo, requestReturnState, requestReturnToForDetail } from '../../lib/requestNavigation'
@@ -60,7 +58,6 @@ export function RequestDetailPage({ listPath = '/requests', variant = 'portal' }
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [openNoteModal, setOpenNoteModal] = useState(false)
-  const [resendLoading, setResendLoading] = useState(false)
   const [submitLoading, setSubmitLoading] = useState(false)
   const [approvalBusy, setApprovalBusy] = useState(false)
   const [isTenantAdmin, setIsTenantAdmin] = useState(false)
@@ -211,24 +208,6 @@ export function RequestDetailPage({ listPath = '/requests', variant = 'portal' }
     if (path && requestReturnTo) navigate(path, { state: requestReturnState(requestReturnTo) })
   }
 
-  const resendRequest = async () => {
-    if (!detail?.id) return
-    setResendLoading(true)
-    try {
-      const { resent } = await resendRequestApprovals(detail.id)
-      if (resent > 0) {
-        message.success(`Заявки отправлены повторно: ${resent}`)
-      } else {
-        message.info('Нет ожидающих согласований для повторной отправки')
-      }
-      await refreshDetail()
-    } catch (e: unknown) {
-      message.error(e instanceof Error ? e.message : 'Не удалось отправить запрос повторно')
-    } finally {
-      setResendLoading(false)
-    }
-  }
-
   const submitDraft = async () => {
     if (!detail?.id) return
     setSubmitLoading(true)
@@ -263,8 +242,6 @@ export function RequestDetailPage({ listPath = '/requests', variant = 'portal' }
   const link = detail?.expense_link ?? null
   const showExpenseButton = canOpenLinkedExpense(link)
   const showExternalExpenseHint = link?.module === 'external' && link.id != null && String(link.id) !== ''
-  const resendAllowed = canResendRequestByStatus(detail?.status)
-
   const setDecision = async (step: number, decision: 'approved' | 'rejected') => {
     if (!detail?.id) return
     setApprovalBusy(true)
@@ -567,28 +544,6 @@ export function RequestDetailPage({ listPath = '/requests', variant = 'portal' }
                   Добавить заметку
                 </Button>
               ) : null}
-              {detail?.id ? (
-                <Button
-                  size="large"
-                  block
-                  icon={<ReloadOutlined />}
-                  loading={resendLoading}
-                  disabled={!resendAllowed}
-                  title={
-                    resendAllowed
-                      ? 'Повторно отправить ожидающие согласования текущего этапа'
-                      : 'Доступно для этапов согласования (1–5) и для заявок со статусом APPROVED'
-                  }
-                  onClick={() => void resendRequest()}
-                >
-                  Отправить повторно
-                </Button>
-              ) : null}
-              {detail?.id && !resendAllowed ? (
-                <Typography.Text type="secondary" style={{ display: 'block', textAlign: 'center' }}>
-                  Повторная отправка доступна на этапах согласования (1–5) и заявок со статусом APPROVED.
-                </Typography.Text>
-              ) : null}
               {canEditDraft ? (
                 <Button
                   type="primary"
@@ -652,21 +607,6 @@ export function RequestDetailPage({ listPath = '/requests', variant = 'portal' }
                     Копировать заявку
                   </Button>
                 ) : null}
-                {detail?.id ? (
-                  <Button
-                    icon={<ReloadOutlined />}
-                    loading={resendLoading}
-                    disabled={!resendAllowed}
-                    title={
-                      resendAllowed
-                        ? 'Повторно отправить ожидающие согласования текущего этапа'
-                        : 'Доступно для этапов согласования (1–5) и для заявок со статусом APPROVED'
-                    }
-                    onClick={() => void resendRequest()}
-                  >
-                    Отправить запрос повторно
-                  </Button>
-                ) : null}
                 {showExpenseButton ? (
                   <Button type="primary" onClick={openLinkedExpense}>
                     {linkedExpenseLabel(link) || 'Открыть связанный расход'}
@@ -690,6 +630,7 @@ export function RequestDetailPage({ listPath = '/requests', variant = 'portal' }
             variant={isTg ? 'telegram' : 'default'}
             returnTo={requestReturnTo}
             onCommentAdded={refreshDetail}
+            onRefresh={refreshDetail}
           />
         </Space>
       </div>
