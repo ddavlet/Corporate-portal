@@ -363,6 +363,7 @@ const pnlExpenseItems = useMemo(() => {
             ? { pathname: '/', label: 'Дашборд' }
             : undefined
         }
+        onRefresh={selectedRequestId != null ? () => openRequestDetail(selectedRequestId) : undefined}
       />
 
       <Modal

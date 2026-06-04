@@ -315,6 +315,7 @@ type RequestDetailModalProps = {
   actions?: React.ReactNode
   /** Куда вернуть пользователя из связанных документов/справочников. */
   returnTo?: RequestReturnTo
+  onRefresh?: () => Promise<void>
 }
 
 export function RequestDetailModal({
@@ -325,10 +326,11 @@ export function RequestDetailModal({
   error = null,
   actions = null,
   returnTo,
+  onRefresh,
 }: RequestDetailModalProps) {
   return (
     <Modal open={open} title={detail ? `Заявка #${detail.id}` : 'Заявка'} footer={null} onCancel={onCancel} width={760}>
-      <RequestDetailContent detail={detail} loading={loading} error={error} actions={actions} returnTo={returnTo} />
+      <RequestDetailContent detail={detail} loading={loading} error={error} actions={actions} returnTo={returnTo} onRefresh={onRefresh} />
     </Modal>
   )
 }

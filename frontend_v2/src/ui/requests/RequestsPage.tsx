@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Alert, Button, Card, Collapse, DatePicker, Input, InputNumber, Modal, Select, Skeleton, Space, Switch, Table, Tag, Typography, message } from 'antd'
 import type { ColumnsType, TableProps } from 'antd/es/table'
 import type { Dayjs } from 'dayjs'
@@ -541,6 +541,23 @@ export function RequestsPage() {
     }
   }
 
+  const fetchDetail = useCallback(async (id: number) => {
+    setDetailLoading(true)
+    setDetailError(null)
+    try {
+      const res = await apiFetch(`/api/requests/${id}/`)
+      const json = (await res.json().catch(() => null)) as RequestDetail | null
+      if (!res.ok) {
+        throw new Error(typeof json === 'object' && json ? JSON.stringify(json) : `HTTP ${res.status}`)
+      }
+      setSelectedDetail(json)
+    } catch (e: any) {
+      setDetailError(e?.message || 'Ошибка загрузки заявки')
+    } finally {
+      setDetailLoading(false)
+    }
+  }, [])
+
   useEffect(() => {
     if (!selectedRow) {
       setSelectedDetail(null)
@@ -548,27 +565,8 @@ export function RequestsPage() {
       setDetailError(null)
       return
     }
-    let cancelled = false
-    ;(async () => {
-      setDetailLoading(true)
-      setDetailError(null)
-      try {
-        const res = await apiFetch(`/api/requests/${selectedRow.id}/`)
-        const json = (await res.json().catch(() => null)) as RequestDetail | null
-        if (!res.ok) {
-          throw new Error(typeof json === 'object' && json ? JSON.stringify(json) : `HTTP ${res.status}`)
-        }
-        if (!cancelled) setSelectedDetail(json)
-      } catch (e: any) {
-        if (!cancelled) setDetailError(e?.message || 'Ошибка загрузки заявки')
-      } finally {
-        if (!cancelled) setDetailLoading(false)
-      }
-    })()
-    return () => {
-      cancelled = true
-    }
-  }, [selectedRow])
+    void fetchDetail(selectedRow.id)
+  }, [selectedRow, fetchDetail])
 
   const columns: ColumnsType<RequestRow> = [
     { title: 'ID', dataIndex: 'id', width: 64, sorter: true },
@@ -876,6 +874,7 @@ export function RequestsPage() {
         returnTo={
           selectedRow ? requestReturnToForDetail(selectedRow.id, { fromList: true }) : undefined
         }
+        onRefresh={selectedRow ? () => fetchDetail(selectedRow.id) : undefined}
         actions={
           selectedRow ? (
             <Space wrap size={[8, 8]} style={{ width: '100%' }}>
