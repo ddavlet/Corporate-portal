@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useFinanceInfiniteScrollFooter } from '../lib/useFinanceInfiniteScrollFooter'
 import { useInfiniteList } from '../lib/useInfiniteList'
 import { ListInfiniteScrollFooter } from './ListInfiniteScrollFooter'
@@ -318,6 +318,23 @@ export function CashSectionPage({ mode }: { mode: CashSectionMode }) {
     })
   }, [allRows, search, currencyFilter, cashRegisterFilter, confirmedFilter, amountMin, amountMax, dateRange])
 
+  const fetchRequestDetail = useCallback(async (id: number) => {
+    setRequestLoading(true)
+    setRequestError(null)
+    try {
+      const res = await apiFetch(`/api/requests/${id}/`)
+      const json = (await res.json().catch(() => null)) as RequestDetail | null
+      if (!res.ok) {
+        throw new Error(typeof json === 'object' && json ? JSON.stringify(json) : `HTTP ${res.status}`)
+      }
+      setRequestDetail(json)
+    } catch (e: any) {
+      setRequestError(e?.message || 'Ошибка загрузки заявки')
+    } finally {
+      setRequestLoading(false)
+    }
+  }, [])
+
   useEffect(() => {
     if (!selectedExpense?.matched_request_id) {
       setRequestDetail(null)
@@ -325,27 +342,8 @@ export function CashSectionPage({ mode }: { mode: CashSectionMode }) {
       setRequestLoading(false)
       return
     }
-    let cancelled = false
-    ;(async () => {
-      setRequestLoading(true)
-      setRequestError(null)
-      try {
-        const res = await apiFetch(`/api/requests/${selectedExpense.matched_request_id}/`)
-        const json = (await res.json().catch(() => null)) as RequestDetail | null
-        if (!res.ok) {
-          throw new Error(typeof json === 'object' && json ? JSON.stringify(json) : `HTTP ${res.status}`)
-        }
-        if (!cancelled) setRequestDetail(json)
-      } catch (e: any) {
-        if (!cancelled) setRequestError(e?.message || 'Ошибка загрузки заявки')
-      } finally {
-        if (!cancelled) setRequestLoading(false)
-      }
-    })()
-    return () => {
-      cancelled = true
-    }
-  }, [selectedExpense?.matched_request_id])
+    void fetchRequestDetail(selectedExpense.matched_request_id)
+  }, [selectedExpense?.matched_request_id, fetchRequestDetail])
 
   const columns: ColumnsType<CashExpenseRow> = [
     {
@@ -736,6 +734,7 @@ export function CashSectionPage({ mode }: { mode: CashSectionMode }) {
               } satisfies RequestReturnTo)
             : undefined
         }
+        onRefresh={selectedExpense?.matched_request_id != null ? () => fetchRequestDetail(selectedExpense.matched_request_id!) : undefined}
       />
       <NoteCreateModal
         open={openNoteModal}

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Alert, Button, Card, Collapse, DatePicker, Descriptions, Input, InputNumber, Select, Modal, Skeleton, Space, Switch, Table, Tag, Tooltip, Typography } from 'antd'
 import { ArrowLeftOutlined } from '@ant-design/icons'
 import type { ColumnsType } from 'antd/es/table'
@@ -195,6 +195,23 @@ export function BankSectionPage({ mode }: { mode: BankSectionMode }) {
     return [...expenseRows, ...revenueRows].sort((a, b) => String(b.at || '').localeCompare(String(a.at || '')))
   }, [rows, revenues])
 
+  const fetchRequestDetail = useCallback(async (id: number) => {
+    setRequestLoading(true)
+    setRequestError(null)
+    try {
+      const res = await apiFetch(`/api/requests/${id}/`)
+      const json = (await res.json().catch(() => null)) as RequestDetail | null
+      if (!res.ok) {
+        throw new Error(typeof json === 'object' && json ? JSON.stringify(json) : `HTTP ${res.status}`)
+      }
+      setRequestDetail(json)
+    } catch (e: any) {
+      setRequestError(e?.message || 'Ошибка загрузки заявки')
+    } finally {
+      setRequestLoading(false)
+    }
+  }, [])
+
   useEffect(() => {
     if (!selectedExpense?.matched_request_id) {
       setRequestDetail(null)
@@ -202,27 +219,8 @@ export function BankSectionPage({ mode }: { mode: BankSectionMode }) {
       setRequestLoading(false)
       return
     }
-    let cancelled = false
-    ;(async () => {
-      setRequestLoading(true)
-      setRequestError(null)
-      try {
-        const res = await apiFetch(`/api/requests/${selectedExpense.matched_request_id}/`)
-        const json = (await res.json().catch(() => null)) as RequestDetail | null
-        if (!res.ok) {
-          throw new Error(typeof json === 'object' && json ? JSON.stringify(json) : `HTTP ${res.status}`)
-        }
-        if (!cancelled) setRequestDetail(json)
-      } catch (e: any) {
-        if (!cancelled) setRequestError(e?.message || 'Ошибка загрузки заявки')
-      } finally {
-        if (!cancelled) setRequestLoading(false)
-      }
-    })()
-    return () => {
-      cancelled = true
-    }
-  }, [selectedExpense?.matched_request_id])
+    void fetchRequestDetail(selectedExpense.matched_request_id)
+  }, [selectedExpense?.matched_request_id, fetchRequestDetail])
 
   const optionize = (values: string[]) =>
     [...new Set(values.filter(Boolean))].sort((a, b) => a.localeCompare(b)).map((value) => ({ label: value, value }))
@@ -589,6 +587,7 @@ export function BankSectionPage({ mode }: { mode: BankSectionMode }) {
               } satisfies RequestReturnTo)
             : undefined
         }
+        onRefresh={selectedExpense?.matched_request_id != null ? () => fetchRequestDetail(selectedExpense.matched_request_id!) : undefined}
       />
       <NoteCreateModal
         open={openNoteModal}
