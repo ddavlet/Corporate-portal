@@ -553,7 +553,7 @@ class TelegramDispatcher:
             actor_user=actor_user,
         )
 
-        # Step 2: send new card.
+        # Step 2: send new card. build_gateway_payload normalizes buttons internally.
         send_payload = build_gateway_payload(
             action=action_send,
             tenant_id=getattr(self.tenant, "id", None),
@@ -562,7 +562,7 @@ class TelegramDispatcher:
             message_text=text,
             approval_id=approval_id,
             request_id=request_id,
-            buttons=normalize_gateway_buttons(buttons or []),
+            buttons=buttons or [],
         )
         send_response = self._post(send_payload)
         new_message_id = extract_message_id(send_response) if send_response is not None else None
@@ -753,19 +753,26 @@ RESEND_COOLDOWN_SECONDS = 10
 
 
 @transaction.atomic
-def resend_approval_card(*, approval_pk: int, actor_user) -> TelegramMessage:
+def resend_approval_card(*, approval_pk: int, actor_user) -> TelegramMessage | None:
     """
     Re-send one approval card:
     1. Guards: approval PENDING, has a card, resend_count < 3, cooldown >= 10s.
     2. Deactivates old card + sends new one via TelegramDispatcher.resend().
     3. The same TelegramMessage row is kept; only message_id mutates.
+
+    Returns the updated TelegramMessage on success, or None on gateway failure.
+    On gateway failure we deliberately return (not raise) so the transaction commits
+    the resend_old/resend_new history rows — the failed attempt must stay visible for
+    debugging. The caller turns a None result into an HTTP error.
     """
     from rest_framework.exceptions import Throttled
 
-    # Lock the approval + telegram_message to prevent concurrent resends on the same card.
+    # Lock only the approval row (of=("self",)) to serialize concurrent resends on the
+    # same card without FOR-UPDATE-locking the joined request/vendor/contract/tenant/user rows.
+    # One Approval ⇆ one TelegramMessage (OneToOne), so the approval lock is sufficient.
     approval = (
         Approval.objects
-        .select_for_update()
+        .select_for_update(of=("self",))
         .select_related(
             "telegram_message",
             "request", "request__tenant",
@@ -796,7 +803,9 @@ def resend_approval_card(*, approval_pk: int, actor_user) -> TelegramMessage:
     settings_obj = get_requests_messaging_gateway_settings(tenant=req.tenant)
     dispatcher = TelegramDispatcher(req.tenant)
 
-    result = dispatcher.resend(
+    # Returns None on gateway failure; we propagate None so the committed transaction
+    # keeps the history rows that dispatcher.resend() just wrote.
+    return dispatcher.resend(
         tm,
         action_deactivate=settings_obj.edit_action,
         action_send=settings_obj.send_action,
@@ -806,10 +815,5 @@ def resend_approval_card(*, approval_pk: int, actor_user) -> TelegramMessage:
         request_id=approval.request_id,
         actor_user=actor_user,
     )
-
-    if result is None:
-        raise ValidationError({"detail": "Не удалось отправить сообщение через messaging gateway."})
-
-    return result
 
 

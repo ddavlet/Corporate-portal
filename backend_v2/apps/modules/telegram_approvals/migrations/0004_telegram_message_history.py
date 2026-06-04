@@ -18,6 +18,26 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
+        # ── 0. Sync Notification.kind choices (KIND_NOTE added in the model). ────
+        # Choices are not enforced at the DB level, so this is state-only.
+        migrations.SeparateDatabaseAndState(
+            state_operations=[
+                migrations.AlterField(
+                    model_name="notification",
+                    name="kind",
+                    field=models.CharField(
+                        choices=[
+                            ("draft", "Draft request notification"),
+                            ("portal_feedback", "Portal feedback delivery"),
+                            ("note", "Note delivery"),
+                        ],
+                        max_length=20,
+                    ),
+                ),
+            ],
+            database_operations=[],
+        ),
+
         # ── 1. Add resend tracking columns to telegram_messages ─────────────────
         migrations.SeparateDatabaseAndState(
             state_operations=[

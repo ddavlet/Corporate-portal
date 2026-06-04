@@ -948,6 +948,41 @@ class RequestApprovalsTests(APITestCase):
         self.assertEqual(res.status_code, 400, res.content)
         self.assertIn("лимит", res.data.get("detail", "").lower())
 
+    def test_resend_gateway_failure_preserves_history(self):
+        """Regression: a failed resend must NOT roll back its history rows (the @transaction.atomic
+        in resend_approval_card returns None instead of raising, so the failed attempt stays visible)."""
+        from unittest.mock import patch as _patch
+        from apps.modules.telegram_approvals.models import TelegramMessageHistory
+        from apps.modules.telegram_approvals.services import TelegramDispatcher, resend_approval_card
+
+        req_data = self._create_request()
+        request_id = req_data["id"]
+        approval = Approval.objects.get(request_id=request_id, approver_user=self.approver)
+        tm = TelegramMessage.objects.create(
+            tenant=self.tenant,
+            recipient_id=str(approval.approver_recipient_id or "999"),
+            message_id=8003,
+            sent_at=timezone.now(),
+        )
+        approval.telegram_message = tm
+        approval.save(update_fields=["telegram_message"])
+
+        # Gateway unreachable for both deactivate and send → resend() returns None.
+        with _patch.object(TelegramDispatcher, "_post", return_value=None):
+            result = resend_approval_card(approval_pk=approval.id, actor_user=self.director)
+
+        self.assertIsNone(result)
+        # History rows for the failed attempt must have survived the committed transaction.
+        history = TelegramMessageHistory.objects.filter(telegram_message=tm)
+        self.assertTrue(history.filter(action=TelegramMessageHistory.ACTION_RESEND_OLD).exists())
+        self.assertTrue(
+            history.filter(action=TelegramMessageHistory.ACTION_RESEND_NEW, success=False).exists()
+        )
+        # message_id and resend_count must be unchanged on failure.
+        tm.refresh_from_db()
+        self.assertEqual(tm.message_id, 8003)
+        self.assertEqual(tm.resend_count, 0)
+
     def test_cannot_confirm_or_decide_inactive_step_while_earlier_step_pending(self):
         pt_cfg = RequestApprovalPaymentTypeConfig.objects.get(
             config__tenant=self.tenant, payment_type="Наличные"

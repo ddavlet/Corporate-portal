@@ -164,7 +164,6 @@ function translateStepType(stepType?: string | null): string {
 }
 
 const RESEND_MAX = 3
-const RESEND_COOLDOWN_MS = 10_000
 
 function ApprovalResendButton({ item, requestId, onResent }: {
   item: ApprovalItem

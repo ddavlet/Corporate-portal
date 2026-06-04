@@ -4,7 +4,7 @@ import type { ColumnsType, TableProps } from 'antd/es/table'
 import type { Dayjs } from 'dayjs'
 import dayjs from 'dayjs'
 import { useNavigate } from 'react-router-dom'
-import { CopyOutlined, FileAddOutlined, FileSearchOutlined, MessageOutlined, ReloadOutlined, SendOutlined } from '@ant-design/icons'
+import { CopyOutlined, FileAddOutlined, FileSearchOutlined, MessageOutlined, SendOutlined } from '@ant-design/icons'
 import {
   apiFetch,
   copyPortalRequest,

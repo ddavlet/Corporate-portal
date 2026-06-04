@@ -2,7 +2,6 @@ import base64
 from datetime import date
 from decimal import Decimal, InvalidOperation
 import logging
-import uuid
 import mimetypes
 import os
 
@@ -74,7 +73,6 @@ from apps.modules.requests.serializers import (
     ApprovalConfirmPayloadSerializer,
     PaymentWebAppConfirmPayloadSerializer,
     AutoDraftSubmitAmountPayloadSerializer,
-    ApprovalResendPayloadSerializer,
     AutoRequestCreateCopyPayloadSerializer,
 )
 from apps.modules.requests.expense_refs import (
@@ -94,7 +92,6 @@ from apps.modules.requests.approval_workflow import (
 from apps.modules.n8n_integration.views import _n8n_session
 from apps.tenants.integration_settings import get_n8n_integration_settings, get_request_ai_chat_webhook_url
 from apps.modules.telegram_approvals.services import (
-    current_pending_step_approvals_count,
     dispatch_pending_approvals,
     refresh_request_messages,
     resend_approval_card,
@@ -228,7 +225,11 @@ class RequestApprovalsMixin:
         # Verify the approval belongs to this request (tenant-scoped via get_object).
         if not Approval.objects.filter(pk=approval_pk, request=request_obj).exists():
             raise ValidationError({"approval_id": "Approval not found on this request."})
-        resend_approval_card(approval_pk=approval_pk, actor_user=request.user)
+        # resend_approval_card returns None on gateway failure (after committing the
+        # failed-attempt history). Raise here, outside its transaction, so history persists.
+        result = resend_approval_card(approval_pk=approval_pk, actor_user=request.user)
+        if result is None:
+            raise ValidationError({"detail": "Не удалось отправить сообщение через messaging gateway."})
         return Response({"detail": "Approval card resent."}, status=status.HTTP_200_OK)
 
     @action(detail=True, methods=["post"], url_path="approvals/decision")
