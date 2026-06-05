@@ -304,8 +304,8 @@ export function RequestCreatePage({ requestsBasePath = '/requests', variant = 'p
       message.warning('Выберите назначение платежа')
       return
     }
-    if (activePt?.vendor_ids?.length && !vendorRefId) {
-      message.warning('Выберите поставщика из списка')
+    if (!vendorRefId) {
+      message.warning('Выберите поставщика из справочника')
       return
     }
     if (contractsRequiredForPt && !contractRefId) {
