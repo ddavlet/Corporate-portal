@@ -438,6 +438,10 @@ export function RequestsPage() {
       message.warning('Выберите назначение платежа')
       return
     }
+    if (!editDraft.vendor.trim()) {
+      message.warning('Укажите поставщика')
+      return
+    }
     setEditSaving(true)
     try {
       const payload = {

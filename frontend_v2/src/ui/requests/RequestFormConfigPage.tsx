@@ -476,7 +476,7 @@ export function RequestFormConfigPage() {
                         showSearch
                       />
                       <Typography.Paragraph type="secondary" style={{ marginTop: 6, marginBottom: 0 }}>
-                        Если список пустой — ограничение не применяется (можно вводить любого поставщика).
+                        Поставщик обязателен для любой заявки. Список ограничивает выбор; если пустой — доступны все поставщики подходящего вида.
                       </Typography.Paragraph>
                     </div>
                   </div>
