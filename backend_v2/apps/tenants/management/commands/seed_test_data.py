@@ -492,7 +492,7 @@ class Command(BaseCommand):
             dt = now - timedelta(days=i)
             CardRevenue.objects.create(
                 tenant=tenant, created_by=admin,
-                amount=Decimal("500"), currency="USD",
+                total_sum=Decimal("500"), currency="USD",
                 wallet=card_wallet, revenue_at=dt,
             )
         self.stdout.write("  Corporate card: 4 expenses, 3 revenues")

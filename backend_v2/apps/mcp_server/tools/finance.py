@@ -229,9 +229,18 @@ def list_card_revenues(
     limit = min(max(1, int(limit)), _MAX_LIMIT)
     return json_safe(list(
         qs.order_by("-revenue_at")[:limit].values(
-            "id", "external_id", "total_sum", "amount", "currency", "revenue_at",
-            "revenue_date", "direction", "organization", "counterparty",
-            "confirmed", "source_year", "wallet_id", "created_at",
+            "id",
+            "external_id",
+            "total_sum",
+            "currency",
+            "revenue_at",
+            "operation",
+            "counterparty",
+            "comment",
+            "confirmed",
+            "payload",
+            "wallet_id",
+            "created_at",
         )
     ))
 

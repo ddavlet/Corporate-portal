@@ -611,15 +611,19 @@ export type CorporateCardRevenue = {
   total_sum?: string | number
   comment?: string
   source_year?: number | null
-  title: string
-  amount: string | number
   currency: string
   revenue_at: string
-  note: string
   payload?: Record<string, unknown>
   bank_expense_id: number | null
   bank_expense_exists: boolean
+  wallet_id?: number | null
   created_at: string
+  /** @deprecated use operation */
+  title?: string
+  /** @deprecated use total_sum */
+  amount?: string | number
+  /** @deprecated use comment */
+  note?: string
 }
 
 export type CashRevenue = {

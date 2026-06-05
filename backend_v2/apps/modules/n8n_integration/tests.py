@@ -12,6 +12,7 @@ from apps.tenants.models import Tenant, TenantMembership, TenantModuleConfig, Te
 from apps.modules.bank_expenses.models import BankExpense, BankRevenue
 from apps.modules.cashier.models import CashExpense
 from apps.modules.cashier.models import CashRevenue
+from apps.modules.corporate_card.models import CardRevenue
 from apps.modules.clients_debt.models import ClientDebtSnapshot
 from apps.modules.requests.models import (
     Approval,
@@ -795,6 +796,65 @@ class N8nIntegrationAuthTests(APITestCase):
         self.assertEqual(res.status_code, 201, res.content)
         row = CashRevenue.objects.get(pk=95011)
         self.assertEqual(row.wallet_id, cash_wallet.id)
+
+    def test_card_revenue_import_minimal_fields(self):
+        get_or_create_corporate_wallet(tenant=self.tenant, currency="UZS")
+        url = f"{self.n8n_prefix}/corporate-card/revenues/"
+        body = {
+            "date": "2026-03-19T19:00:00.000Z",
+            "total_sum": "20000",
+            "currency": "UZS",
+            "operation": "Возврат по карте",
+            "counterparty": "Encarnacion Jose",
+            "external_id": "1-000004435",
+        }
+        res = self.client.post(url, body, format="json", **self._headers(self.admin))
+        self.assertEqual(res.status_code, 201, res.content)
+        payload = res.json()
+        self.assertNotIn("amount", payload)
+        self.assertNotIn("note", payload)
+        self.assertNotIn("title", payload)
+        self.assertEqual(payload.get("total_sum"), "20000.00")
+        row = CardRevenue.objects.get(tenant=self.tenant, external_id="1-000004435")
+        self.assertEqual(str(row.total_sum), "20000.00")
+        self.assertIsNotNone(row.wallet_id)
+
+    def test_card_revenue_import_legacy_fields_go_to_payload(self):
+        get_or_create_corporate_wallet(tenant=self.tenant, currency="UZS")
+        url = f"{self.n8n_prefix}/corporate-card/revenues/"
+        body = {
+            "date": "2026-03-19T19:00:00.000Z",
+            "total_sum": "20000",
+            "direction": "in",
+            "organization": "LEMONFIT",
+            "unit": "LEMONFIT",
+            "employee": "John",
+            "cash_type": "Карта",
+            "account": "Corp card",
+            "source_year": 2026,
+        }
+        res = self.client.post(url, body, format="json", **self._headers(self.admin))
+        self.assertEqual(res.status_code, 201, res.content)
+        row = CardRevenue.objects.latest("id")
+        self.assertEqual(row.payload.get("direction"), "in")
+        self.assertEqual(row.payload.get("organization"), "LEMONFIT")
+        self.assertEqual(row.payload.get("source_year"), 2026)
+
+    def test_card_revenue_import_amount_and_note_aliases(self):
+        get_or_create_corporate_wallet(tenant=self.tenant, currency="UZS")
+        url = f"{self.n8n_prefix}/corporate-card/revenues/"
+        body = {
+            "date": "2026-03-19T19:00:00.000Z",
+            "amount": "15000",
+            "note": "alias note",
+            "currency": "UZS",
+            "operation": "Top-up",
+        }
+        res = self.client.post(url, body, format="json", **self._headers(self.admin))
+        self.assertEqual(res.status_code, 201, res.content)
+        row = CardRevenue.objects.latest("id")
+        self.assertEqual(str(row.total_sum), "15000.00")
+        self.assertEqual(row.comment, "alias note")
 
     def test_request_upsert_with_client_id(self):
         url = f"{self.n8n_prefix}/requests/"

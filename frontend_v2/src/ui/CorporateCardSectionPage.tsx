@@ -165,7 +165,7 @@ export function CorporateCardSectionPage({ mode }: { mode: CorporateCardSectionM
     const revenueRows = revenues.map((r) => ({
       kind: 'revenue' as const,
       id: r.id,
-      title: r.title || r.external_id || '',
+      title: r.operation || r.external_id || '',
       amount: r.total_sum ?? r.amount,
       currency: r.currency,
       at: r.revenue_at,
@@ -313,8 +313,8 @@ export function CorporateCardSectionPage({ mode }: { mode: CorporateCardSectionM
     {
       title: 'Сумма',
       dataIndex: 'total_sum',
-      sorter: (a, b) => Number(a.total_sum ?? a.amount) - Number(b.total_sum ?? b.amount),
-      render: (_, row) => `${Number(row.total_sum ?? row.amount).toLocaleString('ru-RU')} ${row.currency || ''}`.trim(),
+      sorter: (a, b) => Number(a.total_sum ?? 0) - Number(b.total_sum ?? 0),
+      render: (_, row) => `${Number(row.total_sum ?? 0).toLocaleString('ru-RU')} ${row.currency || ''}`.trim(),
     },
     {
       title: 'Счёт',
@@ -334,7 +334,7 @@ export function CorporateCardSectionPage({ mode }: { mode: CorporateCardSectionM
           <Tag>Нет</Tag>
         ),
     },
-    { title: 'Комментарий', dataIndex: 'comment', render: (_, row) => row.comment || row.note || '-' },
+    { title: 'Комментарий', dataIndex: 'comment', render: (value: string | undefined) => value || '-' },
   ]
 
   return (
@@ -550,14 +550,16 @@ export function CorporateCardSectionPage({ mode }: { mode: CorporateCardSectionM
             <Descriptions.Item label="Счёт">{selectedRevenue.account || '-'}</Descriptions.Item>
             <Descriptions.Item label="Контрагент">{selectedRevenue.counterparty || '-'}</Descriptions.Item>
             <Descriptions.Item label="Сумма">
-              {`${Number(selectedRevenue.total_sum ?? selectedRevenue.amount).toLocaleString('ru-RU')} ${selectedRevenue.currency || ''}`.trim()}
+              {`${Number(selectedRevenue.total_sum ?? 0).toLocaleString('ru-RU')} ${selectedRevenue.currency || ''}`.trim()}
             </Descriptions.Item>
-            <Descriptions.Item label="Год источника">{selectedRevenue.source_year ?? '-'}</Descriptions.Item>
+            <Descriptions.Item label="Год источника">
+              {selectedRevenue.source_year ?? selectedRevenue.revenue_date?.slice(0, 4) ?? '-'}
+            </Descriptions.Item>
             <Descriptions.Item label="ID расхода банка">{selectedRevenue.bank_expense_id ?? '-'}</Descriptions.Item>
             <Descriptions.Item label="Связь найдена">
               {selectedRevenue.bank_expense_exists ? <Tag color="success">Да</Tag> : <Tag>Нет</Tag>}
             </Descriptions.Item>
-            <Descriptions.Item label="Комментарий">{selectedRevenue.comment || selectedRevenue.note || '-'}</Descriptions.Item>
+            <Descriptions.Item label="Комментарий">{selectedRevenue.comment || '-'}</Descriptions.Item>
             <Descriptions.Item label="Создано">{formatDateTime(selectedRevenue.created_at)}</Descriptions.Item>
           </Descriptions>
         ) : null}

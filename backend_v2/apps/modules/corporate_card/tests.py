@@ -7,6 +7,7 @@ from rest_framework_simplejwt.tokens import RefreshToken
 
 from apps.tenants.models import Tenant
 from apps.modules.corporate_card.models import CardExpense, CardRevenue
+from apps.modules.corporate_card.serializers import _tashkent_date_from_datetime
 from apps.modules.wallets.resolution import get_or_create_corporate_wallet
 from apps.tenants.models import TenantMembership, TenantModuleConfig, TenantUserRole
 from apps.modules.requests.models import Request, RequestApprovalConfig, RequestApprovalPaymentTypeConfig
@@ -44,13 +45,11 @@ class CorporateCardSmokeTests(TestCase):
             tenant=self.tenant,
             external_id="rev-1",
             confirmed=True,
-            title="Refund",
-            amount=7,
+            operation="Refund",
             currency="UZS",
             total_sum=7,
             wallet=w,
             revenue_at=dt,
-            note="",
             payload={},
             created_by=self.user,
         )
@@ -145,4 +144,54 @@ class CorporateCardExpenseRequestRequiredApiTests(APITestCase):
         self.assertTrue(by_id[required_paid.id]["has_paid_request"])
         self.assertFalse(by_id[optional_missing.id]["request_required"])
         self.assertFalse(by_id[optional_missing.id]["has_paid_request"])
+
+    def test_card_revenue_api_dual_read_legacy_payload(self):
+        dt = timezone.now()
+        CardRevenue.objects.create(
+            tenant=self.tenant,
+            external_id="legacy-rev",
+            currency="UZS",
+            total_sum=100,
+            wallet=self.wallet,
+            revenue_at=dt,
+            payload={
+                "title": "Legacy operation title",
+                "note": "Legacy comment",
+                "direction": "in",
+                "organization": "Legacy Org",
+                "source_year": dt.year,
+            },
+            created_by=self.admin,
+        )
+        res = self.client.get("/api/corporate-card/revenues/", **self._headers())
+        self.assertEqual(res.status_code, 200, res.content)
+        payload = res.json()
+        rows = payload if isinstance(payload, list) else payload.get("results", [])
+        row = next(item for item in rows if item["external_id"] == "legacy-rev")
+        self.assertEqual(row["operation"], "Legacy operation title")
+        self.assertEqual(row["comment"], "Legacy comment")
+        self.assertEqual(row["direction"], "in")
+        self.assertEqual(row["organization"], "Legacy Org")
+        self.assertEqual(row["source_year"], dt.year)
+        self.assertEqual(row["revenue_date"], _tashkent_date_from_datetime(dt).isoformat())
+        self.assertNotIn("amount", row)
+        self.assertNotIn("note", row)
+        self.assertNotIn("title", row)
+
+    def test_card_revenue_model_has_no_duplicate_columns(self):
+        field_names = {f.name for f in CardRevenue._meta.get_fields()}
+        for removed in (
+            "title",
+            "amount",
+            "note",
+            "revenue_date",
+            "source_year",
+            "direction",
+            "organization",
+            "unit",
+            "employee",
+            "cash_type",
+            "account",
+        ):
+            self.assertNotIn(removed, field_names, msg=f"duplicate column {removed} should be dropped")
 
