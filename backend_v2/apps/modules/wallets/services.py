@@ -83,7 +83,7 @@ def movements_net_card_ytd(*, wallet: Wallet, start_utc: datetime, end_utc: date
             confirmed=True,
             revenue_at__gte=start_utc,
             revenue_at__lte=end_utc,
-        ).aggregate(s=Sum("amount"))["s"]
+        ).aggregate(s=Sum("total_sum"))["s"]
         or Decimal("0")
     )
     return rev - exp
