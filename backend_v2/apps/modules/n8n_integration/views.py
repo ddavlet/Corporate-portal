@@ -20,7 +20,12 @@ from apps.modules.clients_debt.models import ClientDebtSnapshot
 from apps.modules.payroll.models import PayrollLine
 from apps.modules.cashier.models import CashExpense, CashRevenue
 from apps.modules.corporate_card.models import CardExpense, CardRevenue
+from apps.modules.investments.approval_services import (
+    create_approvals_for_invest_return,
+    route_invest_return_approvals,
+)
 from apps.modules.investments.models import InvestCompany, InvestPayoutSchedule, InvestReturn, ProjectInvestment
+from apps.modules.investments.serializers import InvestReturnSerializer
 from apps.modules.notes.models import Note
 from apps.modules.requests.models import Approval, Request
 from apps.modules.requests.amortization import build_amortization_schedule_rows, is_request_amortized
@@ -1548,6 +1553,30 @@ class N8nPayrollLineBatchUpsertView(_N8nBatchBaseView):
 
 class N8nNoteBatchUpsertView(_N8nBatchBaseView):
     single_view_class = N8nNoteUpsertView
+
+
+class N8nInvestReturnPortalCreateView(_N8nBaseView):
+    """
+    Create an InvestReturn as the portal would: fetches CBU rate, enforces form-config
+    type whitelist, and launches the configured approval chain via Telegram.
+    Create-only — for historical imports with explicit IDs use the upsert endpoint.
+    """
+
+    def post(self, request):
+        tenant = request.tenant
+        su = _system_user()
+        if su is None:
+            return Response({"detail": "System user (pk=1) is missing."}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+
+        ser = InvestReturnSerializer(data=request.data, context={"request": request})
+        ser.is_valid(raise_exception=True)
+
+        with transaction.atomic():
+            invest_return = ser.save(tenant=tenant, created_by=su)
+            create_approvals_for_invest_return(invest_return=invest_return)
+
+        route_invest_return_approvals(invest_return=invest_return)
+        return Response(InvestReturnSerializer(invest_return, context={"request": request}).data, status=status.HTTP_201_CREATED)
 
 
 class N8nInvestReturnBatchUpsertView(_N8nBatchBaseView):
