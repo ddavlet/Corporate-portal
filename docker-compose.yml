@@ -121,7 +121,7 @@ services:
        - traefik.http.middlewares.n8n.headers.STSPreload=true
 
       # ---------- CORS middleware for dev.kolberg.uz  ----------
-       - traefik.http.middlewares.n8n-dev-cors.headers.accessControlAllowOriginList=https://neuron.kolberg.uz,https://construction.kolberg.uz,https://lemonfit.kolberg.uz,https://lemonaqua.kolberg.uz,https://main.kolberg.uz,https://zarqand.kolberg.uz,https://invest.kolberg.uz,https://syrop.kolberg.uz,https://qulay.kolberg.uz,https://lemonhavo.kolberg.uz
+       - traefik.http.middlewares.n8n-dev-cors.headers.accessControlAllowOriginList=https://neuron.kolberg.uz,https://construction.kolberg.uz,https://lemonfit.kolberg.uz,https://lemonaqua.kolberg.uz,https://main.kolberg.uz,https://zarqand.kolberg.uz,https://invest.kolberg.uz,https://syrop.kolberg.uz,https://qulay.kolberg.uz,https://lemonhavo.kolberg.uz,https://kp.kolberg.uz
        - traefik.http.middlewares.n8n-dev-cors.headers.accessControlAllowMethods=GET,POST,OPTIONS
        - traefik.http.middlewares.n8n-dev-cors.headers.accessControlAllowHeaders=Content-Type,Authorization
        - traefik.http.middlewares.n8n-dev-cors.headers.addVaryHeader=true
@@ -387,6 +387,29 @@ services:
        - traefik.http.routers.n8n-whp-lemonhavo.middlewares=n8n-lemonhavo-whp@docker,n8n@docker,n8n-error-pages@docker
        - traefik.http.routers.n8n-whp-lemonhavo.service=n8n
 
+      # ---------- Webhooks & Forms for kp.kolberg.uz ----------
+       # Form: https://kp.kolberg.uz/form/<path> -> n8n /form/kp/<path>
+       - traefik.http.middlewares.n8n-kp-form.replacepathregex.regex=^/form/(.*)$
+       - traefik.http.middlewares.n8n-kp-form.replacepathregex.replacement=/form/kp/$1
+       - traefik.http.routers.n8n-form-kp.rule=Host(`kp.kolberg.uz`) && PathPrefix(`/form/`)
+       - traefik.http.routers.n8n-form-kp.entrypoints=web,websecure
+       - traefik.http.routers.n8n-form-kp.tls=true
+       - traefik.http.routers.n8n-form-kp.tls.certresolver=mytlschallenge
+       - traefik.http.routers.n8n-form-kp.priority=100
+       - traefik.http.routers.n8n-form-kp.middlewares=n8n-kp-form@docker,n8n@docker,n8n-error-pages@docker
+       - traefik.http.routers.n8n-form-kp.service=n8n
+
+       # Webhook prefix: https://kp.kolberg.uz/webhook/<path> -> n8n /webhook/kp/<path>
+       - traefik.http.middlewares.n8n-kp-whp.replacepathregex.regex=^/webhook/(.*)$
+       - traefik.http.middlewares.n8n-kp-whp.replacepathregex.replacement=/webhook/kp/$1
+       - traefik.http.routers.n8n-whp-kp.rule=Host(`kp.kolberg.uz`) && PathPrefix(`/webhook/`)
+       - traefik.http.routers.n8n-whp-kp.entrypoints=web,websecure
+       - traefik.http.routers.n8n-whp-kp.tls=true
+       - traefik.http.routers.n8n-whp-kp.tls.certresolver=mytlschallenge
+       - traefik.http.routers.n8n-whp-kp.priority=100
+       - traefik.http.routers.n8n-whp-kp.middlewares=n8n-kp-whp@docker,n8n@docker,n8n-error-pages@docker
+       - traefik.http.routers.n8n-whp-kp.service=n8n
+
       # ---------- Final n8n service config ----------
        - traefik.http.services.n8n.loadbalancer.server.port=5678
 
@@ -600,7 +623,7 @@ services:
       DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:-change-me-to-a-long-random-secret-key-32-plus-bytes}
       # Override in `.env` next to this file: DJANGO_DEBUG=true (never leave on in production).
       DJANGO_DEBUG: "${DJANGO_DEBUG:-False}"
-      DJANGO_ALLOWED_HOSTS: "main.kolberg.uz,lemonfit.kolberg.uz,lemonfit2.kolberg.uz,neuron.kolberg.uz,lemonaqua.kolberg.uz,qulay.kolberg.uz,lemonhavo.kolberg.uz,${MCP_HOST:-api.kolberg.uz}"
+      DJANGO_ALLOWED_HOSTS: "main.kolberg.uz,lemonfit.kolberg.uz,lemonfit2.kolberg.uz,neuron.kolberg.uz,lemonaqua.kolberg.uz,qulay.kolberg.uz,lemonhavo.kolberg.uz,kp.kolberg.uz,${MCP_HOST:-api.kolberg.uz}"
       # No leading/trailing slashes (e.g. n8n). Slashes break Traefik labels: /api/${VAR}/ → /api/n8n//
       N8N_INTEGRATION_URL_PATH: ${N8N_INTEGRATION_URL_PATH:-n8n}
       N8N_INTEGRATION_TOKEN: ${N8N_INTEGRATION_TOKEN:-}
@@ -776,7 +799,7 @@ services:
       - traefik.http.routers.staticfiles-login.priority=2000
 
       # ---- tenants /static/* (добавь сюда нужные хосты) ----
-      - traefik.http.routers.staticfiles-tenants.rule=(Host(`lemonfit.kolberg.uz`) || Host(`lemonfit2.kolberg.uz`) || Host(`neuron.kolberg.uz`) || Host(`lemonaqua.kolberg.uz`)) && PathPrefix(`/static/`)
+      - traefik.http.routers.staticfiles-tenants.rule=(Host(`lemonfit.kolberg.uz`) || Host(`lemonfit2.kolberg.uz`) || Host(`neuron.kolberg.uz`) || Host(`lemonaqua.kolberg.uz`) || Host(`kp.kolberg.uz`)) && PathPrefix(`/static/`)
       - traefik.http.routers.staticfiles-tenants.entrypoints=web,websecure
       - traefik.http.routers.staticfiles-tenants.tls=true
       - traefik.http.routers.staticfiles-tenants.tls.certresolver=mytlschallenge
