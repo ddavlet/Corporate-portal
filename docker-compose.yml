@@ -711,6 +711,7 @@ services:
     restart: always
     environment:
       BACKEND_WEBHOOK_URL: http://kolberg-django-v2:8001/api/messaging-gateway/webhook/
+      BACKEND_EVENT_LOG_URL: http://kolberg-django-v2:8001/api/messaging-gateway/events/
       PUBLIC_WEBHOOK_BASE_URL: ${TG_GATEWAY_PUBLIC_BASE_URL:-https://tg-gateway.kolberg.uz}
       CALLBACK_COOLDOWN_SECS: ${CALLBACK_COOLDOWN_SECS:-10}
       DATABASE_URL: ${TG_GATEWAY_DATABASE_URL:-}

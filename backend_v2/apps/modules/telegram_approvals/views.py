@@ -18,6 +18,7 @@ from apps.modules.telegram_approvals.serializers import MessagingGatewayCallback
 from apps.modules.telegram_approvals.services import (
     deactivate_approval_message_buttons,
     ensure_callback_identity,
+    save_telegram_event,
 )
 from apps.tenants.models import Tenant
 from apps.tenants.permissions import IsTenantAdmin
@@ -376,3 +377,21 @@ class TelegramApprovalWebhookView(APIView):
                 )
 
         return Response({"detail": "Callback processed."}, status=status.HTTP_200_OK)
+
+
+class TelegramEventLogView(APIView):
+    """Receive raw Telegram events forwarded by the tg-gateway and persist them.
+
+    Accessible only from the internal Docker network — no authentication needed.
+    Always returns 200 so the gateway's fire-and-forget never retries on transient errors.
+    """
+
+    permission_classes = [AllowAny]
+    authentication_classes = []
+
+    def post(self, request):
+        try:
+            save_telegram_event(request.data)
+        except Exception:
+            logger.exception("event_log: failed to save event")
+        return Response({"ok": True}, status=status.HTTP_200_OK)

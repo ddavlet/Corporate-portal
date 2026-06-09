@@ -21,6 +21,7 @@ Actions:
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 from contextlib import asynccontextmanager
@@ -47,6 +48,18 @@ BACKEND_URL = os.environ.get("BACKEND_WEBHOOK_URL", "")
 # Optional Host header so Django tenant middleware sees a real subdomain (e.g. test.localhost:8001).
 BACKEND_WEBHOOK_HTTP_HOST = (os.environ.get("BACKEND_WEBHOOK_HTTP_HOST", "") or "").strip()
 PUBLIC_WEBHOOK_BASE_URL = (os.environ.get("PUBLIC_WEBHOOK_BASE_URL", "") or "").rstrip("/")
+BACKEND_EVENT_LOG_URL = (os.environ.get("BACKEND_EVENT_LOG_URL", "") or "").strip()
+
+# Full list of Telegram update types to subscribe to when registering a webhook.
+# Includes opt-in types (chat_member, message_reaction, etc.) not sent by default.
+_ALL_ALLOWED_UPDATES = [
+    "message", "edited_message", "channel_post", "edited_channel_post",
+    "callback_query", "inline_query", "chosen_inline_result",
+    "my_chat_member", "chat_member", "chat_join_request",
+    "message_reaction", "message_reaction_count",
+    "shipping_query", "pre_checkout_query", "poll", "poll_answer",
+    "chat_boost", "removed_chat_boost",
+]
 
 
 # ── Lifespan ──────────────────────────────────────────────────────────────────
@@ -119,6 +132,19 @@ _DISCOVERY_UPDATE_KEYS = (
 )
 
 
+def _detect_update_type(update: dict) -> str:
+    """Return the Telegram update type — the single top-level key besides update_id.
+
+    Covers every update kind (message, edited_message, callback_query, message_reaction,
+    poll_answer, chat_join_request, …) so events are stored with their real type rather
+    than a generic 'unknown'.
+    """
+    for key in update:
+        if key != "update_id":
+            return key
+    return "unknown"
+
+
 def _extract_chat_info(update: dict) -> dict | None:
     """Pull chat/sender identifiers out of a Telegram update for discovery logging.
 
@@ -146,6 +172,31 @@ def _extract_chat_info(update: dict) -> dict | None:
             info["new_member_status"] = (node.get("new_chat_member") or {}).get("status")
         return info
     return None
+
+
+# Strong references to in-flight fire-and-forget tasks. asyncio only keeps weak
+# references to tasks, so without this a task can be garbage-collected mid-flight,
+# silently dropping the event before the HTTP POST completes.
+_background_tasks: set[asyncio.Task] = set()
+
+
+def _schedule(coro) -> None:
+    """Run a coroutine in the background, keeping a strong reference until it finishes."""
+    task = asyncio.create_task(coro)
+    _background_tasks.add(task)
+    task.add_done_callback(_background_tasks.discard)
+
+
+async def _forward_event_log(data: dict) -> None:
+    """Fire-and-forget POST to backend event log. Errors are logged, never raised."""
+    if not BACKEND_EVENT_LOG_URL:
+        return
+    try:
+        headers = {"Host": BACKEND_WEBHOOK_HTTP_HOST} if BACKEND_WEBHOOK_HTTP_HOST else None
+        async with httpx.AsyncClient(timeout=4) as client:
+            await client.post(BACKEND_EVENT_LOG_URL, json=data, headers=headers)
+    except Exception as exc:
+        logger.warning("event_log forward failed: %s", exc)
 
 
 # ── POST /v1/messaging/send ───────────────────────────────────────────────────
@@ -230,6 +281,15 @@ async def dispatch(payload: DispatchRequest) -> JSONResponse:
             tg_response=tg_data or None,
         )
 
+    _schedule(_forward_event_log({
+        "direction":    "outgoing",
+        "event_type":   action,
+        "recipient_id": payload.recipient_id,
+        "tenant_id":    payload.tenant_id,
+        "payload":      payload.model_dump(exclude={"bot_token"}),
+        "tg_response":  tg_data or None,
+    }))
+
     if not ok:
         raise HTTPException(status_code=502, detail=f"Telegram error: {error_text}")
 
@@ -292,6 +352,12 @@ async def messaging_webhook(
             recipient_id=(str(info["chat_id"]) if info and info.get("chat_id") is not None else None),
             ok=True, status_code=200, payload=update,
         )
+        _schedule(_forward_event_log({
+            "direction":  "incoming",
+            "event_type": _detect_update_type(update),
+            "update_id":  update.get("update_id"),
+            "payload":    update,
+        }))
         return {"ok": True}
 
     msg          = cb.get("message", {})
@@ -350,6 +416,12 @@ async def messaging_webhook(
         ok=ok, status_code=fwd_status, error_text=error_text,
         payload=update, tg_response=forward,
     )
+    _schedule(_forward_event_log({
+        "direction":  "incoming",
+        "event_type": "callback_query",
+        "update_id":  update.get("update_id"),
+        "payload":    update,
+    }))
 
     return {"ok": True}
 
@@ -369,7 +441,11 @@ async def set_telegram_webhook(payload: WebhookSetRequest) -> JSONResponse:
 
     logger.info("webhook set requested token=%s source=%s url=%s", token_mask, url_source, webhook_url)
 
-    status_code, tg_data = await _telegram_api(payload.bot_token, "setWebhook", {"url": webhook_url})
+    status_code, tg_data = await _telegram_api(
+        payload.bot_token,
+        "setWebhook",
+        {"url": webhook_url, "allowed_updates": payload.allowed_updates or _ALL_ALLOWED_UPDATES},
+    )
     logger.info(
         "webhook set result token=%s ok=%s status=%s description=%s",
         token_mask,

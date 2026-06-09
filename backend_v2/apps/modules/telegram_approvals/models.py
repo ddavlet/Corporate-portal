@@ -151,6 +151,68 @@ class Notification(models.Model):
         return f"Notification(id={self.pk}, kind={self.kind}, source={self.content_type}:{self.object_id})"
 
 
+class TelegramChatRegistry(models.Model):
+    """Auto-discovered chat encountered by the bot. Global (not tenant-scoped)."""
+
+    chat_id = models.CharField(max_length=50, unique=True)
+    chat_type = models.CharField(max_length=20, blank=True)   # private/group/supergroup/channel
+    name = models.CharField(max_length=255, blank=True)       # title or first_name + last_name
+    username = models.CharField(max_length=100, blank=True)
+    first_seen_at = models.DateTimeField(auto_now_add=True)
+    last_seen_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "telegram_chat_registry"
+        ordering = ["-last_seen_at"]
+
+    def __str__(self):
+        return f"TelegramChatRegistry(chat_id={self.chat_id}, type={self.chat_type}, name={self.name!r})"
+
+
+class TelegramEvent(models.Model):
+    """Raw Telegram event log — every incoming update and every outgoing dispatch."""
+
+    DIRECTION_INCOMING = "incoming"
+    DIRECTION_OUTGOING = "outgoing"
+    DIRECTION_CHOICES = [
+        (DIRECTION_INCOMING, "Incoming"),
+        (DIRECTION_OUTGOING, "Outgoing"),
+    ]
+
+    chat_registry = models.ForeignKey(
+        TelegramChatRegistry,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="events",
+    )
+    # Denormalized for fast filtering without a JOIN
+    chat_id = models.CharField(max_length=50, blank=True)
+    event_type = models.CharField(max_length=50)     # message, edited_message, callback_query, send, …
+    direction = models.CharField(max_length=10, choices=DIRECTION_CHOICES)
+    timestamp = models.DateTimeField()
+    payload = models.JSONField()
+
+    # Extracted for searchability — populated from the raw payload at write time
+    update_id = models.BigIntegerField(null=True, blank=True)
+    sender_id = models.BigIntegerField(null=True, blank=True)  # from.id
+    message_id_tg = models.BigIntegerField(null=True, blank=True)
+    message_text = models.TextField(blank=True)
+
+    class Meta:
+        db_table = "telegram_events"
+        ordering = ["-timestamp"]
+        indexes = [
+            models.Index(fields=["chat_id", "timestamp"], name="tgevent_chat_ts_idx"),
+            models.Index(fields=["event_type", "direction"], name="tgevent_type_dir_idx"),
+            models.Index(fields=["sender_id"], name="tgevent_sender_idx"),
+            models.Index(fields=["update_id"], name="tgevent_update_id_idx"),
+        ]
+
+    def __str__(self):
+        return f"TelegramEvent(id={self.pk}, type={self.event_type}, dir={self.direction}, chat={self.chat_id})"
+
+
 class TenantTelegramChat(models.Model):
     """Telegram group chat registered for a tenant. Used as a shared destination for notifications and approvals."""
 

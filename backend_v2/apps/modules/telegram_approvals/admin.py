@@ -1,6 +1,12 @@
 from django.contrib import admin
 
-from apps.modules.telegram_approvals.models import TelegramMessage, TelegramMessageHistory, TenantTelegramChat
+from apps.modules.telegram_approvals.models import (
+    TelegramChatRegistry,
+    TelegramEvent,
+    TelegramMessage,
+    TelegramMessageHistory,
+    TenantTelegramChat,
+)
 
 
 class TelegramMessageHistoryInline(admin.TabularInline):
@@ -36,3 +42,22 @@ class TelegramMessageHistoryAdmin(admin.ModelAdmin):
 class TenantTelegramChatAdmin(admin.ModelAdmin):
     list_display = ("name", "tenant", "chat_id", "is_active")
     list_filter = ("tenant", "is_active")
+
+
+@admin.register(TelegramChatRegistry)
+class TelegramChatRegistryAdmin(admin.ModelAdmin):
+    list_display = ("chat_id", "chat_type", "name", "username", "first_seen_at", "last_seen_at")
+    search_fields = ("chat_id", "name", "username")
+    list_filter = ("chat_type",)
+    readonly_fields = ("first_seen_at", "last_seen_at")
+
+
+@admin.register(TelegramEvent)
+class TelegramEventAdmin(admin.ModelAdmin):
+    list_display = ("id", "event_type", "direction", "chat_id", "sender_id", "message_id_tg", "timestamp")
+    list_filter = ("event_type", "direction")
+    search_fields = ("chat_id", "message_text", "sender_id")
+    readonly_fields = ("chat_registry", "chat_id", "event_type", "direction", "timestamp", "payload",
+                       "update_id", "sender_id", "message_id_tg", "message_text")
+    date_hierarchy = "timestamp"
+    raw_id_fields = ("chat_registry",)

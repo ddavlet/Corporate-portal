@@ -65,6 +65,7 @@ class DispatchRequest(BaseModel):
 class WebhookSetRequest(BaseModel):
     bot_token: str
     webhook_url: str | None = None
+    allowed_updates: list[str] | None = None
 
 
 class WebhookDeleteRequest(BaseModel):
