@@ -35,7 +35,8 @@ docker compose --env-file ./.env build frontend_v2 tg-gateway
                           # пересобираем образы frontend и tg-gateway
                           # backend_v2 пропускаем — код монтируется через bind mount
 
-docker restart django_v2  # перезапускаем бек чтобы подхватил новый код
+docker compose --env-file ./.env up -d --no-deps backend_v2 task_cron
+                          # пересоздаём контейнеры бека — подхватывают новые env-переменные из .env
 
 docker compose --env-file ./.env exec -T backend_v2 python manage.py migrate
                           # применяем новые миграции к БД
