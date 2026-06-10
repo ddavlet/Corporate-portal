@@ -11,7 +11,13 @@ from rest_framework.exceptions import ValidationError
 
 from apps.modules.requests.integration_settings import get_requests_messaging_gateway_settings
 from apps.modules.requests.models import Approval, Request
-from apps.modules.telegram_approvals.models import Notification, TelegramMessage, TelegramMessageHistory
+from apps.modules.telegram_approvals.models import (
+    Notification,
+    TelegramChatRegistry,
+    TelegramEvent,
+    TelegramMessage,
+    TelegramMessageHistory,
+)
 from apps.modules.telegram_approvals.formatter import (
     build_approval_message,
     build_request_draft_public_url,
@@ -817,3 +823,127 @@ def resend_approval_card(*, approval_pk: int, actor_user) -> TelegramMessage | N
     )
 
 
+# ── Event log helpers ─────────────────────────────────────────────────────────
+
+def _as_dict(value) -> dict:
+    """Return value if it is a dict, otherwise an empty dict (defensive against malformed payloads)."""
+    return value if isinstance(value, dict) else {}
+
+
+def _extract_chat_and_sender(event_type: str, payload: dict) -> dict:
+    """Pull indexed fields out of a Telegram update payload.
+
+    Generic by design: every chat-scoped update nests a ``chat`` object and a sender
+    (``from`` for most types, ``user`` for reactions / poll answers). ``callback_query``
+    is the one exception — its chat lives inside the attached ``message`` — so it is
+    handled first. Unknown or future update types degrade gracefully: nothing is
+    extracted but the raw payload is still stored by the caller.
+    """
+    result: dict = {
+        "chat_id": "",
+        "sender_id": None,
+        "message_id_tg": None,
+        "message_text": "",
+        "chat_info": None,  # dict for upsert_chat_registry or None
+    }
+
+    if event_type == "callback_query":
+        cb = _as_dict(payload.get("callback_query"))
+        node = _as_dict(cb.get("message"))
+        sender = _as_dict(cb.get("from"))
+    else:
+        node = _as_dict(payload.get(event_type))
+        sender = _as_dict(node.get("from")) or _as_dict(node.get("user"))
+
+    chat = _as_dict(node.get("chat"))
+    chat_id = chat.get("id")
+    if chat_id is not None:
+        result["chat_id"] = str(chat_id)
+        name = (
+            chat.get("title")
+            or " ".join(filter(None, [chat.get("first_name"), chat.get("last_name")]))
+        )
+        result["chat_info"] = {
+            "chat_id":   str(chat_id),
+            "chat_type": chat.get("type", ""),
+            "name":      name,
+            "username":  chat.get("username") or "",
+        }
+    if sender.get("id"):
+        result["sender_id"] = sender["id"]
+    result["message_id_tg"] = node.get("message_id")
+    result["message_text"] = node.get("text") or node.get("caption") or ""
+    return result
+
+
+def upsert_chat_registry(chat_data: dict) -> TelegramChatRegistry:
+    """Create or update a TelegramChatRegistry row. chat_data must have chat_id."""
+    chat_id = str(chat_data.get("chat_id", "")).strip()
+    if not chat_id:
+        raise ValueError("chat_id is required for chat registry upsert")
+
+    registry, _ = TelegramChatRegistry.objects.update_or_create(
+        chat_id=chat_id,
+        defaults={
+            "chat_type": chat_data.get("chat_type") or "",
+            "name":      (chat_data.get("name") or "").strip(),
+            "username":  (chat_data.get("username") or "").strip(),
+        },
+    )
+    return registry
+
+
+def save_telegram_event(data: dict) -> TelegramEvent:
+    """
+    Persist a Telegram event forwarded by the gateway.
+
+    Expected data shape:
+      incoming: {direction, event_type, update_id, payload}
+      outgoing: {direction, event_type, recipient_id, tenant_id, payload, tg_response}
+    """
+    direction = data.get("direction", "")
+    event_type = data.get("event_type", "unknown")
+    raw_payload = data.get("payload") or {}
+
+    chat_obj: TelegramChatRegistry | None = None
+    chat_id = ""
+    sender_id = None
+    message_id_tg = None
+    message_text = ""
+    update_id = data.get("update_id")
+
+    if direction == TelegramEvent.DIRECTION_INCOMING:
+        extracted = _extract_chat_and_sender(event_type, raw_payload)
+        chat_id     = extracted["chat_id"]
+        sender_id   = extracted["sender_id"]
+        message_id_tg = extracted["message_id_tg"]
+        message_text  = extracted["message_text"]
+        if update_id is None:
+            update_id = raw_payload.get("update_id")
+        if extracted["chat_info"]:
+            try:
+                chat_obj = upsert_chat_registry(extracted["chat_info"])
+            except Exception:
+                logger.exception("save_telegram_event: failed to upsert chat registry chat_id=%s", chat_id)
+
+    elif direction == TelegramEvent.DIRECTION_OUTGOING:
+        recipient_id = data.get("recipient_id") or raw_payload.get("recipient_id") or ""
+        chat_id = str(recipient_id).strip()
+        tg_resp = data.get("tg_response") or {}
+        result = tg_resp.get("result") or {}
+        if isinstance(result, dict):
+            message_id_tg = result.get("message_id")
+
+    event = TelegramEvent.objects.create(
+        chat_registry=chat_obj,
+        chat_id=chat_id,
+        event_type=event_type,
+        direction=direction,
+        timestamp=timezone.now(),
+        payload=raw_payload,
+        update_id=update_id,
+        sender_id=sender_id,
+        message_id_tg=message_id_tg,
+        message_text=message_text,
+    )
+    return event

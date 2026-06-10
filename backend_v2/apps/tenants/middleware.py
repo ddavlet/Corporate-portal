@@ -34,6 +34,7 @@ def _host_no_port(host: str) -> str:
 # Forwarded from tg-gateway over Docker DNS (e.g. kolberg_backend_local). Tenant is resolved inside the view from Approval.
 _INTERNAL_MESSAGING_CALLBACK_PREFIXES = (
     "/api/messaging-gateway/webhook",
+    "/api/messaging-gateway/events",
     "/api/investments/approvals/webhook",
 )
 

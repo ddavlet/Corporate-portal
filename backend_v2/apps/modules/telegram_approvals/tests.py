@@ -1476,3 +1476,181 @@ class TelegramMessageHistoryTests(APITestCase):
         tm.refresh_from_db()
         self.assertEqual(tm.message_id, 600)
         self.assertEqual(tm.resend_count, 0)
+
+
+# ── TelegramEventLog tests ────────────────────────────────────────────────────
+
+from django.test import TestCase
+from apps.modules.telegram_approvals.models import TelegramChatRegistry, TelegramEvent
+from apps.modules.telegram_approvals.services import upsert_chat_registry, save_telegram_event
+
+
+class TelegramChatRegistryTests(TestCase):
+
+    def test_upsert_creates_on_first_call(self):
+        registry = upsert_chat_registry({
+            "chat_id": "-100123456789",
+            "chat_type": "supergroup",
+            "name": "Project Group",
+            "username": "projectgroup",
+        })
+        self.assertEqual(TelegramChatRegistry.objects.count(), 1)
+        self.assertEqual(registry.chat_id, "-100123456789")
+        self.assertEqual(registry.chat_type, "supergroup")
+        self.assertEqual(registry.name, "Project Group")
+        self.assertEqual(registry.username, "projectgroup")
+
+    def test_upsert_is_idempotent(self):
+        upsert_chat_registry({"chat_id": "-100123456789", "chat_type": "group", "name": "Old Name", "username": ""})
+        upsert_chat_registry({"chat_id": "-100123456789", "chat_type": "supergroup", "name": "New Name", "username": "updated"})
+        self.assertEqual(TelegramChatRegistry.objects.count(), 1)
+        r = TelegramChatRegistry.objects.get(chat_id="-100123456789")
+        self.assertEqual(r.name, "New Name")
+        self.assertEqual(r.chat_type, "supergroup")
+
+    def test_upsert_raises_without_chat_id(self):
+        with self.assertRaises(ValueError):
+            upsert_chat_registry({"chat_type": "group"})
+
+
+class TelegramEventSaveTests(TestCase):
+
+    def _message_payload(self, chat_id=-100999, from_id=1001, message_id=42, text="hello"):
+        return {
+            "update_id": 111,
+            "message": {
+                "message_id": message_id,
+                "from": {"id": from_id, "first_name": "John"},
+                "chat": {"id": chat_id, "type": "supergroup", "title": "Test Group"},
+                "text": text,
+            },
+        }
+
+    def test_save_message_event_extracts_fields(self):
+        data = {
+            "direction": "incoming",
+            "event_type": "message",
+            "update_id": 111,
+            "payload": self._message_payload(),
+        }
+        event = save_telegram_event(data)
+
+        self.assertEqual(event.direction, TelegramEvent.DIRECTION_INCOMING)
+        self.assertEqual(event.event_type, "message")
+        self.assertEqual(event.chat_id, str(-100999))
+        self.assertEqual(event.sender_id, 1001)
+        self.assertEqual(event.message_id_tg, 42)
+        self.assertEqual(event.message_text, "hello")
+        self.assertEqual(event.update_id, 111)
+        self.assertIsNotNone(event.chat_registry)
+        self.assertEqual(event.chat_registry.chat_id, str(-100999))
+
+    def test_save_callback_query_event(self):
+        payload = {
+            "update_id": 222,
+            "callback_query": {
+                "id": "cb1",
+                "from": {"id": 2002, "first_name": "Alice"},
+                "message": {
+                    "message_id": 77,
+                    "chat": {"id": -100888, "type": "group", "title": "CB Group"},
+                },
+                "data": "v2_5:a",
+            },
+        }
+        event = save_telegram_event({
+            "direction": "incoming",
+            "event_type": "callback_query",
+            "update_id": 222,
+            "payload": payload,
+        })
+        self.assertEqual(event.chat_id, str(-100888))
+        self.assertEqual(event.sender_id, 2002)
+        self.assertEqual(event.message_id_tg, 77)
+        self.assertIsNotNone(event.chat_registry)
+
+    def test_save_outgoing_event(self):
+        event = save_telegram_event({
+            "direction": "outgoing",
+            "event_type": "send",
+            "recipient_id": "-100777",
+            "tenant_id": "acme",
+            "payload": {"action": "send", "recipient_id": "-100777", "text": "Hi"},
+            "tg_response": {"ok": True, "result": {"message_id": 99}},
+        })
+        self.assertEqual(event.direction, TelegramEvent.DIRECTION_OUTGOING)
+        self.assertEqual(event.event_type, "send")
+        self.assertEqual(event.chat_id, "-100777")
+        self.assertIsNone(event.sender_id)
+        self.assertEqual(event.message_id_tg, 99)
+
+    def test_save_event_persists_full_payload(self):
+        raw = self._message_payload(text="full payload test")
+        event = save_telegram_event({"direction": "incoming", "event_type": "message", "payload": raw})
+        self.assertEqual(event.payload, raw)
+
+    def test_save_message_reaction_indexes_chat_and_user(self):
+        # message_reaction nests `chat` and uses `user` (not `from`) for the actor.
+        payload = {
+            "update_id": 333,
+            "message_reaction": {
+                "chat": {"id": -100444, "type": "supergroup", "title": "React Group"},
+                "message_id": 88,
+                "user": {"id": 3003, "first_name": "Carol"},
+                "date": 1700000000,
+                "old_reaction": [],
+                "new_reaction": [{"type": "emoji", "emoji": "👍"}],
+            },
+        }
+        event = save_telegram_event({
+            "direction": "incoming",
+            "event_type": "message_reaction",
+            "update_id": 333,
+            "payload": payload,
+        })
+        self.assertEqual(event.event_type, "message_reaction")
+        self.assertEqual(event.chat_id, str(-100444))
+        self.assertEqual(event.sender_id, 3003)
+        self.assertEqual(event.message_id_tg, 88)
+        self.assertIsNotNone(event.chat_registry)
+
+    def test_chat_registry_not_created_for_unknown_event_type(self):
+        event = save_telegram_event({
+            "direction": "incoming",
+            "event_type": "unknown",
+            "payload": {},
+        })
+        self.assertIsNone(event.chat_registry)
+        self.assertEqual(TelegramChatRegistry.objects.count(), 0)
+
+
+@override_settings(ALLOWED_HOSTS=["*"])
+class TelegramEventLogEndpointTests(APITestCase):
+
+    def test_event_log_endpoint_saves_event(self):
+        payload = {
+            "direction": "incoming",
+            "event_type": "message",
+            "update_id": 500,
+            "payload": {
+                "update_id": 500,
+                "message": {
+                    "message_id": 10,
+                    "from": {"id": 999, "first_name": "Bob"},
+                    "chat": {"id": -100555, "type": "group", "title": "Endpoint Test"},
+                    "text": "test endpoint",
+                },
+            },
+        }
+        resp = self.client.post("/api/messaging-gateway/events/", payload, format="json")
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(resp.json(), {"ok": True})
+        self.assertEqual(TelegramEvent.objects.count(), 1)
+        event = TelegramEvent.objects.get()
+        self.assertEqual(event.chat_id, str(-100555))
+        self.assertEqual(event.sender_id, 999)
+
+    def test_event_log_endpoint_returns_200_on_bad_payload(self):
+        # Even with malformed data the endpoint must not crash — fire-and-forget contract
+        resp = self.client.post("/api/messaging-gateway/events/", {}, format="json")
+        self.assertEqual(resp.status_code, 200)
