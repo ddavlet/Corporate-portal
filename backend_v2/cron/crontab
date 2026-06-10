@@ -1,0 +1,15 @@
+# Kolberg — scheduled Django management commands (Asia/Tashkent).
+# Installed into /etc/cron.d/kolberg by cron/entrypoint.sh (backend_cron container).
+SHELL=/bin/bash
+PATH=/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin
+TZ=Asia/Tashkent
+
+# Monthly auto-request copies (idempotent per day-of-month).
+0 8 * * * root cd /app && python manage.py run_auto_requests >> /proc/1/fd/1 2>&1
+
+# Soft-delete draft requests older than DRAFT_RETENTION_DAYS.
+15 8 * * * root cd /app && python manage.py purge_expired_draft_requests >> /proc/1/fd/1 2>&1
+
+# Investment payout Telegram reminders.
+0 9 * * * root cd /app && python manage.py run_invest_notifications >> /proc/1/fd/1 2>&1
+

@@ -21,6 +21,7 @@ _NO_POLLER_COMMANDS = frozenset({
     "compilemessages",
     "makemessages",
     "diffsettings",
+    "run_invest_notifications",
 })
 
 
@@ -35,8 +36,8 @@ class InvestmentsModuleConfig(AppConfig):
         # Skip for management commands that shouldn't spawn daemon threads.
         if len(sys.argv) > 1 and sys.argv[1] in _NO_POLLER_COMMANDS:
             return
-        # Opt-IN. Default deployment: schedule `manage.py run_invest_notifications` via cron
-        # (one designated process). Set INVEST_NOTIFY_POLLER=1 to enable the legacy
+        # Opt-IN. Default deployment: `backend_cron` container (see backend_v2/cron/crontab).
+        # Set INVEST_NOTIFY_POLLER=1 to enable the legacy
         # in-process daemon thread (useful for local dev; in production with N gunicorn
         # workers it spawns N threads, which is what the management command exists to avoid).
         if os.environ.get("INVEST_NOTIFY_POLLER", "0") != "1":

@@ -1,7 +1,7 @@
 """Soft-delete draft requests older than the retention window.
 
-Replaces manual cleanup with a scheduler-friendly one-shot. Intended to be invoked by
-cron, systemd timer, or k8s CronJob — typically daily.
+Replaces manual cleanup with a scheduler-friendly one-shot. Invoked by the
+`backend_cron` Docker service (see backend_v2/cron/crontab) — daily at 08:15 Tashkent.
 
 Examples:
     python manage.py purge_expired_draft_requests

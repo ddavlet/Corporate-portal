@@ -31,15 +31,18 @@ cd ~/n8n                  # переходим в папку проекта
 
 git pull                  # скачиваем новый код с GitHub
 
-docker compose --env-file ./.env build frontend_v2 tg-gateway
-                          # пересобираем образы frontend и tg-gateway
-                          # backend_v2 пропускаем — код монтируется через bind mount
+docker compose --env-file ./.env build frontend_v2 tg-gateway backend_cron
+                          # пересобираем образы frontend, tg-gateway и backend_cron
+                          # backend_v2 (web) пропускаем — код монтируется через bind mount
 
 docker compose --env-file ./.env up -d --no-deps backend_v2
                           # пересоздаём контейнер бека — подхватывает новые env-переменные из .env
 
 docker compose --env-file ./.env exec -T backend_v2 python manage.py migrate
                           # применяем новые миграции к БД
+
+docker compose --env-file ./.env up -d --no-deps backend_cron
+                          # планировщик management-команд; живёт отдельно от web-процесса
 
 docker compose --env-file ./.env up -d --no-deps frontend_v2 tg-gateway
                           # перезапускаем frontend_v2 и tg-gateway с новыми образами

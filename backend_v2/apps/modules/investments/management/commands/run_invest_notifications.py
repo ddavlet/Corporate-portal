@@ -1,7 +1,7 @@
 """Run the investment payout notification pass once and exit.
 
 Replaces the in-process daemon thread with a scheduler-friendly one-shot. Intended to be
-invoked by cron, systemd timer, or k8s CronJob — typically daily at 09:00 Tashkent.
+invoked by the `backend_cron` Docker service (see backend_v2/cron/crontab) — daily at 09:00 Tashkent.
 
 Examples:
     python manage.py run_invest_notifications
