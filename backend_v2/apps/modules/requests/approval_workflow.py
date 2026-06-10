@@ -80,6 +80,9 @@ def _recalculate_request_status(request_obj: Request) -> str:
     If any step is rejected, the request becomes REJECTED and every remaining pending
     approval is closed so nothing is routed further (Telegram / resend / next step).
     """
+    if request_obj.status == Request.STATUS_DELETED:
+        return request_obj.status
+
     approvals_qs = Approval.objects.filter(request=request_obj)
     if not approvals_qs.exists():
         return request_obj.status

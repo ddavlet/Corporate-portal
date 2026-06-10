@@ -7,6 +7,16 @@ from django.utils import timezone
 from apps.tenants.models import Tenant
 
 
+class RequestQuerySet(models.QuerySet):
+    def exclude_deleted(self):
+        return self.exclude(status=Request.STATUS_DELETED)
+
+
+class ActiveRequestManager(models.Manager.from_queryset(RequestQuerySet)):
+    def get_queryset(self):
+        return super().get_queryset().exclude_deleted()
+
+
 class Request(models.Model):
     CURRENCY_UZS = "UZS"
     CURRENCY_USD = "USD"
@@ -50,6 +60,7 @@ class Request(models.Model):
     STATUS_APPROVED = "APPROVED"
     STATUS_PAYED = "PAYED"
     STATUS_REJECTED = "REJECTED"
+    STATUS_DELETED = "DELETED"
     STATUS_CHOICES = [
         (STATUS_DRAFT, STATUS_DRAFT),
         (STATUS_PROGRESS_1, STATUS_PROGRESS_1),
@@ -60,6 +71,7 @@ class Request(models.Model):
         (STATUS_APPROVED, STATUS_APPROVED),
         (STATUS_PAYED, STATUS_PAYED),
         (STATUS_REJECTED, STATUS_REJECTED),
+        (STATUS_DELETED, STATUS_DELETED),
     ]
 
     # Distinguishes which table `expense_ref_id` points to (PKs can collide across modules).
@@ -142,6 +154,9 @@ class Request(models.Model):
     billing_date = models.DateField()
     amortization_months = models.PositiveIntegerField(default=1)
     amortization_start_date = models.DateField(null=True, blank=True)
+
+    objects = ActiveRequestManager()
+    all_objects = models.Manager()
 
     class Meta:
         db_table = "requests"

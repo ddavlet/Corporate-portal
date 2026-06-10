@@ -218,7 +218,7 @@ def _pending_step_for_request(*, request_id: int | None, request_by_id: dict[int
     req = request_by_id.get(request_id)
     if req is None:
         return None
-    if req.status in (Request.STATUS_PAYED, Request.STATUS_REJECTED):
+    if req.status in (Request.STATUS_PAYED, Request.STATUS_REJECTED, Request.STATUS_DELETED):
         return None
     return min_pending_approval_step(request_id=request_id)
 
@@ -229,7 +229,7 @@ def _is_linked_request_in_progress(*, matched_request_id, request_by_id: dict[in
     req = request_by_id.get(int(matched_request_id))
     if req is None:
         return False
-    return req.status not in (Request.STATUS_PAYED, Request.STATUS_REJECTED)
+    return req.status not in (Request.STATUS_PAYED, Request.STATUS_REJECTED, Request.STATUS_DELETED)
 
 
 def _base_expense_fields(

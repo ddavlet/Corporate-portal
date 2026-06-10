@@ -2550,7 +2550,7 @@ export async function getInProgressRequests(): Promise<InProgressRequestRow[]> {
       : []
   return rows.filter((r) => {
     const s = String(r.status || '').trim().toUpperCase()
-    return s !== 'PAYED' && s !== 'REJECTED'
+    return s !== 'PAYED' && s !== 'REJECTED' && s !== 'DELETED'
   })
 }
 
