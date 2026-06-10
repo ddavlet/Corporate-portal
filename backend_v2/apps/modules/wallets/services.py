@@ -149,7 +149,7 @@ def movements_net_full_year_card(*, wallet: Wallet, year: int) -> Decimal:
             confirmed=True,
             revenue_at__gte=start,
             revenue_at__lte=end,
-        ).aggregate(s=Sum("amount"))["s"]
+        ).aggregate(s=Sum("total_sum"))["s"]
         or Decimal("0")
     )
     return rev - exp
