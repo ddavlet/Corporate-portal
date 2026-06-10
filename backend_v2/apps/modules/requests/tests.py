@@ -1,5 +1,5 @@
 import base64
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from decimal import Decimal
 from unittest.mock import MagicMock, Mock, patch
 from zoneinfo import ZoneInfo
@@ -37,6 +37,7 @@ from apps.modules.requests.auto_requests import (
     process_due_auto_requests,
     render_auto_request_template,
 )
+from apps.modules.requests.draft_retention import DRAFT_RETENTION_DAYS, purge_expired_draft_requests
 from apps.modules.requests.integration_settings import get_requests_messaging_gateway_settings
 from apps.modules.bank_expenses.models import BankExpense
 from apps.modules.cashier.models import CashExpense
@@ -2282,6 +2283,58 @@ class RequestAttachmentsTests(APITestCase):
         self.assertEqual(res.status_code, 400, res.content)
         self.assertTrue(RequestAttachment.objects.filter(id=attachment_id).exists())
 
+
+@override_settings(BASE_DOMAIN="example.com", N8N_INTEGRATION_TOKEN="", ALLOWED_HOSTS=["*"])
+class DraftRetentionTests(TestCase):
+    def setUp(self):
+        self.tenant = Tenant.objects.create(name="Retention", subdomain="retention", is_active=True)
+        self.user = User.objects.create_user(username="retention_user", password="x")
+        TenantMembership.objects.create(tenant=self.tenant, user=self.user, is_active=True)
+
+    def _make_draft(self, *, created_at: datetime):
+        req = Request.objects.create(
+            tenant=self.tenant,
+            created_by=self.user,
+            requester=self.user,
+            status=Request.STATUS_DRAFT,
+            billing_date=date.today(),
+            amount=Decimal("100.00"),
+        )
+        Request.all_objects.filter(pk=req.pk).update(created_at=created_at)
+        return Request.all_objects.get(pk=req.pk)
+
+    def test_purge_marks_old_drafts_deleted(self):
+        old = self._make_draft(
+            created_at=timezone.now() - timedelta(days=DRAFT_RETENTION_DAYS + 1),
+        )
+        recent = self._make_draft(created_at=timezone.now() - timedelta(days=1))
+
+        n = purge_expired_draft_requests()
+        self.assertEqual(n, 1)
+
+        self.assertEqual(Request.all_objects.get(pk=old.pk).status, Request.STATUS_DELETED)
+        self.assertEqual(Request.all_objects.get(pk=recent.pk).status, Request.STATUS_DRAFT)
+        self.assertFalse(Request.objects.filter(pk=old.pk).exists())
+        self.assertTrue(Request.objects.filter(pk=recent.pk).exists())
+
+    def test_purge_skips_non_draft_requests(self):
+        req = Request.objects.create(
+            tenant=self.tenant,
+            created_by=self.user,
+            requester=self.user,
+            status=Request.STATUS_APPROVED,
+            billing_date=date.today(),
+            amount=Decimal("50.00"),
+        )
+        Request.all_objects.filter(pk=req.pk).update(
+            created_at=timezone.now() - timedelta(days=DRAFT_RETENTION_DAYS + 5),
+        )
+
+        n = purge_expired_draft_requests()
+        self.assertEqual(n, 0)
+        self.assertEqual(Request.all_objects.get(pk=req.pk).status, Request.STATUS_APPROVED)
+
+
 @override_settings(BASE_DOMAIN="example.com", N8N_INTEGRATION_TOKEN="", ALLOWED_HOSTS=["*"])
 class AutoRequestTests(APITestCase):
     def setUp(self):
@@ -4007,6 +4060,15 @@ class RequestPaginationAndFilterTests(APITestCase):
         self.assertEqual(res.status_code, 200)
         statuses = {r["status"] for r in list_results(res)}
         self.assertEqual(statuses, {Request.STATUS_APPROVED})
+
+    def test_deleted_requests_hidden_from_portal_list(self):
+        visible = self._make(title="Visible draft", status=Request.STATUS_DRAFT)
+        hidden = self._make(title="Soft-deleted", status=Request.STATUS_DELETED)
+        res = self._list()
+        self.assertEqual(res.status_code, 200)
+        ids = {row["id"] for row in list_results(res)}
+        self.assertIn(visible.id, ids)
+        self.assertNotIn(hidden.id, ids)
 
     def test_filter_by_payment_type(self):
         self._make(payment_type=Request.PAYMENT_TYPE_CASH)
