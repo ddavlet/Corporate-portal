@@ -37,6 +37,11 @@ urlpatterns = [
     path("notes/batch/", views.N8nNoteBatchUpsertView.as_view(), name="n8n-notes-batch-upsert"),
     path("investments/returns/", views.N8nInvestReturnUpsertView.as_view(), name="n8n-invest-returns-upsert"),
     path(
+        "investments/returns/portal-create/",
+        views.N8nInvestReturnPortalCreateView.as_view(),
+        name="n8n-invest-returns-portal-create",
+    ),
+    path(
         "investments/returns/batch/",
         views.N8nInvestReturnBatchUpsertView.as_view(),
         name="n8n-invest-returns-batch-upsert",

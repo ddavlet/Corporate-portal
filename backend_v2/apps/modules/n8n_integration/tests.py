@@ -25,6 +25,11 @@ from apps.modules.requests.models import (
     RequestFormPaymentTypeConfig,
     RequestPaymentPurposeConfig,
 )
+from apps.modules.investments.models import (
+    InvestmentApprovalConfigStep,
+    InvestmentReturnApproval,
+    InvestReturn,
+)
 from apps.modules.requests.services import list_payment_purposes_by_payment_type
 from apps.modules.vendors.models import Vendor
 from apps.modules.wallets.models import CashRegister, Wallet
@@ -1492,6 +1497,107 @@ class N8nIntegrationAuthTests(APITestCase):
         self.assertEqual(res2.status_code, 200, res2.content)
         appr.refresh_from_db()
         self.assertEqual(appr.decision, "approved")
+
+
+@override_settings(
+    BASE_DOMAIN="example.com",
+    N8N_INTEGRATION_TOKEN="integ-test-secret",
+    ALLOWED_HOSTS=["acme.example.com", "testserver"],
+)
+class N8nInvestReturnPortalCreateTests(APITestCase):
+    """
+    Verify that portal-create creates InvestReturn AND launches the approval chain,
+    unlike the upsert endpoint which only stores the record.
+    """
+
+    def setUp(self):
+        User.objects.update_or_create(pk=1, defaults={"username": "n8n_system"})
+        self.tenant = Tenant.objects.create(name="InvPortal", subdomain="acme", is_active=True)
+        self.admin = User.objects.create_user(username="inv_portal_admin", password="x")
+        self.approver = User.objects.create_user(
+            username="inv_portal_appr",
+            password="x",
+            telegram_chat_id=123001,
+            telegram_from_id=123002,
+        )
+        for user in (self.admin, self.approver):
+            TenantMembership.objects.create(tenant=self.tenant, user=user, is_active=True)
+        TenantUserRole.objects.create(tenant=self.tenant, user=self.admin, role=TenantUserRole.ROLE_ADMIN)
+        TenantUserRole.objects.create(tenant=self.tenant, user=self.approver, role=TenantUserRole.ROLE_DIRECTOR)
+        TenantModuleConfig.objects.create(tenant=self.tenant, module_key="investments", is_enabled=True)
+
+        self.client.force_authenticate(self.admin)
+        cfg_payload = {
+            "return_type": None,
+            "recipient": None,
+            "is_enabled": True,
+            "steps": [
+                {
+                    "step": 1,
+                    "step_type": InvestmentApprovalConfigStep.STEP_TYPE_SERIAL,
+                    "is_enabled": True,
+                    "approver_user_ids": [self.approver.id],
+                },
+            ],
+        }
+        r = self.client.put(
+            "/api/investments/approval-config/",
+            cfg_payload,
+            format="json",
+            HTTP_HOST="acme.example.com",
+        )
+        self.assertEqual(r.status_code, 200)
+
+        cbu_patcher = patch(
+            "apps.modules.investments.serializers.fetch_cbu_usd_uzs_rate",
+            return_value=__import__("decimal").Decimal("12500"),
+        )
+        cbu_patcher.start()
+        self.addCleanup(cbu_patcher.stop)
+
+        self.url = f"{settings.N8N_INTEGRATION_URL_PREFIX.rstrip('/')}/investments/returns/portal-create/"
+
+    def _headers(self):
+        return {"HTTP_HOST": "acme.example.com", "HTTP_X_N8N_INTEGRATION_TOKEN": "integ-test-secret"}
+
+    @patch("apps.modules.telegram_approvals.services.TelegramDispatcher.send")
+    def test_portal_create_returns_201_and_creates_approval(self, tg_mock):
+        tg_mock.return_value = None
+        payload = {
+            "date": "2026-06-08",
+            "billing_date": "2026-06-01",
+            "sum": "500.00",
+            "currency": "USD",
+            "type": "дивиденды",
+            "recipient": "инвестор",
+            "comment": "from n8n portal-create",
+        }
+        res = self.client.post(self.url, payload, format="json", **self._headers())
+        self.assertEqual(res.status_code, 201, res.content)
+        invest_return = InvestReturn.objects.get(pk=res.json()["id"])
+        self.assertEqual(invest_return.tenant_id, self.tenant.id)
+        approvals = InvestmentReturnApproval.objects.filter(invest_return=invest_return)
+        self.assertEqual(approvals.count(), 1, "approval chain must be launched on portal-create")
+        self.assertEqual(approvals.first().decision, InvestmentReturnApproval.DECISION_PENDING)
+
+    def test_upsert_endpoint_does_not_create_approvals(self):
+        upsert_url = f"{settings.N8N_INTEGRATION_URL_PREFIX.rstrip('/')}/investments/returns/"
+        payload = {
+            "date": "2026-06-08",
+            "billing_date": "2026-06-01",
+            "sum": "500.00",
+            "currency": "USD",
+            "type": "дивиденды",
+            "recipient": "инвестор",
+        }
+        res = self.client.post(upsert_url, payload, format="json", **self._headers())
+        self.assertEqual(res.status_code, 201, res.content)
+        invest_return = InvestReturn.objects.get(pk=res.json()["id"])
+        self.assertEqual(
+            InvestmentReturnApproval.objects.filter(invest_return=invest_return).count(),
+            0,
+            "upsert endpoint must not trigger approvals — use portal-create for that",
+        )
 
 
 @override_settings(
