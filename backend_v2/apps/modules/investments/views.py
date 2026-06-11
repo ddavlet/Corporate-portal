@@ -139,6 +139,13 @@ class InvestmentReturnApprovalReadViewSet(_ReadOnlyInvestmentsTenantViewSet):
     serializer_class = InvestmentReturnApprovalReadSerializer
     queryset = InvestmentReturnApproval.objects.select_related("invest_return", "approver_user")
 
+    def get_queryset(self):
+        qs = super().get_queryset()
+        invest_return_id = (self.request.query_params.get("invest_return") or "").strip()
+        if invest_return_id.isdigit():
+            qs = qs.filter(invest_return_id=int(invest_return_id))
+        return qs.order_by("step", "id")
+
 
 class InvestmentProjectApprovalConfigReadViewSet(_ReadOnlyInvestmentsTenantViewSet):
     serializer_class = InvestmentProjectApprovalConfigReadSerializer
@@ -172,6 +179,13 @@ class InvestmentProjectApprovalConfigStepApproverReadViewSet(_ReadOnlyInvestment
 class ProjectInvestmentApprovalReadViewSet(_ReadOnlyInvestmentsTenantViewSet):
     serializer_class = ProjectInvestmentApprovalReadSerializer
     queryset = ProjectInvestmentApproval.objects.select_related("project_investment", "approver_user")
+
+    def get_queryset(self):
+        qs = super().get_queryset()
+        project_investment_id = (self.request.query_params.get("project_investment") or "").strip()
+        if project_investment_id.isdigit():
+            qs = qs.filter(project_investment_id=int(project_investment_id))
+        return qs.order_by("step", "id")
 
 
 class InvestReturnViewSet(_InvestmentsTenantViewSet):

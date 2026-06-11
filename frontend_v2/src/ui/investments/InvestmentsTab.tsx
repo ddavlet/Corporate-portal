@@ -23,6 +23,7 @@ import {
   type InvestCompanyRow,
   type ProjectInvestmentRow,
 } from '../../lib/api'
+import { InvestmentRecordDetailModal } from './InvestmentRecordDetailModal'
 import { KpiStrip } from './KpiStrip'
 import {
   asMoney,
@@ -66,6 +67,7 @@ export function InvestmentsTab({
 }: Props) {
   const [form] = Form.useForm<FormValues>()
   const [open, setOpen] = useState(false)
+  const [selectedRow, setSelectedRow] = useState<ProjectInvestmentRow | null>(null)
   const [submitting, setSubmitting] = useState(false)
   const [dateRange, setDateRange] = useState<[Dayjs | null, Dayjs | null] | null>(null)
   const watchedCurrency = Form.useWatch('currency', form) || 'USD'
@@ -89,6 +91,7 @@ export function InvestmentsTab({
         companyLabel(a.company).localeCompare(companyLabel(b.company)),
     }
     return [
+    { title: 'ID', dataIndex: 'id', width: 80, sorter: (a, b) => a.id - b.id },
     {
       title: 'Дата',
       dataIndex: 'date',
@@ -182,8 +185,12 @@ export function InvestmentsTab({
           size="small"
           columns={columns}
           dataSource={filtered}
+          onRow={(record) => ({
+            onClick: () => setSelectedRow(record),
+            style: { cursor: 'pointer' },
+          })}
           pagination={{ pageSize: 30 }}
-          scroll={{ x: 900 }}
+          scroll={{ x: 980 }}
           locale={{
             emptyText: (
               <Empty description="Заявок на вложение пока нет" image={Empty.PRESENTED_IMAGE_SIMPLE}>
@@ -195,6 +202,15 @@ export function InvestmentsTab({
           }}
         />
       )}
+
+      <InvestmentRecordDetailModal
+        open={Boolean(selectedRow)}
+        onCancel={() => setSelectedRow(null)}
+        kind="project"
+        record={selectedRow}
+        companyLabel={companyLabel}
+        usesCompanies={usesCompanies}
+      />
 
       <Modal
         open={open}

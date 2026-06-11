@@ -20,6 +20,7 @@ from apps.modules.investments.models import (
     ProjectInvestment,
     ProjectInvestmentApproval,
 )
+from apps.modules.requests.serializers import _display_user_name
 from apps.modules.investments.services import (
     CbuRateFetchError,
     clamp_rate_date_to_cbu_availability,
@@ -477,6 +478,7 @@ class InvestmentApprovalConfigStepApproverReadSerializer(serializers.ModelSerial
 
 
 class InvestmentReturnApprovalReadSerializer(serializers.ModelSerializer):
+    approver_username = serializers.SerializerMethodField()
     # Derived from the single source of truth (`telegram_message`); kept for API stability.
     gateway_message_id = serializers.ReadOnlyField()
     message_sent = serializers.ReadOnlyField()
@@ -491,6 +493,7 @@ class InvestmentReturnApprovalReadSerializer(serializers.ModelSerializer):
             "step",
             "step_type",
             "approver_user",
+            "approver_username",
             "approver_recipient_id",
             "approver_external_user_id",
             "decision",
@@ -503,6 +506,9 @@ class InvestmentReturnApprovalReadSerializer(serializers.ModelSerializer):
             "updated_at",
         ]
         read_only_fields = fields
+
+    def get_approver_username(self, obj):
+        return _display_user_name(getattr(obj, "approver_user", None))
 
 
 class InvestmentProjectApprovalConfigReadSerializer(serializers.ModelSerializer):
@@ -527,6 +533,7 @@ class InvestmentProjectApprovalConfigStepApproverReadSerializer(serializers.Mode
 
 
 class ProjectInvestmentApprovalReadSerializer(serializers.ModelSerializer):
+    approver_username = serializers.SerializerMethodField()
     # Derived from the single source of truth (`telegram_message`); kept for API stability.
     gateway_message_id = serializers.ReadOnlyField()
     message_sent = serializers.ReadOnlyField()
@@ -541,6 +548,7 @@ class ProjectInvestmentApprovalReadSerializer(serializers.ModelSerializer):
             "step",
             "step_type",
             "approver_user",
+            "approver_username",
             "approver_recipient_id",
             "approver_external_user_id",
             "decision",
@@ -553,3 +561,6 @@ class ProjectInvestmentApprovalReadSerializer(serializers.ModelSerializer):
             "updated_at",
         ]
         read_only_fields = fields
+
+    def get_approver_username(self, obj):
+        return _display_user_name(getattr(obj, "approver_user", None))
