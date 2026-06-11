@@ -1375,6 +1375,46 @@ class InvestmentProjectApprovalFlowTests(APITestCase):
         self.assertEqual(call_kw["buttons"][0][0]["label"], "✅ Проверено")
 
     @patch("apps.modules.telegram_approvals.services.TelegramDispatcher.send")
+    def test_project_investment_approvals_list_filtered_by_record(self, bridge_mock):
+        bridge_mock.return_value = MagicMock()
+        create_response = self.client.post(
+            "/api/investments/project-investments/",
+            {
+                "date": "2026-04-20",
+                "amount": "1000.00",
+                "currency": "USD",
+                "comment": "Filter test",
+            },
+            format="json",
+            HTTP_HOST=self.host,
+        )
+        self.assertEqual(create_response.status_code, 201)
+        project_investment_id = create_response.data["id"]
+
+        other_response = self.client.post(
+            "/api/investments/project-investments/",
+            {
+                "date": "2026-04-21",
+                "amount": "2000.00",
+                "currency": "USD",
+                "comment": "Other",
+            },
+            format="json",
+            HTTP_HOST=self.host,
+        )
+        self.assertEqual(other_response.status_code, 201)
+
+        list_response = self.client.get(
+            f"/api/investments/project-investment-approvals/?project_investment={project_investment_id}",
+            HTTP_HOST=self.host,
+        )
+        self.assertEqual(list_response.status_code, 200)
+        rows = list_response.data
+        self.assertEqual(len(rows), 2)
+        self.assertTrue(all(row["project_investment"] == project_investment_id for row in rows))
+        self.assertEqual(rows[0]["approver_username"], self.approver1.username)
+
+    @patch("apps.modules.telegram_approvals.services.TelegramDispatcher.send")
     def test_project_investment_confirmation_step_uses_investment_wording(self, bridge_mock):
         """Текст шага confirmation — про вложение; кнопка подтверждения остаётся «Выплачено»."""
         bridge_mock.return_value = MagicMock()

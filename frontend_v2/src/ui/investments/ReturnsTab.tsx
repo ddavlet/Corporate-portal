@@ -26,6 +26,7 @@ import {
 } from '../../lib/api'
 import { clampToAllowedBillingMonth, isAllowedBillingMonth } from '../../lib/billingMonth'
 import { monthStartTashkent } from '../../lib/tashkentTime'
+import { InvestmentRecordDetailModal } from './InvestmentRecordDetailModal'
 import { KpiStrip } from './KpiStrip'
 import {
   asMoney,
@@ -86,6 +87,7 @@ export function ReturnsTab({
 }: Props) {
   const [form] = Form.useForm<FormValues>()
   const [open, setOpen] = useState(false)
+  const [selectedRow, setSelectedRow] = useState<InvestReturnRow | null>(null)
   const [submitting, setSubmitting] = useState(false)
   const [dateRange, setDateRange] = useState<[Dayjs | null, Dayjs | null] | null>(null)
   const watchedCurrency = Form.useWatch('currency', form) || 'USD'
@@ -113,6 +115,7 @@ export function ReturnsTab({
         companyLabel(a.company).localeCompare(companyLabel(b.company)),
     }
     const rest: ColumnsType<InvestReturnRow> = [
+    { title: 'ID', dataIndex: 'id', width: 80, sorter: (a, b) => a.id - b.id },
     {
       title: 'Дата',
       dataIndex: 'date',
@@ -254,8 +257,12 @@ export function ReturnsTab({
           size="small"
           columns={columns}
           dataSource={filtered}
+          onRow={(record) => ({
+            onClick: () => setSelectedRow(record),
+            style: { cursor: 'pointer' },
+          })}
           pagination={{ pageSize: 30 }}
-          scroll={{ x: 1620 }}
+          scroll={{ x: 1700 }}
           locale={{
             emptyText: (
               <Empty description="Выплат пока нет" image={Empty.PRESENTED_IMAGE_SIMPLE}>
@@ -267,6 +274,15 @@ export function ReturnsTab({
           }}
         />
       )}
+
+      <InvestmentRecordDetailModal
+        open={Boolean(selectedRow)}
+        onCancel={() => setSelectedRow(null)}
+        kind="return"
+        record={selectedRow}
+        companyLabel={companyLabel}
+        usesCompanies={usesCompanies}
+      />
 
       <Modal
         open={open}

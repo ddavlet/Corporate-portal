@@ -1530,6 +1530,35 @@ export type CreateProjectInvestmentPayload = {
   comment?: string
 }
 
+export type InvestmentApprovalItem = {
+  id: number
+  step: number
+  step_type: string
+  decision: string
+  decision_comment?: string | null
+  decided_at?: string | null
+  approver_user?: number | null
+  approver_username?: string | null
+  message_sent?: boolean
+  message_sent_at?: string | null
+}
+
+export async function getProjectInvestmentApprovals(projectInvestmentId: number): Promise<InvestmentApprovalItem[]> {
+  const res = await apiFetch(
+    `/api/investments/project-investment-approvals/?project_investment=${projectInvestmentId}`,
+  )
+  if (!res.ok) throw new Error(await parseErrorBody(res))
+  const json = (await res.json().catch(() => null)) as InvestmentApprovalItem[] | null
+  return Array.isArray(json) ? json : []
+}
+
+export async function getInvestReturnApprovals(investReturnId: number): Promise<InvestmentApprovalItem[]> {
+  const res = await apiFetch(`/api/investments/return-approvals/?invest_return=${investReturnId}`)
+  if (!res.ok) throw new Error(await parseErrorBody(res))
+  const json = (await res.json().catch(() => null)) as InvestmentApprovalItem[] | null
+  return Array.isArray(json) ? json : []
+}
+
 export async function createProjectInvestment(payload: CreateProjectInvestmentPayload): Promise<ProjectInvestmentRow> {
   const body: Record<string, unknown> = {
     date: payload.date,
