@@ -164,7 +164,9 @@ class TelegramApprovalsTests(APITestCase):
         self.assertNotIn("• Заявитель: req", payload.get("text", ""))
 
     @patch("apps.modules.telegram_approvals.services.requests.post")
-    def test_request_create_fails_when_response_has_no_message_id(self, mocked_post):
+    def test_request_create_succeeds_when_response_has_no_message_id(self, mocked_post):
+        # Gateway responds 200 but with no message_id — dispatch is skipped gracefully,
+        # request is still created and approval stays pending for a later retry.
         mocked_post.return_value.status_code = 200
         mocked_post.return_value.content = b'{"ok":true}'
         mocked_post.return_value.json.return_value = {"ok": True}
@@ -185,8 +187,7 @@ class TelegramApprovalsTests(APITestCase):
             format="json",
             HTTP_HOST=self.host,
         )
-        self.assertEqual(res.status_code, 400, res.content)
-        self.assertIn("telegram", res.data)
+        self.assertEqual(res.status_code, 201, res.content)
         self.assertEqual(Request.objects.count(), 1)
         self.assertEqual(Approval.objects.count(), 1)
         approval = Approval.objects.select_related("request").get()
