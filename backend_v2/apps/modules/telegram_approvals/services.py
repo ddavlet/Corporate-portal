@@ -662,17 +662,25 @@ def dispatch_pending_approvals(*, request_obj: Request, step: int | None = None,
     for approval in approvals:
         message_text = build_approval_message(request_obj=locked, approval=approval)
         include_buttons = approval.step_type != Approval.STEP_TYPE_NOTIFICATION
-        message = dispatcher.send(
-            action=send_action,
-            recipient_id=approval.approver_recipient_id,
-            text=message_text,
-            buttons=_buttons(approval=approval) if include_buttons else [],
-            link=approval,
-            external_user_id=approval.approver_external_user_id,
-            approval_id=approval.id,
-            request_id=approval.request_id,
-            require_message_id=True,
-        )
+        try:
+            message = dispatcher.send(
+                action=send_action,
+                recipient_id=approval.approver_recipient_id,
+                text=message_text,
+                buttons=_buttons(approval=approval) if include_buttons else [],
+                link=approval,
+                external_user_id=approval.approver_external_user_id,
+                approval_id=approval.id,
+                request_id=approval.request_id,
+                require_message_id=True,
+            )
+        except TelegramDispatchMissingMessageId:
+            logger.error(
+                "dispatch_pending_approvals: gateway responded without message_id approval_id=%s request_id=%s",
+                approval.id,
+                approval.request_id,
+            )
+            continue
         if message is None:
             # Gateway unreachable — leave this approver for a later dispatch.
             continue

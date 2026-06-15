@@ -36,6 +36,10 @@ function isPaymentApprovalStep(a: ApprovalItem): boolean {
   return String(a.step_type || '').toLowerCase() === 'payment'
 }
 
+function isNotificationApprovalStep(a: ApprovalItem): boolean {
+  return String(a.step_type || '').toLowerCase() === 'notification'
+}
+
 /** Smallest step number that still has pending approvals (matches backend workflow). */
 function minPendingApprovalStep(approvals: ApprovalItem[] | undefined): number | null {
   if (!approvals?.length) return null
@@ -483,6 +487,10 @@ export function RequestDetailPage({ listPath = '/requests', variant = 'portal' }
                     Отклонить
                   </Button>
                 </Space>
+              ) : isNotificationApprovalStep(a) ? (
+                <Typography.Text type="secondary">
+                  Этот шаг — уведомление. Подтверждение происходит автоматически при отправке сообщения.
+                </Typography.Text>
               ) : (
                 <Space direction="vertical" size={8} style={{ width: '100%' }}>
                   <Button

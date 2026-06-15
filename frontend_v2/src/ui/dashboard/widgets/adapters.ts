@@ -51,7 +51,10 @@ export function toPendingApprovals(groups: MyApprovalGroup[]): PendingApprovalIt
     const requestStatus = String(group.request.status || '').trim().toUpperCase()
     const pendingSteps = (group.approvals || []).filter((x) => {
       if (String(x.decision || '').toLowerCase() !== 'pending') return false
-      const isPayment = String(x.step_type || '').toLowerCase() === 'payment'
+      const stepType = String(x.step_type || '').toLowerCase()
+      // Notification steps auto-approve on message send — no user action needed.
+      if (stepType === 'notification') return false
+      const isPayment = stepType === 'payment'
       // Active step rule for dashboard actions:
       // - serial steps: request status equals step number ("1".."5")
       // - payment step: request is already APPROVED and waits for payout confirmation
