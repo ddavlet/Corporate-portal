@@ -24,6 +24,7 @@ import { requestReturnToForDetail } from '../../lib/requestNavigation'
 import { RequestDetailModal, type RequestDetail } from './RequestDetailModal'
 import { labelBlockAboveField } from '../formSpacing'
 import { RequestAiChatButton } from './RequestAiChatButton'
+import { AdminEditRecordButton } from '../admin/AdminEditRecordButton'
 import { NoteCreateModal } from '../NoteCreateModal'
 import { useInfiniteList, useRestoreInfinitePages } from '../../lib/useInfiniteList'
 import { useListPageSession } from '../../lib/useListPageSession'
@@ -343,6 +344,7 @@ export function RequestsPage() {
     error,
     hasMore: hasMoreRows,
     loadMore,
+    reload: reloadRequests,
     sentinelRef,
     pagesLoaded,
   } = useInfiniteList<RequestRow>({ url: listUrl, enabled: !prefsLoading && prefsHydrated })
@@ -621,18 +623,21 @@ export function RequestsPage() {
     {
       title: 'Действия',
       key: 'actions',
-      width: 120,
+      width: 240,
       render: (_, row) => (
-        <Button
-          size="small"
-          icon={<CopyOutlined />}
-          onClick={(e) => {
-            e.stopPropagation()
-            void duplicateRequest(row.id)
-          }}
-        >
-          Копировать
-        </Button>
+        <Space>
+          <Button
+            size="small"
+            icon={<CopyOutlined />}
+            onClick={(e) => {
+              e.stopPropagation()
+              void duplicateRequest(row.id)
+            }}
+          >
+            Копировать
+          </Button>
+          <AdminEditRecordButton endpoint="/api/requests/" record={row} onSaved={() => void reloadRequests()} />
+        </Space>
       ),
     },
   ]

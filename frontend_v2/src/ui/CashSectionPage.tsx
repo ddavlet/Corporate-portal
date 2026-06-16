@@ -14,6 +14,7 @@ import { RequestDetailModal, type RequestDetail } from './requests/RequestDetail
 import { NoteCreateModal } from './NoteCreateModal'
 import { labelBlockAboveField } from './formSpacing'
 import { ChannelBalancesSummary } from './ChannelBalancesSummary'
+import { AdminEditRecordButton } from './admin/AdminEditRecordButton'
 import { renderExpenseRequestStatusTag, shouldHighlightMissingRequiredRequest } from './expenseRequestStatus'
 
 type CashExpenseRow = {
@@ -130,6 +131,7 @@ export function CashSectionPage({ mode }: { mode: CashSectionMode }) {
     error: expensesError,
     hasMore: expensesHasMore,
     loadMore: loadMoreExpenses,
+    reload: reloadExpenses,
   } = useInfiniteList<CashExpenseRow>({ url: expenseListUrl, enabled: needExpenses })
 
   const {
@@ -139,7 +141,13 @@ export function CashSectionPage({ mode }: { mode: CashSectionMode }) {
     error: revenuesError,
     hasMore: revenuesHasMore,
     loadMore: loadMoreRevenues,
+    reload: reloadRevenues,
   } = useInfiniteList<CashRevenueRow>({ url: revenueListUrl, enabled: needRevenues })
+
+  const reloadSection = () => {
+    void reloadExpenses()
+    void reloadRevenues()
+  }
 
   useEffect(() => {
     if (!needExpenses && !needRevenues) return
@@ -395,6 +403,14 @@ export function CashSectionPage({ mode }: { mode: CashSectionMode }) {
       render: (value: string) => formatDateTime(value),
     },
     { title: 'Примечание', dataIndex: 'note' },
+    {
+      title: 'Действия',
+      key: 'actions',
+      width: 160,
+      render: (_, row) => (
+        <AdminEditRecordButton endpoint="/api/cash/expenses/" record={row} onSaved={reloadSection} />
+      ),
+    },
   ]
 
   const revenueColumns: ColumnsType<CashRevenueRow> = [
@@ -430,6 +446,14 @@ export function CashSectionPage({ mode }: { mode: CashSectionMode }) {
         value === false ? <Tag color="default">Нет</Tag> : <Tag color="success">Да</Tag>,
     },
     { title: 'Комментарий', dataIndex: 'comment' },
+    {
+      title: 'Действия',
+      key: 'actions',
+      width: 160,
+      render: (_, row) => (
+        <AdminEditRecordButton endpoint="/api/cash/revenues/" record={row} onSaved={reloadSection} />
+      ),
+    },
   ]
 
   type AllRow = (typeof allRows)[number]
@@ -462,6 +486,18 @@ export function CashSectionPage({ mode }: { mode: CashSectionMode }) {
       render: (value: string | null) => formatDate(value),
     },
     { title: 'Примечание', dataIndex: 'note' },
+    {
+      title: 'Действия',
+      key: 'actions',
+      width: 160,
+      render: (_, row) => (
+        <AdminEditRecordButton
+          endpoint={row.kind === 'expense' ? '/api/cash/expenses/' : '/api/cash/revenues/'}
+          record={row.raw as Record<string, unknown> & { id?: number | string }}
+          onSaved={reloadSection}
+        />
+      ),
+    },
   ]
 
   const showInfiniteFooter = mode === 'expenses' || mode === 'revenues' || mode === 'all'

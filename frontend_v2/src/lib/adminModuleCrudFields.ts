@@ -62,6 +62,29 @@ export function planAdminCreateFieldsFromRow(template: Record<string, unknown>):
   return { fields, initial, nonEditable }
 }
 
+/**
+ * План формы редактирования из существующей строки: примитивы становятся
+ * редактируемыми полями (с фактическими значениями как initial), остальное —
+ * nonEditable. Та же логика, что и в админ-CRUD, вынесена для переиспользования
+ * во встроенной правке прямо из списков.
+ */
+export function planAdminEditFieldsFromRow(row: Record<string, unknown>): AdminCrudFieldPlan {
+  const initial: Record<string, unknown> = {}
+  const nonEditable: Array<{ key: string; value: unknown }> = []
+
+  for (const [key, value] of Object.entries(row)) {
+    if (ADMIN_CRUD_SKIP_KEYS.has(key)) continue
+    if (isPrimitive(value)) initial[key] = value
+    else nonEditable.push({ key, value })
+  }
+
+  const fields: AdminCrudDynamicField[] = Object.entries(initial)
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([key, value]) => ({ key, type: classifyPrimitive(value as string | number | boolean | null) }))
+
+  return { fields, initial, nonEditable }
+}
+
 /** Парсит DRF metadata `actions.POST` в план формы создания (если структура узнаваемая). */
 export function planAdminCreateFieldsFromOptionsPost(post: Record<string, unknown> | null | undefined): AdminCrudFieldPlan | null {
   if (!post || typeof post !== 'object') return null

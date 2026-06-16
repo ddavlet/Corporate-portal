@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Alert, Button, Input, Skeleton, Tag, Typography } from 'antd'
 import { useNavigate } from 'react-router-dom'
 import { ArrowLeftOutlined, PlusOutlined, SearchOutlined } from '@ant-design/icons'
@@ -10,6 +10,7 @@ import {
   type InvestCompanyRow,
   type ProjectInvestmentRow,
 } from '../../lib/api'
+import { AdminEditRecordButton } from '../admin/AdminEditRecordButton'
 import { tgHaptic } from './tgHaptic'
 
 const dateFormatter = new Intl.DateTimeFormat('ru-RU', {
@@ -41,32 +42,29 @@ export function TgInvestmentsProjectsPage() {
   const [search, setSearch] = useState('')
   const [usesCompanies, setUsesCompanies] = useState(true)
 
-  useEffect(() => {
-    let cancelled = false
-    ;(async () => {
-      setError(null)
-      setLoading(true)
-      try {
-        const cfgPromise = getInvestmentFormConfig().catch(() => DEFAULT_INVESTMENT_FORM_CONFIG)
-        const [items, companyRows, cfg] = await Promise.all([
-          getProjectInvestments(),
-          getInvestCompanies(),
-          cfgPromise,
-        ])
-        if (cancelled) return
-        setRows(items)
-        setCompanies(companyRows)
-        setUsesCompanies(cfg.uses_companies)
-      } catch (e: unknown) {
-        if (!cancelled) setError(e instanceof Error ? e.message : 'Ошибка загрузки')
-      } finally {
-        if (!cancelled) setLoading(false)
-      }
-    })()
-    return () => {
-      cancelled = true
+  const loadRows = useCallback(async () => {
+    setError(null)
+    setLoading(true)
+    try {
+      const cfgPromise = getInvestmentFormConfig().catch(() => DEFAULT_INVESTMENT_FORM_CONFIG)
+      const [items, companyRows, cfg] = await Promise.all([
+        getProjectInvestments(),
+        getInvestCompanies(),
+        cfgPromise,
+      ])
+      setRows(items)
+      setCompanies(companyRows)
+      setUsesCompanies(cfg.uses_companies)
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Ошибка загрузки')
+    } finally {
+      setLoading(false)
     }
   }, [])
+
+  useEffect(() => {
+    void loadRows()
+  }, [loadRows])
 
   const companyMap = useMemo(() => new Map(companies.map((c) => [c.id, c.name])), [companies])
   const companyLabel = (id: number | null): string => {
@@ -132,24 +130,33 @@ export function TgInvestmentsProjectsPage() {
 
       {!loading && !error
         ? filtered.map((row) => (
-            <div key={row.id} className="tg-request-row" style={{ cursor: 'default' }}>
-              <div className="tg-request-row-title">
-                {usesCompanies ? companyLabel(row.company) : formatAmount(row.amount, row.currency)}
+            <div key={row.id} style={{ marginBottom: 10 }}>
+              <div className="tg-request-row" style={{ cursor: 'default', marginBottom: 0 }}>
+                <div className="tg-request-row-title">
+                  {usesCompanies ? companyLabel(row.company) : formatAmount(row.amount, row.currency)}
+                </div>
+                <div className="tg-request-row-meta">
+                  <span className="tg-request-row-amount">{formatAmount(row.amount, row.currency)}</span>
+                  <span>{formatDate(row.date)}</span>
+                  {row.confirmed ? (
+                    <Tag color="success" style={{ margin: 0 }}>
+                      Заявка подтверждена
+                    </Tag>
+                  ) : (
+                    <Tag color="warning" style={{ margin: 0 }}>
+                      На согласовании
+                    </Tag>
+                  )}
+                  {row.comment ? <span>{row.comment}</span> : null}
+                </div>
               </div>
-              <div className="tg-request-row-meta">
-                <span className="tg-request-row-amount">{formatAmount(row.amount, row.currency)}</span>
-                <span>{formatDate(row.date)}</span>
-                {row.confirmed ? (
-                  <Tag color="success" style={{ margin: 0 }}>
-                    Заявка подтверждена
-                  </Tag>
-                ) : (
-                  <Tag color="warning" style={{ margin: 0 }}>
-                    На согласовании
-                  </Tag>
-                )}
-                {row.comment ? <span>{row.comment}</span> : null}
-              </div>
+              <AdminEditRecordButton
+                endpoint="/api/investments/project-investments/"
+                record={row}
+                onSaved={() => void loadRows()}
+                block
+                style={{ marginTop: 6 }}
+              />
             </div>
           ))
         : null}

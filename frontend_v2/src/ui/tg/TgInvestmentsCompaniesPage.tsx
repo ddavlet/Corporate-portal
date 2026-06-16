@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Alert, Button, Input, Skeleton, Tag, Typography } from 'antd'
 import { Navigate, useNavigate } from 'react-router-dom'
 import { ArrowLeftOutlined, SearchOutlined } from '@ant-design/icons'
@@ -8,6 +8,7 @@ import {
   getInvestCompanies,
   type InvestCompanyRow,
 } from '../../lib/api'
+import { AdminEditRecordButton } from '../admin/AdminEditRecordButton'
 import { tgHaptic } from './tgHaptic'
 
 export function TgInvestmentsCompaniesPage() {
@@ -18,32 +19,29 @@ export function TgInvestmentsCompaniesPage() {
   const [search, setSearch] = useState('')
   const [blocked, setBlocked] = useState<boolean | null>(null)
 
-  useEffect(() => {
-    let cancelled = false
-    ;(async () => {
-      setError(null)
-      setLoading(true)
-      try {
-        const cfg = await getInvestmentFormConfig().catch(() => DEFAULT_INVESTMENT_FORM_CONFIG)
-        if (cancelled) return
-        if (!cfg.uses_companies) {
-          setBlocked(true)
-          setLoading(false)
-          return
-        }
-        setBlocked(false)
-        const data = await getInvestCompanies()
-        if (!cancelled) setRows(data)
-      } catch (e: unknown) {
-        if (!cancelled) setError(e instanceof Error ? e.message : 'Ошибка загрузки')
-      } finally {
-        if (!cancelled) setLoading(false)
+  const loadRows = useCallback(async () => {
+    setError(null)
+    setLoading(true)
+    try {
+      const cfg = await getInvestmentFormConfig().catch(() => DEFAULT_INVESTMENT_FORM_CONFIG)
+      if (!cfg.uses_companies) {
+        setBlocked(true)
+        setLoading(false)
+        return
       }
-    })()
-    return () => {
-      cancelled = true
+      setBlocked(false)
+      const data = await getInvestCompanies()
+      setRows(data)
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Ошибка загрузки')
+    } finally {
+      setLoading(false)
     }
   }, [])
+
+  useEffect(() => {
+    void loadRows()
+  }, [loadRows])
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase()
@@ -95,14 +93,23 @@ export function TgInvestmentsCompaniesPage() {
 
       {!loading && !error
         ? filtered.map((row) => (
-            <div key={row.id} className="tg-request-row" style={{ cursor: 'default' }}>
-              <div className="tg-request-row-title">{row.name || `Компания #${row.id}`}</div>
-              <div className="tg-request-row-meta">
-                <Tag color={row.is_active ? 'green' : 'default'}>
-                  {row.is_active ? 'Активна' : 'Неактивна'}
-                </Tag>
-                {row.comment ? <span>{row.comment}</span> : null}
+            <div key={row.id} style={{ marginBottom: 10 }}>
+              <div className="tg-request-row" style={{ cursor: 'default', marginBottom: 0 }}>
+                <div className="tg-request-row-title">{row.name || `Компания #${row.id}`}</div>
+                <div className="tg-request-row-meta">
+                  <Tag color={row.is_active ? 'green' : 'default'}>
+                    {row.is_active ? 'Активна' : 'Неактивна'}
+                  </Tag>
+                  {row.comment ? <span>{row.comment}</span> : null}
+                </div>
               </div>
+              <AdminEditRecordButton
+                endpoint="/api/investments/companies/"
+                record={row}
+                onSaved={() => void loadRows()}
+                block
+                style={{ marginTop: 6 }}
+              />
             </div>
           ))
         : null}
