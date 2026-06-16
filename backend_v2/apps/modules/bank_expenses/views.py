@@ -18,7 +18,7 @@ from apps.modules.bank_expenses.tashkent_dates import (
 )
 from apps.modules.requests.expense_compliance import annotate_bank_expense_compliance, filter_expenses_missing_request
 from apps.modules.requests.models import Request
-from apps.tenants.permissions import HasEffectiveModuleAccess
+from apps.tenants.permissions import HasEffectiveModuleAccess, IsTenantAdminForRecordEdit
 from apps.modules.wallets.models import Wallet
 from apps.modules.wallets.services import balances_for_tenant_channel
 
@@ -46,7 +46,7 @@ class BankRevenueCursorPagination(PortalCursorPagination):
 
 class BankExpenseViewSet(PortalListViewSetMixin, viewsets.ModelViewSet):
     module_key = "bank"
-    permission_classes = [IsAuthenticated, HasEffectiveModuleAccess]
+    permission_classes = [IsAuthenticated, HasEffectiveModuleAccess, IsTenantAdminForRecordEdit]
     serializer_class = BankExpenseSerializer
     pagination_class = BankExpenseCursorPagination
     ordering_fields = ["doc_date", "process_date", "debit_turnover", "id", "doc_no"]
@@ -178,7 +178,7 @@ class BankExpenseViewSet(PortalListViewSetMixin, viewsets.ModelViewSet):
 
 class BankRevenueViewSet(PortalListViewSetMixin, viewsets.ModelViewSet):
     module_key = "bank"
-    permission_classes = [IsAuthenticated, HasEffectiveModuleAccess]
+    permission_classes = [IsAuthenticated, HasEffectiveModuleAccess, IsTenantAdminForRecordEdit]
     serializer_class = BankRevenueSerializer
     pagination_class = BankRevenueCursorPagination
     ordering_fields = ["doc_date", "process_date", "kredit_turnover", "id"]

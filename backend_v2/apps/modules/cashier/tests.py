@@ -221,3 +221,101 @@ class CashExpenseRequestRequiredApiTests(APITestCase):
         self.assertNotIn(self.required_paid.id, ids)
         self.assertNotIn(self.optional_missing.id, ids)
 
+
+@override_settings(BASE_DOMAIN="example.com", ALLOWED_HOSTS=["*"])
+class CashRecordAdminEditPermissionTests(APITestCase):
+    """Editing/deleting an existing cash record via API is admin-only.
+
+    A non-admin cash role (cashier) keeps read and create access, but cannot
+    PATCH or DELETE existing records — enforcement lives on the backend, not
+    just in the UI (IsTenantAdminForRecordEdit).
+    """
+
+    def setUp(self):
+        self.tenant = Tenant.objects.create(name="Acme", subdomain="acme", is_active=True)
+        self.admin = User.objects.create_user(username="cash_edit_admin", password="x")
+        self.cashier = User.objects.create_user(username="cash_edit_cashier", password="x")
+        for u in (self.admin, self.cashier):
+            TenantMembership.objects.create(tenant=self.tenant, user=u, is_active=True)
+        TenantUserRole.objects.create(tenant=self.tenant, user=self.admin, role=TenantUserRole.ROLE_ADMIN)
+        TenantUserRole.objects.create(tenant=self.tenant, user=self.cashier, role=TenantUserRole.ROLE_CASHIER)
+        TenantModuleConfig.objects.create(tenant=self.tenant, module_key="cash", is_enabled=True)
+        self.host = "acme.example.com"
+        self.wallet = get_or_create_cash_wallet(tenant=self.tenant, currency="UZS")
+        dt = timezone.now()
+        self.expense = CashExpense.objects.create(
+            tenant=self.tenant,
+            external_id="edit-1",
+            confirmed=True,
+            title="Original",
+            amount=10,
+            currency="UZS",
+            wallet=self.wallet,
+            expense_at=dt,
+            expense_year=dt.year,
+            expense_month=dt.month,
+            expense_day=dt.day,
+            note="",
+            payload={},
+            created_by=self.admin,
+        )
+
+    def test_cashier_can_read(self):
+        self.client.force_authenticate(self.cashier)
+        res = self.client.get("/api/cash/expenses/", HTTP_HOST=self.host)
+        self.assertEqual(res.status_code, 200, res.content)
+
+    def test_cashier_create_not_forbidden(self):
+        # Create stays open to cash roles; permission must not block it (may 201 or 400 on payload).
+        self.client.force_authenticate(self.cashier)
+        res = self.client.post(
+            "/api/cash/expenses/",
+            {
+                "external_id": "new-1",
+                "title": "New",
+                "amount": "5.00",
+                "currency": "UZS",
+                "expense_at": "2026-01-15T10:00:00",
+                "confirmed": True,
+            },
+            format="json",
+            HTTP_HOST=self.host,
+        )
+        self.assertNotEqual(res.status_code, 403, res.content)
+
+    def test_cashier_cannot_edit(self):
+        self.client.force_authenticate(self.cashier)
+        res = self.client.patch(
+            f"/api/cash/expenses/{self.expense.id}/",
+            {"title": "Hacked"},
+            format="json",
+            HTTP_HOST=self.host,
+        )
+        self.assertEqual(res.status_code, 403, res.content)
+        self.expense.refresh_from_db()
+        self.assertEqual(self.expense.title, "Original")
+
+    def test_cashier_cannot_delete(self):
+        self.client.force_authenticate(self.cashier)
+        res = self.client.delete(f"/api/cash/expenses/{self.expense.id}/", HTTP_HOST=self.host)
+        self.assertEqual(res.status_code, 403, res.content)
+        self.assertTrue(CashExpense.objects.filter(id=self.expense.id).exists())
+
+    def test_admin_can_edit(self):
+        self.client.force_authenticate(self.admin)
+        res = self.client.patch(
+            f"/api/cash/expenses/{self.expense.id}/",
+            {"title": "Updated by admin"},
+            format="json",
+            HTTP_HOST=self.host,
+        )
+        self.assertEqual(res.status_code, 200, res.content)
+        self.expense.refresh_from_db()
+        self.assertEqual(self.expense.title, "Updated by admin")
+
+    def test_admin_can_delete(self):
+        self.client.force_authenticate(self.admin)
+        res = self.client.delete(f"/api/cash/expenses/{self.expense.id}/", HTTP_HOST=self.host)
+        self.assertEqual(res.status_code, 204, res.content)
+        self.assertFalse(CashExpense.objects.filter(id=self.expense.id).exists())
+

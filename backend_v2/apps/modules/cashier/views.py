@@ -14,7 +14,7 @@ from apps.modules.cashier.models import CashExpense, CashRevenue
 from apps.modules.cashier.serializers import CashExpenseSerializer, CashRevenueSerializer
 from apps.modules.requests.expense_compliance import annotate_cash_expense_compliance, filter_expenses_missing_request
 from apps.modules.requests.models import Request
-from apps.tenants.permissions import HasEffectiveModuleAccess
+from apps.tenants.permissions import HasEffectiveModuleAccess, IsTenantAdminForRecordEdit
 from apps.modules.wallets.models import Wallet
 from apps.modules.wallets.services import balances_for_tenant_channel
 
@@ -42,7 +42,7 @@ class CashRevenueCursorPagination(PortalCursorPagination):
 
 class CashExpenseViewSet(PortalListViewSetMixin, viewsets.ModelViewSet):
     module_key = "cash"
-    permission_classes = [IsAuthenticated, HasEffectiveModuleAccess]
+    permission_classes = [IsAuthenticated, HasEffectiveModuleAccess, IsTenantAdminForRecordEdit]
     serializer_class = CashExpenseSerializer
     pagination_class = CashExpenseCursorPagination
     ordering_fields = ["expense_at", "amount", "id", "created_at", "external_id"]
@@ -144,7 +144,7 @@ class CashExpenseViewSet(PortalListViewSetMixin, viewsets.ModelViewSet):
 
 class CashRevenueViewSet(PortalListViewSetMixin, viewsets.ModelViewSet):
     module_key = "cash"
-    permission_classes = [IsAuthenticated, HasEffectiveModuleAccess]
+    permission_classes = [IsAuthenticated, HasEffectiveModuleAccess, IsTenantAdminForRecordEdit]
     serializer_class = CashRevenueSerializer
     pagination_class = CashRevenueCursorPagination
     ordering_fields = ["revenue_at", "created_at", "total_sum", "id"]

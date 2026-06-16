@@ -68,7 +68,7 @@ from apps.common.query_params import parse_bool_query, parse_date_query
 from apps.common.viewsets import NoPortalPaginationMixin, PortalListViewSetMixin
 from apps.modules.telegram_approvals.services import ensure_callback_identity
 from apps.tenants.models import TenantMembership
-from apps.tenants.permissions import HasEffectiveModuleAccess
+from apps.tenants.permissions import HasEffectiveModuleAccess, IsTenantAdminForRecordEdit
 
 
 class _InvestmentsTenantViewSet(PortalListViewSetMixin, viewsets.ModelViewSet):
@@ -86,6 +86,16 @@ class _InvestmentsTenantViewSet(PortalListViewSetMixin, viewsets.ModelViewSet):
 
     def perform_create(self, serializer):
         serializer.save(tenant=self.request.tenant, created_by=self.request.user)
+
+
+class _EditableInvestmentsTenantViewSet(_InvestmentsTenantViewSet):
+    """Investments record viewsets where editing/deleting existing rows is admin-only.
+
+    Reads stay open to module roles (e.g. investor) and create flows are unchanged;
+    only update/partial_update/destroy require a tenant admin.
+    """
+
+    permission_classes = [IsAuthenticated, HasEffectiveModuleAccess, IsTenantAdminForRecordEdit]
 
 
 class _ReadOnlyInvestmentsTenantViewSet(NoPortalPaginationMixin, viewsets.ReadOnlyModelViewSet):
@@ -188,7 +198,7 @@ class ProjectInvestmentApprovalReadViewSet(_ReadOnlyInvestmentsTenantViewSet):
         return qs.order_by("step", "id")
 
 
-class InvestReturnViewSet(_InvestmentsTenantViewSet):
+class InvestReturnViewSet(_EditableInvestmentsTenantViewSet):
     serializer_class = InvestReturnSerializer
     queryset = InvestReturn.objects.all()
 
@@ -198,7 +208,7 @@ class InvestReturnViewSet(_InvestmentsTenantViewSet):
         route_invest_return_approvals(invest_return=obj)
 
 
-class InvestPayoutScheduleViewSet(_InvestmentsTenantViewSet):
+class InvestPayoutScheduleViewSet(_EditableInvestmentsTenantViewSet):
     serializer_class = InvestPayoutScheduleSerializer
     queryset = InvestPayoutSchedule.objects.all()
     ordering_fields = ["payout_date", "amount", "id", "is_paid"]
@@ -223,7 +233,7 @@ class InvestPayoutScheduleViewSet(_InvestmentsTenantViewSet):
         return qs.order_by("-payout_date", "-id")
 
 
-class ProjectInvestmentViewSet(_InvestmentsTenantViewSet):
+class ProjectInvestmentViewSet(_EditableInvestmentsTenantViewSet):
     serializer_class = ProjectInvestmentSerializer
     queryset = ProjectInvestment.objects.all()
 
@@ -233,7 +243,7 @@ class ProjectInvestmentViewSet(_InvestmentsTenantViewSet):
         route_project_investment_approvals(project_investment=obj)
 
 
-class InvestCompanyViewSet(_InvestmentsTenantViewSet):
+class InvestCompanyViewSet(_EditableInvestmentsTenantViewSet):
     serializer_class = InvestCompanySerializer
     queryset = InvestCompany.objects.all()
     ordering_fields = ["name", "id", "created_at"]
