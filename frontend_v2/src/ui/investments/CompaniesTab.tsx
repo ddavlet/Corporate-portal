@@ -3,6 +3,7 @@ import { Button, Empty, Form, Input, Modal, Skeleton, Space, Switch, Table, Tag,
 import type { ColumnsType } from 'antd/es/table'
 
 import { createInvestCompany, type InvestCompanyRow } from '../../lib/api'
+import { AdminEditRecordButton } from '../admin/AdminEditRecordButton'
 
 type Props = {
   loading: boolean
@@ -25,6 +26,14 @@ export function CompaniesTab({ loading, companies, onCreated }: Props) {
       width: 110,
       render: (v: boolean) => <Tag color={v ? 'success' : 'default'}>{v ? 'Активна' : 'Неактивна'}</Tag>,
       sorter: (a, b) => Number(a.is_active) - Number(b.is_active),
+    },
+    {
+      title: 'Действия',
+      key: 'actions',
+      width: 160,
+      render: (_, row) => (
+        <AdminEditRecordButton endpoint="/api/investments/companies/" record={row} onSaved={() => void onCreated()} />
+      ),
     },
   ]
 

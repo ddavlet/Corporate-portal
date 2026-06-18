@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import {
+  ADMIN_CRUD_SKIP_KEYS,
   planAdminCreateFieldsFromOptionsPost,
   planAdminCreateFieldsFromRow,
+  planAdminEditFieldsFromRow,
 } from './adminModuleCrudFields'
 
 describe('planAdminCreateFieldsFromRow', () => {
@@ -22,6 +24,41 @@ describe('planAdminCreateFieldsFromRow', () => {
     expect(plan.initial.amount).toBe(undefined)
     expect(plan.initial.note).toBe(null)
     expect(plan.initial.enabled).toBe(false)
+  })
+})
+
+describe('planAdminEditFieldsFromRow', () => {
+  it('keeps actual primitive values as initial and splits non-primitives into nonEditable', () => {
+    const plan = planAdminEditFieldsFromRow({
+      id: 5,
+      title: 'Привет',
+      amount: 100,
+      is_active: true,
+      nothing: null,
+      attachments: [{ id: 1 }],
+      meta: { a: 1 },
+    })
+
+    // initial carries actual values (not blanked) so the form is pre-filled for editing
+    expect(plan.initial).toEqual({ title: 'Привет', amount: 100, is_active: true, nothing: null })
+    expect(plan.nonEditable.map((f) => f.key).sort()).toEqual(['attachments', 'meta'])
+    expect(plan.fields).toEqual([
+      { key: 'amount', type: 'number' },
+      { key: 'is_active', type: 'boolean' },
+      { key: 'nothing', type: 'null' },
+      { key: 'title', type: 'string' },
+    ])
+  })
+
+  it('skips server-managed keys', () => {
+    const row: Record<string, unknown> = { id: 1, title: 'x' }
+    for (const key of ADMIN_CRUD_SKIP_KEYS) row[key] = 'server'
+
+    const plan = planAdminEditFieldsFromRow(row)
+
+    expect(Object.keys(plan.initial)).toEqual(['title'])
+    expect(plan.fields.map((f) => f.key)).toEqual(['title'])
+    expect(plan.nonEditable).toEqual([])
   })
 })
 

@@ -212,6 +212,26 @@ class HasWalletsFinancialWriteAccess(BasePermission):
         ).exists()
 
 
+class IsTenantAdminForRecordEdit(BasePermission):
+    """
+    Editing or deleting an existing record (the DRF ``update`` / ``partial_update`` /
+    ``destroy`` actions) requires a tenant admin.
+
+    Listing, retrieving, creating and any custom ``@action`` endpoints fall through
+    to the view's other permissions (e.g. ``HasEffectiveModuleAccess``), so non-admin
+    module roles keep their read/create access and integration actions are unaffected.
+
+    Pair with ``HasEffectiveModuleAccess`` so the module/role gate still applies to reads.
+    """
+
+    EDIT_ACTIONS = frozenset({"update", "partial_update", "destroy"})
+
+    def has_permission(self, request, view) -> bool:
+        if getattr(view, "action", None) not in self.EDIT_ACTIONS:
+            return True
+        return IsTenantAdmin().has_permission(request, view)
+
+
 class HasEffectiveModuleAccess(BasePermission):
     """
     Guard DRF views by `module_key`.

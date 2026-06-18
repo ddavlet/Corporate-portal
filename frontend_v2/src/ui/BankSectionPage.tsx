@@ -14,6 +14,7 @@ import { RequestDetailModal, type RequestDetail } from './requests/RequestDetail
 import { NoteCreateModal } from './NoteCreateModal'
 import { labelBlockAboveField } from './formSpacing'
 import { ChannelBalancesSummary } from './ChannelBalancesSummary'
+import { AdminEditRecordButton } from './admin/AdminEditRecordButton'
 import { renderExpenseRequestStatusTag, shouldHighlightMissingRequiredRequest } from './expenseRequestStatus'
 
 type BankExpenseRow = {
@@ -117,6 +118,7 @@ export function BankSectionPage({ mode }: { mode: BankSectionMode }) {
     error: expensesError,
     hasMore: expensesHasMore,
     loadMore: loadMoreExpenses,
+    reload: reloadExpenses,
   } = useInfiniteList<BankExpenseRow>({ url: expenseListUrl, enabled: needExpenses })
 
   const {
@@ -126,7 +128,13 @@ export function BankSectionPage({ mode }: { mode: BankSectionMode }) {
     error: revenuesError,
     hasMore: revenuesHasMore,
     loadMore: loadMoreRevenues,
+    reload: reloadRevenues,
   } = useInfiniteList<BankRevenueRow>({ url: revenueListUrl, enabled: needRevenues })
+
+  const reloadSection = () => {
+    void reloadExpenses()
+    void reloadRevenues()
+  }
 
   const listLoading = (needExpenses && expensesLoading) || (needRevenues && revenuesLoading)
   const listError = expensesError || revenuesError
@@ -305,6 +313,14 @@ export function BankSectionPage({ mode }: { mode: BankSectionMode }) {
       sorter: (a, b) => compareDateStrings(a.process_date, b.process_date),
       render: (value: string) => formatDate(value),
     },
+    {
+      title: 'Действия',
+      key: 'actions',
+      width: 160,
+      render: (_, row) => (
+        <AdminEditRecordButton endpoint="/api/bank/expenses/" record={row} onSaved={reloadSection} />
+      ),
+    },
   ]
 
   const revenueColumns: ColumnsType<BankRevenueRow> = [
@@ -329,6 +345,14 @@ export function BankSectionPage({ mode }: { mode: BankSectionMode }) {
       dataIndex: 'process_date',
       sorter: (a, b) => compareDateStrings(a.process_date, b.process_date),
       render: (value: string) => formatDate(value),
+    },
+    {
+      title: 'Действия',
+      key: 'actions',
+      width: 160,
+      render: (_, row) => (
+        <AdminEditRecordButton endpoint="/api/bank/revenues/" record={row} onSaved={reloadSection} />
+      ),
     },
   ]
 
@@ -356,6 +380,18 @@ export function BankSectionPage({ mode }: { mode: BankSectionMode }) {
       defaultSortOrder: 'descend',
       sorter: (a, b) => compareDateStrings(a.at, b.at),
       render: (value: string) => formatDate(value),
+    },
+    {
+      title: 'Действия',
+      key: 'actions',
+      width: 160,
+      render: (_, row) => (
+        <AdminEditRecordButton
+          endpoint={row.kind === 'expense' ? '/api/bank/expenses/' : '/api/bank/revenues/'}
+          record={row.raw as Record<string, unknown> & { id?: number | string }}
+          onSaved={reloadSection}
+        />
+      ),
     },
   ]
 

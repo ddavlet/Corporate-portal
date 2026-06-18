@@ -1,8 +1,9 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Alert, Button, Input, Skeleton, Tag, Typography } from 'antd'
 import { useNavigate } from 'react-router-dom'
 import { ArrowLeftOutlined, SearchOutlined } from '@ant-design/icons'
 import { apiFetch, getBankRevenues, type BankRevenue } from '../../lib/api'
+import { AdminEditRecordButton } from '../admin/AdminEditRecordButton'
 import { tgHaptic } from './tgHaptic'
 
 export type TgBankListMode = 'all' | 'expenses' | 'revenues'
@@ -70,41 +71,38 @@ export function TgBankListPage({ mode }: { mode: TgBankListMode }) {
   const needExpenses = mode !== 'revenues'
   const needRevenues = mode !== 'expenses'
 
-  useEffect(() => {
-    let cancelled = false
-    ;(async () => {
-      setError(null)
-      setLoading(true)
-      try {
-        const [expensesRes, revenueRows] = await Promise.all([
-          needExpenses ? apiFetch('/api/bank/expenses/') : Promise.resolve(null),
-          needRevenues ? getBankRevenues() : Promise.resolve([] as BankRevenue[]),
-        ])
-        if (cancelled) return
-        if (expensesRes) {
-          const expensesJson = await expensesRes.json().catch(() => null)
-          if (!expensesRes.ok) {
-            throw new Error(
-              typeof expensesJson === 'object' && expensesJson
-                ? JSON.stringify(expensesJson)
-                : `HTTP ${expensesRes.status}`,
-            )
-          }
-          setExpenses(normalizeExpenses(expensesJson))
-        } else {
-          setExpenses([])
+  const loadRows = useCallback(async () => {
+    setError(null)
+    setLoading(true)
+    try {
+      const [expensesRes, revenueRows] = await Promise.all([
+        needExpenses ? apiFetch('/api/bank/expenses/') : Promise.resolve(null),
+        needRevenues ? getBankRevenues() : Promise.resolve([] as BankRevenue[]),
+      ])
+      if (expensesRes) {
+        const expensesJson = await expensesRes.json().catch(() => null)
+        if (!expensesRes.ok) {
+          throw new Error(
+            typeof expensesJson === 'object' && expensesJson
+              ? JSON.stringify(expensesJson)
+              : `HTTP ${expensesRes.status}`,
+          )
         }
-        setRevenues(revenueRows)
-      } catch (e: unknown) {
-        if (!cancelled) setError(e instanceof Error ? e.message : 'Ошибка загрузки')
-      } finally {
-        if (!cancelled) setLoading(false)
+        setExpenses(normalizeExpenses(expensesJson))
+      } else {
+        setExpenses([])
       }
-    })()
-    return () => {
-      cancelled = true
+      setRevenues(revenueRows)
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Ошибка загрузки')
+    } finally {
+      setLoading(false)
     }
   }, [needExpenses, needRevenues])
+
+  useEffect(() => {
+    void loadRows()
+  }, [loadRows])
 
   const expensesView = useMemo(() => {
     const q = search.trim().toLowerCase()
@@ -172,39 +170,57 @@ export function TgBankListPage({ mode }: { mode: TgBankListMode }) {
 
       {!loading && !error && needExpenses
         ? expensesView.map((row) => (
-            <button
-              key={`exp-${row.id}`}
-              type="button"
-              className="tg-request-row"
-              onClick={() => { tgHaptic.tap(); navigate(`/tg/bank/expenses/${row.id}`) }}
-            >
-              <div className="tg-request-row-title">
-                {mode === 'all' ? '↑ ' : ''}
-                {row.vendor_name?.trim() || row.payment_purpose || `Платёж #${row.id}`}
-              </div>
-              <div className="tg-request-row-meta">
-                <span className="tg-request-row-amount">{formatAmount(row.debit_turnover)}</span>
-                <span>Док. №{row.doc_no || '—'}</span>
-                <span>{formatDate(row.doc_date)}</span>
-                {row.matched_request_id ? <Tag color="blue">Заявка #{row.matched_request_id}</Tag> : null}
-              </div>
-            </button>
+            <div key={`exp-${row.id}`} style={{ marginBottom: 10 }}>
+              <button
+                type="button"
+                className="tg-request-row"
+                style={{ marginBottom: 0 }}
+                onClick={() => { tgHaptic.tap(); navigate(`/tg/bank/expenses/${row.id}`) }}
+              >
+                <div className="tg-request-row-title">
+                  {mode === 'all' ? '↑ ' : ''}
+                  {row.vendor_name?.trim() || row.payment_purpose || `Платёж #${row.id}`}
+                </div>
+                <div className="tg-request-row-meta">
+                  <span className="tg-request-row-amount">{formatAmount(row.debit_turnover)}</span>
+                  <span>Док. №{row.doc_no || '—'}</span>
+                  <span>{formatDate(row.doc_date)}</span>
+                  {row.matched_request_id ? <Tag color="blue">Заявка #{row.matched_request_id}</Tag> : null}
+                </div>
+              </button>
+              <AdminEditRecordButton
+                endpoint="/api/bank/expenses/"
+                record={row}
+                onSaved={() => void loadRows()}
+                block
+                style={{ marginTop: 6 }}
+              />
+            </div>
           ))
         : null}
 
       {!loading && !error && needRevenues
         ? revenuesView.map((row) => (
-            <div key={`rev-${row.id}`} className="tg-request-row" style={{ cursor: 'default' }}>
-              <div className="tg-request-row-title">
-                {mode === 'all' ? '↓ ' : ''}
-                {row.account_name?.trim() || row.payment_purpose || `Поступление #${row.id}`}
+            <div key={`rev-${row.id}`} style={{ marginBottom: 10 }}>
+              <div className="tg-request-row" style={{ cursor: 'default', marginBottom: 0 }}>
+                <div className="tg-request-row-title">
+                  {mode === 'all' ? '↓ ' : ''}
+                  {row.account_name?.trim() || row.payment_purpose || `Поступление #${row.id}`}
+                </div>
+                <div className="tg-request-row-meta">
+                  <span className="tg-request-row-amount">{formatAmount(row.kredit_turnover)}</span>
+                  <span>Док. №{row.doc_no || '—'}</span>
+                  <span>{formatDate(row.doc_date)}</span>
+                  {row.inn ? <span>ИНН {row.inn}</span> : null}
+                </div>
               </div>
-              <div className="tg-request-row-meta">
-                <span className="tg-request-row-amount">{formatAmount(row.kredit_turnover)}</span>
-                <span>Док. №{row.doc_no || '—'}</span>
-                <span>{formatDate(row.doc_date)}</span>
-                {row.inn ? <span>ИНН {row.inn}</span> : null}
-              </div>
+              <AdminEditRecordButton
+                endpoint="/api/bank/revenues/"
+                record={row}
+                onSaved={() => void loadRows()}
+                block
+                style={{ marginTop: 6 }}
+              />
             </div>
           ))
         : null}

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Alert, Button, Input, Skeleton, Tag, Typography } from 'antd'
 import { useNavigate } from 'react-router-dom'
 import { ArrowLeftOutlined, PlusOutlined, SearchOutlined } from '@ant-design/icons'
@@ -10,6 +10,7 @@ import {
   type InvestCompanyRow,
   type InvestReturnRow,
 } from '../../lib/api'
+import { AdminEditRecordButton } from '../admin/AdminEditRecordButton'
 import { tgHaptic } from './tgHaptic'
 
 const dateFormatter = new Intl.DateTimeFormat('ru-RU', {
@@ -59,32 +60,29 @@ export function TgInvestmentsReturnsPage() {
   const [search, setSearch] = useState('')
   const [usesCompanies, setUsesCompanies] = useState(true)
 
-  useEffect(() => {
-    let cancelled = false
-    ;(async () => {
-      setError(null)
-      setLoading(true)
-      try {
-        const cfgPromise = getInvestmentFormConfig().catch(() => DEFAULT_INVESTMENT_FORM_CONFIG)
-        const [items, companyRows, cfg] = await Promise.all([
-          getInvestReturns(),
-          getInvestCompanies(),
-          cfgPromise,
-        ])
-        if (cancelled) return
-        setRows(items)
-        setCompanies(companyRows)
-        setUsesCompanies(cfg.uses_companies)
-      } catch (e: unknown) {
-        if (!cancelled) setError(e instanceof Error ? e.message : 'Ошибка загрузки')
-      } finally {
-        if (!cancelled) setLoading(false)
-      }
-    })()
-    return () => {
-      cancelled = true
+  const loadRows = useCallback(async () => {
+    setError(null)
+    setLoading(true)
+    try {
+      const cfgPromise = getInvestmentFormConfig().catch(() => DEFAULT_INVESTMENT_FORM_CONFIG)
+      const [items, companyRows, cfg] = await Promise.all([
+        getInvestReturns(),
+        getInvestCompanies(),
+        cfgPromise,
+      ])
+      setRows(items)
+      setCompanies(companyRows)
+      setUsesCompanies(cfg.uses_companies)
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Ошибка загрузки')
+    } finally {
+      setLoading(false)
     }
   }, [])
+
+  useEffect(() => {
+    void loadRows()
+  }, [loadRows])
 
   const companyMap = useMemo(() => new Map(companies.map((c) => [c.id, c.name])), [companies])
   const companyLabel = (id: number | null): string => {
@@ -152,21 +150,30 @@ export function TgInvestmentsReturnsPage() {
 
       {!loading && !error
         ? filtered.map((row) => (
-            <div key={row.id} className="tg-request-row" style={{ cursor: 'default' }}>
-              {usesCompanies ? (
-                <div className="tg-request-row-title">{companyLabel(row.company)}</div>
-              ) : null}
-              <div className="tg-request-row-meta">
-                <span className="tg-request-row-amount">{formatAmount(row.sum, row.currency)}</span>
-                <Tag color={row.confirmed ? 'green' : 'default'}>
-                  {row.confirmed ? 'Подтверждено' : 'Не подтверждено'}
-                </Tag>
-                <span>{TYPE_LABEL[row.type] || row.type || '—'}</span>
-                <span>{RECIPIENT_LABEL[row.recipient] || row.recipient || '—'}</span>
-                <span>Нач.: {accrualMonthShort(row.billing_date)}</span>
-                <span>{formatDate(row.date)}</span>
-                {row.comment ? <span>{row.comment}</span> : null}
+            <div key={row.id} style={{ marginBottom: 10 }}>
+              <div className="tg-request-row" style={{ cursor: 'default', marginBottom: 0 }}>
+                {usesCompanies ? (
+                  <div className="tg-request-row-title">{companyLabel(row.company)}</div>
+                ) : null}
+                <div className="tg-request-row-meta">
+                  <span className="tg-request-row-amount">{formatAmount(row.sum, row.currency)}</span>
+                  <Tag color={row.confirmed ? 'green' : 'default'}>
+                    {row.confirmed ? 'Подтверждено' : 'Не подтверждено'}
+                  </Tag>
+                  <span>{TYPE_LABEL[row.type] || row.type || '—'}</span>
+                  <span>{RECIPIENT_LABEL[row.recipient] || row.recipient || '—'}</span>
+                  <span>Нач.: {accrualMonthShort(row.billing_date)}</span>
+                  <span>{formatDate(row.date)}</span>
+                  {row.comment ? <span>{row.comment}</span> : null}
+                </div>
               </div>
+              <AdminEditRecordButton
+                endpoint="/api/investments/returns/"
+                record={row}
+                onSaved={() => void loadRows()}
+                block
+                style={{ marginTop: 6 }}
+              />
             </div>
           ))
         : null}

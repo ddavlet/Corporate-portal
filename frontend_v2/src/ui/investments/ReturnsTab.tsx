@@ -27,6 +27,7 @@ import {
 import { clampToAllowedBillingMonth, isAllowedBillingMonth } from '../../lib/billingMonth'
 import { monthStartTashkent } from '../../lib/tashkentTime'
 import { InvestmentRecordDetailModal } from './InvestmentRecordDetailModal'
+import { AdminEditRecordButton } from '../admin/AdminEditRecordButton'
 import { KpiStrip } from './KpiStrip'
 import {
   asMoney,
@@ -172,9 +173,17 @@ export function ReturnsTab({
       sorter: (a, b) => Number(a.confirmed) - Number(b.confirmed),
     },
     { title: 'Комментарий', dataIndex: 'comment', render: (v: string) => v || '-' },
+    {
+      title: 'Действия',
+      key: 'actions',
+      width: 160,
+      render: (_: unknown, row: InvestReturnRow) => (
+        <AdminEditRecordButton endpoint="/api/investments/returns/" record={row} onSaved={() => void onCreated()} />
+      ),
+    },
     ]
     return rest
-  }, [usesCompanies, companyLabel])
+  }, [usesCompanies, companyLabel, onCreated])
 
   const openCreate = () => {
     form.resetFields()

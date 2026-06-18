@@ -24,6 +24,7 @@ import {
   type ProjectInvestmentRow,
 } from '../../lib/api'
 import { InvestmentRecordDetailModal } from './InvestmentRecordDetailModal'
+import { AdminEditRecordButton } from '../admin/AdminEditRecordButton'
 import { KpiStrip } from './KpiStrip'
 import {
   asMoney,
@@ -123,8 +124,20 @@ export function InvestmentsTab({
         v ? <Tag color="success">Подтверждена</Tag> : <Tag color="warning">На согласовании</Tag>,
     },
     { title: 'Комментарий', dataIndex: 'comment', render: (v: string) => v || '-' },
+    {
+      title: 'Действия',
+      key: 'actions',
+      width: 160,
+      render: (_: unknown, row: ProjectInvestmentRow) => (
+        <AdminEditRecordButton
+          endpoint="/api/investments/project-investments/"
+          record={row}
+          onSaved={() => void onCreated()}
+        />
+      ),
+    },
     ]
-  }, [usesCompanies, companyLabel])
+  }, [usesCompanies, companyLabel, onCreated])
 
   const openCreate = () => {
     form.resetFields()

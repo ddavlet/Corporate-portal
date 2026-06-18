@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Alert, Button, Select, Skeleton, Tag, Typography } from 'antd'
 import { useNavigate } from 'react-router-dom'
 import { ArrowLeftOutlined } from '@ant-design/icons'
@@ -10,6 +10,7 @@ import {
   type InvestCompanyRow,
   type InvestPayoutScheduleRow,
 } from '../../lib/api'
+import { AdminEditRecordButton } from '../admin/AdminEditRecordButton'
 import { tgHaptic } from './tgHaptic'
 
 type CompanyFilter = 'all' | 'none' | number
@@ -50,28 +51,25 @@ export function TgInvestmentsSchedulePage() {
   const [rows, setRows] = useState<InvestPayoutScheduleRow[]>([])
   const [usesCompanies, setUsesCompanies] = useState(true)
 
-  useEffect(() => {
-    let cancelled = false
-    ;(async () => {
-      setLoading(true)
-      setError(null)
-      try {
-        const cfgPromise = getInvestmentFormConfig().catch(() => DEFAULT_INVESTMENT_FORM_CONFIG)
-        const [c, s, cfg] = await Promise.all([getInvestCompanies(), getInvestPayoutSchedule(), cfgPromise])
-        if (cancelled) return
-        setCompanies(c)
-        setRows(s)
-        setUsesCompanies(cfg.uses_companies)
-      } catch (e: unknown) {
-        if (!cancelled) setError(e instanceof Error ? e.message : 'Ошибка загрузки')
-      } finally {
-        if (!cancelled) setLoading(false)
-      }
-    })()
-    return () => {
-      cancelled = true
+  const loadRows = useCallback(async () => {
+    setLoading(true)
+    setError(null)
+    try {
+      const cfgPromise = getInvestmentFormConfig().catch(() => DEFAULT_INVESTMENT_FORM_CONFIG)
+      const [c, s, cfg] = await Promise.all([getInvestCompanies(), getInvestPayoutSchedule(), cfgPromise])
+      setCompanies(c)
+      setRows(s)
+      setUsesCompanies(cfg.uses_companies)
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Ошибка загрузки')
+    } finally {
+      setLoading(false)
     }
   }, [])
+
+  useEffect(() => {
+    void loadRows()
+  }, [loadRows])
 
   useEffect(() => {
     if (!usesCompanies) {
@@ -147,17 +145,26 @@ export function TgInvestmentsSchedulePage() {
 
       {!loading && !error
         ? filtered.map((r) => (
-            <div key={r.id} className="tg-request-row">
-              <div className="tg-request-row-title">
-                #{r.id} · {dateText(r.payout_date)}
+            <div key={r.id} style={{ marginBottom: 10 }}>
+              <div className="tg-request-row" style={{ marginBottom: 0 }}>
+                <div className="tg-request-row-title">
+                  #{r.id} · {dateText(r.payout_date)}
+                </div>
+                <div className="tg-request-row-meta">
+                  <span className="tg-request-row-amount">{asMoney(r.amount, r.currency)}</span>
+                  <Tag color={r.is_paid ? 'green' : 'orange'}>{r.is_paid ? 'Оплачено' : 'Не оплачено'}</Tag>
+                  <span>Оплаченная сумма: {asMoney(r.payment_amount, r.currency)}</span>
+                  {usesCompanies ? <span>{companyLabel(r.company)}</span> : null}
+                  <span>{r.comment || '-'}</span>
+                </div>
               </div>
-              <div className="tg-request-row-meta">
-                <span className="tg-request-row-amount">{asMoney(r.amount, r.currency)}</span>
-                <Tag color={r.is_paid ? 'green' : 'orange'}>{r.is_paid ? 'Оплачено' : 'Не оплачено'}</Tag>
-                <span>Оплаченная сумма: {asMoney(r.payment_amount, r.currency)}</span>
-                {usesCompanies ? <span>{companyLabel(r.company)}</span> : null}
-                <span>{r.comment || '-'}</span>
-              </div>
+              <AdminEditRecordButton
+                endpoint="/api/investments/payout-schedule/"
+                record={r}
+                onSaved={() => void loadRows()}
+                block
+                style={{ marginTop: 6 }}
+              />
             </div>
           ))
         : null}

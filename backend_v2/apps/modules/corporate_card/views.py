@@ -11,7 +11,7 @@ from apps.modules.corporate_card.models import CardExpense, CardRevenue
 from apps.modules.corporate_card.serializers import CardExpenseSerializer, CardRevenueSerializer
 from apps.modules.requests.expense_compliance import annotate_card_expense_compliance, filter_expenses_missing_request
 from apps.modules.requests.models import Request
-from apps.tenants.permissions import HasEffectiveModuleAccess
+from apps.tenants.permissions import HasEffectiveModuleAccess, IsTenantAdminForRecordEdit
 from apps.modules.wallets.models import Wallet
 from apps.modules.wallets.services import balances_for_tenant_channel
 
@@ -41,7 +41,7 @@ class CardRevenueCursorPagination(PortalCursorPagination):
 
 class CardExpenseViewSet(PortalListViewSetMixin, viewsets.ModelViewSet):
     module_key = "corporate_card"
-    permission_classes = [IsAuthenticated, HasEffectiveModuleAccess]
+    permission_classes = [IsAuthenticated, HasEffectiveModuleAccess, IsTenantAdminForRecordEdit]
     serializer_class = CardExpenseSerializer
     pagination_class = CardExpenseCursorPagination
     ordering_fields = ["expense_at", "amount", "id", "created_at"]
@@ -84,7 +84,7 @@ class CardExpenseViewSet(PortalListViewSetMixin, viewsets.ModelViewSet):
 
 class CardRevenueViewSet(PortalListViewSetMixin, viewsets.ModelViewSet):
     module_key = "corporate_card"
-    permission_classes = [IsAuthenticated, HasEffectiveModuleAccess]
+    permission_classes = [IsAuthenticated, HasEffectiveModuleAccess, IsTenantAdminForRecordEdit]
     serializer_class = CardRevenueSerializer
     pagination_class = CardRevenueCursorPagination
     ordering_fields = ["revenue_at", "total_sum", "id", "created_at"]

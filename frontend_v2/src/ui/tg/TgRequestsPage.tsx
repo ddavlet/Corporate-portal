@@ -1,10 +1,11 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Alert, Button, Input, Skeleton, Tag, Typography } from 'antd'
 import { useNavigate } from 'react-router-dom'
 import { CalendarOutlined, FileAddOutlined, SearchOutlined } from '@ant-design/icons'
 import { apiFetch } from '../../lib/api'
 import { isPayedMissingLinkedExpense, type RequestExpenseLink } from '../../lib/requestExpense'
 import { RequestAiChatButton } from '../requests/RequestAiChatButton'
+import { AdminEditRecordButton } from '../admin/AdminEditRecordButton'
 import { tgHaptic } from './tgHaptic'
 
 type RequestRow = {
@@ -56,28 +57,26 @@ export function TgRequestsPage() {
   const [error, setError] = useState<string | null>(null)
   const [search, setSearch] = useState('')
 
-  useEffect(() => {
-    let cancelled = false
-    ;(async () => {
-      setError(null)
-      setLoading(true)
-      try {
-        const res = await apiFetch('/api/requests/')
-        const json = await res.json().catch(() => null)
-        if (!res.ok) {
-          throw new Error(typeof json === 'object' && json ? JSON.stringify(json) : `HTTP ${res.status}`)
-        }
-        if (!cancelled) setRows(normalizeRows(json))
-      } catch (e: unknown) {
-        if (!cancelled) setError(e instanceof Error ? e.message : 'Ошибка загрузки')
-      } finally {
-        if (!cancelled) setLoading(false)
+  const loadRows = useCallback(async () => {
+    setError(null)
+    setLoading(true)
+    try {
+      const res = await apiFetch('/api/requests/')
+      const json = await res.json().catch(() => null)
+      if (!res.ok) {
+        throw new Error(typeof json === 'object' && json ? JSON.stringify(json) : `HTTP ${res.status}`)
       }
-    })()
-    return () => {
-      cancelled = true
+      setRows(normalizeRows(json))
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Ошибка загрузки')
+    } finally {
+      setLoading(false)
     }
   }, [])
+
+  useEffect(() => {
+    void loadRows()
+  }, [loadRows])
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase()
@@ -127,22 +126,31 @@ export function TgRequestsPage() {
 
       {!loading && !error
         ? filtered.map((r) => (
-            <button
-              key={r.id}
-              type="button"
-              className={`tg-request-row${isPayedMissingLinkedExpense(r) ? ' tg-request-row--payed-no-expense' : ''}`}
-              onClick={() => { tgHaptic.tap(); navigate(`/tg/requests/${r.id}`) }}
-            >
-              <div className="tg-request-row-title">{r.title || `Заявка #${r.id}`}</div>
-              <div className="tg-request-row-meta">
-                <span className="tg-request-row-amount">
-                  {Number(r.amount).toLocaleString('ru-RU')} {r.currency || ''}
-                </span>
-                <Tag color={statusTone(r.status)}>{r.status}</Tag>
-                <span>{r.payment_type}</span>
-                <span>Биллинг {formatDate(r.billing_date)}</span>
-              </div>
-            </button>
+            <div key={r.id} style={{ marginBottom: 10 }}>
+              <button
+                type="button"
+                className={`tg-request-row${isPayedMissingLinkedExpense(r) ? ' tg-request-row--payed-no-expense' : ''}`}
+                style={{ marginBottom: 0 }}
+                onClick={() => { tgHaptic.tap(); navigate(`/tg/requests/${r.id}`) }}
+              >
+                <div className="tg-request-row-title">{r.title || `Заявка #${r.id}`}</div>
+                <div className="tg-request-row-meta">
+                  <span className="tg-request-row-amount">
+                    {Number(r.amount).toLocaleString('ru-RU')} {r.currency || ''}
+                  </span>
+                  <Tag color={statusTone(r.status)}>{r.status}</Tag>
+                  <span>{r.payment_type}</span>
+                  <span>Биллинг {formatDate(r.billing_date)}</span>
+                </div>
+              </button>
+              <AdminEditRecordButton
+                endpoint="/api/requests/"
+                record={r}
+                onSaved={() => void loadRows()}
+                block
+                style={{ marginTop: 6 }}
+              />
+            </div>
           ))
         : null}
 

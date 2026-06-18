@@ -1,4 +1,5 @@
 import React, { createContext, useCallback, useContext, useMemo, useState } from 'react'
+import { resetTenantAdminCache } from '../lib/useTenantAdmin'
 
 type Tokens = {
   access: string
@@ -49,11 +50,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // re-run after every successful auth and spam /api/auth/telegram/webapp/.
   const login = useCallback(({ tokens, username }: { tokens: Tokens; username: string }) => {
     const next: AuthState = { ...tokens, username }
+    // Drop any cached admin flag from a previous session before the new user loads.
+    resetTenantAdminCache()
     setState(next)
     saveState(next)
   }, [])
 
   const logout = useCallback(() => {
+    resetTenantAdminCache()
     setState(null)
     saveState(null)
   }, [])

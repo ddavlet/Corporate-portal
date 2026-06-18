@@ -33,6 +33,7 @@ import {
   type InvestPayoutScheduleShareLinkRow,
 } from '../../lib/api'
 import { KpiStrip } from './KpiStrip'
+import { AdminEditRecordButton } from '../admin/AdminEditRecordButton'
 import {
   asMoney,
   asNumber,
@@ -264,12 +265,30 @@ export function ScheduleTab({
     {
       title: 'Действия',
       key: 'actions',
-      width: 220,
+      width: 320,
       render: (_: unknown, row: InvestPayoutScheduleRow) => {
+        const editBtn = (
+          <AdminEditRecordButton
+            endpoint="/api/investments/payout-schedule/"
+            record={row}
+            onSaved={() => void onCreated()}
+          />
+        )
         if (row.created_return) {
-          return <Typography.Text type="secondary">Выплата #{row.created_return} создана</Typography.Text>
+          return (
+            <Space size={4}>
+              <Typography.Text type="secondary">Выплата #{row.created_return} создана</Typography.Text>
+              {editBtn}
+            </Space>
+          )
         }
-        if (row.is_paid) return <Tag color="green">Оплачено</Tag>
+        if (row.is_paid)
+          return (
+            <Space size={4}>
+              <Tag color="green">Оплачено</Tag>
+              {editBtn}
+            </Space>
+          )
         const loading = rowActionId === row.id
         return (
           <Space size={4}>
@@ -293,12 +312,13 @@ export function ScheduleTab({
                 Оплачено
               </Button>
             </Popconfirm>
+            {editBtn}
           </Space>
         )
       },
     },
     ]
-  }, [usesCompanies, companyLabel, notifyDaysBefore, today, rowActionId])
+  }, [usesCompanies, companyLabel, notifyDaysBefore, today, rowActionId, onCreated])
 
   const shareLinkRows = useMemo(
     () =>

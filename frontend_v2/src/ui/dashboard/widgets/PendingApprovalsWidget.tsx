@@ -25,20 +25,26 @@ export function PendingApprovalsWidget({ items, loading, busy, onApprove, onReje
                   Сумма: {item.amountText} {item.currency || ''}
                 </Typography.Text>
                 <Typography.Text type="secondary">Шаг: {item.step}</Typography.Text>
-                <Space wrap>
-                  {item.stepType === 'payment' && String(item.paymentActionMode || '').toLowerCase() === 'webapp' ? (
-                    <Button type="primary" loading={busy} onClick={() => void onPayout(item)}>
-                      Выплатить
+                {item.stepType === 'notification' ? (
+                  <Typography.Text type="secondary">
+                    Уведомительный шаг — подтверждается автоматически.
+                  </Typography.Text>
+                ) : (
+                  <Space wrap>
+                    {item.stepType === 'payment' && String(item.paymentActionMode || '').toLowerCase() === 'webapp' ? (
+                      <Button type="primary" loading={busy} onClick={() => void onPayout(item)}>
+                        Выплатить
+                      </Button>
+                    ) : (
+                      <Button type="primary" loading={busy} onClick={() => void onApprove(item)}>
+                        Одобрить
+                      </Button>
+                    )}
+                    <Button danger loading={busy} onClick={() => void onReject(item)}>
+                      Отклонить
                     </Button>
-                  ) : (
-                    <Button type="primary" loading={busy} onClick={() => void onApprove(item)}>
-                      Одобрить
-                    </Button>
-                  )}
-                  <Button danger loading={busy} onClick={() => void onReject(item)}>
-                    Отклонить
-                  </Button>
-                </Space>
+                  </Space>
+                )}
               </Space>
             </Card>
           ))}

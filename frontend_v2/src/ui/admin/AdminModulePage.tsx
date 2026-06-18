@@ -4,7 +4,6 @@ import { RequestReturnBackButton } from '../requests/RequestReturnBackButton'
 import { Alert, Button, Card, Col, Form, Input, InputNumber, Modal, Popconfirm, Row, Select, Space, Switch, Table, Typography, message } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
 import {
-  ADMIN_CRUD_SKIP_KEYS,
   fetchAdminCrudPostSchema,
   planAdminCreateFieldsFromOptionsPost,
   planAdminCreateFieldsFromRow,
@@ -14,6 +13,7 @@ import { apiFetch, getAccessMatrix, type AccessMatrixRoleModuleRow } from '../..
 import { useInfiniteList } from '../../lib/useInfiniteList'
 import { ListInfiniteScrollFooter } from '../ListInfiniteScrollFooter'
 import { tenantRoleLabel } from '../../lib/tenantRoles'
+import { AdminRecordEditModal, extractApiError } from './AdminRecordEditModal'
 
 type AnyRow = Record<string, unknown> & { id?: number | string }
 
@@ -68,25 +68,6 @@ type RoleMatrixRow = {
 }
 
 type AdminSectionKey = 'matrix' | 'crud'
-
-function extractApiError(json: unknown, status: number): string {
-  if (json && typeof json === 'object') {
-    const j = json as Record<string, unknown>
-    if (typeof j.detail === 'string') return j.detail
-    if (typeof j.message === 'string') return j.message
-    if (typeof j.error === 'string') return j.error
-  }
-  return `Ошибка сервера (${status})`
-}
-
-function isPrimitive(value: unknown): value is string | number | boolean | null {
-  return (
-    value === null ||
-    typeof value === 'string' ||
-    typeof value === 'number' ||
-    typeof value === 'boolean'
-  )
-}
 
 function rowCaption(row: AnyRow): string {
   const counterparty = String(row.vendor_name ?? '').trim()
@@ -259,30 +240,6 @@ export function AdminModulePage() {
                 onClick={() => {
                   setCreatingRecord(false)
                   setEditing(row)
-                  const initial: Record<string, unknown> = {}
-                  const nonEditable: Array<{ key: string; value: unknown }> = []
-                  for (const [key, value] of Object.entries(row)) {
-                    if (key === 'id') continue
-                    if (ADMIN_CRUD_SKIP_KEYS.has(key)) continue
-                    if (isPrimitive(value)) initial[key] = value
-                    else nonEditable.push({ key, value })
-                  }
-                  const fields: AdminCrudDynamicField[] = Object.entries(initial)
-                    .sort(([a], [b]) => a.localeCompare(b))
-                    .map(([key, value]) => ({
-                      key,
-                      type:
-                        value === null
-                          ? ('null' as const)
-                          : typeof value === 'boolean'
-                            ? ('boolean' as const)
-                            : typeof value === 'number'
-                              ? ('number' as const)
-                              : ('string' as const),
-                    }))
-                  setEditableFields(fields)
-                  setNonEditableFields(nonEditable)
-                  form.setFieldsValue(initial as any)
                 }}
               >
                 Изменить
@@ -377,33 +334,6 @@ export function AdminModulePage() {
       await loadRows()
     } catch (e: unknown) {
       message.error(e instanceof Error ? e.message : 'Не удалось создать запись')
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  const handleSave = async () => {
-    if (!editing) return
-    const id = editing.id
-    if (id === undefined || id === null || id === '') {
-      message.error('У записи отсутствует id')
-      return
-    }
-    const payload = (await form.validateFields()) as Record<string, unknown>
-    setSaving(true)
-    try {
-      const res = await apiFetch(`${currentSource.endpoint}${id}/`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      })
-      const json = await res.json().catch(() => null)
-      if (!res.ok) throw new Error(extractApiError(json, res.status))
-      message.success('Сохранено')
-      closeRecordModal()
-      await loadRows()
-    } catch (e: unknown) {
-      message.error(e instanceof Error ? e.message : 'Не удалось сохранить')
     } finally {
       setSaving(false)
     }
@@ -519,12 +449,10 @@ export function AdminModulePage() {
           )}
 
       <Modal
-        open={Boolean(editing) || creatingRecord}
-        title={
-          creatingRecord ? `Создать запись · ${currentSource.label}` : editing ? `Изменить: ${rowCaption(editing)}` : 'Запись'
-        }
-        okText={creatingRecord ? 'Создать' : 'Сохранить'}
-        onOk={() => void (creatingRecord ? handleCreateRecord() : handleSave())}
+        open={creatingRecord}
+        title={`Создать запись · ${currentSource.label}`}
+        okText="Создать"
+        onOk={() => void handleCreateRecord()}
         confirmLoading={saving}
         onCancel={closeRecordModal}
         width={920}
@@ -569,11 +497,7 @@ export function AdminModulePage() {
           <Alert
             type="info"
             showIcon
-            message={
-              creatingRecord
-                ? 'Поля из образца строки задаются только на сервере или через расширенный API'
-                : 'Часть полей недоступна для редактирования в упрощенной форме'
-            }
+            message="Поля из образца строки задаются только на сервере или через расширенный API"
             description={
               <Space direction="vertical">
                 {nonEditableFields.map((f) => (
@@ -586,6 +510,15 @@ export function AdminModulePage() {
           />
         ) : null}
       </Modal>
+
+      <AdminRecordEditModal
+        endpoint={currentSource.endpoint}
+        record={editing}
+        open={Boolean(editing)}
+        onClose={() => setEditing(null)}
+        onSaved={() => void loadRows()}
+        title={editing ? `Изменить: ${rowCaption(editing)}` : undefined}
+      />
     </div>
   )
 }

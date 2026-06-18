@@ -10,6 +10,7 @@ import { useNavigate } from 'react-router-dom'
 import type { CorporateCardExpense, CorporateCardRevenue } from '../lib/api'
 import { labelBlockAboveField } from './formSpacing'
 import { ChannelBalancesSummary } from './ChannelBalancesSummary'
+import { AdminEditRecordButton } from './admin/AdminEditRecordButton'
 import { renderExpenseRequestStatusTag, shouldHighlightMissingRequiredRequest } from './expenseRequestStatus'
 
 const dateTimeFormatterTashkent = new Intl.DateTimeFormat('ru-RU', {
@@ -93,6 +94,7 @@ export function CorporateCardSectionPage({ mode }: { mode: CorporateCardSectionM
     error: expensesError,
     hasMore: expensesHasMore,
     loadMore: loadMoreExpenses,
+    reload: reloadExpenses,
   } = useInfiniteList<CorporateCardExpense>({ url: expenseListUrl, enabled: needExpenses })
 
   const {
@@ -102,7 +104,13 @@ export function CorporateCardSectionPage({ mode }: { mode: CorporateCardSectionM
     error: revenuesError,
     hasMore: revenuesHasMore,
     loadMore: loadMoreRevenues,
+    reload: reloadRevenues,
   } = useInfiniteList<CorporateCardRevenue>({ url: revenueListUrl, enabled: needRevenues })
+
+  const reloadSection = () => {
+    void reloadExpenses()
+    void reloadRevenues()
+  }
 
   const listLoading = (needExpenses && expensesLoading) || (needRevenues && revenuesLoading)
   const listError = expensesError || revenuesError
@@ -260,6 +268,18 @@ export function CorporateCardSectionPage({ mode }: { mode: CorporateCardSectionM
       render: (value: string) => formatDateTime(value),
     },
     { title: 'Примечание', dataIndex: 'note' },
+    {
+      title: 'Действия',
+      key: 'actions',
+      width: 160,
+      render: (_, row) => (
+        <AdminEditRecordButton
+          endpoint={row.kind === 'expense' ? '/api/corporate-card/expenses/' : '/api/corporate-card/revenues/'}
+          record={row.raw as Record<string, unknown> & { id?: number | string }}
+          onSaved={reloadSection}
+        />
+      ),
+    },
   ]
 
   const expenseColumns: ColumnsType<CorporateCardExpense> = [
@@ -284,6 +304,14 @@ export function CorporateCardSectionPage({ mode }: { mode: CorporateCardSectionM
       render: (value: string) => formatDateTime(value),
     },
     { title: 'Примечание', dataIndex: 'note' },
+    {
+      title: 'Действия',
+      key: 'actions',
+      width: 160,
+      render: (_, row) => (
+        <AdminEditRecordButton endpoint="/api/corporate-card/expenses/" record={row} onSaved={reloadSection} />
+      ),
+    },
   ]
 
   const revenueColumns: ColumnsType<CorporateCardRevenue> = [
@@ -335,6 +363,14 @@ export function CorporateCardSectionPage({ mode }: { mode: CorporateCardSectionM
         ),
     },
     { title: 'Комментарий', dataIndex: 'comment', render: (value: string | undefined) => value || '-' },
+    {
+      title: 'Действия',
+      key: 'actions',
+      width: 160,
+      render: (_, row) => (
+        <AdminEditRecordButton endpoint="/api/corporate-card/revenues/" record={row} onSaved={reloadSection} />
+      ),
+    },
   ]
 
   return (
