@@ -85,8 +85,11 @@ export function ActiveRequestsWidget({ requests, loading, error, pendingApproval
                 <List.Item.Meta
                   title={
                     <Space wrap size={[8, 4]}>
+                      <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                        #{req.id}
+                      </Typography.Text>
                       <Typography.Text strong style={{ fontSize: 14 }}>
-                        {req.title || `Заявка #${req.id}`}
+                        {req.title || 'Заявка'}
                       </Typography.Text>
                       <Tooltip title={hint}>
                         <Tag color={getRequestStatusColor(req.status)} style={{ cursor: 'help' }}>
