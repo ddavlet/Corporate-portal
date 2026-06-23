@@ -51,17 +51,25 @@ def extract_feedback_text_from_response(data) -> str | None:
 
 def feedback_ai_webhook_url(*, tenant_subdomain: str) -> str:
     """
-    Same URL the browser would use: https://<tenant>.<BASE_DOMAIN>/<path>/
-    (e.g. https://lemonfit.kolberg.uz/n8n/ai/dispatch/).
+    Resolve the n8n AI webhook URL for a tenant.
+
+    Prefers N8N_INTERNAL_BASE_URL (docker-network shortcut, same as _build_n8n_url in
+    n8n_integration), falling back to the public https://<tenant>.<BASE_DOMAIN>/<path>/ form.
     """
     sub = (tenant_subdomain or "").strip()
+    if not sub:
+        raise ValueError("Tenant subdomain is not configured.")
     path = (getattr(settings, "N8N_FEEDBACK_AI_WEBHOOK_PATH", "n8n/ai/dispatch") or "n8n/ai/dispatch").strip().strip(
         "/"
     )
-    base_domain = (getattr(settings, "BASE_DOMAIN", "") or "").strip().lower().lstrip(".")
-    if not base_domain or not sub:
-        raise ValueError("BASE_DOMAIN or tenant subdomain is not configured.")
-    u = f"https://{sub}.{base_domain}/{path}"
+    base_internal = (getattr(settings, "N8N_INTERNAL_BASE_URL", "") or "").strip().rstrip("/")
+    if base_internal:
+        u = f"{base_internal}/{sub}/{path}"
+    else:
+        base_domain = (getattr(settings, "BASE_DOMAIN", "") or "").strip().lower().lstrip(".")
+        if not base_domain:
+            raise ValueError("BASE_DOMAIN or N8N_INTERNAL_BASE_URL is not configured.")
+        u = f"https://{sub}.{base_domain}/{path}"
     return u if u.endswith("/") else f"{u}/"
 
 
@@ -79,6 +87,14 @@ def post_feedback_ai_refine(*, tenant, body: dict) -> str:
     }
     if token:
         headers["X-N8N-Integration-Token"] = token
+
+    # Internal transport hits http://n8n:5678 directly (bypassing Traefik+TLS); send the public
+    # subdomain as Host so any workflow node reading it keeps working. Mirrors _build_n8n_url
+    # callers in n8n_integration so feedback behaves like every other backend→n8n call.
+    base_internal = (getattr(settings, "N8N_INTERNAL_BASE_URL", "") or "").strip()
+    base_domain = (getattr(settings, "BASE_DOMAIN", "") or "").strip().lower().lstrip(".")
+    if base_internal and base_domain:
+        headers["Host"] = f"{tenant.subdomain}.{base_domain}"
 
     try:
         resp = requests.post(url, json=body, headers=headers, timeout=60)

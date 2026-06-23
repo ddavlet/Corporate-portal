@@ -14,7 +14,7 @@ from apps.tenants.models import Tenant, TenantIntegrationConfig, TenantMembershi
 User = get_user_model()
 
 
-@override_settings(BASE_DOMAIN="kolberg.uz", N8N_FEEDBACK_AI_WEBHOOK_PATH="n8n/ai/dispatch")
+@override_settings(BASE_DOMAIN="kolberg.uz", N8N_FEEDBACK_AI_WEBHOOK_PATH="n8n/ai/dispatch", N8N_INTERNAL_BASE_URL="")
 class FeedbackWebhookUrlTests(TestCase):
     def test_public_https_tenant_url(self):
         self.assertEqual(
@@ -27,6 +27,20 @@ class FeedbackWebhookUrlTests(TestCase):
         self.assertEqual(
             feedback_ai_webhook_url(tenant_subdomain="acme"),
             "https://acme.example.com/n8n/ai/dispatch/",
+        )
+
+    @override_settings(N8N_INTERNAL_BASE_URL="http://n8n:5678/webhook")
+    def test_internal_base_url_takes_precedence(self):
+        self.assertEqual(
+            feedback_ai_webhook_url(tenant_subdomain="lemonfit"),
+            "http://n8n:5678/webhook/lemonfit/n8n/ai/dispatch/",
+        )
+
+    @override_settings(N8N_INTERNAL_BASE_URL="http://n8n:5678/webhook", N8N_FEEDBACK_AI_WEBHOOK_PATH="n8n/ai/dispatch")
+    def test_internal_url_with_different_tenant(self):
+        self.assertEqual(
+            feedback_ai_webhook_url(tenant_subdomain="acme"),
+            "http://n8n:5678/webhook/acme/n8n/ai/dispatch/",
         )
 
 
@@ -187,6 +201,41 @@ class FeedbackAiRefineTokenTests(APITestCase):
             )
         headers_sent = mock_post.call_args.kwargs["headers"]
         self.assertNotIn("X-N8N-Integration-Token", headers_sent)
+
+    @patch("apps.modules.feedback.services.requests.post")
+    def test_internal_transport_sends_public_host_header(self, mock_post):
+        """
+        With N8N_INTERNAL_BASE_URL set, the call hits n8n directly but must carry the public
+        subdomain as Host — same contract as _build_n8n_url callers in n8n_integration.
+        """
+        mock_post.return_value = self._make_mock_response(json_data={"feedback": "Refined."})
+        TenantIntegrationConfig.objects.get_or_create(tenant=self.tenant)
+        with self.settings(N8N_INTERNAL_BASE_URL="http://n8n:5678/webhook"):
+            post_feedback_ai_refine(
+                tenant=self.tenant,
+                body={"action": "feedback_former", "payload": {"kind": "error", "text": "bug"}},
+            )
+        self.assertEqual(
+            mock_post.call_args.args[0],
+            "http://n8n:5678/webhook/acme/n8n/ai/dispatch/",
+        )
+        self.assertEqual(mock_post.call_args.kwargs["headers"].get("Host"), "acme.example.com")
+
+    @patch("apps.modules.feedback.services.requests.post")
+    def test_public_transport_omits_host_header(self, mock_post):
+        """Without N8N_INTERNAL_BASE_URL, the public URL is used and no Host override is forced."""
+        mock_post.return_value = self._make_mock_response(json_data={"feedback": "Refined."})
+        TenantIntegrationConfig.objects.get_or_create(tenant=self.tenant)
+        with self.settings(N8N_INTERNAL_BASE_URL=""):
+            post_feedback_ai_refine(
+                tenant=self.tenant,
+                body={"action": "feedback_former", "payload": {"kind": "error", "text": "bug"}},
+            )
+        self.assertEqual(
+            mock_post.call_args.args[0],
+            "https://acme.example.com/n8n/ai/dispatch/",
+        )
+        self.assertNotIn("Host", mock_post.call_args.kwargs["headers"])
 
     @patch("apps.modules.feedback.services.requests.post")
     def test_n8n_403_surfaces_as_502_not_403(self, mock_post):
