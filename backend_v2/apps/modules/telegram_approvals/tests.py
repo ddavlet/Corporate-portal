@@ -929,6 +929,72 @@ class TelegramApprovalsTests(APITestCase):
         # approval_id in buttons is str now
         self.assertIn("startapp=", url)
 
+    def _make_pending_approval(self, request_row):
+        return Approval.objects.create(
+            request=request_row,
+            approver_user=self.approver,
+            approver_recipient_id="555001",
+            approver_external_user_id=777001,
+            step=1,
+            step_type=Approval.STEP_TYPE_SERIAL,
+            decision=Approval.DECISION_PENDING,
+        )
+
+    def test_buttons_include_contract_link_only_when_contract_attached(self):
+        from apps.modules.contracts.models import Contract
+        from apps.modules.vendors.models import Vendor
+        from apps.modules.telegram_approvals.formatter import _buttons
+
+        vendor = Vendor.objects.create(
+            tenant=self.tenant, kind=Vendor.KIND_CASH, name="Acme Vendor", created_by=self.admin
+        )
+        contract = Contract.objects.create(
+            tenant=self.tenant,
+            vendor=vendor,
+            contract_number="C-100",
+            date_from=date(2026, 1, 1),
+            created_by=self.admin,
+        )
+
+        without = Request.objects.create(
+            tenant=self.tenant, created_by=self.admin, requester=self.requester,
+            title="No contract", status=Request.STATUS_PROGRESS_1, billing_date=date(2026, 3, 31),
+        )
+        labels_without = [b["label"] for row in _buttons(approval=self._make_pending_approval(without)) for b in row]
+        self.assertNotIn("📄 Договор", labels_without)
+
+        with_contract = Request.objects.create(
+            tenant=self.tenant, created_by=self.admin, requester=self.requester,
+            title="With contract", status=Request.STATUS_PROGRESS_1, billing_date=date(2026, 3, 31),
+            contract_ref=contract,
+        )
+        rows = _buttons(approval=self._make_pending_approval(with_contract))
+        contract_btn = next(b for row in rows for b in row if b["label"] == "📄 Договор")
+        self.assertEqual(contract_btn["url"], f"https://acme.example.com/app/contracts?contract={contract.id}")
+
+    def test_buttons_include_attachments_link_only_when_attachment_exists(self):
+        from apps.modules.requests.models import RequestAttachment
+        from apps.modules.telegram_approvals.formatter import _buttons
+
+        without = Request.objects.create(
+            tenant=self.tenant, created_by=self.admin, requester=self.requester,
+            title="No files", status=Request.STATUS_PROGRESS_1, billing_date=date(2026, 3, 31),
+        )
+        labels_without = [b["label"] for row in _buttons(approval=self._make_pending_approval(without)) for b in row]
+        self.assertNotIn("📎 Вложения", labels_without)
+
+        with_file = Request.objects.create(
+            tenant=self.tenant, created_by=self.admin, requester=self.requester,
+            title="Has files", status=Request.STATUS_PROGRESS_1, billing_date=date(2026, 3, 31),
+        )
+        RequestAttachment.objects.create(
+            request=with_file, tenant=self.tenant, created_by=self.admin,
+            file_path="requests/acme/x/doc.pdf", file_name="doc.pdf",
+        )
+        rows = _buttons(approval=self._make_pending_approval(with_file))
+        att_btn = next(b for row in rows for b in row if b["label"] == "📎 Вложения")
+        self.assertEqual(att_btn["url"], f"https://acme.example.com/app/requests/{with_file.id}")
+
     def test_message_headers_for_statuses(self):
         request_row = Request.objects.create(
             tenant=self.tenant,
