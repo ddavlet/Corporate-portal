@@ -10,7 +10,14 @@ from django.utils.formats import date_format
 from django.utils import timezone
 
 from apps.modules.requests.integration_settings import get_requests_messaging_gateway_settings
-from apps.modules.requests.models import Approval, Request, RequestApprovalConfig, RequestApprovalStepConfig, RequestComment
+from apps.modules.requests.models import (
+    Approval,
+    Request,
+    RequestApprovalConfig,
+    RequestApprovalStepConfig,
+    RequestAttachment,
+    RequestComment,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -30,6 +37,24 @@ def build_request_draft_public_url(*, request_obj: Request) -> str:
     if not base:
         return ""
     return f"{base}/app/requests/{request_obj.pk}"
+
+
+def build_contract_public_url(*, request_obj: Request) -> str:
+    """Public web-app URL that opens the request's contract on the Contracts page.
+
+    Empty string when the request has no linked contract or the tenant base URL
+    cannot be resolved — the caller then omits the button (graceful degradation).
+    """
+    contract_id = getattr(request_obj, "contract_ref_id", None)
+    if not contract_id:
+        return ""
+    tenant = getattr(request_obj, "tenant", None)
+    subdomain = (getattr(tenant, "subdomain", "") or "").strip()
+    base_domain = (getattr(settings, "BASE_DOMAIN", "") or "").strip().lower().lstrip(".")
+    base = f"https://{subdomain}.{base_domain}" if subdomain and base_domain else ""
+    if not base:
+        return ""
+    return f"{base}/app/contracts?contract={contract_id}"
 
 
 def build_auto_request_template_public_url(*, request_obj: Request, template_id: int | None) -> str:
@@ -367,6 +392,16 @@ def _buttons(*, approval: Approval) -> list[list[dict]]:
                 {"label": "❌ Отклонить", "value": _button_data(approval=approval, decision="rejected")},
             ]
         ]
+    file_btns: list[dict] = []
+    contract_url = build_contract_public_url(request_obj=approval.request)
+    if contract_url:
+        file_btns.append({"label": "📄 Договор", "url": contract_url})
+    if RequestAttachment.objects.filter(request_id=approval.request_id).exists():
+        attachments_url = build_request_draft_public_url(request_obj=approval.request)
+        if attachments_url:
+            file_btns.append({"label": "📎 Вложения", "url": attachments_url})
+    if file_btns:
+        rows.append(file_btns)
     comment_url = _resolve_comment_webapp_url(request_obj=approval.request)
     if comment_url:
         rows.append([{"label": "💬 Комментарии", "url": comment_url}])
