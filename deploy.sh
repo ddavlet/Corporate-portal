@@ -35,8 +35,10 @@ docker compose --env-file ./.env build frontend_v2 tg-gateway backend_cron
                           # пересобираем образы frontend, tg-gateway и backend_cron
                           # backend_v2 (web) пропускаем — код монтируется через bind mount
 
-docker compose --env-file ./.env up -d --no-deps backend_v2
+docker compose --env-file ./.env up -d --no-deps --force-recreate backend_v2
                           # пересоздаём контейнер бека — подхватывает новые env-переменные из .env
+                          # --force-recreate: bind-mount код не меняет image, поэтому без него docker
+                          # считает контейнер актуальным и не перезапускает gunicorn
 
 docker compose --env-file ./.env exec -T backend_v2 python manage.py migrate
                           # применяем новые миграции к БД
