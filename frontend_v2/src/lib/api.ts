@@ -1255,6 +1255,7 @@ export type InvestPayoutScheduleRow = {
   currency: string
   is_paid: boolean
   payment_amount: string | number
+  remaining_amount: string | number
   comment: string
   return_type: string | null
   recipient: string | null
@@ -1724,8 +1725,17 @@ export async function updateInvestNotificationConfig(
 
 export async function createReturnFromPayoutSchedule(
   scheduleId: number,
+  amount?: string | number,
 ): Promise<{ detail: string; return_id: number | null }> {
-  const res = await apiFetch(`/api/investments/payout-schedule/${scheduleId}/create-return/`, { method: 'POST' })
+  // Omitting amount creates a payout for the full outstanding remainder; passing a smaller
+  // value records a partial payout that accumulates toward the scheduled amount.
+  const hasAmount = amount !== undefined && amount !== ''
+  const res = await apiFetch(`/api/investments/payout-schedule/${scheduleId}/create-return/`, {
+    method: 'POST',
+    ...(hasAmount
+      ? { headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ amount: String(amount) }) }
+      : {}),
+  })
   if (!res.ok) throw new Error(await parseErrorBody(res))
   const json = (await res.json().catch(() => null)) as { detail: string; return_id: number | null } | null
   if (!json) throw new Error('Empty response from server')

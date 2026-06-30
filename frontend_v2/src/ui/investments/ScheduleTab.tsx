@@ -122,17 +122,33 @@ export function ScheduleTab({
   const [creatingShareLink, setCreatingShareLink] = useState(false)
   const [deletingShareLinkId, setDeletingShareLinkId] = useState<number | null>(null)
   const [rowActionId, setRowActionId] = useState<number | null>(null)
+  const [payTarget, setPayTarget] = useState<InvestPayoutScheduleRow | null>(null)
+  const [paySubmitting, setPaySubmitting] = useState(false)
+  const [payForm] = Form.useForm<{ amount: number }>()
 
-  const handleCreateReturn = async (scheduleId: number) => {
-    setRowActionId(scheduleId)
+  const openPay = (row: InvestPayoutScheduleRow) => {
+    setPayTarget(row)
+    payForm.setFieldsValue({ amount: asNumber(row.remaining_amount) })
+  }
+
+  const submitPay = async () => {
+    if (!payTarget) return
+    let values: { amount: number }
     try {
-      const res = await createReturnFromPayoutSchedule(scheduleId)
+      values = await payForm.validateFields()
+    } catch {
+      return
+    }
+    setPaySubmitting(true)
+    try {
+      const res = await createReturnFromPayoutSchedule(payTarget.id, values.amount)
       message.success(res.detail || 'Выплата создана')
+      setPayTarget(null)
       await onCreated()
     } catch (e: unknown) {
       message.error(e instanceof Error ? e.message : 'Не удалось создать выплату')
     } finally {
-      setRowActionId(null)
+      setPaySubmitting(false)
     }
   }
 
@@ -237,6 +253,15 @@ export function ScheduleTab({
       render: (v: string | number) => asMoney(v),
       sorter: (a, b) => asNumber(a.payment_amount) - asNumber(b.payment_amount),
     },
+    {
+      title: 'Остаток',
+      dataIndex: 'remaining_amount',
+      width: 140,
+      align: 'right',
+      render: (v: string | number, row: InvestPayoutScheduleRow) =>
+        row.is_paid ? <Tag color="green">0</Tag> : asMoney(v),
+      sorter: (a, b) => asNumber(a.remaining_amount) - asNumber(b.remaining_amount),
+    },
     { title: 'Комментарий', dataIndex: 'comment', render: (v: string) => v || '-' },
     ...(notifyDaysBefore !== null
       ? [
@@ -274,34 +299,21 @@ export function ScheduleTab({
             onSaved={() => void onCreated()}
           />
         )
-        if (row.created_return) {
-          return (
-            <Space size={4}>
-              <Typography.Text type="secondary">Выплата #{row.created_return} создана</Typography.Text>
-              {editBtn}
-            </Space>
-          )
-        }
         if (row.is_paid)
           return (
-            <Space size={4}>
+            <Space size={4} wrap>
               <Tag color="green">Оплачено</Tag>
               {editBtn}
             </Space>
           )
         const loading = rowActionId === row.id
         return (
-          <Space size={4}>
-            <Popconfirm
-              title="Создать выплату по расписанию?"
-              okText="Создать"
-              cancelText="Отмена"
-              onConfirm={() => handleCreateReturn(row.id)}
-            >
-              <Button size="small" type="primary" loading={loading}>
-                Создать выплату
-              </Button>
-            </Popconfirm>
+          <Space size={4} wrap>
+            {/* Partial payouts accumulate: the button stays available until the schedule
+                is fully paid, so a remainder can be requested in several steps. */}
+            <Button size="small" type="primary" loading={loading} onClick={() => openPay(row)}>
+              Создать выплату
+            </Button>
             <Popconfirm
               title="Отметить выплату как оплаченную?"
               okText="Отметить"
@@ -312,6 +324,9 @@ export function ScheduleTab({
                 Оплачено
               </Button>
             </Popconfirm>
+            {row.created_return ? (
+              <Typography.Text type="secondary">Выплата #{row.created_return}</Typography.Text>
+            ) : null}
             {editBtn}
           </Space>
         )
@@ -716,6 +731,47 @@ export function ScheduleTab({
             </div>
           ) : null}
         </Form>
+      </Modal>
+
+      <Modal
+        open={payTarget !== null}
+        title="Создать выплату по расписанию"
+        okText="Создать"
+        cancelText="Отмена"
+        confirmLoading={paySubmitting}
+        onOk={submitPay}
+        onCancel={() => setPayTarget(null)}
+        destroyOnClose
+        width={460}
+      >
+        {payTarget ? (
+          <Form form={payForm} layout="vertical" preserve={false}>
+            <Typography.Paragraph type="secondary" style={{ marginBottom: 12 }}>
+              Сумма по расписанию: {asMoney(payTarget.amount)} {payTarget.currency}
+              {' · '}
+              Остаток: {asMoney(payTarget.remaining_amount)} {payTarget.currency}
+            </Typography.Paragraph>
+            <Form.Item
+              label="Сумма выплаты"
+              name="amount"
+              rules={[
+                { required: true, message: 'Укажите сумму' },
+                {
+                  validator: (_, value) =>
+                    value > 0 ? Promise.resolve() : Promise.reject(new Error('Сумма должна быть больше нуля')),
+                },
+              ]}
+              extra="Можно создать частичную выплату — остаток можно будет оплатить позже."
+            >
+              <InputNumber
+                min={0}
+                max={asNumber(payTarget.remaining_amount)}
+                precision={precisionFor(payTarget.currency)}
+                style={{ width: 220 }}
+              />
+            </Form.Item>
+          </Form>
+        ) : null}
       </Modal>
     </Space>
   )

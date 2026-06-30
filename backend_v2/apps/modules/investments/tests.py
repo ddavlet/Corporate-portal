@@ -1638,8 +1638,8 @@ class InvestReturnPnLBillingMonthTests(TestCase):
 
 
 class InvestNotificationDupeGuardTests(TestCase):
-    """The created_return FK + select_for_update gate must produce exactly one InvestReturn,
-    even if the helper is called twice for the same schedule."""
+    """The outstanding-remainder + select_for_update gate must not over-create: once linked
+    payouts cover the full amount, a repeat call creates nothing."""
 
     def setUp(self):
         self.tenant = Tenant.objects.create(name="DupeCo", subdomain="dupeco", is_active=True)
@@ -1655,31 +1655,34 @@ class InvestNotificationDupeGuardTests(TestCase):
             created_by=self.user,
         )
 
-    def test_second_call_returns_existing_return(self):
+    def test_second_call_after_full_amount_creates_nothing(self):
         from django.db import transaction
-        from apps.modules.investments.notification_services import create_or_get_return_for_schedule
+        from apps.modules.investments.notification_services import create_return_for_schedule
         from apps.modules.investments.models import InvestReturn
 
         with transaction.atomic():
-            ret1, was_created1, note1 = create_or_get_return_for_schedule(
+            ret1, was_created1, note1 = create_return_for_schedule(
                 schedule=self.schedule, created_by=self.user,
             )
         self.assertTrue(was_created1)
         self.assertIsNotNone(ret1)
         self.assertIn("создана", note1)
+        # Defaults to the full outstanding remainder and links to the schedule.
+        self.assertEqual(ret1.sum, Decimal("100.00"))
+        self.assertEqual(ret1.payout_schedule_id, self.schedule.pk)
 
-        # FK is set on the schedule.
+        # Back-compat FK is set on the schedule.
         self.schedule.refresh_from_db()
         self.assertEqual(self.schedule.created_return_id, ret1.pk)
 
-        # Second call: gate fires, no new return.
+        # Second call: outstanding is now zero, nothing more is created.
         with transaction.atomic():
-            ret2, was_created2, note2 = create_or_get_return_for_schedule(
+            ret2, was_created2, note2 = create_return_for_schedule(
                 schedule=self.schedule, created_by=self.user,
             )
         self.assertFalse(was_created2)
-        self.assertEqual(ret2.pk, ret1.pk)
-        self.assertIn("уже создана", note2)
+        self.assertIsNone(ret2)
+        self.assertIn("полную сумму", note2)
 
         # Exactly one InvestReturn linked to this schedule.
         self.assertEqual(
@@ -1688,14 +1691,14 @@ class InvestNotificationDupeGuardTests(TestCase):
 
     def test_already_paid_skipped(self):
         from django.db import transaction
-        from apps.modules.investments.notification_services import create_or_get_return_for_schedule
+        from apps.modules.investments.notification_services import create_return_for_schedule
         from apps.modules.investments.models import InvestReturn
 
         self.schedule.is_paid = True
         self.schedule.save(update_fields=["is_paid"])
 
         with transaction.atomic():
-            ret, was_created, note = create_or_get_return_for_schedule(
+            ret, was_created, note = create_return_for_schedule(
                 schedule=self.schedule, created_by=self.user,
             )
         self.assertFalse(was_created)
@@ -1782,43 +1785,34 @@ class InvestNotificationOverdueModuloTests(TestCase):
         self.assertEqual(sent, 0)
         self.assertEqual(mock_send.call_count, 0)
 
-    def test_created_return_excludes_schedule_from_both_passes(self):
+    def _link_return(self, schedule, *, sum_amount):
+        from apps.modules.investments.models import InvestReturn
+
+        return InvestReturn.objects.create(
+            tenant=self.tenant,
+            payout_schedule=schedule,
+            date=schedule.payout_date,
+            billing_date=schedule.payout_date.replace(day=1),
+            sum=sum_amount,
+            currency="USD",
+            type=InvestReturn.ReturnType.DIVIDEND,
+            recipient=InvestReturn.Recipient.INVESTOR,
+            created_by=self.user,
+        )
+
+    def test_fully_committed_schedule_excluded_from_both_passes(self):
         from datetime import timedelta
         from apps.modules.investments.notification_services import (
             process_due_invest_payout_notifications,
         )
-        from apps.modules.investments.models import InvestReturn
 
         today = date(2026, 5, 22)
         sched_upcoming = self._make_schedule(today + timedelta(days=1))
         sched_overdue = self._make_schedule(today - timedelta(days=3))
 
-        # Pre-link both to an arbitrary InvestReturn → both passes should skip them.
-        ret1 = InvestReturn.objects.create(
-            tenant=self.tenant,
-            date=today,
-            billing_date=today.replace(day=1),
-            sum=Decimal("100"),
-            currency="USD",
-            type=InvestReturn.ReturnType.DIVIDEND,
-            recipient=InvestReturn.Recipient.INVESTOR,
-            created_by=self.user,
-        )
-        sched_upcoming.created_return = ret1
-        sched_upcoming.save(update_fields=["created_return"])
-
-        ret2 = InvestReturn.objects.create(
-            tenant=self.tenant,
-            date=today,
-            billing_date=today.replace(day=1),
-            sum=Decimal("100"),
-            currency="USD",
-            type=InvestReturn.ReturnType.DIVIDEND,
-            recipient=InvestReturn.Recipient.INVESTOR,
-            created_by=self.user,
-        )
-        sched_overdue.created_return = ret2
-        sched_overdue.save(update_fields=["created_return"])
+        # Linked payouts covering the full amount → both passes skip them.
+        self._link_return(sched_upcoming, sum_amount=Decimal("100"))
+        self._link_return(sched_overdue, sum_amount=Decimal("100"))
 
         with patch(
             "apps.modules.investments.notification_services._dispatch_payout_notification",
@@ -1828,6 +1822,26 @@ class InvestNotificationOverdueModuloTests(TestCase):
 
         self.assertEqual(sent, 0)
         self.assertEqual(mock_send.call_count, 0)
+
+    def test_partially_committed_schedule_still_notified(self):
+        from datetime import timedelta
+        from apps.modules.investments.notification_services import (
+            process_due_invest_payout_notifications,
+        )
+
+        today = date(2026, 5, 22)
+        sched = self._make_schedule(today - timedelta(days=3))
+        # Only half committed → outstanding remains, so the reminder still fires.
+        self._link_return(sched, sum_amount=Decimal("40"))
+
+        with patch(
+            "apps.modules.investments.notification_services._dispatch_payout_notification",
+            return_value=True,
+        ) as mock_send:
+            sent = process_due_invest_payout_notifications(now_dt=self._now(today))
+
+        self.assertEqual(sent, 1)
+        self.assertEqual(mock_send.call_count, 1)
 
 
 class InvestNotificationPayloadContractTests(TestCase):
@@ -1879,8 +1893,7 @@ class InvestNotificationPayloadContractTests(TestCase):
         self.assertEqual(captured["tenant_id"], str(self.tenant.pk))
         self.assertEqual(captured["text"], "<b>hello</b>")
         buttons = captured["buttons"]
-        self.assertEqual(len(buttons), 1)
-        self.assertEqual(len(buttons[0]), 1)
+        # First row is always the create-request callback button.
         btn = buttons[0][0]
         self.assertEqual(btn["label"], "💳 Создать заявку")
         self.assertEqual(btn["value"], f"invest_pay:{self.schedule.pk}")
@@ -1905,7 +1918,8 @@ class InvestNotificationPayloadContractTests(TestCase):
 
 class InvestNotificationRejectionTests(TestCase):
     """When an InvestReturn linked to a schedule is rejected, route_invest_return_approvals
-    must clear schedule.created_return so the next poller pass resumes notifications."""
+    must clear the created_return FK and unlink the payout from the schedule so its
+    outstanding remainder reopens and the next poller pass resumes notifications."""
 
     def setUp(self):
         self.tenant = Tenant.objects.create(name="RejCo", subdomain="rejco", is_active=True)
@@ -1921,6 +1935,7 @@ class InvestNotificationRejectionTests(TestCase):
         )
         self.invest_return = InvestReturn.objects.create(
             tenant=self.tenant,
+            payout_schedule=self.schedule,
             date=date(2026, 6, 1),
             billing_date=date(2026, 6, 1),
             sum=Decimal("100"),
@@ -1933,7 +1948,7 @@ class InvestNotificationRejectionTests(TestCase):
         self.schedule.created_return = self.invest_return
         self.schedule.save(update_fields=["created_return"])
 
-    def test_rejection_clears_fk(self):
+    def test_rejection_clears_fk_and_unlinks_payout(self):
         from apps.modules.investments.models import InvestmentReturnApproval
         from apps.modules.investments.approval_services import route_invest_return_approvals
 
@@ -1946,7 +1961,10 @@ class InvestNotificationRejectionTests(TestCase):
         )
         route_invest_return_approvals(invest_return=self.invest_return)
         self.schedule.refresh_from_db()
+        self.invest_return.refresh_from_db()
         self.assertIsNone(self.schedule.created_return_id)
+        self.assertIsNone(self.invest_return.payout_schedule_id)
+        self.assertFalse(self.schedule.is_paid)
 
     def test_pending_keeps_fk(self):
         from apps.modules.investments.models import InvestmentReturnApproval
@@ -1962,6 +1980,110 @@ class InvestNotificationRejectionTests(TestCase):
         route_invest_return_approvals(invest_return=self.invest_return)
         self.schedule.refresh_from_db()
         self.assertEqual(self.schedule.created_return_id, self.invest_return.pk)
+
+
+class InvestPayoutPartialPaymentTests(TestCase):
+    """Confirmed payouts accumulate into payment_amount; is_paid flips only when the
+    cumulative confirmed total reaches the scheduled amount (partial payments supported)."""
+
+    def setUp(self):
+        self.tenant = Tenant.objects.create(name="PartCo", subdomain="partco", is_active=True)
+        self.user = User.objects.create_user(username="part-user", password="x")
+        self.schedule = InvestPayoutSchedule.objects.create(
+            tenant=self.tenant,
+            payout_date=date(2026, 6, 1),
+            amount=Decimal("100.00"),
+            currency="USD",
+            is_paid=False,
+            return_type=InvestReturn.ReturnType.DIVIDEND,
+            recipient=InvestReturn.Recipient.INVESTOR,
+            created_by=self.user,
+        )
+
+    def _make_return(self, *, sum_amount, confirmed):
+        return InvestReturn.objects.create(
+            tenant=self.tenant,
+            payout_schedule=self.schedule,
+            date=date(2026, 6, 1),
+            billing_date=date(2026, 6, 1),
+            sum=sum_amount,
+            currency="USD",
+            type=InvestReturn.ReturnType.DIVIDEND,
+            recipient=InvestReturn.Recipient.INVESTOR,
+            confirmed=confirmed,
+            created_by=self.user,
+        )
+
+    def test_unconfirmed_payout_does_not_mark_paid(self):
+        self._make_return(sum_amount=Decimal("100.00"), confirmed=False)
+        self.schedule.refresh_from_db()
+        self.assertEqual(self.schedule.payment_amount, Decimal("0.00"))
+        self.assertFalse(self.schedule.is_paid)
+
+    def test_partial_confirmed_payments_accumulate_then_close(self):
+        # First half confirmed → tracked but not yet paid.
+        r1 = self._make_return(sum_amount=Decimal("50.00"), confirmed=True)
+        self.schedule.refresh_from_db()
+        self.assertEqual(self.schedule.payment_amount, Decimal("50.00"))
+        self.assertFalse(self.schedule.is_paid)
+
+        # Second half confirmed → cumulative matches the amount → closed as paid.
+        self._make_return(sum_amount=Decimal("50.00"), confirmed=True)
+        self.schedule.refresh_from_db()
+        self.assertEqual(self.schedule.payment_amount, Decimal("100.00"))
+        self.assertTrue(self.schedule.is_paid)
+
+        # Reverting a confirmation reopens the schedule (signal-driven recompute).
+        r1.confirmed = False
+        r1.save(update_fields=["confirmed"])
+        self.schedule.refresh_from_db()
+        self.assertEqual(self.schedule.payment_amount, Decimal("50.00"))
+        self.assertFalse(self.schedule.is_paid)
+
+    def test_create_return_for_schedule_partial_amount_and_outstanding(self):
+        from django.db import transaction
+        from apps.modules.investments.notification_services import create_return_for_schedule
+
+        with transaction.atomic():
+            ret, was_created, note = create_return_for_schedule(
+                schedule=self.schedule, created_by=self.user, amount=Decimal("30.00"),
+            )
+        self.assertTrue(was_created)
+        self.assertEqual(ret.sum, Decimal("30.00"))
+        self.assertEqual(ret.payout_schedule_id, self.schedule.pk)
+
+        # Outstanding is now 70; a request for more than that is rejected.
+        from rest_framework.exceptions import ValidationError as DRFValidationError
+
+        with self.assertRaises(DRFValidationError):
+            with transaction.atomic():
+                create_return_for_schedule(
+                    schedule=self.schedule, created_by=self.user, amount=Decimal("80.00"),
+                )
+
+        # A request for the remaining 70 succeeds and fully commits the schedule.
+        with transaction.atomic():
+            ret2, was_created2, _ = create_return_for_schedule(
+                schedule=self.schedule, created_by=self.user, amount=Decimal("70.00"),
+            )
+        self.assertTrue(was_created2)
+        with transaction.atomic():
+            ret3, was_created3, note3 = create_return_for_schedule(
+                schedule=self.schedule, created_by=self.user,
+            )
+        self.assertFalse(was_created3)
+        self.assertIsNone(ret3)
+        self.assertIn("полную сумму", note3)
+
+    def test_deleting_confirmed_payout_recomputes(self):
+        r1 = self._make_return(sum_amount=Decimal("100.00"), confirmed=True)
+        self.schedule.refresh_from_db()
+        self.assertTrue(self.schedule.is_paid)
+
+        r1.delete()
+        self.schedule.refresh_from_db()
+        self.assertEqual(self.schedule.payment_amount, Decimal("0.00"))
+        self.assertFalse(self.schedule.is_paid)
 
 
 @override_settings(BASE_DOMAIN="example.com", ALLOWED_HOSTS=["*"])

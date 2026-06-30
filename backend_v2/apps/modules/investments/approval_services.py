@@ -443,10 +443,22 @@ def route_invest_return_approvals(*, invest_return: InvestReturn) -> int:
                 invest_return.confirmed = False
                 invest_return.save(update_fields=["confirmed"])
             from apps.modules.investments.models import InvestPayoutSchedule
+            from apps.modules.investments.notification_services import (
+                recompute_payout_schedule_paid_status,
+            )
+
+            schedule_id = invest_return.payout_schedule_id
             InvestPayoutSchedule.objects.filter(created_return=invest_return).update(
                 created_return=None,
                 last_edit_at=timezone.now(),
             )
+            # A rejected payout no longer counts toward the schedule: unlink it and
+            # recompute so the outstanding remainder reopens for a fresh request.
+            if schedule_id is not None:
+                InvestReturn.objects.filter(pk=invest_return.pk).update(payout_schedule=None)
+                schedule = InvestPayoutSchedule.objects.filter(pk=schedule_id).first()
+                if schedule is not None:
+                    recompute_payout_schedule_paid_status(schedule=schedule)
             return 0
         if not invest_return.confirmed:
             invest_return.confirmed = True

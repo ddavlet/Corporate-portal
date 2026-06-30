@@ -155,8 +155,8 @@ class TelegramApprovalWebhookView(APIView):
     def _handle_invest_pay_callback(self, payload_str: str, event_data: dict) -> Response:
         from apps.modules.investments.models import InvestNotificationConfig, InvestPayoutSchedule
         from apps.modules.investments.notification_services import (
-            create_or_get_return_for_schedule,
-            remove_payout_notification_button,
+            create_return_for_schedule,
+            refresh_payout_notification_message,
         )
 
         raw_id = payload_str[len("invest_pay:"):]
@@ -195,7 +195,7 @@ class TelegramApprovalWebhookView(APIView):
             raise ValidationError({"detail": "Only the responsible user may confirm this payout."})
 
         with transaction.atomic():
-            invest_return, was_created, note = create_or_get_return_for_schedule(
+            invest_return, was_created, note = create_return_for_schedule(
                 schedule=schedule, created_by=cfg.responsible_user,
             )
 
@@ -207,14 +207,15 @@ class TelegramApprovalWebhookView(APIView):
                 return_id, schedule_id, schedule.tenant_id,
             )
 
-        # After commit, drop the button and append the status note (best-effort; the return
-        # is already persisted, so an edit failure is cosmetic only).
+        # After commit, refresh the card: append the status note and keep the buttons only
+        # while an outstanding remainder exists (best-effort; the payout is already persisted,
+        # so an edit failure is cosmetic only).
         try:
-            remove_payout_notification_button(
+            refresh_payout_notification_message(
                 schedule=schedule, chat_id=recipient_id, message_id=message_id, note=note,
             )
         except Exception:
-            logger.exception("invest_pay_callback: button cleanup failed schedule_id=%s", schedule_id)
+            logger.exception("invest_pay_callback: card refresh failed schedule_id=%s", schedule_id)
 
         return Response({"detail": note, "return_id": return_id}, status=http_status)
 

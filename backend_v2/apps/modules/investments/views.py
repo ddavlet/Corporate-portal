@@ -1,4 +1,6 @@
 import json
+from decimal import Decimal, InvalidOperation
+
 from django.contrib.auth import get_user_model
 from django.db import transaction
 from django.utils import timezone
@@ -452,10 +454,11 @@ class InvestNotificationConfigView(APIView):
 
 
 class InvestPayoutScheduleCreateReturnView(APIView):
-    """Web one-click: create-or-return the InvestReturn for a payout schedule.
+    """Web action: create a (possibly partial) InvestReturn for a payout schedule.
 
-    Uses the same atomic helper as the Telegram callback so concurrent presses (web tab
-    or Telegram tap) all converge on the single ``created_return`` FK — no duplicates.
+    Uses the same atomic helper as the Telegram callback, locking the schedule so concurrent
+    presses (web tab or Telegram tap) converge on the outstanding remainder — no over-creation.
+    An optional ``amount`` records a partial payout; omitting it bills the full remainder.
     """
 
     permission_classes = [IsAuthenticated, HasEffectiveModuleAccess]
@@ -463,7 +466,7 @@ class InvestPayoutScheduleCreateReturnView(APIView):
 
     def post(self, request, schedule_id: int):
         self.check_permissions(request)
-        from apps.modules.investments.notification_services import create_or_get_return_for_schedule
+        from apps.modules.investments.notification_services import create_return_for_schedule
 
         schedule = (
             InvestPayoutSchedule.objects
@@ -473,9 +476,17 @@ class InvestPayoutScheduleCreateReturnView(APIView):
         )
         if schedule is None:
             return Response({"detail": "Schedule not found."}, status=status.HTTP_404_NOT_FOUND)
+        # Optional partial amount; defaults to the full outstanding remainder when omitted.
+        raw_amount = request.data.get("amount", None)
+        amount = None
+        if raw_amount not in (None, ""):
+            try:
+                amount = Decimal(str(raw_amount))
+            except (InvalidOperation, ValueError, TypeError):
+                raise ValidationError({"amount": "Некорректная сумма."})
         with transaction.atomic():
-            invest_return, was_created, note = create_or_get_return_for_schedule(
-                schedule=schedule, created_by=request.user,
+            invest_return, was_created, note = create_return_for_schedule(
+                schedule=schedule, created_by=request.user, amount=amount,
             )
         return Response(
             {"detail": note, "return_id": invest_return.pk if invest_return else None},
