@@ -29,6 +29,19 @@ class Migration(migrations.Migration):
             ),
         ),
         migrations.AddField(
+            model_name="investpayoutschedule",
+            name="closed_manually",
+            field=models.BooleanField(
+                default=False,
+                help_text=(
+                    "Расписание закрыто вручную (кнопкой «Оплачено»). Пока флаг стоит, статус is_paid "
+                    "не пересчитывается автоматически по сумме выплат — можно закрыть при недоплате и не "
+                    "переоткрывать при изменении выплат. Автозакрытие по совпадению суммы работает, только "
+                    "когда флаг снят."
+                ),
+            ),
+        ),
+        migrations.AddField(
             model_name="investreturn",
             name="payout_schedule",
             field=models.ForeignKey(

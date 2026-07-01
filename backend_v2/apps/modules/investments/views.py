@@ -495,7 +495,13 @@ class InvestPayoutScheduleCreateReturnView(APIView):
 
 
 class InvestPayoutScheduleMarkPaidView(APIView):
-    """Mark a payout as paid without going through the request flow (paid out-of-band)."""
+    """Manually close a payout schedule, regardless of how much has actually been paid.
+
+    This is a deliberate soft close: it works even when the schedule is under-paid (e.g. the
+    company paid less than planned) and, via ``closed_manually``, is not reopened when linked
+    payouts later change. ``payment_amount`` is left untouched so it keeps reflecting the real
+    confirmed payouts rather than assuming the full planned amount.
+    """
 
     permission_classes = [IsAuthenticated, HasEffectiveModuleAccess]
     module_key = "investments"
@@ -514,11 +520,8 @@ class InvestPayoutScheduleMarkPaidView(APIView):
             if schedule.is_paid:
                 return Response({"detail": "Already paid.", "is_paid": True}, status=status.HTTP_200_OK)
             schedule.is_paid = True
-            # Quick action assumes the scheduled amount was paid in full. Users who paid a
-            # different amount can correct via the schedule edit form.
-            if not schedule.payment_amount:
-                schedule.payment_amount = schedule.amount
-            schedule.save(update_fields=["is_paid", "payment_amount", "last_edit_at"])
+            schedule.closed_manually = True
+            schedule.save(update_fields=["is_paid", "closed_manually", "last_edit_at"])
         return Response({"detail": "Marked as paid.", "is_paid": True}, status=status.HTTP_200_OK)
 
 

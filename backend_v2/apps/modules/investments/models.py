@@ -91,6 +91,15 @@ class InvestPayoutSchedule(models.Model):
     amount = models.DecimalField(max_digits=18, decimal_places=2)
     currency = models.CharField(max_length=3, default="USD")
     is_paid = models.BooleanField(default=False)
+    closed_manually = models.BooleanField(
+        default=False,
+        help_text=(
+            "Расписание закрыто вручную (кнопкой «Оплачено»). Пока флаг стоит, статус is_paid "
+            "не пересчитывается автоматически по сумме выплат — можно закрыть при недоплате и не "
+            "переоткрывать при изменении выплат. Автозакрытие по совпадению суммы работает, только "
+            "когда флаг снят."
+        ),
+    )
     payment_amount = models.DecimalField(max_digits=18, decimal_places=2, default=Decimal("0.00"))
     comment = models.TextField(blank=True, default="")
     return_type = models.CharField(

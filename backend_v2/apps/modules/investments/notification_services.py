@@ -38,26 +38,36 @@ def build_payout_schedule_public_url(*, schedule) -> str:
 
 
 def recompute_payout_schedule_paid_status(*, schedule) -> None:
-    """Roll confirmed linked payouts up into payment_amount and flip is_paid when matched.
+    """Roll confirmed linked payouts up into payment_amount; softly track the paid status.
 
-    ``payment_amount`` = sum of confirmed InvestReturns linked to the schedule.
-    ``is_paid`` = cumulative confirmed total >= scheduled amount. Idempotent and safe to
-    call repeatedly (signals, approval routing). Uses ``.update()`` so it never recurses
-    through InvestReturn signals.
+    ``payment_amount`` = sum of confirmed InvestReturns linked to the schedule (always kept
+    in sync). The coupling to ``is_paid`` is intentionally *soft*:
+
+    * If the schedule was closed manually (``closed_manually=True``), ``is_paid`` is left
+      untouched — a manual close stands even when under-paid and is never reopened by later
+      payout changes.
+    * Otherwise ``is_paid`` is auto-derived: it becomes True once the confirmed total reaches
+      the scheduled amount (over-payment also closes it) and reflects reality if payouts later
+      change. There is no cap — paying more or less than planned is allowed.
+
+    Idempotent and safe to call repeatedly. Uses ``.update()`` so it never recurses through
+    InvestReturn signals.
     """
     from apps.modules.investments.models import InvestPayoutSchedule, InvestReturn
+
+    row = InvestPayoutSchedule.objects.filter(pk=schedule.pk).values("amount", "closed_manually").first()
+    if row is None:
+        return
 
     paid = _money(
         InvestReturn.objects.filter(payout_schedule_id=schedule.pk, confirmed=True)
         .aggregate(total=Sum("sum"))["total"]
     )
-    amount = _money(schedule.amount)
-    is_paid = amount > 0 and paid >= amount
-    InvestPayoutSchedule.objects.filter(pk=schedule.pk).update(
-        payment_amount=paid,
-        is_paid=is_paid,
-        last_edit_at=timezone.now(),
-    )
+    fields = {"payment_amount": paid, "last_edit_at": timezone.now()}
+    if not row["closed_manually"]:
+        amount = _money(row["amount"])
+        fields["is_paid"] = amount > 0 and paid >= amount
+    InvestPayoutSchedule.objects.filter(pk=schedule.pk).update(**fields)
 
 
 def _schedule_committed_amount(schedule) -> Decimal:
@@ -284,10 +294,13 @@ def create_return_for_schedule(*, schedule, created_by, amount=None) -> tuple[ob
     """Atomically create a (possibly partial) InvestReturn for a payout schedule.
 
     The caller MUST wrap this in ``transaction.atomic()``. The schedule is re-fetched with
-    ``SELECT FOR UPDATE OF self`` to serialize concurrent button presses; the gate is the
-    outstanding remainder (``amount - committed``), so multiple partial payouts can be
-    created until the scheduled amount is fully committed. ``amount`` defaults to the whole
-    outstanding remainder; an explicit value enables partial payouts.
+    ``SELECT FOR UPDATE OF self`` to serialize concurrent button presses.
+
+    The link to the schedule is intentionally loose: ``amount`` defaults to the outstanding
+    remainder (``amount - committed``) for the one-tap flow, but an explicit ``amount`` is
+    *not* capped — over-payment is allowed, and paying less simply leaves the schedule open.
+    Payouts may also be created with no schedule at all (out-of-band); this helper just covers
+    the schedule-linked convenience path.
 
     Returns ``(invest_return_or_None, was_created, status_note)``.
     """
@@ -310,20 +323,18 @@ def create_return_for_schedule(*, schedule, created_by, amount=None) -> tuple[ob
             {"detail": "Укажите тип выплаты и получателя в расписании перед созданием."}
         )
 
-    outstanding = _money(locked.amount) - _schedule_committed_amount(locked)
-    if outstanding <= 0:
-        return None, False, "✅ По расписанию уже созданы выплаты на полную сумму"
-
     if amount is None:
+        # One-tap default: bill whatever remains. Nothing to auto-bill once fully committed,
+        # but an explicit amount can still be sent to over-pay.
+        outstanding = _money(locked.amount) - _schedule_committed_amount(locked)
+        if outstanding <= 0:
+            return None, False, "✅ Остаток по расписанию уже покрыт; укажите сумму, чтобы доплатить/переплатить."
         req_amount = outstanding
     else:
         req_amount = _money(amount)
         if req_amount <= 0:
             raise ValidationError({"amount": "Сумма должна быть больше нуля."})
-        if req_amount > outstanding:
-            raise ValidationError(
-                {"amount": f"Сумма превышает остаток по расписанию ({outstanding:.2f})."}
-            )
+        # No upper bound: over-payment vs the planned amount is allowed by design.
 
     billing_date = locked.payout_date.replace(day=1)
     invest_return = InvestReturn.objects.create(

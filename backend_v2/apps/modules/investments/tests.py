@@ -1682,7 +1682,7 @@ class InvestNotificationDupeGuardTests(TestCase):
             )
         self.assertFalse(was_created2)
         self.assertIsNone(ret2)
-        self.assertIn("полную сумму", note2)
+        self.assertIn("покрыт", note2)
 
         # Exactly one InvestReturn linked to this schedule.
         self.assertEqual(
@@ -2040,7 +2040,7 @@ class InvestPayoutPartialPaymentTests(TestCase):
         self.assertEqual(self.schedule.payment_amount, Decimal("50.00"))
         self.assertFalse(self.schedule.is_paid)
 
-    def test_create_return_for_schedule_partial_amount_and_outstanding(self):
+    def test_create_return_allows_partial_and_overpayment(self):
         from django.db import transaction
         from apps.modules.investments.notification_services import create_return_for_schedule
 
@@ -2052,28 +2052,31 @@ class InvestPayoutPartialPaymentTests(TestCase):
         self.assertEqual(ret.sum, Decimal("30.00"))
         self.assertEqual(ret.payout_schedule_id, self.schedule.pk)
 
-        # Outstanding is now 70; a request for more than that is rejected.
-        from rest_framework.exceptions import ValidationError as DRFValidationError
-
-        with self.assertRaises(DRFValidationError):
-            with transaction.atomic():
-                create_return_for_schedule(
-                    schedule=self.schedule, created_by=self.user, amount=Decimal("80.00"),
-                )
-
-        # A request for the remaining 70 succeeds and fully commits the schedule.
+        # Over-payment is allowed: an amount exceeding the remainder is NOT rejected.
         with transaction.atomic():
             ret2, was_created2, _ = create_return_for_schedule(
-                schedule=self.schedule, created_by=self.user, amount=Decimal("70.00"),
+                schedule=self.schedule, created_by=self.user, amount=Decimal("80.00"),
             )
         self.assertTrue(was_created2)
+        self.assertEqual(ret2.sum, Decimal("80.00"))
+
+        # Committed (30 + 80 = 110) now exceeds the plan; the one-tap default has nothing to bill.
         with transaction.atomic():
             ret3, was_created3, note3 = create_return_for_schedule(
                 schedule=self.schedule, created_by=self.user,
             )
         self.assertFalse(was_created3)
         self.assertIsNone(ret3)
-        self.assertIn("полную сумму", note3)
+        self.assertIn("покрыт", note3)
+
+        # A non-positive explicit amount is still rejected (the only guard left).
+        from rest_framework.exceptions import ValidationError as DRFValidationError
+
+        with self.assertRaises(DRFValidationError):
+            with transaction.atomic():
+                create_return_for_schedule(
+                    schedule=self.schedule, created_by=self.user, amount=Decimal("0"),
+                )
 
     def test_deleting_confirmed_payout_recomputes(self):
         r1 = self._make_return(sum_amount=Decimal("100.00"), confirmed=True)
@@ -2084,6 +2087,24 @@ class InvestPayoutPartialPaymentTests(TestCase):
         self.schedule.refresh_from_db()
         self.assertEqual(self.schedule.payment_amount, Decimal("0.00"))
         self.assertFalse(self.schedule.is_paid)
+
+    def test_manual_close_underpaid_sticks_through_recompute(self):
+        # Under-paid: 40 confirmed out of a planned 100 → auto status stays unpaid.
+        self._make_return(sum_amount=Decimal("40.00"), confirmed=True)
+        self.schedule.refresh_from_db()
+        self.assertFalse(self.schedule.is_paid)
+
+        # Manager closes it manually despite the shortfall.
+        self.schedule.is_paid = True
+        self.schedule.closed_manually = True
+        self.schedule.save(update_fields=["is_paid", "closed_manually", "last_edit_at"])
+
+        # A later confirmed payout must NOT reopen it, and payment_amount tracks the real total.
+        self._make_return(sum_amount=Decimal("10.00"), confirmed=True)
+        self.schedule.refresh_from_db()
+        self.assertTrue(self.schedule.is_paid)
+        self.assertTrue(self.schedule.closed_manually)
+        self.assertEqual(self.schedule.payment_amount, Decimal("50.00"))
 
 
 @override_settings(BASE_DOMAIN="example.com", ALLOWED_HOSTS=["*"])
@@ -2119,3 +2140,67 @@ class InvestReturnCreateAPITest(APITestCase):
         self.assertEqual(response.data["type"], "дивиденды")
         self.assertEqual(response.data["recipient"], "инвестор")
         self.assertFalse(response.data["confirmed"])
+
+
+@override_settings(BASE_DOMAIN="example.com", ALLOWED_HOSTS=["*"])
+class InvestPayoutScheduleSoftCloseAPITest(APITestCase):
+    """Manual close works even when under-paid and sticks; over-payment is accepted."""
+
+    def setUp(self):
+        self.user = User.objects.create_user(username="soft_user", password="x")
+        self.tenant = Tenant.objects.create(name="SoftTenant", subdomain="softtenant", is_active=True)
+        self.host = "softtenant.example.com"
+        TenantMembership.objects.create(tenant=self.tenant, user=self.user, is_active=True)
+        TenantUserRole.objects.create(tenant=self.tenant, user=self.user, role=TenantUserRole.ROLE_ADMIN)
+        TenantModuleConfig.objects.create(tenant=self.tenant, module_key="investments", is_enabled=True)
+        self.client.force_authenticate(self.user)
+        self.schedule = InvestPayoutSchedule.objects.create(
+            tenant=self.tenant,
+            payout_date=date(2026, 6, 1),
+            amount=Decimal("100.00"),
+            currency="USD",
+            return_type=InvestReturn.ReturnType.DIVIDEND,
+            recipient=InvestReturn.Recipient.INVESTOR,
+            created_by=self.user,
+        )
+
+    def test_mark_paid_closes_underpaid_schedule_and_sticks(self):
+        response = self.client.post(
+            f"/api/investments/payout-schedule/{self.schedule.pk}/mark-paid/",
+            format="json",
+            HTTP_HOST=self.host,
+        )
+        self.assertEqual(response.status_code, 200, response.data)
+        self.schedule.refresh_from_db()
+        self.assertTrue(self.schedule.is_paid)
+        self.assertTrue(self.schedule.closed_manually)
+
+        # A confirmed payout for less than the plan must not reopen the manual close.
+        InvestReturn.objects.create(
+            tenant=self.tenant,
+            payout_schedule=self.schedule,
+            date=date(2026, 6, 1),
+            billing_date=date(2026, 6, 1),
+            sum=Decimal("40.00"),
+            currency="USD",
+            type=InvestReturn.ReturnType.DIVIDEND,
+            recipient=InvestReturn.Recipient.INVESTOR,
+            confirmed=True,
+            created_by=self.user,
+        )
+        self.schedule.refresh_from_db()
+        self.assertTrue(self.schedule.is_paid)
+        self.assertEqual(self.schedule.payment_amount, Decimal("40.00"))
+
+    @patch("apps.modules.investments.serializers.fetch_cbu_usd_uzs_rate", return_value=Decimal("10000"))
+    def test_create_return_endpoint_allows_overpayment(self, _mock_fetch_cbu):
+        response = self.client.post(
+            f"/api/investments/payout-schedule/{self.schedule.pk}/create-return/",
+            data={"amount": "150.00"},
+            format="json",
+            HTTP_HOST=self.host,
+        )
+        self.assertEqual(response.status_code, 201, response.data)
+        ret = InvestReturn.objects.get(pk=response.data["return_id"])
+        self.assertEqual(ret.sum, Decimal("150.00"))
+        self.assertEqual(ret.payout_schedule_id, self.schedule.pk)

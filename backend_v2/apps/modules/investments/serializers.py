@@ -190,6 +190,7 @@ class InvestPayoutScheduleSerializer(_CompanyScopeMixin, serializers.ModelSerial
             "amount",
             "currency",
             "is_paid",
+            "closed_manually",
             "payment_amount",
             "remaining_amount",
             "comment",
@@ -200,7 +201,15 @@ class InvestPayoutScheduleSerializer(_CompanyScopeMixin, serializers.ModelSerial
             "last_edit_at",
             "created_by",
         ]
-        read_only_fields = ["id", "tenant", "created_return", "created_at", "last_edit_at", "created_by"]
+        read_only_fields = [
+            "id",
+            "tenant",
+            "closed_manually",
+            "created_return",
+            "created_at",
+            "last_edit_at",
+            "created_by",
+        ]
 
     def get_remaining_amount(self, obj) -> str:
         """Outstanding amount still owed (amount - already-paid), clamped at zero."""
@@ -212,6 +221,11 @@ class InvestPayoutScheduleSerializer(_CompanyScopeMixin, serializers.ModelSerial
     def validate(self, attrs):
         reject_client_pk_on_create(self)
         _normalize_currency(attrs)
+        # Editing is_paid directly (admin form) is treated as a manual open/close decision so
+        # the soft-coupling recompute respects it: closing keeps the schedule closed even when
+        # under-paid; reopening lets the amount-based auto-status take over again.
+        if "is_paid" in attrs:
+            attrs["closed_manually"] = bool(attrs["is_paid"])
         return investment_form_clear_company_if_disabled(attrs, self.context.get("request"))
 
 

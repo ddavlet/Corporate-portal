@@ -241,8 +241,19 @@ export function ScheduleTab({
     {
       title: 'Оплачено',
       dataIndex: 'is_paid',
-      width: 110,
-      render: (v: boolean) => (v ? <Tag color="green">Да</Tag> : <Tag>Нет</Tag>),
+      width: 130,
+      render: (v: boolean, row: InvestPayoutScheduleRow) => {
+        if (!v) return <Tag>Нет</Tag>
+        // Manually closed while under-paid: flag it so the gap between plan and fact is visible.
+        if (row.closed_manually && asNumber(row.payment_amount) < asNumber(row.amount)) {
+          return (
+            <Tooltip title="Закрыто вручную при неполной оплате">
+              <Tag color="gold">Закрыто вручную</Tag>
+            </Tooltip>
+          )
+        }
+        return <Tag color="green">Да</Tag>
+      },
       sorter: (a, b) => Number(a.is_paid) - Number(b.is_paid),
     },
     {
@@ -259,7 +270,7 @@ export function ScheduleTab({
       width: 140,
       align: 'right',
       render: (v: string | number, row: InvestPayoutScheduleRow) =>
-        row.is_paid ? <Tag color="green">0</Tag> : asMoney(v),
+        row.is_paid && asNumber(v) <= 0 ? <Tag color="green">0</Tag> : asMoney(v),
       sorter: (a, b) => asNumber(a.remaining_amount) - asNumber(b.remaining_amount),
     },
     { title: 'Комментарий', dataIndex: 'comment', render: (v: string) => v || '-' },
@@ -761,14 +772,9 @@ export function ScheduleTab({
                     value > 0 ? Promise.resolve() : Promise.reject(new Error('Сумма должна быть больше нуля')),
                 },
               ]}
-              extra="Можно создать частичную выплату — остаток можно будет оплатить позже."
+              extra="Можно оплатить частично, а также больше плановой суммы — жёсткого ограничения нет."
             >
-              <InputNumber
-                min={0}
-                max={asNumber(payTarget.remaining_amount)}
-                precision={precisionFor(payTarget.currency)}
-                style={{ width: 220 }}
-              />
+              <InputNumber min={0} precision={precisionFor(payTarget.currency)} style={{ width: 220 }} />
             </Form.Item>
           </Form>
         ) : null}

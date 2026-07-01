@@ -1254,6 +1254,7 @@ export type InvestPayoutScheduleRow = {
   amount: string | number
   currency: string
   is_paid: boolean
+  closed_manually: boolean
   payment_amount: string | number
   remaining_amount: string | number
   comment: string
