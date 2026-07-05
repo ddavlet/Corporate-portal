@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Alert, Form, Input, InputNumber, Modal, Select, Space, Switch, Typography, message } from 'antd'
 import { apiFetch } from '../../lib/api'
 import { planAdminEditFieldsFromRow } from '../../lib/adminModuleCrudFields'
+import { getFieldLabel } from '../../lib/adminFieldLabels'
 
 /** Достаёт человекочитаемую ошибку из тела ответа DRF. */
 export function extractApiError(json: unknown, status: number): string {
@@ -86,33 +87,33 @@ export function AdminRecordEditModal({ endpoint, record, open, onClose, onSaved,
         {(plan?.fields ?? []).map(({ key, type, choices }) => {
           if (choices?.length) {
             return (
-              <Form.Item key={key} label={key} name={key}>
+              <Form.Item key={key} label={getFieldLabel(key)} name={key}>
                 <Select
                   allowClear
                   showSearch
                   optionFilterProp="label"
                   options={choices.map((c) => ({ value: c.value, label: c.label }))}
-                  placeholder={`Выберите ${key}`}
+                  placeholder={`Выберите ${getFieldLabel(key)}`}
                 />
               </Form.Item>
             )
           }
           if (type === 'boolean') {
             return (
-              <Form.Item key={key} label={key} name={key} valuePropName="checked">
+              <Form.Item key={key} label={getFieldLabel(key)} name={key} valuePropName="checked">
                 <Switch />
               </Form.Item>
             )
           }
           if (type === 'number') {
             return (
-              <Form.Item key={key} label={key} name={key}>
+              <Form.Item key={key} label={getFieldLabel(key)} name={key}>
                 <InputNumber style={{ width: '100%' }} />
               </Form.Item>
             )
           }
           return (
-            <Form.Item key={key} label={key} name={key}>
+            <Form.Item key={key} label={getFieldLabel(key)} name={key}>
               <Input allowClear />
             </Form.Item>
           )
@@ -127,7 +128,7 @@ export function AdminRecordEditModal({ endpoint, record, open, onClose, onSaved,
             <Space direction="vertical">
               {plan.nonEditable.map((f) => (
                 <Typography.Text key={f.key} type="secondary">
-                  {f.key}: {JSON.stringify(f.value)}
+                  {getFieldLabel(f.key)}: {JSON.stringify(f.value)}
                 </Typography.Text>
               ))}
             </Space>
