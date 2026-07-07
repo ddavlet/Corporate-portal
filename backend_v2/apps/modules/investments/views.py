@@ -1,4 +1,6 @@
 import json
+from decimal import Decimal, InvalidOperation
+
 from django.contrib.auth import get_user_model
 from django.db import transaction
 from django.utils import timezone
@@ -452,10 +454,11 @@ class InvestNotificationConfigView(APIView):
 
 
 class InvestPayoutScheduleCreateReturnView(APIView):
-    """Web one-click: create-or-return the InvestReturn for a payout schedule.
+    """Web action: create a (possibly partial) InvestReturn for a payout schedule.
 
-    Uses the same atomic helper as the Telegram callback so concurrent presses (web tab
-    or Telegram tap) all converge on the single ``created_return`` FK — no duplicates.
+    Uses the same atomic helper as the Telegram callback, locking the schedule so concurrent
+    presses (web tab or Telegram tap) converge on the outstanding remainder — no over-creation.
+    An optional ``amount`` records a partial payout; omitting it bills the full remainder.
     """
 
     permission_classes = [IsAuthenticated, HasEffectiveModuleAccess]
@@ -463,7 +466,7 @@ class InvestPayoutScheduleCreateReturnView(APIView):
 
     def post(self, request, schedule_id: int):
         self.check_permissions(request)
-        from apps.modules.investments.notification_services import create_or_get_return_for_schedule
+        from apps.modules.investments.notification_services import create_return_for_schedule
 
         schedule = (
             InvestPayoutSchedule.objects
@@ -473,9 +476,17 @@ class InvestPayoutScheduleCreateReturnView(APIView):
         )
         if schedule is None:
             return Response({"detail": "Schedule not found."}, status=status.HTTP_404_NOT_FOUND)
+        # Optional partial amount; defaults to the full outstanding remainder when omitted.
+        raw_amount = request.data.get("amount", None)
+        amount = None
+        if raw_amount not in (None, ""):
+            try:
+                amount = Decimal(str(raw_amount))
+            except (InvalidOperation, ValueError, TypeError):
+                raise ValidationError({"amount": "Некорректная сумма."})
         with transaction.atomic():
-            invest_return, was_created, note = create_or_get_return_for_schedule(
-                schedule=schedule, created_by=request.user,
+            invest_return, was_created, note = create_return_for_schedule(
+                schedule=schedule, created_by=request.user, amount=amount,
             )
         return Response(
             {"detail": note, "return_id": invest_return.pk if invest_return else None},
@@ -484,7 +495,13 @@ class InvestPayoutScheduleCreateReturnView(APIView):
 
 
 class InvestPayoutScheduleMarkPaidView(APIView):
-    """Mark a payout as paid without going through the request flow (paid out-of-band)."""
+    """Manually close a payout schedule, regardless of how much has actually been paid.
+
+    This is a deliberate soft close: it works even when the schedule is under-paid (e.g. the
+    company paid less than planned) and, via ``closed_manually``, is not reopened when linked
+    payouts later change. ``payment_amount`` is left untouched so it keeps reflecting the real
+    confirmed payouts rather than assuming the full planned amount.
+    """
 
     permission_classes = [IsAuthenticated, HasEffectiveModuleAccess]
     module_key = "investments"
@@ -503,11 +520,8 @@ class InvestPayoutScheduleMarkPaidView(APIView):
             if schedule.is_paid:
                 return Response({"detail": "Already paid.", "is_paid": True}, status=status.HTTP_200_OK)
             schedule.is_paid = True
-            # Quick action assumes the scheduled amount was paid in full. Users who paid a
-            # different amount can correct via the schedule edit form.
-            if not schedule.payment_amount:
-                schedule.payment_amount = schedule.amount
-            schedule.save(update_fields=["is_paid", "payment_amount", "last_edit_at"])
+            schedule.closed_manually = True
+            schedule.save(update_fields=["is_paid", "closed_manually", "last_edit_at"])
         return Response({"detail": "Marked as paid.", "is_paid": True}, status=status.HTTP_200_OK)
 
 

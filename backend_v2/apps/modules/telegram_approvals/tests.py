@@ -1361,7 +1361,7 @@ class MessagingGatewayAuxiliaryCallbackTests(APITestCase):
         self.assertEqual(task.status, self._Task.Status.NEW)
 
     @patch(
-        "apps.modules.investments.notification_services.remove_payout_notification_button",
+        "apps.modules.investments.notification_services.refresh_payout_notification_message",
         return_value=True,
     )
     def test_invest_pay_callback_creates_return_for_schedule(self, _cleanup_mock):

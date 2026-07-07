@@ -122,17 +122,33 @@ export function ScheduleTab({
   const [creatingShareLink, setCreatingShareLink] = useState(false)
   const [deletingShareLinkId, setDeletingShareLinkId] = useState<number | null>(null)
   const [rowActionId, setRowActionId] = useState<number | null>(null)
+  const [payTarget, setPayTarget] = useState<InvestPayoutScheduleRow | null>(null)
+  const [paySubmitting, setPaySubmitting] = useState(false)
+  const [payForm] = Form.useForm<{ amount: number }>()
 
-  const handleCreateReturn = async (scheduleId: number) => {
-    setRowActionId(scheduleId)
+  const openPay = (row: InvestPayoutScheduleRow) => {
+    setPayTarget(row)
+    payForm.setFieldsValue({ amount: asNumber(row.remaining_amount) })
+  }
+
+  const submitPay = async () => {
+    if (!payTarget) return
+    let values: { amount: number }
     try {
-      const res = await createReturnFromPayoutSchedule(scheduleId)
+      values = await payForm.validateFields()
+    } catch {
+      return
+    }
+    setPaySubmitting(true)
+    try {
+      const res = await createReturnFromPayoutSchedule(payTarget.id, values.amount)
       message.success(res.detail || 'Выплата создана')
+      setPayTarget(null)
       await onCreated()
     } catch (e: unknown) {
       message.error(e instanceof Error ? e.message : 'Не удалось создать выплату')
     } finally {
-      setRowActionId(null)
+      setPaySubmitting(false)
     }
   }
 
@@ -225,8 +241,19 @@ export function ScheduleTab({
     {
       title: 'Оплачено',
       dataIndex: 'is_paid',
-      width: 110,
-      render: (v: boolean) => (v ? <Tag color="green">Да</Tag> : <Tag>Нет</Tag>),
+      width: 130,
+      render: (v: boolean, row: InvestPayoutScheduleRow) => {
+        if (!v) return <Tag>Нет</Tag>
+        // Manually closed while under-paid: flag it so the gap between plan and fact is visible.
+        if (row.closed_manually && asNumber(row.payment_amount) < asNumber(row.amount)) {
+          return (
+            <Tooltip title="Закрыто вручную при неполной оплате">
+              <Tag color="gold">Закрыто вручную</Tag>
+            </Tooltip>
+          )
+        }
+        return <Tag color="green">Да</Tag>
+      },
       sorter: (a, b) => Number(a.is_paid) - Number(b.is_paid),
     },
     {
@@ -236,6 +263,15 @@ export function ScheduleTab({
       align: 'right',
       render: (v: string | number) => asMoney(v),
       sorter: (a, b) => asNumber(a.payment_amount) - asNumber(b.payment_amount),
+    },
+    {
+      title: 'Остаток',
+      dataIndex: 'remaining_amount',
+      width: 140,
+      align: 'right',
+      render: (v: string | number, row: InvestPayoutScheduleRow) =>
+        row.is_paid && asNumber(v) <= 0 ? <Tag color="green">0</Tag> : asMoney(v),
+      sorter: (a, b) => asNumber(a.remaining_amount) - asNumber(b.remaining_amount),
     },
     { title: 'Комментарий', dataIndex: 'comment', render: (v: string) => v || '-' },
     ...(notifyDaysBefore !== null
@@ -274,34 +310,21 @@ export function ScheduleTab({
             onSaved={() => void onCreated()}
           />
         )
-        if (row.created_return) {
-          return (
-            <Space size={4}>
-              <Typography.Text type="secondary">Выплата #{row.created_return} создана</Typography.Text>
-              {editBtn}
-            </Space>
-          )
-        }
         if (row.is_paid)
           return (
-            <Space size={4}>
+            <Space size={4} wrap>
               <Tag color="green">Оплачено</Tag>
               {editBtn}
             </Space>
           )
         const loading = rowActionId === row.id
         return (
-          <Space size={4}>
-            <Popconfirm
-              title="Создать выплату по расписанию?"
-              okText="Создать"
-              cancelText="Отмена"
-              onConfirm={() => handleCreateReturn(row.id)}
-            >
-              <Button size="small" type="primary" loading={loading}>
-                Создать выплату
-              </Button>
-            </Popconfirm>
+          <Space size={4} wrap>
+            {/* Partial payouts accumulate: the button stays available until the schedule
+                is fully paid, so a remainder can be requested in several steps. */}
+            <Button size="small" type="primary" loading={loading} onClick={() => openPay(row)}>
+              Создать выплату
+            </Button>
             <Popconfirm
               title="Отметить выплату как оплаченную?"
               okText="Отметить"
@@ -312,6 +335,9 @@ export function ScheduleTab({
                 Оплачено
               </Button>
             </Popconfirm>
+            {row.created_return ? (
+              <Typography.Text type="secondary">Выплата #{row.created_return}</Typography.Text>
+            ) : null}
             {editBtn}
           </Space>
         )
@@ -716,6 +742,42 @@ export function ScheduleTab({
             </div>
           ) : null}
         </Form>
+      </Modal>
+
+      <Modal
+        open={payTarget !== null}
+        title="Создать выплату по расписанию"
+        okText="Создать"
+        cancelText="Отмена"
+        confirmLoading={paySubmitting}
+        onOk={submitPay}
+        onCancel={() => setPayTarget(null)}
+        destroyOnClose
+        width={460}
+      >
+        {payTarget ? (
+          <Form form={payForm} layout="vertical" preserve={false}>
+            <Typography.Paragraph type="secondary" style={{ marginBottom: 12 }}>
+              Сумма по расписанию: {asMoney(payTarget.amount)} {payTarget.currency}
+              {' · '}
+              Остаток: {asMoney(payTarget.remaining_amount)} {payTarget.currency}
+            </Typography.Paragraph>
+            <Form.Item
+              label="Сумма выплаты"
+              name="amount"
+              rules={[
+                { required: true, message: 'Укажите сумму' },
+                {
+                  validator: (_, value) =>
+                    value > 0 ? Promise.resolve() : Promise.reject(new Error('Сумма должна быть больше нуля')),
+                },
+              ]}
+              extra="Можно оплатить частично, а также больше плановой суммы — жёсткого ограничения нет."
+            >
+              <InputNumber min={0} precision={precisionFor(payTarget.currency)} style={{ width: 220 }} />
+            </Form.Item>
+          </Form>
+        ) : null}
       </Modal>
     </Space>
   )

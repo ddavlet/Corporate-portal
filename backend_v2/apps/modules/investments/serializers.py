@@ -67,6 +67,7 @@ class InvestReturnSerializer(_CompanyScopeMixin, serializers.ModelSerializer):
             "id",
             "tenant",
             "company",
+            "payout_schedule",
             "date",
             "billing_date",
             "sum",
@@ -81,7 +82,15 @@ class InvestReturnSerializer(_CompanyScopeMixin, serializers.ModelSerializer):
             "last_edit_at",
             "created_by",
         ]
-        read_only_fields = ["id", "tenant", "cbu_usd_uzs_rate", "created_at", "last_edit_at", "created_by"]
+        read_only_fields = [
+            "id",
+            "tenant",
+            "payout_schedule",
+            "cbu_usd_uzs_rate",
+            "created_at",
+            "last_edit_at",
+            "created_by",
+        ]
 
     def validate(self, attrs):
         reject_client_pk_on_create(self)
@@ -169,6 +178,8 @@ class InvestReturnSerializer(_CompanyScopeMixin, serializers.ModelSerializer):
 
 
 class InvestPayoutScheduleSerializer(_CompanyScopeMixin, serializers.ModelSerializer):
+    remaining_amount = serializers.SerializerMethodField()
+
     class Meta:
         model = InvestPayoutSchedule
         fields = [
@@ -179,7 +190,9 @@ class InvestPayoutScheduleSerializer(_CompanyScopeMixin, serializers.ModelSerial
             "amount",
             "currency",
             "is_paid",
+            "closed_manually",
             "payment_amount",
+            "remaining_amount",
             "comment",
             "return_type",
             "recipient",
@@ -188,11 +201,31 @@ class InvestPayoutScheduleSerializer(_CompanyScopeMixin, serializers.ModelSerial
             "last_edit_at",
             "created_by",
         ]
-        read_only_fields = ["id", "tenant", "created_return", "created_at", "last_edit_at", "created_by"]
+        read_only_fields = [
+            "id",
+            "tenant",
+            "closed_manually",
+            "created_return",
+            "created_at",
+            "last_edit_at",
+            "created_by",
+        ]
+
+    def get_remaining_amount(self, obj) -> str:
+        """Outstanding amount still owed (amount - already-paid), clamped at zero."""
+        remaining = Decimal(str(obj.amount or 0)) - Decimal(str(obj.payment_amount or 0))
+        if remaining < 0:
+            remaining = Decimal("0")
+        return str(remaining.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP))
 
     def validate(self, attrs):
         reject_client_pk_on_create(self)
         _normalize_currency(attrs)
+        # Editing is_paid directly (admin form) is treated as a manual open/close decision so
+        # the soft-coupling recompute respects it: closing keeps the schedule closed even when
+        # under-paid; reopening lets the amount-based auto-status take over again.
+        if "is_paid" in attrs:
+            attrs["closed_manually"] = bool(attrs["is_paid"])
         return investment_form_clear_company_if_disabled(attrs, self.context.get("request"))
 
 

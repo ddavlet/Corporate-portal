@@ -4,10 +4,13 @@ import datetime as dt
 import logging
 import threading
 import time
+from decimal import Decimal
 from html import escape
 from zoneinfo import ZoneInfo
 
-from django.db import transaction
+from django.conf import settings
+from django.db.models import DecimalField, F, Sum, Value
+from django.db.models.functions import Coalesce
 from django.utils import timezone
 from rest_framework.exceptions import ValidationError
 
@@ -15,8 +18,90 @@ logger = logging.getLogger(__name__)
 
 TASHKENT_TZ = ZoneInfo("Asia/Tashkent")
 
+
+def _money(value) -> Decimal:
+    return Decimal(str(value or 0)).quantize(Decimal("0.01"))
+
+
+def build_payout_schedule_public_url(*, schedule) -> str:
+    """Web-app deep link that opens the investments schedule for this tenant.
+
+    Empty string when the tenant base URL cannot be resolved — callers then omit the
+    link button (graceful degradation, same pattern as the requests module).
+    """
+    tenant = getattr(schedule, "tenant", None)
+    subdomain = (getattr(tenant, "subdomain", "") or "").strip()
+    base_domain = (getattr(settings, "BASE_DOMAIN", "") or "").strip().lower().lstrip(".")
+    if not subdomain or not base_domain:
+        return ""
+    return f"https://{subdomain}.{base_domain}/app/investments?tab=schedule&schedule={schedule.pk}"
+
+
+def recompute_payout_schedule_paid_status(*, schedule) -> None:
+    """Roll confirmed linked payouts up into payment_amount; softly track the paid status.
+
+    ``payment_amount`` = sum of confirmed InvestReturns linked to the schedule (always kept
+    in sync). The coupling to ``is_paid`` is intentionally *soft*:
+
+    * If the schedule was closed manually (``closed_manually=True``), ``is_paid`` is left
+      untouched — a manual close stands even when under-paid and is never reopened by later
+      payout changes.
+    * Otherwise ``is_paid`` is auto-derived: it becomes True once the confirmed total reaches
+      the scheduled amount (over-payment also closes it) and reflects reality if payouts later
+      change. There is no cap — paying more or less than planned is allowed.
+
+    Idempotent and safe to call repeatedly. Uses ``.update()`` so it never recurses through
+    InvestReturn signals.
+    """
+    from apps.modules.investments.models import InvestPayoutSchedule, InvestReturn
+
+    row = InvestPayoutSchedule.objects.filter(pk=schedule.pk).values("amount", "closed_manually").first()
+    if row is None:
+        return
+
+    paid = _money(
+        InvestReturn.objects.filter(payout_schedule_id=schedule.pk, confirmed=True)
+        .aggregate(total=Sum("sum"))["total"]
+    )
+    fields = {"payment_amount": paid, "last_edit_at": timezone.now()}
+    if not row["closed_manually"]:
+        amount = _money(row["amount"])
+        fields["is_paid"] = amount > 0 and paid >= amount
+    InvestPayoutSchedule.objects.filter(pk=schedule.pk).update(**fields)
+
+
+def _schedule_committed_amount(schedule) -> Decimal:
+    """Sum of all (non-rejected) payouts already linked to the schedule.
+
+    Rejected payouts are unlinked from the schedule (see approval routing), so every
+    linked return — pending or confirmed — counts toward the committed total. The
+    outstanding remainder is ``amount - committed``.
+    """
+    from apps.modules.investments.models import InvestReturn
+
+    return _money(
+        InvestReturn.objects.filter(payout_schedule_id=schedule.pk)
+        .aggregate(total=Sum("sum"))["total"]
+    )
+
+
 _poller_started = False
 _poller_lock = threading.Lock()
+
+
+def _payment_progress_lines(schedule) -> list[str]:
+    """Paid / remaining lines, shown only once a partial payment exists on the schedule."""
+    paid = _money(schedule.payment_amount)
+    if paid <= 0:
+        return []
+    currency = escape(schedule.currency)
+    remaining = _money(schedule.amount) - paid
+    if remaining < 0:
+        remaining = Decimal("0.00")
+    return [
+        f"Оплачено: {paid:,.2f} {currency}",
+        f"Остаток: {remaining:,.2f} {currency}",
+    ]
 
 
 def _build_payout_notification_text(schedule) -> str:
@@ -26,6 +111,7 @@ def _build_payout_notification_text(schedule) -> str:
         parts.append(f"Компания: {company_name}")
     parts.append(f"Дата: {schedule.payout_date.strftime('%d.%m.%Y')}")
     parts.append(f"Сумма: {schedule.amount:,.2f} {escape(schedule.currency)}")
+    parts.extend(_payment_progress_lines(schedule))
     if schedule.comment:
         parts.append(f"Примечание: {escape(schedule.comment)}")
     return "\n".join(parts)
@@ -39,9 +125,21 @@ def _build_overdue_notification_text(schedule, days_overdue: int) -> str:
     parts.append(f"Срок оплаты: {schedule.payout_date.strftime('%d.%m.%Y')}")
     parts.append(f"Просрочка: {days_overdue} дн.")
     parts.append(f"Сумма: {schedule.amount:,.2f} {escape(schedule.currency)}")
+    parts.extend(_payment_progress_lines(schedule))
     if schedule.comment:
         parts.append(f"Примечание: {escape(schedule.comment)}")
     return "\n".join(parts)
+
+
+def _payout_notification_buttons(schedule) -> list[list[dict]]:
+    """Inline keyboard: the create-request callback button plus an optional web deep link."""
+    rows: list[list[dict]] = [
+        [{"label": "💳 Создать заявку", "value": f"invest_pay:{schedule.pk}"}]
+    ]
+    pay_url = build_payout_schedule_public_url(schedule=schedule)
+    if pay_url:
+        rows.append([{"label": "🔗 Открыть выплату", "url": pay_url}])
+    return rows
 
 
 def _dispatch_payout_notification(*, schedule, config, text: str) -> bool:
@@ -70,17 +168,18 @@ def _dispatch_payout_notification(*, schedule, config, text: str) -> bool:
         "recipient_id": str(chat_id),
         "bot_token": bot_token,
         "tenant_id": str(config.tenant_id),
-        "buttons": [[{"label": "💳 Создать заявку", "value": f"invest_pay:{schedule.pk}"}]],
+        "buttons": _payout_notification_buttons(schedule),
     }
     result = post_messaging_gateway(tenant=config.tenant, payload=payload)
     return result is not None
 
 
-def remove_payout_notification_button(*, schedule, chat_id, message_id, note: str) -> bool:
-    """Edit the Telegram notification to drop the 'Create Payment' button and append a status note.
+def refresh_payout_notification_message(*, schedule, chat_id, message_id, note: str) -> bool:
+    """Edit the reminder after an action: refresh the paid/remaining text, append a status
+    note, and keep the action buttons only while an outstanding remainder still exists.
 
-    Telegram's editMessageText removes the inline keyboard when reply_markup is omitted, which the
-    gateway does when buttons=[]. Best-effort: failure here does not undo the created request.
+    Telegram's editMessageText removes the inline keyboard when reply_markup is omitted, which
+    the gateway does when buttons=[]. Best-effort: failure here does not undo the created payout.
     """
     from apps.modules.telegram_approvals.services import get_tenant_bot_token, post_messaging_gateway
 
@@ -90,6 +189,9 @@ def remove_payout_notification_button(*, schedule, chat_id, message_id, note: st
     if not bot_token:
         return False
 
+    schedule.refresh_from_db()
+    outstanding = _money(schedule.amount) - _schedule_committed_amount(schedule)
+    keep_button = not schedule.is_paid and outstanding > 0
     text = f"{_build_payout_notification_text(schedule)}\n\n{escape(note)}"
     payload = {
         "action": "edit",
@@ -98,7 +200,7 @@ def remove_payout_notification_button(*, schedule, chat_id, message_id, note: st
         "bot_token": bot_token,
         "tenant_id": str(schedule.tenant_id),
         "message_id": int(message_id),
-        "buttons": [],
+        "buttons": _payout_notification_buttons(schedule) if keep_button else [],
     }
     result = post_messaging_gateway(tenant=schedule.tenant, payload=payload)
     return result is not None
@@ -144,12 +246,24 @@ def process_due_invest_payout_notifications(*, now_dt: dt.datetime | None = None
     for config in configs:
         if local_hour != config.notify_hour:
             continue
-        # Upcoming payouts: due within the lead-time window and not yet acted on.
+        # Remind only while an outstanding (uncommitted) remainder exists: keep nudging
+        # through partial payments, stop once linked payouts cover the full amount.
+        # ``returns`` is the reverse of InvestReturn.payout_schedule; rejected payouts are
+        # unlinked, so only live (pending/confirmed) ones count toward the committed total.
+        outstanding = (
+            InvestPayoutSchedule.objects.filter(tenant=config.tenant, is_paid=False)
+            .annotate(
+                committed=Coalesce(
+                    Sum("returns__sum"),
+                    Value(Decimal("0.00")),
+                    output_field=DecimalField(max_digits=18, decimal_places=2),
+                )
+            )
+            .filter(committed__lt=F("amount"))
+        )
+        # Upcoming payouts: due within the lead-time window and not yet fully committed.
         threshold_date = today + dt.timedelta(days=config.days_before)
-        upcoming = InvestPayoutSchedule.objects.filter(
-            tenant=config.tenant,
-            is_paid=False,
-            created_return__isnull=True,
+        upcoming = outstanding.filter(
             payout_date__lte=threshold_date,
             payout_date__gte=today,
         ).select_related("company")
@@ -159,10 +273,7 @@ def process_due_invest_payout_notifications(*, now_dt: dt.datetime | None = None
 
         # Overdue payouts: re-notify every N days until paid (0 disables this pass).
         if config.overdue_notify_every_days > 0:
-            overdue = InvestPayoutSchedule.objects.filter(
-                tenant=config.tenant,
-                is_paid=False,
-                created_return__isnull=True,
+            overdue = outstanding.filter(
                 payout_date__lt=today,
             ).select_related("company")
             for schedule in overdue:
@@ -179,12 +290,17 @@ def process_due_invest_payout_notifications(*, now_dt: dt.datetime | None = None
     return sent
 
 
-def create_or_get_return_for_schedule(*, schedule, created_by) -> tuple[object, bool, str]:
-    """Atomically create-or-return the InvestReturn linked to a payout schedule.
+def create_return_for_schedule(*, schedule, created_by, amount=None) -> tuple[object, bool, str]:
+    """Atomically create a (possibly partial) InvestReturn for a payout schedule.
 
-    The caller MUST wrap this in ``transaction.atomic()``. The function re-fetches the
-    schedule with ``SELECT FOR UPDATE OF self`` to serialize concurrent button presses —
-    the ``created_return`` FK then acts as the dupe gate.
+    The caller MUST wrap this in ``transaction.atomic()``. The schedule is re-fetched with
+    ``SELECT FOR UPDATE OF self`` to serialize concurrent button presses.
+
+    The link to the schedule is intentionally loose: ``amount`` defaults to the outstanding
+    remainder (``amount - committed``) for the one-tap flow, but an explicit ``amount`` is
+    *not* capped — over-payment is allowed, and paying less simply leaves the schedule open.
+    Payouts may also be created with no schedule at all (out-of-band); this helper just covers
+    the schedule-linked convenience path.
 
     Returns ``(invest_return_or_None, was_created, status_note)``.
     """
@@ -193,7 +309,6 @@ def create_or_get_return_for_schedule(*, schedule, created_by) -> tuple[object, 
         create_approvals_for_invest_return,
         route_invest_return_approvals,
     )
-    import datetime as dt
 
     locked = (
         InvestPayoutSchedule.objects
@@ -202,20 +317,33 @@ def create_or_get_return_for_schedule(*, schedule, created_by) -> tuple[object, 
         .get(pk=schedule.pk)
     )
     if locked.is_paid:
-        return locked.created_return, False, "✅ Уже оплачено"
-    if locked.created_return_id is not None:
-        return locked.created_return, False, f"✅ Выплата #{locked.created_return_id} уже создана"
+        return None, False, "✅ Уже оплачено"
     if not locked.return_type or not locked.recipient:
         raise ValidationError(
             {"detail": "Укажите тип выплаты и получателя в расписании перед созданием."}
         )
+
+    if amount is None:
+        # One-tap default: bill whatever remains. Nothing to auto-bill once fully committed,
+        # but an explicit amount can still be sent to over-pay.
+        outstanding = _money(locked.amount) - _schedule_committed_amount(locked)
+        if outstanding <= 0:
+            return None, False, "✅ Остаток по расписанию уже покрыт; укажите сумму, чтобы доплатить/переплатить."
+        req_amount = outstanding
+    else:
+        req_amount = _money(amount)
+        if req_amount <= 0:
+            raise ValidationError({"amount": "Сумма должна быть больше нуля."})
+        # No upper bound: over-payment vs the planned amount is allowed by design.
+
     billing_date = locked.payout_date.replace(day=1)
     invest_return = InvestReturn.objects.create(
         tenant=locked.tenant,
         company=locked.company,
+        payout_schedule=locked,
         date=locked.payout_date,
         billing_date=billing_date,
-        sum=locked.amount,
+        sum=req_amount,
         currency=locked.currency,
         comment=locked.comment or "",
         type=locked.return_type,
@@ -223,13 +351,15 @@ def create_or_get_return_for_schedule(*, schedule, created_by) -> tuple[object, 
         confirmed=False,
         created_by=created_by,
     )
-    InvestPayoutSchedule.objects.filter(pk=locked.pk).update(
-        created_return=invest_return,
-        last_edit_at=timezone.now(),
-    )
+    # Back-compat: keep created_return pointing at the first payout made from this schedule.
+    if locked.created_return_id is None:
+        InvestPayoutSchedule.objects.filter(pk=locked.pk, created_return__isnull=True).update(
+            created_return=invest_return,
+            last_edit_at=timezone.now(),
+        )
     create_approvals_for_invest_return(invest_return=invest_return)
     route_invest_return_approvals(invest_return=invest_return)
-    return invest_return, True, f"✅ Выплата #{invest_return.pk} создана"
+    return invest_return, True, f"✅ Выплата #{invest_return.pk} создана на сумму {req_amount:.2f} {locked.currency}"
 
 
 def _next_notify_run_at(now_dt: dt.datetime) -> dt.datetime:

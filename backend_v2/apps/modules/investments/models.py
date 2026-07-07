@@ -28,6 +28,18 @@ class InvestReturn(models.Model):
         null=True,
         blank=True,
     )
+    payout_schedule = models.ForeignKey(
+        "InvestPayoutSchedule",
+        on_delete=models.SET_NULL,
+        related_name="returns",
+        null=True,
+        blank=True,
+        help_text=(
+            "Расписание выплат, к которому относится эта (возможно частичная) выплата. "
+            "Подтверждённые выплаты суммируются в payment_amount расписания; когда сумма "
+            "достигает amount — расписание закрывается как оплаченное."
+        ),
+    )
     date = models.DateField()
     billing_date = models.DateField(
         help_text="Первый день месяца начисления (PnL и отчёты по месяцу назначения, как у заявок).",
@@ -79,6 +91,15 @@ class InvestPayoutSchedule(models.Model):
     amount = models.DecimalField(max_digits=18, decimal_places=2)
     currency = models.CharField(max_length=3, default="USD")
     is_paid = models.BooleanField(default=False)
+    closed_manually = models.BooleanField(
+        default=False,
+        help_text=(
+            "Расписание закрыто вручную (кнопкой «Оплачено»). Пока флаг стоит, статус is_paid "
+            "не пересчитывается автоматически по сумме выплат — можно закрыть при недоплате и не "
+            "переоткрывать при изменении выплат. Автозакрытие по совпадению суммы работает, только "
+            "когда флаг снят."
+        ),
+    )
     payment_amount = models.DecimalField(max_digits=18, decimal_places=2, default=Decimal("0.00"))
     comment = models.TextField(blank=True, default="")
     return_type = models.CharField(
@@ -98,8 +119,11 @@ class InvestPayoutSchedule(models.Model):
         on_delete=models.SET_NULL,
         null=True,
         blank=True,
-        related_name="payout_schedule",
-        help_text="InvestReturn created from this payout (one-click). Guards against duplicates.",
+        # Reverse accessor disabled ("+"): the canonical schedule↔payout link is now the
+        # InvestReturn.payout_schedule FK (many partial payouts per schedule). This OneToOne
+        # is kept only for back-compat display of the first payout created from the schedule.
+        related_name="+",
+        help_text="First InvestReturn created from this payout (one-click). Back-compat only.",
     )
     created_at = models.DateTimeField(auto_now_add=True)
     last_edit_at = models.DateTimeField(auto_now=True)
