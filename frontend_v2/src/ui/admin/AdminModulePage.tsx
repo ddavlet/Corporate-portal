@@ -10,6 +10,7 @@ import {
   type AdminCrudDynamicField,
 } from '../../lib/adminModuleCrudFields'
 import { apiFetch, getAccessMatrix, type AccessMatrixRoleModuleRow } from '../../lib/api'
+import { getFieldLabel } from '../../lib/adminFieldLabels'
 import { useInfiniteList } from '../../lib/useInfiniteList'
 import { ListInfiniteScrollFooter } from '../ListInfiniteScrollFooter'
 import { tenantRoleLabel } from '../../lib/tenantRoles'
@@ -461,33 +462,33 @@ export function AdminModulePage() {
           {editableFields.map(({ key, type, choices }) => {
               if (choices?.length) {
                 return (
-                  <Form.Item key={key} label={key} name={key}>
+                  <Form.Item key={key} label={getFieldLabel(key)} name={key}>
                     <Select
                       allowClear
                       showSearch
                       optionFilterProp="label"
                       options={choices.map((c) => ({ value: c.value, label: c.label }))}
-                      placeholder={`Выберите ${key}`}
+                      placeholder={`Выберите ${getFieldLabel(key)}`}
                     />
                   </Form.Item>
                 )
               }
               if (type === 'boolean') {
                 return (
-                  <Form.Item key={key} label={key} name={key} valuePropName="checked">
+                  <Form.Item key={key} label={getFieldLabel(key)} name={key} valuePropName="checked">
                     <Switch />
                   </Form.Item>
                 )
               }
               if (type === 'number') {
                 return (
-                  <Form.Item key={key} label={key} name={key}>
+                  <Form.Item key={key} label={getFieldLabel(key)} name={key}>
                     <InputNumber style={{ width: '100%' }} />
                   </Form.Item>
                 )
               }
               return (
-                <Form.Item key={key} label={key} name={key}>
+                <Form.Item key={key} label={getFieldLabel(key)} name={key}>
                   <Input allowClear />
                 </Form.Item>
               )
@@ -502,7 +503,7 @@ export function AdminModulePage() {
               <Space direction="vertical">
                 {nonEditableFields.map((f) => (
                   <Typography.Text key={f.key} type="secondary">
-                    {f.key}: {JSON.stringify(f.value)}
+                    {getFieldLabel(f.key)}: {JSON.stringify(f.value)}
                   </Typography.Text>
                 ))}
               </Space>
