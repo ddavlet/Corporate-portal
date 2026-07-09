@@ -966,6 +966,8 @@ export type PnlReportSettingsSnapshot = {
   /** Начальный остаток для отчёта PnL (на начало ``start_month``). Cashflow задаётся отдельно в ``cashflow_config``. */
   opening_balance?: string
   cash_exclude_operations?: string[]
+  /** Фразы-подстроки: банковские поступления с таким назначением платежа не попадают в выручку PnL (Cashflow не фильтруется). */
+  bank_exclude_purposes?: string[]
   request_exclude_categories?: string[]
   request_payment_types_for_pnl?: string[]
   payment_purpose_operational?: string[]
