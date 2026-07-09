@@ -18,6 +18,7 @@ from apps.modules.reports.models import TenantReportSettings
 # --- pnl_config keys (backend PnL) ---
 CFG_START_MONTH = "start_month"
 CFG_CASH_EXCLUDE = "cash_exclude_operations"
+CFG_BANK_EXCLUDE = "bank_exclude_purposes"
 CFG_REQ_CAT_EXCLUDE = "request_exclude_categories"
 CFG_REQ_PAYMENT_TYPES = "request_payment_types_for_pnl"
 CFG_PURPOSE_OP = "payment_purpose_operational"
@@ -96,6 +97,14 @@ def _normalize_str_list(raw: Any, *, field: str) -> list[str]:
         seen.add(s)
         out.append(s)
     return out
+
+
+def _bank_purpose_excluded(purpose: str, patterns: list[str]) -> bool:
+    """Bank statement payment_purpose is free text — match exclusion phrases as case-insensitive substrings."""
+    text = purpose.strip().lower()
+    if not text:
+        return False
+    return any(p.lower() in text for p in patterns)
 
 
 def _validate_disjoint_string_sets(
@@ -185,6 +194,10 @@ def validate_pnl_config_dict(cfg: dict[str, Any]) -> None:
     if CFG_OPENING_BALANCE in cfg:
         _parse_opening_balance(cfg.get(CFG_OPENING_BALANCE))
 
+    # Optional key: absent in configs saved before bank exclusions existed.
+    if CFG_BANK_EXCLUDE in cfg:
+        _normalize_str_list(cfg[CFG_BANK_EXCLUDE], field=CFG_BANK_EXCLUDE)
+
 
 def _sorted_return_types() -> list[str]:
     return sorted(_RETURN_TYPE_VALUES)
@@ -214,9 +227,12 @@ def _report_settings_snapshot(cfg: dict[str, Any]) -> dict[str, Any]:
             pay_types.append(s)
     opening = _parse_opening_balance(cfg.get(CFG_OPENING_BALANCE))
 
+    bank_exclude = _normalize_str_list(cfg.get(CFG_BANK_EXCLUDE, []), field=CFG_BANK_EXCLUDE)
+
     return {
         CFG_START_MONTH: str(cfg[CFG_START_MONTH]).strip(),
         CFG_CASH_EXCLUDE: sorted(cash_exclude),
+        CFG_BANK_EXCLUDE: sorted(bank_exclude),
         CFG_REQ_CAT_EXCLUDE: sorted(cat_exclude),
         CFG_REQ_PAYMENT_TYPES: pay_types,
         CFG_PURPOSE_OP: sorted(_normalize_str_list(cfg[CFG_PURPOSE_OP], field=CFG_PURPOSE_OP)),
@@ -416,6 +432,7 @@ def build_pnl_payload_from_db(*, tenant, query_params: dict[str, Any]) -> dict[s
     cfg = get_pnl_config_or_raise(tenant=tenant)
     start = _parse_start_month(str(cfg[CFG_START_MONTH]))
     cash_exclude = {str(x).strip() for x in cfg[CFG_CASH_EXCLUDE] if str(x).strip()}
+    bank_exclude = _normalize_str_list(cfg.get(CFG_BANK_EXCLUDE, []), field=CFG_BANK_EXCLUDE)
     cat_exclude = {str(x).strip() for x in cfg[CFG_REQ_CAT_EXCLUDE] if str(x).strip()}
     pay_list = [str(x).strip() for x in cfg[CFG_REQ_PAYMENT_TYPES] if str(x).strip() in _PAYMENT_TYPE_VALUES]
 
@@ -432,6 +449,8 @@ def build_pnl_payload_from_db(*, tenant, query_params: dict[str, Any]) -> dict[s
     revenue: list[dict[str, Any]] = []
 
     for br in BankRevenue.objects.filter(tenant_id=tenant.id, doc_date__gte=start).order_by("doc_date", "id"):
+        if _bank_purpose_excluded(str(br.payment_purpose or ""), bank_exclude):
+            continue
         revenue.append(
             {
                 "id": str(br.id),

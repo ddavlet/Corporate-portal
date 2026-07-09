@@ -72,6 +72,7 @@ function buildConfigFromForm(fields: {
   startMonth: string
   openingBalance: string
   cashExclude: string
+  bankExclude: string
   requestExclude: string
   requestPaymentTypes: string[]
   purposeOperational: string[]
@@ -95,6 +96,7 @@ function buildConfigFromForm(fields: {
     start_month: fields.startMonth.trim(),
     opening_balance: fields.openingBalance.trim() || '0',
     cash_exclude_operations: splitList(fields.cashExclude),
+    bank_exclude_purposes: splitList(fields.bankExclude),
     request_exclude_categories: splitList(fields.requestExclude),
     request_payment_types_for_pnl: [...fields.requestPaymentTypes],
     payment_purpose_operational: op,
@@ -119,6 +121,7 @@ export function PnlReportSettingsPage() {
   const [startMonth, setStartMonth] = useState('')
   const [openingBalance, setOpeningBalance] = useState('')
   const [cashExclude, setCashExclude] = useState('')
+  const [bankExclude, setBankExclude] = useState('')
   const [requestExclude, setRequestExclude] = useState('')
   const [requestPaymentTypes, setRequestPaymentTypes] = useState<string[]>([])
   const [purposeOperational, setPurposeOperational] = useState<string[]>([])
@@ -145,6 +148,7 @@ export function PnlReportSettingsPage() {
       setStartMonth((c.start_month ?? '').trim())
       setOpeningBalance(String(c.opening_balance ?? '').trim())
       setCashExclude(joinList(c.cash_exclude_operations))
+      setBankExclude(joinList(c.bank_exclude_purposes))
       setRequestExclude(joinList(c.request_exclude_categories))
       setRequestPaymentTypes([...(c.request_payment_types_for_pnl ?? [])])
       setPurposeOperational(uniqTrimmedStrings(c.payment_purpose_operational ?? []))
@@ -303,6 +307,7 @@ export function PnlReportSettingsPage() {
         startMonth,
         openingBalance,
         cashExclude,
+        bankExclude,
         requestExclude,
         requestPaymentTypes,
         purposeOperational,
@@ -480,6 +485,22 @@ export function PnlReportSettingsPage() {
               placeholder="По одному значению на строку"
               value={cashExclude}
               onChange={(e) => setCashExclude(e.target.value)}
+            />
+          </div>
+
+          <div>
+            <Typography.Text strong>Исключить банковские поступления (фразы в назначении платежа)</Typography.Text>
+            <Typography.Paragraph type="secondary" style={{ marginBottom: 8, marginTop: 4 }}>
+              Поступление в банк не попадёт в выручку PnL, если его назначение платежа содержит любую из фраз
+              (без учёта регистра). Например: «пополнение уставного». На Cashflow не влияет — там это реальный
+              приток денег.
+            </Typography.Paragraph>
+            <Input.TextArea
+              style={{ marginTop: 0 }}
+              rows={3}
+              placeholder="По одной фразе на строку, например: пополнение уставного"
+              value={bankExclude}
+              onChange={(e) => setBankExclude(e.target.value)}
             />
           </div>
 

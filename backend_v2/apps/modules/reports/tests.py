@@ -16,8 +16,10 @@ from apps.modules.requests.models import (
     RequestFormPaymentTypeConfig,
     RequestPaymentPurposeConfig,
 )
+from apps.modules.bank_expenses.models import BankRevenue
 from apps.modules.reports.models import TenantReportSettings
 from apps.modules.investments.models import InvestReturn
+from apps.modules.wallets.resolution import get_or_create_bank_wallet
 from apps.modules.reports.cashflow_builder import (
     build_cashflow_payload_from_db,
     validate_cashflow_config_dict,
@@ -388,6 +390,44 @@ class BackendPnlDatabaseTests(TestCase):
         self.assertEqual(months[-1], "2026-12")
         self.assertEqual(len(months), 11)
         self.assertTrue(all(row["amount"] == "100.00" for row in op))
+
+    def _create_bank_revenue(self, *, doc_no, purpose, amount="100.00", doc_date=date(2026, 3, 5)):
+        return BankRevenue.objects.create(
+            tenant=self.tenant,
+            created_by=self.user,
+            wallet=get_or_create_bank_wallet(tenant=self.tenant),
+            doc_date=doc_date,
+            process_date=doc_date,
+            doc_no=doc_no,
+            account_name="ООО Партнёр",
+            inn="123456789",
+            account_no="20208000123456789012",
+            mfo="01001",
+            kredit_turnover=amount,
+            payment_purpose=purpose,
+        )
+
+    def test_pnl_bank_revenue_excluded_by_purpose_substring(self):
+        self._ensure_pnl_settings(bank_exclude_purposes=["пополнение уставного"])
+        self._create_bank_revenue(doc_no="B-1", purpose="ПОПОЛНЕНИЕ УСТАВНОГО капитала по решению №1")
+        kept = self._create_bank_revenue(doc_no="B-2", purpose="Оплата за товар по договору")
+        payload = build_pnl_payload_from_db(tenant=self.tenant, query_params={})
+        self.assertEqual([row["id"] for row in payload["revenue"]], [str(kept.id)])
+        self.assertEqual(payload["report_settings"]["bank_exclude_purposes"], ["пополнение уставного"])
+
+    def test_pnl_bank_revenue_kept_when_bank_exclude_key_missing(self):
+        self._ensure_pnl_settings()
+        row = self._create_bank_revenue(doc_no="B-3", purpose="Пополнение уставного капитала")
+        payload = build_pnl_payload_from_db(tenant=self.tenant, query_params={})
+        self.assertEqual([r["id"] for r in payload["revenue"]], [str(row.id)])
+        self.assertEqual(payload["report_settings"]["bank_exclude_purposes"], [])
+
+    def test_cashflow_keeps_bank_revenue_excluded_from_pnl(self):
+        # Capital contributions are not income (PnL) but are a real cash inflow (Cashflow).
+        self._ensure_pnl_settings(bank_exclude_purposes=["уставного капитала"])
+        row = self._create_bank_revenue(doc_no="B-4", purpose="Пополнение уставного капитала")
+        payload = build_cashflow_payload_from_db(tenant=self.tenant, query_params={})
+        self.assertIn(str(row.id), [r["id"] for r in payload["revenue"]])
 
 
 @override_settings(BASE_DOMAIN="example.com", ALLOWED_HOSTS=["*"])
@@ -799,6 +839,11 @@ class PnlConfigValidationTests(TestCase):
 
     def test_rejects_invalid_payment_type(self):
         cfg = full_backend_pnl_config(request_payment_types_for_pnl=["Неизвестный тип"])
+        with self.assertRaises(ReportSettingsInvalid):
+            validate_pnl_config_dict(cfg)
+
+    def test_rejects_non_list_bank_exclude_purposes(self):
+        cfg = full_backend_pnl_config(bank_exclude_purposes="пополнение уставного")
         with self.assertRaises(ReportSettingsInvalid):
             validate_pnl_config_dict(cfg)
 
