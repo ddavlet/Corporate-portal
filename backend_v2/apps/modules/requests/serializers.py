@@ -113,6 +113,11 @@ class PortalRequestSerializer(serializers.ModelSerializer):
     # so we allow blank explicitly at serializer level.
     description = serializers.CharField(allow_blank=True, required=False, default="")
     attachments = serializers.SerializerMethodField()
+    # Cross-tenant copy origin + external-match markers. Set only via the n8n import /
+    # external-match endpoints (apps.modules.n8n_integration) — read-only on the portal.
+    source_tenant_name = serializers.SerializerMethodField()
+    external_matched = serializers.SerializerMethodField()
+    external_matched_tenant_name = serializers.SerializerMethodField()
 
     class Meta:
         model = Request
@@ -152,6 +157,10 @@ class PortalRequestSerializer(serializers.ModelSerializer):
             "amortization_start_date",
             "is_amortized",
             "amortization_schedule",
+            "source_tenant_name",
+            "source_request_id",
+            "external_matched",
+            "external_matched_tenant_name",
         ]
         read_only_fields = [
             "expense_link",
@@ -161,6 +170,10 @@ class PortalRequestSerializer(serializers.ModelSerializer):
             "contract_label",
             "status",
             "attachments",
+            "source_tenant_name",
+            "source_request_id",
+            "external_matched",
+            "external_matched_tenant_name",
         ]
 
     def __init__(self, *args, **kwargs):
@@ -464,6 +477,17 @@ class PortalRequestSerializer(serializers.ModelSerializer):
         if not obj.created_by_id:
             return None
         return _display_user_name(getattr(obj, "created_by", None))
+
+    def get_source_tenant_name(self, obj):
+        source_tenant = getattr(obj, "source_tenant", None)
+        return source_tenant.name if source_tenant else None
+
+    def get_external_matched(self, obj):
+        return obj.external_matched_at is not None
+
+    def get_external_matched_tenant_name(self, obj):
+        matched_tenant = getattr(obj, "external_matched_tenant", None)
+        return matched_tenant.name if matched_tenant else None
 
     def get_contract_label(self, obj):
         cref = getattr(obj, "contract_ref", None)

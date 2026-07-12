@@ -8,6 +8,7 @@ from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.db import IntegrityError, transaction
 from django.db.models import Q
+from django.utils import timezone
 from rest_framework import status
 from rest_framework.exceptions import APIException
 from rest_framework.exceptions import ValidationError
@@ -59,7 +60,7 @@ from apps.modules.n8n_integration.serializers import (
 from apps.modules.wallets.models import Wallet
 from apps.modules.wallets.services import balances_for_tenant_channel
 from apps.tenants.integration_settings import get_n8n_integration_settings
-from apps.tenants.models import TenantModuleConfig
+from apps.tenants.models import Tenant, TenantModuleConfig
 from apps.tenants.permissions import HasEffectiveModuleAccess
 
 User = get_user_model()
@@ -232,6 +233,7 @@ def _n8n_upsert(
     other_tenant_conflict,
     build_create_kwargs,
     serializer_context_extra=None,
+    get_instance_without_pk=None,
 ):
     su = _system_user()
     if su is None:
@@ -251,8 +253,24 @@ def _n8n_upsert(
     if serializer_context_extra:
         ctx_base.update(serializer_context_extra)
 
-    # Create without client PK when `id` is not provided.
+    def _partial_update(instance):
+        ser = serializer_class(instance=instance, data=data, partial=True, context=ctx_base)
+        ser.is_valid(raise_exception=True)
+        try:
+            with transaction.atomic():
+                ser.save()
+        except IntegrityError as exc:
+            return Response(_n8n_integrity_error_payload(exc), status=status.HTTP_400_BAD_REQUEST)
+        return Response(ser.data, status=status.HTTP_200_OK)
+
+    # Create without client PK when `id` is not provided. Some callers can identify an
+    # existing row by an alternate key (e.g. cross-tenant copy source); prefer updating
+    # that row over creating a duplicate.
     if pk is None:
+        alt_instance = get_instance_without_pk(data) if get_instance_without_pk else None
+        if alt_instance is not None:
+            return _partial_update(alt_instance)
+
         ser = serializer_class(data=data, context=ctx_base)
         ser.is_valid(raise_exception=True)
         try:
@@ -265,14 +283,7 @@ def _n8n_upsert(
     instance = get_instance(pk)
 
     if instance:
-        ser = serializer_class(instance=instance, data=data, partial=True, context=ctx_base)
-        ser.is_valid(raise_exception=True)
-        try:
-            with transaction.atomic():
-                ser.save()
-        except IntegrityError as exc:
-            return Response(_n8n_integrity_error_payload(exc), status=status.HTTP_400_BAD_REQUEST)
-        return Response(ser.data, status=status.HTTP_200_OK)
+        return _partial_update(instance)
 
     if other_tenant_conflict(pk):
         return Response({"id": ["This ID already exists in another tenant."]}, status=status.HTTP_400_BAD_REQUEST)
@@ -858,6 +869,20 @@ class N8nRequestUpsertView(_N8nBaseView):
         def get_instance(pk):
             return Request.objects.filter(pk=pk, tenant=tenant).first()
 
+        def get_instance_without_pk(data):
+            subdomain = str(data.get("source_tenant") or "").strip()
+            source_request_id = data.get("source_request_id")
+            if not subdomain or source_request_id in (None, ""):
+                return None
+            return (
+                Request.all_objects.filter(
+                    tenant=tenant,
+                    source_tenant__subdomain=subdomain,
+                    source_request_id=source_request_id,
+                )
+                .first()
+            )
+
         def other_tenant_conflict(pk):
             o = Request.objects.filter(pk=pk).first()
             return o is not None and o.tenant_id != tenant.id
@@ -871,7 +896,127 @@ class N8nRequestUpsertView(_N8nBaseView):
             get_instance=get_instance,
             other_tenant_conflict=other_tenant_conflict,
             build_create_kwargs=build_create_kwargs,
+            get_instance_without_pk=get_instance_without_pk,
         )
+
+
+class N8nRequestExternalMatchView(_N8nBaseView):
+    """
+    Callback for the copy-to-another-tenant workflow: marks a request in THIS tenant
+    as having its expense matched inside another tenant's bank data, so it stops
+    showing as a payed-but-missing-expense ("red") row here.
+    """
+
+    def post(self, request):
+        tenant = request.tenant
+        data = request.data
+
+        raw_id = data.get("id")
+        try:
+            request_id = int(raw_id)
+        except (TypeError, ValueError):
+            return Response({"id": ["Must be an integer."]}, status=status.HTTP_400_BAD_REQUEST)
+
+        matched = data.get("matched", True)
+        if isinstance(matched, str):
+            matched = matched.strip().lower() not in ("0", "false", "no", "")
+
+        target = Request.all_objects.filter(pk=request_id, tenant=tenant).first()
+        if target is None:
+            return Response({"id": ["No request with this id in this tenant."]}, status=status.HTTP_400_BAD_REQUEST)
+        if target.source_tenant_id is not None:
+            return Response(
+                {"id": ["This request is itself a cross-tenant copy; mark the original request instead."]},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if not matched:
+            Request.all_objects.filter(pk=target.pk).update(
+                external_matched_tenant=None,
+                external_matched_at=None,
+            )
+            return Response(
+                {"id": target.pk, "external_matched_tenant": None, "external_matched_at": None},
+                status=status.HTTP_200_OK,
+            )
+
+        subdomain = str(data.get("matched_tenant") or "").strip()
+        if not subdomain:
+            return Response({"matched_tenant": ["This field is required."]}, status=status.HTTP_400_BAD_REQUEST)
+        matched_tenant = Tenant.objects.filter(subdomain=subdomain, is_active=True).first()
+        if matched_tenant is None:
+            return Response({"matched_tenant": ["Unknown tenant."]}, status=status.HTTP_400_BAD_REQUEST)
+        if matched_tenant.id == tenant.id:
+            return Response({"matched_tenant": ["Must reference another tenant."]}, status=status.HTTP_400_BAD_REQUEST)
+
+        matched_at = timezone.now()
+        Request.all_objects.filter(pk=target.pk).update(
+            external_matched_tenant=matched_tenant,
+            external_matched_at=matched_at,
+        )
+        return Response(
+            {
+                "id": target.pk,
+                "external_matched_tenant": matched_tenant.subdomain,
+                "external_matched_at": matched_at,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+class N8nRequestsMissingExpenseView(_N8nBaseView):
+    """
+    Lists PAYED requests in this tenant that are currently missing a linked expense
+    ("red rows") — candidates for the cross-tenant copy-and-reconcile workflow.
+    Excludes rows that are themselves cross-tenant copies: a copy is never itself a
+    fresh candidate to copy elsewhere.
+    """
+
+    def get(self, request):
+        tenant = getattr(request, "tenant", None)
+        if tenant is None:
+            return Response({"detail": "Unknown tenant."}, status=status.HTTP_400_BAD_REQUEST)
+
+        from apps.modules.requests.expense_compliance import filter_requests_payed_missing_expense
+
+        payment_type = (request.query_params.get("payment_type") or "").strip()
+        raw_limit = request.query_params.get("limit")
+        try:
+            limit = min(max(1, int(raw_limit)), 500) if raw_limit else 200
+        except (TypeError, ValueError):
+            return Response({"limit": ["Must be an integer."]}, status=status.HTTP_400_BAD_REQUEST)
+
+        qs = Request.objects.filter(tenant=tenant, source_tenant__isnull=True)
+        if payment_type:
+            qs = qs.filter(payment_type=payment_type)
+        qs = filter_requests_payed_missing_expense(qs, tenant=tenant)
+
+        rows = [
+            {
+                "id": r.id,
+                "title": r.title,
+                "description": r.description,
+                "company_payer": r.company_payer,
+                "category": r.category,
+                "vendor": r.vendor,
+                "amount": str(r.amount),
+                "currency": r.currency,
+                "payment_type": r.payment_type,
+                "urgency": r.urgency,
+                "payment_purpose": r.payment_purpose,
+                "status": r.status,
+                "submitted_at": r.submitted_at.isoformat() if r.submitted_at else None,
+                "payed_at": r.payed_at,
+                "expense_id": r.expense_id,
+                "expense_year": r.expense_year,
+                "expense_month": r.expense_month,
+                "expense_day": r.expense_day,
+                "file_link": r.file_link,
+                "billing_date": r.billing_date.isoformat() if r.billing_date else None,
+            }
+            for r in qs.order_by("-submitted_at")[:limit]
+        ]
+        return Response({"results": rows, "count": len(rows)})
 
 
 class N8nAiRequestCreateView(APIView):
