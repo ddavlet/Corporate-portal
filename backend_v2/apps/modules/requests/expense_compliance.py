@@ -802,6 +802,10 @@ def resolve_request_portal_expense_module(request_obj: Request, *, tenant) -> st
 def request_is_payed_missing_portal_expense(request_obj: Request, *, tenant) -> bool:
     if request_obj.status != Request.STATUS_PAYED:
         return False
+    if request_obj.external_matched_at is not None:
+        # Expense was confirmed matched in another tenant's bank data (cross-tenant
+        # shared-account workflow) — not actually missing, just not resolvable locally.
+        return False
     mod = resolve_request_portal_expense_module(request_obj, tenant=tenant)
     if mod is None:
         return True

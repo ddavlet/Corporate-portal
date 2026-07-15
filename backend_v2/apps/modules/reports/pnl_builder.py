@@ -358,6 +358,7 @@ def compute_unassigned_payment_purposes(*, tenant_id: int, cfg: dict[str, Any]) 
         tenant_id=tenant_id,
         status=Request.STATUS_PAYED,
         billing_date__gte=start,
+        source_tenant__isnull=True,
     )
     if pay_list:
         qs = qs.filter(payment_type__in=pay_list)
@@ -398,7 +399,7 @@ def list_tenant_payment_purpose_pool(
         payment_type_config__config__tenant_id=tenant_id,
         is_active=True,
     )
-    req_qs = Request.objects.filter(tenant_id=tenant_id).exclude(payment_purpose="")
+    req_qs = Request.objects.filter(tenant_id=tenant_id, source_tenant__isnull=True).exclude(payment_purpose="")
 
     if for_pnl_payment_types is not None:
         allowed = [
@@ -493,6 +494,7 @@ def build_pnl_payload_from_db(*, tenant, query_params: dict[str, Any]) -> dict[s
     req_qs = Request.objects.filter(
         tenant_id=tenant.id,
         status=Request.STATUS_PAYED,
+        source_tenant__isnull=True,
     ).filter(Q(billing_date__gte=start) | Q(amortization_months__gt=1))
     if pay_list:
         req_qs = req_qs.filter(payment_type__in=pay_list)

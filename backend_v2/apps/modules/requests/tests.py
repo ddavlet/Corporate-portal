@@ -4260,3 +4260,224 @@ class RequestPaginationAndFilterTests(APITestCase):
         self.assertEqual(ids_seen & expected_ids, expected_ids)
 
 
+@override_settings(BASE_DOMAIN="example.com", N8N_INTEGRATION_TOKEN="", ALLOWED_HOSTS=["*"])
+class RequestOriginVisibilityTests(APITestCase):
+    """Cross-tenant copies (source_tenant set) must stay admin-only, always, server-side."""
+
+    def setUp(self):
+        self.tenant = Tenant.objects.create(name="Acme", subdomain="acme-origin", is_active=True)
+        self.other_tenant = Tenant.objects.create(name="Beta", subdomain="beta-origin", is_active=True)
+
+        self.admin = User.objects.create_user(username="orig_admin", password="x")
+        self.director = User.objects.create_user(username="orig_dir", password="x")
+        self.accountant = User.objects.create_user(username="orig_acc", password="x")
+        self.requester = User.objects.create_user(username="orig_req", password="x")
+        self.approver = User.objects.create_user(username="orig_appr", password="x")
+
+        for u in (self.admin, self.director, self.accountant, self.requester, self.approver):
+            TenantMembership.objects.create(tenant=self.tenant, user=u, is_active=True)
+
+        TenantUserRole.objects.create(tenant=self.tenant, user=self.admin, role=TenantUserRole.ROLE_ADMIN)
+        TenantUserRole.objects.create(tenant=self.tenant, user=self.director, role=TenantUserRole.ROLE_DIRECTOR)
+        TenantUserRole.objects.create(tenant=self.tenant, user=self.accountant, role=TenantUserRole.ROLE_ACCOUNTANT)
+        TenantUserRole.objects.create(tenant=self.tenant, user=self.requester, role=TenantUserRole.ROLE_REQUESTER)
+        TenantUserRole.objects.create(tenant=self.tenant, user=self.approver, role=TenantUserRole.ROLE_APPROVER)
+
+        TenantModuleConfig.objects.create(tenant=self.tenant, module_key="requests", is_enabled=True)
+        self.host = "acme-origin.example.com"
+
+        self.own_request = Request.objects.create(
+            tenant=self.tenant,
+            created_by=self.admin,
+            requester=self.requester,
+            title="Own",
+            amount=Decimal("100"),
+            currency="UZS",
+            payment_type=Request.PAYMENT_TYPE_CASH,
+            urgency=Request.URGENCY_NORMAL,
+            billing_date=date(2026, 1, 1),
+            status=Request.STATUS_DRAFT,
+            submitted_at=timezone.now(),
+            company_payer="",
+        )
+        # Deliberately shaped so it would be visible to accountant (TRANSFER), requester
+        # (is the requester) and approver (has a pending approval) under every OTHER rule —
+        # proving the source_tenant filter overrides all of them.
+        self.copied_request = Request.objects.create(
+            tenant=self.tenant,
+            created_by=self.admin,
+            requester=self.requester,
+            title="Copied",
+            amount=Decimal("200"),
+            currency="UZS",
+            payment_type=Request.PAYMENT_TYPE_TRANSFER,
+            urgency=Request.URGENCY_NORMAL,
+            billing_date=date(2026, 1, 1),
+            status=Request.STATUS_PAYED,
+            submitted_at=timezone.now(),
+            company_payer="",
+            source_tenant=self.other_tenant,
+            source_request_id=555,
+        )
+        Approval.objects.create(
+            request=self.copied_request,
+            approver_user=self.approver,
+            step=1,
+            step_type=Approval.STEP_TYPE_SERIAL,
+            decision=Approval.DECISION_PENDING,
+        )
+
+    def test_director_never_sees_copied_request(self):
+        self.client.force_authenticate(self.director)
+        res = self.client.get("/api/requests/", HTTP_HOST=self.host)
+        self.assertEqual(res.status_code, 200, res.content)
+        ids = {row["id"] for row in list_results(res)}
+        self.assertIn(self.own_request.id, ids)
+        self.assertNotIn(self.copied_request.id, ids)
+        detail = self.client.get(f"/api/requests/{self.copied_request.id}/", HTTP_HOST=self.host)
+        self.assertEqual(detail.status_code, 404)
+
+    def test_accountant_never_sees_copied_transfer_request(self):
+        self.client.force_authenticate(self.accountant)
+        res = self.client.get("/api/requests/", HTTP_HOST=self.host)
+        self.assertEqual(res.status_code, 200, res.content)
+        ids = {row["id"] for row in list_results(res)}
+        self.assertNotIn(self.copied_request.id, ids)
+
+    def test_requester_never_sees_own_copied_request(self):
+        self.client.force_authenticate(self.requester)
+        res = self.client.get("/api/requests/", HTTP_HOST=self.host)
+        self.assertEqual(res.status_code, 200, res.content)
+        ids = {row["id"] for row in list_results(res)}
+        self.assertNotIn(self.copied_request.id, ids)
+
+    def test_approver_never_sees_assigned_copied_request(self):
+        self.client.force_authenticate(self.approver)
+        res = self.client.get("/api/requests/", HTTP_HOST=self.host)
+        self.assertEqual(res.status_code, 200, res.content)
+        ids = {row["id"] for row in list_results(res)}
+        self.assertNotIn(self.copied_request.id, ids)
+
+    def test_admin_sees_all_and_can_filter_by_origin(self):
+        self.client.force_authenticate(self.admin)
+        res_all = self.client.get("/api/requests/", HTTP_HOST=self.host)
+        self.assertEqual(res_all.status_code, 200, res_all.content)
+        ids_all = {row["id"] for row in list_results(res_all)}
+        self.assertIn(self.own_request.id, ids_all)
+        self.assertIn(self.copied_request.id, ids_all)
+
+        res_own = self.client.get("/api/requests/?origin=own", HTTP_HOST=self.host)
+        self.assertEqual(res_own.status_code, 200, res_own.content)
+        ids_own = {row["id"] for row in list_results(res_own)}
+        self.assertIn(self.own_request.id, ids_own)
+        self.assertNotIn(self.copied_request.id, ids_own)
+
+        res_copied = self.client.get("/api/requests/?origin=copied", HTTP_HOST=self.host)
+        self.assertEqual(res_copied.status_code, 200, res_copied.content)
+        ids_copied = {row["id"] for row in list_results(res_copied)}
+        self.assertIn(self.copied_request.id, ids_copied)
+        self.assertNotIn(self.own_request.id, ids_copied)
+
+        res_bad = self.client.get("/api/requests/?origin=bogus", HTTP_HOST=self.host)
+        self.assertEqual(res_bad.status_code, 400)
+
+    def test_admin_list_exposes_source_tenant_name(self):
+        self.client.force_authenticate(self.admin)
+        res = self.client.get("/api/requests/?origin=copied", HTTP_HOST=self.host)
+        self.assertEqual(res.status_code, 200, res.content)
+        rows = list_results(res)
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["source_tenant_name"], "Beta")
+        self.assertEqual(rows[0]["source_request_id"], 555)
+
+    def test_portal_patch_cannot_set_source_or_match_fields(self):
+        self.client.force_authenticate(self.admin)
+        res = self.client.patch(
+            f"/api/requests/{self.own_request.id}/",
+            {
+                "source_tenant": self.other_tenant.id,
+                "source_request_id": 42,
+                "external_matched_at": timezone.now().isoformat(),
+            },
+            format="json",
+            HTTP_HOST=self.host,
+        )
+        self.assertEqual(res.status_code, 200, res.content)
+        self.own_request.refresh_from_db()
+        self.assertIsNone(self.own_request.source_tenant_id)
+        self.assertIsNone(self.own_request.source_request_id)
+        self.assertIsNone(self.own_request.external_matched_at)
+
+
+@override_settings(BASE_DOMAIN="example.com", N8N_INTEGRATION_TOKEN="", ALLOWED_HOSTS=["*"])
+class RequestExternalMatchRedRowTests(APITestCase):
+    """`external_matched_at` must clear the payed-missing-expense ("red row") state."""
+
+    def setUp(self):
+        self.tenant = Tenant.objects.create(name="ExtMatch", subdomain="extmatch", is_active=True)
+        self.other_tenant = Tenant.objects.create(
+            name="ExtMatchOther", subdomain="extmatch-other", is_active=True
+        )
+        self.admin = User.objects.create_user(username="extm_admin", password="x")
+        TenantMembership.objects.create(tenant=self.tenant, user=self.admin, is_active=True)
+        TenantUserRole.objects.create(tenant=self.tenant, user=self.admin, role=TenantUserRole.ROLE_ADMIN)
+        TenantModuleConfig.objects.create(tenant=self.tenant, module_key="requests", is_enabled=True)
+        self.host = "extmatch.example.com"
+
+        self.missing = Request.objects.create(
+            tenant=self.tenant,
+            created_by=self.admin,
+            requester=self.admin,
+            title="Payed no link",
+            amount=Decimal("75.00"),
+            currency="UZS",
+            payment_type=Request.PAYMENT_TYPE_TRANSFER,
+            urgency=Request.URGENCY_NORMAL,
+            billing_date=date(2026, 1, 1),
+            status=Request.STATUS_PAYED,
+            expense_id="BANK-DOC-1",
+            expense_year=2026,
+        )
+        self.matched = Request.objects.create(
+            tenant=self.tenant,
+            created_by=self.admin,
+            requester=self.admin,
+            title="Payed matched elsewhere",
+            amount=Decimal("120.00"),
+            currency="UZS",
+            payment_type=Request.PAYMENT_TYPE_TRANSFER,
+            urgency=Request.URGENCY_NORMAL,
+            billing_date=date(2026, 1, 1),
+            status=Request.STATUS_PAYED,
+            expense_id="BANK-DOC-2",
+            expense_year=2026,
+            external_matched_tenant=self.other_tenant,
+            external_matched_at=timezone.now(),
+        )
+
+    def test_request_is_payed_missing_portal_expense_respects_external_match(self):
+        from apps.modules.requests.expense_compliance import request_is_payed_missing_portal_expense
+
+        self.assertTrue(request_is_payed_missing_portal_expense(self.missing, tenant=self.tenant))
+        self.assertFalse(request_is_payed_missing_portal_expense(self.matched, tenant=self.tenant))
+
+    def test_payed_missing_expense_filter_excludes_externally_matched(self):
+        self.client.force_authenticate(self.admin)
+        res = self.client.get("/api/requests/?payed_missing_expense=1", HTTP_HOST=self.host)
+        self.assertEqual(res.status_code, 200, res.content)
+        ids = {row["id"] for row in list_results(res)}
+        self.assertIn(self.missing.id, ids)
+        self.assertNotIn(self.matched.id, ids)
+
+    def test_serializer_exposes_external_matched_flag_and_tenant_name(self):
+        self.client.force_authenticate(self.admin)
+        res_matched = self.client.get(f"/api/requests/{self.matched.id}/", HTTP_HOST=self.host)
+        self.assertEqual(res_matched.status_code, 200, res_matched.content)
+        self.assertTrue(res_matched.data["external_matched"])
+        self.assertEqual(res_matched.data["external_matched_tenant_name"], "ExtMatchOther")
+
+        res_missing = self.client.get(f"/api/requests/{self.missing.id}/", HTTP_HOST=self.host)
+        self.assertEqual(res_missing.status_code, 200, res_missing.content)
+        self.assertFalse(res_missing.data["external_matched"])
+
+

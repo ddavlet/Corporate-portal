@@ -2068,3 +2068,215 @@ class N8nUnmatchedExpensesTests(APITestCase):
         self.assertNotIn(req.id, bank_missing_ids)
         self.assertNotIn(req.id, bank_linked_ids)
 
+
+@override_settings(
+    BASE_DOMAIN="example.com",
+    N8N_INTEGRATION_TOKEN="integ-test-secret",
+    ALLOWED_HOSTS=["acme-copy.example.com", "beta-copy.example.com", "testserver"],
+)
+class N8nRequestCopyImportTests(APITestCase):
+    """Cross-tenant copy import (source_tenant/source_request_id) + external-match callback."""
+
+    def setUp(self):
+        su, _ = User.objects.update_or_create(
+            pk=1,
+            defaults={"username": "n8n_system"},
+        )
+        if not su.has_usable_password():
+            su.set_unusable_password()
+            su.save(update_fields=["password"])
+        self.system_user = su
+
+        self.tenant = Tenant.objects.create(name="AcmeCopy", subdomain="acme-copy", is_active=True)
+        self.other_tenant = Tenant.objects.create(name="BetaCopy", subdomain="beta-copy", is_active=True)
+        TenantModuleConfig.objects.create(tenant=self.tenant, module_key="requests", is_enabled=True)
+        TenantModuleConfig.objects.create(tenant=self.other_tenant, module_key="requests", is_enabled=True)
+
+        self.source_request = Request.objects.create(
+            tenant=self.other_tenant,
+            created_by=self.system_user,
+            title="Original in beta",
+            amount="300.00",
+            currency="UZS",
+            payment_type=Request.PAYMENT_TYPE_TRANSFER,
+            urgency=Request.URGENCY_NORMAL,
+            billing_date=date(2026, 4, 1),
+            status=Request.STATUS_PAYED,
+        )
+
+        self.n8n_prefix = settings.N8N_INTEGRATION_URL_PREFIX.rstrip("/")
+        self.requests_url = f"{self.n8n_prefix}/requests/"
+        self.match_url = f"{self.n8n_prefix}/requests/external-match/"
+
+    def _headers(self, host):
+        return {"HTTP_HOST": host, "HTTP_X_N8N_INTEGRATION_TOKEN": "integ-test-secret"}
+
+    def _copy_body(self, **overrides):
+        body = {
+            "title": "Copied for matching",
+            "description": "",
+            "amount": "300.00",
+            "currency": "UZS",
+            "payment_type": Request.PAYMENT_TYPE_TRANSFER,
+            "urgency": Request.URGENCY_NORMAL,
+            "requester": None,
+            "status": Request.STATUS_PAYED,
+            "billing_date": "2026-04-01",
+            "expense_id": "BANK-DOC-COPY-1",
+            "expense_year": 2026,
+            "source_tenant": "beta-copy",
+            "source_request_id": self.source_request.id,
+        }
+        body.update(overrides)
+        return body
+
+    def test_creates_copy_with_source_fields_and_no_approvals(self):
+        res = self.client.post(
+            self.requests_url, self._copy_body(), format="json", **self._headers("acme-copy.example.com")
+        )
+        self.assertEqual(res.status_code, 201, res.content)
+        req = Request.objects.get(pk=res.data["id"])
+        self.assertEqual(req.tenant_id, self.tenant.id)
+        self.assertEqual(req.source_tenant_id, self.other_tenant.id)
+        self.assertEqual(req.source_request_id, self.source_request.id)
+        self.assertFalse(Approval.objects.filter(request=req).exists())
+
+    def test_upsert_idempotent_by_source_pair(self):
+        res1 = self.client.post(
+            self.requests_url, self._copy_body(), format="json", **self._headers("acme-copy.example.com")
+        )
+        self.assertEqual(res1.status_code, 201, res1.content)
+        first_id = res1.data["id"]
+
+        res2 = self.client.post(
+            self.requests_url,
+            self._copy_body(amount="325.00"),
+            format="json",
+            **self._headers("acme-copy.example.com"),
+        )
+        self.assertEqual(res2.status_code, 200, res2.content)
+        self.assertEqual(res2.data["id"], first_id)
+        self.assertEqual(
+            Request.objects.filter(
+                tenant=self.tenant,
+                source_tenant=self.other_tenant,
+                source_request_id=self.source_request.id,
+            ).count(),
+            1,
+        )
+        req = Request.objects.get(pk=first_id)
+        self.assertEqual(str(req.amount), "325.00")
+
+    def test_source_tenant_must_be_other_tenant(self):
+        res = self.client.post(
+            self.requests_url,
+            self._copy_body(source_tenant="acme-copy"),
+            format="json",
+            **self._headers("acme-copy.example.com"),
+        )
+        self.assertEqual(res.status_code, 400, res.content)
+
+    def test_source_request_id_requires_source_tenant(self):
+        res = self.client.post(
+            self.requests_url,
+            self._copy_body(source_tenant=None),
+            format="json",
+            **self._headers("acme-copy.example.com"),
+        )
+        self.assertEqual(res.status_code, 400, res.content)
+
+    def test_external_match_callback_sets_and_clears(self):
+        target = Request.objects.create(
+            tenant=self.other_tenant,
+            created_by=self.system_user,
+            title="Red row candidate",
+            amount="90.00",
+            currency="UZS",
+            payment_type=Request.PAYMENT_TYPE_TRANSFER,
+            urgency=Request.URGENCY_NORMAL,
+            billing_date=date(2026, 4, 1),
+            status=Request.STATUS_PAYED,
+            expense_id="BANK-DOC-9",
+            expense_year=2026,
+        )
+        res = self.client.post(
+            self.match_url,
+            {"id": target.id, "matched_tenant": "acme-copy"},
+            format="json",
+            **self._headers("beta-copy.example.com"),
+        )
+        self.assertEqual(res.status_code, 200, res.content)
+        target.refresh_from_db()
+        self.assertEqual(target.external_matched_tenant_id, self.tenant.id)
+        self.assertIsNotNone(target.external_matched_at)
+
+        res2 = self.client.post(
+            self.match_url,
+            {"id": target.id, "matched": False},
+            format="json",
+            **self._headers("beta-copy.example.com"),
+        )
+        self.assertEqual(res2.status_code, 200, res2.content)
+        target.refresh_from_db()
+        self.assertIsNone(target.external_matched_tenant_id)
+        self.assertIsNone(target.external_matched_at)
+
+    def test_external_match_rejects_target_that_is_itself_a_copy(self):
+        copy_in_acme = Request.objects.create(
+            tenant=self.tenant,
+            created_by=self.system_user,
+            title="Copy of the beta original",
+            amount="300.00",
+            currency="UZS",
+            payment_type=Request.PAYMENT_TYPE_TRANSFER,
+            urgency=Request.URGENCY_NORMAL,
+            billing_date=date(2026, 4, 1),
+            status=Request.STATUS_PAYED,
+            source_tenant=self.other_tenant,
+            source_request_id=self.source_request.id,
+        )
+        res = self.client.post(
+            self.match_url,
+            {"id": copy_in_acme.id, "matched_tenant": "beta-copy"},
+            format="json",
+            **self._headers("acme-copy.example.com"),
+        )
+        self.assertEqual(res.status_code, 400, res.content)
+        copy_in_acme.refresh_from_db()
+        self.assertIsNone(copy_in_acme.external_matched_tenant_id)
+        self.assertIsNone(copy_in_acme.external_matched_at)
+
+    def test_missing_expense_endpoint_lists_red_candidates_and_excludes_copies(self):
+        # This copy lives in acme-copy; it must never show up as a "candidate to copy"
+        # on its own host, even though it's PAYED with no local expense link either.
+        Request.objects.create(
+            tenant=self.tenant,
+            created_by=self.system_user,
+            title="Copy of the beta original",
+            amount="300.00",
+            currency="UZS",
+            payment_type=Request.PAYMENT_TYPE_TRANSFER,
+            urgency=Request.URGENCY_NORMAL,
+            billing_date=date(2026, 4, 1),
+            status=Request.STATUS_PAYED,
+            source_tenant=self.other_tenant,
+            source_request_id=self.source_request.id,
+        )
+        url = f"{self.n8n_prefix}/requests/missing-expense/"
+
+        res_beta = self.client.get(url, **self._headers("beta-copy.example.com"))
+        self.assertEqual(res_beta.status_code, 200, res_beta.content)
+        ids = {row["id"] for row in res_beta.data["results"]}
+        self.assertIn(self.source_request.id, ids)
+
+        res_acme = self.client.get(url, **self._headers("acme-copy.example.com"))
+        self.assertEqual(res_acme.status_code, 200, res_acme.content)
+        self.assertEqual(res_acme.data["results"], [])
+
+    def test_import_response_exposes_is_missing_expense(self):
+        res = self.client.post(
+            self.requests_url, self._copy_body(), format="json", **self._headers("acme-copy.example.com")
+        )
+        self.assertEqual(res.status_code, 201, res.content)
+        self.assertTrue(res.data["is_missing_expense"])
+

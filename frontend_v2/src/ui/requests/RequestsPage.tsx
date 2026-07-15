@@ -51,6 +51,8 @@ type RequestRow = {
   expense_link?: RequestExpenseLink
   is_amortized?: boolean
   amortization_months?: number
+  source_tenant_name?: string | null
+  external_matched?: boolean
 }
 
 type SortState = {
@@ -91,6 +93,7 @@ type RequestsPagePreferences = {
   billingRange: [string | null, string | null] | null
   amortizedOnly: boolean
   payedMissingExpense: boolean
+  origin: 'all' | 'own' | 'copied'
 }
 
 const REQUESTS_FILTER_PREF_KEY = 'requests.page.filters.v1'
@@ -122,6 +125,7 @@ const defaultRequestsPreferences: RequestsPagePreferences = {
   billingRange: null,
   amortizedOnly: false,
   payedMissingExpense: false,
+  origin: 'all',
 }
 
 function orderingFromSort(sort: SortState): string | undefined {
@@ -183,6 +187,7 @@ export function RequestsPage() {
   const [debouncedVendorSearchApi, setDebouncedVendorSearchApi] = useState('')
   const [amortizedOnly, setAmortizedOnly] = useState(false)
   const [payedMissingExpense, setPayedMissingExpense] = useState(false)
+  const [origin, setOrigin] = useState<'all' | 'own' | 'copied'>('all')
   const { value: storedPrefs, setValue: setStoredPrefs, isLoading: prefsLoading } = useUserPreference<RequestsPagePreferences>({
     key: REQUESTS_FILTER_PREF_KEY,
     defaultValue: defaultRequestsPreferences,
@@ -209,6 +214,7 @@ export function RequestsPage() {
     setBillingRange(parseStoredRange(storedPrefs.billingRange))
     setAmortizedOnly(Boolean(storedPrefs.amortizedOnly))
     setPayedMissingExpense(Boolean(storedPrefs.payedMissingExpense))
+    setOrigin(storedPrefs.origin || 'all')
     setPrefsHydrated(true)
   }, [storedPrefs, prefsLoading])
 
@@ -228,6 +234,7 @@ export function RequestsPage() {
       billingRange: serializeRange(billingRange),
       amortizedOnly,
       payedMissingExpense,
+      origin,
     })
   }, [
     search,
@@ -244,6 +251,7 @@ export function RequestsPage() {
     billingRange,
     amortizedOnly,
     payedMissingExpense,
+    origin,
     setStoredPrefs,
   ])
 
@@ -303,6 +311,7 @@ export function RequestsPage() {
     if (debouncedVendorSearchApi) params.set('vendor_search', debouncedVendorSearchApi)
     if (amortizedOnly) params.set('amortized_only', '1')
     if (payedMissingExpense) params.set('payed_missing_expense', '1')
+    if (origin !== 'all') params.set('origin', origin)
     if (status) params.set('status', status)
     if (urgency) params.set('urgency', urgency)
     if (paymentType) params.set('payment_type', paymentType)
@@ -323,6 +332,7 @@ export function RequestsPage() {
     debouncedVendorSearchApi,
     amortizedOnly,
     payedMissingExpense,
+    origin,
     status,
     urgency,
     paymentType,
@@ -576,7 +586,22 @@ export function RequestsPage() {
 
   const columns: ColumnsType<RequestRow> = [
     { title: 'ID', dataIndex: 'id', width: 64, sorter: true },
-    { title: 'Название', dataIndex: 'title', width: 180, sorter: true },
+    {
+      title: 'Название',
+      dataIndex: 'title',
+      width: 180,
+      sorter: true,
+      render: (value: string, row) => (
+        <>
+          {value}
+          {row.source_tenant_name ? (
+            <Tag color="purple" style={{ marginLeft: 6 }}>
+              из {row.source_tenant_name}
+            </Tag>
+          ) : null}
+        </>
+      ),
+    },
     {
       title: 'Описание заявки',
       dataIndex: 'description',
@@ -704,6 +729,7 @@ export function RequestsPage() {
     setBillingRange(null)
     setAmortizedOnly(false)
     setPayedMissingExpense(false)
+    setOrigin('all')
     setSort({ field: null, order: null })
   }
 
@@ -747,6 +773,18 @@ export function RequestsPage() {
             onChange={(value) => setPaymentType(value)}
             options={PAYMENT_TYPE_OPTIONS}
           />
+          {isTenantAdmin ? (
+            <Select
+              style={{ width: 200 }}
+              value={origin}
+              onChange={(value) => setOrigin(value)}
+              options={[
+                { label: 'Все', value: 'all' },
+                { label: 'Свои', value: 'own' },
+                { label: 'Скопированные', value: 'copied' },
+              ]}
+            />
+          ) : null}
           <Button onClick={resetFilters}>Сбросить фильтры</Button>
         </Space>
         <Collapse

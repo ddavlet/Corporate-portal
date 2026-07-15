@@ -151,6 +151,29 @@ class Request(models.Model):
     expense_month = models.IntegerField(null=True, blank=True)
     expense_day = models.IntegerField(null=True, blank=True)
 
+    # Cross-tenant copy origin (set only via the n8n import path). Non-null marks this
+    # request as a copy of a request living in another tenant that shares the same bank account.
+    source_tenant = models.ForeignKey(
+        Tenant,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="copied_out_requests",
+    )
+    source_request_id = models.BigIntegerField(null=True, blank=True)
+
+    # Set via the n8n callback when the original (source_tenant is null) request's expense
+    # was matched to a bank expense in another tenant's data, so its own red/missing-expense
+    # row can be cleared without a local expense_ref.
+    external_matched_tenant = models.ForeignKey(
+        Tenant,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="externally_matched_requests",
+    )
+    external_matched_at = models.DateTimeField(null=True, blank=True)
+
     billing_date = models.DateField()
     amortization_months = models.PositiveIntegerField(default=1)
     amortization_start_date = models.DateField(null=True, blank=True)
@@ -160,6 +183,13 @@ class Request(models.Model):
 
     class Meta:
         db_table = "requests"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["tenant", "source_tenant", "source_request_id"],
+                name="req_tenant_source_req_uniq",
+                condition=models.Q(source_tenant__isnull=False, source_request_id__isnull=False),
+            ),
+        ]
         indexes = [
             models.Index(
                 fields=["tenant", "payment_type", "payment_purpose"],

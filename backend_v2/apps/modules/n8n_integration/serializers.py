@@ -22,12 +22,13 @@ from apps.modules.requests.expense_refs import (
     expense_ref_target_for,
     resolve_request_expense_ref,
 )
+from apps.modules.requests.expense_compliance import request_is_payed_missing_portal_expense
 from apps.modules.requests.models import Approval, Request
 from apps.modules.vendors.models import Vendor
 from apps.modules.vendors.serializers import VendorSerializer
 from apps.modules.clients_debt.serializers import ClientDebtSnapshotSerializer
 from apps.tenants.permissions import has_effective_module_access
-from apps.tenants.models import TenantMembership, TenantUserRole
+from apps.tenants.models import Tenant, TenantMembership, TenantUserRole
 
 User = get_user_model()
 logger = logging.getLogger(__name__)
@@ -330,6 +331,23 @@ class N8nRequestImportSerializer(serializers.ModelSerializer):
     vendor_ref = serializers.PrimaryKeyRelatedField(queryset=Vendor.objects.all(), required=False, allow_null=True)
     billing_date = serializers.DateField(required=False)
     description = serializers.CharField(allow_blank=True, required=False, default="")
+    # Cross-tenant copy origin. Identifies the tenant + request this row was copied from
+    # (by subdomain, since n8n already addresses tenants by host). Not exposed on the
+    # portal serializer — settable only through this n8n import path. Not restricted to
+    # active tenants: this field mostly re-confirms an already-established link on repeat
+    # syncs, and a source tenant being deactivated after the fact must not start breaking
+    # ongoing amount/status updates to a copy already linked to it.
+    source_tenant = serializers.SlugRelatedField(
+        slug_field="subdomain",
+        queryset=Tenant.objects.all(),
+        required=False,
+        allow_null=True,
+    )
+    source_request_id = serializers.IntegerField(required=False, allow_null=True, min_value=1)
+    # Read-only: lets a caller that just upserted a copy (or re-synced an existing one)
+    # tell in the same response whether it's still PAYED-but-missing-its-expense here,
+    # without a second request. Same rule as the portal's `payed_missing_expense` filter.
+    is_missing_expense = serializers.SerializerMethodField()
 
     class Meta:
         model = Request
@@ -356,6 +374,9 @@ class N8nRequestImportSerializer(serializers.ModelSerializer):
             "expense_month",
             "expense_day",
             "billing_date",
+            "source_tenant",
+            "source_request_id",
+            "is_missing_expense",
         ]
 
     def __init__(self, *args, **kwargs):
@@ -363,6 +384,12 @@ class N8nRequestImportSerializer(serializers.ModelSerializer):
         tenant = getattr(self.context.get("request"), "tenant", None)
         if tenant:
             self.fields["vendor_ref"].queryset = Vendor.objects.filter(tenant=tenant)
+
+    def get_is_missing_expense(self, obj):
+        tenant = getattr(self.context.get("request"), "tenant", None)
+        if tenant is None:
+            return False
+        return request_is_payed_missing_portal_expense(obj, tenant=tenant)
 
     def validate_requester(self, value):
         tenant = getattr(self.context.get("request"), "tenant", None)
@@ -456,6 +483,29 @@ class N8nRequestImportSerializer(serializers.ModelSerializer):
                 Request.PAYMENT_TYPE_PAYROLL,
             ):
                 attrs["expense_id"] = normalized_expense_id
+
+        effective_source_tenant = attrs.get("source_tenant")
+        if "source_tenant" not in attrs and self.instance is not None:
+            effective_source_tenant = self.instance.source_tenant
+        effective_source_request_id = attrs.get("source_request_id")
+        if "source_request_id" not in attrs and self.instance is not None:
+            effective_source_request_id = self.instance.source_request_id
+
+        if (effective_source_tenant is None) != (effective_source_request_id is None):
+            raise serializers.ValidationError(
+                {"source_request_id": "source_tenant and source_request_id must be provided together."}
+            )
+        if effective_source_tenant is not None:
+            if tenant is not None and effective_source_tenant.id == tenant.id:
+                raise serializers.ValidationError(
+                    {"source_tenant": "source_tenant must reference another tenant."}
+                )
+            if effective_source_request_id is not None and not Request.all_objects.filter(
+                pk=effective_source_request_id, tenant=effective_source_tenant
+            ).exists():
+                raise serializers.ValidationError(
+                    {"source_request_id": "No request with this id exists in source_tenant."}
+                )
         return attrs
 
 
