@@ -87,6 +87,38 @@ describe('useInfiniteList', () => {
     expect(result.current.hasMore).toBe(false)
   })
 
+  it('drops rows re-emitted across cursor pages (no duplicate ids)', async () => {
+    // Cursor keyed on a non-unique field (e.g. doc_date) can hand back a row
+    // that already appeared on the previous page. The accumulated list must
+    // still contain each id exactly once.
+    vi.mocked(fetchCursorListPage)
+      .mockResolvedValueOnce({
+        results: [{ id: 3933 }, { id: 3924 }],
+        next: '/api/items/?cursor=page2',
+        previous: null,
+      })
+      .mockResolvedValueOnce({
+        results: [{ id: 3924 }, { id: 3910 }],
+        next: null,
+        previous: null,
+      })
+
+    const { result } = renderHook(() => {
+      const list = useInfiniteList<{ id: number }>({ url: '/api/items/', pageSize: 50 })
+      if (list.sentinelRef.current === null) {
+        list.sentinelRef.current = document.createElement('div')
+      }
+      return list
+    })
+
+    await waitFor(() => expect(result.current.loading).toBe(false))
+    await waitFor(() => expect(result.current.hasMore).toBe(false))
+
+    expect(result.current.items).toEqual([{ id: 3933 }, { id: 3924 }, { id: 3910 }])
+    const ids = result.current.items.map((r) => r.id)
+    expect(new Set(ids).size).toBe(ids.length)
+  })
+
   it('resets when url changes', async () => {
     vi.mocked(fetchCursorListPage)
       .mockResolvedValueOnce({ results: [{ id: 1 }], next: null, previous: null })

@@ -1,14 +1,48 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { fetchCursorListPage } from './api'
 
-export type UseInfiniteListOptions = {
+export type UseInfiniteListOptions<T> = {
   /** Relative API path with optional query string, e.g. `/api/requests/?status=PAYED` */
   url: string
   enabled?: boolean
   pageSize?: number
+  /**
+   * Stable identity of a row, used to drop rows that a cursor page re-emits.
+   * Defaults to `item.id`. Cursor pagination keyed on a non-unique field
+   * (e.g. `doc_date`) can return the same row on two consecutive pages; without
+   * deduping, the accumulated list renders that row twice.
+   */
+  getItemKey?: (item: T) => string | number | undefined
 }
 
 const SENTINEL_ROOT_MARGIN_PX = 240
+
+function defaultItemKey<T>(item: T): string | number | undefined {
+  return (item as { id?: string | number } | null | undefined)?.id
+}
+
+/** Append `additions` to `existing`, skipping any whose key already appears. */
+function appendUnique<T>(
+  existing: T[],
+  additions: T[],
+  getKey: (item: T) => string | number | undefined,
+): T[] {
+  const seen = new Set<string | number>()
+  for (const item of existing) {
+    const key = getKey(item)
+    if (key !== undefined) seen.add(key)
+  }
+  const merged = [...existing]
+  for (const item of additions) {
+    const key = getKey(item)
+    if (key !== undefined) {
+      if (seen.has(key)) continue
+      seen.add(key)
+    }
+    merged.push(item)
+  }
+  return merged
+}
 
 function withPageSize(url: string, pageSize: number): string {
   if (url.includes('page_size=')) return url
@@ -33,7 +67,12 @@ function isSentinelNearViewport(node: HTMLElement): boolean {
   return rect.top <= window.innerHeight + SENTINEL_ROOT_MARGIN_PX
 }
 
-export function useInfiniteList<T>({ url, enabled = true, pageSize = 50 }: UseInfiniteListOptions) {
+export function useInfiniteList<T>({
+  url,
+  enabled = true,
+  pageSize = 50,
+  getItemKey = defaultItemKey,
+}: UseInfiniteListOptions<T>) {
   const [items, setItems] = useState<T[]>([])
   const [next, setNext] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
@@ -45,6 +84,11 @@ export function useInfiniteList<T>({ url, enabled = true, pageSize = 50 }: UseIn
   const loadingMoreRef = useRef(false)
   const enabledRef = useRef(enabled)
   const loadEpochRef = useRef(0)
+  const getItemKeyRef = useRef(getItemKey)
+
+  useEffect(() => {
+    getItemKeyRef.current = getItemKey
+  }, [getItemKey])
 
   useEffect(() => {
     nextRef.current = next
@@ -73,7 +117,7 @@ export function useInfiniteList<T>({ url, enabled = true, pageSize = 50 }: UseIn
     try {
       const page = await fetchCursorListPage<T>(resolveApiUrl(nextUrl))
       if (epoch !== loadEpochRef.current) return
-      setItems((prev) => [...prev, ...page.results])
+      setItems((prev) => appendUnique(prev, page.results, getItemKeyRef.current))
       setNext(page.next)
       nextRef.current = page.next
     } catch (e: unknown) {
@@ -101,7 +145,7 @@ export function useInfiniteList<T>({ url, enabled = true, pageSize = 50 }: UseIn
     try {
       const page = await fetchCursorListPage<T>(withPageSize(url, pageSize))
       if (epoch !== loadEpochRef.current) return
-      setItems(page.results)
+      setItems(appendUnique([], page.results, getItemKeyRef.current))
       setNext(page.next)
       nextRef.current = page.next
     } catch (e: unknown) {
