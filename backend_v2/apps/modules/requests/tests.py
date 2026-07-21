@@ -28,6 +28,8 @@ from apps.modules.requests.models import (
     RequestApprovalPaymentTypeConfig,
     RequestApprovalStepConfig,
     RequestApprovalStepApproverConfig,
+    RequestApprovalPurposeExceptionConfig,
+    RequestApprovalPurposeExceptionPurpose,
     UserRequestApproval,
     AutoRequestTemplate,
     RequestAttachment,
@@ -1333,6 +1335,251 @@ class RequestApprovalsTests(APITestCase):
         request_id = created.data["id"]
         self.assertTrue(Approval.objects.filter(request_id=request_id, approver_user=self.other_approver).exists())
         self.assertFalse(Approval.objects.filter(request_id=request_id, approver_user=self.approver).exists())
+
+    def test_saving_unrelated_form_config_does_not_orphan_approval_purpose_exceptions(self):
+        """Regression: PUT /requests/form-config/ used to hard-delete and recreate
+        RequestPaymentPurposeConfig rows on every save. Since
+        RequestApprovalPurposeExceptionPurpose.payment_purpose has on_delete=CASCADE,
+        this silently detached every approval exception from its purposes whenever an
+        admin saved the (unrelated) request-form config page.
+        """
+        form_cfg = RequestFormConfig.objects.get(tenant=self.tenant)
+        pt_form_cfg = RequestFormPaymentTypeConfig.objects.get(config=form_cfg, payment_type=Request.PAYMENT_TYPE_CASH)
+        tax_purpose = RequestPaymentPurposeConfig.objects.create(
+            payment_type_config=pt_form_cfg,
+            name="Налог на прибыль",
+            category="Налоги",
+            is_active=True,
+        )
+        self.client.force_authenticate(self.admin)
+        approval_payload = {
+            "payment_types": [
+                {
+                    "payment_type": Request.PAYMENT_TYPE_CASH,
+                    "is_enabled": True,
+                    "steps": [
+                        {
+                            "step": 1,
+                            "step_type": Approval.STEP_TYPE_SERIAL,
+                            "is_enabled": True,
+                            "approver_user_ids": [self.approver.id],
+                        }
+                    ],
+                    "purpose_exceptions": [
+                        {
+                            "name": "Налоги согласует директор",
+                            "is_enabled": True,
+                            "payment_purpose_ids": [tax_purpose.id],
+                            "steps": [
+                                {
+                                    "step": 1,
+                                    "step_type": Approval.STEP_TYPE_SERIAL,
+                                    "is_enabled": True,
+                                    "approver_user_ids": [self.other_approver.id],
+                                }
+                            ],
+                        }
+                    ],
+                }
+            ]
+        }
+        res = self.client.put("/api/requests/approval-config/", approval_payload, format="json", HTTP_HOST=self.host)
+        self.assertEqual(res.status_code, 200, res.content)
+
+        # Admin edits an entirely unrelated part of the request-form page (adds a
+        # second payment purpose) and saves it. This must not touch the exception's
+        # link to "Налог на прибыль".
+        form_payload = {
+            "payment_types": [
+                {
+                    "payment_type": Request.PAYMENT_TYPE_CASH,
+                    "is_enabled": True,
+                    "payment_purposes": [
+                        {"name": "Налог на прибыль", "category": "Налоги", "is_active": True},
+                        {"name": "Офисные расходы", "category": "Операционные", "is_active": True},
+                    ],
+                }
+            ]
+        }
+        res2 = self.client.put("/api/requests/form-config/", form_payload, format="json", HTTP_HOST=self.host)
+        self.assertEqual(res2.status_code, 200, res2.content)
+
+        # The payment-purpose row's PK must survive the save (upsert, not
+        # delete+recreate), which is what keeps the exception's FK link alive.
+        tax_purpose.refresh_from_db()
+        self.assertEqual(
+            RequestApprovalPurposeExceptionPurpose.objects.filter(payment_purpose=tax_purpose).count(), 1
+        )
+
+        self.client.force_authenticate(self.requester)
+        created = self.client.post(
+            "/api/requests/",
+            {
+                "title": "Tax request after unrelated form save",
+                "description": "",
+                "amount": 10,
+                "currency": "UZS",
+                "payment_type": Request.PAYMENT_TYPE_CASH,
+                "urgency": "Обычно",
+                "billing_date": "2026-01-01",
+                "payment_purpose": "Налог на прибыль",
+            },
+            format="json",
+            HTTP_HOST=self.host,
+        )
+        self.assertEqual(created.status_code, 201, created.content)
+        request_id = created.data["id"]
+        self.assertTrue(Approval.objects.filter(request_id=request_id, approver_user=self.other_approver).exists())
+        self.assertFalse(Approval.objects.filter(request_id=request_id, approver_user=self.approver).exists())
+
+    def test_resaving_approval_config_preserves_existing_exception_id_and_approvers(self):
+        """Regression: PUT /requests/approval-config/ used to hard-delete and
+        recreate every RequestApprovalPurposeExceptionConfig for the payment_type
+        on every save. Editing/adding one exception (or an unrelated step) would
+        wipe out all other already-configured exceptions and their approvers on
+        the very same save.
+        """
+        form_cfg = RequestFormConfig.objects.get(tenant=self.tenant)
+        pt_form_cfg = RequestFormPaymentTypeConfig.objects.get(config=form_cfg, payment_type=Request.PAYMENT_TYPE_CASH)
+        tax_purpose = RequestPaymentPurposeConfig.objects.create(
+            payment_type_config=pt_form_cfg, name="Налог на прибыль", category="Налоги", is_active=True
+        )
+        rent_purpose = RequestPaymentPurposeConfig.objects.create(
+            payment_type_config=pt_form_cfg, name="Аренда", category="Операционные", is_active=True
+        )
+        self.client.force_authenticate(self.admin)
+
+        first_payload = {
+            "payment_types": [
+                {
+                    "payment_type": Request.PAYMENT_TYPE_CASH,
+                    "is_enabled": True,
+                    "steps": [
+                        {
+                            "step": 1,
+                            "step_type": Approval.STEP_TYPE_SERIAL,
+                            "is_enabled": True,
+                            "approver_user_ids": [self.approver.id],
+                        }
+                    ],
+                    "purpose_exceptions": [
+                        {
+                            "name": "Налоги согласует директор",
+                            "is_enabled": True,
+                            "payment_purpose_ids": [tax_purpose.id],
+                            "steps": [
+                                {
+                                    "step": 1,
+                                    "step_type": Approval.STEP_TYPE_SERIAL,
+                                    "is_enabled": True,
+                                    "approver_user_ids": [self.other_approver.id],
+                                }
+                            ],
+                        }
+                    ],
+                }
+            ]
+        }
+        res1 = self.client.put("/api/requests/approval-config/", first_payload, format="json", HTTP_HOST=self.host)
+        self.assertEqual(res1.status_code, 200, res1.content)
+        existing_exception = RequestApprovalPurposeExceptionConfig.objects.get(name="Налоги согласует директор")
+
+        # Admin adds a second exception, sending the first one back with its `id`
+        # (exactly what the frontend does), plus the brand new one without an id.
+        second_payload = {
+            "payment_types": [
+                {
+                    "payment_type": Request.PAYMENT_TYPE_CASH,
+                    "is_enabled": True,
+                    "steps": [
+                        {
+                            "step": 1,
+                            "step_type": Approval.STEP_TYPE_SERIAL,
+                            "is_enabled": True,
+                            "approver_user_ids": [self.approver.id],
+                        }
+                    ],
+                    "purpose_exceptions": [
+                        {
+                            "id": existing_exception.id,
+                            "name": "Налоги согласует директор",
+                            "is_enabled": True,
+                            "payment_purpose_ids": [tax_purpose.id],
+                            "steps": [
+                                {
+                                    "step": 1,
+                                    "step_type": Approval.STEP_TYPE_SERIAL,
+                                    "is_enabled": True,
+                                    "approver_user_ids": [self.other_approver.id],
+                                }
+                            ],
+                        },
+                        {
+                            "name": "Аренду согласует директор",
+                            "is_enabled": True,
+                            "payment_purpose_ids": [rent_purpose.id],
+                            "steps": [
+                                {
+                                    "step": 1,
+                                    "step_type": Approval.STEP_TYPE_SERIAL,
+                                    "is_enabled": True,
+                                    "approver_user_ids": [self.director.id],
+                                }
+                            ],
+                        },
+                    ],
+                }
+            ]
+        }
+        res2 = self.client.put("/api/requests/approval-config/", second_payload, format="json", HTTP_HOST=self.host)
+        self.assertEqual(res2.status_code, 200, res2.content)
+
+        existing_exception.refresh_from_db()
+        self.assertEqual(existing_exception.name, "Налоги согласует директор")
+        self.assertEqual(RequestApprovalPurposeExceptionConfig.objects.count(), 2)
+
+        self.client.force_authenticate(self.requester)
+        tax_request = self.client.post(
+            "/api/requests/",
+            {
+                "title": "Tax after second save",
+                "description": "",
+                "amount": 10,
+                "currency": "UZS",
+                "payment_type": Request.PAYMENT_TYPE_CASH,
+                "urgency": "Обычно",
+                "billing_date": "2026-01-01",
+                "payment_purpose": "Налог на прибыль",
+            },
+            format="json",
+            HTTP_HOST=self.host,
+        )
+        self.assertEqual(tax_request.status_code, 201, tax_request.content)
+        self.assertTrue(
+            Approval.objects.filter(
+                request_id=tax_request.data["id"], approver_user=self.other_approver
+            ).exists()
+        )
+
+        rent_request = self.client.post(
+            "/api/requests/",
+            {
+                "title": "Rent after second save",
+                "description": "",
+                "amount": 10,
+                "currency": "UZS",
+                "payment_type": Request.PAYMENT_TYPE_CASH,
+                "urgency": "Обычно",
+                "billing_date": "2026-01-01",
+                "payment_purpose": "Аренда",
+            },
+            format="json",
+            HTTP_HOST=self.host,
+        )
+        self.assertEqual(rent_request.status_code, 201, rent_request.content)
+        self.assertTrue(
+            Approval.objects.filter(request_id=rent_request.data["id"], approver_user=self.director).exists()
+        )
 
     def test_approval_purpose_exception_fallbacks_to_base_steps_when_not_matched(self):
         form_cfg = RequestFormConfig.objects.get(tenant=self.tenant)
