@@ -1373,23 +1373,42 @@ class RequestFormConfigView(APIView):
                     if rows:
                         RequestFormPaymentTypeVendor.objects.bulk_create(rows)
 
-                # Replace payment purposes
-                RequestPaymentPurposeConfig.objects.filter(payment_type_config=pt_cfg).delete()
-                purpose_rows: list[RequestPaymentPurposeConfig] = []
+                # Upsert payment purposes by name (deactivate removed ones instead of
+                # deleting them). Payment purposes are referenced by
+                # RequestApprovalPurposeExceptionPurpose.payment_purpose with
+                # on_delete=CASCADE, so hard-deleting and recreating rows here used to
+                # silently detach every approval-exception from its purposes on every
+                # save of this unrelated form-config page.
+                existing_purposes = {
+                    row.name: row
+                    for row in RequestPaymentPurposeConfig.objects.filter(payment_type_config=pt_cfg)
+                }
+                seen_purpose_names: set[str] = set()
                 for p in purpose_items:
                     name = str(p.get("name") or "").strip()
                     if not name:
                         continue
-                    purpose_rows.append(
-                        RequestPaymentPurposeConfig(
+                    seen_purpose_names.add(name)
+                    category = str(p.get("category") or "").strip()
+                    is_active = bool(p.get("is_active", True))
+                    row = existing_purposes.get(name)
+                    if row:
+                        if row.category != category or row.is_active != is_active:
+                            row.category = category
+                            row.is_active = is_active
+                            row.save(update_fields=["category", "is_active"])
+                    else:
+                        existing_purposes[name] = RequestPaymentPurposeConfig.objects.create(
                             payment_type_config=pt_cfg,
                             name=name,
-                            category=str(p.get("category") or "").strip(),
-                            is_active=bool(p.get("is_active", True)),
+                            category=category,
+                            is_active=is_active,
                         )
-                    )
-                if purpose_rows:
-                    RequestPaymentPurposeConfig.objects.bulk_create(purpose_rows)
+
+                for name, row in existing_purposes.items():
+                    if name not in seen_purpose_names and row.is_active:
+                        row.is_active = False
+                        row.save(update_fields=["is_active"])
 
             # If an admin removed a payment type from payload, disable it (do not delete).
             for pt, pt_cfg in existing_pt.items():
@@ -1621,42 +1640,39 @@ class RequestApprovalConfigView(APIView):
                     pt_cfg.request_not_required_rules = list(item.get("request_not_required_rules") or [])
                     update_fields.append("request_not_required_rules")
                 pt_cfg.save(update_fields=update_fields)
-                RequestApprovalStepConfig.objects.filter(payment_type_config=pt_cfg).delete()
 
+                # Upsert steps by step number instead of delete+recreate, so unrelated
+                # rows (and their PKs) are not churned on every save.
                 steps = list(item.get("steps") or [])
-                step_rows: list[RequestApprovalStepConfig] = []
+                existing_steps = {
+                    row.step: row
+                    for row in RequestApprovalStepConfig.objects.filter(payment_type_config=pt_cfg)
+                }
+                seen_step_numbers: set[int] = set()
                 for step_item in steps:
-                    step_cfg = RequestApprovalStepConfig(
-                        payment_type_config=pt_cfg,
-                        step=int(step_item["step"]),
-                        step_type=step_item["step_type"],
-                        is_enabled=bool(step_item.get("is_enabled", True)),
-                        payment_action_mode=step_item.get(
-                            "payment_action_mode",
-                            RequestApprovalStepConfig.PAYMENT_ACTION_MODE_CALLBACK,
-                        ),
-                        payment_webapp_url=str(step_item.get("payment_webapp_url", "") or "").strip(),
-                        telegram_chat_id=step_item.get("telegram_chat_id"),
+                    step_number = int(step_item["step"])
+                    seen_step_numbers.add(step_number)
+                    step_cfg = existing_steps.get(step_number)
+                    if not step_cfg:
+                        step_cfg = RequestApprovalStepConfig(payment_type_config=pt_cfg, step=step_number)
+                    step_cfg.step_type = step_item["step_type"]
+                    step_cfg.is_enabled = bool(step_item.get("is_enabled", True))
+                    step_cfg.payment_action_mode = step_item.get(
+                        "payment_action_mode",
+                        RequestApprovalStepConfig.PAYMENT_ACTION_MODE_CALLBACK,
                     )
-                    step_rows.append(step_cfg)
-                if step_rows:
-                    RequestApprovalStepConfig.objects.bulk_create(step_rows)
+                    step_cfg.payment_webapp_url = str(step_item.get("payment_webapp_url", "") or "").strip()
+                    step_cfg.telegram_chat_id = step_item.get("telegram_chat_id")
+                    step_cfg.save()
+                    existing_steps[step_number] = step_cfg
 
-                created_steps = (
-                    RequestApprovalStepConfig.objects.filter(payment_type_config=pt_cfg)
-                    .order_by("step", "id")
-                    .all()
-                )
-                for step_cfg in created_steps:
-                    matched = next((s for s in steps if int(s["step"]) == step_cfg.step), None)
-                    if not matched:
-                        continue
-                    unique_ids = sorted(set(int(x) for x in list(matched.get("approver_user_ids") or [])))
+                    unique_ids = sorted(set(int(x) for x in list(step_item.get("approver_user_ids") or [])))
                     invalid = [uid for uid in unique_ids if uid not in active_member_ids]
                     if invalid:
                         raise ValidationError(
-                            {"approver_user_ids": f"Invalid approver users for step {step_cfg.step}: {invalid}."}
+                            {"approver_user_ids": f"Invalid approver users for step {step_number}: {invalid}."}
                         )
+                    RequestApprovalStepApproverConfig.objects.filter(step_config=step_cfg).delete()
                     rows = [
                         RequestApprovalStepApproverConfig(step_config=step_cfg, approver_user_id=uid)
                         for uid in unique_ids
@@ -1664,7 +1680,18 @@ class RequestApprovalConfigView(APIView):
                     if rows:
                         RequestApprovalStepApproverConfig.objects.bulk_create(rows)
 
-                RequestApprovalPurposeExceptionConfig.objects.filter(payment_type_config=pt_cfg).delete()
+                for step_number, step_cfg in existing_steps.items():
+                    if step_number not in seen_step_numbers:
+                        step_cfg.delete()
+
+                # Upsert exceptions by id (present for existing ones, absent for newly
+                # added ones) instead of delete+recreate. Preserving the exception PK
+                # across saves avoids re-triggering CASCADE on its own child rows and
+                # keeps the exception stable if two admins save around the same time.
+                existing_exceptions = {
+                    row.id: row
+                    for row in RequestApprovalPurposeExceptionConfig.objects.filter(payment_type_config=pt_cfg)
+                }
                 valid_purpose_ids = set(
                     RequestPaymentPurposeConfig.objects.filter(
                         payment_type_config__config__tenant=tenant,
@@ -1672,12 +1699,21 @@ class RequestApprovalConfigView(APIView):
                         is_active=True,
                     ).values_list("id", flat=True)
                 )
+                seen_exception_ids: set[int] = set()
                 for exc_item in list(item.get("purpose_exceptions") or []):
-                    exc_row = RequestApprovalPurposeExceptionConfig.objects.create(
-                        payment_type_config=pt_cfg,
-                        name=str(exc_item.get("name") or "")[:200],
-                        is_enabled=bool(exc_item.get("is_enabled", True)),
-                    )
+                    exc_row = existing_exceptions.get(exc_item.get("id"))
+                    if exc_row:
+                        exc_row.name = str(exc_item.get("name") or "")[:200]
+                        exc_row.is_enabled = bool(exc_item.get("is_enabled", True))
+                        exc_row.save(update_fields=["name", "is_enabled"])
+                    else:
+                        exc_row = RequestApprovalPurposeExceptionConfig.objects.create(
+                            payment_type_config=pt_cfg,
+                            name=str(exc_item.get("name") or "")[:200],
+                            is_enabled=bool(exc_item.get("is_enabled", True)),
+                        )
+                    seen_exception_ids.add(exc_row.id)
+
                     exc_purpose_ids = sorted(set(int(x) for x in list(exc_item.get("payment_purpose_ids") or [])))
                     invalid_purpose_ids = [pid for pid in exc_purpose_ids if pid not in valid_purpose_ids]
                     if invalid_purpose_ids:
@@ -1688,6 +1724,7 @@ class RequestApprovalConfigView(APIView):
                                 )
                             }
                         )
+                    RequestApprovalPurposeExceptionPurpose.objects.filter(exception_config=exc_row).delete()
                     purpose_rows = [
                         RequestApprovalPurposeExceptionPurpose(
                             exception_config=exc_row,
@@ -1700,6 +1737,7 @@ class RequestApprovalConfigView(APIView):
                         RequestApprovalPurposeExceptionPurpose.objects.bulk_create(purpose_rows)
 
                     exc_steps = list(exc_item.get("steps") or [])
+                    RequestApprovalPurposeExceptionStepConfig.objects.filter(exception_config=exc_row).delete()
                     exc_step_rows: list[RequestApprovalPurposeExceptionStepConfig] = []
                     for step_item in exc_steps:
                         exc_step_rows.append(
@@ -1740,6 +1778,10 @@ class RequestApprovalConfigView(APIView):
                         ]
                         if rows:
                             RequestApprovalPurposeExceptionStepApproverConfig.objects.bulk_create(rows)
+
+                for exc_id, exc_row in existing_exceptions.items():
+                    if exc_id not in seen_exception_ids:
+                        exc_row.delete()
 
             for pt, pt_cfg in existing_pt.items():
                 if pt not in seen_types and pt_cfg.is_enabled:
