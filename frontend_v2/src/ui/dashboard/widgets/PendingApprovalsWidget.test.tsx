@@ -31,9 +31,21 @@ describe('PendingApprovalsWidget', () => {
   })
 
   it('does not render an extra description row when description is empty', () => {
-    const { container } = render(
+    render(
       <PendingApprovalsWidget
         items={[makeItem({ description: '' })]}
+        onApprove={vi.fn()}
+        onReject={vi.fn()}
+        onPayout={vi.fn()}
+      />
+    )
+    expect(screen.queryByText('Оплата аренды офиса за июль')).not.toBeInTheDocument()
+  })
+
+  it('does not render an extra description row when description is whitespace-only', () => {
+    const { container } = render(
+      <PendingApprovalsWidget
+        items={[makeItem({ description: '   ' })]}
         onApprove={vi.fn()}
         onReject={vi.fn()}
         onPayout={vi.fn()}
