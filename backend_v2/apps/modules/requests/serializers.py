@@ -751,6 +751,7 @@ class MyApprovalsRequestSummarySerializer(serializers.ModelSerializer):
         fields = [
             "id",
             "title",
+            "description",
             "vendor",
             "category",
             "amount",

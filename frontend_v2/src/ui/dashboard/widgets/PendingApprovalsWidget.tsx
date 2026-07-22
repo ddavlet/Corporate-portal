@@ -21,6 +21,11 @@ export function PendingApprovalsWidget({ items, loading, busy, onApprove, onReje
             <Card key={`${item.requestId}-${item.step}`} size="small">
               <Space direction="vertical" size={8} style={{ display: 'flex' }}>
                 <Typography.Text strong>{item.title}</Typography.Text>
+                {item.description?.trim() ? (
+                  <Typography.Text type="secondary" ellipsis={{ tooltip: item.description }}>
+                    {item.description}
+                  </Typography.Text>
+                ) : null}
                 <Typography.Text type="secondary">
                   Сумма: {item.amountText} {item.currency || ''}
                 </Typography.Text>

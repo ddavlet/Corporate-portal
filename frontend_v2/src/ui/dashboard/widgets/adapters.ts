@@ -68,6 +68,7 @@ export function toPendingApprovals(groups: MyApprovalGroup[]): PendingApprovalIt
       approvalId: step.id,
       requestId: group.request.id,
       title: group.request.title || `Заявка #${group.request.id}`,
+      description: group.request.description || null,
       amountText: new Intl.NumberFormat('ru-RU').format(amount || 0),
       currency: group.request.currency || null,
       step: step.step,
