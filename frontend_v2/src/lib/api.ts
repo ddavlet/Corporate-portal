@@ -787,6 +787,7 @@ export type ApprovalDecision = 'approved' | 'rejected'
 export type MyApprovalRequestSummary = {
   id: number
   title: string
+  description?: string | null
   vendor?: string | null
   category?: string | null
   amount?: string | number | null

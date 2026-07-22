@@ -14,6 +14,7 @@ export type PendingApprovalItem = {
   approvalId: number
   requestId: number
   title: string
+  description: string | null
   amountText: string
   currency: string | null
   step: number
