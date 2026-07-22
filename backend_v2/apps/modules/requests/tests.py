@@ -545,13 +545,13 @@ class RequestApprovalsTests(APITestCase):
         )
         RequestApprovalStepApproverConfig.objects.create(step_config=step_cfg, approver_user=self.approver)
 
-    def _create_request(self):
+    def _create_request(self, description: str = ""):
         self.client.force_authenticate(self.requester)
         res = self.client.post(
             "/api/requests/",
             {
                 "title": "T",
-                "description": "",
+                "description": description,
                 "amount": 10,
                 "currency": "UZS",
                 "payment_type": "Наличные",
@@ -594,6 +594,18 @@ class RequestApprovalsTests(APITestCase):
         self.assertEqual(res.data[0]["request"]["id"], request_id)
         self.assertEqual(len(res.data[0]["approvals"]), 1)
         self.assertEqual(res.data[0]["approvals"][0]["decision"], Approval.DECISION_PENDING)
+
+    def test_my_approvals_includes_request_description(self):
+        req_data = self._create_request(description="Оплата материалов для склада")
+        request_id = req_data["id"]
+
+        self.client.force_authenticate(self.approver)
+        res = self.client.get("/api/requests/my-approvals/", HTTP_HOST=self.host)
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(res.data[0]["request"]["id"], request_id)
+        self.assertEqual(
+            res.data[0]["request"]["description"], "Оплата материалов для склада"
+        )
 
     @patch("apps.modules.telegram_approvals.services.TelegramDispatcher.send")
     def test_notification_step_dispatches_without_buttons_and_auto_approves(self, gateway_mock):
