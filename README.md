@@ -298,7 +298,6 @@ make rollback
 | `db_backup` | Automated scheduled database backups |
 | `gdrive_backup_sync` | Syncs backups to Google Drive |
 | `portainer` | Docker management UI |
-| `staticfiles` | Static assets server |
 
 ---
 

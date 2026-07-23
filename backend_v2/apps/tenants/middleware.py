@@ -35,7 +35,6 @@ def _host_no_port(host: str) -> str:
 _INTERNAL_MESSAGING_CALLBACK_PREFIXES = (
     "/api/messaging-gateway/webhook",
     "/api/messaging-gateway/events",
-    "/api/investments/approvals/webhook",
 )
 
 
