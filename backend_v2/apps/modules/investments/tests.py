@@ -785,6 +785,22 @@ class InvestmentApprovalFlowTests(APITestCase):
         cbu_patcher.start()
         self.addCleanup(cbu_patcher.stop)
 
+    def test_legacy_public_investments_approval_webhook_is_removed(self):
+        """Security: old public URL must 404; callbacks go via messaging-gateway only."""
+        res = self.client.post(
+            "/api/investments/approvals/webhook/",
+            {
+                "event": "interaction",
+                "payload": "inv_1:a",
+                "user_id": "1",
+                "recipient_id": "1",
+                "platform": "telegram",
+            },
+            format="json",
+            HTTP_HOST=self.host,
+        )
+        self.assertEqual(res.status_code, 404)
+
     @patch("apps.modules.telegram_approvals.services.TelegramDispatcher.send")
     def test_create_return_creates_approvals_and_dispatches_first_step(self, bridge_mock):
         bridge_mock.return_value = MagicMock()
@@ -845,7 +861,7 @@ class InvestmentApprovalFlowTests(APITestCase):
         second_step = inv_return.approvals.get(step=2)
 
         bad_res = self.client.post(
-            "/api/investments/approvals/webhook/",
+            "/api/messaging-gateway/webhook/",
             {
                 "event": "interaction",
                 "payload": f"inv_{first_step.id}:a",
@@ -862,7 +878,7 @@ class InvestmentApprovalFlowTests(APITestCase):
         with patch("apps.modules.telegram_approvals.services.TelegramDispatcher.edit") as edit_mock:
             edit_mock.return_value = MagicMock()
             ok_first = self.client.post(
-                "/api/investments/approvals/webhook/",
+                "/api/messaging-gateway/webhook/",
                 {
                     "event": "interaction",
                     "payload": f"inv_{first_step.id}:a",
@@ -892,7 +908,7 @@ class InvestmentApprovalFlowTests(APITestCase):
         second_step.refresh_from_db()
         self.assertEqual(second_step.approver_recipient_id, "666000")
         ok_second = self.client.post(
-            "/api/investments/approvals/webhook/",
+            "/api/messaging-gateway/webhook/",
             {
                 "event": "interaction",
                 "payload": f"inv_{second_step.id}:a",
@@ -928,7 +944,7 @@ class InvestmentApprovalFlowTests(APITestCase):
         inv_return = InvestReturn.objects.get(id=response.data["id"])
         first_step = inv_return.approvals.get(step=1)
         reject_res = self.client.post(
-            "/api/investments/approvals/webhook/",
+            "/api/messaging-gateway/webhook/",
             {
                 "event": "interaction",
                 "payload": f"inv_{first_step.id}:r",
@@ -968,7 +984,7 @@ class InvestmentApprovalFlowTests(APITestCase):
         inv_return = InvestReturn.objects.get(id=create_res.data["id"])
         first_step = inv_return.approvals.get(step=1)
         first_ok = self.client.post(
-            "/api/investments/approvals/webhook/",
+            "/api/messaging-gateway/webhook/",
             {
                 "event": "interaction",
                 "payload": f"inv_{first_step.id}:a",
@@ -1017,13 +1033,13 @@ class InvestmentApprovalFlowTests(APITestCase):
             "platform": "telegram",
         }
         self.assertEqual(
-            self.client.post("/api/investments/approvals/webhook/", body, format="json", HTTP_HOST=self.host).status_code,
+            self.client.post("/api/messaging-gateway/webhook/", body, format="json", HTTP_HOST=self.host).status_code,
             200,
         )
         # Duplicate callback → 409; deactivation goes through dispatcher.edit (not send).
         with patch("apps.modules.telegram_approvals.services.TelegramDispatcher.edit") as edit_mock:
             edit_mock.return_value = MagicMock()
-            dup = self.client.post("/api/investments/approvals/webhook/", body, format="json", HTTP_HOST=self.host)
+            dup = self.client.post("/api/messaging-gateway/webhook/", body, format="json", HTTP_HOST=self.host)
             self.assertEqual(dup.status_code, 409)
             edit_mock.assert_called_once()
             self.assertEqual(edit_mock.call_args.kwargs.get("buttons"), [])
@@ -1240,7 +1256,7 @@ class InvestmentApprovalFlowTests(APITestCase):
         first_p = ir_p.approvals.get(step=1)
         self.assertEqual(
             self.client.post(
-                "/api/investments/approvals/webhook/",
+                "/api/messaging-gateway/webhook/",
                 {
                     "event": "interaction",
                     "payload": f"inv_{first_p.id}:a",
@@ -1277,7 +1293,7 @@ class InvestmentApprovalFlowTests(APITestCase):
         first_i = ir_i.approvals.get(step=1)
         self.assertEqual(
             self.client.post(
-                "/api/investments/approvals/webhook/",
+                "/api/messaging-gateway/webhook/",
                 {
                     "event": "interaction",
                     "payload": f"inv_{first_i.id}:a",
@@ -1435,7 +1451,7 @@ class InvestmentProjectApprovalFlowTests(APITestCase):
         bridge_mock.return_value = MagicMock()
         self.assertEqual(
             self.client.post(
-                "/api/investments/approvals/webhook/",
+                "/api/messaging-gateway/webhook/",
                 {
                     "event": "interaction",
                     "payload": f"invp_{first_step.id}:a",
@@ -1481,7 +1497,7 @@ class InvestmentProjectApprovalFlowTests(APITestCase):
         first_step = pi.approvals.get(step=1)
         second_step = pi.approvals.get(step=2)
         ok_first = self.client.post(
-            "/api/investments/approvals/webhook/",
+            "/api/messaging-gateway/webhook/",
             {
                 "event": "interaction",
                 "payload": f"invp_{first_step.id}:a",
@@ -1496,7 +1512,7 @@ class InvestmentProjectApprovalFlowTests(APITestCase):
         self.assertEqual(ok_first.status_code, 200)
         second_step.refresh_from_db()
         ok_second = self.client.post(
-            "/api/investments/approvals/webhook/",
+            "/api/messaging-gateway/webhook/",
             {
                 "event": "interaction",
                 "payload": f"invp_{second_step.id}:a",
@@ -1542,7 +1558,7 @@ class InvestmentProjectApprovalFlowTests(APITestCase):
         second_step = pi.approvals.get(step=2)
         self.assertEqual(second_step.decision, ProjectInvestmentApproval.DECISION_PENDING)
         reject = self.client.post(
-            "/api/investments/approvals/webhook/",
+            "/api/messaging-gateway/webhook/",
             {
                 "event": "interaction",
                 "payload": f"invp_{first_step.id}:r",

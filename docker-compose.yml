@@ -65,7 +65,7 @@ services:
       - "--certificatesresolvers.mytlschallenge.acme.tlschallenge=true"
       - "--certificatesresolvers.mytlschallenge.acme.email=${SSL_EMAIL}"
       - "--certificatesresolvers.mytlschallenge.acme.storage=/letsencrypt/acme.json"
-      - "--log.level=DEBUG"
+      - "--log.level=WARN"
 
     ports:
       - "80:80"
@@ -559,54 +559,6 @@ services:
   #   networks:
   #     - traefik-public
 
-  # backend:
-  #   build: ./backend
-  #   container_name: django
-  #   restart: always
-  #   environment:
-  #     POSTGRES_DB: ${POSTGRES_WEB_DB}
-  #     POSTGRES_USER: ${POSTGRES_WEB_USER}
-  #     POSTGRES_PASSWORD: ${POSTGRES_WEB_PASSWORD}
-  #     POSTGRES_HOST: "db"
-  #     POSTGRES_PORT: 5432
-  #     DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:-change-me-to-a-long-random-secret-key-32-plus-bytes}
-  #     DJANGO_DEBUG: "False"
-  #     N8N_TOKEN: ${N8N_TOKEN}
-  #     CORPORATE_INVESTMENTS_ALLOWED_USER: ddavlet, r.davletyarov
-  #   volumes:
-  #     - ./backend:/app
-  #   depends_on:
-  #     - db
-  #   command: >
-  #     sh -c "
-  #     python manage.py migrate &&
-  #     gunicorn config.wsgi:application --bind 0.0.0.0:8000
-  #     "
-  #   labels:
-  #     - traefik.enable=true
-  #     - traefik.docker.network=n8n_traefik-public
-  #     - traefik.http.services.django.loadbalancer.server.port=8000
-
-  #     # login.kolberg.uz (оставляем как есть)
-  #     - traefik.http.routers.django-login.rule=Host(`login.kolberg.uz`)
-  #     - traefik.http.routers.django-login.entrypoints=web,websecure
-  #     - traefik.http.routers.django-login.tls=true
-  #     - traefik.http.routers.django-login.tls.certresolver=mytlschallenge
-  #     - traefik.http.routers.django-login.service=django
-  #     - traefik.http.routers.django-login.priority=1000
-
-  #     # tenants: только /web/*
-  #     - traefik.http.routers.django-web.rule=(Host(`lemonfit.kolberg.uz`) || Host(`lemonfit2.kolberg.uz`) || Host(`neuron.kolberg.uz`)) && PathPrefix(`/web/`)
-  #     - traefik.http.routers.django-web.entrypoints=web,websecure
-  #     - traefik.http.routers.django-web.tls=true
-  #     - traefik.http.routers.django-web.tls.certresolver=mytlschallenge
-  #     - traefik.http.routers.django-web.service=django
-  #     - traefik.http.routers.django-web.priority=1000
-
-  #   networks:
-  #     - traefik-public
-  #     - backend
-
   backend_v2:
     build:
       context: ./backend_v2
@@ -776,37 +728,6 @@ services:
       - traefik.http.routers.frontend-v2.tls.certresolver=mytlschallenge
       - traefik.http.routers.frontend-v2.service=frontend-v2
       - traefik.http.routers.frontend-v2.priority=1050
-
-    networks:
-      - traefik-public
-
-  staticfiles:
-    image: nginx:alpine
-    container_name: staticfiles
-    restart: always
-    volumes:
-      - ./staticfiles/conf.d:/etc/nginx/conf.d:ro
-      - ./backend/staticfiles:/usr/share/nginx/static:ro
-    labels:
-      - traefik.enable=true
-      - traefik.docker.network=n8n_traefik-public
-      - traefik.http.services.staticfiles.loadbalancer.server.port=80
-
-      # ---- login.kolberg.uz /static/* ----
-      - traefik.http.routers.staticfiles-login.rule=Host(`login.kolberg.uz`) && PathPrefix(`/static/`)
-      - traefik.http.routers.staticfiles-login.entrypoints=web,websecure
-      - traefik.http.routers.staticfiles-login.tls=true
-      - traefik.http.routers.staticfiles-login.tls.certresolver=mytlschallenge
-      - traefik.http.routers.staticfiles-login.service=staticfiles
-      - traefik.http.routers.staticfiles-login.priority=2000
-
-      # ---- tenants /static/* (добавь сюда нужные хосты) ----
-      - traefik.http.routers.staticfiles-tenants.rule=(Host(`lemonfit.kolberg.uz`) || Host(`lemonfit2.kolberg.uz`) || Host(`neuron.kolberg.uz`) || Host(`lemonaqua.kolberg.uz`) || Host(`kp.kolberg.uz`)) && PathPrefix(`/static/`)
-      - traefik.http.routers.staticfiles-tenants.entrypoints=web,websecure
-      - traefik.http.routers.staticfiles-tenants.tls=true
-      - traefik.http.routers.staticfiles-tenants.tls.certresolver=mytlschallenge
-      - traefik.http.routers.staticfiles-tenants.service=staticfiles
-      - traefik.http.routers.staticfiles-tenants.priority=2000
 
     networks:
       - traefik-public
