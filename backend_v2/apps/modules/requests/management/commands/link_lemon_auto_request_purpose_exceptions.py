@@ -65,6 +65,13 @@ def _normalize(value: str) -> str:
     return re.sub(r"\s+", " ", value or "").strip()
 
 
+_STOPWORDS = {"по", "за", "для", "с", "и", "в", "на", "к", "от", "до"}
+
+
+def _words(value: str) -> set[str]:
+    return {w for w in re.split(r"[\s/,\-]+", value.lower()) if len(w) >= 3 and w not in _STOPWORDS}
+
+
 class Command(BaseCommand):
     help = (
         "Backfill: link auto-request payment purposes to already-created "
@@ -120,6 +127,13 @@ class Command(BaseCommand):
             for pc in purpose_configs:
                 by_name.setdefault(_normalize(pc.name), []).append(pc)
 
+            by_type: dict[str, list[str]] = {}
+            for pc in purpose_configs:
+                by_type.setdefault(pc.payment_type_config.payment_type, []).append(_normalize(pc.name))
+            self.stdout.write(f"[{tenant.subdomain}] configured payment purposes ({len(purpose_configs)}):")
+            for payment_type in sorted(by_type):
+                self.stdout.write(f"    {payment_type}: {', '.join(sorted(set(by_type[payment_type])))}")
+
             auto_templates = list(AutoRequestTemplate.objects.filter(tenant=tenant))
             auto_types_by_name: dict[str, set[str]] = {}
             for at in auto_templates:
@@ -149,6 +163,29 @@ class Command(BaseCommand):
                             f"[{tenant.subdomain}] payment purpose {label} not found in request form config "
                             f"or in any auto-request template{hint_note}"
                         )
+
+                    # Not an exact match, but flag close-by candidates (word overlap)
+                    # so a human can decide whether the real name just differs
+                    # slightly. Never auto-linked — exact match only for --apply.
+                    wanted_words = _words(wanted)
+                    fuzzy_pool = (
+                        [pc for pc in purpose_configs if pc.payment_type_config.payment_type == type_hint]
+                        if type_hint
+                        else purpose_configs
+                    )
+                    fuzzy_candidates = sorted(
+                        (
+                            (len(wanted_words & _words(pc.name)), pc)
+                            for pc in fuzzy_pool
+                            if wanted_words & _words(pc.name)
+                        ),
+                        key=lambda pair: -pair[0],
+                    )[:5]
+                    if fuzzy_candidates:
+                        rendered = ", ".join(
+                            f"'{pc.name}' ({pc.payment_type_config.payment_type})" for _, pc in fuzzy_candidates
+                        )
+                        not_found.append(f"    possible match by word overlap (not linked): {rendered}")
                     continue
 
                 # A purpose without an explicit type marker may be configured
