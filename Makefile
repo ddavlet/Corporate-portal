@@ -7,7 +7,7 @@ DEPLOY_TEST_PATH ?= $(TEST_PATH)
 BRANCH     := $(shell git rev-parse --abbrev-ref HEAD)
 
 .DEFAULT_GOAL := help
-.PHONY: help push test deploy makemigrations showmigrations backup-db rollback refresh-approval-messages local-up local-down local-logs test_local
+.PHONY: help push test deploy makemigrations showmigrations backup-db rollback refresh-approval-messages link-lemon-auto-request-exceptions local-up local-down local-logs test_local
 
 help:
 	@echo ""
@@ -21,6 +21,8 @@ help:
 	@echo "  make showmigrations  — показать tenants/requests/vendors миграции на сервере"
 	@echo "  make backup-db       — создать gzip-копию БД на сервере в backups/db"
 	@echo "  make refresh-approval-messages REQUEST_IDS='1 2' — актуализировать Telegram-карточки заявок на сервере"
+	@echo "  make link-lemon-auto-request-exceptions — dry-run: привязка назначений автозаявок к исключениям (lemon*)"
+	@echo "  make link-lemon-auto-request-exceptions APPLY=1 — то же самое, но с записью изменений"
 	@echo "  make local-up        — поднять docker-compose.local.yml локально"
 	@echo "  make local-down      — остановить локальный compose (без удаления volumes)"
 	@echo "  make local-logs      — логи локального compose"
@@ -108,6 +110,14 @@ refresh-approval-messages:
 	ssh $(SERVER) "cd $(REMOTE_DIR) && \
 		docker compose --env-file ./.env exec -T backend_v2 \
 		python manage.py refresh_telegram_approval_messages $(REQUEST_IDS)"
+
+# ── 7b. Разово: привязать назначения автозаявок к уже созданным исключениям ──
+APPLY ?=
+
+link-lemon-auto-request-exceptions:
+	ssh $(SERVER) "cd $(REMOTE_DIR) && \
+		docker compose --env-file ./.env exec -T backend_v2 \
+		python manage.py link_lemon_auto_request_purpose_exceptions $(if $(APPLY),--apply,)"
 
 # ── 8. Откат production ──────────────────────────────────────────────────────
 rollback:
