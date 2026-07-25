@@ -16,6 +16,10 @@ RequestFormPaymentTypeConfig это назначение уже сконфигу
 есть ли автоматическая заявка (AutoRequestTemplate) с таким payment_purpose и
 какой у неё payment_type, чтобы можно было решить, что делать, отдельно.
 
+См. PURPOSE_SPECS — часть имён из исходного списка не совпадает буквально с
+названием в справочнике (например "Пополнение карты" на самом деле "Содержание
+клуба" под типом Пополнение) и была сверена вручную с продакшн-данными.
+
 Run with --dry-run first to preview, then with --apply to write.
 
 Examples:
@@ -40,23 +44,37 @@ from apps.tenants.models import Tenant
 
 PAYMENT_TYPE_CASH = "Наличные"
 PAYMENT_TYPE_TRANSFER = "Перечисление"
+PAYMENT_TYPE_TOPUP = "Пополнение"
 
-# (purpose name with the "Нал "/" безнал" type-marker stripped, payment_type it
-# denotes — or None when the item carries no such marker and the type must be
-# resolved from whatever payment type(s) the purpose is already configured under).
+# (real payment-purpose name as configured in the request form, payment_type it
+# is looked up under — or None when the item carries no "Нал"/"безнал" marker
+# and the type must be resolved from whatever payment type(s) the purpose is
+# already configured under).
+#
+# Names were reconciled against the actual production data (dry-run report on
+# lemonaqua/lemonfit/lemonhavo, 2026-07-24) — several source-list names don't
+# match the configured purpose name literally:
+#   "Нал Транспортной расход" -> "Транспортные расходы" (Наличные)
+#   "Пополнение карты"        -> "Содержание клуба" (Пополнение) — that's the only
+#                                 purpose configured under payment_type "Пополнение"
+#   "Оплата по карте содержание клуба" -> no matching purpose exists under
+#                                 "Платежная карта" in any tenant; dropped, not created
+#                                 (out of scope: only linking existing purposes)
+#   "Интернет безнал"         -> "Оплата интернета" (Перечисление)
+#   "Канцелярия"              -> "Канцелярия для клуба" (type varies per tenant, left
+#                                 unhinted so it resolves under whichever type(s) exist)
 PURPOSE_SPECS: list[tuple[str, str | None]] = [
-    ("Транспортной расход", PAYMENT_TYPE_CASH),
+    ("Транспортные расходы", PAYMENT_TYPE_CASH),
     ("Инкассация", PAYMENT_TYPE_CASH),
     ("Зарплата", PAYMENT_TYPE_CASH),
     ("Аванс", PAYMENT_TYPE_CASH),
-    ("Пополнение карты", None),
-    ("Оплата по карте содержание клуба", None),
-    ("Интернет", PAYMENT_TYPE_TRANSFER),
+    ("Содержание клуба", PAYMENT_TYPE_TOPUP),
+    ("Оплата интернета", PAYMENT_TYPE_TRANSFER),
     ("Сотовая связь", PAYMENT_TYPE_TRANSFER),
     ("Таргет", None),
     ("Дивиденды", PAYMENT_TYPE_CASH),
     ("Выплата инвестиций", PAYMENT_TYPE_CASH),
-    ("Канцелярия", None),
+    ("Канцелярия для клуба", None),
     ("Непредвиденные расходы", None),
 ]
 
