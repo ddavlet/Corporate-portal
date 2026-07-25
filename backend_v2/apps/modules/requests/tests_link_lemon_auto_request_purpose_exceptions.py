@@ -147,7 +147,7 @@ class LinkLemonAutoRequestPurposeExceptionsTests(TestCase):
         form_pt_payroll = RequestFormPaymentTypeConfig.objects.create(
             config=form_cfg, payment_type="Начисление ЗП", is_enabled=True
         )
-        RequestPaymentPurposeConfig.objects.create(payment_type_config=form_pt_payroll, name="Канцелярия")
+        RequestPaymentPurposeConfig.objects.create(payment_type_config=form_pt_payroll, name="Канцелярия для клуба")
 
         appr_cfg = RequestApprovalConfig.objects.get(tenant=self.lemonfit)
         # Approval payment-type config exists (so it's not "unconfigured"), but no
@@ -156,7 +156,7 @@ class LinkLemonAutoRequestPurposeExceptionsTests(TestCase):
 
         _run(apply=True)
         self.assertFalse(
-            RequestApprovalPurposeExceptionPurpose.objects.filter(payment_purpose__name="Канцелярия").exists()
+            RequestApprovalPurposeExceptionPurpose.objects.filter(payment_purpose__name="Канцелярия для клуба").exists()
         )
 
     def test_purpose_missing_from_form_config_reports_auto_template_type_without_creating(self):
@@ -164,13 +164,13 @@ class LinkLemonAutoRequestPurposeExceptionsTests(TestCase):
         AutoRequestTemplate.objects.create(
             tenant=self.lemonfit,
             payment_type="Перечисление",
-            payment_purpose="Канцелярия",
+            payment_purpose="Канцелярия для клуба",
             requester=requester,
         )
 
         output = _run()
 
-        self.assertIn("'Канцелярия' not in request form config", output)
+        self.assertIn("'Канцелярия для клуба' not in request form config", output)
         self.assertIn("payment_type: Перечисление", output)
         self.assertEqual(RequestApprovalPurposeExceptionPurpose.objects.count(), 0)
 
