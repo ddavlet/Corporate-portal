@@ -15,6 +15,10 @@ Covers:
      auto-request-template payment type (if any) is surfaced, without creating
      anything
   7. tenants outside the --tenant-prefix are left untouched
+  8. when a payment type has two exception configs, a tax purpose routes to
+     the one with "налог" in its name
+  9. ...and a non-tax purpose routes to the one without it
+  10. if disambiguation still leaves more than one candidate, stays skipped
 """
 
 from django.contrib.auth import get_user_model
@@ -141,6 +145,78 @@ class LinkLemonAutoRequestPurposeExceptionsTests(TestCase):
             cash_purpose.id: self.exception_cfg.id,
             transfer_purpose.id: transfer_exception.id,
         })
+
+    def test_tax_purpose_routes_to_tax_named_exception_when_ambiguous(self):
+        # "ИНПС" is marked as a tax purpose in PURPOSE_SPECS. When the payment
+        # type has two exception configs, it must go to the one whose name
+        # contains "налог", not the other one.
+        form_cfg = RequestFormConfig.objects.get(tenant=self.lemonfit)
+        form_pt_transfer = RequestFormPaymentTypeConfig.objects.create(
+            config=form_cfg, payment_type="Перечисление", is_enabled=True
+        )
+        inps_purpose = RequestPaymentPurposeConfig.objects.create(payment_type_config=form_pt_transfer, name="ИНПС")
+
+        appr_cfg = RequestApprovalConfig.objects.get(tenant=self.lemonfit)
+        appr_pt_transfer = RequestApprovalPaymentTypeConfig.objects.create(
+            config=appr_cfg, payment_type="Перечисление", is_enabled=True
+        )
+        tax_exception = RequestApprovalPurposeExceptionConfig.objects.create(
+            payment_type_config=appr_pt_transfer, name="Налоги"
+        )
+        RequestApprovalPurposeExceptionConfig.objects.create(payment_type_config=appr_pt_transfer, name="исключение")
+
+        _run(apply=True)
+
+        link = RequestApprovalPurposeExceptionPurpose.objects.get(payment_purpose=inps_purpose)
+        self.assertEqual(link.exception_config_id, tax_exception.id)
+
+    def test_non_tax_purpose_routes_to_non_tax_named_exception_when_ambiguous(self):
+        # "Сотовая связь" is not a tax purpose — with the same two candidates
+        # it must go to the one WITHOUT "налог" in the name.
+        form_cfg = RequestFormConfig.objects.get(tenant=self.lemonfit)
+        form_pt_transfer = RequestFormPaymentTypeConfig.objects.create(
+            config=form_cfg, payment_type="Перечисление", is_enabled=True
+        )
+        mobile_purpose = RequestPaymentPurposeConfig.objects.create(
+            payment_type_config=form_pt_transfer, name="Сотовая связь"
+        )
+
+        appr_cfg = RequestApprovalConfig.objects.get(tenant=self.lemonfit)
+        appr_pt_transfer = RequestApprovalPaymentTypeConfig.objects.create(
+            config=appr_cfg, payment_type="Перечисление", is_enabled=True
+        )
+        RequestApprovalPurposeExceptionConfig.objects.create(payment_type_config=appr_pt_transfer, name="Налоги")
+        default_exception = RequestApprovalPurposeExceptionConfig.objects.create(
+            payment_type_config=appr_pt_transfer, name="исключение"
+        )
+
+        _run(apply=True)
+
+        link = RequestApprovalPurposeExceptionPurpose.objects.get(payment_purpose=mobile_purpose)
+        self.assertEqual(link.exception_config_id, default_exception.id)
+
+    def test_ambiguous_exceptions_still_skipped_when_more_than_one_non_tax_candidate(self):
+        # If disambiguation by tax-in-name still leaves more than one
+        # candidate, the command must not guess further.
+        form_cfg = RequestFormConfig.objects.get(tenant=self.lemonfit)
+        form_pt_transfer = RequestFormPaymentTypeConfig.objects.create(
+            config=form_cfg, payment_type="Перечисление", is_enabled=True
+        )
+        RequestPaymentPurposeConfig.objects.create(payment_type_config=form_pt_transfer, name="Сотовая связь")
+
+        appr_cfg = RequestApprovalConfig.objects.get(tenant=self.lemonfit)
+        appr_pt_transfer = RequestApprovalPaymentTypeConfig.objects.create(
+            config=appr_cfg, payment_type="Перечисление", is_enabled=True
+        )
+        RequestApprovalPurposeExceptionConfig.objects.create(payment_type_config=appr_pt_transfer, name="исключение 1")
+        RequestApprovalPurposeExceptionConfig.objects.create(payment_type_config=appr_pt_transfer, name="исключение 2")
+
+        output = _run(apply=True)
+
+        self.assertFalse(
+            RequestApprovalPurposeExceptionPurpose.objects.filter(payment_purpose__name="Сотовая связь").exists()
+        )
+        self.assertIn("multiple exception configs", output)
 
     def test_purpose_without_pre_created_exception_config_is_skipped(self):
         form_cfg = RequestFormConfig.objects.get(tenant=self.lemonfit)

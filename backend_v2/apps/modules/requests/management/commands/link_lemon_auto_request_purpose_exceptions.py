@@ -20,6 +20,12 @@ RequestFormPaymentTypeConfig это назначение уже сконфигу
 названием в справочнике (например "Пополнение карты" на самом деле "Содержание
 клуба" под типом Пополнение) и была сверена вручную с продакшн-данными.
 
+Когда у типа оплаты несколько исключений (в проде: "Налоги" и "исключение"),
+неналоговые назначения по умолчанию идут в исключение БЕЗ "налог" в названии,
+а помеченные как налоговые в PURPOSE_SPECS — в исключение С "налог" в
+названии. Если после такой фильтрации остаётся не ровно один кандидат —
+не гадаем, помечаем как "skipped".
+
 Run with --dry-run first to preview, then with --apply to write.
 
 Examples:
@@ -63,19 +69,28 @@ PAYMENT_TYPE_TOPUP = "Пополнение"
 #   "Интернет безнал"         -> "Оплата интернета" (Перечисление)
 #   "Канцелярия"              -> "Канцелярия для клуба" (type varies per tenant, left
 #                                 unhinted so it resolves under whichever type(s) exist)
-PURPOSE_SPECS: list[tuple[str, str | None]] = [
-    ("Транспортные расходы", PAYMENT_TYPE_CASH),
-    ("Инкассация", PAYMENT_TYPE_CASH),
-    ("Зарплата", PAYMENT_TYPE_CASH),
-    ("Аванс", PAYMENT_TYPE_CASH),
-    ("Содержание клуба", PAYMENT_TYPE_TOPUP),
-    ("Оплата интернета", PAYMENT_TYPE_TRANSFER),
-    ("Сотовая связь", PAYMENT_TYPE_TRANSFER),
-    ("Таргет", None),
-    ("Дивиденды", PAYMENT_TYPE_CASH),
-    ("Выплата инвестиций", PAYMENT_TYPE_CASH),
-    ("Канцелярия для клуба", None),
-    ("Непредвиденные расходы", None),
+# (name, payment_type hint, is_tax_purpose). When a payment type has several
+# exception configs (in production: one named "Налоги", one named "исключение"),
+# is_tax_purpose picks which one to prefer — tax purposes go to whichever
+# candidate name contains "налог", everything else goes to whichever doesn't.
+PURPOSE_SPECS: list[tuple[str, str | None, bool]] = [
+    ("Транспортные расходы", PAYMENT_TYPE_CASH, False),
+    ("Инкассация", PAYMENT_TYPE_CASH, False),
+    ("Зарплата", PAYMENT_TYPE_CASH, False),
+    ("Аванс", PAYMENT_TYPE_CASH, False),
+    ("Содержание клуба", PAYMENT_TYPE_TOPUP, False),
+    ("Оплата интернета", PAYMENT_TYPE_TRANSFER, False),
+    ("Сотовая связь", PAYMENT_TYPE_TRANSFER, False),
+    ("Таргет", None, False),
+    ("Дивиденды", PAYMENT_TYPE_CASH, False),
+    ("Выплата инвестиций", PAYMENT_TYPE_CASH, False),
+    ("Канцелярия для клуба", None, False),
+    ("Непредвиденные расходы", None, False),
+    # Tax purposes -> route to the "Налоги" exception instead of the default one.
+    ("ИНПС", PAYMENT_TYPE_TRANSFER, True),
+    ("Подоходный налог", PAYMENT_TYPE_TRANSFER, True),  # НДФЛ
+    ("Налог на прибыль", PAYMENT_TYPE_TRANSFER, True),
+    ("Социальный налог", PAYMENT_TYPE_TRANSFER, True),
 ]
 
 
@@ -111,7 +126,7 @@ class Command(BaseCommand):
     def handle(self, *args, **options):
         apply_changes: bool = options["apply"]
         tenant_prefix: str = options["tenant_prefix"]
-        specs = [(_normalize(name), type_hint) for name, type_hint in PURPOSE_SPECS]
+        specs = [(_normalize(name), type_hint, is_tax) for name, type_hint, is_tax in PURPOSE_SPECS]
 
         tenants = list(Tenant.objects.filter(subdomain__istartswith=tenant_prefix).order_by("subdomain"))
         if not tenants:
@@ -157,7 +172,7 @@ class Command(BaseCommand):
             for at in auto_templates:
                 auto_types_by_name.setdefault(_normalize(at.payment_purpose), set()).add(at.payment_type)
 
-            for wanted, type_hint in specs:
+            for wanted, type_hint, is_tax in specs:
                 all_matches = by_name.get(wanted, [])
                 if type_hint:
                     matches = [m for m in all_matches if m.payment_type_config.payment_type == type_hint]
@@ -235,14 +250,26 @@ class Command(BaseCommand):
                         )
                         continue
                     if len(exception_configs) > 1:
-                        names = ", ".join(ec.name or f"#{ec.pk}" for ec in exception_configs)
-                        skipped.append(
-                            f"[{tenant.subdomain}] payment purpose '{wanted}' (payment_type={payment_type}): "
-                            f"multiple exception configs ({names}) — resolve manually"
-                        )
-                        continue
-
-                    exception_config = exception_configs[0]
+                        # Ambiguous by count alone — disambiguate by whether the
+                        # purpose is a tax purpose: tax purposes go to whichever
+                        # candidate name contains "налог", everything else goes
+                        # to whichever doesn't. Only auto-resolve when exactly
+                        # one candidate matches that rule; otherwise stay silent
+                        # and let a human pick.
+                        tax_named = [ec for ec in exception_configs if "налог" in (ec.name or "").lower()]
+                        non_tax_named = [ec for ec in exception_configs if ec not in tax_named]
+                        preferred = tax_named if is_tax else non_tax_named
+                        if len(preferred) == 1:
+                            exception_config = preferred[0]
+                        else:
+                            names = ", ".join(ec.name or f"#{ec.pk}" for ec in exception_configs)
+                            skipped.append(
+                                f"[{tenant.subdomain}] payment purpose '{wanted}' (payment_type={payment_type}): "
+                                f"multiple exception configs ({names}) — resolve manually"
+                            )
+                            continue
+                    else:
+                        exception_config = exception_configs[0]
                     exists = RequestApprovalPurposeExceptionPurpose.objects.filter(
                         payment_type_config=approval_payment_type_config,
                         payment_purpose=purpose_config,
