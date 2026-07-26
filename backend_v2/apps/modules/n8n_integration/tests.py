@@ -1785,6 +1785,201 @@ class N8nBankStatementDuplicateTests(APITestCase):
 @override_settings(
     BASE_DOMAIN="example.com",
     N8N_INTEGRATION_TOKEN="integ-test-secret",
+    ALLOWED_HOSTS=["reassign-acme.example.com", "testserver"],
+)
+class N8nBankExpenseReassignUnmatchedTests(APITestCase):
+    """Cross-tenant reconciliation: move an unmatched BankExpense to whichever
+    tenant actually has its request, fixing wallet/vendor and linking it there."""
+
+    def setUp(self):
+        su, _ = User.objects.update_or_create(pk=1, defaults={"username": "n8n_system"})
+        if not su.has_usable_password():
+            su.set_unusable_password()
+            su.save(update_fields=["password"])
+        self.system_user = su
+
+        self.tenant = Tenant.objects.create(name="ReassignAcme", subdomain="reassign-acme", is_active=True)
+        self.other_tenant = Tenant.objects.create(name="ReassignBeta", subdomain="reassign-beta", is_active=True)
+        self.wallet = get_or_create_bank_wallet(tenant=self.tenant)
+
+        self.n8n_prefix = settings.N8N_INTEGRATION_URL_PREFIX.rstrip("/")
+        self.url = f"{self.n8n_prefix}/bank/expenses/reassign-unmatched/"
+
+    def _headers(self):
+        return {"HTTP_HOST": "reassign-acme.example.com", "HTTP_X_N8N_INTEGRATION_TOKEN": "integ-test-secret"}
+
+    def _post(self, other_tenant="reassign-beta"):
+        return self.client.post(self.url, {"other_tenant": other_tenant}, format="json", **self._headers())
+
+    def _make_expense(self, *, doc_no, amount="500.00", vendor=None, tenant=None, wallet=None):
+        return BankExpense.objects.create(
+            tenant=tenant or self.tenant,
+            created_by=self.system_user,
+            row_no=1,
+            doc_date=date(2026, 4, 1),
+            process_date=date(2026, 4, 1),
+            expense_year=2026,
+            expense_month=4,
+            expense_day=1,
+            doc_no=doc_no,
+            debit_turnover=amount,
+            payment_purpose="Тест реассайна",
+            vendor=vendor,
+            wallet=wallet or self.wallet,
+        )
+
+    def _make_request(self, *, tenant, doc_no, amount="500.00", status=Request.STATUS_PAYED):
+        return Request.objects.create(
+            tenant=tenant,
+            created_by=self.system_user,
+            title="Заявка на реассайн",
+            amount=amount,
+            currency="UZS",
+            payment_type=Request.PAYMENT_TYPE_TRANSFER,
+            urgency=Request.URGENCY_NORMAL,
+            billing_date=date(2026, 4, 1),
+            status=status,
+            expense_id=doc_no,
+            expense_year=2026,
+        )
+
+    def test_moves_expense_and_links_request_on_single_match(self):
+        vendor = Vendor.objects.create(
+            tenant=self.tenant,
+            kind=Vendor.KIND_TRANSFER,
+            name="Acme Vendor",
+            account_number="99988877",
+            created_by=self.system_user,
+        )
+        expense = self._make_expense(doc_no="RA-1", vendor=vendor)
+        matched_request = self._make_request(tenant=self.other_tenant, doc_no="RA-1")
+
+        res = self._post()
+        self.assertEqual(res.status_code, 200, res.content)
+        self.assertEqual(res.data["count"], 1)
+
+        expense.refresh_from_db()
+        self.assertEqual(expense.tenant_id, self.other_tenant.id)
+        self.assertEqual(expense.wallet.tenant_id, self.other_tenant.id)
+        self.assertIsNotNone(expense.vendor_id)
+        self.assertEqual(expense.vendor.tenant_id, self.other_tenant.id)
+        self.assertEqual(expense.vendor.account_number, "99988877")
+
+        matched_request.refresh_from_db()
+        self.assertEqual(matched_request.expense_ref_id, expense.pk)
+        self.assertEqual(matched_request.expense_ref_target, Request.EXPENSE_REF_TARGET_BANK)
+
+    def test_already_matched_in_own_tenant_is_left_alone(self):
+        expense = self._make_expense(doc_no="RA-2")
+        own_request = self._make_request(tenant=self.tenant, doc_no="RA-2")
+        Request.objects.filter(pk=own_request.pk).update(
+            expense_ref_id=expense.pk, expense_ref_target=Request.EXPENSE_REF_TARGET_BANK,
+        )
+        # Also plant a matching request in the other tenant — must NOT be touched,
+        # since the expense already "belongs" to its own tenant.
+        other_request = self._make_request(tenant=self.other_tenant, doc_no="RA-2")
+
+        res = self._post()
+        self.assertEqual(res.status_code, 200, res.content)
+        self.assertEqual(res.data["count"], 0)
+
+        expense.refresh_from_db()
+        self.assertEqual(expense.tenant_id, self.tenant.id)
+        other_request.refresh_from_db()
+        self.assertIsNone(other_request.expense_ref_id)
+
+    def test_no_match_anywhere_leaves_expense_untouched(self):
+        expense = self._make_expense(doc_no="RA-3")
+
+        res = self._post()
+        self.assertEqual(res.status_code, 200, res.content)
+        self.assertEqual(res.data["count"], 0)
+        expense.refresh_from_db()
+        self.assertEqual(expense.tenant_id, self.tenant.id)
+
+    def test_ambiguous_match_is_skipped(self):
+        expense = self._make_expense(doc_no="RA-4")
+        self._make_request(tenant=self.other_tenant, doc_no="RA-4")
+        self._make_request(tenant=self.other_tenant, doc_no="RA-4")  # second — ambiguous
+
+        res = self._post()
+        self.assertEqual(res.status_code, 200, res.content)
+        self.assertEqual(res.data["count"], 0)
+        expense.refresh_from_db()
+        self.assertEqual(expense.tenant_id, self.tenant.id)
+
+    def test_no_vendor_or_no_account_number_leaves_vendor_null(self):
+        expense = self._make_expense(doc_no="RA-5", vendor=None)
+        self._make_request(tenant=self.other_tenant, doc_no="RA-5")
+
+        res = self._post()
+        self.assertEqual(res.status_code, 200, res.content)
+        self.assertEqual(res.data["count"], 1)
+        expense.refresh_from_db()
+        self.assertEqual(expense.tenant_id, self.other_tenant.id)
+        self.assertIsNone(expense.vendor_id)
+
+    def test_wallet_get_or_create_is_idempotent_across_reassignments(self):
+        self._make_request(tenant=self.other_tenant, doc_no="RA-6A", amount="100.00")
+        self._make_request(tenant=self.other_tenant, doc_no="RA-6B", amount="200.00")
+        expense_1 = self._make_expense(doc_no="RA-6A", amount="100.00")
+        expense_2 = self._make_expense(doc_no="RA-6B", amount="200.00")
+
+        res = self._post()
+        self.assertEqual(res.status_code, 200, res.content)
+        self.assertEqual(res.data["count"], 2)
+
+        expense_1.refresh_from_db()
+        expense_2.refresh_from_db()
+        self.assertEqual(expense_1.tenant_id, self.other_tenant.id)
+        self.assertEqual(expense_2.tenant_id, self.other_tenant.id)
+        self.assertEqual(expense_1.wallet_id, expense_2.wallet_id)
+        self.assertEqual(
+            Wallet.objects.filter(tenant=self.other_tenant, wallet_type=Wallet.Type.BANK).count(), 1
+        )
+
+    def test_unlinked_local_request_blocks_move(self):
+        # Expense not relinked yet, but a local request claims the same
+        # doc_no/year/amount — both tenants claiming it is ambiguous, so it stays.
+        expense = self._make_expense(doc_no="RA-7")
+        self._make_request(tenant=self.tenant, doc_no="RA-7")
+        self._make_request(tenant=self.other_tenant, doc_no="RA-7")
+
+        res = self._post()
+        self.assertEqual(res.status_code, 200, res.content)
+        self.assertEqual(res.data["count"], 0)
+        expense.refresh_from_db()
+        self.assertEqual(expense.tenant_id, self.tenant.id)
+
+    def test_other_tenant_request_already_linked_is_not_rematched(self):
+        expense = self._make_expense(doc_no="RA-8")
+        satisfied = self._make_request(tenant=self.other_tenant, doc_no="RA-8")
+        Request.objects.filter(pk=satisfied.pk).update(
+            expense_ref_id=999_999, expense_ref_target=Request.EXPENSE_REF_TARGET_BANK,
+        )
+
+        res = self._post()
+        self.assertEqual(res.status_code, 200, res.content)
+        self.assertEqual(res.data["count"], 0)
+        expense.refresh_from_db()
+        self.assertEqual(expense.tenant_id, self.tenant.id)
+        satisfied.refresh_from_db()
+        self.assertEqual(satisfied.expense_ref_id, 999_999)
+
+    def test_other_tenant_validation(self):
+        res = self.client.post(self.url, {}, format="json", **self._headers())
+        self.assertEqual(res.status_code, 400, res.content)
+
+        res = self._post(other_tenant="does-not-exist")
+        self.assertEqual(res.status_code, 400, res.content)
+
+        res = self._post(other_tenant="reassign-acme")
+        self.assertEqual(res.status_code, 400, res.content)
+
+
+@override_settings(
+    BASE_DOMAIN="example.com",
+    N8N_INTEGRATION_TOKEN="integ-test-secret",
     ALLOWED_HOSTS=["acme.example.com", "testserver"],
 )
 class NotifyRequestPayedTests(APITestCase):

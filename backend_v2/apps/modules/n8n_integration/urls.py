@@ -25,6 +25,11 @@ urlpatterns = [
     path("cash/revenues/batch/", views.N8nCashRevenueBatchUpsertView.as_view(), name="n8n-cash-revenues-batch-upsert"),
     path("bank/expenses/", views.N8nBankExpenseUpsertView.as_view(), name="n8n-bank-expenses-upsert"),
     path("bank/expenses/batch/", views.N8nBankExpenseBatchUpsertView.as_view(), name="n8n-bank-expenses-batch-upsert"),
+    path(
+        "bank/expenses/reassign-unmatched/",
+        views.N8nBankExpenseReassignUnmatchedView.as_view(),
+        name="n8n-bank-expenses-reassign-unmatched",
+    ),
     path("bank/revenues/", views.N8nBankRevenueUpsertView.as_view(), name="n8n-bank-revenues-upsert"),
     path("bank/revenues/batch/", views.N8nBankRevenueBatchUpsertView.as_view(), name="n8n-bank-revenues-batch-upsert"),
     path("corporate-card/expenses/", views.N8nCardExpenseUpsertView.as_view(), name="n8n-card-expenses-upsert"),
