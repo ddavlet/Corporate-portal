@@ -8,7 +8,6 @@ from apps.modules.investments.views import (
     InvestmentApprovalConfigStepReadViewSet,
     InvestmentApprovalConfigView,
     InvestmentApprovalDecisionView,
-    InvestmentApprovalWebhookView,
     InvestmentFormConfigReadViewSet,
     InvestmentFormConfigView,
     InvestmentProjectApprovalConfigReadViewSet,
@@ -88,5 +87,4 @@ urlpatterns = [
         InvestmentProjectApprovalDecisionView.as_view(),
         name="invest-project-approval-decision",
     ),
-    path("approvals/webhook/", InvestmentApprovalWebhookView.as_view(), name="invest-approvals-webhook"),
 ]

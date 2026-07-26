@@ -753,6 +753,13 @@ class InvestmentProjectApprovalDecisionView(APIView):
 
 
 class InvestmentApprovalWebhookView(APIView):
+    """
+    Handle investment approval button callbacks (inv_ / invp_).
+
+    Not exposed as a public URL. Invoked only from the internal
+    messaging-gateway webhook (tg-gateway → Docker network).
+    """
+
     permission_classes = [AllowAny]
     authentication_classes = []
 
