@@ -193,7 +193,7 @@ def list_payment_purposes_by_payment_type(*, tenant_id: int) -> dict[str, list[s
             _append(str(pt).strip(), name_s)
 
     for row in (
-        Request.objects.filter(tenant_id=tenant_id)
+        Request.objects.filter(tenant_id=tenant_id, source_tenant__isnull=True)
         .exclude(payment_purpose="")
         .values("payment_type", "payment_purpose")
         .distinct()

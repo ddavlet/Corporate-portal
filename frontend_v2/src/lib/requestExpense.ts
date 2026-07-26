@@ -17,8 +17,10 @@ const PORTAL_EXPENSE_MODULES = ['cash', 'bank', 'payroll'] as const
 export function isPayedMissingLinkedExpense(row: {
   status: string
   expense_link?: RequestExpenseLink
+  external_matched?: boolean
 }): boolean {
   if (String(row.status || '').trim().toUpperCase() !== 'PAYED') return false
+  if (row.external_matched) return false
   const link = row.expense_link
   if (link == null) return true
   if (link.module === 'external') return true

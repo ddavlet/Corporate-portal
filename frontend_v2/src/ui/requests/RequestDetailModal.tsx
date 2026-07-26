@@ -93,6 +93,10 @@ export type RequestDetail = {
   }>
   approvals: ApprovalItem[]
   comments?: RequestComment[]
+  source_tenant_name?: string | null
+  source_request_id?: number | null
+  external_matched?: boolean
+  external_matched_tenant_name?: string | null
 }
 
 const dateTimeFormatterTashkent = new Intl.DateTimeFormat('ru-RU', {
@@ -631,6 +635,14 @@ export function RequestDetailContent({
               linkedExpenseText || '-'
             )}
           </Descriptions.Item>
+          {detail.source_tenant_name ? (
+            <Descriptions.Item label="Скопировано из">{detail.source_tenant_name}</Descriptions.Item>
+          ) : null}
+          {detail.external_matched ? (
+            <Descriptions.Item label="Расход учтён в">
+              {detail.external_matched_tenant_name || 'другом тенанте'}
+            </Descriptions.Item>
+          ) : null}
           <Descriptions.Item label="Дата оплаты">{formatPayedAt(detail.payed_at)}</Descriptions.Item>
           <Descriptions.Item label="Файлы">
             {fileRows.length ? (

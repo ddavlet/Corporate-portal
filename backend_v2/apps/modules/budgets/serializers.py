@@ -115,6 +115,7 @@ class BudgetSerializer(serializers.ModelSerializer):
                     status__in=[Request.STATUS_APPROVED, Request.STATUS_PAYED],
                     billing_date__gte=start,
                     billing_date__lt=end,
+                    source_tenant__isnull=True,
                 ).aggregate(total=Sum("amount"))["total"]
             )
             self._spent_cache[obj.pk] = total or Decimal("0")

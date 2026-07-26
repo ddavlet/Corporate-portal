@@ -110,6 +110,7 @@ class BudgetViewSet(PortalListViewSetMixin, viewsets.ModelViewSet):
             status__in=[Request.STATUS_APPROVED, Request.STATUS_PAYED],
             billing_date__gte=start,
             billing_date__lt=end,
+            source_tenant__isnull=True,
         ).order_by("-billing_date").values(
             "id", "title", "amount", "currency", "category",
             "status", "billing_date", "payment_type",

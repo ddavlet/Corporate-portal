@@ -67,14 +67,23 @@ def list_requests(
     - date_from / date_to: ISO date strings (YYYY-MM-DD), filter on created_at
     - limit: max records to return (default 50, max 200)
     """
-    _, tenant = require_module_access(tenant_id, MODULE)
+    user, tenant = require_module_access(tenant_id, MODULE)
 
     validate_date(date_from, "date_from")
     validate_date(date_to, "date_to")
 
     from apps.modules.requests.models import Request
+    from apps.tenants.models import TenantUserRole
 
     qs = Request.objects.filter(tenant=tenant)
+    is_admin = TenantUserRole.objects.filter(
+        tenant=tenant, user=user, role=TenantUserRole.ROLE_ADMIN
+    ).exists()
+    if not is_admin:
+        # Cross-tenant copies (source_tenant set) are an admin-only accounting artifact —
+        # same rule as the portal requests list, enforced here since this is a separate
+        # read path that bypasses PortalRequestViewSet.get_queryset.
+        qs = qs.filter(source_tenant__isnull=True)
 
     if status:
         qs = qs.filter(status=status)
