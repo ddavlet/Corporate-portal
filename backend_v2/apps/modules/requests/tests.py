@@ -2508,6 +2508,65 @@ class RequestAttachmentsTests(APITestCase):
         self.assertEqual(res.status_code, 200, res.content)
         self.assertEqual(RequestAttachment.objects.filter(request_id=self.request_id).count(), 1)
 
+    def test_upload_succeeds_after_create_routes_request_past_draft(self):
+        # Regression: perform_create() routes a new request for approval synchronously
+        # (Approval rows + status recalculation) whenever the payment type has approval
+        # steps configured, which is the normal case for real tenants. That means a
+        # freshly created request is essentially never still DRAFT by the time the
+        # create-form's follow-up file-upload call runs. file-upload used to gate on
+        # literal STATUS_DRAFT, so every attachment picked on the create form silently
+        # failed to save for any tenant with approvals configured.
+        approver = User.objects.create_user(username="att_appr", password="x")
+        TenantMembership.objects.create(tenant=self.tenant, user=approver, is_active=True)
+        TenantUserRole.objects.create(tenant=self.tenant, user=approver, role=TenantUserRole.ROLE_APPROVER)
+        appr_cfg = RequestApprovalConfig.objects.create(tenant=self.tenant, updated_by=self.requester)
+        pt_cfg = RequestApprovalPaymentTypeConfig.objects.create(
+            config=appr_cfg, payment_type="Наличные", is_enabled=True
+        )
+        step_cfg = RequestApprovalStepConfig.objects.create(
+            payment_type_config=pt_cfg, step=1, step_type=Approval.STEP_TYPE_SERIAL, is_enabled=True
+        )
+        RequestApprovalStepApproverConfig.objects.create(step_config=step_cfg, approver_user=approver)
+
+        created = self.client.post(
+            "/api/requests/",
+            {
+                "title": "T2",
+                "description": "",
+                "amount": 10,
+                "currency": "UZS",
+                "payment_type": "Наличные",
+                "urgency": "Обычно",
+                "billing_date": "2026-01-01",
+            },
+            format="json",
+            HTTP_HOST=self.host,
+        )
+        self.assertEqual(created.status_code, 201, created.content)
+        request_id = created.data["id"]
+
+        req = Request.objects.get(id=request_id)
+        self.assertEqual(req.status, Request.STATUS_PROGRESS_1)
+        self.assertEqual(Approval.objects.filter(request=req).count(), 1)
+
+        file_obj = SimpleUploadedFile(name="ok.pdf", content=b"dummy", content_type="application/pdf")
+        upload_res = self.client.post(
+            f"/api/requests/{request_id}/file-upload/",
+            {"file": file_obj},
+            HTTP_HOST=self.host,
+        )
+        self.assertEqual(upload_res.status_code, 200, upload_res.content)
+        self.assertEqual(RequestAttachment.objects.filter(request_id=request_id).count(), 1)
+
+    def test_upload_rejected_once_request_is_resolved(self):
+        req = Request.objects.get(pk=self.request_id)
+        req.status = Request.STATUS_PAYED
+        req.save(update_fields=["status"])
+
+        res = self._upload("late.pdf", b"dummy", "application/pdf")
+        self.assertEqual(res.status_code, 400, res.content)
+        self.assertEqual(RequestAttachment.objects.filter(request_id=self.request_id).count(), 0)
+
     def test_reject_unsupported_extension(self):
         res = self._upload("bad.exe", b"dummy", "application/octet-stream")
         self.assertEqual(res.status_code, 400, res.content)
