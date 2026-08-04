@@ -476,6 +476,21 @@ class RequestApprovalsMixin:
 class RequestFilesMixin:
     """File management @action methods for PortalRequestViewSet."""
 
+    # perform_create() routes a request for approval synchronously (creating Approval rows
+    # and advancing status past DRAFT) whenever the payment type has approval steps
+    # configured — which is the normal case for real tenants. That means a freshly created
+    # request is essentially never DRAFT by the time the client's follow-up file-upload
+    # call runs, so gating attachments on literal DRAFT silently rejected every attachment
+    # picked on the create form. What actually matters for safety is that nobody has
+    # finalized a decision on the request yet, so attachments stay editable through the
+    # whole pending-approval lifecycle and lock only once it's resolved.
+    ATTACHMENT_LOCKED_STATUSES = {
+        Request.STATUS_APPROVED,
+        Request.STATUS_PAYED,
+        Request.STATUS_REJECTED,
+        Request.STATUS_DELETED,
+    }
+
     @action(detail=True, methods=["post"], url_path="file-upload")
     def file_upload(self, request, pk=None):
         """
@@ -487,9 +502,8 @@ class RequestFilesMixin:
         """
         request_obj = self.get_object()
 
-        # For safety and UX: only allow attaching files to drafts.
-        if request_obj.status != Request.STATUS_DRAFT:
-            raise ValidationError({"detail": "Files can be attached only to DRAFT requests."})
+        if request_obj.status in self.ATTACHMENT_LOCKED_STATUSES:
+            raise ValidationError({"detail": "Files can no longer be attached to a resolved request."})
 
         upload = request.FILES.get("file")
         if not upload:
@@ -540,8 +554,8 @@ class RequestFilesMixin:
     @action(detail=True, methods=["delete"], url_path=r"attachments/(?P<attachment_id>[^/.]+)")
     def attachment_delete(self, request, pk=None, attachment_id=None):
         request_obj = self.get_object()
-        if request_obj.status != Request.STATUS_DRAFT:
-            raise ValidationError({"detail": "Files can be deleted only for DRAFT requests."})
+        if request_obj.status in self.ATTACHMENT_LOCKED_STATUSES:
+            raise ValidationError({"detail": "Files can no longer be deleted from a resolved request."})
         try:
             attachment_id_int = int(str(attachment_id or "").strip())
         except (TypeError, ValueError) as exc:
