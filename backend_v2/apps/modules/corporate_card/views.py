@@ -57,7 +57,11 @@ class CardExpenseViewSet(PortalListViewSetMixin, viewsets.ModelViewSet):
         )
         search = (self.request.query_params.get("search") or "").strip()
         if search:
-            qs = qs.filter(Q(title__icontains=search) | Q(vendor__name__icontains=search))
+            qs = qs.filter(
+                Q(title__icontains=search)
+                | Q(external_id__icontains=search)
+                | Q(note__icontains=search)
+            )
         expense_from = parse_date_query(self.request, "expense_from")
         expense_to = parse_date_query(self.request, "expense_to")
         if expense_from:

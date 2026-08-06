@@ -582,6 +582,7 @@ export async function changePassword(payload: {
 
 export type CorporateCardExpense = {
   id: number
+  external_id?: string
   title: string
   amount: string | number
   currency: string
@@ -658,6 +659,7 @@ export type ClientDebtSnapshot = {
 
 export type BankRevenue = {
   id: number
+  external_id?: string
   row_no: number | null
   doc_date: string
   process_date: string

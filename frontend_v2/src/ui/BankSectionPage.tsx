@@ -19,6 +19,7 @@ import { renderExpenseRequestStatusTag, shouldHighlightMissingRequiredRequest } 
 
 type BankExpenseRow = {
   id: number
+  external_id?: string
   row_no?: number | null
   doc_date: string
   process_date: string
@@ -550,6 +551,7 @@ export function BankSectionPage({ mode }: { mode: BankSectionMode }) {
         {selectedExpense ? (
           <Descriptions bordered size="small" column={1}>
             <Descriptions.Item label="PK">{selectedExpense.id}</Descriptions.Item>
+            <Descriptions.Item label="Внешний ID">{selectedExpense.external_id || '-'}</Descriptions.Item>
             <Descriptions.Item label="Док. №">{selectedExpense.doc_no || '-'}</Descriptions.Item>
             <Descriptions.Item label="Контрагент">{getExpenseCounterparty(selectedExpense) || '-'}</Descriptions.Item>
             <Descriptions.Item label="Сумма">{Number(selectedExpense.debit_turnover).toLocaleString('ru-RU')}</Descriptions.Item>
@@ -599,6 +601,7 @@ export function BankSectionPage({ mode }: { mode: BankSectionMode }) {
         {selectedRevenue ? (
           <Descriptions bordered size="small" column={1}>
             <Descriptions.Item label="PK">{selectedRevenue.id}</Descriptions.Item>
+            <Descriptions.Item label="Внешний ID">{selectedRevenue.external_id || '-'}</Descriptions.Item>
             <Descriptions.Item label="Док. №">{selectedRevenue.doc_no || '-'}</Descriptions.Item>
             <Descriptions.Item label="Контрагент">{selectedRevenue.account_name || '-'}</Descriptions.Item>
             <Descriptions.Item label="Сумма">{Number(selectedRevenue.kredit_turnover).toLocaleString('ru-RU')}</Descriptions.Item>

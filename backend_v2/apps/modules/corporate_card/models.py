@@ -6,6 +6,7 @@ from apps.tenants.models import Tenant
 
 class CardExpense(models.Model):
     tenant = models.ForeignKey(Tenant, on_delete=models.CASCADE, related_name="card_expenses")
+    external_id = models.CharField(max_length=64, blank=True, default="")
     title = models.CharField(max_length=255, blank=True, default="")
     amount = models.DecimalField(max_digits=18, decimal_places=2, default=0)
     currency = models.CharField(max_length=10, blank=True, default="UZS")
@@ -27,6 +28,13 @@ class CardExpense(models.Model):
     class Meta:
         db_table = "corporate_card_expenses"
         ordering = ["-expense_at", "-created_at"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["tenant", "external_id"],
+                condition=~models.Q(external_id=""),
+                name="uniq_card_expense_tenant_external_id",
+            ),
+        ]
         indexes = [
             models.Index(fields=["tenant", "expense_at"], name="corp_card_exp_tenant_at_idx"),
         ]
@@ -34,7 +42,7 @@ class CardExpense(models.Model):
 
 class CardRevenue(models.Model):
     tenant = models.ForeignKey(Tenant, on_delete=models.CASCADE, related_name="card_revenues")
-    external_id = models.CharField(max_length=20, blank=True, default="")
+    external_id = models.CharField(max_length=64, blank=True, default="")
     confirmed = models.BooleanField(default=True)
     operation = models.CharField(max_length=255, blank=True, default="")
     counterparty = models.CharField(max_length=255, blank=True, default="")
@@ -60,6 +68,13 @@ class CardRevenue(models.Model):
     class Meta:
         db_table = "corporate_card_revenues"
         ordering = ["-revenue_at", "-created_at"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["tenant", "external_id"],
+                condition=~models.Q(external_id=""),
+                name="uniq_card_revenue_tenant_external_id",
+            ),
+        ]
         indexes = [
             models.Index(fields=["tenant", "revenue_at"], name="corp_card_rev_tenant_at_idx"),
             models.Index(fields=["tenant", "bank_expense_id"], name="corp_card_rev_bank_id_idx"),

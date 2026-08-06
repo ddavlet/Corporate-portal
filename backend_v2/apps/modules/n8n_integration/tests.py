@@ -12,7 +12,7 @@ from apps.tenants.models import Tenant, TenantMembership, TenantModuleConfig, Te
 from apps.modules.bank_expenses.models import BankExpense, BankRevenue
 from apps.modules.cashier.models import CashExpense
 from apps.modules.cashier.models import CashRevenue
-from apps.modules.corporate_card.models import CardRevenue
+from apps.modules.corporate_card.models import CardExpense, CardRevenue
 from apps.modules.clients_debt.models import ClientDebtSnapshot
 from apps.modules.requests.models import (
     Approval,
@@ -458,6 +458,135 @@ class N8nIntegrationAuthTests(APITestCase):
         self.assertEqual(res.status_code, 201, res.content)
         row = BankExpense.objects.get(pk=93001)
         self.assertEqual(row.vendor_id, vendor.id)
+
+    def test_bank_expense_upserts_by_external_id_and_updates_amount(self):
+        """Re-import with the same external_id updates the row (amount may change)."""
+        url = f"{self.n8n_prefix}/bank/expenses/"
+        body = {
+            "external_id": "BANK-EXT-1",
+            "row_no": 1,
+            "doc_date": "2026-07-31",
+            "process_date": "2026-07-31",
+            "doc_no": "BEXP-EXT-1",
+            "debit_turnover": "1000.00",
+            "payment_purpose": "Оплата",
+        }
+        r1 = self.client.post(url, body, format="json", **self._headers(self.admin))
+        self.assertEqual(r1.status_code, 201, r1.content)
+        row = BankExpense.objects.get(tenant=self.tenant, external_id="BANK-EXT-1")
+        self.assertEqual(str(row.debit_turnover), "1000.00")
+
+        body2 = {**body, "debit_turnover": "1500.00", "payment_purpose": "Оплата исправлена"}
+        r2 = self.client.post(url, body2, format="json", **self._headers(self.admin))
+        self.assertEqual(r2.status_code, 200, r2.content)
+        self.assertEqual(BankExpense.objects.filter(tenant=self.tenant, external_id="BANK-EXT-1").count(), 1)
+        row.refresh_from_db()
+        self.assertEqual(str(row.debit_turnover), "1500.00")
+        self.assertEqual(row.payment_purpose, "Оплата исправлена")
+
+    def test_bank_expense_batch_upserts_by_external_id(self):
+        url = f"{self.n8n_prefix}/bank/expenses/batch/"
+        item = {
+            "external_id": "BANK-BATCH-EXT-1",
+            "row_no": 1,
+            "doc_date": "2026-07-31",
+            "process_date": "2026-07-31",
+            "doc_no": "BEXP-BATCH-EXT-1",
+            "debit_turnover": "200.00",
+            "payment_purpose": "Batch",
+        }
+        r1 = self.client.post(url, [item], format="json", **self._headers(self.admin))
+        self.assertEqual(r1.status_code, 200, r1.content)
+        self.assertEqual(r1.data["count"], 1)
+        self.assertEqual(r1.data["skipped"], 0)
+
+        r2 = self.client.post(
+            url,
+            [{**item, "debit_turnover": "250.00"}],
+            format="json",
+            **self._headers(self.admin),
+        )
+        self.assertEqual(r2.status_code, 200, r2.content)
+        self.assertEqual(r2.data["count"], 1)
+        self.assertEqual(r2.data["skipped"], 0)
+        row = BankExpense.objects.get(tenant=self.tenant, external_id="BANK-BATCH-EXT-1")
+        self.assertEqual(str(row.debit_turnover), "250.00")
+
+    def test_bank_revenue_upserts_by_external_id(self):
+        url = f"{self.n8n_prefix}/bank/revenues/"
+        body = {
+            "external_id": "BREV-EXT-1",
+            "row_no": 1,
+            "doc_date": "2026-07-31",
+            "process_date": "2026-07-31",
+            "doc_no": "BREV-1",
+            "account_name": "Client",
+            "inn": "123",
+            "account_no": "202080001",
+            "mfo": "01001",
+            "kredit_turnover": "900.00",
+            "payment_purpose": "Поступление",
+        }
+        r1 = self.client.post(url, body, format="json", **self._headers(self.admin))
+        self.assertEqual(r1.status_code, 201, r1.content)
+        r2 = self.client.post(
+            url,
+            {**body, "kredit_turnover": "950.00"},
+            format="json",
+            **self._headers(self.admin),
+        )
+        self.assertEqual(r2.status_code, 200, r2.content)
+        row = BankRevenue.objects.get(tenant=self.tenant, external_id="BREV-EXT-1")
+        self.assertEqual(str(row.kredit_turnover), "950.00")
+
+    def test_card_expense_upserts_by_external_id(self):
+        from apps.modules.wallets.resolution import get_or_create_corporate_wallet
+
+        get_or_create_corporate_wallet(tenant=self.tenant, currency="UZS")
+        url = f"{self.n8n_prefix}/corporate-card/expenses/"
+        body = {
+            "external_id": "CARD-EXT-1",
+            "title": "Card pay",
+            "amount": "100.00",
+            "currency": "UZS",
+            "expense_at": "2026-07-31T10:00:00+05:00",
+        }
+        r1 = self.client.post(url, body, format="json", **self._headers(self.admin))
+        self.assertEqual(r1.status_code, 201, r1.content)
+        r2 = self.client.post(
+            url,
+            {**body, "amount": "120.00", "title": "Card pay fixed"},
+            format="json",
+            **self._headers(self.admin),
+        )
+        self.assertEqual(r2.status_code, 200, r2.content)
+        row = CardExpense.objects.get(tenant=self.tenant, external_id="CARD-EXT-1")
+        self.assertEqual(str(row.amount), "120.00")
+        self.assertEqual(row.title, "Card pay fixed")
+
+    def test_card_revenue_upserts_by_external_id(self):
+        from apps.modules.wallets.resolution import get_or_create_corporate_wallet
+
+        get_or_create_corporate_wallet(tenant=self.tenant, currency="UZS")
+        url = f"{self.n8n_prefix}/corporate-card/revenues/"
+        body = {
+            "external_id": "CARD-REV-EXT-1",
+            "date": "2026-07-31T10:00:00+05:00",
+            "total_sum": "200.00",
+            "currency": "UZS",
+            "operation": "Возврат",
+        }
+        r1 = self.client.post(url, body, format="json", **self._headers(self.admin))
+        self.assertEqual(r1.status_code, 201, r1.content)
+        r2 = self.client.post(
+            url,
+            {**body, "total_sum": "220.00"},
+            format="json",
+            **self._headers(self.admin),
+        )
+        self.assertEqual(r2.status_code, 200, r2.content)
+        row = CardRevenue.objects.get(tenant=self.tenant, external_id="CARD-REV-EXT-1")
+        self.assertEqual(str(row.total_sum), "220.00")
 
     def test_bank_expense_resolves_vendor_by_account_name(self):
         vendor = Vendor.objects.create(

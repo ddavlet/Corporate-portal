@@ -71,6 +71,7 @@ class BankExpenseViewSet(PortalListViewSetMixin, viewsets.ModelViewSet):
         if search:
             qs = qs.filter(
                 Q(doc_no__icontains=search)
+                | Q(external_id__icontains=search)
                 | Q(payment_purpose__icontains=search)
                 | Q(vendor__name__icontains=search)
             )
