@@ -50,6 +50,7 @@ class BankExpenseSerializer(serializers.ModelSerializer):
         model = BankExpense
         fields = [
             "id",
+            "external_id",
             "created_at",
             "created_by",
             "row_no",
@@ -165,6 +166,7 @@ class BankRevenueSerializer(serializers.ModelSerializer):
         model = BankRevenue
         fields = [
             "id",
+            "external_id",
             "created_at",
             "created_by",
             "row_no",

@@ -323,6 +323,91 @@ def _n8n_upsert(
     return Response(ser.data, status=status.HTTP_201_CREATED)
 
 
+def _n8n_coerce_string_id_to_external_id(payload: dict) -> dict | Response:
+    """If `id` is a non-integer string, treat it as `external_id` (cash/bank/card import style)."""
+    out = dict(payload)
+    raw_id = out.get("id")
+    if raw_id in (None, ""):
+        return out
+    try:
+        int(raw_id)
+    except (TypeError, ValueError):
+        external_id = str(raw_id).strip()
+        if not external_id:
+            return Response({"id": ["Must be an integer."]}, status=status.HTTP_400_BAD_REQUEST)
+        out.pop("id", None)
+        out.setdefault("external_id", external_id)
+    return out
+
+
+def _n8n_bind_payload_id_from_external_id(payload: dict, *, tenant, model) -> dict:
+    """When external_id matches an existing row, force update via that row's PK."""
+    external_id = str(payload.get("external_id") or "").strip()
+    if not external_id:
+        return payload
+    existing = model.objects.filter(tenant=tenant, external_id=external_id).first()
+    if existing is not None:
+        payload = dict(payload)
+        payload["id"] = existing.id
+    return payload
+
+
+def _n8n_request_with_data(base_request, data: dict):
+    class _Req:
+        pass
+
+    req = _Req()
+    req.data = data
+    req.tenant = base_request.tenant
+    req.META = base_request.META
+    req.method = base_request.method
+    req.user = base_request.user
+    req.path = getattr(base_request, "path", "")
+    req.GET = getattr(base_request, "GET", {})
+    if hasattr(base_request, "skip_bank_relink"):
+        req.skip_bank_relink = base_request.skip_bank_relink
+    return req
+
+
+def _n8n_upsert_with_external_id(
+    request,
+    *,
+    model,
+    serializer_class,
+    build_create_kwargs,
+    serializer_context_extra=None,
+):
+    """Upsert by numeric `id` or by non-blank `external_id` (tenant-scoped)."""
+    coerced = _n8n_coerce_string_id_to_external_id(dict(request.data))
+    if isinstance(coerced, Response):
+        return coerced
+    payload = _n8n_bind_payload_id_from_external_id(coerced, tenant=request.tenant, model=model)
+    tenant = request.tenant
+
+    def get_instance(pk):
+        return model.objects.filter(pk=pk, tenant=tenant).first()
+
+    def other_tenant_conflict(pk):
+        o = model.objects.filter(pk=pk).first()
+        return o is not None and o.tenant_id != tenant.id
+
+    def get_instance_without_pk(data):
+        external_id = str(data.get("external_id") or "").strip()
+        if not external_id:
+            return None
+        return model.objects.filter(tenant=tenant, external_id=external_id).first()
+
+    return _n8n_upsert(
+        _n8n_request_with_data(request, payload),
+        serializer_class=serializer_class,
+        get_instance=get_instance,
+        other_tenant_conflict=other_tenant_conflict,
+        build_create_kwargs=build_create_kwargs,
+        serializer_context_extra=serializer_context_extra,
+        get_instance_without_pk=get_instance_without_pk,
+    )
+
+
 class _N8nBaseView(APIView):
     """Upsert/read n8n API: integration token only (no JWT)."""
 
@@ -1374,21 +1459,13 @@ class N8nBankExpenseUpsertView(_N8nBaseView):
     def post(self, request):
         tenant = request.tenant
 
-        def get_instance(pk):
-            return BankExpense.objects.filter(pk=pk, tenant=tenant).first()
-
-        def other_tenant_conflict(pk):
-            o = BankExpense.objects.filter(pk=pk).first()
-            return o is not None and o.tenant_id != tenant.id
-
         def build_create_kwargs(req, su):
             return {"tenant": req.tenant, "created_by": su}
 
-        response = _n8n_upsert(
+        response = _n8n_upsert_with_external_id(
             request,
+            model=BankExpense,
             serializer_class=N8nBankExpenseImportSerializer,
-            get_instance=get_instance,
-            other_tenant_conflict=other_tenant_conflict,
             build_create_kwargs=build_create_kwargs,
         )
         if 200 <= int(getattr(response, "status_code", 500)) < 300 and not getattr(
@@ -1402,69 +1479,39 @@ class N8nBankExpenseUpsertView(_N8nBaseView):
 
 class N8nBankRevenueUpsertView(_N8nBaseView):
     def post(self, request):
-        tenant = request.tenant
-
-        def get_instance(pk):
-            return BankRevenue.objects.filter(pk=pk, tenant=tenant).first()
-
-        def other_tenant_conflict(pk):
-            o = BankRevenue.objects.filter(pk=pk).first()
-            return o is not None and o.tenant_id != tenant.id
-
         def build_create_kwargs(req, su):
             return {"tenant": req.tenant, "created_by": su}
 
-        return _n8n_upsert(
+        return _n8n_upsert_with_external_id(
             request,
+            model=BankRevenue,
             serializer_class=N8nBankRevenueImportSerializer,
-            get_instance=get_instance,
-            other_tenant_conflict=other_tenant_conflict,
             build_create_kwargs=build_create_kwargs,
         )
 
 
 class N8nCardExpenseUpsertView(_N8nBaseView):
     def post(self, request):
-        tenant = request.tenant
-
-        def get_instance(pk):
-            return CardExpense.objects.filter(pk=pk, tenant=tenant).first()
-
-        def other_tenant_conflict(pk):
-            o = CardExpense.objects.filter(pk=pk).first()
-            return o is not None and o.tenant_id != tenant.id
-
         def build_create_kwargs(req, su):
             return {"tenant": req.tenant, "created_by": su}
 
-        return _n8n_upsert(
+        return _n8n_upsert_with_external_id(
             request,
+            model=CardExpense,
             serializer_class=N8nCardExpenseImportSerializer,
-            get_instance=get_instance,
-            other_tenant_conflict=other_tenant_conflict,
             build_create_kwargs=build_create_kwargs,
         )
 
 
 class N8nCardRevenueUpsertView(_N8nBaseView):
     def post(self, request):
-        tenant = request.tenant
-
-        def get_instance(pk):
-            return CardRevenue.objects.filter(pk=pk, tenant=tenant).first()
-
-        def other_tenant_conflict(pk):
-            o = CardRevenue.objects.filter(pk=pk).first()
-            return o is not None and o.tenant_id != tenant.id
-
         def build_create_kwargs(req, su):
             return {"tenant": req.tenant, "created_by": su}
 
-        return _n8n_upsert(
+        return _n8n_upsert_with_external_id(
             request,
+            model=CardRevenue,
             serializer_class=N8nCardRevenueImportSerializer,
-            get_instance=get_instance,
-            other_tenant_conflict=other_tenant_conflict,
             build_create_kwargs=build_create_kwargs,
         )
 

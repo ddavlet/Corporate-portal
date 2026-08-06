@@ -94,6 +94,7 @@ class CardExpenseSerializer(serializers.ModelSerializer):
         model = CardExpense
         fields = [
             "id",
+            "external_id",
             "title",
             "amount",
             "currency",

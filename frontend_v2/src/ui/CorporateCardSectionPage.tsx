@@ -284,6 +284,12 @@ export function CorporateCardSectionPage({ mode }: { mode: CorporateCardSectionM
 
   const expenseColumns: ColumnsType<CorporateCardExpense> = [
     { title: 'ID', dataIndex: 'id', width: 90, sorter: (a, b) => a.id - b.id },
+    {
+      title: 'Внешний ID',
+      dataIndex: 'external_id',
+      width: 120,
+      sorter: (a, b) => String(a.external_id || '').localeCompare(String(b.external_id || '')),
+    },
     { title: 'Название', dataIndex: 'title', sorter: (a, b) => String(a.title || '').localeCompare(String(b.title || '')) },
     {
       title: 'Сумма',
@@ -541,6 +547,7 @@ export function CorporateCardSectionPage({ mode }: { mode: CorporateCardSectionM
         {selectedExpense ? (
           <Descriptions bordered size="small" column={1}>
             <Descriptions.Item label="ID">{selectedExpense.id}</Descriptions.Item>
+            <Descriptions.Item label="Внешний ID">{selectedExpense.external_id || '-'}</Descriptions.Item>
             <Descriptions.Item label="Название">{selectedExpense.title || '-'}</Descriptions.Item>
             <Descriptions.Item label="Сумма">
               {`${Number(selectedExpense.amount).toLocaleString('ru-RU')} ${selectedExpense.currency || ''}`.trim()}
