@@ -1365,6 +1365,109 @@ class N8nIntegrationAuthTests(APITestCase):
         req = Request.objects.get(pk=5011)
         self.assertEqual(req.expense_ref_id, cash_expense.id)
 
+    def test_request_upsert_resolves_expense_ref_id_for_card_by_external_id(self):
+        from apps.modules.wallets.resolution import get_or_create_corporate_wallet
+
+        wallet = get_or_create_corporate_wallet(tenant=self.tenant, currency="UZS")
+        card_expense = CardExpense.objects.create(
+            tenant=self.tenant,
+            external_id="6282688315",
+            title="Card pay",
+            amount="1000000.00",
+            currency="UZS",
+            expense_at=datetime(2026, 7, 20, 0, 0, 0),
+            created_by=self.admin,
+            wallet=wallet,
+        )
+        url = f"{self.n8n_prefix}/requests/"
+        body = {
+            "id": 5020,
+            "title": "Card request",
+            "description": "from n8n",
+            "amount": "1000000.00",
+            "currency": "UZS",
+            "payment_type": Request.PAYMENT_TYPE_CARD,
+            "urgency": "Обычно",
+            "requester": self.requester.id,
+            "status": Request.STATUS_PAYED,
+            "billing_date": "2026-07-20",
+            "expense_id": "6282688315",
+        }
+        res = self.client.post(url, body, format="json", **self._headers(self.admin))
+        self.assertEqual(res.status_code, 201, res.content)
+        req = Request.objects.get(pk=5020)
+        self.assertEqual(req.expense_ref_id, card_expense.id)
+        self.assertEqual(req.expense_ref_target, Request.EXPENSE_REF_TARGET_CARD)
+        self.assertEqual(req.expense_id, "6282688315")
+
+    def test_request_upsert_resolves_card_by_pk_when_external_id_absent(self):
+        from apps.modules.wallets.resolution import get_or_create_corporate_wallet
+
+        wallet = get_or_create_corporate_wallet(tenant=self.tenant, currency="UZS")
+        card_expense = CardExpense.objects.create(
+            tenant=self.tenant,
+            external_id="",
+            title="Card pay pk",
+            amount="150.00",
+            currency="UZS",
+            expense_at=datetime(2026, 7, 20, 0, 0, 0),
+            created_by=self.admin,
+            wallet=wallet,
+        )
+        url = f"{self.n8n_prefix}/requests/"
+        body = {
+            "id": 5021,
+            "title": "Card request pk",
+            "description": "from n8n",
+            "amount": "150.00",
+            "currency": "UZS",
+            "payment_type": Request.PAYMENT_TYPE_CARD,
+            "urgency": "Обычно",
+            "requester": self.requester.id,
+            "status": Request.STATUS_PAYED,
+            "billing_date": "2026-07-20",
+            "expense_id": str(card_expense.id),
+        }
+        res = self.client.post(url, body, format="json", **self._headers(self.admin))
+        self.assertEqual(res.status_code, 201, res.content)
+        req = Request.objects.get(pk=5021)
+        self.assertEqual(req.expense_ref_id, card_expense.id)
+        self.assertEqual(req.expense_ref_target, Request.EXPENSE_REF_TARGET_CARD)
+
+    def test_request_upsert_does_not_resolve_card_external_id_when_amount_mismatch(self):
+        from apps.modules.wallets.resolution import get_or_create_corporate_wallet
+
+        wallet = get_or_create_corporate_wallet(tenant=self.tenant, currency="UZS")
+        CardExpense.objects.create(
+            tenant=self.tenant,
+            external_id="CARD-AMT-MIS",
+            title="Card pay",
+            amount="100.00",
+            currency="UZS",
+            expense_at=datetime(2026, 7, 20, 0, 0, 0),
+            created_by=self.admin,
+            wallet=wallet,
+        )
+        url = f"{self.n8n_prefix}/requests/"
+        body = {
+            "id": 5022,
+            "title": "Card request amount mismatch",
+            "description": "from n8n",
+            "amount": "999.00",
+            "currency": "UZS",
+            "payment_type": Request.PAYMENT_TYPE_CARD,
+            "urgency": "Обычно",
+            "requester": self.requester.id,
+            "status": Request.STATUS_PAYED,
+            "billing_date": "2026-07-20",
+            "expense_id": "CARD-AMT-MIS",
+        }
+        res = self.client.post(url, body, format="json", **self._headers(self.admin))
+        self.assertEqual(res.status_code, 201, res.content)
+        req = Request.objects.get(pk=5022)
+        self.assertIsNone(req.expense_ref_id)
+        self.assertEqual(req.expense_id, "CARD-AMT-MIS")
+
     def test_request_upsert_resolves_numeric_cash_expense_id_to_canonical(self):
         cash_register = CashRegister.objects.create(tenant=self.tenant, currency="UZS", name="Main cash")
         cash_wallet = Wallet.objects.create(

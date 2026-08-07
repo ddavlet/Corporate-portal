@@ -165,7 +165,7 @@ def annotate_card_expense_compliance(qs, *, tenant):
         tenant=tenant,
         payment_type=Request.PAYMENT_TYPE_CARD,
         amount=OuterRef("amount"),
-    ).filter(Q(expense_ref_id=OuterRef("id")))
+    ).filter(Q(expense_ref_id=OuterRef("id")) | Q(expense_id=OuterRef("external_id")))
     paid_request_subquery = request_subquery.filter(status=Request.STATUS_PAYED)
     return qs.annotate(
         has_request=Exists(request_subquery),

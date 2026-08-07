@@ -57,6 +57,8 @@ def resolve_request_expense_ref(
 
     Amount must match the expense row (or payroll document total). Never raises: returns
     `(None, None)` if the row is missing, ambiguous, or inputs are insufficient.
+
+    Card: tries numeric PK first (payment webapp), then `external_id` (n8n bank/card payment id).
     """
     raw = str(expense_id_raw or "").strip()
     if not raw:
@@ -105,11 +107,19 @@ def resolve_request_expense_ref(
         return match.id, raw
 
     if payment_type == Request.PAYMENT_TYPE_CARD:
+        # Prefer PK when expense_id is numeric and a matching row exists (payment webapp).
+        # Fall back to external_id so n8n can link by bank/card payment id before knowing PK.
         try:
             card_id = int(raw)
         except (TypeError, ValueError):
-            return None, None
-        qs = CardExpense.objects.filter(tenant=tenant, id=card_id)
+            card_id = None
+        if card_id is not None:
+            qs = CardExpense.objects.filter(tenant=tenant, id=card_id)
+            qs = _filter_queryset_by_amount(qs, amount_field="amount", amount_value=amount_value)
+            match = _single_match(qs, limit=1)
+            if match is not None:
+                return match.id, raw
+        qs = CardExpense.objects.filter(tenant=tenant, external_id=raw).exclude(external_id="")
         qs = _filter_queryset_by_amount(qs, amount_field="amount", amount_value=amount_value)
         match = _single_match(qs, limit=1)
         if match is None:
