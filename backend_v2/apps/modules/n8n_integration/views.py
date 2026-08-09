@@ -1129,6 +1129,149 @@ class N8nRequestsMissingExpenseView(_N8nBaseView):
         return Response({"results": rows, "count": len(rows)})
 
 
+_REQUEST_LIST_STATUS_VALUES = {value for value, _label in Request.STATUS_CHOICES}
+_REQUEST_LIST_PAYMENT_TYPE_VALUES = {value for value, _label in Request.PAYMENT_TYPE_CHOICES}
+
+
+def _parse_requests_list_date(raw: str | None, *, field_name: str) -> date | None:
+    text = (raw or "").strip()
+    if not text:
+        return None
+    try:
+        return date.fromisoformat(text)
+    except ValueError as exc:
+        raise ValueError(field_name) from exc
+
+
+def _parse_requests_list_int(raw: str | None, *, field_name: str, default: int, minimum: int, maximum: int) -> int:
+    if raw in (None, ""):
+        return default
+    try:
+        value = int(raw)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(field_name) from exc
+    return min(max(minimum, value), maximum)
+
+
+def _serialize_n8n_request_list_row(r: Request) -> dict:
+    return {
+        "id": r.id,
+        "title": r.title,
+        "description": r.description,
+        "company_payer": r.company_payer,
+        "category": r.category,
+        "vendor": r.vendor,
+        "amount": str(r.amount),
+        "currency": r.currency,
+        "payment_type": r.payment_type,
+        "urgency": r.urgency,
+        "payment_purpose": r.payment_purpose,
+        "status": r.status,
+        "created_at": r.created_at.isoformat() if r.created_at else None,
+        "submitted_at": r.submitted_at.isoformat() if r.submitted_at else None,
+        "billing_date": r.billing_date.isoformat() if r.billing_date else None,
+        "payed_at": r.payed_at,
+        "expense_id": r.expense_id,
+        "expense_ref_id": r.expense_ref_id,
+        "expense_ref_target": r.expense_ref_target,
+        "expense_year": r.expense_year,
+        "expense_month": r.expense_month,
+        "expense_day": r.expense_day,
+        "file_link": r.file_link,
+        "requester_id": r.requester_id,
+        "created_by_id": r.created_by_id,
+    }
+
+
+class N8nRequestsListView(_N8nBaseView):
+    """
+    Lists requests for the current tenant filtered by creation date.
+    At least one of created_from / created_to is required.
+    """
+
+    def get(self, request):
+        tenant = getattr(request, "tenant", None)
+        if tenant is None:
+            return Response({"detail": "Unknown tenant."}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            created_from = _parse_requests_list_date(
+                request.query_params.get("created_from"),
+                field_name="created_from",
+            )
+            created_to = _parse_requests_list_date(
+                request.query_params.get("created_to"),
+                field_name="created_to",
+            )
+        except ValueError as exc:
+            field = str(exc)
+            return Response({field: ["Use YYYY-MM-DD format."]}, status=status.HTTP_400_BAD_REQUEST)
+
+        if created_from is None and created_to is None:
+            return Response(
+                {"created_from": ["Provide created_from and/or created_to."]},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if created_from is not None and created_to is not None and created_from > created_to:
+            return Response(
+                {"created_from": ["Must be less than or equal to created_to."]},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        status_filter = (request.query_params.get("status") or "").strip()
+        if status_filter and status_filter not in _REQUEST_LIST_STATUS_VALUES:
+            return Response(
+                {"status": [f"Must be one of: {', '.join(sorted(_REQUEST_LIST_STATUS_VALUES))}."]},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        payment_type = (request.query_params.get("payment_type") or "").strip()
+        if payment_type and payment_type not in _REQUEST_LIST_PAYMENT_TYPE_VALUES:
+            return Response(
+                {
+                    "payment_type": [
+                        f"Must be one of: {', '.join(sorted(_REQUEST_LIST_PAYMENT_TYPE_VALUES))}."
+                    ]
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            limit = _parse_requests_list_int(
+                request.query_params.get("limit"),
+                field_name="limit",
+                default=200,
+                minimum=1,
+                maximum=500,
+            )
+            offset = _parse_requests_list_int(
+                request.query_params.get("offset"),
+                field_name="offset",
+                default=0,
+                minimum=0,
+                maximum=1_000_000,
+            )
+        except ValueError as exc:
+            field = str(exc)
+            return Response({field: ["Must be an integer."]}, status=status.HTTP_400_BAD_REQUEST)
+
+        qs = Request.objects.filter(tenant=tenant)
+        if created_from is not None:
+            qs = qs.filter(created_at__date__gte=created_from)
+        if created_to is not None:
+            qs = qs.filter(created_at__date__lte=created_to)
+        if status_filter:
+            qs = qs.filter(status=status_filter)
+        if payment_type:
+            qs = qs.filter(payment_type=payment_type)
+
+        rows = [
+            _serialize_n8n_request_list_row(r)
+            for r in qs.order_by("-created_at", "-id")[offset : offset + limit]
+        ]
+        return Response({"results": rows, "count": len(rows), "limit": limit, "offset": offset})
+
+
 class N8nAiRequestCreateView(APIView):
     """
     n8n gateway for AI assistants:

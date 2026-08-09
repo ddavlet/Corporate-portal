@@ -2707,3 +2707,120 @@ class N8nRequestCopyImportTests(APITestCase):
         self.assertEqual(res.status_code, 201, res.content)
         self.assertTrue(res.data["is_missing_expense"])
 
+
+@override_settings(
+    BASE_DOMAIN="example.com",
+    N8N_INTEGRATION_TOKEN="integ-test-secret",
+    ALLOWED_HOSTS=["acme.example.com", "testserver"],
+)
+class N8nRequestsListTests(APITestCase):
+    def setUp(self):
+        su, _ = User.objects.update_or_create(pk=1, defaults={"username": "n8n_system"})
+        if not su.has_usable_password():
+            su.set_unusable_password()
+            su.save(update_fields=["password"])
+        self.system_user = su
+
+        self.tenant = Tenant.objects.create(name="Acme", subdomain="acme", is_active=True)
+        self.admin = User.objects.create_user(username="list_admin", password="pass12345")
+        TenantMembership.objects.create(tenant=self.tenant, user=self.admin, is_active=True)
+        TenantUserRole.objects.create(tenant=self.tenant, user=self.admin, role=TenantUserRole.ROLE_ADMIN)
+        TenantModuleConfig.objects.create(tenant=self.tenant, module_key="requests", is_enabled=True)
+
+        self.n8n_prefix = settings.N8N_INTEGRATION_URL_PREFIX.rstrip("/")
+        self.url = f"{self.n8n_prefix}/requests/list/"
+
+    def _headers(self):
+        return {
+            "HTTP_HOST": "acme.example.com",
+            "HTTP_X_N8N_INTEGRATION_TOKEN": "integ-test-secret",
+        }
+
+    def _make_request(self, *, title, created_at, status=Request.STATUS_APPROVED, payment_type=Request.PAYMENT_TYPE_CASH):
+        return Request.objects.create(
+            tenant=self.tenant,
+            created_by=self.admin,
+            requester=self.admin,
+            title=title,
+            amount="100.00",
+            currency="UZS",
+            payment_type=payment_type,
+            urgency=Request.URGENCY_NORMAL,
+            billing_date=created_at.date(),
+            status=status,
+            created_at=created_at,
+            submitted_at=created_at,
+        )
+
+    def test_requires_created_from_or_created_to(self):
+        res = self.client.get(self.url, **self._headers())
+        self.assertEqual(res.status_code, 400, res.content)
+        self.assertIn("created_from", res.data)
+
+    def test_filters_by_created_at_period_and_optional_status(self):
+        in_range = self._make_request(
+            title="In range",
+            created_at=datetime(2026, 8, 5, 10, 0, 0),
+            status=Request.STATUS_PAYED,
+        )
+        self._make_request(
+            title="Outside range",
+            created_at=datetime(2026, 7, 1, 10, 0, 0),
+            status=Request.STATUS_PAYED,
+        )
+        self._make_request(
+            title="Wrong status",
+            created_at=datetime(2026, 8, 6, 10, 0, 0),
+            status=Request.STATUS_DRAFT,
+        )
+
+        res = self.client.get(
+            self.url,
+            {"created_from": "2026-08-01", "created_to": "2026-08-09", "status": Request.STATUS_PAYED},
+            **self._headers(),
+        )
+        self.assertEqual(res.status_code, 200, res.content)
+        self.assertEqual(res.data["count"], 1)
+        self.assertEqual(res.data["limit"], 200)
+        self.assertEqual(res.data["offset"], 0)
+        self.assertEqual(res.data["results"][0]["id"], in_range.id)
+        self.assertEqual(res.data["results"][0]["title"], "In range")
+        self.assertIn("created_at", res.data["results"][0])
+        self.assertEqual(res.data["results"][0]["created_by_id"], self.admin.id)
+
+    def test_rejects_invalid_created_from(self):
+        res = self.client.get(self.url, {"created_from": "08-01-2026"}, **self._headers())
+        self.assertEqual(res.status_code, 400, res.content)
+        self.assertIn("created_from", res.data)
+
+    def test_rejects_created_from_after_created_to(self):
+        res = self.client.get(
+            self.url,
+            {"created_from": "2026-08-10", "created_to": "2026-08-01"},
+            **self._headers(),
+        )
+        self.assertEqual(res.status_code, 400, res.content)
+        self.assertIn("created_from", res.data)
+
+    def test_offset_pagination(self):
+        older = self._make_request(title="Older", created_at=datetime(2026, 8, 2, 10, 0, 0))
+        newer = self._make_request(title="Newer", created_at=datetime(2026, 8, 8, 10, 0, 0))
+
+        first = self.client.get(
+            self.url,
+            {"created_from": "2026-08-01", "created_to": "2026-08-09", "limit": 1, "offset": 0},
+            **self._headers(),
+        )
+        self.assertEqual(first.status_code, 200, first.content)
+        self.assertEqual(first.data["count"], 1)
+        self.assertEqual(first.data["results"][0]["id"], newer.id)
+
+        second = self.client.get(
+            self.url,
+            {"created_from": "2026-08-01", "created_to": "2026-08-09", "limit": 1, "offset": 1},
+            **self._headers(),
+        )
+        self.assertEqual(second.status_code, 200, second.content)
+        self.assertEqual(second.data["count"], 1)
+        self.assertEqual(second.data["results"][0]["id"], older.id)
+

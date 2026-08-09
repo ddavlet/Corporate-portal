@@ -25,6 +25,11 @@ urlpatterns = [
         views.N8nRequestsMissingExpenseView.as_view(),
         name="n8n-requests-missing-expense",
     ),
+    path(
+        "requests/list/",
+        views.N8nRequestsListView.as_view(),
+        name="n8n-requests-list",
+    ),
     path("approvals/", views.N8nApprovalUpsertView.as_view(), name="n8n-approvals-upsert"),
     path("approvals/batch/", views.N8nApprovalBatchUpsertView.as_view(), name="n8n-approvals-batch-upsert"),
     path("vendors/", views.N8nVendorUpsertView.as_view(), name="n8n-vendors-upsert"),
