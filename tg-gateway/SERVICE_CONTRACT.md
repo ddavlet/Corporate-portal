@@ -1,6 +1,6 @@
 # Service Contract — Messaging Gateway
 
-Version: 2.1
+Version: 2.2
 Base URL:
 - Internal (backend -> gateway): `http://tg-gateway:8080`
 - Public (Telegram -> gateway webhook only): `https://<TG_GATEWAY_PUBLIC_HOST>`
@@ -107,21 +107,23 @@ gateway treats this as success (200) and returns the original `message_id`.
 
 ### POST /v1/messaging/webhook/{bot_token}
 
-Receive platform events (Telegram updates). The gateway filters for interactive events
-(button clicks), applies cooldown deduplication, and forwards a platform-neutral callback to the
-backend.
+Receive platform events (Telegram updates). The gateway filters for:
+1. **interactive events** (button clicks) → `event=interaction`
+2. **known slash commands** (`/bank_ostatki`, `/cash_ostatki`, `/card_ostatki`) → `event=command`
+
+Other non-interactive events (plain messages, etc.) are acknowledged with `{"ok": true}`
+and not forwarded as business events (they may still be discovery-logged / event-logged).
 
 **Telegram registers this URL as the bot webhook.** The `{bot_token}` in the path is used to
-identify which bot received the event; it is never logged or forwarded.
-
-**Non-interactive events** (plain messages, etc.) are acknowledged with `{"ok": true}` and not
-forwarded.
+identify which bot received the event. The **secret** part of the token is never logged or
+forwarded. For commands, only the numeric **bot id** (token prefix before `:`) is sent as
+`bot_id` so the backend can resolve the tenant.
 
 **Cooldown:** Rapid duplicate button clicks from the same `(recipient_id, value)` pair within
 `CALLBACK_COOLDOWN_SECS` (default 10 s) are silently dropped. The gateway returns 200 to Telegram
 immediately regardless.
 
-**Forwarded payload (gateway → backend):**
+**Forwarded payload — interaction (gateway → backend):**
 
 ```json
 {
@@ -134,14 +136,29 @@ immediately regardless.
 }
 ```
 
+**Forwarded payload — command (gateway → backend):**
+
+```json
+{
+  "event":        "command",
+  "payload":      "bank_ostatki",
+  "user_id":      "789012345",
+  "recipient_id": "123456789",
+  "message_id":   7712,
+  "platform":     "telegram",
+  "bot_id":       "110201543"
+}
+```
+
 | Field          | Type    | Description |
 |----------------|---------|-------------|
-| `event`        | string  | Always `"interaction"` for button clicks |
-| `payload`      | string  | The value attached to the button that was clicked |
-| `user_id`      | string  | Platform user ID of the person who clicked |
+| `event`        | string  | `"interaction"` for button clicks, `"command"` for known slash commands |
+| `payload`      | string  | Button value, or command name without leading `/` |
+| `user_id`      | string  | Platform user ID of the person who clicked / sent the command |
 | `recipient_id` | string  | Channel/chat the message was in |
-| `message_id`   | integer | ID of the message containing the button |
+| `message_id`   | integer | ID of the message containing the button / command |
 | `platform`     | string  | `"telegram"`, `"slack"`, etc. — for logging only; business logic must not branch on this |
+| `bot_id`       | string  | (commands only) Numeric Telegram bot id — **not** the bot secret |
 
 **Backend webhook URL:** configured via `BACKEND_WEBHOOK_URL` env var.
 No auth header is sent — network isolation is the only access control.

@@ -1721,3 +1721,122 @@ class TelegramEventLogEndpointTests(APITestCase):
         # Even with malformed data the endpoint must not crash — fire-and-forget contract
         resp = self.client.post("/api/messaging-gateway/events/", {}, format="json")
         self.assertEqual(resp.status_code, 200)
+
+
+@override_settings(
+    BASE_DOMAIN="example.com",
+    MESSAGING_GATEWAY_SEND_URL="https://acme.example.com/v1/messaging/send",
+    ALLOWED_HOSTS=["*"],
+)
+class TelegramBalanceCommandTests(APITestCase):
+    BOT_TOKEN = "110201543:AAATESTBANKOSTATKI"
+
+    def setUp(self):
+        self.tenant = Tenant.objects.create(name="Acme", subdomain="acme", is_active=True)
+        self.tenant.set_telegram_bot_token(self.BOT_TOKEN)
+        self.tenant.save(update_fields=["telegram_bot_token_enc"])
+        TenantModuleConfig.objects.create(tenant=self.tenant, module_key="bank", is_enabled=True)
+
+        self.accountant = User.objects.create_user(
+            username="acc",
+            password="x",
+            telegram_from_id=88001,
+            telegram_chat_id=88001,
+        )
+        self.requester = User.objects.create_user(
+            username="req2",
+            password="x",
+            telegram_from_id=88002,
+            telegram_chat_id=88002,
+        )
+        for user in (self.accountant, self.requester):
+            TenantMembership.objects.create(tenant=self.tenant, user=user, is_active=True)
+        TenantUserRole.objects.create(
+            tenant=self.tenant, user=self.accountant, role=TenantUserRole.ROLE_ACCOUNTANT
+        )
+        TenantUserRole.objects.create(
+            tenant=self.tenant, user=self.requester, role=TenantUserRole.ROLE_REQUESTER
+        )
+
+        from decimal import Decimal
+
+        from apps.modules.wallets.resolution import get_or_create_bank_wallet
+
+        wallet = get_or_create_bank_wallet(tenant=self.tenant)
+        wallet.opening_balance = Decimal("1500000.50")
+        wallet.save(update_fields=["opening_balance"])
+        self.host = "acme.example.com"
+
+    def _command_payload(self, *, user_id: str, command: str = "bank_ostatki") -> dict:
+        return {
+            "event": "command",
+            "payload": command,
+            "user_id": user_id,
+            "recipient_id": "-100999",
+            "message_id": 77,
+            "platform": "telegram",
+            "bot_id": self.BOT_TOKEN.split(":", 1)[0],
+        }
+
+    @patch("apps.modules.telegram_approvals.services.requests.post")
+    def test_bank_ostatki_allowed_for_accountant(self, mocked_post):
+        mocked_post.return_value.status_code = 200
+        mocked_post.return_value.content = b'{"ok":true,"message_id":9001}'
+        mocked_post.return_value.json.return_value = {"ok": True, "message_id": 9001}
+
+        res = self.client.post(
+            "/api/messaging-gateway/webhook/",
+            self._command_payload(user_id="88001"),
+            format="json",
+            HTTP_HOST=self.host,
+        )
+        self.assertEqual(res.status_code, 200, res.content)
+        self.assertEqual(mocked_post.call_count, 1)
+        sent = mocked_post.call_args.kwargs.get("json") or mocked_post.call_args[1].get("json")
+        self.assertEqual(sent["action"], "send")
+        self.assertEqual(sent["recipient_id"], "-100999")
+        self.assertIn("Банк — остатки", sent["text"])
+        self.assertIn("1 500 000.50", sent["text"])
+        self.assertNotIn("Нет доступа", sent["text"])
+
+    @patch("apps.modules.telegram_approvals.services.requests.post")
+    def test_bank_ostatki_denied_for_requester(self, mocked_post):
+        mocked_post.return_value.status_code = 200
+        mocked_post.return_value.content = b'{"ok":true,"message_id":9002}'
+        mocked_post.return_value.json.return_value = {"ok": True, "message_id": 9002}
+
+        res = self.client.post(
+            "/api/messaging-gateway/webhook/",
+            self._command_payload(user_id="88002"),
+            format="json",
+            HTTP_HOST=self.host,
+        )
+        self.assertEqual(res.status_code, 200, res.content)
+        self.assertEqual(mocked_post.call_count, 1)
+        sent = mocked_post.call_args.kwargs.get("json") or mocked_post.call_args[1].get("json")
+        self.assertEqual(sent["text"], "Нет доступа к этой команде.")
+
+    @patch("apps.modules.telegram_approvals.services.requests.post")
+    def test_bank_ostatki_denied_for_unknown_telegram_user(self, mocked_post):
+        mocked_post.return_value.status_code = 200
+        mocked_post.return_value.content = b'{"ok":true,"message_id":9003}'
+        mocked_post.return_value.json.return_value = {"ok": True, "message_id": 9003}
+
+        res = self.client.post(
+            "/api/messaging-gateway/webhook/",
+            self._command_payload(user_id="999999"),
+            format="json",
+            HTTP_HOST=self.host,
+        )
+        self.assertEqual(res.status_code, 200, res.content)
+        sent = mocked_post.call_args.kwargs.get("json") or mocked_post.call_args[1].get("json")
+        self.assertEqual(sent["text"], "Нет доступа к этой команде.")
+
+    def test_unknown_command_returns_202(self):
+        res = self.client.post(
+            "/api/messaging-gateway/webhook/",
+            self._command_payload(user_id="88001", command="not_a_real_command"),
+            format="json",
+            HTTP_HOST=self.host,
+        )
+        self.assertEqual(res.status_code, 202)
