@@ -219,13 +219,37 @@ class TelegramApprovalWebhookView(APIView):
 
         return Response({"detail": note, "return_id": return_id}, status=http_status)
 
+    def _handle_command(self, event_data: dict) -> Response:
+        from apps.modules.telegram_approvals.command_handlers import handle_telegram_command
+
+        command = (event_data.get("payload") or "").strip()
+        logger.info(
+            "messaging_gateway_webhook command=%r user_id=%s recipient_id=%s bot_id=%s",
+            command,
+            event_data.get("user_id"),
+            event_data.get("recipient_id"),
+            event_data.get("bot_id"),
+        )
+        result = handle_telegram_command(
+            command=command,
+            bot_id=event_data.get("bot_id"),
+            user_id=event_data.get("user_id"),
+            recipient_id=event_data.get("recipient_id"),
+        )
+        if not result.get("handled"):
+            return Response({"detail": result.get("detail") or "ignored"}, status=status.HTTP_202_ACCEPTED)
+        return Response({"detail": "ok", "command": result.get("command")}, status=status.HTTP_200_OK)
+
     def post(self, request):
         serializer = MessagingGatewayCallbackSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         event_data = serializer.validated_data
 
+        if event_data.get("event") == "command":
+            return self._handle_command(event_data)
+
         if event_data.get("event") != "interaction":
-            return Response({"detail": "Only interaction events are supported."}, status=status.HTTP_202_ACCEPTED)
+            return Response({"detail": "Only interaction/command events are supported."}, status=status.HTTP_202_ACCEPTED)
 
         # Investment callbacks: InvestReturn uses "inv_<id>:<a|r>", project investments use "invp_<id>:<a|r>".
         # invp_ must be checked explicitly — "invp_1:a".startswith("inv_") is False (4th char is "p", not "_").

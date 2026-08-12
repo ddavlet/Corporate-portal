@@ -7,7 +7,8 @@ another platform requires only deploying a different gateway — no backend chan
 
 Endpoints:
   POST /v1/messaging/send               — send / edit / delete via Telegram
-  POST /v1/messaging/webhook/{bot_token}— receive Telegram updates, forward platform-neutral callback
+  POST /v1/messaging/webhook/{bot_token}— receive Telegram updates, forward
+                                          interactions and known slash commands
   GET  /health                          — liveness + DB status
 
 Authentication: none — Docker internal network only (no public exposure).
@@ -301,6 +302,66 @@ async def dispatch(payload: DispatchRequest) -> JSONResponse:
     })
 
 
+def _bot_id_from_token(bot_token: str) -> str:
+    """Public bot id only — never forward the secret part of the token."""
+    return (bot_token or "").split(":", 1)[0].strip()
+
+
+# Slash commands the gateway forwards to the backend (balances foundation).
+_FORWARD_COMMANDS = frozenset({"bank_ostatki", "cash_ostatki", "card_ostatki"})
+
+
+def _extract_forwardable_command(update: dict) -> dict[str, Any] | None:
+    """Return command metadata if the update is a known slash command message."""
+    msg = update.get("message")
+    if not isinstance(msg, dict):
+        return None
+    text = (msg.get("text") or "").strip()
+    if not text.startswith("/"):
+        return None
+    first = text.split(maxsplit=1)[0]
+    command = first[1:].split("@", 1)[0].strip().lower()
+    if command not in _FORWARD_COMMANDS:
+        return None
+    chat = msg.get("chat") or {}
+    sender = msg.get("from") or {}
+    chat_id = chat.get("id")
+    user_id = sender.get("id")
+    if chat_id is None or user_id is None:
+        return None
+    return {
+        "command": command,
+        "user_id": str(user_id),
+        "recipient_id": str(chat_id),
+        "message_id": msg.get("message_id"),
+    }
+
+
+async def _forward_backend_event(forward: dict) -> tuple[bool, int, str | None]:
+    """POST a platform-neutral event to BACKEND_WEBHOOK_URL. Returns (ok, status, error)."""
+    if not BACKEND_URL:
+        logger.warning("BACKEND_WEBHOOK_URL not configured — event not forwarded event=%s", forward.get("event"))
+        return True, 0, None
+    try:
+        headers = {"Host": BACKEND_WEBHOOK_HTTP_HOST} if BACKEND_WEBHOOK_HTTP_HOST else None
+        async with httpx.AsyncClient(timeout=10) as client:
+            resp = await client.post(BACKEND_URL, json=forward, headers=headers)
+        if resp.status_code >= 400:
+            error_text = resp.text[:500]
+            logger.error("backend forward %s: %s", resp.status_code, error_text)
+            return False, resp.status_code, error_text
+        logger.info(
+            "event forwarded: event=%s recipient=%s payload=%s",
+            forward.get("event"),
+            forward.get("recipient_id"),
+            forward.get("payload"),
+        )
+        return True, resp.status_code, None
+    except Exception as exc:
+        logger.error("backend forward failed: %s", exc)
+        return False, 0, str(exc)
+
+
 # ── POST /v1/messaging/webhook/{bot_token} ────────────────────────────────────
 
 @app.post("/v1/messaging/webhook/{bot_token}")
@@ -346,6 +407,34 @@ async def messaging_webhook(
                 info.get("new_member_status"),
                 info.get("text"),
             )
+
+        command_info = _extract_forwardable_command(update)
+        if command_info:
+            forward = {
+                "event": "command",
+                "payload": command_info["command"],
+                "user_id": command_info["user_id"],
+                "recipient_id": command_info["recipient_id"],
+                "message_id": command_info["message_id"],
+                "platform": "telegram",
+                "bot_id": _bot_id_from_token(bot_token),
+            }
+            ok, fwd_status, error_text = await _forward_backend_event(forward)
+            await db.log_event(
+                direction="in", endpoint="/v1/messaging/webhook",
+                action="command", recipient_id=command_info["recipient_id"],
+                message_id=command_info["message_id"],
+                ok=ok, status_code=fwd_status, error_text=error_text,
+                payload=update, tg_response=forward,
+            )
+            _schedule(_forward_event_log({
+                "direction": "incoming",
+                "event_type": "command",
+                "update_id": update.get("update_id"),
+                "payload": {k: v for k, v in forward.items() if k != "bot_id"},
+            }))
+            return {"ok": True}
+
         await db.log_event(
             direction="in", endpoint="/v1/messaging/webhook",
             action=(info["update_kind"] if info else "non_interactive"),
@@ -386,29 +475,7 @@ async def messaging_webhook(
         "platform":     "telegram",
     }
 
-    ok = False
-    error_text: str | None = None
-    fwd_status: int = 0
-
-    if BACKEND_URL:
-        try:
-            headers = {"Host": BACKEND_WEBHOOK_HTTP_HOST} if BACKEND_WEBHOOK_HTTP_HOST else None
-            async with httpx.AsyncClient(timeout=10) as client:
-                # No auth header — Docker network isolation is the access control
-                resp = await client.post(BACKEND_URL, json=forward, headers=headers)
-            fwd_status = resp.status_code
-            ok = resp.status_code < 400
-            if not ok:
-                error_text = resp.text[:500]
-                logger.error("backend forward %s: %s", fwd_status, error_text)
-            else:
-                logger.info("interaction forwarded: recipient=%s value=%s", recipient_id, cb_value)
-        except Exception as exc:
-            error_text = str(exc)
-            logger.error("backend forward failed: %s", exc)
-    else:
-        logger.warning("BACKEND_WEBHOOK_URL not configured — interaction not forwarded")
-        ok = True
+    ok, fwd_status, error_text = await _forward_backend_event(forward)
 
     await db.log_event(
         direction="in", endpoint="/v1/messaging/webhook",

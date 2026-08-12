@@ -386,3 +386,71 @@ def test_webhook_callback_no_backend_returns_ok():
         })
     assert resp.status_code == 200
     assert resp.json()["ok"] is True
+
+
+def test_webhook_bank_ostatki_command_forwards_with_bot_id():
+    """Known balance slash commands are forwarded as event=command with bot_id only."""
+    forward_payload = {}
+
+    async def fake_post(url, json=None, **kwargs):
+        nonlocal forward_payload
+        forward_payload = json
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.text = ""
+        return mock_resp
+
+    m = AsyncMock()
+    m.__aenter__ = AsyncMock(return_value=m)
+    m.__aexit__ = AsyncMock(return_value=False)
+    m.post = AsyncMock(side_effect=fake_post)
+
+    # HOOK path uses bot_token "testtoken" (no ':') → bot_id == "testtoken"
+    with patch("main.BACKEND_URL", "http://backend/webhook"), \
+         patch("httpx.AsyncClient", return_value=m):
+        resp = client.post(
+            "/v1/messaging/webhook/110201543:AAHdqTcvCH1vGWJxfSeofSAs0K5PALDsaw",
+            json={
+                "update_id": 10,
+                "message": {
+                    "message_id": 55,
+                    "text": "/bank_ostatki@MyBot",
+                    "chat": {"id": -100123, "type": "supergroup", "title": "Ops"},
+                    "from": {"id": 789012345, "username": "boss"},
+                },
+            },
+        )
+
+    assert resp.status_code == 200
+    assert forward_payload["event"] == "command"
+    assert forward_payload["payload"] == "bank_ostatki"
+    assert forward_payload["user_id"] == "789012345"
+    assert forward_payload["recipient_id"] == "-100123"
+    assert forward_payload["message_id"] == 55
+    assert forward_payload["bot_id"] == "110201543"
+    assert ":" not in forward_payload["bot_id"]
+    assert "AAHdq" not in str(forward_payload)
+
+
+def test_webhook_unknown_slash_command_not_forwarded_as_command():
+    """Unknown slash commands stay discovery-only and must not hit the business webhook."""
+    m = AsyncMock()
+    m.__aenter__ = AsyncMock(return_value=m)
+    m.__aexit__ = AsyncMock(return_value=False)
+    m.post = AsyncMock()
+
+    with patch("main.BACKEND_URL", "http://backend/webhook"), \
+         patch("main.BACKEND_EVENT_LOG_URL", ""), \
+         patch("httpx.AsyncClient", return_value=m):
+        resp = client.post(HOOK, json={
+            "update_id": 11,
+            "message": {
+                "message_id": 56,
+                "text": "/start",
+                "chat": {"id": 1, "type": "private"},
+                "from": {"id": 2},
+            },
+        })
+
+    assert resp.status_code == 200
+    assert m.post.call_count == 0

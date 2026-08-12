@@ -20,5 +20,7 @@ class MessagingGatewayCallbackSerializer(serializers.Serializer):
     payload = serializers.CharField()
     user_id = serializers.CharField()
     recipient_id = serializers.CharField()
-    message_id = serializers.IntegerField(required=False)
+    message_id = serializers.IntegerField(required=False, allow_null=True)
     platform = serializers.CharField(default="telegram")
+    # Numeric Telegram bot id (token prefix before ':'). Never the bot secret.
+    bot_id = serializers.CharField(required=False, allow_blank=True, default="")
