@@ -27,7 +27,7 @@ class Budget(models.Model):
         (CURRENCY_RUB, CURRENCY_RUB),
     ]
 
-    tenant = models.ForeignKey(Tenant, on_delete=models.CASCADE, related_name="budgets")
+    tenant = models.ForeignKey(Tenant, on_delete=models.CASCADE, related_name="budgets", db_index=False)
     name = models.CharField(max_length=255)
     # FK to RequestCategory — Option B: referential integrity on the budget side.
     # Spend queries match by category.name since Request.category is a CharField.

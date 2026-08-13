@@ -9,7 +9,7 @@ from apps.tenants.models import Tenant
 class TelegramMessage(models.Model):
     """Sent Telegram message linked to a document in any module (task, approval, note, etc.)."""
 
-    tenant = models.ForeignKey(Tenant, on_delete=models.CASCADE, related_name="telegram_messages")
+    tenant = models.ForeignKey(Tenant, on_delete=models.CASCADE, related_name="telegram_messages", db_index=False)
     recipient_id = models.CharField(max_length=50)
     external_user_id = models.BigIntegerField(null=True, blank=True)
     message_id = models.BigIntegerField()
@@ -61,6 +61,7 @@ class TelegramMessageHistory(models.Model):
         TelegramMessage,
         on_delete=models.CASCADE,
         related_name="history",
+        db_index=False,
     )
     action = models.CharField(max_length=20, choices=ACTION_CHOICES)
 
@@ -123,7 +124,7 @@ class Notification(models.Model):
         (KIND_NOTE, "Note delivery"),
     ]
 
-    tenant = models.ForeignKey(Tenant, on_delete=models.CASCADE, related_name="notifications")
+    tenant = models.ForeignKey(Tenant, on_delete=models.CASCADE, related_name="notifications", db_index=False)
     kind = models.CharField(max_length=20, choices=KIND_CHOICES)
     telegram_message = models.OneToOneField(
         TelegramMessage,
@@ -134,7 +135,7 @@ class Notification(models.Model):
     )
 
     # Generic reference to the source object (Request, PortalFeedback, etc.)
-    content_type = models.ForeignKey(ContentType, on_delete=models.CASCADE)
+    content_type = models.ForeignKey(ContentType, on_delete=models.CASCADE, db_index=False)
     object_id = models.PositiveIntegerField()
     source_object = GenericForeignKey("content_type", "object_id")
 
@@ -216,7 +217,7 @@ class TelegramEvent(models.Model):
 class TenantTelegramChat(models.Model):
     """Telegram group chat registered for a tenant. Used as a shared destination for notifications and approvals."""
 
-    tenant = models.ForeignKey(Tenant, on_delete=models.CASCADE, related_name="telegram_chats")
+    tenant = models.ForeignKey(Tenant, on_delete=models.CASCADE, related_name="telegram_chats", db_index=False)
     name = models.CharField(max_length=100)
     chat_id = models.CharField(max_length=50)
     is_active = models.BooleanField(default=True)

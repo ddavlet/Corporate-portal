@@ -19,7 +19,7 @@ class Vendor(models.Model):
         (KIND_TRANSFER, "transfer"),
     ]
 
-    tenant = models.ForeignKey(Tenant, on_delete=models.CASCADE, related_name="vendor_directory")
+    tenant = models.ForeignKey(Tenant, on_delete=models.CASCADE, related_name="vendor_directory", db_index=False)
     kind = models.CharField(max_length=20, choices=KIND_CHOICES)
     name = models.CharField(max_length=255)
     inn = models.CharField(max_length=20, null=True, blank=True, verbose_name="ИНН")

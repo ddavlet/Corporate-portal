@@ -33,7 +33,7 @@ class BankAccount(models.Model):
     Do not treat statement `account_no` as this anchor — see module docstring.
     """
 
-    tenant = models.ForeignKey(Tenant, on_delete=models.CASCADE, related_name="bank_accounts_wallets")
+    tenant = models.ForeignKey(Tenant, on_delete=models.CASCADE, related_name="bank_accounts_wallets", db_index=False)
     label = models.CharField(max_length=255, default="Основной")
     account_no = models.CharField(max_length=34, blank=True, default="")
     mfo = models.CharField(max_length=10, blank=True, default="")
@@ -63,7 +63,7 @@ class Wallet(models.Model):
         BANK = "bank", "Bank"
         CORPORATE_CARD = "corporate_card", "Corporate card"
 
-    tenant = models.ForeignKey(Tenant, on_delete=models.CASCADE, related_name="wallets")
+    tenant = models.ForeignKey(Tenant, on_delete=models.CASCADE, related_name="wallets", db_index=False)
     wallet_type = models.CharField(max_length=20, choices=Type.choices)
     currency = models.CharField(max_length=10)
     opening_balance = models.DecimalField(max_digits=18, decimal_places=2, default=0)

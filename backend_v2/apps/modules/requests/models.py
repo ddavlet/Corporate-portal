@@ -86,7 +86,7 @@ class Request(models.Model):
         (EXPENSE_REF_TARGET_CARD, EXPENSE_REF_TARGET_CARD),
     ]
 
-    tenant = models.ForeignKey(Tenant, on_delete=models.CASCADE, related_name="requests")
+    tenant = models.ForeignKey(Tenant, on_delete=models.CASCADE, related_name="requests", db_index=False)
     created_at = models.DateTimeField(default=timezone.now)
     created_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
@@ -222,8 +222,8 @@ class Request(models.Model):
 
 
 class RequestAttachment(models.Model):
-    request = models.ForeignKey(Request, on_delete=models.CASCADE, related_name="attachments")
-    tenant = models.ForeignKey(Tenant, on_delete=models.CASCADE, related_name="request_attachments")
+    request = models.ForeignKey(Request, on_delete=models.CASCADE, related_name="attachments", db_index=False)
+    tenant = models.ForeignKey(Tenant, on_delete=models.CASCADE, related_name="request_attachments", db_index=False)
     created_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.PROTECT,
@@ -264,7 +264,7 @@ class Approval(models.Model):
         (DECISION_CANCELED, DECISION_CANCELED),
     ]
 
-    request = models.ForeignKey(Request, on_delete=models.CASCADE, related_name="approvals")
+    request = models.ForeignKey(Request, on_delete=models.CASCADE, related_name="approvals", db_index=False)
     approver_user = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.PROTECT,
@@ -300,7 +300,6 @@ class Approval(models.Model):
             ),
         ]
         indexes = [
-            models.Index(fields=["request"], name="approvals_request_id_idx"),
             models.Index(fields=["decision"], name="approvals_decision_idx"),
             models.Index(fields=["approver_recipient_id"], name="approvals_appr_rcpt_idx"),
             models.Index(fields=["approver_external_user_id"], name="approvals_ext_uid_idx"),
@@ -345,7 +344,7 @@ class RequestFormConfig(models.Model):
 
 
 class RequestCategory(models.Model):
-    tenant = models.ForeignKey(Tenant, on_delete=models.CASCADE, related_name="request_categories")
+    tenant = models.ForeignKey(Tenant, on_delete=models.CASCADE, related_name="request_categories", db_index=False)
     name = models.CharField(max_length=100)
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -361,12 +360,13 @@ class RequestCategory(models.Model):
         ]
         indexes = [
             models.Index(fields=["tenant", "is_active"], name="req_cat_tenant_active_idx"),
-            models.Index(fields=["tenant", "name"], name="req_cat_tenant_name_idx"),
         ]
 
 
 class RequestFormPaymentTypeConfig(models.Model):
-    config = models.ForeignKey(RequestFormConfig, on_delete=models.CASCADE, related_name="payment_types")
+    config = models.ForeignKey(
+        RequestFormConfig, on_delete=models.CASCADE, related_name="payment_types", db_index=False
+    )
     payment_type = models.CharField(max_length=50, choices=Request.PAYMENT_TYPE_CHOICES)
     is_enabled = models.BooleanField(default=True)
 
@@ -396,7 +396,6 @@ class RequestFormPaymentTypeConfig(models.Model):
             )
         ]
         indexes = [
-            models.Index(fields=["config", "payment_type"], name="req_form_pt_cfg_idx"),
             models.Index(fields=["is_enabled"], name="req_form_pt_enabled_idx"),
         ]
 
@@ -406,6 +405,7 @@ class RequestFormPaymentTypeRequester(models.Model):
         RequestFormPaymentTypeConfig,
         on_delete=models.CASCADE,
         related_name="allowed_requesters",
+        db_index=False,
     )
     user = models.ForeignKey(
         settings.AUTH_USER_MODEL,
@@ -421,10 +421,6 @@ class RequestFormPaymentTypeRequester(models.Model):
                 name="req_form_pt_requester_uniq",
             )
         ]
-        indexes = [
-            models.Index(fields=["payment_type_config"], name="req_form_pt_req_cfg_idx"),
-            models.Index(fields=["user"], name="req_form_pt_req_user_idx"),
-        ]
 
 
 class RequestFormPaymentTypeVendor(models.Model):
@@ -432,6 +428,7 @@ class RequestFormPaymentTypeVendor(models.Model):
         RequestFormPaymentTypeConfig,
         on_delete=models.CASCADE,
         related_name="allowed_vendors",
+        db_index=False,
     )
     vendor = models.ForeignKey(
         "vendors.Vendor",
@@ -447,10 +444,6 @@ class RequestFormPaymentTypeVendor(models.Model):
                 name="req_form_pt_vendor_uniq",
             )
         ]
-        indexes = [
-            models.Index(fields=["payment_type_config"], name="req_form_pt_vendor_cfg_idx"),
-            models.Index(fields=["vendor"], name="req_form_pt_vendor_vendor_idx"),
-        ]
 
 
 class RequestPaymentPurposeConfig(models.Model):
@@ -458,6 +451,7 @@ class RequestPaymentPurposeConfig(models.Model):
         RequestFormPaymentTypeConfig,
         on_delete=models.CASCADE,
         related_name="payment_purposes",
+        db_index=False,
     )
     name = models.CharField(max_length=200)
     category = models.CharField(max_length=100, default="")
@@ -472,7 +466,6 @@ class RequestPaymentPurposeConfig(models.Model):
             )
         ]
         indexes = [
-            models.Index(fields=["payment_type_config"], name="req_form_purpose_cfg_idx"),
             models.Index(fields=["is_active"], name="req_form_purpose_active_idx"),
         ]
 
@@ -502,7 +495,9 @@ class RequestApprovalConfig(models.Model):
 
 
 class RequestApprovalPaymentTypeConfig(models.Model):
-    config = models.ForeignKey(RequestApprovalConfig, on_delete=models.CASCADE, related_name="payment_types")
+    config = models.ForeignKey(
+        RequestApprovalConfig, on_delete=models.CASCADE, related_name="payment_types", db_index=False
+    )
     payment_type = models.CharField(max_length=50, choices=Request.PAYMENT_TYPE_CHOICES)
     is_enabled = models.BooleanField(default=True)
     request_not_required_rules = models.JSONField(default=list, blank=True)
@@ -513,7 +508,6 @@ class RequestApprovalPaymentTypeConfig(models.Model):
             models.UniqueConstraint(fields=["config", "payment_type"], name="req_appr_pt_cfg_uniq"),
         ]
         indexes = [
-            models.Index(fields=["config", "payment_type"], name="req_appr_pt_cfg_idx"),
             models.Index(fields=["is_enabled"], name="req_appr_pt_enabled_idx"),
         ]
 
@@ -529,7 +523,10 @@ class RequestApprovalStepConfig(models.Model):
     ]
 
     payment_type_config = models.ForeignKey(
-        RequestApprovalPaymentTypeConfig, on_delete=models.CASCADE, related_name="steps"
+        RequestApprovalPaymentTypeConfig,
+        on_delete=models.CASCADE,
+        related_name="steps",
+        db_index=False,
     )
     step = models.IntegerField()
     step_type = models.CharField(max_length=16, choices=Approval.STEP_TYPE_CHOICES, default=Approval.STEP_TYPE_SERIAL)
@@ -553,14 +550,12 @@ class RequestApprovalStepConfig(models.Model):
         constraints = [
             models.UniqueConstraint(fields=["payment_type_config", "step"], name="req_appr_step_uniq"),
         ]
-        indexes = [
-            models.Index(fields=["payment_type_config", "step"], name="req_appr_step_idx"),
-            models.Index(fields=["payment_type_config"], name="req_appr_steps_by_pt_idx"),
-        ]
 
 
 class RequestApprovalStepApproverConfig(models.Model):
-    step_config = models.ForeignKey(RequestApprovalStepConfig, on_delete=models.CASCADE, related_name="approvers")
+    step_config = models.ForeignKey(
+        RequestApprovalStepConfig, on_delete=models.CASCADE, related_name="approvers", db_index=False
+    )
     approver_user = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.PROTECT,
@@ -572,9 +567,6 @@ class RequestApprovalStepApproverConfig(models.Model):
         constraints = [
             models.UniqueConstraint(fields=["step_config", "approver_user"], name="req_appr_step_approver_uniq"),
         ]
-        indexes = [
-            models.Index(fields=["step_config"], name="req_appr_step_approvers_idx"),
-        ]
 
 
 class RequestApprovalPurposeExceptionConfig(models.Model):
@@ -582,6 +574,7 @@ class RequestApprovalPurposeExceptionConfig(models.Model):
         RequestApprovalPaymentTypeConfig,
         on_delete=models.CASCADE,
         related_name="purpose_exceptions",
+        db_index=False,
     )
     name = models.CharField(max_length=200, default="", blank=True)
     is_enabled = models.BooleanField(default=True)
@@ -589,7 +582,6 @@ class RequestApprovalPurposeExceptionConfig(models.Model):
     class Meta:
         db_table = "request_approval_purpose_exception_configs"
         indexes = [
-            models.Index(fields=["payment_type_config"], name="req_appr_exc_pt_idx"),
             models.Index(fields=["payment_type_config", "is_enabled"], name="req_appr_exc_enabled_idx"),
         ]
 
@@ -599,11 +591,13 @@ class RequestApprovalPurposeExceptionPurpose(models.Model):
         RequestApprovalPurposeExceptionConfig,
         on_delete=models.CASCADE,
         related_name="purposes",
+        db_index=False,
     )
     payment_type_config = models.ForeignKey(
         RequestApprovalPaymentTypeConfig,
         on_delete=models.CASCADE,
         related_name="purpose_exception_purpose_links",
+        db_index=False,
     )
     payment_purpose = models.ForeignKey(
         RequestPaymentPurposeConfig,
@@ -623,10 +617,6 @@ class RequestApprovalPurposeExceptionPurpose(models.Model):
                 name="req_appr_exc_pt_purpose_uniq",
             ),
         ]
-        indexes = [
-            models.Index(fields=["exception_config"], name="req_appr_exc_purpose_exc_idx"),
-            models.Index(fields=["payment_type_config"], name="req_appr_exc_purpose_pt_idx"),
-        ]
 
     def save(self, *args, **kwargs):
         if self.exception_config_id and not self.payment_type_config_id:
@@ -639,6 +629,7 @@ class RequestApprovalPurposeExceptionStepConfig(models.Model):
         RequestApprovalPurposeExceptionConfig,
         on_delete=models.CASCADE,
         related_name="steps",
+        db_index=False,
     )
     step = models.IntegerField()
     step_type = models.CharField(max_length=16, choices=Approval.STEP_TYPE_CHOICES, default=Approval.STEP_TYPE_SERIAL)
@@ -665,10 +656,6 @@ class RequestApprovalPurposeExceptionStepConfig(models.Model):
                 name="req_appr_exc_step_uniq",
             ),
         ]
-        indexes = [
-            models.Index(fields=["exception_config", "step"], name="req_appr_exc_step_idx"),
-            models.Index(fields=["exception_config"], name="req_appr_exc_steps_exc_idx"),
-        ]
 
 
 class RequestApprovalPurposeExceptionStepApproverConfig(models.Model):
@@ -676,6 +663,7 @@ class RequestApprovalPurposeExceptionStepApproverConfig(models.Model):
         RequestApprovalPurposeExceptionStepConfig,
         on_delete=models.CASCADE,
         related_name="approvers",
+        db_index=False,
     )
     approver_user = models.ForeignKey(
         settings.AUTH_USER_MODEL,
@@ -690,9 +678,6 @@ class RequestApprovalPurposeExceptionStepApproverConfig(models.Model):
                 fields=["step_config", "approver_user"],
                 name="req_appr_exc_step_approver_uniq",
             ),
-        ]
-        indexes = [
-            models.Index(fields=["step_config"], name="req_appr_exc_step_appr_idx"),
         ]
 
 
@@ -763,7 +748,7 @@ class AutoRequestTemplate(models.Model):
         (BILLING_MONTH_NEXT, "Следующий месяц"),
     ]
 
-    tenant = models.ForeignKey(Tenant, on_delete=models.CASCADE, related_name="auto_request_templates")
+    tenant = models.ForeignKey(Tenant, on_delete=models.CASCADE, related_name="auto_request_templates", db_index=False)
     is_enabled = models.BooleanField(default=False)
     name = models.CharField(max_length=150, default="")
     payment_type = models.CharField(max_length=50, choices=Request.PAYMENT_TYPE_CHOICES)
@@ -823,7 +808,7 @@ class AutoRequestTemplate(models.Model):
 
 
 class RequestComment(models.Model):
-    request = models.ForeignKey(Request, on_delete=models.CASCADE, related_name="comments")
+    request = models.ForeignKey(Request, on_delete=models.CASCADE, related_name="comments", db_index=False)
     created_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.PROTECT,

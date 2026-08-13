@@ -5,7 +5,7 @@ from apps.tenants.models import Tenant
 
 
 class ClientDebtSnapshot(models.Model):
-    tenant = models.ForeignKey(Tenant, on_delete=models.CASCADE, related_name="client_debt_snapshots")
+    tenant = models.ForeignKey(Tenant, on_delete=models.CASCADE, related_name="client_debt_snapshots", db_index=False)
     snapshot_at = models.DateTimeField()
     doc_type = models.CharField(max_length=64, default="client_debt_total")
     organization = models.CharField(max_length=200, blank=True, default="")
@@ -32,7 +32,6 @@ class ClientDebtSnapshot(models.Model):
             )
         ]
         indexes = [
-            models.Index(fields=["tenant", "snapshot_at"], name="clients_debt_tenant_date_idx"),
             models.Index(fields=["tenant", "client_id"], name="clients_debt_tenant_client_idx"),
             models.Index(fields=["tenant", "doc_type"], name="clients_debt_tenant_type_idx"),
         ]

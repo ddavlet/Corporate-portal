@@ -18,7 +18,7 @@ class User(AbstractUser):
 
 class OtpChallenge(models.Model):
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="otp_challenges")
-    tenant = models.ForeignKey(Tenant, on_delete=models.CASCADE, related_name="otp_challenges")
+    tenant = models.ForeignKey(Tenant, on_delete=models.CASCADE, related_name="otp_challenges", db_index=False)
     code_hash = models.CharField(max_length=255)
     expires_at = models.DateTimeField()
     attempts = models.IntegerField(default=0)

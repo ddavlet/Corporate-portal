@@ -32,7 +32,7 @@ class Tenant(models.Model):
 
 
 class TenantMembership(models.Model):
-    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE)
+    user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, db_index=False)
     tenant = models.ForeignKey(Tenant, on_delete=models.CASCADE, related_name="memberships")
     is_active = models.BooleanField(default=True)
 
@@ -44,7 +44,7 @@ class TenantMembership(models.Model):
 
 
 class TenantModuleConfig(models.Model):
-    tenant = models.ForeignKey(Tenant, on_delete=models.CASCADE, related_name="module_configs")
+    tenant = models.ForeignKey(Tenant, on_delete=models.CASCADE, related_name="module_configs", db_index=False)
     module_key = models.CharField(max_length=100)
     is_enabled = models.BooleanField(default=False)
 
@@ -74,7 +74,7 @@ class TenantUserRole(models.Model):
         (ROLE_INVESTOR, ROLE_INVESTOR),
     ]
 
-    tenant = models.ForeignKey(Tenant, on_delete=models.CASCADE, related_name="tenant_user_roles")
+    tenant = models.ForeignKey(Tenant, on_delete=models.CASCADE, related_name="tenant_user_roles", db_index=False)
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="tenant_roles")
     role = models.CharField(max_length=30, choices=ROLE_CHOICES)
 
@@ -86,7 +86,7 @@ class TenantUserRole(models.Model):
 
 
 class TenantUserPreference(models.Model):
-    tenant = models.ForeignKey(Tenant, on_delete=models.CASCADE, related_name="user_preferences")
+    tenant = models.ForeignKey(Tenant, on_delete=models.CASCADE, related_name="user_preferences", db_index=False)
     user = models.ForeignKey(settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name="tenant_preferences")
     key = models.CharField(max_length=120)
     value = models.JSONField(default=dict)
@@ -94,7 +94,6 @@ class TenantUserPreference(models.Model):
 
     class Meta:
         unique_together = [("tenant", "user", "key")]
-        indexes = [models.Index(fields=["tenant", "user", "key"])]
 
     def __str__(self) -> str:
         return f"{self.tenant_id}::{self.user_id}::{self.key}"

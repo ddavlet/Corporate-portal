@@ -5,7 +5,7 @@ from apps.tenants.models import Tenant
 
 
 class PayrollDocument(models.Model):
-    tenant = models.ForeignKey(Tenant, on_delete=models.CASCADE, related_name="payroll_documents")
+    tenant = models.ForeignKey(Tenant, on_delete=models.CASCADE, related_name="payroll_documents", db_index=False)
     doc_id = models.TextField()
     created_at = models.DateTimeField(default=timezone.now)
 
@@ -24,6 +24,7 @@ class PayrollLine(models.Model):
         PayrollDocument,
         on_delete=models.CASCADE,
         related_name="lines",
+        db_index=False,
     )
     line_no = models.IntegerField()
     employee = models.TextField()

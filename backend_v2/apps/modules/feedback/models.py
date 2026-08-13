@@ -33,7 +33,7 @@ class PortalFeedback(models.Model):
         (WORK_DONE, "Готово"),
     ]
 
-    tenant = models.ForeignKey(Tenant, on_delete=models.CASCADE, related_name="portal_feedbacks")
+    tenant = models.ForeignKey(Tenant, on_delete=models.CASCADE, related_name="portal_feedbacks", db_index=False)
     created_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.PROTECT,
@@ -63,6 +63,7 @@ class PortalFeedback(models.Model):
         null=True,
         blank=True,
         limit_choices_to={"is_staff": True},
+        db_index=False,
     )
     resolution_note = models.TextField(blank=True, default="")
     resolved_at = models.DateTimeField(null=True, blank=True)

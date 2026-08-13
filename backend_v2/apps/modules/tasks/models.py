@@ -14,6 +14,7 @@ class Task(models.Model):
         Tenant,
         on_delete=models.CASCADE,
         related_name="tasks",
+        db_index=False,
     )
     assignee = models.ForeignKey(
         settings.AUTH_USER_MODEL,
