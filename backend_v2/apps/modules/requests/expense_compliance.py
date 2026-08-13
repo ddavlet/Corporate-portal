@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-from datetime import date, datetime, timezone as dt_timezone
+from datetime import date, datetime, timedelta, timezone as dt_timezone
 from decimal import Decimal
 from typing import Any
 
-from django.db.models import Count, Exists, OuterRef, Q, Subquery, Sum
+from django.db.models import Count, DateField, ExpressionWrapper, Exists, OuterRef, Q, Subquery, Sum
 from django.db.models.functions import Coalesce
 from django.db.models import DecimalField, Value
 
@@ -14,7 +14,7 @@ from apps.modules.corporate_card.models import CardExpense
 from apps.modules.payroll.constants import MODULE_KEY as PAYROLL_MODULE_KEY
 from apps.modules.payroll.models import PayrollDocument, PayrollLine
 from apps.modules.requests.approval_workflow import min_pending_approval_step
-from apps.modules.requests.expense_refs import resolve_request_expense_ref
+from apps.modules.requests.expense_refs import BANK_EXPENSE_DATE_WINDOW_DAYS, resolve_request_expense_ref
 from apps.modules.requests.models import Approval, Request
 from apps.modules.requests.request_required import is_request_required_for_expense
 from apps.modules.requests.serializers import build_request_approval_config_response
@@ -127,6 +127,7 @@ def build_approval_rules_snapshot(*, tenant) -> dict[str, dict]:
 
 
 def annotate_bank_expense_compliance(qs, *, tenant):
+    date_window = timedelta(days=BANK_EXPENSE_DATE_WINDOW_DAYS)
     request_subquery = Request.objects.filter(
         tenant=tenant,
         payment_type__in=(Request.PAYMENT_TYPE_TRANSFER, Request.PAYMENT_TYPE_TOPUP),
@@ -136,6 +137,17 @@ def annotate_bank_expense_compliance(qs, *, tenant):
         | (
             Q(expense_id=OuterRef("doc_no"))
             & Q(expense_year=OuterRef("expense_year"))
+            & ~Q(expense_id="")
+        )
+        | (
+            (Q(expense_id__isnull=True) | Q(expense_id=""))
+            & Q(vendor_ref_id=OuterRef("vendor_id"))
+            & Q(billing_date__gte=ExpressionWrapper(
+                OuterRef("doc_date") - date_window, output_field=DateField(),
+            ))
+            & Q(billing_date__lte=ExpressionWrapper(
+                OuterRef("doc_date") + date_window, output_field=DateField(),
+            ))
         )
     )
     paid_request_subquery = request_subquery.filter(status=Request.STATUS_PAYED)
@@ -588,6 +600,8 @@ def _request_expense_linked(*, tenant, request_obj: Request) -> bool:
         expense_id_raw=request_obj.expense_id,
         expense_year=request_obj.expense_year,
         amount=request_obj.amount,
+        vendor_ref_id=request_obj.vendor_ref_id,
+        billing_date=request_obj.billing_date,
     )
     return resolved_id is not None
 

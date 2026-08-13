@@ -512,6 +512,45 @@ class N8nIntegrationAuthTests(APITestCase):
         row = BankExpense.objects.get(tenant=self.tenant, external_id="BANK-BATCH-EXT-1")
         self.assertEqual(str(row.debit_turnover), "250.00")
 
+    def test_bank_expense_import_accepts_blank_doc_no_with_external_id(self):
+        url = f"{self.n8n_prefix}/bank/expenses/"
+        body = {
+            "external_id": "BANK-NO-DOCNO-1",
+            "row_no": 1,
+            "doc_date": "2026-04-10",
+            "process_date": "2026-04-10",
+            "debit_turnover": "150.00",
+            "payment_purpose": "No doc_no in feed",
+        }
+        res = self.client.post(url, body, format="json", **self._headers(self.admin))
+        self.assertEqual(res.status_code, 201, res.content)
+        row = BankExpense.objects.get(tenant=self.tenant, external_id="BANK-NO-DOCNO-1")
+        self.assertEqual(row.doc_no, "")
+
+    def test_bank_expense_composite_constraint_ignores_blank_doc_no_rows(self):
+        url = f"{self.n8n_prefix}/bank/expenses/"
+        shared = {
+            "row_no": 1,
+            "doc_date": "2026-04-11",
+            "process_date": "2026-04-11",
+            "debit_turnover": "200.00",
+            "payment_purpose": "Same date/amount/purpose, different payments",
+        }
+        r1 = self.client.post(
+            url, {**shared, "external_id": "BANK-NO-DOCNO-DUP-1"}, format="json", **self._headers(self.admin)
+        )
+        self.assertEqual(r1.status_code, 201, r1.content)
+        r2 = self.client.post(
+            url, {**shared, "external_id": "BANK-NO-DOCNO-DUP-2"}, format="json", **self._headers(self.admin)
+        )
+        self.assertEqual(r2.status_code, 201, r2.content)
+        self.assertEqual(
+            BankExpense.objects.filter(
+                tenant=self.tenant, doc_date="2026-04-11", debit_turnover="200.00"
+            ).count(),
+            2,
+        )
+
     def test_bank_revenue_upserts_by_external_id(self):
         url = f"{self.n8n_prefix}/bank/revenues/"
         body = {
@@ -742,6 +781,87 @@ class N8nIntegrationAuthTests(APITestCase):
         res = self.client.post(url, body, format="json", **self._headers(self.admin))
         self.assertEqual(res.status_code, 200, res.content)
         self.assertEqual(relink_mock.call_count, 1)
+
+    def test_bank_expense_upsert_relinks_via_vendor_amount_date_when_doc_no_blank(self):
+        vendor = Vendor.objects.create(
+            tenant=self.tenant,
+            kind=Vendor.KIND_TRANSFER,
+            name="Relink Fallback Vendor",
+            account_number="20208000999999999993",
+            created_by=self.admin,
+        )
+        req = Request.objects.create(
+            tenant=self.tenant,
+            created_by=self.admin,
+            requester=self.requester,
+            title="Bank relink fallback request",
+            description="",
+            amount="450.00",
+            currency="UZS",
+            payment_type=Request.PAYMENT_TYPE_TRANSFER,
+            urgency=Request.URGENCY_NORMAL,
+            billing_date=date(2026, 3, 25),
+            vendor_ref=vendor,
+            expense_id="",
+            status=Request.STATUS_PAYED,
+        )
+        url = f"{self.n8n_prefix}/bank/expenses/"
+        body = {
+            "id": 93030,
+            "row_no": 1,
+            "doc_date": "2026-03-30",
+            "process_date": "2026-03-30",
+            "external_id": "BEXP-NO-DOCNO-1",
+            "account_no": "20208000999999999993",
+            "debit_turnover": "450.00",
+            "payment_purpose": "Оплата без doc_no",
+        }
+        res = self.client.post(url, body, format="json", **self._headers(self.admin))
+        self.assertEqual(res.status_code, 201, res.content)
+        req.refresh_from_db()
+        self.assertEqual(req.expense_ref_target, Request.EXPENSE_REF_TARGET_BANK)
+        self.assertEqual(req.expense_ref_id, 93030)
+
+    def test_bank_expense_upsert_no_relink_when_vendor_amount_date_ambiguous(self):
+        vendor = Vendor.objects.create(
+            tenant=self.tenant,
+            kind=Vendor.KIND_TRANSFER,
+            name="Ambiguous Relink Vendor",
+            account_number="20208000999999999994",
+            created_by=self.admin,
+        )
+        for i, billing_day in enumerate((20, 28), start=1):
+            Request.objects.create(
+                tenant=self.tenant,
+                created_by=self.admin,
+                requester=self.requester,
+                title=f"Ambiguous relink request {i}",
+                description="",
+                amount="600.00",
+                currency="UZS",
+                payment_type=Request.PAYMENT_TYPE_TRANSFER,
+                urgency=Request.URGENCY_NORMAL,
+                billing_date=date(2026, 3, billing_day),
+                vendor_ref=vendor,
+                expense_id="",
+                status=Request.STATUS_PAYED,
+            )
+        url = f"{self.n8n_prefix}/bank/expenses/"
+        body = {
+            "id": 93031,
+            "row_no": 1,
+            "doc_date": "2026-03-30",
+            "process_date": "2026-03-30",
+            "external_id": "BEXP-NO-DOCNO-AMBIG",
+            "account_no": "20208000999999999994",
+            "debit_turnover": "600.00",
+            "payment_purpose": "Неоднозначно",
+        }
+        res = self.client.post(url, body, format="json", **self._headers(self.admin))
+        self.assertEqual(res.status_code, 201, res.content)
+        self.assertEqual(
+            Request.objects.filter(tenant=self.tenant, expense_ref_id__isnull=False).count(), 0
+        )
 
     def test_cash_revenue_import_fields_supported(self):
         url = f"{self.n8n_prefix}/cash/revenues/"
@@ -1399,6 +1519,52 @@ class N8nIntegrationAuthTests(APITestCase):
         self.assertEqual(req.expense_ref_id, card_expense.id)
         self.assertEqual(req.expense_ref_target, Request.EXPENSE_REF_TARGET_CARD)
         self.assertEqual(req.expense_id, "6282688315")
+
+    def test_request_upsert_resolves_transfer_by_vendor_amount_date_when_doc_no_blank(self):
+        vendor = Vendor.objects.create(
+            tenant=self.tenant,
+            kind=Vendor.KIND_TRANSFER,
+            name="N8n Request Fallback Vendor",
+            created_by=self.admin,
+        )
+        bank_account = BankAccount.objects.create(tenant=self.tenant, label="N8n Request Fallback")
+        bank_wallet = Wallet.objects.create(
+            tenant=self.tenant, wallet_type=Wallet.Type.BANK, currency="UZS", bank_account=bank_account,
+        )
+        bank_expense = BankExpense.objects.create(
+            tenant=self.tenant,
+            created_by=self.admin,
+            row_no=1,
+            doc_date=date(2026, 5, 12),
+            process_date=date(2026, 5, 12),
+            expense_year=2026,
+            expense_month=5,
+            expense_day=12,
+            doc_no="",
+            debit_turnover="910.00",
+            payment_purpose="x",
+            vendor=vendor,
+            wallet=bank_wallet,
+        )
+        url = f"{self.n8n_prefix}/requests/"
+        body = {
+            "id": 5030,
+            "title": "Imported transfer request",
+            "description": "from n8n",
+            "amount": "910.00",
+            "currency": "UZS",
+            "payment_type": Request.PAYMENT_TYPE_TRANSFER,
+            "urgency": "Обычно",
+            "requester": self.requester.id,
+            "status": Request.STATUS_PAYED,
+            "billing_date": "2026-05-15",
+            "vendor_ref": vendor.id,
+        }
+        res = self.client.post(url, body, format="json", **self._headers(self.admin))
+        self.assertEqual(res.status_code, 201, res.content)
+        req = Request.objects.get(pk=5030)
+        self.assertEqual(req.expense_ref_id, bank_expense.id)
+        self.assertEqual(req.expense_ref_target, Request.EXPENSE_REF_TARGET_BANK)
 
     def test_request_upsert_resolves_card_by_pk_when_external_id_absent(self):
         from apps.modules.wallets.resolution import get_or_create_corporate_wallet
@@ -2448,6 +2614,140 @@ class N8nUnmatchedExpensesTests(APITestCase):
         self.assertEqual(row["matched_request_id"], req.id)
         self.assertEqual(row["matched_request_status"], Request.STATUS_PROGRESS_1)
         self.assertEqual(row["pending_approval_step"], 1)
+
+    def test_bank_expense_has_request_via_vendor_amount_date_fallback(self):
+        d = date(2026, 6, 10)
+        bank_expense = BankExpense.objects.create(
+            tenant=self.tenant,
+            created_by=self.admin,
+            wallet=self.bank_wallet,
+            row_no=1,
+            doc_date=d,
+            process_date=d,
+            expense_year=2026,
+            expense_month=6,
+            expense_day=10,
+            doc_no="",
+            debit_turnover="250.00",
+            payment_purpose="Fallback purpose",
+            vendor=self.vendor,
+        )
+        Request.objects.create(
+            tenant=self.tenant,
+            created_by=self.admin,
+            requester=self.admin,
+            title="No doc_no yet",
+            amount="250.00",
+            currency="UZS",
+            payment_type=Request.PAYMENT_TYPE_TRANSFER,
+            urgency=Request.URGENCY_NORMAL,
+            billing_date=date(2026, 6, 15),
+            status=Request.STATUS_PAYED,
+            vendor_ref=self.vendor,
+            expense_id="",
+        )
+
+        res = self.client.get(self.url, **self._headers())
+        self.assertEqual(res.status_code, 200, res.content)
+        data = res.json()
+        missing_ids = {row["id"] for row in data["bank"]["missing_paid_request"]}
+        self.assertNotIn(bank_expense.id, missing_ids)
+
+    def test_bank_expense_blank_doc_no_not_falsely_matched_by_unrelated_blank_expense_id(self):
+        d = date(2026, 6, 20)
+        bank_expense = BankExpense.objects.create(
+            tenant=self.tenant,
+            created_by=self.admin,
+            wallet=self.bank_wallet,
+            row_no=1,
+            doc_date=d,
+            process_date=d,
+            expense_year=2026,
+            expense_month=6,
+            expense_day=20,
+            doc_no="",
+            debit_turnover="777.00",
+            payment_purpose="Unrelated purpose",
+            vendor=self.vendor,
+        )
+        other_vendor = Vendor.objects.create(
+            tenant=self.tenant,
+            kind=Vendor.KIND_TRANSFER,
+            name="Different Vendor",
+            created_by=self.admin,
+        )
+        # Same amount/expense_year, blank expense_id too, but a different vendor and far
+        # outside the date window: must not be treated as a match now that blank doc_no
+        # is possible on both sides of the old doc_no OR-branch.
+        Request.objects.create(
+            tenant=self.tenant,
+            created_by=self.admin,
+            requester=self.admin,
+            title="Unrelated request",
+            amount="777.00",
+            currency="UZS",
+            payment_type=Request.PAYMENT_TYPE_TRANSFER,
+            urgency=Request.URGENCY_NORMAL,
+            billing_date=date(2026, 1, 1),
+            status=Request.STATUS_PAYED,
+            vendor_ref=other_vendor,
+            expense_id="",
+            expense_year=2026,
+        )
+
+        res = self.client.get(self.url, **self._headers())
+        self.assertEqual(res.status_code, 200, res.content)
+        data = res.json()
+        missing_ids = {row["id"] for row in data["bank"]["missing_paid_request"]}
+        self.assertIn(bank_expense.id, missing_ids)
+
+    def test_pending_transfer_request_shows_expense_link_via_fallback(self):
+        d = date(2026, 6, 25)
+        BankExpense.objects.create(
+            tenant=self.tenant,
+            created_by=self.admin,
+            wallet=self.bank_wallet,
+            row_no=1,
+            doc_date=d,
+            process_date=d,
+            expense_year=2026,
+            expense_month=6,
+            expense_day=25,
+            doc_no="",
+            debit_turnover="333.00",
+            payment_purpose="Pending fallback",
+            vendor=self.vendor,
+        )
+        req = Request.objects.create(
+            tenant=self.tenant,
+            created_by=self.admin,
+            requester=self.admin,
+            title="Pending with fallback expense",
+            amount="333.00",
+            currency="UZS",
+            payment_type=Request.PAYMENT_TYPE_TRANSFER,
+            urgency=Request.URGENCY_NORMAL,
+            billing_date=date(2026, 6, 20),
+            status=Request.STATUS_PROGRESS_1,
+            vendor_ref=self.vendor,
+            expense_id="",
+        )
+        Approval.objects.create(
+            request=req,
+            approver_user=self.approver,
+            step=1,
+            step_type=Approval.STEP_TYPE_SERIAL,
+            decision=Approval.DECISION_PENDING,
+        )
+
+        res = self.client.get(self.url, **self._headers())
+        self.assertEqual(res.status_code, 200, res.content)
+        data = res.json()
+        linked_ids = {
+            row["id"]
+            for row in data["requests_pending_approval"][Request.PAYMENT_TYPE_TRANSFER]["with_expense_link"]
+        }
+        self.assertIn(req.id, linked_ids)
 
     def test_transfer_request_without_expense_in_pending_approval(self):
         d = date(2026, 5, 22)

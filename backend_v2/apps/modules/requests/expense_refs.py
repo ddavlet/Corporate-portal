@@ -1,3 +1,4 @@
+from datetime import timedelta
 from decimal import Decimal, InvalidOperation
 
 from django.db.models import Sum
@@ -43,6 +44,35 @@ def _normalize_expense_id_on_match(*, payment_type: str) -> bool:
     return payment_type in (Request.PAYMENT_TYPE_CASH, Request.PAYMENT_TYPE_PAYROLL)
 
 
+BANK_EXPENSE_DATE_WINDOW_DAYS = 30
+
+
+def _match_bank_expense_by_doc_no(*, tenant, doc_no: str, expense_year, amount_value: Decimal | None):
+    if expense_year is None:
+        return None
+    qs = BankExpense.objects.filter(
+        tenant=tenant,
+        doc_no=doc_no,
+        expense_year=expense_year,
+    ).order_by("-doc_date", "-id")
+    qs = _filter_queryset_by_amount(qs, amount_field="debit_turnover", amount_value=amount_value)
+    return _single_match(qs)
+
+
+def _match_bank_expense_by_vendor_amount_date(*, tenant, vendor_ref_id, amount_value: Decimal | None, billing_date):
+    if not vendor_ref_id or amount_value is None or billing_date is None:
+        return None
+    window = timedelta(days=BANK_EXPENSE_DATE_WINDOW_DAYS)
+    qs = BankExpense.objects.filter(
+        tenant=tenant,
+        vendor_id=vendor_ref_id,
+        debit_turnover=amount_value,
+        doc_date__gte=billing_date - window,
+        doc_date__lte=billing_date + window,
+    ).order_by("-doc_date", "-id")
+    return _single_match(qs)
+
+
 def resolve_request_expense_ref(
     *,
     tenant,
@@ -51,6 +81,8 @@ def resolve_request_expense_ref(
     expense_id_raw,
     expense_year,
     amount=None,
+    vendor_ref_id=None,
+    billing_date=None,
 ) -> tuple[int | None, str | None]:
     """
     Resolve business `expense_id` (+ context) to concrete expense PK and canonical `expense_id`.
@@ -59,14 +91,16 @@ def resolve_request_expense_ref(
     `(None, None)` if the row is missing, ambiguous, or inputs are insufficient.
 
     Card: tries numeric PK first (payment webapp), then `external_id` (n8n bank/card payment id).
+    Bank (Transfer/Topup): exact `doc_no` match when `expense_id_raw` is set; when it's blank
+    (tenant's bank feed no longer provides doc_no), falls back to vendor+amount+date-window
+    match instead.
     """
     raw = str(expense_id_raw or "").strip()
-    if not raw:
-        return None, None
-
     amount_value = _decimal_or_none(amount)
 
     if payment_type == Request.PAYMENT_TYPE_PAYROLL:
+        if not raw:
+            return None, None
         if not tenant_has_payroll_module_enabled(tenant):
             return None, None
         candidates = payroll_doc_id_match_candidates(raw, tenant)
@@ -81,6 +115,8 @@ def resolve_request_expense_ref(
         return None, None
 
     if payment_type == Request.PAYMENT_TYPE_CASH:
+        if not raw:
+            return None, None
         candidates = cash_expense_external_id_match_candidates(raw, tenant)
         qs = CashExpense.objects.filter(tenant=tenant, external_id__in=candidates).order_by("-expense_year", "-id")
         if expense_year is not None:
@@ -93,20 +129,24 @@ def resolve_request_expense_ref(
         return match.id, normalized
 
     if payment_type in (Request.PAYMENT_TYPE_TRANSFER, Request.PAYMENT_TYPE_TOPUP):
-        if expense_year is None:
-            return None, None
-        qs = BankExpense.objects.filter(
-            tenant=tenant,
-            doc_no=raw,
-            expense_year=expense_year,
-        ).order_by("-doc_date", "-id")
-        qs = _filter_queryset_by_amount(qs, amount_field="debit_turnover", amount_value=amount_value)
-        match = _single_match(qs)
+        if raw:
+            match = _match_bank_expense_by_doc_no(
+                tenant=tenant, doc_no=raw, expense_year=expense_year, amount_value=amount_value,
+            )
+        else:
+            match = _match_bank_expense_by_vendor_amount_date(
+                tenant=tenant,
+                vendor_ref_id=vendor_ref_id,
+                amount_value=amount_value,
+                billing_date=billing_date,
+            )
         if match is None:
             return None, None
         return match.id, raw
 
     if payment_type == Request.PAYMENT_TYPE_CARD:
+        if not raw:
+            return None, None
         # Prefer PK when expense_id is numeric and a matching row exists (payment webapp).
         # Fall back to external_id so n8n can link by bank/card payment id before knowing PK.
         try:
@@ -149,6 +189,8 @@ def try_resolve_request_expense_ref_id(
     expense_id_raw,
     expense_year,
     amount=None,
+    vendor_ref_id=None,
+    billing_date=None,
 ) -> int | None:
     resolved_id, _normalized = resolve_request_expense_ref(
         tenant=tenant,
@@ -157,6 +199,8 @@ def try_resolve_request_expense_ref_id(
         expense_id_raw=expense_id_raw,
         expense_year=expense_year,
         amount=amount,
+        vendor_ref_id=vendor_ref_id,
+        billing_date=billing_date,
     )
     return resolved_id
 
@@ -167,23 +211,23 @@ def maybe_persist_request_expense_ref(*, request_obj: Request, tenant) -> int | 
     and `expense_ref_target`. Multiple requests may reference the same expense row.
     """
     raw = str(request_obj.expense_id or "").strip()
-    resolved: int | None = None
-    if raw:
-        resolved, normalized = resolve_request_expense_ref(
-            tenant=tenant,
-            payment_type=request_obj.payment_type,
-            category=request_obj.category,
-            expense_id_raw=raw,
-            expense_year=request_obj.expense_year,
-            amount=request_obj.amount,
-        )
-        if (
-            normalized
-            and _normalize_expense_id_on_match(payment_type=request_obj.payment_type)
-            and request_obj.expense_id != normalized
-        ):
-            Request.objects.filter(pk=request_obj.pk, tenant_id=tenant.id).update(expense_id=normalized)
-            request_obj.expense_id = normalized
+    resolved, normalized = resolve_request_expense_ref(
+        tenant=tenant,
+        payment_type=request_obj.payment_type,
+        category=request_obj.category,
+        expense_id_raw=raw,
+        expense_year=request_obj.expense_year,
+        amount=request_obj.amount,
+        vendor_ref_id=request_obj.vendor_ref_id,
+        billing_date=request_obj.billing_date,
+    )
+    if (
+        normalized
+        and _normalize_expense_id_on_match(payment_type=request_obj.payment_type)
+        and request_obj.expense_id != normalized
+    ):
+        Request.objects.filter(pk=request_obj.pk, tenant_id=tenant.id).update(expense_id=normalized)
+        request_obj.expense_id = normalized
     target = expense_ref_target_for(
         payment_type=request_obj.payment_type,
         category=request_obj.category,

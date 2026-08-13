@@ -22,7 +22,9 @@ class BankExpense(models.Model):
     expense_month = models.PositiveSmallIntegerField()
     expense_day = models.PositiveSmallIntegerField()
 
-    doc_no = models.CharField(max_length=50)
+    # Blank for tenants whose bank feed no longer provides it; external_id is the
+    # natural key for those rows instead (see uniq_bank_expense_tenant_external_id).
+    doc_no = models.CharField(max_length=50, blank=True, default="")
 
     debit_turnover = models.DecimalField(max_digits=18, decimal_places=2, default=0)
     payment_purpose = models.TextField()
@@ -44,6 +46,7 @@ class BankExpense(models.Model):
         constraints = [
             models.UniqueConstraint(
                 fields=["tenant", "doc_date", "doc_no", "debit_turnover", "payment_purpose"],
+                condition=~models.Q(doc_no=""),
                 name="uniq_bank_expense_tenant_doc_date_doc_no_turnover_purpose",
             ),
             # Gradual replacement for the composite unique above; blank = legacy / unset.
@@ -51,6 +54,12 @@ class BankExpense(models.Model):
                 fields=["tenant", "external_id"],
                 condition=~models.Q(external_id=""),
                 name="uniq_bank_expense_tenant_external_id",
+            ),
+        ]
+        indexes = [
+            models.Index(
+                fields=["tenant", "vendor", "debit_turnover", "doc_date"],
+                name="bank_exp_vendor_amt_date_idx",
             ),
         ]
 
