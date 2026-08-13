@@ -23,6 +23,13 @@ need "$ENV_EX" 'POSTGRES_MCP_USER=' ".env.example must document POSTGRES_MCP_USE
 need "$ENV_EX" 'POSTGRES_MCP_PASSWORD=' ".env.example must document POSTGRES_MCP_PASSWORD"
 need "$ENV_EX" 'POSTGRES_MCP_HTPASSWD=' ".env.example must document POSTGRES_MCP_HTPASSWD"
 need "$ENV_EX" 'POSTGRES_MCP_HOST=mcp\.kolberg\.uz' ".env.example must set POSTGRES_MCP_HOST=mcp.kolberg.uz"
+DOC="$ROOT/docs/POSTGRES_MCP.md"
+need "$DOC" 'mcp\.kolberg\.uz' "docs/POSTGRES_MCP.md must document mcp.kolberg.uz"
+need "$DOC" 'access-mode=restricted' "docs must mention restricted mode"
+need "$DOC" 'POSTGRES_MCP_USER' "docs must document POSTGRES_MCP_USER"
+need "$DOC" 'create-postgres-mcp-role' "docs must mention make create-postgres-mcp-role"
+need "$DOC" 'Authorization' "docs must show Basic Auth client header"
+need "$DOC" 'MCP_SERVER\.md' "docs must point to domain MCP docs as separate"
 if [[ "$fail" -ne 0 ]]; then
   exit 1
 fi
