@@ -13,9 +13,11 @@ from __future__ import annotations
 from urllib.parse import urlencode
 
 from django.core import signing
-from django.http import HttpRequest, HttpResponse, HttpResponseBadRequest
+from django.http import Http404, HttpRequest, HttpResponse, HttpResponseBadRequest
 from django.shortcuts import render
 from django.views import View
+
+from apps.mcp_server.routing import mcp_http_enabled
 
 _SIGN_SALT = "mcp-oauth-authorize"
 _SIGN_MAX_AGE = 600  # 10 min
@@ -30,6 +32,11 @@ def _decode_params(t: str) -> dict | None:
 
 class McpLoginView(View):
     template_name = "mcp_oauth/login.html"
+
+    def dispatch(self, request, *args, **kwargs):
+        if not mcp_http_enabled():
+            raise Http404()
+        return super().dispatch(request, *args, **kwargs)
 
     def get(self, request: HttpRequest) -> HttpResponse:
         t = request.GET.get("t", "")

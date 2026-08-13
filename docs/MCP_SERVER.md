@@ -1,5 +1,19 @@
 # Kolberg MCP Server
 
+> **Production status (2026-08-13): HTTP/OAuth MCP is parked.**  
+> Traefik no longer routes `api.kolberg.uz`. Gunicorn does **not** start FastMCP (`MCP_HTTP_ENABLED` defaults to `false`). The module [`backend_v2/apps/mcp_server/`](../backend_v2/apps/mcp_server/) stays in git so it can be turned back on without rewriting it.
+
+**To re-enable later:**
+
+1. In `docker-compose.yml` on `backend_v2`: set `MCP_HTTP_ENABLED: "true"` and `MCP_BASE_URL: https://api.kolberg.uz/mcp`.
+2. Restore the Traefik router `django-v2-mcp` (`Host(\`${MCP_HOST:-api.kolberg.uz}\`)` → `django-v2`).
+3. Add `api.kolberg.uz` to `DJANGO_ALLOWED_HOSTS` and DNS.
+4. Deploy.
+
+Until then, do not point Claude / Cursor at `https://api.kolberg.uz/mcp`.
+
+---
+
 Reference documentation for the **Kolberg Data Server** — a [Model Context Protocol](https://modelcontextprotocol.io) server that exposes **read-only** access to a single Kolberg tenant's data so AI assistants can query requests, finances, directories, and tenant configuration.
 
 Source: [`backend_v2/apps/mcp_server/`](../backend_v2/apps/mcp_server/)

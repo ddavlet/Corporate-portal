@@ -91,10 +91,10 @@
 - **Что сделать:** деплой только из immutable image layers, без source bind mount в prod.
 
 ## 15. MCP: открытая dynamic client registration
-- **Приоритет:** P3
-- **Где:** `backend_v2/apps/mcp_server/` — `/mcp/register`
-- **Суть:** клиенты могут регистрировать произвольные `redirect_uris` (`token_endpoint_auth_method=none`). Логин всё равно нужен; риск phishing/open-redirect на OAuth callback.
-- **Что сделать:** ограничить redirect URI; auth на registration или allowlist.
+- **Приоритет:** P3 — **снято с продакшена 2026-08-13**
+- **Где:** `backend_v2/apps/mcp_server/` — `/mcp/register` (код оставлен в git)
+- **Суть:** клиенты могли регистрировать произвольные `redirect_uris` (`token_endpoint_auth_method=none`).
+- **Сделано:** HTTP MCP выключен (`MCP_HTTP_ENABLED=false`, роутер `django-v2-mcp` убран). Эндпоинт снаружи недоступен. При повторном включении снова ограничить redirect URI.
 
 ## 16. Закоммичен `.env.local`
 - **Приоритет:** P4

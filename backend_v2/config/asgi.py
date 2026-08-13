@@ -1,13 +1,15 @@
 """
 ASGI config for Kolberg.
 
-MCP host (api.kolberg.uz) routing — see apps.mcp_server.routing:
+MCP HTTP is disabled by default (MCP_HTTP_ENABLED=false): gunicorn does not
+start FastMCP. When re-enabled, MCP host routing is:
+
   /.well-known/oauth-*  → JSON metadata
   /mcp, /mcp/*          → FastMCP
   /oauth/login/         → Django (OTP)
   everything else       → Django
 
-Lifespan: proxied to FastMCP (StreamableHttpSessionManager TaskGroup).
+Lifespan: proxied to FastMCP only when MCP HTTP is enabled.
 """
 
 from __future__ import annotations
@@ -36,6 +38,16 @@ async def _send_json(send, payload: dict, *, status: int = 200) -> None:
         }
     )
     await send({"type": "http.response.body", "body": body})
+
+
+async def _noop_lifespan(scope, receive, send):
+    """Complete uvicorn lifespan without starting FastMCP."""
+    event = await receive()
+    if event["type"] == "lifespan.startup":
+        await send({"type": "lifespan.startup.complete"})
+        event = await receive()
+    if event["type"] == "lifespan.shutdown":
+        await send({"type": "lifespan.shutdown.complete"})
 
 
 async def _proxy_lifespan_to_mcp(scope, receive, send):
@@ -77,11 +89,20 @@ async def _proxy_lifespan_to_mcp(scope, receive, send):
 
 
 async def application(scope, receive, send):
+    from apps.mcp_server.routing import mcp_http_enabled
+
     if scope["type"] == "lifespan":
-        await _proxy_lifespan_to_mcp(scope, receive, send)
+        if mcp_http_enabled():
+            await _proxy_lifespan_to_mcp(scope, receive, send)
+        else:
+            await _noop_lifespan(scope, receive, send)
         return
 
     if scope["type"] != "http":
+        await _django_app(scope, receive, send)
+        return
+
+    if not mcp_http_enabled():
         await _django_app(scope, receive, send)
         return
 

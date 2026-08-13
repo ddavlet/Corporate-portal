@@ -586,9 +586,8 @@ services:
       N8N_INTERNAL_BASE_URL: ${N8N_INTERNAL_BASE_URL:-http://n8n:5678/webhook}
       MESSAGING_GATEWAY_SEND_URL: http://tg_gateway:8080/v1/messaging/send
       MESSAGING_GATEWAY_ADMIN_URL: http://tg_gateway:8080
-      # MCP server OAuth issuer URL — must be the public HTTPS base without trailing slash.
-      # Default: https://<MCP_HOST>/mcp. Override with MCP_BASE_URL in .env if needed.
-      MCP_BASE_URL: ${MCP_BASE_URL:-https://${MCP_HOST:-api.kolberg.uz}/mcp}
+      # Kolberg MCP HTTP is parked (see docs/MCP_SERVER.md). Hard-off so leftover .env cannot start FastMCP.
+      MCP_HTTP_ENABLED: "false"
     volumes:
       - ./backend_v2:/app
     depends_on:
@@ -626,20 +625,6 @@ services:
       - traefik.http.routers.django-v2-n8n.tls.certresolver=mytlschallenge
       - traefik.http.routers.django-v2-n8n.service=django-v2
       - traefik.http.routers.django-v2-n8n.priority=1200
-
-      # MCP host (MCP_HOST, default api.kolberg.uz): entire hostname → django-v2 ASGI (port 8001).
-      # Do not use PathPrefix here — easy to miss paths (/.well-known, /oauth/login).
-      # Public paths:
-      #   /.well-known/oauth-authorization-server  — OAuth discovery (MCP spec)
-      #   /.well-known/oauth-protected-resource
-      #   /mcp/ /mcp/authorize /mcp/token /mcp/register — FastMCP protocol + OAuth
-      #   /oauth/login/ — OTP login (Django)
-      - traefik.http.routers.django-v2-mcp.rule=Host(`${MCP_HOST:-api.kolberg.uz}`)
-      - traefik.http.routers.django-v2-mcp.entrypoints=web,websecure
-      - traefik.http.routers.django-v2-mcp.tls=true
-      - traefik.http.routers.django-v2-mcp.tls.certresolver=mytlschallenge
-      - traefik.http.routers.django-v2-mcp.service=django-v2
-      - traefik.http.routers.django-v2-mcp.priority=1300
     networks:
       traefik-public:
       backend:
@@ -671,7 +656,6 @@ services:
       N8N_INTERNAL_BASE_URL: ${N8N_INTERNAL_BASE_URL:-http://n8n:5678/webhook}
       MESSAGING_GATEWAY_SEND_URL: http://tg_gateway:8080/v1/messaging/send
       MESSAGING_GATEWAY_ADMIN_URL: http://tg_gateway:8080
-      MCP_BASE_URL: ${MCP_BASE_URL:-https://${MCP_HOST:-api.kolberg.uz}/mcp}
       TZ: Asia/Tashkent
     volumes:
       - ./backend_v2:/app

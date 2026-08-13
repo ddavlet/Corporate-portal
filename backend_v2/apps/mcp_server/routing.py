@@ -17,6 +17,11 @@ def path_normalized(path: str) -> str:
     return (path or "/").rstrip("/") or "/"
 
 
+def mcp_http_enabled() -> bool:
+    """HTTP/OAuth MCP surface is off in production unless explicitly re-enabled."""
+    return bool(getattr(settings, "MCP_HTTP_ENABLED", False))
+
+
 def mcp_hostname() -> str:
     """Public MCP API host (e.g. api.kolberg.uz), not a tenant subdomain."""
     return (urlparse(settings.MCP_BASE_URL).hostname or "").lower()
@@ -27,6 +32,8 @@ def host_no_port(host: str) -> str:
 
 
 def is_mcp_host(host: str) -> bool:
+    if not mcp_http_enabled():
+        return False
     name = mcp_hostname()
     return bool(name) and host_no_port(host) == name
 

@@ -6,8 +6,10 @@ from django.test import Client, TestCase, override_settings
 
 from apps.mcp_server.utils import json_safe, validate_date
 from apps.mcp_server.routing import (
+    is_mcp_host,
     is_mcp_protocol_path,
     is_well_known_oauth_path,
+    mcp_http_enabled,
 )
 
 
@@ -88,11 +90,23 @@ class McpRoutingTests(TestCase):
         self.assertTrue(is_well_known_oauth_path("/.well-known/oauth-authorization-server/mcp"))
         self.assertFalse(is_well_known_oauth_path("/mcp/.well-known/oauth-authorization-server"))
 
+    @override_settings(MCP_HTTP_ENABLED=False, MCP_BASE_URL="https://api.kolberg.uz/mcp")
+    def test_mcp_host_ignored_when_http_disabled(self):
+        self.assertFalse(mcp_http_enabled())
+        self.assertFalse(is_mcp_host("api.kolberg.uz"))
+
+    @override_settings(MCP_HTTP_ENABLED=True, MCP_BASE_URL="https://api.kolberg.uz/mcp")
+    def test_mcp_host_matches_when_http_enabled(self):
+        self.assertTrue(mcp_http_enabled())
+        self.assertTrue(is_mcp_host("api.kolberg.uz"))
+        self.assertFalse(is_mcp_host("lemonfit.kolberg.uz"))
+
 
 _MCP_TEST_HOST = "api.kolberg.uz"
 
 
 @override_settings(
+    MCP_HTTP_ENABLED=True,
     MCP_BASE_URL="https://api.kolberg.uz/mcp",
     MCP_RESOURCE_URL="https://api.kolberg.uz/mcp",
     MCP_OAUTH_LOGIN_URL="https://api.kolberg.uz/oauth/login",
@@ -144,6 +158,7 @@ class McpOAuthMetadataTests(TestCase):
 
 
 @override_settings(
+    MCP_HTTP_ENABLED=True,
     MCP_BASE_URL="https://api.kolberg.uz/mcp",
     MCP_OAUTH_LOGIN_URL="https://api.kolberg.uz/oauth/login",
     ALLOWED_HOSTS=[_MCP_TEST_HOST, "testserver"],
@@ -184,6 +199,7 @@ class McpOAuthLoginFlowTests(TestCase):
 
 
 @override_settings(
+    MCP_HTTP_ENABLED=True,
     MCP_BASE_URL="https://api.kolberg.uz/mcp",
     MCP_OAUTH_LOGIN_URL="https://api.kolberg.uz/oauth/login",
     ALLOWED_HOSTS=[_MCP_TEST_HOST, "testserver"],
@@ -327,3 +343,22 @@ class McpTenantToggleTests(TestCase):
 
         result_user, result_tenant = _get_user_and_tenant(42, 1)
         self.assertEqual(result_tenant.mcp_enabled, True)
+
+
+class McpHttpDisabledTests(TestCase):
+    """Production default: MCP HTTP/OAuth is parked and must not be served."""
+
+    def setUp(self):
+        self.client = Client()
+
+    def test_oauth_login_is_404(self):
+        r = self.client.get("/oauth/login/")
+        self.assertEqual(r.status_code, 404)
+
+    def test_well_known_authorization_server_is_404(self):
+        r = self.client.get("/.well-known/oauth-authorization-server")
+        self.assertEqual(r.status_code, 404)
+
+    def test_well_known_protected_resource_is_404(self):
+        r = self.client.get("/.well-known/oauth-protected-resource")
+        self.assertEqual(r.status_code, 404)

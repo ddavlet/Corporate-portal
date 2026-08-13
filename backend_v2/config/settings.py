@@ -73,7 +73,7 @@ INSTALLED_APPS = [
     "apps.modules.reports",
     "apps.modules.tasks",
 
-    # MCP server
+    # MCP server (HTTP disabled by default; code kept to re-enable later)
     "apps.mcp_server",
     "apps.mcp_server.oauth",
 ]
@@ -217,6 +217,11 @@ N8N_INTEGRATION_TOKEN = os.getenv("N8N_INTEGRATION_TOKEN", "").strip()
 # Example: http://n8n:5678/webhook -> backend builds http://n8n:5678/webhook/<tenant>/<endpoint>.
 # When empty, backend falls back to the public https://{subdomain}.{BASE_DOMAIN} path.
 N8N_INTERNAL_BASE_URL = (os.getenv("N8N_INTERNAL_BASE_URL", "") or "").strip().rstrip("/")
+
+# MCP HTTP/OAuth (api.kolberg.uz) is parked in git. Default off so FastMCP is
+# not started in gunicorn. Re-enable: MCP_HTTP_ENABLED=true + Traefik router
+# (see docs/MCP_SERVER.md).
+MCP_HTTP_ENABLED = os.getenv("MCP_HTTP_ENABLED", "false").lower() in {"1", "true", "yes", "on"}
 
 # MCP server: OAuth issuer + MCP protocol base (e.g. https://api.kolberg.uz/mcp).
 MCP_BASE_URL = (os.getenv("MCP_BASE_URL", "") or "").strip().rstrip("/") or (
