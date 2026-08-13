@@ -42,7 +42,9 @@ CLAUDE.md
 settings.local.json
 .venv
 .venv_ci
-scripts/
+scripts/*
+!scripts/check_postgres_mcp_compose.sh
+!scripts/postgres_mcp_create_readonly_role.sql
 backups/
 .claude/
 
