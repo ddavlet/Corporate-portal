@@ -2236,6 +2236,10 @@ class RequestApprovalsTests(APITestCase):
         self.assertEqual(req.expense_ref_target, Request.EXPENSE_REF_TARGET_BANK)
 
     def test_request_create_resolves_transfer_by_vendor_amount_date_when_doc_no_blank(self):
+        self._configure_payment_step(
+            payment_type=Request.PAYMENT_TYPE_TRANSFER,
+            mode=RequestApprovalStepConfig.PAYMENT_ACTION_MODE_WEBAPP,
+        )
         vendor = Vendor.objects.create(
             tenant=self.tenant, kind=Vendor.KIND_TRANSFER, name="Portal Fallback Vendor", created_by=self.admin,
         )

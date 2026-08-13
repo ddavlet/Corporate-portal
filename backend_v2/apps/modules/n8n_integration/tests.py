@@ -1527,10 +1527,7 @@ class N8nIntegrationAuthTests(APITestCase):
             name="N8n Request Fallback Vendor",
             created_by=self.admin,
         )
-        bank_account = BankAccount.objects.create(tenant=self.tenant, label="N8n Request Fallback")
-        bank_wallet = Wallet.objects.create(
-            tenant=self.tenant, wallet_type=Wallet.Type.BANK, currency="UZS", bank_account=bank_account,
-        )
+        bank_wallet = get_or_create_bank_wallet(tenant=self.tenant)
         bank_expense = BankExpense.objects.create(
             tenant=self.tenant,
             created_by=self.admin,
