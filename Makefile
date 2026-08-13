@@ -7,7 +7,7 @@ DEPLOY_TEST_PATH ?= $(TEST_PATH)
 BRANCH     := $(shell git rev-parse --abbrev-ref HEAD)
 
 .DEFAULT_GOAL := help
-.PHONY: help push test deploy makemigrations showmigrations backup-db rollback refresh-approval-messages link-lemon-auto-request-exceptions local-up local-down local-logs test_local
+.PHONY: help push test deploy makemigrations showmigrations backup-db create-postgres-mcp-role rollback refresh-approval-messages link-lemon-auto-request-exceptions local-up local-down local-logs test_local
 
 help:
 	@echo ""
@@ -20,6 +20,7 @@ help:
 	@echo "  make makemigrations  — создать миграции и скачать на локал"
 	@echo "  make showmigrations  — показать tenants/requests/vendors миграции на сервере"
 	@echo "  make backup-db       — создать gzip-копию БД на сервере в backups/db"
+	@echo "  make create-postgres-mcp-role — создать/обновить read-only роль Postgres MCP на сервере"
 	@echo "  make refresh-approval-messages REQUEST_IDS='1 2' — актуализировать Telegram-карточки заявок на сервере"
 	@echo "  make link-lemon-auto-request-exceptions — dry-run: привязка назначений автозаявок к исключениям (lemon*)"
 	@echo "  make link-lemon-auto-request-exceptions APPLY=1 — то же самое, но с записью изменений"
@@ -97,6 +98,22 @@ backup-db:
 		docker compose --env-file ./.env exec -T db sh -c '"'"'rm -f /tmp/$(BACKUP_NAME).sql.gz'"'"' && \
 		ls -lh backups/db/$(BACKUP_NAME).sql.gz'
 	@echo "✅  Backup создан: $(REMOTE_DIR)/backups/db/$(BACKUP_NAME).sql.gz"
+
+# ── Postgres MCP: create/update read-only role on production DB ─────────────
+create-postgres-mcp-role:
+	ssh $(SERVER) "cd $(REMOTE_DIR) && \
+		set -a && . ./.env && set +a && \
+		test -n \"\$$POSTGRES_MCP_USER\" && test -n \"\$$POSTGRES_MCP_PASSWORD\" && \
+		test -n \"\$$POSTGRES_V2_DB\" && test -n \"\$$POSTGRES_V2_USER\" && \
+		docker compose --env-file ./.env exec -T db \
+		env PGPASSWORD=\"\$$POSTGRES_PASSWORD\" \
+		psql -U \"\$$POSTGRES_USER\" -d postgres \
+		-v mcp_user=\"\$$POSTGRES_MCP_USER\" \
+		-v mcp_password=\"\$$POSTGRES_MCP_PASSWORD\" \
+		-v app_db=\"\$$POSTGRES_V2_DB\" \
+		-v app_owner=\"\$$POSTGRES_V2_USER\" \
+		-f /dev/stdin" < scripts/postgres_mcp_create_readonly_role.sql
+	@echo "✅  Postgres MCP read-only role ensured (CONNECT + SELECT)."
 
 # ── 7. Telegram: актуализация карточек согласований по ID заявок (на сервере) ─
 REQUEST_IDS ?=

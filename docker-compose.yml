@@ -50,6 +50,41 @@ services:
       - traefik-public
       - backend
 
+  postgres-mcp:
+    image: crystaldba/postgres-mcp:0.3.0
+    restart: always
+    container_name: postgres-mcp
+    depends_on:
+      db:
+        condition: service_started
+    environment:
+      DATABASE_URI: postgresql://${POSTGRES_MCP_USER}:${POSTGRES_MCP_PASSWORD}@db:5432/${POSTGRES_V2_DB}
+    command:
+      - --access-mode=restricted
+      - --transport=sse
+    labels:
+      - traefik.enable=true
+      - traefik.docker.network=n8n_traefik-public
+      - traefik.http.routers.postgres-mcp.rule=Host(`${POSTGRES_MCP_HOST:-mcp.kolberg.uz}`)
+      - traefik.http.routers.postgres-mcp.tls=true
+      - traefik.http.routers.postgres-mcp.entrypoints=web,websecure
+      - traefik.http.routers.postgres-mcp.tls.certresolver=mytlschallenge
+      - traefik.http.middlewares.postgres-mcp-headers.headers.SSLRedirect=true
+      - traefik.http.middlewares.postgres-mcp-headers.headers.STSSeconds=315360000
+      - traefik.http.middlewares.postgres-mcp-headers.headers.browserXSSFilter=true
+      - traefik.http.middlewares.postgres-mcp-headers.headers.contentTypeNosniff=true
+      - traefik.http.middlewares.postgres-mcp-headers.headers.forceSTSHeader=true
+      - traefik.http.middlewares.postgres-mcp-headers.headers.SSLHost=kolberg.uz
+      - traefik.http.middlewares.postgres-mcp-headers.headers.STSIncludeSubdomains=true
+      - traefik.http.middlewares.postgres-mcp-headers.headers.STSPreload=true
+      # HTPASSWD is bcrypt of POSTGRES_MCP_USER:POSTGRES_MCP_PASSWORD (same login). Escape $ as $$ in .env for Compose.
+      - traefik.http.middlewares.postgres-mcp-auth.basicauth.users=${POSTGRES_MCP_HTPASSWD}
+      - traefik.http.routers.postgres-mcp.middlewares=postgres-mcp-headers@docker,postgres-mcp-auth@docker
+      - traefik.http.services.postgres-mcp.loadbalancer.server.port=8000
+    networks:
+      - traefik-public
+      - backend
+
   traefik:
     image: "traefik"
     restart: always
