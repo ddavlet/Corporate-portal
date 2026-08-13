@@ -572,28 +572,6 @@ services:
       - /opt/backups/postgres:/backups/postgres:ro
       - ${RCLONE_CONFIG_DIR:-/opt/backups/rclone}:/config/rclone:ro
 
-  # portainer:
-  #   image: portainer/portainer-ce:latest
-  #   container_name: portainer
-  #   restart: always
-  #   security_opt:
-  #     - no-new-privileges:true
-  #   volumes:
-  #     - /var/run/docker.sock:/var/run/docker.sock
-  #     - portainer_data:/data
-  #   labels:
-  #     - traefik.enable=true
-  #     - traefik.docker.network=n8n_traefik-public
-
-  #     - traefik.http.routers.portainer.rule=Host(`docker.kolberg.uz`)
-  #     - traefik.http.routers.portainer.entrypoints=web,websecure
-  #     - traefik.http.routers.portainer.tls=true
-  #     - traefik.http.routers.portainer.tls.certresolver=mytlschallenge
-
-  #     - traefik.http.services.portainer.loadbalancer.server.port=9000
-  #   networks:
-  #     - traefik-public
-
   backend_v2:
     build:
       context: ./backend_v2
