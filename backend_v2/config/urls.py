@@ -104,7 +104,7 @@ urlpatterns = [
     # Messaging gateway webhook
     path("api/messaging-gateway/", include("apps.modules.telegram_approvals.urls")),
 
-    # MCP OAuth — discovery at host root (MCP spec), login outside /mcp/ (Django only)
+    # MCP OAuth — parked unless MCP_HTTP_ENABLED=true (views return 404 otherwise)
     path(
         ".well-known/oauth-authorization-server",
         AuthorizationServerMetadataView.as_view(),

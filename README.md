@@ -81,7 +81,7 @@ kolberg/
 │   ├── apps/
 │   │   ├── accounts/        # User auth, OTP, custom user model
 │   │   ├── tenants/         # Multi-tenancy middleware and settings
-│   │   ├── mcp_server/      # Claude MCP server integration
+│   │   ├── mcp_server/      # Kolberg MCP (HTTP parked; code kept to re-enable)
 │   │   └── modules/         # 17 business domain modules (see below)
 │   ├── config/              # Django settings, root URLs, WSGI/ASGI
 │   └── requirements.txt
@@ -311,8 +311,7 @@ Copy `.env.example` to `.env` and configure:
 | `TRAEFIK_BACKEND_V2_HOST_RULE` | Domain rule for the backend API |
 | `TRAEFIK_BACKEND_V2_API_PATH_RULE` | Path rule for API routing |
 | `TRAEFIK_BACKEND_V2_N8N_RULE` | Routing rule for n8n |
-| `MCP_HOST` | Hostname for the Claude MCP server |
-| `MCP_BASE_URL` | Base URL for Claude MCP server endpoints |
+| `MCP_HTTP_ENABLED` | Kolberg MCP HTTP/OAuth (`false` in production; see `docs/MCP_SERVER.md`) |
 
 Additional secrets (database passwords, JWT secret, Telegram token, etc.) are configured directly in the server environment and are not committed to the repository.
 
