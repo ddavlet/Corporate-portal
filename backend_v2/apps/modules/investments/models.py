@@ -20,7 +20,7 @@ class InvestReturn(models.Model):
         INVESTOR = "инвестор", "Инвестор"
         PARTNER = "партнер", "Партнер"
 
-    tenant = models.ForeignKey(Tenant, on_delete=models.CASCADE, related_name="invest_returns")
+    tenant = models.ForeignKey(Tenant, on_delete=models.CASCADE, related_name="invest_returns", db_index=False)
     company = models.ForeignKey(
         "InvestCompany",
         on_delete=models.SET_NULL,
@@ -79,7 +79,7 @@ class InvestReturn(models.Model):
 class InvestPayoutSchedule(models.Model):
     """Planned investment payouts: due date, amounts, and payment status."""
 
-    tenant = models.ForeignKey(Tenant, on_delete=models.CASCADE, related_name="invest_payout_schedules")
+    tenant = models.ForeignKey(Tenant, on_delete=models.CASCADE, related_name="invest_payout_schedules", db_index=False)
     company = models.ForeignKey(
         "InvestCompany",
         on_delete=models.SET_NULL,
@@ -145,7 +145,7 @@ class InvestPayoutSchedule(models.Model):
 class ProjectInvestment(models.Model):
     """Registered capital investment amounts into a project (per tenant)."""
 
-    tenant = models.ForeignKey(Tenant, on_delete=models.CASCADE, related_name="project_investments")
+    tenant = models.ForeignKey(Tenant, on_delete=models.CASCADE, related_name="project_investments", db_index=False)
     company = models.ForeignKey(
         "InvestCompany",
         on_delete=models.SET_NULL,
@@ -178,7 +178,7 @@ class ProjectInvestment(models.Model):
 class InvestCompany(models.Model):
     """Company/legal entity dimension for investments inside one tenant."""
 
-    tenant = models.ForeignKey(Tenant, on_delete=models.CASCADE, related_name="invest_companies")
+    tenant = models.ForeignKey(Tenant, on_delete=models.CASCADE, related_name="invest_companies", db_index=False)
     name = models.CharField(max_length=255)
     comment = models.TextField(blank=True, default="")
     is_active = models.BooleanField(default=True)
@@ -205,7 +205,7 @@ class InvestPayoutScheduleShareLink(models.Model):
         PAID = "paid", "Paid"
         UNPAID = "unpaid", "Unpaid"
 
-    tenant = models.ForeignKey(Tenant, on_delete=models.CASCADE, related_name="invest_schedule_share_links")
+    tenant = models.ForeignKey(Tenant, on_delete=models.CASCADE, related_name="invest_schedule_share_links", db_index=False)
     token = models.CharField(max_length=64, unique=True, db_index=True)
     company = models.ForeignKey(
         "InvestCompany",
@@ -310,7 +310,9 @@ class InvestmentApprovalConfigStep(models.Model):
         (STEP_TYPE_NOTIFICATION, STEP_TYPE_NOTIFICATION),
     ]
 
-    config = models.ForeignKey(InvestmentApprovalConfig, on_delete=models.CASCADE, related_name="steps")
+    config = models.ForeignKey(
+        InvestmentApprovalConfig, on_delete=models.CASCADE, related_name="steps", db_index=False
+    )
     step = models.PositiveIntegerField()
     step_type = models.CharField(max_length=16, choices=STEP_TYPE_CHOICES, default=STEP_TYPE_SERIAL)
     is_enabled = models.BooleanField(default=True)
@@ -331,11 +333,12 @@ class InvestmentApprovalConfigStep(models.Model):
         db_table = "investment_approval_config_steps"
         ordering = ["step", "id"]
         unique_together = [("config", "step")]
-        indexes = [models.Index(fields=["config", "step"], name="invcfg_step_cfg_step_idx")]
 
 
 class InvestmentApprovalConfigStepApprover(models.Model):
-    step = models.ForeignKey(InvestmentApprovalConfigStep, on_delete=models.CASCADE, related_name="step_approvers")
+    step = models.ForeignKey(
+        InvestmentApprovalConfigStep, on_delete=models.CASCADE, related_name="step_approvers", db_index=False
+    )
     approver_user = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.CASCADE,
@@ -345,9 +348,6 @@ class InvestmentApprovalConfigStepApprover(models.Model):
     class Meta:
         db_table = "investment_approval_config_step_approvers"
         unique_together = [("step", "approver_user")]
-        indexes = [
-            models.Index(fields=["step", "approver_user"], name="invcfg_step_appr_idx"),
-        ]
 
 
 class InvestmentReturnApproval(models.Model):
@@ -360,8 +360,8 @@ class InvestmentReturnApproval(models.Model):
         (DECISION_REJECTED, "Rejected"),
     ]
 
-    tenant = models.ForeignKey(Tenant, on_delete=models.CASCADE, related_name="investment_return_approvals")
-    invest_return = models.ForeignKey(InvestReturn, on_delete=models.CASCADE, related_name="approvals")
+    tenant = models.ForeignKey(Tenant, on_delete=models.CASCADE, related_name="investment_return_approvals", db_index=False)
+    invest_return = models.ForeignKey(InvestReturn, on_delete=models.CASCADE, related_name="approvals", db_index=False)
     step = models.PositiveIntegerField()
     step_type = models.CharField(
         max_length=16,
@@ -460,6 +460,7 @@ class InvestPayoutNotificationLog(models.Model):
         InvestPayoutSchedule,
         on_delete=models.CASCADE,
         related_name="notification_logs",
+        db_index=False,
     )
     recipient_user = models.ForeignKey(
         settings.AUTH_USER_MODEL,
@@ -508,6 +509,7 @@ class InvestmentProjectApprovalConfigStep(models.Model):
         InvestmentProjectApprovalConfig,
         on_delete=models.CASCADE,
         related_name="steps",
+        db_index=False,
     )
     step = models.PositiveIntegerField()
     step_type = models.CharField(max_length=16, choices=STEP_TYPE_CHOICES, default=STEP_TYPE_SERIAL)
@@ -529,7 +531,6 @@ class InvestmentProjectApprovalConfigStep(models.Model):
         db_table = "investment_project_approval_config_steps"
         ordering = ["step", "id"]
         unique_together = [("config", "step")]
-        indexes = [models.Index(fields=["config", "step"], name="invprojcfg_step_cfg_step_idx")]
 
 
 class InvestmentProjectApprovalConfigStepApprover(models.Model):
@@ -537,6 +538,7 @@ class InvestmentProjectApprovalConfigStepApprover(models.Model):
         InvestmentProjectApprovalConfigStep,
         on_delete=models.CASCADE,
         related_name="step_approvers",
+        db_index=False,
     )
     approver_user = models.ForeignKey(
         settings.AUTH_USER_MODEL,
@@ -547,9 +549,6 @@ class InvestmentProjectApprovalConfigStepApprover(models.Model):
     class Meta:
         db_table = "investment_project_approval_config_step_approvers"
         unique_together = [("step", "approver_user")]
-        indexes = [
-            models.Index(fields=["step", "approver_user"], name="invprojcfg_step_appr_idx"),
-        ]
 
 
 class ProjectInvestmentApproval(models.Model):
@@ -562,11 +561,12 @@ class ProjectInvestmentApproval(models.Model):
         (DECISION_REJECTED, "Rejected"),
     ]
 
-    tenant = models.ForeignKey(Tenant, on_delete=models.CASCADE, related_name="project_investment_approvals")
+    tenant = models.ForeignKey(Tenant, on_delete=models.CASCADE, related_name="project_investment_approvals", db_index=False)
     project_investment = models.ForeignKey(
         ProjectInvestment,
         on_delete=models.CASCADE,
         related_name="approvals",
+        db_index=False,
     )
     step = models.PositiveIntegerField()
     step_type = models.CharField(

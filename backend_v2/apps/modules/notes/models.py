@@ -24,7 +24,7 @@ class Note(models.Model):
         (DELIVERY_FAILED, DELIVERY_FAILED),
     ]
 
-    tenant = models.ForeignKey(Tenant, on_delete=models.CASCADE, related_name="notes")
+    tenant = models.ForeignKey(Tenant, on_delete=models.CASCADE, related_name="notes", db_index=False)
     created_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
         on_delete=models.PROTECT,
@@ -34,6 +34,7 @@ class Note(models.Model):
         settings.AUTH_USER_MODEL,
         on_delete=models.PROTECT,
         related_name="received_notes",
+        db_index=False,
     )
 
     target_type = models.CharField(max_length=20, choices=TARGET_TYPE_CHOICES)

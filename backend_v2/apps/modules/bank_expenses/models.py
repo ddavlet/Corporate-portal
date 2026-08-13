@@ -6,7 +6,7 @@ from apps.tenants.models import Tenant
 
 
 class BankExpense(models.Model):
-    tenant = models.ForeignKey(Tenant, on_delete=models.CASCADE, related_name="bank_expenses")
+    tenant = models.ForeignKey(Tenant, on_delete=models.CASCADE, related_name="bank_expenses", db_index=False)
     created_at = models.DateTimeField(default=timezone.now)
     created_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,
@@ -56,7 +56,7 @@ class BankExpense(models.Model):
 
 
 class BankRevenue(models.Model):
-    tenant = models.ForeignKey(Tenant, on_delete=models.CASCADE, related_name="bank_revenues")
+    tenant = models.ForeignKey(Tenant, on_delete=models.CASCADE, related_name="bank_revenues", db_index=False)
     created_at = models.DateTimeField(default=timezone.now)
     created_by = models.ForeignKey(
         settings.AUTH_USER_MODEL,

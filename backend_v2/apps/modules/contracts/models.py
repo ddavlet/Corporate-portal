@@ -38,7 +38,7 @@ class Contract(models.Model):
         (STATUS_REFUSED, "Отказан"),
     ]
 
-    tenant = models.ForeignKey(Tenant, on_delete=models.CASCADE, related_name="contracts")
+    tenant = models.ForeignKey(Tenant, on_delete=models.CASCADE, related_name="contracts", db_index=False)
     vendor = models.ForeignKey(
         "vendors.Vendor",
         on_delete=models.PROTECT,
@@ -79,7 +79,6 @@ class Contract(models.Model):
             ),
         ]
         indexes = [
-            models.Index(fields=["tenant", "vendor"], name="contracts_tenant_vendor_idx"),
             models.Index(fields=["tenant", "contract_status"], name="contracts_tenant_status_idx"),
         ]
 

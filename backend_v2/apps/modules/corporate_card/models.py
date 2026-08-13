@@ -5,7 +5,7 @@ from apps.tenants.models import Tenant
 
 
 class CardExpense(models.Model):
-    tenant = models.ForeignKey(Tenant, on_delete=models.CASCADE, related_name="card_expenses")
+    tenant = models.ForeignKey(Tenant, on_delete=models.CASCADE, related_name="card_expenses", db_index=False)
     external_id = models.CharField(max_length=64, blank=True, default="")
     title = models.CharField(max_length=255, blank=True, default="")
     amount = models.DecimalField(max_digits=18, decimal_places=2, default=0)
@@ -41,7 +41,7 @@ class CardExpense(models.Model):
 
 
 class CardRevenue(models.Model):
-    tenant = models.ForeignKey(Tenant, on_delete=models.CASCADE, related_name="card_revenues")
+    tenant = models.ForeignKey(Tenant, on_delete=models.CASCADE, related_name="card_revenues", db_index=False)
     external_id = models.CharField(max_length=64, blank=True, default="")
     confirmed = models.BooleanField(default=True)
     operation = models.CharField(max_length=255, blank=True, default="")

@@ -5,7 +5,7 @@ from apps.tenants.models import Tenant
 
 
 class CashExpense(models.Model):
-    tenant = models.ForeignKey(Tenant, on_delete=models.CASCADE, related_name="cash_expenses")
+    tenant = models.ForeignKey(Tenant, on_delete=models.CASCADE, related_name="cash_expenses", db_index=False)
     external_id = models.CharField(max_length=20)
     confirmed = models.BooleanField(default=True)
     title = models.CharField(max_length=255, blank=True, default="")
@@ -52,7 +52,7 @@ class CashExpense(models.Model):
 
 
 class CashRevenue(models.Model):
-    tenant = models.ForeignKey(Tenant, on_delete=models.CASCADE, related_name="cash_revenues")
+    tenant = models.ForeignKey(Tenant, on_delete=models.CASCADE, related_name="cash_revenues", db_index=False)
     external_id = models.CharField(max_length=20, blank=True, default="")
     source_year = models.PositiveIntegerField(null=True, blank=True)
     revenue_at = models.DateTimeField(null=True, blank=True)
