@@ -1,7 +1,23 @@
+from importlib import import_module
+from inspect import getsource
+from pathlib import Path
+
 from django.apps import apps
 from django.core.exceptions import FieldDoesNotExist
 from django.db import models
+from django.db.migrations.operations.fields import AlterField
+from django.db.migrations.operations.models import RemoveIndex
+from django.db.migrations.operations.special import RunPython, SeparateDatabaseAndState
 from django.test import SimpleTestCase
+
+from apps.common.index_migrations import drop_unconstrained_fk_indexes
+
+# Already applied on production via AlterField; do not rewrite that file.
+_APPLIED_ALTERFIELD_DROP_MIGRATIONS = frozenset(
+    {
+        "accounts/migrations/0009_otpchallenge_drop_redundant_tenant_index.py",
+    }
+)
 
 DJANGO_CONTRIB_APPS = frozenset(
     {
@@ -119,3 +135,44 @@ class RedundantIndexConventionTests(SimpleTestCase):
                         )
                         break
         self.assertEqual(violations, [], "\n".join(violations))
+
+
+def _database_operations(operations):
+    for op in operations:
+        if isinstance(op, SeparateDatabaseAndState):
+            yield from op.database_operations
+        else:
+            yield op
+
+
+class DropRedundantIndexMigrationTests(SimpleTestCase):
+    def test_unapplied_drop_redundant_migrations_do_not_alter_fk_on_database(self):
+        apps_root = Path(__file__).resolve().parents[1]
+        violations = []
+        found = 0
+        for path in sorted(apps_root.rglob("*drop_redundant*.py")):
+            rel = path.relative_to(apps_root).as_posix()
+            if rel in _APPLIED_ALTERFIELD_DROP_MIGRATIONS:
+                continue
+            found += 1
+            module_name = ".".join(("apps", *Path(rel).with_suffix("").parts))
+            module = import_module(module_name)
+            for op in _database_operations(module.Migration.operations):
+                if isinstance(op, AlterField):
+                    violations.append(f"{module_name} runs AlterField on the database")
+                elif not isinstance(op, (RemoveIndex, RunPython)):
+                    violations.append(
+                        f"{module_name} has unexpected database operation {type(op).__name__}"
+                    )
+        self.assertGreater(found, 0)
+        self.assertEqual(violations, [], "\n".join(violations))
+
+    def test_index_drop_helper_only_drops_unconstrained_nonunique_indexes(self):
+        source = getsource(drop_unconstrained_fk_indexes)
+        self.assertIn("indisunique IS FALSE", source)
+        self.assertIn("indisprimary IS FALSE", source)
+        self.assertIn("pg_constraint", source)
+        self.assertIn("DROP INDEX IF EXISTS", source)
+        self.assertNotIn("DROP CONSTRAINT", source)
+        self.assertNotIn("DROP TABLE", source)
+        self.assertNotIn("DELETE FROM", source)

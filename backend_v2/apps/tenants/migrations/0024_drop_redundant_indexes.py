@@ -2,6 +2,8 @@ import django.db.models.deletion
 from django.conf import settings
 from django.db import migrations, models
 
+from apps.common.index_migrations import drop_fk_index_operation
+
 
 class Migration(migrations.Migration):
     dependencies = [
@@ -11,43 +13,55 @@ class Migration(migrations.Migration):
 
     operations = [
         migrations.RemoveIndex(model_name="tenantuserpreference", name="tenants_ten_tenant__9191d4_idx"),
-        migrations.AlterField(
-            model_name="tenantmembership",
-            name="user",
-            field=models.ForeignKey(
-                db_index=False,
-                on_delete=django.db.models.deletion.CASCADE,
-                to=settings.AUTH_USER_MODEL,
-            ),
-        ),
-        migrations.AlterField(
-            model_name="tenantmoduleconfig",
-            name="tenant",
-            field=models.ForeignKey(
-                db_index=False,
-                on_delete=django.db.models.deletion.CASCADE,
-                related_name="module_configs",
-                to="tenants.tenant",
-            ),
-        ),
-        migrations.AlterField(
-            model_name="tenantuserrole",
-            name="tenant",
-            field=models.ForeignKey(
-                db_index=False,
-                on_delete=django.db.models.deletion.CASCADE,
-                related_name="tenant_user_roles",
-                to="tenants.tenant",
-            ),
-        ),
-        migrations.AlterField(
-            model_name="tenantuserpreference",
-            name="tenant",
-            field=models.ForeignKey(
-                db_index=False,
-                on_delete=django.db.models.deletion.CASCADE,
-                related_name="user_preferences",
-                to="tenants.tenant",
-            ),
+        migrations.SeparateDatabaseAndState(
+            state_operations=[
+                migrations.AlterField(
+                    model_name="tenantmembership",
+                    name="user",
+                    field=models.ForeignKey(
+                        db_index=False,
+                        on_delete=django.db.models.deletion.CASCADE,
+                        to=settings.AUTH_USER_MODEL,
+                    ),
+                ),
+                migrations.AlterField(
+                    model_name="tenantmoduleconfig",
+                    name="tenant",
+                    field=models.ForeignKey(
+                        db_index=False,
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="module_configs",
+                        to="tenants.tenant",
+                    ),
+                ),
+                migrations.AlterField(
+                    model_name="tenantuserrole",
+                    name="tenant",
+                    field=models.ForeignKey(
+                        db_index=False,
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="tenant_user_roles",
+                        to="tenants.tenant",
+                    ),
+                ),
+                migrations.AlterField(
+                    model_name="tenantuserpreference",
+                    name="tenant",
+                    field=models.ForeignKey(
+                        db_index=False,
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name="user_preferences",
+                        to="tenants.tenant",
+                    ),
+                ),
+            ],
+            database_operations=[
+                drop_fk_index_operation(
+                    ("tenants", "TenantMembership", "user"),
+                    ("tenants", "TenantModuleConfig", "tenant"),
+                    ("tenants", "TenantUserRole", "tenant"),
+                    ("tenants", "TenantUserPreference", "tenant"),
+                ),
+            ],
         ),
     ]
