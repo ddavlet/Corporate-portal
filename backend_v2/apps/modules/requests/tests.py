@@ -46,7 +46,7 @@ from apps.modules.cashier.models import CashExpense
 from apps.modules.corporate_card.models import CardExpense
 from apps.modules.payroll.constants import SALARY_CATEGORY
 from apps.modules.payroll.models import PayrollDocument, PayrollLine
-from apps.modules.requests.expense_refs import resolve_request_expense_ref
+from apps.modules.requests.expense_refs import maybe_persist_request_expense_ref, resolve_request_expense_ref
 from apps.modules.vendors.models import Vendor
 from apps.modules.contracts.models import Contract
 from apps.modules.wallets.models import (
@@ -1996,6 +1996,292 @@ class RequestApprovalsTests(APITestCase):
         )
         self.assertIsNone(ref_id)
         self.assertIsNone(normalized)
+
+    def test_bank_fallback_matches_by_vendor_amount_date_when_doc_no_blank(self):
+        vendor = Vendor.objects.create(
+            tenant=self.tenant, kind=Vendor.KIND_TRANSFER, name="Fallback Vendor", created_by=self.admin,
+        )
+        bank_account = BankAccount.objects.create(tenant=self.tenant, label="Main")
+        bank_wallet = Wallet.objects.create(
+            tenant=self.tenant, wallet_type=Wallet.Type.BANK, currency="UZS", bank_account=bank_account,
+        )
+        expense = BankExpense.objects.create(
+            tenant=self.tenant,
+            created_by=self.admin,
+            row_no=1,
+            doc_date=date(2026, 1, 20),
+            process_date=date(2026, 1, 20),
+            expense_year=2026,
+            expense_month=1,
+            expense_day=20,
+            doc_no="",
+            debit_turnover=Decimal("750.00"),
+            payment_purpose="x",
+            vendor=vendor,
+            wallet=bank_wallet,
+        )
+        ref_id, normalized = resolve_request_expense_ref(
+            tenant=self.tenant,
+            payment_type=Request.PAYMENT_TYPE_TRANSFER,
+            category="",
+            expense_id_raw="",
+            expense_year=None,
+            amount=Decimal("750.00"),
+            vendor_ref_id=vendor.id,
+            billing_date=date(2026, 1, 25),
+        )
+        self.assertEqual(ref_id, expense.id)
+        self.assertEqual(normalized, "")
+
+    def test_bank_fallback_no_match_when_date_outside_window(self):
+        vendor = Vendor.objects.create(
+            tenant=self.tenant, kind=Vendor.KIND_TRANSFER, name="Outside Window Vendor", created_by=self.admin,
+        )
+        bank_account = BankAccount.objects.create(tenant=self.tenant, label="Main2")
+        bank_wallet = Wallet.objects.create(
+            tenant=self.tenant, wallet_type=Wallet.Type.BANK, currency="UZS", bank_account=bank_account,
+        )
+        BankExpense.objects.create(
+            tenant=self.tenant,
+            created_by=self.admin,
+            row_no=1,
+            doc_date=date(2026, 1, 1),
+            process_date=date(2026, 1, 1),
+            expense_year=2026,
+            expense_month=1,
+            expense_day=1,
+            doc_no="",
+            debit_turnover=Decimal("300.00"),
+            payment_purpose="x",
+            vendor=vendor,
+            wallet=bank_wallet,
+        )
+        ref_id, normalized = resolve_request_expense_ref(
+            tenant=self.tenant,
+            payment_type=Request.PAYMENT_TYPE_TRANSFER,
+            category="",
+            expense_id_raw="",
+            expense_year=None,
+            amount=Decimal("300.00"),
+            vendor_ref_id=vendor.id,
+            billing_date=date(2026, 3, 1),
+        )
+        self.assertIsNone(ref_id)
+        self.assertIsNone(normalized)
+
+    def test_bank_fallback_no_match_when_ambiguous(self):
+        vendor = Vendor.objects.create(
+            tenant=self.tenant, kind=Vendor.KIND_TRANSFER, name="Ambiguous Vendor", created_by=self.admin,
+        )
+        bank_account = BankAccount.objects.create(tenant=self.tenant, label="Main3")
+        bank_wallet = Wallet.objects.create(
+            tenant=self.tenant, wallet_type=Wallet.Type.BANK, currency="UZS", bank_account=bank_account,
+        )
+        for day in (10, 20):
+            BankExpense.objects.create(
+                tenant=self.tenant,
+                created_by=self.admin,
+                row_no=day,
+                doc_date=date(2026, 1, day),
+                process_date=date(2026, 1, day),
+                expense_year=2026,
+                expense_month=1,
+                expense_day=day,
+                doc_no="",
+                debit_turnover=Decimal("400.00"),
+                payment_purpose="rent",
+                vendor=vendor,
+                wallet=bank_wallet,
+            )
+        ref_id, normalized = resolve_request_expense_ref(
+            tenant=self.tenant,
+            payment_type=Request.PAYMENT_TYPE_TRANSFER,
+            category="",
+            expense_id_raw="",
+            expense_year=None,
+            amount=Decimal("400.00"),
+            vendor_ref_id=vendor.id,
+            billing_date=date(2026, 1, 15),
+        )
+        self.assertIsNone(ref_id)
+        self.assertIsNone(normalized)
+
+    def test_bank_fallback_no_match_when_vendor_ref_missing(self):
+        ref_id, normalized = resolve_request_expense_ref(
+            tenant=self.tenant,
+            payment_type=Request.PAYMENT_TYPE_TRANSFER,
+            category="",
+            expense_id_raw="",
+            expense_year=None,
+            amount=Decimal("100.00"),
+            vendor_ref_id=None,
+            billing_date=date(2026, 1, 1),
+        )
+        self.assertIsNone(ref_id)
+        self.assertIsNone(normalized)
+
+    def test_bank_fallback_no_match_when_bank_expense_vendor_missing(self):
+        bank_account = BankAccount.objects.create(tenant=self.tenant, label="Main6")
+        bank_wallet = Wallet.objects.create(
+            tenant=self.tenant, wallet_type=Wallet.Type.BANK, currency="UZS", bank_account=bank_account,
+        )
+        BankExpense.objects.create(
+            tenant=self.tenant,
+            created_by=self.admin,
+            row_no=1,
+            doc_date=date(2026, 1, 20),
+            process_date=date(2026, 1, 20),
+            expense_year=2026,
+            expense_month=1,
+            expense_day=20,
+            doc_no="",
+            debit_turnover=Decimal("500.00"),
+            payment_purpose="x",
+            vendor=None,
+            wallet=bank_wallet,
+        )
+        vendor = Vendor.objects.create(
+            tenant=self.tenant, kind=Vendor.KIND_TRANSFER, name="Unmatched Vendor", created_by=self.admin,
+        )
+        ref_id, normalized = resolve_request_expense_ref(
+            tenant=self.tenant,
+            payment_type=Request.PAYMENT_TYPE_TRANSFER,
+            category="",
+            expense_id_raw="",
+            expense_year=None,
+            amount=Decimal("500.00"),
+            vendor_ref_id=vendor.id,
+            billing_date=date(2026, 1, 21),
+        )
+        self.assertIsNone(ref_id)
+        self.assertIsNone(normalized)
+
+    def test_bank_fallback_matches_across_year_boundary(self):
+        vendor = Vendor.objects.create(
+            tenant=self.tenant, kind=Vendor.KIND_TRANSFER, name="Year Boundary Vendor", created_by=self.admin,
+        )
+        bank_account = BankAccount.objects.create(tenant=self.tenant, label="Main4")
+        bank_wallet = Wallet.objects.create(
+            tenant=self.tenant, wallet_type=Wallet.Type.BANK, currency="UZS", bank_account=bank_account,
+        )
+        expense = BankExpense.objects.create(
+            tenant=self.tenant,
+            created_by=self.admin,
+            row_no=1,
+            doc_date=date(2027, 1, 10),
+            process_date=date(2027, 1, 10),
+            expense_year=2027,
+            expense_month=1,
+            expense_day=10,
+            doc_no="",
+            debit_turnover=Decimal("620.00"),
+            payment_purpose="x",
+            vendor=vendor,
+            wallet=bank_wallet,
+        )
+        ref_id, _normalized = resolve_request_expense_ref(
+            tenant=self.tenant,
+            payment_type=Request.PAYMENT_TYPE_TRANSFER,
+            category="",
+            expense_id_raw="",
+            expense_year=None,
+            amount=Decimal("620.00"),
+            vendor_ref_id=vendor.id,
+            billing_date=date(2026, 12, 20),
+        )
+        self.assertEqual(ref_id, expense.id)
+
+    def test_maybe_persist_request_expense_ref_persists_bank_fallback_match(self):
+        vendor = Vendor.objects.create(
+            tenant=self.tenant, kind=Vendor.KIND_TRANSFER, name="Persist Vendor", created_by=self.admin,
+        )
+        bank_account = BankAccount.objects.create(tenant=self.tenant, label="Main5")
+        bank_wallet = Wallet.objects.create(
+            tenant=self.tenant, wallet_type=Wallet.Type.BANK, currency="UZS", bank_account=bank_account,
+        )
+        expense = BankExpense.objects.create(
+            tenant=self.tenant,
+            created_by=self.admin,
+            row_no=1,
+            doc_date=date(2026, 2, 5),
+            process_date=date(2026, 2, 5),
+            expense_year=2026,
+            expense_month=2,
+            expense_day=5,
+            doc_no="",
+            debit_turnover=Decimal("880.00"),
+            payment_purpose="x",
+            vendor=vendor,
+            wallet=bank_wallet,
+        )
+        req = Request.objects.create(
+            tenant=self.tenant,
+            created_by=self.admin,
+            requester=self.requester,
+            title="No doc_no request",
+            description="",
+            amount=Decimal("880.00"),
+            currency="UZS",
+            payment_type=Request.PAYMENT_TYPE_TRANSFER,
+            urgency=Request.URGENCY_NORMAL,
+            billing_date=date(2026, 2, 10),
+            vendor_ref=vendor,
+            expense_id="",
+            status=Request.STATUS_PAYED,
+        )
+        resolved = maybe_persist_request_expense_ref(request_obj=req, tenant=self.tenant)
+        self.assertEqual(resolved, expense.id)
+        req.refresh_from_db()
+        self.assertEqual(req.expense_ref_id, expense.id)
+        self.assertEqual(req.expense_ref_target, Request.EXPENSE_REF_TARGET_BANK)
+
+    def test_request_create_resolves_transfer_by_vendor_amount_date_when_doc_no_blank(self):
+        self._configure_payment_step(
+            payment_type=Request.PAYMENT_TYPE_TRANSFER,
+            mode=RequestApprovalStepConfig.PAYMENT_ACTION_MODE_WEBAPP,
+        )
+        vendor = Vendor.objects.create(
+            tenant=self.tenant, kind=Vendor.KIND_TRANSFER, name="Portal Fallback Vendor", created_by=self.admin,
+        )
+        bank_account = BankAccount.objects.create(tenant=self.tenant, label="Portal Fallback")
+        bank_wallet = Wallet.objects.create(
+            tenant=self.tenant, wallet_type=Wallet.Type.BANK, currency="UZS", bank_account=bank_account,
+        )
+        bank_expense = BankExpense.objects.create(
+            tenant=self.tenant,
+            created_by=self.admin,
+            row_no=1,
+            doc_date=date(2026, 4, 12),
+            process_date=date(2026, 4, 12),
+            expense_year=2026,
+            expense_month=4,
+            expense_day=12,
+            doc_no="",
+            debit_turnover=Decimal("330.00"),
+            payment_purpose="x",
+            vendor=vendor,
+            wallet=bank_wallet,
+        )
+        self.client.force_authenticate(self.requester)
+        res = self.client.post(
+            "/api/requests/",
+            {
+                "title": "T",
+                "description": "",
+                "amount": 330,
+                "currency": "UZS",
+                "payment_type": "Перечисление",
+                "urgency": "Обычно",
+                "billing_date": "2026-04-15",
+                "vendor_ref": vendor.id,
+            },
+            format="json",
+            HTTP_HOST=self.host,
+        )
+        self.assertEqual(res.status_code, 201, res.content)
+        req = Request.objects.get(pk=res.data["id"])
+        self.assertEqual(req.expense_ref_id, bank_expense.id)
+        self.assertEqual(req.expense_ref_target, Request.EXPENSE_REF_TARGET_BANK)
 
     def test_payment_webapp_confirm_bank_resolves_same_doc_no_by_amount(self):
         self._configure_payment_step(

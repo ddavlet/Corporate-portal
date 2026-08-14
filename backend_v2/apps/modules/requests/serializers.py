@@ -397,33 +397,34 @@ class PortalRequestSerializer(serializers.ModelSerializer):
             expense_id_val = self.instance.expense_id
         elif "expense_id" in attrs:
             expense_id_val = attrs.get("expense_id")
-        eid = str(expense_id_val or "").strip()
         effective_expense_year = attrs.get("expense_year")
         if effective_expense_year is None and self.instance is not None:
             effective_expense_year = self.instance.expense_year
         effective_amount = attrs.get("amount")
         if effective_amount is None and self.instance is not None:
             effective_amount = self.instance.amount
-        if not eid:
-            attrs["expense_ref_id"] = None
-            attrs["expense_ref_target"] = None
-        else:
-            ref, normalized_expense_id = resolve_request_expense_ref(
-                tenant=tenant,
-                payment_type=effective_pt,
-                category=effective_cat,
-                expense_id_raw=eid,
-                expense_year=effective_expense_year,
-                amount=effective_amount,
-            )
-            tgt = expense_ref_target_for(payment_type=effective_pt, category=effective_cat) if ref else None
-            attrs["expense_ref_id"] = ref
-            attrs["expense_ref_target"] = tgt
-            if normalized_expense_id and effective_pt in (
-                Request.PAYMENT_TYPE_CASH,
-                Request.PAYMENT_TYPE_PAYROLL,
-            ):
-                attrs["expense_id"] = normalized_expense_id
+        effective_billing_date_for_ref = attrs.get("billing_date")
+        if effective_billing_date_for_ref is None and self.instance is not None:
+            effective_billing_date_for_ref = self.instance.billing_date
+
+        ref, normalized_expense_id = resolve_request_expense_ref(
+            tenant=tenant,
+            payment_type=effective_pt,
+            category=effective_cat,
+            expense_id_raw=expense_id_val,
+            expense_year=effective_expense_year,
+            amount=effective_amount,
+            vendor_ref_id=vref.id if vref else None,
+            billing_date=effective_billing_date_for_ref,
+        )
+        tgt = expense_ref_target_for(payment_type=effective_pt, category=effective_cat) if ref else None
+        attrs["expense_ref_id"] = ref
+        attrs["expense_ref_target"] = tgt
+        if normalized_expense_id and effective_pt in (
+            Request.PAYMENT_TYPE_CASH,
+            Request.PAYMENT_TYPE_PAYROLL,
+        ):
+            attrs["expense_id"] = normalized_expense_id
 
         if self.context.get("submit_for_approval"):
             amt = attrs.get("amount")
