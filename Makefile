@@ -100,19 +100,23 @@ backup-db:
 	@echo "✅  Backup создан: $(REMOTE_DIR)/backups/db/$(BACKUP_NAME).sql.gz"
 
 # ── Postgres MCP: create/update read-only role on production DB ─────────────
+# Do not `source .env`: Traefik Host(`...`) lines are invalid bash.
 create-postgres-mcp-role:
-	ssh $(SERVER) "cd $(REMOTE_DIR) && \
-		set -a && . ./.env && set +a && \
-		test -n \"\$$POSTGRES_MCP_USER\" && test -n \"\$$POSTGRES_MCP_PASSWORD\" && \
-		test -n \"\$$POSTGRES_V2_DB\" && test -n \"\$$POSTGRES_V2_USER\" && \
+	ssh $(SERVER) 'cd $(REMOTE_DIR) && \
+		set -a && \
+		. <(grep -E "^(POSTGRES_MCP_USER|POSTGRES_MCP_PASSWORD|POSTGRES_V2_DB|POSTGRES_V2_USER|POSTGRES_USER|POSTGRES_PASSWORD)=" .env) && \
+		set +a && \
+		test -n "$$POSTGRES_MCP_USER" && test -n "$$POSTGRES_MCP_PASSWORD" && \
+		test -n "$$POSTGRES_V2_DB" && test -n "$$POSTGRES_V2_USER" && \
 		docker compose --env-file ./.env exec -T db \
-		env PGPASSWORD=\"\$$POSTGRES_PASSWORD\" \
-		psql -U \"\$$POSTGRES_USER\" -d postgres \
-		-v mcp_user=\"\$$POSTGRES_MCP_USER\" \
-		-v mcp_password=\"\$$POSTGRES_MCP_PASSWORD\" \
-		-v app_db=\"\$$POSTGRES_V2_DB\" \
-		-v app_owner=\"\$$POSTGRES_V2_USER\" \
-		-f /dev/stdin" < scripts/postgres_mcp_create_readonly_role.sql
+		env PGPASSWORD="$$POSTGRES_PASSWORD" \
+		psql -U "$$POSTGRES_USER" -d postgres \
+		-v mcp_user="$$POSTGRES_MCP_USER" \
+		-v mcp_password="$$POSTGRES_MCP_PASSWORD" \
+		-v app_db="$$POSTGRES_V2_DB" \
+		-v app_owner="$$POSTGRES_V2_USER" \
+		-f /dev/stdin' < scripts/postgres_mcp_create_readonly_role.sql
+	ssh $(SERVER) 'cd $(REMOTE_DIR) && docker compose --env-file ./.env up -d --no-deps postgres-mcp'
 	@echo "✅  Postgres MCP read-only role ensured (CONNECT + SELECT)."
 
 # ── 7. Telegram: актуализация карточек согласований по ID заявок (на сервере) ─
