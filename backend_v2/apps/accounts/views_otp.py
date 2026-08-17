@@ -1,5 +1,6 @@
 import hashlib
 import json
+import logging
 import os
 import random
 from datetime import timedelta
@@ -18,6 +19,8 @@ from rest_framework_simplejwt.tokens import RefreshToken
 from apps.accounts.models import OtpChallenge
 from apps.modules.telegram_approvals.services import get_tenant_bot_token, post_messaging_gateway
 from apps.tenants.models import TenantMembership, TenantUserRole
+
+logger = logging.getLogger(__name__)
 
 User = get_user_model()
 
@@ -111,7 +114,11 @@ def _notify_tenant_admins(*, tenant, bot_token: str, text: str) -> None:
             _send_otp_via_gateway(tenant=tenant, bot_token=bot_token, chat_id=int(admin.telegram_chat_id), text=clipped)
         except Exception:
             # Do not let diagnostics break auth flow.
-            pass
+            logger.exception(
+                "OTP admin diagnostic send failed tenant_id=%s admin_id=%s",
+                getattr(tenant, "pk", None),
+                admin.pk,
+            )
 
 
 class OtpRequestView(APIView):

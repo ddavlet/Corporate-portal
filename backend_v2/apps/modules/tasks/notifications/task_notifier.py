@@ -33,7 +33,10 @@ def _webapp_button(tenant: Any) -> list:
         if url.strip():
             return [[{"label": "📱 Открыть задачи", "url": url.strip()}]]
     except Exception:
-        pass
+        logger.exception(
+            "task_notifier: failed to load TasksConfig for webapp button tenant=%s",
+            getattr(tenant, "pk", None),
+        )
     return []
 
 

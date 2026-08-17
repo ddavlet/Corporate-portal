@@ -1,5 +1,6 @@
 """OTP sends via messaging gateway; bot token is tenant-scoped."""
 
+import logging
 from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
@@ -66,3 +67,46 @@ class OtpMessagingGatewayTests(APITestCase):
             **self._host(),
         )
         self.assertEqual(res.status_code, status.HTTP_503_SERVICE_UNAVAILABLE, res.content)
+
+
+class OtpAdminDiagnosticLoggingTests(APITestCase):
+    """Проверяет, что сбой при отправке OTP-диагностики администраторам логируется, а не глотается тихо."""
+
+    def setUp(self):
+        self.tenant = Tenant.objects.create(
+            name="DiagTenant",
+            subdomain="diagtenant",
+            is_active=True,
+        )
+        self.admin = User.objects.create_user(username="diag_otp_admin", password="x")
+        self.admin.telegram_chat_id = 99991
+        self.admin.save(update_fields=["telegram_chat_id"])
+        TenantMembership.objects.create(tenant=self.tenant, user=self.admin, is_active=True)
+        TenantUserRole.objects.create(tenant=self.tenant, user=self.admin, role=TenantUserRole.ROLE_ADMIN)
+
+    @patch("apps.accounts.views_otp._send_otp_via_gateway")
+    def test_diagnostic_send_failure_is_logged_not_swallowed(self, mock_send):
+        from apps.accounts.views_otp import _notify_tenant_admins
+
+        mock_send.side_effect = RuntimeError("gateway exploded")
+
+        with self.assertLogs("apps.accounts.views_otp", level=logging.ERROR) as log_ctx:
+            # Не должно поднимать исключение — auth flow должен продолжиться
+            _notify_tenant_admins(
+                tenant=self.tenant,
+                bot_token="fake-token",
+                text="test diagnostic message",
+            )
+
+        self.assertTrue(
+            any("OTP admin diagnostic send failed" in msg for msg in log_ctx.output),
+            f"Expected log message not found in: {log_ctx.output}",
+        )
+        self.assertTrue(
+            any(str(self.tenant.pk) in msg for msg in log_ctx.output),
+            f"Tenant pk not found in log output: {log_ctx.output}",
+        )
+        self.assertTrue(
+            any(str(self.admin.pk) in msg for msg in log_ctx.output),
+            f"Admin pk not found in log output: {log_ctx.output}",
+        )
