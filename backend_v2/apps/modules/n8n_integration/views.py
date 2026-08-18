@@ -1,7 +1,7 @@
 import logging
 import time
 import uuid
-from datetime import date, datetime, timedelta
+from datetime import date, datetime
 import requests
 from requests.adapters import HTTPAdapter
 from django.conf import settings
@@ -30,7 +30,6 @@ from apps.modules.investments.serializers import InvestReturnSerializer
 from apps.modules.notes.models import Note
 from apps.modules.requests.models import Approval, Request
 from apps.modules.requests.amortization import build_amortization_schedule_rows, is_request_amortized
-from apps.modules.requests.expense_refs import BANK_EXPENSE_DATE_WINDOW_DAYS
 from apps.modules.requests.approval_bootstrap import create_approval_rows_for_request
 from apps.modules.requests.approval_workflow import _recalculate_request_status, route_request_approvals
 from apps.modules.requests.serializers import PortalRequestSerializer
@@ -156,67 +155,53 @@ def _n8n_batch_failure_response(idx, item, failed_status, failed_data, *, http_s
     return Response(payload, status=http_status)
 
 
-def _extract_bank_relink_expense_id(payload: dict) -> int | None:
+def _extract_bank_relink_candidate(payload: dict) -> tuple[str, int, int] | None:
     if not isinstance(payload, dict):
         return None
+    raw_doc_no = payload.get("doc_no")
+    raw_expense_year = payload.get("expense_year")
+    raw_expense_id = payload.get("id")
+    doc_no = str(raw_doc_no or "").strip()
+    if not doc_no:
+        return None
     try:
-        return int(payload.get("id"))
+        expense_year = int(raw_expense_year)
+        expense_id = int(raw_expense_id)
     except (TypeError, ValueError):
         return None
+    return doc_no, expense_year, expense_id
 
 
-def _relink_requests_to_bank_expenses(*, tenant, expense_ids: list[int]) -> int:
+def _relink_requests_to_bank_expenses(*, tenant, candidates: list[tuple[str, int, int]]) -> int:
     """
     Backfill canonical request->bank links after bank expense upserts.
-
-    Exact doc_no match when the expense has one; falls back to vendor+amount+
-    date-window match when doc_no is blank (tenant's bank feed no longer provides it).
     """
-    if tenant is None or not expense_ids:
+    if tenant is None or not candidates:
         return 0
     updated = 0
-    window = timedelta(days=BANK_EXPENSE_DATE_WINDOW_DAYS)
-    for expense_id in set(expense_ids):
-        expense = BankExpense.objects.filter(tenant=tenant, pk=expense_id).first()
+    deduped = set(candidates)
+    for doc_no, expense_year, expense_id in deduped:
+        expense = (
+            BankExpense.objects.filter(tenant=tenant, pk=expense_id)
+            .values("debit_turnover")
+            .first()
+        )
         if not expense:
             continue
-        if expense.doc_no:
-            updated += Request.objects.filter(
-                tenant=tenant,
-                payment_type__in=(Request.PAYMENT_TYPE_TRANSFER, Request.PAYMENT_TYPE_TOPUP),
-                expense_id=expense.doc_no,
-                expense_year=expense.expense_year,
-                amount=expense.debit_turnover,
-            ).filter(
-                Q(expense_ref_id__isnull=True)
-                | ~Q(expense_ref_id=expense_id)
-                | ~Q(expense_ref_target=Request.EXPENSE_REF_TARGET_BANK)
-            ).update(
-                expense_ref_id=expense_id,
-                expense_ref_target=Request.EXPENSE_REF_TARGET_BANK,
-            )
-            continue
-        if not expense.vendor_id:
-            continue
-        candidates = list(
-            Request.objects.filter(
-                tenant=tenant,
-                payment_type__in=(Request.PAYMENT_TYPE_TRANSFER, Request.PAYMENT_TYPE_TOPUP),
-                vendor_ref_id=expense.vendor_id,
-                amount=expense.debit_turnover,
-                billing_date__gte=expense.doc_date - window,
-                billing_date__lte=expense.doc_date + window,
-            ).filter(Q(expense_id__isnull=True) | Q(expense_id=""))[:2]
+        updated += Request.objects.filter(
+            tenant=tenant,
+            payment_type__in=(Request.PAYMENT_TYPE_TRANSFER, Request.PAYMENT_TYPE_TOPUP),
+            expense_id=doc_no,
+            expense_year=expense_year,
+            amount=expense["debit_turnover"],
+        ).filter(
+            Q(expense_ref_id__isnull=True)
+            | ~Q(expense_ref_id=expense_id)
+            | ~Q(expense_ref_target=Request.EXPENSE_REF_TARGET_BANK)
+        ).update(
+            expense_ref_id=expense_id,
+            expense_ref_target=Request.EXPENSE_REF_TARGET_BANK,
         )
-        if len(candidates) != 1:
-            continue
-        match = candidates[0]
-        if match.expense_ref_id != expense_id or match.expense_ref_target != Request.EXPENSE_REF_TARGET_BANK:
-            Request.objects.filter(pk=match.pk).update(
-                expense_ref_id=expense_id,
-                expense_ref_target=Request.EXPENSE_REF_TARGET_BANK,
-            )
-            updated += 1
     return updated
 
 
@@ -1486,9 +1471,9 @@ class N8nBankExpenseUpsertView(_N8nBaseView):
         if 200 <= int(getattr(response, "status_code", 500)) < 300 and not getattr(
             request, "skip_bank_relink", False
         ):
-            expense_id = _extract_bank_relink_expense_id(getattr(response, "data", None))
-            if expense_id is not None:
-                _relink_requests_to_bank_expenses(tenant=tenant, expense_ids=[expense_id])
+            candidate = _extract_bank_relink_candidate(getattr(response, "data", None))
+            if candidate is not None:
+                _relink_requests_to_bank_expenses(tenant=tenant, candidates=[candidate])
         return response
 
 
@@ -1751,14 +1736,14 @@ class N8nBankExpenseBatchUpsertView(_N8nBatchBaseView):
             return response
         data = getattr(response, "data", {}) or {}
         results = data.get("results", []) if isinstance(data, dict) else []
-        expense_ids: list[int] = []
+        candidates: list[tuple[str, int, int]] = []
         for row in results:
             payload = row.get("data") if isinstance(row, dict) else None
-            expense_id = _extract_bank_relink_expense_id(payload)
-            if expense_id is not None:
-                expense_ids.append(expense_id)
-        if expense_ids:
-            _relink_requests_to_bank_expenses(tenant=request.tenant, expense_ids=expense_ids)
+            candidate = _extract_bank_relink_candidate(payload)
+            if candidate is not None:
+                candidates.append(candidate)
+        if candidates:
+            _relink_requests_to_bank_expenses(tenant=request.tenant, candidates=candidates)
         return response
 
 
