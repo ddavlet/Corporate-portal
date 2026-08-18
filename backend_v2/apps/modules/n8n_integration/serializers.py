@@ -462,31 +462,27 @@ class N8nRequestImportSerializer(serializers.ModelSerializer):
         effective_amount = attrs.get("amount")
         if effective_amount is None and self.instance is not None:
             effective_amount = self.instance.amount
-        effective_vendor_ref = attrs.get("vendor_ref")
-        if effective_vendor_ref is None and "vendor_ref" not in attrs and self.instance is not None:
-            effective_vendor_ref = self.instance.vendor_ref
-        effective_billing_date = attrs.get("billing_date")
-        if effective_billing_date is None and self.instance is not None:
-            effective_billing_date = self.instance.billing_date
-
-        ref, normalized_expense_id = resolve_request_expense_ref(
-            tenant=tenant,
-            payment_type=effective_payment_type,
-            category=effective_category,
-            expense_id_raw=expense_id_val,
-            expense_year=effective_expense_year,
-            amount=effective_amount,
-            vendor_ref_id=effective_vendor_ref.id if effective_vendor_ref else None,
-            billing_date=effective_billing_date,
-        )
-        tgt = expense_ref_target_for(payment_type=effective_payment_type, category=effective_category) if ref else None
-        attrs["expense_ref_id"] = ref
-        attrs["expense_ref_target"] = tgt
-        if normalized_expense_id and effective_payment_type in (
-            Request.PAYMENT_TYPE_CASH,
-            Request.PAYMENT_TYPE_PAYROLL,
-        ):
-            attrs["expense_id"] = normalized_expense_id
+        eid = str(expense_id_val or "").strip()
+        if not eid:
+            attrs["expense_ref_id"] = None
+            attrs["expense_ref_target"] = None
+        else:
+            ref, normalized_expense_id = resolve_request_expense_ref(
+                tenant=tenant,
+                payment_type=effective_payment_type,
+                category=effective_category,
+                expense_id_raw=expense_id_val,
+                expense_year=effective_expense_year,
+                amount=effective_amount,
+            )
+            tgt = expense_ref_target_for(payment_type=effective_payment_type, category=effective_category) if ref else None
+            attrs["expense_ref_id"] = ref
+            attrs["expense_ref_target"] = tgt
+            if normalized_expense_id and effective_payment_type in (
+                Request.PAYMENT_TYPE_CASH,
+                Request.PAYMENT_TYPE_PAYROLL,
+            ):
+                attrs["expense_id"] = normalized_expense_id
 
         effective_source_tenant = attrs.get("source_tenant")
         if "source_tenant" not in attrs and self.instance is not None:
