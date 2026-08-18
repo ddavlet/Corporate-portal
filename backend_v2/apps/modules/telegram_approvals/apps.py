@@ -7,3 +7,6 @@ class TelegramApprovalsConfig(AppConfig):
     label = "telegram_approvals"
     verbose_name = "Messaging Gateway"
 
+    def ready(self):
+        from apps.modules.telegram_approvals import checks  # noqa: F401
+

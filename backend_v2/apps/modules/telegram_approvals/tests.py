@@ -1840,3 +1840,32 @@ class TelegramBalanceCommandTests(APITestCase):
             HTTP_HOST=self.host,
         )
         self.assertEqual(res.status_code, 202)
+
+
+class MessagingGatewaySystemCheckTests(APITestCase):
+    """Проверяет system check, предупреждающий об отсутствии MESSAGING_GATEWAY_SEND_URL."""
+
+    def test_warns_when_url_missing_in_non_debug(self):
+        from apps.modules.telegram_approvals.checks import check_messaging_gateway_url
+
+        with override_settings(DEBUG=False, MESSAGING_GATEWAY_SEND_URL=""):
+            errors = check_messaging_gateway_url(None)
+
+        self.assertEqual(len(errors), 1)
+        self.assertEqual(errors[0].id, "telegram_approvals.W001")
+
+    def test_no_warning_when_url_configured(self):
+        from apps.modules.telegram_approvals.checks import check_messaging_gateway_url
+
+        with override_settings(DEBUG=False, MESSAGING_GATEWAY_SEND_URL="http://tg_gateway:8080/send"):
+            errors = check_messaging_gateway_url(None)
+
+        self.assertEqual(errors, [])
+
+    def test_no_warning_in_debug_even_without_url(self):
+        from apps.modules.telegram_approvals.checks import check_messaging_gateway_url
+
+        with override_settings(DEBUG=True, MESSAGING_GATEWAY_SEND_URL=""):
+            errors = check_messaging_gateway_url(None)
+
+        self.assertEqual(errors, [])

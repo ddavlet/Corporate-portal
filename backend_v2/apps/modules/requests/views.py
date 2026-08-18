@@ -575,7 +575,12 @@ class RequestFilesMixin:
             try:
                 default_storage.delete(file_path)
             except Exception:
-                pass
+                logger.exception(
+                    "Failed to delete attachment file_path=%s attachment_id=%s request_id=%s",
+                    file_path,
+                    attachment.pk,
+                    request_obj.pk,
+                )
 
         if request_obj.file_link and request_obj.file_link == file_path:
             next_path = (
