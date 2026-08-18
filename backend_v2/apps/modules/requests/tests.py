@@ -859,6 +859,42 @@ class RequestApprovalsTests(APITestCase):
         self.assertEqual(copied.urgency, source.urgency)
         self.assertEqual(copied.billing_date, source.billing_date)
 
+    def test_copy_request_allows_admin_without_requester_role(self):
+        self.client.force_authenticate(self.requester)
+        create_res = self.client.post(
+            "/api/requests/",
+            {
+                "title": "Source",
+                "description": "Original description",
+                "amount": 150,
+                "currency": "USD",
+                "payment_type": "Наличные",
+                "urgency": "Срочно",
+                "billing_date": "2026-03-01",
+            },
+            format="json",
+            HTTP_HOST=self.host,
+        )
+        self.assertEqual(create_res.status_code, 201, create_res.content)
+        source_id = create_res.data["id"]
+
+        # self.admin has ROLE_ADMIN only (no ROLE_REQUESTER) — copying used to 400
+        # because the resulting draft's requester (the admin themselves) failed the
+        # 'requester must have role requester' check.
+        self.client.force_authenticate(self.admin)
+        res = self.client.post(
+            f"/api/requests/{source_id}/copy/",
+            {},
+            format="json",
+            HTTP_HOST=self.host,
+        )
+        self.assertEqual(res.status_code, 201, res.content)
+
+        copied = Request.objects.get(pk=res.data["request_id"])
+        self.assertEqual(copied.status, Request.STATUS_DRAFT)
+        self.assertEqual(copied.created_by_id, self.admin.id)
+        self.assertEqual(copied.requester_id, self.admin.id)
+
     def test_post_manual_approval_calls_telegram_refresh_and_dispatch(self):
         from unittest.mock import patch
 
