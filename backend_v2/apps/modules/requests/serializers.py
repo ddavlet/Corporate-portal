@@ -238,7 +238,12 @@ class PortalRequestSerializer(serializers.ModelSerializer):
         has_requester_role = TenantUserRole.objects.filter(
             tenant=tenant, user=requester, role=TenantUserRole.ROLE_REQUESTER
         ).exists()
-        if not has_requester_role:
+        # Admin/director assigning themselves as requester (e.g. copying a request) don't need
+        # the 'requester' role — they already have elevated tenant access.
+        requester_is_privileged_actor = bool(
+            actor and requester.pk == getattr(actor, "pk", None) and (is_tenant_admin or is_tenant_director)
+        )
+        if not has_requester_role and not requester_is_privileged_actor:
             roles = list(
                 TenantUserRole.objects.filter(tenant=tenant, user=requester)
                 .values_list("role", flat=True)
