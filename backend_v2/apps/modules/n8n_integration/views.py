@@ -32,6 +32,7 @@ from apps.modules.requests.models import Approval, Request
 from apps.modules.requests.amortization import build_amortization_schedule_rows, is_request_amortized
 from apps.modules.requests.approval_bootstrap import create_approval_rows_for_request
 from apps.modules.requests.approval_workflow import _recalculate_request_status, route_request_approvals
+from apps.modules.requests.bank_expense_reconciliation import reconcile_bank_expenses_by_vendor_amount_date
 from apps.modules.requests.serializers import PortalRequestSerializer
 from apps.modules.requests.services import list_payment_purposes_by_payment_type
 from apps.modules.vendors.models import Vendor
@@ -1474,6 +1475,7 @@ class N8nBankExpenseUpsertView(_N8nBaseView):
             candidate = _extract_bank_relink_candidate(getattr(response, "data", None))
             if candidate is not None:
                 _relink_requests_to_bank_expenses(tenant=tenant, candidates=[candidate])
+            reconcile_bank_expenses_by_vendor_amount_date(tenant=tenant)
         return response
 
 
@@ -1744,6 +1746,8 @@ class N8nBankExpenseBatchUpsertView(_N8nBatchBaseView):
                 candidates.append(candidate)
         if candidates:
             _relink_requests_to_bank_expenses(tenant=request.tenant, candidates=candidates)
+        if results:
+            reconcile_bank_expenses_by_vendor_amount_date(tenant=request.tenant)
         return response
 
 
