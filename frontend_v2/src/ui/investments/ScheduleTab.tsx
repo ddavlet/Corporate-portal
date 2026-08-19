@@ -33,6 +33,7 @@ import {
   type InvestPayoutScheduleShareLinkRow,
 } from '../../lib/api'
 import { KpiStrip } from './KpiStrip'
+import { LinkReturnsModal } from './LinkReturnsModal'
 import { AdminEditRecordButton } from '../admin/AdminEditRecordButton'
 import {
   asMoney,
@@ -125,6 +126,7 @@ export function ScheduleTab({
   const [payTarget, setPayTarget] = useState<InvestPayoutScheduleRow | null>(null)
   const [paySubmitting, setPaySubmitting] = useState(false)
   const [payForm] = Form.useForm<{ amount: number }>()
+  const [linkTarget, setLinkTarget] = useState<InvestPayoutScheduleRow | null>(null)
 
   const openPay = (row: InvestPayoutScheduleRow) => {
     setPayTarget(row)
@@ -310,10 +312,16 @@ export function ScheduleTab({
             onSaved={() => void onCreated()}
           />
         )
+        const linkBtn = (
+          <Button size="small" onClick={() => setLinkTarget(row)}>
+            Привязать выплаты
+          </Button>
+        )
         if (row.is_paid)
           return (
             <Space size={4} wrap>
               <Tag color="green">Оплачено</Tag>
+              {linkBtn}
               {editBtn}
             </Space>
           )
@@ -335,6 +343,7 @@ export function ScheduleTab({
                 Оплачено
               </Button>
             </Popconfirm>
+            {linkBtn}
             {row.created_return ? (
               <Typography.Text type="secondary">Выплата #{row.created_return}</Typography.Text>
             ) : null}
@@ -779,6 +788,13 @@ export function ScheduleTab({
           </Form>
         ) : null}
       </Modal>
+
+      <LinkReturnsModal
+        open={linkTarget !== null}
+        schedule={linkTarget}
+        onCancel={() => setLinkTarget(null)}
+        onLinked={onCreated}
+      />
     </Space>
   )
 }
