@@ -1,5 +1,6 @@
 
 from datetime import date, datetime
+from decimal import Decimal
 from unittest.mock import Mock, patch
 
 from django.conf import settings
@@ -1902,7 +1903,7 @@ class N8nInvestmentsRawDataListTests(APITestCase):
         self.assertEqual(len(data), 1)
         row = data[0]
         self.assertEqual(row["id"], own.id)
-        self.assertEqual(row["sum"], "500.00")
+        self.assertEqual(Decimal(str(row["sum"])), Decimal("500.00"))
         self.assertEqual(row["type"], InvestReturn.ReturnType.INTEREST)
         self.assertEqual(row["recipient"], InvestReturn.Recipient.INVESTOR)
         self.assertTrue(row["confirmed"])
@@ -1931,7 +1932,7 @@ class N8nInvestmentsRawDataListTests(APITestCase):
         self.assertEqual(len(data), 1)
         row = data[0]
         self.assertEqual(row["id"], own.id)
-        self.assertEqual(row["amount"], "50000.00")
+        self.assertEqual(Decimal(str(row["amount"])), Decimal("50000.00"))
         self.assertTrue(row["confirmed"])
 
 
