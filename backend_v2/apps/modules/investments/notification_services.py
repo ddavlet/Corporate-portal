@@ -362,6 +362,60 @@ def create_return_for_schedule(*, schedule, created_by, amount=None) -> tuple[ob
     return invest_return, True, f"✅ Выплата #{invest_return.pk} создана на сумму {req_amount:.2f} {locked.currency}"
 
 
+def link_returns_to_schedule(*, schedule, return_ids: list[int]) -> list:
+    """Atomically link existing, unlinked InvestReturn rows to a payout schedule.
+
+    The caller MUST wrap this in ``transaction.atomic()``. The schedule is re-fetched with
+    ``SELECT FOR UPDATE OF self`` (same lock as ``create_return_for_schedule``) so this can't
+    race a concurrent one-tap payout creation. Every requested id must exist, belong to the
+    same tenant and company as the schedule, and not already be linked elsewhere — otherwise
+    the whole call is rejected with a ``ValidationError`` naming the offending ids, so nothing
+    is partially linked.
+
+    Returns the list of now-linked ``InvestReturn`` instances.
+    """
+    from apps.modules.investments.models import InvestPayoutSchedule, InvestReturn
+
+    locked = (
+        InvestPayoutSchedule.objects
+        .select_for_update(of=("self",))
+        .select_related("tenant", "company")
+        .get(pk=schedule.pk)
+    )
+
+    unique_ids = list(dict.fromkeys(return_ids))
+    if not unique_ids:
+        raise ValidationError({"return_ids": "Укажите хотя бы одну выплату."})
+
+    candidates = list(
+        InvestReturn.objects.select_for_update(of=("self",)).filter(
+            pk__in=unique_ids, tenant_id=locked.tenant_id
+        )
+    )
+    found_ids = {r.pk for r in candidates}
+    missing = [rid for rid in unique_ids if rid not in found_ids]
+    if missing:
+        raise ValidationError({"return_ids": f"Выплаты не найдены: {missing}"})
+
+    already_linked = [r.pk for r in candidates if r.payout_schedule_id is not None]
+    if already_linked:
+        raise ValidationError({"return_ids": f"Выплаты уже привязаны к расписанию: {already_linked}"})
+
+    mismatched_company = [r.pk for r in candidates if r.company_id != locked.company_id]
+    if mismatched_company:
+        raise ValidationError(
+            {"return_ids": f"Выплаты относятся к другой компании: {mismatched_company}"}
+        )
+
+    InvestReturn.objects.filter(pk__in=found_ids).update(
+        payout_schedule=locked, last_edit_at=timezone.now()
+    )
+    recompute_payout_schedule_paid_status(schedule=locked)
+    for r in candidates:
+        r.payout_schedule_id = locked.pk
+    return candidates
+
+
 def _next_notify_run_at(now_dt: dt.datetime) -> dt.datetime:
     from apps.modules.investments.models import InvestNotificationConfig
     hours = set(

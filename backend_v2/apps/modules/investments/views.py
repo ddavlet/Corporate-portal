@@ -204,6 +204,18 @@ class InvestReturnViewSet(_EditableInvestmentsTenantViewSet):
     serializer_class = InvestReturnSerializer
     queryset = InvestReturn.objects.all()
 
+    def get_queryset(self):
+        qs = super().get_queryset()
+        company_raw = (self.request.query_params.get("company") or "").strip()
+        if company_raw.isdigit():
+            qs = qs.filter(company_id=int(company_raw))
+        elif company_raw.lower() == "null":
+            qs = qs.filter(company_id__isnull=True)
+        unlinked = parse_bool_query(self.request, "unlinked")
+        if unlinked is True:
+            qs = qs.filter(payout_schedule__isnull=True)
+        return qs
+
     def perform_create(self, serializer):
         obj = serializer.save(tenant=self.request.tenant, created_by=self.request.user)
         create_approvals_for_invest_return(invest_return=obj)
@@ -523,6 +535,41 @@ class InvestPayoutScheduleMarkPaidView(APIView):
             schedule.closed_manually = True
             schedule.save(update_fields=["is_paid", "closed_manually", "last_edit_at"])
         return Response({"detail": "Marked as paid.", "is_paid": True}, status=status.HTTP_200_OK)
+
+
+class InvestPayoutScheduleLinkReturnsView(APIView):
+    """Web action: link one or more existing, unlinked InvestReturn rows to a payout schedule.
+
+    Used by the "Привязать выплаты" button on the schedule row: the returns were created
+    out-of-band (no schedule set at creation time) and are matched up to a plan afterwards.
+    """
+
+    permission_classes = [IsAuthenticated, HasEffectiveModuleAccess]
+    module_key = "investments"
+
+    def post(self, request, schedule_id: int):
+        self.check_permissions(request)
+        from apps.modules.investments.notification_services import link_returns_to_schedule
+
+        schedule = (
+            InvestPayoutSchedule.objects
+            .select_related("tenant", "company")
+            .filter(pk=schedule_id, tenant=request.tenant)
+            .first()
+        )
+        if schedule is None:
+            return Response({"detail": "Schedule not found."}, status=status.HTTP_404_NOT_FOUND)
+        return_ids = request.data.get("return_ids")
+        if not isinstance(return_ids, list) or not return_ids or not all(
+            isinstance(x, int) for x in return_ids
+        ):
+            raise ValidationError({"return_ids": "Укажите список ID выплат."})
+        with transaction.atomic():
+            linked = link_returns_to_schedule(schedule=schedule, return_ids=return_ids)
+        return Response(
+            {"detail": f"Привязано выплат: {len(linked)}", "linked_ids": [r.pk for r in linked]},
+            status=status.HTTP_200_OK,
+        )
 
 
 class InvestmentApprovalConfigView(APIView):

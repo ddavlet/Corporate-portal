@@ -2220,3 +2220,105 @@ class InvestPayoutScheduleSoftCloseAPITest(APITestCase):
         ret = InvestReturn.objects.get(pk=response.data["return_id"])
         self.assertEqual(ret.sum, Decimal("150.00"))
         self.assertEqual(ret.payout_schedule_id, self.schedule.pk)
+
+
+@override_settings(BASE_DOMAIN="example.com", ALLOWED_HOSTS=["*"])
+class InvestPayoutScheduleLinkReturnsAPITest(APITestCase):
+    """POST .../link-returns/ links existing unlinked InvestReturn rows to a schedule."""
+
+    def setUp(self):
+        self.user = User.objects.create_user(username="link_user", password="x")
+        self.tenant = Tenant.objects.create(name="LinkTenant", subdomain="linktenant", is_active=True)
+        self.host = "linktenant.example.com"
+        TenantMembership.objects.create(tenant=self.tenant, user=self.user, is_active=True)
+        TenantUserRole.objects.create(tenant=self.tenant, user=self.user, role=TenantUserRole.ROLE_ADMIN)
+        TenantModuleConfig.objects.create(tenant=self.tenant, module_key="investments", is_enabled=True)
+        self.client.force_authenticate(self.user)
+        self.company = InvestCompany.objects.create(tenant=self.tenant, name="Co A", created_by=self.user)
+        self.other_company = InvestCompany.objects.create(tenant=self.tenant, name="Co B", created_by=self.user)
+        self.schedule = InvestPayoutSchedule.objects.create(
+            tenant=self.tenant,
+            company=self.company,
+            payout_date=date(2026, 6, 1),
+            amount=Decimal("100.00"),
+            currency="USD",
+            return_type=InvestReturn.ReturnType.DIVIDEND,
+            recipient=InvestReturn.Recipient.INVESTOR,
+            created_by=self.user,
+        )
+
+    def _make_return(self, *, company=None, sum_=Decimal("40.00"), confirmed=True, payout_schedule=None):
+        return InvestReturn.objects.create(
+            tenant=self.tenant,
+            company=company,
+            payout_schedule=payout_schedule,
+            date=date(2026, 6, 1),
+            billing_date=date(2026, 6, 1),
+            sum=sum_,
+            currency="USD",
+            type=InvestReturn.ReturnType.DIVIDEND,
+            recipient=InvestReturn.Recipient.INVESTOR,
+            confirmed=confirmed,
+            created_by=self.user,
+        )
+
+    def test_links_returns_and_recomputes_payment_amount(self):
+        r1 = self._make_return(company=self.company, sum_=Decimal("40.00"))
+        r2 = self._make_return(company=self.company, sum_=Decimal("60.00"))
+        response = self.client.post(
+            f"/api/investments/payout-schedule/{self.schedule.pk}/link-returns/",
+            data={"return_ids": [r1.pk, r2.pk]},
+            format="json",
+            HTTP_HOST=self.host,
+        )
+        self.assertEqual(response.status_code, 200, response.data)
+        r1.refresh_from_db()
+        r2.refresh_from_db()
+        self.schedule.refresh_from_db()
+        self.assertEqual(r1.payout_schedule_id, self.schedule.pk)
+        self.assertEqual(r2.payout_schedule_id, self.schedule.pk)
+        self.assertEqual(self.schedule.payment_amount, Decimal("100.00"))
+        self.assertTrue(self.schedule.is_paid)
+
+    def test_rejects_return_from_other_company(self):
+        foreign = self._make_return(company=self.other_company)
+        response = self.client.post(
+            f"/api/investments/payout-schedule/{self.schedule.pk}/link-returns/",
+            data={"return_ids": [foreign.pk]},
+            format="json",
+            HTTP_HOST=self.host,
+        )
+        self.assertEqual(response.status_code, 400, response.data)
+        foreign.refresh_from_db()
+        self.assertIsNone(foreign.payout_schedule_id)
+
+    def test_unlinked_returns_list_filtered_by_company(self):
+        same_co = self._make_return(company=self.company)
+        self._make_return(company=self.other_company)
+        response = self.client.get(
+            f"/api/investments/returns/?unlinked=true&company={self.company.pk}",
+            HTTP_HOST=self.host,
+        )
+        self.assertEqual(response.status_code, 200, response.data)
+        ids = [row["id"] for row in response.data["results"]]
+        self.assertEqual(ids, [same_co.pk])
+
+    def test_rejects_already_linked_return(self):
+        other_schedule = InvestPayoutSchedule.objects.create(
+            tenant=self.tenant,
+            company=self.company,
+            payout_date=date(2026, 7, 1),
+            amount=Decimal("10.00"),
+            currency="USD",
+            created_by=self.user,
+        )
+        linked = self._make_return(company=self.company, payout_schedule=other_schedule)
+        response = self.client.post(
+            f"/api/investments/payout-schedule/{self.schedule.pk}/link-returns/",
+            data={"return_ids": [linked.pk]},
+            format="json",
+            HTTP_HOST=self.host,
+        )
+        self.assertEqual(response.status_code, 400, response.data)
+        linked.refresh_from_db()
+        self.assertEqual(linked.payout_schedule_id, other_schedule.pk)

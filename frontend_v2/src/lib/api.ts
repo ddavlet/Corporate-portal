@@ -1309,6 +1309,7 @@ export type PublicInvestPayoutScheduleResponse = {
 export type InvestReturnRow = {
   id: number
   company: number | null
+  payout_schedule: number | null
   date: string
   billing_date: string
   sum: string | number
@@ -1481,6 +1482,11 @@ export async function getPublicInvestPayoutSchedule(token: string): Promise<Publ
 
 export async function getInvestReturns(): Promise<InvestReturnRow[]> {
   return fetchAllCursorPages<InvestReturnRow>('/api/investments/returns/')
+}
+
+export async function getUnlinkedInvestReturns(companyId: number | null): Promise<InvestReturnRow[]> {
+  const sp = new URLSearchParams({ unlinked: 'true', company: companyId === null ? 'null' : String(companyId) })
+  return fetchAllCursorPages<InvestReturnRow>(`/api/investments/returns/?${sp.toString()}`)
 }
 
 export async function createInvestReturn(payload: CreateInvestReturnPayload): Promise<InvestReturnRow> {
@@ -1754,6 +1760,21 @@ export async function markPayoutScheduleAsPaid(
   const res = await apiFetch(`/api/investments/payout-schedule/${scheduleId}/mark-paid/`, { method: 'POST' })
   if (!res.ok) throw new Error(await parseErrorBody(res))
   const json = (await res.json().catch(() => null)) as { detail: string; is_paid: boolean } | null
+  if (!json) throw new Error('Empty response from server')
+  return json
+}
+
+export async function linkReturnsToSchedule(
+  scheduleId: number,
+  returnIds: number[],
+): Promise<{ detail: string; linked_ids: number[] }> {
+  const res = await apiFetch(`/api/investments/payout-schedule/${scheduleId}/link-returns/`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ return_ids: returnIds }),
+  })
+  if (!res.ok) throw new Error(await parseErrorBody(res))
+  const json = (await res.json().catch(() => null)) as { detail: string; linked_ids: number[] } | null
   if (!json) throw new Error('Empty response from server')
   return json
 }
