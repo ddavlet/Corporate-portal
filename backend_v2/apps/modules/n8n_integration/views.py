@@ -1900,6 +1900,29 @@ class N8nInvestReturnPortalCreateView(_N8nBaseView):
 class N8nInvestReturnBatchUpsertView(_N8nBatchBaseView):
     single_view_class = N8nInvestReturnUpsertView
 
+    def get(self, request):
+        """Raw dump of invest returns for the tenant — n8n aggregates/filters itself."""
+        tenant = getattr(request, "tenant", None)
+        if tenant is None:
+            return Response({"detail": "Unknown tenant."}, status=status.HTTP_400_BAD_REQUEST)
+        rows = list(
+            InvestReturn.objects.filter(tenant=tenant)
+            .order_by("-date", "-id")
+            .values(
+                "id",
+                "date",
+                "billing_date",
+                "sum",
+                "currency",
+                "type",
+                "recipient",
+                "confirmed",
+                "company_id",
+                "comment",
+            )
+        )
+        return Response(rows)
+
 
 class N8nInvestPayoutScheduleUpsertView(_N8nBaseView):
     def post(self, request):
@@ -1953,6 +1976,26 @@ class N8nProjectInvestmentUpsertView(_N8nBaseView):
 
 class N8nProjectInvestmentBatchUpsertView(_N8nBatchBaseView):
     single_view_class = N8nProjectInvestmentUpsertView
+
+    def get(self, request):
+        """Raw dump of project investments for the tenant — n8n aggregates/filters itself."""
+        tenant = getattr(request, "tenant", None)
+        if tenant is None:
+            return Response({"detail": "Unknown tenant."}, status=status.HTTP_400_BAD_REQUEST)
+        rows = list(
+            ProjectInvestment.objects.filter(tenant=tenant)
+            .order_by("-date", "-id")
+            .values(
+                "id",
+                "date",
+                "amount",
+                "currency",
+                "confirmed",
+                "company_id",
+                "comment",
+            )
+        )
+        return Response(rows)
 
 
 class N8nInvestCompanyUpsertView(_N8nBaseView):

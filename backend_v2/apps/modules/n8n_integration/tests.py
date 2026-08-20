@@ -29,6 +29,7 @@ from apps.modules.investments.models import (
     InvestmentApprovalConfigStep,
     InvestmentReturnApproval,
     InvestReturn,
+    ProjectInvestment,
 )
 from apps.modules.requests.services import list_payment_purposes_by_payment_type
 from apps.modules.vendors.models import Vendor
@@ -1830,6 +1831,108 @@ class N8nInvestReturnPortalCreateTests(APITestCase):
             0,
             "upsert endpoint must not trigger approvals — use portal-create for that",
         )
+
+
+@override_settings(
+    BASE_DOMAIN="example.com",
+    N8N_INTEGRATION_TOKEN="integ-test-secret",
+    ALLOWED_HOSTS=["acme.example.com", "testserver"],
+)
+class N8nInvestmentsRawDataListTests(APITestCase):
+    """GET on the batch upsert paths returns raw rows for n8n to aggregate itself (ROI reporting)."""
+
+    def setUp(self):
+        su, _ = User.objects.update_or_create(pk=1, defaults={"username": "n8n_system"})
+        if not su.has_usable_password():
+            su.set_unusable_password()
+            su.save(update_fields=["password"])
+
+        self.tenant = Tenant.objects.create(name="RawDataCo", subdomain="acme", is_active=True)
+        self.admin = User.objects.create_user(username="rawdata_admin", password="pass12345")
+        TenantMembership.objects.create(tenant=self.tenant, user=self.admin, is_active=True)
+
+        self.other_tenant = Tenant.objects.create(name="OtherCo", subdomain="other", is_active=True)
+
+        self.returns_url = f"{settings.N8N_INTEGRATION_URL_PREFIX.rstrip('/')}/investments/returns/batch/"
+        self.project_investments_url = (
+            f"{settings.N8N_INTEGRATION_URL_PREFIX.rstrip('/')}/investments/project-investments/batch/"
+        )
+
+    def _headers(self, *, integration=True):
+        h = {"HTTP_HOST": "acme.example.com"}
+        if integration:
+            h["HTTP_X_N8N_INTEGRATION_TOKEN"] = "integ-test-secret"
+        return h
+
+    def test_returns_list_requires_integration_token(self):
+        res = self.client.get(self.returns_url, **self._headers(integration=False))
+        self.assertEqual(res.status_code, 401)
+
+    def test_project_investments_list_requires_integration_token(self):
+        res = self.client.get(self.project_investments_url, **self._headers(integration=False))
+        self.assertEqual(res.status_code, 401)
+
+    def test_returns_list_scoped_to_tenant(self):
+        own = InvestReturn.objects.create(
+            tenant=self.tenant,
+            date=date(2026, 6, 1),
+            billing_date=date(2026, 6, 1),
+            sum="500.00",
+            currency="USD",
+            type=InvestReturn.ReturnType.INTEREST,
+            recipient=InvestReturn.Recipient.INVESTOR,
+            confirmed=True,
+            created_by=self.admin,
+        )
+        InvestReturn.objects.create(
+            tenant=self.other_tenant,
+            date=date(2026, 6, 1),
+            billing_date=date(2026, 6, 1),
+            sum="999.00",
+            currency="USD",
+            type=InvestReturn.ReturnType.INTEREST,
+            recipient=InvestReturn.Recipient.INVESTOR,
+            confirmed=True,
+            created_by=self.admin,
+        )
+
+        res = self.client.get(self.returns_url, **self._headers())
+        self.assertEqual(res.status_code, 200, res.content)
+        data = res.json()
+        self.assertEqual(len(data), 1)
+        row = data[0]
+        self.assertEqual(row["id"], own.id)
+        self.assertEqual(row["sum"], "500.00")
+        self.assertEqual(row["type"], InvestReturn.ReturnType.INTEREST)
+        self.assertEqual(row["recipient"], InvestReturn.Recipient.INVESTOR)
+        self.assertTrue(row["confirmed"])
+
+    def test_project_investments_list_scoped_to_tenant(self):
+        own = ProjectInvestment.objects.create(
+            tenant=self.tenant,
+            date=date(2026, 1, 10),
+            amount="50000.00",
+            currency="USD",
+            confirmed=True,
+            created_by=self.admin,
+        )
+        ProjectInvestment.objects.create(
+            tenant=self.other_tenant,
+            date=date(2026, 1, 10),
+            amount="1234.00",
+            currency="USD",
+            confirmed=True,
+            created_by=self.admin,
+        )
+
+        res = self.client.get(self.project_investments_url, **self._headers())
+        self.assertEqual(res.status_code, 200, res.content)
+        data = res.json()
+        self.assertEqual(len(data), 1)
+        row = data[0]
+        self.assertEqual(row["id"], own.id)
+        self.assertEqual(row["amount"], "50000.00")
+        self.assertTrue(row["confirmed"])
 
 
 @override_settings(
