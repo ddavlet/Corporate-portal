@@ -1880,6 +1880,8 @@ class N8nInvestmentsRawDataListTests(APITestCase):
             billing_date=date(2026, 6, 1),
             sum="500.00",
             currency="USD",
+            sum_uzs="6300000.00",
+            cbu_usd_uzs_rate="12600.500000",
             type=InvestReturn.ReturnType.INTEREST,
             recipient=InvestReturn.Recipient.INVESTOR,
             confirmed=True,
@@ -1904,6 +1906,8 @@ class N8nInvestmentsRawDataListTests(APITestCase):
         row = data[0]
         self.assertEqual(row["id"], own.id)
         self.assertEqual(Decimal(str(row["sum"])), Decimal("500.00"))
+        self.assertEqual(Decimal(str(row["sum_uzs"])), Decimal("6300000.00"))
+        self.assertEqual(Decimal(str(row["cbu_usd_uzs_rate"])), Decimal("12600.500000"))
         self.assertEqual(row["type"], InvestReturn.ReturnType.INTEREST)
         self.assertEqual(row["recipient"], InvestReturn.Recipient.INVESTOR)
         self.assertTrue(row["confirmed"])
