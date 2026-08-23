@@ -1,6 +1,7 @@
 
 from django.urls import path
 
+from apps.modules.n8n_integration import payroll_hooks
 from apps.modules.n8n_integration import views
 
 urlpatterns = [
@@ -96,8 +97,16 @@ urlpatterns = [
         views.N8nInvestCompanyBatchUpsertView.as_view(),
         name="n8n-invest-companies-batch-upsert",
     ),
-    path("payroll/lines/", views.N8nPayrollLineUpsertView.as_view(), name="n8n-payroll-lines-upsert"),
-    path("payroll/lines/batch/", views.N8nPayrollLineBatchUpsertView.as_view(), name="n8n-payroll-lines-batch-upsert"),
+    path(
+        "payroll/lines/",
+        payroll_hooks.PayrollLineUpsertWithLinkedRequestView.as_view(),
+        name="n8n-payroll-lines-upsert",
+    ),
+    path(
+        "payroll/lines/batch/",
+        payroll_hooks.PayrollLineBatchUpsertWithLinkedRequestView.as_view(),
+        name="n8n-payroll-lines-batch-upsert",
+    ),
     path("vendors-list/", views.N8nVendorListView.as_view(), name="n8n-vendors-list"),
     path("payment-purposes/", views.N8nPaymentPurposeListView.as_view(), name="n8n-payment-purposes"),
     path("wallet-balances/", views.N8nWalletBalancesView.as_view(), name="n8n-wallet-balances"),
