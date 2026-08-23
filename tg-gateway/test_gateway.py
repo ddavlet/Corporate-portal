@@ -454,3 +454,44 @@ def test_webhook_unknown_slash_command_not_forwarded_as_command():
 
     assert resp.status_code == 200
     assert m.post.call_count == 0
+
+
+# ── Commands menu (setMyCommands) ────────────────────────────────────────────
+
+def test_commands_set_calls_setMyCommands():
+    commands = [
+        {"command": "bank_ostatki", "description": "Банк — остатки"},
+        {"command": "cash_ostatki", "description": "Касса — остатки"},
+    ]
+    m = _tg_delete_ok()
+    with patch("httpx.AsyncClient", return_value=m):
+        resp = client.post("/v1/messaging/commands/set", json={"bot_token": BOT, "commands": commands})
+
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["ok"] is True
+    assert data["commands"] == commands
+    body = _posted_body_from(m)
+    assert body["commands"] == commands
+    call_args = m.post.call_args
+    assert call_args.args[0] == f"https://api.telegram.org/bot{BOT}/setMyCommands"
+
+
+def test_commands_set_does_not_leak_bot_token():
+    commands = [{"command": "bank_ostatki", "description": "Банк — остатки"}]
+    with patch("httpx.AsyncClient", return_value=_tg_delete_ok()):
+        resp = client.post("/v1/messaging/commands/set", json={"bot_token": BOT, "commands": commands})
+    assert BOT not in resp.text
+
+
+def test_commands_set_telegram_failure_returns_502():
+    commands = [{"command": "bank_ostatki", "description": "Банк — остатки"}]
+    with patch("httpx.AsyncClient", return_value=_tg_err("Unauthorized")):
+        resp = client.post("/v1/messaging/commands/set", json={"bot_token": BOT, "commands": commands})
+    assert resp.status_code == 502
+    assert resp.json()["ok"] is False
+
+
+def _posted_body_from(mock_client) -> dict:
+    call_args = mock_client.post.call_args
+    return call_args.kwargs.get("json") or {}

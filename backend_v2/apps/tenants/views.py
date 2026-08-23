@@ -43,6 +43,46 @@ User = get_user_model()
 logger = logging.getLogger(__name__)
 
 
+def _gateway_base_url() -> str:
+    return (getattr(settings, "MESSAGING_GATEWAY_ADMIN_URL", "") or "http://tg_gateway:8080").rstrip("/")
+
+
+def sync_telegram_bot_commands(tenant) -> bool:
+    """Push the wallet-balance slash-command hints to the tenant's bot via tg-gateway.
+
+    Best-effort: failures are logged and swallowed so a gateway/Telegram outage
+    never blocks saving the bot token.
+    """
+    from apps.modules.telegram_approvals.command_handlers import WALLET_BALANCE_COMMANDS
+
+    bot_token = tenant.get_telegram_bot_token()
+    if not bot_token:
+        return False
+
+    commands = [
+        {"command": spec.command, "description": spec.title} for spec in WALLET_BALANCE_COMMANDS.values()
+    ]
+    try:
+        resp = requests.post(
+            f"{_gateway_base_url()}/v1/messaging/commands/set",
+            json={"bot_token": bot_token, "commands": commands},
+            timeout=12,
+        )
+        payload = resp.json() if resp.content else {}
+        if resp.status_code >= 400 or not payload.get("ok"):
+            logger.warning(
+                "Telegram commands sync failed tenant=%s status=%s description=%s",
+                getattr(tenant, "pk", None),
+                resp.status_code,
+                (payload.get("telegram") or {}).get("description"),
+            )
+            return False
+        return True
+    except requests.RequestException:
+        logger.exception("Telegram commands sync request failed tenant=%s", getattr(tenant, "pk", None))
+        return False
+
+
 class ModuleCatalogView(APIView):
     def get(self, request):
         tenant = getattr(request, "tenant", None)
@@ -119,16 +159,12 @@ class TenantIntegrationConfigView(APIView):
     def _masked(value: str) -> str:
         return "********" if value else ""
 
-    @staticmethod
-    def _gateway_base_url() -> str:
-        return (getattr(settings, "MESSAGING_GATEWAY_ADMIN_URL", "") or "http://tg_gateway:8080").rstrip("/")
-
     @classmethod
     def _fetch_webhook_info(cls, bot_token: str) -> dict:
         if not bot_token:
             return {"connected": False, "url": "", "error": "Telegram bot token is not configured."}
         try:
-            resp = requests.get(f"{cls._gateway_base_url()}/v1/messaging/webhook/info/{bot_token}", timeout=8)
+            resp = requests.get(f"{_gateway_base_url()}/v1/messaging/webhook/info/{bot_token}", timeout=8)
             data = resp.json() if resp.content else {}
             if resp.status_code >= 400 or not data.get("ok"):
                 detail = (data.get("telegram") or {}).get("description") if isinstance(data, dict) else None
@@ -186,21 +222,20 @@ class TenantIntegrationConfigView(APIView):
             cfg.messaging_gateway_feedback_action = data["messaging_gateway_feedback_action"]
         if "request_ai_chat_webhook_url" in data:
             cfg.request_ai_chat_webhook_url = data["request_ai_chat_webhook_url"]
+        new_bot_token = data.get("telegram_bot_token")
         if "telegram_bot_token" in data:
-            tenant.set_telegram_bot_token(data["telegram_bot_token"])
+            tenant.set_telegram_bot_token(new_bot_token)
         if "telegram_bot_username" in data:
             tenant.telegram_bot_username = data["telegram_bot_username"].strip().lstrip("@")
         cfg.save()
         tenant.save(update_fields=["telegram_bot_token_enc", "telegram_bot_username"])
+        if new_bot_token:
+            sync_telegram_bot_commands(tenant)
         return self.get(request)
 
 
 class TenantMessagingWebhookView(APIView):
     permission_classes = [IsTenantAdmin]
-
-    @staticmethod
-    def _gateway_base_url() -> str:
-        return (getattr(settings, "MESSAGING_GATEWAY_ADMIN_URL", "") or "http://tg_gateway:8080").rstrip("/")
 
     def post(self, request):
         action = str(request.data.get("action") or "").strip().lower()
@@ -209,7 +244,7 @@ class TenantMessagingWebhookView(APIView):
         if not bot_token:
             raise ValidationError({"detail": "Telegram bot token is not configured."})
 
-        base = self._gateway_base_url()
+        base = _gateway_base_url()
         try:
             if action == "set":
                 webhook_url = str(request.data.get("webhook_url") or "").strip()

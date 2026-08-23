@@ -9,6 +9,7 @@ Endpoints:
   POST /v1/messaging/send               — send / edit / delete via Telegram
   POST /v1/messaging/webhook/{bot_token}— receive Telegram updates, forward
                                           interactions and known slash commands
+  POST /v1/messaging/commands/set       — register the bot's slash-command menu
   GET  /health                          — liveness + DB status
 
 Authentication: none — Docker internal network only (no public exposure).
@@ -37,6 +38,7 @@ from models import (
     DELETE_ACTIONS,
     EDIT_ACTIONS,
     SEND_ACTIONS,
+    CommandsSetRequest,
     DispatchRequest,
     WebhookDeleteRequest,
     WebhookSetRequest,
@@ -586,6 +588,33 @@ async def delete_telegram_webhook(payload: WebhookDeleteRequest) -> JSONResponse
         status_code=200 if tg_data.get("ok") else 502,
         content={
             "ok": bool(tg_data.get("ok")),
+            "telegram_status": status_code,
+            "telegram": tg_data,
+        },
+    )
+
+
+# ── Telegram command menu ───────────────────────────────────────────────────────
+
+@app.post("/v1/messaging/commands/set")
+async def set_telegram_commands(payload: CommandsSetRequest) -> JSONResponse:
+    token_mask = _mask_bot_token(payload.bot_token)
+    commands = [{"command": c.command, "description": c.description} for c in payload.commands]
+    logger.info("commands set requested token=%s commands=%s", token_mask, [c["command"] for c in commands])
+
+    status_code, tg_data = await _telegram_api(payload.bot_token, "setMyCommands", {"commands": commands})
+    logger.info(
+        "commands set result token=%s ok=%s status=%s description=%s",
+        token_mask,
+        bool(tg_data.get("ok")),
+        status_code,
+        tg_data.get("description"),
+    )
+    return JSONResponse(
+        status_code=200 if tg_data.get("ok") else 502,
+        content={
+            "ok": bool(tg_data.get("ok")),
+            "commands": commands,
             "telegram_status": status_code,
             "telegram": tg_data,
         },

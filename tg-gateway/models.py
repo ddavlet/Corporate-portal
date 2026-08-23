@@ -71,3 +71,13 @@ class WebhookSetRequest(BaseModel):
 class WebhookDeleteRequest(BaseModel):
     bot_token: str
     drop_pending_updates: bool = True
+
+
+class BotCommandItem(BaseModel):
+    command: str
+    description: str
+
+
+class CommandsSetRequest(BaseModel):
+    bot_token: str
+    commands: list[BotCommandItem]

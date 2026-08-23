@@ -4,6 +4,7 @@ from django.db import transaction
 
 from apps.modules.registry import list_modules
 from apps.tenants.models import Tenant, TenantMembership, TenantModuleConfig, TenantUserRole
+from apps.tenants.views import sync_telegram_bot_commands
 
 
 def _module_choices():
@@ -76,6 +77,8 @@ class TenantAdminForm(forms.ModelForm):
         tenant.telegram_bot_username = bot_username
         if commit:
             tenant.save(update_fields=["telegram_bot_token_enc", "telegram_bot_username"])
+            if token:
+                sync_telegram_bot_commands(tenant)
 
         enabled_keys = set(self.cleaned_data.get("enabled_modules") or [])
         all_keys = [k for (k, _label) in _module_choices()]
