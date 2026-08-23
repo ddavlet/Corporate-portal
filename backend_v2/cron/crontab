@@ -13,3 +13,6 @@ TZ=Asia/Tashkent
 # Investment payout Telegram reminders.
 0 9 * * * root cd /app && python manage.py run_invest_notifications >> /proc/1/fd/1 2>&1
 
+# Archive CBU USD/UZS exchange rate (yesterday finalized, today refreshed).
+5 9 * * * root cd /app && python manage.py sync_cbu_exchange_rate >> /proc/1/fd/1 2>&1
+

@@ -1,6 +1,9 @@
 from datetime import date
 from decimal import Decimal
+from io import StringIO
 from unittest.mock import MagicMock, patch
+
+from django.core.management import call_command
 
 from apps.modules.investments.approval_services import build_investment_return_approval_telegram_message
 from apps.modules.investments.project_investment_approval_services import (
@@ -17,6 +20,7 @@ from rest_framework.test import APITestCase
 
 from apps.modules.investments.approval_services import INVESTMENT_APPROVAL_CASCADE_REJECTION_COMMENT
 from apps.modules.investments.models import (
+    CbuExchangeRate,
     InvestCompany,
     InvestmentApprovalConfigStep,
     InvestmentFormConfig,
@@ -40,6 +44,7 @@ from apps.modules.investments.serializers import (
     ProjectInvestmentSerializer,
 )
 from apps.modules.investments.services import (
+    CbuRateFetchError,
     fetch_cbu_usd_uzs_rate,
     invest_return_cbu_usd_rate_and_sum_uzs_from_bulletin,
 )
@@ -465,6 +470,74 @@ class InvestReturnCbuServicesTests(TestCase):
         )
         self.assertEqual(usd, Decimal("12000"))
         self.assertEqual(su, Decimal("130000"))
+
+
+class SyncCbuExchangeRateCommandTests(TestCase):
+    """python manage.py sync_cbu_exchange_rate — archives yesterday (final) + today (current)."""
+
+    CMD_MODULE = "apps.modules.investments.management.commands.sync_cbu_exchange_rate"
+
+    def _run(self):
+        out = StringIO()
+        err = StringIO()
+        call_command("sync_cbu_exchange_rate", stdout=out, stderr=err)
+        return out.getvalue(), err.getvalue()
+
+    @patch(f"{CMD_MODULE}.tashkent_today", return_value=date(2026, 5, 10))
+    @patch(f"{CMD_MODULE}.fetch_cbu_usd_uzs_rate")
+    def test_creates_rows_for_yesterday_and_today(self, mock_fetch, _mock_today):
+        mock_fetch.side_effect = lambda *, rate_date: {
+            date(2026, 5, 9): Decimal("12500.000000"),
+            date(2026, 5, 10): Decimal("12510.000000"),
+        }[rate_date]
+
+        self._run()
+
+        self.assertEqual(
+            CbuExchangeRate.objects.get(date=date(2026, 5, 9)).usd_uzs_rate,
+            Decimal("12500.000000"),
+        )
+        self.assertEqual(
+            CbuExchangeRate.objects.get(date=date(2026, 5, 10)).usd_uzs_rate,
+            Decimal("12510.000000"),
+        )
+        self.assertEqual(CbuExchangeRate.objects.count(), 2)
+
+    @patch(f"{CMD_MODULE}.tashkent_today", return_value=date(2026, 5, 10))
+    @patch(f"{CMD_MODULE}.fetch_cbu_usd_uzs_rate")
+    def test_refreshes_existing_row(self, mock_fetch, _mock_today):
+        CbuExchangeRate.objects.create(date=date(2026, 5, 9), usd_uzs_rate=Decimal("12000.000000"))
+        mock_fetch.side_effect = lambda *, rate_date: {
+            date(2026, 5, 9): Decimal("12500.000000"),
+            date(2026, 5, 10): Decimal("12510.000000"),
+        }[rate_date]
+
+        self._run()
+
+        self.assertEqual(
+            CbuExchangeRate.objects.get(date=date(2026, 5, 9)).usd_uzs_rate,
+            Decimal("12500.000000"),
+        )
+        self.assertEqual(CbuExchangeRate.objects.count(), 2)
+
+    @patch(f"{CMD_MODULE}.tashkent_today", return_value=date(2026, 5, 10))
+    @patch(f"{CMD_MODULE}.fetch_cbu_usd_uzs_rate")
+    def test_one_date_failure_does_not_block_the_other(self, mock_fetch, _mock_today):
+        def side_effect(*, rate_date):
+            if rate_date == date(2026, 5, 9):
+                raise CbuRateFetchError("Не удалось получить курсы с сайта ЦБ РУз.")
+            return Decimal("12510.000000")
+
+        mock_fetch.side_effect = side_effect
+
+        _out, err = self._run()
+
+        self.assertFalse(CbuExchangeRate.objects.filter(date=date(2026, 5, 9)).exists())
+        self.assertEqual(
+            CbuExchangeRate.objects.get(date=date(2026, 5, 10)).usd_uzs_rate,
+            Decimal("12510.000000"),
+        )
+        self.assertIn("Failed to fetch CBU rate", err)
 
 
 class InvestPayoutScheduleSerializerTests(TestCase):
