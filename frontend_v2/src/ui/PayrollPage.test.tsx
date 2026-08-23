@@ -174,13 +174,18 @@ describe('CreatePayrollDocumentModal (via PayrollPage)', () => {
     fireEvent.change(screen.getByPlaceholderText('Вид (Salary / Bonus…)'), { target: { value: 'Salary' } })
     fireEvent.change(screen.getByPlaceholderText('Сумма'), { target: { value: '500' } })
 
+    // antd's RangePicker (rc-picker) only accepts typed input through its mask-aware
+    // paste handler when a `format` is configured (the default here) — a plain
+    // `fireEvent.change` is a no-op in that case, so the committed value must be
+    // simulated via `paste` (which validates + commits the text) followed by `Enter`
+    // (which confirms the field and advances/flushes the range value into the Form).
     const [periodStartInput, periodEndInput] = Array.from(
       document.querySelectorAll('.ant-picker-range input'),
     ) as HTMLInputElement[]
     fireEvent.mouseDown(periodStartInput)
-    fireEvent.change(periodStartInput, { target: { value: '2026-08-01' } })
+    fireEvent.paste(periodStartInput, { clipboardData: { getData: () => '2026-08-01' } })
     fireEvent.keyDown(periodStartInput, { key: 'Enter', code: 'Enter' })
-    fireEvent.change(periodEndInput, { target: { value: '2026-08-31' } })
+    fireEvent.paste(periodEndInput, { clipboardData: { getData: () => '2026-08-31' } })
     fireEvent.keyDown(periodEndInput, { key: 'Enter', code: 'Enter' })
 
     fireEvent.click(screen.getByRole('button', { name: 'Создать' }))
