@@ -23,7 +23,7 @@ class CbuRateFetchError(Exception):
 
 
 def tashkent_today() -> date:
-    """Текущая календарная дата в часовом поясе Ташкента (для даты курса при создании заявки)."""
+    """Текущая календарная дата в часовом поясе Ташкента."""
     return timezone.now().astimezone(UZ_TASHKENT).date()
 
 
