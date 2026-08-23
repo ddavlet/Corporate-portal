@@ -11,6 +11,7 @@ import {
   getRequestFormOptions,
   getRequestCategories,
   getRequestVendors,
+  listVendors,
   parseErrorBody,
   submitRequestForApproval,
   type RequestCategoryOption,
@@ -30,6 +31,10 @@ import { useInfiniteList, useRestoreInfinitePages } from '../../lib/useInfiniteL
 import { useListPageSession } from '../../lib/useListPageSession'
 import { useUserPreference } from '../../lib/useUserPreference'
 import { ListInfiniteScrollFooter } from '../ListInfiniteScrollFooter'
+
+function vendorKindForPaymentType(paymentType: string): 'cash' | 'transfer' {
+  return paymentType === 'Наличные' ? 'cash' : 'transfer'
+}
 
 type RequestRow = {
   id: number
@@ -70,6 +75,7 @@ type RequestModalEditDraft = {
   payment_type: string
   category: string
   vendor: string
+  vendorRefId: number | null
   payment_purpose: string
   expense_id: string
   billing_date: Dayjs | null
@@ -181,6 +187,8 @@ export function RequestsPage() {
   const [editOpen, setEditOpen] = useState(false)
   const [editSaving, setEditSaving] = useState(false)
   const [editDraft, setEditDraft] = useState<RequestModalEditDraft | null>(null)
+  const [vendorEditOptions, setVendorEditOptions] = useState<{ label: string; value: number }[]>([])
+  const [vendorEditLoading, setVendorEditLoading] = useState(false)
   const [requestFormPaymentTypes, setRequestFormPaymentTypes] = useState<RequestFormOptionsPaymentType[]>([])
   const [requesterCandidates, setRequesterCandidates] = useState<RequestFormOptionsRequester[]>([])
   const [vendorSearchApi, setVendorSearchApi] = useState('')
@@ -372,6 +380,38 @@ export function RequestsPage() {
       value,
     }))
 
+  const loadVendorEditOptions = useCallback(async (search: string) => {
+    const paymentType = editDraft?.payment_type
+    if (!paymentType) return
+    const kind = vendorKindForPaymentType(paymentType)
+    setVendorEditLoading(true)
+    try {
+      const vendorRows = await listVendors({ kind, search })
+      setVendorEditOptions(
+        vendorRows.map((r) => ({
+          value: r.id,
+          label: r.kind === 'transfer' && r.inn ? `${r.name} (ИНН ${r.inn})` : r.name,
+        })),
+      )
+    } catch {
+      setVendorEditOptions([])
+    } finally {
+      setVendorEditLoading(false)
+    }
+  }, [editDraft?.payment_type])
+
+  useEffect(() => {
+    if (editOpen && editDraft?.payment_type) {
+      void loadVendorEditOptions('')
+    }
+  }, [editOpen, editDraft?.payment_type, loadVendorEditOptions])
+
+  const vendorEditSearchTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+  const onVendorEditSearch = (value: string) => {
+    window.clearTimeout(vendorEditSearchTimerRef.current)
+    vendorEditSearchTimerRef.current = setTimeout(() => void loadVendorEditOptions(value), 300)
+  }
+
   const editModalPaymentTypeOptions = useMemo(() => {
     const uniq = new Set<string>()
     for (const p of requestFormPaymentTypes) {
@@ -466,6 +506,7 @@ export function RequestsPage() {
         payment_type: editDraft.payment_type,
         category: editDraft.category,
         vendor: editDraft.vendor,
+        vendor_ref: editDraft.vendorRefId ?? undefined,
         payment_purpose: editDraft.payment_purpose.trim() || undefined,
         expense_id: editDraft.expense_id.trim() || null,
         requester: editDraft.requester ? Number(editDraft.requester) : null,
@@ -964,6 +1005,7 @@ export function RequestsPage() {
                       payment_type: selectedDetail.payment_type || '',
                       category: selectedDetail.category || '',
                       vendor: selectedDetail.vendor || '',
+                      vendorRefId: selectedDetail.vendor_ref ?? null,
                       payment_purpose: selectedDetail.payment_purpose || '',
                       expense_id: (selectedDetail.expense_id || '').trim(),
                       billing_date: selectedDetail.billing_date ? dayjs(selectedDetail.billing_date) : null,
@@ -1076,10 +1118,29 @@ export function RequestsPage() {
             <Select
               style={{ minWidth: 220 }}
               placeholder="Поставщик"
-              value={editDraft?.vendor}
-              onChange={(value) => setEditDraft((prev) => (prev ? { ...prev, vendor: value } : prev))}
-              options={optionize(rows.map((r) => r.vendor))}
+              labelInValue
+              value={
+                editDraft?.vendorRefId != null
+                  ? { value: editDraft.vendorRefId, label: editDraft.vendor }
+                  : undefined
+              }
+              onChange={(selected: { value: number; label: string } | undefined) =>
+                setEditDraft((prev) =>
+                  prev
+                    ? {
+                        ...prev,
+                        vendorRefId: selected?.value ?? null,
+                        vendor: selected?.label ?? '',
+                      }
+                    : prev,
+                )
+              }
+              options={vendorEditOptions}
+              onSearch={onVendorEditSearch}
+              loading={vendorEditLoading}
+              filterOption={false}
               showSearch
+              notFoundContent={vendorEditLoading ? 'Поиск…' : 'Не найдено'}
             />
           </Space>
           {editPurposeSelectOptions.length > 0 ? (
