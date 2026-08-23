@@ -27,6 +27,7 @@ from apps.modules.requests.models import (
     RequestPaymentPurposeConfig,
 )
 from apps.modules.investments.models import (
+    CbuExchangeRate,
     InvestmentApprovalConfigStep,
     InvestmentReturnApproval,
     InvestReturn,
@@ -1858,6 +1859,9 @@ class N8nInvestmentsRawDataListTests(APITestCase):
         self.project_investments_url = (
             f"{settings.N8N_INTEGRATION_URL_PREFIX.rstrip('/')}/investments/project-investments/batch/"
         )
+        self.exchange_rates_url = (
+            f"{settings.N8N_INTEGRATION_URL_PREFIX.rstrip('/')}/investments/exchange-rates/"
+        )
 
     def _headers(self, *, integration=True):
         h = {"HTTP_HOST": "acme.example.com"}
@@ -1938,6 +1942,49 @@ class N8nInvestmentsRawDataListTests(APITestCase):
         self.assertEqual(row["id"], own.id)
         self.assertEqual(Decimal(str(row["amount"])), Decimal("50000.00"))
         self.assertTrue(row["confirmed"])
+
+    def test_exchange_rates_requires_integration_token(self):
+        res = self.client.get(self.exchange_rates_url, **self._headers(integration=False))
+        self.assertEqual(res.status_code, 401)
+
+    def test_exchange_rates_without_filters_returns_whole_archive(self):
+        CbuExchangeRate.objects.create(date=date(2026, 5, 9), usd_uzs_rate=Decimal("12500.000000"))
+        CbuExchangeRate.objects.create(date=date(2026, 5, 10), usd_uzs_rate=Decimal("12510.000000"))
+
+        res = self.client.get(self.exchange_rates_url, **self._headers())
+        self.assertEqual(res.status_code, 200, res.content)
+        data = res.json()
+        self.assertEqual([r["date"] for r in data], ["2026-05-10", "2026-05-09"])
+
+    def test_exchange_rates_filters_by_exact_date(self):
+        CbuExchangeRate.objects.create(date=date(2026, 5, 9), usd_uzs_rate=Decimal("12500.000000"))
+        CbuExchangeRate.objects.create(date=date(2026, 5, 10), usd_uzs_rate=Decimal("12510.000000"))
+
+        res = self.client.get(self.exchange_rates_url, {"date": "2026-05-09"}, **self._headers())
+        self.assertEqual(res.status_code, 200, res.content)
+        data = res.json()
+        self.assertEqual(len(data), 1)
+        self.assertEqual(data[0]["date"], "2026-05-09")
+        self.assertEqual(Decimal(str(data[0]["usd_uzs_rate"])), Decimal("12500.000000"))
+
+    def test_exchange_rates_filters_by_date_range(self):
+        CbuExchangeRate.objects.create(date=date(2026, 5, 8), usd_uzs_rate=Decimal("12490.000000"))
+        CbuExchangeRate.objects.create(date=date(2026, 5, 9), usd_uzs_rate=Decimal("12500.000000"))
+        CbuExchangeRate.objects.create(date=date(2026, 5, 10), usd_uzs_rate=Decimal("12510.000000"))
+
+        res = self.client.get(
+            self.exchange_rates_url,
+            {"date_from": "2026-05-09", "date_to": "2026-05-10"},
+            **self._headers(),
+        )
+        self.assertEqual(res.status_code, 200, res.content)
+        data = res.json()
+        self.assertEqual([r["date"] for r in data], ["2026-05-10", "2026-05-09"])
+
+    def test_exchange_rates_rejects_invalid_date(self):
+        res = self.client.get(self.exchange_rates_url, {"date": "not-a-date"}, **self._headers())
+        self.assertEqual(res.status_code, 400)
+        self.assertIn("date", res.json())
 
 
 @override_settings(
