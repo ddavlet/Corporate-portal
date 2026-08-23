@@ -202,6 +202,7 @@ class MaybeCreateLinkedRequestTests(TestCase):
         self.tenant = Tenant.objects.create(name="LinkReq", subdomain="link-req", is_active=True)
         self.user = User.objects.create_user(username="link-req-user", password="x")
         self.approver = User.objects.create_user(username="link-req-approver", password="x")
+        TenantMembership.objects.create(tenant=self.tenant, user=self.approver, is_active=True)
 
         approval_cfg = RequestApprovalConfig.objects.create(tenant=self.tenant)
         pt_cfg = RequestApprovalPaymentTypeConfig.objects.create(
