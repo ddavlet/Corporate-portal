@@ -1314,7 +1314,6 @@ export type InvestReturnRow = {
   billing_date: string
   sum: string | number
   sum_uzs?: string | number | null
-  cbu_usd_uzs_rate?: string | number | null
   currency: string
   confirmed: boolean
   type: string

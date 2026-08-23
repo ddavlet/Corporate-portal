@@ -1922,7 +1922,6 @@ class N8nInvestReturnBatchUpsertView(_N8nBatchBaseView):
                 "sum",
                 "currency",
                 "sum_uzs",
-                "cbu_usd_uzs_rate",
                 "type",
                 "recipient",
                 "confirmed",

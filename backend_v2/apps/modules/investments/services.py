@@ -125,3 +125,22 @@ def fetch_cbu_usd_uzs_rate(*, rate_date: date, timeout: int = 12) -> Decimal:
     """
     rows = fetch_cbu_rows_for_date(rate_date=rate_date, timeout=timeout)
     return usd_uzs_rate_from_cbu_rows(rows)
+
+
+def get_or_fetch_usd_uzs_rate(*, rate_date: date, timeout: int = 12) -> Decimal:
+    """
+    UZS за 1 USD на дату ``rate_date`` — единая точка правды (CbuExchangeRate).
+
+    Архив (заполняется ежедневно, см. sync_cbu_exchange_rate) проверяется первым;
+    если дата ещё не заархивирована, курс забирается с сайта ЦБ и тут же сохраняется
+    в архив, чтобы последующие обращения на эту дату не ходили в сеть.
+    """
+    from apps.modules.investments.models import CbuExchangeRate
+
+    archived = CbuExchangeRate.objects.filter(date=rate_date).first()
+    if archived is not None:
+        return archived.usd_uzs_rate
+
+    rate = fetch_cbu_usd_uzs_rate(rate_date=rate_date, timeout=timeout)
+    CbuExchangeRate.objects.update_or_create(date=rate_date, defaults={"usd_uzs_rate": rate})
+    return rate

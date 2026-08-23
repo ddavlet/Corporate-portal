@@ -12,7 +12,6 @@ import {
   Space,
   Table,
   Tag,
-  Tooltip,
   Typography,
   message,
 } from 'antd'
@@ -149,13 +148,6 @@ export function ReturnsTab({
       align: 'right',
       render: (v: string | number | null | undefined) => (v != null && v !== '' ? asMoney(v) : '—'),
       sorter: (a, b) => asNumber(a.sum_uzs ?? 0) - asNumber(b.sum_uzs ?? 0),
-    },
-    {
-      title: <Tooltip title="Курс Центрального банка Узбекистана (USD/UZS)">Курс ЦБУ</Tooltip>,
-      dataIndex: 'cbu_usd_uzs_rate',
-      width: 110,
-      align: 'right',
-      render: (v: string | number | null | undefined) => (v != null && v !== '' ? asMoney(v) : '—'),
     },
     {
       title: 'Валюта',

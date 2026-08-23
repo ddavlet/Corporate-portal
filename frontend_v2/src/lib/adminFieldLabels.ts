@@ -100,7 +100,6 @@ const FIELD_LABELS: Record<string, string> = {
   remaining_amount: 'Остаток',
   return_type: 'Тип выплаты',
   created_return: 'Созданная выплата',
-  cbu_usd_uzs_rate: 'Курс ЦБ USD/UZS',
   uses_companies: 'Используются компании',
   allowed_return_types: 'Разрешённые типы выплат',
 
