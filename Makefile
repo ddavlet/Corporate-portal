@@ -7,7 +7,7 @@ DEPLOY_TEST_PATH ?= $(TEST_PATH)
 BRANCH     := $(shell git rev-parse --abbrev-ref HEAD)
 
 .DEFAULT_GOAL := help
-.PHONY: help push test deploy makemigrations showmigrations backup-db create-postgres-mcp-role rollback refresh-approval-messages link-lemon-auto-request-exceptions fix-bank-expense-vendor-misattribution backfill-cbu-exchange-rate local-up local-down local-logs test_local
+.PHONY: help push test deploy makemigrations showmigrations backup-db create-postgres-mcp-role rollback refresh-approval-messages link-lemon-auto-request-exceptions fix-bank-expense-vendor-misattribution local-up local-down local-logs test_local
 
 help:
 	@echo ""
@@ -26,9 +26,6 @@ help:
 	@echo "  make link-lemon-auto-request-exceptions APPLY=1 — то же самое, но с записью изменений"
 	@echo "  make fix-bank-expense-vendor-misattribution — dry-run: фикс vendor у bank_expenses 9830/10198 и request 7781"
 	@echo "  make fix-bank-expense-vendor-misattribution APPLY=1 — то же самое, но с записью изменений"
-	@echo "  make backfill-cbu-exchange-rate — dry-run: список дат без курса ЦБ (по умолчанию с начала года по сегодня)"
-	@echo "  make backfill-cbu-exchange-rate APPLY=1 — то же самое, но со скачиванием и записью курсов"
-	@echo "  make backfill-cbu-exchange-rate DATE_FROM=2026-01-01 DATE_TO=2026-08-23 APPLY=1 — на явном диапазоне дат"
 	@echo "  make local-up        — поднять docker-compose.local.yml локально"
 	@echo "  make local-down      — остановить локальный compose (без удаления volumes)"
 	@echo "  make local-logs      — логи локального compose"
@@ -150,18 +147,6 @@ fix-bank-expense-vendor-misattribution:
 	ssh $(SERVER) "cd $(REMOTE_DIR) && \
 		docker compose --env-file ./.env exec -T backend_v2 \
 		python manage.py fix_bank_expense_vendor_misattribution $(if $(APPLY),--apply,)"
-
-# ── 7d. Разово: догрузить историю курсов ЦБ (по умолчанию с начала года) ─────
-DATE_FROM ?=
-DATE_TO   ?=
-
-backfill-cbu-exchange-rate:
-	ssh $(SERVER) "cd $(REMOTE_DIR) && \
-		docker compose --env-file ./.env exec -T backend_v2 \
-		python manage.py backfill_cbu_exchange_rate \
-		$(if $(DATE_FROM),--date-from=$(DATE_FROM),) \
-		$(if $(DATE_TO),--date-to=$(DATE_TO),) \
-		$(if $(APPLY),--apply,)"
 
 # ── 8. Откат production ──────────────────────────────────────────────────────
 rollback:
