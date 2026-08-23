@@ -12,7 +12,6 @@ import {
   Space,
   Table,
   Tag,
-  Tooltip,
   Typography,
   message,
 } from 'antd'
@@ -38,7 +37,7 @@ import {
   makeCompanySelectOptions,
   precisionFor,
   RETURN_CURRENCY_OPTIONS,
-  totalsByCurrency,
+  totalsInBothCurrencies,
   type CompanyFilter,
 } from './utils'
 
@@ -100,9 +99,9 @@ export function ReturnsTab({
     return inDateRange(byCo, 'date', from, to)
   }, [rows, companyFilter, dateRange])
 
-  const totals = useMemo(() => totalsByCurrency(filtered, 'sum'), [filtered])
+  const totals = useMemo(() => totalsInBothCurrencies(filtered), [filtered])
   const confirmedTotals = useMemo(
-    () => totalsByCurrency(filtered.filter((r) => r.confirmed), 'sum'),
+    () => totalsInBothCurrencies(filtered.filter((r) => r.confirmed)),
     [filtered],
   )
 
@@ -149,13 +148,6 @@ export function ReturnsTab({
       align: 'right',
       render: (v: string | number | null | undefined) => (v != null && v !== '' ? asMoney(v) : '—'),
       sorter: (a, b) => asNumber(a.sum_uzs ?? 0) - asNumber(b.sum_uzs ?? 0),
-    },
-    {
-      title: <Tooltip title="Курс Центрального банка Узбекистана (USD/UZS)">Курс ЦБУ</Tooltip>,
-      dataIndex: 'cbu_usd_uzs_rate',
-      width: 110,
-      align: 'right',
-      render: (v: string | number | null | undefined) => (v != null && v !== '' ? asMoney(v) : '—'),
     },
     {
       title: 'Валюта',

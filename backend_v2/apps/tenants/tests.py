@@ -591,6 +591,44 @@ class TenantPayrollDocIdFormatApiTests(APITestCase):
 
 
 @override_settings(BASE_DOMAIN="example.com", ALLOWED_HOSTS=["*"])
+class TenantPayrollSettingsApiTests(APITestCase):
+    def setUp(self):
+        self.tenant = Tenant.objects.create(name="Acme", subdomain="paysettings", is_active=True)
+        self.director = User.objects.create_user(username="paysettings-dir", password="x")
+        self.requester = User.objects.create_user(username="paysettings-req", password="x")
+        for u in (self.director, self.requester):
+            TenantMembership.objects.create(tenant=self.tenant, user=u, is_active=True)
+        TenantUserRole.objects.create(tenant=self.tenant, user=self.director, role=TenantUserRole.ROLE_DIRECTOR)
+        TenantUserRole.objects.create(tenant=self.tenant, user=self.requester, role=TenantUserRole.ROLE_REQUESTER)
+        TenantModuleConfig.objects.create(tenant=self.tenant, module_key="payroll", is_enabled=True)
+        self.url = "/api/tenant/payroll-settings/"
+        self.host_hdr = {"HTTP_HOST": "paysettings.example.com"}
+
+    def _auth(self, user):
+        token = str(RefreshToken.for_user(user).access_token)
+        return {**self.host_hdr, "HTTP_AUTHORIZATION": f"Bearer {token}"}
+
+    def test_director_gets_default_false_and_can_enable(self):
+        g = self.client.get(self.url, **self._auth(self.director))
+        self.assertEqual(g.status_code, 200, g.content)
+        self.assertFalse(g.data["create_payment_request_on_payroll_accrual"])
+
+        p = self.client.put(
+            self.url,
+            {"create_payment_request_on_payroll_accrual": True},
+            format="json",
+            **self._auth(self.director),
+        )
+        self.assertEqual(p.status_code, 200, p.content)
+        self.tenant.refresh_from_db()
+        self.assertTrue(self.tenant.create_payment_request_on_payroll_accrual)
+
+    def test_requester_forbidden(self):
+        r = self.client.get(self.url, **self._auth(self.requester))
+        self.assertEqual(r.status_code, 403)
+
+
+@override_settings(BASE_DOMAIN="example.com", ALLOWED_HOSTS=["*"])
 class UserPreferencesApiTests(APITestCase):
     def setUp(self):
         self.tenant = Tenant.objects.create(name="Acme", subdomain="acme", is_active=True)

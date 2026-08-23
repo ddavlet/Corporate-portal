@@ -33,6 +33,7 @@ from apps.modules.investments.models import (
     InvestReturn,
     ProjectInvestment,
 )
+from apps.modules.payroll.models import PayrollDocument
 from apps.modules.requests.services import list_payment_purposes_by_payment_type
 from apps.modules.vendors.models import Vendor
 from apps.modules.wallets.models import CashRegister, Wallet
@@ -1784,7 +1785,7 @@ class N8nInvestReturnPortalCreateTests(APITestCase):
         self.assertEqual(r.status_code, 200)
 
         cbu_patcher = patch(
-            "apps.modules.investments.serializers.fetch_cbu_usd_uzs_rate",
+            "apps.modules.investments.serializers.get_or_fetch_usd_uzs_rate",
             return_value=__import__("decimal").Decimal("12500"),
         )
         cbu_patcher.start()
@@ -1884,8 +1885,6 @@ class N8nInvestmentsRawDataListTests(APITestCase):
             billing_date=date(2026, 6, 1),
             sum="500.00",
             currency="USD",
-            sum_uzs="6300000.00",
-            cbu_usd_uzs_rate="12600.500000",
             type=InvestReturn.ReturnType.INTEREST,
             recipient=InvestReturn.Recipient.INVESTOR,
             confirmed=True,
@@ -1910,8 +1909,7 @@ class N8nInvestmentsRawDataListTests(APITestCase):
         row = data[0]
         self.assertEqual(row["id"], own.id)
         self.assertEqual(Decimal(str(row["sum"])), Decimal("500.00"))
-        self.assertEqual(Decimal(str(row["sum_uzs"])), Decimal("6300000.00"))
-        self.assertEqual(Decimal(str(row["cbu_usd_uzs_rate"])), Decimal("12600.500000"))
+        self.assertNotIn("sum_uzs", row)
         self.assertEqual(row["type"], InvestReturn.ReturnType.INTEREST)
         self.assertEqual(row["recipient"], InvestReturn.Recipient.INVESTOR)
         self.assertTrue(row["confirmed"])
@@ -2861,4 +2859,93 @@ class N8nRequestCopyImportTests(APITestCase):
         )
         self.assertEqual(res.status_code, 201, res.content)
         self.assertTrue(res.data["is_missing_expense"])
+
+
+@override_settings(
+    BASE_DOMAIN="example.com",
+    N8N_INTEGRATION_TOKEN="integ-test-secret",
+    ALLOWED_HOSTS=["*"],
+)
+class PayrollLineUpsertLinkedRequestHookTests(APITestCase):
+    def setUp(self):
+        User.objects.update_or_create(pk=1, defaults={"username": "n8n_system"})
+        self.tenant = Tenant.objects.create(name="PayrollHook", subdomain="payroll-hook", is_active=True)
+        self.approver = User.objects.create_user(username="payroll-hook-approver", password="x")
+        TenantMembership.objects.create(tenant=self.tenant, user=self.approver, is_active=True)
+        TenantUserRole.objects.create(tenant=self.tenant, user=self.approver, role=TenantUserRole.ROLE_DIRECTOR)
+        TenantModuleConfig.objects.create(tenant=self.tenant, module_key="payroll", is_enabled=True)
+
+        approval_cfg = RequestApprovalConfig.objects.create(tenant=self.tenant)
+        pt_cfg = RequestApprovalPaymentTypeConfig.objects.create(
+            config=approval_cfg, payment_type=Request.PAYMENT_TYPE_PAYROLL, is_enabled=True,
+        )
+        step_cfg = RequestApprovalStepConfig.objects.create(payment_type_config=pt_cfg, step=1, is_enabled=True)
+        RequestApprovalStepApproverConfig.objects.create(step_config=step_cfg, approver_user=self.approver)
+
+        prefix = settings.N8N_INTEGRATION_URL_PREFIX.rstrip("/")
+        self.single_url = f"{prefix}/payroll/lines/"
+        self.batch_url = f"{prefix}/payroll/lines/batch/"
+
+    def _headers(self):
+        return {"HTTP_HOST": "payroll-hook.example.com", "HTTP_X_N8N_INTEGRATION_TOKEN": "integ-test-secret"}
+
+    def test_single_upsert_does_not_create_request_when_flag_disabled(self):
+        payload = {
+            "doc_id": "PAY-HOOK-1", "line_no": 1, "employee": "Alice", "item": "Salary",
+            "sum": "500.00", "days_plan": 20, "days_fact": 20,
+            "period_start": "2026-08-01", "period_end": "2026-08-31", "approval": True,
+        }
+        res = self.client.post(self.single_url, payload, format="json", **self._headers())
+        self.assertEqual(res.status_code, 201, res.content)
+        self.assertEqual(Request.objects.filter(tenant=self.tenant).count(), 0)
+
+    @patch("apps.modules.telegram_approvals.services.TelegramDispatcher.send")
+    def test_batch_upsert_creates_one_request_per_document_when_flag_enabled(self, tg_mock):
+        tg_mock.return_value = None
+        self.tenant.create_payment_request_on_payroll_accrual = True
+        self.tenant.save(update_fields=["create_payment_request_on_payroll_accrual"])
+
+        payload = [
+            {
+                "doc_id": "PAY-HOOK-2", "line_no": 1, "employee": "Alice", "item": "Salary",
+                "sum": "600.00", "days_plan": 20, "days_fact": 20,
+                "period_start": "2026-08-01", "period_end": "2026-08-31", "approval": True,
+            },
+            {
+                "doc_id": "PAY-HOOK-2", "line_no": 2, "employee": "Bob", "item": "Bonus",
+                "sum": "400.00", "days_plan": 20, "days_fact": 18,
+                "period_start": "2026-08-01", "period_end": "2026-08-31", "approval": True,
+            },
+        ]
+        res = self.client.post(self.batch_url, payload, format="json", **self._headers())
+        self.assertEqual(res.status_code, 200, res.content)
+
+        doc = PayrollDocument.objects.get(tenant=self.tenant, doc_id="PAY-HOOK-2")
+        requests_qs = Request.objects.filter(
+            tenant=self.tenant, expense_ref_id=doc.pk, expense_ref_target=Request.EXPENSE_REF_TARGET_PAYROLL,
+        )
+        self.assertEqual(requests_qs.count(), 1, "must be exactly one Request for the whole document, not per line")
+        self.assertEqual(requests_qs.first().amount, Decimal("1000.00"))
+
+    @patch("apps.modules.telegram_approvals.services.TelegramDispatcher.send")
+    def test_second_batch_for_same_doc_id_does_not_duplicate_request(self, tg_mock):
+        tg_mock.return_value = None
+        self.tenant.create_payment_request_on_payroll_accrual = True
+        self.tenant.save(update_fields=["create_payment_request_on_payroll_accrual"])
+
+        line_payload = {
+            "doc_id": "PAY-HOOK-3", "line_no": 1, "employee": "Carol", "item": "Salary",
+            "sum": "200.00", "days_plan": 20, "days_fact": 20,
+            "period_start": "2026-08-01", "period_end": "2026-08-31", "approval": True,
+        }
+        self.client.post(self.batch_url, [line_payload], format="json", **self._headers())
+        self.client.post(self.batch_url, [line_payload], format="json", **self._headers())
+
+        doc = PayrollDocument.objects.get(tenant=self.tenant, doc_id="PAY-HOOK-3")
+        self.assertEqual(
+            Request.objects.filter(
+                tenant=self.tenant, expense_ref_id=doc.pk, expense_ref_target=Request.EXPENSE_REF_TARGET_PAYROLL,
+            ).count(),
+            1,
+        )
 

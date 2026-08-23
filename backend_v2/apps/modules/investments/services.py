@@ -23,7 +23,7 @@ class CbuRateFetchError(Exception):
 
 
 def tashkent_today() -> date:
-    """Текущая календарная дата в часовом поясе Ташкента (для даты курса при создании заявки)."""
+    """Текущая календарная дата в часовом поясе Ташкента."""
     return timezone.now().astimezone(UZ_TASHKENT).date()
 
 
@@ -125,3 +125,49 @@ def fetch_cbu_usd_uzs_rate(*, rate_date: date, timeout: int = 12) -> Decimal:
     """
     rows = fetch_cbu_rows_for_date(rate_date=rate_date, timeout=timeout)
     return usd_uzs_rate_from_cbu_rows(rows)
+
+
+def get_or_fetch_usd_uzs_rate(*, rate_date: date, timeout: int = 12) -> Decimal:
+    """
+    UZS за 1 USD на дату ``rate_date`` — единая точка правды (CbuExchangeRate).
+
+    Архив (заполняется ежедневно, см. sync_cbu_exchange_rate) проверяется первым;
+    если дата ещё не заархивирована, курс забирается с сайта ЦБ и тут же сохраняется
+    в архив, чтобы последующие обращения на эту дату не ходили в сеть.
+    """
+    from apps.modules.investments.models import CbuExchangeRate
+
+    archived = CbuExchangeRate.objects.filter(date=rate_date).first()
+    if archived is not None:
+        return archived.usd_uzs_rate
+
+    rate = fetch_cbu_usd_uzs_rate(rate_date=rate_date, timeout=timeout)
+    CbuExchangeRate.objects.update_or_create(date=rate_date, defaults={"usd_uzs_rate": rate})
+    return rate
+
+
+def usd_uzs_equivalents(*, sum_val: Decimal, currency: str, rate_date: date) -> tuple[Decimal, Decimal]:
+    """
+    (сумма в USD, сумма в UZS) на дату ``rate_date`` по курсу из архива (см.
+    get_or_fetch_usd_uzs_rate). Поднимает CbuRateFetchError, если курс недоступен.
+    """
+    rate = get_or_fetch_usd_uzs_rate(rate_date=rate_date)
+    d_sum = Decimal(str(sum_val)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    cur = str(currency or "USD").strip().upper()
+    if cur == "UZS":
+        sum_uzs = d_sum
+        sum_usd = (d_sum / rate).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    else:
+        sum_usd = d_sum
+        sum_uzs = (d_sum * rate).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    return sum_usd, sum_uzs
+
+
+def usd_uzs_equivalents_or_none(
+    *, sum_val: Decimal, currency: str, rate_date: date
+) -> tuple[Decimal | None, Decimal | None]:
+    """То же самое, но (None, None) вместо исключения, если курс недоступен (для чтения/отчётов)."""
+    try:
+        return usd_uzs_equivalents(sum_val=sum_val, currency=currency, rate_date=rate_date)
+    except CbuRateFetchError:
+        return None, None

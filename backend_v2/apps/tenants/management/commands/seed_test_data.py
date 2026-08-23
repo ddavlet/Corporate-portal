@@ -566,7 +566,6 @@ class Command(BaseCommand):
                 date=payout_dt,
                 billing_date=payout_dt.replace(day=1),
                 sum=amount,
-                sum_uzs=amount,
                 currency="UZS",
                 type=inv_type,
                 recipient=recipient,

@@ -1908,7 +1908,13 @@ class N8nInvestReturnBatchUpsertView(_N8nBatchBaseView):
     single_view_class = N8nInvestReturnUpsertView
 
     def get(self, request):
-        """Raw dump of invest returns for the tenant — n8n aggregates/filters itself."""
+        """
+        Raw dump of invest returns for the tenant — n8n aggregates/filters itself.
+
+        No UZS/USD equivalent here: sum_uzs/sum_usd aren't stored, they're derived from
+        sum/currency + the CBU rate archive. Use GET /investments/exchange-rates/ to
+        compute them (?date=<date> or ?date_from=&date_to=).
+        """
         tenant = getattr(request, "tenant", None)
         if tenant is None:
             return Response({"detail": "Unknown tenant."}, status=status.HTTP_400_BAD_REQUEST)
@@ -1921,8 +1927,6 @@ class N8nInvestReturnBatchUpsertView(_N8nBatchBaseView):
                 "billing_date",
                 "sum",
                 "currency",
-                "sum_uzs",
-                "cbu_usd_uzs_rate",
                 "type",
                 "recipient",
                 "confirmed",

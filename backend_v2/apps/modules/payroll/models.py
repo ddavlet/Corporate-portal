@@ -1,3 +1,4 @@
+from django.conf import settings
 from django.db import models
 from django.utils import timezone
 
@@ -6,8 +7,15 @@ from apps.tenants.models import Tenant
 
 class PayrollDocument(models.Model):
     tenant = models.ForeignKey(Tenant, on_delete=models.CASCADE, related_name="payroll_documents", db_index=False)
-    doc_id = models.TextField()
+    doc_id = models.TextField(null=True, blank=True)
     created_at = models.DateTimeField(default=timezone.now)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="created_payroll_documents",
+    )
 
     class Meta:
         db_table = "payroll_documents"
@@ -31,10 +39,10 @@ class PayrollLine(models.Model):
     item = models.TextField()
     description = models.TextField(null=True, blank=True)
     sum = models.DecimalField(max_digits=15, decimal_places=2)
-    days_plan = models.IntegerField()
-    days_fact = models.IntegerField()
-    period_start = models.DateField()
-    period_end = models.DateField()
+    days_plan = models.IntegerField(null=True, blank=True)
+    days_fact = models.IntegerField(null=True, blank=True)
+    period_start = models.DateField(null=True, blank=True)
+    period_end = models.DateField(null=True, blank=True)
     approval = models.BooleanField(default=False)
 
     class Meta:

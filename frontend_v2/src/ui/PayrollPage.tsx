@@ -3,11 +3,13 @@ import {
   Alert,
   Button,
   Card,
+  Checkbox,
   Collapse,
   DatePicker,
   Form,
   Input,
   InputNumber,
+  Modal,
   Select,
   Skeleton,
   Space,
@@ -19,15 +21,23 @@ import {
 } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
 import type { Dayjs } from 'dayjs'
+import { DeleteOutlined, PlusOutlined } from '@ant-design/icons'
 import { useNavigate } from 'react-router-dom'
-import { getTenantPayrollDocIdFormat, updateTenantPayrollDocIdFormat } from '../lib/api'
+import {
+  createPayrollDocument,
+  getTenantPayrollDocIdFormat,
+  getTenantPayrollSettings,
+  updateTenantPayrollDocIdFormat,
+  updateTenantPayrollSettings,
+  type PayrollLineCreatePayload,
+} from '../lib/api'
 import { useInfiniteList } from '../lib/useInfiniteList'
 import { ListInfiniteScrollFooter } from './ListInfiniteScrollFooter'
 import { labelBlockAboveField } from './formSpacing'
 
 type PayrollDocumentRow = {
   id: number
-  doc_id: string
+  doc_id: string | null
   created_at: string
   total_sum: string | number
   lines_count: number
@@ -150,6 +160,177 @@ function PayrollDocIdFormatSection() {
   )
 }
 
+function PayrollSettingsSection() {
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+  const [hidden, setHidden] = useState(false)
+  const [enabled, setEnabled] = useState(false)
+
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      setLoading(true)
+      try {
+        const data = await getTenantPayrollSettings()
+        if (cancelled) return
+        setEnabled(data.create_payment_request_on_payroll_accrual)
+        setHidden(false)
+      } catch {
+        if (!cancelled) setHidden(true)
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  if (hidden) return null
+
+  const onToggle = async (checked: boolean) => {
+    const prev = enabled
+    setEnabled(checked)
+    setSaving(true)
+    try {
+      await updateTenantPayrollSettings({ create_payment_request_on_payroll_accrual: checked })
+      message.success('Сохранено')
+    } catch (e: unknown) {
+      setEnabled(prev)
+      message.error(e instanceof Error ? e.message : 'Ошибка сохранения')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <Card title="Настройки начислений" style={{ marginBottom: 16 }} loading={loading}>
+      <Checkbox checked={enabled} disabled={loading || saving} onChange={(e) => void onToggle(e.target.checked)}>
+        Создавать заявку на оплату при создании начисления
+      </Checkbox>
+      <Typography.Paragraph type="secondary" style={{ marginTop: 8, marginBottom: 0 }}>
+        Применяется и к начислениям, созданным в портале, и к загруженным через n8n — на сумму всего документа
+        создаётся одна заявка.
+      </Typography.Paragraph>
+    </Card>
+  )
+}
+
+type CreatePayrollLineFormValue = {
+  employee: string
+  item: string
+  description?: string
+  sum: number
+  days_plan?: number | null
+  days_fact?: number | null
+  period?: [Dayjs, Dayjs] | null
+}
+
+function CreatePayrollDocumentModal({
+  open,
+  onClose,
+  onCreated,
+}: {
+  open: boolean
+  onClose: () => void
+  onCreated: () => void
+}) {
+  const [form] = Form.useForm<{ lines: CreatePayrollLineFormValue[] }>()
+  const [saving, setSaving] = useState(false)
+
+  const onSubmit = async () => {
+    try {
+      const values = await form.validateFields()
+      setSaving(true)
+      const lines: PayrollLineCreatePayload[] = values.lines.map((line) => ({
+        employee: line.employee,
+        item: line.item,
+        description: line.description,
+        sum: line.sum,
+        days_plan: line.days_plan ?? null,
+        days_fact: line.days_fact ?? null,
+        period_start: line.period?.[0]?.format('YYYY-MM-DD') ?? null,
+        period_end: line.period?.[1]?.format('YYYY-MM-DD') ?? null,
+      }))
+      await createPayrollDocument({ lines })
+      message.success('Начисление создано')
+      form.resetFields()
+      onCreated()
+      onClose()
+    } catch (e: unknown) {
+      if (e && typeof e === 'object' && 'errorFields' in e) return
+      message.error(e instanceof Error ? e.message : 'Ошибка создания')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <Modal
+      title="Создать начисление"
+      open={open}
+      onCancel={onClose}
+      onOk={() => void onSubmit()}
+      confirmLoading={saving}
+      width={900}
+      okText="Создать"
+      destroyOnClose
+    >
+      <Form form={form} layout="vertical" initialValues={{ lines: [{}] }}>
+        <Form.List name="lines">
+          {(fields, { add, remove }) => (
+            <Space direction="vertical" style={{ display: 'flex' }} size={12}>
+              {fields.map((field) => (
+                <Space key={field.key} align="baseline" wrap>
+                  <Form.Item
+                    {...field}
+                    name={[field.name, 'employee']}
+                    rules={[{ required: true, message: 'ФИО обязательно' }]}
+                  >
+                    <Input placeholder="Сотрудник (ФИО)" style={{ width: 200 }} />
+                  </Form.Item>
+                  <Form.Item
+                    {...field}
+                    name={[field.name, 'item']}
+                    rules={[{ required: true, message: 'Вид начисления обязателен' }]}
+                  >
+                    <Input placeholder="Вид (Salary / Bonus…)" style={{ width: 160 }} />
+                  </Form.Item>
+                  <Form.Item {...field} name={[field.name, 'description']}>
+                    <Input placeholder="Описание" style={{ width: 160 }} />
+                  </Form.Item>
+                  <Form.Item
+                    {...field}
+                    name={[field.name, 'sum']}
+                    rules={[{ required: true, message: 'Сумма обязательна' }]}
+                  >
+                    <InputNumber placeholder="Сумма" min={0} style={{ width: 130 }} />
+                  </Form.Item>
+                  <Form.Item {...field} name={[field.name, 'days_plan']}>
+                    <InputNumber placeholder="Дни план" min={0} style={{ width: 100 }} />
+                  </Form.Item>
+                  <Form.Item {...field} name={[field.name, 'days_fact']}>
+                    <InputNumber placeholder="Дни факт" min={0} style={{ width: 100 }} />
+                  </Form.Item>
+                  <Form.Item {...field} name={[field.name, 'period']}>
+                    <DatePicker.RangePicker placeholder={['Период от', 'Период до']} />
+                  </Form.Item>
+                  {fields.length > 1 ? (
+                    <Button icon={<DeleteOutlined />} onClick={() => remove(field.name)} />
+                  ) : null}
+                </Space>
+              ))}
+              <Button type="dashed" icon={<PlusOutlined />} onClick={() => add()}>
+                Добавить строку
+              </Button>
+            </Space>
+          )}
+        </Form.List>
+      </Form>
+    </Modal>
+  )
+}
+
 export function PayrollPage() {
   const navigate = useNavigate()
   const [search, setSearch] = useState('')
@@ -160,6 +341,7 @@ export function PayrollPage() {
   const [amountMin, setAmountMin] = useState<number | null>(null)
   const [amountMax, setAmountMax] = useState<number | null>(null)
   const [requestFilter, setRequestFilter] = useState<string | undefined>(undefined)
+  const [createModalOpen, setCreateModalOpen] = useState(false)
 
   const listUrl = useMemo(() => {
     const params = new URLSearchParams()
@@ -190,6 +372,7 @@ export function PayrollPage() {
     hasMore,
     loadingMore,
     sentinelRef,
+    reload,
   } = useInfiniteList<PayrollDocumentRow>({ url: listUrl })
 
   const columns: ColumnsType<PayrollDocumentRow> = useMemo(
@@ -199,9 +382,9 @@ export function PayrollPage() {
         dataIndex: 'doc_id',
         key: 'doc_id',
         sorter: (a, b) => String(a.doc_id || '').localeCompare(String(b.doc_id || '')),
-        render: (v: string, r) => (
+        render: (v: string | null, r) => (
           <Button type="link" onClick={() => navigate(`/payroll/${r.id}`)} style={{ padding: 0 }}>
-            {v}
+            {v || 'Без номера (создано в портале)'}
           </Button>
         ),
       },
@@ -262,10 +445,14 @@ export function PayrollPage() {
   return (
     <>
       <PayrollDocIdFormatSection />
+      <PayrollSettingsSection />
       <Card>
       <Typography.Title level={4} style={{ marginTop: 0 }}>
         Начисления ЗП
       </Typography.Title>
+      <Button type="primary" onClick={() => setCreateModalOpen(true)} style={{ marginBottom: 16 }}>
+        Создать начисление
+      </Button>
       <Typography.Paragraph type="secondary">
         Документы начислений по <span className="mono">doc_id</span>; заявки с типом оплаты «Начисление ЗП» привязываются к
         документу по <span className="mono">expense_id</span>.
@@ -381,6 +568,11 @@ export function PayrollPage() {
           />
         </>
       ) : null}
+      <CreatePayrollDocumentModal
+        open={createModalOpen}
+        onClose={() => setCreateModalOpen(false)}
+        onCreated={() => void reload()}
+      />
     </Card>
     </>
   )

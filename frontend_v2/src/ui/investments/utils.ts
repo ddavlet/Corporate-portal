@@ -84,6 +84,21 @@ export function totalsByCurrency<T extends { currency: string }>(
     .sort((a, b) => a.currency.localeCompare(b.currency))
 }
 
+/**
+ * Грand-тотал по ВСЕМ строкам сразу в обеих валютах (не группировка по native currency) —
+ * складывает уже посчитанные бэкендом эквиваленты sum_usd/sum_uzs каждой строки.
+ */
+export function totalsInBothCurrencies<
+  T extends { sum_usd?: string | number | null; sum_uzs?: string | number | null },
+>(rows: T[]): CurrencyTotal[] {
+  const usd = rows.reduce((acc, r) => acc + asNumber(r.sum_usd ?? 0), 0)
+  const uzs = rows.reduce((acc, r) => acc + asNumber(r.sum_uzs ?? 0), 0)
+  return [
+    { currency: 'USD', total: usd },
+    { currency: 'UZS', total: uzs },
+  ]
+}
+
 export const CURRENCY_OPTIONS = [
   { value: 'USD', label: 'USD' },
   { value: 'EUR', label: 'EUR' },
