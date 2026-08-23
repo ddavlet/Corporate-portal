@@ -3,6 +3,7 @@ import {
   Alert,
   Button,
   Card,
+  Checkbox,
   Collapse,
   DatePicker,
   Form,
@@ -20,7 +21,12 @@ import {
 import type { ColumnsType } from 'antd/es/table'
 import type { Dayjs } from 'dayjs'
 import { useNavigate } from 'react-router-dom'
-import { getTenantPayrollDocIdFormat, updateTenantPayrollDocIdFormat } from '../lib/api'
+import {
+  getTenantPayrollDocIdFormat,
+  getTenantPayrollSettings,
+  updateTenantPayrollDocIdFormat,
+  updateTenantPayrollSettings,
+} from '../lib/api'
 import { useInfiniteList } from '../lib/useInfiniteList'
 import { ListInfiniteScrollFooter } from './ListInfiniteScrollFooter'
 import { labelBlockAboveField } from './formSpacing'
@@ -150,6 +156,62 @@ function PayrollDocIdFormatSection() {
   )
 }
 
+function PayrollSettingsSection() {
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+  const [hidden, setHidden] = useState(false)
+  const [enabled, setEnabled] = useState(false)
+
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      setLoading(true)
+      try {
+        const data = await getTenantPayrollSettings()
+        if (cancelled) return
+        setEnabled(data.create_payment_request_on_payroll_accrual)
+        setHidden(false)
+      } catch {
+        if (!cancelled) setHidden(true)
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  if (hidden) return null
+
+  const onToggle = async (checked: boolean) => {
+    const prev = enabled
+    setEnabled(checked)
+    setSaving(true)
+    try {
+      await updateTenantPayrollSettings({ create_payment_request_on_payroll_accrual: checked })
+      message.success('Сохранено')
+    } catch (e: unknown) {
+      setEnabled(prev)
+      message.error(e instanceof Error ? e.message : 'Ошибка сохранения')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <Card title="Настройки начислений" style={{ marginBottom: 16 }} loading={loading}>
+      <Checkbox checked={enabled} disabled={loading || saving} onChange={(e) => void onToggle(e.target.checked)}>
+        Создавать заявку на оплату при создании начисления
+      </Checkbox>
+      <Typography.Paragraph type="secondary" style={{ marginTop: 8, marginBottom: 0 }}>
+        Применяется и к начислениям, созданным в портале, и к загруженным через n8n — на сумму всего документа
+        создаётся одна заявка.
+      </Typography.Paragraph>
+    </Card>
+  )
+}
+
 export function PayrollPage() {
   const navigate = useNavigate()
   const [search, setSearch] = useState('')
@@ -262,6 +324,7 @@ export function PayrollPage() {
   return (
     <>
       <PayrollDocIdFormatSection />
+      <PayrollSettingsSection />
       <Card>
       <Typography.Title level={4} style={{ marginTop: 0 }}>
         Начисления ЗП
