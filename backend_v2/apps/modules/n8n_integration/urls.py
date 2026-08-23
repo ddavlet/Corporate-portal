@@ -82,6 +82,11 @@ urlpatterns = [
         name="n8n-project-investments-batch-upsert",
     ),
     path(
+        "investments/exchange-rates/",
+        views.N8nExchangeRateListView.as_view(),
+        name="n8n-invest-exchange-rates",
+    ),
+    path(
         "investments/companies/",
         views.N8nInvestCompanyUpsertView.as_view(),
         name="n8n-invest-companies-upsert",

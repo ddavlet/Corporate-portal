@@ -9,6 +9,7 @@ from django.contrib.auth import get_user_model
 from django.db import IntegrityError, transaction
 from django.db.models import Q
 from django.utils import timezone
+from django.utils.dateparse import parse_date
 from rest_framework import status
 from rest_framework.exceptions import APIException
 from rest_framework.exceptions import ValidationError
@@ -25,7 +26,13 @@ from apps.modules.investments.approval_services import (
     create_approvals_for_invest_return,
     route_invest_return_approvals,
 )
-from apps.modules.investments.models import InvestCompany, InvestPayoutSchedule, InvestReturn, ProjectInvestment
+from apps.modules.investments.models import (
+    CbuExchangeRate,
+    InvestCompany,
+    InvestPayoutSchedule,
+    InvestReturn,
+    ProjectInvestment,
+)
 from apps.modules.investments.serializers import InvestReturnSerializer
 from apps.modules.notes.models import Note
 from apps.modules.requests.models import Approval, Request
@@ -1997,6 +2004,53 @@ class N8nProjectInvestmentBatchUpsertView(_N8nBatchBaseView):
                 "comment",
             )
         )
+        return Response(rows)
+
+
+class N8nExchangeRateListView(_N8nBaseView):
+    """
+    Archived CBU USD/UZS exchange rate (CbuExchangeRate) — global, not tenant-scoped.
+
+    Query params (all optional):
+    - `date`: exact date (YYYY-MM-DD) — returns at most one row, ignores range params.
+    - `date_from` / `date_to`: inclusive range filter.
+    Without params, returns the whole archive.
+    """
+
+    def get(self, request):
+        tenant = getattr(request, "tenant", None)
+        if tenant is None:
+            return Response({"detail": "Unknown tenant."}, status=status.HTTP_400_BAD_REQUEST)
+
+        def _parse(param_name):
+            raw = request.query_params.get(param_name)
+            if not raw:
+                return None, None
+            parsed = parse_date(raw)
+            if parsed is None:
+                return None, f"Invalid date {raw!r}, expected YYYY-MM-DD."
+            return parsed, None
+
+        exact, err = _parse("date")
+        if err:
+            return Response({"date": [err]}, status=status.HTTP_400_BAD_REQUEST)
+        date_from, err = _parse("date_from")
+        if err:
+            return Response({"date_from": [err]}, status=status.HTTP_400_BAD_REQUEST)
+        date_to, err = _parse("date_to")
+        if err:
+            return Response({"date_to": [err]}, status=status.HTTP_400_BAD_REQUEST)
+
+        qs = CbuExchangeRate.objects.all()
+        if exact is not None:
+            qs = qs.filter(date=exact)
+        else:
+            if date_from is not None:
+                qs = qs.filter(date__gte=date_from)
+            if date_to is not None:
+                qs = qs.filter(date__lte=date_to)
+
+        rows = list(qs.order_by("-date").values("date", "usd_uzs_rate", "updated_at"))
         return Response(rows)
 
 
