@@ -711,13 +711,13 @@ class BackendCashflowDatabaseTests(TestCase):
         self.assertEqual(op[0]["amount"], "500.00")
         self.assertEqual(op[0]["date"], "2026-03-15")
 
-    def test_invest_return_uses_payout_date_not_billing_date(self):
+    @patch("apps.modules.investments.services.fetch_cbu_usd_uzs_rate", return_value=Decimal("10000"))
+    def test_invest_return_uses_payout_date_not_billing_date(self, _mock_fetch):
         InvestReturn.objects.create(
             tenant=self.tenant,
             date=date(2026, 3, 15),
             billing_date=date(2026, 1, 1),
             sum=Decimal("10.00"),
-            sum_uzs=Decimal("100000.00"),
             currency="UZS",
             type="дивиденды",
             recipient="инвестор",

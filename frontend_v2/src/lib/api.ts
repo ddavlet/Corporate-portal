@@ -1313,6 +1313,7 @@ export type InvestReturnRow = {
   date: string
   billing_date: string
   sum: string | number
+  sum_usd?: string | number | null
   sum_uzs?: string | number | null
   currency: string
   confirmed: boolean

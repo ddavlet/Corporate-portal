@@ -7,6 +7,7 @@ from typing import Any
 
 from apps.mcp_server.auth import require_module_access
 from apps.mcp_server.utils import json_safe, validate_date
+from apps.modules.investments.services import clamp_rate_date_to_cbu_availability, usd_uzs_equivalents_or_none
 
 MODULE = "investments"
 _MAX_LIMIT = 200
@@ -97,6 +98,8 @@ def list_invest_returns(
     limit = min(max(1, int(limit)), _MAX_LIMIT)
     rows = []
     for r in qs.order_by("-date", "-id")[:limit]:
+        rate_date = clamp_rate_date_to_cbu_availability(requested=r.date)
+        sum_usd, sum_uzs = usd_uzs_equivalents_or_none(sum_val=r.sum, currency=r.currency, rate_date=rate_date)
         rows.append(
             {
                 "id": r.id,
@@ -106,7 +109,8 @@ def list_invest_returns(
                 "billing_date": r.billing_date.isoformat(),
                 "sum": str(r.sum),
                 "currency": r.currency,
-                "sum_uzs": str(r.sum_uzs) if r.sum_uzs is not None else None,
+                "sum_usd": str(sum_usd) if sum_usd is not None else None,
+                "sum_uzs": str(sum_uzs) if sum_uzs is not None else None,
                 "type": r.type,
                 "recipient": r.recipient,
                 "confirmed": r.confirmed,

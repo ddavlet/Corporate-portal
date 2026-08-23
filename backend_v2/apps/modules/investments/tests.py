@@ -48,6 +48,8 @@ from apps.modules.investments.services import (
     fetch_cbu_usd_uzs_rate,
     get_or_fetch_usd_uzs_rate,
     invest_return_cbu_usd_rate_and_sum_uzs_from_bulletin,
+    usd_uzs_equivalents,
+    usd_uzs_equivalents_or_none,
 )
 from apps.modules.investments.views import PublicInvestPayoutScheduleByTokenView
 from apps.tenants.models import Tenant
@@ -74,7 +76,6 @@ class InvestReturnApprovalTelegramMessageTests(SimpleTestCase):
         ir.type = "дивиденды"
         ir.recipient = "инвестор"
         ir.comment = ""
-        ir.sum_uzs = None
         ir.get_type_display = lambda: "Дивиденды"
         ir.get_recipient_display = lambda: "Инвестор"
 
@@ -117,7 +118,6 @@ class InvestReturnApprovalTelegramMessageTests(SimpleTestCase):
         ir.type = "дивиденды"
         ir.recipient = "инвестор"
         ir.comment = ""
-        ir.sum_uzs = Decimal("12600123.45")
         ir.get_type_display = lambda: "Дивиденды"
         ir.get_recipient_display = lambda: "Инвестор"
 
@@ -154,7 +154,6 @@ class InvestReturnApprovalTelegramMessageTests(SimpleTestCase):
         ir.type = "дивиденды"
         ir.recipient = "инвестор"
         ir.comment = ""
-        ir.sum_uzs = None
         ir.get_type_display = lambda: "Дивиденды"
         ir.get_recipient_display = lambda: "Инвестор"
 
@@ -190,7 +189,6 @@ class InvestReturnApprovalTelegramMessageTests(SimpleTestCase):
         ir.type = "дивиденды"
         ir.recipient = "инвестор"
         ir.comment = ""
-        ir.sum_uzs = None
         ir.get_type_display = lambda: "Дивиденды"
         ir.get_recipient_display = lambda: "Инвестор"
 
@@ -239,7 +237,7 @@ class InvestReturnSerializerTests(TestCase):
         self.tenant = Tenant.objects.create(name="Acme", subdomain="acme", is_active=True)
         self.user = User.objects.create_user(username="invest-admin", password="x")
 
-    @patch("apps.modules.investments.serializers.get_or_fetch_usd_uzs_rate", return_value=Decimal("12600"))
+    @patch("apps.modules.investments.services.fetch_cbu_usd_uzs_rate", return_value=Decimal("12600"))
     def test_usd_normalizes_currency_and_computes_sum_uzs(self, _mock_fetch):
         serializer = InvestReturnSerializer(
             data={
@@ -258,11 +256,13 @@ class InvestReturnSerializerTests(TestCase):
         obj = serializer.save(tenant=self.tenant, created_by=self.user)
         self.assertEqual(obj.currency, "USD")
         self.assertEqual(obj.sum, Decimal("100.00"))
-        self.assertEqual(obj.sum_uzs, Decimal("1260000.00"))
+        data = InvestReturnSerializer(obj).data
+        self.assertEqual(Decimal(str(data["sum_usd"])), Decimal("100.00"))
+        self.assertEqual(Decimal(str(data["sum_uzs"])), Decimal("1260000.00"))
         self.assertEqual(obj.billing_date, date(2026, 4, 1))
 
-    @patch("apps.modules.investments.serializers.get_or_fetch_usd_uzs_rate", return_value=Decimal("12345"))
-    def test_create_uses_payout_date_not_creation_date_for_rate(self, mock_get_rate):
+    @patch("apps.modules.investments.services.fetch_cbu_usd_uzs_rate", return_value=Decimal("12345"))
+    def test_create_uses_payout_date_not_creation_date_for_rate(self, mock_fetch):
         serializer = InvestReturnSerializer(
             data={
                 "date": date(2026, 4, 17),
@@ -275,9 +275,9 @@ class InvestReturnSerializerTests(TestCase):
         )
         self.assertTrue(serializer.is_valid(), serializer.errors)
         serializer.save(tenant=self.tenant, created_by=self.user)
-        mock_get_rate.assert_called_once_with(rate_date=date(2026, 4, 17))
+        mock_fetch.assert_called_once_with(rate_date=date(2026, 4, 17), timeout=12)
 
-    @patch("apps.modules.investments.serializers.get_or_fetch_usd_uzs_rate", return_value=Decimal("12600"))
+    @patch("apps.modules.investments.services.fetch_cbu_usd_uzs_rate", return_value=Decimal("12600"))
     def test_uzs_sets_sum_equal_sum_uzs(self, _mock_fetch):
         serializer = InvestReturnSerializer(
             data={
@@ -295,7 +295,10 @@ class InvestReturnSerializerTests(TestCase):
 
         obj = serializer.save(tenant=self.tenant, created_by=self.user)
         self.assertEqual(obj.sum, Decimal("5000000.00"))
-        self.assertEqual(obj.sum_uzs, Decimal("5000000.00"))
+        data = InvestReturnSerializer(obj).data
+        self.assertEqual(Decimal(str(data["sum_uzs"])), Decimal("5000000.00"))
+        expected_usd = (Decimal("5000000.00") / Decimal("12600")).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        self.assertEqual(Decimal(str(data["sum_usd"])), expected_usd)
         self.assertEqual(obj.billing_date, date(2026, 4, 1))
 
     def test_rejects_eur(self):
@@ -312,7 +315,7 @@ class InvestReturnSerializerTests(TestCase):
         self.assertFalse(serializer.is_valid())
         self.assertIn("currency", serializer.errors)
 
-    @patch("apps.modules.investments.serializers.get_or_fetch_usd_uzs_rate", return_value=Decimal("10000"))
+    @patch("apps.modules.investments.services.fetch_cbu_usd_uzs_rate", return_value=Decimal("10000"))
     def test_client_sum_uzs_is_ignored(self, _mock_fetch):
         serializer = InvestReturnSerializer(
             data={
@@ -327,9 +330,10 @@ class InvestReturnSerializerTests(TestCase):
         )
         self.assertTrue(serializer.is_valid(), serializer.errors)
         obj = serializer.save(tenant=self.tenant, created_by=self.user)
-        self.assertEqual(obj.sum_uzs, Decimal("100000.00"))
+        data = InvestReturnSerializer(obj).data
+        self.assertEqual(Decimal(str(data["sum_uzs"])), Decimal("100000.00"))
 
-    @patch("apps.modules.investments.serializers.get_or_fetch_usd_uzs_rate")
+    @patch("apps.modules.investments.services.fetch_cbu_usd_uzs_rate")
     def test_create_fails_when_cbu_unavailable(self, mock_fetch):
         from apps.modules.investments.services import CbuRateFetchError
 
@@ -348,14 +352,13 @@ class InvestReturnSerializerTests(TestCase):
         with self.assertRaises(serializers.ValidationError):
             serializer.save(tenant=self.tenant, created_by=self.user)
 
-    @patch("apps.modules.investments.serializers.get_or_fetch_usd_uzs_rate", return_value=Decimal("10000"))
-    def test_update_recomputes_sum_uzs_using_rate_for_original_payout_date(self, mock_get_rate):
+    @patch("apps.modules.investments.services.fetch_cbu_usd_uzs_rate", return_value=Decimal("10000"))
+    def test_update_recomputes_sum_uzs_using_rate_for_original_payout_date(self, mock_fetch):
         obj = InvestReturn.objects.create(
             tenant=self.tenant,
             date=date(2026, 4, 1),
             billing_date=date(2026, 4, 1),
             sum=Decimal("100.00"),
-            sum_uzs=Decimal("1000000.00"),
             currency="USD",
             type="дивиденды",
             recipient="инвестор",
@@ -368,9 +371,10 @@ class InvestReturnSerializerTests(TestCase):
         )
         self.assertTrue(serializer.is_valid(), serializer.errors)
         updated = serializer.save()
-        mock_get_rate.assert_called_once_with(rate_date=date(2026, 4, 1))
+        mock_fetch.assert_called_once_with(rate_date=date(2026, 4, 1), timeout=12)
         self.assertEqual(updated.sum, Decimal("200.00"))
-        self.assertEqual(updated.sum_uzs, Decimal("2000000.00"))
+        data = InvestReturnSerializer(updated).data
+        self.assertEqual(Decimal(str(data["sum_uzs"])), Decimal("2000000.00"))
 
     def test_investreturn_last_edit_at_updates_on_change(self):
         ret = InvestReturn.objects.create(
@@ -522,6 +526,39 @@ class GetOrFetchUsdUzsRateTests(TestCase):
             get_or_fetch_usd_uzs_rate(rate_date=date(2026, 5, 9))
 
         self.assertFalse(CbuExchangeRate.objects.filter(date=date(2026, 5, 9)).exists())
+
+
+class UsdUzsEquivalentsTests(TestCase):
+    """usd_uzs_equivalents(_or_none) — sum_usd/sum_uzs по sum/currency и курсу на дату."""
+
+    @patch("apps.modules.investments.services.fetch_cbu_usd_uzs_rate", return_value=Decimal("12600"))
+    def test_usd_currency_uzs_is_sum_times_rate(self, _mock_fetch):
+        sum_usd, sum_uzs = usd_uzs_equivalents(sum_val=Decimal("100.00"), currency="USD", rate_date=date(2026, 5, 9))
+        self.assertEqual(sum_usd, Decimal("100.00"))
+        self.assertEqual(sum_uzs, Decimal("1260000.00"))
+
+    @patch("apps.modules.investments.services.fetch_cbu_usd_uzs_rate", return_value=Decimal("12600"))
+    def test_uzs_currency_usd_is_sum_divided_by_rate(self, _mock_fetch):
+        sum_usd, sum_uzs = usd_uzs_equivalents(
+            sum_val=Decimal("1260000.00"), currency="UZS", rate_date=date(2026, 5, 9)
+        )
+        self.assertEqual(sum_uzs, Decimal("1260000.00"))
+        self.assertEqual(sum_usd, Decimal("100.00"))
+
+    @patch("apps.modules.investments.services.fetch_cbu_usd_uzs_rate")
+    def test_or_none_variant_swallows_fetch_error(self, mock_fetch):
+        mock_fetch.side_effect = CbuRateFetchError("offline")
+        sum_usd, sum_uzs = usd_uzs_equivalents_or_none(
+            sum_val=Decimal("100.00"), currency="USD", rate_date=date(2026, 5, 9)
+        )
+        self.assertIsNone(sum_usd)
+        self.assertIsNone(sum_uzs)
+
+    @patch("apps.modules.investments.services.fetch_cbu_usd_uzs_rate")
+    def test_strict_variant_raises_on_fetch_error(self, mock_fetch):
+        mock_fetch.side_effect = CbuRateFetchError("offline")
+        with self.assertRaises(CbuRateFetchError):
+            usd_uzs_equivalents(sum_val=Decimal("100.00"), currency="USD", rate_date=date(2026, 5, 9))
 
 
 class SyncCbuExchangeRateCommandTests(TestCase):
@@ -903,8 +940,10 @@ class InvestmentApprovalFlowTests(APITestCase):
         response = self.client.put("/api/investments/approval-config/", cfg_payload, format="json", HTTP_HOST=self.host)
         self.assertEqual(response.status_code, 200)
 
+        # Мокаем на уровне сетевого фетча (не get_or_fetch_usd_uzs_rate), чтобы реальная
+        # архивирующая логика отработала и Telegram-сообщение нашло курс в CbuExchangeRate.
         cbu_patcher = patch(
-            "apps.modules.investments.serializers.get_or_fetch_usd_uzs_rate",
+            "apps.modules.investments.services.fetch_cbu_usd_uzs_rate",
             return_value=Decimal("10000"),
         )
         cbu_patcher.start()
@@ -946,7 +985,7 @@ class InvestmentApprovalFlowTests(APITestCase):
         self.assertEqual(response.status_code, 201)
         created = InvestReturn.objects.get(id=response.data["id"])
         self.assertFalse(created.confirmed)
-        self.assertEqual(created.sum_uzs, Decimal("12000000.00"))
+        self.assertEqual(Decimal(str(response.data["sum_uzs"])), Decimal("12000000.00"))
         self.assertEqual(created.approvals.count(), 2)
         self.assertEqual(bridge_mock.call_count, 1)
         call_kw = bridge_mock.call_args.kwargs
@@ -1731,14 +1770,14 @@ class InvestReturnPnLBillingMonthTests(TestCase):
         )
         self.user = User.objects.create_user(username="pnl_ir_u", password="x")
 
-    def test_operational_line_uses_billing_month_as_report_date(self):
+    @patch("apps.modules.investments.services.fetch_cbu_usd_uzs_rate", return_value=Decimal("10000"))
+    def test_operational_line_uses_billing_month_as_report_date(self, _mock_fetch):
         ir = InvestReturn.objects.create(
             tenant=self.tenant,
             created_by=self.user,
             date=date(2026, 5, 10),
             billing_date=date(2026, 3, 1),
             sum=Decimal("100"),
-            sum_uzs=Decimal("1000000"),
             currency="USD",
             type="дивиденды",
             recipient="инвестор",
@@ -1751,14 +1790,14 @@ class InvestReturnPnLBillingMonthTests(TestCase):
         self.assertIsNotNone(match)
         self.assertEqual(match["date"], "2026-03-01")
 
-    def test_excluded_when_billing_month_before_config_start(self):
+    @patch("apps.modules.investments.services.fetch_cbu_usd_uzs_rate", return_value=Decimal("10000"))
+    def test_excluded_when_billing_month_before_config_start(self, _mock_fetch):
         ir = InvestReturn.objects.create(
             tenant=self.tenant,
             created_by=self.user,
             date=date(2026, 6, 1),
             billing_date=date(2026, 1, 1),
             sum=Decimal("50"),
-            sum_uzs=Decimal("500000"),
             currency="USD",
             type="дивиденды",
             recipient="инвестор",

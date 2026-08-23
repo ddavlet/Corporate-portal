@@ -11,6 +11,7 @@ from django.utils import timezone
 from apps.modules.bank_expenses.models import BankRevenue
 from apps.modules.cashier.models import CashRevenue
 from apps.modules.investments.models import InvestReturn
+from apps.modules.investments.services import clamp_rate_date_to_cbu_availability, usd_uzs_equivalents_or_none
 from apps.modules.requests.amortization import build_amortization_schedule_rows
 from apps.modules.requests.models import Request, RequestPaymentPurposeConfig
 from apps.modules.reports.models import TenantReportSettings
@@ -278,7 +279,12 @@ def _parse_period_month(raw: str) -> date | None:
         return None
 
 
-def _invest_return_row(ir: InvestReturn) -> dict[str, Any]:
+def _invest_return_row(ir: InvestReturn) -> dict[str, Any] | None:
+    """None, если курс ЦБ на дату выплаты недоступен (архив ещё не заполнен и сеть недоступна)."""
+    rate_date = clamp_rate_date_to_cbu_availability(requested=ir.date)
+    _, sum_uzs = usd_uzs_equivalents_or_none(sum_val=ir.sum, currency=ir.currency, rate_date=rate_date)
+    if sum_uzs is None:
+        return None
     label = ir.get_type_display()
     parts: list[str] = []
     if ir.comment and str(ir.comment).strip():
@@ -290,7 +296,7 @@ def _invest_return_row(ir: InvestReturn) -> dict[str, Any]:
     return {
         "id": str(ir.id),
         "date": accrual_day.isoformat(),
-        "amount": str(Decimal(ir.sum_uzs)),
+        "amount": str(sum_uzs),
         "category": label,
         "purpose": label,
         "description": description,
@@ -520,13 +526,14 @@ def build_pnl_payload_from_db(*, tenant, query_params: dict[str, Any]) -> dict[s
 
     for ir in (
         InvestReturn.objects.filter(tenant_id=tenant.id, confirmed=True, billing_date__gte=start)
-        .exclude(sum_uzs__isnull=True)
         .order_by("billing_date", "id")
     ):
         b = _invest_type_bucket(str(ir.type or ""), op=ir_op, ot=ir_ot, inv=ir_inv)
         if b is None:
             continue
         row = _invest_return_row(ir)
+        if row is None:
+            continue
         if b == "operational":
             operational_expenses.append(row)
         elif b == "other":

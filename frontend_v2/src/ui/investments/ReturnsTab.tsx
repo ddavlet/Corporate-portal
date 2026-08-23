@@ -37,7 +37,7 @@ import {
   makeCompanySelectOptions,
   precisionFor,
   RETURN_CURRENCY_OPTIONS,
-  totalsByCurrency,
+  totalsInBothCurrencies,
   type CompanyFilter,
 } from './utils'
 
@@ -99,9 +99,9 @@ export function ReturnsTab({
     return inDateRange(byCo, 'date', from, to)
   }, [rows, companyFilter, dateRange])
 
-  const totals = useMemo(() => totalsByCurrency(filtered, 'sum'), [filtered])
+  const totals = useMemo(() => totalsInBothCurrencies(filtered), [filtered])
   const confirmedTotals = useMemo(
-    () => totalsByCurrency(filtered.filter((r) => r.confirmed), 'sum'),
+    () => totalsInBothCurrencies(filtered.filter((r) => r.confirmed)),
     [filtered],
   )
 

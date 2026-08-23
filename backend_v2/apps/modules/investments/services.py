@@ -144,3 +144,30 @@ def get_or_fetch_usd_uzs_rate(*, rate_date: date, timeout: int = 12) -> Decimal:
     rate = fetch_cbu_usd_uzs_rate(rate_date=rate_date, timeout=timeout)
     CbuExchangeRate.objects.update_or_create(date=rate_date, defaults={"usd_uzs_rate": rate})
     return rate
+
+
+def usd_uzs_equivalents(*, sum_val: Decimal, currency: str, rate_date: date) -> tuple[Decimal, Decimal]:
+    """
+    (сумма в USD, сумма в UZS) на дату ``rate_date`` по курсу из архива (см.
+    get_or_fetch_usd_uzs_rate). Поднимает CbuRateFetchError, если курс недоступен.
+    """
+    rate = get_or_fetch_usd_uzs_rate(rate_date=rate_date)
+    d_sum = Decimal(str(sum_val)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    cur = str(currency or "USD").strip().upper()
+    if cur == "UZS":
+        sum_uzs = d_sum
+        sum_usd = (d_sum / rate).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    else:
+        sum_usd = d_sum
+        sum_uzs = (d_sum * rate).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    return sum_usd, sum_uzs
+
+
+def usd_uzs_equivalents_or_none(
+    *, sum_val: Decimal, currency: str, rate_date: date
+) -> tuple[Decimal | None, Decimal | None]:
+    """То же самое, но (None, None) вместо исключения, если курс недоступен (для чтения/отчётов)."""
+    try:
+        return usd_uzs_equivalents(sum_val=sum_val, currency=currency, rate_date=rate_date)
+    except CbuRateFetchError:
+        return None, None

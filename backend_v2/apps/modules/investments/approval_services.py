@@ -143,8 +143,17 @@ def build_investment_return_approval_telegram_message(
         if ir.date
         else None
     )
-    show_fx_block = ir.sum_uzs is not None and archived_rate is not None
-    uzs_amount_plain = _format_amount_for_telegram(ir.sum_uzs) if show_fx_block else ""
+    show_fx_block = archived_rate is not None
+    if show_fx_block:
+        ir_sum = Decimal(str(ir.sum))
+        sum_uzs = (
+            ir_sum
+            if str(ir.currency or "USD").strip().upper() == "UZS"
+            else (ir_sum * archived_rate).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        )
+        uzs_amount_plain = _format_amount_for_telegram(sum_uzs)
+    else:
+        uzs_amount_plain = ""
     uzs_amount_text = escape(uzs_amount_plain)
     rate_plain = _format_cbu_rate_uzs_per_usd(rate=archived_rate) if show_fx_block else ""
     rate_text = escape(rate_plain)
