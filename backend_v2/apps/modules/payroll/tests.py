@@ -254,3 +254,57 @@ class MaybeCreateLinkedRequestTests(TestCase):
 
         self.assertEqual(first.id, second.id)
         self.assertEqual(Request.objects.filter(tenant=self.tenant).count(), 1)
+
+
+@override_settings(BASE_DOMAIN="example.com", ALLOWED_HOSTS=["*"])
+class PayrollDocumentCreateApiTests(APITestCase):
+    def setUp(self):
+        self.tenant = Tenant.objects.create(name="CreateAcme", subdomain="create-acme", is_active=True)
+        self.user = User.objects.create_user(username="create-accountant", password="x")
+        self.outsider = User.objects.create_user(username="no-access-user", password="x")
+        TenantMembership.objects.create(tenant=self.tenant, user=self.user, is_active=True)
+        TenantUserRole.objects.create(tenant=self.tenant, user=self.user, role=TenantUserRole.ROLE_ACCOUNTANT)
+        TenantModuleConfig.objects.create(tenant=self.tenant, module_key="payroll", is_enabled=True)
+        self.host = "create-acme.example.com"
+        self.url = "/api/payroll/documents/create/"
+
+    def test_creates_document_with_lines_and_no_doc_id(self):
+        self.client.force_authenticate(self.user)
+        payload = {
+            "lines": [
+                {"employee": "Alice Smith", "item": "Salary", "sum": "1500.00"},
+                {"employee": "Bob Jones", "item": "Bonus", "sum": "500.00", "days_plan": 22, "days_fact": 20},
+            ]
+        }
+        res = self.client.post(self.url, payload, format="json", HTTP_HOST=self.host)
+        self.assertEqual(res.status_code, 201, res.content)
+        self.assertIsNone(res.data["doc_id"])
+        self.assertEqual(len(res.data["lines"]), 2)
+        doc = PayrollDocument.objects.get(pk=res.data["id"])
+        self.assertEqual(doc.tenant_id, self.tenant.id)
+        self.assertEqual(doc.created_by_id, self.user.id)
+        self.assertEqual(list(doc.lines.order_by("line_no").values_list("line_no", flat=True)), [1, 2])
+
+    def test_requires_at_least_one_line(self):
+        self.client.force_authenticate(self.user)
+        res = self.client.post(self.url, {"lines": []}, format="json", HTTP_HOST=self.host)
+        self.assertEqual(res.status_code, 400)
+
+    def test_unauthenticated_returns_401(self):
+        res = self.client.post(self.url, {"lines": []}, format="json", HTTP_HOST=self.host)
+        self.assertEqual(res.status_code, 401)
+
+    def test_user_without_payroll_module_access_forbidden(self):
+        TenantMembership.objects.create(tenant=self.tenant, user=self.outsider, is_active=True)
+        TenantUserRole.objects.create(tenant=self.tenant, user=self.outsider, role=TenantUserRole.ROLE_REQUESTER)
+        self.client.force_authenticate(self.outsider)
+        payload = {"lines": [{"employee": "Alice", "item": "Salary", "sum": "100.00"}]}
+        res = self.client.post(self.url, payload, format="json", HTTP_HOST=self.host)
+        self.assertEqual(res.status_code, 403)
+
+    def test_existing_readonly_list_endpoint_unaffected(self):
+        self.client.force_authenticate(self.user)
+        payload = {"lines": [{"employee": "Alice", "item": "Salary", "sum": "100.00"}]}
+        self.client.post(self.url, payload, format="json", HTTP_HOST=self.host)
+        res = self.client.get("/api/payroll/documents/", HTTP_HOST=self.host)
+        self.assertEqual(res.status_code, 200)

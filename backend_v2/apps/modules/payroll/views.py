@@ -1,7 +1,8 @@
 from django.db.models import Exists, OuterRef, Prefetch, Q
 
-from rest_framework import viewsets
+from rest_framework import generics, status, viewsets
 from rest_framework.permissions import IsAuthenticated
+from rest_framework.response import Response
 
 from apps.common.pagination import PortalCursorPagination
 from apps.common.query_params import parse_bool_query, parse_date_query, parse_decimal_query
@@ -9,9 +10,11 @@ from apps.common.viewsets import PortalListViewSetMixin
 from apps.modules.payroll.constants import MODULE_KEY
 from apps.modules.payroll.models import PayrollDocument, PayrollLine
 from apps.modules.payroll.serializers import (
+    PayrollDocumentCreateSerializer,
     PayrollDocumentDetailSerializer,
     PayrollDocumentListSerializer,
 )
+from apps.modules.payroll.services import create_payroll_document
 from apps.modules.requests.expense_compliance import annotate_payroll_compliance, filter_expenses_missing_request
 from apps.tenants.permissions import HasEffectiveModuleAccess
 
@@ -111,3 +114,25 @@ class PayrollDocumentViewSet(PortalListViewSetMixin, viewsets.ReadOnlyModelViewS
         if self.action == "retrieve":
             return PayrollDocumentDetailSerializer
         return PayrollDocumentListSerializer
+
+
+class PayrollDocumentCreateView(generics.CreateAPIView):
+    module_key = MODULE_KEY
+    permission_classes = [IsAuthenticated, HasEffectiveModuleAccess]
+    serializer_class = PayrollDocumentCreateSerializer
+
+    def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        tenant = getattr(request, "tenant", None)
+        if not tenant:
+            return Response({"detail": "Unknown tenant."}, status=status.HTTP_404_NOT_FOUND)
+
+        document = create_payroll_document(
+            tenant=tenant,
+            user=request.user,
+            lines_data=serializer.validated_data["lines"],
+        )
+        out = PayrollDocumentDetailSerializer(document)
+        return Response(out.data, status=status.HTTP_201_CREATED)
