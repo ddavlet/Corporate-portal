@@ -59,18 +59,27 @@ def maybe_create_linked_request(document: PayrollDocument, *, actor_user=None) -
     if not tenant.create_payment_request_on_payroll_accrual:
         return None
 
-    existing = Request.objects.filter(
-        tenant=tenant,
-        expense_ref_id=document.pk,
-        expense_ref_target=Request.EXPENSE_REF_TARGET_PAYROLL,
-    ).first()
-    if existing is not None:
-        return existing
-
-    total = document.lines.aggregate(s=Sum("sum")).get("s") or Decimal("0")
-    actor = actor_user or _system_user()
-
+    # select_for_update() on the document row closes the race where two near-
+    # simultaneous calls for the same PayrollDocument (e.g. a retried n8n batch
+    # import) could both pass the "no existing Request" check before either
+    # commits its create. A second caller blocks on the row lock until the
+    # first caller's transaction commits, then re-checks and finds the
+    # just-created Request instead of creating a duplicate. Different
+    # documents don't block each other (the lock is per-row).
     with transaction.atomic():
+        locked_document = PayrollDocument.objects.select_for_update().get(pk=document.pk)
+
+        existing = Request.objects.filter(
+            tenant=tenant,
+            expense_ref_id=locked_document.pk,
+            expense_ref_target=Request.EXPENSE_REF_TARGET_PAYROLL,
+        ).first()
+        if existing is not None:
+            return existing
+
+        total = locked_document.lines.aggregate(s=Sum("sum")).get("s") or Decimal("0")
+        actor = actor_user or _system_user()
+
         request_obj = Request.objects.create(
             tenant=tenant,
             created_by=actor,
@@ -86,7 +95,7 @@ def maybe_create_linked_request(document: PayrollDocument, *, actor_user=None) -
             submitted_at=timezone.now(),
             status=Request.STATUS_DRAFT,
             billing_date=timezone.now().date(),
-            expense_ref_id=document.pk,
+            expense_ref_id=locked_document.pk,
             expense_ref_target=Request.EXPENSE_REF_TARGET_PAYROLL,
         )
         n = create_approval_rows_for_request(request_obj)
