@@ -144,7 +144,7 @@ describe('RequestsPage vendor edit', () => {
 
     fireEvent.click(await screen.findByText('7766'))
     await waitFor(() => expect(apiFetchMock).toHaveBeenCalledWith('/api/requests/7766/'))
-    await screen.findByText('DAVLETYAROV RAVSHAN BATIROVICH')
+    await screen.findAllByText('DAVLETYAROV RAVSHAN BATIROVICH')
 
     const editButton = await screen.findByRole('button', { name: 'Редактировать' })
     fireEvent.click(editButton)
@@ -161,7 +161,7 @@ describe('RequestsPage vendor edit', () => {
 
     fireEvent.click(await screen.findByText('7766'))
     await waitFor(() => expect(apiFetchMock).toHaveBeenCalledWith('/api/requests/7766/'))
-    await screen.findByText('DAVLETYAROV RAVSHAN BATIROVICH')
+    await screen.findAllByText('DAVLETYAROV RAVSHAN BATIROVICH')
 
     fireEvent.click(await screen.findByRole('button', { name: 'Редактировать' }))
     fireEvent.click(await screen.findByRole('button', { name: 'Сохранить' }))
