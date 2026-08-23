@@ -48,14 +48,6 @@ class InvestReturn(models.Model):
     comment = models.TextField(blank=True, default="")
     confirmed = models.BooleanField(default=False)
     currency = models.CharField(max_length=3, default="USD")
-    sum_uzs = models.DecimalField(max_digits=18, decimal_places=2, null=True, blank=True)
-    cbu_usd_uzs_rate = models.DecimalField(
-        max_digits=20,
-        decimal_places=6,
-        null=True,
-        blank=True,
-        help_text="Курс ЦБ РУз: сум за 1 USD на дату создания заявки (фиксируется при создании).",
-    )
     type = models.CharField(max_length=25, choices=ReturnType.choices)
     recipient = models.CharField(max_length=20, choices=Recipient.choices)
     created_at = models.DateTimeField(auto_now_add=True)

@@ -293,16 +293,6 @@ class N8nInvestReturnImportSerializer(InvestReturnSerializer):
     class Meta(InvestReturnSerializer.Meta):
         read_only_fields = ["tenant", "created_at", "last_edit_at", "created_by"]
 
-    def create(self, validated_data):
-        if validated_data.get("cbu_usd_uzs_rate") is not None and validated_data.get("sum_uzs") is not None:
-            return super(InvestReturnSerializer, self).create(validated_data)
-        return super().create(validated_data)
-
-    def update(self, instance, validated_data):
-        if validated_data.get("cbu_usd_uzs_rate") is not None and validated_data.get("sum_uzs") is not None:
-            return super(InvestReturnSerializer, self).update(instance, validated_data)
-        return super().update(instance, validated_data)
-
 
 class N8nInvestPayoutScheduleImportSerializer(InvestPayoutScheduleSerializer):
     id = serializers.IntegerField(required=False)

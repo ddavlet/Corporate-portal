@@ -11,6 +11,7 @@ from django.utils import timezone
 from django.utils.formats import date_format
 
 from apps.modules.investments.models import (
+    CbuExchangeRate,
     InvestmentApprovalConfig,
     InvestmentApprovalConfigStep,
     InvestmentReturnApproval,
@@ -137,10 +138,24 @@ def build_investment_return_approval_telegram_message(
     recipient_text = escape(str(ir.get_recipient_display()))
     comment_raw = (ir.comment or "").strip()
     comment_line = f"💬 Комментарий: {escape(comment_raw)}\n" if comment_raw else ""
-    show_fx_block = ir.sum_uzs is not None and ir.cbu_usd_uzs_rate is not None
-    uzs_amount_plain = _format_amount_for_telegram(ir.sum_uzs) if show_fx_block else ""
+    archived_rate = (
+        CbuExchangeRate.objects.filter(date=ir.date).values_list("usd_uzs_rate", flat=True).first()
+        if ir.date
+        else None
+    )
+    show_fx_block = archived_rate is not None
+    if show_fx_block:
+        ir_sum = Decimal(str(ir.sum))
+        sum_uzs = (
+            ir_sum
+            if str(ir.currency or "USD").strip().upper() == "UZS"
+            else (ir_sum * archived_rate).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        )
+        uzs_amount_plain = _format_amount_for_telegram(sum_uzs)
+    else:
+        uzs_amount_plain = ""
     uzs_amount_text = escape(uzs_amount_plain)
-    rate_plain = _format_cbu_rate_uzs_per_usd(rate=ir.cbu_usd_uzs_rate) if show_fx_block else ""
+    rate_plain = _format_cbu_rate_uzs_per_usd(rate=archived_rate) if show_fx_block else ""
     rate_text = escape(rate_plain)
 
     readonly = _investment_telegram_card_should_be_readonly(

@@ -24,8 +24,8 @@ from apps.modules.requests.serializers import _display_user_name
 from apps.modules.investments.services import (
     CbuRateFetchError,
     clamp_rate_date_to_cbu_availability,
-    fetch_cbu_usd_uzs_rate,
-    tashkent_today,
+    get_or_fetch_usd_uzs_rate,
+    usd_uzs_equivalents_or_none,
 )
 from apps.modules.serializers_guard import reject_client_pk_on_create
 
@@ -61,6 +61,14 @@ def investment_form_clear_company_if_disabled(attrs, request) -> dict:
 
 
 class InvestReturnSerializer(_CompanyScopeMixin, serializers.ModelSerializer):
+    """
+    ``sum_usd``/``sum_uzs`` — не хранятся в БД, а считаются на лету из ``sum``/``currency``
+    и курса ЦБ на дату выплаты (CbuExchangeRate — единая точка правды, см. investments.services).
+    """
+
+    sum_usd = serializers.SerializerMethodField()
+    sum_uzs = serializers.SerializerMethodField()
+
     class Meta:
         model = InvestReturn
         fields = [
@@ -71,8 +79,8 @@ class InvestReturnSerializer(_CompanyScopeMixin, serializers.ModelSerializer):
             "date",
             "billing_date",
             "sum",
+            "sum_usd",
             "sum_uzs",
-            "cbu_usd_uzs_rate",
             "comment",
             "confirmed",
             "currency",
@@ -86,16 +94,28 @@ class InvestReturnSerializer(_CompanyScopeMixin, serializers.ModelSerializer):
             "id",
             "tenant",
             "payout_schedule",
-            "cbu_usd_uzs_rate",
             "created_at",
             "last_edit_at",
             "created_by",
         ]
 
+    def _equivalents(self, obj) -> tuple[Decimal | None, Decimal | None]:
+        cached = getattr(obj, "_usd_uzs_equivalents_cache", None)
+        if cached is None:
+            rate_date = clamp_rate_date_to_cbu_availability(requested=obj.date)
+            cached = usd_uzs_equivalents_or_none(sum_val=obj.sum, currency=obj.currency, rate_date=rate_date)
+            obj._usd_uzs_equivalents_cache = cached
+        return cached
+
+    def get_sum_usd(self, obj):
+        return self._equivalents(obj)[0]
+
+    def get_sum_uzs(self, obj):
+        return self._equivalents(obj)[1]
+
     def validate(self, attrs):
         reject_client_pk_on_create(self)
         _normalize_currency(attrs)
-        attrs.pop("sum_uzs", None)
         merged_currency = attrs.get("currency")
         if self.instance is not None:
             merged_currency = merged_currency or self.instance.currency
@@ -138,42 +158,26 @@ class InvestReturnSerializer(_CompanyScopeMixin, serializers.ModelSerializer):
         return investment_form_clear_company_if_disabled(attrs, self.context.get("request"))
 
     def create(self, validated_data):
+        rate_date = clamp_rate_date_to_cbu_availability(requested=validated_data["date"])
         try:
-            rate = fetch_cbu_usd_uzs_rate(rate_date=tashkent_today())
+            get_or_fetch_usd_uzs_rate(rate_date=rate_date)
         except CbuRateFetchError as exc:
             raise serializers.ValidationError({"detail": str(exc)}) from exc
-        currency = str(validated_data["currency"]).strip().upper()
-        d_sum = Decimal(str(validated_data["sum"])).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
-        if currency == "UZS":
-            validated_data["sum"] = d_sum
-            validated_data["sum_uzs"] = d_sum
-        else:
-            validated_data["sum"] = d_sum
-            validated_data["sum_uzs"] = (d_sum * rate).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
-        validated_data["cbu_usd_uzs_rate"] = rate.quantize(Decimal("0.000001"), rounding=ROUND_HALF_UP)
+        validated_data["sum"] = Decimal(str(validated_data["sum"])).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
         return super().create(validated_data)
 
     def update(self, instance, validated_data):
         if "sum" in validated_data or "currency" in validated_data:
-            rate = instance.cbu_usd_uzs_rate
-            if rate is None:
-                try:
-                    rate = fetch_cbu_usd_uzs_rate(
-                        rate_date=clamp_rate_date_to_cbu_availability(requested=instance.date)
-                    )
-                except CbuRateFetchError as exc:
-                    raise serializers.ValidationError({"detail": str(exc)}) from exc
-            currency = str(validated_data.get("currency", instance.currency)).strip().upper()
-            base_sum = validated_data.get("sum", instance.sum)
-            d_sum = Decimal(str(base_sum)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
-            if currency == "UZS":
-                validated_data["sum"] = d_sum
-                validated_data["sum_uzs"] = d_sum
-            else:
-                validated_data["sum"] = d_sum
-                validated_data["sum_uzs"] = (d_sum * rate).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
-            if instance.cbu_usd_uzs_rate is None:
-                validated_data["cbu_usd_uzs_rate"] = rate.quantize(Decimal("0.000001"), rounding=ROUND_HALF_UP)
+            effective_date = validated_data.get("date", instance.date)
+            rate_date = clamp_rate_date_to_cbu_availability(requested=effective_date)
+            try:
+                get_or_fetch_usd_uzs_rate(rate_date=rate_date)
+            except CbuRateFetchError as exc:
+                raise serializers.ValidationError({"detail": str(exc)}) from exc
+            if "sum" in validated_data:
+                validated_data["sum"] = Decimal(str(validated_data["sum"])).quantize(
+                    Decimal("0.01"), rounding=ROUND_HALF_UP
+                )
         return super().update(instance, validated_data)
 
 

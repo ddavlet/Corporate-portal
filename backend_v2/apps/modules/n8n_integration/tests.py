@@ -1784,7 +1784,7 @@ class N8nInvestReturnPortalCreateTests(APITestCase):
         self.assertEqual(r.status_code, 200)
 
         cbu_patcher = patch(
-            "apps.modules.investments.serializers.fetch_cbu_usd_uzs_rate",
+            "apps.modules.investments.serializers.get_or_fetch_usd_uzs_rate",
             return_value=__import__("decimal").Decimal("12500"),
         )
         cbu_patcher.start()
@@ -1884,8 +1884,6 @@ class N8nInvestmentsRawDataListTests(APITestCase):
             billing_date=date(2026, 6, 1),
             sum="500.00",
             currency="USD",
-            sum_uzs="6300000.00",
-            cbu_usd_uzs_rate="12600.500000",
             type=InvestReturn.ReturnType.INTEREST,
             recipient=InvestReturn.Recipient.INVESTOR,
             confirmed=True,
@@ -1910,8 +1908,7 @@ class N8nInvestmentsRawDataListTests(APITestCase):
         row = data[0]
         self.assertEqual(row["id"], own.id)
         self.assertEqual(Decimal(str(row["sum"])), Decimal("500.00"))
-        self.assertEqual(Decimal(str(row["sum_uzs"])), Decimal("6300000.00"))
-        self.assertEqual(Decimal(str(row["cbu_usd_uzs_rate"])), Decimal("12600.500000"))
+        self.assertNotIn("sum_uzs", row)
         self.assertEqual(row["type"], InvestReturn.ReturnType.INTEREST)
         self.assertEqual(row["recipient"], InvestReturn.Recipient.INVESTOR)
         self.assertTrue(row["confirmed"])
