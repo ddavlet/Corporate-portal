@@ -50,6 +50,10 @@ class TenantPayrollDocIdFormatSerializer(serializers.Serializer):
             raise serializers.ValidationError(str(exc)) from exc
 
 
+class TenantPayrollSettingsSerializer(serializers.Serializer):
+    create_payment_request_on_payroll_accrual = serializers.BooleanField()
+
+
 _ALLOWED_TENANT_ROLE_VALUES = {choice[0] for choice in TenantUserRole.ROLE_CHOICES}
 
 

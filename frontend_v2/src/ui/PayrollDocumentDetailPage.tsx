@@ -21,7 +21,7 @@ type PayrollLineRow = {
 
 type PayrollDocumentDetail = {
   id: number
-  doc_id: string
+  doc_id: string | null
   created_at: string
   total_sum: string | number
   lines: PayrollLineRow[]
@@ -106,7 +106,7 @@ export function PayrollDocumentDetailPage() {
         {!loading && !error && detail ? (
           <>
             <Typography.Title level={4} style={{ marginTop: 0 }}>
-              Начисление ЗП: {detail.doc_id}
+              Начисление ЗП: {detail.doc_id || 'без номера (создано в портале)'}
             </Typography.Title>
             <Descriptions bordered size="small" column={2}>
               <Descriptions.Item label="Итого">

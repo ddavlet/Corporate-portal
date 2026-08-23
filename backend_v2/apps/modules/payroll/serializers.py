@@ -62,3 +62,23 @@ class PayrollDocumentDetailSerializer(serializers.ModelSerializer):
         agg = obj.lines.aggregate(s=Sum("sum"))
         val = agg.get("s")
         return val if val is not None else Decimal("0")
+
+
+class PayrollLineCreateSerializer(serializers.Serializer):
+    employee = serializers.CharField()
+    item = serializers.CharField()
+    description = serializers.CharField(required=False, allow_blank=True, default="")
+    sum = serializers.DecimalField(max_digits=15, decimal_places=2)
+    days_plan = serializers.IntegerField(required=False, allow_null=True, default=None)
+    days_fact = serializers.IntegerField(required=False, allow_null=True, default=None)
+    period_start = serializers.DateField(required=False, allow_null=True, default=None)
+    period_end = serializers.DateField(required=False, allow_null=True, default=None)
+
+
+class PayrollDocumentCreateSerializer(serializers.Serializer):
+    lines = PayrollLineCreateSerializer(many=True)
+
+    def validate_lines(self, value):
+        if not value:
+            raise serializers.ValidationError("Нужна хотя бы одна строка начисления.")
+        return value

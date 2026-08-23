@@ -302,6 +302,69 @@ export async function updateTenantPayrollDocIdFormat(
   return json
 }
 
+export type TenantPayrollSettingsDto = {
+  create_payment_request_on_payroll_accrual: boolean
+}
+
+export async function getTenantPayrollSettings(): Promise<TenantPayrollSettingsDto> {
+  const res = await apiFetch('/api/tenant/payroll-settings/')
+  if (!res.ok) throw new Error(await parseErrorBody(res))
+  const json = (await res.json().catch(() => null)) as TenantPayrollSettingsDto | null
+  if (!json) throw new Error('Пустой ответ от сервера')
+  return json
+}
+
+export async function updateTenantPayrollSettings(
+  payload: TenantPayrollSettingsDto,
+): Promise<TenantPayrollSettingsDto> {
+  const res = await apiFetch('/api/tenant/payroll-settings/', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+  if (!res.ok) throw new Error(await parseErrorBody(res))
+  const json = (await res.json().catch(() => null)) as TenantPayrollSettingsDto | null
+  if (!json) throw new Error('Пустой ответ от сервера')
+  return json
+}
+
+export type PayrollLineCreatePayload = {
+  employee: string
+  item: string
+  description?: string
+  sum: number
+  days_plan?: number | null
+  days_fact?: number | null
+  period_start?: string | null
+  period_end?: string | null
+}
+
+export type PayrollDocumentCreatePayload = {
+  lines: PayrollLineCreatePayload[]
+}
+
+export type PayrollDocumentCreateResponse = {
+  id: number
+  doc_id: string | null
+  created_at: string
+  total_sum: string | number
+  lines: unknown[]
+}
+
+export async function createPayrollDocument(
+  payload: PayrollDocumentCreatePayload,
+): Promise<PayrollDocumentCreateResponse> {
+  const res = await apiFetch('/api/payroll/documents/create/', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+  if (!res.ok) throw new Error(await parseErrorBody(res))
+  const json = (await res.json().catch(() => null)) as PayrollDocumentCreateResponse | null
+  if (!json) throw new Error('Пустой ответ от сервера')
+  return json
+}
+
 export async function updateTenantIntegrationConfig(
   payload: TenantIntegrationConfigUpdatePayload,
 ): Promise<TenantIntegrationConfigResponse> {

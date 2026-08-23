@@ -30,6 +30,7 @@ from apps.tenants.serializers import (
     AccessMatrixUpdateSerializer,
     TenantCashExpenseIdFormatSerializer,
     TenantPayrollDocIdFormatSerializer,
+    TenantPayrollSettingsSerializer,
     TenantIntegrationConfigSerializer,
     TenantModuleConfigUpdateSerializer,
     TenantUserPreferenceSerializer,
@@ -469,5 +470,38 @@ class TenantPayrollDocIdFormatView(APIView):
         tenant.payroll_doc_id_prefix = data["payroll_doc_id_prefix"]
         tenant.payroll_doc_id_digit_width = data["payroll_doc_id_digit_width"]
         tenant.save(update_fields=["payroll_doc_id_prefix", "payroll_doc_id_digit_width"])
+        return self.get(request)
+
+
+class TenantPayrollSettingsView(APIView):
+    """
+    Read/update payroll behaviour settings unrelated to doc_id matching — currently
+    just whether creating an accrual (native or n8n-imported) also auto-creates a
+    linked payment Request. Requires payroll module; admin or director to change.
+    """
+
+    module_key = "payroll"
+
+    def get_permissions(self):
+        return [IsAuthenticated(), HasEffectiveModuleAccess(), IsTenantAdminOrDirector()]
+
+    def get(self, request):
+        tenant = getattr(request, "tenant", None)
+        if not tenant:
+            return Response({"detail": "Unknown tenant."}, status=status.HTTP_404_NOT_FOUND)
+        return Response(
+            {"create_payment_request_on_payroll_accrual": tenant.create_payment_request_on_payroll_accrual}
+        )
+
+    def put(self, request):
+        tenant = getattr(request, "tenant", None)
+        if not tenant:
+            return Response({"detail": "Unknown tenant."}, status=status.HTTP_404_NOT_FOUND)
+        serializer = TenantPayrollSettingsSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        tenant.create_payment_request_on_payroll_accrual = serializer.validated_data[
+            "create_payment_request_on_payroll_accrual"
+        ]
+        tenant.save(update_fields=["create_payment_request_on_payroll_accrual"])
         return self.get(request)
 

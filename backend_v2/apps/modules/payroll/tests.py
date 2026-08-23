@@ -1,3 +1,6 @@
+from decimal import Decimal
+from unittest.mock import patch
+
 from django.contrib.auth import get_user_model
 from django.test import TestCase, override_settings
 from django.utils import timezone
@@ -6,6 +9,14 @@ from rest_framework.test import APITestCase
 from apps.common.test_utils import list_results
 from apps.tenants.models import Tenant, TenantMembership, TenantModuleConfig, TenantUserRole
 from apps.modules.payroll.models import PayrollDocument, PayrollLine
+from apps.modules.payroll.services import create_payroll_document, maybe_create_linked_request
+from apps.modules.requests.models import (
+    Request,
+    RequestApprovalConfig,
+    RequestApprovalPaymentTypeConfig,
+    RequestApprovalStepApproverConfig,
+    RequestApprovalStepConfig,
+)
 
 User = get_user_model()
 
@@ -151,3 +162,149 @@ class PayrollApiTests(APITestCase):
         self.assertNotIn("OTHER-PAY-001", doc_ids)
         self.assertIn("PAY-2024-01", doc_ids)
 
+
+class PayrollNativeDocumentModelTests(TestCase):
+    def setUp(self):
+        self.tenant = Tenant.objects.create(name="NativeAcme", subdomain="native-acme", is_active=True)
+        self.user = User.objects.create_user(username="hr_manager", password="x")
+
+    def test_can_create_document_with_null_doc_id_and_created_by(self):
+        doc = PayrollDocument.objects.create(tenant=self.tenant, doc_id=None, created_by=self.user)
+        self.assertIsNone(doc.doc_id)
+        self.assertEqual(doc.created_by_id, self.user.id)
+
+    def test_multiple_null_doc_id_documents_allowed_for_same_tenant(self):
+        PayrollDocument.objects.create(tenant=self.tenant, doc_id=None)
+        PayrollDocument.objects.create(tenant=self.tenant, doc_id=None)
+        self.assertEqual(PayrollDocument.objects.filter(tenant=self.tenant, doc_id=None).count(), 2)
+
+    def test_line_optional_fields_can_be_null(self):
+        doc = PayrollDocument.objects.create(tenant=self.tenant, doc_id=None)
+        line = PayrollLine.objects.create(
+            document=doc,
+            line_no=1,
+            employee="Jane",
+            item="Salary",
+            description="",
+            sum="100.00",
+            days_plan=None,
+            days_fact=None,
+            period_start=None,
+            period_end=None,
+            approval=True,
+        )
+        self.assertIsNone(line.days_plan)
+        self.assertIsNone(line.period_start)
+
+
+class MaybeCreateLinkedRequestTests(TestCase):
+    def setUp(self):
+        self.tenant = Tenant.objects.create(name="LinkReq", subdomain="link-req", is_active=True)
+        self.user = User.objects.create_user(username="link-req-user", password="x")
+        self.approver = User.objects.create_user(username="link-req-approver", password="x")
+        TenantMembership.objects.create(tenant=self.tenant, user=self.approver, is_active=True)
+
+        approval_cfg = RequestApprovalConfig.objects.create(tenant=self.tenant)
+        pt_cfg = RequestApprovalPaymentTypeConfig.objects.create(
+            config=approval_cfg, payment_type=Request.PAYMENT_TYPE_PAYROLL, is_enabled=True,
+        )
+        step_cfg = RequestApprovalStepConfig.objects.create(payment_type_config=pt_cfg, step=1, is_enabled=True)
+        RequestApprovalStepApproverConfig.objects.create(step_config=step_cfg, approver_user=self.approver)
+
+        self.doc = PayrollDocument.objects.create(tenant=self.tenant, doc_id=None, created_by=self.user)
+        PayrollLine.objects.create(
+            document=self.doc, line_no=1, employee="Alice", item="Salary", description="",
+            sum="700.00", days_plan=None, days_fact=None, period_start=None, period_end=None, approval=True,
+        )
+        PayrollLine.objects.create(
+            document=self.doc, line_no=2, employee="Bob", item="Bonus", description="",
+            sum="300.00", days_plan=None, days_fact=None, period_start=None, period_end=None, approval=True,
+        )
+
+    def test_noop_when_flag_disabled(self):
+        self.assertFalse(self.tenant.create_payment_request_on_payroll_accrual)
+        result = maybe_create_linked_request(self.doc, actor_user=self.user)
+        self.assertIsNone(result)
+        self.assertEqual(Request.objects.filter(tenant=self.tenant).count(), 0)
+
+    @patch("apps.modules.telegram_approvals.services.TelegramDispatcher.send")
+    def test_creates_single_request_for_whole_document_when_enabled(self, tg_mock):
+        tg_mock.return_value = None
+        self.tenant.create_payment_request_on_payroll_accrual = True
+        self.tenant.save(update_fields=["create_payment_request_on_payroll_accrual"])
+
+        result = maybe_create_linked_request(self.doc, actor_user=self.user)
+
+        self.assertIsNotNone(result)
+        self.assertEqual(Request.objects.filter(tenant=self.tenant).count(), 1)
+        self.assertEqual(result.amount, Decimal("1000.00"))
+        self.assertEqual(result.payment_type, Request.PAYMENT_TYPE_PAYROLL)
+        self.assertEqual(result.expense_ref_id, self.doc.pk)
+        self.assertEqual(result.expense_ref_target, Request.EXPENSE_REF_TARGET_PAYROLL)
+        self.assertEqual(result.approvals.count(), 1)
+
+    @patch("apps.modules.telegram_approvals.services.TelegramDispatcher.send")
+    def test_idempotent_does_not_duplicate_request(self, tg_mock):
+        tg_mock.return_value = None
+        self.tenant.create_payment_request_on_payroll_accrual = True
+        self.tenant.save(update_fields=["create_payment_request_on_payroll_accrual"])
+
+        first = maybe_create_linked_request(self.doc, actor_user=self.user)
+        second = maybe_create_linked_request(self.doc, actor_user=self.user)
+
+        self.assertEqual(first.id, second.id)
+        self.assertEqual(Request.objects.filter(tenant=self.tenant).count(), 1)
+
+
+@override_settings(BASE_DOMAIN="example.com", ALLOWED_HOSTS=["*"])
+class PayrollDocumentCreateApiTests(APITestCase):
+    def setUp(self):
+        self.tenant = Tenant.objects.create(name="CreateAcme", subdomain="create-acme", is_active=True)
+        self.user = User.objects.create_user(username="create-accountant", password="x")
+        self.outsider = User.objects.create_user(username="no-access-user", password="x")
+        TenantMembership.objects.create(tenant=self.tenant, user=self.user, is_active=True)
+        TenantUserRole.objects.create(tenant=self.tenant, user=self.user, role=TenantUserRole.ROLE_ACCOUNTANT)
+        TenantModuleConfig.objects.create(tenant=self.tenant, module_key="payroll", is_enabled=True)
+        self.host = "create-acme.example.com"
+        self.url = "/api/payroll/documents/create/"
+
+    def test_creates_document_with_lines_and_no_doc_id(self):
+        self.client.force_authenticate(self.user)
+        payload = {
+            "lines": [
+                {"employee": "Alice Smith", "item": "Salary", "sum": "1500.00"},
+                {"employee": "Bob Jones", "item": "Bonus", "sum": "500.00", "days_plan": 22, "days_fact": 20},
+            ]
+        }
+        res = self.client.post(self.url, payload, format="json", HTTP_HOST=self.host)
+        self.assertEqual(res.status_code, 201, res.content)
+        self.assertIsNone(res.data["doc_id"])
+        self.assertEqual(len(res.data["lines"]), 2)
+        doc = PayrollDocument.objects.get(pk=res.data["id"])
+        self.assertEqual(doc.tenant_id, self.tenant.id)
+        self.assertEqual(doc.created_by_id, self.user.id)
+        self.assertEqual(list(doc.lines.order_by("line_no").values_list("line_no", flat=True)), [1, 2])
+
+    def test_requires_at_least_one_line(self):
+        self.client.force_authenticate(self.user)
+        res = self.client.post(self.url, {"lines": []}, format="json", HTTP_HOST=self.host)
+        self.assertEqual(res.status_code, 400)
+
+    def test_unauthenticated_returns_401(self):
+        res = self.client.post(self.url, {"lines": []}, format="json", HTTP_HOST=self.host)
+        self.assertEqual(res.status_code, 401)
+
+    def test_user_without_payroll_module_access_forbidden(self):
+        TenantMembership.objects.create(tenant=self.tenant, user=self.outsider, is_active=True)
+        TenantUserRole.objects.create(tenant=self.tenant, user=self.outsider, role=TenantUserRole.ROLE_REQUESTER)
+        self.client.force_authenticate(self.outsider)
+        payload = {"lines": [{"employee": "Alice", "item": "Salary", "sum": "100.00"}]}
+        res = self.client.post(self.url, payload, format="json", HTTP_HOST=self.host)
+        self.assertEqual(res.status_code, 403)
+
+    def test_existing_readonly_list_endpoint_unaffected(self):
+        self.client.force_authenticate(self.user)
+        payload = {"lines": [{"employee": "Alice", "item": "Salary", "sum": "100.00"}]}
+        self.client.post(self.url, payload, format="json", HTTP_HOST=self.host)
+        res = self.client.get("/api/payroll/documents/", HTTP_HOST=self.host)
+        self.assertEqual(res.status_code, 200)
