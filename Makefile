@@ -71,8 +71,6 @@ deploy:
 # ── 4. Миграции ───────────────────────────────────────────────────────────────
 makemigrations:
 	ssh $(SERVER) "cd $(REMOTE_DIR) && \
-		git fetch origin && \
-		git checkout -B $(BRANCH) origin/$(BRANCH) && \
 		docker compose --env-file ./.env exec -T backend_v2 \
 		python manage.py makemigrations"
 	rsync -av --omit-dir-times \
