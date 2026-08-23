@@ -618,3 +618,25 @@ class ProjectInvestmentApproval(models.Model):
     def message_sent_at(self):
         tm = self.telegram_message
         return tm.sent_at if tm else None
+
+
+class CbuExchangeRate(models.Model):
+    """
+    Архив официального курса ЦБ РУз (UZS за 1 USD) по дате.
+
+    Не привязан к tenant — курс ЦБ один на всю систему. Заполняется ежедневно
+    (management-команда sync_cbu_exchange_rate, см. backend_v2/cron/crontab):
+    вчерашняя дата финализируется, сегодняшняя обновляется как текущая.
+    """
+
+    date = models.DateField(unique=True)
+    usd_uzs_rate = models.DecimalField(max_digits=20, decimal_places=6)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "cbu_exchange_rates"
+        ordering = ["-date"]
+
+    def __str__(self):
+        return f"{self.date}: {self.usd_uzs_rate}"
