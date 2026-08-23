@@ -2902,7 +2902,7 @@ class PayrollLineUpsertLinkedRequestHookTests(APITestCase):
         self.assertEqual(res.status_code, 201, res.content)
         self.assertEqual(Request.objects.filter(tenant=self.tenant).count(), 0)
 
-    @patch("apps.modules.requests.approval_workflow.TelegramDispatcher.send")
+    @patch("apps.modules.telegram_approvals.services.TelegramDispatcher.send")
     def test_batch_upsert_creates_one_request_per_document_when_flag_enabled(self, tg_mock):
         tg_mock.return_value = None
         self.tenant.create_payment_request_on_payroll_accrual = True
@@ -2930,7 +2930,7 @@ class PayrollLineUpsertLinkedRequestHookTests(APITestCase):
         self.assertEqual(requests_qs.count(), 1, "must be exactly one Request for the whole document, not per line")
         self.assertEqual(requests_qs.first().amount, Decimal("1000.00"))
 
-    @patch("apps.modules.requests.approval_workflow.TelegramDispatcher.send")
+    @patch("apps.modules.telegram_approvals.services.TelegramDispatcher.send")
     def test_second_batch_for_same_doc_id_does_not_duplicate_request(self, tg_mock):
         tg_mock.return_value = None
         self.tenant.create_payment_request_on_payroll_accrual = True
