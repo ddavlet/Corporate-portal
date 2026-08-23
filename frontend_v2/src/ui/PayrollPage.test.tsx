@@ -167,7 +167,7 @@ describe('CreatePayrollDocumentModal (via PayrollPage)', () => {
       total_sum: '500.00',
       lines: [],
     })
-    const { container } = renderPage()
+    renderPage()
     fireEvent.click(screen.getByRole('button', { name: 'Создать начисление' }))
 
     fireEvent.change(await screen.findByPlaceholderText('Сотрудник (ФИО)'), { target: { value: 'Иванов Иван' } })
@@ -175,7 +175,7 @@ describe('CreatePayrollDocumentModal (via PayrollPage)', () => {
     fireEvent.change(screen.getByPlaceholderText('Сумма'), { target: { value: '500' } })
 
     const [periodStartInput, periodEndInput] = Array.from(
-      container.querySelectorAll('.ant-picker-range input'),
+      document.querySelectorAll('.ant-picker-range input'),
     ) as HTMLInputElement[]
     fireEvent.mouseDown(periodStartInput)
     fireEvent.change(periodStartInput, { target: { value: '2026-08-01' } })
