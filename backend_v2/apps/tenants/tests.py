@@ -76,6 +76,32 @@ class TenantAdminFormTests(TestCase):
             TenantModuleConfig.objects.filter(tenant=tenant, module_key="requests").exists()
         )
 
+    @patch("apps.tenants.views.requests.post")
+    def test_save_syncs_telegram_bot_commands_when_token_set(self, mocked_post):
+        mocked_post.return_value.status_code = 200
+        mocked_post.return_value.content = b'{"ok": true}'
+        mocked_post.return_value.json.return_value = {"ok": True}
+
+        form = TenantAdminForm(
+            data={
+                "name": "Token Sync Tenant",
+                "subdomain": "token-sync-tenant",
+                "is_active": "on",
+                "telegram_otp_enabled": "",
+                "telegram_bot_token": "123456:abcdef",
+                "telegram_bot_username": "tokensyncbot",
+                "telegram_oidc_client_id": "",
+                "telegram_oidc_client_secret": "",
+                "telegram_oidc_redirect_uri": "",
+                "enabled_modules": ["requests"],
+            }
+        )
+        self.assertTrue(form.is_valid(), form.errors)
+        form.save(commit=True)
+
+        mocked_post.assert_called_once()
+        self.assertEqual(mocked_post.call_args.kwargs["json"]["bot_token"], "123456:abcdef")
+
 
 @override_settings(BASE_DOMAIN="example.com", TENANT_SUBDOMAIN_FALLBACK=True, ALLOWED_HOSTS=["*"])
 class TenantSubdomainMiddlewareTests(TestCase):
@@ -187,7 +213,11 @@ class TenantIntegrationConfigApiTests(APITestCase):
         token = str(RefreshToken.for_user(user).access_token)
         return {"HTTP_HOST": "acme.example.com", "HTTP_AUTHORIZATION": f"Bearer {token}"}
 
-    def test_admin_can_put_and_get_integration_config(self):
+    @patch("apps.tenants.views.requests.post")
+    def test_admin_can_put_and_get_integration_config(self, mocked_post):
+        mocked_post.return_value.status_code = 200
+        mocked_post.return_value.content = b'{"ok": true}'
+        mocked_post.return_value.json.return_value = {"ok": True}
         put = self.client.put(
             self.url,
             {
@@ -238,6 +268,38 @@ class TenantIntegrationConfigApiTests(APITestCase):
             get.data["request_ai_chat_webhook_url"],
             "https://dev.kolberg.uz/webhook/d9f95bda-910e-4118-a6a9-08a86124d96c/chat",
         )
+
+    @patch("apps.tenants.views.requests.post")
+    def test_put_syncs_wallet_balance_commands_when_token_provided(self, mocked_post):
+        mocked_post.return_value.status_code = 200
+        mocked_post.return_value.content = b'{"ok": true}'
+        mocked_post.return_value.json.return_value = {"ok": True}
+
+        res = self.client.put(
+            self.url,
+            {"telegram_bot_token": "bot-secret"},
+            format="json",
+            **self._auth_headers(self.admin),
+        )
+        self.assertEqual(res.status_code, 200, res.content)
+
+        mocked_post.assert_called_once()
+        call_args = mocked_post.call_args
+        self.assertEqual(call_args.args[0], "http://tg_gateway:8080/v1/messaging/commands/set")
+        sent_commands = {c["command"] for c in call_args.kwargs["json"]["commands"]}
+        self.assertEqual(sent_commands, {"bank_ostatki", "cash_ostatki", "card_ostatki"})
+        self.assertEqual(call_args.kwargs["json"]["bot_token"], "bot-secret")
+
+    @patch("apps.tenants.views.requests.post")
+    def test_put_does_not_sync_commands_when_token_not_provided(self, mocked_post):
+        res = self.client.put(
+            self.url,
+            {"telegram_bot_username": "@acme_login_bot"},
+            format="json",
+            **self._auth_headers(self.admin),
+        )
+        self.assertEqual(res.status_code, 200, res.content)
+        mocked_post.assert_not_called()
 
     def test_request_ai_chat_webhook_url_must_contain_webhook_path(self):
         res = self.client.put(
@@ -622,4 +684,42 @@ class AllowedHostsEnvTests(SimpleTestCase):
             self.assertIn("django_v2", got)
             self.assertIn("backend_v2", got)
             self.assertIn("kolberg-django-v2", got)
+
+
+class SyncTelegramBotCommandsCommandTests(TestCase):
+    def setUp(self):
+        self.tenant_with_bot = Tenant.objects.create(name="Acme", subdomain="acme-cmd", is_active=True)
+        self.tenant_with_bot.set_telegram_bot_token("123456:abcdef")
+        self.tenant_with_bot.save(update_fields=["telegram_bot_token_enc"])
+        self.tenant_without_bot = Tenant.objects.create(name="NoBot", subdomain="nobot-cmd", is_active=True)
+
+    @patch("apps.tenants.views.requests.post")
+    def test_syncs_only_tenants_with_configured_bot(self, mocked_post):
+        from io import StringIO
+
+        from django.core.management import call_command
+
+        mocked_post.return_value.status_code = 200
+        mocked_post.return_value.content = b'{"ok": true}'
+        mocked_post.return_value.json.return_value = {"ok": True}
+
+        out = StringIO()
+        call_command("sync_telegram_bot_commands", stdout=out)
+
+        mocked_post.assert_called_once()
+        self.assertEqual(mocked_post.call_args.kwargs["json"]["bot_token"], "123456:abcdef")
+        self.assertIn("acme-cmd", out.getvalue())
+        self.assertNotIn("nobot-cmd", out.getvalue())
+
+    @patch("apps.tenants.views.requests.post")
+    def test_tenant_filter_targets_single_tenant(self, mocked_post):
+        from django.core.management import call_command
+
+        mocked_post.return_value.status_code = 200
+        mocked_post.return_value.content = b'{"ok": true}'
+        mocked_post.return_value.json.return_value = {"ok": True}
+
+        call_command("sync_telegram_bot_commands", tenant=self.tenant_with_bot.pk)
+
+        mocked_post.assert_called_once()
 
