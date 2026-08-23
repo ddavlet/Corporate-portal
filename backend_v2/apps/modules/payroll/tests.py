@@ -151,3 +151,36 @@ class PayrollApiTests(APITestCase):
         self.assertNotIn("OTHER-PAY-001", doc_ids)
         self.assertIn("PAY-2024-01", doc_ids)
 
+
+class PayrollNativeDocumentModelTests(TestCase):
+    def setUp(self):
+        self.tenant = Tenant.objects.create(name="NativeAcme", subdomain="native-acme", is_active=True)
+        self.user = User.objects.create_user(username="hr_manager", password="x")
+
+    def test_can_create_document_with_null_doc_id_and_created_by(self):
+        doc = PayrollDocument.objects.create(tenant=self.tenant, doc_id=None, created_by=self.user)
+        self.assertIsNone(doc.doc_id)
+        self.assertEqual(doc.created_by_id, self.user.id)
+
+    def test_multiple_null_doc_id_documents_allowed_for_same_tenant(self):
+        PayrollDocument.objects.create(tenant=self.tenant, doc_id=None)
+        PayrollDocument.objects.create(tenant=self.tenant, doc_id=None)
+        self.assertEqual(PayrollDocument.objects.filter(tenant=self.tenant, doc_id=None).count(), 2)
+
+    def test_line_optional_fields_can_be_null(self):
+        doc = PayrollDocument.objects.create(tenant=self.tenant, doc_id=None)
+        line = PayrollLine.objects.create(
+            document=doc,
+            line_no=1,
+            employee="Jane",
+            item="Salary",
+            description="",
+            sum="100.00",
+            days_plan=None,
+            days_fact=None,
+            period_start=None,
+            period_end=None,
+            approval=True,
+        )
+        self.assertIsNone(line.days_plan)
+        self.assertIsNone(line.period_start)

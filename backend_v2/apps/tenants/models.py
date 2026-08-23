@@ -21,6 +21,10 @@ class Tenant(models.Model):
     payroll_doc_id_prefix = models.CharField(max_length=32, default="1-")
     payroll_doc_id_digit_width = models.PositiveSmallIntegerField(default=9)
 
+    # If enabled, creating a payroll accrual (natively or via n8n import) also
+    # auto-creates a single linked payment Request for the whole document.
+    create_payment_request_on_payroll_accrual = models.BooleanField(default=False)
+
     def set_telegram_bot_token(self, token: str) -> None:
         self.telegram_bot_token_enc = encrypt_secret(token.strip())
 
