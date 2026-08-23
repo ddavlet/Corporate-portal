@@ -629,6 +629,74 @@ class SyncCbuExchangeRateCommandTests(TestCase):
         self.assertIn("Failed to fetch CBU rate", err)
 
 
+class BackfillCbuExchangeRateCommandTests(TestCase):
+    """python manage.py backfill_cbu_exchange_rate — fills archive gaps for a date range."""
+
+    CMD_MODULE = "apps.modules.investments.management.commands.backfill_cbu_exchange_rate"
+
+    def _run(self, *args):
+        out = StringIO()
+        err = StringIO()
+        call_command("backfill_cbu_exchange_rate", *args, "--sleep=0", stdout=out, stderr=err)
+        return out.getvalue(), err.getvalue()
+
+    @patch(f"{CMD_MODULE}.fetch_cbu_usd_uzs_rate")
+    def test_dry_run_reports_missing_dates_without_writing(self, mock_fetch):
+        CbuExchangeRate.objects.create(date=date(2026, 1, 1), usd_uzs_rate=Decimal("12000.000000"))
+
+        out, _err = self._run("--date-from=2026-01-01", "--date-to=2026-01-03")
+
+        mock_fetch.assert_not_called()
+        self.assertIn("2 missing", out)
+        self.assertIn("2026-01-02", out)
+        self.assertIn("2026-01-03", out)
+        self.assertEqual(CbuExchangeRate.objects.count(), 1)
+
+    @patch(f"{CMD_MODULE}.fetch_cbu_usd_uzs_rate")
+    def test_apply_fetches_only_missing_dates(self, mock_fetch):
+        CbuExchangeRate.objects.create(date=date(2026, 1, 1), usd_uzs_rate=Decimal("12000.000000"))
+        mock_fetch.side_effect = lambda *, rate_date: {
+            date(2026, 1, 2): Decimal("12345.600000"),
+            date(2026, 1, 3): Decimal("12350.100000"),
+        }[rate_date]
+
+        self._run("--date-from=2026-01-01", "--date-to=2026-01-03", "--apply")
+
+        mock_fetch.assert_any_call(rate_date=date(2026, 1, 2))
+        mock_fetch.assert_any_call(rate_date=date(2026, 1, 3))
+        self.assertEqual(mock_fetch.call_count, 2)
+        self.assertEqual(
+            CbuExchangeRate.objects.get(date=date(2026, 1, 1)).usd_uzs_rate, Decimal("12000.000000")
+        )
+        self.assertEqual(
+            CbuExchangeRate.objects.get(date=date(2026, 1, 2)).usd_uzs_rate, Decimal("12345.600000")
+        )
+        self.assertEqual(
+            CbuExchangeRate.objects.get(date=date(2026, 1, 3)).usd_uzs_rate, Decimal("12350.100000")
+        )
+
+    @patch(f"{CMD_MODULE}.fetch_cbu_usd_uzs_rate")
+    def test_apply_skips_dates_with_no_bulletin(self, mock_fetch):
+        def side_effect(*, rate_date):
+            if rate_date == date(2026, 1, 3):
+                raise CbuRateFetchError("В ответе ЦБ РУз не найден курс USD.")
+            return Decimal("12345.600000")
+
+        mock_fetch.side_effect = side_effect
+
+        _out, err = self._run("--date-from=2026-01-02", "--date-to=2026-01-03", "--apply")
+
+        self.assertFalse(CbuExchangeRate.objects.filter(date=date(2026, 1, 3)).exists())
+        self.assertTrue(CbuExchangeRate.objects.filter(date=date(2026, 1, 2)).exists())
+        self.assertIn("Skipping 2026-01-03", err)
+
+    def test_date_from_after_date_to_raises(self):
+        from django.core.management.base import CommandError
+
+        with self.assertRaises(CommandError):
+            call_command("backfill_cbu_exchange_rate", "--date-from=2026-01-05", "--date-to=2026-01-01")
+
+
 class InvestPayoutScheduleSerializerTests(TestCase):
     def setUp(self):
         self.tenant = Tenant.objects.create(name="SchedCo", subdomain="schedco", is_active=True)
