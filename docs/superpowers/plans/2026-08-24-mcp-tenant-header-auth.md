@@ -18,7 +18,7 @@
 - OCP: new logic goes in new files/functions; the only edits to already-tested existing files are additive (`apps/mcp_server/auth.py`, `apps/mcp_server/admin.py`, `apps/mcp_server/http/app.py`) and must not change behavior for existing (non-service) callers.
 - Read-only feature: no tool gains write capability; a service key is exactly as powerful as a tenant admin already is today.
 - Error message for out-of-scope tenants in service mode is exactly: `Access denied: tenant {tenant_id} is not accessible with this key` — identical string regardless of *why* access failed (tenant missing, inactive, mcp disabled, or just not a member).
-- Key format: `svc_<key_prefix>_<secret>`, prefix generated via `secrets.token_urlsafe(8)`, secret via `secrets.token_urlsafe(32)`, secret hashed with `django.contrib.auth.hashers.make_password`.
+- Key format: `svc_<key_prefix>_<secret>`, prefix generated via `secrets.token_hex(8)` (hex alphabet only — **must not** contain `_`, since parsing splits on the first `_`; `token_urlsafe` is wrong here because its alphabet includes `_`), secret via `secrets.token_urlsafe(32)`, secret hashed with `django.contrib.auth.hashers.make_password`.
 - Do not touch `apps/mcp_server/oauth/**` or any of `apps/mcp_server/tools/*.py` — those are explicitly out of scope (see spec's Non-goals).
 
 ---
@@ -246,8 +246,14 @@ from django.contrib.auth.hashers import check_password, make_password
 
 
 def _generate_key() -> tuple[str, str, str]:
-    """Return (raw_key, key_prefix, secret) for a new service credential."""
-    prefix = secrets.token_urlsafe(8)
+    """Return (raw_key, key_prefix, secret) for a new service credential.
+
+    key_prefix uses token_hex (not token_urlsafe): the urlsafe-base64
+    alphabet includes '_', which would collide with the '_' separator that
+    verify_service_key() splits on below (partition() on the FIRST '_').
+    hex is separator-safe and still gives 2**64 worth of prefix space.
+    """
+    prefix = secrets.token_hex(8)
     secret = secrets.token_urlsafe(32)
     return f"svc_{prefix}_{secret}", prefix, secret
 
@@ -426,6 +432,12 @@ class ServiceModeUniformDenialTests(TestCase):
         self._expect_uniform_denial(user.id, tenant.id)
 
     def test_two_different_denial_reasons_give_identical_message(self):
+        """Same tenant_id, two different underlying failure reasons — the
+        message must depend only on tenant_id, never on why access failed.
+        (Comparing across two *different* tenant_ids would be meaningless:
+        the uniform message embeds tenant_id itself, so it necessarily
+        differs when the id differs — that is not a leak, the caller
+        already knows the id it asked for.)"""
         from django.contrib.auth import get_user_model
         from apps.tenants.models import Tenant
         from apps.mcp_server.auth import _get_user_and_tenant
@@ -433,10 +445,16 @@ class ServiceModeUniformDenialTests(TestCase):
         user = get_user_model().objects.create_user(username="svc-deny-4")
         tenant = Tenant.objects.create(name="Z", subdomain="svc-deny-4", is_active=True, mcp_enabled=True)
 
+        # reason 1: tenant exists/active/mcp-enabled, but user isn't a member
         with self.assertRaises(PermissionError) as ctx_a:
-            _get_user_and_tenant(user.id, 999_999, service_mode=True)
+            _get_user_and_tenant(user.id, tenant.id, service_mode=True)
+
+        # reason 2: same tenant_id, now inactive -> Tenant.DoesNotExist branch
+        tenant.is_active = False
+        tenant.save(update_fields=["is_active"])
         with self.assertRaises(PermissionError) as ctx_b:
-            _get_user_and_tenant(user.id, tenant.id, service_mode=True)  # exists, not a member
+            _get_user_and_tenant(user.id, tenant.id, service_mode=True)
+
         self.assertEqual(str(ctx_a.exception), str(ctx_b.exception))
 ```
 
