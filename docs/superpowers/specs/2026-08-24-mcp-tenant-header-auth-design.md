@@ -1,139 +1,145 @@
-# MCP-сервер: сервисная авторизация по заголовку + OAuth для User-режима
+# MCP-сервер: сервисная авторизация по заголовку (tenant-scoped)
 
-- **Date:** 2026-08-24
-- **Status:** draft for review
-- **Target:** `backend_v2/apps/mcp_server/` (см. `docs/MCP_SERVER.md`) — сейчас "parked" (stdio + `KOLBERG_JWT_TOKEN` env var, HTTP выключен)
+- **Date:** 2026-08-24 (revised after codebase audit — see "Revision note")
+- **Status:** approved for implementation
+- **Target:** `backend_v2/apps/mcp_server/` (см. `docs/MCP_SERVER.md`) — сейчас "parked" (`MCP_HTTP_ENABLED=false`)
 - **Clients:** сервисные интеграции (n8n, другие бэкенды, AI-агенты) + люди через Cursor / Claude Desktop / Claude.ai web
+
+## Revision note
+
+Первая версия этой спеки предполагала, что HTTP-транспорт и OAuth-обвес для user-режима нужно строить с нуля (по образцу `kolberg-mcp/mcp_ud_report`), а сервисный режим — как отдельный `ServiceAuthContext`, который тулы должны научиться понимать.
+
+Аудит реального кода `apps/mcp_server` показал, что это не так:
+
+1. **HTTP + OAuth уже полностью реализованы и закоммичены** — `oauth/provider.py` (`KolbergOAuthProvider`), БД-модели `OAuthClient`/`OAuthAuthorizationCode`, `/oauth/login/` через OTP, per-request JWT через contextvar. Просто выключено флагом `MCP_HTTP_ENABLED=false`. Эта часть — **не задача этого плана**, только её включение на проде (шаг rollout).
+2. **`user` в `require_module_access()`/`require_admin_access()`/`require_admin_or_director()` используется не только для проверки допуска, но и внутри бизнес-логики самих тулов** — например `list_requests` определяет видимость кросс-тенантных записей через `TenantUserRole.objects.filter(user=user, role=ADMIN)`, `list_tasks`/`get_task_detail` через `resolve_scope_for_user(user, tenant)` (admin/director видят все таски тенанта, остальные — только свои). Отдельный "безпользовательский" `ServiceAuthContext` сломал бы эти тулы.
+
+Решение: сервисный ключ выдаётся не "как отдельный тип авторизации", а разрешается в **настоящего synthetic-пользователя** с ролью admin в разрешённых тенантах. Это делает нулевыми правки в `auth.py`-точках входа и во всех файлах `tools/*.py`.
 
 ## Context
 
-`apps/mcp_server` — read-only MCP-сервер с 17 тулами по бизнес-данным Kolberg (заявки, касса, банк, корп. карта, ЗП, справочники). Multi-tenant платформа: один тенант = одна компания-клиент.
+`apps/mcp_server` — read-only MCP-сервер с бизнес-тулами Kolberg (заявки, касса, банк, корп. карта, ЗП, задачи, инвестиции, бюджеты, справочники). Multi-tenant платформа: один тенант = одна компания-клиент. Модель `Tenant` уже имеет флаг `mcp_enabled` (по умолчанию `False`) — MCP работает только для тенантов, где он явно включён.
 
-Сегодня единственный способ авторизации — `KOLBERG_JWT_TOKEN`, читается **один раз при старте процесса** (stdio-транспорт, один сервер = одна личность на всё время жизни процесса). Внутри каждого вызова `tenant_id` передаётся явным аргументом и проверяется по `TenantMembership` + ролевой/модульной матрице (`apps/tenants/permissions.py`).
+Сегодня единственный способ авторизации — настоящий JWT человека (через `KOLBERG_JWT_TOKEN` env var в stdio-режиме, либо через `Authorization: Bearer <JWT>` — включая JWT, выданный уже готовым OAuth-обвесом для claude.ai). Внутри каждого тула `tenant_id` передаётся явным аргументом и проверяется по `TenantMembership` + ролевой/модульной матрице (`apps/tenants/permissions.py`).
 
-Эта модель не годится для двух новых сценариев:
-
-1. **Сервисные интеграции** (n8n-воркфлоу, другой бэкенд, AI-агент, работающий не от имени конкретного человека) — им не нужен пользовательский аккаунт с ролями, им нужен долгоживущий ключ, который открывает доступ строго к заранее определённому набору тенантов.
-2. **HTTP-транспорт** — заголовок вместо env var подразумевает переход на HTTP (сейчас parked), и сервер должен обслуживать много одновременных identities вместо одной на процесс.
+Этой модели не хватает: **сервисным интеграциям** (n8n-воркфлоу, другой бэкенд, AI-агент не от имени конкретного человека) не нужен OTP-логин человека — им нужен долгоживущий ключ, который открывает доступ строго к заранее определённому набору тенантов, без интерактивного флоу.
 
 ## Goals
 
-- Ввести **service-режим** авторизации: HTTP-заголовок `X-Service-Key`, ключ хранится в БД, привязан к множеству тенантов. Доступны **все** 17 тулов (включая admin-only: `get_integration_config`, `list_user_roles`, `list_memberships`) — единственное ограничение — список тенантов.
-- Полная изоляция: сервисный ключ не может ни прочитать данные чужого тенанта, ни узнать через различие в ошибках, что чужой тенант вообще существует.
-- Перевести существующий **user-режим** (JWT) с env var на `Authorization: Bearer <JWT>` за запрос — HTTP допускает много identities одновременно без рестарта процесса.
-- Добавить **OAuth-обвес** для user-режима, чтобы claude.ai (web) подключался кнопкой Connect без ручного ввода заголовков (там не гарантирована поддержка custom headers у коннектора).
-- Всё это работает на multi-worker Gunicorn-деплое Django (не single-process, как контейнеры `kolberg-mcp`).
+- Ввести **сервисный режим** авторизации: HTTP-заголовок `X-Service-Key`, ключ хранится в БД (`McpServiceCredential`), привязан к множеству тенантов через обычный M2M.
+- Каждому ключу соответствует один synthetic `User` ("service-user") с `TenantMembership(is_active=True)` + `TenantUserRole(role=ADMIN)` в каждом из привязанных тенантов — это даёт доступ ко **всем** тулам в этих тенантах, включая admin-only (`get_integration_config`, `list_user_roles`, `list_memberships`), без единой правки в `tools/*.py`.
+- Полная изоляция: сервисный ключ не может ни прочитать данные тенанта вне своего списка, ни узнать через различие в сообщениях об ошибке, что такой тенант вообще существует.
+- Ключ работает поверх уже существующего HTTP/OAuth транспорта (переиспользует `mcp_jwt_pair_for_user`-паттерн из `oauth/tokens.py`), без новых транспортных слоёв.
 
 ## Non-goals
 
-- Изменение ролевой/модульной матрицы или списка тулов.
+- Изменение HTTP/OAuth-обвеса для user-режима — он уже реализован (`oauth/`), трогаем только по минимуму (см. Components §3).
+- Изменение ролевой/модульной матрицы для человеческих пользователей.
 - Write-доступ любого рода — сервер остаётся read-only.
-- TTL/автоматическая ротация сервисных ключей по расписанию — отзыв только через `is_active=False`.
+- TTL / автоматическая ротация сервисных ключей по расписанию — отзыв только через `is_active=False`.
 - Полный аудит-лог каждого вызова — только `last_used_at` на credential.
-- OAuth-обвес для service-режима — сервисные ключи всегда статичны, без интерактивного логина.
+- Изменение поведения для тенантов, где `mcp_enabled=False` или конкретный модуль выключен — сервисный ключ подчиняется тем же тенантным тумблерам, что и обычный admin (это ограничение самого тенанта, а не роли вызывающего).
 
 ## Architecture
 
 ```
-                    ┌─ X-Service-Key: <key> ──────► ServiceAuthContext
-                    │                                (tenant_ids из БД, все тулы, без ролей)
-HTTP request ───────┤
-                    └─ Authorization: Bearer <JWT> ► UserAuthContext
-                       (из ручного заголовка ИЛИ    (существующая логика: membership + роль/модуль)
-                        из OAuth-обмена — не отличимо)
-
-claude.ai (web, без custom headers)
-        │  OAuth Authorization Code + PKCE (Dynamic Client Registration)
-        ▼
-/oauth/login  →  proxies to  →  POST /api/auth/token/  (существующий Kolberg login)
-        │  возвращает реальный SimpleJWT access+refresh как есть
-        ▼
-claude.ai хранит access_token/refresh_token, дальше шлёт их как обычный
-Authorization: Bearer <JWT> — сервер не различает источник токена.
+                    X-Service-Key: <key>
+                            │
+                            ▼
+         ┌─ apps/mcp_server/http/service_key.py ──────────────┐
+         │  lookup McpServiceCredential by key_prefix          │
+         │  invalid/inactive → 401, НЕ идёт дальше (fail-closed)│
+         │  valid → mint AccessToken.for_user(service_user)     │
+         │          claim "svc"=True, переписывает заголовок    │
+         │          Authorization: Bearer <token> в scope       │
+         └──────────────────────┬───────────────────────────────┘
+                                 ▼
+              with_mcp_resource_metadata(...)   ← без изменений
+                                 ▼
+              FastMCP → KolbergOAuthProvider.load_access_token   ← без изменений
+                                 ▼
+              apps/mcp_server/auth.py: require_module_access(...) и т.д.
+                 (существующая логика; для service-user это ролевая
+                  проверка admin — просто проходит, т.к. роль настоящая)
+                                 ▼
+                          tools/*.py           ← БЕЗ ИЗМЕНЕНИЙ
 ```
 
-Приоритет проверки заголовков: если `X-Service-Key` присутствует — используется он, **fail closed** при невалидности (без отката на JWT). Если заголовка нет — обычный путь через `Authorization`.
+Если `X-Service-Key` отсутствует — запрос идёт как раньше, через обычный `Authorization: Bearer <JWT>` (ручной или из OAuth-обмена).
 
 ## Components
 
-### 1. `McpServiceCredential` (новая модель, БД)
+### 1. `McpServiceCredential` (новая модель, `apps/mcp_server/models.py`)
 
 | Поле | Назначение |
 |---|---|
 | `key_prefix` | Индексированный короткий префикс ключа — O(1) lookup без сканирования хешей |
-| `key_hash` | Хеш секретной части ключа (`django.contrib.auth.hashers.make_password` или эквивалент) |
-| `name` | Человекочитаемое имя интеграции (для admin) |
-| `tenants` | M2M на `Tenant` — разрешённый набор |
+| `key_hash` | `django.contrib.auth.hashers.make_password` от секретной части ключа |
+| `name` | Человекочитаемое имя интеграции |
+| `service_user` | `OneToOneField(User)` — synthetic-пользователь, создаётся автоматически, `set_unusable_password()` |
+| `tenants` | `ManyToManyField(Tenant)` — источник правды для допуска |
 | `is_active` | Отзыв без передеплоя |
 | `created_at`, `last_used_at` | Аудит по минимуму |
 
-Формат выдаваемого ключа: `svc_<key_prefix>_<секрет>` (аналог GitHub PAT). Управление — через Django admin (`admin.py` регистрация как у остальных моделей проекта).
+Формат выдаваемого ключа: `svc_<key_prefix>_<секрет>` (аналог GitHub PAT), секрет ~32 байта url-safe, хешируется. Ключ показывается **один раз** в момент создания (в Django admin через `messages.WARNING`), дальше не восстановим — только перевыпуск.
 
-### 2. `apps/mcp_server/auth.py` — расширение
+### 2. `apps/mcp_server/services.py` (новый файл)
 
-- `resolve_auth_context(headers) -> AuthContext` — точка входа, вызывается один раз на запрос (не на каждый тул).
-- `ServiceAuthContext(tenant_ids: set[int])` — новый класс.
-- `UserAuthContext(user, ...)` — оборачивает существующую логику декодирования JWT + резолва `TenantMembership`, без изменений в самой проверке, меняется только источник токена (заголовок вместо env var).
-- Существующая точка вызова в каждом туле (`check_access(...)`) принимает `context` вместо `user_id`:
-  - `ServiceAuthContext` → единственная проверка: `tenant_id in context.tenant_ids and Tenant.objects.filter(id=tenant_id, is_active=True).exists()`. Роли и `TenantModuleConfig` не проверяются — это осознанное решение (см. Goals).
-  - `UserAuthContext` → без изменений: membership + роль/модуль-матрица.
+- `provision_service_credential(name: str, tenant_ids: list[int]) -> tuple[McpServiceCredential, str]` — создаёт `service_user`, ключ (возвращает raw-ключ, хранит только хеш), создаёт `McpServiceCredential`, привязывает `tenants`, вызывает `sync_tenant_access`.
+- `sync_tenant_access(credential: McpServiceCredential) -> None` — идемпотентно приводит `TenantMembership`/`TenantUserRole(ADMIN)` для `credential.service_user` в соответствие с `credential.tenants.all()`: создаёт недостающие, деактивирует/удаляет лишние (для тенантов, убранных из M2M). Вызывается при создании и при каждом сохранении credential в admin (после сохранения M2M — см. §4).
 
-### 3. OAuth-обвес (только для user-режима, только для клиентов без поддержки custom headers)
+### 3. `apps/mcp_server/http/service_key.py` (новый файл) — ASGI-обёртка
 
-Переиспользует `OAuthAuthorizationServerProvider` из `mcp` SDK — тот же паттерн, что уже есть в `kolberg-mcp/mcp_ud_report/main.py` (`UDOAuthProvider`), но с двумя отличиями, критичными для этого деплоя:
+`with_service_key_auth(app)`:
+- Заголовка `X-Service-Key` нет → пропускает без изменений (обычный `Authorization`-путь).
+- Заголовок есть:
+  - Парсит `key_prefix`, ищет `McpServiceCredential` (`is_active=True`), сверяет хеш секрета.
+  - Невалиден/неактивен → **сразу 401**, `app()` не вызывается, откат на `Authorization` не выполняется.
+  - Валиден → минтит `AccessToken.for_user(credential.service_user)` **напрямую** (не через `mcp_jwt_pair_for_user`, чтобы не создавать `RefreshToken`/`OutstandingToken`-запись в БД на каждый HTTP-запрос), ставит кастомный claim `token["svc"] = True`, переписывает заголовок `authorization` в ASGI `scope` на `Bearer <token>`, обновляет `last_used_at` (best-effort, `aupdate`).
+- Подключается в `apps/mcp_server/http/app.py::get_mcp_asgi_app()`: `with_mcp_resource_metadata(with_service_key_auth(mcp.streamable_http_app()))` — сервисный ключ должен переписать заголовок **до** того, как FastMCP/`KolbergOAuthProvider` увидят запрос.
 
-- **Логин-форма не имеет своего пароля.** `/oauth/login` — HTML-форма логин/пароль, POST проксируется в существующий `POST /api/auth/token/`. При успехе Kolberg-бэкенд возвращает настоящий SimpleJWT access+refresh — обвес возвращает его claude.ai **без переподписи и без своего токен-формата**. Дальнейшие вызовы тулов идут по тому же коду, что и ручной `Authorization` заголовок — сервер не различает источник.
-- **Refresh** — не своя логика, а обычный `POST /api/auth/token/refresh/` (стандартный SimpleJWT-эндпоинт; завести, если ещё не существует).
-- **DCR-клиенты (`register_client`) — в БД**, не в памяти процесса. Новая модель `McpOAuthClient` (client_id, client_info JSON, created_at). В `mcp_ud_report` это был файловый `TokenStore`, но там сервис однопроцессный; здесь Django/Gunicorn с несколькими воркерами — регистрация на воркере A должна быть видна воркеру B.
-- **Authorization codes** (живут 10 минут) — в Django `cache` (Redis, если уже настроен в проекте) с TTL. Локальный `dict`, как в `mcp_ud_report`, здесь не работает по той же причине (multi-worker).
+### 4. `apps/mcp_server/admin.py` — регистрация `McpServiceCredential`
 
-### 4. HTTP-транспорт
+- `save_model`: при создании (`obj.pk is None`) вызывает `provision_service_credential`, показывает raw-ключ через `self.message_user(..., level=messages.WARNING)`.
+- `save_related`: после того как Django admin сохранил M2M `tenants`, вызывает `sync_tenant_access(obj)` — чтобы правки списка тенантов у существующего ключа тоже применялись.
 
-Требует включения `MCP_HTTP_ENABLED` (сейчас `false`, см. `docs/MCP_SERVER.md`) — предпосылка всего дизайна, не отдельная задача.
+### 5. `apps/mcp_server/auth.py` — минимальное дополнение
 
-## Data flow
+Никаких изменений в `require_module_access` / `require_admin_access` / `require_admin_or_director` не требуется в части ролевой логики (service-user реально admin — проверки просто проходят). Единственная правка — устранить утечку "существует ли чужой тенант" через различие сообщений:
 
-1. Запрос приходит на HTTP MCP endpoint.
-2. `resolve_auth_context` читает заголовки:
-   - `X-Service-Key` есть → лукап по `key_prefix` в БД → сверка хеша → `is_active` → `ServiceAuthContext`. Если ключ невалиден — сразу `PermissionError`, `Authorization` не проверяется.
-   - Иначе `Authorization: Bearer <JWT>` есть → декод SimpleJWT → `UserAuthContext`.
-   - Ни одного заголовка → `PermissionError`.
-3. Тул вызывается с `tenant_id` первым аргументом, как сейчас.
-4. `check_access(context, tenant_id, requirement)` — ветвление по типу контекста (см. Components §2).
-5. `last_used_at` у `McpServiceCredential` обновляется best-effort (не блокирует ответ, ошибка обновления не должна валить запрос).
-6. Тул выполняется, единый error envelope при ошибке — без изменений от текущего поведения.
+- Новая функция `_is_service_claim(token: str) -> bool` — читает claim `svc` из уже расшифрованного `AccessToken`, не меняя контракт `_decode_token` (важно: `_decode_token` используется в `oauth/provider.py` и замокан в существующих тестах как возвращающий голый `int` — трогать его сигнатуру нельзя).
+- `_get_user_and_tenant(user_id, tenant_id, *, service_mode: bool = False)`: оборачивает существующее тело в `try/except PermissionError` — если `service_mode=True`, любая из веток (user not found, tenant not found/inactive, mcp not enabled, not a member) перевыпускается как **одно и то же** сообщение `f"Access denied: tenant {tenant_id} is not accessible with this key"`. Для человека (`service_mode=False`, значение по умолчанию) — поведение и сообщения не меняются ни на символ.
+- `require_module_access`/`require_admin_access`/`require_admin_or_director` — добавляют `service_mode = _is_service_claim(token)` и передают его в `_get_user_and_tenant`.
 
 ## Error handling
 
 | Ситуация | Поведение |
 |---|---|
-| Нет ни `X-Service-Key`, ни `Authorization` | `PermissionError: Authorization required: Bearer <JWT> or X-Service-Key` |
-| `X-Service-Key` невалиден/неактивен | `PermissionError: Invalid or inactive service key` — без отката на JWT |
-| `X-Service-Key` валиден, но `tenant_id` не в наборе credential | `PermissionError: Access denied: tenant {id} is not accessible with this key` — **одинаковый ответ** независимо от того, существует ли тенант {id} вообще (проверка набора идёт раньше любого обращения к БД за существованием тенанта — не должно быть oracle для перебора чужих tenant_id) |
-| `Authorization` JWT невалиден/просрочен | Без изменений от текущего поведения (`Invalid or expired token: ...`) |
-| OAuth: неверный логин/пароль на `/oauth/login` | Форма перерисовывается с ошибкой, `t` (подписанный state) переиспользуется, как в `mcp_ud_report` |
+| `X-Service-Key` не найден по префиксу или хеш не совпал | `401`, JSON `{"error": "Invalid or inactive service key"}`, запрос дальше не идёт |
+| `X-Service-Key` валиден, но `tenant_id` не в наборе credential (в т.ч. несуществующий tenant_id) | `PermissionError: Access denied: tenant {id} is not accessible with this key` — **одинаковый ответ** независимо от причины (нет тенанта / тенант неактивен / mcp выключен / нет членства) |
+| Ни `X-Service-Key`, ни `Authorization` | Без изменений от текущего поведения (`No authentication token available...`) |
+| `Authorization` JWT невалиден/просрочен | Без изменений (`Invalid or expired token: ...`) |
+| Тенант в списке credential, но у тенанта выключен нужный модуль (`TenantModuleConfig.is_enabled=False`) | Тот же уникальный `Access denied: tenant {id}...` (не различаем "модуль выключен" от "нет доступа" в service-режиме — той же логикой, что и выше) |
 
 ## Testing
 
-- Юнит: `McpServiceCredential` — генерация ключа, roundtrip хеша, lookup по `key_prefix`, инвалидность после `is_active=False`.
-- Юнит: `resolve_auth_context` — валидный/просроченный JWT, валидный/невалидный/неактивный service-key, оба заголовка одновременно (service выигрывает), ни одного.
-- Интеграционный: ключ, привязанный к тенанту A — не проходит НИ ОДИН из 17 тулов с `tenant_id=B` (в т.ч. несуществующий B); проходит все 17 (включая admin-only) для тенанта A.
-- Интеграционный: два ответа на "чужой" `tenant_id` (существующий чужой vs несуществующий) идентичны байт-в-байт.
-- Регрессия: существующие тесты ролевой/модульной матрицы для user-режима остаются зелёными без изменений логики.
-- OAuth: DCR-регистрация видна между двумя "воркерами" (симулировать двумя процессами/потоками с раздельным кешем клиента); authorization code, выданный в одном процессе, обменивается в другом (через общий cache).
+- Юнит `McpServiceCredential`/`services.py`: `provision_service_credential` создаёт service_user (unusable password), корректный key roundtrip (генерация → хеш → проверка), `sync_tenant_access` создаёт/деактивирует членства при изменении `tenants` M2M.
+- Юнит `auth.py`: `_is_service_claim` — true для токена с `svc=True`, false для обычного JWT; `_get_user_and_tenant(..., service_mode=True)` — все 4 failure-веток дают идентичное сообщение; `service_mode=False` (default) — существующие тесты (`McpTenantToggleTests`) не трогать, должны остаться зелёными без изменений.
+- Интеграционный (`Client`, по образцу `McpOAuthMetadataTests`): ключ, привязанный к тенанту A — все тулы работают для A; тул с `tenant_id=B` (существующий чужой) и `tenant_id=999999` (несуществующий) дают байт-в-байт одинаковую ошибку.
+- Интеграционный: `X-Service-Key` с неверным секретом → `401`, тело не пытается декодировать как JWT.
+- Регрессия: `McpTenantToggleTests`, `McpOAuthMetadataTests`, `McpOAuthLoginFlowTests`, `McpHttpDisabledTests` остаются зелёными без изменений кода тестов.
 
 ## Rollout
 
-1. Ветка `dev/mcp-tenant-header-auth` в свободном worktree-слоте (см. `CLAUDE.md`).
-2. Миграция: `McpServiceCredential`, `McpOAuthClient` (`make makemigrations`, не локально).
-3. Реализация `resolve_auth_context`, `ServiceAuthContext`, обновление точек вызова в `tools/*`.
-4. OAuth-провайдер + `/oauth/login`, проксирующий в `POST /api/auth/token/`.
-5. Включение `MCP_HTTP_ENABLED` + Traefik-роутер (см. чек-лист "To re-enable later" в `docs/MCP_SERVER.md`) — отдельный, явно запрашиваемый шаг деплоя, не автоматический.
-6. `make push` → PR → зелёный CI (`Backend Tests`) → merge → `make deploy` (только вручную, по запросу).
-7. Обновить `docs/MCP_SERVER.md`: убрать пометку "parked", описать оба режима авторизации, добавить пример конфига для сервисного ключа.
+1. Ветка `dev/mcp-tenant-header-auth` в свободном worktree-слоте (уже создана в `.worktrees/slot-2`).
+2. Миграция `apps/mcp_server`: `McpServiceCredential` (`make makemigrations`, не локально).
+3. `services.py`, `http/service_key.py`, правки `auth.py` и `admin.py`.
+4. `make push` → PR → зелёный CI (`Backend Tests`) → merge.
+5. Включение `MCP_HTTP_ENABLED=true` на проде + Traefik-роутер — по чек-листу "To re-enable later" в `docs/MCP_SERVER.md`, отдельный явно запрашиваемый шаг `make deploy`, не автоматический.
+6. Обновить `docs/MCP_SERVER.md`: убрать пометку "parked" (или уточнить, что теперь два режима авторизации), задокументировать `X-Service-Key`.
 
 ## Follow-ups (out of v1)
 
 - TTL / плановая ротация сервисных ключей.
 - Полный аудит-лог вызовов по ключу (не только `last_used_at`).
-- Отдельный rate-limit на service-режим, если объём вызовов от интеграций окажется значительно выше человеческого трафика.
+- Rate-limit на сервисный режим отдельно от человеческого трафика.
