@@ -125,7 +125,11 @@ tenants via Django admin (`McpServiceCredential`).
   every tool (including admin-only ones: `get_integration_config`,
   `list_user_roles`, `list_memberships`) within those tenants, subject to
   the same per-tenant toggles (`Tenant.mcp_enabled`, `TenantModuleConfig`)
-  a human admin would be.
+  a human admin would be. This includes write access — the `tasks` module's
+  `create_task`, `update_task_status`, `add_task_comment`, `edit_task`, and
+  `delete_task` tools are not read-only, and a service key can use all of
+  them exactly as a human admin could. Treat a service key with the same
+  care as an admin password.
 - A `tenant_id` outside the key's scope — or one that doesn't exist at all —
   produces the identical error: `Access denied: tenant {id} is not
   accessible with this key`. The two cases are indistinguishable by design.
