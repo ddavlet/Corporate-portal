@@ -27,6 +27,28 @@ class PayrollDocument(models.Model):
         return f"{self.tenant_id}:{self.doc_id}"
 
 
+class Employee(models.Model):
+    tenant = models.ForeignKey(Tenant, on_delete=models.CASCADE, related_name="employees", db_index=False)
+    full_name = models.CharField(max_length=200)
+    created_at = models.DateTimeField(default=timezone.now)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="created_employees",
+    )
+
+    class Meta:
+        db_table = "payroll_employees"
+        constraints = [
+            models.UniqueConstraint(fields=["tenant", "full_name"], name="uniq_employee_tenant_full_name"),
+        ]
+
+    def __str__(self) -> str:
+        return self.full_name
+
+
 class PayrollLine(models.Model):
     document = models.ForeignKey(
         PayrollDocument,
@@ -36,6 +58,13 @@ class PayrollLine(models.Model):
     )
     line_no = models.IntegerField()
     employee = models.TextField()
+    employee_fk = models.ForeignKey(
+        Employee,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="payroll_lines",
+    )
     item = models.TextField()
     description = models.TextField(null=True, blank=True)
     sum = models.DecimalField(max_digits=15, decimal_places=2)

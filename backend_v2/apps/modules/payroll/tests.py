@@ -2,13 +2,14 @@ from decimal import Decimal
 from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
+from django.db import IntegrityError, transaction
 from django.test import TestCase, override_settings
 from django.utils import timezone
 from rest_framework.test import APITestCase
 
 from apps.common.test_utils import list_results
 from apps.tenants.models import Tenant, TenantMembership, TenantModuleConfig, TenantUserRole
-from apps.modules.payroll.models import PayrollDocument, PayrollLine
+from apps.modules.payroll.models import Employee, PayrollDocument, PayrollLine
 from apps.modules.payroll.services import create_payroll_document, maybe_create_linked_request
 from apps.modules.requests.models import (
     Request,
@@ -308,3 +309,42 @@ class PayrollDocumentCreateApiTests(APITestCase):
         self.client.post(self.url, payload, format="json", HTTP_HOST=self.host)
         res = self.client.get("/api/payroll/documents/", HTTP_HOST=self.host)
         self.assertEqual(res.status_code, 200)
+
+
+class EmployeeModelTests(TestCase):
+    def setUp(self):
+        self.tenant = Tenant.objects.create(name="EmpAcme", subdomain="emp-acme", is_active=True)
+
+    def test_can_create_employee(self):
+        emp = Employee.objects.create(tenant=self.tenant, full_name="Alice Smith")
+        self.assertIsNotNone(emp.id)
+        self.assertEqual(str(emp), "Alice Smith")
+
+    def test_unique_full_name_per_tenant(self):
+        Employee.objects.create(tenant=self.tenant, full_name="Alice Smith")
+        with self.assertRaises(IntegrityError):
+            with transaction.atomic():
+                Employee.objects.create(tenant=self.tenant, full_name="Alice Smith")
+
+    def test_same_full_name_allowed_in_different_tenant(self):
+        other_tenant = Tenant.objects.create(name="EmpOther", subdomain="emp-other", is_active=True)
+        Employee.objects.create(tenant=self.tenant, full_name="Alice Smith")
+        emp2 = Employee.objects.create(tenant=other_tenant, full_name="Alice Smith")
+        self.assertIsNotNone(emp2.id)
+
+    def test_payroll_line_employee_fk_is_optional_and_links_to_employee(self):
+        doc = PayrollDocument.objects.create(tenant=self.tenant, doc_id=None)
+        emp = Employee.objects.create(tenant=self.tenant, full_name="Bob Jones")
+        line_without_fk = PayrollLine.objects.create(
+            document=doc, line_no=1, employee="Free text still works", item="Salary",
+            description="", sum="100.00", days_plan=None, days_fact=None,
+            period_start=None, period_end=None, approval=False,
+        )
+        line_with_fk = PayrollLine.objects.create(
+            document=doc, line_no=2, employee="Bob Jones", employee_fk=emp, item="Salary",
+            description="", sum="200.00", days_plan=None, days_fact=None,
+            period_start=None, period_end=None, approval=False,
+        )
+        self.assertIsNone(line_without_fk.employee_fk)
+        self.assertEqual(line_with_fk.employee_fk_id, emp.id)
+        self.assertEqual(emp.payroll_lines.count(), 1)
