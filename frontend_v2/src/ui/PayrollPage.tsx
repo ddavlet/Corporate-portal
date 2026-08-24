@@ -286,7 +286,6 @@ export function PayrollPage() {
   ].filter(Boolean).length
 
   return (
-    <>
       <Card>
       <Typography.Title level={4} style={{ marginTop: 0 }}>
         Начисления ЗП
@@ -415,6 +414,5 @@ export function PayrollPage() {
         onCreated={() => void reload()}
       />
     </Card>
-    </>
   )
 }

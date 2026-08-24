@@ -162,6 +162,9 @@ function PayrollSettingsSection() {
 export function PayrollSettingsPage() {
   return (
     <>
+      <Typography.Title level={4} style={{ marginTop: 0 }}>
+        Начисления ЗП
+      </Typography.Title>
       <PayrollDocIdFormatSection />
       <PayrollSettingsSection />
     </>
