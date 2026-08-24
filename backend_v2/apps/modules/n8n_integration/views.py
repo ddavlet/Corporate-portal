@@ -40,6 +40,7 @@ from apps.modules.requests.amortization import build_amortization_schedule_rows,
 from apps.modules.requests.approval_bootstrap import create_approval_rows_for_request
 from apps.modules.requests.approval_workflow import _recalculate_request_status, route_request_approvals
 from apps.modules.requests.bank_expense_reconciliation import reconcile_bank_expenses_by_vendor_amount_date
+from apps.modules.requests.card_revenue_reconciliation import reconcile_card_revenues_by_amount_date
 from apps.modules.requests.serializers import PortalRequestSerializer
 from apps.modules.requests.services import list_payment_purposes_by_payment_type
 from apps.modules.vendors.models import Vendor
@@ -1514,15 +1515,22 @@ class N8nCardExpenseUpsertView(_N8nBaseView):
 
 class N8nCardRevenueUpsertView(_N8nBaseView):
     def post(self, request):
+        tenant = request.tenant
+
         def build_create_kwargs(req, su):
             return {"tenant": req.tenant, "created_by": su}
 
-        return _n8n_upsert_with_external_id(
+        response = _n8n_upsert_with_external_id(
             request,
             model=CardRevenue,
             serializer_class=N8nCardRevenueImportSerializer,
             build_create_kwargs=build_create_kwargs,
         )
+        if 200 <= int(getattr(response, "status_code", 500)) < 300 and not getattr(
+            request, "skip_card_revenue_relink", False
+        ):
+            reconcile_card_revenues_by_amount_date(tenant=tenant)
+        return response
 
 
 class N8nClientsDebtUpsertView(_N8nBaseView):
@@ -1866,6 +1874,22 @@ class N8nCardExpenseBatchUpsertView(_N8nBatchBaseView):
 
 class N8nCardRevenueBatchUpsertView(_N8nBatchBaseView):
     single_view_class = N8nCardRevenueUpsertView
+
+    @staticmethod
+    def _item_request(base_request, item_data):
+        req = _N8nBatchBaseView._item_request(base_request, item_data)
+        setattr(req, "skip_card_revenue_relink", True)
+        return req
+
+    def post(self, request):
+        response = super().post(request)
+        if int(getattr(response, "status_code", 500)) != status.HTTP_200_OK:
+            return response
+        data = getattr(response, "data", {}) or {}
+        results = data.get("results", []) if isinstance(data, dict) else []
+        if results:
+            reconcile_card_revenues_by_amount_date(tenant=request.tenant)
+        return response
 
 
 class N8nClientsDebtBatchUpsertView(_N8nBatchBaseView):

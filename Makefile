@@ -7,7 +7,7 @@ DEPLOY_TEST_PATH ?= $(TEST_PATH)
 BRANCH     := $(shell git rev-parse --abbrev-ref HEAD)
 
 .DEFAULT_GOAL := help
-.PHONY: help push test deploy makemigrations showmigrations backup-db create-postgres-mcp-role rollback refresh-approval-messages link-lemon-auto-request-exceptions fix-bank-expense-vendor-misattribution local-up local-down local-logs test_local
+.PHONY: help push test deploy makemigrations showmigrations backup-db create-postgres-mcp-role rollback refresh-approval-messages link-lemon-auto-request-exceptions fix-bank-expense-vendor-misattribution reconcile-card-revenues local-up local-down local-logs test_local
 
 help:
 	@echo ""
@@ -26,6 +26,8 @@ help:
 	@echo "  make link-lemon-auto-request-exceptions APPLY=1 — то же самое, но с записью изменений"
 	@echo "  make fix-bank-expense-vendor-misattribution — dry-run: фикс vendor у bank_expenses 9830/10198 и request 7781"
 	@echo "  make fix-bank-expense-vendor-misattribution APPLY=1 — то же самое, но с записью изменений"
+	@echo "  make reconcile-card-revenues — привязать заявки 'Пополнение' к corporate_card_revenues по сумме+дате"
+	@echo "  make reconcile-card-revenues TENANT=3 — то же самое, но только для одного тенанта"
 	@echo "  make local-up        — поднять docker-compose.local.yml локально"
 	@echo "  make local-down      — остановить локальный compose (без удаления volumes)"
 	@echo "  make local-logs      — логи локального compose"
@@ -147,6 +149,14 @@ fix-bank-expense-vendor-misattribution:
 	ssh $(SERVER) "cd $(REMOTE_DIR) && \
 		docker compose --env-file ./.env exec -T backend_v2 \
 		python manage.py fix_bank_expense_vendor_misattribution $(if $(APPLY),--apply,)"
+
+# ── 7d. Разово/по требованию: привязать заявки "Пополнение" к card_revenues ──
+TENANT ?=
+
+reconcile-card-revenues:
+	ssh $(SERVER) "cd $(REMOTE_DIR) && \
+		docker compose --env-file ./.env exec -T backend_v2 \
+		python manage.py reconcile_card_revenues_by_amount $(if $(TENANT),--tenant=$(TENANT),)"
 
 # ── 8. Откат production ──────────────────────────────────────────────────────
 rollback:
