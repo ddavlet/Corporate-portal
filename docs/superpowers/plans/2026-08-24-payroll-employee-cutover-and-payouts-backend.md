@@ -1290,7 +1290,7 @@ class PayrollPayoutModelTests(TestCase):
                 PayrollPayout.objects.create(tenant=self.tenant, line=self.line, cash_expense=expense, created_by=self.user)
 ```
 
-`IntegrityError`/`transaction` are already imported in this file from Task 1's edits — reuse them, don't re-import.
+`IntegrityError`/`transaction` are already imported in this file (added by the prerequisite plan's `EmployeeModelTests.test_unique_full_name_per_tenant`) — reuse them, don't re-import. If they're missing for any reason, add `from django.db import IntegrityError, transaction`.
 
 - [ ] **Step 4: Push and verify via CI**
 
@@ -1728,7 +1728,7 @@ class PayrollLinePayoutApiTests(APITestCase):
         self.assertEqual(len(res.data), 1)
 ```
 
-Add `from rest_framework.exceptions import ValidationError` to `tests.py` imports if not already present (needed by `PayrollLinePayoutServiceTests`).
+Add these imports to the top of `tests.py` if not already present (needed by `_make_payed_payroll_request` and `PayrollLinePayoutServiceTests`): `from django.db.models import Sum`, `from rest_framework.exceptions import ValidationError`, `from apps.modules.payroll.constants import SALARY_CATEGORY`.
 
 - [ ] **Step 6: Push and verify via CI**
 
