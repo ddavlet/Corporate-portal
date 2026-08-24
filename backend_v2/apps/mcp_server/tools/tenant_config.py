@@ -4,7 +4,14 @@ from __future__ import annotations
 
 from typing import Any
 
-from apps.mcp_server.auth import require_admin_access, require_admin_or_director, _get_token, _decode_token
+from apps.mcp_server.auth import (
+    require_admin_access,
+    require_admin_or_director,
+    _get_token,
+    _decode_token,
+    _get_user_and_tenant,
+    _is_service_claim,
+)
 from apps.mcp_server.utils import json_safe
 
 
@@ -44,16 +51,9 @@ def get_my_role(tenant_id: int) -> dict[str, Any]:
     """
     token = _get_token()
     user_id = _decode_token(token)
+    user, tenant = _get_user_and_tenant(user_id, tenant_id, service_mode=_is_service_claim(token))
 
-    from apps.tenants.models import Tenant, TenantMembership, TenantUserRole
-
-    try:
-        tenant = Tenant.objects.get(id=tenant_id, is_active=True)
-    except Tenant.DoesNotExist:
-        raise PermissionError(f"Tenant {tenant_id} not found or inactive")
-
-    if not TenantMembership.objects.filter(user_id=user_id, user__is_active=True, tenant=tenant, is_active=True).exists():
-        raise PermissionError("You are not an active member of this tenant")
+    from apps.tenants.models import TenantUserRole
 
     roles = list(
         TenantUserRole.objects.filter(tenant=tenant, user_id=user_id)
@@ -76,19 +76,10 @@ def list_my_modules(tenant_id: int) -> list[dict[str, Any]]:
     """
     token = _get_token()
     user_id = _decode_token(token)
+    user, tenant = _get_user_and_tenant(user_id, tenant_id, service_mode=_is_service_claim(token))
 
-    from apps.accounts.models import User
-    from apps.tenants.models import Tenant, TenantMembership, TenantModuleConfig
+    from apps.tenants.models import TenantModuleConfig
     from apps.tenants.permissions import has_effective_module_access
-
-    try:
-        user = User.objects.get(id=user_id, is_active=True)
-        tenant = Tenant.objects.get(id=tenant_id, is_active=True)
-    except (User.DoesNotExist, Tenant.DoesNotExist):
-        raise PermissionError(f"Tenant {tenant_id} not found or user not found/deactivated")
-
-    if not TenantMembership.objects.filter(user=user, tenant=tenant, is_active=True).exists():
-        raise PermissionError("You are not an active member of this tenant")
 
     enabled_modules = (
         TenantModuleConfig.objects.filter(tenant=tenant, is_enabled=True)
