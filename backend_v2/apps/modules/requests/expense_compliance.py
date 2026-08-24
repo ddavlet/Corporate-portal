@@ -10,7 +10,7 @@ from django.db.models import DecimalField, Value
 
 from apps.modules.bank_expenses.models import BankExpense
 from apps.modules.cashier.models import CashExpense
-from apps.modules.corporate_card.models import CardExpense
+from apps.modules.corporate_card.models import CardExpense, CardRevenue
 from apps.modules.payroll.constants import MODULE_KEY as PAYROLL_MODULE_KEY
 from apps.modules.payroll.models import PayrollDocument, PayrollLine
 from apps.modules.requests.approval_workflow import min_pending_approval_step
@@ -791,6 +791,9 @@ def resolve_request_portal_expense_module(request_obj: Request, *, tenant) -> st
     if ref_id is not None and pt in (Request.PAYMENT_TYPE_TRANSFER, Request.PAYMENT_TYPE_TOPUP):
         if BankExpense.objects.filter(tenant=tenant, id=ref_id).exists():
             return "bank"
+    if ref_id is not None and pt == Request.PAYMENT_TYPE_TOPUP:
+        if CardRevenue.objects.filter(tenant=tenant, id=ref_id).exists():
+            return "corporate_card"
     if ref_id is not None and pt == Request.PAYMENT_TYPE_CARD:
         if CardExpense.objects.filter(tenant=tenant, id=ref_id).exists():
             return "corporate_card"
