@@ -8,8 +8,14 @@ from django.contrib.auth.hashers import check_password, make_password
 
 
 def _generate_key() -> tuple[str, str, str]:
-    """Return (raw_key, key_prefix, secret) for a new service credential."""
-    prefix = secrets.token_urlsafe(8)
+    """Return (raw_key, key_prefix, secret) for a new service credential.
+
+    key_prefix uses token_hex (not token_urlsafe): the urlsafe-base64
+    alphabet includes '_', which would collide with the '_' separator that
+    verify_service_key() splits on below (partition() on the FIRST '_').
+    hex is separator-safe and still gives 2**64 worth of prefix space.
+    """
+    prefix = secrets.token_hex(8)
     secret = secrets.token_urlsafe(32)
     return f"svc_{prefix}_{secret}", prefix, secret
 
