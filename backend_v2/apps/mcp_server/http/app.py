@@ -1,5 +1,5 @@
 """
-Creates the FastMCP ASGI application with OAuth 2.0 authentication.
+Creates the MCPServer ASGI application with OAuth 2.0 authentication.
 
 Mounted at /mcp/ in config/asgi.py. The ASGI router strips the /mcp prefix
 so FastMCP sees paths relative to its root:
@@ -21,7 +21,7 @@ _mcp_asgi_app = None
 
 
 def get_mcp_asgi_app():
-    """Return the FastMCP ASGI app (lazy singleton)."""
+    """Return the MCPServer ASGI app (lazy singleton)."""
     global _mcp_asgi_app
     if _mcp_asgi_app is not None:
         return _mcp_asgi_app
@@ -50,16 +50,10 @@ def get_mcp_asgi_app():
     allowed_origins = list(dict.fromkeys(django_settings.MCP_ALLOWED_ORIGINS))
     if public_origin not in allowed_origins:
         allowed_origins.insert(0, public_origin)
-    mcp.settings.transport_security = TransportSecuritySettings(
-        enable_dns_rebinding_protection=True,
-        allowed_hosts=[public_host],
-        allowed_origins=allowed_origins,
-    )
-    mcp.settings.streamable_http_path = "/"
-    mcp.settings.stateless_http = True
 
     # Wire auth: provider handles OAuth flows, verifier protects the MCP endpoint.
-    # FastMCP does this automatically in __init__, but we configure after construction.
+    # MCPServer does this automatically in __init__, but we configure after construction
+    # (mcp is a module-level singleton shared with the stdio entry point, which has no auth).
     _provider = KolbergOAuthProvider()
     mcp._auth_server_provider = _provider
     mcp._token_verifier = ProviderTokenVerifier(_provider)
@@ -67,5 +61,17 @@ def get_mcp_asgi_app():
     from apps.mcp_server.http.middleware import with_mcp_resource_metadata
     from apps.mcp_server.http.service_key import with_service_key_auth
 
-    _mcp_asgi_app = with_mcp_resource_metadata(with_service_key_auth(mcp.streamable_http_app()))
+    # mcp 2.x moved streamable_http_path/stateless_http/transport_security off
+    # `.settings` and onto this call (they used to be set as attributes above).
+    _mcp_asgi_app = with_mcp_resource_metadata(with_service_key_auth(
+        mcp.streamable_http_app(
+            streamable_http_path="/",
+            stateless_http=True,
+            transport_security=TransportSecuritySettings(
+                enable_dns_rebinding_protection=True,
+                allowed_hosts=[public_host],
+                allowed_origins=allowed_origins,
+            ),
+        )
+    ))
     return _mcp_asgi_app

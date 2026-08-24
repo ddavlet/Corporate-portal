@@ -20,7 +20,7 @@ Kolberg is a multi-tenant corporate finance platform: payment **requests** (за
 The MCP server lets an AI client (Claude Desktop, IDE extensions, custom agents) read that data through a fixed set of **17 tools**. It does **not** write, update, or delete anything — it is a query surface only.
 
 - **Transport:** stdio (spawned as a subprocess, human `KOLBERG_JWT_TOKEN`) or streamable HTTP at `https://api.kolberg.uz/mcp` (human OAuth or service-key, see [§4a](#4a-service-key-authentication-tenant-scoped-non-human-callers)).
-- **Framework:** `FastMCP` from the `mcp` Python SDK (`mcp>=1.0.0,<2.0.0`).
+- **Framework:** `MCPServer` (formerly `FastMCP`) from the `mcp` Python SDK (`mcp>=2.1.0,<3.0.0`).
 - **Runtime:** runs inside the Django project — it imports the real ORM models, so every query goes through the same database and the same multi-tenant rules as the web API.
 - **Scope:** one running server instance = one user identity (one JWT) acting across the tenants that user belongs to.
 
