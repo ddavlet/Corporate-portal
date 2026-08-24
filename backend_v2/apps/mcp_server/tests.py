@@ -788,6 +788,14 @@ class ServiceKeyEndToEndTests(TestCase):
         )
 
     def test_service_token_denied_identically_for_nonexistent_tenant(self):
+        """Same *shape* of denial for an existing-but-out-of-scope tenant and
+        a tenant that doesn't exist at all — asserting literal string equality
+        would be wrong here (the two calls use different tenant_ids, and the
+        uniform message legitimately embeds the id it was asked about; that's
+        not a leak, the caller already supplied that id). What must not leak
+        is anything BEYOND "this id is inaccessible" — same template, only the
+        (caller-supplied) id varies."""
+        import re
         from apps.mcp_server.auth import set_request_token, require_module_access
 
         set_request_token(self._minted_token())
@@ -795,7 +803,10 @@ class ServiceKeyEndToEndTests(TestCase):
             require_module_access(self.tenant_b.id, "requests")
         with self.assertRaises(PermissionError) as ctx_nonexistent:
             require_module_access(999_999, "requests")
-        self.assertEqual(str(ctx_out_of_scope.exception), str(ctx_nonexistent.exception))
+
+        pattern = re.compile(r"^Access denied: tenant \d+ is not accessible with this key$")
+        self.assertRegex(str(ctx_out_of_scope.exception), pattern)
+        self.assertRegex(str(ctx_nonexistent.exception), pattern)
 
     def test_human_jwt_path_is_completely_unaffected(self):
         """Sanity check: an ordinary human JWT still goes through the original,
