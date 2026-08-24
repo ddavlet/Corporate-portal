@@ -362,3 +362,32 @@ class McpHttpDisabledTests(TestCase):
     def test_well_known_protected_resource_is_404(self):
         r = self.client.get("/.well-known/oauth-protected-resource")
         self.assertEqual(r.status_code, 404)
+
+
+class McpServiceCredentialModelTests(TestCase):
+    def setUp(self):
+        from django.contrib.auth import get_user_model
+
+        self.user = get_user_model().objects.create_user(username="svc-model-test")
+
+    def test_key_prefix_must_be_unique(self):
+        from django.db import IntegrityError
+        from apps.mcp_server.models import McpServiceCredential
+
+        McpServiceCredential.objects.create(
+            key_prefix="dup1", key_hash="x", name="A", service_user=self.user
+        )
+        other_user = self.user.__class__.objects.create_user(username="svc-model-test-2")
+        with self.assertRaises(IntegrityError):
+            McpServiceCredential.objects.create(
+                key_prefix="dup1", key_hash="x", name="B", service_user=other_user
+            )
+
+    def test_str_includes_name_and_prefix(self):
+        from apps.mcp_server.models import McpServiceCredential
+
+        cred = McpServiceCredential.objects.create(
+            key_prefix="strtest", key_hash="x", name="n8n prod", service_user=self.user
+        )
+        self.assertIn("n8n prod", str(cred))
+        self.assertIn("strtest", str(cred))
