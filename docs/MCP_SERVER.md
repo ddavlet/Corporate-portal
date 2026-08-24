@@ -1,18 +1,9 @@
 # Kolberg MCP Server
 
-> **Production status (2026-08-13): HTTP/OAuth MCP is parked.**  
-> Traefik no longer routes `api.kolberg.uz`. Gunicorn does **not** start FastMCP (`MCP_HTTP_ENABLED` defaults to `false`). The module [`backend_v2/apps/mcp_server/`](../backend_v2/apps/mcp_server/) stays in git so it can be turned back on without rewriting it.
-> 
-> As of 2026-08-24, a second tenant-scoped service-key authentication mode (for non-human callers like n8n workflows) now exists, still gated behind the same `MCP_HTTP_ENABLED` flag.
-
-**To re-enable later:**
-
-1. In `docker-compose.yml` on `backend_v2`: set `MCP_HTTP_ENABLED: "true"` and `MCP_BASE_URL: https://api.kolberg.uz/mcp`.
-2. Restore the Traefik router `django-v2-mcp` (`Host(\`${MCP_HOST:-api.kolberg.uz}\`)` → `django-v2`).
-3. Add `api.kolberg.uz` to `DJANGO_ALLOWED_HOSTS` and DNS.
-4. Deploy.
-
-Until then, do not point Claude / Cursor at `https://api.kolberg.uz/mcp`.
+> **Production status (2026-08-24): HTTP/OAuth MCP is re-enabled.**  
+> `MCP_HTTP_ENABLED` and `MCP_BASE_URL` are hardcoded on the `backend_v2` service in `docker-compose.yml`, and the Traefik router `django-v2-mcp` (`Host(\`${MCP_HOST:-api.kolberg.uz}\`)` → `django-v2`) is restored. Both the human OAuth flow and the tenant-scoped service-key mode (for non-human callers like n8n workflows) are live behind this same flag.
+>
+> Before this reaches production, confirm `api.kolberg.uz` resolves in DNS and is present in the server's `DJANGO_ALLOWED_HOSTS` (see `.env.example`), then deploy.
 
 ---
 
@@ -28,7 +19,7 @@ Kolberg is a multi-tenant corporate finance platform: payment **requests** (за
 
 The MCP server lets an AI client (Claude Desktop, IDE extensions, custom agents) read that data through a fixed set of **17 tools**. It does **not** write, update, or delete anything — it is a query surface only.
 
-- **Transport:** stdio (the server is spawned as a subprocess by the MCP client).
+- **Transport:** stdio (spawned as a subprocess, human `KOLBERG_JWT_TOKEN`) or streamable HTTP at `https://api.kolberg.uz/mcp` (human OAuth or service-key, see [§4a](#4a-service-key-authentication-tenant-scoped-non-human-callers)).
 - **Framework:** `FastMCP` from the `mcp` Python SDK (`mcp>=1.0.0,<2.0.0`).
 - **Runtime:** runs inside the Django project — it imports the real ORM models, so every query goes through the same database and the same multi-tenant rules as the web API.
 - **Scope:** one running server instance = one user identity (one JWT) acting across the tenants that user belongs to.
@@ -49,7 +40,7 @@ The MCP server lets an AI client (Claude Desktop, IDE extensions, custom agents)
 | Unit tests (`json_safe`, `validate_date`) | ✅ 12/12 passing |
 | Live tool-invocation verification | ✅ All 17 tools verified |
 
-**Not implemented (by design):** any write/create/update/delete operation; the `investments`, `notes`, `contracts`, `clients_debt`, `budgets`, `reports`, `feedback` modules have no tools exposed yet.
+**Not implemented (by design):** write/create/update/delete operations outside the `tasks` module (see [§4a](#4a-service-key-authentication-tenant-scoped-non-human-callers) for the `create_task`/`update_task_status`/`add_task_comment`/`edit_task`/`delete_task` exception); the `investments`, `notes`, `contracts`, `clients_debt`, `budgets`, `reports`, `feedback` modules have no tools exposed yet.
 
 ---
 
@@ -137,6 +128,14 @@ tenants via Django admin (`McpServiceCredential`).
   success message on creation. It cannot be recovered afterward — only
   reissued.
 - Revoke by unchecking "is active" on the credential in admin.
+
+**n8n / generic streamable-HTTP client setup:**
+
+- Server URL: `https://api.kolberg.uz/mcp`
+- Transport: Streamable HTTP (n8n's MCP Client node, or any MCP SDK client)
+- Header: `X-Service-Key: svc_<prefix>_<secret>` (from the admin-issued credential)
+- No `Authorization` header — the service-key middleware mints one internally.
+- Every tool call still takes `tenant_id`; it must be one of the tenants the key was scoped to.
 
 ---
 
