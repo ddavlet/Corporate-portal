@@ -40,6 +40,7 @@ import { InvestmentNotificationConfigPage } from '../ui/settings/InvestmentNotif
 import { CashflowReportSettingsPage } from '../ui/settings/CashflowReportSettingsPage'
 import { TasksConfigPage } from '../ui/settings/TasksConfigPage'
 import { PnlReportSettingsPage } from '../ui/settings/PnlReportSettingsPage'
+import { PayrollSettingsPage } from '../ui/settings/PayrollSettingsPage'
 import { AdminRouteGate } from '../ui/admin/AdminRouteGate'
 import { TrainingPage } from '../ui/training/TrainingPage'
 import { TasksPage } from '../ui/tasks/TasksPage'
@@ -177,6 +178,7 @@ export function App() {
         <Route path="settings/pnl-report-config" element={<PnlReportSettingsPage />} />
         <Route path="settings/cashflow-report-config" element={<CashflowReportSettingsPage />} />
         <Route path="settings/tasks-config" element={<TasksConfigPage />} />
+        <Route path="settings/payroll-config" element={<PayrollSettingsPage />} />
         <Route path="admin" element={<AdminRouteGate />} />
         <Route path="tasks" element={<TasksPage />} />
         <Route path="training" element={<TrainingPage />} />

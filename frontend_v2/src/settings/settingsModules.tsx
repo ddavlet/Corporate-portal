@@ -1,4 +1,4 @@
-import { BarChartOutlined, BankOutlined, CheckSquareOutlined, FileTextOutlined, MessageOutlined, SettingOutlined, ShopOutlined, TeamOutlined } from '@ant-design/icons'
+import { BarChartOutlined, BankOutlined, CheckSquareOutlined, DollarOutlined, FileTextOutlined, MessageOutlined, SettingOutlined, ShopOutlined, TeamOutlined } from '@ant-design/icons'
 import type { ReactNode } from 'react'
 
 export type SettingsModuleItem = {
@@ -47,6 +47,12 @@ export const SETTINGS_GROUPS: SettingsGroup[] = [
     label: 'Финансы',
     description: 'Кошельки, кассы, банковские счета и корпкарты.',
     icon: <BankOutlined />,
+  },
+  {
+    key: 'payroll',
+    label: 'Заработная плата',
+    description: 'Начисления, выплаты по кассе и справочник сотрудников.',
+    icon: <DollarOutlined />,
   },
 ]
 
@@ -155,5 +161,13 @@ export const SETTINGS_MODULES: SettingsModuleItem[] = [
     path: '/settings/cash-registers',
     icon: <ShopOutlined />,
     group: 'finance',
+  },
+  {
+    key: 'payroll-config',
+    title: 'Начисления ЗП',
+    description: 'Формат номера документа, автосоздание заявки на оплату, справочник сотрудников.',
+    path: '/settings/payroll-config',
+    icon: <DollarOutlined />,
+    group: 'payroll',
   },
 ]
