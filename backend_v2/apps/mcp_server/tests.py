@@ -551,6 +551,12 @@ class ServiceModeUniformDenialTests(TestCase):
         self._expect_uniform_denial(user.id, tenant.id)
 
     def test_two_different_denial_reasons_give_identical_message(self):
+        """Same tenant_id, two different underlying failure reasons — the
+        message must depend only on tenant_id, never on why access failed.
+        (Comparing across two *different* tenant_ids would be meaningless:
+        the uniform message embeds tenant_id itself, so it necessarily
+        differs when the id differs — that is not a leak, the caller
+        already knows the id it asked for.)"""
         from django.contrib.auth import get_user_model
         from apps.tenants.models import Tenant
         from apps.mcp_server.auth import _get_user_and_tenant
@@ -558,8 +564,14 @@ class ServiceModeUniformDenialTests(TestCase):
         user = get_user_model().objects.create_user(username="svc-deny-4")
         tenant = Tenant.objects.create(name="Z", subdomain="svc-deny-4", is_active=True, mcp_enabled=True)
 
+        # reason 1: tenant exists/active/mcp-enabled, but user isn't a member
         with self.assertRaises(PermissionError) as ctx_a:
-            _get_user_and_tenant(user.id, 999_999, service_mode=True)
+            _get_user_and_tenant(user.id, tenant.id, service_mode=True)
+
+        # reason 2: same tenant_id, now inactive -> Tenant.DoesNotExist branch
+        tenant.is_active = False
+        tenant.save(update_fields=["is_active"])
         with self.assertRaises(PermissionError) as ctx_b:
-            _get_user_and_tenant(user.id, tenant.id, service_mode=True)  # exists, not a member
+            _get_user_and_tenant(user.id, tenant.id, service_mode=True)
+
         self.assertEqual(str(ctx_a.exception), str(ctx_b.exception))
