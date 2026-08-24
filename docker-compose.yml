@@ -608,6 +608,7 @@ services:
     command: >
       sh -c "
       python manage.py migrate &&
+      python manage.py collectstatic --noinput &&
       gunicorn config.asgi:application -k uvicorn.workers.UvicornWorker --bind 0.0.0.0:8001 --workers 3 --timeout 120 --forwarded-allow-ips='*'
       "
     labels:
@@ -622,6 +623,14 @@ services:
       - traefik.http.routers.django-v2-api.tls.certresolver=mytlschallenge
       - traefik.http.routers.django-v2-api.service=django-v2
       - traefik.http.routers.django-v2-api.priority=1100
+
+      # Static assets for Django admin (/api/admin/): served by WhiteNoise inside django-v2.
+      - traefik.http.routers.django-v2-static.rule=(${TRAEFIK_BACKEND_V2_HOST_RULE}) && PathPrefix(`/static/`)
+      - traefik.http.routers.django-v2-static.entrypoints=web,websecure
+      - traefik.http.routers.django-v2-static.tls=true
+      - traefik.http.routers.django-v2-static.tls.certresolver=mytlschallenge
+      - traefik.http.routers.django-v2-static.service=django-v2
+      - traefik.http.routers.django-v2-static.priority=1100
 
       # Telegram chats registry API: overrides the messaging-gateway exclusion in django-v2-api
       - traefik.http.routers.django-v2-tg-chats.rule=(${TRAEFIK_BACKEND_V2_HOST_RULE}) && PathPrefix(`/api/messaging-gateway/chats`)
