@@ -738,3 +738,85 @@ class _DummyMessages:
 
     def add(self, level, message, extra_tags):
         self.messages.append(message)
+
+
+class ServiceKeyEndToEndTests(TestCase):
+    """Exercises the real seam between service_key.py's minted token and
+    auth.py's require_* functions — the same integration FastMCP relies on
+    in production, without driving the full streamable-http/JSON-RPC stack."""
+
+    def setUp(self):
+        from apps.tenants.models import Tenant, TenantModuleConfig
+        from apps.mcp_server.services import provision_service_credential
+
+        self.tenant_a = Tenant.objects.create(name="E2E-A", subdomain="e2e-a", is_active=True, mcp_enabled=True)
+        self.tenant_b = Tenant.objects.create(name="E2E-B", subdomain="e2e-b", is_active=True, mcp_enabled=True)
+        TenantModuleConfig.objects.create(tenant=self.tenant_a, module_key="requests", is_enabled=True)
+        TenantModuleConfig.objects.create(tenant=self.tenant_b, module_key="requests", is_enabled=True)
+
+        self.credential, self.raw_key = provision_service_credential("e2e", [self.tenant_a.id])
+
+    def _minted_token(self):
+        from apps.mcp_server.http.service_key import _mint_service_access_token
+
+        return _mint_service_access_token(self.credential.service_user)
+
+    def test_service_token_grants_module_access_for_scoped_tenant(self):
+        from apps.mcp_server.auth import set_request_token, require_module_access
+
+        set_request_token(self._minted_token())
+        user, tenant = require_module_access(self.tenant_a.id, "requests")
+        self.assertEqual(tenant.id, self.tenant_a.id)
+        self.assertEqual(user.id, self.credential.service_user_id)
+
+    def test_service_token_grants_admin_only_tools(self):
+        from apps.mcp_server.auth import set_request_token, require_admin_access
+
+        set_request_token(self._minted_token())
+        user, tenant = require_admin_access(self.tenant_a.id)
+        self.assertEqual(tenant.id, self.tenant_a.id)
+
+    def test_service_token_denied_for_out_of_scope_tenant(self):
+        from apps.mcp_server.auth import set_request_token, require_module_access
+
+        set_request_token(self._minted_token())
+        with self.assertRaises(PermissionError) as ctx:
+            require_module_access(self.tenant_b.id, "requests")
+        self.assertEqual(
+            str(ctx.exception),
+            f"Access denied: tenant {self.tenant_b.id} is not accessible with this key",
+        )
+
+    def test_service_token_denied_identically_for_nonexistent_tenant(self):
+        from apps.mcp_server.auth import set_request_token, require_module_access
+
+        set_request_token(self._minted_token())
+        with self.assertRaises(PermissionError) as ctx_out_of_scope:
+            require_module_access(self.tenant_b.id, "requests")
+        with self.assertRaises(PermissionError) as ctx_nonexistent:
+            require_module_access(999_999, "requests")
+        self.assertEqual(str(ctx_out_of_scope.exception), str(ctx_nonexistent.exception))
+
+    def test_human_jwt_path_is_completely_unaffected(self):
+        """Sanity check: an ordinary human JWT still goes through the original,
+        unmodified messages — service_mode branching must be a strict no-op
+        for non-service tokens."""
+        from django.contrib.auth import get_user_model
+        from apps.tenants.models import TenantMembership
+        from apps.mcp_server.auth import set_request_token, require_module_access
+        from rest_framework_simplejwt.tokens import AccessToken
+
+        human = get_user_model().objects.create_user(username="e2e-human")
+        TenantMembership.objects.create(user=human, tenant=self.tenant_a, is_active=True)
+        from apps.tenants.models import TenantUserRole
+
+        TenantUserRole.objects.create(tenant=self.tenant_a, user=human, role=TenantUserRole.ROLE_REQUESTER)
+
+        set_request_token(str(AccessToken.for_user(human)))
+        user, tenant = require_module_access(self.tenant_a.id, "requests")
+        self.assertEqual(user.id, human.id)
+
+        with self.assertRaises(PermissionError) as ctx:
+            require_module_access(self.tenant_b.id, "requests")
+        # human path keeps the original, non-uniform message
+        self.assertEqual(str(ctx.exception), "User is not an active member of this tenant")
