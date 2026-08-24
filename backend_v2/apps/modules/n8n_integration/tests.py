@@ -2166,6 +2166,46 @@ class N8nBankStatementDuplicateTests(APITestCase):
         self.assertEqual(BankRevenue.objects.filter(tenant=self.tenant).count(), 2)
         self.assertTrue(BankRevenue.objects.filter(tenant=self.tenant, doc_no="BREV-MIX-2").exists())
 
+    def test_revenue_batch_same_doc_no_and_amount_different_external_id_both_inserted(self):
+        """
+        Some sources (e.g. Payme) always send doc_no="1", so two unrelated payments
+        processed on the same day can share (doc_no, doc_date, kredit_turnover). When
+        external_id is present and distinct, that combo must not be treated as a dup.
+        """
+        batch = [
+            {**self._revenue_item("1"), "external_id": "PAYME-EXT-1"},
+            {**self._revenue_item("1"), "external_id": "PAYME-EXT-2"},
+        ]
+        res = self.client.post(self.revenue_batch_url, batch, format="json", **self._headers())
+        self.assertEqual(res.status_code, 200, res.content)
+        self.assertEqual(res.data["count"], 2)
+        self.assertEqual(res.data["skipped"], 0)
+        self.assertEqual(BankRevenue.objects.filter(tenant=self.tenant, doc_no="1").count(), 2)
+
+    def test_revenue_batch_same_external_id_resent_updates_instead_of_duplicating(self):
+        """Re-sending the same external_id (even with a changed doc_no) must update, not skip."""
+        first = {**self._revenue_item("BREV-UPD-1"), "external_id": "PAYME-EXT-3"}
+        r1 = self.client.post(self.revenue_batch_url, [first], format="json", **self._headers())
+        self.assertEqual(r1.status_code, 200, r1.content)
+        self.assertEqual(BankRevenue.objects.filter(tenant=self.tenant, external_id="PAYME-EXT-3").count(), 1)
+
+        second = {**first, "doc_no": "BREV-UPD-1-RENAMED", "kredit_turnover": "1500.00"}
+        r2 = self.client.post(self.revenue_batch_url, [second], format="json", **self._headers())
+        self.assertEqual(r2.status_code, 200, r2.content)
+        self.assertEqual(r2.data["skipped"], 0)
+        self.assertEqual(BankRevenue.objects.filter(tenant=self.tenant, external_id="PAYME-EXT-3").count(), 1)
+        row = BankRevenue.objects.get(tenant=self.tenant, external_id="PAYME-EXT-3")
+        self.assertEqual(str(row.kredit_turnover), "1500.00")
+
+    def test_revenue_batch_without_external_id_still_dedupes_by_doc_no_date_amount(self):
+        """Regression guard: legacy dedup behavior for rows without external_id is unchanged."""
+        batch = [self._revenue_item("BREV-NOEXT-1"), self._revenue_item("BREV-NOEXT-1")]
+        res = self.client.post(self.revenue_batch_url, batch, format="json", **self._headers())
+        self.assertEqual(res.status_code, 200, res.content)
+        self.assertEqual(res.data["count"], 1)
+        self.assertEqual(res.data["skipped"], 1)
+        self.assertEqual(BankRevenue.objects.filter(tenant=self.tenant, doc_no="BREV-NOEXT-1").count(), 1)
+
 
 @override_settings(
     BASE_DOMAIN="example.com",

@@ -96,10 +96,16 @@ class BankRevenue(models.Model):
     class Meta:
         db_table = "bank_revenues"
         constraints = [
+            # Applies only when external_id is absent — sources without a stable id
+            # (or legacy rows) still dedup on the doc_no/doc_date/kredit_turnover combo.
             models.UniqueConstraint(
                 fields=["tenant", "doc_no", "doc_date", "kredit_turnover"],
+                condition=models.Q(external_id=""),
                 name="uniq_bank_revenue_tenant_doc_no_doc_date_kredit_turnover",
             ),
+            # When external_id is present it's the sole dedup key — doc_no from some
+            # sources (e.g. Payme) isn't a real document number and collides across
+            # unrelated payments, so it must not be used to reject those as duplicates.
             models.UniqueConstraint(
                 fields=["tenant", "external_id"],
                 condition=~models.Q(external_id=""),
