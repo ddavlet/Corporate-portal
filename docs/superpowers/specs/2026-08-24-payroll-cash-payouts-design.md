@@ -165,6 +165,18 @@ def create_payroll_line_payout(*, line: PayrollLine, amount: Decimal, actor_user
 
 Страницу самой заявки (модуль `requests`) не трогаем — факт выплаты принадлежит начислению, а не заявке.
 
+## Часть 3: Настройки — перенос в `/app/settings`
+
+Сейчас `PayrollDocIdFormatSection` (формат номера документа) и `PayrollSettingsSection` ("Настройки начислений" — переключатель "Создавать заявку на оплату при создании начисления") рендерятся прямо в шапке `PayrollPage.tsx` (строки 447–448). По аналогии с остальными модулями (например, касса/банк/карты — `CashRegistersSettingsPage.tsx`), переносим их в общий раздел настроек.
+
+- Убираем обе секции из шапки `PayrollPage.tsx`.
+- Новая страница `frontend_v2/src/ui/settings/PayrollSettingsPage.tsx`, объединяющая три секции: формат номера документа, переключатель автосоздания заявки, и управление справочником сотрудников (список + добавление) — справочник логично живёт здесь же, а не только как инлайн-виджет в форме строки начисления.
+- В `frontend_v2/src/settings/settingsModules.tsx`: новая группа в `SETTINGS_GROUPS` — `{ key: 'payroll', label: 'Заработная плата', description: 'Начисления, выплаты по кассе и справочник сотрудников.', icon: <DollarOutlined /> }`; новая карточка в `SETTINGS_MODULES` — `{ key: 'payroll-config', title: 'Начисления ЗП', description: 'Формат номера документа, автосоздание заявки на оплату, справочник сотрудников.', path: '/settings/payroll-config', icon: <DollarOutlined />, group: 'payroll' }`.
+- В `App.tsx`: роут `<Route path="settings/payroll-config" element={<PayrollSettingsPage />} />`.
+- В `SettingsPage.tsx` (`moduleAccessMap`): `/settings/payroll-config` → `access.can_manage_tenant_settings` (только admin — как у `pnl-report-config`/`cashflow-report-config`/`tasks-config`).
+
+Инлайн "+ добавить сотрудника" прямо в форме строки начисления (при вводе начисления) остаётся — это быстрое действие по ходу ввода данных, не настройка. Бэкенд не трогаем — используются существующие эндпоинты `getTenantPayrollSettings`/`updateTenantPayrollSettings`/`getTenantPayrollDocIdFormat`/`updateTenantPayrollDocIdFormat` плюс новые эндпоинты справочника сотрудников из Части 1.
+
 ## Тестирование
 
 Обе части покрываются через `Backend Tests` (GitHub Actions) после пуша — локальный прогон запрещён правилами проекта.
@@ -184,5 +196,10 @@ def create_payroll_line_payout(*, line: PayrollLine, amount: Decimal, actor_user
 - `backend_v2/apps/modules/payroll/serializers.py`, `views.py`, `urls.py` — эндпоинты сотрудников и выплат, поля `paid_amount`/`remaining_amount`.
 - `backend_v2/apps/modules/n8n_integration/serializers.py` — `N8nPayrollLineImportSerializer` резолвит/создаёт `Employee` по имени.
 - `frontend_v2/src/lib/api.ts` — `listEmployees`, `createEmployee`, `createPayrollPayout`.
-- `frontend_v2/src/ui/PayrollPage.tsx` — `Select` вместо `Input` для сотрудника, секция "Сотрудники", UI выплаты по строке.
+- `frontend_v2/src/ui/PayrollPage.tsx` — `Select` вместо `Input` для сотрудника; удаление секций настроек из шапки; прогресс выплаты в списке.
+- `frontend_v2/src/ui/PayrollDocumentDetailPage.tsx` — колонки выплаты/остатка, кнопка "Выплатить", групповая выплата, история выплат.
+- Новый `frontend_v2/src/ui/settings/PayrollSettingsPage.tsx` — формат номера документа + автосоздание заявки (перенесённые секции) + справочник сотрудников.
+- `frontend_v2/src/settings/settingsModules.tsx` — новая группа "Заработная плата" и карточка.
+- `frontend_v2/src/ui/SettingsPage.tsx` — доступ к `/settings/payroll-config`.
+- `frontend_v2/src/routes/App.tsx` — роут `settings/payroll-config`.
 - Новый `frontend_v2/src/ui/EmployeeCreateModal.tsx`.
