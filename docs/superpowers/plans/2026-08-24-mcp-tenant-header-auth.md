@@ -759,9 +759,14 @@ def with_service_key_auth(app):
         from apps.mcp_server.models import McpServiceCredential
         from django.utils import timezone
 
-        await McpServiceCredential.objects.filter(pk=credential.pk).aupdate(
-            last_used_at=timezone.now()
-        )
+        try:
+            await McpServiceCredential.objects.filter(pk=credential.pk).aupdate(
+                last_used_at=timezone.now()
+            )
+        except Exception:
+            # last_used_at is bookkeeping only — a transient DB error here must
+            # never turn a valid, already-verified key into a failed request.
+            pass
 
         new_headers = [(k, v) for k, v in scope.get("headers", []) if k != b"authorization"]
         new_headers.append((b"authorization", f"Bearer {token}".encode("latin-1")))
