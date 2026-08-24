@@ -335,9 +335,11 @@ class PayrollLineSerializer(serializers.ModelSerializer):
                 "id": p.id,
                 "amount": p.cash_expense.amount,
                 "created_at": p.created_at,
-                "created_by": p.created_by_id,
+                "created_by_full_name": (
+                    (getattr(p.created_by, "full_name", "") or "").strip() or getattr(p.created_by, "username", "")
+                ),
             }
-            for p in obj.payouts.select_related("cash_expense").order_by("-created_at")
+            for p in obj.payouts.select_related("cash_expense", "created_by").order_by("-created_at")
         ]
 
 
@@ -1488,13 +1490,19 @@ class PayrollLinePayoutBulkCreateSerializer(serializers.Serializer):
 class PayrollPayoutSerializer(serializers.ModelSerializer):
     id = serializers.IntegerField(read_only=True)
     amount = serializers.DecimalField(source="cash_expense.amount", max_digits=18, decimal_places=2, read_only=True)
+    created_by_full_name = serializers.SerializerMethodField()
 
     class Meta:
         from apps.modules.payroll.models import PayrollPayout
 
         model = PayrollPayout
-        fields = ["id", "line_id", "amount", "created_at", "created_by"]
+        fields = ["id", "line_id", "amount", "created_at", "created_by", "created_by_full_name"]
         read_only_fields = fields
+
+    def get_created_by_full_name(self, obj):
+        # Same fallback convention as apps.modules.requests.serializers.RequestCommentSerializer.
+        full_name = (getattr(obj.created_by, "full_name", "") or "").strip()
+        return full_name or getattr(obj.created_by, "username", "")
 ```
 
 (The `PayrollPayout` import is placed inside `Meta` deliberately — it's only needed there, and this file's top-level import of `payroll.models` predates Task 7's model in this same plan; adding it inline avoids reshuffling the earlier import line. If preferred, it is equally correct to instead add `PayrollPayout` to the top-level `from apps.modules.payroll.models import Employee, PayrollDocument, PayrollLine` line — either way works, just pick one and be consistent.)
