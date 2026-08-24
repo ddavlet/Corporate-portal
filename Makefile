@@ -7,7 +7,7 @@ DEPLOY_TEST_PATH ?= $(TEST_PATH)
 BRANCH     := $(shell git rev-parse --abbrev-ref HEAD)
 
 .DEFAULT_GOAL := help
-.PHONY: help push test deploy makemigrations showmigrations backup-db create-postgres-mcp-role rollback refresh-approval-messages link-lemon-auto-request-exceptions fix-bank-expense-vendor-misattribution reconcile-card-revenues local-up local-down local-logs test_local
+.PHONY: help push test deploy makemigrations showmigrations logs backup-db create-postgres-mcp-role rollback refresh-approval-messages link-lemon-auto-request-exceptions fix-bank-expense-vendor-misattribution reconcile-card-revenues local-up local-down local-logs test_local
 
 help:
 	@echo ""
@@ -19,6 +19,7 @@ help:
 	@echo "  make deploy DEPLOY_TEST_PATH=apps.modules.requests.tests — деплой + таргетные тесты"
 	@echo "  make makemigrations  — создать миграции и скачать на локал"
 	@echo "  make showmigrations  — показать tenants/requests/vendors миграции на сервере"
+	@echo "  make logs            — логи сервиса на сервере (LOGS_SERVICE=backend_v2 LOGS_TAIL=200)"
 	@echo "  make backup-db       — создать gzip-копию БД на сервере в backups/db"
 	@echo "  make create-postgres-mcp-role — создать/обновить read-only роль Postgres MCP на сервере"
 	@echo "  make refresh-approval-messages REQUEST_IDS='1 2' — актуализировать Telegram-карточки заявок на сервере"
@@ -87,6 +88,14 @@ showmigrations:
 	ssh $(SERVER) "cd $(REMOTE_DIR) && \
 		docker compose --env-file ./.env exec -T backend_v2 \
 		python manage.py showmigrations tenants requests vendors"
+
+# ── 5a. Логи сервиса на сервере ────────────────────────────────────────────────
+LOGS_SERVICE ?= backend_v2
+LOGS_TAIL    ?= 200
+
+logs:
+	ssh $(SERVER) "cd $(REMOTE_DIR) && \
+		docker compose --env-file ./.env logs --tail=$(LOGS_TAIL) $(LOGS_SERVICE)"
 
 # ── 6. Ручной backup БД на сервере (перед миграциями) ─────────────────────────
 BACKUP_NAME ?= manual_$(shell date +%Y%m%d_%H%M%S)
