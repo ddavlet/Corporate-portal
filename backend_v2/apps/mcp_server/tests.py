@@ -592,7 +592,7 @@ class ServiceKeyMiddlewareTests(TestCase):
         return {"type": "http", "path": "/", "headers": headers}
 
     def _run(self, app, headers):
-        import asyncio
+        from asgiref.sync import async_to_sync
         from apps.mcp_server.http.service_key import with_service_key_auth
 
         sent = []
@@ -604,7 +604,7 @@ class ServiceKeyMiddlewareTests(TestCase):
             sent.append(message)
 
         wrapped = with_service_key_auth(app)
-        asyncio.run(wrapped(self._scope(headers), receive, send))
+        async_to_sync(wrapped)(self._scope(headers), receive, send)
         return sent
 
     def test_no_header_passes_through_unchanged(self):
@@ -659,7 +659,7 @@ class ServiceKeyMiddlewareTests(TestCase):
         self.assertIsNotNone(self.credential.last_used_at)
 
     def test_non_http_scope_passes_through(self):
-        import asyncio
+        from asgiref.sync import async_to_sync
         from apps.mcp_server.http.service_key import with_service_key_auth
 
         calls = []
@@ -668,7 +668,7 @@ class ServiceKeyMiddlewareTests(TestCase):
             calls.append(scope["type"])
 
         wrapped = with_service_key_auth(downstream)
-        asyncio.run(wrapped({"type": "lifespan"}, None, None))
+        async_to_sync(wrapped)({"type": "lifespan"}, None, None)
         self.assertEqual(calls, ["lifespan"])
 
 
