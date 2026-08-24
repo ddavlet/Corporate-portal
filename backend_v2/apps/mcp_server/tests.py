@@ -575,3 +575,98 @@ class ServiceModeUniformDenialTests(TestCase):
             _get_user_and_tenant(user.id, tenant.id, service_mode=True)
 
         self.assertEqual(str(ctx_a.exception), str(ctx_b.exception))
+
+
+class ServiceKeyMiddlewareTests(TestCase):
+    def setUp(self):
+        from apps.tenants.models import Tenant
+        from apps.mcp_server.services import provision_service_credential
+
+        self.tenant = Tenant.objects.create(
+            name="MW", subdomain="svc-mw", is_active=True, mcp_enabled=True
+        )
+        self.credential, self.raw_key = provision_service_credential("mw-test", [self.tenant.id])
+
+    @staticmethod
+    def _scope(headers: list[tuple[bytes, bytes]]):
+        return {"type": "http", "path": "/", "headers": headers}
+
+    def _run(self, app, headers):
+        import asyncio
+        from apps.mcp_server.http.service_key import with_service_key_auth
+
+        sent = []
+
+        async def receive():
+            return {"type": "http.disconnect"}
+
+        async def send(message):
+            sent.append(message)
+
+        wrapped = with_service_key_auth(app)
+        asyncio.run(wrapped(self._scope(headers), receive, send))
+        return sent
+
+    def test_no_header_passes_through_unchanged(self):
+        seen_scopes = []
+
+        async def downstream(scope, receive, send):
+            seen_scopes.append(scope)
+            await send({"type": "http.response.start", "status": 200, "headers": []})
+            await send({"type": "http.response.body", "body": b""})
+
+        self._run(downstream, headers=[(b"authorization", b"Bearer original")])
+        self.assertEqual(seen_scopes[0]["headers"], [(b"authorization", b"Bearer original")])
+
+    def test_valid_key_rewrites_authorization_header(self):
+        from apps.mcp_server.auth import _decode_token, _is_service_claim
+
+        seen_scopes = []
+
+        async def downstream(scope, receive, send):
+            seen_scopes.append(scope)
+            await send({"type": "http.response.start", "status": 200, "headers": []})
+            await send({"type": "http.response.body", "body": b""})
+
+        self._run(downstream, headers=[(b"x-service-key", self.raw_key.encode("latin-1"))])
+
+        auth_headers = [v for k, v in seen_scopes[0]["headers"] if k == b"authorization"]
+        self.assertEqual(len(auth_headers), 1)
+        token = auth_headers[0].decode("latin-1").removeprefix("Bearer ")
+        self.assertEqual(_decode_token(token), self.credential.service_user_id)
+        self.assertTrue(_is_service_claim(token))
+
+    def test_invalid_key_returns_401_and_never_calls_downstream(self):
+        downstream_called = []
+
+        async def downstream(scope, receive, send):
+            downstream_called.append(True)
+
+        sent = self._run(downstream, headers=[(b"x-service-key", b"svc_bad_bad")])
+
+        self.assertEqual(downstream_called, [])
+        self.assertEqual(sent[0]["status"], 401)
+
+    def test_valid_key_updates_last_used_at(self):
+        async def downstream(scope, receive, send):
+            await send({"type": "http.response.start", "status": 200, "headers": []})
+            await send({"type": "http.response.body", "body": b""})
+
+        self.assertIsNone(self.credential.last_used_at)
+        self._run(downstream, headers=[(b"x-service-key", self.raw_key.encode("latin-1"))])
+
+        self.credential.refresh_from_db()
+        self.assertIsNotNone(self.credential.last_used_at)
+
+    def test_non_http_scope_passes_through(self):
+        import asyncio
+        from apps.mcp_server.http.service_key import with_service_key_auth
+
+        calls = []
+
+        async def downstream(scope, receive, send):
+            calls.append(scope["type"])
+
+        wrapped = with_service_key_auth(downstream)
+        asyncio.run(wrapped({"type": "lifespan"}, None, None))
+        self.assertEqual(calls, ["lifespan"])
