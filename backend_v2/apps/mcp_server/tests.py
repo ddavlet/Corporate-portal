@@ -670,3 +670,71 @@ class ServiceKeyMiddlewareTests(TestCase):
         wrapped = with_service_key_auth(downstream)
         asyncio.run(wrapped({"type": "lifespan"}, None, None))
         self.assertEqual(calls, ["lifespan"])
+
+
+class McpServiceCredentialAdminTests(TestCase):
+    def setUp(self):
+        from django.contrib.admin.sites import AdminSite
+        from django.contrib.auth import get_user_model
+        from apps.tenants.models import Tenant
+        from apps.mcp_server.admin import McpServiceCredentialAdmin
+        from apps.mcp_server.models import McpServiceCredential
+
+        self.tenant_a = Tenant.objects.create(name="AA", subdomain="admin-a", is_active=True, mcp_enabled=True)
+        self.tenant_b = Tenant.objects.create(name="BB", subdomain="admin-b", is_active=True, mcp_enabled=True)
+        self.admin = McpServiceCredentialAdmin(McpServiceCredential, AdminSite())
+        self.staff = get_user_model().objects.create_user(username="staff", is_staff=True)
+
+    def _fake_request(self):
+        from django.test import RequestFactory
+
+        request = RequestFactory().post("/admin/mcp_server/mcpservicecredential/add/")
+        request.user = self.staff
+        request._messages = _DummyMessages()
+        return request
+
+    def test_add_provisions_credential_and_messages_raw_key(self):
+        from apps.mcp_server.models import McpServiceCredential
+
+        obj = McpServiceCredential(name="n8n", is_active=True)
+        form = _FakeForm(cleaned_data={"tenants": [self.tenant_a]})
+        request = self._fake_request()
+
+        self.admin.save_model(request, obj, form, change=False)
+
+        self.assertIsNotNone(obj.pk)
+        saved = McpServiceCredential.objects.get(pk=obj.pk)
+        self.assertEqual(saved.name, "n8n")
+        self.assertTrue(any("shown once" in m for m in request._messages.messages))
+
+    def test_save_related_syncs_tenant_access(self):
+        from apps.mcp_server.services import provision_service_credential
+        from apps.tenants.models import TenantMembership
+
+        credential, _ = provision_service_credential("n8n", [self.tenant_a.id])
+        credential.tenants.add(self.tenant_b)
+
+        request = self._fake_request()
+        form = _FakeForm(cleaned_data={}, instance=credential)
+        self.admin.save_related(request, form, formsets=[], change=True)
+
+        self.assertTrue(
+            TenantMembership.objects.filter(
+                user=credential.service_user, tenant=self.tenant_b, is_active=True
+            ).exists()
+        )
+
+
+class _FakeForm:
+    def __init__(self, cleaned_data, instance=None):
+        self.cleaned_data = cleaned_data
+        self.instance = instance
+        self.save_m2m = lambda: None
+
+
+class _DummyMessages:
+    def __init__(self):
+        self.messages = []
+
+    def add(self, level, message, extra_tags):
+        self.messages.append(message)
