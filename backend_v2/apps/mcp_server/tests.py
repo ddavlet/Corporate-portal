@@ -484,3 +484,82 @@ class ProvisionServiceCredentialTests(TestCase):
                 user=credential.service_user, tenant=self.tenant_b, is_active=True
             ).exists()
         )
+
+
+class IsServiceClaimTests(TestCase):
+    def test_true_for_token_with_svc_claim(self):
+        from django.contrib.auth import get_user_model
+        from rest_framework_simplejwt.tokens import AccessToken
+        from apps.mcp_server.auth import _is_service_claim
+
+        user = get_user_model().objects.create_user(username="svc-claim-test")
+        token = AccessToken.for_user(user)
+        token["svc"] = True
+        self.assertTrue(_is_service_claim(str(token)))
+
+    def test_false_for_ordinary_token(self):
+        from django.contrib.auth import get_user_model
+        from rest_framework_simplejwt.tokens import AccessToken
+        from apps.mcp_server.auth import _is_service_claim
+
+        user = get_user_model().objects.create_user(username="svc-claim-test-2")
+        token = AccessToken.for_user(user)
+        self.assertFalse(_is_service_claim(str(token)))
+
+    def test_false_for_garbage_token(self):
+        from apps.mcp_server.auth import _is_service_claim
+
+        self.assertFalse(_is_service_claim("not-a-jwt"))
+
+
+class ServiceModeUniformDenialTests(TestCase):
+    """service_mode=True must give the exact same message for every failure
+    reason, so a service key can't distinguish 'wrong tenant' from 'tenant
+    doesn't exist'. service_mode=False (the default) must be untouched —
+    covered already by McpTenantToggleTests."""
+
+    def _expect_uniform_denial(self, user_id, tenant_id):
+        from apps.mcp_server.auth import _get_user_and_tenant
+
+        with self.assertRaises(PermissionError) as ctx:
+            _get_user_and_tenant(user_id, tenant_id, service_mode=True)
+        self.assertEqual(
+            str(ctx.exception), f"Access denied: tenant {tenant_id} is not accessible with this key"
+        )
+
+    def test_nonexistent_tenant(self):
+        from django.contrib.auth import get_user_model
+
+        user = get_user_model().objects.create_user(username="svc-deny-1")
+        self._expect_uniform_denial(user.id, 999_999)
+
+    def test_tenant_exists_but_not_a_member(self):
+        from django.contrib.auth import get_user_model
+        from apps.tenants.models import Tenant
+
+        user = get_user_model().objects.create_user(username="svc-deny-2")
+        tenant = Tenant.objects.create(name="X", subdomain="svc-deny-2", is_active=True, mcp_enabled=True)
+        self._expect_uniform_denial(user.id, tenant.id)
+
+    def test_tenant_exists_but_mcp_disabled(self):
+        from django.contrib.auth import get_user_model
+        from apps.tenants.models import Tenant, TenantMembership
+
+        user = get_user_model().objects.create_user(username="svc-deny-3")
+        tenant = Tenant.objects.create(name="Y", subdomain="svc-deny-3", is_active=True, mcp_enabled=False)
+        TenantMembership.objects.create(user=user, tenant=tenant, is_active=True)
+        self._expect_uniform_denial(user.id, tenant.id)
+
+    def test_two_different_denial_reasons_give_identical_message(self):
+        from django.contrib.auth import get_user_model
+        from apps.tenants.models import Tenant
+        from apps.mcp_server.auth import _get_user_and_tenant
+
+        user = get_user_model().objects.create_user(username="svc-deny-4")
+        tenant = Tenant.objects.create(name="Z", subdomain="svc-deny-4", is_active=True, mcp_enabled=True)
+
+        with self.assertRaises(PermissionError) as ctx_a:
+            _get_user_and_tenant(user.id, 999_999, service_mode=True)
+        with self.assertRaises(PermissionError) as ctx_b:
+            _get_user_and_tenant(user.id, tenant.id, service_mode=True)  # exists, not a member
+        self.assertEqual(str(ctx_a.exception), str(ctx_b.exception))
