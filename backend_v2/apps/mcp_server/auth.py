@@ -58,7 +58,26 @@ def _decode_token(token: str) -> int:
         raise PermissionError(f"Invalid or expired token: {exc}") from exc
 
 
-def _get_user_and_tenant(user_id: int, tenant_id: int):
+def _is_service_claim(token: str) -> bool:
+    """True if `token` was minted by the service-key middleware (custom `svc` claim)."""
+    try:
+        return bool(AccessToken(token).payload.get("svc", False))
+    except TokenError:
+        return False
+
+
+def _get_user_and_tenant(user_id: int, tenant_id: int, *, service_mode: bool = False):
+    try:
+        return _get_user_and_tenant_unchecked(user_id, tenant_id)
+    except PermissionError:
+        if service_mode:
+            raise PermissionError(
+                f"Access denied: tenant {tenant_id} is not accessible with this key"
+            )
+        raise
+
+
+def _get_user_and_tenant_unchecked(user_id: int, tenant_id: int):
     from apps.accounts.models import User
     from apps.tenants.models import Tenant, TenantMembership
 
@@ -91,7 +110,7 @@ def require_module_access(tenant_id: int, module_key: str):
     """
     token = _get_token()
     user_id = _decode_token(token)
-    user, tenant = _get_user_and_tenant(user_id, tenant_id)
+    user, tenant = _get_user_and_tenant(user_id, tenant_id, service_mode=_is_service_claim(token))
 
     from apps.tenants.permissions import has_effective_module_access
 
@@ -111,7 +130,7 @@ def require_admin_access(tenant_id: int):
     """
     token = _get_token()
     user_id = _decode_token(token)
-    user, tenant = _get_user_and_tenant(user_id, tenant_id)
+    user, tenant = _get_user_and_tenant(user_id, tenant_id, service_mode=_is_service_claim(token))
 
     from apps.tenants.models import TenantUserRole
 
@@ -127,7 +146,7 @@ def require_admin_or_director(tenant_id: int):
     """Validate the env token and ensure the user is admin or director."""
     token = _get_token()
     user_id = _decode_token(token)
-    user, tenant = _get_user_and_tenant(user_id, tenant_id)
+    user, tenant = _get_user_and_tenant(user_id, tenant_id, service_mode=_is_service_claim(token))
 
     from apps.tenants.models import TenantUserRole
 

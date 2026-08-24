@@ -65,6 +65,7 @@ def get_mcp_asgi_app():
     mcp._token_verifier = ProviderTokenVerifier(_provider)
 
     from apps.mcp_server.http.middleware import with_mcp_resource_metadata
+    from apps.mcp_server.http.service_key import with_service_key_auth
 
-    _mcp_asgi_app = with_mcp_resource_metadata(mcp.streamable_http_app())
+    _mcp_asgi_app = with_mcp_resource_metadata(with_service_key_auth(mcp.streamable_http_app()))
     return _mcp_asgi_app

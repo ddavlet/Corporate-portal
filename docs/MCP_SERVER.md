@@ -2,6 +2,8 @@
 
 > **Production status (2026-08-13): HTTP/OAuth MCP is parked.**  
 > Traefik no longer routes `api.kolberg.uz`. Gunicorn does **not** start FastMCP (`MCP_HTTP_ENABLED` defaults to `false`). The module [`backend_v2/apps/mcp_server/`](../backend_v2/apps/mcp_server/) stays in git so it can be turned back on without rewriting it.
+> 
+> As of 2026-08-24, a second tenant-scoped service-key authentication mode (for non-human callers like n8n workflows) now exists, still gated behind the same `MCP_HTTP_ENABLED` flag.
 
 **To re-enable later:**
 
@@ -108,6 +110,33 @@ Any failure raises `PermissionError`, which the tool converts into an error resu
 - **Tenant-isolated.** Every query is filtered by `tenant=<resolved tenant>`. Cross-tenant access is impossible — passing another tenant's `tenant_id` fails the membership check.
 - **Secrets redacted.** `get_integration_config` never returns encrypted values — only booleans indicating whether each secret is set.
 - **Token off-channel.** The JWT lives in the process environment, never in tool arguments or results.
+
+---
+
+## 4a. Service-key authentication (tenant-scoped, non-human callers)
+
+For integrations that are not a specific human user (n8n workflows, other
+backends, agents), an admin can issue a service key scoped to one or more
+tenants via Django admin (`McpServiceCredential`).
+
+- Header: `X-Service-Key: svc_<prefix>_<secret>`.
+- The key resolves to a real, synthetic `service_user` who is an admin
+  member of exactly the tenants the key was scoped to — so it can call
+  every tool (including admin-only ones: `get_integration_config`,
+  `list_user_roles`, `list_memberships`) within those tenants, subject to
+  the same per-tenant toggles (`Tenant.mcp_enabled`, `TenantModuleConfig`)
+  a human admin would be. This includes write access — the `tasks` module's
+  `create_task`, `update_task_status`, `add_task_comment`, `edit_task`, and
+  `delete_task` tools are not read-only, and a service key can use all of
+  them exactly as a human admin could. Treat a service key with the same
+  care as an admin password.
+- A `tenant_id` outside the key's scope — or one that doesn't exist at all —
+  produces the identical error: `Access denied: tenant {id} is not
+  accessible with this key`. The two cases are indistinguishable by design.
+- Issuing a key shows the raw secret exactly once, in the Django admin
+  success message on creation. It cannot be recovered afterward — only
+  reissued.
+- Revoke by unchecking "is active" on the credential in admin.
 
 ---
 

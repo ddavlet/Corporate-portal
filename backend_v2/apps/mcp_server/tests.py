@@ -362,3 +362,472 @@ class McpHttpDisabledTests(TestCase):
     def test_well_known_protected_resource_is_404(self):
         r = self.client.get("/.well-known/oauth-protected-resource")
         self.assertEqual(r.status_code, 404)
+
+
+class McpServiceCredentialModelTests(TestCase):
+    def setUp(self):
+        from django.contrib.auth import get_user_model
+
+        self.user = get_user_model().objects.create_user(username="svc-model-test")
+
+    def test_key_prefix_must_be_unique(self):
+        from django.db import IntegrityError
+        from apps.mcp_server.models import McpServiceCredential
+
+        McpServiceCredential.objects.create(
+            key_prefix="dup1", key_hash="x", name="A", service_user=self.user
+        )
+        other_user = self.user.__class__.objects.create_user(username="svc-model-test-2")
+        with self.assertRaises(IntegrityError):
+            McpServiceCredential.objects.create(
+                key_prefix="dup1", key_hash="x", name="B", service_user=other_user
+            )
+
+    def test_str_includes_name_and_prefix(self):
+        from apps.mcp_server.models import McpServiceCredential
+
+        cred = McpServiceCredential.objects.create(
+            key_prefix="strtest", key_hash="x", name="n8n prod", service_user=self.user
+        )
+        self.assertIn("n8n prod", str(cred))
+        self.assertIn("strtest", str(cred))
+
+
+class ProvisionServiceCredentialTests(TestCase):
+    def setUp(self):
+        from apps.tenants.models import Tenant
+
+        self.tenant_a = Tenant.objects.create(name="A", subdomain="svc-a", is_active=True, mcp_enabled=True)
+        self.tenant_b = Tenant.objects.create(name="B", subdomain="svc-b", is_active=True, mcp_enabled=True)
+
+    def test_creates_service_user_with_unusable_password(self):
+        from apps.mcp_server.services import provision_service_credential
+
+        credential, raw_key = provision_service_credential("n8n", [self.tenant_a.id])
+        self.assertFalse(credential.service_user.has_usable_password())
+
+    def test_raw_key_verifies_and_hash_does_not_match_raw_secret(self):
+        from apps.mcp_server.services import provision_service_credential, verify_service_key
+
+        credential, raw_key = provision_service_credential("n8n", [self.tenant_a.id])
+        self.assertNotEqual(credential.key_hash, raw_key)
+        found = verify_service_key(raw_key)
+        self.assertEqual(found.pk, credential.pk)
+
+    def test_wrong_secret_does_not_verify(self):
+        from apps.mcp_server.services import provision_service_credential, verify_service_key
+
+        credential, raw_key = provision_service_credential("n8n", [self.tenant_a.id])
+        prefix = raw_key.split("_")[1]
+        self.assertIsNone(verify_service_key(f"svc_{prefix}_wrong-secret"))
+
+    def test_inactive_credential_does_not_verify(self):
+        from apps.mcp_server.services import provision_service_credential, verify_service_key
+
+        credential, raw_key = provision_service_credential("n8n", [self.tenant_a.id])
+        credential.is_active = False
+        credential.save(update_fields=["is_active"])
+        self.assertIsNone(verify_service_key(raw_key))
+
+    def test_malformed_key_does_not_verify(self):
+        from apps.mcp_server.services import verify_service_key
+
+        self.assertIsNone(verify_service_key("not-a-service-key"))
+        self.assertIsNone(verify_service_key("svc_missingsecret"))
+
+    def test_grants_admin_membership_in_scoped_tenants_only(self):
+        from apps.mcp_server.services import provision_service_credential
+        from apps.tenants.models import TenantMembership, TenantUserRole
+
+        credential, _ = provision_service_credential("n8n", [self.tenant_a.id])
+        user = credential.service_user
+
+        self.assertTrue(
+            TenantMembership.objects.filter(user=user, tenant=self.tenant_a, is_active=True).exists()
+        )
+        self.assertTrue(
+            TenantUserRole.objects.filter(
+                user=user, tenant=self.tenant_a, role=TenantUserRole.ROLE_ADMIN
+            ).exists()
+        )
+        self.assertFalse(TenantMembership.objects.filter(user=user, tenant=self.tenant_b).exists())
+
+    def test_sync_tenant_access_removes_stale_tenants(self):
+        from apps.mcp_server.services import provision_service_credential, sync_tenant_access
+        from apps.tenants.models import TenantMembership, TenantUserRole
+
+        credential, _ = provision_service_credential("n8n", [self.tenant_a.id, self.tenant_b.id])
+        user = credential.service_user
+
+        credential.tenants.remove(self.tenant_b)
+        sync_tenant_access(credential)
+
+        self.assertFalse(
+            TenantMembership.objects.filter(user=user, tenant=self.tenant_b, is_active=True).exists()
+        )
+        self.assertFalse(TenantUserRole.objects.filter(user=user, tenant=self.tenant_b).exists())
+        # tenant A untouched
+        self.assertTrue(
+            TenantMembership.objects.filter(user=user, tenant=self.tenant_a, is_active=True).exists()
+        )
+
+    def test_sync_tenant_access_adds_newly_scoped_tenants(self):
+        from apps.mcp_server.services import provision_service_credential, sync_tenant_access
+        from apps.tenants.models import TenantMembership
+
+        credential, _ = provision_service_credential("n8n", [self.tenant_a.id])
+        credential.tenants.add(self.tenant_b)
+        sync_tenant_access(credential)
+
+        self.assertTrue(
+            TenantMembership.objects.filter(
+                user=credential.service_user, tenant=self.tenant_b, is_active=True
+            ).exists()
+        )
+
+
+class IsServiceClaimTests(TestCase):
+    def test_true_for_token_with_svc_claim(self):
+        from django.contrib.auth import get_user_model
+        from rest_framework_simplejwt.tokens import AccessToken
+        from apps.mcp_server.auth import _is_service_claim
+
+        user = get_user_model().objects.create_user(username="svc-claim-test")
+        token = AccessToken.for_user(user)
+        token["svc"] = True
+        self.assertTrue(_is_service_claim(str(token)))
+
+    def test_false_for_ordinary_token(self):
+        from django.contrib.auth import get_user_model
+        from rest_framework_simplejwt.tokens import AccessToken
+        from apps.mcp_server.auth import _is_service_claim
+
+        user = get_user_model().objects.create_user(username="svc-claim-test-2")
+        token = AccessToken.for_user(user)
+        self.assertFalse(_is_service_claim(str(token)))
+
+    def test_false_for_garbage_token(self):
+        from apps.mcp_server.auth import _is_service_claim
+
+        self.assertFalse(_is_service_claim("not-a-jwt"))
+
+
+class ServiceModeUniformDenialTests(TestCase):
+    """service_mode=True must give the exact same message for every failure
+    reason, so a service key can't distinguish 'wrong tenant' from 'tenant
+    doesn't exist'. service_mode=False (the default) must be untouched —
+    covered already by McpTenantToggleTests."""
+
+    def _expect_uniform_denial(self, user_id, tenant_id):
+        from apps.mcp_server.auth import _get_user_and_tenant
+
+        with self.assertRaises(PermissionError) as ctx:
+            _get_user_and_tenant(user_id, tenant_id, service_mode=True)
+        self.assertEqual(
+            str(ctx.exception), f"Access denied: tenant {tenant_id} is not accessible with this key"
+        )
+
+    def test_nonexistent_tenant(self):
+        from django.contrib.auth import get_user_model
+
+        user = get_user_model().objects.create_user(username="svc-deny-1")
+        self._expect_uniform_denial(user.id, 999_999)
+
+    def test_tenant_exists_but_not_a_member(self):
+        from django.contrib.auth import get_user_model
+        from apps.tenants.models import Tenant
+
+        user = get_user_model().objects.create_user(username="svc-deny-2")
+        tenant = Tenant.objects.create(name="X", subdomain="svc-deny-2", is_active=True, mcp_enabled=True)
+        self._expect_uniform_denial(user.id, tenant.id)
+
+    def test_tenant_exists_but_mcp_disabled(self):
+        from django.contrib.auth import get_user_model
+        from apps.tenants.models import Tenant, TenantMembership
+
+        user = get_user_model().objects.create_user(username="svc-deny-3")
+        tenant = Tenant.objects.create(name="Y", subdomain="svc-deny-3", is_active=True, mcp_enabled=False)
+        TenantMembership.objects.create(user=user, tenant=tenant, is_active=True)
+        self._expect_uniform_denial(user.id, tenant.id)
+
+    def test_two_different_denial_reasons_give_identical_message(self):
+        """Same tenant_id, two different underlying failure reasons — the
+        message must depend only on tenant_id, never on why access failed.
+        (Comparing across two *different* tenant_ids would be meaningless:
+        the uniform message embeds tenant_id itself, so it necessarily
+        differs when the id differs — that is not a leak, the caller
+        already knows the id it asked for.)"""
+        from django.contrib.auth import get_user_model
+        from apps.tenants.models import Tenant
+        from apps.mcp_server.auth import _get_user_and_tenant
+
+        user = get_user_model().objects.create_user(username="svc-deny-4")
+        tenant = Tenant.objects.create(name="Z", subdomain="svc-deny-4", is_active=True, mcp_enabled=True)
+
+        # reason 1: tenant exists/active/mcp-enabled, but user isn't a member
+        with self.assertRaises(PermissionError) as ctx_a:
+            _get_user_and_tenant(user.id, tenant.id, service_mode=True)
+
+        # reason 2: same tenant_id, now inactive -> Tenant.DoesNotExist branch
+        tenant.is_active = False
+        tenant.save(update_fields=["is_active"])
+        with self.assertRaises(PermissionError) as ctx_b:
+            _get_user_and_tenant(user.id, tenant.id, service_mode=True)
+
+        self.assertEqual(str(ctx_a.exception), str(ctx_b.exception))
+
+
+class ServiceKeyMiddlewareTests(TestCase):
+    def setUp(self):
+        from apps.tenants.models import Tenant
+        from apps.mcp_server.services import provision_service_credential
+
+        self.tenant = Tenant.objects.create(
+            name="MW", subdomain="svc-mw", is_active=True, mcp_enabled=True
+        )
+        self.credential, self.raw_key = provision_service_credential("mw-test", [self.tenant.id])
+
+    @staticmethod
+    def _scope(headers: list[tuple[bytes, bytes]]):
+        return {"type": "http", "path": "/", "headers": headers}
+
+    def _run(self, app, headers):
+        from asgiref.sync import async_to_sync
+        from apps.mcp_server.http.service_key import with_service_key_auth
+
+        sent = []
+
+        async def receive():
+            return {"type": "http.disconnect"}
+
+        async def send(message):
+            sent.append(message)
+
+        wrapped = with_service_key_auth(app)
+        async_to_sync(wrapped)(self._scope(headers), receive, send)
+        return sent
+
+    def test_no_header_passes_through_unchanged(self):
+        seen_scopes = []
+
+        async def downstream(scope, receive, send):
+            seen_scopes.append(scope)
+            await send({"type": "http.response.start", "status": 200, "headers": []})
+            await send({"type": "http.response.body", "body": b""})
+
+        self._run(downstream, headers=[(b"authorization", b"Bearer original")])
+        self.assertEqual(seen_scopes[0]["headers"], [(b"authorization", b"Bearer original")])
+
+    def test_valid_key_rewrites_authorization_header(self):
+        from apps.mcp_server.auth import _decode_token, _is_service_claim
+
+        seen_scopes = []
+
+        async def downstream(scope, receive, send):
+            seen_scopes.append(scope)
+            await send({"type": "http.response.start", "status": 200, "headers": []})
+            await send({"type": "http.response.body", "body": b""})
+
+        self._run(downstream, headers=[(b"x-service-key", self.raw_key.encode("latin-1"))])
+
+        auth_headers = [v for k, v in seen_scopes[0]["headers"] if k == b"authorization"]
+        self.assertEqual(len(auth_headers), 1)
+        token = auth_headers[0].decode("latin-1").removeprefix("Bearer ")
+        self.assertEqual(_decode_token(token), self.credential.service_user_id)
+        self.assertTrue(_is_service_claim(token))
+
+    def test_invalid_key_returns_401_and_never_calls_downstream(self):
+        downstream_called = []
+
+        async def downstream(scope, receive, send):
+            downstream_called.append(True)
+
+        sent = self._run(downstream, headers=[(b"x-service-key", b"svc_bad_bad")])
+
+        self.assertEqual(downstream_called, [])
+        self.assertEqual(sent[0]["status"], 401)
+
+    def test_valid_key_updates_last_used_at(self):
+        async def downstream(scope, receive, send):
+            await send({"type": "http.response.start", "status": 200, "headers": []})
+            await send({"type": "http.response.body", "body": b""})
+
+        self.assertIsNone(self.credential.last_used_at)
+        self._run(downstream, headers=[(b"x-service-key", self.raw_key.encode("latin-1"))])
+
+        self.credential.refresh_from_db()
+        self.assertIsNotNone(self.credential.last_used_at)
+
+    def test_non_http_scope_passes_through(self):
+        from asgiref.sync import async_to_sync
+        from apps.mcp_server.http.service_key import with_service_key_auth
+
+        calls = []
+
+        async def downstream(scope, receive, send):
+            calls.append(scope["type"])
+
+        wrapped = with_service_key_auth(downstream)
+        async_to_sync(wrapped)({"type": "lifespan"}, None, None)
+        self.assertEqual(calls, ["lifespan"])
+
+
+class McpServiceCredentialAdminTests(TestCase):
+    def setUp(self):
+        from django.contrib.admin.sites import AdminSite
+        from django.contrib.auth import get_user_model
+        from apps.tenants.models import Tenant
+        from apps.mcp_server.admin import McpServiceCredentialAdmin
+        from apps.mcp_server.models import McpServiceCredential
+
+        self.tenant_a = Tenant.objects.create(name="AA", subdomain="admin-a", is_active=True, mcp_enabled=True)
+        self.tenant_b = Tenant.objects.create(name="BB", subdomain="admin-b", is_active=True, mcp_enabled=True)
+        self.admin = McpServiceCredentialAdmin(McpServiceCredential, AdminSite())
+        self.staff = get_user_model().objects.create_user(username="staff", is_staff=True)
+
+    def _fake_request(self):
+        from django.test import RequestFactory
+
+        request = RequestFactory().post("/admin/mcp_server/mcpservicecredential/add/")
+        request.user = self.staff
+        request._messages = _DummyMessages()
+        return request
+
+    def test_add_provisions_credential_and_messages_raw_key(self):
+        from apps.mcp_server.models import McpServiceCredential
+
+        obj = McpServiceCredential(name="n8n", is_active=True)
+        form = _FakeForm(cleaned_data={"tenants": [self.tenant_a]})
+        request = self._fake_request()
+
+        self.admin.save_model(request, obj, form, change=False)
+
+        self.assertIsNotNone(obj.pk)
+        saved = McpServiceCredential.objects.get(pk=obj.pk)
+        self.assertEqual(saved.name, "n8n")
+        self.assertTrue(any("shown once" in m for m in request._messages.messages))
+
+    def test_save_related_syncs_tenant_access(self):
+        from apps.mcp_server.services import provision_service_credential
+        from apps.tenants.models import TenantMembership
+
+        credential, _ = provision_service_credential("n8n", [self.tenant_a.id])
+        credential.tenants.add(self.tenant_b)
+
+        request = self._fake_request()
+        form = _FakeForm(cleaned_data={}, instance=credential)
+        self.admin.save_related(request, form, formsets=[], change=True)
+
+        self.assertTrue(
+            TenantMembership.objects.filter(
+                user=credential.service_user, tenant=self.tenant_b, is_active=True
+            ).exists()
+        )
+
+
+class _FakeForm:
+    def __init__(self, cleaned_data, instance=None):
+        self.cleaned_data = cleaned_data
+        self.instance = instance
+        self.save_m2m = lambda: None
+
+
+class _DummyMessages:
+    def __init__(self):
+        self.messages = []
+
+    def add(self, level, message, extra_tags):
+        self.messages.append(message)
+
+
+class ServiceKeyEndToEndTests(TestCase):
+    """Exercises the real seam between service_key.py's minted token and
+    auth.py's require_* functions — the same integration FastMCP relies on
+    in production, without driving the full streamable-http/JSON-RPC stack."""
+
+    def setUp(self):
+        from apps.tenants.models import Tenant, TenantModuleConfig
+        from apps.mcp_server.services import provision_service_credential
+
+        self.tenant_a = Tenant.objects.create(name="E2E-A", subdomain="e2e-a", is_active=True, mcp_enabled=True)
+        self.tenant_b = Tenant.objects.create(name="E2E-B", subdomain="e2e-b", is_active=True, mcp_enabled=True)
+        TenantModuleConfig.objects.create(tenant=self.tenant_a, module_key="requests", is_enabled=True)
+        TenantModuleConfig.objects.create(tenant=self.tenant_b, module_key="requests", is_enabled=True)
+
+        self.credential, self.raw_key = provision_service_credential("e2e", [self.tenant_a.id])
+
+    def _minted_token(self):
+        from apps.mcp_server.http.service_key import _mint_service_access_token
+
+        return _mint_service_access_token(self.credential.service_user)
+
+    def test_service_token_grants_module_access_for_scoped_tenant(self):
+        from apps.mcp_server.auth import set_request_token, require_module_access
+
+        set_request_token(self._minted_token())
+        user, tenant = require_module_access(self.tenant_a.id, "requests")
+        self.assertEqual(tenant.id, self.tenant_a.id)
+        self.assertEqual(user.id, self.credential.service_user_id)
+
+    def test_service_token_grants_admin_only_tools(self):
+        from apps.mcp_server.auth import set_request_token, require_admin_access
+
+        set_request_token(self._minted_token())
+        user, tenant = require_admin_access(self.tenant_a.id)
+        self.assertEqual(tenant.id, self.tenant_a.id)
+
+    def test_service_token_denied_for_out_of_scope_tenant(self):
+        from apps.mcp_server.auth import set_request_token, require_module_access
+
+        set_request_token(self._minted_token())
+        with self.assertRaises(PermissionError) as ctx:
+            require_module_access(self.tenant_b.id, "requests")
+        self.assertEqual(
+            str(ctx.exception),
+            f"Access denied: tenant {self.tenant_b.id} is not accessible with this key",
+        )
+
+    def test_service_token_denied_identically_for_nonexistent_tenant(self):
+        """Same *shape* of denial for an existing-but-out-of-scope tenant and
+        a tenant that doesn't exist at all — asserting literal string equality
+        would be wrong here (the two calls use different tenant_ids, and the
+        uniform message legitimately embeds the id it was asked about; that's
+        not a leak, the caller already supplied that id). What must not leak
+        is anything BEYOND "this id is inaccessible" — same template, only the
+        (caller-supplied) id varies."""
+        import re
+        from apps.mcp_server.auth import set_request_token, require_module_access
+
+        set_request_token(self._minted_token())
+        with self.assertRaises(PermissionError) as ctx_out_of_scope:
+            require_module_access(self.tenant_b.id, "requests")
+        with self.assertRaises(PermissionError) as ctx_nonexistent:
+            require_module_access(999_999, "requests")
+
+        pattern = re.compile(r"^Access denied: tenant \d+ is not accessible with this key$")
+        self.assertRegex(str(ctx_out_of_scope.exception), pattern)
+        self.assertRegex(str(ctx_nonexistent.exception), pattern)
+
+    def test_human_jwt_path_is_completely_unaffected(self):
+        """Sanity check: an ordinary human JWT still goes through the original,
+        unmodified messages — service_mode branching must be a strict no-op
+        for non-service tokens."""
+        from django.contrib.auth import get_user_model
+        from apps.tenants.models import TenantMembership
+        from apps.mcp_server.auth import set_request_token, require_module_access
+        from rest_framework_simplejwt.tokens import AccessToken
+
+        human = get_user_model().objects.create_user(username="e2e-human")
+        TenantMembership.objects.create(user=human, tenant=self.tenant_a, is_active=True)
+        from apps.tenants.models import TenantUserRole
+
+        TenantUserRole.objects.create(tenant=self.tenant_a, user=human, role=TenantUserRole.ROLE_REQUESTER)
+
+        set_request_token(str(AccessToken.for_user(human)))
+        user, tenant = require_module_access(self.tenant_a.id, "requests")
+        self.assertEqual(user.id, human.id)
+
+        with self.assertRaises(PermissionError) as ctx:
+            require_module_access(self.tenant_b.id, "requests")
+        # human path keeps the original, non-uniform message
+        self.assertEqual(str(ctx.exception), "User is not an active member of this tenant")
