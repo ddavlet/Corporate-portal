@@ -31,13 +31,15 @@ cd ~/n8n                  # переходим в папку проекта
 
 git pull                  # скачиваем новый код с GitHub
 
-docker compose --env-file ./.env build frontend_v2 tg-gateway backend_cron
-                          # пересобираем образы frontend, tg-gateway и backend_cron
-                          # backend_v2 (web) пропускаем — код монтируется через bind mount
+docker compose --env-file ./.env build frontend_v2 tg-gateway backend_cron backend_v2
+                          # пересобираем образы frontend, tg-gateway, backend_cron и backend_v2
+                          # backend_v2 код монтируется через bind mount, но зависимости (requirements.txt)
+                          # запечены в образ — без build новые pip-пакеты не подхватятся и контейнер
+                          # упадёт на импорте (см. whitenoise, PR #263)
 
 docker compose --env-file ./.env up -d --no-deps --force-recreate backend_v2
-                          # пересоздаём контейнер бека — подхватывает новые env-переменные из .env
-                          # --force-recreate: bind-mount код не меняет image, поэтому без него docker
+                          # пересоздаём контейнер бека — подхватывает новый образ и env-переменные из .env
+                          # --force-recreate: bind-mount код не меняет image-digest, поэтому без него docker
                           # считает контейнер актуальным и не перезапускает gunicorn
 
 docker compose --env-file ./.env exec -T backend_v2 python manage.py migrate
