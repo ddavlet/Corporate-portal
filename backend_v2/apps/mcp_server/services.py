@@ -1,10 +1,11 @@
 # backend_v2/apps/mcp_server/services.py
 from __future__ import annotations
 
+import hashlib
+import hmac
 import secrets
 
 from django.contrib.auth import get_user_model
-from django.contrib.auth.hashers import check_password, make_password
 
 
 def _generate_key() -> tuple[str, str, str]:
@@ -38,7 +39,7 @@ def provision_service_credential(name: str, tenant_ids: list[int]):
 
     credential = McpServiceCredential.objects.create(
         key_prefix=prefix,
-        key_hash=make_password(secret),
+        key_hash=hashlib.sha256(secret.encode()).hexdigest(),
         name=name,
         service_user=service_user,
     )
@@ -100,6 +101,6 @@ def verify_service_key(raw_key: str):
         credential = McpServiceCredential.objects.get(key_prefix=prefix, is_active=True)
     except McpServiceCredential.DoesNotExist:
         return None
-    if not check_password(secret, credential.key_hash):
+    if not hmac.compare_digest(hashlib.sha256(secret.encode()).hexdigest(), credential.key_hash):
         return None
     return credential
