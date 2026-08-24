@@ -391,3 +391,96 @@ class McpServiceCredentialModelTests(TestCase):
         )
         self.assertIn("n8n prod", str(cred))
         self.assertIn("strtest", str(cred))
+
+
+class ProvisionServiceCredentialTests(TestCase):
+    def setUp(self):
+        from apps.tenants.models import Tenant
+
+        self.tenant_a = Tenant.objects.create(name="A", subdomain="svc-a", is_active=True, mcp_enabled=True)
+        self.tenant_b = Tenant.objects.create(name="B", subdomain="svc-b", is_active=True, mcp_enabled=True)
+
+    def test_creates_service_user_with_unusable_password(self):
+        from apps.mcp_server.services import provision_service_credential
+
+        credential, raw_key = provision_service_credential("n8n", [self.tenant_a.id])
+        self.assertFalse(credential.service_user.has_usable_password())
+
+    def test_raw_key_verifies_and_hash_does_not_match_raw_secret(self):
+        from apps.mcp_server.services import provision_service_credential, verify_service_key
+
+        credential, raw_key = provision_service_credential("n8n", [self.tenant_a.id])
+        self.assertNotEqual(credential.key_hash, raw_key)
+        found = verify_service_key(raw_key)
+        self.assertEqual(found.pk, credential.pk)
+
+    def test_wrong_secret_does_not_verify(self):
+        from apps.mcp_server.services import provision_service_credential, verify_service_key
+
+        credential, raw_key = provision_service_credential("n8n", [self.tenant_a.id])
+        prefix = raw_key.split("_")[1]
+        self.assertIsNone(verify_service_key(f"svc_{prefix}_wrong-secret"))
+
+    def test_inactive_credential_does_not_verify(self):
+        from apps.mcp_server.services import provision_service_credential, verify_service_key
+
+        credential, raw_key = provision_service_credential("n8n", [self.tenant_a.id])
+        credential.is_active = False
+        credential.save(update_fields=["is_active"])
+        self.assertIsNone(verify_service_key(raw_key))
+
+    def test_malformed_key_does_not_verify(self):
+        from apps.mcp_server.services import verify_service_key
+
+        self.assertIsNone(verify_service_key("not-a-service-key"))
+        self.assertIsNone(verify_service_key("svc_missingsecret"))
+
+    def test_grants_admin_membership_in_scoped_tenants_only(self):
+        from apps.mcp_server.services import provision_service_credential
+        from apps.tenants.models import TenantMembership, TenantUserRole
+
+        credential, _ = provision_service_credential("n8n", [self.tenant_a.id])
+        user = credential.service_user
+
+        self.assertTrue(
+            TenantMembership.objects.filter(user=user, tenant=self.tenant_a, is_active=True).exists()
+        )
+        self.assertTrue(
+            TenantUserRole.objects.filter(
+                user=user, tenant=self.tenant_a, role=TenantUserRole.ROLE_ADMIN
+            ).exists()
+        )
+        self.assertFalse(TenantMembership.objects.filter(user=user, tenant=self.tenant_b).exists())
+
+    def test_sync_tenant_access_removes_stale_tenants(self):
+        from apps.mcp_server.services import provision_service_credential, sync_tenant_access
+        from apps.tenants.models import TenantMembership, TenantUserRole
+
+        credential, _ = provision_service_credential("n8n", [self.tenant_a.id, self.tenant_b.id])
+        user = credential.service_user
+
+        credential.tenants.remove(self.tenant_b)
+        sync_tenant_access(credential)
+
+        self.assertFalse(
+            TenantMembership.objects.filter(user=user, tenant=self.tenant_b, is_active=True).exists()
+        )
+        self.assertFalse(TenantUserRole.objects.filter(user=user, tenant=self.tenant_b).exists())
+        # tenant A untouched
+        self.assertTrue(
+            TenantMembership.objects.filter(user=user, tenant=self.tenant_a, is_active=True).exists()
+        )
+
+    def test_sync_tenant_access_adds_newly_scoped_tenants(self):
+        from apps.mcp_server.services import provision_service_credential, sync_tenant_access
+        from apps.tenants.models import TenantMembership
+
+        credential, _ = provision_service_credential("n8n", [self.tenant_a.id])
+        credential.tenants.add(self.tenant_b)
+        sync_tenant_access(credential)
+
+        self.assertTrue(
+            TenantMembership.objects.filter(
+                user=credential.service_user, tenant=self.tenant_b, is_active=True
+            ).exists()
+        )
