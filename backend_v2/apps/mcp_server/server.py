@@ -34,7 +34,7 @@ def _bootstrap_django() -> None:
 
 _bootstrap_django()
 
-from mcp.server.fastmcp import FastMCP
+from mcp.server.mcpserver import MCPServer
 
 from apps.mcp_server.django_tools import django_mcp_tool
 from apps.mcp_server.tools import (
@@ -48,7 +48,7 @@ from apps.mcp_server.tools import (
     tasks as task_tools,
 )
 
-mcp = FastMCP(
+mcp = MCPServer(
     name="Kolberg Data Server",
     instructions="""
 Kolberg is a multi-tenant financial management platform. This server provides
