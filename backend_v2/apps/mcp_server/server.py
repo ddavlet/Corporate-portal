@@ -107,11 +107,15 @@ Corporate card (module: "corporate_card") — reconciliation only:
   list_card_revenues      — card credits (safe to query directly)
 
 Reports (module: "reports"):
-  get_pnl_report          — full PnL: revenue + expenses split into operational /
+  get_pnl_report          — PnL: revenue + expenses split into operational /
                             other / invest_returns; expenses on billing_date with
-                            amortization; includes report_settings explaining config
+                            amortization; includes report_settings explaining config.
+                            Supports date_from/date_to and aggregate=True (totals
+                            instead of line items) — use these, the unfiltered
+                            line-item report can be thousands of rows.
   get_cashflow_report     — same structure as PnL but expenses on actual cash
-                            payment date, no amortization (cash-basis)
+                            payment date, no amortization (cash-basis); same
+                            date_from/date_to/aggregate options
 
 Payroll (module: "payroll"):
   list_payroll_documents  — salary payment documents
@@ -556,14 +560,24 @@ def list_card_revenues(
 # ---------------------------------------------------------------------------
 
 @tool
-def get_pnl_report(tenant_id: int) -> dict:
-    """Get the full Profit & Loss (PnL) report for a tenant.
+def get_pnl_report(
+    tenant_id: int,
+    date_from: str = "",
+    date_to: str = "",
+    aggregate: bool = False,
+) -> dict:
+    """Get the Profit & Loss (PnL) report for a tenant.
 
     Builds the report directly from the database using the tenant's saved
     pnl_config settings. The response includes a report_settings block that
     explains exactly how the report was constructed (filters, buckets, etc.).
 
-    ── Response structure ──────────────────────────────────────────────────
+    ⚠ Without date_from/date_to or aggregate=True this returns EVERY line
+    since pnl_config.start_month — for a tenant with a long history that can
+    be thousands of rows. Prefer narrowing the window and/or aggregate=True
+    unless you actually need individual line items.
+
+    ── Response structure (aggregate=False, default) ───────────────────────
     {
       "revenue": [                     ← all income lines (bank + cash inflows)
         { "id", "date", "amount", "category", "purpose", "description" }
@@ -593,6 +607,14 @@ def get_pnl_report(tenant_id: int) -> dict:
     }
     ────────────────────────────────────────────────────────────────────────
 
+    ── Response structure (aggregate=True) ─────────────────────────────────
+    Each of "revenue" / "operational_expenses" / "other_expenses" /
+    "invest_returns" collapses from a line-item list to:
+    { "total", "count", "by_month": {"YYYY-MM": amount, ...},
+      "by_category": {category: amount, ...} }
+    "metadata" and "report_settings" are unchanged; "aggregated": true is added.
+    ────────────────────────────────────────────────────────────────────────
+
     Key rule: expenses use billing_date from requests; amortized requests are
     spread across months according to their amortization schedule.
 
@@ -600,9 +622,15 @@ def get_pnl_report(tenant_id: int) -> dict:
 
     Args:
         tenant_id: Tenant primary key (get from list_my_tenants).
+        date_from: Optional ISO date (YYYY-MM-DD) — drop lines before this date.
+        date_to: Optional ISO date (YYYY-MM-DD) — drop lines after this date.
+        aggregate: If True, return totals per bucket (by_month, by_category,
+            count) instead of individual line items. Default False.
     """
     try:
-        return fin_tools.get_pnl_report(tenant_id=tenant_id)
+        return fin_tools.get_pnl_report(
+            tenant_id=tenant_id, date_from=date_from, date_to=date_to, aggregate=aggregate
+        )
     except (PermissionError, ValueError) as e:
         return _err(str(e))
     except Exception as e:
@@ -610,16 +638,26 @@ def get_pnl_report(tenant_id: int) -> dict:
 
 
 @tool
-def get_cashflow_report(tenant_id: int) -> dict:
-    """Get the full Cashflow report for a tenant.
+def get_cashflow_report(
+    tenant_id: int,
+    date_from: str = "",
+    date_to: str = "",
+    aggregate: bool = False,
+) -> dict:
+    """Get the Cashflow report for a tenant.
 
     Same structure and config as get_pnl_report, but expenses use the actual
     cash payment date (payed_at / expense_year+month) instead of billing_date,
     and there is NO amortization — every expense appears once on the day money
     left the account.
 
+    ⚠ Without date_from/date_to or aggregate=True this returns EVERY line
+    since pnl_config.start_month — for a tenant with a long history that can
+    be thousands of rows. Prefer narrowing the window and/or aggregate=True
+    unless you actually need individual line items.
+
     ── Response structure ──────────────────────────────────────────────────
-    Identical shape to get_pnl_report:
+    Identical shape to get_pnl_report, including the aggregate=True variant:
     { "revenue", "operational_expenses", "other_expenses",
       "invest_returns", "metadata", "report_settings" }
 
@@ -635,9 +673,15 @@ def get_cashflow_report(tenant_id: int) -> dict:
 
     Args:
         tenant_id: Tenant primary key (get from list_my_tenants).
+        date_from: Optional ISO date (YYYY-MM-DD) — drop lines before this date.
+        date_to: Optional ISO date (YYYY-MM-DD) — drop lines after this date.
+        aggregate: If True, return totals per bucket (by_month, by_category,
+            count) instead of individual line items. Default False.
     """
     try:
-        return fin_tools.get_cashflow_report(tenant_id=tenant_id)
+        return fin_tools.get_cashflow_report(
+            tenant_id=tenant_id, date_from=date_from, date_to=date_to, aggregate=aggregate
+        )
     except (PermissionError, ValueError) as e:
         return _err(str(e))
     except Exception as e:
