@@ -223,11 +223,30 @@ git commit -m "data(payroll): backfill Employee rows and PayrollLine.employee_fk
 
 ## Post-Merge Manual Verification (required before starting the cutover plan)
 
-This is **not** an automated test — after this plan is merged and deployed to production (`make deploy`), confirm the backfill actually completed on real data before starting the Phase-C cutover plan (which makes `employee_fk` mandatory and removes the old field):
+This is **not** an automated test — after this plan is merged and deployed to production (`make deploy`), confirm the backfill actually completed on real data. Note this section is **not** a permanent gate that must read zero forever: nothing in this branch wires `employee_fk` into the live write paths yet (`create_payroll_document` in `backend_v2/apps/modules/payroll/services.py` and `N8nPayrollLineImportSerializer.create` in `backend_v2/apps/modules/n8n_integration/serializers.py` both keep creating new `PayrollLine` rows with `employee_fk = NULL`), so new NULLs will accumulate after deploy as a matter of course. The checks below are about validating *this migration's one-time backfill*, not asserting a steady-state invariant.
 
-1. Run `make showmigrations` and confirm both migrations from this plan show as applied.
-2. Query for any unlinked rows — e.g. via `mcp__postgres-kolberg__execute_sql` or the admin: `SELECT COUNT(*) FROM payroll_lines WHERE employee_fk_id IS NULL AND employee != ''`. Expected: `0`.
-3. Only once that count is `0` is it safe to proceed to the cutover plan.
+1. Run `make showmigrations` and confirm both migrations from this plan (`0004_employee_payrollline_employee_fk_and_more`, `0005_backfill_employee_from_payrollline`) show as applied. Do this check **immediately** after deploy, before meaningful new write traffic has landed — the query below is only meaningful as a snapshot taken close to that point.
+
+2. Query for any unlinked rows that should have been backfilled:
+   ```sql
+   SELECT COUNT(*) FROM payroll_lines WHERE employee_fk_id IS NULL AND btrim(employee) <> '';
+   ```
+   Expected: `0`. (Note the `btrim()` here, not a plain `<> ''` check — the migration intentionally skips whitespace-only `employee` values via `if not name: continue`, so a row with `employee = '   '` is expected to stay unlinked and must not be treated as a backfill failure.)
+
+   If this count is non-zero, don't assume the backfill failed: it may simply mean rows were created by live traffic *after* the migration ran. Verify by cross-checking `payroll_documents.created_at` for the affected rows' documents against the deploy timestamp — rows created after deploy are expected and not a bug; only rows whose document predates the deploy and are still unlinked indicate an actual backfill gap worth investigating.
+
+3. Check for stale or mismatched `employee_fk` links (this is **not** detectable by the query in step 2, which only looks at `employee_fk_id IS NULL`). `N8nPayrollLineImportSerializer.update()` in `backend_v2/apps/modules/n8n_integration/serializers.py` can rewrite an existing line's `employee` text without updating `employee_fk`, leaving a line whose FK points at a stale `Employee` while the text now says something else:
+   ```sql
+   SELECT count(*)
+   FROM payroll_lines l
+   JOIN payroll_documents d ON d.id = l.document_id
+   JOIN payroll_employees e ON e.id = l.employee_fk_id
+   WHERE e.tenant_id <> d.tenant_id OR e.full_name <> btrim(l.employee);
+   -- Expected: 0
+   ```
+   A non-zero result here means either a cross-tenant FK leak (the schema does not itself prevent this — the uniqueness constraint lives on `Employee` alone, scoped by `(tenant, full_name)`, not on the link) or a line whose `employee` text was edited after the FK was originally linked. Either case needs a manual re-link (or must be covered by a fresh backfill pass, see below) before Phase C's cutover.
+
+4. Only once both counts read as expected (accounting for the "new writes since deploy" caveat in step 2) is it safe to proceed to the cutover plan — **and** the Phase-C (cutover) plan itself must re-run a fresh backfill pass immediately before making `employee_fk` mandatory. That pass must fill in *any* NULLs that exist at that time (including ones created by live traffic after this migration, not just ones present right after this deploy) and should also address any stale links found by the query in step 3 — this branch's backfill is a one-time pass, not a standing guarantee.
 
 ## Self-Review Notes
 

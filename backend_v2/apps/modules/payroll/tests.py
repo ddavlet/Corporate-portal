@@ -3,6 +3,7 @@ from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
 from django.db import IntegrityError, transaction
+from django.db.models import ProtectedError
 from django.test import TestCase, override_settings
 from django.utils import timezone
 from rest_framework.test import APITestCase
@@ -348,3 +349,14 @@ class EmployeeModelTests(TestCase):
         self.assertIsNone(line_without_fk.employee_fk)
         self.assertEqual(line_with_fk.employee_fk_id, emp.id)
         self.assertEqual(emp.payroll_lines.count(), 1)
+
+    def test_employee_with_lines_cannot_be_deleted(self):
+        doc = PayrollDocument.objects.create(tenant=self.tenant, doc_id=None)
+        emp = Employee.objects.create(tenant=self.tenant, full_name="Carol White")
+        PayrollLine.objects.create(
+            document=doc, line_no=1, employee="Carol White", employee_fk=emp, item="Salary",
+            description="", sum="150.00", days_plan=None, days_fact=None,
+            period_start=None, period_end=None, approval=False,
+        )
+        with self.assertRaises(ProtectedError):
+            emp.delete()

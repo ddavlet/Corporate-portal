@@ -28,7 +28,7 @@ def backwards(apps, schema_editor):
     # Best-effort rollback only: clear the FK, keep the Employee rows (they may already
     # be referenced elsewhere by the time a rollback happens; deleting is not safe).
     PayrollLine = apps.get_model("payroll", "PayrollLine")
-    PayrollLine.objects.update(employee_fk=None)
+    PayrollLine.objects.filter(employee_fk__isnull=False).update(employee_fk=None)
 
 
 class Migration(migrations.Migration):
