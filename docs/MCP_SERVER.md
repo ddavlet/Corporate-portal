@@ -286,6 +286,23 @@ Fields per row: `id`, `user_id`, `role`.
 All tenant memberships. **Roles:** admin only.
 Fields per row: `id`, `user_id`, `is_active`.
 
+### 7.9 Reports — module `reports`
+
+#### `get_pnl_report` / `get_cashflow_report`
+Full PnL / Cashflow report built from the tenant's saved `pnl_config`. **Roles:** admin, director, accountant, cashier, investor.
+
+| Parameter | Type | Notes |
+|-----------|------|-------|
+| `date_from` / `date_to` | str | `YYYY-MM-DD`. Narrows the report window on top of `pnl_config.start_month`. Optional. |
+| `aggregate` | bool | Default `false`. When `true`, each bucket collapses to `{total, count, by_month, by_category}` instead of line items. |
+
+> ⚠ **Unfiltered, non-aggregated calls return every line since `start_month`** — for a tenant with a long history this can be thousands of rows and a very large response. Pass `date_from`/`date_to` and/or `aggregate=true` unless individual line items are actually needed.
+
+Response shape (`aggregate=false`): `{ "revenue", "operational_expenses", "other_expenses", "invest_returns" }`, each a list of `{ id, date, amount, category, purpose, description }`, plus `metadata` and `report_settings`.
+Response shape (`aggregate=true`): same four keys, each `{ total, count, by_month: {"YYYY-MM": amount}, by_category: {category: amount} }`, plus `"aggregated": true`.
+
+`get_pnl_report` expenses use `billing_date` (accrual, amortization-aware); `get_cashflow_report` expenses use the actual cash payment date (no amortization).
+
 ---
 
 ## 8. Field glossary & domain notes

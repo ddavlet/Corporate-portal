@@ -281,6 +281,92 @@ class McpInvestmentsBudgetsToolsTests(TestCase):
         self.assertIn("utilization_pct", rows[0])
 
 
+class McpPnlReportFiltersTests(TestCase):
+    """get_pnl_report / get_cashflow_report used to always return every line
+    since pnl_config.start_month, unbounded — thousands of rows for tenants
+    with a long history. date_from/date_to and aggregate narrow that down
+    without touching the shared report builders."""
+
+    def setUp(self):
+        from apps.tenants.models import Tenant
+
+        self.tenant = Tenant.objects.create(name="T", subdomain="pnlfilter", is_active=True, mcp_enabled=True)
+
+    @staticmethod
+    def _fake_payload():
+        return {
+            "revenue": [
+                {"id": "1", "date": "2026-01-15", "amount": "100", "category": "Sales", "purpose": "p", "description": ""},
+                {"id": "2", "date": "2026-02-10", "amount": "50", "category": "Sales", "purpose": "p", "description": ""},
+                {"id": "3", "date": "2026-03-05", "amount": "25", "category": "Other", "purpose": "p", "description": ""},
+            ],
+            "operational_expenses": [],
+            "other_expenses": [],
+            "invest_returns": [],
+            "metadata": {"start_month": "2026-01"},
+            "report_settings": {},
+        }
+
+    @patch("apps.mcp_server.tools.finance.require_module_access")
+    @patch("apps.modules.reports.pnl_builder.build_pnl_payload_from_db")
+    def test_date_filter_narrows_rows(self, mock_build, mock_access):
+        from apps.mcp_server.tools import finance as fin_tools
+
+        mock_access.return_value = (None, self.tenant)
+        mock_build.return_value = self._fake_payload()
+
+        result = fin_tools.get_pnl_report(self.tenant.id, date_from="2026-02-01", date_to="2026-02-28")
+        self.assertEqual([r["id"] for r in result["revenue"]], ["2"])
+
+    @patch("apps.mcp_server.tools.finance.require_module_access")
+    @patch("apps.modules.reports.pnl_builder.build_pnl_payload_from_db")
+    def test_no_filters_returns_everything_unchanged(self, mock_build, mock_access):
+        from apps.mcp_server.tools import finance as fin_tools
+
+        mock_access.return_value = (None, self.tenant)
+        mock_build.return_value = self._fake_payload()
+
+        result = fin_tools.get_pnl_report(self.tenant.id)
+        self.assertEqual(len(result["revenue"]), 3)
+        self.assertNotIn("aggregated", result)
+
+    @patch("apps.mcp_server.tools.finance.require_module_access")
+    @patch("apps.modules.reports.pnl_builder.build_pnl_payload_from_db")
+    def test_aggregate_mode_collapses_to_totals(self, mock_build, mock_access):
+        from apps.mcp_server.tools import finance as fin_tools
+
+        mock_access.return_value = (None, self.tenant)
+        mock_build.return_value = self._fake_payload()
+
+        result = fin_tools.get_pnl_report(self.tenant.id, aggregate=True)
+        self.assertTrue(result["aggregated"])
+        self.assertEqual(result["revenue"]["total"], "175")
+        self.assertEqual(result["revenue"]["count"], 3)
+        self.assertEqual(
+            result["revenue"]["by_month"], {"2026-01": "100", "2026-02": "50", "2026-03": "25"}
+        )
+        self.assertEqual(result["revenue"]["by_category"], {"Other": "25", "Sales": "150"})
+
+    @patch("apps.mcp_server.tools.finance.require_module_access")
+    def test_invalid_date_from_raises_value_error(self, mock_access):
+        from apps.mcp_server.tools import finance as fin_tools
+
+        mock_access.return_value = (None, self.tenant)
+        with self.assertRaises(ValueError):
+            fin_tools.get_pnl_report(self.tenant.id, date_from="15/03/2024")
+
+    @patch("apps.mcp_server.tools.finance.require_module_access")
+    @patch("apps.modules.reports.cashflow_builder.build_cashflow_payload_from_db")
+    def test_cashflow_report_supports_the_same_filters(self, mock_build, mock_access):
+        from apps.mcp_server.tools import finance as fin_tools
+
+        mock_access.return_value = (None, self.tenant)
+        mock_build.return_value = self._fake_payload()
+
+        result = fin_tools.get_cashflow_report(self.tenant.id, date_from="2026-02-01", date_to="2026-02-28")
+        self.assertEqual([r["id"] for r in result["revenue"]], ["2"])
+
+
 class DjangoMcpToolDecoratorTests(TestCase):
     def test_sync_to_async_wrapper_runs_sync_code(self):
         import asyncio
