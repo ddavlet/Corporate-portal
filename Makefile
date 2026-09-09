@@ -7,7 +7,7 @@ DEPLOY_TEST_PATH ?= $(TEST_PATH)
 BRANCH     := $(shell git rev-parse --abbrev-ref HEAD)
 
 .DEFAULT_GOAL := help
-.PHONY: help push test deploy makemigrations showmigrations logs backup-db create-postgres-mcp-role rollback refresh-approval-messages link-lemon-auto-request-exceptions fix-bank-expense-vendor-misattribution reconcile-card-revenues send-to-vacation return-from-vacation local-up local-down local-logs test_local
+.PHONY: help push test deploy makemigrations showmigrations logs backup-db create-postgres-mcp-role rollback refresh-approval-messages link-lemon-auto-request-exceptions fix-bank-expense-vendor-misattribution reconcile-card-revenues send-to-vacation return-from-vacation add-cash-register-transfer-purpose local-up local-down local-logs test_local
 
 help:
 	@echo ""
@@ -32,6 +32,9 @@ help:
 	@echo "  make send-to-vacation TENANT=3 EMPLOYEE_USERNAME=s.davletyarov — dry-run: отправить согласующего в отпуск"
 	@echo "  make send-to-vacation TENANT=3 EMPLOYEE_USERNAME=s.davletyarov APPLY=1 — то же самое, но с записью изменений"
 	@echo "  make return-from-vacation TENANT=3 EMPLOYEE_USERNAME=s.davletyarov APPLY=1 — вернуть согласующего из отпуска"
+	@echo "  make add-cash-register-transfer-purpose — dry-run: добавить назначение 'Перевод между кассами' (Наличные) во всех тенантах"
+	@echo "  make add-cash-register-transfer-purpose APPLY=1 — то же самое, но с записью изменений"
+	@echo "  make add-cash-register-transfer-purpose TENANT=1 APPLY=1 — то же самое, но только для одного тенанта"
 	@echo "  make local-up        — поднять docker-compose.local.yml локально"
 	@echo "  make local-down      — остановить локальный compose (без удаления volumes)"
 	@echo "  make local-logs      — логи локального compose"
@@ -190,6 +193,12 @@ return-from-vacation:
 	ssh $(SERVER) "cd $(REMOTE_DIR) && \
 		docker compose --env-file ./.env exec -T backend_v2 \
 		python manage.py toggle_user_approval_vacation --tenant=$(TENANT) --user=$(EMPLOYEE_USERNAME) --action=end $(if $(APPLY),--apply,)"
+
+# ── 7f. Разово: добавить назначение "Перевод между кассами" (Наличные) везде ──
+add-cash-register-transfer-purpose:
+	ssh $(SERVER) "cd $(REMOTE_DIR) && \
+		docker compose --env-file ./.env exec -T backend_v2 \
+		python manage.py add_cash_register_transfer_purpose $(if $(TENANT),--tenant=$(TENANT),) $(if $(APPLY),--apply,)"
 
 # ── 8. Откат production ──────────────────────────────────────────────────────
 rollback:
