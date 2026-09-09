@@ -825,3 +825,45 @@ class RequestComment(models.Model):
         indexes = [
             models.Index(fields=["request", "created_at"], name="reqcomments_req_created_idx"),
         ]
+
+
+class UserApprovalVacation(models.Model):
+    """
+    Record of an approver's "vacation" period: while active, the user's
+    mandatory (`serial`) approval steps for the tenant are switched to
+    `notification`, so requests aren't stuck waiting on someone who's away.
+
+    `snapshot` lists the step configs that were flipped, so `end` can restore
+    exactly those and only those — steps that were already `notification`
+    before the vacation started are never touched.
+    """
+
+    KIND_STEP = "step"
+    KIND_EXCEPTION_STEP = "exception_step"
+    KIND_CHOICES = [
+        (KIND_STEP, KIND_STEP),
+        (KIND_EXCEPTION_STEP, KIND_EXCEPTION_STEP),
+    ]
+
+    tenant = models.ForeignKey(Tenant, on_delete=models.CASCADE, related_name="user_approval_vacations", db_index=False)
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="approval_vacations",
+    )
+    started_at = models.DateTimeField(default=timezone.now)
+    ended_at = models.DateTimeField(null=True, blank=True)
+    snapshot = models.JSONField(default=list, blank=True)
+
+    class Meta:
+        db_table = "user_approval_vacations"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["tenant", "user"],
+                condition=models.Q(ended_at__isnull=True),
+                name="user_appr_vacation_one_active_uniq",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["tenant", "user", "ended_at"], name="user_appr_vacation_active_idx"),
+        ]
