@@ -38,7 +38,8 @@ class UserApprovalVacationTestCase(TestCase):
     def setUp(self):
         self.tenant = Tenant.objects.create(name="Acme", subdomain="acme-vac", is_active=True)
         self.admin = User.objects.create_user(username="admin-vac", email="admin@acme.test", password="x")
-        self.sardor = User.objects.create_user(username="sardor", email="sardor@acme.test", password="x")
+        # Most real accounts have no email set — login identifier is `username`.
+        self.sardor = User.objects.create_user(username="sardor", email="", password="x")
 
         appr_cfg = RequestApprovalConfig.objects.create(tenant=self.tenant, updated_by=self.admin)
 
@@ -127,7 +128,7 @@ class UserApprovalVacationTestCase(TestCase):
         call_command(
             "toggle_user_approval_vacation",
             tenant=self.tenant.id,
-            user=self.sardor.email,
+            user=self.sardor.username,
             action="start",
             apply=True,
         )
@@ -137,7 +138,7 @@ class UserApprovalVacationTestCase(TestCase):
         call_command(
             "toggle_user_approval_vacation",
             tenant=self.tenant.id,
-            user=self.sardor.email,
+            user=self.sardor.username,
             action="end",
             apply=True,
         )
@@ -148,7 +149,7 @@ class UserApprovalVacationTestCase(TestCase):
         call_command(
             "toggle_user_approval_vacation",
             tenant=self.tenant.id,
-            user=self.sardor.email,
+            user=self.sardor.username,
             action="start",
         )
 
@@ -160,7 +161,21 @@ class UserApprovalVacationTestCase(TestCase):
             call_command(
                 "toggle_user_approval_vacation",
                 tenant=self.tenant.id,
-                user="nobody@acme.test",
+                user="nobody",
                 action="start",
                 apply=True,
             )
+
+    def test_management_command_falls_back_to_email_for_accounts_that_have_one(self):
+        self.sardor.email = "sardor@acme.test"
+        self.sardor.save(update_fields=["email"])
+
+        call_command(
+            "toggle_user_approval_vacation",
+            tenant=self.tenant.id,
+            user="sardor@acme.test",
+            action="start",
+            apply=True,
+        )
+
+        self.assertEqual(self._refresh(self.cash_step).step_type, Approval.STEP_TYPE_NOTIFICATION)

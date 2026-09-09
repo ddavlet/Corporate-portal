@@ -8,16 +8,21 @@ block on them). Steps already `notification` for that user are left as-is.
 
 Run with no --apply first to preview, then with --apply to write.
 
+--user identifies the approver by login username (most accounts here have no
+email set) — pass an email and it's matched too, as a convenience for the
+handful of accounts that do have one.
+
 Examples:
-    python manage.py toggle_user_approval_vacation --tenant=3 --user=sardor@example.com --action=start
-    python manage.py toggle_user_approval_vacation --tenant=3 --user=sardor@example.com --action=start --apply
-    python manage.py toggle_user_approval_vacation --tenant=3 --user=sardor@example.com --action=end --apply
+    python manage.py toggle_user_approval_vacation --tenant=3 --user=s.davletyarov --action=start
+    python manage.py toggle_user_approval_vacation --tenant=3 --user=s.davletyarov --action=start --apply
+    python manage.py toggle_user_approval_vacation --tenant=3 --user=s.davletyarov --action=end --apply
 """
 
 from __future__ import annotations
 
 from django.contrib.auth import get_user_model
 from django.core.management.base import BaseCommand, CommandError
+from django.db.models import Q
 
 from apps.modules.requests.user_approval_vacation import (
     NoActiveVacation,
@@ -36,7 +41,7 @@ class Command(BaseCommand):
 
     def add_arguments(self, parser):
         parser.add_argument("--tenant", type=int, required=True, help="Tenant ID.")
-        parser.add_argument("--user", type=str, required=True, help="Approver's email.")
+        parser.add_argument("--user", type=str, required=True, help="Approver's login username (or email).")
         parser.add_argument("--action", choices=["start", "end"], required=True)
         parser.add_argument(
             "--apply",
@@ -51,9 +56,11 @@ class Command(BaseCommand):
         except Tenant.DoesNotExist as exc:
             raise CommandError(f"Tenant {options['tenant']} not found.") from exc
         try:
-            user = User.objects.get(email__iexact=options["user"])
+            user = User.objects.get(Q(username=options["user"]) | Q(email__iexact=options["user"]))
         except User.DoesNotExist as exc:
-            raise CommandError(f"User with email '{options['user']}' not found.") from exc
+            raise CommandError(f"User '{options['user']}' not found (matched by username or email).") from exc
+        except User.MultipleObjectsReturned as exc:
+            raise CommandError(f"Multiple users match '{options['user']}' — pass the exact username.") from exc
 
         if options["action"] == "start":
             self._handle_start(tenant=tenant, user=user, apply_changes=apply_changes)
@@ -73,7 +80,7 @@ class Command(BaseCommand):
             raise CommandError(str(exc)) from exc
 
         self._report_start(plan)
-        self.stdout.write(self.style.SUCCESS(f"Отпуск начат: {user.email} в тенанте '{tenant.subdomain}'."))
+        self.stdout.write(self.style.SUCCESS(f"Отпуск начат: {user.username} в тенанте '{tenant.subdomain}'."))
 
     def _handle_end(self, *, tenant, user, apply_changes: bool):
         if not apply_changes:
@@ -102,7 +109,7 @@ class Command(BaseCommand):
             for ref in result.skipped_changed:
                 self.stdout.write(f"  ! {ref.label}")
 
-        self.stdout.write(self.style.SUCCESS(f"Отпуск завершён: {user.email} в тенанте '{tenant.subdomain}'."))
+        self.stdout.write(self.style.SUCCESS(f"Отпуск завершён: {user.username} в тенанте '{tenant.subdomain}'."))
 
     def _report_start(self, plan):
         if plan.to_notify:
