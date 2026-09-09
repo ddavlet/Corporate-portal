@@ -54,7 +54,7 @@ const REGISTER_B: CashRegisterDto = {
 async function openModalWithRegisters() {
   getCashRegistersMock.mockResolvedValueOnce([REGISTER_A, REGISTER_B])
   render(<CashRegisterTransferButton onCreated={vi.fn()} />)
-  fireEvent.click(screen.getByRole('button', { name: 'Перевести между кассами' }))
+  fireEvent.click(screen.getByRole('button', { name: /Перевести между кассами/ }))
   await screen.findByText('Касса-источник')
 }
 
