@@ -7,7 +7,7 @@ DEPLOY_TEST_PATH ?= $(TEST_PATH)
 BRANCH     := $(shell git rev-parse --abbrev-ref HEAD)
 
 .DEFAULT_GOAL := help
-.PHONY: help push test deploy makemigrations showmigrations logs backup-db create-postgres-mcp-role rollback refresh-approval-messages link-lemon-auto-request-exceptions fix-bank-expense-vendor-misattribution reconcile-card-revenues send-to-vacation return-from-vacation local-up local-down local-logs test_local
+.PHONY: help push test deploy makemigrations showmigrations logs backup-db create-postgres-mcp-role rollback refresh-approval-messages link-lemon-auto-request-exceptions fix-bank-expense-vendor-misattribution unlink-bad-bank-expense-refs reconcile-card-revenues send-to-vacation return-from-vacation local-up local-down local-logs test_local
 
 help:
 	@echo ""
@@ -27,6 +27,8 @@ help:
 	@echo "  make link-lemon-auto-request-exceptions APPLY=1 — то же самое, но с записью изменений"
 	@echo "  make fix-bank-expense-vendor-misattribution — dry-run: фикс vendor у bank_expenses 9830/10198 и request 7781"
 	@echo "  make fix-bank-expense-vendor-misattribution APPLY=1 — то же самое, но с записью изменений"
+	@echo "  make unlink-bad-bank-expense-refs — dry-run: отвязать битые ссылки на bank_expenses у requests 615/670"
+	@echo "  make unlink-bad-bank-expense-refs APPLY=1 — то же самое, но с записью изменений"
 	@echo "  make reconcile-card-revenues — привязать заявки 'Пополнение' к corporate_card_revenues по сумме+дате"
 	@echo "  make reconcile-card-revenues TENANT=3 — то же самое, но только для одного тенанта"
 	@echo "  make send-to-vacation TENANT=3 EMPLOYEE_EMAIL=email@example.com — dry-run: отправить согласующего в отпуск"
@@ -161,6 +163,12 @@ fix-bank-expense-vendor-misattribution:
 	ssh $(SERVER) "cd $(REMOTE_DIR) && \
 		docker compose --env-file ./.env exec -T backend_v2 \
 		python manage.py fix_bank_expense_vendor_misattribution $(if $(APPLY),--apply,)"
+
+# ── 7c2. Разово: отвязать битые ссылки на bank_expenses у requests 615/670 ────
+unlink-bad-bank-expense-refs:
+	ssh $(SERVER) "cd $(REMOTE_DIR) && \
+		docker compose --env-file ./.env exec -T backend_v2 \
+		python manage.py unlink_bad_bank_expense_refs $(if $(APPLY),--apply,)"
 
 # ── 7d. Разово/по требованию: привязать заявки "Пополнение" к card_revenues ──
 TENANT ?=
