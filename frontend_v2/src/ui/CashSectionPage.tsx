@@ -12,6 +12,7 @@ import { apiFetch, getCashRegisters, type CashRevenue } from '../lib/api'
 import type { RequestReturnTo } from '../lib/requestNavigation'
 import { RequestDetailModal, type RequestDetail } from './requests/RequestDetailModal'
 import { NoteCreateModal } from './NoteCreateModal'
+import { CashRegisterTransferButton } from './CashRegisterTransferButton'
 import { labelBlockAboveField } from './formSpacing'
 import { ChannelBalancesSummary } from './ChannelBalancesSummary'
 import { AdminEditRecordButton } from './admin/AdminEditRecordButton'
@@ -507,10 +508,11 @@ export function CashSectionPage({ mode }: { mode: CashSectionMode }) {
 
   return (
     <Card>
-      <Space style={{ marginBottom: 12 }}>
+      <Space style={{ marginBottom: 12 }} wrap>
         <Button type="text" icon={<ArrowLeftOutlined />} onClick={() => navigate('/cash')}>
           Касса
         </Button>
+        <CashRegisterTransferButton onCreated={reloadSection} />
       </Space>
       <Typography.Title level={4} style={{ marginTop: 0 }}>
         {SECTION_TITLES[mode]}
