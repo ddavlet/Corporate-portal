@@ -29,9 +29,9 @@ help:
 	@echo "  make fix-bank-expense-vendor-misattribution APPLY=1 — то же самое, но с записью изменений"
 	@echo "  make reconcile-card-revenues — привязать заявки 'Пополнение' к corporate_card_revenues по сумме+дате"
 	@echo "  make reconcile-card-revenues TENANT=3 — то же самое, но только для одного тенанта"
-	@echo "  make send-to-vacation TENANT=3 EMPLOYEE_EMAIL=email@example.com — dry-run: отправить согласующего в отпуск"
-	@echo "  make send-to-vacation TENANT=3 EMPLOYEE_EMAIL=email@example.com APPLY=1 — то же самое, но с записью изменений"
-	@echo "  make return-from-vacation TENANT=3 EMPLOYEE_EMAIL=email@example.com APPLY=1 — вернуть согласующего из отпуска"
+	@echo "  make send-to-vacation TENANT=3 EMPLOYEE_USERNAME=s.davletyarov — dry-run: отправить согласующего в отпуск"
+	@echo "  make send-to-vacation TENANT=3 EMPLOYEE_USERNAME=s.davletyarov APPLY=1 — то же самое, но с записью изменений"
+	@echo "  make return-from-vacation TENANT=3 EMPLOYEE_USERNAME=s.davletyarov APPLY=1 — вернуть согласующего из отпуска"
 	@echo "  make local-up        — поднять docker-compose.local.yml локально"
 	@echo "  make local-down      — остановить локальный compose (без удаления volumes)"
 	@echo "  make local-logs      — логи локального compose"
@@ -171,25 +171,25 @@ reconcile-card-revenues:
 		python manage.py reconcile_card_revenues_by_amount $(if $(TENANT),--tenant=$(TENANT),)"
 
 # ── 7e. Отправить согласующего в отпуск / вернуть из отпуска ──────────────────
-EMPLOYEE_EMAIL ?=
+EMPLOYEE_USERNAME ?=
 
 send-to-vacation:
-	@if [ -z "$(TENANT)" ] || [ -z "$(EMPLOYEE_EMAIL)" ]; then \
-		echo "Usage: make send-to-vacation TENANT=3 EMPLOYEE_EMAIL=sardor@example.com [APPLY=1]"; \
+	@if [ -z "$(TENANT)" ] || [ -z "$(EMPLOYEE_USERNAME)" ]; then \
+		echo "Usage: make send-to-vacation TENANT=3 EMPLOYEE_USERNAME=s.davletyarov [APPLY=1]"; \
 		exit 1; \
 	fi
 	ssh $(SERVER) "cd $(REMOTE_DIR) && \
 		docker compose --env-file ./.env exec -T backend_v2 \
-		python manage.py toggle_user_approval_vacation --tenant=$(TENANT) --user=$(EMPLOYEE_EMAIL) --action=start $(if $(APPLY),--apply,)"
+		python manage.py toggle_user_approval_vacation --tenant=$(TENANT) --user=$(EMPLOYEE_USERNAME) --action=start $(if $(APPLY),--apply,)"
 
 return-from-vacation:
-	@if [ -z "$(TENANT)" ] || [ -z "$(EMPLOYEE_EMAIL)" ]; then \
-		echo "Usage: make return-from-vacation TENANT=3 EMPLOYEE_EMAIL=sardor@example.com [APPLY=1]"; \
+	@if [ -z "$(TENANT)" ] || [ -z "$(EMPLOYEE_USERNAME)" ]; then \
+		echo "Usage: make return-from-vacation TENANT=3 EMPLOYEE_USERNAME=s.davletyarov [APPLY=1]"; \
 		exit 1; \
 	fi
 	ssh $(SERVER) "cd $(REMOTE_DIR) && \
 		docker compose --env-file ./.env exec -T backend_v2 \
-		python manage.py toggle_user_approval_vacation --tenant=$(TENANT) --user=$(EMPLOYEE_EMAIL) --action=end $(if $(APPLY),--apply,)"
+		python manage.py toggle_user_approval_vacation --tenant=$(TENANT) --user=$(EMPLOYEE_USERNAME) --action=end $(if $(APPLY),--apply,)"
 
 # ── 8. Откат production ──────────────────────────────────────────────────────
 rollback:
