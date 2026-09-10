@@ -7,7 +7,7 @@ DEPLOY_TEST_PATH ?= $(TEST_PATH)
 BRANCH     := $(shell git rev-parse --abbrev-ref HEAD)
 
 .DEFAULT_GOAL := help
-.PHONY: help push test deploy makemigrations showmigrations logs backup-db create-postgres-mcp-role rollback refresh-approval-messages link-lemon-auto-request-exceptions fix-bank-expense-vendor-misattribution reconcile-card-revenues reconcile-bank-expenses-by-vendor send-to-vacation return-from-vacation add-cash-register-transfer-purpose local-up local-down local-logs test_local
+.PHONY: help push test deploy makemigrations showmigrations logs backup-db create-postgres-mcp-role rollback refresh-approval-messages link-lemon-auto-request-exceptions fix-bank-expense-vendor-misattribution reconcile-card-revenues reconcile-bank-expenses-by-vendor merge-lemonaqua-duplicate-vendors send-to-vacation return-from-vacation add-cash-register-transfer-purpose local-up local-down local-logs test_local
 
 help:
 	@echo ""
@@ -31,6 +31,8 @@ help:
 	@echo "  make reconcile-card-revenues TENANT=3 — то же самое, но только для одного тенанта"
 	@echo "  make reconcile-bank-expenses-by-vendor — привязать заявки 'Перечисление'/'Пополнение' к bank_expenses по вендору+сумме+дате (все тенанты)"
 	@echo "  make reconcile-bank-expenses-by-vendor TENANT=3 — то же самое, но только для одного тенанта"
+	@echo "  make merge-lemonaqua-duplicate-vendors — dry-run: объединить дубли вендоров lemonaqua (заявка -> версия из банка)"
+	@echo "  make merge-lemonaqua-duplicate-vendors APPLY=1 — то же самое, но с записью изменений"
 	@echo "  make send-to-vacation TENANT=3 EMPLOYEE_USERNAME=s.davletyarov — dry-run: отправить согласующего в отпуск"
 	@echo "  make send-to-vacation TENANT=3 EMPLOYEE_USERNAME=s.davletyarov APPLY=1 — то же самое, но с записью изменений"
 	@echo "  make return-from-vacation TENANT=3 EMPLOYEE_USERNAME=s.davletyarov APPLY=1 — вернуть согласующего из отпуска"
@@ -182,6 +184,12 @@ reconcile-bank-expenses-by-vendor:
 	ssh $(SERVER) "cd $(REMOTE_DIR) && \
 		docker compose --env-file ./.env exec -T backend_v2 \
 		python manage.py reconcile_bank_expenses_by_vendor $(if $(TENANT),--tenant=$(TENANT),)"
+
+# ── 7d-3. Разово: объединить дубли вендоров lemonaqua (tenant_id=3) ──────────
+merge-lemonaqua-duplicate-vendors:
+	ssh $(SERVER) "cd $(REMOTE_DIR) && \
+		docker compose --env-file ./.env exec -T backend_v2 \
+		python manage.py merge_lemonaqua_duplicate_vendors $(if $(APPLY),--apply,)"
 
 # ── 7e. Отправить согласующего в отпуск / вернуть из отпуска ──────────────────
 EMPLOYEE_USERNAME ?=
