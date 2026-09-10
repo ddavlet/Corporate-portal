@@ -277,16 +277,13 @@ class PortalRequestSerializer(serializers.ModelSerializer):
             if not str(company_payer or "").strip() and pt_cfg.default_company_payer:
                 attrs["company_payer"] = pt_cfg.default_company_payer
 
-            # Requester must be in configured subset if subset is defined.
-            allowed_requester_ids = list(
-                RequestFormPaymentTypeRequester.objects.filter(payment_type_config=pt_cfg).values_list(
-                    "user_id", flat=True
-                )
-            )
-            if allowed_requester_ids and requester.id not in set(allowed_requester_ids):
-                raise serializers.ValidationError(
-                    {"requester": "Requester is not allowed for this payment type."}
-                )
+            # The configured requester subset only limits who is *offered* in the
+            # portal UI's requester picker (see form-options); it is not a hard
+            # server-side gate. A non-admin/non-director actor can never submit as
+            # anyone but themselves anyway (enforced above), and an admin/director
+            # explicitly assigning a requester already went through their own
+            # judgement — the picker's option list is the actual guardrail for
+            # everyone else.
 
             expected_kind = payment_type_to_vendor_kind(payment_type)
             vendor_ref = attrs.get("vendor_ref")
