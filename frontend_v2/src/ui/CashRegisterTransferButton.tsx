@@ -2,7 +2,13 @@ import { useState } from 'react'
 import { Alert, Button, Form, Input, InputNumber, Modal, Select, Typography, message } from 'antd'
 import { SwapOutlined } from '@ant-design/icons'
 import dayjs from 'dayjs'
-import { createPortalRequest, getCashRegisters, submitRequestForApproval, type CashRegisterDto } from '../lib/api'
+import {
+  createPortalRequest,
+  getCashRegisters,
+  getSettingsAccess,
+  submitRequestForApproval,
+  type CashRegisterDto,
+} from '../lib/api'
 
 export const CASH_REGISTER_TRANSFER_PAYMENT_TYPE = 'Наличные'
 export const CASH_REGISTER_TRANSFER_PAYMENT_PURPOSE = 'Перевод между кассами'
@@ -26,6 +32,7 @@ function registerLabel(r: CashRegisterDto): string {
 export function CashRegisterTransferButton({ onCreated }: Props) {
   const [open, setOpen] = useState(false)
   const [registers, setRegisters] = useState<CashRegisterDto[]>([])
+  const [requesterId, setRequesterId] = useState<number | null>(null)
   const [loadingRegisters, setLoadingRegisters] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -38,8 +45,9 @@ export function CashRegisterTransferButton({ onCreated }: Props) {
     setOpen(true)
     setLoadingRegisters(true)
     try {
-      const rows = await getCashRegisters()
+      const [rows, access] = await Promise.all([getCashRegisters(), getSettingsAccess()])
       setRegisters(rows.filter((r) => r.is_active))
+      setRequesterId(typeof access.user_id === 'number' ? access.user_id : null)
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Не удалось загрузить список касс')
     } finally {
@@ -94,6 +102,7 @@ export function CashRegisterTransferButton({ onCreated }: Props) {
         billing_date: dayjs().format('YYYY-MM-DD'),
         status: 'DRAFT',
         amortization_months: 1,
+        ...(requesterId != null ? { requester: requesterId } : {}),
       })
       try {
         await submitRequestForApproval(created.id)
