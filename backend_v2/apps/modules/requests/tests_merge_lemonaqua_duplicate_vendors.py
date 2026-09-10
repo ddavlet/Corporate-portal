@@ -59,6 +59,20 @@ class MergeLemonaquaDuplicateVendorsTests(TestCase):
         self.aroma_new = Vendor.objects.create(
             id=145, tenant=self.tenant, kind=Vendor.KIND_TRANSFER, name='"AROMA HOUSE" MCHJ', created_by=self.admin,
         )
+        self.gevorkyan_old = Vendor.objects.create(
+            id=60, tenant=self.tenant, kind=Vendor.KIND_TRANSFER, name="GEVORKYAN TIGRAN GEVORGOVICH",
+            created_by=self.admin,
+        )
+        self.gevorkyan_new = Vendor.objects.create(
+            id=80, tenant=self.tenant, kind=Vendor.KIND_TRANSFER, name="GEVORKYAN TIGRAN GEVORGOVICH",
+            created_by=self.admin,
+        )
+        self.tastify_old = Vendor.objects.create(
+            id=63, tenant=self.tenant, kind=Vendor.KIND_TRANSFER, name="TASTIFY", created_by=self.admin,
+        )
+        self.tastify_new = Vendor.objects.create(
+            id=123, tenant=self.tenant, kind=Vendor.KIND_TRANSFER, name='"TASTIFY" MCHJ', created_by=self.admin,
+        )
 
         self.req_don_non_1 = self._make_request(id=7999, vendor=self.don_non_old, amount="20000000.00")
         self.req_don_non_2 = self._make_request(id=1897, vendor=self.don_non_old, amount="9944000.00")
@@ -66,6 +80,8 @@ class MergeLemonaquaDuplicateVendorsTests(TestCase):
         self.req_murodov = self._make_request(id=7853, vendor=self.murodov_old, amount="10500000.00")
         self.req_fire = self._make_request(id=8009, vendor=self.fire_old, amount="1056706.00")
         self.req_aroma = self._make_request(id=7964, vendor=self.aroma_old, amount="2312000.00")
+        self.req_gevorkyan = self._make_request(id=7919, vendor=self.gevorkyan_old, amount="25830500.00")
+        self.req_tastify = self._make_request(id=7937, vendor=self.tastify_old, amount="4000000.00")
 
     def _make_request(self, *, id, vendor, amount):
         return Request.objects.create(
@@ -94,12 +110,16 @@ class MergeLemonaquaDuplicateVendorsTests(TestCase):
         self.req_murodov.refresh_from_db()
         self.req_fire.refresh_from_db()
         self.req_aroma.refresh_from_db()
+        self.req_gevorkyan.refresh_from_db()
+        self.req_tastify.refresh_from_db()
         self.assertEqual(self.req_don_non_1.vendor_ref_id, 67)
         self.assertEqual(self.req_telecom.vendor_ref_id, 83)
         self.assertEqual(self.req_murodov.vendor_ref_id, 623)
         self.assertEqual(self.req_fire.vendor_ref_id, 800)
         self.assertEqual(self.req_aroma.vendor_ref_id, 110)
-        self.assertIn("Would repoint: 6", output)
+        self.assertEqual(self.req_gevorkyan.vendor_ref_id, 60)
+        self.assertEqual(self.req_tastify.vendor_ref_id, 63)
+        self.assertIn("Would repoint: 8", output)
         self.assertIn("Dry run complete", output)
 
     def test_apply_repoints_all_requests_for_each_merge_pair(self):
@@ -111,13 +131,17 @@ class MergeLemonaquaDuplicateVendorsTests(TestCase):
         self.req_murodov.refresh_from_db()
         self.req_fire.refresh_from_db()
         self.req_aroma.refresh_from_db()
+        self.req_gevorkyan.refresh_from_db()
+        self.req_tastify.refresh_from_db()
         self.assertEqual(self.req_don_non_1.vendor_ref_id, 82)
         self.assertEqual(self.req_don_non_2.vendor_ref_id, 82)
         self.assertEqual(self.req_telecom.vendor_ref_id, 135)
         self.assertEqual(self.req_murodov.vendor_ref_id, 641)
         self.assertEqual(self.req_fire.vendor_ref_id, 801)
         self.assertEqual(self.req_aroma.vendor_ref_id, 145)
-        self.assertIn("Repointed: 6", output)
+        self.assertEqual(self.req_gevorkyan.vendor_ref_id, 80)
+        self.assertEqual(self.req_tastify.vendor_ref_id, 123)
+        self.assertIn("Repointed: 8", output)
 
     def test_apply_is_idempotent(self):
         _run(apply=True)
