@@ -11,6 +11,8 @@ bank statement text -- with slightly different spelling/legal suffix:
     MURODOV DILSHOD DOLIM O'G'LI    (623)  vs  ЯТТ MURODOV DILSHOD ...    (641)
     AUTOMATIC FIRE SYSTEM           (800)  vs  "AUTOMATIC FIRE SYSTEM" MCHJ (801)
     AROMA HOUSE                     (110)  vs  "AROMA HOUSE" MCHJ          (145)
+    GEVORKYAN TIGRAN GEVORGOVICH     (60)  vs  GEVORKYAN TIGRAN GEVORGOVICH (80)
+    TASTIFY                          (63)  vs  "TASTIFY" MCHJ              (123)
 
 Because reconcile_bank_expenses_by_vendor_amount_date requires an exact
 vendor_id match, requests filed against the "request-side" duplicate never
@@ -28,12 +30,17 @@ actual linking:
 
     python manage.py reconcile_bank_expenses_by_vendor --tenant=3
 
-Deliberately excludes the "Молия вазирлиги Казначилиги" (91) vs
-"Mirzo-Ulug'bek Tumani DSI" (92) pair seen on request 8021: both vendors
-have substantial independent history on both sides (91: 11 requests / 19
-bank expenses; 92: 1 request / 9 bank expenses), so they are not a
-request-vs-bank duplicate of the same counterparty -- merging them would
-misattribute real, distinct transactions.
+Deliberately excludes two "wrong vendor picked on the request" cases that
+look superficially similar but are not directory duplicates -- both
+vendors already have substantial independent history on both sides, so
+merging them would misattribute real, distinct transactions:
+
+  * "Молия вазирлиги Казначилиги" (91) vs "Mirzo-Ulug'bek Tumani DSI" (92)
+    -- request 8021 (91: 11 requests / 19 bank expenses; 92: 1 / 9).
+  * "Молия вазирлиги Казначилиги" (91) vs the FITLINE payroll transit
+    account (93) -- request 7936, an August salary payment filed against
+    Treasury by mistake (91: 11 requests / 19 bank expenses; 93: 34
+    requests / 12 bank expenses).
 
 Run with --dry-run (default) first to preview, then with --apply to write.
 
