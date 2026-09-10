@@ -7,7 +7,7 @@ DEPLOY_TEST_PATH ?= $(TEST_PATH)
 BRANCH     := $(shell git rev-parse --abbrev-ref HEAD)
 
 .DEFAULT_GOAL := help
-.PHONY: help push test deploy makemigrations showmigrations logs backup-db create-postgres-mcp-role rollback refresh-approval-messages link-lemon-auto-request-exceptions fix-bank-expense-vendor-misattribution reconcile-card-revenues send-to-vacation return-from-vacation add-cash-register-transfer-purpose local-up local-down local-logs test_local
+.PHONY: help push test deploy makemigrations showmigrations logs backup-db create-postgres-mcp-role rollback refresh-approval-messages link-lemon-auto-request-exceptions fix-bank-expense-vendor-misattribution reconcile-card-revenues send-to-vacation return-from-vacation add-cash-register-transfer-purpose add-cash-register-transfer-approval-exception local-up local-down local-logs test_local
 
 help:
 	@echo ""
@@ -35,6 +35,9 @@ help:
 	@echo "  make add-cash-register-transfer-purpose — dry-run: добавить назначение 'Перевод между кассами' (Наличные) во всех тенантах"
 	@echo "  make add-cash-register-transfer-purpose APPLY=1 — то же самое, но с записью изменений"
 	@echo "  make add-cash-register-transfer-purpose TENANT=1 APPLY=1 — то же самое, но только для одного тенанта"
+	@echo "  make add-cash-register-transfer-approval-exception — dry-run: исключение (1 этап-выплата) на 'Перевод между кассами' везде"
+	@echo "  make add-cash-register-transfer-approval-exception APPLY=1 — то же самое, но с записью изменений"
+	@echo "  make add-cash-register-transfer-approval-exception TENANT=1 APPLY=1 — то же самое, но только для одного тенанта"
 	@echo "  make local-up        — поднять docker-compose.local.yml локально"
 	@echo "  make local-down      — остановить локальный compose (без удаления volumes)"
 	@echo "  make local-logs      — логи локального compose"
@@ -199,6 +202,12 @@ add-cash-register-transfer-purpose:
 	ssh $(SERVER) "cd $(REMOTE_DIR) && \
 		docker compose --env-file ./.env exec -T backend_v2 \
 		python manage.py add_cash_register_transfer_purpose $(if $(TENANT),--tenant=$(TENANT),) $(if $(APPLY),--apply,)"
+
+# ── 7g. Разово: исключение (1 этап-выплата) на "Перевод между кассами" везде ──
+add-cash-register-transfer-approval-exception:
+	ssh $(SERVER) "cd $(REMOTE_DIR) && \
+		docker compose --env-file ./.env exec -T backend_v2 \
+		python manage.py add_cash_register_transfer_approval_exception $(if $(TENANT),--tenant=$(TENANT),) $(if $(APPLY),--apply,)"
 
 # ── 8. Откат production ──────────────────────────────────────────────────────
 rollback:
