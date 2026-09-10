@@ -319,7 +319,10 @@ class RequestFormConfigTests(APITestCase):
         self.assertEqual(res.status_code, 201)
         self.assertEqual(res.data["company_payer"], "ACME LLC")
 
-    def test_admin_cannot_assign_requester_outside_form_subset(self):
+    def test_admin_can_assign_requester_outside_form_subset(self):
+        # The configured requester subset only limits the portal UI's picker
+        # options (see test_form_options_requesters_match_config_only) — it is
+        # not a hard server-side gate, so an admin can still assign anyone.
         cfg = RequestFormConfig.objects.create(tenant=self.tenant, updated_by=self.admin)
         pt_cfg = RequestFormPaymentTypeConfig.objects.create(config=cfg, payment_type="Наличные", is_enabled=True)
         RequestFormPaymentTypeRequester.objects.create(payment_type_config=pt_cfg, user=self.requester_a)
@@ -340,10 +343,14 @@ class RequestFormConfigTests(APITestCase):
             format="json",
             HTTP_HOST=self.host,
         )
-        self.assertEqual(res.status_code, 400)
-        self.assertIn("requester", res.data)
+        self.assertEqual(res.status_code, 201)
+        self.assertEqual(res.data["requester"], self.requester_b.id)
 
-    def test_non_admin_rejected_when_self_not_in_requester_subset(self):
+    def test_non_admin_self_assign_allowed_even_when_not_in_requester_subset(self):
+        # Same rationale as above: the subset is a UI hint, not a server gate.
+        # A non-admin/non-director always submits as themselves regardless of
+        # what's in the payload, and that self-assignment must not be blocked
+        # just because they're missing from this payment type's picker list.
         cfg = RequestFormConfig.objects.create(tenant=self.tenant, updated_by=self.admin)
         pt_cfg = RequestFormPaymentTypeConfig.objects.create(config=cfg, payment_type="Наличные", is_enabled=True)
         RequestFormPaymentTypeRequester.objects.create(payment_type_config=pt_cfg, user=self.requester_a)
@@ -363,8 +370,8 @@ class RequestFormConfigTests(APITestCase):
             format="json",
             HTTP_HOST=self.host,
         )
-        self.assertEqual(res.status_code, 400)
-        self.assertIn("requester", res.data)
+        self.assertEqual(res.status_code, 201)
+        self.assertEqual(res.data["requester"], self.requester_b.id)
 
     def test_non_admin_payload_requester_for_actor_only(self):
         cfg = RequestFormConfig.objects.create(tenant=self.tenant, updated_by=self.admin)
