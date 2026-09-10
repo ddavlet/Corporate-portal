@@ -4,12 +4,14 @@ import { CashRegisterTransferButton } from './CashRegisterTransferButton'
 import type { CashRegisterDto } from '../lib/api'
 
 const getCashRegistersMock = vi.fn()
+const getSettingsAccessMock = vi.fn()
 const createPortalRequestMock = vi.fn()
 const submitRequestForApprovalMock = vi.fn()
 const successMock = vi.fn()
 
 vi.mock('../lib/api', () => ({
   getCashRegisters: (...args: unknown[]) => getCashRegistersMock(...args),
+  getSettingsAccess: (...args: unknown[]) => getSettingsAccessMock(...args),
   createPortalRequest: (...args: unknown[]) => createPortalRequestMock(...args),
   submitRequestForApproval: (...args: unknown[]) => submitRequestForApprovalMock(...args),
 }))
@@ -53,6 +55,15 @@ const REGISTER_B: CashRegisterDto = {
 
 async function openModalWithRegisters() {
   getCashRegistersMock.mockResolvedValueOnce([REGISTER_A, REGISTER_B])
+  getSettingsAccessMock.mockResolvedValueOnce({
+    can_open_settings: true,
+    can_open_admin: true,
+    can_manage_tenant_settings: true,
+    can_manage_requests_settings: true,
+    can_manage_wallet_settings: true,
+    roles: ['admin'],
+    user_id: 555,
+  })
   render(<CashRegisterTransferButton onCreated={vi.fn()} />)
   fireEvent.click(screen.getByRole('button', { name: /Перевести между кассами/ }))
   await screen.findByText('Касса-источник')
@@ -66,6 +77,7 @@ function selectOption(placeholder: string, optionText: string) {
 describe('CashRegisterTransferButton', () => {
   beforeEach(() => {
     getCashRegistersMock.mockReset()
+    getSettingsAccessMock.mockReset()
     createPortalRequestMock.mockReset()
     submitRequestForApprovalMock.mockReset()
     successMock.mockReset()
@@ -103,6 +115,7 @@ describe('CashRegisterTransferButton', () => {
           amount: 50000,
           currency: 'UZS',
           status: 'DRAFT',
+          requester: 555,
         }),
       )
     })
