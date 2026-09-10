@@ -10,6 +10,7 @@ bank statement text -- with slightly different spelling/legal suffix:
     "O`ZBEKTELEKOM" AJ               (83)  vs  "O`ZBEKTELEKOM " AJ         (135)
     MURODOV DILSHOD DOLIM O'G'LI    (623)  vs  ЯТТ MURODOV DILSHOD ...    (641)
     AUTOMATIC FIRE SYSTEM           (800)  vs  "AUTOMATIC FIRE SYSTEM" MCHJ (801)
+    AROMA HOUSE                     (110)  vs  "AROMA HOUSE" MCHJ          (145)
 
 Because reconcile_bank_expenses_by_vendor_amount_date requires an exact
 vendor_id match, requests filed against the "request-side" duplicate never
@@ -56,6 +57,7 @@ VENDOR_MERGES: list[tuple[int, int, int, str]] = [
     (LEMONAQUA_TENANT_ID, 83, 135, "O`ZBEKTELEKOM AJ"),
     (LEMONAQUA_TENANT_ID, 623, 641, "MURODOV DILSHOD DOLIM O'G'LI"),
     (LEMONAQUA_TENANT_ID, 800, 801, "AUTOMATIC FIRE SYSTEM"),
+    (LEMONAQUA_TENANT_ID, 110, 145, "AROMA HOUSE"),
 ]
 
 
