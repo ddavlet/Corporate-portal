@@ -8,7 +8,7 @@ from rest_framework.test import APITestCase
 from rest_framework_simplejwt.tokens import RefreshToken
 
 from apps.modules.cashier.models import CashExpense, CashRevenue
-from apps.modules.wallets.models import BankAccount
+from apps.modules.wallets.models import BankAccount, Wallet
 from apps.modules.wallets.resolution import (
     get_or_create_bank_wallet,
     get_or_create_bank_wallet_for_account,
