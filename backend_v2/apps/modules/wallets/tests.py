@@ -1,12 +1,14 @@
 from decimal import Decimal
 
 from django.contrib.auth import get_user_model
+from django.db import IntegrityError, transaction
 from django.test import TestCase, override_settings
 from django.utils import timezone
 from rest_framework.test import APITestCase
 from rest_framework_simplejwt.tokens import RefreshToken
 
 from apps.modules.cashier.models import CashExpense, CashRevenue
+from apps.modules.wallets.models import BankAccount
 from apps.modules.wallets.resolution import (
     get_or_create_bank_wallet,
     get_or_create_cash_wallet,
@@ -250,3 +252,34 @@ class WalletsApiTests(APITestCase):
             **self._headers(self.admin),
         )
         self.assertEqual(dup.status_code, 201, dup.content)
+
+
+class BankAccountConstraintTests(TestCase):
+    def setUp(self):
+        self.tenant = Tenant.objects.create(name="Acme", subdomain="bank-multi", is_active=True)
+
+    def test_second_account_with_distinct_number_allowed(self):
+        BankAccount.objects.create(tenant=self.tenant, label="Основной", account_no="", mfo="", is_default=True)
+        second = BankAccount.objects.create(tenant=self.tenant, label="Валютный", account_no="20208000111111111111", mfo="00450")
+        self.assertIsNotNone(second.pk)
+        self.assertEqual(BankAccount.objects.filter(tenant=self.tenant).count(), 2)
+
+    def test_duplicate_account_number_rejected(self):
+        BankAccount.objects.create(tenant=self.tenant, account_no="2020800011", mfo="00450")
+        with self.assertRaises(IntegrityError):
+            with transaction.atomic():
+                BankAccount.objects.create(tenant=self.tenant, account_no="2020800011", mfo="00450")
+
+    def test_two_default_accounts_rejected(self):
+        BankAccount.objects.create(tenant=self.tenant, account_no="111", mfo="00450", is_default=True)
+        with self.assertRaises(IntegrityError):
+            with transaction.atomic():
+                BankAccount.objects.create(tenant=self.tenant, account_no="222", mfo="00450", is_default=True)
+
+    def test_non_default_accounts_can_share_blank_or_differ_freely(self):
+        # Two tenants can each have their own blank-account_no row without colliding
+        # (the unique constraint is per-tenant, not global).
+        other_tenant = Tenant.objects.create(name="Beta", subdomain="bank-multi-2", is_active=True)
+        BankAccount.objects.create(tenant=self.tenant, account_no="", mfo="")
+        other = BankAccount.objects.create(tenant=other_tenant, account_no="", mfo="")
+        self.assertIsNotNone(other.pk)
