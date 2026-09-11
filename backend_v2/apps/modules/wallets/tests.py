@@ -11,6 +11,7 @@ from apps.modules.cashier.models import CashExpense, CashRevenue
 from apps.modules.wallets.models import BankAccount
 from apps.modules.wallets.resolution import (
     get_or_create_bank_wallet,
+    get_or_create_bank_wallet_for_account,
     get_or_create_cash_wallet,
     get_or_create_corporate_wallet,
 )
@@ -283,3 +284,49 @@ class BankAccountConstraintTests(TestCase):
         BankAccount.objects.create(tenant=self.tenant, account_no="", mfo="")
         other = BankAccount.objects.create(tenant=other_tenant, account_no="", mfo="")
         self.assertIsNotNone(other.pk)
+
+
+class BankWalletResolutionTests(TestCase):
+    def setUp(self):
+        self.tenant = Tenant.objects.create(name="Acme", subdomain="bank-resolve", is_active=True)
+
+    def test_default_wallet_created_once_for_fresh_tenant(self):
+        w1 = get_or_create_bank_wallet(tenant=self.tenant)
+        w2 = get_or_create_bank_wallet(tenant=self.tenant)
+        self.assertEqual(w1.id, w2.id)
+        self.assertEqual(BankAccount.objects.filter(tenant=self.tenant).count(), 1)
+        self.assertTrue(BankAccount.objects.get(tenant=self.tenant).is_default)
+
+    def test_legacy_blank_account_is_promoted_to_default_lazily(self):
+        # Simulates a tenant that already had the old single BankAccount row before
+        # this migration — is_default defaults to False at the schema level.
+        legacy = BankAccount.objects.create(tenant=self.tenant, label="Основной", account_no="", mfo="")
+        self.assertFalse(legacy.is_default)
+        w = get_or_create_bank_wallet(tenant=self.tenant)
+        legacy.refresh_from_db()
+        self.assertTrue(legacy.is_default)
+        self.assertEqual(Wallet.objects.get(bank_account=legacy).id, w.id)
+
+    def test_named_account_created_and_reused(self):
+        w1 = get_or_create_bank_wallet_for_account(tenant=self.tenant, account_no="20208000111111111111", mfo="00450")
+        w2 = get_or_create_bank_wallet_for_account(tenant=self.tenant, account_no="20208000111111111111", mfo="00450")
+        self.assertEqual(w1.id, w2.id)
+        self.assertEqual(BankAccount.objects.filter(tenant=self.tenant).count(), 1)
+
+    def test_named_account_does_not_collide_with_default(self):
+        default_wallet = get_or_create_bank_wallet(tenant=self.tenant)
+        named_wallet = get_or_create_bank_wallet_for_account(
+            tenant=self.tenant, account_no="20208000111111111111", mfo="00450"
+        )
+        self.assertNotEqual(default_wallet.id, named_wallet.id)
+        self.assertEqual(BankAccount.objects.filter(tenant=self.tenant).count(), 2)
+
+    def test_default_resolution_does_not_crash_with_multiple_accounts(self):
+        get_or_create_bank_wallet_for_account(tenant=self.tenant, account_no="111", mfo="00450")
+        get_or_create_bank_wallet_for_account(tenant=self.tenant, account_no="222", mfo="00450")
+        # Neither of the above is is_default=True, so the fallback must self-heal
+        # exactly one of the tenant's rows into the default instead of raising
+        # MultipleObjectsReturned.
+        w = get_or_create_bank_wallet(tenant=self.tenant)
+        self.assertIsNotNone(w.id)
+        self.assertEqual(BankAccount.objects.filter(tenant=self.tenant, is_default=True).count(), 1)
