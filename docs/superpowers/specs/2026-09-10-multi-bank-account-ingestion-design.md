@@ -49,28 +49,44 @@ class Meta:
 
 ## Архитектура
 
+**Техническая поправка после сверки с кодом:** `_N8nBatchBaseView.post()`
+(`apps/modules/n8n_integration/views.py:472`) требует, чтобы `request.data` было
+JSON-**массивом** (`[item1, item2, ...]`), а не объектом-обёрткой — добавить
+`account_no`/`mfo` «в тело батча» физически некуда без ломающего изменения контракта.
+Вместо этого — **query-параметры URL** батч-вызова: `?our_account_no=...&our_mfo=...`.
+Имена намеренно отличаются от уже существующего построчного поля `account_no` в
+`BankExpenseSerializer`/`BankRevenueSerializer` (там это счёт **контрагента**), чтобы не
+создавать двусмысленности.
+
 ```
 n8n: парсинг файла выписки → account_no/mfo "нашего" счёта уже есть в файле
         │
         ▼
-POST /api/n8n/bank/expenses/batch/  (или /revenues/batch/)
-{
-  "account_no": "...",       ← НОВОЕ, на уровне батча (не построчно)
-  "mfo": "...",               ← НОВОЕ, опционально
-  "items": [ ... как сейчас ... ]
-}
+POST /api/n8n/bank/expenses/batch/?our_account_no=...&our_mfo=...
+[ {item1}, {item2}, ... ]     ← тело батча не меняется, остаётся массивом
         │
         ▼
-resolve_wallet_for_bank(tenant=tenant, wallet_id=None, account_no=..., mfo=...)
-        │
-        ├─ account_no передан → get_or_create_bank_wallet_for_account(tenant, account_no, mfo)
-        │     ищет BankAccount(tenant, account_no, mfo); нет — создаёт BankAccount+Wallet
-        │
-        └─ account_no не передан (старые интеграции) → get_or_create_bank_wallet(tenant)
-              резолвит счёт по умолчанию (см. ниже), НЕ падает при наличии нескольких счетов
+_N8nBatchBaseView._item_request() уже копирует base_request.GET на каждый item
+(views.py:467) — доп. код в батч-обёртках не нужен, значения долетают до каждого
+элемента батча автоматически, без изменения тела запроса и без правок
+N8nBankExpenseBatchUpsertView/N8nBankRevenueBatchUpsertView.
         │
         ▼
-wallet передаётся один раз на весь батч в построчный upsert (без изменений построчной логики)
+N8nBankExpenseImportSerializer.validate() / N8nBankRevenueImportSerializer.validate()
+(n8n_integration/serializers.py) читают our_account_no/our_mfo из
+self.context["request"].GET и, если в самом item нет явного wallet_id
+(attrs.get("wallet") is None), резолвят
+attrs["wallet"] = get_or_create_bank_wallet_for_account(tenant, account_no, mfo)
+до вызова super().validate() — дальше существующая цепочка
+BankExpenseSerializer/BankRevenueSerializer.validate() →
+assign_wallet_for_bank_movement → resolve_wallet_for_bank(wallet_id=attrs["wallet"].pk)
+отрабатывает как для explicit wallet_id, БЕЗ изменений в bank_expenses/serializers.py,
+wallets/serializer_integration.py и wallets/resolution.resolve_wallet_for_bank.
+        │
+        ▼
+Query-параметры не переданы (старые интеграции) → цепочка не меняется,
+assign_wallet_for_bank_movement резолвит через get_or_create_bank_wallet(tenant)
+— счёт по умолчанию, см. ниже.
 ```
 
 ## Модель данных (`apps/modules/wallets/models.py`)
@@ -110,51 +126,69 @@ class Meta:
 загрузка выписки без `account_no` (обратная совместимость со старыми n8n-воркфлоу) и
 `assign_wallet_for_bank_movement` для исходящих платежей по заявкам.
 
-Правка: `get_or_create_bank_wallet` резолвит `BankAccount.objects.get(tenant=tenant,
-is_default=True)`; если ни одного `is_default` нет — создаёт первый счёт с
-`is_default=True` (поведение как раньше для тенантов с одним счётом). Миграция данных
-(через `make makemigrations`/бэкафилл на сервере) помечает существующий единственный
-`BankAccount` каждого тенанта как `is_default=True`.
+Правка: `get_or_create_bank_wallet` сначала ищет `BankAccount.objects.filter(tenant=tenant,
+is_default=True).first()`. Если не найден — **самовосстанавливается лениво**, без отдельной
+data-миграции: делает `get_or_create(tenant=tenant, account_no="", mfo="", defaults={...,
+"is_default": True})`; если находит уже существующую (для всех текущих тенантов — это их
+единственный сегодняшний `BankAccount`, у него `account_no=""`/`mfo=""` по дефолту) — просто
+проставляет ей `is_default=True` при первом обращении. Схема `is_default` (`default=False`
+на уровне поля) — обычная **схемная** миграция (`make makemigrations` сам её сгенерирует по
+diff модели: новое поле + замена constraint), без ручного `RunPython`. Один раз, при первом
+после миграции обращении к `get_or_create_bank_wallet` для тенанта — промоутит его текущий
+единственный счёт в `is_default=True`; повторные вызовы уже находят его напрямую.
 
 ## Резолюция (`apps/modules/wallets/resolution.py`)
 
 Новая функция, не меняющая существующую:
 
 ```python
-def get_or_create_bank_wallet_for_account(*, tenant, account_no, mfo="", label=""):
-    ba, created = BankAccount.objects.get_or_create(
+def get_or_create_bank_wallet_for_account(*, tenant, account_no, mfo="") -> Wallet:
+    account_no = (account_no or "").strip()
+    mfo = (mfo or "").strip()
+    ba, _ = BankAccount.objects.get_or_create(
         tenant=tenant, account_no=account_no, mfo=mfo,
-        defaults={"label": label or account_no, "is_default": False},
+        defaults={"label": account_no},
     )
-    return get_or_create_wallet_for_bank_account(ba)  # существующий паттерн создания Wallet под BankAccount
+    w, _ = Wallet.objects.get_or_create(
+        bank_account=ba,
+        defaults={"tenant": tenant, "wallet_type": Wallet.Type.BANK, "currency": "UZS", "opening_balance": 0},
+    )
+    return w
 ```
 
-`resolve_wallet_for_bank` расширяется опциональными `account_no`/`mfo` с приоритетом:
-явный `wallet_id` → явный `account_no` → счёт по умолчанию (старое поведение).
+`resolve_wallet_for_bank`/`assign_wallet_for_bank_movement`/`resolve_wallet_for_cash` и
+пр. в `resolution.py`/`serializer_integration.py` **не меняются** — резолюция по
+`account_no`/`mfo` происходит только на стороне n8n-сериализаторов (ниже), которые
+передают уже готовый `Wallet` как `attrs["wallet"]`, ровно так же, как если бы вызывающий
+явно указал `wallet_id`.
 
 ## Контракт `/batch/` (`apps/modules/n8n_integration/`)
 
-- `N8nBankExpenseImportSerializer`/`N8nBankRevenueImportSerializer`
-  (`serializers.py:214,262`) — без изменений построчно.
-- Батч-обёртки `N8nBankExpenseBatchUpsertView`/`N8nBankRevenueBatchUpsertView`
-  (`views.py:1740,1866`) — добавить на уровне тела запроса необязательные поля
-  `account_no`/`mfo`; при наличии — резолвить `wallet` один раз в начале обработки батча
-  через `resolve_wallet_for_bank(tenant=tenant, account_no=..., mfo=...)` и передавать
-  результат в построчный upsert так же, как сейчас передаётся `wallet_id` per-line
-  (если построчный `wallet_id` тоже присутствует — он имеет приоритет, batch-level
-  используется только как дефолт для строк без явного `wallet_id`).
-- Обратная совместимость: батч без `account_no` продолжает резолвиться в счёт по
+- Тело запроса (`items`, каждый item) — без изменений полей.
+- Новые **query-параметры** URL, опциональные, применяются и к одиночному, и к batch-
+  эндпоинту (`bank/expenses/`, `bank/expenses/batch/`, `bank/revenues/`,
+  `bank/revenues/batch/`): `our_account_no`, `our_mfo`.
+- `N8nBankExpenseImportSerializer.validate()` (`serializers.py:214`, уже переопределён —
+  дополняется) и `N8nBankRevenueImportSerializer.validate()` (`serializers.py:262`, новый
+  метод) читают эти параметры через `self.context["request"].GET` и заполняют
+  `attrs["wallet"]`, если он ещё не задан явным `wallet_id` в самом item.
+- Батч-обёртки (`N8nBankExpenseBatchUpsertView`, `N8nBankRevenueBatchUpsertView`) —
+  **без изменений кода**: `_N8nBatchBaseView._item_request` уже копирует `base_request.GET`
+  в каждый построчный псевдо-запрос, поэтому query-параметры долетают до каждого item
+  автоматически.
+- Обратная совместимость: вызов без `our_account_no` продолжает резолвиться в счёт по
   умолчанию, как сейчас.
 
 ## Тестирование
 
-- Загрузка батча с новым `account_no` для тенанта без счетов → создаётся `BankAccount`
-  (`is_default=False`) и `Wallet`, строки батча привязаны к нему.
-- Повторная загрузка батча с тем же `account_no` → используется существующий `Wallet`,
+- Загрузка батча (`?our_account_no=...`) для тенанта без счетов → создаётся `BankAccount`
+  (`is_default=False`) и `Wallet`, все item'ы батча привязаны к нему.
+- Повторная загрузка с тем же `our_account_no` → используется существующий `Wallet`,
   дубликат `BankAccount` не создаётся.
-- Загрузка второго батча с другим `account_no` того же тенанта → создаётся второй
-  независимый `BankAccount`/`Wallet`, первый не затрагивается.
-- Батч без `account_no` у тенанта с несколькими счетами → резолвится `is_default=True`
+- Загрузка с другим `our_account_no` того же тенанта → создаётся второй независимый
+  `BankAccount`/`Wallet`, первый не затрагивается.
+- Явный `wallet_id` в теле конкретного item имеет приоритет над `our_account_no` из query.
+- Вызов без `our_account_no` у тенанта с несколькими счетами → резолвится `is_default=True`
   счёт, без `MultipleObjectsReturned`.
 - `assign_wallet_for_bank_movement` (исходящий платёж по заявке) у тенанта с несколькими
   счетами и без явного `wallet_id` → использует `is_default=True` счёт, не падает.
@@ -171,19 +205,24 @@ def get_or_create_bank_wallet_for_account(*, tenant, account_no, mfo="", label="
 
 ## Риски
 
-- `wallet` на `BankExpense`/`BankRevenue` — не `null` (нужно перепроверить точный
-  `on_delete`/nullability при реализации), поэтому резолюция счёта по умолчанию должна
-  быть надёжной (не кидать исключение) для всех существующих интеграций, которые ещё не
-  обновлены на передачу `account_no`.
-- Бэкафилл `is_default=True` для существующих тенантов должен быть частью той же миграции,
-  что меняет constraint — иначе между миграциями возможно окно, где ни у одного тенанта
-  нет `is_default`-счёта и `get_or_create_bank_wallet` создаёт лишний.
+- `wallet` на `BankExpense`/`BankRevenue` — `on_delete=PROTECT`, **не** `null`
+  (`bank_expenses/models.py:39-42,88-91`, подтверждено). Резолюция счёта по умолчанию
+  обязана быть надёжной (не кидать исключение) для всех существующих интеграций и для
+  исходящих платежей по заявкам, которые ещё не обновлены на передачу `our_account_no`.
+- Ленивое самовосстановление `is_default` (см. выше) полагается на то, что у каждого
+  сегодняшнего тенанта ровно один `BankAccount` с `account_no=""`/`mfo=""` — это гарантирует
+  старый constraint (один счёт на тенанта), значит на момент миграции инвариант точно
+  выполнен.
 - Если у тенанта в будущем понадобится позволить выбирать счёт для исходящих платежей —
   это отдельная задача (см. Non-goals), т.к. требует UI на `frontend_v2` и изменений в
   `requests`.
 
 ## Ограничения
 
-- Миграция — только через `make makemigrations` на сервере, локально не создавать.
-- Изменения только в `wallets` (модель, resolution) и `n8n_integration` (batch views);
-  `bank_expenses`, `requests` — без изменений кода, только регрессионные тесты.
+- Миграция — только схемная (новое поле `is_default` + замена constraint), генерируется
+  через `make makemigrations` на сервере, вручную (`RunPython`/локально) не пишется.
+- Изменения только в `wallets/models.py` (модель), `wallets/resolution.py` (новая функция
+  + бугфикс `get_or_create_bank_wallet`) и `n8n_integration/serializers.py`
+  (`N8nBankExpenseImportSerializer`/`N8nBankRevenueImportSerializer.validate()`);
+  `bank_expenses`, `requests`, `n8n_integration/views.py` — без изменений кода, только
+  регрессионные тесты.
