@@ -226,10 +226,16 @@ def get_or_create_bank_wallet_for_account(*, tenant, account_no, mfo="") -> Wall
 
 ## Ограничения
 
-- Миграция — только схемная (новое поле `is_default` + замена constraint), генерируется
-  через `make makemigrations` на сервере, вручную (`RunPython`/локально) не пишется.
-- Изменения только в `wallets/models.py` (модель), `wallets/resolution.py` (новая функция
-  + бугфикс `get_or_create_bank_wallet`) и `n8n_integration/serializers.py`
-  (`N8nBankExpenseImportSerializer`/`N8nBankRevenueImportSerializer.validate()`);
-  `bank_expenses`, `requests`, `n8n_integration/views.py` — без изменений кода, только
-  регрессионные тесты.
+- Миграция — только схемная (новое поле `is_default` + замена constraint). На практике
+  `make makemigrations` не смог её сгенерировать: сервер видит только уже задеплоенный
+  `main`, без git pull/checkout ветки — фиче-ветку он структурно не может увидеть.
+  Пользователь дал разовое исключение — `0006_bankaccount_is_default.py` написан вручную
+  по образцу автогенератора Django (проверено построчно против `0005_...` и финальной
+  модели в финальном ревью ветки); `RunPython`/data-миграция не потребовались.
+- Изменения: `wallets/models.py` (модель), `wallets/resolution.py` (новая функция +
+  бугфикс `get_or_create_bank_wallet`), `n8n_integration/serializers.py`
+  (`N8nBankExpenseImportSerializer`/`N8nBankRevenueImportSerializer.validate()`), плюс
+  по итогам финального ревью ветки — `wallets/serializers.py` (`is_default` как
+  read-only поле в `BankAccountSerializer`, для наблюдаемости состояния, которое стало
+  значимым после фикса резолюции счёта по умолчанию). `bank_expenses`, `requests`,
+  `n8n_integration/views.py` — без изменений кода, только регрессионные тесты.
