@@ -7,7 +7,7 @@ DEPLOY_TEST_PATH ?= $(TEST_PATH)
 BRANCH     := $(shell git rev-parse --abbrev-ref HEAD)
 
 .DEFAULT_GOAL := help
-.PHONY: help push test deploy makemigrations showmigrations logs backup-db create-postgres-mcp-role rollback refresh-approval-messages link-lemon-auto-request-exceptions fix-bank-expense-vendor-misattribution fix-lemonhavo-misattributed-bank-expenses reconcile-card-revenues reconcile-bank-expenses-by-vendor merge-lemonaqua-duplicate-vendors fix-lemonaqua-misselected-vendor-requests send-to-vacation return-from-vacation add-cash-register-transfer-purpose add-cash-register-transfer-approval-exception local-up local-down local-logs test_local
+.PHONY: help push test deploy makemigrations showmigrations logs backup-db create-postgres-mcp-role rollback refresh-approval-messages link-lemon-auto-request-exceptions fix-bank-expense-vendor-misattribution fix-lemonhavo-misattributed-bank-expenses reconcile-card-revenues reconcile-card-expenses reconcile-bank-expenses-by-vendor merge-lemonaqua-duplicate-vendors fix-lemonaqua-misselected-vendor-requests send-to-vacation return-from-vacation add-cash-register-transfer-purpose add-cash-register-transfer-approval-exception local-up local-down local-logs test_local
 
 help:
 	@echo ""
@@ -31,6 +31,8 @@ help:
 	@echo "  make fix-lemonhavo-misattributed-bank-expenses APPLY=1 — то же самое, но с записью изменений"
 	@echo "  make reconcile-card-revenues — привязать заявки 'Пополнение' к corporate_card_revenues по сумме+дате"
 	@echo "  make reconcile-card-revenues TENANT=3 — то же самое, но только для одного тенанта"
+	@echo "  make reconcile-card-expenses — привязать заявки 'Платежная карта' к corporate_card_expenses по сумме+дате"
+	@echo "  make reconcile-card-expenses TENANT=3 — то же самое, но только для одного тенанта"
 	@echo "  make reconcile-bank-expenses-by-vendor — привязать заявки 'Перечисление'/'Пополнение' к bank_expenses по вендору+сумме+дате (все тенанты)"
 	@echo "  make reconcile-bank-expenses-by-vendor TENANT=3 — то же самое, но только для одного тенанта"
 	@echo "  make merge-lemonaqua-duplicate-vendors — dry-run: объединить дубли вендоров lemonaqua (заявка -> версия из банка)"
@@ -189,6 +191,14 @@ reconcile-card-revenues:
 	ssh $(SERVER) "cd $(REMOTE_DIR) && \
 		docker compose --env-file ./.env exec -T backend_v2 \
 		python manage.py reconcile_card_revenues_by_amount $(if $(TENANT),--tenant=$(TENANT),)"
+
+# ── 7d-1b. По требованию: привязать заявки "Платежная карта" к card_expenses ──
+# (n8n уже триггерит эту команду при импорте транзакций карты; этот таргет —
+# для обратного порядка событий: заявка стала PAYED уже после импорта)
+reconcile-card-expenses:
+	ssh $(SERVER) "cd $(REMOTE_DIR) && \
+		docker compose --env-file ./.env exec -T backend_v2 \
+		python manage.py reconcile_card_expenses_by_amount $(if $(TENANT),--tenant=$(TENANT),)"
 
 # ── 7d-2. По требованию: привязать заявки "Перечисление"/"Пополнение" к bank_expenses ──
 # (n8n уже триггерит эту команду при импорте выписки; этот таргет — для обратного
