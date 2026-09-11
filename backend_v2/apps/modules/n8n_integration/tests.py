@@ -36,7 +36,7 @@ from apps.modules.investments.models import (
 from apps.modules.payroll.models import PayrollDocument
 from apps.modules.requests.services import list_payment_purposes_by_payment_type
 from apps.modules.vendors.models import Vendor
-from apps.modules.wallets.models import CashRegister, Wallet
+from apps.modules.wallets.models import BankAccount, CashRegister, Wallet
 from apps.modules.wallets.resolution import (
     get_or_create_bank_wallet,
     get_or_create_cash_wallet,
@@ -515,6 +515,126 @@ class N8nIntegrationAuthTests(APITestCase):
         self.assertEqual(r2.data["skipped"], 0)
         row = BankExpense.objects.get(tenant=self.tenant, external_id="BANK-BATCH-EXT-1")
         self.assertEqual(str(row.debit_turnover), "250.00")
+
+    def test_bank_expense_our_account_no_creates_named_wallet(self):
+        url = f"{self.n8n_prefix}/bank/expenses/?our_account_no=20208000222222222222&our_mfo=00450"
+        body = {
+            "external_id": "BANK-ACCT-1",
+            "row_no": 1,
+            "doc_date": "2026-09-01",
+            "process_date": "2026-09-01",
+            "doc_no": "BEXP-ACCT-1",
+            "debit_turnover": "100.00",
+            "payment_purpose": "Оплата",
+        }
+        res = self.client.post(url, body, format="json", **self._headers(self.admin))
+        self.assertEqual(res.status_code, 201, res.content)
+        row = BankExpense.objects.get(tenant=self.tenant, external_id="BANK-ACCT-1")
+        ba = BankAccount.objects.get(tenant=self.tenant, account_no="20208000222222222222", mfo="00450")
+        self.assertEqual(row.wallet.bank_account_id, ba.id)
+        self.assertFalse(ba.is_default)
+
+    def test_bank_expense_our_account_no_too_long_returns_400(self):
+        url = f"{self.n8n_prefix}/bank/expenses/?our_account_no={'1' * 35}"
+        body = {
+            "external_id": "BANK-ACCT-TOOLONG-1",
+            "row_no": 1,
+            "doc_date": "2026-09-01",
+            "process_date": "2026-09-01",
+            "doc_no": "BEXP-ACCT-TOOLONG-1",
+            "debit_turnover": "5.00",
+            "payment_purpose": "Оплата",
+        }
+        res = self.client.post(url, body, format="json", **self._headers(self.admin))
+        self.assertEqual(res.status_code, 400, res.content)
+
+    def test_bank_expense_batch_applies_our_account_no_to_every_item(self):
+        url = f"{self.n8n_prefix}/bank/expenses/batch/?our_account_no=20208000333333333333"
+        items = [
+            {
+                "external_id": "BANK-ACCT-BATCH-1",
+                "row_no": 1,
+                "doc_date": "2026-09-01",
+                "process_date": "2026-09-01",
+                "doc_no": "BEXP-ACCT-BATCH-1",
+                "debit_turnover": "10.00",
+                "payment_purpose": "Оплата 1",
+            },
+            {
+                "external_id": "BANK-ACCT-BATCH-2",
+                "row_no": 2,
+                "doc_date": "2026-09-01",
+                "process_date": "2026-09-01",
+                "doc_no": "BEXP-ACCT-BATCH-2",
+                "debit_turnover": "20.00",
+                "payment_purpose": "Оплата 2",
+            },
+        ]
+        res = self.client.post(url, items, format="json", **self._headers(self.admin))
+        self.assertEqual(res.status_code, 200, res.content)
+        ba = BankAccount.objects.get(tenant=self.tenant, account_no="20208000333333333333")
+        rows = BankExpense.objects.filter(
+            tenant=self.tenant, external_id__in=["BANK-ACCT-BATCH-1", "BANK-ACCT-BATCH-2"]
+        )
+        self.assertEqual(rows.count(), 2)
+        for row in rows:
+            self.assertEqual(row.wallet.bank_account_id, ba.id)
+
+    def test_bank_expense_explicit_wallet_id_overrides_our_account_no(self):
+        other_wallet = get_or_create_bank_wallet(tenant=self.tenant)
+        url = f"{self.n8n_prefix}/bank/expenses/?our_account_no=20208000444444444444"
+        body = {
+            "external_id": "BANK-ACCT-OVERRIDE-1",
+            "row_no": 1,
+            "doc_date": "2026-09-01",
+            "process_date": "2026-09-01",
+            "doc_no": "BEXP-ACCT-OVERRIDE-1",
+            "debit_turnover": "5.00",
+            "payment_purpose": "Оплата",
+            "wallet_id": other_wallet.id,
+        }
+        res = self.client.post(url, body, format="json", **self._headers(self.admin))
+        self.assertEqual(res.status_code, 201, res.content)
+        row = BankExpense.objects.get(tenant=self.tenant, external_id="BANK-ACCT-OVERRIDE-1")
+        self.assertEqual(row.wallet_id, other_wallet.id)
+        self.assertFalse(BankAccount.objects.filter(tenant=self.tenant, account_no="20208000444444444444").exists())
+
+    def test_bank_expense_without_our_account_no_keeps_default_wallet_behavior(self):
+        url = f"{self.n8n_prefix}/bank/expenses/"
+        body = {
+            "external_id": "BANK-ACCT-DEFAULT-1",
+            "row_no": 1,
+            "doc_date": "2026-09-01",
+            "process_date": "2026-09-01",
+            "doc_no": "BEXP-ACCT-DEFAULT-1",
+            "debit_turnover": "7.00",
+            "payment_purpose": "Оплата",
+        }
+        res = self.client.post(url, body, format="json", **self._headers(self.admin))
+        self.assertEqual(res.status_code, 201, res.content)
+        row = BankExpense.objects.get(tenant=self.tenant, external_id="BANK-ACCT-DEFAULT-1")
+        self.assertTrue(row.wallet.bank_account.is_default)
+
+    def test_bank_revenue_our_account_no_creates_named_wallet(self):
+        url = f"{self.n8n_prefix}/bank/revenues/?our_account_no=20208000555555555555&our_mfo=00450"
+        body = {
+            "external_id": "BREV-ACCT-1",
+            "row_no": 1,
+            "doc_date": "2026-09-01",
+            "process_date": "2026-09-01",
+            "doc_no": "BREV-ACCT-1",
+            "account_name": "Client",
+            "inn": "123",
+            "account_no": "202080009999",
+            "mfo": "01001",
+            "kredit_turnover": "50.00",
+            "payment_purpose": "Оплата",
+        }
+        res = self.client.post(url, body, format="json", **self._headers(self.admin))
+        self.assertEqual(res.status_code, 201, res.content)
+        row = BankRevenue.objects.get(tenant=self.tenant, external_id="BREV-ACCT-1")
+        ba = BankAccount.objects.get(tenant=self.tenant, account_no="20208000555555555555", mfo="00450")
+        self.assertEqual(row.wallet.bank_account_id, ba.id)
 
     def test_bank_revenue_upserts_by_external_id(self):
         url = f"{self.n8n_prefix}/bank/revenues/"

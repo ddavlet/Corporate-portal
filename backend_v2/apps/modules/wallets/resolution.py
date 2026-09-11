@@ -65,9 +65,36 @@ def get_or_create_corporate_wallet(*, tenant: Tenant, currency: str | None) -> W
 
 
 def get_or_create_bank_wallet(*, tenant: Tenant) -> Wallet:
+    ba = BankAccount.objects.filter(tenant=tenant, is_default=True).first()
+    if ba is None:
+        ba = BankAccount.objects.filter(tenant=tenant).order_by("id").first()
+        if ba is None:
+            ba = BankAccount.objects.create(
+                tenant=tenant, label="Основной", account_no="", mfo="", is_default=True
+            )
+        else:
+            ba.is_default = True
+            ba.save(update_fields=["is_default"])
+    w, _ = Wallet.objects.get_or_create(
+        bank_account=ba,
+        defaults={
+            "tenant": tenant,
+            "wallet_type": Wallet.Type.BANK,
+            "currency": "UZS",
+            "opening_balance": 0,
+        },
+    )
+    return w
+
+
+def get_or_create_bank_wallet_for_account(*, tenant: Tenant, account_no: str, mfo: str = "") -> Wallet:
+    account_no = (account_no or "").strip()
+    mfo = (mfo or "").strip()
     ba, _ = BankAccount.objects.get_or_create(
         tenant=tenant,
-        defaults={"label": "Основной", "account_no": "", "mfo": ""},
+        account_no=account_no,
+        mfo=mfo,
+        defaults={"label": account_no},
     )
     w, _ = Wallet.objects.get_or_create(
         bank_account=ba,

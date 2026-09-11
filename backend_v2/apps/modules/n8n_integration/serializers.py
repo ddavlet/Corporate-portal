@@ -9,6 +9,7 @@ from apps.modules.bank_expenses.serializers import BankExpenseSerializer, BankRe
 from apps.modules.cashier.models import CashExpense, CashRevenue
 from apps.modules.cashier.serializers import CashExpenseSerializer, CashRevenueSerializer
 from apps.modules.wallets.models import CashRegister
+from apps.modules.wallets.resolution import get_or_create_bank_wallet_for_account
 from apps.modules.corporate_card.models import CardExpense, CardRevenue
 from apps.modules.corporate_card.serializers import CardExpenseSerializer, CardRevenueSerializer
 from apps.modules.notes.models import Note
@@ -211,6 +212,32 @@ class N8nPayrollLineImportSerializer(serializers.ModelSerializer):
         return super().update(instance, validated_data)
 
 
+def _inject_statement_wallet_from_query(serializer, attrs: dict) -> None:
+    """
+    A bank-statement import (single or batch) may pin the target wallet to a specific
+    tenant bank account via `?our_account_no=...&our_mfo=...` on the request URL. Resolved
+    once per HTTP call but applied per item, because _N8nBatchBaseView forwards the batch
+    request's GET to every item's synthetic per-item request. An explicit `wallet_id`
+    already present on the item (attrs["wallet"] set) always wins and is left untouched.
+    """
+    if attrs.get("wallet") is not None:
+        return
+    request_obj = serializer.context.get("request")
+    query = getattr(request_obj, "GET", None) or {}
+    account_no = str(query.get("our_account_no") or "").strip()
+    if not account_no:
+        return
+    tenant = getattr(request_obj, "tenant", None)
+    if tenant is None:
+        return
+    mfo = str(query.get("our_mfo") or "").strip()
+    if len(account_no) > 34 or len(mfo) > 10:
+        raise serializers.ValidationError(
+            {"our_account_no": "our_account_no (max 34 chars) / our_mfo (max 10 chars) exceed the allowed length."}
+        )
+    attrs["wallet"] = get_or_create_bank_wallet_for_account(tenant=tenant, account_no=account_no, mfo=mfo)
+
+
 class N8nBankExpenseImportSerializer(BankExpenseSerializer):
     id = serializers.IntegerField(required=False, allow_null=True)
     vendor_name = serializers.CharField(required=False, allow_blank=True, write_only=True)
@@ -246,6 +273,7 @@ class N8nBankExpenseImportSerializer(BankExpenseSerializer):
                     {"vendor_name": f"Multiple transfer vendors found with name '{lookup_name}'."}
                 )
             attrs["vendor"] = matches[0]
+        _inject_statement_wallet_from_query(self, attrs)
         return super().validate(attrs)
 
     class Meta(BankExpenseSerializer.Meta):
@@ -261,6 +289,10 @@ class N8nBankExpenseImportSerializer(BankExpenseSerializer):
 
 class N8nBankRevenueImportSerializer(BankRevenueSerializer):
     id = serializers.IntegerField(required=False, allow_null=True)
+
+    def validate(self, attrs):
+        _inject_statement_wallet_from_query(self, attrs)
+        return super().validate(attrs)
 
     class Meta(BankRevenueSerializer.Meta):
         read_only_fields = ["created_at", "created_by"]
