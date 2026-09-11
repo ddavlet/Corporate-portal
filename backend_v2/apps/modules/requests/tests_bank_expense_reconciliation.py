@@ -138,6 +138,35 @@ class BankExpenseReconciliationTests(TestCase):
 
         self.assertEqual(linked, 0)
 
+    def test_matching_ignores_which_bank_wallet_the_expense_sits_on(self):
+        second_account = BankAccount.objects.create(tenant=self.tenant, label="Второй", account_no="999", mfo="00450")
+        second_wallet = Wallet.objects.create(
+            tenant=self.tenant, wallet_type=Wallet.Type.BANK, currency="UZS", bank_account=second_account,
+        )
+        vendor = self._make_vendor()
+        expense = BankExpense.objects.create(
+            tenant=self.tenant,
+            created_by=self.admin,
+            row_no=1,
+            doc_date=date(2026, 8, 10),
+            process_date=date(2026, 8, 10),
+            expense_year=2026,
+            expense_month=8,
+            expense_day=10,
+            doc_no="",
+            debit_turnover=Decimal("300"),
+            payment_purpose="x",
+            vendor=vendor,
+            wallet=second_wallet,
+        )
+        request_obj = self._make_request(vendor=vendor, amount="300", payed_date=date(2026, 8, 10))
+
+        reconcile_bank_expenses_by_vendor_amount_date(tenant=self.tenant)
+
+        request_obj.refresh_from_db()
+        self.assertEqual(request_obj.expense_ref_id, expense.pk)
+        self.assertEqual(request_obj.expense_ref_target, Request.EXPENSE_REF_TARGET_BANK)
+
     def test_manual_expense_id_is_not_touched(self):
         """A request with a manually-entered (even if not-yet-resolved) expense_id is left alone."""
         vendor = self._make_vendor()

@@ -239,6 +239,16 @@ class WalletsApiTests(APITestCase):
         )
         self.assertEqual(res.status_code, 400)
 
+    def test_bank_account_second_create_with_distinct_number_allowed(self):
+        res = self.client.post(
+            "/api/wallets/bank-accounts/",
+            {"label": "Второй счёт", "account_no": "20208000777777777777", "mfo": "00450"},
+            format="json",
+            **self._headers(self.admin),
+        )
+        self.assertEqual(res.status_code, 201, res.content)
+        self.assertEqual(BankAccount.objects.filter(tenant=self.tenant).count(), 2)
+
     def test_corporate_card_accounts_list_and_duplicate_currency_allowed(self):
         res = self.client.get("/api/wallets/corporate-card-accounts/", **self._headers(self.admin))
         self.assertEqual(res.status_code, 200)
