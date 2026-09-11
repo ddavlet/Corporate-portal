@@ -29,19 +29,31 @@ class CashRegister(models.Model):
 
 class BankAccount(models.Model):
     """
-    v1: exactly one synthetic row per tenant for the single bank Wallet.
-    Do not treat statement `account_no` as this anchor — see module docstring.
+    Tenant-level anchor for a bank Wallet. A tenant may have several BankAccount rows —
+    one per real bank account — distinguished by (account_no, mfo). Exactly one row per
+    tenant may be `is_default=True`; it's the fallback used when a caller does not name a
+    specific account (see wallets.resolution.get_or_create_bank_wallet). Do not treat
+    statement-line `account_no`/`mfo` on BankExpense/BankRevenue as this anchor — those
+    describe the counterparty, not "our" account (see module docstring above).
     """
 
     tenant = models.ForeignKey(Tenant, on_delete=models.CASCADE, related_name="bank_accounts_wallets", db_index=False)
     label = models.CharField(max_length=255, default="Основной")
     account_no = models.CharField(max_length=34, blank=True, default="")
     mfo = models.CharField(max_length=10, blank=True, default="")
+    is_default = models.BooleanField(default=False)
 
     class Meta:
         db_table = "wallets_bank_accounts"
         constraints = [
-            models.UniqueConstraint(fields=["tenant"], name="wallets_bankaccount_one_per_tenant"),
+            models.UniqueConstraint(
+                fields=["tenant", "account_no", "mfo"], name="wallets_bankaccount_unique_per_account"
+            ),
+            models.UniqueConstraint(
+                fields=["tenant"],
+                condition=models.Q(is_default=True),
+                name="wallets_bankaccount_one_default_per_tenant",
+            ),
         ]
 
 
