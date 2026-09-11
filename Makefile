@@ -7,7 +7,7 @@ DEPLOY_TEST_PATH ?= $(TEST_PATH)
 BRANCH     := $(shell git rev-parse --abbrev-ref HEAD)
 
 .DEFAULT_GOAL := help
-.PHONY: help push test deploy makemigrations showmigrations logs backup-db create-postgres-mcp-role rollback refresh-approval-messages link-lemon-auto-request-exceptions fix-bank-expense-vendor-misattribution reconcile-card-revenues reconcile-bank-expenses-by-vendor merge-lemonaqua-duplicate-vendors fix-lemonaqua-misselected-vendor-requests send-to-vacation return-from-vacation add-cash-register-transfer-purpose add-cash-register-transfer-approval-exception local-up local-down local-logs test_local
+.PHONY: help push test deploy makemigrations showmigrations logs backup-db create-postgres-mcp-role rollback refresh-approval-messages link-lemon-auto-request-exceptions fix-bank-expense-vendor-misattribution fix-lemonhavo-misattributed-bank-expenses reconcile-card-revenues reconcile-bank-expenses-by-vendor merge-lemonaqua-duplicate-vendors fix-lemonaqua-misselected-vendor-requests send-to-vacation return-from-vacation add-cash-register-transfer-purpose add-cash-register-transfer-approval-exception local-up local-down local-logs test_local
 
 help:
 	@echo ""
@@ -27,6 +27,8 @@ help:
 	@echo "  make link-lemon-auto-request-exceptions APPLY=1 — то же самое, но с записью изменений"
 	@echo "  make fix-bank-expense-vendor-misattribution — dry-run: фикс vendor у bank_expenses 9830/10198 и request 7781"
 	@echo "  make fix-bank-expense-vendor-misattribution APPLY=1 — то же самое, но с записью изменений"
+	@echo "  make fix-lemonhavo-misattributed-bank-expenses — dry-run: перенос bank_expenses 8615/23915 из lemonhavo в lemonfit + привязка заявок 7738/8011"
+	@echo "  make fix-lemonhavo-misattributed-bank-expenses APPLY=1 — то же самое, но с записью изменений"
 	@echo "  make reconcile-card-revenues — привязать заявки 'Пополнение' к corporate_card_revenues по сумме+дате"
 	@echo "  make reconcile-card-revenues TENANT=3 — то же самое, но только для одного тенанта"
 	@echo "  make reconcile-bank-expenses-by-vendor — привязать заявки 'Перечисление'/'Пополнение' к bank_expenses по вендору+сумме+дате (все тенанты)"
@@ -173,6 +175,12 @@ fix-bank-expense-vendor-misattribution:
 	ssh $(SERVER) "cd $(REMOTE_DIR) && \
 		docker compose --env-file ./.env exec -T backend_v2 \
 		python manage.py fix_bank_expense_vendor_misattribution $(if $(APPLY),--apply,)"
+
+# ── 7c-2. Разово: перенести bank_expenses 8615/23915 из lemonhavo в lemonfit ──
+fix-lemonhavo-misattributed-bank-expenses:
+	ssh $(SERVER) "cd $(REMOTE_DIR) && \
+		docker compose --env-file ./.env exec -T backend_v2 \
+		python manage.py fix_lemonhavo_misattributed_bank_expenses $(if $(APPLY),--apply,)"
 
 # ── 7d. Разово/по требованию: привязать заявки "Пополнение" к card_revenues ──
 TENANT ?=
