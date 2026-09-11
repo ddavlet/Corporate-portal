@@ -67,13 +67,12 @@ def get_or_create_corporate_wallet(*, tenant: Tenant, currency: str | None) -> W
 def get_or_create_bank_wallet(*, tenant: Tenant) -> Wallet:
     ba = BankAccount.objects.filter(tenant=tenant, is_default=True).first()
     if ba is None:
-        ba, created = BankAccount.objects.get_or_create(
-            tenant=tenant,
-            account_no="",
-            mfo="",
-            defaults={"label": "Основной", "is_default": True},
-        )
-        if not created and not ba.is_default:
+        ba = BankAccount.objects.filter(tenant=tenant).order_by("id").first()
+        if ba is None:
+            ba = BankAccount.objects.create(
+                tenant=tenant, label="Основной", account_no="", mfo="", is_default=True
+            )
+        else:
             ba.is_default = True
             ba.save(update_fields=["is_default"])
     w, _ = Wallet.objects.get_or_create(

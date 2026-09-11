@@ -231,6 +231,10 @@ def _inject_statement_wallet_from_query(serializer, attrs: dict) -> None:
     if tenant is None:
         return
     mfo = str(query.get("our_mfo") or "").strip()
+    if len(account_no) > 34 or len(mfo) > 10:
+        raise serializers.ValidationError(
+            {"our_account_no": "our_account_no (max 34 chars) / our_mfo (max 10 chars) exceed the allowed length."}
+        )
     attrs["wallet"] = get_or_create_bank_wallet_for_account(tenant=tenant, account_no=account_no, mfo=mfo)
 
 

@@ -534,6 +534,20 @@ class N8nIntegrationAuthTests(APITestCase):
         self.assertEqual(row.wallet.bank_account_id, ba.id)
         self.assertFalse(ba.is_default)
 
+    def test_bank_expense_our_account_no_too_long_returns_400(self):
+        url = f"{self.n8n_prefix}/bank/expenses/?our_account_no={'1' * 35}"
+        body = {
+            "external_id": "BANK-ACCT-TOOLONG-1",
+            "row_no": 1,
+            "doc_date": "2026-09-01",
+            "process_date": "2026-09-01",
+            "doc_no": "BEXP-ACCT-TOOLONG-1",
+            "debit_turnover": "5.00",
+            "payment_purpose": "Оплата",
+        }
+        res = self.client.post(url, body, format="json", **self._headers(self.admin))
+        self.assertEqual(res.status_code, 400, res.content)
+
     def test_bank_expense_batch_applies_our_account_no_to_every_item(self):
         url = f"{self.n8n_prefix}/bank/expenses/batch/?our_account_no=20208000333333333333"
         items = [

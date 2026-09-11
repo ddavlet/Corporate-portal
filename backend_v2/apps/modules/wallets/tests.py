@@ -317,6 +317,16 @@ class BankWalletResolutionTests(TestCase):
         self.assertTrue(legacy.is_default)
         self.assertEqual(Wallet.objects.get(bank_account=legacy).id, w.id)
 
+    def test_legacy_account_with_filled_number_is_promoted_not_duplicated(self):
+        legacy = BankAccount.objects.create(
+            tenant=self.tenant, label="Основной", account_no="20208000111111111111", mfo="00450"
+        )
+        w = get_or_create_bank_wallet(tenant=self.tenant)
+        legacy.refresh_from_db()
+        self.assertTrue(legacy.is_default)
+        self.assertEqual(BankAccount.objects.filter(tenant=self.tenant).count(), 1)
+        self.assertEqual(w.bank_account_id, legacy.id)
+
     def test_named_account_created_and_reused(self):
         w1 = get_or_create_bank_wallet_for_account(tenant=self.tenant, account_no="20208000111111111111", mfo="00450")
         w2 = get_or_create_bank_wallet_for_account(tenant=self.tenant, account_no="20208000111111111111", mfo="00450")

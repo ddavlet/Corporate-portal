@@ -63,8 +63,8 @@ class BankAccountSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = BankAccount
-        fields = ["id", "tenant", "label", "account_no", "mfo", "wallet_id"]
-        read_only_fields = ["id", "tenant", "wallet_id"]
+        fields = ["id", "tenant", "label", "account_no", "mfo", "is_default", "wallet_id"]
+        read_only_fields = ["id", "tenant", "is_default", "wallet_id"]
 
     def create(self, validated_data):
         tenant = validated_data["tenant"]
