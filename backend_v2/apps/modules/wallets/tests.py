@@ -15,7 +15,7 @@ from apps.modules.wallets.resolution import (
     get_or_create_cash_wallet,
     get_or_create_corporate_wallet,
 )
-from apps.modules.wallets.services import wallet_balance_payload
+from apps.modules.wallets.services import balances_for_tenant_channel, wallet_balance_payload
 from apps.tenants.models import Tenant, TenantMembership, TenantModuleConfig, TenantUserRole
 
 User = get_user_model()
@@ -49,6 +49,21 @@ class WalletBalanceServiceTests(TestCase):
         self.assertEqual(payload["wallet_id"], self.wallet.id)
         self.assertIn("movements_net", payload)
         self.assertIn("current_balance", payload)
+
+    def test_balances_for_tenant_channel_includes_bank_account_no_and_mfo(self):
+        bank_wallet = get_or_create_bank_wallet_for_account(
+            tenant=self.tenant, account_no="20208000123456789012", mfo="00450"
+        )
+        rows = balances_for_tenant_channel(tenant_id=self.tenant.id, wallet_type=Wallet.Type.BANK)
+        row = next(r for r in rows if r["wallet_id"] == bank_wallet.id)
+        self.assertEqual(row["account_no"], "20208000123456789012")
+        self.assertEqual(row["mfo"], "00450")
+
+    def test_balances_for_tenant_channel_cash_has_no_account_no_or_mfo(self):
+        rows = balances_for_tenant_channel(tenant_id=self.tenant.id, wallet_type=Wallet.Type.CASH)
+        row = next(r for r in rows if r["wallet_id"] == self.wallet.id)
+        self.assertIsNone(row["account_no"])
+        self.assertIsNone(row["mfo"])
 
 
 @override_settings(BASE_DOMAIN="example.com", ALLOWED_HOSTS=["*"])
