@@ -28,6 +28,7 @@ _NO_POLLER_COMMANDS = frozenset({
 class InvestmentsModuleConfig(AppConfig):
     default_auto_field = "django.db.models.BigAutoField"
     name = "apps.modules.investments"
+    verbose_name = "Инвестиции"
 
     def ready(self):
         # Always connect signals (cheap, no side effects).

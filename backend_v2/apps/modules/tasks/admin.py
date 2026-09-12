@@ -1,5 +1,6 @@
 from django.contrib import admin
 
+from apps.common.admin_labels import set_portal_labels
 from apps.modules.tasks.models import Task, TaskComment, TasksConfig
 
 
@@ -12,7 +13,7 @@ class TaskCommentInline(admin.TabularInline):
 
 @admin.register(Task)
 class TaskAdmin(admin.ModelAdmin):
-    list_display = ("id", "tenant", "assignee", "status", "created_at", "completed_at")
+    list_display = ("id", "tenant", "title", "assignee", "status", "created_at", "completed_at")
     list_filter = ("status", "tenant")
     search_fields = ("title", "description", "assignee__username")
     readonly_fields = ("created_at", "updated_at", "completed_at", "last_edit_at", "last_edit_by")
@@ -33,3 +34,8 @@ class TaskCommentAdmin(admin.ModelAdmin):
 class TasksConfigAdmin(admin.ModelAdmin):
     list_display = ("tenant", "tasks_webapp_url")
     raw_id_fields = ("tenant",)
+
+
+set_portal_labels(Task, "Задача", "Задачи")
+set_portal_labels(TaskComment, "Комментарий к задаче", "Комментарии к задачам")
+set_portal_labels(TasksConfig, "Задачи — уведомления", "Задачи — уведомления")

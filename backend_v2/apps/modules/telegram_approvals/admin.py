@@ -1,6 +1,8 @@
 from django.contrib import admin
 
+from apps.common.admin_labels import register_portal, set_portal_labels
 from apps.modules.telegram_approvals.models import (
+    Notification,
     TelegramChatRegistry,
     TelegramEvent,
     TelegramMessage,
@@ -42,6 +44,7 @@ class TelegramMessageHistoryAdmin(admin.ModelAdmin):
 class TenantTelegramChatAdmin(admin.ModelAdmin):
     list_display = ("name", "tenant", "chat_id", "is_active")
     list_filter = ("tenant", "is_active")
+    search_fields = ("name", "chat_id")
 
 
 @admin.register(TelegramChatRegistry)
@@ -61,3 +64,18 @@ class TelegramEventAdmin(admin.ModelAdmin):
                        "update_id", "sender_id", "message_id_tg", "message_text")
     date_hierarchy = "timestamp"
     raw_id_fields = ("chat_registry",)
+
+
+class NotificationAdmin(admin.ModelAdmin):
+    list_display = ("id", "tenant", "kind", "created_at")
+    list_filter = ("tenant", "kind")
+    raw_id_fields = ("tenant", "telegram_message", "content_type")
+    date_hierarchy = "created_at"
+
+
+register_portal(Notification, "Уведомление Telegram", "Уведомления Telegram", NotificationAdmin)
+set_portal_labels(TelegramMessage, "Сообщение Telegram", "Сообщения Telegram")
+set_portal_labels(TelegramMessageHistory, "История сообщения Telegram", "История сообщений Telegram")
+set_portal_labels(TenantTelegramChat, "Telegram-группа", "Telegram-группы")
+set_portal_labels(TelegramChatRegistry, "Чат Telegram (реестр)", "Чаты Telegram (реестр)")
+set_portal_labels(TelegramEvent, "Событие Telegram", "События Telegram")

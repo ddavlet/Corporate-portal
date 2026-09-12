@@ -1,5 +1,8 @@
 from django.contrib import admin
-from .models import OAuthClient, OAuthAuthorizationCode
+
+from apps.common.admin_labels import set_portal_labels
+
+from .models import OAuthAuthorizationCode, OAuthClient
 
 
 @admin.register(OAuthClient)
@@ -15,3 +18,7 @@ class OAuthAuthorizationCodeAdmin(admin.ModelAdmin):
     list_filter = ("used",)
     search_fields = ("code", "user__username")
     readonly_fields = ("code", "client", "user", "created_at")
+
+
+set_portal_labels(OAuthClient, "OAuth-клиент", "OAuth-клиенты")
+set_portal_labels(OAuthAuthorizationCode, "OAuth-код", "OAuth-коды")

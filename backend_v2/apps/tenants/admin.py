@@ -3,7 +3,14 @@ from django.contrib import admin
 from django.db import transaction
 
 from apps.modules.registry import list_modules
-from apps.tenants.models import Tenant, TenantMembership, TenantModuleConfig, TenantUserRole
+from apps.common.admin_labels import register_portal, set_portal_labels
+from apps.tenants.models import (
+    Tenant,
+    TenantIntegrationConfig,
+    TenantMembership,
+    TenantModuleConfig,
+    TenantUserRole,
+)
 from apps.tenants.views import sync_telegram_bot_commands
 
 
@@ -126,4 +133,29 @@ class TenantUserRoleAdmin(admin.ModelAdmin):
     list_filter = ("role", "tenant")
     search_fields = ("tenant__subdomain", "tenant__name", "user__username", "user__email")
     autocomplete_fields = ("tenant", "user")
+
+
+class TenantModuleConfigAdmin(admin.ModelAdmin):
+    list_display = ("id", "tenant", "module_key", "is_enabled")
+    list_filter = ("tenant", "is_enabled", "module_key")
+    autocomplete_fields = ("tenant",)
+    search_fields = ("module_key",)
+
+
+class TenantIntegrationConfigAdmin(admin.ModelAdmin):
+    list_display = ("id", "tenant", "updated_at", "updated_by")
+    autocomplete_fields = ("tenant",)
+    raw_id_fields = ("updated_by",)
+
+
+set_portal_labels(Tenant, "Компания", "Компании")
+set_portal_labels(TenantMembership, "Участник компании", "Участники компании")
+set_portal_labels(TenantUserRole, "Роль пользователя", "Пользователи и роли")
+register_portal(TenantModuleConfig, "Модуль компании", "Модули компании", TenantModuleConfigAdmin)
+register_portal(
+    TenantIntegrationConfig,
+    "Настройки компании",
+    "Настройки компании",
+    TenantIntegrationConfigAdmin,
+)
 

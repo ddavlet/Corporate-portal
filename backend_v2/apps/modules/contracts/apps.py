@@ -5,4 +5,4 @@ class ContractsConfig(AppConfig):
     default_auto_field = "django.db.models.BigAutoField"
     name = "apps.modules.contracts"
     label = "contracts"
-    verbose_name = "Contracts"
+    verbose_name = "Договоры"

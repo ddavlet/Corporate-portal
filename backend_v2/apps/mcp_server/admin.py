@@ -1,6 +1,7 @@
 # backend_v2/apps/mcp_server/admin.py
 from django.contrib import admin, messages
 
+from apps.common.admin_labels import set_portal_labels
 from apps.mcp_server.models import McpServiceCredential
 from apps.mcp_server.services import provision_service_credential, sync_tenant_access
 
@@ -40,3 +41,6 @@ class McpServiceCredentialAdmin(admin.ModelAdmin):
     def save_related(self, request, form, formsets, change):
         super().save_related(request, form, formsets, change)
         sync_tenant_access(form.instance)
+
+
+set_portal_labels(McpServiceCredential, "Ключ ИИ-сервиса", "Ключи ИИ-сервиса")

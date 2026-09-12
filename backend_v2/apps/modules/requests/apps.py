@@ -28,6 +28,7 @@ _NO_POLLER_COMMANDS = frozenset({
 class RequestsModuleConfig(AppConfig):
     default_auto_field = "django.db.models.BigAutoField"
     name = "apps.modules.requests"
+    verbose_name = "Заявки"
 
     def ready(self):
         # Skip for management commands that shouldn't spawn daemon threads.

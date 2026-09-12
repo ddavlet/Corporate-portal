@@ -1,5 +1,6 @@
 from django.contrib import admin
 
+from apps.common.admin_labels import set_portal_labels
 from apps.modules.notes.models import Note
 
 
@@ -17,3 +18,6 @@ class NoteAdmin(admin.ModelAdmin):
     )
     list_filter = ("tenant", "target_type", "delivery_status")
     search_fields = ("message", "created_by__username", "recipient_user__username")
+
+
+set_portal_labels(Note, "Комментарий", "Комментарии")
