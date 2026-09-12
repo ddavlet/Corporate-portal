@@ -200,14 +200,19 @@ def balances_for_tenant_channel(*, tenant_id: int, wallet_type: str) -> list[dic
         anchor_name = ""
         anchor_id = None
         anchor_active = True
+        account_no = None
+        mfo = None
         if w.cash_register_id:
             reg = w.cash_register
             anchor_id = reg.id
             anchor_name = (reg.name or "").strip() or reg.currency
             anchor_active = reg.is_active
         elif w.bank_account_id:
-            anchor_id = w.bank_account.id
-            anchor_name = w.bank_account.label
+            ba = w.bank_account
+            anchor_id = ba.id
+            anchor_name = ba.label
+            account_no = ba.account_no
+            mfo = ba.mfo
         elif w.corporate_card_account_id:
             c = w.corporate_card_account
             anchor_id = c.id
@@ -220,6 +225,8 @@ def balances_for_tenant_channel(*, tenant_id: int, wallet_type: str) -> list[dic
                 "corporate_card_account_id": w.corporate_card_account_id,
                 "display_name": anchor_name,
                 "anchor_is_active": anchor_active,
+                "account_no": account_no,
+                "mfo": mfo,
             }
         )
         out.append(base)

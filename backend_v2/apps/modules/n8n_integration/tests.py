@@ -243,6 +243,34 @@ class N8nIntegrationAuthTests(APITestCase):
         self.assertIsInstance(rows, list)
         self.assertTrue(any(row["wallet_id"] == cash_wallet.id for row in rows))
 
+    def test_wallet_balances_bank_channel_includes_account_no_and_mfo(self):
+        TenantModuleConfig.objects.create(tenant=self.tenant, module_key="bank", is_enabled=True)
+        bank_account = BankAccount.objects.create(
+            tenant=self.tenant,
+            label="Основной",
+            account_no="20208000123456789012",
+            mfo="00450",
+            is_default=True,
+        )
+        bank_wallet = Wallet.objects.create(
+            tenant=self.tenant,
+            wallet_type=Wallet.Type.BANK,
+            currency="UZS",
+            opening_balance=0,
+            bank_account=bank_account,
+        )
+        url = f"{self.n8n_prefix}/wallet-balances/?channel=bank"
+        res = self.client.get(
+            url,
+            HTTP_HOST="acme.example.com",
+            HTTP_X_N8N_INTEGRATION_TOKEN="integ-test-secret",
+        )
+        self.assertEqual(res.status_code, 200, res.content)
+        rows = res.json()
+        row = next(r for r in rows if r["wallet_id"] == bank_wallet.id)
+        self.assertEqual(row["account_no"], "20208000123456789012")
+        self.assertEqual(row["mfo"], "00450")
+
     def test_wallet_balances_requires_integration_token(self):
         url = f"{self.n8n_prefix}/wallet-balances/"
         res = self.client.get(url, HTTP_HOST="acme.example.com")
