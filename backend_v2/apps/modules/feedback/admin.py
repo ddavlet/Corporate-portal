@@ -2,6 +2,7 @@ from django.contrib import admin
 from django.utils import timezone
 from django.utils.html import format_html
 
+from apps.common.admin_labels import set_portal_labels
 from apps.modules.feedback.models import PortalFeedback
 
 
@@ -200,3 +201,6 @@ class PortalFeedbackAdmin(admin.ModelAdmin):
             fb.save(update_fields=["work_status", "resolved_at", "updated_at"])
             updated += 1
         self.message_user(request, f"Обновлено: {updated}.")
+
+
+set_portal_labels(PortalFeedback, "Обратная связь", "Обратная связь")
