@@ -220,6 +220,12 @@ fix-lemonaqua-misselected-vendor-requests:
 		docker compose --env-file ./.env exec -T backend_v2 \
 		python manage.py fix_lemonaqua_misselected_vendor_requests $(if $(APPLY),--apply,)"
 
+# ── 7d-5. Разово: разбить заявки 7824/7854/8069 (lemonaqua) на суммы по card_expenses ──
+split-lemonaqua-card-expense-requests:
+	ssh $(SERVER) "cd $(REMOTE_DIR) && \
+		docker compose --env-file ./.env exec -T backend_v2 \
+		python manage.py split_lemonaqua_card_expense_requests $(if $(APPLY),--apply,)"
+
 # ── 7e. Отправить согласующего в отпуск / вернуть из отпуска ──────────────────
 EMPLOYEE_USERNAME ?=
 
