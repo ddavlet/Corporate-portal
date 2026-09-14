@@ -74,7 +74,7 @@ def create_expense_for_request_payment(*, request_obj: Request, actor_user):
     if request_obj.payment_type == Request.PAYMENT_TYPE_CASH:
         attrs = {
             "currency": request_obj.currency,
-            "wallet": None,
+            "wallet": request_obj.wallet_ref,
         }
         attrs = assign_wallet_for_cash_movement(
             instance=None,

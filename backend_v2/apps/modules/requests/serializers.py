@@ -31,6 +31,7 @@ from apps.modules.requests.models import (
 from apps.modules.contracts.models import Contract
 from apps.modules.contracts.services import tenant_has_contracts_module
 from apps.modules.vendors.models import Vendor
+from apps.modules.wallets.models import Wallet
 from apps.modules.cashier.models import CashExpense
 from apps.modules.bank_expenses.models import BankExpense
 from apps.modules.corporate_card.models import CardExpense
@@ -109,6 +110,7 @@ class PortalRequestSerializer(serializers.ModelSerializer):
     amortization_schedule = serializers.SerializerMethodField()
     vendor_ref = serializers.PrimaryKeyRelatedField(queryset=Vendor.objects.all(), allow_null=True, required=False)
     contract_ref = serializers.PrimaryKeyRelatedField(queryset=Contract.objects.all(), allow_null=True, required=False)
+    wallet_ref = serializers.PrimaryKeyRelatedField(queryset=Wallet.objects.all(), allow_null=True, required=False)
     contract_ref_info = serializers.SerializerMethodField(read_only=True)
     # `accounts/User` sends empty descriptions from UI/tests; model does not set `blank=True`,
     # so we allow blank explicitly at serializer level.
@@ -135,6 +137,7 @@ class PortalRequestSerializer(serializers.ModelSerializer):
             "vendor_ref",
             "contract_ref",
             "contract_ref_info",
+            "wallet_ref",
             "contract_label",
             "title",
             "description",
@@ -185,6 +188,10 @@ class PortalRequestSerializer(serializers.ModelSerializer):
             self.fields["vendor_ref"].queryset = Vendor.objects.filter(tenant=tenant)
         if tenant and "contract_ref" in self.fields:
             self.fields["contract_ref"].queryset = Contract.objects.filter(tenant=tenant)
+        if tenant and "wallet_ref" in self.fields:
+            self.fields["wallet_ref"].queryset = Wallet.objects.filter(
+                tenant=tenant, wallet_type=Wallet.Type.CASH
+            )
 
     def validate(self, attrs):
         reject_client_pk_on_create(self)
@@ -388,6 +395,24 @@ class PortalRequestSerializer(serializers.ModelSerializer):
                         raise serializers.ValidationError(
                             {"contract_ref": "Договор обязателен для этого типа оплаты."}
                         )
+
+        wref = attrs.get("wallet_ref")
+        if wref is None and "wallet_ref" not in attrs and self.instance is not None:
+            wref = self.instance.wallet_ref
+        if wref:
+            if wref.tenant_id != tenant.id:
+                raise serializers.ValidationError({"wallet_ref": "Касса должна принадлежать этому тенанту."})
+            if wref.wallet_type != Wallet.Type.CASH:
+                raise serializers.ValidationError(
+                    {"wallet_ref": "Можно выбрать только кассу (наличный кошелёк)."}
+                )
+            effective_currency = attrs.get("currency") or (
+                self.instance.currency if self.instance is not None else None
+            )
+            if effective_currency and wref.currency != effective_currency:
+                raise serializers.ValidationError(
+                    {"wallet_ref": "Валюта кассы не совпадает с валютой заявки."}
+                )
 
         effective_pt = attrs.get("payment_type")
         if effective_pt is None and self.instance is not None:

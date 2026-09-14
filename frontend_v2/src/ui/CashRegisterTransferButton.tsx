@@ -102,6 +102,7 @@ export function CashRegisterTransferButton({ onCreated }: Props) {
         billing_date: dayjs().format('YYYY-MM-DD'),
         status: 'DRAFT',
         amortization_months: 1,
+        wallet_ref: fromReg.wallet_id,
         ...(requesterId != null ? { requester: requesterId } : {}),
       })
       try {
