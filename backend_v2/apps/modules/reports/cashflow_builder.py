@@ -169,7 +169,6 @@ def compute_unassigned_payment_purposes_cashflow(*, tenant_id: int, cfg: dict[st
     qs = Request.objects.filter(
         tenant_id=tenant_id,
         status=Request.STATUS_PAYED,
-        source_tenant__isnull=True,
     ).filter(_request_expense_period_filter(start=start))
     if pay_list:
         qs = qs.filter(payment_type__in=pay_list)
@@ -265,7 +264,6 @@ def build_cashflow_payload_from_db(*, tenant, query_params: dict[str, Any]) -> d
     req_qs = Request.objects.filter(
         tenant_id=tenant.id,
         status=Request.STATUS_PAYED,
-        source_tenant__isnull=True,
     ).filter(_request_expense_period_filter(start=start))
     if pay_list:
         req_qs = req_qs.filter(payment_type__in=pay_list)
