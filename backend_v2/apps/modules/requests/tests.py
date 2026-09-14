@@ -2261,7 +2261,7 @@ class RequestApprovalsTests(APITestCase):
             defaults={"is_enabled": True},
         )
 
-    def _create_request_for_payment_type(self, payment_type: str) -> int:
+    def _create_request_for_payment_type(self, payment_type: str, **extra_fields) -> int:
         self.client.force_authenticate(self.requester)
         created = self.client.post(
             "/api/requests/",
@@ -2276,6 +2276,7 @@ class RequestApprovalsTests(APITestCase):
                 "expense_year": 2026,
                 "expense_month": 1,
                 "expense_day": 2,
+                **extra_fields,
             },
             format="json",
             HTTP_HOST=self.host,
@@ -2315,6 +2316,79 @@ class RequestApprovalsTests(APITestCase):
         self.assertEqual(req.status, Request.STATUS_PAYED)
         self.assertEqual(req.expense_ref_target, Request.EXPENSE_REF_TARGET_CASH)
         self.assertTrue(CashExpense.objects.filter(tenant=self.tenant, id=req.expense_ref_id).exists())
+
+    def test_payment_create_mode_uses_explicit_wallet_ref_for_cash(self):
+        TenantModuleConfig.objects.update_or_create(
+            tenant=self.tenant,
+            module_key="cash",
+            defaults={"is_enabled": True},
+        )
+        default_register = CashRegister.objects.create(
+            tenant=self.tenant, currency="UZS", name="Default", is_default_for_currency=True
+        )
+        default_wallet = Wallet.objects.create(
+            tenant=self.tenant,
+            wallet_type=Wallet.Type.CASH,
+            currency="UZS",
+            cash_register=default_register,
+        )
+        other_register = CashRegister.objects.create(
+            tenant=self.tenant, currency="UZS", name="Other", is_default_for_currency=False
+        )
+        other_wallet = Wallet.objects.create(
+            tenant=self.tenant,
+            wallet_type=Wallet.Type.CASH,
+            currency="UZS",
+            cash_register=other_register,
+        )
+        self._configure_payment_step(
+            payment_type=Request.PAYMENT_TYPE_CASH,
+            mode=RequestApprovalStepConfig.PAYMENT_ACTION_MODE_CREATE,
+        )
+        request_id = self._create_request_for_payment_type(
+            Request.PAYMENT_TYPE_CASH, wallet_ref=other_wallet.id
+        )
+        approval = Approval.objects.get(request_id=request_id, approver_user=self.approver, step_type=Approval.STEP_TYPE_PAYMENT)
+
+        self.client.force_authenticate(self.approver)
+        res = self.client.post(
+            f"/api/requests/{request_id}/approvals/confirm/",
+            {"approval_id": approval.id},
+            format="json",
+            HTTP_HOST=self.host,
+        )
+        self.assertEqual(res.status_code, 200, res.content)
+        req = Request.objects.get(pk=request_id)
+        expense = CashExpense.objects.get(tenant=self.tenant, id=req.expense_ref_id)
+        self.assertEqual(expense.wallet_id, other_wallet.id)
+        self.assertNotEqual(expense.wallet_id, default_wallet.id)
+
+    def test_wallet_ref_from_another_tenant_is_rejected(self):
+        other_tenant = Tenant.objects.create(name="Other", subdomain="other-wallet", is_active=True)
+        foreign_register = CashRegister.objects.create(tenant=other_tenant, currency="UZS", name="Foreign")
+        foreign_wallet = Wallet.objects.create(
+            tenant=other_tenant,
+            wallet_type=Wallet.Type.CASH,
+            currency="UZS",
+            cash_register=foreign_register,
+        )
+        self.client.force_authenticate(self.requester)
+        res = self.client.post(
+            "/api/requests/",
+            {
+                "title": "Cash request",
+                "description": "auto",
+                "amount": "10.00",
+                "currency": "UZS",
+                "payment_type": Request.PAYMENT_TYPE_CASH,
+                "urgency": "Обычно",
+                "billing_date": "2026-01-01",
+                "wallet_ref": foreign_wallet.id,
+            },
+            format="json",
+            HTTP_HOST=self.host,
+        )
+        self.assertEqual(res.status_code, 400, res.content)
 
     def test_payment_create_mode_creates_bank_expense_and_links_request(self):
         TenantModuleConfig.objects.update_or_create(

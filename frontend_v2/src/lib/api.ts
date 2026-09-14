@@ -2647,6 +2647,7 @@ export interface PortalRequestCreateBody {
   payment_purpose?: string
   vendor_ref?: number
   contract_ref?: number | null
+  wallet_ref?: number | null
   amortization_months?: number
 }
 
