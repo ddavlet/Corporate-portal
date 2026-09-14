@@ -7,7 +7,7 @@ DEPLOY_TEST_PATH ?= $(TEST_PATH)
 BRANCH     := $(shell git rev-parse --abbrev-ref HEAD)
 
 .DEFAULT_GOAL := help
-.PHONY: help push test deploy makemigrations showmigrations logs backup-db create-postgres-mcp-role rollback refresh-approval-messages link-lemon-auto-request-exceptions fix-bank-expense-vendor-misattribution fix-lemonhavo-misattributed-bank-expenses reconcile-card-revenues reconcile-card-expenses reconcile-bank-expenses-by-vendor merge-lemonaqua-duplicate-vendors fix-lemonaqua-misselected-vendor-requests send-to-vacation return-from-vacation add-cash-register-transfer-purpose add-cash-register-transfer-approval-exception local-up local-down local-logs test_local
+.PHONY: help push test deploy makemigrations showmigrations logs backup-db create-postgres-mcp-role rollback refresh-approval-messages link-lemon-auto-request-exceptions reconcile-card-revenues reconcile-card-expenses reconcile-bank-expenses-by-vendor send-to-vacation return-from-vacation add-cash-register-transfer-purpose add-cash-register-transfer-approval-exception local-up local-down local-logs test_local
 
 help:
 	@echo ""
@@ -25,20 +25,12 @@ help:
 	@echo "  make refresh-approval-messages REQUEST_IDS='1 2' — актуализировать Telegram-карточки заявок на сервере"
 	@echo "  make link-lemon-auto-request-exceptions — dry-run: привязка назначений автозаявок к исключениям (lemon*)"
 	@echo "  make link-lemon-auto-request-exceptions APPLY=1 — то же самое, но с записью изменений"
-	@echo "  make fix-bank-expense-vendor-misattribution — dry-run: фикс vendor у bank_expenses 9830/10198 и request 7781"
-	@echo "  make fix-bank-expense-vendor-misattribution APPLY=1 — то же самое, но с записью изменений"
-	@echo "  make fix-lemonhavo-misattributed-bank-expenses — dry-run: перенос bank_expenses 8615/23915 из lemonhavo в lemonfit + привязка заявок 7738/8011"
-	@echo "  make fix-lemonhavo-misattributed-bank-expenses APPLY=1 — то же самое, но с записью изменений"
 	@echo "  make reconcile-card-revenues — привязать заявки 'Пополнение' к corporate_card_revenues по сумме+дате"
 	@echo "  make reconcile-card-revenues TENANT=3 — то же самое, но только для одного тенанта"
 	@echo "  make reconcile-card-expenses — привязать заявки 'Платежная карта' к corporate_card_expenses по сумме+дате"
 	@echo "  make reconcile-card-expenses TENANT=3 — то же самое, но только для одного тенанта"
 	@echo "  make reconcile-bank-expenses-by-vendor — привязать заявки 'Перечисление'/'Пополнение' к bank_expenses по вендору+сумме+дате (все тенанты)"
 	@echo "  make reconcile-bank-expenses-by-vendor TENANT=3 — то же самое, но только для одного тенанта"
-	@echo "  make merge-lemonaqua-duplicate-vendors — dry-run: объединить дубли вендоров lemonaqua (заявка -> версия из банка)"
-	@echo "  make merge-lemonaqua-duplicate-vendors APPLY=1 — то же самое, но с записью изменений"
-	@echo "  make fix-lemonaqua-misselected-vendor-requests — dry-run: исправить неверно выбранного вендора на заявках 7936/8021"
-	@echo "  make fix-lemonaqua-misselected-vendor-requests APPLY=1 — то же самое, но с записью изменений"
 	@echo "  make send-to-vacation TENANT=3 EMPLOYEE_USERNAME=s.davletyarov — dry-run: отправить согласующего в отпуск"
 	@echo "  make send-to-vacation TENANT=3 EMPLOYEE_USERNAME=s.davletyarov APPLY=1 — то же самое, но с записью изменений"
 	@echo "  make return-from-vacation TENANT=3 EMPLOYEE_USERNAME=s.davletyarov APPLY=1 — вернуть согласующего из отпуска"
@@ -172,18 +164,6 @@ link-lemon-auto-request-exceptions:
 		docker compose --env-file ./.env exec -T backend_v2 \
 		python manage.py link_lemon_auto_request_purpose_exceptions $(if $(APPLY),--apply,)"
 
-# ── 7c. Разово: исправить vendor_id у bank_expenses 9830/10198 и request 7781 ─
-fix-bank-expense-vendor-misattribution:
-	ssh $(SERVER) "cd $(REMOTE_DIR) && \
-		docker compose --env-file ./.env exec -T backend_v2 \
-		python manage.py fix_bank_expense_vendor_misattribution $(if $(APPLY),--apply,)"
-
-# ── 7c-2. Разово: перенести bank_expenses 8615/23915 из lemonhavo в lemonfit ──
-fix-lemonhavo-misattributed-bank-expenses:
-	ssh $(SERVER) "cd $(REMOTE_DIR) && \
-		docker compose --env-file ./.env exec -T backend_v2 \
-		python manage.py fix_lemonhavo_misattributed_bank_expenses $(if $(APPLY),--apply,)"
-
 # ── 7d. Разово/по требованию: привязать заявки "Пополнение" к card_revenues ──
 TENANT ?=
 
@@ -207,18 +187,6 @@ reconcile-bank-expenses-by-vendor:
 	ssh $(SERVER) "cd $(REMOTE_DIR) && \
 		docker compose --env-file ./.env exec -T backend_v2 \
 		python manage.py reconcile_bank_expenses_by_vendor $(if $(TENANT),--tenant=$(TENANT),)"
-
-# ── 7d-3. Разово: объединить дубли вендоров lemonaqua (tenant_id=3) ──────────
-merge-lemonaqua-duplicate-vendors:
-	ssh $(SERVER) "cd $(REMOTE_DIR) && \
-		docker compose --env-file ./.env exec -T backend_v2 \
-		python manage.py merge_lemonaqua_duplicate_vendors $(if $(APPLY),--apply,)"
-
-# ── 7d-4. Разово: исправить неверно выбранного вендора на заявках 7936/8021 ──
-fix-lemonaqua-misselected-vendor-requests:
-	ssh $(SERVER) "cd $(REMOTE_DIR) && \
-		docker compose --env-file ./.env exec -T backend_v2 \
-		python manage.py fix_lemonaqua_misselected_vendor_requests $(if $(APPLY),--apply,)"
 
 # ── 7e. Отправить согласующего в отпуск / вернуть из отпуска ──────────────────
 EMPLOYEE_USERNAME ?=
