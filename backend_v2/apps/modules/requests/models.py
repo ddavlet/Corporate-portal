@@ -113,6 +113,16 @@ class Request(models.Model):
         blank=True,
         related_name="requests",
     )
+    # Optional explicit wallet (cash register) the payout expense must be created against.
+    # When unset, expense creation falls back to the default wallet resolution (see
+    # apps.modules.wallets.resolution.resolve_wallet_for_cash).
+    wallet_ref = models.ForeignKey(
+        "wallets.Wallet",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="requests",
+    )
 
     title = models.CharField(max_length=200, default="")
     description = models.TextField(default="")

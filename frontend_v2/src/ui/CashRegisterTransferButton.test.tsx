@@ -116,6 +116,7 @@ describe('CashRegisterTransferButton', () => {
           currency: 'UZS',
           status: 'DRAFT',
           requester: 555,
+          wallet_ref: 101,
         }),
       )
     })
