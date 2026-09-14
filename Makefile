@@ -194,7 +194,7 @@ split-lemonaqua-card-expense-requests:
 		docker compose --env-file ./.env exec -T backend_v2 \
 		python manage.py split_lemonaqua_card_expense_requests $(if $(APPLY),--apply,)"
 
-# ── 7d-4. Разово: создать заявки под непривязанные card_expenses (lemonaqua, с августа) ──
+# ── 7d-5. Разово: создать заявки под непривязанные card_expenses (lemonaqua, с августа) ──
 create-lemonaqua-missing-card-expense-requests:
 	ssh $(SERVER) "cd $(REMOTE_DIR) && \
 		docker compose --env-file ./.env exec -T backend_v2 \
