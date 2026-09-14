@@ -44,6 +44,7 @@ from apps.modules.requests.expense_refs import (
 from apps.modules.requests.amortization import build_amortization_schedule_rows, is_request_amortized
 from apps.modules.requests.approval_config_resolver import resolve_effective_payment_step_config_for_request
 from apps.modules.requests.request_required import (
+    RULE_OPERATOR_CHOICES,
     RULE_OPERATOR_EQ,
     request_not_required_field_options_for_payment_type,
 )
@@ -1115,7 +1116,7 @@ class RequestApprovalConfigPayloadSerializer(serializers.Serializer):
                     raise serializers.ValidationError(
                         {"payment_types": f"Unknown rule field '{field}' for payment_type '{payment_type}'."}
                     )
-                if operator != RULE_OPERATOR_EQ:
+                if operator not in RULE_OPERATOR_CHOICES:
                     raise serializers.ValidationError(
                         {"payment_types": f"Unsupported operator '{operator}' for request_not_required_rules."}
                     )

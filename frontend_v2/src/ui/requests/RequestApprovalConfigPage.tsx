@@ -24,6 +24,11 @@ const STEP_TYPES: Array<{ value: string; label: string }> = [
   { value: 'notification', label: 'notification — автоуведомление' },
 ]
 
+const RULE_OPERATOR_OPTIONS: Array<{ value: string; label: string }> = [
+  { value: 'eq', label: 'Точное совпадение' },
+  { value: 'contains_all_words', label: 'Содержит все слова (через запятую)' },
+]
+
 function emptyStep(step: number): RequestApprovalConfigStepItem {
   return {
     step,
@@ -407,13 +412,30 @@ export function RequestApprovalConfigPage() {
                           value={rule.field}
                           onChange={(value) =>
                             updateRequestNotRequiredRules(pt.payment_type, (rules) =>
-                              rules.map((r, idx) => (idx === ruleIdx ? { ...r, field: value } : r)),
+                              rules.map((r, idx) =>
+                                idx === ruleIdx
+                                  ? { ...r, field: value, operator: value === 'payment_purpose' ? r.operator : 'eq' }
+                                  : r,
+                              ),
                             )
                           }
                           options={(pt.request_not_required_field_options ?? []).map((value) => ({ value, label: value }))}
                           style={{ width: 220 }}
                           disabled={!data.is_tenant_admin}
                         />
+                        {rule.field === 'payment_purpose' ? (
+                          <Select
+                            value={rule.operator ?? 'eq'}
+                            onChange={(value) =>
+                              updateRequestNotRequiredRules(pt.payment_type, (rules) =>
+                                rules.map((r, idx) => (idx === ruleIdx ? { ...r, operator: value } : r)),
+                              )
+                            }
+                            options={RULE_OPERATOR_OPTIONS}
+                            style={{ width: 280 }}
+                            disabled={!data.is_tenant_admin}
+                          />
+                        ) : null}
                         <Input
                           value={rule.value}
                           onChange={(e) =>
@@ -421,7 +443,11 @@ export function RequestApprovalConfigPage() {
                               rules.map((r, idx) => (idx === ruleIdx ? { ...r, value: e.target.value } : r)),
                             )
                           }
-                          placeholder="Значение"
+                          placeholder={
+                            rule.field === 'payment_purpose' && rule.operator === 'contains_all_words'
+                              ? 'слово1, слово2'
+                              : 'Значение'
+                          }
                           style={{ width: 260 }}
                           disabled={!data.is_tenant_admin}
                         />
