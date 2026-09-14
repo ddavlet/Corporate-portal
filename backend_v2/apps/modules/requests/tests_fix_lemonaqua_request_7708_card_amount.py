@@ -10,7 +10,7 @@ from django.test import TestCase
 from django.utils import timezone
 
 from apps.modules.corporate_card.models import CardExpense
-from apps.modules.requests.models import Request
+from apps.modules.requests.models import Request, RequestComment
 from apps.modules.wallets.resolution import get_or_create_corporate_wallet
 from apps.tenants.models import Tenant
 
@@ -63,6 +63,11 @@ class FixLemonaquaRequest7708CardAmountTests(TestCase):
         self.assertEqual(self.req.expense_ref_id, 126)
         self.assertEqual(self.req.expense_ref_target, Request.EXPENSE_REF_TARGET_CARD)
         self.assertIn("Fixed: 1", output)
+
+        comment = RequestComment.objects.get(request=self.req)
+        self.assertEqual(comment.created_by.username, "system")
+        self.assertEqual(comment.created_by.full_name, "Система")
+        self.assertIn("126", comment.body)
 
     def test_apply_is_idempotent(self):
         _run(apply=True)

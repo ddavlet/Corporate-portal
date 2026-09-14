@@ -28,7 +28,8 @@ from decimal import Decimal
 from django.core.management.base import BaseCommand
 
 from apps.modules.corporate_card.models import CardExpense
-from apps.modules.requests.models import Request
+from apps.modules.requests.models import Request, RequestComment
+from apps.modules.requests.system_actor import get_or_create_system_user
 
 LEMONAQUA_TENANT_ID = 3
 REQUEST_ID = 7708
@@ -118,6 +119,15 @@ class Command(BaseCommand):
                 expense_ref_id=EXPENSE_ID,
                 expense_ref_target=Request.EXPENSE_REF_TARGET_CARD,
                 description=(f"{req.description}\n{note}" if req.description else note),
+            )
+            RequestComment.objects.create(
+                request=req,
+                created_by=get_or_create_system_user(),
+                body=(
+                    f"Сумма заявки скорректирована с {ORIGINAL_AMOUNT} до {CORRECTED_AMOUNT} "
+                    f"и заявка связана с расходом по корпоративной карте CardExpense {EXPENSE_ID} "
+                    f"(расхождение 500 UZS отнесено на комиссию платёжной системы)."
+                ),
             )
             self.stdout.write(self.style.SUCCESS("Fixed: 1"))
         else:
