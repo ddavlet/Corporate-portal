@@ -39,7 +39,8 @@ from django.core.management.base import BaseCommand
 from django.db import transaction
 
 from apps.modules.corporate_card.models import CardExpense
-from apps.modules.requests.models import Request
+from apps.modules.requests.models import Request, RequestComment
+from apps.modules.requests.system_actor import get_or_create_system_user
 
 LEMONAQUA_TENANT_ID = 3
 
@@ -60,6 +61,29 @@ SPLITS: list[SplitSpec] = [
     SplitSpec(7854, Decimal("290000.00"), 142, Decimal("190000.00"), 143, Decimal("100000.00"), "FITLINE card charges 2026-08-25"),
     SplitSpec(8069, Decimal("93000.00"), 161, Decimal("53000.00"), 160, Decimal("40000.00"), "FITLINE card charges 2026-09-10"),
 ]
+
+
+def _original_comment_body(spec: SplitSpec) -> str:
+    return (
+        f"Сумма заявки скорректирована с {spec.total_amount} до {spec.keep_amount}: расход по факту "
+        f"разбился на 2 транзакции по корпоративной карте ({spec.label}). Остаток {spec.new_amount} "
+        f"вынесен в отдельную заявку, привязанную к CardExpense {spec.new_expense_id}."
+    )
+
+
+def _copy_comment_body(spec: SplitSpec) -> str:
+    return (
+        f"Заявка создана автоматически — часть суммы, выделенная из заявки #{spec.request_id} "
+        f"(расход разбился на 2 транзакции по корпоративной карте, {spec.label}). "
+        f"Привязана к CardExpense {spec.new_expense_id}."
+    )
+
+
+def _ensure_system_comment(*, request: Request, system_user, body: str) -> bool:
+    if RequestComment.objects.filter(request=request, created_by=system_user, body=body).exists():
+        return False
+    RequestComment.objects.create(request=request, created_by=system_user, body=body)
+    return True
 
 
 def _claimant(*, tenant_id: int, expense_id: int, exclude_request_id: int):
@@ -115,9 +139,11 @@ class Command(BaseCommand):
 
     def handle(self, *args, **options):
         apply_changes: bool = options["apply"]
+        system_user = get_or_create_system_user() if apply_changes else None
 
         fixed = 0
         already_correct = 0
+        comments_backfilled = 0
         skipped: list[str] = []
 
         for spec in SPLITS:
@@ -158,6 +184,15 @@ class Command(BaseCommand):
             if original_applied and existing_copy is not None:
                 already_correct += 1
                 self.stdout.write(f"  = Request {spec.request_id}: already split ({spec.label})")
+                if apply_changes:
+                    added_original = _ensure_system_comment(
+                        request=req, system_user=system_user, body=_original_comment_body(spec),
+                    )
+                    added_copy = _ensure_system_comment(
+                        request=existing_copy, system_user=system_user, body=_copy_comment_body(spec),
+                    )
+                    if added_original or added_copy:
+                        comments_backfilled += 1
                 continue
 
             if not (req.amount == spec.total_amount and req.expense_ref_id is None):
@@ -201,16 +236,24 @@ class Command(BaseCommand):
                         expense_ref_target=Request.EXPENSE_REF_TARGET_CARD,
                         description=(f"{req.description}\n{note}" if req.description else note),
                     )
-                    _clone_for_split(
+                    new_req = _clone_for_split(
                         req,
                         amount=spec.new_amount,
                         expense_id=spec.new_expense_id,
                         note=f"[auto-split {spec.label}: выделено из заявки #{spec.request_id}]",
                     )
+                    RequestComment.objects.create(
+                        request_id=spec.request_id, created_by=system_user, body=_original_comment_body(spec),
+                    )
+                    RequestComment.objects.create(
+                        request=new_req, created_by=system_user, body=_copy_comment_body(spec),
+                    )
 
         self.stdout.write("")
         self.stdout.write(self.style.SUCCESS(f"{'Fixed' if apply_changes else 'Would fix'}: {fixed}"))
         self.stdout.write(f"Already correct: {already_correct}")
+        if apply_changes:
+            self.stdout.write(f"Comments backfilled on already-correct requests: {comments_backfilled}")
         if skipped:
             self.stdout.write(self.style.WARNING(f"Skipped ({len(skipped)}):"))
             for line in skipped:
