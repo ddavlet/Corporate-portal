@@ -194,6 +194,12 @@ split-lemonaqua-card-expense-requests:
 		docker compose --env-file ./.env exec -T backend_v2 \
 		python manage.py split_lemonaqua_card_expense_requests $(if $(APPLY),--apply,)"
 
+# ── 7d-4. Разово: связать заявку 7708 (lemonaqua) с CardExpense 126, поправить сумму ──
+fix-lemonaqua-request-7708-card-amount:
+	ssh $(SERVER) "cd $(REMOTE_DIR) && \
+		docker compose --env-file ./.env exec -T backend_v2 \
+		python manage.py fix_lemonaqua_request_7708_card_amount $(if $(APPLY),--apply,)"
+
 # ── 7e. Отправить согласующего в отпуск / вернуть из отпуска ──────────────────
 EMPLOYEE_USERNAME ?=
 
