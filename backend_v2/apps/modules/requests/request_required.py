@@ -6,6 +6,9 @@ from apps.modules.requests.models import Request, RequestApprovalPaymentTypeConf
 
 
 RULE_OPERATOR_EQ = "eq"
+RULE_OPERATOR_CONTAINS_ALL_WORDS = "contains_all_words"
+
+RULE_OPERATOR_CHOICES: tuple[str, ...] = (RULE_OPERATOR_EQ, RULE_OPERATOR_CONTAINS_ALL_WORDS)
 
 RULE_FIELD_OPTIONS: dict[str, tuple[str, ...]] = {
     Request.PAYMENT_TYPE_CASH: ("title",),
@@ -46,6 +49,24 @@ def is_request_required_for_expense(*, tenant, payment_type: str, expense_obj: A
     return True
 
 
+def _match_eq(*, actual: str, value: str) -> bool:
+    return actual == value
+
+
+def _match_contains_all_words(*, actual: str, value: str) -> bool:
+    words = [word.strip().lower() for word in value.split(",") if word.strip()]
+    if not words:
+        return False
+    actual_lower = actual.lower()
+    return all(word in actual_lower for word in words)
+
+
+RULE_OPERATOR_MATCHERS: dict[str, Any] = {
+    RULE_OPERATOR_EQ: _match_eq,
+    RULE_OPERATOR_CONTAINS_ALL_WORDS: _match_contains_all_words,
+}
+
+
 def _rule_matches_expense(*, rule: Any, expense_obj: Any, allowed_fields: set[str]) -> bool:
     if not isinstance(rule, dict):
         return False
@@ -56,12 +77,13 @@ def _rule_matches_expense(*, rule: Any, expense_obj: Any, allowed_fields: set[st
         return False
     if field not in allowed_fields:
         return False
-    if operator != RULE_OPERATOR_EQ:
+    matcher = RULE_OPERATOR_MATCHERS.get(operator)
+    if matcher is None:
         return False
 
     actual_raw = _extract_expense_field_value(expense_obj=expense_obj, field=field)
     actual = str(actual_raw if actual_raw is not None else "").strip()
-    return actual == value
+    return matcher(actual=actual, value=value)
 
 
 def _extract_expense_field_value(*, expense_obj: Any, field: str) -> Any:
