@@ -27,7 +27,8 @@ from django.contrib.auth import get_user_model
 from django.core.management.base import BaseCommand
 
 from apps.modules.corporate_card.models import CardExpense
-from apps.modules.requests.models import Request
+from apps.modules.requests.models import Request, RequestComment
+from apps.modules.requests.system_actor import get_or_create_system_user
 
 LEMONAQUA_TENANT_ID = 3
 IMPORT_USERNAME = "app"
@@ -81,6 +82,7 @@ class Command(BaseCommand):
         if importer is None:
             self.stdout.write(self.style.WARNING(f"User '{IMPORT_USERNAME}' not found — aborting"))
             return
+        system_user = get_or_create_system_user() if apply_changes else None
 
         created = 0
         already_correct = 0
@@ -133,6 +135,15 @@ class Command(BaseCommand):
                     expense_ref_id=spec.expense_id,
                     expense_ref_target=Request.EXPENSE_REF_TARGET_CARD,
                     billing_date=spec.expense_date.replace(day=1),
+                )
+                RequestComment.objects.create(
+                    request=new_req,
+                    created_by=system_user,
+                    body=(
+                        f"Заявка создана автоматически под расход по корпоративной карте, "
+                        f"ранее не имевший заявки (CardExpense {spec.expense_id}, "
+                        f"{spec.expense_date}, {spec.amount} UZS)."
+                    ),
                 )
                 created += 1
                 self.stdout.write(f"    -> created request {new_req.id}")

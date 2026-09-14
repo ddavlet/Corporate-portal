@@ -10,7 +10,7 @@ from django.test import TestCase
 from django.utils import timezone
 
 from apps.modules.corporate_card.models import CardExpense
-from apps.modules.requests.models import Request
+from apps.modules.requests.models import Request, RequestComment
 from apps.modules.wallets.resolution import get_or_create_corporate_wallet
 from apps.tenants.models import Tenant
 
@@ -76,6 +76,11 @@ class CreateLemonaquaMissingCardExpenseRequestsTests(TestCase):
         self.assertEqual(req.billing_date, date(2026, 9, 1))
         self.assertEqual(req.created_by_id, self.importer.id)
         self.assertEqual(req.requester_id, self.importer.id)
+
+        comment = RequestComment.objects.get(request=req)
+        self.assertEqual(comment.created_by.username, "system")
+        self.assertEqual(comment.created_by.full_name, "Система")
+        self.assertIn("147", comment.body)
 
     def test_apply_is_idempotent(self):
         _run(apply=True)
