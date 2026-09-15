@@ -17,11 +17,6 @@ urlpatterns = [
     path("requests/amortization/", views.N8nRequestAmortizationView.as_view(), name="n8n-requests-amortization"),
     path("requests/batch/", views.N8nRequestBatchUpsertView.as_view(), name="n8n-requests-batch-upsert"),
     path(
-        "requests/external-match/",
-        views.N8nRequestExternalMatchView.as_view(),
-        name="n8n-requests-external-match",
-    ),
-    path(
         "requests/missing-expense/",
         views.N8nRequestsMissingExpenseView.as_view(),
         name="n8n-requests-missing-expense",

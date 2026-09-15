@@ -35,7 +35,6 @@ def _compute_budget_spent(budget, *, year: int, period_index: int) -> Decimal:
             status__in=[Request.STATUS_APPROVED, Request.STATUS_PAYED],
             billing_date__gte=start,
             billing_date__lt=end,
-            source_tenant__isnull=True,
         ).aggregate(total=Sum("amount"))["total"]
     )
     return total or Decimal("0")
@@ -173,7 +172,6 @@ def list_budget_spend_requests(
         status__in=[Request.STATUS_APPROVED, Request.STATUS_PAYED],
         billing_date__gte=start,
         billing_date__lt=end,
-        source_tenant__isnull=True,
     ).order_by("-billing_date")
 
     limit = min(max(1, int(limit)), _MAX_LIMIT)

@@ -8,7 +8,6 @@ from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.db import IntegrityError, transaction
 from django.db.models import Q
-from django.utils import timezone
 from django.utils.dateparse import parse_date
 from rest_framework import status
 from rest_framework.exceptions import APIException
@@ -989,20 +988,6 @@ class N8nRequestUpsertView(_N8nBaseView):
         def get_instance(pk):
             return Request.objects.filter(pk=pk, tenant=tenant).first()
 
-        def get_instance_without_pk(data):
-            subdomain = str(data.get("source_tenant") or "").strip()
-            source_request_id = data.get("source_request_id")
-            if not subdomain or source_request_id in (None, ""):
-                return None
-            return (
-                Request.all_objects.filter(
-                    tenant=tenant,
-                    source_tenant__subdomain=subdomain,
-                    source_request_id=source_request_id,
-                )
-                .first()
-            )
-
         def other_tenant_conflict(pk):
             o = Request.objects.filter(pk=pk).first()
             return o is not None and o.tenant_id != tenant.id
@@ -1016,80 +1001,13 @@ class N8nRequestUpsertView(_N8nBaseView):
             get_instance=get_instance,
             other_tenant_conflict=other_tenant_conflict,
             build_create_kwargs=build_create_kwargs,
-            get_instance_without_pk=get_instance_without_pk,
-        )
-
-
-class N8nRequestExternalMatchView(_N8nBaseView):
-    """
-    Callback for the copy-to-another-tenant workflow: marks a request in THIS tenant
-    as having its expense matched inside another tenant's bank data, so it stops
-    showing as a payed-but-missing-expense ("red") row here.
-    """
-
-    def post(self, request):
-        tenant = request.tenant
-        data = request.data
-
-        raw_id = data.get("id")
-        try:
-            request_id = int(raw_id)
-        except (TypeError, ValueError):
-            return Response({"id": ["Must be an integer."]}, status=status.HTTP_400_BAD_REQUEST)
-
-        matched = data.get("matched", True)
-        if isinstance(matched, str):
-            matched = matched.strip().lower() not in ("0", "false", "no", "")
-
-        target = Request.all_objects.filter(pk=request_id, tenant=tenant).first()
-        if target is None:
-            return Response({"id": ["No request with this id in this tenant."]}, status=status.HTTP_400_BAD_REQUEST)
-        if target.source_tenant_id is not None:
-            return Response(
-                {"id": ["This request is itself a cross-tenant copy; mark the original request instead."]},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
-        if not matched:
-            Request.all_objects.filter(pk=target.pk).update(
-                external_matched_tenant=None,
-                external_matched_at=None,
-            )
-            return Response(
-                {"id": target.pk, "external_matched_tenant": None, "external_matched_at": None},
-                status=status.HTTP_200_OK,
-            )
-
-        subdomain = str(data.get("matched_tenant") or "").strip()
-        if not subdomain:
-            return Response({"matched_tenant": ["This field is required."]}, status=status.HTTP_400_BAD_REQUEST)
-        matched_tenant = Tenant.objects.filter(subdomain=subdomain, is_active=True).first()
-        if matched_tenant is None:
-            return Response({"matched_tenant": ["Unknown tenant."]}, status=status.HTTP_400_BAD_REQUEST)
-        if matched_tenant.id == tenant.id:
-            return Response({"matched_tenant": ["Must reference another tenant."]}, status=status.HTTP_400_BAD_REQUEST)
-
-        matched_at = timezone.now()
-        Request.all_objects.filter(pk=target.pk).update(
-            external_matched_tenant=matched_tenant,
-            external_matched_at=matched_at,
-        )
-        return Response(
-            {
-                "id": target.pk,
-                "external_matched_tenant": matched_tenant.subdomain,
-                "external_matched_at": matched_at,
-            },
-            status=status.HTTP_200_OK,
         )
 
 
 class N8nRequestsMissingExpenseView(_N8nBaseView):
     """
     Lists PAYED requests in this tenant that are currently missing a linked expense
-    ("red rows") — candidates for the cross-tenant copy-and-reconcile workflow.
-    Excludes rows that are themselves cross-tenant copies: a copy is never itself a
-    fresh candidate to copy elsewhere.
+    ("red rows").
     """
 
     def get(self, request):
@@ -1106,7 +1024,7 @@ class N8nRequestsMissingExpenseView(_N8nBaseView):
         except (TypeError, ValueError):
             return Response({"limit": ["Must be an integer."]}, status=status.HTTP_400_BAD_REQUEST)
 
-        qs = Request.objects.filter(tenant=tenant, source_tenant__isnull=True)
+        qs = Request.objects.filter(tenant=tenant)
         if payment_type:
             qs = qs.filter(payment_type=payment_type)
         qs = filter_requests_payed_missing_expense(qs, tenant=tenant)
