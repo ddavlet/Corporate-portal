@@ -41,7 +41,7 @@ EXPENSE_SPECS = [
 class CreateLemonaquaMissingCardExpenseRequestsTests(TestCase):
     def setUp(self):
         self.tenant = Tenant.objects.create(id=3, name="Lemonfit Aqua", subdomain="lemonaqua-backfilltest", is_active=True)
-        self.importer = User.objects.create_user(username="app", password="x")
+        self.importer = User.objects.create_user(id=1, username="app", full_name="Система", password="x")
         self.wallet = get_or_create_corporate_wallet(tenant=self.tenant, currency="UZS")
 
         self.expenses = {}
@@ -78,7 +78,7 @@ class CreateLemonaquaMissingCardExpenseRequestsTests(TestCase):
         self.assertEqual(req.requester_id, self.importer.id)
 
         comment = RequestComment.objects.get(request=req)
-        self.assertEqual(comment.created_by.username, "system")
+        self.assertEqual(comment.created_by_id, 1)
         self.assertEqual(comment.created_by.full_name, "Система")
         self.assertIn("147", comment.body)
 
@@ -116,10 +116,10 @@ class CreateLemonaquaMissingCardExpenseRequestsTests(TestCase):
         self.assertIn("!= expected", output)
         self.assertFalse(Request.objects.filter(expense_ref_id=147).exists())
 
-    def test_missing_importer_user_aborts_cleanly(self):
-        User.objects.filter(username="app").delete()
+    def test_missing_system_user_aborts_cleanly(self):
+        User.objects.filter(pk=1).delete()
 
         output = _run(apply=True)
 
-        self.assertIn("not found", output)
+        self.assertIn("missing", output)
         self.assertEqual(Request.objects.count(), 0)

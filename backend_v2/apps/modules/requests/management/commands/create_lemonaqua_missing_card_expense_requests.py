@@ -28,10 +28,10 @@ from django.core.management.base import BaseCommand
 
 from apps.modules.corporate_card.models import CardExpense
 from apps.modules.requests.models import Request, RequestComment
-from apps.modules.requests.system_actor import get_or_create_system_user
+
+User = get_user_model()
 
 LEMONAQUA_TENANT_ID = 3
-IMPORT_USERNAME = "app"
 CARD_VENDOR_SUFFIX = " UZCARD DUO"
 CATEGORY = "Содержание клуба"
 PAYMENT_PURPOSE = "Прочие расходы"
@@ -53,6 +53,12 @@ EXPENSES: list[ExpenseSpec] = [
     ExpenseSpec(147, Decimal("111000.00"), date(2026, 9, 3)),
     ExpenseSpec(156, Decimal("128000.00"), date(2026, 9, 6)),
 ]
+
+
+def _system_user():
+    """pk=1 already displays as "Система" — same account
+    apps.modules.n8n_integration.views._system_user() uses."""
+    return User.objects.filter(pk=1).first()
 
 
 def _vendor_from_title(title: str) -> str:
@@ -78,11 +84,10 @@ class Command(BaseCommand):
     def handle(self, *args, **options):
         apply_changes: bool = options["apply"]
 
-        importer = get_user_model().objects.filter(username=IMPORT_USERNAME).first()
-        if importer is None:
-            self.stdout.write(self.style.WARNING(f"User '{IMPORT_USERNAME}' not found — aborting"))
+        system_user = _system_user()
+        if system_user is None:
+            self.stdout.write(self.style.WARNING("System user (pk=1) is missing — aborting"))
             return
-        system_user = get_or_create_system_user() if apply_changes else None
 
         created = 0
         already_correct = 0
@@ -117,8 +122,8 @@ class Command(BaseCommand):
             if apply_changes:
                 new_req = Request.objects.create(
                     tenant_id=LEMONAQUA_TENANT_ID,
-                    created_by=importer,
-                    requester=importer,
+                    created_by=system_user,
+                    requester=system_user,
                     description=(
                         f"[auto-created: заявка под расход по корпоративной карте, ранее не имевший "
                         f"заявки; CardExpense {spec.expense_id}, {spec.expense_date}, {spec.amount} UZS]"
