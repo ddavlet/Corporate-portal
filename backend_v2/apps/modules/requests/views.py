@@ -464,8 +464,8 @@ class RequestApprovalsMixin:
 
         route_request_approvals(request_obj=request_obj)
         # Re-fetch via the base manager, not self.get_queryset(): the caller was already
-        # authorized to act on this exact row above, so the list-level admin-only
-        # copied-request visibility filter must not hide it from this response.
+        # authorized to act on this exact row above, so the list-level role-based
+        # payment-type visibility filter (accountant/cashier) must not hide it from this response.
         obj = Request.objects.get(pk=request_obj.pk)
         return Response(
             PortalRequestDetailSerializer(obj, context=self.get_serializer_context()).data,
@@ -664,7 +664,7 @@ class PortalRequestViewSet(
             return Request.objects.none()
 
         qs = Request.objects.filter(tenant=tenant).select_related(
-            "vendor_ref", "contract_ref", "requester", "source_tenant", "external_matched_tenant"
+            "vendor_ref", "contract_ref", "requester"
         )
 
         # Requesters can only see items they created.
@@ -674,20 +674,6 @@ class PortalRequestViewSet(
         is_requester = self._has_role(tenant, TenantUserRole.ROLE_REQUESTER)
         is_accountant = self._has_role(tenant, TenantUserRole.ROLE_ACCOUNTANT)
         is_cashier = self._has_role(tenant, TenantUserRole.ROLE_CASHIER)
-
-        # Cross-tenant copies (requests imported from another tenant sharing the same bank
-        # account) are an accounting-matching artifact: only admins may see them, and this
-        # is enforced here so it cannot be bypassed by clearing frontend filters.
-        if not is_admin:
-            qs = qs.filter(source_tenant__isnull=True)
-        else:
-            origin_raw = (self.request.query_params.get("origin") or "").strip().lower()
-            if origin_raw == "own":
-                qs = qs.filter(source_tenant__isnull=True)
-            elif origin_raw == "copied":
-                qs = qs.filter(source_tenant__isnull=False)
-            elif origin_raw not in ("", "all"):
-                raise ValidationError({"origin": "Use one of: all, own, copied."})
 
         # Finance role visibility rules:
         # - accountant: transfer/topup/corporate-card requests
@@ -927,8 +913,8 @@ class PortalRequestViewSet(
                 _recalculate_request_status(request_obj)
         route_request_approvals(request_obj=request_obj)
         # Re-fetch via the base manager, not self.get_queryset(): the caller was already
-        # authorized to act on this exact row above, so the list-level admin-only
-        # copied-request visibility filter must not hide it from this response.
+        # authorized to act on this exact row above, so the list-level role-based
+        # payment-type visibility filter (accountant/cashier) must not hide it from this response.
         obj = Request.objects.get(pk=request_obj.pk)
         return Response(
             PortalRequestDetailSerializer(obj, context=self.get_serializer_context()).data,

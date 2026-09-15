@@ -194,7 +194,14 @@ split-lemonaqua-card-expense-requests:
 		docker compose --env-file ./.env exec -T backend_v2 \
 		python manage.py split_lemonaqua_card_expense_requests $(if $(APPLY),--apply,)"
 
-# ── 7d-4. Разово: связать заявку 7708 (lemonaqua) с CardExpense 126, поправить сумму ──
+# ── 7d-5. Разово: связать заявки lemonaqua "Перечисление"/"Пополнение" без
+# vendor_ref с bank_expenses по нормализованному имени поставщика ──
+link-lemonaqua-transfer-bank-expenses:
+	ssh $(SERVER) "cd $(REMOTE_DIR) && \
+		docker compose --env-file ./.env exec -T backend_v2 \
+		python manage.py link_lemonaqua_transfer_bank_expenses $(if $(APPLY),--apply,)"
+
+# ── 7d-6. Разово: связать заявку 7708 (lemonaqua) с CardExpense 126, поправить сумму ──
 fix-lemonaqua-request-7708-card-amount:
 	ssh $(SERVER) "cd $(REMOTE_DIR) && \
 		docker compose --env-file ./.env exec -T backend_v2 \

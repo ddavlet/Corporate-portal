@@ -66,8 +66,6 @@ class RequestAdmin(admin.ModelAdmin):
         "requester",
         "vendor_ref",
         "contract_ref",
-        "source_tenant",
-        "external_matched_tenant",
     )
     date_hierarchy = "submitted_at"
     inlines = [ApprovalInline, RequestAttachmentInline, RequestCommentInline]
