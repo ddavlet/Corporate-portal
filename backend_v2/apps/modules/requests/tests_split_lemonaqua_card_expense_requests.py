@@ -10,7 +10,7 @@ from django.test import TestCase
 from django.utils import timezone
 
 from apps.modules.corporate_card.models import CardExpense
-from apps.modules.requests.models import Request
+from apps.modules.requests.models import Request, RequestComment
 from apps.modules.wallets.resolution import get_or_create_corporate_wallet
 from apps.tenants.models import Tenant
 
@@ -30,6 +30,7 @@ def _run(**options):
 class SplitLemonaquaCardExpenseRequestsTests(TestCase):
     def setUp(self):
         self.tenant = Tenant.objects.create(id=3, name="Lemonfit Aqua", subdomain="lemonaqua-cardsplittest", is_active=True)
+        self.system_user = User.objects.create_user(id=1, username="app", full_name="Система", password="x")
         self.admin = User.objects.create_user(username="admin-cardsplit", password="x")
         self.wallet = get_or_create_corporate_wallet(tenant=self.tenant, currency="UZS")
 
@@ -118,13 +119,62 @@ class SplitLemonaquaCardExpenseRequestsTests(TestCase):
         copy_8069 = Request.objects.get(expense_ref_id=160, expense_ref_target=Request.EXPENSE_REF_TARGET_CARD)
         self.assertEqual(copy_8069.amount, Decimal("40000.00"))
 
+        comment = RequestComment.objects.get(request_id=7824)
+        self.assertEqual(comment.created_by_id, 1)
+        self.assertEqual(comment.created_by.full_name, "Система")
+        self.assertIn("136", comment.body)
+        copy_comment = RequestComment.objects.get(request=copy_7824)
+        self.assertIn("7824", copy_comment.body)
+        self.assertEqual(RequestComment.objects.count(), 6)
+
     def test_apply_is_idempotent(self):
         _run(apply=True)
         output = _run(apply=True)
 
         self.assertIn("Fixed: 0", output)
         self.assertIn("Already correct: 3", output)
+        self.assertIn("Comments backfilled on already-correct requests: 0", output)
         self.assertEqual(Request.objects.count(), 6)
+        self.assertEqual(RequestComment.objects.count(), 6)
+
+    def test_apply_backfills_comment_on_request_split_before_this_feature_existed(self):
+        # Simulate 7824 having already been split by an older version of this
+        # command that didn't leave comments (i.e. production state right now).
+        Request.objects.filter(pk=7824).update(
+            amount=Decimal("216000.00"), expense_ref_id=136, expense_ref_target=Request.EXPENSE_REF_TARGET_CARD,
+        )
+        self._make_request(
+            id=8200, amount="61000.00", billing_date=date(2026, 9, 1), payed_at=20260907,
+            vendor="FITLINE", category="Содержание клуба", payment_purpose="Расходники Тех Отдел",
+        )
+        Request.objects.filter(pk=8200).update(
+            expense_ref_id=137, expense_ref_target=Request.EXPENSE_REF_TARGET_CARD,
+        )
+        self.assertEqual(RequestComment.objects.count(), 0)
+
+        output = _run(apply=True)
+
+        self.assertIn("Fixed: 2", output)
+        self.assertIn("Already correct: 1", output)
+        self.assertIn("Comments backfilled on already-correct requests: 1", output)
+        self.assertTrue(RequestComment.objects.filter(request_id=7824).exists())
+        self.assertTrue(RequestComment.objects.filter(request_id=8200).exists())
+
+        # re-running again must not duplicate the backfilled comments
+        _run(apply=True)
+        self.assertEqual(RequestComment.objects.filter(request_id=7824).count(), 1)
+        self.assertEqual(RequestComment.objects.filter(request_id=8200).count(), 1)
+
+    def test_apply_without_system_user_still_splits_requests(self):
+        User.objects.filter(pk=1).delete()
+
+        output = _run(apply=True)
+
+        self.assertIn("Fixed: 3", output)
+        self.req_7824.refresh_from_db()
+        self.assertEqual(self.req_7824.amount, Decimal("216000.00"))
+        self.assertEqual(Request.objects.count(), 6)
+        self.assertEqual(RequestComment.objects.count(), 0)
 
     # -- defensive checks -------------------------------------------------------
 

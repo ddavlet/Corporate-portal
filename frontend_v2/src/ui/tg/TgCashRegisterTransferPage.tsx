@@ -1,17 +1,14 @@
-import { useState } from 'react'
-import { Alert, Button, Form, Input, InputNumber, Modal, Select, Typography, message } from 'antd'
-import { SwapOutlined } from '@ant-design/icons'
-import { getCashRegisters, getSettingsAccess, type CashRegisterDto } from '../lib/api'
+import { useEffect, useState } from 'react'
+import { Alert, Button, Form, Input, InputNumber, Select, Skeleton, Typography } from 'antd'
+import { ArrowLeftOutlined } from '@ant-design/icons'
+import { useNavigate } from 'react-router-dom'
+import { getCashRegisters, getSettingsAccess, type CashRegisterDto } from '../../lib/api'
 import {
   CashRegisterTransferSubmitError,
   cashRegisterLabel,
   submitCashRegisterTransfer,
-} from '../lib/cashRegisterTransfer'
-
-type Props = {
-  /** Перезагрузка списка операций после успешной отправки заявки. */
-  onCreated?: () => void
-}
+} from '../../lib/cashRegisterTransfer'
+import { useTgMainButton } from './useTgMainButton'
 
 type FormValues = {
   from_wallet_id: number
@@ -20,37 +17,35 @@ type FormValues = {
   note?: string
 }
 
-export function CashRegisterTransferButton({ onCreated }: Props) {
-  const [open, setOpen] = useState(false)
-  const [registers, setRegisters] = useState<CashRegisterDto[]>([])
-  const [requesterId, setRequesterId] = useState<number | null>(null)
-  const [loadingRegisters, setLoadingRegisters] = useState(false)
+export function TgCashRegisterTransferPage() {
+  const navigate = useNavigate()
+  const [form] = Form.useForm<FormValues>()
+  const [loading, setLoading] = useState(true)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [form] = Form.useForm<FormValues>()
+  const [registers, setRegisters] = useState<CashRegisterDto[]>([])
+  const [requesterId, setRequesterId] = useState<number | null>(null)
   const fromWalletId = Form.useWatch('from_wallet_id', form)
   const toWalletId = Form.useWatch('to_wallet_id', form)
 
-  const openModal = async () => {
-    setError(null)
-    setOpen(true)
-    setLoadingRegisters(true)
-    try {
-      const [rows, access] = await Promise.all([getCashRegisters(), getSettingsAccess()])
-      setRegisters(rows.filter((r) => r.is_active))
-      setRequesterId(typeof access.user_id === 'number' ? access.user_id : null)
-    } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : 'Не удалось загрузить список касс')
-    } finally {
-      setLoadingRegisters(false)
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      try {
+        const [rows, access] = await Promise.all([getCashRegisters(), getSettingsAccess()])
+        if (cancelled) return
+        setRegisters(rows.filter((r) => r.is_active))
+        setRequesterId(typeof access.user_id === 'number' ? access.user_id : null)
+      } catch (e: unknown) {
+        if (!cancelled) setError(e instanceof Error ? e.message : 'Не удалось загрузить список касс')
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    })()
+    return () => {
+      cancelled = true
     }
-  }
-
-  const handleClose = () => {
-    setOpen(false)
-    form.resetFields()
-    setError(null)
-  }
+  }, [])
 
   const fromRegister = registers.find((r) => r.id === fromWalletId) || null
   const toRegister = registers.find((r) => r.id === toWalletId) || null
@@ -64,7 +59,13 @@ export function CashRegisterTransferButton({ onCreated }: Props) {
     .filter((r) => r.id !== fromWalletId)
     .map((r) => ({ value: r.id, label: cashRegisterLabel(r) }))
 
-  const onFinish = async (values: FormValues) => {
+  async function handleSubmit() {
+    let values: FormValues
+    try {
+      values = await form.validateFields()
+    } catch {
+      return
+    }
     const fromReg = registers.find((r) => r.id === values.from_wallet_id)
     const toReg = registers.find((r) => r.id === values.to_wallet_id)
     if (!fromReg || !toReg) return
@@ -79,9 +80,7 @@ export function CashRegisterTransferButton({ onCreated }: Props) {
         note: values.note,
         requesterId,
       })
-      message.success('Заявка на перевод создана и отправлена на согласование')
-      handleClose()
-      onCreated?.()
+      navigate('/tg/cash', { replace: true })
     } catch (err: unknown) {
       if (err instanceof CashRegisterTransferSubmitError) {
         setError(`Заявка №${err.requestId} создана, но не отправлена на согласование: ${err.message}`)
@@ -93,29 +92,38 @@ export function CashRegisterTransferButton({ onCreated }: Props) {
     }
   }
 
+  useTgMainButton({
+    text: 'Отправить',
+    onClick: () => void handleSubmit(),
+    loading: submitting,
+    disabled: loading,
+  })
+
   return (
-    <>
-      <Button icon={<SwapOutlined />} onClick={() => void openModal()}>
-        Перевести между кассами
-      </Button>
-      <Modal
-        title="Перевод между кассами"
-        open={open}
-        onCancel={handleClose}
-        okText="Отправить"
-        cancelText="Отмена"
-        confirmLoading={submitting}
-        destroyOnClose
-        onOk={() => form.submit()}
+    <div className="tg-cash-page" style={{ paddingBottom: 88 }}>
+      <Button
+        icon={<ArrowLeftOutlined />}
+        size="large"
+        onClick={() => navigate('/tg/cash')}
+        style={{ marginBottom: 12, borderRadius: 12 }}
       >
-        {error ? <Alert type="error" showIcon message={error} style={{ marginBottom: 16 }} /> : null}
-        <Form form={form} layout="vertical" onFinish={onFinish} disabled={loadingRegisters}>
+        Назад
+      </Button>
+
+      <Typography.Title level={4} style={{ margin: '0 0 20px', fontWeight: 700 }}>
+        Перевод между кассами
+      </Typography.Title>
+
+      {loading ? (
+        <Skeleton active paragraph={{ rows: 5 }} />
+      ) : (
+        <Form form={form} layout="vertical">
           <Form.Item
             name="from_wallet_id"
             label="Из кассы"
             rules={[{ required: true, message: 'Выберите кассу-источник' }]}
           >
-            <Select placeholder="Касса-источник" options={fromOptions} />
+            <Select size="large" placeholder="Касса-источник" options={fromOptions} />
           </Form.Item>
           <Form.Item
             name="to_wallet_id"
@@ -131,13 +139,13 @@ export function CashRegisterTransferButton({ onCreated }: Props) {
               }),
             ]}
           >
-            <Select placeholder="Касса-назначение" options={toOptions} />
+            <Select size="large" placeholder="Касса-назначение" options={toOptions} />
           </Form.Item>
           {currencyMismatch ? (
             <Alert
               type="warning"
               showIcon
-              style={{ marginBottom: 16 }}
+              style={{ marginBottom: 16, borderRadius: 12 }}
               message="Кассы в разных валютах — уточните сумму зачисления в примечании."
             />
           ) : null}
@@ -146,10 +154,10 @@ export function CashRegisterTransferButton({ onCreated }: Props) {
             label="Сумма"
             rules={[{ required: true, message: 'Укажите сумму' }]}
           >
-            <InputNumber min={0.01} style={{ width: '100%' }} />
+            <InputNumber size="large" min={0.01} style={{ width: '100%' }} placeholder="0" />
           </Form.Item>
           <Form.Item name="note" label="Примечание">
-            <Input.TextArea rows={2} />
+            <Input.TextArea rows={2} maxLength={1000} size="large" />
           </Form.Item>
           {fromRegister && toRegister ? (
             <Typography.Text type="secondary">
@@ -158,7 +166,11 @@ export function CashRegisterTransferButton({ onCreated }: Props) {
             </Typography.Text>
           ) : null}
         </Form>
-      </Modal>
-    </>
+      )}
+
+      {error ? (
+        <Alert type="error" showIcon message={error} style={{ marginTop: 12, borderRadius: 12 }} />
+      ) : null}
+    </div>
   )
 }
