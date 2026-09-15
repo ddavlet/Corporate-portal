@@ -213,6 +213,12 @@ fix-lemonaqua-request-7708-card-amount:
 		docker compose --env-file ./.env exec -T backend_v2 \
 		python manage.py fix_lemonaqua_request_7708_card_amount $(if $(APPLY),--apply,)"
 
+# ── 7d-9. Разово: soft-delete заявок 7940/7980 (lemonaqua) — не сопоставляются с картой ──
+delete-lemonaqua-unmatched-card-requests:
+	ssh $(SERVER) "cd $(REMOTE_DIR) && \
+		docker compose --env-file ./.env exec -T backend_v2 \
+		python manage.py delete_lemonaqua_unmatched_card_requests $(if $(APPLY),--apply,)"
+
 # ── 7e. Отправить согласующего в отпуск / вернуть из отпуска ──────────────────
 EMPLOYEE_USERNAME ?=
 
