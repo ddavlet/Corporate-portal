@@ -67,9 +67,10 @@ SPLITS: list[SplitSpec] = [
 
 def _original_comment_body(spec: SplitSpec) -> str:
     return (
-        f"Сумма заявки скорректирована с {spec.total_amount} до {spec.keep_amount}: расход по факту "
-        f"разбился на 2 транзакции по корпоративной карте ({spec.label}). Остаток {spec.new_amount} "
-        f"вынесен в отдельную заявку, привязанную к CardExpense {spec.new_expense_id}."
+        f"Сумма заявки скорректирована с {spec.total_amount} до {spec.keep_amount} и привязана к "
+        f"CardExpense {spec.keep_expense_id}: расход по факту разбился на 2 транзакции по корпоративной "
+        f"карте ({spec.label}). Остаток {spec.new_amount} вынесен в отдельную заявку, привязанную к "
+        f"CardExpense {spec.new_expense_id}."
     )
 
 
