@@ -33,16 +33,18 @@ export function AdminEditRecordButton({ endpoint, record, onSaved, size = 'small
   if (!isAdmin) return null
 
   return (
-    <>
+    // React bubbles portal events (Modal, its Select dropdowns, etc.) through the
+    // *component* tree, not the DOM tree. Without this wrapper, any click inside
+    // the edit modal also reaches an ancestor row's `onRow.onClick` (e.g. a table
+    // row that opens a detail modal on click), since the modal is a React child
+    // of this button even though it renders into document.body.
+    <span onClick={(e) => e.stopPropagation()} style={{ display: 'contents' }}>
       <Button
         size={size}
         block={block}
         style={style}
         icon={<EditOutlined />}
-        onClick={(e) => {
-          e.stopPropagation()
-          setOpen(true)
-        }}
+        onClick={() => setOpen(true)}
       >
         Редактировать
       </Button>
@@ -54,6 +56,6 @@ export function AdminEditRecordButton({ endpoint, record, onSaved, size = 'small
         onSaved={onSaved}
         title={modalTitle}
       />
-    </>
+    </span>
   )
 }
