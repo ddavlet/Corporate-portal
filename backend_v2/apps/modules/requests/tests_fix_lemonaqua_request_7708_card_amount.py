@@ -30,6 +30,7 @@ def _run(**options):
 class FixLemonaquaRequest7708CardAmountTests(TestCase):
     def setUp(self):
         self.tenant = Tenant.objects.create(id=3, name="Lemonfit Aqua", subdomain="lemonaqua-7708test", is_active=True)
+        self.system_user = User.objects.create_user(id=1, username="app", full_name="Система", password="x")
         self.admin = User.objects.create_user(username="admin-7708fix", password="x")
         self.wallet = get_or_create_corporate_wallet(tenant=self.tenant, currency="UZS")
 
@@ -65,7 +66,7 @@ class FixLemonaquaRequest7708CardAmountTests(TestCase):
         self.assertIn("Fixed: 1", output)
 
         comment = RequestComment.objects.get(request=self.req)
-        self.assertEqual(comment.created_by.username, "system")
+        self.assertEqual(comment.created_by_id, 1)
         self.assertEqual(comment.created_by.full_name, "Система")
         self.assertIn("126", comment.body)
 
@@ -102,6 +103,17 @@ class FixLemonaquaRequest7708CardAmountTests(TestCase):
         self.req.refresh_from_db()
         self.assertEqual(self.req.expense_ref_id, other_expense.id)
         self.assertIn("unexpected state", output)
+
+    def test_apply_without_system_user_still_fixes_request(self):
+        User.objects.filter(pk=1).delete()
+
+        output = _run(apply=True)
+
+        self.req.refresh_from_db()
+        self.assertEqual(self.req.amount, Decimal("130500.00"))
+        self.assertEqual(self.req.expense_ref_id, 126)
+        self.assertIn("Fixed: 1", output)
+        self.assertFalse(RequestComment.objects.filter(request=self.req).exists())
 
     def test_already_claimed_expense_is_skipped(self):
         other_req = Request.objects.create(

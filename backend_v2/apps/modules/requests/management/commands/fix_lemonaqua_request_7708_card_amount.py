@@ -25,17 +25,25 @@ from __future__ import annotations
 
 from decimal import Decimal
 
+from django.contrib.auth import get_user_model
 from django.core.management.base import BaseCommand
 
 from apps.modules.corporate_card.models import CardExpense
 from apps.modules.requests.models import Request, RequestComment
-from apps.modules.requests.system_actor import get_or_create_system_user
+
+User = get_user_model()
 
 LEMONAQUA_TENANT_ID = 3
 REQUEST_ID = 7708
 EXPENSE_ID = 126
 ORIGINAL_AMOUNT = Decimal("130000.00")
 CORRECTED_AMOUNT = Decimal("130500.00")
+
+
+def _system_user():
+    """pk=1 already displays as "Система" — same account
+    apps.modules.n8n_integration.views._system_user() uses."""
+    return User.objects.filter(pk=1).first()
 
 
 class Command(BaseCommand):
@@ -120,15 +128,17 @@ class Command(BaseCommand):
                 expense_ref_target=Request.EXPENSE_REF_TARGET_CARD,
                 description=(f"{req.description}\n{note}" if req.description else note),
             )
-            RequestComment.objects.create(
-                request=req,
-                created_by=get_or_create_system_user(),
-                body=(
-                    f"Сумма заявки скорректирована с {ORIGINAL_AMOUNT} до {CORRECTED_AMOUNT} "
-                    f"и заявка связана с расходом по корпоративной карте CardExpense {EXPENSE_ID} "
-                    f"(расхождение 500 UZS отнесено на комиссию платёжной системы)."
-                ),
-            )
+            system_user = _system_user()
+            if system_user is not None:
+                RequestComment.objects.create(
+                    request=req,
+                    created_by=system_user,
+                    body=(
+                        f"Сумма заявки скорректирована с {ORIGINAL_AMOUNT} до {CORRECTED_AMOUNT} "
+                        f"и заявка связана с расходом по корпоративной карте CardExpense {EXPENSE_ID} "
+                        f"(расхождение 500 UZS отнесено на комиссию платёжной системы)."
+                    ),
+                )
             self.stdout.write(self.style.SUCCESS("Fixed: 1"))
         else:
             self.stdout.write(self.style.WARNING("Dry run complete — no changes made. Re-run with --apply to write."))
