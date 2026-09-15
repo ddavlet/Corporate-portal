@@ -115,6 +115,7 @@ class Command(BaseCommand):
                 continue
 
             vendor = _vendor_from_title(expense.title)
+            created += 1
             self.stdout.write(
                 f"  + CardExpense {spec.expense_id} ({spec.amount}, {spec.expense_date}, {vendor}): "
                 f"would create new PAYED request"
@@ -150,7 +151,6 @@ class Command(BaseCommand):
                         f"{spec.expense_date}, {spec.amount} UZS)."
                     ),
                 )
-                created += 1
                 self.stdout.write(f"    -> created request {new_req.id}")
 
         self.stdout.write("")

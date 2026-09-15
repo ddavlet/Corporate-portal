@@ -117,6 +117,10 @@ class CreateLemonaquaMissingCardExpenseRequestsTests(TestCase):
         self.assertFalse(Request.objects.filter(expense_ref_id=147).exists())
 
     def test_missing_system_user_aborts_cleanly(self):
+        # pk=1 is PROTECTed by the CardExpense fixtures' created_by — reassign
+        # them first so the delete below is actually possible.
+        other_user = User.objects.create_user(username="other-importer", password="x")
+        CardExpense.objects.update(created_by=other_user)
         User.objects.filter(pk=1).delete()
 
         output = _run(apply=True)
