@@ -41,4 +41,26 @@ describe('AdminEditRecordButton', () => {
     // The modal's save button confirms the editor opened.
     expect(await screen.findByRole('button', { name: 'Сохранить' })).toBeInTheDocument()
   })
+
+  it('does not let clicks inside the edit modal bubble to an ancestor row click handler', async () => {
+    // Regression test: antd Modal renders via a React portal into document.body,
+    // but React still bubbles its synthetic click events through the *component*
+    // tree. A table row with `onRow: { onClick }` is a component-tree ancestor of
+    // this button's modal, so any click inside the modal (e.g. its Cancel/OK
+    // buttons) used to also fire the row's onClick and reopen whatever it opens.
+    mockState.isAdmin = true
+    const rowClick = vi.fn()
+    render(
+      <div onClick={rowClick}>
+        <AdminEditRecordButton endpoint="/api/requests/" record={{ id: 1, title: 'Заявка' }} onSaved={() => undefined} />
+      </div>,
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: /Редактировать/ }))
+    await screen.findByRole('button', { name: 'Сохранить' })
+    expect(rowClick).not.toHaveBeenCalled()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+    expect(rowClick).not.toHaveBeenCalled()
+  })
 })
