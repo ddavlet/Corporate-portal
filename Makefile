@@ -201,6 +201,12 @@ link-lemonaqua-transfer-bank-expenses:
 		docker compose --env-file ./.env exec -T backend_v2 \
 		python manage.py link_lemonaqua_transfer_bank_expenses $(if $(APPLY),--apply,)"
 
+# ── 7d-7. Разово: создать заявки под непривязанные card_expenses (lemonaqua, с августа) ──
+create-lemonaqua-missing-card-expense-requests:
+	ssh $(SERVER) "cd $(REMOTE_DIR) && \
+		docker compose --env-file ./.env exec -T backend_v2 \
+		python manage.py create_lemonaqua_missing_card_expense_requests $(if $(APPLY),--apply,)"
+
 # ── 7e. Отправить согласующего в отпуск / вернуть из отпуска ──────────────────
 EMPLOYEE_USERNAME ?=
 
