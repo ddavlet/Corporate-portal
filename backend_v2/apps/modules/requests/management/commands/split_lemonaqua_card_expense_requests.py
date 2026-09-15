@@ -35,12 +35,14 @@ from __future__ import annotations
 from dataclasses import dataclass
 from decimal import Decimal
 
+from django.contrib.auth import get_user_model
 from django.core.management.base import BaseCommand
 from django.db import transaction
 
 from apps.modules.corporate_card.models import CardExpense
 from apps.modules.requests.models import Request, RequestComment
-from apps.modules.requests.system_actor import get_or_create_system_user
+
+User = get_user_model()
 
 LEMONAQUA_TENANT_ID = 3
 
@@ -79,7 +81,15 @@ def _copy_comment_body(spec: SplitSpec) -> str:
     )
 
 
+def _system_user():
+    """pk=1 already displays as "Система" — same account
+    apps.modules.n8n_integration.views._system_user() uses."""
+    return User.objects.filter(pk=1).first()
+
+
 def _ensure_system_comment(*, request: Request, system_user, body: str) -> bool:
+    if system_user is None:
+        return False
     if RequestComment.objects.filter(request=request, created_by=system_user, body=body).exists():
         return False
     RequestComment.objects.create(request=request, created_by=system_user, body=body)
@@ -139,7 +149,7 @@ class Command(BaseCommand):
 
     def handle(self, *args, **options):
         apply_changes: bool = options["apply"]
-        system_user = get_or_create_system_user() if apply_changes else None
+        system_user = _system_user()
 
         fixed = 0
         already_correct = 0
@@ -242,12 +252,13 @@ class Command(BaseCommand):
                         expense_id=spec.new_expense_id,
                         note=f"[auto-split {spec.label}: выделено из заявки #{spec.request_id}]",
                     )
-                    RequestComment.objects.create(
-                        request_id=spec.request_id, created_by=system_user, body=_original_comment_body(spec),
-                    )
-                    RequestComment.objects.create(
-                        request=new_req, created_by=system_user, body=_copy_comment_body(spec),
-                    )
+                    if system_user is not None:
+                        RequestComment.objects.create(
+                            request_id=spec.request_id, created_by=system_user, body=_original_comment_body(spec),
+                        )
+                        RequestComment.objects.create(
+                            request=new_req, created_by=system_user, body=_copy_comment_body(spec),
+                        )
 
         self.stdout.write("")
         self.stdout.write(self.style.SUCCESS(f"{'Fixed' if apply_changes else 'Would fix'}: {fixed}"))
