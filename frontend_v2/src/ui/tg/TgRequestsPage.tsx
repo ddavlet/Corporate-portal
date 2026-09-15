@@ -18,7 +18,6 @@ type RequestRow = {
   payment_type: string
   billing_date: string
   expense_link?: RequestExpenseLink
-  external_matched?: boolean
 }
 
 function normalizeRows(payload: unknown): RequestRow[] {
