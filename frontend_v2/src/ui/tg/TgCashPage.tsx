@@ -1,6 +1,6 @@
 import { Typography } from 'antd'
 import { useNavigate } from 'react-router-dom'
-import { AppstoreOutlined, ArrowDownOutlined, ArrowUpOutlined } from '@ant-design/icons'
+import { AppstoreOutlined, ArrowDownOutlined, ArrowUpOutlined, SwapOutlined } from '@ant-design/icons'
 import { tgHaptic } from './tgHaptic'
 
 type Tile = {
@@ -35,6 +35,13 @@ const TILES: Tile[] = [
     path: '/tg/cash/revenues',
     icon: <ArrowDownOutlined />,
     iconClass: 'tg-section-tile-icon--revenue',
+  },
+  {
+    key: 'transfer',
+    title: 'Перевести между кассами',
+    subtitle: 'Заявка на перевод ДС между кассами',
+    path: '/tg/cash/transfer',
+    icon: <SwapOutlined />,
   },
 ]
 
