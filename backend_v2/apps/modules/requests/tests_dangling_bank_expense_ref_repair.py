@@ -58,7 +58,10 @@ class FindAndRepairDanglingBankExpenseRefsTests(TestCase):
             wallet=self.bank_wallet,
         )
 
-    def _make_request(self, *, amount, payed_date, expense_ref_id, vendor_ref=None, title="R"):
+    _VENDOR_REF_DEFAULT = object()
+
+    def _make_request(self, *, amount, payed_date, expense_ref_id, vendor_ref=_VENDOR_REF_DEFAULT, title="R"):
+        resolved_vendor_ref = self.vendor if vendor_ref is self._VENDOR_REF_DEFAULT else vendor_ref
         return Request.objects.create(
             tenant=self.tenant,
             created_by=self.admin,
@@ -70,7 +73,7 @@ class FindAndRepairDanglingBankExpenseRefsTests(TestCase):
             payment_type=Request.PAYMENT_TYPE_TRANSFER,
             urgency=Request.URGENCY_NORMAL,
             billing_date=payed_date.replace(day=1),
-            vendor_ref=vendor_ref if vendor_ref is not None else self.vendor,
+            vendor_ref=resolved_vendor_ref,
             status=Request.STATUS_PAYED,
             payed_at=_payed_at(payed_date),
             expense_ref_id=expense_ref_id,
