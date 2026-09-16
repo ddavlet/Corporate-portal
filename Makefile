@@ -7,7 +7,7 @@ DEPLOY_TEST_PATH ?= $(TEST_PATH)
 BRANCH     := $(shell git rev-parse --abbrev-ref HEAD)
 
 .DEFAULT_GOAL := help
-.PHONY: help push test deploy makemigrations showmigrations logs backup-db create-postgres-mcp-role rollback refresh-approval-messages link-lemon-auto-request-exceptions reconcile-card-revenues reconcile-card-expenses reconcile-bank-expenses-by-vendor send-to-vacation return-from-vacation add-cash-register-transfer-purpose add-cash-register-transfer-approval-exception local-up local-down local-logs test_local
+.PHONY: help push test deploy makemigrations showmigrations logs backup-db create-postgres-mcp-role rollback refresh-approval-messages link-lemon-auto-request-exceptions reconcile-card-revenues reconcile-expense-links send-to-vacation return-from-vacation add-cash-register-transfer-purpose add-cash-register-transfer-approval-exception local-up local-down local-logs test_local
 
 help:
 	@echo ""
@@ -27,10 +27,10 @@ help:
 	@echo "  make link-lemon-auto-request-exceptions APPLY=1 — то же самое, но с записью изменений"
 	@echo "  make reconcile-card-revenues — привязать заявки 'Пополнение' к corporate_card_revenues по сумме+дате"
 	@echo "  make reconcile-card-revenues TENANT=3 — то же самое, но только для одного тенанта"
-	@echo "  make reconcile-card-expenses — привязать заявки 'Платежная карта' к corporate_card_expenses по сумме+дате"
-	@echo "  make reconcile-card-expenses TENANT=3 — то же самое, но только для одного тенанта"
-	@echo "  make reconcile-bank-expenses-by-vendor — привязать заявки 'Перечисление'/'Пополнение' к bank_expenses по вендору+сумме+дате (все тенанты)"
-	@echo "  make reconcile-bank-expenses-by-vendor TENANT=3 — то же самое, но только для одного тенанта"
+	@echo "  make reconcile-expense-links TENANT=3 — найти и починить ссылки заявок на расходы (bank/cash/card)"
+	@echo "  make reconcile-expense-links TENANT=3 TYPE=\"bank cash\" — то же самое, но только указанные типы"
+	@echo "  make reconcile-expense-links TENANT=3 DATE_FROM=2026-09-01 DATE_TO=2026-09-09 — то же самое, с фильтром по дате оплаты"
+	@echo "  make reconcile-expense-links TENANT=3 APPLY=1 — то же самое, но с записью изменений"
 	@echo "  make send-to-vacation TENANT=3 EMPLOYEE_USERNAME=s.davletyarov — dry-run: отправить согласующего в отпуск"
 	@echo "  make send-to-vacation TENANT=3 EMPLOYEE_USERNAME=s.davletyarov APPLY=1 — то же самое, но с записью изменений"
 	@echo "  make return-from-vacation TENANT=3 EMPLOYEE_USERNAME=s.davletyarov APPLY=1 — вернуть согласующего из отпуска"
@@ -172,34 +172,26 @@ reconcile-card-revenues:
 		docker compose --env-file ./.env exec -T backend_v2 \
 		python manage.py reconcile_card_revenues_by_amount $(if $(TENANT),--tenant=$(TENANT),)"
 
-# ── 7d-1b. По требованию: привязать заявки "Платежная карта" к card_expenses ──
-# (n8n уже триггерит эту команду при импорте транзакций карты; этот таргет —
-# для обратного порядка событий: заявка стала PAYED уже после импорта)
-reconcile-card-expenses:
-	ssh $(SERVER) "cd $(REMOTE_DIR) && \
-		docker compose --env-file ./.env exec -T backend_v2 \
-		python manage.py reconcile_card_expenses_by_amount $(if $(TENANT),--tenant=$(TENANT),)"
+# ── 7d-1c. По требованию: найти и починить ссылки заявок на расходы (bank/cash/card) ──
+TYPE ?=
+DATE_FROM ?=
+DATE_TO ?=
+comma := ,
 
-# ── 7d-2. По требованию: привязать заявки "Перечисление"/"Пополнение" к bank_expenses ──
-# (n8n уже триггерит эту команду при импорте выписки; этот таргет — для обратного
-# порядка событий: заявка стала PAYED уже после того, как выписка была импортирована)
-reconcile-bank-expenses-by-vendor:
+reconcile-expense-links:
 	ssh $(SERVER) "cd $(REMOTE_DIR) && \
 		docker compose --env-file ./.env exec -T backend_v2 \
-		python manage.py reconcile_bank_expenses_by_vendor $(if $(TENANT),--tenant=$(TENANT),)"
+		python manage.py reconcile_expense_links --tenant=$(TENANT) \
+		$(foreach t,$(subst $(comma), ,$(TYPE)),--type=$(t)) \
+		$(if $(DATE_FROM),--date-from=$(DATE_FROM),) \
+		$(if $(DATE_TO),--date-to=$(DATE_TO),) \
+		$(if $(APPLY),--apply,)"
 
 # ── 7d-3. Разово: разбить заявки 7824/7854/8069 (lemonaqua) на суммы по card_expenses ──
 split-lemonaqua-card-expense-requests:
 	ssh $(SERVER) "cd $(REMOTE_DIR) && \
 		docker compose --env-file ./.env exec -T backend_v2 \
 		python manage.py split_lemonaqua_card_expense_requests $(if $(APPLY),--apply,)"
-
-# ── 7d-5. Разово: связать заявки lemonaqua "Перечисление"/"Пополнение" без
-# vendor_ref с bank_expenses по нормализованному имени поставщика ──
-link-lemonaqua-transfer-bank-expenses:
-	ssh $(SERVER) "cd $(REMOTE_DIR) && \
-		docker compose --env-file ./.env exec -T backend_v2 \
-		python manage.py link_lemonaqua_transfer_bank_expenses $(if $(APPLY),--apply,)"
 
 # ── 7d-7. Разово: создать заявки под непривязанные card_expenses (lemonaqua, с августа) ──
 create-lemonaqua-missing-card-expense-requests:
