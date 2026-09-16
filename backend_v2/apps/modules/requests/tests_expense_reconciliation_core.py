@@ -306,3 +306,107 @@ class FindAndReconcileCardTests(TestCase):
         self.assertEqual(outcomes[0].problem, "dangling")
         req.refresh_from_db()
         self.assertEqual(req.expense_ref_id, expense.id)
+
+
+class FindAndReconcileNameFallbackTests(TestCase):
+    """Covers use_name_fallback=True: requests with no vendor_ref but a
+    free-text `vendor` matching the directory by normalized name."""
+
+    def setUp(self):
+        self.tenant = Tenant.objects.create(name="Acme", subdomain="acme-core-fallback", is_active=True)
+        self.admin = User.objects.create_user(username="admin-core-fallback", password="x")
+        bank_account = BankAccount.objects.create(tenant=self.tenant, label="Main")
+        self.wallet = Wallet.objects.create(
+            tenant=self.tenant, wallet_type=Wallet.Type.BANK, currency="UZS", bank_account=bank_account,
+        )
+        self.vendor = Vendor.objects.create(
+            tenant=self.tenant, kind=Vendor.KIND_TRANSFER, name='ООО "Gevorkyan Trade"', created_by=self.admin,
+        )
+        system_user = User.objects.create_user(username="system-core-fallback", password="x")
+        system_user.pk = 1
+        system_user.save()
+
+    def _make_expense(self, *, doc_date, amount):
+        return BankExpense.objects.create(
+            tenant=self.tenant,
+            created_by=self.admin,
+            row_no=1,
+            doc_date=doc_date,
+            process_date=doc_date,
+            expense_year=doc_date.year,
+            expense_month=doc_date.month,
+            expense_day=doc_date.day,
+            doc_no="",
+            debit_turnover=Decimal(amount),
+            payment_purpose="x",
+            vendor=self.vendor,
+            wallet=self.wallet,
+        )
+
+    def _make_request_without_vendor_ref(self, *, amount, payed_date, vendor_text):
+        return Request.objects.create(
+            tenant=self.tenant,
+            created_by=self.admin,
+            requester=self.admin,
+            title="R",
+            description="",
+            amount=Decimal(amount),
+            currency="UZS",
+            payment_type=Request.PAYMENT_TYPE_TRANSFER,
+            urgency=Request.URGENCY_NORMAL,
+            billing_date=payed_date.replace(day=1),
+            vendor=vendor_text,
+            vendor_ref=None,
+            status=Request.STATUS_PAYED,
+            payed_at=_payed_at(payed_date),
+        )
+
+    def test_name_fallback_links_and_backfills_vendor_ref(self):
+        expense = self._make_expense(doc_date=date(2026, 3, 10), amount="500.00")
+        req = self._make_request_without_vendor_ref(
+            amount="500.00", payed_date=date(2026, 3, 10), vendor_text="Gevorkyan Trade",
+        )
+
+        outcomes = find_and_reconcile(adapter=BANK, tenant=self.tenant, apply_changes=True)
+
+        self.assertEqual(outcomes[0].outcome, "repaired")
+        req.refresh_from_db()
+        self.assertEqual(req.expense_ref_id, expense.id)
+        self.assertEqual(req.vendor_ref_id, self.vendor.id)
+
+    def test_name_fallback_disabled_reports_no_candidate(self):
+        self._make_expense(doc_date=date(2026, 3, 10), amount="500.00")
+        req = self._make_request_without_vendor_ref(
+            amount="500.00", payed_date=date(2026, 3, 10), vendor_text="Gevorkyan Trade",
+        )
+
+        outcomes = find_and_reconcile(adapter=BANK, tenant=self.tenant, apply_changes=True, use_name_fallback=False)
+
+        self.assertEqual(outcomes[0].outcome, "no_candidate")
+        req.refresh_from_db()
+        self.assertIsNone(req.vendor_ref_id)
+
+    def test_name_fallback_no_match_reports_no_candidate(self):
+        self._make_expense(doc_date=date(2026, 3, 10), amount="500.00")
+        req = self._make_request_without_vendor_ref(
+            amount="500.00", payed_date=date(2026, 3, 10), vendor_text="Completely Different Co",
+        )
+
+        outcomes = find_and_reconcile(adapter=BANK, tenant=self.tenant, apply_changes=True)
+
+        self.assertEqual(outcomes[0].outcome, "no_candidate")
+        req.refresh_from_db()
+        self.assertIsNone(req.vendor_ref_id)
+
+    def test_dry_run_name_fallback_does_not_persist_vendor_ref(self):
+        self._make_expense(doc_date=date(2026, 3, 10), amount="500.00")
+        req = self._make_request_without_vendor_ref(
+            amount="500.00", payed_date=date(2026, 3, 10), vendor_text="Gevorkyan Trade",
+        )
+
+        outcomes = find_and_reconcile(adapter=BANK, tenant=self.tenant, apply_changes=False)
+
+        self.assertEqual(outcomes[0].outcome, "repaired")
+        req.refresh_from_db()
+        self.assertIsNone(req.vendor_ref_id)
+        self.assertIsNone(req.expense_ref_id)
