@@ -137,20 +137,50 @@ def _resolve_vendor_id(
 def _greedy_nearest_date_matches(pairs):
     """
     `pairs`: iterable of (day_diff, request, expense), already restricted to
-    the allowed window. Returns (request, expense) pairs, closest date
-    first, each request and each expense used at most once.
+    the allowed window. Returns `(matches, ambiguous)`:
+
+    - `matches`: list of (request, expense) pairs, each request and each
+      expense used at most once.
+    - `ambiguous`: dict of `request.id -> tied_candidate_count` for requests
+      whose best still-available diff is shared by 2+ expenses at the
+      moment they're processed — these are deliberately left unmatched
+      rather than resolved by an arbitrary tiebreak (the engine never
+      guesses).
+
+    Requests are processed in order of their own best diff (ties broken by
+    request id), so an unambiguous, closer-matching request claims its
+    expense before a later request's remaining candidates are evaluated —
+    this is what lets two simultaneous, clearly-closer-to-different-expenses
+    requests both resolve correctly, while a single request with two
+    genuinely equally-close candidates (nothing competing for them) is
+    flagged ambiguous instead of silently picking the lower-id expense.
     """
-    ordered = sorted(pairs, key=lambda p: (p[0], p[1].id, p[2].id))
-    used_requests: set[int] = set()
+    by_request: dict[int, list[tuple[int, object]]] = defaultdict(list)
+    request_by_id: dict[int, object] = {}
+    for diff, req, expense in pairs:
+        by_request[req.id].append((diff, expense))
+        request_by_id[req.id] = req
+    for candidates in by_request.values():
+        candidates.sort(key=lambda pair: (pair[0], pair[1].id))
+
+    order = sorted(by_request.keys(), key=lambda rid: (by_request[rid][0][0], rid))
+
     used_expenses: set[int] = set()
-    matches = []
-    for _diff, req, expense in ordered:
-        if req.id in used_requests or expense.id in used_expenses:
+    matches: list[tuple] = []
+    ambiguous: dict[int, int] = {}
+    for rid in order:
+        remaining = [(diff, expense) for diff, expense in by_request[rid] if expense.id not in used_expenses]
+        if not remaining:
             continue
-        used_requests.add(req.id)
+        best_diff = remaining[0][0]
+        tied = [expense for diff, expense in remaining if diff == best_diff]
+        if len(tied) > 1:
+            ambiguous[rid] = len(tied)
+            continue
+        expense = tied[0]
+        matches.append((request_by_id[rid], expense))
         used_expenses.add(expense.id)
-        matches.append((req, expense))
-    return matches
+    return matches, ambiguous
 
 
 def _leave_repair_comment(*, request: Request, adapter: ExpenseTypeAdapter, expense, problem: str, amount: Decimal):
@@ -240,8 +270,9 @@ def find_and_reconcile(
                 if diff <= EXPENSE_MATCH_WINDOW_DAYS:
                     pairs.append((diff, req, expense))
 
+        matches, ambiguous = _greedy_nearest_date_matches(pairs)
         matched_ids: set[int] = set()
-        for req, expense in _greedy_nearest_date_matches(pairs):
+        for req, expense in matches:
             matched_ids.add(req.id)
             problem = meta[req.id]["problem"]
             outcome = ReconcileOutcome(
@@ -267,17 +298,16 @@ def find_and_reconcile(
         for req in reqs:
             if req.id in matched_ids:
                 continue
-            candidate_count = sum(1 for _diff, r, _e in pairs if r.id == req.id)
             problem = meta[req.id]["problem"]
-            if candidate_count == 0:
+            if req.id in ambiguous:
                 results.append(ReconcileOutcome(
-                    req.id, req.expense_ref_id, problem, req.amount, meta[req.id]["payed_date"], "no_candidate",
-                    f"no unclaimed {adapter.model.__name__} within +/-{EXPENSE_MATCH_WINDOW_DAYS}d",
+                    req.id, req.expense_ref_id, problem, req.amount, meta[req.id]["payed_date"], "ambiguous",
+                    f"{ambiguous[req.id]} candidate {adapter.model.__name__} rows tie for the closest date — resolve manually",
                 ))
             else:
                 results.append(ReconcileOutcome(
-                    req.id, req.expense_ref_id, problem, req.amount, meta[req.id]["payed_date"], "ambiguous",
-                    f"{candidate_count} candidate {adapter.model.__name__} rows compete — resolve manually",
+                    req.id, req.expense_ref_id, problem, req.amount, meta[req.id]["payed_date"], "no_candidate",
+                    f"no unclaimed {adapter.model.__name__} within +/-{EXPENSE_MATCH_WINDOW_DAYS}d",
                 ))
 
     return results
