@@ -96,8 +96,13 @@ def _candidate_requests(*, adapter: ExpenseTypeAdapter, tenant, date_from: int |
     return qs.order_by("payed_at", "id")
 
 
-def _classify(request: Request, amount_by_id: dict[int, Decimal]) -> str | None:
+def _classify(request: Request, amount_by_id: dict[int, Decimal], adapter: ExpenseTypeAdapter) -> str | None:
     """Returns None when the request's current link is fine (nothing to do)."""
+    if request.expense_ref_target and request.expense_ref_target != adapter.ref_target:
+        # Correctly linked to a different expense type (e.g. a TOPUP request
+        # linked to a CardRevenue row) — not this adapter's concern, leave
+        # it alone entirely.
+        return None
     if request.expense_ref_id is None:
         return "missing"
     resolved_amount = amount_by_id.get(request.expense_ref_id)
@@ -114,11 +119,11 @@ def _resolve_vendor_id(
     vendor_name_index: dict[str, list[int]],
     *,
     use_name_fallback: bool,
-    apply_changes: bool,
 ) -> tuple[int | None, str | None]:
     """Returns (vendor_id, failure_reason). vendor_id is None + failure_reason is
     None when the adapter has no vendor concept at all (matching proceeds by
-    amount+date only)."""
+    amount+date only). Never writes to the DB — the caller decides whether
+    and when to persist, based on whether a match is ultimately found."""
     if adapter.vendor_field is None:
         return None, None
     if request.vendor_ref_id is not None:
@@ -128,9 +133,6 @@ def _resolve_vendor_id(
     vendor_id = resolve_vendor_id_from_index(request.vendor, vendor_name_index)
     if vendor_id is None:
         return None, "no vendor_ref and no exact normalized-name match in vendor directory"
-    if apply_changes:
-        Request.objects.filter(pk=request.pk).update(vendor_ref_id=vendor_id)
-        request.vendor_ref_id = vendor_id
     return vendor_id, None
 
 
@@ -227,7 +229,7 @@ def find_and_reconcile(
     meta: dict[int, dict] = {}
 
     for req in _candidate_requests(adapter=adapter, tenant=tenant, date_from=date_from, date_to=date_to):
-        problem = _classify(req, amount_by_id)
+        problem = _classify(req, amount_by_id, adapter)
         if problem is None or problem not in problems:
             continue
 
@@ -239,13 +241,13 @@ def find_and_reconcile(
             continue
 
         vendor_id, failure = _resolve_vendor_id(
-            req, adapter, vendor_name_index, use_name_fallback=use_name_fallback, apply_changes=apply_changes,
+            req, adapter, vendor_name_index, use_name_fallback=use_name_fallback,
         )
         if failure is not None:
             results.append(ReconcileOutcome(req.id, req.expense_ref_id, problem, req.amount, payed_date, "no_candidate", failure))
             continue
 
-        meta[req.id] = {"problem": problem, "payed_date": payed_date}
+        meta[req.id] = {"problem": problem, "payed_date": payed_date, "vendor_id": vendor_id}
         groups[(vendor_id, req.amount)].append(req)
 
     for (vendor_id, amount), reqs in groups.items():
@@ -282,8 +284,12 @@ def find_and_reconcile(
             )
             claimed_ids.add(expense.id)
             if apply_changes:
-                updated = Request.objects.filter(pk=req.pk, expense_ref_id=req.expense_ref_id).update(
-                    expense_ref_id=expense.id, expense_ref_target=adapter.ref_target,
+                vendor_id = meta[req.id]["vendor_id"]
+                extra_fields = {"vendor_ref_id": vendor_id} if req.vendor_ref_id is None and vendor_id is not None else {}
+                updated = Request.objects.filter(
+                    pk=req.pk, tenant_id=tenant.id, expense_ref_id=req.expense_ref_id,
+                ).update(
+                    expense_ref_id=expense.id, expense_ref_target=adapter.ref_target, **extra_fields,
                 )
                 if not updated:
                     claimed_ids.discard(expense.id)

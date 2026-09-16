@@ -1,4 +1,3 @@
-# apps/modules/requests/card_expense_reconciliation.py
 """
 Additive backfill: link unclaimed "Платежная карта" (corporate card
 expense) Requests to unclaimed CardExpense rows by amount + a window

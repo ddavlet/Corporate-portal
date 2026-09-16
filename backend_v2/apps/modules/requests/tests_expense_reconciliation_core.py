@@ -1,8 +1,8 @@
 """
 Tests for expense_reconciliation_core.find_and_reconcile — the generic
-engine behind expense_reconciliation_adapters. Exercises BANK (has vendor)
-and CARD (no vendor) to cover both branches; CASH is structurally
-identical to BANK so isn't re-tested here in full.
+engine behind expense_reconciliation_adapters. Exercises BANK (has vendor),
+CARD (no vendor), and CASH (has vendor, separate model) to cover all three
+adapters plus the name-fallback vendor-resolution branch.
 """
 
 from datetime import date, datetime
@@ -13,13 +13,14 @@ from django.test import TestCase
 from django.utils import timezone
 
 from apps.modules.bank_expenses.models import BankExpense
+from apps.modules.cashier.models import CashExpense
 from apps.modules.corporate_card.models import CardExpense
-from apps.modules.requests.expense_reconciliation_adapters import BANK, CARD
+from apps.modules.requests.expense_reconciliation_adapters import BANK, CARD, CASH
 from apps.modules.requests.expense_reconciliation_core import find_and_reconcile, payed_at_to_date
 from apps.modules.requests.models import Request, RequestComment
 from apps.modules.vendors.models import Vendor
 from apps.modules.wallets.models import BankAccount, Wallet
-from apps.modules.wallets.resolution import get_or_create_corporate_wallet
+from apps.modules.wallets.resolution import get_or_create_cash_wallet, get_or_create_corporate_wallet
 from apps.tenants.models import Tenant
 
 User = get_user_model()
@@ -234,6 +235,37 @@ class FindAndReconcileBankTests(TestCase):
         out_of_range.refresh_from_db()
         self.assertIsNone(out_of_range.expense_ref_id)
 
+    def test_leaves_card_revenue_linked_request_untouched(self):
+        # A TOPUP request correctly linked to a CardRevenue row must never be
+        # pulled into the BANK adapter's pool, even though BANK.payment_types
+        # includes PAYMENT_TYPE_TOPUP and this ref_id doesn't resolve to any
+        # BankExpense — misclassifying it as "dangling" would let --apply
+        # overwrite the correct card_revenue link with a wrong bank link.
+        req = Request.objects.create(
+            tenant=self.tenant,
+            created_by=self.admin,
+            requester=self.admin,
+            title="Topup",
+            description="",
+            amount=Decimal("500.00"),
+            currency="UZS",
+            payment_type=Request.PAYMENT_TYPE_TOPUP,
+            urgency=Request.URGENCY_NORMAL,
+            billing_date=date(2026, 3, 1),
+            vendor_ref=self.vendor,
+            expense_ref_id=424242,
+            expense_ref_target=Request.EXPENSE_REF_TARGET_CARD_REVENUE,
+            status=Request.STATUS_PAYED,
+            payed_at=_payed_at(date(2026, 3, 10)),
+        )
+
+        outcomes = find_and_reconcile(adapter=BANK, tenant=self.tenant, apply_changes=True)
+
+        self.assertEqual(outcomes, [])
+        req.refresh_from_db()
+        self.assertEqual(req.expense_ref_id, 424242)
+        self.assertEqual(req.expense_ref_target, Request.EXPENSE_REF_TARGET_CARD_REVENUE)
+
     def test_running_twice_is_a_no_op_the_second_time(self):
         self._make_expense(doc_date=date(2026, 3, 10), amount="500.00")
         self._make_request(amount="500.00", payed_date=date(2026, 3, 10))
@@ -306,6 +338,77 @@ class FindAndReconcileCardTests(TestCase):
         self.assertEqual(outcomes[0].problem, "dangling")
         req.refresh_from_db()
         self.assertEqual(req.expense_ref_id, expense.id)
+
+
+class FindAndReconcileCashTests(TestCase):
+    """Covers the CASH adapter — previously had zero functional coverage."""
+
+    def setUp(self):
+        self.tenant = Tenant.objects.create(name="Acme", subdomain="acme-core-cash", is_active=True)
+        self.admin = User.objects.create_user(username="admin-core-cash", password="x")
+        self.wallet = get_or_create_cash_wallet(tenant=self.tenant, currency="UZS")
+        self.vendor = Vendor.objects.create(
+            tenant=self.tenant, kind=Vendor.KIND_CASH, name="Cash Vendor", created_by=self.admin,
+        )
+        system_user = User.objects.create_user(username="system-core-cash", password="x")
+        system_user.pk = 1
+        system_user.save()
+
+    def _make_expense(self, *, expense_date, amount, vendor=None):
+        return CashExpense.objects.create(
+            tenant=self.tenant,
+            external_id="",
+            amount=Decimal(amount),
+            currency="UZS",
+            expense_at=_at_noon(expense_date),
+            expense_year=expense_date.year,
+            expense_month=expense_date.month,
+            expense_day=expense_date.day,
+            vendor=vendor or self.vendor,
+            created_by=self.admin,
+            wallet=self.wallet,
+        )
+
+    def _make_request(self, *, amount, payed_date, expense_ref_id=None, title="R"):
+        return Request.objects.create(
+            tenant=self.tenant,
+            created_by=self.admin,
+            requester=self.admin,
+            title=title,
+            description="",
+            amount=Decimal(amount),
+            currency="UZS",
+            payment_type=Request.PAYMENT_TYPE_CASH,
+            urgency=Request.URGENCY_NORMAL,
+            billing_date=payed_date.replace(day=1),
+            vendor_ref=self.vendor,
+            expense_ref_id=expense_ref_id,
+            expense_ref_target=Request.EXPENSE_REF_TARGET_CASH if expense_ref_id else None,
+            status=Request.STATUS_PAYED,
+            payed_at=_payed_at(payed_date),
+        )
+
+    def test_missing_link_is_repaired(self):
+        expense = self._make_expense(expense_date=date(2026, 3, 10), amount="80.00")
+        req = self._make_request(amount="80.00", payed_date=date(2026, 3, 12))
+
+        outcomes = find_and_reconcile(adapter=CASH, tenant=self.tenant, apply_changes=True)
+
+        self.assertEqual([o.outcome for o in outcomes], ["repaired"])
+        req.refresh_from_db()
+        self.assertEqual(req.expense_ref_id, expense.id)
+        self.assertEqual(req.expense_ref_target, Request.EXPENSE_REF_TARGET_CASH)
+
+    def test_dangling_link_is_repaired(self):
+        good_expense = self._make_expense(expense_date=date(2026, 3, 10), amount="80.00")
+        req = self._make_request(amount="80.00", payed_date=date(2026, 3, 10), expense_ref_id=777777)
+
+        outcomes = find_and_reconcile(adapter=CASH, tenant=self.tenant, apply_changes=True)
+
+        self.assertEqual([o.outcome for o in outcomes], ["repaired"])
+        self.assertEqual(outcomes[0].problem, "dangling")
+        req.refresh_from_db()
+        self.assertEqual(req.expense_ref_id, good_expense.id)
 
 
 class FindAndReconcileNameFallbackTests(TestCase):
@@ -390,6 +493,20 @@ class FindAndReconcileNameFallbackTests(TestCase):
         self._make_expense(doc_date=date(2026, 3, 10), amount="500.00")
         req = self._make_request_without_vendor_ref(
             amount="500.00", payed_date=date(2026, 3, 10), vendor_text="Completely Different Co",
+        )
+
+        outcomes = find_and_reconcile(adapter=BANK, tenant=self.tenant, apply_changes=True)
+
+        self.assertEqual(outcomes[0].outcome, "no_candidate")
+        req.refresh_from_db()
+        self.assertIsNone(req.vendor_ref_id)
+
+    def test_name_fallback_resolved_but_no_expense_match_does_not_persist_vendor_ref(self):
+        # No matching BankExpense exists at all — vendor resolves via
+        # name-fallback but the outcome is no_candidate, so vendor_ref_id
+        # must NOT be persisted (only a successful link may write it).
+        req = self._make_request_without_vendor_ref(
+            amount="500.00", payed_date=date(2026, 3, 10), vendor_text="Gevorkyan Trade",
         )
 
         outcomes = find_and_reconcile(adapter=BANK, tenant=self.tenant, apply_changes=True)
