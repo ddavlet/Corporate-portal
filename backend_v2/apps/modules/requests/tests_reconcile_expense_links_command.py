@@ -38,9 +38,8 @@ class ReconcileExpenseLinksCommandTests(TestCase):
         self.vendor = Vendor.objects.create(
             tenant=self.tenant, kind=Vendor.KIND_TRANSFER, name="Vendor", created_by=self.admin,
         )
-        system_user = User.objects.create_user(username="system-recon-cmd2", password="x")
-        system_user.pk = 1
-        system_user.save()
+        if not User.objects.filter(pk=1).exists():
+            User.objects.create_user(username="system-recon-cmd2", password="x", full_name="Система")
 
     def _make_expense(self, *, tenant, doc_date, amount, row_no=1, vendor=None):
         return BankExpense.objects.create(

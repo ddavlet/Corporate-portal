@@ -56,9 +56,8 @@ class FindAndReconcileBankTests(TestCase):
         self.vendor = Vendor.objects.create(
             tenant=self.tenant, kind=Vendor.KIND_TRANSFER, name="Vendor", created_by=self.admin,
         )
-        system_user = User.objects.create_user(username="system-core-bank", password="x")
-        system_user.pk = 1
-        system_user.save()
+        if not User.objects.filter(pk=1).exists():
+            User.objects.create_user(username="system-core-bank", password="x", full_name="Система")
 
     def _make_expense(self, *, doc_date, amount, vendor=None, row_no=1):
         return BankExpense.objects.create(
@@ -284,9 +283,8 @@ class FindAndReconcileCardTests(TestCase):
         self.tenant = Tenant.objects.create(name="Acme", subdomain="acme-core-card", is_active=True)
         self.admin = User.objects.create_user(username="admin-core-card", password="x")
         self.wallet = get_or_create_corporate_wallet(tenant=self.tenant, currency="UZS")
-        system_user = User.objects.create_user(username="system-core-card", password="x")
-        system_user.pk = 1
-        system_user.save()
+        if not User.objects.filter(pk=1).exists():
+            User.objects.create_user(username="system-core-card", password="x", full_name="Система")
 
     def _make_expense(self, *, expense_date, amount):
         return CardExpense.objects.create(
@@ -350,9 +348,8 @@ class FindAndReconcileCashTests(TestCase):
         self.vendor = Vendor.objects.create(
             tenant=self.tenant, kind=Vendor.KIND_CASH, name="Cash Vendor", created_by=self.admin,
         )
-        system_user = User.objects.create_user(username="system-core-cash", password="x")
-        system_user.pk = 1
-        system_user.save()
+        if not User.objects.filter(pk=1).exists():
+            User.objects.create_user(username="system-core-cash", password="x", full_name="Система")
 
     def _make_expense(self, *, expense_date, amount, vendor=None):
         return CashExpense.objects.create(
@@ -425,9 +422,8 @@ class FindAndReconcileNameFallbackTests(TestCase):
         self.vendor = Vendor.objects.create(
             tenant=self.tenant, kind=Vendor.KIND_TRANSFER, name='ООО "Gevorkyan Trade"', created_by=self.admin,
         )
-        system_user = User.objects.create_user(username="system-core-fallback", password="x")
-        system_user.pk = 1
-        system_user.save()
+        if not User.objects.filter(pk=1).exists():
+            User.objects.create_user(username="system-core-fallback", password="x", full_name="Система")
 
     def _make_expense(self, *, doc_date, amount):
         return BankExpense.objects.create(
