@@ -307,6 +307,24 @@ describe('api module', () => {
     expect(result.request).toEqual({ id: 11, status: 'approved' })
   })
 
+  it('surfaces DRF field-keyed validation message (array form) instead of generic 400', async () => {
+    fetchMock.mockResolvedValueOnce(
+      createJsonResponse(400, { approval_id: ['Payment step is configured for callback mode.'] }),
+    )
+    await expect(confirmPaymentViaWebApp({ approval_id: 44, expense_id: '301' })).rejects.toThrow(
+      'Payment step is configured for callback mode.',
+    )
+  })
+
+  it('surfaces DRF field-keyed validation message (plain string form) instead of generic 400', async () => {
+    fetchMock.mockResolvedValueOnce(
+      createJsonResponse(400, { expense_id: 'Expense id is required for webapp mode.' }),
+    )
+    await expect(confirmPaymentViaWebApp({ approval_id: 44, expense_id: '' })).rejects.toThrow(
+      'Expense id is required for webapp mode.',
+    )
+  })
+
   it('submitRequestForApproval posts to submit-for-approval and returns new status', async () => {
     fetchMock.mockResolvedValueOnce(createJsonResponse(200, { id: 6323, status: '1' }))
     const result = await submitRequestForApproval(6323)

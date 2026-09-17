@@ -821,6 +821,12 @@ export async function parseErrorBody(res: Response): Promise<string> {
     if (typeof j.detail === 'string') return j.detail
     if (typeof j.message === 'string') return j.message
     if (typeof j.error === 'string') return j.error
+    // DRF field-keyed validation errors, e.g. {"expense_id": ["Expense id is required."]}
+    // or {"approval_id": "Payment step is configured for callback mode."}
+    for (const value of Object.values(j)) {
+      const first = Array.isArray(value) ? value[0] : value
+      if (typeof first === 'string' && first.trim()) return first
+    }
   }
   return `Ошибка сервера (${res.status})`
 }
