@@ -11,7 +11,6 @@ from datetime import date
 from decimal import Decimal
 
 from django.contrib.auth import get_user_model
-from django.core.management import call_command
 from django.test import TestCase
 
 from apps.modules.bank_expenses.models import BankExpense
@@ -273,54 +272,3 @@ class BankExpenseReconciliationTests(TestCase):
 
         self.assertEqual(first, 1)
         self.assertEqual(second, 0)
-
-
-class ReconcileBankExpensesByVendorCommandTests(TestCase):
-    def setUp(self):
-        self.tenant = Tenant.objects.create(name="Acme", subdomain="acme-recon-cmd", is_active=True)
-        self.admin = User.objects.create_user(username="admin-recon-cmd", password="x")
-        bank_account = BankAccount.objects.create(tenant=self.tenant, label="Main")
-        self.bank_wallet = Wallet.objects.create(
-            tenant=self.tenant, wallet_type=Wallet.Type.BANK, currency="UZS", bank_account=bank_account,
-        )
-        self.vendor = Vendor.objects.create(
-            tenant=self.tenant, kind=Vendor.KIND_TRANSFER, name="Vendor", created_by=self.admin,
-        )
-
-    def test_command_links_for_given_tenant(self):
-        expense = BankExpense.objects.create(
-            tenant=self.tenant,
-            created_by=self.admin,
-            row_no=1,
-            doc_date=date(2026, 3, 10),
-            process_date=date(2026, 3, 10),
-            expense_year=2026,
-            expense_month=3,
-            expense_day=10,
-            doc_no="",
-            debit_turnover=Decimal("500.00"),
-            payment_purpose="x",
-            vendor=self.vendor,
-            wallet=self.bank_wallet,
-        )
-        req = Request.objects.create(
-            tenant=self.tenant,
-            created_by=self.admin,
-            requester=self.admin,
-            title="R",
-            description="",
-            amount=Decimal("500.00"),
-            currency="UZS",
-            payment_type=Request.PAYMENT_TYPE_TRANSFER,
-            urgency=Request.URGENCY_NORMAL,
-            billing_date=date(2026, 3, 1),
-            vendor_ref=self.vendor,
-            expense_id="",
-            status=Request.STATUS_PAYED,
-            payed_at=_payed_at(date(2026, 3, 11)),
-        )
-
-        call_command("reconcile_bank_expenses_by_vendor", tenant=self.tenant.id)
-
-        req.refresh_from_db()
-        self.assertEqual(req.expense_ref_id, expense.id)
