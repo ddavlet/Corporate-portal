@@ -193,6 +193,12 @@ split-lemonaqua-card-expense-requests:
 		docker compose --env-file ./.env exec -T backend_v2 \
 		python manage.py split_lemonaqua_card_expense_requests $(if $(APPLY),--apply,)"
 
+# ── 7d-6. Разово: починить заявки с протухшей ссылкой expense_ref_id на
+# удалённые bank_expenses (перевязать на актуальный расход по vendor_ref+сумме+дате) ──
+repair-dangling-bank-expense-refs:
+	ssh $(SERVER) "cd $(REMOTE_DIR) && \
+		docker compose --env-file ./.env exec -T backend_v2 \
+		python manage.py repair_dangling_bank_expense_refs $(if $(APPLY),--apply,)"
 # ── 7d-7. Разово: создать заявки под непривязанные card_expenses (lemonaqua, с августа) ──
 create-lemonaqua-missing-card-expense-requests:
 	ssh $(SERVER) "cd $(REMOTE_DIR) && \
