@@ -10,6 +10,7 @@ from rest_framework.test import APITestCase
 
 from apps.common.test_utils import list_results
 from apps.tenants.models import Tenant, TenantMembership, TenantModuleConfig, TenantUserRole
+from apps.modules.payroll.constants import SALARY_CATEGORY
 from apps.modules.payroll.models import Employee, PayrollDocument, PayrollLine
 from apps.modules.payroll.services import create_payroll_document, maybe_create_linked_request
 from apps.modules.requests.models import (
@@ -18,7 +19,11 @@ from apps.modules.requests.models import (
     RequestApprovalPaymentTypeConfig,
     RequestApprovalStepApproverConfig,
     RequestApprovalStepConfig,
+    RequestFormConfig,
+    RequestFormPaymentTypeConfig,
+    RequestPaymentPurposeConfig,
 )
+from apps.modules.vendors.models import Vendor
 
 User = get_user_model()
 
@@ -244,6 +249,38 @@ class MaybeCreateLinkedRequestTests(TestCase):
         self.assertEqual(result.expense_ref_id, self.doc.pk)
         self.assertEqual(result.expense_ref_target, Request.EXPENSE_REF_TARGET_PAYROLL)
         self.assertEqual(result.approvals.count(), 1)
+        self.assertEqual(result.company_payer, "LinkReq")
+        self.assertEqual(result.vendor, "LinkReq")
+        self.assertIsNone(result.vendor_ref)
+        self.assertEqual(result.category, "")
+        self.assertIn(f"№{self.doc.pk}", result.description)
+
+    @patch("apps.modules.telegram_approvals.services.TelegramDispatcher.send")
+    def test_uses_form_config_for_company_payer_category_and_vendor(self, tg_mock):
+        tg_mock.return_value = None
+        self.tenant.create_payment_request_on_payroll_accrual = True
+        self.tenant.save(update_fields=["create_payment_request_on_payroll_accrual"])
+
+        vendor = Vendor.objects.create(
+            tenant=self.tenant, kind=Vendor.KIND_TRANSFER, name="LinkReq LLC", created_by=self.user,
+        )
+        form_cfg = RequestFormConfig.objects.create(tenant=self.tenant)
+        pt_cfg = RequestFormPaymentTypeConfig.objects.create(
+            config=form_cfg,
+            payment_type=Request.PAYMENT_TYPE_PAYROLL,
+            default_company_payer="LinkReq LLC",
+            default_vendor=vendor,
+        )
+        RequestPaymentPurposeConfig.objects.create(
+            payment_type_config=pt_cfg, name=SALARY_CATEGORY, category="Зарплата",
+        )
+
+        result = maybe_create_linked_request(self.doc, actor_user=self.user)
+
+        self.assertEqual(result.company_payer, "LinkReq LLC")
+        self.assertEqual(result.category, "Зарплата")
+        self.assertEqual(result.vendor, "LinkReq LLC")
+        self.assertEqual(result.vendor_ref, vendor)
 
     @patch("apps.modules.telegram_approvals.services.TelegramDispatcher.send")
     def test_idempotent_does_not_duplicate_request(self, tg_mock):

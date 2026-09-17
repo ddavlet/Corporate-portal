@@ -10,6 +10,7 @@ from apps.modules.payroll.models import PayrollDocument, PayrollLine
 from apps.modules.requests.approval_bootstrap import create_approval_rows_for_request
 from apps.modules.requests.approval_workflow import _recalculate_request_status, route_request_approvals
 from apps.modules.requests.models import Request
+from apps.modules.requests.services import resolve_payment_type_form_defaults
 
 User = get_user_model()
 
@@ -54,7 +55,7 @@ def maybe_create_linked_request(document: PayrollDocument, *, actor_user=None) -
     Otherwise creates exactly one Request for the sum of all PayrollLine rows and
     bootstraps its approval chain the same way apps.modules.requests.auto_requests
     ._create_request_for_template does (Request.objects.create + create_approval_rows_
-    for_request + route_request_approvals) — no changes to the requests module."""
+    for_request + route_request_approvals)."""
     tenant = document.tenant
     if not tenant.create_payment_request_on_payroll_accrual:
         return None
@@ -79,15 +80,35 @@ def maybe_create_linked_request(document: PayrollDocument, *, actor_user=None) -
 
         total = locked_document.lines.aggregate(s=Sum("sum")).get("s") or Decimal("0")
         actor = actor_user or _system_user()
+        tenant_name = (tenant.name or "").strip()
+
+        # Same form-config lookup apps.modules.requests.auto_requests uses for
+        # recurring templates. Falls back to the tenant's own name for
+        # company_payer/vendor since a payroll accrual has no external
+        # counterparty — the organization pays and "receives" its own payroll.
+        defaults = resolve_payment_type_form_defaults(
+            tenant=tenant,
+            payment_type=Request.PAYMENT_TYPE_PAYROLL,
+            payment_purpose=SALARY_CATEGORY,
+        )
+        company_payer = defaults["company_payer"] or tenant_name
+        vendor_ref = defaults["vendor_ref"]
+        vendor = vendor_ref.name if vendor_ref else tenant_name
+        description = (
+            f"Автоматически создано на основании начисления ЗП №{locked_document.pk} "
+            f"от {timezone.localtime(locked_document.created_at):%d.%m.%Y}"
+        )
 
         request_obj = Request.objects.create(
             tenant=tenant,
             created_by=actor,
             requester=actor,
-            company_payer="",
-            category="",
-            title=(tenant.name or "").strip()[:200],
-            description="",
+            company_payer=company_payer,
+            category=defaults["category"],
+            vendor=vendor,
+            vendor_ref=vendor_ref,
+            title=tenant_name[:200],
+            description=description,
             amount=total,
             currency=Request.CURRENCY_UZS,
             payment_type=Request.PAYMENT_TYPE_PAYROLL,

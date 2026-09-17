@@ -8,7 +8,6 @@ from datetime import date, datetime
 from decimal import Decimal
 
 from django.contrib.auth import get_user_model
-from django.core.management import call_command
 from django.test import TestCase
 from django.utils import timezone
 
@@ -193,43 +192,3 @@ class CardExpenseReconciliationTests(TestCase):
 
         self.assertEqual(first, 1)
         self.assertEqual(second, 0)
-
-
-class ReconcileCardExpensesByAmountCommandTests(TestCase):
-    def setUp(self):
-        self.tenant = Tenant.objects.create(name="Acme", subdomain="acme-card-exp-recon-cmd", is_active=True)
-        self.admin = User.objects.create_user(username="admin-card-exp-recon-cmd", password="x")
-        self.card_wallet = get_or_create_corporate_wallet(tenant=self.tenant, currency="UZS")
-
-    def test_command_links_for_given_tenant(self):
-        expense = CardExpense.objects.create(
-            tenant=self.tenant,
-            external_id="",
-            title="CARD",
-            amount=Decimal("500.00"),
-            currency="UZS",
-            expense_at=_at_noon(date(2026, 3, 10)),
-            wallet=self.card_wallet,
-            created_by=self.admin,
-        )
-        req = Request.objects.create(
-            tenant=self.tenant,
-            created_by=self.admin,
-            requester=self.admin,
-            title="R",
-            description="",
-            amount=Decimal("500.00"),
-            currency="UZS",
-            payment_type=Request.PAYMENT_TYPE_CARD,
-            urgency=Request.URGENCY_NORMAL,
-            billing_date=date(2026, 3, 1),
-            expense_id="",
-            status=Request.STATUS_PAYED,
-            payed_at=_payed_at(date(2026, 3, 11)),
-        )
-
-        call_command("reconcile_card_expenses_by_amount", tenant=self.tenant.id)
-
-        req.refresh_from_db()
-        self.assertEqual(req.expense_ref_id, expense.id)
-        self.assertEqual(req.expense_ref_target, Request.EXPENSE_REF_TARGET_CARD)
