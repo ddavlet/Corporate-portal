@@ -7,13 +7,45 @@ from apps.modules.bank_expenses.models import BankExpense
 from apps.modules.cashier.models import CashExpense
 from apps.modules.corporate_card.models import CardExpense
 from apps.modules.payroll.models import PayrollDocument
-from apps.modules.requests.models import Request, RequestPaymentPurposeConfig
+from apps.modules.requests.models import (
+    Request,
+    RequestFormConfig,
+    RequestFormPaymentTypeConfig,
+    RequestPaymentPurposeConfig,
+)
 from apps.modules.wallets.serializer_integration import (
     assign_wallet_for_bank_movement,
     assign_wallet_for_cash_movement,
     assign_wallet_for_corporate_movement,
 )
 from apps.tenants.models import TenantModuleConfig
+
+
+def resolve_payment_type_form_defaults(*, tenant, payment_type: str, payment_purpose: str) -> dict:
+    """Looks up the tenant's adaptive request-form config (RequestFormConfig ->
+    RequestFormPaymentTypeConfig -> RequestPaymentPurposeConfig) to derive
+    company_payer/category/vendor_ref defaults for a given payment_type +
+    payment_purpose combination — the same three-table lookup
+    apps.modules.requests.auto_requests._create_request_for_template already
+    uses for recurring templates. Returns "" / None for anything not
+    configured; callers apply their own fallback (e.g. tenant.name)."""
+    defaults = {"company_payer": "", "category": "", "vendor_ref": None}
+    cfg = RequestFormConfig.objects.filter(tenant=tenant).first()
+    if not cfg:
+        return defaults
+    pt_cfg = RequestFormPaymentTypeConfig.objects.filter(config=cfg, payment_type=payment_type).first()
+    if not pt_cfg:
+        return defaults
+    defaults["company_payer"] = (pt_cfg.default_company_payer or "").strip()
+    defaults["vendor_ref"] = pt_cfg.default_vendor
+    purpose_value = (payment_purpose or "").strip()
+    if purpose_value:
+        matched = RequestPaymentPurposeConfig.objects.filter(
+            payment_type_config=pt_cfg, name=purpose_value, is_active=True
+        ).first()
+        if matched:
+            defaults["category"] = (matched.category or "").strip()
+    return defaults
 
 
 def _create_module_key_for_payment_type(payment_type: str) -> str | None:
