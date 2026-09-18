@@ -101,6 +101,7 @@ class CashRevenueListApiTests(APITestCase):
             tenant=self.tenant,
             external_id="rev-list-2",
             total_sum=75,
+            currency="USD",
             confirmed=True,
             wallet=other_wallet,
             operation="Sale USD",
