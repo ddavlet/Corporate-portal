@@ -83,12 +83,18 @@ def _claimed_expense_ids(*, adapter: ExpenseTypeAdapter, tenant, amount_by_id: d
 
 
 def _candidate_requests(*, adapter: ExpenseTypeAdapter, tenant, date_from: int | None, date_to: int | None):
+    # A blank expense_ref_id + non-blank expense_id means a manually-typed doc
+    # number that hasn't resolved to a row yet (left alone — see module
+    # docstring test coverage). Once expense_ref_id IS set, expense_id just
+    # mirrors the resolved row's id/doc number and must not gate dangling/
+    # mismatch detection — otherwise every already-linked request (the common
+    # case) would be silently invisible to this engine's repair pass.
     qs = Request.objects.filter(
         tenant=tenant,
         status=Request.STATUS_PAYED,
         payment_type__in=adapter.payment_types,
         payed_at__isnull=False,
-    ).filter(Q(expense_id__isnull=True) | Q(expense_id=""))
+    ).filter(Q(expense_ref_id__isnull=False) | Q(expense_id__isnull=True) | Q(expense_id=""))
     if date_from is not None:
         qs = qs.filter(payed_at__gte=date_from)
     if date_to is not None:
