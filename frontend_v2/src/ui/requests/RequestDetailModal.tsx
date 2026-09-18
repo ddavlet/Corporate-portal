@@ -386,17 +386,7 @@ export function RequestDetailContent({
 
   const [fileBusy, setFileBusy] = useState(false)
 
-  const openFileViaAuthBlob = async (fileUrl: string) => {
-    // Open the tab synchronously, in direct response to the click — a browser
-    // only honors window.open() as non-popup while it's tied to the user
-    // gesture. Opening it after the await below leaves the tab stuck on
-    // about:blank even though the fetch itself succeeds.
-    const w = window.open('', '_blank', 'noopener,noreferrer')
-    if (!w) {
-      message.error('Не удалось открыть файл: попап-блокировка.')
-      return
-    }
-
+  const downloadFileViaAuthBlob = async (fileUrl: string, fileLabel: string) => {
     setFileBusy(true)
     try {
       const res = await apiFetch(fileUrl)
@@ -407,12 +397,21 @@ export function RequestDetailContent({
 
       const blob = await res.blob()
       const objectUrl = URL.createObjectURL(blob)
-
-      w.location.href = objectUrl
-      window.setTimeout(() => URL.revokeObjectURL(objectUrl), 120_000)
+      // Trigger a plain browser download via a hidden <a download> instead of
+      // opening a new tab — window.open() here used to get silently blocked
+      // or dropped by the browser's popup heuristics once it followed an
+      // await, leaving the user on a blank tab even though the file had
+      // already downloaded into memory.
+      const filename = fileLabel.replace(/\s\([^)]*\)$/, '').trim() || 'file'
+      const link = document.createElement('a')
+      link.href = objectUrl
+      link.download = filename
+      document.body.appendChild(link)
+      link.click()
+      link.remove()
+      window.setTimeout(() => URL.revokeObjectURL(objectUrl), 60_000)
     } catch (e: unknown) {
-      w.close()
-      message.error(e instanceof Error ? e.message : 'Не удалось открыть файл')
+      message.error(e instanceof Error ? e.message : 'Не удалось скачать файл')
     } finally {
       setFileBusy(false)
     }
@@ -489,7 +488,7 @@ export function RequestDetailContent({
                   <Button
                     key={file.key}
                     type="link"
-                    onClick={() => void openFileViaAuthBlob(file.url)}
+                    onClick={() => void downloadFileViaAuthBlob(file.url, file.label)}
                     disabled={fileBusy}
                     loading={fileBusy}
                     style={{ padding: 0, justifyContent: 'flex-start' }}
@@ -643,7 +642,7 @@ export function RequestDetailContent({
                   <Button
                     key={file.key}
                     type="link"
-                    onClick={() => void openFileViaAuthBlob(file.url)}
+                    onClick={() => void downloadFileViaAuthBlob(file.url, file.label)}
                     disabled={fileBusy}
                     loading={fileBusy}
                     style={{ paddingInline: 0, justifyContent: 'flex-start' }}
