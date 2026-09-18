@@ -3,12 +3,13 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { RequestDetailContent } from './RequestDetailModal'
 import type { RequestDetail } from './RequestDetailModal'
 
-// Regression test for: clicking an attachment opened a new tab that stayed on
-// about:blank forever, even though the download itself succeeded (200 OK).
-// Root cause: window.open() was called *after* awaiting apiFetch()/blob(), by
-// which point the browser no longer ties it to the click's user gesture, so
-// the later `w.location.href = objectUrl` assignment is silently dropped.
-// The fix opens the tab synchronously, before any await.
+// Regression test for: clicking an attachment used to open a new tab via
+// window.open() and set its location only after awaiting apiFetch()/blob().
+// Browsers stopped tying that late window.open() call to the click's user
+// gesture and silently blocked/dropped it, so users saw either a permanent
+// about:blank tab or (once the popup was outright blocked) no request at
+// all. The fix drops the new-tab dance entirely and triggers a plain
+// browser download via a hidden <a download> element instead.
 
 const apiFetchMock = vi.fn()
 
@@ -54,32 +55,26 @@ describe('RequestDetailContent attachment download', () => {
     }
   })
 
-  it('opens the tab synchronously on click, before the download resolves', async () => {
-    const fakeWindow = { location: { href: '' }, close: vi.fn() }
-    const openSpy = vi.spyOn(window, 'open').mockReturnValue(fakeWindow as unknown as Window)
+  it('downloads the file via a hidden <a download> instead of opening a new tab', async () => {
+    const openSpy = vi.spyOn(window, 'open')
+    const clickSpy = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => undefined)
 
-    let resolveFetch: (value: unknown) => void = () => undefined
-    apiFetchMock.mockReturnValue(
-      new Promise((resolve) => {
-        resolveFetch = resolve
-      }),
-    )
+    apiFetchMock.mockResolvedValue({
+      ok: true,
+      blob: () => Promise.resolve(new Blob(['pdf-bytes'])),
+    })
 
     render(<RequestDetailContent detail={requestDetail} />)
 
     fireEvent.click(screen.getByRole('button', { name: /файл/i }))
 
-    // At this point the click handler has only run synchronously up to its
-    // first await — window.open() must already have fired, still tied to
-    // the click's user gesture.
-    expect(openSpy).toHaveBeenCalledTimes(1)
-    expect(openSpy).toHaveBeenCalledWith('', '_blank', 'noopener,noreferrer')
-    expect(fakeWindow.location.href).toBe('')
+    await waitFor(() => expect(clickSpy).toHaveBeenCalledTimes(1))
 
-    resolveFetch({
-      ok: true,
-      blob: () => Promise.resolve(new Blob(['pdf-bytes'])),
-    })
-    await waitFor(() => expect(fakeWindow.location.href).toBe('blob:mock'))
+    expect(apiFetchMock).toHaveBeenCalledWith(requestDetail.attachments![0].url)
+    expect(openSpy).not.toHaveBeenCalled()
+
+    const link = clickSpy.mock.instances[0] as unknown as HTMLAnchorElement
+    expect(link.getAttribute('href')).toBe('blob:mock')
+    expect(link.getAttribute('download')).toBe('Эркин шаклдаги ҳужжат.pdf')
   })
 })
