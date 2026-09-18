@@ -4,7 +4,7 @@ replacement for reconcile_bank_expenses_by_vendor /
 link_lemonaqua_transfer_bank_expenses / reconcile_card_expenses_by_amount.
 """
 
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal
 from io import StringIO
 
@@ -12,11 +12,14 @@ from django.contrib.auth import get_user_model
 from django.core.management import call_command
 from django.core.management.base import CommandError
 from django.test import TestCase
+from django.utils import timezone
 
 from apps.modules.bank_expenses.models import BankExpense
+from apps.modules.corporate_card.models import CardExpense
 from apps.modules.requests.models import Request, RequestComment
 from apps.modules.vendors.models import Vendor
 from apps.modules.wallets.models import BankAccount, Wallet
+from apps.modules.wallets.resolution import get_or_create_corporate_wallet
 from apps.tenants.models import Tenant
 
 User = get_user_model()
@@ -24,6 +27,10 @@ User = get_user_model()
 
 def _payed_at(d: date) -> int:
     return d.year * 10000 + d.month * 100 + d.day
+
+
+def _at_noon(d: date):
+    return timezone.make_aware(datetime(d.year, d.month, d.day, 12, 0))
 
 
 class ReconcileExpenseLinksCommandTests(TestCase):
@@ -158,6 +165,92 @@ class ReconcileExpenseLinksCommandTests(TestCase):
         req = self._make_request(tenant=self.tenant, amount="500.00", payed_date=date(2026, 3, 10))
 
         call_command("reconcile_expense_links", tenant=self.tenant.id, type=["bank"], apply=True, stdout=StringIO())
+
+        req.refresh_from_db()
+        self.assertIsNone(req.expense_ref_id)
+
+
+class ReconcileExpenseLinksCardDanglingRefTests(TestCase):
+    """
+    Regression coverage for a bug found on tenant "lemonfit" (id=1): once a
+    "Платежная карта" request's expense_id gets resolved to a CardExpense PK
+    (see resolve_request_expense_ref's numeric-PK branch for CARD), that
+    string mirrors expense_ref_id and stays non-blank forever — including
+    after the underlying CardExpense row is deleted (e.g. duplicate cleanup)
+    and expense_ref_id goes dangling. `_candidate_requests` used to gate
+    candidacy on expense_id being blank, which was meant only to leave a
+    not-yet-resolved manually-typed doc number alone (expense_ref_id still
+    None) — but it also hid every already-linked, non-blank-expense_id
+    request from this command's dangling/mismatch repair pass entirely,
+    contradicting its own `test_repairs_dangling_ref_unlike_the_old_commands`
+    promise. See request 8172 for the real-world case this reproduces.
+    """
+
+    def setUp(self):
+        self.tenant = Tenant.objects.create(name="Lemonfit ONE", subdomain="lemonfit-recon-cmd-card", is_active=True)
+        self.admin = User.objects.create_user(username="admin-recon-cmd-card", password="x")
+        if not User.objects.filter(pk=1).exists():
+            User.objects.create_user(username="system-recon-cmd-card", password="x", full_name="Система")
+        self.card_wallet = get_or_create_corporate_wallet(tenant=self.tenant, currency="UZS")
+
+    def _make_expense(self, *, expense_date, amount):
+        return CardExpense.objects.create(
+            tenant=self.tenant,
+            title="CARD",
+            amount=Decimal(amount),
+            currency="UZS",
+            expense_at=_at_noon(expense_date),
+            wallet=self.card_wallet,
+            created_by=self.admin,
+        )
+
+    def test_repairs_dangling_card_ref_even_though_expense_id_is_already_resolved(self):
+        good_expense = self._make_expense(expense_date=date(2026, 9, 15), amount="389500.00")
+        req = Request.objects.create(
+            tenant=self.tenant,
+            created_by=self.admin,
+            requester=self.admin,
+            title="R",
+            description="",
+            amount=Decimal("389500.00"),
+            currency="UZS",
+            payment_type=Request.PAYMENT_TYPE_CARD,
+            urgency=Request.URGENCY_NORMAL,
+            billing_date=date(2026, 9, 1),
+            status=Request.STATUS_PAYED,
+            payed_at=_payed_at(date(2026, 9, 16)),
+            expense_id="999999",  # resolved-but-now-stale PK, mirrors expense_ref_id like real data
+            expense_ref_id=999999,
+            expense_ref_target=Request.EXPENSE_REF_TARGET_CARD,
+        )
+
+        call_command("reconcile_expense_links", tenant=self.tenant.id, type=["card"], apply=True, stdout=StringIO())
+
+        req.refresh_from_db()
+        self.assertEqual(req.expense_ref_id, good_expense.id)
+        self.assertTrue(RequestComment.objects.filter(request_id=req.pk).exists())
+
+    def test_still_leaves_unresolved_manual_doc_number_alone(self):
+        self._make_expense(expense_date=date(2026, 9, 15), amount="389500.00")
+        req = Request.objects.create(
+            tenant=self.tenant,
+            created_by=self.admin,
+            requester=self.admin,
+            title="R",
+            description="",
+            amount=Decimal("389500.00"),
+            currency="UZS",
+            payment_type=Request.PAYMENT_TYPE_CARD,
+            urgency=Request.URGENCY_NORMAL,
+            billing_date=date(2026, 9, 1),
+            status=Request.STATUS_PAYED,
+            payed_at=_payed_at(date(2026, 9, 16)),
+            expense_id="SOME-NOT-YET-RESOLVED-DOC-NO",
+            expense_ref_id=None,
+            expense_ref_target=None,
+        )
+
+        call_command("reconcile_expense_links", tenant=self.tenant.id, type=["card"], apply=True, stdout=StringIO())
 
         req.refresh_from_db()
         self.assertIsNone(req.expense_ref_id)
