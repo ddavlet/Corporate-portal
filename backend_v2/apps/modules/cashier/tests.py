@@ -95,6 +95,31 @@ class CashRevenueListApiTests(APITestCase):
         self.assertGreaterEqual(len(rows), 1)
         self.assertIn("revenue_at", rows[0])
 
+    def test_list_filtered_by_wallet_and_currency(self):
+        other_wallet = get_or_create_cash_wallet(tenant=self.tenant, currency="USD")
+        CashRevenue.objects.create(
+            tenant=self.tenant,
+            external_id="rev-list-2",
+            total_sum=75,
+            currency="USD",
+            confirmed=True,
+            wallet=other_wallet,
+            operation="Sale USD",
+            revenue_at=timezone.now(),
+            payload={},
+            created_by=self.admin,
+        )
+
+        res = self.client.get(f"/api/cash/revenues/?wallet={self.wallet.id}", **self._headers())
+        self.assertEqual(res.status_code, 200, res.content)
+        rows = list_results(res)
+        self.assertEqual({r["external_id"] for r in rows}, {"rev-list-1"})
+
+        res = self.client.get("/api/cash/revenues/?currency=USD", **self._headers())
+        self.assertEqual(res.status_code, 200, res.content)
+        rows = list_results(res)
+        self.assertEqual({r["external_id"] for r in rows}, {"rev-list-2"})
+
 
 @override_settings(BASE_DOMAIN="example.com", ALLOWED_HOSTS=["*"])
 class CashExpenseRequestRequiredApiTests(APITestCase):

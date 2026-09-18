@@ -163,6 +163,12 @@ class CashRevenueViewSet(PortalListViewSetMixin, viewsets.ModelViewSet):
             qs = qs.filter(revenue_at__date__gte=revenue_from)
         if revenue_to:
             qs = qs.filter(revenue_at__date__lte=revenue_to)
+        wallet_id = (self.request.query_params.get("wallet") or "").strip()
+        if wallet_id.isdigit():
+            qs = qs.filter(wallet_id=int(wallet_id))
+        currency = (self.request.query_params.get("currency") or "").strip()
+        if currency:
+            qs = qs.filter(currency=currency)
         return qs.order_by("-created_at", "-id")
 
     def perform_create(self, serializer):

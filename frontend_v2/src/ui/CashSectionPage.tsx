@@ -117,13 +117,15 @@ export function CashSectionPage({ mode }: { mode: CashSectionMode }) {
 
   const revenueListUrl = useMemo(() => {
     const params = new URLSearchParams()
+    if (currencyFilter) params.set('currency', currencyFilter)
+    if (cashRegisterFilter) params.set('wallet', cashRegisterFilter)
     const from = dateRange?.[0]?.format('YYYY-MM-DD')
     const to = dateRange?.[1]?.format('YYYY-MM-DD')
     if (from) params.set('expense_from', from)
     if (to) params.set('expense_to', to)
     const q = params.toString()
     return q ? `/api/cash/revenues/?${q}` : '/api/cash/revenues/'
-  }, [dateRange])
+  }, [currencyFilter, cashRegisterFilter, dateRange])
 
   const {
     items: rows,
@@ -229,7 +231,7 @@ export function CashSectionPage({ mode }: { mode: CashSectionMode }) {
     haystack: string,
   ) => {
     if (currencyFilter && row.currency !== currencyFilter) return false
-    if (cashRegisterFilter && cashRegisterNameByWallet(row.wallet_id) !== cashRegisterFilter) return false
+    if (cashRegisterFilter && String(row.wallet_id ?? '') !== cashRegisterFilter) return false
     if (confirmedFilter === 'confirmed' && row.confirmed === false) return false
     if (confirmedFilter === 'unconfirmed' && row.confirmed !== false) return false
     if (amountMin !== null && row.amountNum < amountMin) return false
@@ -481,6 +483,16 @@ export function CashSectionPage({ mode }: { mode: CashSectionMode }) {
       render: (_, row) => `${Number(row.amount).toLocaleString('ru-RU')} ${row.currency || ''}`.trim(),
     },
     {
+      title: 'Касса',
+      key: 'wallet',
+      width: 220,
+      render: (_, row) => cashRegisterNameByWallet((row.raw as CashExpenseRow | CashRevenueRow).wallet_id),
+      sorter: (a, b) =>
+        cashRegisterNameByWallet((a.raw as CashExpenseRow | CashRevenueRow).wallet_id).localeCompare(
+          cashRegisterNameByWallet((b.raw as CashExpenseRow | CashRevenueRow).wallet_id),
+        ),
+    },
+    {
       title: 'Дата',
       dataIndex: 'at',
       sorter: (a, b) => String(a.at || '').localeCompare(String(b.at || '')),
@@ -522,13 +534,25 @@ export function CashSectionPage({ mode }: { mode: CashSectionMode }) {
         <Typography.Text type="secondary" style={labelBlockAboveField}>
           Расходы и доходы
         </Typography.Text>
-        <Input
-          placeholder="Поиск: ID, название, примечание"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          allowClear
-          style={{ width: 320 }}
-        />
+        <Space wrap size={[12, 12]} align="start">
+          <Input
+            placeholder="Поиск: ID, название, примечание"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            allowClear
+            style={{ width: 320 }}
+          />
+          <Select
+            placeholder="Касса"
+            allowClear
+            style={{ width: 240 }}
+            value={cashRegisterFilter}
+            onChange={setCashRegisterFilter}
+            options={Object.entries(cashRegisterByWalletId)
+              .map(([walletId, name]) => ({ label: name, value: walletId }))
+              .sort((a, b) => a.label.localeCompare(b.label))}
+          />
+        </Space>
         <Collapse
           size="small"
           style={{ marginTop: 8 }}
@@ -536,7 +560,7 @@ export function CashSectionPage({ mode }: { mode: CashSectionMode }) {
             {
               key: 'advanced',
               label: (() => {
-                const count = [confirmedFilter, currencyFilter, cashRegisterFilter, amountMin, amountMax, dateRange, missingRequestOnly].filter(Boolean).length
+                const count = [confirmedFilter, currencyFilter, amountMin, amountMax, dateRange, missingRequestOnly].filter(Boolean).length
                 return count > 0 ? `Расширенные фильтры (${count} активно)` : 'Расширенные фильтры'
               })(),
               children: (
@@ -559,16 +583,6 @@ export function CashSectionPage({ mode }: { mode: CashSectionMode }) {
                     value={currencyFilter}
                     onChange={setCurrencyFilter}
                     options={optionize(allRows.map((r) => r.currency || ''))}
-                  />
-                  <Select
-                    placeholder="Касса"
-                    allowClear
-                    style={{ width: 240 }}
-                    value={cashRegisterFilter}
-                    onChange={setCashRegisterFilter}
-                    options={optionize(
-                      Array.from(new Set(allRows.map((r) => cashRegisterNameByWallet((r.raw as CashExpenseRow | CashRevenueRow).wallet_id)))),
-                    )}
                   />
                   <DatePicker.RangePicker value={dateRange} onChange={(v) => setDateRange(v)} placeholder={['Дата от', 'Дата до']} />
                   <InputNumber placeholder="Мин. сумма" min={0} value={amountMin} onChange={setAmountMin} />
@@ -615,7 +629,7 @@ export function CashSectionPage({ mode }: { mode: CashSectionMode }) {
             },
             style: { cursor: 'pointer' },
           })}
-          scroll={{ x: 900 }}
+          scroll={{ x: 1100 }}
         />
       ) : null}
       {!listLoading && !listError && mode === 'expenses' ? (
