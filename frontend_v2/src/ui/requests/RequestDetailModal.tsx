@@ -387,6 +387,16 @@ export function RequestDetailContent({
   const [fileBusy, setFileBusy] = useState(false)
 
   const openFileViaAuthBlob = async (fileUrl: string) => {
+    // Open the tab synchronously, in direct response to the click — a browser
+    // only honors window.open() as non-popup while it's tied to the user
+    // gesture. Opening it after the await below leaves the tab stuck on
+    // about:blank even though the fetch itself succeeds.
+    const w = window.open('', '_blank', 'noopener,noreferrer')
+    if (!w) {
+      message.error('Не удалось открыть файл: попап-блокировка.')
+      return
+    }
+
     setFileBusy(true)
     try {
       const res = await apiFetch(fileUrl)
@@ -398,16 +408,10 @@ export function RequestDetailContent({
       const blob = await res.blob()
       const objectUrl = URL.createObjectURL(blob)
 
-      // Avoid popup blockers: open immediately, then set location after fetch.
-      const w = window.open('', '_blank', 'noopener,noreferrer')
-      if (!w) {
-        URL.revokeObjectURL(objectUrl)
-        throw new Error('Не удалось открыть файл: попап-блокировка.')
-      }
-
       w.location.href = objectUrl
       window.setTimeout(() => URL.revokeObjectURL(objectUrl), 120_000)
     } catch (e: unknown) {
+      w.close()
       message.error(e instanceof Error ? e.message : 'Не удалось открыть файл')
     } finally {
       setFileBusy(false)
