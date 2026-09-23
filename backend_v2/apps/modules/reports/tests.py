@@ -22,6 +22,7 @@ from apps.modules.investments.models import InvestReturn
 from apps.modules.wallets.resolution import get_or_create_bank_wallet
 from apps.modules.reports.cashflow_builder import (
     build_cashflow_payload_from_db,
+    compute_unassigned_payment_purposes_cashflow,
     validate_cashflow_config_dict,
     validate_cashflow_supplement_dict,
 )
@@ -92,6 +93,21 @@ class ReportsCacheTests(SimpleTestCase):
 
         self.assertEqual(payload_1, payload_2)
         self.assertEqual(mock_get.call_count, 1)
+
+    @patch("apps.modules.reports.services.get_n8n_integration_settings")
+    @patch("apps.modules.reports.services.requests.get")
+    def test_force_refresh_bypasses_cache(self, mock_get: Mock, mock_integration_settings: Mock):
+        mock_integration_settings.return_value = SimpleNamespace(integration_token="tenant-token")
+        response = Mock()
+        response.json.return_value = {"revenue": [], "expense": []}
+        response.raise_for_status.return_value = None
+        mock_get.return_value = response
+        kwargs = dict(tenant=self.tenant, user_id=7, endpoint="/n8n/pnl-data", query_params={})
+
+        fetch_n8n_report_payload(**kwargs)
+        fetch_n8n_report_payload(**kwargs, force_refresh=True)
+
+        self.assertEqual(mock_get.call_count, 2)
 
     @patch("apps.modules.reports.services.get_n8n_integration_settings")
     @patch("apps.modules.reports.services.requests.get")
@@ -422,6 +438,77 @@ class BackendPnlDatabaseTests(TestCase):
         self.assertEqual([r["id"] for r in payload["revenue"]], [str(row.id)])
         self.assertEqual(payload["report_settings"]["bank_exclude_purposes"], [])
 
+    def test_pnl_items_carry_source_fields(self):
+        self._ensure_pnl_settings()
+        bank = self._create_bank_revenue(doc_no="S-1", purpose="Оплата за товар")
+        req = Request.objects.create(
+            tenant=self.tenant,
+            created_by=self.user,
+            requester=self.user,
+            title="amortized",
+            description="Выставка",
+            amount="300.00",
+            currency="UZS",
+            payment_type=Request.PAYMENT_TYPE_TRANSFER,
+            urgency=Request.URGENCY_NORMAL,
+            billing_date=date(2026, 2, 1),
+            amortization_months=3,
+            amortization_start_date=date(2026, 2, 1),
+            payment_purpose="Операционное назначение",
+            status=Request.STATUS_PAYED,
+            vendor="ООО Экспо",
+        )
+        payload = build_pnl_payload_from_db(tenant=self.tenant, query_params={})
+        self.assertEqual(payload["revenue"][0]["id"], str(bank.id))
+        self.assertEqual(payload["revenue"][0]["source"], "bank")
+        op = sorted(payload["operational_expenses"], key=lambda row: row["date"])
+        self.assertEqual([row["period_index"] for row in op], [1, 2, 3])
+        self.assertTrue(all(row["periods"] == 3 for row in op))
+        self.assertTrue(all(row["source"] == "request" for row in op))
+        self.assertTrue(all(row["request_id"] == str(req.id) for row in op))
+        self.assertTrue(all(row["vendor"] == "ООО Экспо" for row in op))
+
+    def test_pnl_single_request_has_no_period_index(self):
+        self._ensure_pnl_settings()
+        Request.objects.create(
+            tenant=self.tenant,
+            created_by=self.user,
+            requester=self.user,
+            title="single",
+            description="",
+            amount="50.00",
+            currency="UZS",
+            payment_type=Request.PAYMENT_TYPE_TRANSFER,
+            urgency=Request.URGENCY_NORMAL,
+            billing_date=date(2026, 3, 1),
+            payment_purpose="Операционное назначение",
+            status=Request.STATUS_PAYED,
+            vendor="ИП Тест",
+        )
+        item = build_pnl_payload_from_db(tenant=self.tenant, query_params={})["operational_expenses"][0]
+        self.assertNotIn("period_index", item)
+        self.assertEqual(item["vendor"], "ИП Тест")
+
+    def test_unassigned_purposes_include_amount(self):
+        self._ensure_pnl_settings()
+        for amount in ("100.00", "50.50"):
+            Request.objects.create(
+                tenant=self.tenant,
+                created_by=self.user,
+                requester=self.user,
+                title="unassigned",
+                description="",
+                amount=amount,
+                currency="UZS",
+                payment_type=Request.PAYMENT_TYPE_TRANSFER,
+                urgency=Request.URGENCY_NORMAL,
+                billing_date=date(2026, 3, 1),
+                payment_purpose="Непокрытое",
+                status=Request.STATUS_PAYED,
+            )
+        items = compute_unassigned_payment_purposes(tenant_id=self.tenant.id, cfg=full_backend_pnl_config())
+        self.assertEqual(items, [{"purpose": "Непокрытое", "count": 2, "amount": "150.50"}])
+
     def test_cashflow_keeps_bank_revenue_excluded_from_pnl(self):
         # Capital contributions are not income (PnL) but are a real cash inflow (Cashflow).
         self._ensure_pnl_settings(bank_exclude_purposes=["уставного капитала"])
@@ -730,6 +817,67 @@ class BackendCashflowDatabaseTests(TestCase):
         self.assertEqual(len(rows), 1)
         self.assertEqual(rows[0]["date"], "2026-03-15")
 
+    def test_cashflow_items_carry_source_fields(self):
+        req = Request.objects.create(
+            tenant=self.tenant,
+            created_by=self.admin,
+            requester=self.admin,
+            title="paid",
+            description="",
+            amount="70.00",
+            currency="UZS",
+            payment_type=Request.PAYMENT_TYPE_TRANSFER,
+            urgency=Request.URGENCY_NORMAL,
+            billing_date=date(2026, 3, 1),
+            payment_purpose="Операционное назначение",
+            status=Request.STATUS_PAYED,
+            expense_year=2026,
+            expense_month=3,
+            expense_day=10,
+            vendor="ООО Поставщик",
+        )
+        item = build_cashflow_payload_from_db(tenant=self.tenant, query_params={})["operational_expenses"][0]
+        self.assertEqual(item["source"], "request")
+        self.assertEqual(item["request_id"], str(req.id))
+        self.assertEqual(item["vendor"], "ООО Поставщик")
+
+    @patch("apps.modules.investments.services.fetch_cbu_usd_uzs_rate", return_value=Decimal("10000"))
+    def test_cashflow_invest_return_has_source(self, _mock_fetch):
+        InvestReturn.objects.create(
+            tenant=self.tenant,
+            date=date(2026, 3, 15),
+            billing_date=date(2026, 1, 1),
+            sum=Decimal("10.00"),
+            currency="UZS",
+            type="дивиденды",
+            recipient="инвестор",
+            confirmed=True,
+            created_by=self.admin,
+        )
+        rows = build_cashflow_payload_from_db(tenant=self.tenant, query_params={})["operational_expenses"]
+        self.assertEqual(rows[0]["source"], "invest_return")
+
+    def test_cashflow_unassigned_purposes_include_amount(self):
+        Request.objects.create(
+            tenant=self.tenant,
+            created_by=self.admin,
+            requester=self.admin,
+            title="unassigned",
+            description="",
+            amount="70.00",
+            currency="UZS",
+            payment_type=Request.PAYMENT_TYPE_TRANSFER,
+            urgency=Request.URGENCY_NORMAL,
+            billing_date=date(2026, 3, 1),
+            payment_purpose="Непокрытое",
+            status=Request.STATUS_PAYED,
+            expense_year=2026,
+            expense_month=3,
+            expense_day=1,
+        )
+        items = compute_unassigned_payment_purposes_cashflow(tenant_id=self.tenant.id, cfg=full_backend_pnl_config())
+        self.assertEqual(items, [{"purpose": "Непокрытое", "count": 1, "amount": "70.00"}])
+
     def test_cashflow_n8n_when_source_not_backend(self):
         TenantReportSettings.objects.filter(tenant=self.tenant).update(cashflow_source="n8n")
         self.assertEqual(resolve_cashflow_source_for_tenant(tenant=self.tenant), "n8n")
@@ -887,3 +1035,50 @@ class PnlConfigValidationTests(TestCase):
         un = compute_unassigned_payment_purposes(tenant_id=tenant.id, cfg=full_backend_pnl_config())
         self.assertTrue(any(x["purpose"] == "Левое назначение" for x in un))
         self.assertFalse(any(x["purpose"] == "Операционное назначение" for x in un))
+
+
+class ReportRowSectionAndChannelTests(SimpleTestCase):
+    def _finalize(self, raw):
+        return finalize_report_payload(payload_obj=raw, endpoint="/n8n/pnl-data", source="backend")
+
+    def test_rows_carry_section_of_their_source_block(self):
+        raw = {
+            "revenue": [{"id": "r1", "date": "2026-08-01", "amount": "10", "purpose": "Поступление", "description": ""}],
+            "operational_expenses": [{"id": "o1", "date": "2026-08-02", "amount": "5", "category": "Аренда"}],
+            "other_expenses": [{"id": "x1", "date": "2026-08-03", "amount": "3", "category": "Налоги"}],
+            "invest_returns": [{"id": "i1", "date": "2026-08-04", "amount": "2", "category": "Дивиденды"}],
+        }
+        rows = {row["id"]: row for row in self._finalize(raw)["rows"]}
+        self.assertEqual(rows["r1"]["section"], "revenue")
+        self.assertEqual(rows["o1"]["section"], "operational")
+        self.assertEqual(rows["x1"]["section"], "other")
+        self.assertEqual(rows["i1"]["section"], "invest_returns")
+
+    def test_legacy_expense_block_is_other_section(self):
+        raw = {"revenue": [], "expense": [{"id": "e1", "date": "2026-08-02", "amount": "5"}]}
+        rows = self._finalize(raw)["rows"]
+        self.assertEqual([row["section"] for row in rows], ["other"])
+
+    def test_channel_found_in_description_when_purpose_is_generic(self):
+        raw = {"revenue": [{"id": "r1", "date": "2026-08-01", "amount": "10",
+                            "purpose": "Поступление", "description": "Зачисление по реестру PAYME №5"}]}
+        self.assertEqual(self._finalize(raw)["rows"][0]["channel"], "PAYME")
+
+    def test_channel_from_purpose_wins_over_description(self):
+        raw = {"revenue": [{"id": "r1", "date": "2026-08-01", "amount": "10",
+                            "purpose": "CLICK реестр", "description": "PAYME"}]}
+        self.assertEqual(self._finalize(raw)["rows"][0]["channel"], "CLICK")
+
+    def test_channel_other_when_nothing_matches(self):
+        raw = {"revenue": [{"id": "r1", "date": "2026-08-01", "amount": "10",
+                            "purpose": "Поступление", "description": "Возврат займа"}]}
+        self.assertEqual(self._finalize(raw)["rows"][0]["channel"], "OTHER")
+
+
+class TenantReportTemplateFieldsTests(TestCase):
+    def test_new_settings_default_to_classic_with_both_templates_allowed(self):
+        tenant = Tenant.objects.create(name="Tpl", subdomain="tplfields")
+        row = TenantReportSettings.objects.create(tenant=tenant)
+        row.refresh_from_db()
+        self.assertEqual(row.default_template, "classic")
+        self.assertEqual(row.allowed_templates, ["classic", "professional"])

@@ -316,6 +316,8 @@ type RequestDetailModalProps = {
   /** Куда вернуть пользователя из связанных документов/справочников. */
   returnTo?: RequestReturnTo
   onRefresh?: () => Promise<void>
+  /** Для показа поверх других оверлеев (например, боковой панели отчёта). */
+  zIndex?: number
 }
 
 export function RequestDetailModal({
@@ -327,9 +329,10 @@ export function RequestDetailModal({
   actions = null,
   returnTo,
   onRefresh,
+  zIndex,
 }: RequestDetailModalProps) {
   return (
-    <Modal open={open} title={detail ? `Заявка #${detail.id}` : 'Заявка'} footer={null} onCancel={onCancel} width={760}>
+    <Modal open={open} title={detail ? `Заявка #${detail.id}` : 'Заявка'} footer={null} onCancel={onCancel} width={760} zIndex={zIndex}>
       <RequestDetailContent detail={detail} loading={loading} error={error} actions={actions} returnTo={returnTo} onRefresh={onRefresh} />
     </Modal>
   )

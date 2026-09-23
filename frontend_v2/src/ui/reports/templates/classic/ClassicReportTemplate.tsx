@@ -9,7 +9,16 @@ import {
   type LegacyReportItem,
   type StructuredReportPayload,
   type StructuredReportRow,
-} from '../lib/api'
+} from '../../../../lib/api'
+import {
+  filterForMatrixRow,
+  operationRowKey,
+  operationsFilterCaption,
+  rowMatchesSection,
+  type OperationsFilter,
+  type ReportSection,
+} from './reportsOperationsFilter'
+import type { ReportTemplateProps } from '../types'
 
 type ReportKind = 'pnl' | 'cashflow'
 
@@ -20,6 +29,8 @@ type MatrixRow = {
   values: number[]
   emphasize?: boolean
 }
+
+type KeyedReportRow = StructuredReportRow & { rowKey: string }
 
 const moneyFmt = new Intl.NumberFormat('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 const REPORT_TZ = 'Asia/Tashkent'
@@ -408,7 +419,7 @@ function buildLegacyMatrix(report: StructuredReportPayload | null, year: number 
   return { months, rows, years }
 }
 
-export function ReportsPage() {
+export function ClassicReportTemplate({ templateSwitcher }: ReportTemplateProps) {
   const navigate = useNavigate()
   const operationsCardRef = useRef<HTMLDivElement | null>(null)
   const [loading, setLoading] = useState(true)
@@ -422,6 +433,7 @@ export function ReportsPage() {
   const [selectedDirection, setSelectedDirection] = useState<'revenue' | 'expense' | null>(null)
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null)
   const [selectedMonth, setSelectedMonth] = useState<MonthSelection | null>(null)
+  const [selectedSection, setSelectedSection] = useState<ReportSection | null>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -446,7 +458,10 @@ export function ReportsPage() {
   }, [])
 
   const report = active === 'pnl' ? pnl : cashflow
-  const rows = report?.rows ?? []
+  const rows: KeyedReportRow[] = useMemo(
+    () => (report?.rows ?? []).map((row, index) => ({ ...row, rowKey: operationRowKey(row, index) })),
+    [report],
+  )
   const matrix = useMemo(() => buildLegacyMatrix(report, year), [report, year])
   const effectiveYear = year ?? currentReportCalendarYear()
 
@@ -493,6 +508,7 @@ export function ReportsPage() {
       if (from && (!dateOnly || dateOnly < from)) return false
       if (to && (!dateOnly || dateOnly > to)) return false
       if (selectedDirection && row.direction !== selectedDirection) return false
+      if (!rowMatchesSection(row, selectedSection)) return false
       if (selectedCategory) {
         const rowCategory = categoryFromStructuredRow(row)
         if (rowCategory !== selectedCategory) return false
@@ -513,9 +529,9 @@ export function ReportsPage() {
       })
     }
     return filtered
-  }, [rows, search, range, selectedDirection, selectedCategory, selectedMonth])
+  }, [rows, search, range, selectedDirection, selectedCategory, selectedMonth, selectedSection])
 
-  const rowColumns: ColumnsType<StructuredReportRow> = useMemo(
+  const rowColumns: ColumnsType<KeyedReportRow> = useMemo(
     () => [
       {
         title: 'Дата',
@@ -559,13 +575,10 @@ export function ReportsPage() {
     [amountColumnWidthPx],
   )
 
-  const openFilteredOperations = (
-    direction: 'revenue' | 'expense' | null,
-    category: string | null,
-    month?: MonthSelection | null,
-  ) => {
-    setSelectedDirection(direction)
-    setSelectedCategory(category)
+  const openFilteredOperations = (filter: OperationsFilter, month?: MonthSelection | null) => {
+    setSelectedDirection(filter.direction)
+    setSelectedCategory(filter.category)
+    setSelectedSection(filter.section)
     setSelectedMonth(month ?? null)
     window.setTimeout(() => {
       operationsCardRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
@@ -594,17 +607,7 @@ export function ReportsPage() {
         const text = money(Math.abs(value))
         const clickMonth = { year: effectiveYear, monthIndex }
 
-        const resolveCellFilter = (): { direction: 'revenue' | 'expense' | null; category: string | null } => {
-          if (row.kind === 'revenue') return { direction: 'revenue', category: row.label }
-          if (row.kind === 'expense') return { direction: 'expense', category: row.label }
-          if (row.key === 'sum:income') return { direction: 'revenue', category: null }
-          if (row.key === 'sum:operational-expense') return { direction: 'expense', category: null }
-          if (row.key === 'sum:other-expense') return { direction: 'expense', category: null }
-          if (row.key === 'sum:invest_returns') return { direction: null, category: 'Выплаты по инвестициям' }
-          return { direction: null, category: null }
-        }
-
-        const { direction, category } = resolveCellFilter()
+        const filter = filterForMatrixRow(row) ?? { direction: null, category: null, section: null }
         const content =
           value < 0 ? <Typography.Text type="danger">({text})</Typography.Text> : <Typography.Text>{text}</Typography.Text>
         return (
@@ -614,7 +617,7 @@ export function ReportsPage() {
               size="small"
               onClick={(event) => {
                 event.stopPropagation()
-                openFilteredOperations(direction, category, clickMonth)
+                openFilteredOperations(filter, clickMonth)
               }}
               style={{ paddingInline: 6, whiteSpace: 'nowrap', height: 'auto', cursor: 'pointer' }}
             >
@@ -633,6 +636,7 @@ export function ReportsPage() {
           Отчеты
         </Typography.Title>
         <Space wrap>
+          {templateSwitcher}
           <Segmented
             options={[
               { label: 'PnL', value: 'pnl' },
@@ -654,11 +658,12 @@ export function ReportsPage() {
             value={effectiveYear}
             onChange={(v) => setYear(Number(v))}
           />
-          {selectedDirection || selectedCategory || selectedMonth ? (
+          {selectedDirection || selectedCategory || selectedMonth || selectedSection ? (
             <Button
               onClick={() => {
                 setSelectedDirection(null)
                 setSelectedCategory(null)
+                setSelectedSection(null)
                 setSelectedMonth(null)
               }}
             >
@@ -728,38 +733,8 @@ export function ReportsPage() {
               scroll={{ x: matrixScrollX }}
               onRow={(row) => ({
                 onClick: () => {
-                  if (row.kind === 'revenue' || row.kind === 'expense') {
-                    openFilteredOperations(row.kind, row.label)
-                    return
-                  }
-                  if (row.kind === 'section' && row.label === 'Доходы') {
-                    openFilteredOperations('revenue', null)
-                    return
-                  }
-                  if (row.kind === 'section' && row.label === 'Операционные расходы') {
-                    openFilteredOperations('expense', null)
-                    return
-                  }
-                  if (row.kind === 'section' && row.label === 'Прочие расходы') {
-                    openFilteredOperations('expense', null)
-                    return
-                  }
-                  if (row.key === 'sum:income') {
-                    openFilteredOperations('revenue', null)
-                    return
-                  }
-                  if (row.key === 'sum:operational-expense') {
-                    openFilteredOperations('expense', null)
-                    return
-                  }
-                  if (row.key === 'sum:other-expense') {
-                    openFilteredOperations('expense', null)
-                    return
-                  }
-                  if (row.key === 'sum:invest_returns') {
-                    openFilteredOperations(null, 'Выплаты по инвестициям')
-                    return
-                  }
+                  const filter = filterForMatrixRow(row)
+                  if (filter) openFilteredOperations(filter)
                 },
               })}
               rowClassName={(row) => (row.kind === 'revenue' || row.kind === 'expense' || row.kind === 'summary' ? 'clickable-report-row' : '')}
@@ -770,17 +745,21 @@ export function ReportsPage() {
             <Card
             title={`${active === 'pnl' ? 'PnL' : 'Cashflow'}: операции`}
             extra={
-              selectedDirection || selectedCategory || selectedMonth ? (
+              selectedDirection || selectedCategory || selectedMonth || selectedSection ? (
                 <Typography.Text type="secondary">
-                  Фильтр: {selectedDirection === 'revenue' ? 'Доход' : selectedDirection === 'expense' ? 'Расход' : 'Все'}
-                  {selectedCategory ? ` / ${selectedCategory}` : ''}
-                  {selectedMonth ? ` / ${MONTH_LABELS[selectedMonth.monthIndex]} ${selectedMonth.year}` : ''}
+                  Фильтр:{' '}
+                  {operationsFilterCaption({
+                    direction: selectedDirection,
+                    section: selectedSection,
+                    category: selectedCategory,
+                    month: selectedMonth ? `${MONTH_LABELS[selectedMonth.monthIndex]} ${selectedMonth.year}` : null,
+                  })}
                 </Typography.Text>
               ) : null
             }
           >
-            <Table<StructuredReportRow>
-              rowKey={(r) => `${r.direction}:${r.id}:${r.date ?? ''}`}
+            <Table<KeyedReportRow>
+              rowKey={(r) => r.rowKey}
               columns={rowColumns}
               dataSource={filteredRows}
               size="small"
