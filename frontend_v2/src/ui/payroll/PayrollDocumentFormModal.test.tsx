@@ -44,6 +44,12 @@ describe('PayrollDocumentFormModal', () => {
     )
     fireEvent.click(await screen.findByRole('button', { name: /Добавить сотрудника в список/ }))
     const selects = await screen.findAllByRole('combobox')
+
+    // Regression check: the employee directory is loaded once by the modal and
+    // shared across all EmployeeSelect rows (not fetched per-row), even with 2
+    // rows now rendered.
+    expect(listEmployeesMock).toHaveBeenCalledTimes(1)
+
     fireEvent.mouseDown(selects[selects.length - 1])
 
     // The brief's original assertion (`screen.queryAllByTitle('Alice').filter((el) =>

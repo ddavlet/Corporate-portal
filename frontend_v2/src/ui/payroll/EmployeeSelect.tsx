@@ -1,41 +1,30 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { Button, Divider, Input, Select, Space, message } from 'antd'
 import { PlusOutlined } from '@ant-design/icons'
-import { createEmployee, listEmployees, type EmployeeDto } from '../../lib/api'
+import { createEmployee, type EmployeeDto } from '../../lib/api'
 
 export function EmployeeSelect({
   value,
   onChange,
   excludeIds = [],
-  knownEmployees = [],
+  employees,
+  onEmployeeCreated,
 }: {
   value?: number
   onChange?: (id: number) => void
   excludeIds?: number[]
-  knownEmployees?: EmployeeDto[]
+  employees: EmployeeDto[]
+  onEmployeeCreated?: (employee: EmployeeDto) => void
 }) {
-  const [items, setItems] = useState<EmployeeDto[]>(knownEmployees)
   const [newName, setNewName] = useState('')
   const [creating, setCreating] = useState(false)
 
-  useEffect(() => {
-    let cancelled = false
-    listEmployees()
-      .then((rows) => {
-        if (!cancelled) setItems(rows)
-      })
-      .catch((e: unknown) => message.error(e instanceof Error ? e.message : 'Не удалось загрузить сотрудников'))
-    return () => {
-      cancelled = true
-    }
-  }, [])
-
   const options = useMemo(
     () =>
-      items
+      employees
         .filter((e) => e.id === value || !excludeIds.includes(e.id))
         .map((e) => ({ value: e.id, label: e.full_name })),
-    [items, excludeIds, value],
+    [employees, excludeIds, value],
   )
 
   const onCreate = async () => {
@@ -44,7 +33,7 @@ export function EmployeeSelect({
     setCreating(true)
     try {
       const created = await createEmployee(name)
-      setItems((prev) => (prev.some((e) => e.id === created.id) ? prev : [...prev, created]))
+      onEmployeeCreated?.(created)
       setNewName('')
       onChange?.(created.id)
     } catch (e: unknown) {

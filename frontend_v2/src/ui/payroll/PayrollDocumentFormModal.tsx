@@ -5,7 +5,9 @@ import dayjs, { type Dayjs } from 'dayjs'
 import {
   PAYROLL_KIND_LABELS,
   createPayrollDraft,
+  listEmployees,
   updatePayrollDraft,
+  type EmployeeDto,
   type PayrollDocumentDetailDto,
   type PayrollKind,
 } from '../../lib/api'
@@ -30,6 +32,7 @@ export function PayrollDocumentFormModal({
 }) {
   const [form] = Form.useForm<FormValues>()
   const [saving, setSaving] = useState(false)
+  const [employees, setEmployees] = useState<EmployeeDto[]>([])
   const lines = Form.useWatch('lines', form) ?? []
   const total = lines.reduce((acc, l) => acc + (Number(l?.sum) || 0), 0)
   const chosenIds = lines.map((l) => l?.employee_id).filter((v): v is number => typeof v === 'number')
@@ -46,6 +49,23 @@ export function PayrollDocumentFormModal({
         : [{}],
     })
   }, [open, initial, form])
+
+  useEffect(() => {
+    if (!open) return
+    let cancelled = false
+    listEmployees()
+      .then((rows) => {
+        if (!cancelled) setEmployees(rows)
+      })
+      .catch((e: unknown) => message.error(e instanceof Error ? e.message : 'Не удалось загрузить сотрудников'))
+    return () => {
+      cancelled = true
+    }
+  }, [open])
+
+  const onEmployeeCreated = (created: EmployeeDto) => {
+    setEmployees((prev) => (prev.some((e) => e.id === created.id) ? prev : [...prev, created]))
+  }
 
   const onSubmit = async () => {
     try {
@@ -110,6 +130,8 @@ export function PayrollDocumentFormModal({
                     rules={[{ required: true, message: 'Выберите сотрудника' }]}
                   >
                     <EmployeeSelect
+                      employees={employees}
+                      onEmployeeCreated={onEmployeeCreated}
                       excludeIds={chosenIds.filter((id) => id !== lines[field.name]?.employee_id)}
                     />
                   </Form.Item>
