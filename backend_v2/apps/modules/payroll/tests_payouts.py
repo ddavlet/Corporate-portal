@@ -171,3 +171,38 @@ class PayrollPayoutTests(TestCase):
         exp = self._pay(doc, [(self.alice, "1")])
         with self.assertRaises(ProtectedError):
             exp.delete()
+
+    def test_close_underpaid_rejects_when_nothing_remains(self, _tg):
+        # A fully-paid document auto-closes (status -> closed), so close_underpaid is
+        # normally unreachable with remaining_total == 0 via the public API — it would
+        # already be rejected by the status check. We still want the remaining>0 guard
+        # itself covered directly (spec §6), so patch payout_state to force that branch.
+        doc, req = self._approved_doc()
+        self._pay(doc, [(self.alice, "100")])
+        with patch(
+            "apps.modules.payroll.payouts.payout_state",
+            return_value={"remaining_total": Decimal("0")},
+        ):
+            with self.assertRaises(ValidationError):
+                close_underpaid(document=doc, actor=self.user, comment="test")
+
+    def test_payout_external_id_skips_existing_sequence_numbers(self, _tg):
+        # Payout rows (and thus the implicit "count of payouts" sequence) can be
+        # deleted from admin, and a CashExpense with a zp-<doc>-<n> external_id can
+        # also be created manually/by another process. Pre-seed seq=1 so the next
+        # payout must skip to seq=2 instead of colliding on (tenant, external_id, year).
+        doc, _ = self._approved_doc()
+        now = timezone.now()
+        CashExpense.objects.create(
+            tenant=self.tenant,
+            external_id=f"zp-{doc.pk}-1",
+            amount=Decimal("1"),
+            expense_at=now,
+            expense_year=self.day.year,
+            expense_month=now.month,
+            expense_day=now.day,
+            created_by=self.user,
+            wallet=self.wallet,
+        )
+        exp = self._pay(doc, [(self.alice, "1")])
+        self.assertEqual(exp.external_id, f"zp-{doc.pk}-2")

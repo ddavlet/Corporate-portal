@@ -37,6 +37,13 @@ class PayrollPayoutAdmin(admin.ModelAdmin):
     raw_id_fields = ("tenant", "document", "employee", "cash_expense", "created_by")
     readonly_fields = ("document", "employee", "cash_expense", "amount", "created_at")
 
+    def has_delete_permission(self, request, obj=None):
+        # Deleting a payout row without also deleting/adjusting its CashExpense would
+        # let payout_state()'s per-employee "remaining" silently grow back — and it
+        # frees up an external_id suffix that create_payout_expense's sequencing then
+        # relies on staying taken. Payouts are immutable ledger rows; keep them.
+        return False
+
 
 register_portal(PayrollDocument, "Начисление ЗП", "Начисления ЗП", PayrollDocumentAdmin)
 register_portal(Employee, "Сотрудник", "Сотрудники", EmployeeAdmin)

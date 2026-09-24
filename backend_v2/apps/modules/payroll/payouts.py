@@ -1,7 +1,8 @@
 import datetime as dt
+import logging
 from decimal import Decimal
 
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.db.models import Sum
 from django.utils import timezone
 from rest_framework.exceptions import ValidationError
@@ -14,6 +15,8 @@ from apps.modules.requests.approval_workflow import complete_request_payment_by_
 from apps.modules.requests.models import Request
 from apps.modules.wallets.resolution import resolve_wallet_for_cash
 from apps.tenants.models import TenantModuleConfig
+
+logger = logging.getLogger(__name__)
 
 ZERO = Decimal("0.00")
 _STATUS_REASONS = {
@@ -121,8 +124,10 @@ def _close(document: PayrollDocument, *, request_obj: Request, actor, underpaid_
         comment = f"Выплачено полностью по начислению ЗП {document_label(document)}."
     else:
         comment = f"Закрыто с недоплатой по начислению ЗП {document_label(document)}: {underpaid_comment}"
-    complete_request_payment_by_system(request_obj=request_obj, comment=comment)
-    add_system_comment(request_obj, comment)
+    # Document status/close fields and the system comment are persisted first;
+    # complete_request_payment_by_system fires PAYED-transition side effects (n8n
+    # notification thread, Telegram card edits) and must run last so that anything
+    # reacting to the PAYED status already sees this document as closed.
     document.status = PayrollDocument.STATUS_CLOSED
     update_fields = ["status"]
     if underpaid_comment is not None:
@@ -131,11 +136,36 @@ def _close(document: PayrollDocument, *, request_obj: Request, actor, underpaid_
         document.close_comment = underpaid_comment
         update_fields += ["closed_underpaid_at", "closed_by", "close_comment"]
     document.save(update_fields=update_fields)
+    add_system_comment(request_obj, comment)
+    complete_request_payment_by_system(request_obj=request_obj, comment=comment)
+
+
+def _next_external_id(tenant, document_pk: int) -> str:
+    """zp-{document_pk}-{seq}, seq = 1 + max existing numeric suffix for this
+    (tenant, document) prefix. Payout rows are deletable from admin and a cash
+    expense with a colliding external_id can also be created manually, so the
+    sequence can't just be `count(payouts) + 1` — that collides with the unique
+    constraint on (tenant, external_id, expense_year) and would surface as an
+    HTTP 500. Non-numeric suffixes (shouldn't normally occur) are ignored."""
+    prefix = f"zp-{document_pk}-"
+    max_seq = 0
+    for external_id in CashExpense.objects.filter(
+        tenant=tenant, external_id__startswith=prefix
+    ).values_list("external_id", flat=True):
+        suffix = external_id[len(prefix):]
+        if suffix.isdigit():
+            max_seq = max(max_seq, int(suffix))
+    return f"{prefix}{max_seq + 1}"
 
 
 def create_payout_expense(*, document, wallet_id: int, date: dt.date, items: list[dict], actor) -> CashExpense:
     with transaction.atomic():
-        locked = PayrollDocument.objects.select_for_update().select_related("tenant").get(pk=document.pk)
+        # of=("self",): lock only the payroll_documents row. Without it, the
+        # select_related("tenant") join makes Postgres also take FOR UPDATE on the
+        # tenants row, serializing every other tenant-scoped write (including
+        # Telegram I/O elsewhere) behind this payout for the duration of the
+        # transaction.
+        locked = PayrollDocument.objects.select_for_update(of=("self",)).select_related("tenant").get(pk=document.pk)
         state = payout_state(locked)
         if not state["can_pay"]:
             raise ValidationError({"detail": state["reason"]})
@@ -169,25 +199,39 @@ def create_payout_expense(*, document, wallet_id: int, date: dt.date, items: lis
         if register is not None and (register.currency or "").upper() != Request.CURRENCY_UZS:
             raise ValidationError({"wallet_id": "Выплата ЗП возможна только из кассы в UZS."})
 
-        seq = PayrollPayout.objects.filter(document=locked).values("cash_expense_id").distinct().count() + 1
+        external_id = _next_external_id(locked.tenant, locked.pk)
         expense_at = timezone.make_aware(dt.datetime.combine(date, timezone.localtime().time()))
-        expense = CashExpense.objects.create(
-            tenant=locked.tenant,
-            external_id=f"zp-{locked.pk}-{seq}",
-            confirmed=True,
-            title=_expense_title(locked)[:255],
-            amount=total,
-            currency=Request.CURRENCY_UZS,
-            expense_at=expense_at,
-            expense_year=date.year,
-            expense_month=date.month,
-            expense_day=date.day,
-            note=f"Выплата ЗП по начислению {document_label(locked)}",
-            payload={"source": "payroll_payout"},
-            vendor=None,
-            created_by=actor,
-            wallet=wallet,
-        )
+        try:
+            # Nested atomic = savepoint: lets us catch the IntegrityError (e.g. a
+            # concurrent payout or a manually created CashExpense that raced us to
+            # the same external_id) without poisoning the outer transaction.
+            with transaction.atomic():
+                expense = CashExpense.objects.create(
+                    tenant=locked.tenant,
+                    external_id=external_id,
+                    confirmed=True,
+                    title=_expense_title(locked)[:255],
+                    amount=total,
+                    currency=Request.CURRENCY_UZS,
+                    expense_at=expense_at,
+                    expense_year=date.year,
+                    expense_month=date.month,
+                    expense_day=date.day,
+                    note=f"Выплата ЗП по начислению {document_label(locked)}",
+                    payload={"source": "payroll_payout"},
+                    vendor=None,
+                    created_by=actor,
+                    wallet=wallet,
+                )
+        except IntegrityError:
+            logger.exception(
+                "payroll: cash expense create collided document_id=%s external_id=%s",
+                locked.pk,
+                external_id,
+            )
+            raise ValidationError(
+                {"detail": "Не удалось присвоить номер расходу, повторите попытку."}
+            ) from None
         for item in items:
             PayrollPayout.objects.create(
                 tenant=locked.tenant,
@@ -207,7 +251,9 @@ def close_underpaid(*, document, actor, comment: str) -> PayrollDocument:
     if not comment:
         raise ValidationError({"comment": "Укажите причину закрытия с недоплатой."})
     with transaction.atomic():
-        locked = PayrollDocument.objects.select_for_update().select_related("tenant").get(pk=document.pk)
+        locked = PayrollDocument.objects.select_for_update(of=("self",)).select_related("tenant").get(pk=document.pk)
+        if payout_state(locked)["remaining_total"] <= ZERO:
+            raise ValidationError({"detail": "Всё начисленное уже выплачено."})
         request_obj = current_request_for_document(locked)
         if locked.payout_mode != PayrollDocument.PAYOUT_MODE_PORTAL or locked.status != PayrollDocument.STATUS_ACCEPTED:
             raise ValidationError({"detail": "Закрыть можно только принятое начисление с выплатами через портал."})
