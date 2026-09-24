@@ -7,7 +7,7 @@ DEPLOY_TEST_PATH ?= $(TEST_PATH)
 BRANCH     := $(shell git rev-parse --abbrev-ref HEAD)
 
 .DEFAULT_GOAL := help
-.PHONY: help push test deploy makemigrations showmigrations logs backup-db create-postgres-mcp-role rollback refresh-approval-messages link-lemon-auto-request-exceptions reconcile-card-revenues reconcile-expense-links send-to-vacation return-from-vacation add-cash-register-transfer-purpose add-cash-register-transfer-approval-exception local-up local-down local-logs test_local
+.PHONY: help push test deploy makemigrations showmigrations logs backup-db create-postgres-mcp-role rollback refresh-approval-messages link-lemon-auto-request-exceptions reconcile-card-revenues reconcile-expense-links send-to-vacation return-from-vacation add-cash-register-transfer-purpose add-cash-register-transfer-approval-exception reassign-unmatched-bank-expenses local-up local-down local-logs test_local
 
 help:
 	@echo ""
@@ -210,6 +210,14 @@ fix-lemonaqua-request-7708-card-amount:
 	ssh $(SERVER) "cd $(REMOTE_DIR) && \
 		docker compose --env-file ./.env exec -T backend_v2 \
 		python manage.py fix_lemonaqua_request_7708_card_amount $(if $(APPLY),--apply,)"
+
+# ── 7d-8b. Перенести непривязанные bank_expenses в другой тенант, где есть их PAYED-заявка ──
+# make reassign-unmatched-bank-expenses FROM=lemonfit TO=lemonhavo [APPLY=1]
+reassign-unmatched-bank-expenses:
+	@test -n "$(FROM)" -a -n "$(TO)" || (echo "Usage: make reassign-unmatched-bank-expenses FROM=<subdomain> TO=<subdomain> [APPLY=1]" && exit 1)
+	ssh $(SERVER) "cd $(REMOTE_DIR) && \
+		docker compose --env-file ./.env exec -T backend_v2 \
+		python manage.py reassign_unmatched_bank_expenses --from $(FROM) --to $(TO) $(if $(APPLY),--apply,)"
 
 # ── 7d-9. Разово: soft-delete заявок 7940/7980 (lemonaqua) — не сопоставляются с картой ──
 delete-lemonaqua-unmatched-card-requests:
