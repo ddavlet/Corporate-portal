@@ -29,6 +29,10 @@ class PayrollPayoutTests(TestCase):
             name="Pay", subdomain="pay", is_active=True, payroll_payout_mode=Tenant.PAYROLL_PAYOUT_MODE_PORTAL
         )
         TenantModuleConfig.objects.create(tenant=self.tenant, module_key="cash", is_enabled=True)
+        # M5: suppress_payment_step_for_portal_payouts now checks the payroll module
+        # is enabled before blocking the payment step — enable it here so these
+        # portal-mode payout tests exercise the real (active) suppression path.
+        TenantModuleConfig.objects.create(tenant=self.tenant, module_key="payroll", is_enabled=True)
         self.system = User.objects.filter(pk=1).first() or User.objects.create_user(id=1, username="system", password="x")
         self.user = User.objects.create_user(username="pay-user", password="x")
         self.approver = User.objects.create_user(username="pay-approver", password="x")

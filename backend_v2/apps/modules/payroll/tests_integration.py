@@ -8,6 +8,7 @@ though the hook unit itself is untouched.
 """
 import datetime
 from decimal import Decimal
+from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
 from django.test import TestCase
