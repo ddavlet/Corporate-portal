@@ -48,12 +48,15 @@ const requestDetail: RequestDetail = {
 describe('RequestDetailContent attachment download', () => {
   beforeEach(() => {
     apiFetchMock.mockReset()
+    // Node ships a real URL.createObjectURL (blob:nodedata:...), so always stub it.
     if (!('createObjectURL' in URL)) {
-      Object.defineProperty(URL, 'createObjectURL', { writable: true, value: () => 'blob:mock' })
+      Object.defineProperty(URL, 'createObjectURL', { writable: true, value: () => '' })
     }
     if (!('revokeObjectURL' in URL)) {
       Object.defineProperty(URL, 'revokeObjectURL', { writable: true, value: () => undefined })
     }
+    vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:mock')
+    vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => undefined)
   })
 
   it('downloads the file via a hidden <a download> instead of opening a new tab', async () => {
