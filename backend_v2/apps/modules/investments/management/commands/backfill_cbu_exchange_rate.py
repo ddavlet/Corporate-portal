@@ -1,5 +1,5 @@
-"""One-time: backfill the CbuExchangeRate archive for a date range, e.g. from
-the start of the current year through today.
+"""Backfill the CbuExchangeRate archive for a date range, e.g. from the start
+of the current year through today, or re-fetch a range after a gap/correction.
 
 Daily archiving is normally handled by sync_cbu_exchange_rate (yesterday +
 today only, via cron). This command fills in historical dates that were never
@@ -7,7 +7,8 @@ archived -- e.g. after the archive (get_or_fetch_usd_uzs_rate /
 CbuExchangeRate) was introduced, to backfill rates predating it.
 
 Only dates missing from the archive are fetched; already-archived dates are
-left untouched. Weekends/holidays with no published CBU bulletin are skipped
+left untouched unless --overwrite is passed (then the whole range is re-fetched
+and existing rows are updated). Weekends/holidays with no published CBU bulletin are skipped
 with a warning (same behavior as sync_cbu_exchange_rate).
 
 Run without --apply first to preview which dates are missing, then with
@@ -17,6 +18,7 @@ Examples:
     python manage.py backfill_cbu_exchange_rate
     python manage.py backfill_cbu_exchange_rate --date-from=2026-01-01 --date-to=2026-08-23
     python manage.py backfill_cbu_exchange_rate --apply
+    python manage.py backfill_cbu_exchange_rate --date-from=2026-09-01 --date-to=2026-09-10 --overwrite --apply
 """
 
 from __future__ import annotations
@@ -55,6 +57,11 @@ class Command(BaseCommand):
             help="Fetch and write missing dates. Without this flag the command only lists what's missing.",
         )
         parser.add_argument(
+            "--overwrite",
+            action="store_true",
+            help="Re-fetch every date in the range, updating already-archived rates too.",
+        )
+        parser.add_argument(
             "--sleep",
             type=float,
             default=0.2,
@@ -73,11 +80,14 @@ class Command(BaseCommand):
         archived_dates = set(
             CbuExchangeRate.objects.filter(date__gte=date_from, date__lte=date_to).values_list("date", flat=True)
         )
-        missing_dates = [d for d in all_dates if d not in archived_dates]
+        missing_dates = (
+            all_dates if options["overwrite"] else [d for d in all_dates if d not in archived_dates]
+        )
 
         self.stdout.write(
             f"Range {date_from} .. {date_to}: {len(all_dates)} days, "
-            f"{len(archived_dates)} already archived, {len(missing_dates)} missing."
+            f"{len(archived_dates)} already archived, {len(all_dates) - len(archived_dates)} missing, "
+            f"{len(missing_dates)} to fetch."
         )
 
         if not missing_dates:
@@ -87,7 +97,7 @@ class Command(BaseCommand):
         if not options["apply"]:
             preview = ", ".join(d.isoformat() for d in missing_dates[:10])
             more = f" (+{len(missing_dates) - 10} more)" if len(missing_dates) > 10 else ""
-            self.stdout.write(f"Missing dates: {preview}{more}")
+            self.stdout.write(f"Dates to fetch: {preview}{more}")
             self.stdout.write(
                 self.style.WARNING("Dry-run: no changes written. Re-run with --apply to fetch and save.")
             )
@@ -105,14 +115,14 @@ class Command(BaseCommand):
 
             CbuExchangeRate.objects.update_or_create(date=rate_date, defaults={"usd_uzs_rate": rate})
             created += 1
-            self.stdout.write(f"created CbuExchangeRate({rate_date}) = {rate}")
+            self.stdout.write(f"saved CbuExchangeRate({rate_date}) = {rate}")
 
             if options["sleep"] and i < len(missing_dates) - 1:
                 time.sleep(options["sleep"])
 
         self.stdout.write(
             self.style.SUCCESS(
-                f"Backfill done: {created} created, {len(skipped)} skipped (no bulletin / weekend / holiday)."
+                f"Backfill done: {created} saved, {len(skipped)} skipped (no bulletin / weekend / holiday)."
             )
         )
 

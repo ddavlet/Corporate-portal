@@ -696,6 +696,18 @@ class BackfillCbuExchangeRateCommandTests(TestCase):
         with self.assertRaises(CommandError):
             call_command("backfill_cbu_exchange_rate", "--date-from=2026-01-05", "--date-to=2026-01-01")
 
+    @patch(f"{CMD_MODULE}.fetch_cbu_usd_uzs_rate")
+    def test_overwrite_refetches_archived_dates(self, mock_fetch):
+        CbuExchangeRate.objects.create(date=date(2026, 1, 1), usd_uzs_rate=Decimal("12000.000000"))
+        mock_fetch.return_value = Decimal("12111.000000")
+
+        self._run("--date-from=2026-01-01", "--date-to=2026-01-02", "--overwrite", "--apply")
+
+        self.assertEqual(mock_fetch.call_count, 2)
+        self.assertEqual(
+            CbuExchangeRate.objects.get(date=date(2026, 1, 1)).usd_uzs_rate, Decimal("12111.000000")
+        )
+
 
 class InvestPayoutScheduleSerializerTests(TestCase):
     def setUp(self):
