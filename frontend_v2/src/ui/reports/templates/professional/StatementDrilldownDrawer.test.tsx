@@ -46,7 +46,11 @@ function linesResponse(items: StatementLineItem[], total: string) {
 }
 
 describe('StatementDrilldownDrawer', () => {
-  beforeEach(() => getStatementLinesMock.mockReset())
+  // A block body: mockReset() returns the mock, and Vitest would run a returned function as a cleanup hook
+  // after every test, calling getStatementLines() with no arguments.
+  beforeEach(() => {
+    getStatementLinesMock.mockReset()
+  })
 
   it('reconciles the list with the cell', async () => {
     getStatementLinesMock.mockResolvedValue(

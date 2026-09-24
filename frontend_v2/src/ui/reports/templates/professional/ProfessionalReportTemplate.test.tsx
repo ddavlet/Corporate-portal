@@ -194,7 +194,8 @@ describe('ProfessionalReportTemplate', () => {
     await screen.findByText('Отчёт о прибылях и убытках')
     expect(screen.getByRole('button', { name: 'Банк: Авг' })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Банк: Сен* 1–23' })).toBeInTheDocument()
-    expect(screen.getByText('Год назад')).toBeInTheDocument()
+    // rc-table repeats column titles in a hidden measure row, so ask for the visible header cell.
+    expect(screen.getByRole('columnheader', { name: /Год назад/ })).toBeInTheDocument()
     expect(screen.queryByTitle('Авг')).toBeNull()
   })
 

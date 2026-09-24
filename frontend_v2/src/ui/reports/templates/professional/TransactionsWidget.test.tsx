@@ -22,7 +22,11 @@ const LINES = {
 }
 
 describe('TransactionsWidget', () => {
-  beforeEach(() => getStatementLinesMock.mockReset())
+  // A block body: mockReset() returns the mock, and Vitest would run a returned function as a cleanup hook
+  // after every test, calling getStatementLines() with no arguments.
+  beforeEach(() => {
+    getStatementLinesMock.mockReset()
+  })
 
   it('starts with clean filters when the report or period changes', async () => {
     getStatementLinesMock.mockResolvedValue(LINES)

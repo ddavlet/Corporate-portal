@@ -1,4 +1,5 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { MemoryRouter } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { RequestDetailContent } from './RequestDetailModal'
 import type { RequestDetail } from './RequestDetailModal'
@@ -64,7 +65,12 @@ describe('RequestDetailContent attachment download', () => {
       blob: () => Promise.resolve(new Blob(['pdf-bytes'])),
     })
 
-    render(<RequestDetailContent detail={requestDetail} />)
+    // The card links the requester and form settings with router links, so it needs a router.
+    render(
+      <MemoryRouter>
+        <RequestDetailContent detail={requestDetail} />
+      </MemoryRouter>,
+    )
 
     fireEvent.click(screen.getByRole('button', { name: /файл/i }))
 

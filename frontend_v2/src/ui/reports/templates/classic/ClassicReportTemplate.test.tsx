@@ -35,8 +35,9 @@ vi.mock('../../../../lib/api', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../../../lib/api')>()
   return {
     ...actual,
-    getStructuredPnlReport: vi.fn().mockResolvedValue(PAYLOAD),
-    getStructuredCashflowReport: vi.fn().mockResolvedValue({ ...PAYLOAD, report: 'cashflow' }),
+    // Read lazily: this factory is hoisted above PAYLOAD, which only exists once the page calls the API.
+    getStructuredPnlReport: () => Promise.resolve(PAYLOAD),
+    getStructuredCashflowReport: () => Promise.resolve({ ...PAYLOAD, report: 'cashflow' }),
   }
 })
 
