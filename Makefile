@@ -7,7 +7,7 @@ DEPLOY_TEST_PATH ?= $(TEST_PATH)
 BRANCH     := $(shell git rev-parse --abbrev-ref HEAD)
 
 .DEFAULT_GOAL := help
-.PHONY: help push test deploy makemigrations showmigrations logs backup-db create-postgres-mcp-role rollback refresh-approval-messages link-lemon-auto-request-exceptions reconcile-card-revenues reconcile-expense-links send-to-vacation return-from-vacation add-cash-register-transfer-purpose add-cash-register-transfer-approval-exception reassign-unmatched-bank-expenses local-up local-down local-logs test_local
+.PHONY: help push test deploy makemigrations showmigrations logs backup-db create-postgres-mcp-role rollback refresh-approval-messages reconcile-card-revenues reconcile-expense-links send-to-vacation return-from-vacation reassign-unmatched-bank-expenses backfill-bank-expense-requests backfill-cash-expense-requests backfill-card-expenses backfill-cbu-exchange-rate local-up local-down local-logs test_local
 
 help:
 	@echo ""
@@ -23,8 +23,6 @@ help:
 	@echo "  make backup-db       — создать gzip-копию БД на сервере в backups/db"
 	@echo "  make create-postgres-mcp-role — создать/обновить read-only роль Postgres MCP на сервере"
 	@echo "  make refresh-approval-messages REQUEST_IDS='1 2' — актуализировать Telegram-карточки заявок на сервере"
-	@echo "  make link-lemon-auto-request-exceptions — dry-run: привязка назначений автозаявок к исключениям (lemon*)"
-	@echo "  make link-lemon-auto-request-exceptions APPLY=1 — то же самое, но с записью изменений"
 	@echo "  make reconcile-card-revenues — привязать заявки 'Пополнение' к corporate_card_revenues по сумме+дате"
 	@echo "  make reconcile-card-revenues TENANT=3 — то же самое, но только для одного тенанта"
 	@echo "  make reconcile-expense-links TENANT=3 — найти и починить ссылки заявок на расходы (bank/cash/card)"
@@ -34,12 +32,11 @@ help:
 	@echo "  make send-to-vacation TENANT=3 EMPLOYEE_USERNAME=s.davletyarov — dry-run: отправить согласующего в отпуск"
 	@echo "  make send-to-vacation TENANT=3 EMPLOYEE_USERNAME=s.davletyarov APPLY=1 — то же самое, но с записью изменений"
 	@echo "  make return-from-vacation TENANT=3 EMPLOYEE_USERNAME=s.davletyarov APPLY=1 — вернуть согласующего из отпуска"
-	@echo "  make add-cash-register-transfer-purpose — dry-run: добавить назначение 'Перевод между кассами' (Наличные) во всех тенантах"
-	@echo "  make add-cash-register-transfer-purpose APPLY=1 — то же самое, но с записью изменений"
-	@echo "  make add-cash-register-transfer-purpose TENANT=1 APPLY=1 — то же самое, но только для одного тенанта"
-	@echo "  make add-cash-register-transfer-approval-exception — dry-run: исключение (1 этап-выплата) на 'Перевод между кассами' везде"
-	@echo "  make add-cash-register-transfer-approval-exception APPLY=1 — то же самое, но с записью изменений"
-	@echo "  make add-cash-register-transfer-approval-exception TENANT=1 APPLY=1 — то же самое, но только для одного тенанта"
+	@echo "  make reassign-unmatched-bank-expenses FROM=lemonfit TO=lemonhavo [APPLY=1] — перенести расходы банка в тенант, где их заявка"
+	@echo "  make backfill-bank-expense-requests TENANT=1,lemonaqua [DATE_FROM=.. DATE_TO=..] [APPLY=1] — заявки под расходы банка без заявки"
+	@echo "  make backfill-cash-expense-requests TENANT=1 [ALL_TENANTS=1] [DATE_FROM=.. DATE_TO=..] [APPLY=1] — заявки под расходы кассы без заявки"
+	@echo "  make backfill-card-expenses TENANT=3 [DATE_FROM=.. DATE_TO=..] [APPLY=1] — CardExpense для оплаченных карточных заявок без расхода"
+	@echo "  make backfill-cbu-exchange-rate [DATE_FROM=.. DATE_TO=..] [OVERWRITE=1] [APPLY=1] — дозаполнить архив курсов ЦБ"
 	@echo "  make local-up        — поднять docker-compose.local.yml локально"
 	@echo "  make local-down      — остановить локальный compose (без удаления volumes)"
 	@echo "  make local-logs      — логи локального compose"
@@ -156,13 +153,7 @@ refresh-approval-messages:
 		docker compose --env-file ./.env exec -T backend_v2 \
 		python manage.py refresh_telegram_approval_messages $(REQUEST_IDS)"
 
-# ── 7b. Разово: привязать назначения автозаявок к уже созданным исключениям ──
 APPLY ?=
-
-link-lemon-auto-request-exceptions:
-	ssh $(SERVER) "cd $(REMOTE_DIR) && \
-		docker compose --env-file ./.env exec -T backend_v2 \
-		python manage.py link_lemon_auto_request_purpose_exceptions $(if $(APPLY),--apply,)"
 
 # ── 7d. Разово/по требованию: привязать заявки "Пополнение" к card_revenues ──
 TENANT ?=
@@ -187,30 +178,6 @@ reconcile-expense-links:
 		$(if $(DATE_TO),--date-to=$(DATE_TO),) \
 		$(if $(APPLY),--apply,)"
 
-# ── 7d-3. Разово: разбить заявки 7824/7854/8069 (lemonaqua) на суммы по card_expenses ──
-split-lemonaqua-card-expense-requests:
-	ssh $(SERVER) "cd $(REMOTE_DIR) && \
-		docker compose --env-file ./.env exec -T backend_v2 \
-		python manage.py split_lemonaqua_card_expense_requests $(if $(APPLY),--apply,)"
-
-# ── 7d-6. Разово: починить заявки с протухшей ссылкой expense_ref_id на
-# удалённые bank_expenses (перевязать на актуальный расход по vendor_ref+сумме+дате) ──
-repair-dangling-bank-expense-refs:
-	ssh $(SERVER) "cd $(REMOTE_DIR) && \
-		docker compose --env-file ./.env exec -T backend_v2 \
-		python manage.py repair_dangling_bank_expense_refs $(if $(APPLY),--apply,)"
-# ── 7d-7. Разово: создать заявки под непривязанные card_expenses (lemonaqua, с августа) ──
-create-lemonaqua-missing-card-expense-requests:
-	ssh $(SERVER) "cd $(REMOTE_DIR) && \
-		docker compose --env-file ./.env exec -T backend_v2 \
-		python manage.py create_lemonaqua_missing_card_expense_requests $(if $(APPLY),--apply,)"
-
-# ── 7d-8. Разово: связать заявку 7708 (lemonaqua) с CardExpense 126, поправить сумму ──
-fix-lemonaqua-request-7708-card-amount:
-	ssh $(SERVER) "cd $(REMOTE_DIR) && \
-		docker compose --env-file ./.env exec -T backend_v2 \
-		python manage.py fix_lemonaqua_request_7708_card_amount $(if $(APPLY),--apply,)"
-
 # ── 7d-8b. Перенести непривязанные bank_expenses в другой тенант, где есть их PAYED-заявка ──
 # make reassign-unmatched-bank-expenses FROM=lemonfit TO=lemonhavo [APPLY=1]
 reassign-unmatched-bank-expenses:
@@ -219,11 +186,37 @@ reassign-unmatched-bank-expenses:
 		docker compose --env-file ./.env exec -T backend_v2 \
 		python manage.py reassign_unmatched_bank_expenses --from $(FROM) --to $(TO) $(if $(APPLY),--apply,)"
 
-# ── 7d-9. Разово: soft-delete заявок 7940/7980 (lemonaqua) — не сопоставляются с картой ──
-delete-lemonaqua-unmatched-card-requests:
+# ── 7d-10. По требованию: backfill-команды (dry-run по умолчанию) ──
+# TENANT=1,lemonaqua (id или subdomain, через запятую) или ALL_TENANTS=1; DATE_FROM/DATE_TO=YYYY-MM-DD
+BACKFILL_ARGS = $(foreach t,$(subst $(comma), ,$(TENANT)),--tenant=$(t)) \
+		$(if $(ALL_TENANTS),--all-tenants,) \
+		$(if $(DATE_FROM),--date-from=$(DATE_FROM),) \
+		$(if $(DATE_TO),--date-to=$(DATE_TO),) \
+		$(if $(APPLY),--apply,)
+
+backfill-bank-expense-requests:
 	ssh $(SERVER) "cd $(REMOTE_DIR) && \
 		docker compose --env-file ./.env exec -T backend_v2 \
-		python manage.py delete_lemonaqua_unmatched_card_requests $(if $(APPLY),--apply,)"
+		python manage.py backfill_bank_expense_requests $(BACKFILL_ARGS)"
+
+backfill-cash-expense-requests:
+	ssh $(SERVER) "cd $(REMOTE_DIR) && \
+		docker compose --env-file ./.env exec -T backend_v2 \
+		python manage.py backfill_cash_expense_requests $(BACKFILL_ARGS)"
+
+backfill-card-expenses:
+	ssh $(SERVER) "cd $(REMOTE_DIR) && \
+		docker compose --env-file ./.env exec -T backend_v2 \
+		python manage.py backfill_card_expenses $(BACKFILL_ARGS)"
+
+backfill-cbu-exchange-rate:
+	ssh $(SERVER) "cd $(REMOTE_DIR) && \
+		docker compose --env-file ./.env exec -T backend_v2 \
+		python manage.py backfill_cbu_exchange_rate \
+		$(if $(DATE_FROM),--date-from=$(DATE_FROM),) \
+		$(if $(DATE_TO),--date-to=$(DATE_TO),) \
+		$(if $(OVERWRITE),--overwrite,) \
+		$(if $(APPLY),--apply,)"
 
 # ── 7e. Отправить согласующего в отпуск / вернуть из отпуска ──────────────────
 EMPLOYEE_USERNAME ?=
@@ -245,18 +238,6 @@ return-from-vacation:
 	ssh $(SERVER) "cd $(REMOTE_DIR) && \
 		docker compose --env-file ./.env exec -T backend_v2 \
 		python manage.py toggle_user_approval_vacation --tenant=$(TENANT) --user=$(EMPLOYEE_USERNAME) --action=end $(if $(APPLY),--apply,)"
-
-# ── 7f. Разово: добавить назначение "Перевод между кассами" (Наличные) везде ──
-add-cash-register-transfer-purpose:
-	ssh $(SERVER) "cd $(REMOTE_DIR) && \
-		docker compose --env-file ./.env exec -T backend_v2 \
-		python manage.py add_cash_register_transfer_purpose $(if $(TENANT),--tenant=$(TENANT),) $(if $(APPLY),--apply,)"
-
-# ── 7g. Разово: исключение (1 этап-выплата) на "Перевод между кассами" везде ──
-add-cash-register-transfer-approval-exception:
-	ssh $(SERVER) "cd $(REMOTE_DIR) && \
-		docker compose --env-file ./.env exec -T backend_v2 \
-		python manage.py add_cash_register_transfer_approval_exception $(if $(TENANT),--tenant=$(TENANT),) $(if $(APPLY),--apply,)"
 
 # ── 8. Откат production ──────────────────────────────────────────────────────
 rollback:
