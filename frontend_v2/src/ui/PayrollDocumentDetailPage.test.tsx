@@ -1,5 +1,5 @@
-import { render, screen, waitFor } from '@testing-library/react'
-import { MemoryRouter, Route, Routes } from 'react-router-dom'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { MemoryRouter, Route, Routes, useNavigate } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { PayrollDocumentDetailPage } from './PayrollDocumentDetailPage'
 import type { PayrollDocumentDetailDto, PayrollPayoutStateDto } from '../lib/api'
@@ -62,6 +62,30 @@ function renderPage(id = '1') {
   )
 }
 
+// Test-only helper that lets a test trigger client-side navigation to another /payroll/:id
+// while the route stays mounted — same navigation path as "Скопировать" or clicking a row
+// in the list — without unmounting PayrollDocumentDetailPage, so it exercises the
+// stale-response guard in reload().
+function NavigateTo({ to }: { to: string }) {
+  const navigate = useNavigate()
+  return (
+    <button type="button" onClick={() => navigate(to)}>
+      {`go-to:${to}`}
+    </button>
+  )
+}
+
+function renderPageWithNav(initialId = '1') {
+  return render(
+    <MemoryRouter initialEntries={[`/payroll/${initialId}`]}>
+      <NavigateTo to="/payroll/2" />
+      <Routes>
+        <Route path="/payroll/:id" element={<PayrollDocumentDetailPage />} />
+      </Routes>
+    </MemoryRouter>,
+  )
+}
+
 describe('PayrollDocumentDetailPage', () => {
   beforeEach(() => {
     getPayrollDocumentMock.mockReset()
@@ -96,5 +120,36 @@ describe('PayrollDocumentDetailPage', () => {
 
     expect(await screen.findByText('Нет одобренной заявки на выплату')).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Создать расход' })).not.toBeInTheDocument()
+  })
+
+  it('ignores a stale document response for a previous id after navigating to a new one', async () => {
+    let resolveDoc1: ((doc: PayrollDocumentDetailDto) => void) | null = null
+    const doc1Promise = new Promise<PayrollDocumentDetailDto>((resolve) => {
+      resolveDoc1 = resolve
+    })
+    getPayrollDocumentMock.mockImplementation((requestedId: string) => {
+      if (requestedId === '1') return doc1Promise
+      if (requestedId === '2') return Promise.resolve(baseDoc({ id: 2, label: 'Doc-B' }))
+      throw new Error(`unexpected id ${requestedId}`)
+    })
+
+    renderPageWithNav('1')
+
+    // Initial request for id=1 is in flight (deliberately not resolved yet).
+    await waitFor(() => expect(getPayrollDocumentMock).toHaveBeenCalledWith('1'))
+
+    // Navigate to id=2 without unmounting the page (route element stays mounted).
+    fireEvent.click(screen.getByText('go-to:/payroll/2'))
+    await waitFor(() => expect(getPayrollDocumentMock).toHaveBeenCalledWith('2'))
+    expect(await screen.findByText('Начисление ЗП Doc-B')).toBeInTheDocument()
+
+    // The slow id=1 response now lands — it must be ignored, not overwrite id=2's data.
+    await act(async () => {
+      resolveDoc1?.(baseDoc({ id: 1, label: 'Doc-A' }))
+      await Promise.resolve()
+    })
+
+    expect(screen.getByText('Начисление ЗП Doc-B')).toBeInTheDocument()
+    expect(screen.queryByText('Начисление ЗП Doc-A')).not.toBeInTheDocument()
   })
 })

@@ -29,6 +29,7 @@ import { ListInfiniteScrollFooter } from './ListInfiniteScrollFooter'
 import { labelBlockAboveField } from './formSpacing'
 import { PayrollDocumentFormModal } from './payroll/PayrollDocumentFormModal'
 import { PAYROLL_STATUS_COLORS } from './payroll/payrollStatus'
+import { fmtMoney, formatPeriodMonth } from './payroll/payrollFormat'
 
 type PayrollDocumentRow = {
   id: number
@@ -44,15 +45,6 @@ type PayrollDocumentRow = {
   period_month: string | null
   kind: PayrollKind | null
   paid_total: string | number
-}
-
-function formatPeriodMonth(value: string | null): string {
-  if (!value) return '-'
-  const parsed = new Date(value)
-  if (Number.isNaN(parsed.getTime())) return '-'
-  const month = String(parsed.getUTCMonth() + 1).padStart(2, '0')
-  const year = parsed.getUTCFullYear()
-  return `${month}.${year}`
 }
 
 const dateFormatterTashkent = new Intl.DateTimeFormat('ru-RU', {
@@ -176,17 +168,13 @@ export function PayrollPage() {
         key: 'total_sum',
         width: 140,
         sorter: (a, b) => Number(a.total_sum) - Number(b.total_sum),
-        render: (v: string | number) =>
-          Number(v).toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
+        render: (v: string | number) => fmtMoney(v),
       },
       {
         title: 'Выплачено',
         key: 'paid_total',
         width: 160,
-        render: (_, r) =>
-          `${Number(r.paid_total).toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} / ${Number(
-            r.total_sum,
-          ).toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
+        render: (_, r) => `${fmtMoney(r.paid_total)} / ${fmtMoney(r.total_sum)}`,
       },
       {
         title: 'Заявка',

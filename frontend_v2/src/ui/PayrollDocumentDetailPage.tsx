@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Alert, Button, Card, Descriptions, Input, Modal, Skeleton, Space, Table, Tag, Typography, message } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
 import { Link, useNavigate, useParams } from 'react-router-dom'
@@ -6,6 +6,7 @@ import { RequestReturnBackButton } from './requests/RequestReturnBackButton'
 import { PayrollDocumentFormModal } from './payroll/PayrollDocumentFormModal'
 import { PayrollPayoutModal } from './payroll/PayrollPayoutModal'
 import { PAYROLL_STATUS_COLORS } from './payroll/payrollStatus'
+import { fmtMoney, formatPeriodMonth } from './payroll/payrollFormat'
 import {
   PAYROLL_KIND_LABELS,
   PAYROLL_STATUS_LABELS,
@@ -34,19 +35,6 @@ function formatDate(value?: string | null): string {
   return dateFmt.format(parsed)
 }
 
-function formatPeriodMonth(value: string | null): string {
-  if (!value) return '-'
-  const parsed = new Date(value)
-  if (Number.isNaN(parsed.getTime())) return '-'
-  const month = String(parsed.getUTCMonth() + 1).padStart(2, '0')
-  const year = parsed.getUTCFullYear()
-  return `${month}.${year}`
-}
-
-function fmtMoney(value: string | number): string {
-  return Number(value).toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-}
-
 export function PayrollDocumentDetailPage() {
   const navigate = useNavigate()
   const { id } = useParams<{ id: string }>()
@@ -61,33 +49,54 @@ export function PayrollDocumentDetailPage() {
   const [underpaidComment, setUnderpaidComment] = useState('')
   const [underpaidSaving, setUnderpaidSaving] = useState(false)
 
+  // Страница остаётся смонтированной при переходе между /payroll/:id (например, после
+  // «Скопировать» или навигации из списка), поэтому медленный ответ для старого id может
+  // прийти после ответа для нового — такие «устаревшие» результаты нужно игнорировать,
+  // иначе detail/state перетрутся данными не того документа, а кнопки (accept/cancel/pay)
+  // начнут действовать на неверный id.
+  const latestRequestIdRef = useRef<string | undefined>(undefined)
+  const mountedRef = useRef(true)
+  useEffect(() => {
+    mountedRef.current = true
+    return () => {
+      mountedRef.current = false
+    }
+  }, [])
+
   const reload = useCallback(async () => {
     if (!id) {
       setError('Не указан id документа.')
       setLoading(false)
       return
     }
+    const requestId = id
+    latestRequestIdRef.current = requestId
+    const isStale = () => !mountedRef.current || latestRequestIdRef.current !== requestId
     setLoading(true)
     setError(null)
     try {
-      const doc = await getPayrollDocument(id)
+      const doc = await getPayrollDocument(requestId)
+      if (isStale()) return
       setDetail(doc)
       if (doc.payout_mode === 'portal' && doc.status !== 'draft') {
         try {
           const s = await getPayrollPayoutState(doc.id)
+          if (isStale()) return
           setState(s)
         } catch (e: unknown) {
           // Состояние выплат — вспомогательные данные: страница должна открыться даже если оно не загрузилось.
           console.error('Не удалось загрузить состояние выплат начисления', e)
+          if (isStale()) return
           setState(null)
         }
-      } else {
+      } else if (!isStale()) {
         setState(null)
       }
     } catch (e: unknown) {
+      if (isStale()) return
       setError(e instanceof Error ? e.message : 'Ошибка загрузки')
     } finally {
-      setLoading(false)
+      if (!isStale()) setLoading(false)
     }
   }, [id])
 
