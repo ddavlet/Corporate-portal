@@ -169,8 +169,8 @@ function PayrollSettingsSection() {
         Создавать заявку на оплату при создании начисления
       </Checkbox>
       <Typography.Paragraph type="secondary" style={{ marginTop: 8, marginBottom: 0 }}>
-        Применяется и к начислениям, созданным в портале, и к загруженным через n8n — на сумму всего документа
-        создаётся одна заявка.
+        Применяется только к начислениям, загруженным через n8n — на сумму всего документа создаётся одна заявка.
+        Начисления, созданные в портале, всегда создают заявку при принятии, независимо от этой настройки.
       </Typography.Paragraph>
       <Typography.Paragraph style={{ marginTop: 16, marginBottom: 8 }}>Выплата ЗП</Typography.Paragraph>
       <Radio.Group
