@@ -304,20 +304,25 @@ class PayrollDocumentCreateApiTests(APITestCase):
         TenantMembership.objects.create(tenant=self.tenant, user=self.user, is_active=True)
         TenantUserRole.objects.create(tenant=self.tenant, user=self.user, role=TenantUserRole.ROLE_DIRECTOR)
         TenantModuleConfig.objects.create(tenant=self.tenant, module_key="payroll", is_enabled=True)
+        self.alice = Employee.objects.create(tenant=self.tenant, full_name="Alice Smith")
+        self.bob = Employee.objects.create(tenant=self.tenant, full_name="Bob Jones")
         self.host = "create-acme.example.com"
         self.url = "/api/payroll/documents/create/"
 
     def test_creates_document_with_lines_and_no_doc_id(self):
         self.client.force_authenticate(self.user)
         payload = {
+            "period_month": "2026-09-01",
+            "kind": "salary",
             "lines": [
-                {"employee": "Alice Smith", "item": "Salary", "sum": "1500.00"},
-                {"employee": "Bob Jones", "item": "Bonus", "sum": "500.00", "days_plan": 22, "days_fact": 20},
-            ]
+                {"employee_id": self.alice.id, "sum": "1500.00"},
+                {"employee_id": self.bob.id, "sum": "500.00"},
+            ],
         }
         res = self.client.post(self.url, payload, format="json", HTTP_HOST=self.host)
         self.assertEqual(res.status_code, 201, res.content)
         self.assertIsNone(res.data["doc_id"])
+        self.assertEqual(res.data["status"], "draft")
         self.assertEqual(len(res.data["lines"]), 2)
         doc = PayrollDocument.objects.get(pk=res.data["id"])
         self.assertEqual(doc.tenant_id, self.tenant.id)
@@ -326,24 +331,32 @@ class PayrollDocumentCreateApiTests(APITestCase):
 
     def test_requires_at_least_one_line(self):
         self.client.force_authenticate(self.user)
-        res = self.client.post(self.url, {"lines": []}, format="json", HTTP_HOST=self.host)
+        res = self.client.post(
+            self.url,
+            {"period_month": "2026-09-01", "kind": "salary", "lines": []},
+            format="json", HTTP_HOST=self.host,
+        )
         self.assertEqual(res.status_code, 400)
 
     def test_unauthenticated_returns_401(self):
-        res = self.client.post(self.url, {"lines": []}, format="json", HTTP_HOST=self.host)
+        res = self.client.post(
+            self.url,
+            {"period_month": "2026-09-01", "kind": "salary", "lines": []},
+            format="json", HTTP_HOST=self.host,
+        )
         self.assertEqual(res.status_code, 401)
 
     def test_user_without_payroll_module_access_forbidden(self):
         TenantMembership.objects.create(tenant=self.tenant, user=self.outsider, is_active=True)
         TenantUserRole.objects.create(tenant=self.tenant, user=self.outsider, role=TenantUserRole.ROLE_REQUESTER)
         self.client.force_authenticate(self.outsider)
-        payload = {"lines": [{"employee": "Alice", "item": "Salary", "sum": "100.00"}]}
+        payload = {"period_month": "2026-09-01", "kind": "salary", "lines": [{"employee_id": self.alice.id, "sum": "100.00"}]}
         res = self.client.post(self.url, payload, format="json", HTTP_HOST=self.host)
         self.assertEqual(res.status_code, 403)
 
     def test_existing_readonly_list_endpoint_unaffected(self):
         self.client.force_authenticate(self.user)
-        payload = {"lines": [{"employee": "Alice", "item": "Salary", "sum": "100.00"}]}
+        payload = {"period_month": "2026-09-01", "kind": "salary", "lines": [{"employee_id": self.alice.id, "sum": "100.00"}]}
         self.client.post(self.url, payload, format="json", HTTP_HOST=self.host)
         res = self.client.get("/api/payroll/documents/", HTTP_HOST=self.host)
         self.assertEqual(res.status_code, 200)

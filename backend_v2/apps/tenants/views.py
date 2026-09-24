@@ -510,9 +510,10 @@ class TenantPayrollDocIdFormatView(APIView):
 
 class TenantPayrollSettingsView(APIView):
     """
-    Read/update payroll behaviour settings unrelated to doc_id matching — currently
-    just whether creating an accrual (native or n8n-imported) also auto-creates a
-    linked payment Request. Requires payroll module; admin or director to change.
+    Read/update payroll behaviour settings unrelated to doc_id matching — whether
+    creating an accrual (native or n8n-imported) also auto-creates a linked payment
+    Request, and the tenant's payroll payout mode (portal payouts vs legacy/manual).
+    Requires payroll module; admin or director to change.
     """
 
     module_key = "payroll"
@@ -525,7 +526,10 @@ class TenantPayrollSettingsView(APIView):
         if not tenant:
             return Response({"detail": "Unknown tenant."}, status=status.HTTP_404_NOT_FOUND)
         return Response(
-            {"create_payment_request_on_payroll_accrual": tenant.create_payment_request_on_payroll_accrual}
+            {
+                "create_payment_request_on_payroll_accrual": tenant.create_payment_request_on_payroll_accrual,
+                "payroll_payout_mode": tenant.payroll_payout_mode,
+            }
         )
 
     def put(self, request):
@@ -534,9 +538,12 @@ class TenantPayrollSettingsView(APIView):
             return Response({"detail": "Unknown tenant."}, status=status.HTTP_404_NOT_FOUND)
         serializer = TenantPayrollSettingsSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        tenant.create_payment_request_on_payroll_accrual = serializer.validated_data[
-            "create_payment_request_on_payroll_accrual"
-        ]
-        tenant.save(update_fields=["create_payment_request_on_payroll_accrual"])
+        data = serializer.validated_data
+        tenant.create_payment_request_on_payroll_accrual = data["create_payment_request_on_payroll_accrual"]
+        update_fields = ["create_payment_request_on_payroll_accrual"]
+        if "payroll_payout_mode" in data:
+            tenant.payroll_payout_mode = data["payroll_payout_mode"]
+            update_fields.append("payroll_payout_mode")
+        tenant.save(update_fields=update_fields)
         return self.get(request)
 
