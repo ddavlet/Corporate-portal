@@ -105,15 +105,28 @@ class EmployeeCreateSerializer(serializers.Serializer):
         return value
 
 
-class PayrollDraftLineSerializer(serializers.Serializer):
-    employee_id = serializers.PrimaryKeyRelatedField(queryset=Employee.objects.none(), source="employee")
-    sum = serializers.DecimalField(max_digits=15, decimal_places=2, min_value=Decimal("0.01"))
+class TenantEmployeeField(serializers.PrimaryKeyRelatedField):
+    """PrimaryKeyRelatedField whose queryset is resolved lazily from the request's
+    tenant. Needed because this field is used inside a nested `many=True` child
+    serializer (PayrollDraftLineSerializer): when the parent builds its `lines`
+    field, DRF constructs the child serializer without the root's `context` yet
+    attached, so resolving the tenant in `__init__` always sees an empty context
+    and the field is stuck on `Employee.objects.none()` — every draft create/update
+    would then fail validation with "Invalid pk". `self.context` on a field is a
+    property that walks up to the root serializer's context, which IS populated by
+    validation time, so overriding `get_queryset()` (called during `to_internal_value`)
+    resolves correctly."""
 
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
+    def get_queryset(self):
         tenant = getattr(self.context.get("request"), "tenant", None)
-        if tenant is not None:
-            self.fields["employee_id"].queryset = Employee.objects.filter(tenant=tenant)
+        if tenant is None:
+            return Employee.objects.none()
+        return Employee.objects.filter(tenant=tenant)
+
+
+class PayrollDraftLineSerializer(serializers.Serializer):
+    employee_id = TenantEmployeeField(source="employee")
+    sum = serializers.DecimalField(max_digits=15, decimal_places=2, min_value=Decimal("0.01"))
 
 
 class PayrollDraftSerializer(serializers.Serializer):
