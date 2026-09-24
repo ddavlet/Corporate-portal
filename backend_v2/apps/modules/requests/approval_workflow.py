@@ -6,8 +6,12 @@ from rest_framework.exceptions import APIException, NotFound, PermissionDenied, 
 
 from apps.modules.requests.approval_config_resolver import resolve_effective_payment_step_config_for_request
 from apps.modules.requests.models import Approval, Request, RequestApprovalStepConfig
+from apps.modules.requests.payment_step_guards import payment_step_suppression_reason
 from apps.modules.requests.services import create_expense_for_request_payment
-from apps.modules.requests.status_events import dispatch_request_payed_event_handlers
+from apps.modules.requests.status_events import (
+    dispatch_request_payed_event_handlers,
+    dispatch_request_rejected_event_handlers,
+)
 # Set on remaining pending rows when another step already rejected the request.
 _STOPPED_BY_OTHER_STEP_COMMENT = "Автоматически: заявка отклонена на другом этапе."
 
@@ -129,6 +133,8 @@ def _recalculate_request_status(request_obj: Request) -> str:
         request_obj.save(update_fields=update_fields)
         if next_status == Request.STATUS_PAYED:
             dispatch_request_payed_event_handlers(request_obj=request_obj)
+        if next_status == Request.STATUS_REJECTED:
+            dispatch_request_rejected_event_handlers(request_obj=request_obj)
     return request_obj.status
 
 
@@ -284,6 +290,11 @@ def confirm_approval_by_id(
                 {"detail": "Этап notification подтверждается автоматически после отправки сообщения."}
             )
 
+        if approval.step_type == Approval.STEP_TYPE_PAYMENT:
+            suppression_reason = payment_step_suppression_reason(request_obj=request_obj)
+            if suppression_reason:
+                raise ValidationError({"detail": suppression_reason})
+
         if (
             decision == Approval.DECISION_APPROVED
             and approval.step_type == Approval.STEP_TYPE_PAYMENT
@@ -319,3 +330,44 @@ def confirm_approval_by_id(
         _ = request_obj.vendor_ref
         route_request_approvals(request_obj=request_obj)
         return get_approval_full_context(request_obj=request_obj, trigger_approval=approval)
+
+
+def _set_status_payed_by_system(request_obj: Request) -> None:
+    """PAYED for a request that has no payment step; mirrors the PAYED branch of
+    _recalculate_request_status."""
+    now = timezone.localdate()
+    request_obj.status = Request.STATUS_PAYED
+    update_fields = ["status"]
+    if request_obj.payed_at is None:
+        request_obj.payed_at = now.year * 10000 + now.month * 100 + now.day
+        update_fields.append("payed_at")
+    if request_obj.expense_year is None:
+        request_obj.expense_year = now.year
+        request_obj.expense_month = now.month
+        request_obj.expense_day = now.day
+        update_fields.extend(["expense_year", "expense_month", "expense_day"])
+    request_obj.save(update_fields=update_fields)
+    dispatch_request_payed_event_handlers(request_obj=request_obj)
+
+
+def complete_request_payment_by_system(*, request_obj: Request, comment: str) -> str:
+    """
+    Close the payment step on behalf of the system (bypassing payment_step_guards)
+    and move the request to PAYED. Used by modules that track the actual payment
+    themselves. Requires the request to be APPROVED.
+    """
+    with transaction.atomic():
+        locked = Request.objects.select_for_update(of=("self",)).get(pk=request_obj.pk)
+        if locked.status != Request.STATUS_APPROVED:
+            raise ValidationError({"detail": f"Заявка должна быть согласована (статус {locked.status})."})
+        Approval.objects.filter(
+            request=locked,
+            step_type=Approval.STEP_TYPE_PAYMENT,
+            decision=Approval.DECISION_PENDING,
+        ).update(decision=Approval.DECISION_APPROVED, decided_at=timezone.now(), comment=comment)
+        _recalculate_request_status(locked)
+        locked.refresh_from_db()
+        if locked.status == Request.STATUS_APPROVED:
+            _set_status_payed_by_system(locked)
+    route_request_approvals(request_obj=locked)
+    return locked.status
