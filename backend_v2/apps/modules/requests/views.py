@@ -82,6 +82,7 @@ from apps.modules.requests.expense_refs import (
 from apps.modules.requests.approval_bootstrap import create_approval_rows_for_request
 from apps.modules.requests.approval_config_resolver import resolve_effective_payment_step_config_for_request
 from apps.modules.requests.auto_requests import create_request_copy_for_template
+from apps.modules.requests.payment_step_guards import payment_step_suppression_reason
 from apps.modules.requests.approval_workflow import (
     _recalculate_request_status,
     confirm_approval_by_id,
@@ -366,6 +367,10 @@ class RequestApprovalsMixin:
             raise PermissionDenied("Approver is not assigned to this approval.")
         if approval.step_type != Approval.STEP_TYPE_PAYMENT:
             raise ValidationError({"approval_id": "Approval is not a payment step."})
+
+        suppression_reason = payment_step_suppression_reason(request_obj=approval.request)
+        if suppression_reason:
+            raise ValidationError({"detail": suppression_reason})
 
         step_cfg = resolve_effective_payment_step_config_for_request(
             request_obj=approval.request,

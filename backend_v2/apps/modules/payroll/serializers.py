@@ -3,7 +3,11 @@ from decimal import Decimal
 from django.db.models import Sum
 from rest_framework import serializers
 
-from apps.modules.payroll.models import PayrollDocument, PayrollLine
+from apps.modules.payroll.models import Employee, PayrollDocument, PayrollLine
+from apps.modules.payroll.payouts import document_label
+from apps.modules.payroll.services import current_request_for_document
+
+
 class PayrollLineSerializer(serializers.ModelSerializer):
     id = serializers.IntegerField(read_only=True)
 
@@ -82,3 +86,126 @@ class PayrollDocumentCreateSerializer(serializers.Serializer):
         if not value:
             raise serializers.ValidationError("Нужна хотя бы одна строка начисления.")
         return value
+
+
+class EmployeeSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Employee
+        fields = ["id", "full_name"]
+        read_only_fields = ["id"]
+
+
+class EmployeeCreateSerializer(serializers.Serializer):
+    full_name = serializers.CharField(max_length=200)
+
+    def validate_full_name(self, value):
+        value = value.strip()
+        if not value:
+            raise serializers.ValidationError("Укажите ФИО.")
+        return value
+
+
+class TenantEmployeeField(serializers.PrimaryKeyRelatedField):
+    """PrimaryKeyRelatedField whose queryset is resolved lazily from the request's
+    tenant. Needed because this field is used inside a nested `many=True` child
+    serializer (PayrollDraftLineSerializer): when the parent builds its `lines`
+    field, DRF constructs the child serializer without the root's `context` yet
+    attached, so resolving the tenant in `__init__` always sees an empty context
+    and the field is stuck on `Employee.objects.none()` — every draft create/update
+    would then fail validation with "Invalid pk". `self.context` on a field is a
+    property that walks up to the root serializer's context, which IS populated by
+    validation time, so overriding `get_queryset()` (called during `to_internal_value`)
+    resolves correctly."""
+
+    def get_queryset(self):
+        tenant = getattr(self.context.get("request"), "tenant", None)
+        if tenant is None:
+            return Employee.objects.none()
+        return Employee.objects.filter(tenant=tenant)
+
+
+class PayrollDraftLineSerializer(serializers.Serializer):
+    employee_id = TenantEmployeeField(source="employee")
+    sum = serializers.DecimalField(max_digits=15, decimal_places=2, min_value=Decimal("0.01"))
+
+
+class PayrollDraftSerializer(serializers.Serializer):
+    period_month = serializers.DateField()
+    kind = serializers.ChoiceField(choices=PayrollDocument.KIND_CHOICES)
+    lines = PayrollDraftLineSerializer(many=True)
+
+    def validate_lines(self, value):
+        if not value:
+            raise serializers.ValidationError("Нужна хотя бы одна строка начисления.")
+        ids = [line["employee"].id for line in value]
+        if len(ids) != len(set(ids)):
+            raise serializers.ValidationError("Сотрудник указан в начислении дважды.")
+        return value
+
+
+class PayrollPayoutItemSerializer(serializers.Serializer):
+    employee_id = serializers.IntegerField()
+    amount = serializers.DecimalField(max_digits=15, decimal_places=2)
+
+
+class PayrollPayoutCreateSerializer(serializers.Serializer):
+    wallet_id = serializers.IntegerField()
+    date = serializers.DateField()
+    items = PayrollPayoutItemSerializer(many=True)
+
+
+class PayrollCloseUnderpaidSerializer(serializers.Serializer):
+    comment = serializers.CharField(allow_blank=True)
+
+
+class PayrollLineDetailSerializer(PayrollLineSerializer):
+    employee_id = serializers.IntegerField(source="employee_fk_id", read_only=True, allow_null=True)
+
+    class Meta(PayrollLineSerializer.Meta):
+        fields = PayrollLineSerializer.Meta.fields + ["employee_id"]
+        read_only_fields = fields
+
+
+class PayrollDocumentWorkflowListSerializer(PayrollDocumentListSerializer):
+    label = serializers.SerializerMethodField()
+    paid_total = serializers.DecimalField(max_digits=18, decimal_places=2, read_only=True, default=Decimal("0"))
+
+    class Meta(PayrollDocumentListSerializer.Meta):
+        fields = PayrollDocumentListSerializer.Meta.fields + [
+            "label", "status", "source", "payout_mode", "period_month", "kind", "paid_total",
+        ]
+        read_only_fields = fields
+
+    def get_label(self, obj):
+        return document_label(obj)
+
+
+class PayrollDocumentWorkflowDetailSerializer(PayrollDocumentDetailSerializer):
+    lines = PayrollLineDetailSerializer(many=True, read_only=True)
+    label = serializers.SerializerMethodField()
+    current_request = serializers.SerializerMethodField()
+    paid_total = serializers.SerializerMethodField()
+    remaining_total = serializers.SerializerMethodField()
+
+    class Meta(PayrollDocumentDetailSerializer.Meta):
+        fields = PayrollDocumentDetailSerializer.Meta.fields + [
+            "label", "status", "source", "payout_mode", "period_month", "kind",
+            "closed_underpaid_at", "close_comment", "current_request", "paid_total", "remaining_total",
+        ]
+        read_only_fields = fields
+
+    def get_label(self, obj):
+        return document_label(obj)
+
+    def get_current_request(self, obj):
+        req = current_request_for_document(obj)
+        return {"id": req.id, "status": req.status} if req else None
+
+    def _paid(self, obj):
+        return obj.payouts.aggregate(s=Sum("amount"))["s"] or Decimal("0")
+
+    def get_paid_total(self, obj):
+        return str(self._paid(obj))
+
+    def get_remaining_total(self, obj):
+        return str(max(self.get_total_sum(obj) - self._paid(obj), Decimal("0")))
