@@ -6,13 +6,13 @@ from typing import Any
 
 from django.db.models import Count, Exists, OuterRef, Q, Subquery, Sum
 from django.db.models.functions import Coalesce
-from django.db.models import DecimalField, Value
+from django.db.models import BooleanField, DecimalField, ExpressionWrapper, IntegerField, Value
 
 from apps.modules.bank_expenses.models import BankExpense
 from apps.modules.cashier.models import CashExpense
 from apps.modules.corporate_card.models import CardExpense, CardRevenue
 from apps.modules.payroll.constants import MODULE_KEY as PAYROLL_MODULE_KEY
-from apps.modules.payroll.models import PayrollDocument, PayrollLine
+from apps.modules.payroll.models import PayrollDocument, PayrollLine, PayrollPayout
 from apps.modules.requests.approval_workflow import min_pending_approval_step
 from apps.modules.requests.expense_refs import resolve_request_expense_ref
 from apps.modules.requests.models import Approval, Request
@@ -153,10 +153,37 @@ def annotate_cash_expense_compliance(qs, *, tenant):
         amount=OuterRef("amount"),
     ).filter(Q(expense_ref_id=OuterRef("id")) | Q(expense_id=OuterRef("external_id")))
     paid_request_subquery = request_subquery.filter(status=Request.STATUS_PAYED)
+    # Cash expenses created from payroll payouts are covered by the payroll request
+    # of their accrual (one request per accrual, many cash expenses).
+    qs = qs.annotate(
+        payroll_document_id=Subquery(
+            PayrollPayout.objects.filter(cash_expense_id=OuterRef("pk")).values("document_id")[:1]
+        )
+    )
+    payroll_request_subquery = Request.objects.filter(
+        tenant=tenant,
+        payment_type=Request.PAYMENT_TYPE_PAYROLL,
+        expense_ref_target=Request.EXPENSE_REF_TARGET_PAYROLL,
+        expense_ref_id=OuterRef("payroll_document_id"),
+    ).exclude(status=Request.STATUS_REJECTED)
+    payroll_paid_subquery = payroll_request_subquery.filter(status=Request.STATUS_PAYED)
+    # `Exists(...) | Exists(...)` combines to a Q() (both are conditional expressions),
+    # which annotate() can't consume directly as a boolean column on Django 5.2 — wrap
+    # it in ExpressionWrapper so the annotation has an explicit BooleanField type.
     return qs.annotate(
-        has_request=Exists(request_subquery),
-        has_paid_request=Exists(paid_request_subquery),
-        matched_request_id=Subquery(request_subquery.order_by("-created_at").values("id")[:1]),
+        has_request=ExpressionWrapper(
+            Q(Exists(request_subquery)) | Q(Exists(payroll_request_subquery)),
+            output_field=BooleanField(),
+        ),
+        has_paid_request=ExpressionWrapper(
+            Q(Exists(paid_request_subquery)) | Q(Exists(payroll_paid_subquery)),
+            output_field=BooleanField(),
+        ),
+        matched_request_id=Coalesce(
+            Subquery(request_subquery.order_by("-created_at").values("id")[:1]),
+            Subquery(payroll_request_subquery.order_by("-id").values("id")[:1]),
+            output_field=IntegerField(),
+        ),
     )
 
 

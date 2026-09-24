@@ -136,6 +136,16 @@ class CashExpenseSerializer(serializers.ModelSerializer):
         tenant = getattr(self.context.get("request"), "tenant", None)
         if tenant:
             attrs = assign_wallet_for_cash_movement(instance=self.instance, tenant=tenant, attrs=attrs)
+
+        if (
+            self.instance is not None
+            and "amount" in attrs
+            and attrs["amount"] != self.instance.amount
+            and self.instance.payroll_payouts.exists()
+        ):
+            raise serializers.ValidationError(
+                {"amount": "Сумма расхода связана с выплатами ЗП и не может быть изменена."}
+            )
         return attrs
 
     def get_request_required(self, obj) -> bool:

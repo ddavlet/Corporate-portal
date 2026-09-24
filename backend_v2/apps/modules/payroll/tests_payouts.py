@@ -206,3 +206,28 @@ class PayrollPayoutTests(TestCase):
         )
         exp = self._pay(doc, [(self.alice, "1")])
         self.assertEqual(exp.external_id, f"zp-{doc.pk}-2")
+
+    def test_payout_expense_counts_as_having_request(self, _tg):
+        from apps.modules.requests.expense_compliance import annotate_cash_expense_compliance
+
+        doc, req = self._approved_doc()
+        exp = self._pay(doc, [(self.alice, "700"), (self.bob, "300")])
+        row = annotate_cash_expense_compliance(CashExpense.objects.filter(pk=exp.pk), tenant=self.tenant).get()
+        self.assertTrue(row.has_request)
+        self.assertTrue(row.has_paid_request)
+        self.assertEqual(row.matched_request_id, req.id)
+
+    def test_amount_of_payout_expense_cannot_change(self, _tg):
+        from rest_framework.test import APIRequestFactory
+
+        from apps.modules.cashier.serializers import CashExpenseSerializer
+
+        doc, _ = self._approved_doc()
+        exp = self._pay(doc, [(self.alice, "10")])
+        request = APIRequestFactory().patch("/")
+        request.tenant = self.tenant
+        ser = CashExpenseSerializer(instance=exp, data={"amount": "11.00"}, partial=True, context={"request": request})
+        self.assertFalse(ser.is_valid())
+        self.assertIn("amount", ser.errors)
+        ser_ok = CashExpenseSerializer(instance=exp, data={"note": "ok"}, partial=True, context={"request": request})
+        self.assertTrue(ser_ok.is_valid(), ser_ok.errors)
