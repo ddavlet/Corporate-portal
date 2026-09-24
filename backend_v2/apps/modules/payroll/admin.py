@@ -1,7 +1,7 @@
 from apps.common.admin_labels import register_portal
 from django.contrib import admin
 
-from apps.modules.payroll.models import Employee, PayrollDocument, PayrollLine
+from apps.modules.payroll.models import Employee, PayrollDocument, PayrollLine, PayrollPayout
 
 
 class PayrollLineInline(admin.TabularInline):
@@ -31,6 +31,14 @@ class PayrollLineAdmin(admin.ModelAdmin):
     raw_id_fields = ("document", "employee_fk")
 
 
+class PayrollPayoutAdmin(admin.ModelAdmin):
+    list_display = ("id", "document", "employee", "cash_expense", "amount", "created_at")
+    list_filter = ("tenant",)
+    raw_id_fields = ("tenant", "document", "employee", "cash_expense", "created_by")
+    readonly_fields = ("document", "employee", "cash_expense", "amount", "created_at")
+
+
 register_portal(PayrollDocument, "Начисление ЗП", "Начисления ЗП", PayrollDocumentAdmin)
 register_portal(Employee, "Сотрудник", "Сотрудники", EmployeeAdmin)
 register_portal(PayrollLine, "Строка начисления ЗП", "Строки начисления ЗП", PayrollLineAdmin)
+register_portal(PayrollPayout, "Выплата ЗП", "Выплаты ЗП", PayrollPayoutAdmin)
