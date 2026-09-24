@@ -1,4 +1,5 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { MemoryRouter } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { RequestDetailContent } from './RequestDetailModal'
 import type { RequestDetail } from './RequestDetailModal'
@@ -47,12 +48,15 @@ const requestDetail: RequestDetail = {
 describe('RequestDetailContent attachment download', () => {
   beforeEach(() => {
     apiFetchMock.mockReset()
+    // Node ships a real URL.createObjectURL (blob:nodedata:...), so always stub it.
     if (!('createObjectURL' in URL)) {
-      Object.defineProperty(URL, 'createObjectURL', { writable: true, value: () => 'blob:mock' })
+      Object.defineProperty(URL, 'createObjectURL', { writable: true, value: () => '' })
     }
     if (!('revokeObjectURL' in URL)) {
       Object.defineProperty(URL, 'revokeObjectURL', { writable: true, value: () => undefined })
     }
+    vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:mock')
+    vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => undefined)
   })
 
   it('downloads the file via a hidden <a download> instead of opening a new tab', async () => {
@@ -64,9 +68,14 @@ describe('RequestDetailContent attachment download', () => {
       blob: () => Promise.resolve(new Blob(['pdf-bytes'])),
     })
 
-    render(<RequestDetailContent detail={requestDetail} />)
+    // The card links the requester and form settings with router links, so it needs a router.
+    render(
+      <MemoryRouter>
+        <RequestDetailContent detail={requestDetail} />
+      </MemoryRouter>,
+    )
 
-    fireEvent.click(screen.getByRole('button', { name: /файл/i }))
+    fireEvent.click(screen.getByRole('button', { name: /Эркин шаклдаги ҳужжат\.pdf/ }))
 
     await waitFor(() => expect(clickSpy).toHaveBeenCalledTimes(1))
 

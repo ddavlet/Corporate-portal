@@ -25,6 +25,7 @@ import {
   getRequestFormOptions,
   getSettingsAccess,
   listVendors,
+  parseErrorBody,
   readTgTokens,
   setTgTokens,
   setUnauthorizedHandler,
@@ -53,6 +54,12 @@ describe('api module', () => {
 
   afterEach(() => {
     setUnauthorizedHandler(null)
+  })
+
+  it('does not report a cancelled request as a network error', async () => {
+    fetchMock.mockRejectedValueOnce(Object.assign(new Error('The operation was aborted.'), { name: 'AbortError' }))
+    await expect(apiFetch('/api/reports/statement/')).rejects.toMatchObject({ name: 'AbortError' })
+    expect(notifyNetworkErrorMock).not.toHaveBeenCalled()
   })
 
   it('shows toast on failed GET', async () => {
@@ -333,5 +340,14 @@ describe('api module', () => {
     const legacy = await fetchCursorListPage<{ id: number }>('/api/items/')
     expect(legacy.results).toEqual([{ id: 2 }])
     expect(legacy.next).toBeNull()
+  })
+
+  it('reads DRF field errors instead of a generic server error', async () => {
+    expect(await parseErrorBody(createJsonResponse(400, { month: ['Месяц ещё не наступил.'] }))).toBe('Месяц ещё не наступил.')
+    expect(
+      await parseErrorBody(createJsonResponse(400, { year: ['Укажите год.'], non_field_errors: ['Неверный период.'] })),
+    ).toBe('Укажите год. Неверный период.')
+    expect(await parseErrorBody(createJsonResponse(400, { detail: 'Нет доступа.' }))).toBe('Нет доступа.')
+    expect(await parseErrorBody(createJsonResponse(500, null))).toBe('Ошибка сервера (500)')
   })
 })

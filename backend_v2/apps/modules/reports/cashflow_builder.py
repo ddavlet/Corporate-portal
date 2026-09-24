@@ -4,7 +4,7 @@ from datetime import date
 from decimal import Decimal
 from typing import Any
 
-from django.db.models import Count, Q
+from django.db.models import Count, Q, Sum
 
 from apps.modules.bank_expenses.models import BankRevenue
 from apps.modules.cashier.models import CashRevenue
@@ -118,6 +118,7 @@ def _invest_return_cashflow_row(ir: InvestReturn) -> dict[str, Any] | None:
         "category": label,
         "purpose": label,
         "description": description,
+        "source": "invest_return",
     }
 
 
@@ -142,6 +143,9 @@ def _append_request_line_cashflow(
         "category": cat,
         "purpose": purpose,
         "description": str(req.description or ""),
+        "source": "request",
+        "request_id": str(req.id),
+        "vendor": str(req.vendor or ""),
     }
     if bucket == "operational":
         operational_expenses.append(item)
@@ -176,7 +180,7 @@ def compute_unassigned_payment_purposes_cashflow(*, tenant_id: int, cfg: dict[st
         qs = qs.none()
 
     rows = (qs.exclude(category__in=list(cat_exclude)) if cat_exclude else qs).values("payment_purpose").annotate(
-        c=Count("id")
+        c=Count("id"), s=Sum("amount")
     )
 
     out: list[dict[str, Any]] = []
@@ -184,7 +188,7 @@ def compute_unassigned_payment_purposes_cashflow(*, tenant_id: int, cfg: dict[st
         p = str(row["payment_purpose"] or "").strip()
         if not p or p in assigned:
             continue
-        out.append({"purpose": p, "count": int(row["c"])})
+        out.append({"purpose": p, "count": int(row["c"]), "amount": str(row["s"] or Decimal("0"))})
     out.sort(key=lambda x: (x["purpose"], -x["count"]))
     return out
 
@@ -232,6 +236,7 @@ def build_cashflow_payload_from_db(*, tenant, query_params: dict[str, Any]) -> d
                 "category": "Поступление в банк",
                 "purpose": "Поступление",
                 "description": str(br.payment_purpose or ""),
+                "source": "bank",
             }
         )
 
@@ -254,6 +259,7 @@ def build_cashflow_payload_from_db(*, tenant, query_params: dict[str, Any]) -> d
                 "purpose": str(cr.operation or ""),
                 "description": str(cr.counterparty or ""),
                 "category": cat or "Без категории",
+                "source": "cash",
             }
         )
 

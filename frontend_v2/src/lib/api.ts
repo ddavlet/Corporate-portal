@@ -130,6 +130,11 @@ async function maybeNotifyHttpError(res: Response, init: RequestInit, options?: 
   notifyApiError(msg)
 }
 
+/** A request cancelled through AbortController is not a connection problem. */
+function isAbortError(error: unknown): boolean {
+  return (error as { name?: unknown } | null)?.name === 'AbortError'
+}
+
 export async function apiFetch(input: string, init: RequestInit = {}, options?: ApiFetchOptions) {
   const tokens = getTokens()
   const headers = new Headers(init.headers || {})
@@ -146,7 +151,7 @@ export async function apiFetch(input: string, init: RequestInit = {}, options?: 
   try {
     res = await doFetch()
   } catch (e) {
-    if (!options?.silent) notifyNetworkError()
+    if (!options?.silent && !isAbortError(e)) notifyNetworkError()
     throw e
   }
 
@@ -161,7 +166,7 @@ export async function apiFetch(input: string, init: RequestInit = {}, options?: 
       try {
         res = await doFetch()
       } catch (e) {
-        if (!options?.silent) notifyNetworkError()
+        if (!options?.silent && !isAbortError(e)) notifyNetworkError()
         throw e
       }
     } else {
@@ -814,6 +819,14 @@ export async function fetchCursorListPage<T>(
   return { results: [], next: null, previous: null }
 }
 
+/** Messages of a DRF validation body such as `{ "month": ["…"], "non_field_errors": ["…"] }`, in field order. */
+function fieldErrorMessages(value: unknown): string[] {
+  if (typeof value === 'string') return value.trim() ? [value.trim()] : []
+  if (Array.isArray(value)) return value.flatMap(fieldErrorMessages)
+  if (value && typeof value === 'object') return Object.values(value as Record<string, unknown>).flatMap(fieldErrorMessages)
+  return []
+}
+
 export async function parseErrorBody(res: Response): Promise<string> {
   const json = await res.json().catch(() => null)
   if (json && typeof json === 'object') {
@@ -821,6 +834,8 @@ export async function parseErrorBody(res: Response): Promise<string> {
     if (typeof j.detail === 'string') return j.detail
     if (typeof j.message === 'string') return j.message
     if (typeof j.error === 'string') return j.error
+    const messages = fieldErrorMessages(j)
+    if (messages.length) return messages.slice(0, 3).join(' ')
   }
   return `Ошибка сервера (${res.status})`
 }
@@ -1012,6 +1027,7 @@ export type StructuredReportRow = {
   date: string | null
   amount: string
   direction: 'revenue' | 'expense'
+  section?: 'revenue' | 'operational' | 'other' | 'invest_returns'
   category?: string
   purpose: string
   description: string
@@ -1044,7 +1060,7 @@ export type PnlReportSettingsSnapshot = {
   invest_return_type_invest_returns?: string[]
 }
 
-export type PnlDiagnosticsItem = { purpose: string; count: number }
+export type PnlDiagnosticsItem = { purpose: string; count: number; amount?: string }
 
 export type PnlDiagnosticsApi = {
   unassigned_payment_purposes?: PnlDiagnosticsItem[]
@@ -1107,7 +1123,7 @@ export type CashflowOnlyReportConfig = {
 /** Rules for backend Cashflow (same keys as PnL; also returned in structured report as report_settings). */
 export type CashflowReportSettingsSnapshot = PnlReportSettingsSnapshot
 
-export type CashflowDiagnosticsItem = { purpose: string; count: number }
+export type CashflowDiagnosticsItem = { purpose: string; count: number; amount?: string }
 
 export type CashflowDiagnosticsApi = {
   unassigned_payment_purposes?: CashflowDiagnosticsItem[]

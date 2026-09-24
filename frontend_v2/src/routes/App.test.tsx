@@ -38,7 +38,7 @@ vi.mock('../ui/CorporateCardSectionPage', () => ({
   CorporateCardSectionPage: () => <div>CorporateCardSectionPage</div>,
 }))
 vi.mock('../ui/PayrollPage', () => ({ PayrollPage: () => <div>PayrollPage</div> }))
-vi.mock('../ui/ReportsPage', () => ({ ReportsPage: () => <div>ReportsPage</div> }))
+vi.mock('../ui/reports/ReportsPage', () => ({ ReportsPage: () => <div>ReportsPage</div> }))
 vi.mock('../ui/ClientsDebtPage', () => ({ ClientsDebtPage: () => <div>ClientsDebtPage</div> }))
 vi.mock('../ui/PayrollDocumentDetailPage', () => ({ PayrollDocumentDetailPage: () => <div>PayrollDocumentDetailPage</div> }))
 vi.mock('../ui/CashExpenseDetailPage', () => ({ CashExpenseDetailPage: () => <div>CashExpenseDetailPage</div> }))
