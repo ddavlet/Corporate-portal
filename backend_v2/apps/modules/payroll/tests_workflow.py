@@ -4,8 +4,10 @@ from django.contrib.auth import get_user_model
 from django.db import IntegrityError, transaction
 from django.test import TestCase
 from django.utils import timezone
+from rest_framework.test import APIRequestFactory
 
 from apps.modules.cashier.models import CashExpense
+from apps.modules.n8n_integration.serializers import N8nPayrollLineImportSerializer
 from apps.modules.payroll.models import Employee, PayrollDocument, PayrollLine, PayrollPayout
 from apps.modules.wallets.resolution import get_or_create_cash_wallet
 from apps.tenants.models import Tenant, TenantMembership, TenantModuleConfig, TenantUserRole
@@ -69,3 +71,34 @@ class PayrollRoleAccessTests(TestCase):
     def test_director_has_payroll_access(self):
         user = self._user(TenantUserRole.ROLE_DIRECTOR)
         self.assertTrue(role_allows_module(user=user, tenant=self.tenant, module_key="payroll"))
+
+
+class N8nPayrollEmployeeResolutionTests(TestCase):
+    def setUp(self):
+        self.tenant = Tenant.objects.create(name="N8nEmp", subdomain="n8n-emp", is_active=True)
+        self.request = APIRequestFactory().post("/")
+        self.request.tenant = self.tenant
+
+    def _import(self, **overrides):
+        data = {"doc_id": "1-000000009", "line_no": 1, "employee": "  Alice  ", "item": "Оклад", "sum": "100.00"}
+        data.update(overrides)
+        ser = N8nPayrollLineImportSerializer(data=data, context={"request": self.request})
+        ser.is_valid(raise_exception=True)
+        return ser.save()
+
+    def test_create_resolves_or_creates_employee(self):
+        existing = Employee.objects.create(tenant=self.tenant, full_name="Alice")
+        line = self._import()
+        self.assertEqual(line.employee_fk_id, existing.id)
+        line2 = self._import(line_no=2, employee="Bob")
+        self.assertEqual(line2.employee_fk.full_name, "Bob")
+        self.assertEqual(line2.document.status, PayrollDocument.STATUS_ACCEPTED)
+
+    def test_update_re_resolves_employee_when_name_changes(self):
+        line = self._import()
+        ser = N8nPayrollLineImportSerializer(
+            instance=line, data={"employee": "Carol"}, partial=True, context={"request": self.request}
+        )
+        ser.is_valid(raise_exception=True)
+        line = ser.save()
+        self.assertEqual(line.employee_fk.full_name, "Carol")
