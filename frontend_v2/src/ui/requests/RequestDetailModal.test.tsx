@@ -72,7 +72,7 @@ describe('RequestDetailContent attachment download', () => {
       </MemoryRouter>,
     )
 
-    fireEvent.click(screen.getByRole('button', { name: /файл/i }))
+    fireEvent.click(screen.getByRole('button', { name: /Эркин шаклдаги ҳужжат\.pdf/ }))
 
     await waitFor(() => expect(clickSpy).toHaveBeenCalledTimes(1))
 

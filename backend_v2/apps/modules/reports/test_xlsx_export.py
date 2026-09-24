@@ -318,7 +318,8 @@ class WorkbookSafetyTests(SimpleTestCase):
             "import apps.modules.reports.urls, apps.modules.reports.views, apps.modules.reports.services; "
             "print('reports-ok')"
         )
-        env = {**os.environ, "DJANGO_SETTINGS_MODULE": settings.SETTINGS_MODULE}
+        # settings.SETTINGS_MODULE is None under @override_settings, so take it from the environment.
+        env = {**os.environ, "DJANGO_SETTINGS_MODULE": os.environ.get("DJANGO_SETTINGS_MODULE", "config.settings")}
         result = subprocess.run(
             [sys.executable, "-c", script], cwd=settings.BASE_DIR, env=env, capture_output=True, text=True, timeout=120
         )
