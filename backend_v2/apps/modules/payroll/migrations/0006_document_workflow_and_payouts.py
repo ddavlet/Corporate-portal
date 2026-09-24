@@ -82,6 +82,7 @@ class Migration(migrations.Migration):
                 (
                     "cash_expense",
                     models.ForeignKey(
+                        db_index=False,
                         on_delete=django.db.models.deletion.PROTECT,
                         related_name="payroll_payouts",
                         to="cashier.cashexpense",

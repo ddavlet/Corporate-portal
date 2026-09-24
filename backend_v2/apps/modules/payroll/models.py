@@ -129,6 +129,7 @@ class PayrollPayout(models.Model):
         "cashier.CashExpense",
         on_delete=models.PROTECT,
         related_name="payroll_payouts",
+        db_index=False,
     )
     amount = models.DecimalField(max_digits=15, decimal_places=2)
     created_at = models.DateTimeField(default=timezone.now)
