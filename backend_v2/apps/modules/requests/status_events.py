@@ -3,6 +3,8 @@ from __future__ import annotations
 import logging
 from collections.abc import Callable
 
+from django.db import transaction
+
 from apps.modules.requests.models import Request
 
 logger = logging.getLogger(__name__)
@@ -48,10 +50,16 @@ def register_request_rejected_event_handler(handler: RequestRejectedEventHandler
 def dispatch_request_rejected_event_handlers(*, request_obj: Request) -> None:
     """
     Run REJECTED status handlers without breaking the approval flow on handler errors.
+
+    Each handler runs inside its own savepoint (`transaction.atomic()`), so a DB
+    error raised by a handler (e.g. IntegrityError) rolls back only that handler's
+    work instead of aborting the caller's outer transaction (which would otherwise
+    leave Postgres in a failed-transaction state and break the REJECTED status save).
     """
     for handler in REQUEST_REJECTED_EVENT_HANDLERS:
         try:
-            handler(request_obj=request_obj)
+            with transaction.atomic():
+                handler(request_obj=request_obj)
         except Exception:
             logger.exception(
                 "request_rejected_event handler failed handler=%s request_id=%s tenant_id=%s",
