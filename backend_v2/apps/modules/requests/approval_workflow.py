@@ -291,6 +291,13 @@ def confirm_approval_by_id(
             )
 
         if approval.step_type == Approval.STEP_TYPE_PAYMENT:
+            # Suppression is checked before looking at `decision`, so this intentionally
+            # blocks REJECTED on a suppressed payment step too (not just APPROVED) — a
+            # module that tracks payment itself (e.g. payroll portal payouts) owns
+            # closing this step via complete_request_payment_by_system; letting a manual
+            # REJECTED through here would fire REJECTED-status side effects (including
+            # payroll's own revert-to-draft handler) for a payment the portal, not this
+            # approval, is responsible for resolving.
             suppression_reason = payment_step_suppression_reason(request_obj=request_obj)
             if suppression_reason:
                 raise ValidationError({"detail": suppression_reason})

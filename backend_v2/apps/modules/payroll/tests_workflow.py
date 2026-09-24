@@ -125,6 +125,52 @@ class N8nPayrollEmployeeResolutionTests(TestCase):
         line = ser.save()
         self.assertEqual(line.employee_fk.full_name, "Carol")
 
+    def test_long_employee_name_skips_employee_fk_instead_of_500(self):
+        long_name = "A" * 201
+        line = self._import(employee=long_name)
+        self.assertIsNone(line.employee_fk)
+        # Raw name is still kept (PayrollLine.employee is an unbounded TextField).
+        self.assertEqual(line.employee, long_name)
+        self.assertFalse(Employee.objects.filter(tenant=self.tenant, full_name=long_name).exists())
+
+
+class N8nPayrollDocumentPayoutModeTests(TestCase):
+    def _import_line(self, tenant, **overrides):
+        request = APIRequestFactory().post("/")
+        request.tenant = tenant
+        data = {"doc_id": "1-000000050", "line_no": 1, "employee": "Alice", "item": "Оклад", "sum": "100.00"}
+        data.update(overrides)
+        ser = N8nPayrollLineImportSerializer(data=data, context={"request": request})
+        ser.is_valid(raise_exception=True)
+        return ser.save()
+
+    def test_new_n8n_document_follows_tenant_portal_payout_mode(self):
+        tenant = Tenant.objects.create(
+            name="N8nPortal", subdomain="n8n-portal", is_active=True,
+            payroll_payout_mode=Tenant.PAYROLL_PAYOUT_MODE_PORTAL,
+        )
+        line = self._import_line(tenant)
+        self.assertEqual(line.document.payout_mode, PayrollDocument.PAYOUT_MODE_PORTAL)
+
+    def test_new_n8n_document_follows_tenant_legacy_payout_mode(self):
+        tenant = Tenant.objects.create(name="N8nLegacy", subdomain="n8n-legacy", is_active=True)
+        self.assertEqual(tenant.payroll_payout_mode, Tenant.PAYROLL_PAYOUT_MODE_LEGACY)
+        line = self._import_line(tenant)
+        self.assertEqual(line.document.payout_mode, PayrollDocument.PAYOUT_MODE_LEGACY)
+
+    def test_existing_n8n_document_payout_mode_unaffected_by_later_update(self):
+        tenant = Tenant.objects.create(
+            name="N8nExisting", subdomain="n8n-existing", is_active=True,
+            payroll_payout_mode=Tenant.PAYROLL_PAYOUT_MODE_PORTAL,
+        )
+        doc = PayrollDocument.objects.create(
+            tenant=tenant, doc_id="1-000000051", payout_mode=PayrollDocument.PAYOUT_MODE_LEGACY
+        )
+        line = self._import_line(tenant, doc_id="1-000000051", line_no=2)
+        self.assertEqual(line.document_id, doc.pk)
+        doc.refresh_from_db()
+        self.assertEqual(doc.payout_mode, PayrollDocument.PAYOUT_MODE_LEGACY)
+
 
 def make_payroll_approval_chain(tenant, approver, payer=None):
     cfg = RequestApprovalConfig.objects.create(tenant=tenant)
@@ -253,3 +299,33 @@ class PayrollDraftWorkflowTests(TestCase):
         Request.objects.filter(pk=first.pk).update(status=Request.STATUS_REJECTED)
         again = maybe_create_linked_request(doc)
         self.assertEqual(again.pk, first.pk)
+
+
+class PayrollAcceptWithoutApprovalChainTests(TestCase):
+    """No make_payroll_approval_chain call in setUp — regression coverage for I1:
+    accepting a document for a tenant with no «Начисление ЗП» approval chain must not
+    leave the document ACCEPTED with a stuck DRAFT (never-routed) Request behind."""
+
+    def setUp(self):
+        self.tenant = Tenant.objects.create(name="NoChain", subdomain="no-chain", is_active=True)
+        self.user = User.objects.create_user(username="no-chain-user", password="x")
+        self.alice = Employee.objects.create(tenant=self.tenant, full_name="Alice")
+
+    def _draft(self):
+        return create_draft_document(
+            tenant=self.tenant, user=self.user, period_month=datetime.date(2026, 9, 1), kind="salary",
+            lines_data=[{"employee": self.alice, "sum": Decimal("100")}],
+        )
+
+    def test_accept_without_approval_chain_raises_and_rolls_back(self):
+        doc = self._draft()
+        with self.assertRaises(ValidationError) as ctx:
+            accept_document(document=doc, actor=self.user)
+        self.assertIn("цепочка согласования", str(ctx.exception))
+        doc.refresh_from_db()
+        self.assertEqual(doc.status, PayrollDocument.STATUS_DRAFT)
+        self.assertFalse(
+            Request.objects.filter(
+                tenant=self.tenant, expense_ref_id=doc.pk, expense_ref_target=Request.EXPENSE_REF_TARGET_PAYROLL
+            ).exists()
+        )

@@ -198,6 +198,18 @@ class N8nPayrollLineImportSerializer(serializers.ModelSerializer):
         name = str(raw_name or "").strip()
         if not name:
             return None
+        # Employee.full_name is max_length=200; a longer name (real-world garbage or a
+        # concatenated field from the n8n source) would otherwise raise a DataError
+        # (500) on an import that works fine today. Skip the employee_fk link instead —
+        # the raw name is still stored on PayrollLine.employee (a TextField, unbounded)
+        # so legacy/manual matching is unaffected.
+        if len(name) > 200:
+            logger.warning(
+                "n8n payroll: employee name exceeds 200 chars, skipping employee_fk link tenant_id=%s name=%r",
+                getattr(tenant, "id", None),
+                name,
+            )
+            return None
         employee, _ = Employee.objects.get_or_create(tenant=tenant, full_name=name)
         return employee
 
@@ -205,7 +217,13 @@ class N8nPayrollLineImportSerializer(serializers.ModelSerializer):
         line_id = validated_data.pop("id", None)
         doc_id = validated_data.pop("doc_id")
         tenant = self.context["request"].tenant
-        doc, _ = PayrollDocument.objects.get_or_create(tenant=tenant, doc_id=doc_id)
+        # New docs follow the tenant's current payout mode (switchable: n8n docs on a
+        # portal-mode tenant get portal payouts too); only applies on create, so a doc
+        # already imported keeps whatever mode it was created with even if the tenant's
+        # setting changes later.
+        doc, _ = PayrollDocument.objects.get_or_create(
+            tenant=tenant, doc_id=doc_id, defaults={"payout_mode": tenant.payroll_payout_mode}
+        )
         validated_data["employee_fk"] = self._resolve_employee(tenant, validated_data.get("employee"))
         if line_id is None:
             return PayrollLine.objects.create(document=doc, **validated_data)
@@ -215,7 +233,9 @@ class N8nPayrollLineImportSerializer(serializers.ModelSerializer):
         tenant = self.context["request"].tenant
         doc_id = validated_data.pop("doc_id", None)
         if doc_id is not None:
-            doc, _ = PayrollDocument.objects.get_or_create(tenant=tenant, doc_id=doc_id)
+            doc, _ = PayrollDocument.objects.get_or_create(
+                tenant=tenant, doc_id=doc_id, defaults={"payout_mode": tenant.payroll_payout_mode}
+            )
             validated_data["document"] = doc
         if "employee" in validated_data:
             validated_data["employee_fk"] = self._resolve_employee(tenant, validated_data["employee"])

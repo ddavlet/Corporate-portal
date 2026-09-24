@@ -141,6 +141,9 @@ class PayrollDocumentViewSet(PortalListViewSetMixin, viewsets.ReadOnlyModelViewS
             qs = qs.filter(has_request=False)
 
         if parse_bool_query(self.request, "missing_request"):
+            # Drafts and cancelled drafts have no linked Request by design — exclude
+            # them so they don't show up as "missing request" forever.
+            qs = qs.exclude(status__in=(PayrollDocument.STATUS_DRAFT, PayrollDocument.STATUS_CANCELLED))
             qs = filter_expenses_missing_request(qs, tenant=tenant, payment_type="", payroll=True)
 
         status_raw = (self.request.query_params.get("status") or "").strip()

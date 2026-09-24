@@ -213,6 +213,12 @@ def update_draft_document(*, document: PayrollDocument, period_month: date, kind
 def cancel_draft_document(*, document: PayrollDocument) -> PayrollDocument:
     with transaction.atomic():
         locked = _lock_draft(document)
+        # Defense in depth: a document should not normally be DRAFT while it has
+        # payouts (payouts require STATUS_ACCEPTED + portal payout_mode — see
+        # payouts._blocked_reason), but revert_document_to_draft_on_reject refuses to
+        # revert a doc with payouts for the same reason, so this mirrors that guard.
+        if PayrollPayout.objects.filter(document=locked).exists():
+            raise ValidationError({"detail": "По начислению уже есть выплаты."})
         locked.status = PayrollDocument.STATUS_CANCELLED
         locked.save(update_fields=["status"])
     return locked
@@ -269,4 +275,20 @@ def accept_document(*, document: PayrollDocument, actor) -> Request | None:
         locked.payout_mode = locked.tenant.payroll_payout_mode
         locked.save(update_fields=["status", "payout_mode"])
         request_obj = maybe_create_linked_request(locked, actor_user=actor, force=True)
+        # Without an approval chain configured for «Начисление ЗП», create_approval_rows_
+        # for_request creates zero rows and the Request is left in DRAFT with nothing to
+        # move it forward — it would then be soft-deleted by requests/draft_retention
+        # .purge_expired_draft_requests after 10 days, leaving the document accepted with
+        # no way to pay or fix it. Fail loudly instead and roll back (document stays
+        # draft, no orphaned Request is persisted) so the tenant can configure approval
+        # and retry.
+        if request_obj is None or request_obj.status == Request.STATUS_DRAFT:
+            raise ValidationError(
+                {
+                    "detail": (
+                        "Не настроена цепочка согласования для заявок «Начисление ЗП». "
+                        "Настройте согласование и повторите принятие."
+                    )
+                }
+            )
     return request_obj

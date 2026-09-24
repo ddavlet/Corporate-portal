@@ -510,9 +510,12 @@ class TenantPayrollDocIdFormatView(APIView):
 
 class TenantPayrollSettingsView(APIView):
     """
-    Read/update payroll behaviour settings unrelated to doc_id matching — whether
-    creating an accrual (native or n8n-imported) also auto-creates a linked payment
-    Request, and the tenant's payroll payout mode (portal payouts vs legacy/manual).
+    Read/update payroll behaviour settings unrelated to doc_id matching:
+    create_payment_request_on_payroll_accrual only affects accruals imported from n8n
+    (whether importing one also auto-creates a linked payment Request) — a portal-
+    created accrual always creates its Request on acceptance regardless of this flag
+    (see payroll.services.accept_document / maybe_create_linked_request force=True).
+    Also holds the tenant's payroll payout mode (portal payouts vs legacy/manual).
     Requires payroll module; admin or director to change.
     """
 

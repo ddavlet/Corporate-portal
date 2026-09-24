@@ -141,13 +141,49 @@ class PayrollPayoutTests(TestCase):
                 items=[{"employee_id": self.alice.id, "amount": Decimal("1")}], actor=self.user,
             )
 
-    def test_n8n_document_limit_is_sum_of_employee_lines(self, _tg):
+    def test_limit_is_sum_of_employee_lines(self, _tg):
         doc, req = self._approved_doc()
         PayrollLine.objects.create(document=doc, line_no=3, employee="Alice", employee_fk=self.alice, item="Премия", sum="50")
         # request amount no longer equals lines total, but limit logic must use lines per employee
         state = payout_state(doc)
         alice_row = next(r for r in state["employees"] if r["employee_id"] == self.alice.id)
         self.assertEqual(alice_row["accrued"], Decimal("750.00"))
+
+    def test_n8n_document_with_approved_request_payout_limit_sums_both_lines(self, _tg):
+        # Real n8n-imported doc (I3): source=n8n, payout_mode=portal, 2 lines for the
+        # same employee, employee_fk set — not a portal-created draft. Exercises the
+        # same per-employee limit logic as test_limit_is_sum_of_employee_lines above,
+        # but through the actual n8n import + accept-equivalent path instead of a
+        # portal draft.
+        doc = PayrollDocument.objects.create(
+            tenant=self.tenant,
+            doc_id="1-000000777",
+            source=PayrollDocument.SOURCE_N8N,
+            payout_mode=PayrollDocument.PAYOUT_MODE_PORTAL,
+        )
+        PayrollLine.objects.create(
+            document=doc, line_no=1, employee="Alice", employee_fk=self.alice, item="Оклад", sum="400"
+        )
+        PayrollLine.objects.create(
+            document=doc, line_no=2, employee="Alice", employee_fk=self.alice, item="Премия", sum="150"
+        )
+        from apps.modules.payroll.services import maybe_create_linked_request
+
+        req = maybe_create_linked_request(doc, actor_user=self.user, force=True)
+        a1 = Approval.objects.get(request=req, step=1)
+        confirm_approval_by_id(tenant=self.tenant, approval_id=a1.id, approver_user_id=self.approver.id)
+        req.refresh_from_db()
+        self.assertEqual(req.status, Request.STATUS_APPROVED)
+        doc.refresh_from_db()
+
+        state = payout_state(doc)
+        self.assertTrue(state["can_pay"], state["reason"])
+        alice_row = next(r for r in state["employees"] if r["employee_id"] == self.alice.id)
+        self.assertEqual(alice_row["accrued"], Decimal("550.00"))
+        self.assertEqual(state["remaining_total"], Decimal("550.00"))
+
+        exp = self._pay(doc, [(self.alice, "550")])
+        self.assertEqual(exp.amount, Decimal("550.00"))
 
     def test_close_underpaid(self, _tg):
         doc, req = self._approved_doc()

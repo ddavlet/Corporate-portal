@@ -584,7 +584,11 @@ def collect_payroll_channel_payload(
     if not _tenant_module_enabled(tenant=tenant, module_key=PAYROLL_MODULE_KEY):
         return {"enabled": False, **base}
 
-    qs = PayrollDocument.objects.filter(tenant=tenant)
+    # Drafts (never accepted) and cancelled drafts have no linked payment Request by
+    # design — they'd otherwise show up here as "missing paid request" forever.
+    qs = PayrollDocument.objects.filter(tenant=tenant).exclude(
+        status__in=(PayrollDocument.STATUS_DRAFT, PayrollDocument.STATUS_CANCELLED)
+    )
     qs = _apply_date_filter_payroll(qs, date_from=date_from, date_to=date_to)
     qs = annotate_payroll_compliance(qs, tenant=tenant).order_by("-created_at", "-id")[: limit * 4]
 

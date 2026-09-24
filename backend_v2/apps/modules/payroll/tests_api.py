@@ -165,6 +165,28 @@ class PayrollWorkflowApiTests(APITestCase):
         res = self.client.delete(f"/api/cash/expenses/{exp.pk}/", HTTP_HOST=self.host)
         self.assertEqual(res.status_code, 400, res.content)
 
+    def test_missing_request_filter_excludes_draft_and_cancelled(self, _tg):
+        self.client.force_authenticate(self.director)
+        draft = create_draft_document(
+            tenant=self.tenant, user=self.director, period_month=datetime.date(2026, 9, 1), kind="salary",
+            lines_data=[{"employee": self.alice, "sum": Decimal("1")}],
+        )
+        res = self.client.get("/api/payroll/documents/?missing_request=true", HTTP_HOST=self.host)
+        self.assertEqual(res.status_code, 200, res.content)
+        self.assertNotIn(draft.pk, [r["id"] for r in res.data["results"]])
+
+        # Bypass the action=='list' auto-exclude-cancelled fallback (which would mask
+        # the bug on its own) by filtering status=cancelled explicitly alongside
+        # missing_request=true: without the fix in views.py the missing_request branch
+        # wouldn't exclude cancelled docs, and this combination would still return it.
+        cancel_res = self.client.post(f"/api/payroll/documents/{draft.pk}/cancel/", HTTP_HOST=self.host)
+        self.assertEqual(cancel_res.status_code, 200, cancel_res.content)
+        res = self.client.get(
+            "/api/payroll/documents/?missing_request=true&status=cancelled", HTTP_HOST=self.host
+        )
+        self.assertEqual(res.status_code, 200, res.content)
+        self.assertNotIn(draft.pk, [r["id"] for r in res.data["results"]])
+
     def test_tenant_payout_mode_setting(self, _tg):
         self.client.force_authenticate(self.director)
         res = self.client.put(
