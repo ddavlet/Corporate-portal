@@ -28,6 +28,7 @@ import { useInfiniteList } from '../lib/useInfiniteList'
 import { ListInfiniteScrollFooter } from './ListInfiniteScrollFooter'
 import { labelBlockAboveField } from './formSpacing'
 import { PayrollDocumentFormModal } from './payroll/PayrollDocumentFormModal'
+import { PAYROLL_STATUS_COLORS } from './payroll/payrollStatus'
 
 type PayrollDocumentRow = {
   id: number
@@ -43,13 +44,6 @@ type PayrollDocumentRow = {
   period_month: string | null
   kind: PayrollKind | null
   paid_total: string | number
-}
-
-const PAYROLL_STATUS_COLORS: Record<PayrollDocumentStatus, string> = {
-  draft: 'default',
-  accepted: 'blue',
-  closed: 'green',
-  cancelled: 'red',
 }
 
 function formatPeriodMonth(value: string | null): string {
