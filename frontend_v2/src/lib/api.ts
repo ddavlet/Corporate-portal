@@ -329,43 +329,6 @@ export async function updateTenantPayrollSettings(
   return json
 }
 
-export type PayrollLineCreatePayload = {
-  employee: string
-  item: string
-  description?: string
-  sum: number
-  days_plan?: number | null
-  days_fact?: number | null
-  period_start?: string | null
-  period_end?: string | null
-}
-
-export type PayrollDocumentCreatePayload = {
-  lines: PayrollLineCreatePayload[]
-}
-
-export type PayrollDocumentCreateResponse = {
-  id: number
-  doc_id: string | null
-  created_at: string
-  total_sum: string | number
-  lines: unknown[]
-}
-
-export async function createPayrollDocument(
-  payload: PayrollDocumentCreatePayload,
-): Promise<PayrollDocumentCreateResponse> {
-  const res = await apiFetch('/api/payroll/documents/create/', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
-  })
-  if (!res.ok) throw new Error(await parseErrorBody(res))
-  const json = (await res.json().catch(() => null)) as PayrollDocumentCreateResponse | null
-  if (!json) throw new Error('Пустой ответ от сервера')
-  return json
-}
-
 export type PayrollKind = 'salary' | 'advance' | 'bonus'
 export const PAYROLL_KIND_LABELS: Record<PayrollKind, string> = {
   salary: 'Зарплата',

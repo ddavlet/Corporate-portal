@@ -1,14 +1,12 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import {
   Alert,
   Button,
   Card,
   Collapse,
   DatePicker,
-  Form,
   Input,
   InputNumber,
-  Modal,
   Select,
   Skeleton,
   Space,
@@ -16,29 +14,51 @@ import {
   Tag,
   Tooltip,
   Typography,
-  message,
 } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
 import type { Dayjs } from 'dayjs'
-import { DeleteOutlined, PlusOutlined } from '@ant-design/icons'
 import { useNavigate } from 'react-router-dom'
 import {
-  createPayrollDocument,
-  type PayrollLineCreatePayload,
+  PAYROLL_STATUS_LABELS,
+  type PayrollDocumentDetailDto,
+  type PayrollDocumentStatus,
+  type PayrollKind,
 } from '../lib/api'
 import { useInfiniteList } from '../lib/useInfiniteList'
 import { ListInfiniteScrollFooter } from './ListInfiniteScrollFooter'
 import { labelBlockAboveField } from './formSpacing'
+import { PayrollDocumentFormModal } from './payroll/PayrollDocumentFormModal'
 
 type PayrollDocumentRow = {
   id: number
   doc_id: string | null
+  label: string
   created_at: string
   total_sum: string | number
   lines_count: number
   has_request?: boolean
   has_paid_request?: boolean
   matched_request_id?: number | null
+  status: PayrollDocumentStatus
+  period_month: string | null
+  kind: PayrollKind | null
+  paid_total: string | number
+}
+
+const PAYROLL_STATUS_COLORS: Record<PayrollDocumentStatus, string> = {
+  draft: 'default',
+  accepted: 'blue',
+  closed: 'green',
+  cancelled: 'red',
+}
+
+function formatPeriodMonth(value: string | null): string {
+  if (!value) return '-'
+  const parsed = new Date(value)
+  if (Number.isNaN(parsed.getTime())) return '-'
+  const month = String(parsed.getUTCMonth() + 1).padStart(2, '0')
+  const year = parsed.getUTCFullYear()
+  return `${month}.${year}`
 }
 
 const dateFormatterTashkent = new Intl.DateTimeFormat('ru-RU', {
@@ -59,121 +79,6 @@ function compareDateStrings(a?: string | null, b?: string | null): number {
   return String(a || '').localeCompare(String(b || ''))
 }
 
-type CreatePayrollLineFormValue = {
-  employee: string
-  item: string
-  description?: string
-  sum: number
-  days_plan?: number | null
-  days_fact?: number | null
-  period?: [Dayjs, Dayjs] | null
-}
-
-function CreatePayrollDocumentModal({
-  open,
-  onClose,
-  onCreated,
-}: {
-  open: boolean
-  onClose: () => void
-  onCreated: () => void
-}) {
-  const [form] = Form.useForm<{ lines: CreatePayrollLineFormValue[] }>()
-  const [saving, setSaving] = useState(false)
-
-  const onSubmit = async () => {
-    try {
-      const values = await form.validateFields()
-      setSaving(true)
-      const lines: PayrollLineCreatePayload[] = values.lines.map((line) => ({
-        employee: line.employee,
-        item: line.item,
-        description: line.description,
-        sum: line.sum,
-        days_plan: line.days_plan ?? null,
-        days_fact: line.days_fact ?? null,
-        period_start: line.period?.[0]?.format('YYYY-MM-DD') ?? null,
-        period_end: line.period?.[1]?.format('YYYY-MM-DD') ?? null,
-      }))
-      await createPayrollDocument({ lines })
-      message.success('Начисление создано')
-      form.resetFields()
-      onCreated()
-      onClose()
-    } catch (e: unknown) {
-      if (e && typeof e === 'object' && 'errorFields' in e) return
-      message.error(e instanceof Error ? e.message : 'Ошибка создания')
-    } finally {
-      setSaving(false)
-    }
-  }
-
-  return (
-    <Modal
-      title="Создать начисление"
-      open={open}
-      onCancel={onClose}
-      onOk={() => void onSubmit()}
-      confirmLoading={saving}
-      width={900}
-      okText="Создать"
-      destroyOnClose
-    >
-      <Form form={form} layout="vertical" initialValues={{ lines: [{}] }}>
-        <Form.List name="lines">
-          {(fields, { add, remove }) => (
-            <Space direction="vertical" style={{ display: 'flex' }} size={12}>
-              {fields.map((field) => (
-                <Space key={field.key} align="baseline" wrap>
-                  <Form.Item
-                    {...field}
-                    name={[field.name, 'employee']}
-                    rules={[{ required: true, message: 'ФИО обязательно' }]}
-                  >
-                    <Input placeholder="Сотрудник (ФИО)" style={{ width: 200 }} />
-                  </Form.Item>
-                  <Form.Item
-                    {...field}
-                    name={[field.name, 'item']}
-                    rules={[{ required: true, message: 'Вид начисления обязателен' }]}
-                  >
-                    <Input placeholder="Вид (Salary / Bonus…)" style={{ width: 160 }} />
-                  </Form.Item>
-                  <Form.Item {...field} name={[field.name, 'description']}>
-                    <Input placeholder="Описание" style={{ width: 160 }} />
-                  </Form.Item>
-                  <Form.Item
-                    {...field}
-                    name={[field.name, 'sum']}
-                    rules={[{ required: true, message: 'Сумма обязательна' }]}
-                  >
-                    <InputNumber placeholder="Сумма" min={0} style={{ width: 130 }} />
-                  </Form.Item>
-                  <Form.Item {...field} name={[field.name, 'days_plan']}>
-                    <InputNumber placeholder="Дни план" min={0} style={{ width: 100 }} />
-                  </Form.Item>
-                  <Form.Item {...field} name={[field.name, 'days_fact']}>
-                    <InputNumber placeholder="Дни факт" min={0} style={{ width: 100 }} />
-                  </Form.Item>
-                  <Form.Item {...field} name={[field.name, 'period']}>
-                    <DatePicker.RangePicker placeholder={['Период от', 'Период до']} />
-                  </Form.Item>
-                  {fields.length > 1 ? (
-                    <Button icon={<DeleteOutlined />} onClick={() => remove(field.name)} />
-                  ) : null}
-                </Space>
-              ))}
-              <Button type="dashed" icon={<PlusOutlined />} onClick={() => add()}>
-                Добавить строку
-              </Button>
-            </Space>
-          )}
-        </Form.List>
-      </Form>
-    </Modal>
-  )
-}
-
 export function PayrollPage() {
   const navigate = useNavigate()
   const [search, setSearch] = useState('')
@@ -184,6 +89,7 @@ export function PayrollPage() {
   const [amountMin, setAmountMin] = useState<number | null>(null)
   const [amountMax, setAmountMax] = useState<number | null>(null)
   const [requestFilter, setRequestFilter] = useState<string | undefined>(undefined)
+  const [statusFilter, setStatusFilter] = useState<PayrollDocumentStatus | undefined>(undefined)
   const [createModalOpen, setCreateModalOpen] = useState(false)
 
   const listUrl = useMemo(() => {
@@ -204,9 +110,20 @@ export function PayrollPage() {
     if (requestFilter === 'with_request') params.set('has_request', '1')
     if (requestFilter === 'without_request') params.set('has_request', '0')
     if (requestFilter === 'unpaid') params.set('missing_request', '1')
+    if (statusFilter) params.set('status', statusFilter)
     const q = params.toString()
     return q ? `/api/payroll/documents/?${q}` : '/api/payroll/documents/'
-  }, [docIdFilter, employeeSearch, periodRange, createdRange, amountMin, amountMax, search, requestFilter])
+  }, [
+    docIdFilter,
+    employeeSearch,
+    periodRange,
+    createdRange,
+    amountMin,
+    amountMax,
+    search,
+    requestFilter,
+    statusFilter,
+  ])
 
   const {
     items: rows,
@@ -215,21 +132,34 @@ export function PayrollPage() {
     hasMore,
     loadingMore,
     sentinelRef,
-    reload,
   } = useInfiniteList<PayrollDocumentRow>({ url: listUrl })
 
   const columns: ColumnsType<PayrollDocumentRow> = useMemo(
     () => [
       {
-        title: 'Документ (doc_id)',
-        dataIndex: 'doc_id',
-        key: 'doc_id',
-        sorter: (a, b) => String(a.doc_id || '').localeCompare(String(b.doc_id || '')),
-        render: (v: string | null, r) => (
+        title: 'Номер',
+        dataIndex: 'label',
+        key: 'label',
+        sorter: (a, b) => String(a.label || '').localeCompare(String(b.label || '')),
+        render: (v: string, r) => (
           <Button type="link" onClick={() => navigate(`/payroll/${r.id}`)} style={{ padding: 0 }}>
-            {v || 'Без номера (создано в портале)'}
+            {v || r.doc_id || 'Без номера (создано в портале)'}
           </Button>
         ),
+      },
+      {
+        title: 'Статус',
+        dataIndex: 'status',
+        key: 'status',
+        width: 120,
+        render: (v: PayrollDocumentStatus) => <Tag color={PAYROLL_STATUS_COLORS[v]}>{PAYROLL_STATUS_LABELS[v]}</Tag>,
+      },
+      {
+        title: 'Период',
+        dataIndex: 'period_month',
+        key: 'period_month',
+        width: 100,
+        render: (v: string | null) => formatPeriodMonth(v),
       },
       {
         title: 'Дата создания',
@@ -254,6 +184,15 @@ export function PayrollPage() {
         sorter: (a, b) => Number(a.total_sum) - Number(b.total_sum),
         render: (v: string | number) =>
           Number(v).toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
+      },
+      {
+        title: 'Выплачено',
+        key: 'paid_total',
+        width: 160,
+        render: (_, r) =>
+          `${Number(r.paid_total).toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} / ${Number(
+            r.total_sum,
+          ).toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`,
       },
       {
         title: 'Заявка',
@@ -283,6 +222,7 @@ export function PayrollPage() {
     amountMin,
     amountMax,
     requestFilter,
+    statusFilter,
   ].filter(Boolean).length
 
   return (
@@ -371,6 +311,17 @@ export function PayrollPage() {
                       { value: 'unpaid', label: 'Не оплачено' },
                     ]}
                   />
+                  <div>
+                    <Typography.Text style={labelBlockAboveField}>Статус</Typography.Text>
+                    <Select
+                      placeholder="Статус"
+                      allowClear
+                      style={{ width: 200 }}
+                      value={statusFilter}
+                      onChange={setStatusFilter}
+                      options={Object.entries(PAYROLL_STATUS_LABELS).map(([value, label]) => ({ value, label }))}
+                    />
+                  </div>
                   <Button
                     onClick={() => {
                       setDocIdFilter('')
@@ -380,6 +331,7 @@ export function PayrollPage() {
                       setAmountMin(null)
                       setAmountMax(null)
                       setRequestFilter(undefined)
+                      setStatusFilter(undefined)
                     }}
                   >
                     Сбросить фильтры
@@ -408,10 +360,10 @@ export function PayrollPage() {
           />
         </>
       ) : null}
-      <CreatePayrollDocumentModal
+      <PayrollDocumentFormModal
         open={createModalOpen}
         onClose={() => setCreateModalOpen(false)}
-        onCreated={() => void reload()}
+        onSaved={(doc: PayrollDocumentDetailDto) => navigate(`/payroll/${doc.id}`)}
       />
     </Card>
   )
