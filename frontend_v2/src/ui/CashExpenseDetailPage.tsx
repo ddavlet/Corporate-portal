@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react'
-import { Alert, Button, Card, Descriptions, Skeleton, Space, Tag, Typography } from 'antd'
-import { useNavigate, useParams } from 'react-router-dom'
+import { Alert, Button, Card, Descriptions, Skeleton, Space, Table, Tag, Typography } from 'antd'
+import { useNavigate, useParams, Link } from 'react-router-dom'
 import { requestReturnState } from '../lib/requestNavigation'
 import { RequestReturnBackButton } from './requests/RequestReturnBackButton'
-import { apiFetch } from '../lib/api'
+import { apiFetch, getCashExpensePayrollPayouts, type CashExpensePayrollPayoutDto } from '../lib/api'
 import { NoteCreateModal } from './NoteCreateModal'
 import { renderExpenseRequestStatusTag } from './expenseRequestStatus'
+import { useModuleAccess } from './moduleAccess'
 
 type CashExpenseDetail = {
   id: number
@@ -67,10 +68,12 @@ function formatExpenseCalendar(y: number, m: number, d: number): string {
 export function CashExpenseDetailPage() {
   const navigate = useNavigate()
   const { id } = useParams<{ id: string }>()
+  const { hasAccess } = useModuleAccess()
   const [detail, setDetail] = useState<CashExpenseDetail | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [openNoteModal, setOpenNoteModal] = useState(false)
+  const [payrollPayouts, setPayrollPayouts] = useState<CashExpensePayrollPayoutDto[] | null>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -99,6 +102,27 @@ export function CashExpenseDetailPage() {
       cancelled = true
     }
   }, [id])
+
+  useEffect(() => {
+    if (!detail?.id) {
+      setPayrollPayouts(null)
+      return
+    }
+    let cancelled = false
+    ;(async () => {
+      try {
+        const payouts = await getCashExpensePayrollPayouts(detail.id)
+        if (!cancelled) setPayrollPayouts(payouts)
+      } catch (e) {
+        // модуль ЗП может быть выключен или недоступен по роли — блок просто не показываем
+        console.warn('getCashExpensePayrollPayouts failed', e)
+        if (!cancelled) setPayrollPayouts(null)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [detail?.id])
 
   return (
     <Card>
@@ -165,6 +189,33 @@ export function CashExpenseDetailPage() {
                 ? `Связанная заявка: #${detail.matched_request_id}`
                 : 'Связанная заявка не найдена'}
             </Typography.Text>
+            {payrollPayouts && payrollPayouts.length > 0 ? (
+              <Card title="Выплаты ЗП" size="small">
+                <Typography.Paragraph style={{ marginBottom: 12 }}>
+                  Начисление{' '}
+                  {hasAccess('payroll') ? (
+                    <Link to={`/payroll/${payrollPayouts[0].document_id}`}>{payrollPayouts[0].document_label}</Link>
+                  ) : (
+                    payrollPayouts[0].document_label
+                  )}
+                </Typography.Paragraph>
+                <Table<CashExpensePayrollPayoutDto>
+                  rowKey={(r) => `${r.document_id}:${r.employee_id}`}
+                  size="small"
+                  pagination={false}
+                  dataSource={payrollPayouts}
+                  columns={[
+                    { title: 'Сотрудник', dataIndex: 'full_name' },
+                    {
+                      title: 'Сумма',
+                      dataIndex: 'amount',
+                      render: (value: string) =>
+                        Number(value).toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
+                    },
+                  ]}
+                />
+              </Card>
+            ) : null}
           </>
         ) : null}
       </Space>
