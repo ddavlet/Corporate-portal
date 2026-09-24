@@ -2362,7 +2362,8 @@ class N8nBankStatementDuplicateTests(APITestCase):
 )
 class N8nBankExpenseReassignUnmatchedTests(APITestCase):
     """Cross-tenant reconciliation: move an unmatched BankExpense to whichever
-    tenant actually has its request, fixing wallet/vendor and linking it there."""
+    tenant actually has its request, fixing vendor and linking it there; the
+    wallet (the account the money left) is kept."""
 
     def setUp(self):
         su, _ = User.objects.update_or_create(pk=1, defaults={"username": "n8n_system"})
@@ -2433,7 +2434,7 @@ class N8nBankExpenseReassignUnmatchedTests(APITestCase):
 
         expense.refresh_from_db()
         self.assertEqual(expense.tenant_id, self.other_tenant.id)
-        self.assertEqual(expense.wallet.tenant_id, self.other_tenant.id)
+        self.assertEqual(expense.wallet_id, self.wallet.id)
         self.assertIsNotNone(expense.vendor_id)
         self.assertEqual(expense.vendor.tenant_id, self.other_tenant.id)
         self.assertEqual(expense.vendor.account_number, "99988877")
@@ -2492,7 +2493,7 @@ class N8nBankExpenseReassignUnmatchedTests(APITestCase):
         self.assertEqual(expense.tenant_id, self.other_tenant.id)
         self.assertIsNone(expense.vendor_id)
 
-    def test_wallet_get_or_create_is_idempotent_across_reassignments(self):
+    def test_reassignment_keeps_source_wallet(self):
         self._make_request(tenant=self.other_tenant, doc_no="RA-6A", amount="100.00")
         self._make_request(tenant=self.other_tenant, doc_no="RA-6B", amount="200.00")
         expense_1 = self._make_expense(doc_no="RA-6A", amount="100.00")
@@ -2506,9 +2507,10 @@ class N8nBankExpenseReassignUnmatchedTests(APITestCase):
         expense_2.refresh_from_db()
         self.assertEqual(expense_1.tenant_id, self.other_tenant.id)
         self.assertEqual(expense_2.tenant_id, self.other_tenant.id)
-        self.assertEqual(expense_1.wallet_id, expense_2.wallet_id)
-        self.assertEqual(
-            Wallet.objects.filter(tenant=self.other_tenant, wallet_type=Wallet.Type.BANK).count(), 1
+        self.assertEqual(expense_1.wallet_id, self.wallet.id)
+        self.assertEqual(expense_2.wallet_id, self.wallet.id)
+        self.assertFalse(
+            Wallet.objects.filter(tenant=self.other_tenant, wallet_type=Wallet.Type.BANK).exists()
         )
 
     def test_unlinked_local_request_blocks_move(self):
