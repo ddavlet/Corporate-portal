@@ -37,26 +37,34 @@ export function PayrollPayoutModal({
   const [loading, setLoading] = useState(false)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [showValidation, setShowValidation] = useState(false)
 
   useEffect(() => {
     if (!open) return
+    let cancelled = false
     setSelectedDoc(documentId)
     setError(null)
     getCashRegisters()
       .then((list) => {
+        if (cancelled) return
         const uzs = list.filter((r) => r.is_active && r.currency === 'UZS')
         setRegisters(uzs)
         setWalletId((uzs.find((r) => r.is_default_for_currency) ?? uzs[0])?.wallet_id)
       })
-      .catch((e: unknown) => setError(e instanceof Error ? e.message : 'Не удалось загрузить кассы'))
+      .catch((e: unknown) => !cancelled && setError(e instanceof Error ? e.message : 'Не удалось загрузить кассы'))
     if (documentId === undefined) {
       listPayablePayrollDocuments()
-        .then(setPayable)
-        .catch((e: unknown) => setError(e instanceof Error ? e.message : 'Не удалось загрузить начисления'))
+        .then((list) => !cancelled && setPayable(list))
+        .catch((e: unknown) => !cancelled && setError(e instanceof Error ? e.message : 'Не удалось загрузить начисления'))
+    }
+    return () => {
+      cancelled = true
     }
   }, [open, documentId])
 
   useEffect(() => {
+    setError(null)
+    setShowValidation(false)
     if (!open || selectedDoc === undefined) {
       setState(null)
       setRows([])
@@ -97,8 +105,6 @@ export function PayrollPayoutModal({
     if (!walletId) return 'Выберите кассу'
     return null
   }, [rows, walletId])
-
-  const [showValidation, setShowValidation] = useState(false)
 
   const onSubmit = async () => {
     setShowValidation(true)
