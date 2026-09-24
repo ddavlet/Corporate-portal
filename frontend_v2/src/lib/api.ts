@@ -304,6 +304,7 @@ export async function updateTenantPayrollDocIdFormat(
 
 export type TenantPayrollSettingsDto = {
   create_payment_request_on_payroll_accrual: boolean
+  payroll_payout_mode?: 'portal' | 'legacy'
 }
 
 export async function getTenantPayrollSettings(): Promise<TenantPayrollSettingsDto> {
@@ -363,6 +364,167 @@ export async function createPayrollDocument(
   const json = (await res.json().catch(() => null)) as PayrollDocumentCreateResponse | null
   if (!json) throw new Error('Пустой ответ от сервера')
   return json
+}
+
+export type PayrollKind = 'salary' | 'advance' | 'bonus'
+export const PAYROLL_KIND_LABELS: Record<PayrollKind, string> = {
+  salary: 'Зарплата',
+  advance: 'Аванс',
+  bonus: 'Премия',
+}
+export type PayrollDocumentStatus = 'draft' | 'accepted' | 'closed' | 'cancelled'
+export const PAYROLL_STATUS_LABELS: Record<PayrollDocumentStatus, string> = {
+  draft: 'Черновик',
+  accepted: 'Принято',
+  closed: 'Закрыто',
+  cancelled: 'Отменено',
+}
+
+export type EmployeeDto = { id: number; full_name: string }
+
+export type PayrollDraftPayload = {
+  period_month: string
+  kind: PayrollKind
+  lines: { employee_id: number; sum: string }[]
+}
+
+export type PayrollDocumentLineDto = {
+  id: number
+  line_no: number
+  employee: string
+  employee_id: number | null
+  item: string
+  description?: string | null
+  sum: string
+  days_plan: number | null
+  days_fact: number | null
+  period_start: string | null
+  period_end: string | null
+  approval: boolean
+}
+
+export type PayrollDocumentDetailDto = {
+  id: number
+  doc_id: string | null
+  label: string
+  created_at: string
+  total_sum: string
+  status: PayrollDocumentStatus
+  source: 'portal' | 'n8n'
+  payout_mode: 'portal' | 'legacy'
+  period_month: string | null
+  kind: PayrollKind | null
+  closed_underpaid_at: string | null
+  close_comment: string
+  current_request: { id: number; status: string } | null
+  paid_total: string
+  remaining_total: string
+  lines: PayrollDocumentLineDto[]
+}
+
+export type PayrollPayoutStateDto = {
+  can_pay: boolean
+  reason: string | null
+  employees: { employee_id: number; full_name: string; accrued: string; paid: string; remaining: string }[]
+  accrued_total: string
+  paid_total: string
+  remaining_total: string
+  expenses: { cash_expense_id: number; date: string; amount: string; wallet_id: number }[]
+  request: { id: number; status: string } | null
+}
+
+export type PayrollPayoutPayload = {
+  wallet_id: number
+  date: string
+  items: { employee_id: number; amount: string }[]
+}
+
+export type PayablePayrollDocumentDto = {
+  id: number
+  label: string
+  period_month: string | null
+  kind: PayrollKind | null
+  remaining_total: string
+}
+
+export type CashExpensePayrollPayoutDto = {
+  document_id: number
+  document_label: string
+  employee_id: number
+  full_name: string
+  amount: string
+}
+
+async function payrollJson<T>(url: string, init?: RequestInit): Promise<T> {
+  const res = await apiFetch(url, init)
+  if (!res.ok) throw new Error(await parseErrorBody(res))
+  const json = (await res.json().catch(() => null)) as T | null
+  if (json === null) throw new Error('Пустой ответ от сервера')
+  return json
+}
+
+function jsonInit(method: string, body?: unknown): RequestInit {
+  return {
+    method,
+    headers: { 'Content-Type': 'application/json' },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  }
+}
+
+export function listEmployees(search = ''): Promise<EmployeeDto[]> {
+  const q = search.trim() ? `?search=${encodeURIComponent(search.trim())}` : ''
+  return payrollJson<EmployeeDto[]>(`/api/payroll/employees/${q}`)
+}
+
+export function createEmployee(full_name: string): Promise<EmployeeDto> {
+  return payrollJson<EmployeeDto>('/api/payroll/employees/create/', jsonInit('POST', { full_name }))
+}
+
+export function createPayrollDraft(payload: PayrollDraftPayload): Promise<PayrollDocumentDetailDto> {
+  return payrollJson('/api/payroll/documents/create/', jsonInit('POST', payload))
+}
+
+export function updatePayrollDraft(id: number, payload: PayrollDraftPayload): Promise<PayrollDocumentDetailDto> {
+  return payrollJson(`/api/payroll/documents/${id}/`, jsonInit('PATCH', payload))
+}
+
+export function getPayrollDocument(id: number | string): Promise<PayrollDocumentDetailDto> {
+  return payrollJson(`/api/payroll/documents/${id}/`)
+}
+
+export function acceptPayrollDocument(id: number): Promise<PayrollDocumentDetailDto> {
+  return payrollJson(`/api/payroll/documents/${id}/accept/`, jsonInit('POST'))
+}
+
+export function copyPayrollDocument(id: number): Promise<PayrollDocumentDetailDto> {
+  return payrollJson(`/api/payroll/documents/${id}/copy/`, jsonInit('POST'))
+}
+
+export function cancelPayrollDocument(id: number): Promise<PayrollDocumentDetailDto> {
+  return payrollJson(`/api/payroll/documents/${id}/cancel/`, jsonInit('POST'))
+}
+
+export function getPayrollPayoutState(id: number): Promise<PayrollPayoutStateDto> {
+  return payrollJson(`/api/payroll/documents/${id}/payout-state/`)
+}
+
+export function createPayrollPayout(
+  id: number,
+  payload: PayrollPayoutPayload,
+): Promise<{ cash_expense_id: number; state: PayrollPayoutStateDto }> {
+  return payrollJson(`/api/payroll/documents/${id}/payouts/`, jsonInit('POST', payload))
+}
+
+export function closePayrollDocumentUnderpaid(id: number, comment: string): Promise<PayrollDocumentDetailDto> {
+  return payrollJson(`/api/payroll/documents/${id}/close-underpaid/`, jsonInit('POST', { comment }))
+}
+
+export function listPayablePayrollDocuments(): Promise<PayablePayrollDocumentDto[]> {
+  return payrollJson('/api/payroll/payable-documents/')
+}
+
+export function getCashExpensePayrollPayouts(cashExpenseId: number | string): Promise<CashExpensePayrollPayoutDto[]> {
+  return payrollJson(`/api/payroll/cash-expenses/${cashExpenseId}/payouts/`)
 }
 
 export async function updateTenantIntegrationConfig(
