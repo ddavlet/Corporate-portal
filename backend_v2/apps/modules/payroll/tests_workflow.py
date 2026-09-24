@@ -8,7 +8,8 @@ from django.utils import timezone
 from apps.modules.cashier.models import CashExpense
 from apps.modules.payroll.models import Employee, PayrollDocument, PayrollLine, PayrollPayout
 from apps.modules.wallets.resolution import get_or_create_cash_wallet
-from apps.tenants.models import Tenant
+from apps.tenants.models import Tenant, TenantMembership, TenantModuleConfig, TenantUserRole
+from apps.tenants.permissions import role_allows_module
 
 User = get_user_model()
 
@@ -48,3 +49,23 @@ class PayrollWorkflowModelTests(TestCase):
             PayrollPayout.objects.create(
                 tenant=self.tenant, document=doc, employee=emp2, cash_expense=expense, amount=Decimal("0"),
             )
+
+
+class PayrollRoleAccessTests(TestCase):
+    def setUp(self):
+        self.tenant = Tenant.objects.create(name="Roles", subdomain="roles", is_active=True)
+        TenantModuleConfig.objects.create(tenant=self.tenant, module_key="payroll", is_enabled=True)
+
+    def _user(self, role):
+        user = User.objects.create_user(username=f"roles-{role}", password="x")
+        TenantMembership.objects.create(tenant=self.tenant, user=user, is_active=True)
+        TenantUserRole.objects.create(tenant=self.tenant, user=user, role=role)
+        return user
+
+    def test_accountant_has_no_payroll_access(self):
+        user = self._user(TenantUserRole.ROLE_ACCOUNTANT)
+        self.assertFalse(role_allows_module(user=user, tenant=self.tenant, module_key="payroll"))
+
+    def test_director_has_payroll_access(self):
+        user = self._user(TenantUserRole.ROLE_DIRECTOR)
+        self.assertTrue(role_allows_module(user=user, tenant=self.tenant, module_key="payroll"))

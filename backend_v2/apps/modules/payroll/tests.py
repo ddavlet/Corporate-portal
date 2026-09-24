@@ -59,7 +59,7 @@ class PayrollApiTests(APITestCase):
         self.tenant = Tenant.objects.create(name="Acme", subdomain="acme", is_active=True)
         self.user = User.objects.create_user(username="accountant", password="x")
         TenantMembership.objects.create(tenant=self.tenant, user=self.user, is_active=True)
-        TenantUserRole.objects.create(tenant=self.tenant, user=self.user, role=TenantUserRole.ROLE_ACCOUNTANT)
+        TenantUserRole.objects.create(tenant=self.tenant, user=self.user, role=TenantUserRole.ROLE_DIRECTOR)
         TenantModuleConfig.objects.create(tenant=self.tenant, module_key="payroll", is_enabled=True)
 
         self.host = "acme.example.com"
@@ -156,7 +156,7 @@ class PayrollApiTests(APITestCase):
         other_tenant = Tenant.objects.create(name="OtherCo", subdomain="otherco", is_active=True)
         other_user = User.objects.create_user(username="other_accountant", password="x")
         TenantMembership.objects.create(tenant=other_tenant, user=other_user, is_active=True)
-        TenantUserRole.objects.create(tenant=other_tenant, user=other_user, role=TenantUserRole.ROLE_ACCOUNTANT)
+        TenantUserRole.objects.create(tenant=other_tenant, user=other_user, role=TenantUserRole.ROLE_DIRECTOR)
         TenantModuleConfig.objects.create(tenant=other_tenant, module_key="payroll", is_enabled=True)
 
         PayrollDocument.objects.create(tenant=other_tenant, doc_id="OTHER-PAY-001")
@@ -302,7 +302,7 @@ class PayrollDocumentCreateApiTests(APITestCase):
         self.user = User.objects.create_user(username="create-accountant", password="x")
         self.outsider = User.objects.create_user(username="no-access-user", password="x")
         TenantMembership.objects.create(tenant=self.tenant, user=self.user, is_active=True)
-        TenantUserRole.objects.create(tenant=self.tenant, user=self.user, role=TenantUserRole.ROLE_ACCOUNTANT)
+        TenantUserRole.objects.create(tenant=self.tenant, user=self.user, role=TenantUserRole.ROLE_DIRECTOR)
         TenantModuleConfig.objects.create(tenant=self.tenant, module_key="payroll", is_enabled=True)
         self.host = "create-acme.example.com"
         self.url = "/api/payroll/documents/create/"
