@@ -71,7 +71,7 @@
 Индекс `(tenant, status, created_at)`.
 
 ### `CashWithdrawalMessage`
-`receipt` FK, `telegram_message` OneToOne `telegram_approvals.TelegramMessage`, `kind` (`card` / `alert` / `notice`). Собственная таблица модуля вместо новых `Notification.kind`: модель `telegram_approvals` не меняется.
+`receipt` FK, `telegram_message` OneToOne `telegram_approvals.TelegramMessage`, `kind` (`card` / `alert`). Собственная таблица модуля вместо новых `Notification.kind`: модель `telegram_approvals` не меняется. Сообщение о несовпадении валют к ожиданию не привязано (ожидания нет) и остаётся только в `TelegramMessage`/`TelegramMessageHistory`.
 
 Миграции пишутся вручную (`# hand-written: branch-only models`), как в payroll #313: `make makemigrations` запускается на сервере с кодом `main` и новых моделей не видит.
 
