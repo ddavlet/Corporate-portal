@@ -66,7 +66,8 @@ class ReassignUnmatchedBankExpensesCommandTests(TestCase):
         self.expense.refresh_from_db()
         self.req.refresh_from_db()
         self.assertEqual(self.expense.tenant_id, self.target.id)
-        self.assertEqual(self.expense.wallet.tenant_id, self.target.id)
+        # Money left the source tenant's account — wallet (and its balance) stays there.
+        self.assertEqual(self.expense.wallet.tenant_id, self.source.id)
         self.assertEqual(self.expense.vendor.tenant_id, self.target.id)
         self.assertEqual(self.req.expense_ref_id, self.expense.pk)
         self.assertEqual(self.req.expense_ref_target, Request.EXPENSE_REF_TARGET_BANK)

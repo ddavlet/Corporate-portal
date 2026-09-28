@@ -3,8 +3,12 @@ Cross-tenant reconciliation for a shared bank account: two tenants can have
 requests for the same underlying transactions, but only one imports the
 actual bank statement. For every BankExpense in `tenant` that still has no
 matching request there, look for exactly one matching PAYED request in
-`other_tenant`; if found, move the expense there (fixing its wallet/vendor,
-which are tenant-scoped) and link it to that request.
+`other_tenant`; if found, move the expense there (remapping its tenant-scoped
+vendor) and link it to that request.
+
+The expense's wallet is deliberately left untouched: it records which bank
+account the money actually left, and wallet balances (wallets.services) are
+reconciled against that account's statement by wallet alone.
 
 Shared by the n8n endpoint (N8nBankExpenseReassignUnmatchedView) and the
 `reassign_unmatched_bank_expenses` management command.
@@ -19,7 +23,6 @@ from django.db import transaction
 from apps.modules.bank_expenses.models import BankExpense
 from apps.modules.requests.models import Request
 from apps.modules.vendors.models import Vendor
-from apps.modules.wallets.resolution import get_or_create_bank_wallet
 
 
 @dataclass(frozen=True)
@@ -110,12 +113,11 @@ def reassign_unmatched_bank_expenses(
 
         if not dry_run:
             with transaction.atomic():
-                wallet = get_or_create_bank_wallet(tenant=other_tenant)
                 vendor = get_or_create_reassign_vendor(
                     tenant=other_tenant, source_vendor=expense.vendor, created_by=created_by
                 )
                 BankExpense.objects.filter(pk=expense.pk).update(
-                    tenant=other_tenant, wallet=wallet, vendor=vendor,
+                    tenant=other_tenant, vendor=vendor,
                 )
                 Request.objects.filter(pk=matched_request.pk).update(
                     expense_ref_id=expense.pk,
