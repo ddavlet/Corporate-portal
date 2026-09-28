@@ -180,10 +180,11 @@ describe('PayrollDocumentDetailPage confirm dialogs', () => {
     acceptPayrollDocumentMock.mockResolvedValue(baseDoc({ status: 'accepted' }))
     renderPage('1')
     fireEvent.click(await screen.findByRole('button', { name: 'Принять' }))
-    // antd repeats the confirm title inside the dialog, so query within the newest dialog.
-    const dialogs = await screen.findAllByRole('dialog')
-    const dialog = dialogs[dialogs.length - 1]
-    expect(within(dialog).getAllByText('Принять начисление?').length).toBeGreaterThan(0)
+    // Wait for this dialog's title (antd renders it twice), then act inside that dialog —
+    // a previous test's static dialog may still be unmounting in document.body.
+    const [title] = await screen.findAllByText('Принять начисление?')
+    const dialog = title.closest('[role="dialog"]') as HTMLElement
+    expect(dialog).not.toBeNull()
     fireEvent.click(within(dialog).getByRole('button', { name: 'Принять' }))
     await waitFor(() => expect(acceptPayrollDocumentMock).toHaveBeenCalledWith(1))
   })
@@ -192,10 +193,11 @@ describe('PayrollDocumentDetailPage confirm dialogs', () => {
     cancelPayrollDocumentMock.mockResolvedValue(baseDoc({ status: 'cancelled' }))
     renderPage('1')
     fireEvent.click(await screen.findByRole('button', { name: 'Отменить' }))
-    // antd repeats the confirm title inside the dialog, so query within the newest dialog.
-    const dialogs = await screen.findAllByRole('dialog')
-    const dialog = dialogs[dialogs.length - 1]
-    expect(within(dialog).getAllByText('Отменить начисление?').length).toBeGreaterThan(0)
+    // Wait for this dialog's title (antd renders it twice), then act inside that dialog —
+    // a previous test's static dialog may still be unmounting in document.body.
+    const [title] = await screen.findAllByText('Отменить начисление?')
+    const dialog = title.closest('[role="dialog"]') as HTMLElement
+    expect(dialog).not.toBeNull()
     fireEvent.click(within(dialog).getByRole('button', { name: 'Отменить' }))
     await waitFor(() => expect(cancelPayrollDocumentMock).toHaveBeenCalledWith(1))
   })
