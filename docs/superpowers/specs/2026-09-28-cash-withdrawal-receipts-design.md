@@ -24,7 +24,7 @@
 | UI в портале | Только страница настроек; списка ожиданий нет |
 | Закрыть без дохода | Только Django admin action с комментарием |
 | Триггер | Правила «тип оплаты + назначение платежа → касса» |
-| Права на настройки | Доступ к модулю `cash` (`HasEffectiveModuleAccess`) |
+| Права на настройки | Админ/директор тенанта (`IsTenantAdminOrDirector`), как `can_manage_wallet_settings` на фронте |
 
 ## Данные (`cash_withdrawals/models.py`)
 
@@ -70,7 +70,10 @@
 
 Индекс `(tenant, status, created_at)`.
 
-Отправленные карточки хранятся через существующие `telegram_approvals.TelegramMessage` + `Notification` (GenericFK на `CashWithdrawalReceipt`). Добавляем новые `Notification.kind`: `cash_withdrawal_card`, `cash_withdrawal_alert`. Это расширение choices; миграция создаётся через `make makemigrations`.
+### `CashWithdrawalMessage`
+`receipt` FK, `telegram_message` OneToOne `telegram_approvals.TelegramMessage`, `kind` (`card` / `alert` / `notice`). Собственная таблица модуля вместо новых `Notification.kind`: модель `telegram_approvals` не меняется.
+
+Миграции пишутся вручную (`# hand-written: branch-only models`), как в payroll #313: `make makemigrations` запускается на сервере с кодом `main` и новых моделей не видит.
 
 ## Поток
 
@@ -87,9 +90,9 @@
 ### 2. Нажатие кнопки
 - `callback_data`: `cwr:<receipt_id>`.
 - В `TelegramApprovalWebhookView.post` добавляется одна ветка-делегат по образцу `invest_pay:`: `if payload_str.startswith("cwr:")` → `cash_withdrawals.telegram.handle_callback(...)`. Вся логика живёт в модуле.
-- Проверки: `user_id` нажавшего совпадает с `telegram_from_id` (или `telegram_chat_id`) одного из `CashWithdrawalConfirmer`, иначе ответ «Нет прав на подтверждение», HTTP 403, запись `TelegramMessageHistory(callback, success=False)`.
+- Проверки: `user_id` нажавшего совпадает с `telegram_from_id` (или `telegram_chat_id`) одного из `CashWithdrawalConfirmer`, иначе в тот же чат отправляется сообщение «Нет прав на подтверждение», HTTP 403, дохода нет.
 - `transaction.atomic()` + `select_for_update` по ожиданию:
-  - `status != pending` → ответ «Уже подтверждено: <ФИО>», все карточки деактивируются, дохода нет.
+  - `status != pending` → нажатая карточка перерисовывается в итоговый вид без кнопки (там уже написано, кто подтвердил), дохода нет.
   - иначе создаётся `CashRevenue`: `wallet` из ожидания, `total_sum=amount`, `currency`, `revenue_at=now`, `confirmed=True`, `operation="Наличные с банка <request.title>"`, `comment=request.description`, `external_id="cash-<request_id>"`, `source_year=None`, `created_by=нажавший`. Ожидание переходит в `confirmed`.
 - `on_commit`: все карточки ожидания редактируются в «подтверждённый» вид без кнопки; вызываются обработчики `receipt_confirmed` (см. п. 3).
 - Ошибка редактирования карточек только логируется: доход уже сохранён.
@@ -130,7 +133,7 @@
 - Сравнение по дате `last_alert_at` исключает повтор в тот же день при повторном запуске команды.
 
 ### 5. Закрытие без дохода (admin)
-- `CashWithdrawalReceiptAdmin`: список с фильтрами по тенанту/статусу; action «Закрыть без дохода» с промежуточной формой для обязательного комментария.
+- `CashWithdrawalReceiptAdmin`: список с фильтрами по тенанту/статусу; поле `closed_comment` редактируется в карточке ожидания; action «Закрыть без дохода» закрывает выбранные `pending` с заполненным `closed_comment`, остальные пропускает с сообщением.
 - Статус меняется на `closed`, заполняются `closed_by/at/comment`, в заявку пишется `RequestComment` от пользователя pk=1 («Система»): «Ожидание поступления наличных закрыто без дохода: <комментарий>». Карточки деактивируются с пометкой «Закрыто без дохода».
 
 ## Тексты сообщений (HTML, `formatter.py` модуля)
@@ -185,7 +188,7 @@
 ⚠️ Заявка №8354 (Снятие наличных с банка): валюта USD не совпадает с кассой «Основная касса» (UZS). Ожидание не создано — проверьте правило в настройках.
 ```
 
-**Ответы на нажатие** (answerCallbackQuery / reply через gateway): «Нет прав на подтверждение», «Уже подтверждено: Иван П.».
+**Ответы на нажатие:** tg-gateway отвечает на callback пустым `answer()` и не передаёт текст, поэтому отказ «Нет прав на подтверждение» уходит обычным сообщением в тот же чат (как ответы slash-команд). Для «уже подтверждено» отдельного сообщения нет: карточка перерисовывается в итоговый вид.
 
 ## API и фронтенд
 
@@ -193,7 +196,7 @@
 - `cash_withdrawals/urls.py`, подключение в корневом роутинге: `GET/PUT /api/cash-withdrawals/config/`.
 - `GET` возвращает конфиг и справочники для формы: кандидаты-пользователи (активные участники тенанта с флагом `has_telegram`), чаты тенанта, кассы (`wallet_type=cash`), пары «тип оплаты → назначения» из `RequestFormConfig`.
 - `PUT` заменяет конфиг целиком (подтверждающие, получатели, правила) в одной транзакции. Валидация: кассы и чаты принадлежат тенанту, кассы типа cash, `alert_repeat_every_days ≥ 1`, `alert_hour` в 0–23, при `is_active=True` есть хотя бы одно правило и хотя бы один подтверждающий.
-- Права: `IsAuthenticated, HasEffectiveModuleAccess`, `module_key="cash"`.
+- Права: `IsAuthenticated, IsTenantAdminOrDirector`.
 
 ### Frontend
 - `src/lib/cashWithdrawals.ts` (или раздел в `lib/api.ts` по текущему паттерну) — `getCashWithdrawalConfig` / `saveCashWithdrawalConfig`.
@@ -228,8 +231,8 @@
 | Валюта заявки ≠ валюта кассы | Ожидание не создаётся, `logger.error`, сообщение получателям предупреждений |
 | Карточка не отправилась | Ожидание `pending`, `logger.exception`; сработает предупреждение |
 | У всех подтверждающих нет Telegram и нет группы | Как выше; на странице настроек это видно заранее |
-| Нажал чужой | «Нет прав на подтверждение», 403, дохода нет |
-| Двойное нажатие / гонка | `select_for_update`; второй — «Уже подтверждено» |
+| Нажал чужой | Сообщение «Нет прав на подтверждение» в чат, 403, дохода нет |
+| Двойное нажатие / гонка | `select_for_update`; второй — карточка перерисовывается, дохода нет |
 | Ошибка события в n8n | Лог, на доход не влияет, повторов нет |
 | Заявку вывели из PAYED | Ожидание не трогаем автоматически; закрытие через admin |
 | Повторный PAYED той же заявки | `get_or_create` — второе ожидание не создаётся |
@@ -244,8 +247,8 @@ Backend (`cash_withdrawals/tests.py`, gateway и n8n замоканы):
 - Несовпадение валют → ожидания нет, ушло предупреждение.
 - Повторный PAYED → одно ожидание.
 - Callback от подтверждающего → `CashRevenue` (сумма, касса, `created_by`, `external_id`), статус `confirmed`, карточки отредактированы, вызван `receipt_confirmed`-обработчик.
-- Callback от чужого → 403, дохода нет.
-- Повторный callback → один доход, ответ «Уже подтверждено».
+- Callback от чужого → 403, дохода нет, в чат ушло «Нет прав на подтверждение».
+- Повторный callback → один доход, карточка перерисована без кнопки.
 - Cron: до N дней — тишина; на N-й день в `alert_hour` — предупреждение; в тот же день повторно — нет; через M дней — снова; после `confirmed`/`closed` — нет; не в `alert_hour` — нет.
 - Admin action «Закрыть без дохода» → `closed`, `RequestComment` от pk=1.
 - `PUT config`: валидация чужой кассы/чата, не-cash кассы, пустых правил при `is_active=True`.
