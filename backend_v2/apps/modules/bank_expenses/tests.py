@@ -7,7 +7,7 @@ from rest_framework_simplejwt.tokens import RefreshToken
 
 from apps.modules.bank_expenses.models import BankRevenue
 from apps.modules.bank_expenses.models import BankExpense
-from apps.modules.wallets.resolution import get_or_create_bank_wallet
+from apps.modules.wallets.resolution import get_or_create_bank_wallet, get_or_create_bank_wallet_for_account
 from apps.modules.vendors.models import Vendor
 from apps.modules.requests.models import Request, RequestApprovalConfig, RequestApprovalPaymentTypeConfig
 from apps.tenants.models import Tenant, TenantMembership, TenantModuleConfig, TenantUserRole
@@ -389,3 +389,129 @@ class BankExpenseUniquePerTenantTests(APITestCase):
         )
 
         self.assertEqual(BankExpense.objects.filter(doc_no="DOC-1").count(), 2)
+
+
+@override_settings(BASE_DOMAIN="example.com", ALLOWED_HOSTS=["*"])
+class BankMovementWalletAccountApiTests(APITestCase):
+    """List/detail expose our bank account (label/account_no/mfo) and filter by ?wallet=."""
+
+    def setUp(self):
+        self.tenant = Tenant.objects.create(name="MultiAcc", subdomain="multiacc", is_active=True)
+        self.admin = User.objects.create_user(username="multiacc_admin", password="x")
+        TenantMembership.objects.create(tenant=self.tenant, user=self.admin, is_active=True)
+        TenantUserRole.objects.create(tenant=self.tenant, user=self.admin, role=TenantUserRole.ROLE_ADMIN)
+        TenantModuleConfig.objects.create(tenant=self.tenant, module_key="bank", is_enabled=True)
+        self.wallet_main = get_or_create_bank_wallet(tenant=self.tenant)
+        self.wallet_second = get_or_create_bank_wallet_for_account(
+            tenant=self.tenant, account_no="20208000555555555555", mfo="00444"
+        )
+        self.vendor = Vendor.objects.create(
+            tenant=self.tenant,
+            kind=Vendor.KIND_TRANSFER,
+            name="Vendor",
+            inn="123456789",
+            account_number="20208000999999999999",
+            created_by=self.admin,
+        )
+        d = date(2026, 9, 1)
+        self.expense_main = BankExpense.objects.create(
+            tenant=self.tenant,
+            created_by=self.admin,
+            wallet=self.wallet_main,
+            row_no=1,
+            doc_date=d,
+            process_date=d,
+            expense_year=2026,
+            expense_month=9,
+            expense_day=1,
+            doc_no="E-MAIN",
+            debit_turnover="10.00",
+            payment_purpose="p1",
+            vendor=self.vendor,
+        )
+        self.expense_second = BankExpense.objects.create(
+            tenant=self.tenant,
+            created_by=self.admin,
+            wallet=self.wallet_second,
+            row_no=2,
+            doc_date=d,
+            process_date=d,
+            expense_year=2026,
+            expense_month=9,
+            expense_day=1,
+            doc_no="E-SECOND",
+            debit_turnover="20.00",
+            payment_purpose="p2",
+            vendor=self.vendor,
+        )
+        self.revenue_second = BankRevenue.objects.create(
+            tenant=self.tenant,
+            created_by=self.admin,
+            wallet=self.wallet_second,
+            row_no=1,
+            doc_date=d,
+            process_date=d,
+            doc_no="R-SECOND",
+            account_name="Payer",
+            inn="100000000",
+            account_no="20208000111111111111",
+            mfo="01001",
+            kredit_turnover="30.00",
+            payment_purpose="r",
+        )
+        BankRevenue.objects.create(
+            tenant=self.tenant,
+            created_by=self.admin,
+            wallet=self.wallet_main,
+            row_no=2,
+            doc_date=d,
+            process_date=d,
+            doc_no="R-MAIN",
+            account_name="Payer",
+            inn="100000000",
+            account_no="20208000111111111111",
+            mfo="01001",
+            kredit_turnover="40.00",
+            payment_purpose="r2",
+        )
+
+    def _headers(self):
+        token = str(RefreshToken.for_user(self.admin).access_token)
+        return {"HTTP_HOST": "multiacc.example.com", "HTTP_AUTHORIZATION": f"Bearer {token}"}
+
+    @staticmethod
+    def _rows(res):
+        payload = res.json()
+        return payload if isinstance(payload, list) else payload.get("results", [])
+
+    def test_expense_list_and_detail_expose_our_account(self):
+        res = self.client.get("/api/bank/expenses/", **self._headers())
+        self.assertEqual(res.status_code, 200, res.content)
+        by_doc = {r["doc_no"]: r for r in self._rows(res)}
+        second = by_doc["E-SECOND"]
+        self.assertEqual(second["wallet_id"], self.wallet_second.id)
+        self.assertEqual(second["wallet_account_no"], "20208000555555555555")
+        self.assertEqual(second["wallet_mfo"], "00444")
+        self.assertEqual(second["wallet_label"], self.wallet_second.bank_account.label)
+        self.assertEqual(by_doc["E-MAIN"]["wallet_label"], "Основной")
+
+        detail = self.client.get(f"/api/bank/expenses/{self.expense_second.id}/", **self._headers())
+        self.assertEqual(detail.status_code, 200, detail.content)
+        self.assertEqual(detail.json()["wallet_account_no"], "20208000555555555555")
+
+    def test_revenue_list_exposes_our_account(self):
+        res = self.client.get("/api/bank/revenues/", **self._headers())
+        self.assertEqual(res.status_code, 200, res.content)
+        by_doc = {r["doc_no"]: r for r in self._rows(res)}
+        self.assertEqual(by_doc["R-SECOND"]["wallet_account_no"], "20208000555555555555")
+        # counterparty account stays in account_no, not replaced by ours
+        self.assertEqual(by_doc["R-SECOND"]["account_no"], "20208000111111111111")
+
+    def test_filter_by_wallet(self):
+        res = self.client.get(f"/api/bank/expenses/?wallet={self.wallet_second.id}", **self._headers())
+        self.assertEqual(res.status_code, 200, res.content)
+        self.assertEqual({r["doc_no"] for r in self._rows(res)}, {"E-SECOND"})
+
+        res = self.client.get(f"/api/bank/revenues/?wallet={self.wallet_main.id}", **self._headers())
+        self.assertEqual(res.status_code, 200, res.content)
+        self.assertEqual({r["doc_no"] for r in self._rows(res)}, {"R-MAIN"})

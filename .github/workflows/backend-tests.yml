@@ -59,5 +59,17 @@ jobs:
       - name: Install backend dependencies
         run: pip install -r requirements.txt
 
+      # Throwaway CI database: durability is irrelevant, skip fsync/WAL flushes
+      # (speeds up migrations and parallel test-DB cloning).
+      - name: Tune PostgreSQL for tests
+        env:
+          PGPASSWORD: kolberg_pass
+        run: |
+          psql -h 127.0.0.1 -U kolberg_user -d kolberg_test -v ON_ERROR_STOP=1 \
+            -c "ALTER SYSTEM SET fsync = off" \
+            -c "ALTER SYSTEM SET synchronous_commit = off" \
+            -c "ALTER SYSTEM SET full_page_writes = off" \
+            -c "SELECT pg_reload_conf()"
+
       - name: Run Django tests
-        run: python manage.py test apps --keepdb -v 2
+        run: python manage.py test apps --parallel auto --durations 25 -v 2

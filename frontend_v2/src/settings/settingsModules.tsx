@@ -131,6 +131,14 @@ export const SETTINGS_MODULES: SettingsModuleItem[] = [
     group: 'reports',
   },
   {
+    key: 'report-templates',
+    title: 'Шаблоны отчётов',
+    description: 'Какие виды страницы «Отчёты» доступны и какой открывается по умолчанию.',
+    path: '/settings/report-templates',
+    icon: <BarChartOutlined />,
+    group: 'reports',
+  },
+  {
     key: 'investments-notifications',
     title: 'Инвестиции — уведомления о выплатах',
     description: 'Ответственный получает Telegram-уведомление перед каждой плановой выплатой и может создать заявку в один клик.',

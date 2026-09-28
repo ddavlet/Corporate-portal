@@ -38,6 +38,7 @@ from apps.modules.requests.models import Approval, Request
 from apps.modules.requests.amortization import build_amortization_schedule_rows, is_request_amortized
 from apps.modules.requests.approval_bootstrap import create_approval_rows_for_request
 from apps.modules.requests.approval_workflow import _recalculate_request_status, route_request_approvals
+from apps.modules.requests.bank_expense_reassignment import reassign_unmatched_bank_expenses
 from apps.modules.requests.bank_expense_reconciliation import reconcile_bank_expenses_by_vendor_amount_date
 from apps.modules.requests.card_expense_reconciliation import reconcile_card_expenses_by_amount_date
 from apps.modules.requests.card_revenue_reconciliation import reconcile_card_revenues_by_amount_date
@@ -67,7 +68,6 @@ from apps.modules.n8n_integration.serializers import (
     N8nVendorImportSerializer,
 )
 from apps.modules.wallets.models import Wallet
-from apps.modules.wallets.resolution import get_or_create_bank_wallet
 from apps.modules.wallets.services import balances_for_tenant_channel
 from apps.tenants.integration_settings import get_n8n_integration_settings
 from apps.tenants.models import Tenant, TenantModuleConfig
@@ -212,30 +212,6 @@ def _relink_requests_to_bank_expenses(*, tenant, candidates: list[tuple[str, int
             expense_ref_target=Request.EXPENSE_REF_TARGET_BANK,
         )
     return updated
-
-
-def _get_or_create_reassign_vendor(*, tenant, source_vendor, created_by):
-    """
-    Find-or-create the equivalent Vendor in `tenant`, keyed by account_number —
-    same natural key already used for n8n vendor upsert-by-account (N8nVendorUpsertView).
-    Returns None when the source has no vendor or no account_number to match on.
-    """
-    if source_vendor is None:
-        return None
-    account_number = (source_vendor.account_number or "").strip()
-    if not account_number:
-        return None
-    existing = Vendor.objects.filter(tenant=tenant, account_number=account_number).first()
-    if existing is not None:
-        return existing
-    return Vendor.objects.create(
-        tenant=tenant,
-        kind=source_vendor.kind,
-        name=source_vendor.name,
-        inn=source_vendor.inn,
-        account_number=account_number,
-        created_by=created_by,
-    )
 
 
 def _system_user():
@@ -1722,70 +1698,10 @@ class N8nBankExpenseReassignUnmatchedView(_N8nBaseView):
         if su is None:
             return Response({"detail": "System user (pk=1) is missing."}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
 
-        linked_expense_ids = set(
-            Request.objects.filter(
-                tenant=tenant,
-                expense_ref_target=Request.EXPENSE_REF_TARGET_BANK,
-                expense_ref_id__isnull=False,
-            ).values_list("expense_ref_id", flat=True)
-        )
-        candidates = (
-            BankExpense.objects.filter(tenant=tenant)
-            .exclude(pk__in=linked_expense_ids)
-            .select_related("vendor")
-        )
-
-        reassigned = []
-        for expense in candidates:
-            # If THIS tenant has any request claiming the same doc_no/year/amount —
-            # even one not relinked yet — the expense is spoken for locally. Leave it
-            # for the regular in-tenant relink instead of moving it out; when both
-            # tenants claim the same transaction, ownership is ambiguous and staying
-            # put is the safe answer.
-            locally_claimed = Request.objects.filter(
-                tenant=tenant,
-                payment_type__in=(Request.PAYMENT_TYPE_TRANSFER, Request.PAYMENT_TYPE_TOPUP),
-                expense_id=expense.doc_no,
-                expense_year=expense.expense_year,
-                amount=expense.debit_turnover,
-            ).exists()
-            if locally_claimed:
-                continue
-
-            # Only requests not yet linked to an expense may attract one — otherwise a
-            # second expense with the same doc_no/amount could steal an already-satisfied
-            # request's link and orphan the previously moved expense.
-            matches = list(
-                Request.objects.filter(
-                    tenant=other_tenant,
-                    payment_type__in=(Request.PAYMENT_TYPE_TRANSFER, Request.PAYMENT_TYPE_TOPUP),
-                    status=Request.STATUS_PAYED,
-                    expense_id=expense.doc_no,
-                    expense_year=expense.expense_year,
-                    amount=expense.debit_turnover,
-                    expense_ref_id__isnull=True,
-                )[:2]
-            )
-            if len(matches) != 1:
-                continue
-            matched_request = matches[0]
-
-            with transaction.atomic():
-                wallet = get_or_create_bank_wallet(tenant=other_tenant)
-                vendor = _get_or_create_reassign_vendor(
-                    tenant=other_tenant, source_vendor=expense.vendor, created_by=su
-                )
-                BankExpense.objects.filter(pk=expense.pk).update(
-                    tenant=other_tenant, wallet=wallet, vendor=vendor,
-                )
-                Request.objects.filter(pk=matched_request.pk).update(
-                    expense_ref_id=expense.pk,
-                    expense_ref_target=Request.EXPENSE_REF_TARGET_BANK,
-                )
-            reassigned.append(
-                {"expense_id": expense.pk, "request_id": matched_request.pk, "tenant": other_tenant.subdomain}
-            )
-
+        reassigned = [
+            {"expense_id": r.expense.pk, "request_id": r.request.pk, "tenant": other_tenant.subdomain}
+            for r in reassign_unmatched_bank_expenses(tenant=tenant, other_tenant=other_tenant, created_by=su)
+        ]
         return Response({"reassigned": reassigned, "count": len(reassigned)}, status=status.HTTP_200_OK)
 
 

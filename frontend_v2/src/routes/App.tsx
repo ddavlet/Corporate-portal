@@ -10,7 +10,7 @@ import { BankSectionPage } from '../ui/BankSectionPage'
 import { CorporateCardPage } from '../ui/CorporateCardPage'
 import { CorporateCardSectionPage } from '../ui/CorporateCardSectionPage'
 import { PayrollPage } from '../ui/PayrollPage'
-import { ReportsPage } from '../ui/ReportsPage'
+import { ReportsPage } from '../ui/reports/ReportsPage'
 import { InvestmentsPage } from '../ui/InvestmentsPage'
 import { PublicInvestmentsSchedulePage } from '../ui/PublicInvestmentsSchedulePage'
 import { ClientsDebtPage } from '../ui/ClientsDebtPage'
@@ -38,6 +38,7 @@ import { InvestmentProjectApprovalConfigPage } from '../ui/settings/InvestmentPr
 import { InvestmentFormConfigPage } from '../ui/settings/InvestmentFormConfigPage'
 import { InvestmentNotificationConfigPage } from '../ui/settings/InvestmentNotificationConfigPage'
 import { CashflowReportSettingsPage } from '../ui/settings/CashflowReportSettingsPage'
+import { ReportTemplateSettingsPage } from '../ui/settings/ReportTemplateSettingsPage'
 import { TasksConfigPage } from '../ui/settings/TasksConfigPage'
 import { PnlReportSettingsPage } from '../ui/settings/PnlReportSettingsPage'
 import { PayrollSettingsPage } from '../ui/settings/PayrollSettingsPage'
@@ -179,6 +180,7 @@ export function App() {
         <Route path="settings/telegram-chats" element={<TelegramChatsConfigPage />} />
         <Route path="settings/pnl-report-config" element={<PnlReportSettingsPage />} />
         <Route path="settings/cashflow-report-config" element={<CashflowReportSettingsPage />} />
+        <Route path="settings/report-templates" element={<ReportTemplateSettingsPage />} />
         <Route path="settings/tasks-config" element={<TasksConfigPage />} />
         <Route path="settings/payroll-config" element={<PayrollSettingsPage />} />
         <Route path="admin" element={<AdminRouteGate />} />

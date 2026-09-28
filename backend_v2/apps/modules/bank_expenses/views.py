@@ -36,6 +36,14 @@ class BankBalancesView(APIView):
         )
 
 
+def _filter_by_wallet_param(qs, request):
+    """Filter bank movements by our bank account wallet (?wallet=<wallet_id>)."""
+    wallet_id = (request.query_params.get("wallet") or "").strip()
+    if wallet_id.isdigit():
+        qs = qs.filter(wallet_id=int(wallet_id))
+    return qs
+
+
 class BankExpenseCursorPagination(PortalCursorPagination):
     ordering = "-doc_date,-process_date,-id"
 
@@ -57,9 +65,10 @@ class BankExpenseViewSet(PortalListViewSetMixin, viewsets.ModelViewSet):
         if not tenant:
             return BankExpense.objects.none()
         qs = annotate_bank_expense_compliance(
-            BankExpense.objects.filter(tenant=tenant),
+            BankExpense.objects.filter(tenant=tenant).select_related("vendor", "wallet__bank_account"),
             tenant=tenant,
         )
+        qs = _filter_by_wallet_param(qs, self.request)
         vendor_search = (self.request.query_params.get("vendor_search") or "").strip()
         if vendor_search:
             qs = qs.filter(
@@ -189,7 +198,8 @@ class BankRevenueViewSet(PortalListViewSetMixin, viewsets.ModelViewSet):
         tenant = getattr(self.request, "tenant", None)
         if not tenant:
             return BankRevenue.objects.none()
-        qs = BankRevenue.objects.filter(tenant=tenant)
+        qs = BankRevenue.objects.filter(tenant=tenant).select_related("wallet__bank_account")
+        qs = _filter_by_wallet_param(qs, self.request)
         doc_from = parse_date_query(self.request, "doc_from")
         doc_to = parse_date_query(self.request, "doc_to")
         if doc_from:

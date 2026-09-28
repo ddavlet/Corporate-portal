@@ -2,6 +2,13 @@ from django.db import models
 
 from apps.tenants.models import Tenant
 
+TEMPLATE_CLASSIC = "classic"
+TEMPLATE_PROFESSIONAL = "professional"
+
+
+def default_allowed_templates() -> list[str]:
+    return [TEMPLATE_CLASSIC, TEMPLATE_PROFESSIONAL]
+
 
 class TenantReportSettings(models.Model):
     """
@@ -36,6 +43,8 @@ class TenantReportSettings(models.Model):
         default=CASHFLOW_SOURCE_N8N,
     )
     cashflow_config = models.JSONField(default=dict, blank=True)
+    default_template = models.CharField(max_length=32, default=TEMPLATE_CLASSIC)
+    allowed_templates = models.JSONField(default=default_allowed_templates, blank=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:

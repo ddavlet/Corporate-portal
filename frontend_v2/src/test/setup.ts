@@ -10,7 +10,8 @@ if (!window.matchMedia) {
   Object.defineProperty(window, 'matchMedia', {
     writable: true,
     value: (query: string) => ({
-      matches: false,
+      // Tests run as a viewer who asked for less motion: counters and transitions show final values at once.
+      matches: query.includes('prefers-reduced-motion'),
       media: query,
       onchange: null,
       addListener: () => undefined,

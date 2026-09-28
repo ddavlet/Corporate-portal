@@ -5,7 +5,7 @@ from decimal import Decimal, InvalidOperation
 from typing import Any
 
 from django.conf import settings
-from django.db.models import Count, Q
+from django.db.models import Count, Q, Sum
 from django.utils import timezone
 
 from apps.modules.bank_expenses.models import BankRevenue
@@ -300,7 +300,16 @@ def _invest_return_row(ir: InvestReturn) -> dict[str, Any] | None:
         "category": label,
         "purpose": label,
         "description": description,
+        "source": "invest_return",
     }
+
+
+def request_author(req: Request) -> str:
+    """Who asked for the money: full name, or the login when the profile has no name."""
+    user = req.requester
+    if user is None:
+        return ""
+    return (user.get_full_name() or user.username or "").strip()
 
 
 def _append_request_line(
@@ -320,6 +329,10 @@ def _append_request_line(
         "category": cat,
         "purpose": purpose,
         "description": str(req.description or ""),
+        "source": "request",
+        "request_id": str(req.id),
+        "vendor": str(req.vendor or ""),
+        "author": request_author(req),
     }
     target: list[dict[str, Any]]
     if bucket == "operational":
@@ -345,6 +358,8 @@ def _append_request_line(
             **base_item,
             "amount": schedule_row["monthly_amount"],
             "date": schedule_row["period_month"],
+            "period_index": int(schedule_row["period_index"]),
+            "periods": months,
         }
         target.append(item)
 
@@ -372,14 +387,14 @@ def compute_unassigned_payment_purposes(*, tenant_id: int, cfg: dict[str, Any]) 
 
     rows = (
         qs.exclude(category__in=list(cat_exclude)) if cat_exclude else qs
-    ).values("payment_purpose").annotate(c=Count("id"))
+    ).values("payment_purpose").annotate(c=Count("id"), s=Sum("amount"))
 
     out: list[dict[str, Any]] = []
     for row in rows:
         p = str(row["payment_purpose"] or "").strip()
         if not p or p in assigned:
             continue
-        out.append({"purpose": p, "count": int(row["c"])})
+        out.append({"purpose": p, "count": int(row["c"]), "amount": str(row["s"] or Decimal("0"))})
     out.sort(key=lambda x: (x["purpose"], -x["count"]))
     return out
 
@@ -465,6 +480,7 @@ def build_pnl_payload_from_db(*, tenant, query_params: dict[str, Any]) -> dict[s
                 "category": "Поступление в банк",
                 "purpose": "Поступление",
                 "description": str(br.payment_purpose or ""),
+                "source": "bank",
             }
         )
 
@@ -487,6 +503,7 @@ def build_pnl_payload_from_db(*, tenant, query_params: dict[str, Any]) -> dict[s
                 "purpose": str(cr.operation or ""),
                 "description": str(cr.counterparty or ""),
                 "category": cat or "Без категории",
+                "source": "cash",
             }
         )
 
@@ -505,7 +522,7 @@ def build_pnl_payload_from_db(*, tenant, query_params: dict[str, Any]) -> dict[s
     else:
         req_qs = req_qs.none()
 
-    for req in req_qs.order_by("billing_date", "id"):
+    for req in req_qs.select_related("requester").order_by("billing_date", "id"):
         cat = str(req.category or "").strip()
         if cat in cat_exclude:
             continue
