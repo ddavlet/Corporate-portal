@@ -4,9 +4,11 @@ import type { StatementLineItem } from '../../../../lib/reportsApi'
 
 const getStatementLinesMock = vi.fn()
 const downloadLinesXlsxMock = vi.fn()
+const getReportRequestDetailMock = vi.fn()
 vi.mock('../../../../lib/reportsApi', () => ({
   getStatementLines: (...args: unknown[]) => getStatementLinesMock(...args),
   downloadLinesXlsx: (...args: unknown[]) => downloadLinesXlsxMock(...args),
+  getReportRequestDetail: (...args: unknown[]) => getReportRequestDetailMock(...args),
 }))
 
 const saveFileMock = vi.fn()
@@ -50,6 +52,8 @@ describe('StatementDrilldownDrawer', () => {
   // after every test, calling getStatementLines() with no arguments.
   beforeEach(() => {
     getStatementLinesMock.mockReset()
+    getReportRequestDetailMock.mockReset()
+    getReportRequestDetailMock.mockReturnValue(new Promise(() => undefined))
   })
 
   it('reconciles the list with the cell', async () => {
@@ -92,8 +96,10 @@ describe('StatementDrilldownDrawer', () => {
       linesResponse([item({ entry_id: 'operational:request:4812:0', section: 'operational', source: 'request', request_id: 4812, title: 'Таргет Instagram', channel: '', line_id: 'opex.11111111', line_label: 'Маркетинг', amount: '1800000.00' })], '1800000.00'),
     )
     render(<StatementDrilldownDrawer request={REQUEST} units="m" onClose={vi.fn()} onOpenRequest={onOpenRequest} />)
+    // A click opens the card; the button opens the request itself.
     fireEvent.click(await screen.findByText('Таргет Instagram'))
-    expect(onOpenRequest).toHaveBeenCalledWith(4812)
+    fireEvent.click(screen.getByRole('button', { name: 'Открыть заявку #4812' }))
+    expect(onOpenRequest).toHaveBeenCalledWith(4812, null)
   })
 
   it('exports the cell operations to Excel with the current search', async () => {
@@ -125,7 +131,8 @@ describe('StatementDrilldownDrawer', () => {
 
   it('reconciles exactly for very large sums', async () => {
     getStatementLinesMock.mockResolvedValue(linesResponse([item({})], '9007199254740993.00'))
-    const huge = { ...REQUEST, row: { ...REQUEST.row, values: { ...REQUEST.row.values, '2026-08': '9007199254740992.00' } } }
+    const row = STATEMENT.rows[0]
+    const huge = { ...REQUEST, row: { ...row, values: { ...row.values, '2026-08': '9007199254740992.00' } } }
     render(<StatementDrilldownDrawer request={huge} units="m" onClose={vi.fn()} onOpenRequest={vi.fn()} />)
     expect(await screen.findByText('расхождение')).toBeInTheDocument()
   })
@@ -139,5 +146,78 @@ describe('StatementDrilldownDrawer', () => {
     await screen.findByText('совпадает')
     fireEvent.click(screen.getByRole('button', { name: /Ссылка/ }))
     expect(onCopyLink).toHaveBeenCalledTimes(1)
+  })
+
+  it('opens an amortized request on the instalment behind this cell', async () => {
+    const onOpenRequest = vi.fn()
+    getStatementLinesMock.mockResolvedValue(
+      linesResponse(
+        [item({ entry_id: 'operational:request:11:2', section: 'operational', source: 'request', request_id: 11, title: 'Выставка', channel: '', line_id: 'opex.11111111', line_label: 'Маркетинг', amount: '100000.00', amortization: { index: 2, count: 3 } })],
+        '100000.00',
+      ),
+    )
+    render(<StatementDrilldownDrawer request={REQUEST} units="m" onClose={vi.fn()} onOpenRequest={onOpenRequest} />)
+    fireEvent.click(await screen.findByText('Выставка'))
+    fireEvent.click(screen.getByRole('button', { name: 'Открыть заявку #11' }))
+    expect(onOpenRequest).toHaveBeenCalledWith(11, 2)
+  })
+
+  const REQUEST_ITEMS = [
+    item({ entry_id: 'operational:request:10:0', section: 'operational', source: 'request', request_id: 10, title: 'Аренда за август', channel: '', counterparty: 'ООО Офис', author: 'Азиз Рахимов', line_id: 'opex.22222222', line_label: 'Аренда', amount: '1200000.00' }),
+    item({ entry_id: 'operational:request:12:0', section: 'operational', source: 'request', request_id: 12, title: 'Склад', channel: '', counterparty: ' ооо офис', line_id: 'opex.22222222', line_label: 'Аренда', amount: '300000.00' }),
+    item({ entry_id: 'operational:request:13:0', section: 'operational', source: 'request', request_id: 13, title: 'Выставка', channel: '', counterparty: 'ИП Экспо', line_id: 'opex.11111111', line_label: 'Маркетинг', amount: '300000.00' }),
+  ]
+
+  it('shows who asked for the money and groups the cell by vendor', async () => {
+    getStatementLinesMock.mockResolvedValue(linesResponse(REQUEST_ITEMS, '1800000.00'))
+    render(<StatementDrilldownDrawer request={REQUEST} units="m" onClose={vi.fn()} onOpenRequest={vi.fn()} />)
+    expect(await screen.findByText('Азиз Рахимов')).toBeInTheDocument()
+    expect(screen.getByText('3 заявки')).toBeInTheDocument()
+    fireEvent.click(screen.getByText('По поставщикам'))
+    expect(await screen.findByText('2 операции')).toBeInTheDocument()
+    expect(screen.getByText('ИП Экспо')).toBeInTheDocument()
+  })
+
+  it('loads the approvals of a request once when its card opens', async () => {
+    getStatementLinesMock.mockResolvedValue(linesResponse(REQUEST_ITEMS.slice(0, 1), '1200000.00'))
+    getReportRequestDetailMock.mockResolvedValue({
+      id: 10,
+      payment_type: 'Перечисление',
+      attachments: [{ id: 1 }],
+      approvals: [
+        { id: 5, step: 1, step_type: 'approval', decision: 'approved', approver_username: 'director', decided_at: '2026-08-02T10:00:00+05:00' },
+      ],
+    })
+    render(<StatementDrilldownDrawer request={REQUEST} units="m" onClose={vi.fn()} onOpenRequest={vi.fn()} />)
+    const title = await screen.findByText('Аренда за август')
+    fireEvent.click(title)
+    expect(await screen.findByText(/director/)).toBeInTheDocument()
+    expect(screen.getByText('Одобрено')).toBeInTheDocument()
+    expect(screen.getByText('Оплата: Перечисление')).toBeInTheDocument()
+    fireEvent.click(title)
+    fireEvent.click(title)
+    expect(getReportRequestDetailMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('lists every section for a vendor panel', async () => {
+    getStatementLinesMock.mockResolvedValue(linesResponse(REQUEST_ITEMS.slice(0, 2), '1500000.00'))
+    const vendorRequest: DrillRequest = { ...REQUEST, row: null, vendor: 'ООО Офис', crumbs: ['Прибыли и убытки', 'Поставщики'] }
+    render(<StatementDrilldownDrawer request={vendorRequest} units="m" onClose={vi.fn()} onOpenRequest={vi.fn()} />)
+    expect(await screen.findByText('по всем разделам')).toBeInTheDocument()
+    expect(getStatementLinesMock).toHaveBeenCalledWith(expect.objectContaining({ line: undefined, vendor: 'ООО Офис' }), expect.anything())
+  })
+
+  it('hides the composition until every operation is loaded', async () => {
+    getStatementLinesMock.mockResolvedValue({ ...linesResponse(REQUEST_ITEMS, '1800000.00'), count: 250 })
+    render(<StatementDrilldownDrawer request={REQUEST} units="m" onClose={vi.fn()} onOpenRequest={vi.fn()} />)
+    expect(await screen.findByText('Показаны 3 из 250. Загрузите все, чтобы увидеть состав.')).toBeInTheDocument()
+    expect(screen.queryByText('По поставщикам')).toBeNull()
+  })
+
+  it('draws the composition bar for a fully loaded cell', async () => {
+    getStatementLinesMock.mockResolvedValue(linesResponse(REQUEST_ITEMS, '1800000.00'))
+    render(<StatementDrilldownDrawer request={REQUEST} units="m" onClose={vi.fn()} onOpenRequest={vi.fn()} />)
+    await screen.findByText('Аренда за август')
+    expect(document.querySelectorAll('.rp-stack i')).toHaveLength(3)
   })
 })

@@ -87,3 +87,25 @@ describe('RequestDetailContent attachment download', () => {
     expect(link.getAttribute('download')).toBe('Эркин шаклдаги ҳужжат.pdf')
   })
 })
+
+describe('RequestDetailContent amortization schedule', () => {
+  it('highlights the instalment the report cell stands for', () => {
+    const amortized: RequestDetail = {
+      ...requestDetail,
+      is_amortized: true,
+      amortization_months: 3,
+      amortization_schedule: [
+        { period_index: 1, period_month: '2026-07-01', monthly_amount: '100' },
+        { period_index: 2, period_month: '2026-08-01', monthly_amount: '100' },
+        { period_index: 3, period_month: '2026-09-01', monthly_amount: '100' },
+      ],
+    }
+    render(
+      <MemoryRouter>
+        <RequestDetailContent detail={amortized} highlightPeriodIndex={2} />
+      </MemoryRouter>,
+    )
+    expect(screen.getByText(/^#2:/).closest('[aria-current="true"]')).not.toBeNull()
+    expect(screen.getByText(/^#1:/).closest('[aria-current="true"]')).toBeNull()
+  })
+})

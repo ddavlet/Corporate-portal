@@ -15,6 +15,7 @@ import {
   operationRowKey,
   operationsFilterCaption,
   rowMatchesSection,
+  vendorOf,
   type OperationsFilter,
   type ReportSection,
 } from './reportsOperationsFilter'
@@ -484,7 +485,7 @@ export function ClassicReportTemplate({ templateSwitcher }: ReportTemplateProps)
   )
 
   const operationsScrollX = useMemo(
-    () => Math.max(1180, 140 + 110 + amountColumnWidthPx + 200 + 150 + 380 + 360),
+    () => Math.max(1180, 140 + 110 + amountColumnWidthPx + 200 + 200 + 150 + 380 + 360),
     [amountColumnWidthPx],
   )
 
@@ -518,7 +519,7 @@ export function ClassicReportTemplate({ templateSwitcher }: ReportTemplateProps)
         if (!ref || ref.year !== selectedMonth.year || ref.monthIndex !== selectedMonth.monthIndex) return false
       }
       if (!query) return true
-      const hay = `${row.id} ${categoryFromStructuredRow(row)} ${row.purpose} ${row.description} ${row.channel}`.toLowerCase()
+      const hay = `${row.id} ${categoryFromStructuredRow(row)} ${vendorOf(row)} ${row.purpose} ${row.description} ${row.channel}`.toLowerCase()
       return hay.includes(query)
     })
     if (selectedDirection === 'expense') {
@@ -567,6 +568,14 @@ export function ClassicReportTemplate({ templateSwitcher }: ReportTemplateProps)
         width: 160,
         render: (_v: string | undefined, row) => categoryFromStructuredRow(row),
         sorter: (a, b) => categoryFromStructuredRow(a).localeCompare(categoryFromStructuredRow(b)),
+      },
+      {
+        title: 'Поставщик',
+        key: 'vendor',
+        width: 200,
+        ellipsis: true,
+        render: (_v: unknown, row) => vendorOf(row) || '—',
+        sorter: (a, b) => vendorOf(a).localeCompare(vendorOf(b)),
       },
       { title: 'Канал', dataIndex: 'channel', width: 140, sorter: (a, b) => a.channel.localeCompare(b.channel) },
       { title: 'Назначение', dataIndex: 'purpose', ellipsis: true },
@@ -648,7 +657,7 @@ export function ClassicReportTemplate({ templateSwitcher }: ReportTemplateProps)
           <Input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Поиск по назначению/каналу/описанию"
+            placeholder="Поиск по назначению/каналу/описанию/поставщику"
             allowClear
             style={{ width: 360 }}
           />

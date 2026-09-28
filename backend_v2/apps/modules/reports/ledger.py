@@ -53,6 +53,7 @@ class LedgerEntry:
     channel: str
     amortization_index: int | None
     amortization_count: int | None
+    author: str = ""
 
 
 def _text(value: Any) -> str:
@@ -159,6 +160,7 @@ def build_ledger(payload: dict[str, Any]) -> list[LedgerEntry]:
                     channel=channel,
                     amortization_index=period_index,
                     amortization_count=_parse_int(item.get("periods")),
+                    author=_text(item.get("author")),
                 )
             )
     if skipped:

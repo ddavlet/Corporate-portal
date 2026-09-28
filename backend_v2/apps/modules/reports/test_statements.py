@@ -177,3 +177,42 @@ class FilterEveryLineTests(SimpleTestCase):
         index = build_line_index(entries, ProfessionalPnlLayout())
         picked = filter_entries(entries, index, None, date(2026, 8, 1), date(2026, 8, 31))
         self.assertEqual((len(picked), sum(entry.amount for entry in picked)), (6, Decimal("2270")))
+
+
+@override_settings(TIME_ZONE="Asia/Tashkent")
+class PriorYearTests(SimpleTestCase):
+    """Each period column also carries the same dates a year earlier, for the hover comparison."""
+
+    def test_period_columns_carry_the_same_dates_a_year_earlier(self):
+        rows = rows_by_id(build(ProfessionalPnlLayout(), PeriodSpec(kind="ytd")))
+        self.assertEqual(rows["rev"].prior_year["2026-08"], Decimal("800"))
+        self.assertEqual(rows["opex"].prior_year["2026-08"], Decimal("150"))
+        self.assertEqual(rows["rev"].prior_year["2026-09"], Decimal("0"))  # 1–23 Sep 2025: nothing yet
+        self.assertNotIn("total", rows["rev"].prior_year)
+
+    def test_nothing_to_compare_before_accounting_starts(self):
+        rows = rows_by_id(build(ProfessionalPnlLayout(), PeriodSpec(kind="ytd"), start_month="2026-01"))
+        self.assertIsNone(rows["rev"].prior_year["2026-08"])
+
+    def test_prior_year_is_serialised_as_money(self):
+        data = statement_to_dict(build(ProfessionalPnlLayout(), PeriodSpec(kind="ytd")))
+        rev = next(row for row in data["rows"] if row["id"] == "rev")
+        self.assertEqual(rev["prior_year"]["2026-08"], "800.00")
+
+
+@override_settings(TIME_ZONE="Asia/Tashkent")
+class ChartMonthsTests(SimpleTestCase):
+    """Each chart column names its months, so the page can switch to the month a bar stands for."""
+
+    def test_year_to_date_chart_names_one_month_per_bar(self):
+        chart = build(ProfessionalPnlLayout(), PeriodSpec(kind="ytd")).chart
+        self.assertEqual(len(chart["months"]), len(chart["labels"]))
+        self.assertEqual((chart["months"][0], chart["months"][-1]), (["2026-01"], ["2026-09"]))
+
+    def test_month_report_chart_covers_the_last_twelve_months(self):
+        data = statement_to_dict(build(ProfessionalPnlLayout(), PeriodSpec(kind="month", month="2026-08")))
+        self.assertEqual((data["chart"]["months"][0], data["chart"]["months"][-1]), (["2025-09"], ["2026-08"]))
+
+    def test_quarter_bars_list_their_three_months(self):
+        chart = build(ProfessionalPnlLayout(), PeriodSpec(kind="ytd", granularity="quarter")).chart
+        self.assertEqual(chart["months"][0], ["2026-01", "2026-02", "2026-03"])

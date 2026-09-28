@@ -21,7 +21,8 @@ def _bank(item_id: str, day: str, amount: str, text: str) -> dict[str, Any]:
 
 def _request(item_id: str, day: str, amount: str, category: str, text: str, **extra: Any) -> dict[str, Any]:
     return {"id": item_id, "date": day, "amount": amount, "category": category, "purpose": category,
-            "description": text, "source": "request", "request_id": item_id, "vendor": "ООО Поставщик", **extra}
+            "description": text, "source": "request", "request_id": item_id, "vendor": "ООО Поставщик",
+            "author": "Тимур Алиев", **extra}
 
 
 def sample_raw_payload() -> dict[str, Any]:

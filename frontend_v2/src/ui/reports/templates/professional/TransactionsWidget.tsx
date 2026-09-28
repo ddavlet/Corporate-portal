@@ -22,7 +22,7 @@ type Props = {
   from: string
   to: string
   rows: StatementRow[]
-  onOpenRequest: (requestId: number) => void
+  onOpenRequest: (requestId: number, periodIndex: number | null) => void
 }
 
 const PAGE_SIZE = 50
@@ -56,6 +56,7 @@ export function TransactionsWidget({ template, report, from, to, rows, onOpenReq
   const setFilters = (patch: Partial<Omit<Filters, 'scope'>>) => setStored({ ...filters, ...patch })
   const [items, setItems] = useState<StatementLineItem[]>([])
   const [count, setCount] = useState(0)
+  const [totals, setTotals] = useState<{ in: string; out: string } | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -80,6 +81,7 @@ export function TransactionsWidget({ template, report, from, to, rows, onOpenReq
       .then((res) => {
         setItems(res.items)
         setCount(res.count)
+        setTotals({ in: res.total_in, out: res.total_out })
       })
       .catch((e: unknown) => {
         if ((e as { name?: string } | null)?.name === 'AbortError') return
@@ -105,16 +107,9 @@ export function TransactionsWidget({ template, report, from, to, rows, onOpenReq
         </Tag>
       ),
     },
-    {
-      title: 'Описание',
-      key: 'title',
-      render: (_: unknown, item) => (
-        <div>
-          <div>{item.title}</div>
-          {item.counterparty ? <div className="rp-muted">{item.counterparty}</div> : null}
-        </div>
-      ),
-    },
+    // The vendor for requests; for cash and investor payouts, whoever paid or was paid.
+    { title: 'Поставщик / контрагент', key: 'counterparty', width: 200, render: (_: unknown, item) => item.counterparty || '—' },
+    { title: 'Описание', dataIndex: 'title' },
     { title: 'Поступление, сум', key: 'in', align: 'right', width: 150, render: (_: unknown, item) => (item.section === 'revenue' ? formatExact(item.amount) : '') },
     { title: 'Расход, сум', key: 'out', align: 'right', width: 150, render: (_: unknown, item) => (item.section === 'revenue' ? '' : formatExact(item.amount)) },
   ]
@@ -152,6 +147,13 @@ export function TransactionsWidget({ template, report, from, to, rows, onOpenReq
         />
       </div>
       {error ? <Alert type="error" showIcon message={error} style={{ margin: '0 16px 12px' }} /> : null}
+      {totals ? (
+        <div className="rp-ops-summary">
+          <span>{`Операций: ${count}`}</span>
+          <span>{`Поступления: ${formatExact(totals.in)} сум`}</span>
+          <span>{`Расходы: ${formatExact(totals.out)} сум`}</span>
+        </div>
+      ) : null}
       <Table<StatementLineItem>
         rowKey="entry_id"
         size="small"
@@ -162,7 +164,7 @@ export function TransactionsWidget({ template, report, from, to, rows, onOpenReq
         pagination={{ current: page, pageSize: PAGE_SIZE, total: count, showSizeChanger: false, onChange: (next) => setFilters({ page: next }) }}
         onRow={(item) =>
           item.source === 'request' && item.request_id !== null
-            ? { onClick: () => onOpenRequest(item.request_id as number), style: { cursor: 'pointer' } }
+            ? { onClick: () => onOpenRequest(item.request_id as number, item.amortization?.index ?? null), style: { cursor: 'pointer' } }
             : {}
         }
       />

@@ -3,7 +3,13 @@ import { MemoryRouter } from 'react-router-dom'
 import { describe, expect, it, vi } from 'vitest'
 import type { StructuredReportPayload, StructuredReportRow } from '../../../../lib/api'
 
-const row = (id: string, section: StructuredReportRow['section'], category: string, purpose: string): StructuredReportRow => ({
+const row = (
+  id: string,
+  section: StructuredReportRow['section'],
+  category: string,
+  purpose: string,
+  vendor = '',
+): StructuredReportRow => ({
   id,
   date: '2026-08-05T00:00:00',
   amount: '100.00',
@@ -13,7 +19,7 @@ const row = (id: string, section: StructuredReportRow['section'], category: stri
   purpose,
   description: '',
   channel: '',
-  raw: {},
+  raw: vendor ? { vendor } : {},
 })
 
 const PAYLOAD = {
@@ -23,7 +29,7 @@ const PAYLOAD = {
   monthly: [],
   rows: [
     row('1', 'revenue', 'Продажи', 'Поступление от клиента'),
-    row('2', 'operational', 'Аренда', 'Аренда офиса за август'),
+    row('2', 'operational', 'Аренда', 'Аренда офиса за август', 'ZARKENT POLIMER INVEST'),
     row('3', 'other', 'Налоги', 'Налог НДС за август'),
   ],
   revenue: [],
@@ -57,5 +63,21 @@ describe('ClassicReportTemplate', () => {
     expect(screen.getByText('Аренда офиса за август')).toBeInTheDocument()
     expect(screen.queryByText('Налог НДС за август')).toBeNull()
     expect(screen.queryByText('Поступление от клиента')).toBeNull()
+  })
+
+  it('shows the vendor of each operation and finds operations by it', async () => {
+    Object.defineProperty(Element.prototype, 'scrollIntoView', { value: vi.fn(), configurable: true })
+    render(
+      <MemoryRouter>
+        <ClassicReportTemplate templateSwitcher={null} />
+      </MemoryRouter>,
+    )
+    expect(await screen.findByText('ZARKENT POLIMER INVEST')).toBeInTheDocument()
+    expect(screen.getByRole('columnheader', { name: /Поставщик/ })).toBeInTheDocument()
+    fireEvent.change(screen.getByPlaceholderText('Поиск по назначению/каналу/описанию/поставщику'), {
+      target: { value: 'zarkent' },
+    })
+    expect(screen.getByText('Аренда офиса за август')).toBeInTheDocument()
+    expect(screen.queryByText('Налог НДС за август')).toBeNull()
   })
 })

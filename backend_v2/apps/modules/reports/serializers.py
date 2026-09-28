@@ -81,6 +81,7 @@ class StatementLinesQuerySerializer(serializers.Serializer):
     date_from = serializers.DateField()
     date_to = serializers.DateField()
     q = serializers.CharField(required=False, allow_blank=True, max_length=200, default="")
+    vendor = serializers.CharField(required=False, allow_blank=True, max_length=200, default="")
     page = serializers.IntegerField(required=False, min_value=1, default=1)
     page_size = serializers.IntegerField(required=False, min_value=1, max_value=200, default=50)
 
@@ -100,3 +101,19 @@ class ReportTemplateSettingsSerializer(serializers.Serializer):
         except TemplateSettingsInvalid as exc:
             raise serializers.ValidationError({"allowed_templates": str(exc)}) from exc
         return {"default_template": default, "allowed_templates": allowed}
+
+
+class StatementVendorsQuerySerializer(serializers.Serializer):
+    template = serializers.CharField(max_length=32)
+    report = serializers.ChoiceField(choices=REPORT_CHOICES)
+    line = serializers.RegexField(
+        r"^[a-z_]+(\.[a-z0-9_]+)*$", max_length=120, required=False, allow_blank=True, default=""
+    )
+    date_from = serializers.DateField()
+    date_to = serializers.DateField()
+    limit = serializers.IntegerField(required=False, min_value=1, max_value=20, default=6)
+
+    def validate(self, attrs):
+        if attrs["date_from"] > attrs["date_to"]:
+            raise serializers.ValidationError({"date_from": "Начало периода позже конца."})
+        return attrs

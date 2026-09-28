@@ -17,7 +17,15 @@ from apps.modules.reports.layouts import (
     StatementLayout,
 )
 from apps.modules.reports.ledger import LedgerEntry
-from apps.modules.reports.periods import KIND_DELTA, Column, ColumnSet, month_first_day, month_last_day
+from apps.modules.reports.periods import (
+    KIND_DELTA,
+    KIND_PERIOD,
+    Column,
+    ColumnSet,
+    month_first_day,
+    month_last_day,
+    shift_year,
+)
 
 ZERO = Decimal("0")
 MONEY = Decimal("0.01")
@@ -108,6 +116,8 @@ class StatementRow:
     separator_before: bool = False
     values: dict[str, Decimal | None] = field(default_factory=dict)
     deltas: dict[str, dict[str, Decimal] | None] = field(default_factory=dict)
+    # Period columns only: the same dates a year earlier, so the page can compare any month or quarter on hover.
+    prior_year: dict[str, Decimal | None] = field(default_factory=dict)
 
 
 @dataclass
@@ -261,10 +271,21 @@ class _StatementBuilder:
         separator_before: bool = False,
     ) -> StatementRow:
         values = {c.key: None if c.before_start else self.value(row_id, c.date_from, c.date_to) for c in columns}
+        prior_year = {c.key: self._prior_year(row_id, c) for c in columns if c.kind == KIND_PERIOD}
         return StatementRow(
             id=row_id, parent=parent, kind=kind, label=label, polarity=polarity, depth=depth,
             drillable=drillable, strong=strong, hint=hint, separator_before=separator_before, values=values,
+            prior_year=prior_year,
         )
+
+    def _prior_year(self, row_id: str, column: Column) -> Decimal | None:
+        """The same dates one year earlier (1–23 Sep 2025 for 1–23 Sep 2026); None before the start of accounting."""
+        if column.date_from is None or column.date_to is None:
+            return None
+        date_from = shift_year(column.date_from, -1)
+        if date_from < self.start_day:
+            return None
+        return self.value(row_id, date_from, shift_year(column.date_to, -1))
 
     def _section_rows(self, spec: SectionSpec, columns: list[Column]) -> list[StatementRow]:
         sort_column = self.column_set.sort_column
@@ -332,10 +353,11 @@ class _StatementBuilder:
 
     def _chart(self) -> dict[str, list[Any]]:
         spec = self.layout.chart
-        chart: dict[str, list[Any]] = {"labels": [], "partial": [], "inflow": [], "outflow": [], "net": []}
+        chart: dict[str, list[Any]] = {"labels": [], "partial": [], "months": [], "inflow": [], "outflow": [], "net": []}
         for column in self.column_set.chart_columns:
             chart["labels"].append(column.label)
             chart["partial"].append(column.partial)
+            chart["months"].append(list(column.months))
             if column.before_start:
                 for series in ("inflow", "outflow", "net"):
                     chart[series].append(None)
@@ -405,6 +427,7 @@ def _row_to_dict(row: StatementRow) -> dict[str, Any]:
         "hint": row.hint,
         "separator_before": row.separator_before,
         "values": {key: render(value) for key, value in row.values.items()},
+        "prior_year": {key: render(value) for key, value in row.prior_year.items()},
         "deltas": {
             key: None if delta is None else {name: str(value) for name, value in delta.items()}
             for key, delta in row.deltas.items()
@@ -436,6 +459,7 @@ def statement_to_dict(statement: Statement) -> dict[str, Any]:
         "chart": {
             "labels": chart["labels"],
             "partial": chart["partial"],
+            "months": chart["months"],
             "inflow": [_money(v) for v in chart["inflow"]],
             "outflow": [_money(v) for v in chart["outflow"]],
             "net": [_money(v) for v in chart["net"]],

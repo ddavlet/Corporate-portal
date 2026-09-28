@@ -4,10 +4,12 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 const getStatementMock = vi.fn()
 const downloadStatementXlsxMock = vi.fn()
+const getStatementVendorsMock = vi.fn()
 vi.mock('../../../../lib/reportsApi', () => ({
   getStatement: (...args: unknown[]) => getStatementMock(...args),
   // Pending: the «Операции» view only needs to mount.
   getStatementLines: () => new Promise(() => undefined),
+  getStatementVendors: (...args: unknown[]) => getStatementVendorsMock(...args),
   getReportRequestDetail: vi.fn(),
   downloadStatementXlsx: (...args: unknown[]) => downloadStatementXlsxMock(...args),
   downloadLinesXlsx: vi.fn(),
@@ -54,6 +56,8 @@ describe('ProfessionalReportTemplate', () => {
   beforeEach(() => {
     getStatementMock.mockReset()
     downloadStatementXlsxMock.mockReset()
+    getStatementVendorsMock.mockReset()
+    getStatementVendorsMock.mockReturnValue(new Promise(() => undefined))
     useTenantAdminMock.mockReturnValue({ isAdmin: false, loading: false })
   })
 
@@ -265,5 +269,47 @@ describe('ProfessionalReportTemplate', () => {
     getStatementMock.mockResolvedValue(STATEMENT)
     renderAt('/reports?line=rev.bank&from=2026-09-01&to=2026-09-20')
     expect(await screen.findByText('Банк · 1–23 сен 2026')).toBeInTheDocument()
+  })
+
+  it('switches to the month a chart bar stands for, and back', async () => {
+    getStatementMock.mockResolvedValue({ ...STATEMENT, chart: { ...STATEMENT.chart, months: [['2026-08'], ['2026-09']] } })
+    renderAt('/reports')
+    fireEvent.click(await screen.findByRole('button', { name: 'Авг: показать месяц' }))
+    await waitFor(() =>
+      expect(getStatementMock).toHaveBeenLastCalledWith(expect.objectContaining({ period: 'month', month: '2026-08' }), expect.anything()),
+    )
+    fireEvent.click(await screen.findByRole('button', { name: '← С начала года' }))
+    await waitFor(() => expect(getStatementMock).toHaveBeenLastCalledWith(expect.objectContaining({ period: 'ytd' }), expect.anything()))
+  })
+
+  it('keeps the way back after a reload', async () => {
+    getStatementMock.mockResolvedValue(STATEMENT)
+    renderAt('/reports?p=month&m=2026-08&back=ytd,,,month')
+    fireEvent.click(await screen.findByRole('button', { name: '← С начала года' }))
+    await waitFor(() => expect(getStatementMock).toHaveBeenLastCalledWith(expect.objectContaining({ period: 'ytd' }), expect.anything()))
+  })
+
+  it('opens the requests of a vendor from the vendor list', async () => {
+    getStatementMock.mockResolvedValue(STATEMENT)
+    getStatementVendorsMock.mockResolvedValue({
+      total: '790000.00',
+      count: 1,
+      items: [{ vendor: 'ООО Офис', amount: '790000.00', requests: 2, line_id: 'opex.11111111', line_label: 'Маркетинг' }],
+    })
+    renderAt('/reports')
+    fireEvent.click(await screen.findByRole('button', { name: /ООО Офис/ }))
+    expect(await screen.findByText(/^ООО Офис · /)).toBeInTheDocument()
+    expect(screen.getByText('Прибыли и убытки › Поставщики')).toBeInTheDocument()
+    expect(getStatementVendorsMock).toHaveBeenCalledWith(
+      expect.objectContaining({ from: '2026-08-01', to: '2026-09-23', limit: 6 }),
+      expect.anything(),
+    )
+  })
+
+  it('opens the operations behind a KPI tile', async () => {
+    getStatementMock.mockResolvedValue(STATEMENT)
+    renderAt('/reports')
+    fireEvent.click(await screen.findByRole('button', { name: 'Выручка: показать состав' }))
+    expect(await screen.findByText(/^Выручка · /)).toBeInTheDocument()
   })
 })

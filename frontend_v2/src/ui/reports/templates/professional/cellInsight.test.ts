@@ -42,4 +42,13 @@ describe('cellInsight', () => {
       expect(cellInsight(monthPack, marketing, target).map((line) => line.label)).toEqual(['Точно'])
     }
   })
+
+  it('compares a month with the same month last year', () => {
+    const marketing = { ...row('opex.11111111'), prior_year: { '2026-09': '50000.00' } }
+    expect(
+      cellInsight(STATEMENT, marketing, column('2026-09')).map(
+        (line) => `${line.label}: ${plain(line.text)}${line.tone ? ` (${line.tone})` : ''}`,
+      ),
+    ).toEqual(['Точно: 100 000 сум', 'к Авг: −66,7% (good)', 'к прошлому году: +100,0% (bad)', 'Доля выручки: 14,3%'])
+  })
 })

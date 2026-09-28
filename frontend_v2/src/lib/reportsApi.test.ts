@@ -14,9 +14,11 @@ import {
   getReportRequestDetail,
   getStatement,
   getStatementLines,
+  getStatementVendors,
   statementExportSearchParams,
   statementLinesSearchParams,
   statementSearchParams,
+  statementVendorsSearchParams,
   updateReportTemplates,
 } from './reportsApi'
 import { createJsonResponse, createStorageMock, setWindowLocation } from '../test/helpers'
@@ -177,5 +179,26 @@ describe('reportsApi', () => {
       message: 'No tenant_report_settings',
     })
     expect(notifyApiError).not.toHaveBeenCalled()
+  })
+
+  it('asks for the vendors of a period', async () => {
+    fetchMock.mockResolvedValueOnce(createJsonResponse(200, { total: '350.00', count: 1, items: [] }))
+    const data = await getStatementVendors({ template: 'professional', report: 'pnl', from: '2026-08-01', to: '2026-08-31', limit: 6 })
+    expect(fetchMock.mock.calls[0][0]).toBe(
+      '/api/reports/statement/vendors/?template=professional&report=pnl&from=2026-08-01&to=2026-08-31&limit=6',
+    )
+    expect(data.total).toBe('350.00')
+  })
+
+  it('adds the line to the vendors query only when it is set', () => {
+    const base = { template: 'professional', report: 'pnl' as const, from: '2026-08-01', to: '2026-08-31' }
+    expect(statementVendorsSearchParams(base).has('line')).toBe(false)
+    expect(statementVendorsSearchParams({ ...base, line: 'opex' }).get('line')).toBe('opex')
+  })
+
+  it('passes the vendor filter to the operations query', () => {
+    const params = statementLinesSearchParams({ template: 'professional', report: 'pnl', from: '2026-08-01', to: '2026-08-31', vendor: 'ООО Офис' })
+    expect(params.get('vendor')).toBe('ООО Офис')
+    expect(params.has('line')).toBe(false)
   })
 })
