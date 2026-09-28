@@ -6,8 +6,9 @@ import { tgHaptic } from './tgHaptic'
 import { requestReturnState } from '../../lib/requestNavigation'
 import { NoteCreateModal } from '../NoteCreateModal'
 import { renderExpenseRequestStatusTag } from '../expenseRequestStatus'
+import { formatBankWalletAccount, type BankWalletAccountFields } from '../bankWalletAccount'
 
-type BankExpenseDetail = {
+type BankExpenseDetail = BankWalletAccountFields & {
   id: number
   doc_date: string
   process_date: string
@@ -107,6 +108,7 @@ export function TgBankExpenseDetailPage() {
             <DetailRow label="Дата документа">{formatDate(detail.doc_date)}</DetailRow>
             <DetailRow label="Дата проводки">{formatDate(detail.process_date)}</DetailRow>
             <DetailRow label="Контрагент">{detail.vendor_name?.trim() || '—'}</DetailRow>
+            <DetailRow label="Наш счёт">{formatBankWalletAccount(detail, { withMfo: true })}</DetailRow>
             {detail.inn?.trim() ? <DetailRow label="ИНН">{detail.inn.trim()}</DetailRow> : null}
             <DetailRow label="Назначение платежа">{detail.payment_purpose || '—'}</DetailRow>
 

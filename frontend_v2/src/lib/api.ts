@@ -738,6 +738,10 @@ export type BankRevenue = {
   mfo: string
   kredit_turnover: string | number
   payment_purpose: string
+  wallet_id?: number | null
+  wallet_label?: string | null
+  wallet_account_no?: string | null
+  wallet_mfo?: string | null
   created_at: string
 }
 

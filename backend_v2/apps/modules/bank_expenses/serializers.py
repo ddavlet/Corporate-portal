@@ -45,6 +45,9 @@ class BankExpenseSerializer(serializers.ModelSerializer):
         required=False,
         allow_null=True,
     )
+    wallet_label = serializers.CharField(source="wallet.bank_account.label", read_only=True, default=None)
+    wallet_account_no = serializers.CharField(source="wallet.bank_account.account_no", read_only=True, default=None)
+    wallet_mfo = serializers.CharField(source="wallet.bank_account.mfo", read_only=True, default=None)
 
     class Meta:
         model = BankExpense
@@ -66,6 +69,9 @@ class BankExpenseSerializer(serializers.ModelSerializer):
             "vendor",
             "vendor_name",
             "wallet_id",
+            "wallet_label",
+            "wallet_account_no",
+            "wallet_mfo",
             "has_request",
             "has_paid_request",
             "matched_request_id",
@@ -144,6 +150,9 @@ class BankRevenueSerializer(serializers.ModelSerializer):
         required=False,
         allow_null=True,
     )
+    wallet_label = serializers.CharField(source="wallet.bank_account.label", read_only=True, default=None)
+    wallet_account_no = serializers.CharField(source="wallet.bank_account.account_no", read_only=True, default=None)
+    wallet_mfo = serializers.CharField(source="wallet.bank_account.mfo", read_only=True, default=None)
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -180,6 +189,9 @@ class BankRevenueSerializer(serializers.ModelSerializer):
             "kredit_turnover",
             "payment_purpose",
             "wallet_id",
+            "wallet_label",
+            "wallet_account_no",
+            "wallet_mfo",
         ]
         read_only_fields = ["id", "created_at", "created_by"]
 

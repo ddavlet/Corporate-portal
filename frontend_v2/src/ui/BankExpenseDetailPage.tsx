@@ -6,8 +6,9 @@ import { RequestReturnBackButton } from './requests/RequestReturnBackButton'
 import { apiFetch } from '../lib/api'
 import { NoteCreateModal } from './NoteCreateModal'
 import { renderExpenseRequestStatusTag } from './expenseRequestStatus'
+import { formatBankWalletAccount, type BankWalletAccountFields } from './bankWalletAccount'
 
-type BankExpenseDetail = {
+type BankExpenseDetail = BankWalletAccountFields & {
   id: number
   created_at?: string
   created_by?: number | null
@@ -150,6 +151,7 @@ export function BankExpenseDetailPage() {
               </Descriptions.Item>
               <Descriptions.Item label="Док. №">{detail.doc_no || '-'}</Descriptions.Item>
               <Descriptions.Item label="Контрагент">{getCounterparty(detail) || '-'}</Descriptions.Item>
+              <Descriptions.Item label="Наш счёт">{formatBankWalletAccount(detail, { withMfo: true })}</Descriptions.Item>
               <Descriptions.Item label="ИНН">{detail.inn?.trim() || '-'}</Descriptions.Item>
               <Descriptions.Item label="Расчётный счёт">{detail.account_no || '-'}</Descriptions.Item>
               <Descriptions.Item label="МФО">{detail.mfo || '-'}</Descriptions.Item>
