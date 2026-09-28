@@ -18,17 +18,22 @@ import { useTenantAdmin } from '../../../../lib/useTenantAdmin'
 import { useUserPreference } from '../../../../lib/useUserPreference'
 import type { ReportTemplateProps } from '../types'
 import { DataWarningBanner } from './DataWarningBanner'
+import { ExpenseStructureWidget } from './ExpenseStructureWidget'
 import { defaultOpenGroups } from './flattenStatementRows'
 import { KpiStripWidget } from './KpiStripWidget'
 import { MethodologyDrawer } from './MethodologyDrawer'
 import { phoneChipOptions, phoneColumnKeys, resolvePhoneColumnKey } from './phoneColumns'
+import { REPORT_VISUALS } from './reportVisuals'
 import { REPORT_SETTINGS_PATHS, ReportToolbar } from './ReportToolbar'
 import { useRequestPreview } from './RequestPreview'
 import { StatementDrilldownDrawer, type DrillRequest } from './StatementDrilldownDrawer'
 import { StatementTableWidget } from './StatementTableWidget'
+import { SummaryHeroWidget } from './SummaryHeroWidget'
+import { TopVendorsWidget } from './TopVendorsWidget'
 import { TransactionsWidget } from './TransactionsWidget'
 import { TrendChartWidget } from './TrendChartWidget'
-import { toStatementQuery, useReportUrlState, type DrillTarget } from './useReportUrlState'
+import { returnLabel, toStatementQuery, useReportUrlState, type DrillTarget } from './useReportUrlState'
+import { WaterfallWidget } from './WaterfallWidget'
 import './professional.css'
 
 const TEMPLATE_KEY = 'professional'
@@ -42,7 +47,6 @@ function mainColumn(statement: StatementResponse): StatementColumn | undefined {
 
 function drillRequest(statement: StatementResponse, drill: DrillTarget | null): DrillRequest | null {
   if (!drill) return null
-  const row = statement.rows.find((candidate) => candidate.id === drill.line && candidate.drillable)
   const candidates = statement.columns.filter((candidate) => candidate.kind !== 'delta')
   // A link to the unfinished month keeps working after that month has grown: same start, still running.
   const column =
@@ -50,7 +54,19 @@ function drillRequest(statement: StatementResponse, drill: DrillTarget | null): 
     candidates.find(
       (candidate) => candidate.from === drill.from && candidate.partial && candidate.to !== null && candidate.to >= drill.to,
     )
-  if (!row || !column) return null
+  if (!column) return null
+  if (drill.vendor) {
+    return {
+      template: TEMPLATE_KEY,
+      report: statement.report,
+      row: null,
+      column,
+      crumbs: [NAMES[statement.report], 'Поставщики'],
+      vendor: drill.vendor,
+    }
+  }
+  const row = statement.rows.find((candidate) => candidate.id === drill.line && candidate.drillable)
+  if (!row) return null
   const byId = new Map(statement.rows.map((candidate) => [candidate.id, candidate]))
   const ancestors: string[] = []
   for (let parent = row.parent; parent; parent = byId.get(parent)?.parent ?? null) {
@@ -134,6 +150,20 @@ export function ProfessionalReportTemplate({ templateSwitcher }: ReportTemplateP
   const isPhone = !Grid.useBreakpoint().md
   // A chip choice belongs to one query: a new report or period starts again on its latest period.
   const [phoneChoice, setPhoneChoice] = useState<{ query: string; column: string } | null>(null)
+  // The table row a KPI tile points to, highlighted for a moment.
+  const [flashRowId, setFlashRowId] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!flashRowId) return
+    const frame = requestAnimationFrame(() =>
+      document.querySelector('.rp-row--flash')?.scrollIntoView?.({ behavior: 'smooth', block: 'center' }),
+    )
+    const timer = window.setTimeout(() => setFlashRowId(null), 1300)
+    return () => {
+      cancelAnimationFrame(frame)
+      window.clearTimeout(timer)
+    }
+  }, [flashRowId])
 
   // Only the fields that change the numbers trigger a reload; open groups, units, view and drill-down do not.
   const queryKey = JSON.stringify(toStatementQuery(TEMPLATE_KEY, state))
@@ -230,6 +260,31 @@ export function ProfessionalReportTemplate({ templateSwitcher }: ReportTemplateP
   const phoneKeys = isPhone ? phoneColumnKeys(statement.columns, phoneColumn) : undefined
   const chipOptions = phoneChipOptions(statement.columns)
   const phoneChips = isPhone && chipOptions.length > 1
+  const visuals = REPORT_VISUALS[statement.report]
+  const heroShown = statement.kpis.some((kpi) => kpi.id === visuals.heroKpi)
+  const openableKpis = new Set(statement.kpis.filter((kpi) => statement.rows.some((row) => row.id === kpi.id)).map((kpi) => kpi.id))
+  const openRow = (rowId: string) => {
+    if (main?.from && main.to) update({ drill: { line: rowId, from: main.from, to: main.to } })
+  }
+  const openVendor = (vendor: string) => {
+    if (main?.from && main.to) update({ drill: { line: '', from: main.from, to: main.to, vendor } })
+  }
+  const openKpi = (kpiId: string) => {
+    const row = statement.rows.find((candidate) => candidate.id === kpiId)
+    if (!row) return
+    if (row.drillable) {
+      openRow(row.id)
+      return
+    }
+    if (state.view !== 'statement') update({ view: 'statement' })
+    setFlashRowId(row.id)
+  }
+  // The way back lives in the link: it survives a reload, and a month opened from a month still returns to the start.
+  const focusMonth = (month: string) => {
+    const back = state.back ?? { period: state.period, year: state.year, month: state.month, granularity: state.granularity }
+    update({ period: 'month', month, drill: null, back })
+  }
+  const goBack = state.back
 
   return (
     <div className={`rp-page${loading ? ' is-loading' : ''}`}>
@@ -247,14 +302,48 @@ export function ProfessionalReportTemplate({ templateSwitcher }: ReportTemplateP
         />
       ) : null}
       <DataWarningBanner warnings={statement.warnings} units={state.units} isAdmin={isAdmin} onOpenSettings={() => navigate(settingsPath)} />
-      <KpiStripWidget kpis={statement.kpis} units={state.units} />
-      <TrendChartWidget
-        chart={statement.chart}
-        units={state.units}
-        report={statement.report}
-        collapsed={chartPreference.value}
-        onToggle={() => chartPreference.setValue(!chartPreference.value)}
-      />
+      {goBack ? (
+        <div className="rp-focus-bar">
+          {/* The arrow is part of the text, so the button is announced as «← С начала года». */}
+          <Button size="small" onClick={() => update({ ...goBack, back: null, drill: null })}>
+            {`← ${returnLabel(goBack)}`}
+          </Button>
+        </div>
+      ) : null}
+      <div className={`rp-summary${heroShown && main ? '' : ' rp-summary--solo'}`}>
+        {main && heroShown ? <SummaryHeroWidget statement={statement} column={main} units={state.units} /> : null}
+        <KpiStripWidget
+          kpis={statement.kpis}
+          units={state.units}
+          exclude={heroShown && main ? visuals.heroKpi : undefined}
+          openable={openableKpis}
+          onOpen={openKpi}
+        />
+      </div>
+      <div className={`rp-visuals${main ? '' : ' rp-visuals--solo'}`}>
+        <TrendChartWidget
+          chart={statement.chart}
+          units={state.units}
+          report={statement.report}
+          collapsed={chartPreference.value}
+          onToggle={() => chartPreference.setValue(!chartPreference.value)}
+          onFocusMonth={focusMonth}
+        />
+        {main ? <ExpenseStructureWidget statement={statement} column={main} units={state.units} onDrill={openRow} /> : null}
+      </div>
+      {main?.from && main.to ? (
+        <div className="rp-analysis">
+          <WaterfallWidget statement={statement} column={main} units={state.units} onDrill={openRow} />
+          <TopVendorsWidget
+            template={TEMPLATE_KEY}
+            report={statement.report}
+            from={main.from}
+            to={main.to}
+            units={state.units}
+            onOpenVendor={openVendor}
+          />
+        </div>
+      ) : null}
       {state.view === 'statement' ? (
         <section className="rp-card rp-print-area">
           <div className="rp-print-header">
@@ -300,7 +389,8 @@ export function ProfessionalReportTemplate({ templateSwitcher }: ReportTemplateP
             compact={isPhone}
             units={state.units}
             open={open}
-            selected={drill ? { rowId: drill.row.id, columnKey: drill.column.key } : null}
+            selected={drill?.row ? { rowId: drill.row.id, columnKey: drill.column.key } : null}
+            flashRowId={flashRowId}
             onToggle={toggle}
             onDrill={(rowId, column) => {
               if (column.from && column.to) update({ drill: { line: rowId, from: column.from, to: column.to } })

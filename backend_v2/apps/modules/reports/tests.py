@@ -293,6 +293,21 @@ class BackendPnlDatabaseTests(TestCase):
         self.tenant = Tenant.objects.create(name="TestCo", subdomain="tstpnl")
         self.user = User.objects.create_user(username="pnl_db_u", password="x")
 
+    def test_pnl_request_item_names_its_author(self):
+        self._ensure_pnl_settings()
+        self.user.first_name, self.user.last_name = "Азиз", "Рахимов"
+        self.user.save(update_fields=["first_name", "last_name"])
+        anonymous = User.objects.create_user(username="no_name_author", password="x")
+        for author, title in ((self.user, "named"), (anonymous, "login only")):
+            Request.objects.create(
+                tenant=self.tenant, created_by=author, requester=author, title=title, description=title,
+                amount="10.00", currency="UZS", payment_type=Request.PAYMENT_TYPE_TRANSFER,
+                urgency=Request.URGENCY_NORMAL, billing_date=date(2026, 3, 1),
+                payment_purpose="Операционное назначение", status=Request.STATUS_PAYED,
+            )
+        items = build_pnl_payload_from_db(tenant=self.tenant, query_params={})["operational_expenses"]
+        self.assertEqual(sorted(item["author"] for item in items), ["no_name_author", "Азиз Рахимов"])
+
     def _ensure_pnl_settings(self, **cfg_overrides):
         TenantReportSettings.objects.update_or_create(
             tenant=self.tenant,
@@ -700,6 +715,19 @@ class BackendCashflowDatabaseTests(TestCase):
             cashflow_source="backend",
             pnl_config=full_backend_pnl_config(),
         )
+
+    def test_cashflow_request_item_names_its_author(self):
+        self.admin.first_name, self.admin.last_name = "Малика", "Сафарова"
+        self.admin.save(update_fields=["first_name", "last_name"])
+        Request.objects.create(
+            tenant=self.tenant, created_by=self.admin, requester=self.admin, title="t", description="",
+            amount="10.00", currency="UZS", payment_type=Request.PAYMENT_TYPE_TRANSFER,
+            urgency=Request.URGENCY_NORMAL, billing_date=date(2026, 3, 1),
+            payment_purpose="Операционное назначение", status=Request.STATUS_PAYED,
+            expense_year=2026, expense_month=3, expense_day=10,
+        )
+        (item,) = build_cashflow_payload_from_db(tenant=self.tenant, query_params={})["operational_expenses"]
+        self.assertEqual(item["author"], "Малика Сафарова")
 
     def test_request_expense_uses_cash_date_not_billing_date(self):
         Request.objects.create(

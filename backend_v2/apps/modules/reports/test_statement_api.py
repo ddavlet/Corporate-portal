@@ -20,6 +20,7 @@ LINES = "/api/reports/statement/lines/"
 TEMPLATES = "/api/reports/templates/"
 EXPORT = "/api/reports/statement/export/"
 LINES_EXPORT = "/api/reports/statement/lines/export/"
+VENDORS = "/api/reports/statement/vendors/"
 
 
 @override_settings(BASE_DOMAIN="example.com", ALLOWED_HOSTS=["*"], TIME_ZONE="Asia/Tashkent")
@@ -189,6 +190,8 @@ class StatementApiTests(APITestCase):
             res = self.client.get(LINES, params, **self._auth(self.director))
         self.assertEqual(res.status_code, 200, res.content)
         self.assertEqual((res.data["line"], res.data["count"], res.data["total"]), ("", 6, "2270.00"))
+        # Money in = bank 1500 + cash 300; money out = rent 200 + marketing 100 + taxes 50 + investor payout 120.
+        self.assertEqual((res.data["total_in"], res.data["total_out"]), ("1800.00", "470.00"))
 
     def test_lines_filter_by_source(self, _today):
         params = {"template": "professional", "report": "pnl", "from": "2026-08-01", "to": "2026-08-31", "source": "bank"}
@@ -264,3 +267,102 @@ class StatementApiTests(APITestCase):
         with patch("apps.modules.reports.views.fetch_n8n_report_payload", side_effect=RuntimeError("n8n token missing")):
             res = self.client.get("/api/reports/pnl/", **self._auth(self.director))
         self.assertEqual(res.status_code, 503)
+
+    def test_lines_name_the_request_author(self, _today):
+        with patch(FETCH, return_value=sample_payload()):
+            res = self.client.get(
+                LINES,
+                {"template": "professional", "report": "pnl", "from": "2026-08-01", "to": "2026-08-31", "source": "request"},
+                **self._auth(self.director),
+            )
+        self.assertEqual(res.status_code, 200, res.content)
+        self.assertEqual({item["author"] for item in res.data["items"]}, {"Тимур Алиев"})
+
+    def test_lines_filter_by_vendor_ignoring_case_and_spaces(self, _today):
+        with patch(FETCH, return_value=sample_payload()):
+            res = self.client.get(
+                LINES,
+                {"template": "professional", "report": "pnl", "from": "2026-01-01", "to": "2026-09-23",
+                 "vendor": "  ооо поставщик "},
+                **self._auth(self.director),
+            )
+        self.assertEqual(res.status_code, 200, res.content)
+        # Every sample request is from «ООО Поставщик»: rent 200, marketing 3 × 100, taxes 50.
+        self.assertEqual((res.data["count"], res.data["total"]), (5, "550.00"))
+        self.assertTrue(all(item["source"] == "request" for item in res.data["items"]))
+
+    def test_lines_vendor_filter_finds_nothing_for_an_unknown_vendor(self, _today):
+        with patch(FETCH, return_value=sample_payload()):
+            res = self.client.get(
+                LINES,
+                {"template": "professional", "report": "pnl", "from": "2026-01-01", "to": "2026-09-23", "vendor": "ИП Никто"},
+                **self._auth(self.director),
+            )
+        self.assertEqual((res.data["count"], res.data["total"]), (0, "0.00"))
+
+    def test_lines_export_filters_by_vendor(self, _today):
+        with patch(FETCH, return_value=sample_payload()):
+            res = self.client.get(
+                LINES_EXPORT,
+                {"template": "professional", "report": "pnl", "from": "2026-01-01", "to": "2026-09-23", "vendor": "ИП Никто"},
+                **self._auth(self.director),
+            )
+        self.assertEqual(res.status_code, 200)
+        sheet = load_workbook(BytesIO(res.content))["Операции"]
+        # The table header is on row 8; an empty selection writes a note under it instead of rows.
+        self.assertEqual(sheet["A9"].value, "Операций за период нет")
+
+    def _vendors_payload(self):
+        payload = sample_payload()
+        # A second vendor, typed two ways, and a request without a vendor.
+        extra = [
+            {"id": "40", "date": "2026-08-12", "amount": "700.00", "category": "Аренда", "purpose": "Аренда",
+             "description": "Склад", "source": "request", "request_id": "40", "vendor": "ООО Офис"},
+            {"id": "41", "date": "2026-08-14", "amount": "90.00", "category": "Аренда", "purpose": "Аренда",
+             "description": "Склад, доплата", "source": "request", "request_id": "41", "vendor": "  ооо офис "},
+            {"id": "42", "date": "2026-08-15", "amount": "10.00", "category": "Аренда", "purpose": "Аренда",
+             "description": "Без поставщика", "source": "request", "request_id": "42", "vendor": ""},
+        ]
+        payload["operational_expenses"] = payload["operational_expenses"] + extra
+        return payload
+
+    def _vendors(self, user, **params):
+        query = {"template": "professional", "report": "pnl", "from": "2026-08-01", "to": "2026-08-31", **params}
+        with patch(FETCH, return_value=self._vendors_payload()):
+            return self.client.get(VENDORS, query, **self._auth(user))
+
+    def test_vendors_rank_request_vendors_by_amount(self, _today):
+        res = self._vendors(self.director)
+        self.assertEqual(res.status_code, 200, res.content)
+        self.assertEqual(
+            [(v["vendor"], v["amount"], v["requests"]) for v in res.data["items"]],
+            [("ООО Офис", "790.00", 2), ("ООО Поставщик", "350.00", 3)],
+        )
+        self.assertEqual((res.data["count"], res.data["total"]), (2, "1140.00"))
+        self.assertEqual(res.data["items"][1]["line_label"], "Аренда")
+
+    def test_vendors_respect_limit_and_line(self, _today):
+        limited = self._vendors(self.director, limit=1)
+        self.assertEqual([v["vendor"] for v in limited.data["items"]], ["ООО Офис"])
+        self.assertEqual(limited.data["count"], 2)
+        taxes = self._vendors(self.director, line="other")
+        self.assertEqual([(v["vendor"], v["amount"]) for v in taxes.data["items"]], [("ООО Поставщик", "50.00")])
+
+    def test_vendors_reject_bad_queries(self, _today):
+        self.assertEqual(self._vendors(self.director, line="opex.ffffffff").status_code, 404)
+        self.assertEqual(self._vendors(self.director, limit=0).status_code, 400)
+        # An unknown template is a bad request, as on the other statement endpoints.
+        self.assertEqual(self._vendors(self.director, template="ghost").status_code, 400)
+
+    def test_vendor_export_names_the_vendor_in_its_title(self, _today):
+        with patch(FETCH, return_value=sample_payload()):
+            res = self.client.get(
+                LINES_EXPORT,
+                {"template": "professional", "report": "pnl", "from": "2026-01-01", "to": "2026-09-23",
+                 "vendor": "  ооо   поставщик "},
+                **self._auth(self.director),
+            )
+        self.assertEqual(res.status_code, 200)
+        sheet = load_workbook(BytesIO(res.content))["Операции"]
+        # The vendor's own spelling from the requests, not the one typed into the link.
+        self.assertEqual(sheet["A2"].value, "Отчёт о прибылях и убытках · Все разделы · Поставщик: ООО Поставщик")

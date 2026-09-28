@@ -304,6 +304,14 @@ def _invest_return_row(ir: InvestReturn) -> dict[str, Any] | None:
     }
 
 
+def request_author(req: Request) -> str:
+    """Who asked for the money: full name, or the login when the profile has no name."""
+    user = req.requester
+    if user is None:
+        return ""
+    return (user.get_full_name() or user.username or "").strip()
+
+
 def _append_request_line(
     *,
     req: Request,
@@ -324,6 +332,7 @@ def _append_request_line(
         "source": "request",
         "request_id": str(req.id),
         "vendor": str(req.vendor or ""),
+        "author": request_author(req),
     }
     target: list[dict[str, Any]]
     if bucket == "operational":
@@ -513,7 +522,7 @@ def build_pnl_payload_from_db(*, tenant, query_params: dict[str, Any]) -> dict[s
     else:
         req_qs = req_qs.none()
 
-    for req in req_qs.order_by("billing_date", "id"):
+    for req in req_qs.select_related("requester").order_by("billing_date", "id"):
         cat = str(req.category or "").strip()
         if cat in cat_exclude:
             continue

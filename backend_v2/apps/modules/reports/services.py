@@ -596,6 +596,11 @@ def _matches_query(entry: LedgerEntry, needle: str) -> bool:
     return needle in haystack
 
 
+def vendor_key(text: str) -> str:
+    """Vendors typed with different case or spacing are the same vendor."""
+    return " ".join(text.split()).casefold()
+
+
 def _select_entries(
     entries: list[LedgerEntry],
     index: LineIndex,
@@ -605,11 +610,18 @@ def _select_entries(
     date_to,
     source: str | None,
     query: str,
+    vendor: str = "",
 ) -> list[LedgerEntry]:
-    """The entries behind a cell (`line_id`) or behind every section of the layout, narrowed by source and search."""
+    """The entries behind a cell (`line_id`) or behind every section of the layout, narrowed by source, vendor and search."""
     matched = filter_entries(entries, index, line_id or None, date_from, date_to)
     if source:
         matched = [entry for entry in matched if entry.source == source]
+    wanted = vendor_key(vendor)
+    if wanted:
+        matched = [
+            entry for entry in matched
+            if entry.source == SOURCE_REQUEST and vendor_key(entry.counterparty) == wanted
+        ]
     needle = query.strip().lower()
     if needle:
         matched = [entry for entry in matched if _matches_query(entry, needle)]
@@ -630,6 +642,7 @@ def _line_item(entry: LedgerEntry, index: LineIndex) -> dict[str, Any]:
         "category": entry.category,
         "title": entry.title,
         "counterparty": entry.counterparty,
+        "author": entry.author,
         "request_id": entry.request_id,
         "channel": entry.channel,
         "line_id": leaf_id,
@@ -651,24 +664,81 @@ def list_statement_lines(
     page: int,
     page_size: int,
     source: str | None = None,
+    vendor: str = "",
 ) -> dict[str, Any]:
     layout = ensure_statement_template(tenant=tenant, template_key=template_key, report=report)
     entries = build_ledger(_fetch_report(tenant=tenant, user_id=user_id, report=report))
     index = build_line_index(entries, layout)
     _ensure_line(index, line_id)
     matched = _select_entries(
-        entries, index, line_id=line_id, date_from=date_from, date_to=date_to, source=source, query=query
+        entries, index, line_id=line_id, date_from=date_from, date_to=date_to, source=source, query=query, vendor=vendor
     )
     matched.sort(key=lambda entry: (entry.date, entry.amount, entry.entry_id), reverse=True)
     total = sum((entry.amount for entry in matched), start=Decimal("0"))
+    # Money in is revenue; every other section (expenses, investor payouts) is money out.
+    total_in = sum((entry.amount for entry in matched if entry.section == SECTION_REVENUE), start=Decimal("0"))
     start = (page - 1) * page_size
     return {
         "line": line_id or "",
         "total": str(total.quantize(MONEY)),
+        "total_in": str(total_in.quantize(MONEY)),
+        "total_out": str((total - total_in).quantize(MONEY)),
         "count": len(matched),
         "page": page,
         "page_size": page_size,
         "items": [_line_item(entry, index) for entry in matched[start:start + page_size]],
+    }
+
+
+def list_statement_vendors(
+    *,
+    tenant,
+    user_id: int,
+    template_key: str,
+    report: str,
+    line_id: str | None,
+    date_from,
+    date_to,
+    limit: int,
+) -> dict[str, Any]:
+    """Request vendors of a period ranked by amount; one vendor however its name was typed."""
+    layout = ensure_statement_template(tenant=tenant, template_key=template_key, report=report)
+    entries = build_ledger(_fetch_report(tenant=tenant, user_id=user_id, report=report))
+    index = build_line_index(entries, layout)
+    _ensure_line(index, line_id)
+    matched = _select_entries(
+        entries, index, line_id=line_id, date_from=date_from, date_to=date_to, source=SOURCE_REQUEST, query=""
+    )
+    groups: dict[str, dict[str, Any]] = {}
+    for entry in matched:
+        key = vendor_key(entry.counterparty)
+        if not key:
+            continue
+        group = groups.setdefault(key, {"names": {}, "amount": Decimal("0"), "requests": set(), "lines": {}})
+        name = entry.counterparty.strip()
+        group["names"][name] = group["names"].get(name, 0) + 1
+        group["amount"] += entry.amount
+        group["requests"].add(entry.request_id if entry.request_id is not None else entry.entry_id)
+        leaf = index.entry_leaf[entry.entry_id]
+        group["lines"][leaf] = group["lines"].get(leaf, Decimal("0")) + entry.amount
+    items = []
+    for group in groups.values():
+        # The spelling used most often names the vendor (ties: the first one seen); the largest line says what it was paid for.
+        name = max(group["names"].items(), key=lambda pair: pair[1])[0]
+        line = max(group["lines"].items(), key=lambda pair: (pair[1], pair[0]))[0]
+        items.append({
+            "vendor": name,
+            "amount": group["amount"],
+            "requests": len(group["requests"]),
+            "line_id": line,
+            "line_label": index.nodes[line].label,
+        })
+    items.sort(key=lambda item: (-item["amount"], item["vendor"].casefold()))
+    total = sum((item["amount"] for item in items), start=Decimal("0"))
+    return {
+        "total": str(total.quantize(MONEY)),
+        "count": len(items),
+        "items": [{**item, "amount": str(item["amount"].quantize(MONEY))} for item in items[:limit]],
     }
 
 
@@ -710,6 +780,15 @@ def _line_title(index: LineIndex, line_id: str | None) -> str:
         labels.append(node.label)
         node = index.nodes.get(node.parent) if node.parent else None
     return " › ".join(reversed(labels))
+
+
+def _lines_export_title(index: LineIndex, line_id: str | None, vendor: str, selected: list[LedgerEntry]) -> str:
+    """The sheet title names the vendor of a vendor export, spelled as on its requests."""
+    title = _line_title(index, line_id)
+    if not vendor_key(vendor):
+        return title
+    name = selected[0].counterparty.strip() if selected else " ".join(vendor.split())
+    return f"{title} · Поставщик: {name}"
 
 
 def export_statement_xlsx(
@@ -774,6 +853,7 @@ def export_statement_lines_xlsx(
     query: str,
     source: str | None,
     author: str,
+    vendor: str = "",
 ) -> ExportFile:
     """The same selection as `statement/lines/`, without pagination, as a one-sheet workbook."""
     from apps.modules.reports.xlsx_export import ExportFile, LinesExport, LinesXlsxRenderer, lines_filename
@@ -784,13 +864,16 @@ def export_statement_lines_xlsx(
     index = build_line_index(entries, layout)
     _ensure_line(index, line_id)
     selected = _chronological(
-        _select_entries(entries, index, line_id=line_id, date_from=date_from, date_to=date_to, source=source, query=query)
+        _select_entries(
+            entries, index, line_id=line_id, date_from=date_from, date_to=date_to, source=source, query=query,
+            vendor=vendor,
+        )
     )
     total = sum((entry.amount for entry in selected), start=Decimal("0"))
     content = LinesXlsxRenderer().render(
         LinesExport(
             report=report,
-            title=_line_title(index, line_id),
+            title=_lines_export_title(index, line_id, vendor, selected),
             date_from=date_from,
             date_to=date_to,
             query=query.strip(),

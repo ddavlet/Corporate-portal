@@ -72,6 +72,8 @@ export type StatementRow = {
   separator_before: boolean
   values: Record<string, string | null>
   deltas: Record<string, StatementDelta>
+  /** Period columns only: the same dates a year earlier (null before the start of accounting). */
+  prior_year?: Record<string, string | null>
 }
 
 export type StatementKpi = {
@@ -87,6 +89,8 @@ export type StatementKpi = {
 export type StatementChart = {
   labels: string[]
   partial: boolean[]
+  /** Month keys of each chart column; absent in responses cached before the field existed. */
+  months?: string[][]
   inflow: (string | null)[]
   outflow: (string | null)[]
   net: (string | null)[]
@@ -123,6 +127,8 @@ export type StatementLinesQuery = {
   from: string
   to: string
   q?: string
+  /** Only this vendor's requests (case and spacing do not matter). */
+  vendor?: string
   page?: number
   pageSize?: number
 }
@@ -136,6 +142,8 @@ export type StatementLineItem = {
   category: string
   title: string
   counterparty: string
+  /** Who created the request (full name or login); empty for bank, cash and the n8n source. */
+  author?: string
   request_id: number | null
   channel: string
   line_id: string
@@ -146,6 +154,9 @@ export type StatementLineItem = {
 export type StatementLinesResponse = {
   line: string
   total: string
+  /** Of `total`: revenue (money in) and every other section (money out). */
+  total_in: string
+  total_out: string
   count: number
   page: number
   page_size: number
@@ -182,6 +193,7 @@ export function statementLinesSearchParams(query: StatementLinesQuery): URLSearc
   params.set('to', query.to)
   if (query.source) params.set('source', query.source)
   if (query.q) params.set('q', query.q)
+  if (query.vendor) params.set('vendor', query.vendor)
   if (query.page) params.set('page', String(query.page))
   if (query.pageSize) params.set('page_size', String(query.pageSize))
   return params
@@ -240,6 +252,37 @@ export async function getStatementLines(
 ): Promise<StatementLinesResponse> {
   return readJson<StatementLinesResponse>(
     await apiFetch(`${BASE}/statement/lines/?${statementLinesSearchParams(query)}`, { signal }, SILENT),
+  )
+}
+
+export type StatementVendorsQuery = {
+  template: string
+  report: ReportKind
+  from: string
+  to: string
+  line?: string
+  limit?: number
+}
+
+export type StatementVendor = { vendor: string; amount: string; requests: number; line_id: string; line_label: string }
+
+export type StatementVendorsResponse = { total: string; count: number; items: StatementVendor[] }
+
+export function statementVendorsSearchParams(query: StatementVendorsQuery): URLSearchParams {
+  const params = new URLSearchParams({ template: query.template, report: query.report })
+  if (query.line) params.set('line', query.line)
+  params.set('from', query.from)
+  params.set('to', query.to)
+  if (query.limit) params.set('limit', String(query.limit))
+  return params
+}
+
+export async function getStatementVendors(
+  query: StatementVendorsQuery,
+  signal?: AbortSignal,
+): Promise<StatementVendorsResponse> {
+  return readJson<StatementVendorsResponse>(
+    await apiFetch(`${BASE}/statement/vendors/?${statementVendorsSearchParams(query)}`, { signal }, SILENT),
   )
 }
 

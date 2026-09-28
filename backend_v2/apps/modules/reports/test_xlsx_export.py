@@ -184,6 +184,8 @@ class StatementXlsxRendererTests(SimpleTestCase):
     def test_operations_sheet_is_a_filterable_table(self):
         sheet = self.workbook["Операции"]
         self.assertEqual([cell.value for cell in sheet[1]], list(OPERATION_HEADERS))
+        # Same name as the column on the page, so the file and the screen read alike.
+        self.assertEqual(sheet["F1"].value, "Поставщик / контрагент")
         self.assertEqual(
             [cell.value for cell in sheet[3]],
             [datetime(2026, 8, 1), "Операционные расходы", "Маркетинг", "Заявка", 11, "ООО Поставщик", "Выставка",

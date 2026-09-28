@@ -34,6 +34,7 @@ from apps.modules.reports.pnl_builder import (
     _parse_start_month,
     _purpose_bucket,
     _report_settings_snapshot,
+    request_author,
     validate_pnl_config_dict,
 )
 
@@ -146,6 +147,7 @@ def _append_request_line_cashflow(
         "source": "request",
         "request_id": str(req.id),
         "vendor": str(req.vendor or ""),
+        "author": request_author(req),
     }
     if bucket == "operational":
         operational_expenses.append(item)
@@ -276,7 +278,7 @@ def build_cashflow_payload_from_db(*, tenant, query_params: dict[str, Any]) -> d
     else:
         req_qs = req_qs.none()
 
-    for req in req_qs.order_by("expense_year", "expense_month", "expense_day", "id"):
+    for req in req_qs.select_related("requester").order_by("expense_year", "expense_month", "expense_day", "id"):
         cat = str(req.category or "").strip()
         if cat in cat_exclude:
             continue

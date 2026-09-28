@@ -58,3 +58,44 @@ describe('StatementTableWidget', () => {
     expect(screen.queryByText('Год назад')).toBeNull()
   })
 })
+
+const THREE_PERIODS = {
+  ...STATEMENT,
+  columns: [
+    { ...STATEMENT.columns[0], key: '2026-07', label: 'Июл', months: ['2026-07'], from: '2026-07-01', to: '2026-07-31' },
+    ...STATEMENT.columns,
+  ],
+  rows: STATEMENT.rows.map((row) => ({ ...row, values: { ...row.values, '2026-07': row.values['2026-08'] ?? null } })),
+}
+
+describe('StatementTableWidget visuals', () => {
+  const noop = () => undefined
+
+  it('adds size bars and a trend column when there are three or more periods', () => {
+    render(
+      <StatementTableWidget statement={THREE_PERIODS} units="m" open={new Set(['rev', 'opex'])} selected={null} onToggle={noop} onDrill={noop} />,
+    )
+    expect(document.querySelectorAll('.rp-heat').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('Тренд').length).toBeGreaterThan(0)
+  })
+
+  it('keeps a two-period table plain', () => {
+    render(<StatementTableWidget statement={STATEMENT} units="m" open={new Set(['rev'])} selected={null} onToggle={noop} onDrill={noop} />)
+    expect(document.querySelector('.rp-heat')).toBeNull()
+    expect(screen.queryByText('Тренд')).toBeNull()
+  })
+
+  it('keeps the phone table plain even with many periods', () => {
+    render(
+      <StatementTableWidget statement={THREE_PERIODS} units="m" open={new Set(['rev'])} selected={null} onToggle={noop} onDrill={noop} compact />,
+    )
+    expect(document.querySelector('.rp-heat')).toBeNull()
+  })
+
+  it('flashes the row a KPI tile points to', () => {
+    render(
+      <StatementTableWidget statement={STATEMENT} units="m" open={new Set()} selected={null} onToggle={noop} onDrill={noop} flashRowId="ebit" />,
+    )
+    expect(document.querySelector('.rp-row--flash')?.textContent).toContain('EBIT')
+  })
+})

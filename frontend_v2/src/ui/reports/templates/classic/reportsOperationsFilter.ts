@@ -74,3 +74,9 @@ export function operationRowKey(row: StructuredReportRow, index: number): string
   const source = typeof row.raw?.source === 'string' ? row.raw.source : ''
   return `${row.section ?? row.direction}:${source}:${row.id}:${row.date ?? ''}:${index}`
 }
+
+/** The vendor the report source sends with request operations; bank and cash rows have none. */
+export function vendorOf(row: Pick<StructuredReportRow, 'raw'>): string {
+  const vendor = row.raw?.vendor
+  return typeof vendor === 'string' ? vendor.trim() : ''
+}

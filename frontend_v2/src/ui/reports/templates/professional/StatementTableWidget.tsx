@@ -18,6 +18,8 @@ type Props = {
   columnKeys?: ReadonlySet<string>
   /** Narrow label column with wrapping labels (phone layout). */
   compact?: boolean
+  /** The row a KPI tile points to; highlighted for a moment. */
+  flashRowId?: string | null
 }
 
 const lowerFirst = (text: string) => text.charAt(0).toLowerCase() + text.slice(1)
@@ -41,6 +43,28 @@ function withInsight(statement: StatementResponse, row: StatementRow, column: St
     <Tooltip title={render} mouseEnterDelay={0.3} placement="top">
       {content}
     </Tooltip>
+  )
+}
+
+const TREND_COLORS: Record<StatementRow['polarity'], string> = {
+  income: '#1f6feb',
+  expense: '#e8664f',
+  result: '#8b5cf6',
+  neutral: '#64748b',
+}
+
+function MiniTrend({ values, polarity }: { values: (string | null)[]; polarity: StatementRow['polarity'] }) {
+  const points = values.map((value) => Number(value ?? 0) || 0)
+  if (points.length < 2 || points.every((value) => value === 0)) return null
+  const min = Math.min(...points)
+  const range = Math.max(...points) - min || 1
+  const path = points
+    .map((value, index) => `${index ? 'L' : 'M'}${((index / (points.length - 1)) * 88 + 1).toFixed(1)},${(22 - ((value - min) / range) * 20).toFixed(1)}`)
+    .join('')
+  return (
+    <svg className="rp-trend" viewBox="0 0 90 24" aria-hidden="true">
+      <path d={path} style={{ stroke: TREND_COLORS[polarity] }} />
+    </svg>
   )
 }
 
@@ -70,7 +94,17 @@ function LabelCell({ display, compact, onToggle }: { display: DisplayRow; compac
   )
 }
 
-export function StatementTableWidget({ statement, units, open, selected, onToggle, onDrill, columnKeys, compact = false }: Props) {
+export function StatementTableWidget({
+  statement,
+  units,
+  open,
+  selected,
+  onToggle,
+  onDrill,
+  columnKeys,
+  compact = false,
+  flashRowId = null,
+}: Props) {
   const rows = useMemo(() => flattenStatementRows(statement.rows, open), [statement.rows, open])
 
   const columns = useMemo<ColumnsType<DisplayRow>>(() => {
@@ -78,6 +112,11 @@ export function StatementTableWidget({ statement, units, open, selected, onToggl
     const lastPeriod = visible.reduce((last, column, index) => (column.kind === 'period' ? index : last), -1)
     // A narrow phone table scrolls as a whole; pinned totals would leave no room for the period.
     const pinRight = !compact && visible.some((column) => column.key === 'total')
+    const periodColumns = visible.filter((column) => column.kind === 'period')
+    // Size bars and trends compare periods; with fewer than three there is nothing to compare.
+    const rich = !compact && periodColumns.length >= 3
+    const rowMax = (row: StatementRow) =>
+      Math.max(0, ...periodColumns.map((column) => Math.abs(Number(row.values[column.key] ?? 0)) || 0))
 
     const renderValue = (display: DisplayRow, column: StatementColumn) => {
       const row = display.row
@@ -101,6 +140,8 @@ export function StatementTableWidget({ statement, units, open, selected, onToggl
       const negative = Number(value) < 0 && (row.kind === 'result' || row.kind === 'balance')
       if (!row.drillable) return withInsight(statement, row, column, <span className={negative ? 'rp-neg' : undefined}>{text}</span>)
       const isSelected = selected?.rowId === row.id && selected.columnKey === column.key
+      const max = rich && column.kind === 'period' ? rowMax(row) : 0
+      const heat = max > 0 ? Math.abs(Number(value)) / max : null
       return withInsight(
         statement,
         row,
@@ -112,39 +153,55 @@ export function StatementTableWidget({ statement, units, open, selected, onToggl
           onClick={() => onDrill(row.id, column)}
         >
           {text}
+          {heat !== null ? <span className={`rp-heat rp-heat--${row.polarity}`} style={{ transform: `scaleX(${heat.toFixed(3)})` }} /> : null}
         </button>,
       )
     }
 
-    return [
-      {
-        key: 'label',
-        fixed: 'left',
-        width: compact ? 140 : 300,
-        onCell: () => ({ className: 'rp-label-cell' }),
+    const labelColumn: ColumnsType<DisplayRow>[number] = {
+      key: 'label',
+      fixed: 'left',
+      width: compact ? 140 : 300,
+      onCell: () => ({ className: 'rp-label-cell' }),
+      title: (
+        <div className="rp-th rp-th--label">
+          <span>Статья</span>
+          <small>{UNITS_LABEL[units]}</small>
+        </div>
+      ),
+      render: (_: unknown, display: DisplayRow) => <LabelCell display={display} compact={compact} onToggle={onToggle} />,
+    }
+    const valueColumns: ColumnsType<DisplayRow> = visible.map((column, index) => ({
+      key: column.key,
+      align: 'right' as const,
+      width: compact ? 96 : column.kind === 'delta' ? 96 : column.kind === 'period' ? 104 : 124,
+      fixed: pinRight && index > lastPeriod ? ('right' as const) : undefined,
+      title: (
+        <div className={column.partial ? 'rp-th rp-th--partial' : 'rp-th'}>
+          <span>{column.label}</span>
+          {column.sublabel ? <small>{column.sublabel}</small> : null}
+        </div>
+      ),
+      onCell: () => ({ className: column.partial ? 'rp-cell--partial' : undefined }),
+      render: (_: unknown, display: DisplayRow) => renderValue(display, column),
+    }))
+    if (rich) {
+      // Right after the periods, so it never sits among the totals pinned to the right.
+      valueColumns.splice(lastPeriod + 1, 0, {
+        key: 'trend',
+        width: 110,
         title: (
-          <div className="rp-th rp-th--label">
-            <span>Статья</span>
-            <small>{UNITS_LABEL[units]}</small>
+          <div className="rp-th">
+            <span>Тренд</span>
           </div>
         ),
-        render: (_: unknown, display: DisplayRow) => <LabelCell display={display} compact={compact} onToggle={onToggle} />,
-      },
-      ...visible.map((column, index) => ({
-        key: column.key,
-        align: 'right' as const,
-        width: compact ? 96 : column.kind === 'delta' ? 96 : column.kind === 'period' ? 104 : 124,
-        fixed: pinRight && index > lastPeriod ? ('right' as const) : undefined,
-        title: (
-          <div className={column.partial ? 'rp-th rp-th--partial' : 'rp-th'}>
-            <span>{column.label}</span>
-            {column.sublabel ? <small>{column.sublabel}</small> : null}
-          </div>
-        ),
-        onCell: () => ({ className: column.partial ? 'rp-cell--partial' : undefined }),
-        render: (_: unknown, display: DisplayRow) => renderValue(display, column),
-      })),
-    ]
+        render: (_: unknown, display: DisplayRow) =>
+          display.row && display.variant !== 'header' && display.row.kind !== 'ratio' ? (
+            <MiniTrend values={periodColumns.map((column) => display.row?.values[column.key] ?? null)} polarity={display.row.polarity} />
+          ) : null,
+      })
+    }
+    return [labelColumn, ...valueColumns]
   }, [statement, units, selected, onDrill, onToggle, columnKeys, compact])
 
   return (
@@ -157,7 +214,11 @@ export function StatementTableWidget({ statement, units, open, selected, onToggl
       pagination={false}
       sticky
       scroll={{ x: 'max-content' }}
-      rowClassName={(display) => `rp-row rp-row--${display.variant}${display.row?.strong ? ' rp-row--strong' : ''}`}
+      rowClassName={(display) =>
+        `rp-row rp-row--${display.variant}${display.row?.strong ? ' rp-row--strong' : ''}${
+          flashRowId && display.row?.id === flashRowId ? ' rp-row--flash' : ''
+        }`
+      }
     />
   )
 }

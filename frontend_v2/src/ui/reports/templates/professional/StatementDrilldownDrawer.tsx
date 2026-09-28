@@ -1,5 +1,5 @@
 import { CheckCircleOutlined, FileExcelOutlined, LinkOutlined } from '@ant-design/icons'
-import { Alert, Button, Drawer, Empty, Input, Skeleton, Tag } from 'antd'
+import { Alert, Button, Drawer, Empty, Input, Segmented, Skeleton } from 'antd'
 import { useEffect, useState } from 'react'
 import {
   downloadLinesXlsx,
@@ -13,71 +13,38 @@ import { formatAmount, formatExact, formatRange, UNITS_SHORT, type Units } from 
 import { notifyApiError } from '../../../../lib/apiNotify'
 import { describeReportError } from '../../../../lib/reportErrors'
 import { saveFile } from '../../../../lib/saveFile'
+import { CountUpAmount } from './CountUpAmount'
+import { drillGroupings, groupDrillItems, MAX_STACK_SEGMENTS, type DrillGrouping } from './drillGroups'
+import { DrillGroupCard, RequestDrillCard } from './RequestDrillCard'
+import { PALETTE, pluralRu } from './reportVisuals'
 
 export type DrillRequest = {
   template: string
   report: ReportKind
-  row: StatementRow
+  /** The statement row behind the cell; null for a vendor panel, which spans every section. */
+  row: StatementRow | null
   column: StatementColumn
   crumbs: string[]
+  /** Only this vendor's requests. */
+  vendor?: string
 }
 
 type Props = {
   request: DrillRequest | null
   units: Units
   onClose: () => void
-  onOpenRequest: (requestId: number) => void
+  /** `periodIndex`: the amortization instalment this operation is, highlighted on the request card. */
+  onOpenRequest: (requestId: number, periodIndex: number | null) => void
   /** Phone layout: the panel takes the whole screen. */
   fullScreen?: boolean
   /** Copies the page link (which opens this panel); the toolbar's «Ссылка» is under the panel's mask. */
   onCopyLink?: () => void
 }
 
-/** Backend maximum: most cells load in one page, so the breakdown can be shown. */
+/** Backend maximum: most cells load in one page, so the composition can be shown. */
 const PAGE_SIZE = 200
-const CHANNEL_LABELS: Record<string, string> = {
-  CLICK: 'Click',
-  PAYME: 'Payme',
-  UZUM: 'Uzum',
-  UZCARD: 'Uzcard',
-  HUMO: 'Humo',
-  IPS: 'IPS',
-  VISA: 'Visa',
-  CASH_DEPOSIT: 'Взнос наличных',
-  CLIENT_PAYMENT: 'Оплата от клиента',
-  OTHER: 'Прочие поступления',
-}
-
-function sourceTag(item: StatementLineItem): string {
-  if (item.source === 'request' && item.request_id !== null) return `Заявка #${item.request_id}`
-  if (item.source === 'bank') return CHANNEL_LABELS[item.channel] ?? 'Банк'
-  if (item.source === 'cash') return 'Касса'
-  if (item.source === 'invest_return') return 'Инвест. выплата'
-  return 'Операция'
-}
-
-function mixLabel(item: StatementLineItem, byLine: boolean): string {
-  if (byLine) return item.line_label
-  if (item.source === 'bank') return CHANNEL_LABELS[item.channel] ?? 'Банк'
-  if (item.source === 'request') return item.amortization ? 'Амортизация по графику' : 'Разовые заявки'
-  return item.line_label
-}
-
-function breakdown(items: StatementLineItem[], byLine: boolean): { label: string; share: number }[] {
-  const totals = new Map<string, number>()
-  let sum = 0
-  for (const item of items) {
-    const amount = Number(item.amount)
-    sum += amount
-    const label = mixLabel(item, byLine)
-    totals.set(label, (totals.get(label) ?? 0) + amount)
-  }
-  if (totals.size < 2 || sum <= 0) return []
-  return [...totals.entries()]
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 6)
-    .map(([label, value]) => ({ label, share: value / sum }))
-}
+const colorAt = (index: number) => PALETTE[index % (PALETTE.length - 1)]
+const anchorId = (index: number) => `rp-drill-card-${index}`
 
 /** Backend money strings ("1800000.00") as whole tiyin: exact at any size, unlike Number(). */
 function toCents(value: string | null | undefined): bigint {
@@ -90,32 +57,12 @@ function toCents(value: string | null | undefined): bigint {
 
 const sameMoney = (a: string | null | undefined, b: string | null | undefined) => toCents(a) === toCents(b)
 
-function TransactionLine({ item, showLine, onOpenRequest }: { item: StatementLineItem; showLine: boolean; onOpenRequest: (id: number) => void }) {
-  const requestId = item.source === 'request' ? item.request_id : null
-  const open = () => {
-    if (requestId !== null) onOpenRequest(requestId)
-  }
-  return (
-    <div
-      className={`rp-tx${requestId !== null ? ' is-clickable' : ''}`}
-      role={requestId !== null ? 'button' : undefined}
-      tabIndex={requestId !== null ? 0 : undefined}
-      onClick={requestId !== null ? open : undefined}
-      onKeyDown={requestId !== null ? (event) => { if (event.key === 'Enter') open() } : undefined}
-    >
-      <div className="rp-tx-date">{`${item.date.slice(8, 10)}.${item.date.slice(5, 7)}`}</div>
-      <div>
-        <div className="rp-tx-title">{item.title}</div>
-        <div className="rp-tx-sub">
-          {showLine ? <span>{item.line_label}</span> : null}
-          <Tag color={item.source === 'request' ? 'blue' : undefined}>{sourceTag(item)}</Tag>
-          {item.counterparty ? <span>{item.counterparty}</span> : null}
-          {item.amortization ? <Tag color="gold">{`амортизация ${item.amortization.index} из ${item.amortization.count}`}</Tag> : null}
-        </div>
-      </div>
-      <div className="rp-tx-amount">{formatExact(item.amount)}</div>
-    </div>
-  )
+function scrollToCard(id: string) {
+  const card = document.getElementById(id)
+  if (!card) return
+  card.scrollIntoView?.({ behavior: 'smooth', block: 'center' })
+  card.classList.add('is-flash')
+  window.setTimeout(() => card.classList.remove('is-flash'), 1200)
 }
 
 export function StatementDrilldownDrawer({ request, units, onClose, onOpenRequest, fullScreen = false, onCopyLink }: Props) {
@@ -124,11 +71,14 @@ export function StatementDrilldownDrawer({ request, units, onClose, onOpenReques
   const [count, setCount] = useState(0)
   const [page, setPage] = useState(1)
   const [query, setQuery] = useState('')
+  const [grouping, setGrouping] = useState<DrillGrouping>('item')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [exporting, setExporting] = useState(false)
 
-  const cellKey = request ? `${request.template}|${request.report}|${request.row.id}|${request.column.from}|${request.column.to}` : ''
+  const cellKey = request
+    ? `${request.template}|${request.report}|${request.row?.id ?? ''}|${request.vendor ?? ''}|${request.column.from}|${request.column.to}`
+    : ''
 
   useEffect(() => {
     setQuery('')
@@ -136,6 +86,7 @@ export function StatementDrilldownDrawer({ request, units, onClose, onOpenReques
     setItems([])
     setTotal(null)
     setCount(0)
+    setGrouping('item')
   }, [cellKey])
 
   useEffect(() => {
@@ -147,7 +98,8 @@ export function StatementDrilldownDrawer({ request, units, onClose, onOpenReques
       {
         template: request.template,
         report: request.report,
-        line: request.row.id,
+        line: request.row?.id,
+        vendor: request.vendor,
         from: request.column.from,
         to: request.column.to,
         q: query || undefined,
@@ -180,7 +132,8 @@ export function StatementDrilldownDrawer({ request, units, onClose, onOpenReques
         await downloadLinesXlsx({
           template: request.template,
           report: request.report,
-          line: request.row.id,
+          line: request.row?.id,
+          vendor: request.vendor,
           from: request.column.from,
           to: request.column.to,
           q: query || undefined,
@@ -193,22 +146,46 @@ export function StatementDrilldownDrawer({ request, units, onClose, onOpenReques
     }
   }
 
-  const cellValue = request ? request.row.values[request.column.key] ?? null : null
-  const byLine = request?.row.kind === 'group'
-  // Shares are only honest when every operation of the cell is loaded.
-  const mix = !query && items.length === count ? breakdown(items, byLine) : []
+  const cellValue = request?.row ? request.row.values[request.column.key] ?? null : null
+  const showLine = request !== null && (request.row === null || request.row.kind === 'group')
+  // Shares are only honest when every operation of the cell is loaded and nothing is filtered out.
+  const complete = !query && total !== null && count > 0 && items.length === count
+  const requestIds = new Set(items.filter((item) => item.source === 'request' && item.request_id !== null).map((item) => item.request_id))
+  const vendors = new Set(items.map((item) => item.counterparty.trim().toLocaleLowerCase('ru')).filter(Boolean))
+  const amortized = items.filter((item) => item.amortization).length
+  const groups = complete ? groupDrillItems(items, grouping) : []
 
   let reconciliation
-  if (query) reconciliation = <b className="rp-muted">по всем операциям</b>
+  if (request && !request.row) reconciliation = <b className="rp-muted">по всем разделам</b>
+  else if (query) reconciliation = <b className="rp-muted">по всем операциям</b>
   else if (total === null) reconciliation = <b>…</b>
   else if (sameMoney(total, cellValue)) reconciliation = <b className="rp-drill-ok"><CheckCircleOutlined /> совпадает</b>
   else reconciliation = <b className="rp-drill-mismatch">расхождение</b>
+
+  const cards =
+    complete && grouping !== 'item'
+      ? groups.map((group, index) => (
+          <DrillGroupCard key={group.key} group={group} grouping={grouping} color={colorAt(index)} index={index} anchorId={anchorId(index)} />
+        ))
+      : (complete ? groups.map((group) => group.items[0]) : items).map((item, index) => (
+          <RequestDrillCard
+            key={item.entry_id}
+            item={item}
+            share={complete ? groups[index].share : null}
+            color={colorAt(index)}
+            index={index}
+            anchorId={anchorId(index)}
+            showLine={showLine}
+            onOpenRequest={onOpenRequest}
+          />
+        ))
 
   return (
     <Drawer
       open={request !== null}
       onClose={onClose}
-      width={fullScreen ? '100%' : 620}
+      width={fullScreen ? '100%' : 640}
+      rootClassName="rp-drawer"
       extra={
         onCopyLink ? (
           <Button icon={<LinkOutlined />} onClick={onCopyLink}>
@@ -220,7 +197,7 @@ export function StatementDrilldownDrawer({ request, units, onClose, onOpenReques
         request ? (
           <div>
             <div className="rp-drill-crumbs">{request.crumbs.join(' › ')}</div>
-            <div>{`${request.row.label} · ${formatRange(request.column.from ?? '', request.column.to ?? '')}`}</div>
+            <div>{`${request.vendor ?? request.row?.label ?? ''} · ${formatRange(request.column.from ?? '', request.column.to ?? '')}`}</div>
           </div>
         ) : null
       }
@@ -230,8 +207,8 @@ export function StatementDrilldownDrawer({ request, units, onClose, onOpenReques
           <div className="rp-drill-stats">
             <div className="rp-drill-stat">
               <span>Сумма, сум</span>
-              <b>{total === null ? '…' : formatExact(total)}</b>
-              {units !== 'sum' ? <span>{`в отчёте: ${formatAmount(cellValue, units)} ${UNITS_SHORT[units]}`}</span> : null}
+              <b className="rp-num">{total === null ? '…' : <CountUpAmount value={total} format={formatExact} />}</b>
+              {units !== 'sum' && request.row ? <span>{`в отчёте: ${formatAmount(cellValue, units)} ${UNITS_SHORT[units]}`}</span> : null}
             </div>
             <div className="rp-drill-stat">
               <span>Операций</span>
@@ -242,16 +219,43 @@ export function StatementDrilldownDrawer({ request, units, onClose, onOpenReques
               {reconciliation}
             </div>
           </div>
-          {mix.length ? (
-            <div className="rp-mix">
-              {mix.map((part) => (
-                <div key={part.label} className="rp-mix-row">
-                  <span>{part.label}</span>
-                  <div className="rp-mix-bar"><i style={{ width: `${Math.max(2, part.share * 100).toFixed(1)}%` }} /></div>
-                  <b>{`${(part.share * 100).toFixed(1).replace('.', ',')}%`}</b>
+          {complete ? (
+            <div className="rp-drill-summary">
+              <div className="rp-chips">
+                {requestIds.size > 0 ? (
+                  <span className="rp-chip">{`${requestIds.size} ${pluralRu(requestIds.size, 'заявка', 'заявки', 'заявок')}`}</span>
+                ) : (
+                  <span className="rp-chip">{`${count} ${pluralRu(count, 'строка', 'строки', 'строк')} банка и кассы`}</span>
+                )}
+                {requestIds.size > 0 && vendors.size > 0 ? (
+                  <span className="rp-chip">{`${vendors.size} ${pluralRu(vendors.size, 'поставщик', 'поставщика', 'поставщиков')}`}</span>
+                ) : null}
+                {amortized > 0 ? <span className="rp-chip">{`${amortized} по графику амортизации`}</span> : null}
+              </div>
+              {groups.length > 1 ? (
+                <div className="rp-stack" aria-hidden="true">
+                  {groups.slice(0, MAX_STACK_SEGMENTS).map((group, index) => (
+                    <i
+                      key={group.key}
+                      className="rp-widen"
+                      title={`${group.label}: ${formatExact(String(group.amount))} сум`}
+                      style={{ flexGrow: Math.max(group.amount, 0), background: colorAt(index), ['--rp-delay' as string]: `${index * 30}ms` }}
+                      onClick={() => scrollToCard(anchorId(index))}
+                    />
+                  ))}
                 </div>
-              ))}
+              ) : null}
+              {items.length > 1 ? (
+                <Segmented
+                  size="small"
+                  value={grouping}
+                  onChange={(value) => setGrouping(value as DrillGrouping)}
+                  options={drillGroupings(request.column.months.length, requestIds.size > 0)}
+                />
+              ) : null}
             </div>
+          ) : !query && count > items.length && items.length > 0 ? (
+            <p className="rp-muted rp-drill-note">{`Показаны ${items.length} из ${count}. Загрузите все, чтобы увидеть состав.`}</p>
           ) : null}
           <div className="rp-drill-tools">
             <Input.Search
@@ -270,11 +274,7 @@ export function StatementDrilldownDrawer({ request, units, onClose, onOpenReques
           {error ? <Alert type="error" showIcon message={error} /> : null}
           {loading && items.length === 0 ? <Skeleton active /> : null}
           {!loading && !error && items.length === 0 ? <Empty description="Операций нет" image={Empty.PRESENTED_IMAGE_SIMPLE} /> : null}
-          <div>
-            {items.map((line) => (
-              <TransactionLine key={line.entry_id} item={line} showLine={byLine} onOpenRequest={onOpenRequest} />
-            ))}
-          </div>
+          <div className="rp-req-list">{cards}</div>
           {items.length < count ? (
             <Button style={{ marginTop: 12 }} loading={loading} onClick={() => setPage((current) => current + 1)}>
               Показать ещё

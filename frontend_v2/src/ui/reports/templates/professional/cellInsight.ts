@@ -41,6 +41,9 @@ export function cellInsight(statement: StatementResponse, row: StatementRow, col
     const pct = previous ? pctChange(value, row.values[previous.key]) : null
     const line = previous && pct !== null ? deltaLine(row, `к ${previous.label.replace('*', '')}`, { pct }) : null
     if (line) lines.push(line)
+    const yearAgo = pctChange(value, row.prior_year?.[column.key])
+    const yearLine = yearAgo !== null ? deltaLine(row, 'к прошлому году', { pct: yearAgo }) : null
+    if (yearLine) lines.push(yearLine)
   }
   if (row.polarity === 'expense') {
     const income = statement.rows.find((candidate) => candidate.parent === null && candidate.polarity === 'income')

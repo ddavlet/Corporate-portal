@@ -80,3 +80,11 @@ class BuildLedgerTests(SimpleTestCase):
         )
         (entry,) = build_ledger(payload)
         self.assertEqual((entry.section, entry.category, entry.amount), ("other", "Налоги", Decimal("40")))
+
+    def test_request_author_is_read_and_defaults_to_empty(self):
+        payload = {"operational_expenses": [
+            {"id": "10", "date": "2026-08-01", "amount": "200", "source": "request", "author": " Азиз Рахимов "},
+            {"id": "11", "date": "2026-08-02", "amount": "100", "source": "request"},
+        ]}
+        with_author, without = build_ledger(payload)
+        self.assertEqual((with_author.author, without.author), ("Азиз Рахимов", ""))

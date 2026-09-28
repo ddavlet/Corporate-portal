@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { StructuredReportRow } from '../../../../lib/api'
-import { filterForMatrixRow, operationRowKey, operationsFilterCaption, rowMatchesSection } from './reportsOperationsFilter'
+import { filterForMatrixRow, operationRowKey, operationsFilterCaption, rowMatchesSection, vendorOf } from './reportsOperationsFilter'
 
 const row = (over: Partial<StructuredReportRow>): StructuredReportRow => ({
   id: '1',
@@ -89,5 +89,13 @@ describe('operationsFilterCaption', () => {
     expect(operationsFilterCaption({ direction: null, section: null, category: null, month: 'Август 2026' })).toBe(
       'Все операции / Август 2026',
     )
+  })
+})
+
+describe('vendorOf', () => {
+  it('reads the vendor the report source sends with request operations', () => {
+    expect(vendorOf(row({ raw: { vendor: ' ZARKENT POLIMER INVEST ' } }))).toBe('ZARKENT POLIMER INVEST')
+    expect(vendorOf(row({ raw: {} }))).toBe('')
+    expect(vendorOf(row({ raw: { vendor: 42 } }))).toBe('')
   })
 })

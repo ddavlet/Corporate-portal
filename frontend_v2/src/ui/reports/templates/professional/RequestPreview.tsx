@@ -10,15 +10,18 @@ import { RequestDetailModal, type RequestDetail } from '../../../requests/Reques
 const REQUEST_PREVIEW_Z_INDEX = 1100
 
 /** Opens a request card on top of the report without leaving the page. */
-export function useRequestPreview(): { open: (requestId: number) => void; modal: ReactNode } {
+export function useRequestPreview(): { open: (requestId: number, periodIndex?: number | null) => void; modal: ReactNode } {
   const [requestId, setRequestId] = useState<number | null>(null)
+  // The amortization instalment behind the clicked cell, highlighted in the card's schedule.
+  const [highlight, setHighlight] = useState<number | null>(null)
   const [detail, setDetail] = useState<RequestDetail | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   // Only the request opened last may fill the card; a slower earlier answer is dropped.
   const latest = useRef<number | null>(null)
 
-  const open = useCallback((id: number) => {
+  const open = useCallback((id: number, periodIndex: number | null = null) => {
+    setHighlight(periodIndex)
     latest.current = id
     setRequestId(id)
     setDetail(null)
@@ -37,7 +40,7 @@ export function useRequestPreview(): { open: (requestId: number) => void; modal:
   }, [])
 
   const modal = (
-    <RequestDetailModal open={requestId !== null} onCancel={() => setRequestId(null)} detail={detail} loading={loading} error={error} zIndex={REQUEST_PREVIEW_Z_INDEX} />
+    <RequestDetailModal open={requestId !== null} onCancel={() => setRequestId(null)} detail={detail} loading={loading} error={error} zIndex={REQUEST_PREVIEW_Z_INDEX} highlightPeriodIndex={highlight} />
   )
   return { open, modal }
 }

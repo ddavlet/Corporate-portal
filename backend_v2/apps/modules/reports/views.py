@@ -31,6 +31,7 @@ from apps.modules.reports.serializers import (
     StatementExportQuerySerializer,
     StatementLinesQuerySerializer,
     StatementQuerySerializer,
+    StatementVendorsQuerySerializer,
 )
 from apps.modules.reports.services import (
     ReportSourceError,
@@ -42,6 +43,7 @@ from apps.modules.reports.services import (
     fetch_n8n_report_payload,
     get_template_settings_response,
     list_statement_lines,
+    list_statement_vendors,
     save_template_settings,
 )
 from apps.tenants.permissions import HasEffectiveModuleAccess, IsTenantAdmin
@@ -398,6 +400,7 @@ class StatementLinesView(APIView):
                 page=data["page"],
                 page_size=data["page_size"],
                 source=data["source"] or None,
+                vendor=data["vendor"],
             )
         except (TemplateNotFound, TemplateNotStatement, TemplateNotAllowed) as exc:
             return _template_error_response(exc)
@@ -447,6 +450,40 @@ class StatementExportView(APIView):
         return _file_response(file)
 
 
+class StatementVendorsView(APIView):
+    module_key = MODULE_KEY
+    permission_classes = [IsAuthenticated, HasEffectiveModuleAccess]
+
+    def get(self, request):
+        tenant = getattr(request, "tenant", None)
+        if not tenant:
+            return Response({"detail": "No tenant."}, status=status.HTTP_400_BAD_REQUEST)
+        raw = request.query_params.dict()
+        raw["date_from"] = raw.pop("from", None)
+        raw["date_to"] = raw.pop("to", None)
+        query = StatementVendorsQuerySerializer(data=raw)
+        query.is_valid(raise_exception=True)
+        data = query.validated_data
+        try:
+            payload = list_statement_vendors(
+                tenant=tenant,
+                user_id=request.user.id,
+                template_key=data["template"],
+                report=data["report"],
+                line_id=data["line"] or None,
+                date_from=data["date_from"],
+                date_to=data["date_to"],
+                limit=data["limit"],
+            )
+        except (TemplateNotFound, TemplateNotStatement, TemplateNotAllowed) as exc:
+            return _template_error_response(exc)
+        except LineNotFound:
+            return Response({"detail": "Строка отчёта не найдена."}, status=status.HTTP_404_NOT_FOUND)
+        except ReportSourceError as exc:
+            return upstream_error_response(exc.original, tenant=tenant, report_name=data["report"])
+        return Response(payload, status=status.HTTP_200_OK)
+
+
 class StatementLinesExportView(APIView):
     module_key = MODULE_KEY
     permission_classes = [IsAuthenticated, HasEffectiveModuleAccess]
@@ -473,6 +510,7 @@ class StatementLinesExportView(APIView):
                 query=data["q"],
                 source=data["source"] or None,
                 author=_export_author(request.user),
+                vendor=data["vendor"],
             )
         except (TemplateNotFound, TemplateNotStatement, TemplateNotAllowed) as exc:
             return _template_error_response(exc)

@@ -73,4 +73,23 @@ describe('TransactionsWidget', () => {
     expect(screen.getByText('Операционные расходы')).toBeInTheDocument()
     expect(screen.getByText('Заявка #10')).toBeInTheDocument()
   })
+
+  it('totals what the filters show: count, money in and money out', async () => {
+    getStatementLinesMock.mockResolvedValue({ ...LINES, total_in: '1500000.00', total_out: '200000.00' })
+    render(<TransactionsWidget template="professional" report="pnl" from="2026-08-01" to="2026-08-31" rows={STATEMENT.rows} onOpenRequest={vi.fn()} />)
+    await screen.findByText('Аренда за август')
+    const summary = (document.querySelector('.rp-ops-summary')?.textContent ?? '').replace(/[\u00a0\u202f]/g, ' ')
+    expect(summary).toContain('Операций: 2')
+    expect(summary).toContain('Поступления: 1 500 000 сум')
+    expect(summary).toContain('Расходы: 200 000 сум')
+  })
+
+  it('shows the vendor in its own column, not under the description', async () => {
+    getStatementLinesMock.mockResolvedValue({ ...LINES, total_in: '1500000.00', total_out: '200000.00' })
+    render(<TransactionsWidget template="professional" report="pnl" from="2026-08-01" to="2026-08-31" rows={STATEMENT.rows} onOpenRequest={vi.fn()} />)
+    await screen.findByText('Аренда за август')
+    expect(screen.getByRole('columnheader', { name: /Поставщик \/ контрагент/ })).toBeInTheDocument()
+    expect(screen.getByRole('cell', { name: 'ООО Офис' })).toBeInTheDocument()
+    expect(screen.getByRole('cell', { name: 'Аренда за август' })).toBeInTheDocument()
+  })
 })

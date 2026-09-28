@@ -318,6 +318,8 @@ type RequestDetailModalProps = {
   onRefresh?: () => Promise<void>
   /** Для показа поверх других оверлеев (например, боковой панели отчёта). */
   zIndex?: number
+  /** Номер платежа графика амортизации, который нужно выделить (ячейка отчёта, из которой открыта заявка). */
+  highlightPeriodIndex?: number | null
 }
 
 export function RequestDetailModal({
@@ -330,10 +332,19 @@ export function RequestDetailModal({
   returnTo,
   onRefresh,
   zIndex,
+  highlightPeriodIndex = null,
 }: RequestDetailModalProps) {
   return (
     <Modal open={open} title={detail ? `Заявка #${detail.id}` : 'Заявка'} footer={null} onCancel={onCancel} width={760} zIndex={zIndex}>
-      <RequestDetailContent detail={detail} loading={loading} error={error} actions={actions} returnTo={returnTo} onRefresh={onRefresh} />
+      <RequestDetailContent
+        detail={detail}
+        loading={loading}
+        error={error}
+        actions={actions}
+        returnTo={returnTo}
+        onRefresh={onRefresh}
+        highlightPeriodIndex={highlightPeriodIndex}
+      />
     </Modal>
   )
 }
@@ -348,6 +359,34 @@ type RequestDetailContentProps = {
   returnTo?: RequestReturnTo
   onCommentAdded?: () => Promise<void>
   onRefresh?: () => Promise<void>
+  /** Номер платежа графика амортизации, который нужно выделить. */
+  highlightPeriodIndex?: number | null
+}
+
+function AmortizationScheduleList({
+  schedule,
+  currency,
+  highlightPeriodIndex,
+}: {
+  schedule: NonNullable<RequestDetail['amortization_schedule']>
+  currency: string
+  highlightPeriodIndex: number | null
+}) {
+  return (
+    <Space direction="vertical" size={4} style={{ display: 'flex' }}>
+      {schedule.map((row) => {
+        const current = highlightPeriodIndex !== null && row.period_index === highlightPeriodIndex
+        return (
+          <span key={row.period_index} aria-current={current ? 'true' : undefined}>
+            <Typography.Text strong={current} mark={current}>
+              {`#${row.period_index}: ${formatRequestBillingMonth(row.period_month)} · ${Number(row.monthly_amount).toLocaleString('ru-RU')} ${currency}`}
+              {current ? ' — этот платёж в отчёте' : ''}
+            </Typography.Text>
+          </span>
+        )
+      })}
+    </Space>
+  )
 }
 
 function TgDetailRow({ label, children }: { label: string; children: ReactNode }) {
@@ -368,6 +407,7 @@ export function RequestDetailContent({
   returnTo,
   onCommentAdded,
   onRefresh,
+  highlightPeriodIndex = null,
 }: RequestDetailContentProps) {
   const approvals = detail?.approvals || []
   const amortizationSchedule = detail?.amortization_schedule || []
@@ -463,13 +503,11 @@ export function RequestDetailContent({
           <TgDetailRow label="Старт амортизации">{formatRequestBillingMonth(detail.amortization_start_date || null)}</TgDetailRow>
           {amortizationSchedule.length ? (
             <TgDetailRow label="График амортизации">
-              <Space direction="vertical" size={4} style={{ display: 'flex' }}>
-                {amortizationSchedule.map((row) => (
-                  <Typography.Text key={row.period_index}>
-                    {`#${row.period_index}: ${formatRequestBillingMonth(row.period_month)} · ${Number(row.monthly_amount).toLocaleString('ru-RU')} ${detail.currency}`}
-                  </Typography.Text>
-                ))}
-              </Space>
+              <AmortizationScheduleList
+                schedule={amortizationSchedule}
+                currency={detail.currency}
+                highlightPeriodIndex={highlightPeriodIndex}
+              />
             </TgDetailRow>
           ) : null}
           <TgDetailRow label="Связанный расход">
@@ -619,13 +657,11 @@ export function RequestDetailContent({
           </Descriptions.Item>
           {amortizationSchedule.length ? (
             <Descriptions.Item label="График амортизации">
-              <Space direction="vertical" size={4} style={{ display: 'flex' }}>
-                {amortizationSchedule.map((row) => (
-                  <Typography.Text key={row.period_index}>
-                    {`#${row.period_index}: ${formatRequestBillingMonth(row.period_month)} · ${Number(row.monthly_amount).toLocaleString('ru-RU')} ${detail.currency}`}
-                  </Typography.Text>
-                ))}
-              </Space>
+              <AmortizationScheduleList
+                schedule={amortizationSchedule}
+                currency={detail.currency}
+                highlightPeriodIndex={highlightPeriodIndex}
+              />
             </Descriptions.Item>
           ) : null}
           <Descriptions.Item label="Связанный расход">
