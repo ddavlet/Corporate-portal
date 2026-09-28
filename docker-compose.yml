@@ -537,6 +537,8 @@ services:
   # Для rclone из Snap: /home/USER/snap/rclone/current/.config/rclone — «current» всегда на актуальную ревизию, reconnect обновляет тот же путь.
   # Задать в .env, например: RCLONE_CONFIG_DIR=/home/ddavlet/snap/rclone/current/.config/rclone
   # n8n в Postgres (см. сервис n8n: DB_*) — попадает в pg_dumpall у db_backup; отдельные tar больше не синкаем.
+  # medical_portal держит свою БД и сам дампит её в 01:30 в /opt/backups/medical_portal
+  # (clinic-*.dump, ~МБ); синкаем в kolberg-backups/medical_portal/ и храним MEDPORTAL_GDRIVE_RETENTION_DAYS дней.
   gdrive_backup_sync:
     image: rclone/rclone:latest
     container_name: gdrive_backup_sync
@@ -545,6 +547,7 @@ services:
     # (upload по mtime + purge по min-age на remote). ~2.2–2.6 ГБ на дамп PG.
     environment:
       - GDRIVE_RETENTION_DAYS=3
+      - MEDPORTAL_GDRIVE_RETENTION_DAYS=30
     entrypoint:
       - /bin/sh
       - -lc
@@ -564,12 +567,15 @@ services:
               done;
               rclone delete "gdrive:kolberg-backups/postgres-daily/" --include "*.sql.gz" --min-age "$${GDRIVE_RETENTION_DAYS}d" || true;
             fi;
+            rclone copy /backups/medical_portal gdrive:kolberg-backups/medical_portal/ --include "clinic-*.dump";
+            rclone delete gdrive:kolberg-backups/medical_portal/ --include "clinic-*.dump" --min-age "$${MEDPORTAL_GDRIVE_RETENTION_DAYS}d" || true;
             echo "$$today" > /tmp/last_sync_date;
           fi;
           sleep 30;
         done
     volumes:
       - /opt/backups/postgres:/backups/postgres:ro
+      - /opt/backups/medical_portal:/backups/medical_portal:ro
       - ${RCLONE_CONFIG_DIR:-/opt/backups/rclone}:/config/rclone:ro
 
   backend_v2:
