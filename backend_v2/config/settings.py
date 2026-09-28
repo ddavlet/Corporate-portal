@@ -1,5 +1,6 @@
 from pathlib import Path
 import os
+import sys
 
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
@@ -153,6 +154,11 @@ AUTH_PASSWORD_VALIDATORS = [
     {"NAME": "django.contrib.auth.password_validation.CommonPasswordValidator"},
     {"NAME": "django.contrib.auth.password_validation.NumericPasswordValidator"},
 ]
+
+# Test runs only: PBKDF2 (~1M iterations) makes every create_user(password=...) cost ~0.25s,
+# and tests create users in setUp — this dominated CI time. MD5 is fine for throwaway test users.
+if len(sys.argv) > 1 and sys.argv[1] == "test":
+    PASSWORD_HASHERS = ["django.contrib.auth.hashers.MD5PasswordHasher"]
 
 
 LANGUAGE_CODE = "en-us"
