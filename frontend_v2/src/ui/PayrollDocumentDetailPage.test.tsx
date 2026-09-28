@@ -1,6 +1,7 @@
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter, Route, Routes, useNavigate } from 'react-router-dom'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { Modal } from 'antd'
 import { PayrollDocumentDetailPage } from './PayrollDocumentDetailPage'
 import type { PayrollDocumentDetailDto, PayrollPayoutStateDto } from '../lib/api'
 
@@ -162,6 +163,11 @@ describe('PayrollDocumentDetailPage', () => {
 // Under React 19 that silently rendered nothing (antd v5 needs a React 19 render hook),
 // so both buttons did nothing in production. These tests click through the dialog.
 describe('PayrollDocumentDetailPage confirm dialogs', () => {
+  // Static antd dialogs live in document.body, outside Testing Library's cleanup.
+  afterEach(() => {
+    Modal.destroyAll()
+  })
+
   beforeEach(() => {
     getPayrollDocumentMock.mockReset()
     getPayrollPayoutStateMock.mockReset()
@@ -174,8 +180,10 @@ describe('PayrollDocumentDetailPage confirm dialogs', () => {
     acceptPayrollDocumentMock.mockResolvedValue(baseDoc({ status: 'accepted' }))
     renderPage('1')
     fireEvent.click(await screen.findByRole('button', { name: 'Принять' }))
-    expect(await screen.findByText('Принять начисление?')).toBeInTheDocument()
-    const dialog = screen.getByRole('dialog')
+    // antd repeats the confirm title inside the dialog, so query within the newest dialog.
+    const dialogs = await screen.findAllByRole('dialog')
+    const dialog = dialogs[dialogs.length - 1]
+    expect(within(dialog).getAllByText('Принять начисление?').length).toBeGreaterThan(0)
     fireEvent.click(within(dialog).getByRole('button', { name: 'Принять' }))
     await waitFor(() => expect(acceptPayrollDocumentMock).toHaveBeenCalledWith(1))
   })
@@ -184,8 +192,10 @@ describe('PayrollDocumentDetailPage confirm dialogs', () => {
     cancelPayrollDocumentMock.mockResolvedValue(baseDoc({ status: 'cancelled' }))
     renderPage('1')
     fireEvent.click(await screen.findByRole('button', { name: 'Отменить' }))
-    expect(await screen.findByText('Отменить начисление?')).toBeInTheDocument()
-    const dialog = screen.getByRole('dialog')
+    // antd repeats the confirm title inside the dialog, so query within the newest dialog.
+    const dialogs = await screen.findAllByRole('dialog')
+    const dialog = dialogs[dialogs.length - 1]
+    expect(within(dialog).getAllByText('Отменить начисление?').length).toBeGreaterThan(0)
     fireEvent.click(within(dialog).getByRole('button', { name: 'Отменить' }))
     await waitFor(() => expect(cancelPayrollDocumentMock).toHaveBeenCalledWith(1))
   })
