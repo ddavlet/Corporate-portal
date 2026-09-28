@@ -7,7 +7,7 @@ DEPLOY_TEST_PATH ?= $(TEST_PATH)
 BRANCH     := $(shell git rev-parse --abbrev-ref HEAD)
 
 .DEFAULT_GOAL := help
-.PHONY: help push test deploy makemigrations showmigrations logs backup-db create-postgres-mcp-role rollback refresh-approval-messages reconcile-card-revenues reconcile-expense-links send-to-vacation return-from-vacation reassign-unmatched-bank-expenses backfill-bank-expense-requests backfill-cash-expense-requests backfill-card-expenses backfill-cbu-exchange-rate local-up local-down local-logs test_local
+.PHONY: help push test deploy makemigrations showmigrations logs backup-db create-postgres-mcp-role rollback refresh-approval-messages reconcile-card-revenues reconcile-expense-links send-to-vacation return-from-vacation reassign-unmatched-bank-expenses backfill-bank-expense-requests backfill-cash-expense-requests backfill-card-expenses backfill-cbu-exchange-rate redispatch-unsent-approval-cards local-up local-down local-logs test_local
 
 help:
 	@echo ""
@@ -37,6 +37,9 @@ help:
 	@echo "  make backfill-cash-expense-requests TENANT=1 [ALL_TENANTS=1] [DATE_FROM=.. DATE_TO=..] [APPLY=1] — заявки под расходы кассы без заявки"
 	@echo "  make backfill-card-expenses TENANT=3 [DATE_FROM=.. DATE_TO=..] [APPLY=1] — CardExpense для оплаченных карточных заявок без расхода"
 	@echo "  make backfill-cbu-exchange-rate [DATE_FROM=.. DATE_TO=..] [OVERWRITE=1] [APPLY=1] — дозаполнить архив курсов ЦБ"
+	@echo "  make redispatch-unsent-approval-cards TENANT=5 — dry-run: заявки, ждущие карточку согласования, которая не была отправлена в Telegram"
+	@echo "  make redispatch-unsent-approval-cards TENANT=5 DATE_FROM=2026-09-18 DATE_TO=2026-09-19 PAYMENT_TYPE=\"Наличные,Перечисление\" — то же, с фильтрами (TENANT/PAYMENT_TYPE — через запятую; без TENANT — все тенанты)"
+	@echo "  make redispatch-unsent-approval-cards TENANT=5 APPLY=1 — то же самое, но с отправкой карточек"
 	@echo "  make local-up        — поднять docker-compose.local.yml локально"
 	@echo "  make local-down      — остановить локальный compose (без удаления volumes)"
 	@echo "  make local-logs      — логи локального compose"
@@ -238,6 +241,19 @@ return-from-vacation:
 	ssh $(SERVER) "cd $(REMOTE_DIR) && \
 		docker compose --env-file ./.env exec -T backend_v2 \
 		python manage.py toggle_user_approval_vacation --tenant=$(TENANT) --user=$(EMPLOYEE_USERNAME) --action=end $(if $(APPLY),--apply,)"
+
+# ── 7f. По требованию: повторно отправить не доставленные карточки согласования ──
+PAYMENT_TYPE ?=
+
+redispatch-unsent-approval-cards:
+	ssh $(SERVER) "cd $(REMOTE_DIR) && \
+		docker compose --env-file ./.env exec -T backend_v2 \
+		python manage.py redispatch_unsent_approval_cards \
+		$(if $(TENANT),--tenant='$(TENANT)',) \
+		$(if $(PAYMENT_TYPE),--payment-type='$(PAYMENT_TYPE)',) \
+		$(if $(DATE_FROM),--date-from=$(DATE_FROM),) \
+		$(if $(DATE_TO),--date-to=$(DATE_TO),) \
+		$(if $(APPLY),--apply,)"
 
 # ── 8. Откат production ──────────────────────────────────────────────────────
 rollback:
