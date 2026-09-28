@@ -4,7 +4,7 @@ import re
 from rest_framework import serializers
 
 from apps.tenants.cash_expense_id_format import validate_cash_expense_external_id_prefix
-from apps.tenants.models import TenantUserRole
+from apps.tenants.models import Tenant, TenantUserRole
 
 User = get_user_model()
 PREFERENCE_KEY_PATTERN = re.compile(r"^[a-z0-9]+(?:[._-][a-z0-9]+)*$")
@@ -52,6 +52,7 @@ class TenantPayrollDocIdFormatSerializer(serializers.Serializer):
 
 class TenantPayrollSettingsSerializer(serializers.Serializer):
     create_payment_request_on_payroll_accrual = serializers.BooleanField()
+    payroll_payout_mode = serializers.ChoiceField(choices=Tenant.PAYROLL_PAYOUT_MODE_CHOICES, required=False)
 
 
 _ALLOWED_TENANT_ROLE_VALUES = {choice[0] for choice in TenantUserRole.ROLE_CHOICES}

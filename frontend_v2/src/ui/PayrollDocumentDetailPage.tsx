@@ -1,31 +1,25 @@
-import { useEffect, useState } from 'react'
-import { Alert, Button, Card, Descriptions, Skeleton, Space, Table, Typography } from 'antd'
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { Alert, Button, Card, Descriptions, Input, Modal, Skeleton, Space, Table, Tag, Typography, message } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
-import { useNavigate, useParams } from 'react-router-dom'
+import { Link, useNavigate, useParams } from 'react-router-dom'
 import { RequestReturnBackButton } from './requests/RequestReturnBackButton'
-import { apiFetch } from '../lib/api'
-
-type PayrollLineRow = {
-  id: number
-  line_no: number
-  employee: string
-  item: string
-  description?: string | null
-  sum: string | number
-  days_plan: number
-  days_fact: number
-  period_start: string
-  period_end: string
-  approval: boolean
-}
-
-type PayrollDocumentDetail = {
-  id: number
-  doc_id: string | null
-  created_at: string
-  total_sum: string | number
-  lines: PayrollLineRow[]
-}
+import { PayrollDocumentFormModal } from './payroll/PayrollDocumentFormModal'
+import { PayrollPayoutModal } from './payroll/PayrollPayoutModal'
+import { PAYROLL_STATUS_COLORS } from './payroll/payrollStatus'
+import { fmtMoney, formatPeriodMonth } from './payroll/payrollFormat'
+import {
+  PAYROLL_KIND_LABELS,
+  PAYROLL_STATUS_LABELS,
+  acceptPayrollDocument,
+  cancelPayrollDocument,
+  closePayrollDocumentUnderpaid,
+  copyPayrollDocument,
+  getPayrollDocument,
+  getPayrollPayoutState,
+  type PayrollDocumentDetailDto,
+  type PayrollDocumentLineDto,
+  type PayrollPayoutStateDto,
+} from '../lib/api'
 
 const dateFmt = new Intl.DateTimeFormat('ru-RU', {
   day: '2-digit',
@@ -44,43 +38,142 @@ function formatDate(value?: string | null): string {
 export function PayrollDocumentDetailPage() {
   const navigate = useNavigate()
   const { id } = useParams<{ id: string }>()
-  const [detail, setDetail] = useState<PayrollDocumentDetail | null>(null)
+  const [detail, setDetail] = useState<PayrollDocumentDetailDto | null>(null)
+  const [state, setState] = useState<PayrollPayoutStateDto | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
+  const [editOpen, setEditOpen] = useState(false)
+  const [payoutOpen, setPayoutOpen] = useState(false)
+  const [underpaidOpen, setUnderpaidOpen] = useState(false)
+  const [underpaidComment, setUnderpaidComment] = useState('')
+  const [underpaidSaving, setUnderpaidSaving] = useState(false)
+
+  // Страница остаётся смонтированной при переходе между /payroll/:id (например, после
+  // «Скопировать» или навигации из списка), поэтому медленный ответ для старого id может
+  // прийти после ответа для нового — такие «устаревшие» результаты нужно игнорировать,
+  // иначе detail/state перетрутся данными не того документа, а кнопки (accept/cancel/pay)
+  // начнут действовать на неверный id.
+  const latestRequestIdRef = useRef<string | undefined>(undefined)
+  const mountedRef = useRef(true)
   useEffect(() => {
-    let cancelled = false
-    ;(async () => {
-      if (!id) {
-        setError('Не указан id документа.')
-        setLoading(false)
-        return
-      }
-      setLoading(true)
-      setError(null)
-      try {
-        const res = await apiFetch(`/api/payroll/documents/${id}/`)
-        const json = (await res.json().catch(() => null)) as PayrollDocumentDetail | null
-        if (!res.ok) {
-          throw new Error(typeof json === 'object' && json ? JSON.stringify(json) : `HTTP ${res.status}`)
-        }
-        if (!cancelled) setDetail(json)
-      } catch (e: unknown) {
-        if (!cancelled) setError(e instanceof Error ? e.message : 'Ошибка загрузки')
-      } finally {
-        if (!cancelled) setLoading(false)
-      }
-    })()
+    mountedRef.current = true
     return () => {
-      cancelled = true
+      mountedRef.current = false
+    }
+  }, [])
+
+  const reload = useCallback(async () => {
+    if (!id) {
+      setError('Не указан id документа.')
+      setLoading(false)
+      return
+    }
+    const requestId = id
+    latestRequestIdRef.current = requestId
+    const isStale = () => !mountedRef.current || latestRequestIdRef.current !== requestId
+    setLoading(true)
+    setError(null)
+    try {
+      const doc = await getPayrollDocument(requestId)
+      if (isStale()) return
+      setDetail(doc)
+      if (doc.payout_mode === 'portal' && doc.status !== 'draft') {
+        try {
+          const s = await getPayrollPayoutState(doc.id)
+          if (isStale()) return
+          setState(s)
+        } catch (e: unknown) {
+          // Состояние выплат — вспомогательные данные: страница должна открыться даже если оно не загрузилось.
+          console.error('Не удалось загрузить состояние выплат начисления', e)
+          if (isStale()) return
+          setState(null)
+        }
+      } else if (!isStale()) {
+        setState(null)
+      }
+    } catch (e: unknown) {
+      if (isStale()) return
+      setError(e instanceof Error ? e.message : 'Ошибка загрузки')
+    } finally {
+      if (!isStale()) setLoading(false)
     }
   }, [id])
 
-  const lineColumns: ColumnsType<PayrollLineRow> = [
+  useEffect(() => {
+    void reload()
+  }, [reload])
+
+  const handleAccept = () => {
+    if (!detail) return
+    Modal.confirm({
+      title: 'Принять начисление?',
+      content: `Будет создана заявка на ${fmtMoney(detail.total_sum)}.`,
+      okText: 'Принять',
+      cancelText: 'Отмена',
+      onOk: async () => {
+        try {
+          await acceptPayrollDocument(detail.id)
+          message.success('Начисление принято')
+          await reload()
+        } catch (e: unknown) {
+          message.error(e instanceof Error ? e.message : 'Ошибка')
+        }
+      },
+    })
+  }
+
+  const handleCancel = () => {
+    if (!detail) return
+    Modal.confirm({
+      title: 'Отменить начисление?',
+      okText: 'Отменить',
+      okButtonProps: { danger: true },
+      cancelText: 'Не отменять',
+      onOk: async () => {
+        try {
+          await cancelPayrollDocument(detail.id)
+          message.success('Начисление отменено')
+          await reload()
+        } catch (e: unknown) {
+          message.error(e instanceof Error ? e.message : 'Ошибка')
+        }
+      },
+    })
+  }
+
+  const handleCopy = async () => {
+    if (!detail) return
+    try {
+      const copy = await copyPayrollDocument(detail.id)
+      message.success('Начисление скопировано')
+      navigate(`/payroll/${copy.id}`)
+    } catch (e: unknown) {
+      message.error(e instanceof Error ? e.message : 'Ошибка')
+    }
+  }
+
+  const handleCloseUnderpaid = async () => {
+    if (!detail || !underpaidComment.trim()) return
+    setUnderpaidSaving(true)
+    try {
+      await closePayrollDocumentUnderpaid(detail.id, underpaidComment.trim())
+      message.success('Начисление закрыто с недоплатой')
+      setUnderpaidOpen(false)
+      setUnderpaidComment('')
+      await reload()
+    } catch (e: unknown) {
+      message.error(e instanceof Error ? e.message : 'Ошибка')
+    } finally {
+      setUnderpaidSaving(false)
+    }
+  }
+
+  const lineColumns: ColumnsType<PayrollDocumentLineDto> = [
     { title: '№', dataIndex: 'line_no', width: 56 },
     { title: 'Сотрудник', dataIndex: 'employee' },
     { title: 'Вид', dataIndex: 'item', width: 140 },
-    { title: 'Сумма', dataIndex: 'sum', width: 130, render: (v) => Number(v).toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) },
+    { title: 'Сумма', dataIndex: 'sum', width: 130, render: (v) => fmtMoney(v) },
     { title: 'Дни план', dataIndex: 'days_plan', width: 88 },
     { title: 'Дни факт', dataIndex: 'days_fact', width: 88 },
     {
@@ -97,6 +190,34 @@ export function PayrollDocumentDetailPage() {
     },
   ]
 
+  const employeeColumns: ColumnsType<NonNullable<PayrollPayoutStateDto['employees']>[number]> = [
+    { title: 'Сотрудник', dataIndex: 'full_name' },
+    { title: 'Начислено', dataIndex: 'accrued', width: 140, render: (v: string) => fmtMoney(v) },
+    { title: 'Выплачено', dataIndex: 'paid', width: 140, render: (v: string) => fmtMoney(v) },
+    { title: 'Остаток', dataIndex: 'remaining', width: 140, render: (v: string) => fmtMoney(v) },
+  ]
+
+  const expenseColumns: ColumnsType<NonNullable<PayrollPayoutStateDto['expenses']>[number]> = [
+    { title: 'Дата', dataIndex: 'date', width: 140, render: (v: string) => formatDate(v) },
+    { title: 'Сумма', dataIndex: 'amount', width: 140, render: (v: string) => fmtMoney(v) },
+    {
+      key: 'open',
+      width: 120,
+      render: (_, r) => (
+        <Link to={`/cash/expenses/${r.cash_expense_id}`}>Открыть</Link>
+      ),
+    },
+  ]
+
+  const canEdit = detail?.status === 'draft' && detail?.source === 'portal'
+  const canAccept = detail?.status === 'draft'
+  const canCancel = detail?.status === 'draft'
+  const canPay = Boolean(state?.can_pay)
+  const canCloseUnderpaid =
+    detail?.payout_mode === 'portal' && detail?.status === 'accepted' && detail?.current_request?.status === 'APPROVED'
+  const showPayoutReasonAlert =
+    Boolean(state) && !state?.can_pay && detail?.status === 'accepted' && detail?.payout_mode === 'portal'
+
   return (
     <Card>
       <Space direction="vertical" size={12} style={{ display: 'flex' }}>
@@ -105,18 +226,91 @@ export function PayrollDocumentDetailPage() {
         {error ? <Alert type="error" showIcon message={error} /> : null}
         {!loading && !error && detail ? (
           <>
-            <Typography.Title level={4} style={{ marginTop: 0 }}>
-              Начисление ЗП: {detail.doc_id || 'без номера (создано в портале)'}
-            </Typography.Title>
+            <Space align="center" wrap>
+              <Typography.Title level={4} style={{ marginTop: 0, marginBottom: 0 }}>
+                Начисление ЗП {detail.label}
+              </Typography.Title>
+              <Tag color={PAYROLL_STATUS_COLORS[detail.status]}>{PAYROLL_STATUS_LABELS[detail.status]}</Tag>
+            </Space>
             <Descriptions bordered size="small" column={2}>
-              <Descriptions.Item label="Итого">
-                {Number(detail.total_sum).toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              <Descriptions.Item label="Период">{formatPeriodMonth(detail.period_month)}</Descriptions.Item>
+              <Descriptions.Item label="Тип">{detail.kind ? PAYROLL_KIND_LABELS[detail.kind] : '-'}</Descriptions.Item>
+              <Descriptions.Item label="Источник">{detail.source === 'portal' ? 'Портал' : 'n8n'}</Descriptions.Item>
+              <Descriptions.Item label="Режим выплат">
+                {detail.payout_mode === 'portal' ? 'Через портал' : 'Как раньше'}
               </Descriptions.Item>
-              <Descriptions.Item label="Строк">{detail.lines?.length ?? 0}</Descriptions.Item>
-              <Descriptions.Item label="Создан">{formatDate(detail.created_at)}</Descriptions.Item>
+              <Descriptions.Item label="Итого">{fmtMoney(detail.total_sum)}</Descriptions.Item>
+              <Descriptions.Item label="Выплачено">{fmtMoney(detail.paid_total)}</Descriptions.Item>
+              <Descriptions.Item label="Остаток">{fmtMoney(detail.remaining_total)}</Descriptions.Item>
+              <Descriptions.Item label="Заявка">
+                {detail.current_request ? (
+                  <Link to={`/requests/${detail.current_request.id}`}>
+                    #{detail.current_request.id} · {detail.current_request.status}
+                  </Link>
+                ) : (
+                  '-'
+                )}
+              </Descriptions.Item>
+              {detail.closed_underpaid_at ? (
+                <Descriptions.Item label="Закрыто с недоплатой" span={2}>
+                  {detail.close_comment}
+                </Descriptions.Item>
+              ) : null}
             </Descriptions>
+
+            <Space wrap>
+              {canEdit ? <Button onClick={() => setEditOpen(true)}>Редактировать</Button> : null}
+              {canAccept ? (
+                <Button type="primary" onClick={handleAccept}>
+                  Принять
+                </Button>
+              ) : null}
+              {canCancel ? (
+                <Button danger onClick={handleCancel}>
+                  Отменить
+                </Button>
+              ) : null}
+              <Button onClick={() => void handleCopy()}>Скопировать</Button>
+              {canPay ? (
+                <Button type="primary" onClick={() => setPayoutOpen(true)}>
+                  Создать расход
+                </Button>
+              ) : null}
+              {canCloseUnderpaid ? (
+                <Button onClick={() => setUnderpaidOpen(true)}>Закрыть с недоплатой</Button>
+              ) : null}
+            </Space>
+
+            {showPayoutReasonAlert ? <Alert type="info" showIcon message={state?.reason} /> : null}
+
+            {state ? (
+              <>
+                <Typography.Title level={5}>Сотрудники</Typography.Title>
+                <Table
+                  rowKey="employee_id"
+                  size="small"
+                  columns={employeeColumns}
+                  dataSource={state.employees}
+                  pagination={false}
+                />
+              </>
+            ) : null}
+
+            {state && state.expenses.length > 0 ? (
+              <>
+                <Typography.Title level={5}>Расходы кассы</Typography.Title>
+                <Table
+                  rowKey="cash_expense_id"
+                  size="small"
+                  columns={expenseColumns}
+                  dataSource={state.expenses}
+                  pagination={false}
+                />
+              </>
+            ) : null}
+
             <Typography.Title level={5}>Строки</Typography.Title>
-            <Table<PayrollLineRow>
+            <Table<PayrollDocumentLineDto>
               rowKey="id"
               size="small"
               columns={lineColumns}
@@ -126,6 +320,44 @@ export function PayrollDocumentDetailPage() {
           </>
         ) : null}
       </Space>
+
+      {detail ? (
+        <PayrollDocumentFormModal
+          open={editOpen}
+          onClose={() => setEditOpen(false)}
+          onSaved={() => void reload()}
+          initial={detail}
+        />
+      ) : null}
+
+      <PayrollPayoutModal
+        open={payoutOpen}
+        onClose={() => setPayoutOpen(false)}
+        onDone={() => void reload()}
+        documentId={detail?.id}
+      />
+
+      <Modal
+        title="Закрыть с недоплатой"
+        open={underpaidOpen}
+        onCancel={() => {
+          setUnderpaidOpen(false)
+          setUnderpaidComment('')
+        }}
+        onOk={() => void handleCloseUnderpaid()}
+        okText="Закрыть"
+        cancelText="Отмена"
+        confirmLoading={underpaidSaving}
+        okButtonProps={{ disabled: !underpaidComment.trim() }}
+        destroyOnClose
+      >
+        <Input.TextArea
+          rows={3}
+          placeholder="Комментарий (обязательно)"
+          value={underpaidComment}
+          onChange={(e) => setUnderpaidComment(e.target.value)}
+        />
+      </Modal>
     </Card>
   )
 }

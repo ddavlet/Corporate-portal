@@ -1,5 +1,5 @@
 from django.db import IntegrityError
-from django.db.models import Q
+from django.db.models import ProtectedError, Q
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
@@ -101,6 +101,12 @@ class CashExpenseViewSet(PortalListViewSetMixin, viewsets.ModelViewSet):
             serializer.save()
         except IntegrityError as exc:
             raise ValidationError({"external_id": "This id is already used for this year."}) from exc
+
+    def perform_destroy(self, instance):
+        try:
+            instance.delete()
+        except ProtectedError as exc:
+            raise ValidationError({"detail": "Расход связан с выплатами ЗП и не может быть удалён."}) from exc
 
     @action(detail=False, methods=["patch"], url_path="by-expense-id-year")
     def update_by_expense_id_year(self, request):

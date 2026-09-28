@@ -4,7 +4,7 @@ from django.contrib.auth import get_user_model
 from rest_framework import serializers
 
 from apps.modules.bank_expenses.models import BankExpense
-from apps.modules.payroll.models import PayrollDocument, PayrollLine
+from apps.modules.payroll.models import Employee, PayrollDocument, PayrollLine
 from apps.modules.bank_expenses.serializers import BankExpenseSerializer, BankRevenueSerializer
 from apps.modules.cashier.models import CashExpense, CashRevenue
 from apps.modules.cashier.serializers import CashExpenseSerializer, CashRevenueSerializer
@@ -193,21 +193,52 @@ class N8nPayrollLineImportSerializer(serializers.ModelSerializer):
         ret["doc_id"] = instance.document.doc_id
         return ret
 
+    @staticmethod
+    def _resolve_employee(tenant, raw_name):
+        name = str(raw_name or "").strip()
+        if not name:
+            return None
+        # Employee.full_name is max_length=200; a longer name (real-world garbage or a
+        # concatenated field from the n8n source) would otherwise raise a DataError
+        # (500) on an import that works fine today. Skip the employee_fk link instead —
+        # the raw name is still stored on PayrollLine.employee (a TextField, unbounded)
+        # so legacy/manual matching is unaffected.
+        if len(name) > 200:
+            logger.warning(
+                "n8n payroll: employee name exceeds 200 chars, skipping employee_fk link tenant_id=%s name=%r",
+                getattr(tenant, "id", None),
+                name,
+            )
+            return None
+        employee, _ = Employee.objects.get_or_create(tenant=tenant, full_name=name)
+        return employee
+
     def create(self, validated_data):
         line_id = validated_data.pop("id", None)
         doc_id = validated_data.pop("doc_id")
         tenant = self.context["request"].tenant
-        doc, _ = PayrollDocument.objects.get_or_create(tenant=tenant, doc_id=doc_id)
+        # New docs follow the tenant's current payout mode (switchable: n8n docs on a
+        # portal-mode tenant get portal payouts too); only applies on create, so a doc
+        # already imported keeps whatever mode it was created with even if the tenant's
+        # setting changes later.
+        doc, _ = PayrollDocument.objects.get_or_create(
+            tenant=tenant, doc_id=doc_id, defaults={"payout_mode": tenant.payroll_payout_mode}
+        )
+        validated_data["employee_fk"] = self._resolve_employee(tenant, validated_data.get("employee"))
         if line_id is None:
             return PayrollLine.objects.create(document=doc, **validated_data)
         return PayrollLine.objects.create(id=line_id, document=doc, **validated_data)
 
     def update(self, instance, validated_data):
+        tenant = self.context["request"].tenant
         doc_id = validated_data.pop("doc_id", None)
         if doc_id is not None:
-            tenant = self.context["request"].tenant
-            doc, _ = PayrollDocument.objects.get_or_create(tenant=tenant, doc_id=doc_id)
+            doc, _ = PayrollDocument.objects.get_or_create(
+                tenant=tenant, doc_id=doc_id, defaults={"payout_mode": tenant.payroll_payout_mode}
+            )
             validated_data["document"] = doc
+        if "employee" in validated_data:
+            validated_data["employee_fk"] = self._resolve_employee(tenant, validated_data["employee"])
         validated_data.pop("id", None)
         return super().update(instance, validated_data)
 

@@ -44,6 +44,7 @@ _MODEL_LABELS = {
     "corporate_card.CardRevenue": ("Корпоративная карта — доход", "Корпоративная карта — доходы"),
     "tasks.Task": ("Задача", "Задачи"),
     "payroll.PayrollDocument": ("Начисление ЗП", "Начисления ЗП"),
+    "payroll.PayrollPayout": ("Выплата ЗП", "Выплаты ЗП"),
     "investments.InvestReturn": ("Выплата", "Выплаты"),
     "investments.InvestPayoutSchedule": ("Расписание выплат", "Расписание выплат"),
     "investments.ProjectInvestment": ("Заявка на вложение", "Заявки на вложение"),

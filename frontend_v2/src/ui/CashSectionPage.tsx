@@ -8,7 +8,7 @@ import type { ColumnsType } from 'antd/es/table'
 import type { Dayjs } from 'dayjs'
 import { useNavigate } from 'react-router-dom'
 import { FileSearchOutlined, MessageOutlined } from '@ant-design/icons'
-import { apiFetch, getCashRegisters, type CashRevenue } from '../lib/api'
+import { apiFetch, getCashRegisters, listPayablePayrollDocuments, type CashRevenue } from '../lib/api'
 import type { RequestReturnTo } from '../lib/requestNavigation'
 import { RequestDetailModal, type RequestDetail } from './requests/RequestDetailModal'
 import { NoteCreateModal } from './NoteCreateModal'
@@ -17,6 +17,7 @@ import { labelBlockAboveField } from './formSpacing'
 import { ChannelBalancesSummary } from './ChannelBalancesSummary'
 import { AdminEditRecordButton } from './admin/AdminEditRecordButton'
 import { renderExpenseRequestStatusTag, shouldHighlightMissingRequiredRequest } from './expenseRequestStatus'
+import { PayrollPayoutModal } from './payroll/PayrollPayoutModal'
 
 type CashExpenseRow = {
   id: number
@@ -98,6 +99,8 @@ export function CashSectionPage({ mode }: { mode: CashSectionMode }) {
   const [requestError, setRequestError] = useState<string | null>(null)
   const [openFullRequestModal, setOpenFullRequestModal] = useState(false)
   const [openNoteModal, setOpenNoteModal] = useState(false)
+  const [canPayPayroll, setCanPayPayroll] = useState(false)
+  const [openPayoutModal, setOpenPayoutModal] = useState(false)
 
   const expenseListUrl = useMemo(() => {
     const params = new URLSearchParams()
@@ -173,6 +176,27 @@ export function CashSectionPage({ mode }: { mode: CashSectionMode }) {
       cancelled = true
     }
   }, [needExpenses, needRevenues])
+
+  useEffect(() => {
+    if (!needExpenses) {
+      setCanPayPayroll(false)
+      return
+    }
+    let cancelled = false
+    ;(async () => {
+      try {
+        await listPayablePayrollDocuments()
+        if (!cancelled) setCanPayPayroll(true)
+      } catch (e) {
+        // модуль ЗП может быть выключен для тенанта или недоступен по роли — скрываем кнопку
+        console.warn('listPayablePayrollDocuments failed', e)
+        if (!cancelled) setCanPayPayroll(false)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [needExpenses])
 
   const listLoading = (needExpenses && expensesLoading) || (needRevenues && revenuesLoading)
   const listError = expensesError || revenuesError
@@ -525,6 +549,9 @@ export function CashSectionPage({ mode }: { mode: CashSectionMode }) {
           Касса
         </Button>
         <CashRegisterTransferButton onCreated={reloadSection} />
+        {canPayPayroll ? (
+          <Button onClick={() => setOpenPayoutModal(true)}>Выплата ЗП</Button>
+        ) : null}
       </Space>
       <Typography.Title level={4} style={{ marginTop: 0 }}>
         {SECTION_TITLES[mode]}
@@ -793,6 +820,14 @@ export function CashSectionPage({ mode }: { mode: CashSectionMode }) {
         onCancel={() => setOpenNoteModal(false)}
         targetType="cash"
         targetId={selectedExpense?.id || null}
+      />
+      <PayrollPayoutModal
+        open={openPayoutModal}
+        onClose={() => setOpenPayoutModal(false)}
+        onDone={(cashExpenseId) => {
+          reloadSection()
+          navigate(`/cash/expenses/${cashExpenseId}`)
+        }}
       />
       <style>{`
         .cash-row-unmatched > td {

@@ -25,6 +25,18 @@ class Tenant(models.Model):
     # auto-creates a single linked payment Request for the whole document.
     create_payment_request_on_payroll_accrual = models.BooleanField(default=False)
 
+    PAYROLL_PAYOUT_MODE_PORTAL = "portal"
+    PAYROLL_PAYOUT_MODE_LEGACY = "legacy"
+    PAYROLL_PAYOUT_MODE_CHOICES = [
+        (PAYROLL_PAYOUT_MODE_PORTAL, "Через портал"),
+        (PAYROLL_PAYOUT_MODE_LEGACY, "Как раньше"),
+    ]
+    # portal: salary is paid out via cash expenses created from the accrual
+    # (partial payouts, request auto-PAYED at 100%); legacy: payment step in Telegram.
+    payroll_payout_mode = models.CharField(
+        max_length=16, choices=PAYROLL_PAYOUT_MODE_CHOICES, default=PAYROLL_PAYOUT_MODE_LEGACY
+    )
+
     def set_telegram_bot_token(self, token: str) -> None:
         self.telegram_bot_token_enc = encrypt_secret(token.strip())
 

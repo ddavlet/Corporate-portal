@@ -11,6 +11,7 @@ from rest_framework.exceptions import ValidationError
 
 from apps.modules.requests.integration_settings import get_requests_messaging_gateway_settings
 from apps.modules.requests.models import Approval, Request
+from apps.modules.requests.payment_step_guards import payment_step_suppression_reason
 from apps.modules.telegram_approvals.models import (
     Notification,
     TelegramChatRegistry,
@@ -653,6 +654,8 @@ def dispatch_pending_approvals(*, request_obj: Request, step: int | None = None,
     )
     if step_type is not None:
         approvals_qs = approvals_qs.filter(step_type=step_type)
+    if payment_step_suppression_reason(request_obj=locked):
+        approvals_qs = approvals_qs.exclude(step_type=Approval.STEP_TYPE_PAYMENT)
     approvals = list(approvals_qs.select_related("approver_user").order_by("id"))
     if not approvals:
         return 0
