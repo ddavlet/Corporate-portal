@@ -3,7 +3,7 @@ import { Alert, Button, Card, Descriptions, Skeleton, Space, Tag, Typography } f
 import { useNavigate, useParams } from 'react-router-dom'
 import { requestReturnState } from '../lib/requestNavigation'
 import { RequestReturnBackButton } from './requests/RequestReturnBackButton'
-import { apiFetch } from '../lib/api'
+import { apiFetch, getCashRegisters } from '../lib/api'
 import { NoteCreateModal } from './NoteCreateModal'
 import { renderExpenseRequestStatusTag } from './expenseRequestStatus'
 
@@ -21,6 +21,7 @@ type CashExpenseDetail = {
   note: string
   payload?: unknown
   vendor?: number | null
+  wallet_id?: number | null
   has_request?: boolean
   has_paid_request?: boolean
   matched_request_id?: number | null
@@ -71,6 +72,7 @@ export function CashExpenseDetailPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [openNoteModal, setOpenNoteModal] = useState(false)
+  const [cashRegisterName, setCashRegisterName] = useState<string | null>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -99,6 +101,24 @@ export function CashExpenseDetailPage() {
       cancelled = true
     }
   }, [id])
+
+  const walletId = detail?.wallet_id ?? null
+  useEffect(() => {
+    if (!walletId) return
+    let cancelled = false
+    ;(async () => {
+      try {
+        const registers = await getCashRegisters()
+        const reg = registers.find((r) => r.wallet_id === walletId)
+        if (!cancelled && reg) setCashRegisterName(reg.name || `Касса #${reg.id}`)
+      } catch {
+        // register names are auxiliary for display
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [walletId])
 
   return (
     <Card>
@@ -139,6 +159,9 @@ export function CashExpenseDetailPage() {
               <Descriptions.Item label="Название">{detail.title || '-'}</Descriptions.Item>
               <Descriptions.Item label="Сумма">
                 {`${Number(detail.amount).toLocaleString('ru-RU')} ${detail.currency || ''}`.trim()}
+              </Descriptions.Item>
+              <Descriptions.Item label="Касса">
+                {detail.wallet_id ? cashRegisterName || `Кошелек #${detail.wallet_id}` : '-'}
               </Descriptions.Item>
               <Descriptions.Item label="Дата/время расхода">{formatDateTime(detail.expense_at)}</Descriptions.Item>
               <Descriptions.Item label="Календарь расхода (год · мес · день)">
