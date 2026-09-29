@@ -4,12 +4,18 @@ from __future__ import annotations
 
 import logging
 
+from django.contrib.auth import get_user_model
 from django.db import transaction
+from django.db.models import Q
+from django.utils import timezone
 
-from apps.modules.cash_withdrawals import formatter, messaging
+from apps.modules.cash_withdrawals import events, formatter, messaging
 from apps.modules.cash_withdrawals.models import CashWithdrawalConfig, CashWithdrawalReceipt
+from apps.modules.cashier.models import CashRevenue
+from apps.tenants.models import TenantMembership
 
 logger = logging.getLogger(__name__)
+User = get_user_model()
 
 
 def _norm(value) -> str:
@@ -94,3 +100,76 @@ def on_request_payed(*, request_obj) -> None:
     """
     with transaction.atomic():
         create_receipt_for_request(request_obj=request_obj)
+
+
+def find_confirmer_user(config, telegram_user_id: int):
+    """User from the confirmer list whose Telegram id matches and who is an active tenant member."""
+    active_ids = TenantMembership.objects.filter(tenant_id=config.tenant_id, is_active=True).values_list(
+        "user_id", flat=True
+    )
+    return (
+        User.objects.filter(
+            cash_withdrawal_confirmer_rows__config=config,
+            is_active=True,
+            id__in=active_ids,
+        )
+        .filter(Q(telegram_from_id=telegram_user_id) | Q(telegram_chat_id=telegram_user_id))
+        .order_by("id")
+        .first()
+    )
+
+
+def _after_confirm(receipt_id: int) -> None:
+    receipt = (
+        CashWithdrawalReceipt.objects.select_related(
+            "tenant", "request", "wallet", "wallet__cash_register", "confirmed_by", "cash_revenue"
+        )
+        .filter(pk=receipt_id)
+        .first()
+    )
+    if receipt is None:
+        return
+    try:
+        messaging.refresh_receipt_cards(receipt)
+    except Exception:
+        logger.exception("cash_withdrawals: refresh after confirm failed receipt_id=%s", receipt_id)
+    events.dispatch_receipt_confirmed(receipt=receipt)
+
+
+def confirm_receipt(*, receipt_id: int, user) -> tuple[CashWithdrawalReceipt, bool]:
+    with transaction.atomic():
+        receipt = (
+            CashWithdrawalReceipt.objects.select_for_update()
+            .select_related("tenant", "request", "wallet")
+            .get(pk=receipt_id)
+        )
+        if receipt.status != CashWithdrawalReceipt.Status.PENDING:
+            return receipt, False
+        request_obj = receipt.request
+        now = timezone.now()
+        revenue = CashRevenue.objects.create(
+            tenant=receipt.tenant,
+            wallet=receipt.wallet,
+            total_sum=receipt.amount,
+            currency=receipt.currency,
+            revenue_at=now,
+            confirmed=True,
+            operation=f"Наличные с банка {request_obj.title or ''}".strip()[:255],
+            comment=request_obj.description or "",
+            external_id=f"cash-{request_obj.pk}",
+            source_year=None,
+            created_by=user,
+            payload={"source": "cash_withdrawals", "receipt_id": receipt.pk, "request_id": request_obj.pk},
+        )
+        receipt.status = CashWithdrawalReceipt.Status.CONFIRMED
+        receipt.confirmed_by = user
+        receipt.confirmed_at = now
+        receipt.cash_revenue = revenue
+        receipt.save(update_fields=["status", "confirmed_by", "confirmed_at", "cash_revenue"])
+        logger.info(
+            "cash_withdrawals: receipt confirmed receipt_id=%s revenue_id=%s user_id=%s",
+            receipt.pk, revenue.pk, user.pk,
+        )
+        confirmed_id = receipt.pk
+        transaction.on_commit(lambda: _after_confirm(confirmed_id))
+    return receipt, True

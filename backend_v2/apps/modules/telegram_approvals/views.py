@@ -261,6 +261,12 @@ class TelegramApprovalWebhookView(APIView):
         if payload_str.startswith("invest_pay:"):
             return self._handle_invest_pay_callback(payload_str, event_data)
 
+        if payload_str.startswith("cwr:"):
+            from apps.modules.cash_withdrawals.telegram import handle_callback as handle_cash_withdrawal_callback
+
+            status_code, body = handle_cash_withdrawal_callback(payload=payload_str, event_data=event_data)
+            return Response(body, status=status_code)
+
         if payload_str.startswith("task_"):
             return self._handle_task_callback(payload_str, event_data)
 
