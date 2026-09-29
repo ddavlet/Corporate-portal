@@ -85,5 +85,12 @@ def create_receipt_for_request(*, request_obj, send: bool = True) -> CashWithdra
 
 
 def on_request_payed(*, request_obj) -> None:
-    """Registered PAYED handler (see apps.CashWithdrawalsConfig.ready)."""
-    create_receipt_for_request(request_obj=request_obj)
+    """Registered PAYED handler (see apps.CashWithdrawalsConfig.ready).
+
+    Runs in its own savepoint: `dispatch_request_payed_event_handlers` catches exceptions
+    but opens no savepoint (unlike its REJECTED counterpart), so a DB error raised here
+    would otherwise leave Postgres in an aborted-transaction state and break the caller's
+    PAYED status save.
+    """
+    with transaction.atomic():
+        create_receipt_for_request(request_obj=request_obj)

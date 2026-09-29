@@ -1,10 +1,12 @@
 from unittest.mock import patch
 
+from django.db import connection, transaction
 from django.test import TestCase, override_settings
 
 from apps.modules.cash_withdrawals.fixtures import GATEWAY_PATH, PURPOSE, CashWithdrawalFixtures, gateway_ok
 from apps.modules.cash_withdrawals.models import CashWithdrawalMessage, CashWithdrawalReceipt
 from apps.modules.cash_withdrawals.services import create_receipt_for_request
+from apps.modules.requests.models import Request
 from apps.modules.requests.status_events import dispatch_request_payed_event_handlers
 
 
@@ -94,3 +96,23 @@ class PayedHandlerTests(CashWithdrawalFixtures, TestCase):
         receipt.refresh_from_db()
         self.assertEqual(receipt.status, CashWithdrawalReceipt.Status.PENDING)
         self.assertEqual(receipt.messages.count(), 0)
+
+    def test_db_error_in_handler_does_not_break_outer_transaction(self):
+        """on_request_payed must open its own savepoint: dispatch_request_payed_event_handlers
+        catches exceptions but opens no savepoint of its own (unlike the REJECTED dispatcher), so
+        a DB error inside our handler would otherwise abort the caller's outer transaction."""
+
+        def _boom(**kwargs):
+            with connection.cursor() as cursor:
+                cursor.execute("SELECT 1/0")
+
+        with transaction.atomic():
+            req = self.make_request()
+            with patch(
+                "apps.modules.cash_withdrawals.services.create_receipt_for_request",
+                side_effect=_boom,
+            ):
+                dispatch_request_payed_event_handlers(request_obj=req)
+            # Without the savepoint in on_request_payed, this follow-up query would raise
+            # TransactionManagementError because Postgres is left in an aborted transaction.
+            self.assertEqual(Request.objects.get(pk=req.pk).status, Request.STATUS_PAYED)
