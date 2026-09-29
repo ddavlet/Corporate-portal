@@ -70,6 +70,19 @@ class ReceiptCallbackTests(CashWithdrawalFixtures, APITestCase):
         self.assertEqual(self.n8n_handler.call_args.kwargs["receipt"].pk, self.receipt.pk)
 
     @patch(GATEWAY_PATH)
+    def test_confirmer_matched_by_telegram_chat_id(self, gw):
+        gw.side_effect = gateway_ok()
+        self.cashier.telegram_from_id = None
+        self.cashier.save(update_fields=["telegram_from_id"])
+        with self.captureOnCommitCallbacks(execute=True):
+            res = self._press(self.cashier.telegram_chat_id)
+        self.assertEqual(res.status_code, 201, res.content)
+        self.receipt.refresh_from_db()
+        self.assertEqual(self.receipt.status, CashWithdrawalReceipt.Status.CONFIRMED)
+        self.assertEqual(self.receipt.confirmed_by_id, self.cashier.id)
+        self.assertTrue(CashRevenue.objects.filter(pk=self.receipt.cash_revenue_id).exists())
+
+    @patch(GATEWAY_PATH)
     def test_outsider_press_is_denied(self, gw):
         gw.side_effect = gateway_ok()
         with self.captureOnCommitCallbacks(execute=True):
