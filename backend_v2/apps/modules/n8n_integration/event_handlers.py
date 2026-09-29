@@ -80,6 +80,7 @@ def notify_request_payed(*, request_obj: Request) -> None:
 def notify_cash_withdrawal_received(*, receipt) -> None:
     """Tell n8n a cash withdrawal was received into a register, so it posts the cash-movement message."""
     from django.conf import settings
+    from django.utils import timezone
     from apps.modules.n8n_integration.views import _build_n8n_url, _n8n_session
     from apps.modules.wallets.services import wallet_balance_payload
     from apps.tenants.integration_settings import get_n8n_integration_settings
@@ -119,7 +120,7 @@ def notify_cash_withdrawal_received(*, receipt) -> None:
         "external_id": revenue.external_id if revenue else "",
         "amount": str(receipt.amount),
         "currency": receipt.currency,
-        "revenue_at": revenue.revenue_at.isoformat() if revenue and revenue.revenue_at else None,
+        "revenue_at": timezone.localtime(revenue.revenue_at).isoformat() if revenue and revenue.revenue_at else None,
         "wallet_id": wallet.pk,
         "wallet_name": (wallet.cash_register.name if wallet.cash_register_id else "") or wallet.currency,
         "wallet_balance": balance,

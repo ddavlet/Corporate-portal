@@ -2981,6 +2981,7 @@ class NotifyCashWithdrawalReceivedTests(APITestCase):
         self.assertEqual(payload["amount"], "100000000.00")
         self.assertEqual(payload["wallet_id"], self.fx.wallet.id)
         self.assertEqual(payload["wallet_name"], "Основная касса (касса)")
+        self.assertTrue(payload["revenue_at"].endswith("+05:00"))
         self.assertIn("wallet_balance", payload)
         self.assertEqual(payload["confirmed_by"], "Иван Петров")
         self.assertEqual(payload["request"]["id"], receipt.request_id)
