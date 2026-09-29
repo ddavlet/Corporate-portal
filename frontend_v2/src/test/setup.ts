@@ -1,4 +1,5 @@
 import '@testing-library/jest-dom/vitest'
+import '../lib/antdReact19'
 import { afterEach } from 'vitest'
 import { cleanup } from '@testing-library/react'
 

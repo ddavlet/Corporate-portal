@@ -1,11 +1,14 @@
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter, Route, Routes, useNavigate } from 'react-router-dom'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { Modal } from 'antd'
 import { PayrollDocumentDetailPage } from './PayrollDocumentDetailPage'
 import type { PayrollDocumentDetailDto, PayrollPayoutStateDto } from '../lib/api'
 
 const getPayrollDocumentMock = vi.fn()
 const getPayrollPayoutStateMock = vi.fn()
+const acceptPayrollDocumentMock = vi.fn()
+const cancelPayrollDocumentMock = vi.fn()
 
 vi.mock('../lib/api', async () => {
   const actual = await vi.importActual<typeof import('../lib/api')>('../lib/api')
@@ -13,6 +16,8 @@ vi.mock('../lib/api', async () => {
     ...actual,
     getPayrollDocument: (...args: unknown[]) => getPayrollDocumentMock(...args),
     getPayrollPayoutState: (...args: unknown[]) => getPayrollPayoutStateMock(...args),
+    acceptPayrollDocument: (...args: unknown[]) => acceptPayrollDocumentMock(...args),
+    cancelPayrollDocument: (...args: unknown[]) => cancelPayrollDocumentMock(...args),
   }
 })
 
@@ -151,5 +156,49 @@ describe('PayrollDocumentDetailPage', () => {
 
     expect(screen.getByText('Начисление ЗП Doc-B')).toBeInTheDocument()
     expect(screen.queryByText('Начисление ЗП Doc-A')).not.toBeInTheDocument()
+  })
+})
+
+// Regression: "Принять" / "Отменить" open a confirm dialog via antd's static Modal.confirm.
+// Under React 19 that silently rendered nothing (antd v5 needs a React 19 render hook),
+// so both buttons did nothing in production. These tests click through the dialog.
+describe('PayrollDocumentDetailPage confirm dialogs', () => {
+  // Static antd dialogs live in document.body, outside Testing Library's cleanup.
+  afterEach(() => {
+    Modal.destroyAll()
+  })
+
+  beforeEach(() => {
+    getPayrollDocumentMock.mockReset()
+    getPayrollPayoutStateMock.mockReset()
+    acceptPayrollDocumentMock.mockReset()
+    cancelPayrollDocumentMock.mockReset()
+    getPayrollDocumentMock.mockResolvedValue(baseDoc({ status: 'draft', source: 'portal' }))
+  })
+
+  it('"Принять" opens a confirm dialog and accepts on OK', async () => {
+    acceptPayrollDocumentMock.mockResolvedValue(baseDoc({ status: 'accepted' }))
+    renderPage('1')
+    fireEvent.click(await screen.findByRole('button', { name: 'Принять' }))
+    // Wait for this dialog's title (antd renders it twice), then act inside that dialog —
+    // a previous test's static dialog may still be unmounting in document.body.
+    const [title] = await screen.findAllByText('Принять начисление?')
+    const dialog = title.closest('[role="dialog"]') as HTMLElement
+    expect(dialog).not.toBeNull()
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Принять' }))
+    await waitFor(() => expect(acceptPayrollDocumentMock).toHaveBeenCalledWith(1))
+  })
+
+  it('"Отменить" opens a confirm dialog and cancels on OK', async () => {
+    cancelPayrollDocumentMock.mockResolvedValue(baseDoc({ status: 'cancelled' }))
+    renderPage('1')
+    fireEvent.click(await screen.findByRole('button', { name: 'Отменить' }))
+    // Wait for this dialog's title (antd renders it twice), then act inside that dialog —
+    // a previous test's static dialog may still be unmounting in document.body.
+    const [title] = await screen.findAllByText('Отменить начисление?')
+    const dialog = title.closest('[role="dialog"]') as HTMLElement
+    expect(dialog).not.toBeNull()
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Отменить' }))
+    await waitFor(() => expect(cancelPayrollDocumentMock).toHaveBeenCalledWith(1))
   })
 })
