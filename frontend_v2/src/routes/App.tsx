@@ -32,6 +32,7 @@ import { SettingsPage } from '../ui/SettingsPage'
 import { TenantIntegrationConfigPage } from '../ui/settings/TenantIntegrationConfigPage'
 import { UserRolesSettingsPage } from '../ui/settings/UserRolesSettingsPage'
 import { CashRegistersSettingsPage } from '../ui/settings/CashRegistersSettingsPage'
+import { CashWithdrawalConfigPage } from '../ui/settings/CashWithdrawalConfigPage'
 import { TelegramChatsConfigPage } from '../ui/settings/TelegramChatsConfigPage'
 import { InvestmentApprovalConfigPage } from '../ui/settings/InvestmentApprovalConfigPage'
 import { InvestmentProjectApprovalConfigPage } from '../ui/settings/InvestmentProjectApprovalConfigPage'
@@ -177,6 +178,7 @@ export function App() {
         <Route path="settings/tenant-integration-config" element={<TenantIntegrationConfigPage />} />
         <Route path="settings/users-roles" element={<UserRolesSettingsPage />} />
         <Route path="settings/cash-registers" element={<CashRegistersSettingsPage />} />
+        <Route path="settings/cash-withdrawal-config" element={<CashWithdrawalConfigPage />} />
         <Route path="settings/telegram-chats" element={<TelegramChatsConfigPage />} />
         <Route path="settings/pnl-report-config" element={<PnlReportSettingsPage />} />
         <Route path="settings/cashflow-report-config" element={<CashflowReportSettingsPage />} />
