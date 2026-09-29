@@ -173,3 +173,48 @@ def confirm_receipt(*, receipt_id: int, user) -> tuple[CashWithdrawalReceipt, bo
         confirmed_id = receipt.pk
         transaction.on_commit(lambda: _after_confirm(confirmed_id))
     return receipt, True
+
+
+def _system_user():
+    """pk=1 service account shown as «Система» (same convention as payroll/n8n_integration)."""
+    return User.objects.filter(pk=1).first()
+
+
+def close_receipt(*, receipt_id: int, actor, comment: str) -> bool:
+    from apps.modules.requests.models import RequestComment
+
+    comment = (comment or "").strip()
+    if not comment:
+        return False
+    with transaction.atomic():
+        receipt = CashWithdrawalReceipt.objects.select_for_update().select_related("request").get(pk=receipt_id)
+        if receipt.status != CashWithdrawalReceipt.Status.PENDING:
+            return False
+        receipt.status = CashWithdrawalReceipt.Status.CLOSED
+        receipt.closed_by = actor
+        receipt.closed_at = timezone.now()
+        receipt.closed_comment = comment
+        receipt.save(update_fields=["status", "closed_by", "closed_at", "closed_comment"])
+        RequestComment.objects.create(
+            request=receipt.request,
+            created_by=_system_user() or actor,
+            body=f"Ожидание поступления наличных закрыто без дохода: {comment}",
+        )
+        logger.info("cash_withdrawals: receipt closed receipt_id=%s actor_id=%s", receipt.pk, getattr(actor, "pk", None))
+        closed_id = receipt.pk
+        transaction.on_commit(lambda: _refresh_cards_safely(closed_id))
+    return True
+
+
+def _refresh_cards_safely(receipt_id: int) -> None:
+    receipt = (
+        CashWithdrawalReceipt.objects.select_related("tenant", "request", "wallet", "wallet__cash_register")
+        .filter(pk=receipt_id)
+        .first()
+    )
+    if receipt is None:
+        return
+    try:
+        messaging.refresh_receipt_cards(receipt)
+    except Exception:
+        logger.exception("cash_withdrawals: refresh after close failed receipt_id=%s", receipt_id)
