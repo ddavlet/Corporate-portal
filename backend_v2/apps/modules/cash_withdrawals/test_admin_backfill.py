@@ -7,8 +7,8 @@ from django.test import RequestFactory, TestCase, override_settings
 
 from apps.modules.cash_withdrawals.admin import CashWithdrawalReceiptAdmin
 from apps.modules.cash_withdrawals.fixtures import GATEWAY_PATH, CashWithdrawalFixtures, gateway_ok
-from apps.modules.cash_withdrawals.models import CashWithdrawalReceipt
-from apps.modules.cash_withdrawals.services import close_receipt
+from apps.modules.cash_withdrawals.models import CashWithdrawalMessage, CashWithdrawalReceipt
+from apps.modules.cash_withdrawals.services import close_receipt, confirm_receipt
 from apps.modules.cashier.models import CashRevenue
 from apps.modules.requests.models import RequestComment
 
@@ -51,6 +51,29 @@ class CloseReceiptTests(CashWithdrawalFixtures, TestCase):
         without_comment.refresh_from_db()
         self.assertEqual(with_comment.status, CashWithdrawalReceipt.Status.CLOSED)
         self.assertEqual(without_comment.status, CashWithdrawalReceipt.Status.PENDING)
+
+    @patch(GATEWAY_PATH)
+    def test_resend_card_action_sends_pending_and_skips_confirmed(self, gw):
+        gw.side_effect = gateway_ok()
+        pending = self.make_receipt()
+        confirmed_request = self.make_request()
+        confirmed = self.make_receipt(request_obj=confirmed_request)
+        with self.captureOnCommitCallbacks(execute=True):
+            confirm_receipt(receipt_id=confirmed.pk, user=self.cashier)
+
+        admin_obj = CashWithdrawalReceiptAdmin(CashWithdrawalReceipt, site)
+        request = RequestFactory().post("/")
+        request.user = self.admin
+        admin_obj.message_user = lambda *a, **k: None
+        gw.reset_mock()
+        gw.side_effect = gateway_ok(start=9000)
+        admin_obj.resend_card(request, CashWithdrawalReceipt.objects.filter(pk__in=[pending.pk, confirmed.pk]))
+
+        self.assertEqual(gw.call_count, 1)
+        self.assertTrue(
+            CashWithdrawalMessage.objects.filter(receipt=pending, kind=CashWithdrawalMessage.Kind.CARD).exists()
+        )
+        self.assertFalse(CashWithdrawalMessage.objects.filter(receipt=confirmed).exists())
 
 
 @override_settings(BASE_DOMAIN="example.com")

@@ -1,5 +1,8 @@
+import logging
+
 from django.contrib import admin, messages
 
+from apps.modules.cash_withdrawals import messaging
 from apps.modules.cash_withdrawals.models import (
     CashWithdrawalAlertRecipient,
     CashWithdrawalConfig,
@@ -9,6 +12,8 @@ from apps.modules.cash_withdrawals.models import (
     CashWithdrawalRule,
 )
 from apps.modules.cash_withdrawals.services import close_receipt
+
+logger = logging.getLogger(__name__)
 
 
 class ConfirmerInline(admin.TabularInline):
@@ -55,13 +60,18 @@ class CashWithdrawalReceiptAdmin(admin.ModelAdmin):
     )
     fields = readonly_fields + ("closed_comment",)
     inlines = [MessageInline]
-    actions = ["close_without_revenue"]
+    actions = ["close_without_revenue", "resend_card"]
 
     def has_add_permission(self, request):
         return False
 
     def has_delete_permission(self, request, obj=None):
         return False
+
+    def get_readonly_fields(self, request, obj=None):
+        if obj is not None and obj.status != CashWithdrawalReceipt.Status.PENDING:
+            return self.readonly_fields + ("closed_comment",)
+        return self.readonly_fields
 
     @admin.action(description="Закрыть без дохода (нужен заполненный комментарий)")
     def close_without_revenue(self, request, queryset):
@@ -72,3 +82,21 @@ class CashWithdrawalReceiptAdmin(admin.ModelAdmin):
             else:
                 skipped += 1
         self.message_user(request, f"Закрыто: {closed}. Пропущено (нет комментария): {skipped}.", messages.INFO)
+
+    @admin.action(description="Переотправить карточку")
+    def resend_card(self, request, queryset):
+        sent, skipped = 0, 0
+        for receipt in queryset:
+            if receipt.status != CashWithdrawalReceipt.Status.PENDING:
+                skipped += 1
+                continue
+            full_receipt = CashWithdrawalReceipt.objects.select_related(
+                "tenant", "request", "wallet", "wallet__cash_register"
+            ).get(pk=receipt.pk)
+            try:
+                messaging.send_receipt_cards(full_receipt)
+            except Exception:
+                logger.exception("cash_withdrawals: resend card failed receipt_id=%s", full_receipt.pk)
+                continue
+            sent += 1
+        self.message_user(request, f"Отправлено: {sent}. Пропущено (не ожидает): {skipped}.", messages.INFO)
