@@ -2927,3 +2927,76 @@ class PayrollLineUpsertLinkedRequestHookTests(APITestCase):
             1,
         )
 
+
+@override_settings(
+    BASE_DOMAIN="example.com",
+    N8N_INTEGRATION_TOKEN="integ-test-secret",
+    ALLOWED_HOSTS=["lemonaqua.example.com", "testserver"],
+)
+class NotifyCashWithdrawalReceivedTests(APITestCase):
+    def setUp(self):
+        from apps.modules.cash_withdrawals.fixtures import CashWithdrawalFixtures
+
+        self.fx = CashWithdrawalFixtures()
+        self.fx.make_fixtures()
+
+    def _confirmed_receipt(self):
+        from django.utils import timezone
+
+        from apps.modules.cash_withdrawals.models import CashWithdrawalReceipt
+        from apps.modules.cashier.models import CashRevenue
+
+        receipt = self.fx.make_receipt()
+        revenue = CashRevenue.objects.create(
+            tenant=self.fx.tenant,
+            wallet=self.fx.wallet,
+            total_sum=receipt.amount,
+            currency="UZS",
+            revenue_at=timezone.now(),
+            external_id=f"cash-{receipt.request_id}",
+            created_by=self.fx.cashier,
+        )
+        receipt.status = CashWithdrawalReceipt.Status.CONFIRMED
+        receipt.confirmed_by = self.fx.cashier
+        receipt.confirmed_at = timezone.now()
+        receipt.cash_revenue = revenue
+        receipt.save()
+        return receipt
+
+    @patch("apps.modules.n8n_integration.event_handlers.threading.Thread")
+    @patch("apps.modules.n8n_integration.views._n8n_session.post")
+    def test_posts_new_cash_revenue_event(self, mock_post, mock_thread):
+        mock_post.return_value = Mock(status_code=200)
+        mock_thread.side_effect = lambda target, daemon: Mock(start=target)
+        from apps.modules.n8n_integration.event_handlers import notify_cash_withdrawal_received
+
+        receipt = self._confirmed_receipt()
+        notify_cash_withdrawal_received(receipt=receipt)
+
+        mock_post.assert_called_once()
+        self.assertIn("/n8n/events/new-cash-revenue", mock_post.call_args.args[0])
+        payload = mock_post.call_args.kwargs["json"]
+        self.assertEqual(payload["event"], "cash_withdrawal_received")
+        self.assertEqual(payload["external_id"], f"cash-{receipt.request_id}")
+        self.assertEqual(payload["amount"], "100000000.00")
+        self.assertEqual(payload["wallet_id"], self.fx.wallet.id)
+        self.assertEqual(payload["wallet_name"], "Основная касса (касса)")
+        self.assertIn("wallet_balance", payload)
+        self.assertEqual(payload["confirmed_by"], "Иван Петров")
+        self.assertEqual(payload["request"]["id"], receipt.request_id)
+        self.assertEqual(payload["tenant"], "lemonaqua")
+
+    def test_handler_is_registered_for_receipt_confirmed(self):
+        from apps.modules.cash_withdrawals import events
+        from apps.modules.n8n_integration.event_handlers import notify_cash_withdrawal_received
+
+        self.assertIn(notify_cash_withdrawal_received, events.RECEIPT_CONFIRMED_HANDLERS)
+
+    @override_settings(N8N_INTEGRATION_TOKEN="")
+    @patch("apps.modules.n8n_integration.views._n8n_session.post")
+    def test_skips_without_token(self, mock_post):
+        from apps.modules.n8n_integration.event_handlers import notify_cash_withdrawal_received
+
+        notify_cash_withdrawal_received(receipt=self._confirmed_receipt())
+        mock_post.assert_not_called()
+
