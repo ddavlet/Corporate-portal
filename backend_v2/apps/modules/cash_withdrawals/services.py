@@ -218,3 +218,97 @@ def _refresh_cards_safely(receipt_id: int) -> None:
         messaging.refresh_receipt_cards(receipt)
     except Exception:
         logger.exception("cash_withdrawals: refresh after close failed receipt_id=%s", receipt_id)
+
+
+def _user_label(user) -> str:
+    return (getattr(user, "full_name", "") or "").strip() or user.username
+
+
+def config_payload(tenant) -> dict:
+    from apps.modules.cash_withdrawals.formatter import wallet_label
+    from apps.modules.requests.models import RequestFormConfig
+    from apps.modules.telegram_approvals.models import TenantTelegramChat
+    from apps.modules.wallets.models import Wallet
+
+    config = CashWithdrawalConfig.objects.filter(tenant=tenant).first()
+    rules = []
+    if config is not None:
+        rules = [
+            {"payment_type": r.payment_type, "payment_purpose": r.payment_purpose, "wallet_id": r.wallet_id}
+            for r in config.rules.order_by("id")
+        ]
+    member_ids = TenantMembership.objects.filter(tenant=tenant, is_active=True).values_list("user_id", flat=True)
+    users = User.objects.filter(id__in=member_ids, is_active=True).order_by("full_name", "username")
+    purposes: dict[str, list[str]] = {}
+    form = RequestFormConfig.objects.filter(tenant=tenant).first()
+    if form is not None:
+        for pt in form.payment_types.filter(is_enabled=True).order_by("id"):
+            names = list(pt.payment_purposes.filter(is_active=True).order_by("name").values_list("name", flat=True))
+            purposes.setdefault(pt.payment_type, []).extend(names)
+    for rule in rules:  # keep purposes already used in rules visible even if deactivated in the form
+        bucket = purposes.setdefault(rule["payment_type"], [])
+        if rule["payment_purpose"] not in bucket:
+            bucket.append(rule["payment_purpose"])
+    wallets = Wallet.objects.filter(tenant=tenant, wallet_type=Wallet.Type.CASH).select_related("cash_register").order_by("id")
+    return {
+        "is_active": bool(config and config.is_active),
+        "card_telegram_chat_id": config.card_telegram_chat_id if config else None,
+        "alert_telegram_chat_id": config.alert_telegram_chat_id if config else None,
+        "alert_after_days": config.alert_after_days if config else 3,
+        "alert_repeat_every_days": config.alert_repeat_every_days if config else 1,
+        "alert_hour": config.alert_hour if config else 9,
+        "confirmer_user_ids": sorted(config.confirmers.values_list("user_id", flat=True)) if config else [],
+        "alert_recipient_user_ids": sorted(config.alert_recipients.values_list("user_id", flat=True)) if config else [],
+        "rules": rules,
+        "options": {
+            "users": [
+                {"id": u.id, "label": _user_label(u), "has_telegram": bool(u.telegram_chat_id)} for u in users
+            ],
+            "telegram_chats": [
+                {"id": c.id, "name": c.name}
+                for c in TenantTelegramChat.objects.filter(tenant=tenant, is_active=True).order_by("name")
+            ],
+            "wallets": [{"id": w.id, "label": wallet_label(w), "currency": w.currency} for w in wallets],
+            "payment_purposes": [{"payment_type": k, "purposes": v} for k, v in purposes.items()],
+        },
+    }
+
+
+def save_config(*, tenant, data: dict, actor) -> None:
+    from apps.modules.cash_withdrawals.models import (
+        CashWithdrawalAlertRecipient,
+        CashWithdrawalConfirmer,
+        CashWithdrawalRule,
+    )
+
+    with transaction.atomic():
+        config, _ = CashWithdrawalConfig.objects.select_for_update().get_or_create(tenant=tenant)
+        config.is_active = data["is_active"]
+        config.card_telegram_chat_id = data.get("card_telegram_chat_id")
+        config.alert_telegram_chat_id = data.get("alert_telegram_chat_id")
+        config.alert_after_days = data["alert_after_days"]
+        config.alert_repeat_every_days = data["alert_repeat_every_days"]
+        config.alert_hour = data["alert_hour"]
+        config.updated_by = actor
+        config.save()
+        # Settings rows (not business data): replacing the list is the edit itself.
+        config.confirmers.exclude(user_id__in=data["confirmer_user_ids"]).delete()
+        for user_id in data["confirmer_user_ids"]:
+            CashWithdrawalConfirmer.objects.get_or_create(config=config, user_id=user_id)
+        config.alert_recipients.exclude(user_id__in=data["alert_recipient_user_ids"]).delete()
+        for user_id in data["alert_recipient_user_ids"]:
+            CashWithdrawalAlertRecipient.objects.get_or_create(config=config, user_id=user_id)
+        wanted = {(r["payment_type"], r["payment_purpose"]): r["wallet_id"] for r in data["rules"]}
+        for rule in list(config.rules.all()):
+            key = (rule.payment_type, rule.payment_purpose)
+            if key not in wanted:
+                rule.delete()
+            elif rule.wallet_id != wanted[key]:
+                rule.wallet_id = wanted.pop(key)
+                rule.save(update_fields=["wallet"])
+            else:
+                wanted.pop(key)
+        for (payment_type, payment_purpose), wallet_id in wanted.items():
+            CashWithdrawalRule.objects.create(
+                config=config, payment_type=payment_type, payment_purpose=payment_purpose, wallet_id=wallet_id
+            )
