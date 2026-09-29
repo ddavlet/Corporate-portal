@@ -19,6 +19,15 @@ This is **not** the Kolberg domain MCP (tenant/JWT business tools). See [`MCP_SE
 3. Pull `main`, then: `make create-postgres-mcp-role`
 4. User-triggered: `make deploy` (starts `postgres-mcp` via Compose).
 
+## Hidden secrets
+
+`scripts/postgres_mcp_create_readonly_role.sql` grants SELECT on all tables, then revokes credentials:
+
+- **Whole tables:** `django_session`, `accounts_otpchallenge`, `mcp_oauth_authorization_code`.
+- **Single columns** (`mcp_hidden_columns`): `accounts_user.password`, `*_token_enc` / `*_secret_enc` / webhook URL in `tenants_tenant` and `tenant_integration_configs`, `mcp_service_credential.key_hash`, `invest_payout_schedule_share_links.token`. These tables get a column-level grant, so `SELECT *` on them fails — list columns explicitly. A column added to such a table later stays hidden until `make create-postgres-mcp-role` is re-run.
+
+`apps/common/test_postgres_mcp_role.py` fails CI if a model gains a secret-looking column that is not on these lists.
+
 ## Client config (Cursor / Claude Desktop)
 
 ```json
