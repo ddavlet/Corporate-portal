@@ -1,6 +1,7 @@
 from django.contrib.auth import get_user_model
 from rest_framework import serializers
 
+from apps.modules.requests.models import Request
 from apps.modules.telegram_approvals.models import TenantTelegramChat
 from apps.modules.wallets.models import Wallet
 from apps.tenants.models import TenantMembership
@@ -9,7 +10,7 @@ User = get_user_model()
 
 
 class RuleSerializer(serializers.Serializer):
-    payment_type = serializers.CharField(max_length=50)
+    payment_type = serializers.ChoiceField(choices=Request.PAYMENT_TYPE_CHOICES)
     payment_purpose = serializers.CharField(max_length=200)
     wallet_id = serializers.IntegerField()
 

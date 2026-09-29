@@ -87,6 +87,12 @@ class ConfigApiTests(CashWithdrawalFixtures, APITestCase):
         res = self.client.put(URL, self._payload(rules=rules), format="json", HTTP_HOST=self.host)
         self.assertEqual(res.status_code, 400)
 
+    def test_put_rejects_unknown_payment_type(self):
+        rules = [{"payment_type": "Не такой тип", "payment_purpose": PURPOSE, "wallet_id": self.wallet.id}]
+        res = self.client.put(URL, self._payload(rules=rules), format="json", HTTP_HOST=self.host)
+        self.assertEqual(res.status_code, 400)
+        self.assertEqual(CashWithdrawalRule.objects.get().wallet_id, self.wallet.id)
+
     def test_put_rejects_duplicate_rules(self):
         rule = {"payment_type": "Перечисление", "payment_purpose": PURPOSE, "wallet_id": self.wallet.id}
         res = self.client.put(URL, self._payload(rules=[rule, dict(rule)]), format="json", HTTP_HOST=self.host)
