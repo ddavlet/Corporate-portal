@@ -73,6 +73,7 @@ INSTALLED_APPS = [
     "apps.modules.contracts",
     "apps.modules.reports",
     "apps.modules.tasks",
+    "apps.modules.cash_withdrawals",
 
     # MCP server (HTTP disabled by default; code kept to re-enable later)
     "apps.mcp_server",
