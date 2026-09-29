@@ -70,7 +70,8 @@ def create_receipt_for_request(*, request_obj, send: bool = True) -> CashWithdra
         )
         text = formatter.build_currency_mismatch_text(request_obj=request_obj, wallet=wallet)
         transaction.on_commit(
-            lambda: messaging.send_to_alert_recipients(config=config, text=text, request_id=request_obj.pk)
+            lambda: messaging.send_to_alert_recipients(config=config, text=text, request_id=request_obj.pk),
+            robust=True,
         )
         return None
     receipt, created = CashWithdrawalReceipt.objects.get_or_create(
@@ -139,7 +140,7 @@ def _after_confirm(receipt_id: int) -> None:
 def confirm_receipt(*, receipt_id: int, user) -> tuple[CashWithdrawalReceipt, bool]:
     with transaction.atomic():
         receipt = (
-            CashWithdrawalReceipt.objects.select_for_update()
+            CashWithdrawalReceipt.objects.select_for_update(of=("self",))
             .select_related("tenant", "request", "wallet")
             .get(pk=receipt_id)
         )
@@ -187,7 +188,11 @@ def close_receipt(*, receipt_id: int, actor, comment: str) -> bool:
     if not comment:
         return False
     with transaction.atomic():
-        receipt = CashWithdrawalReceipt.objects.select_for_update().select_related("request").get(pk=receipt_id)
+        receipt = (
+            CashWithdrawalReceipt.objects.select_for_update(of=("self",))
+            .select_related("request")
+            .get(pk=receipt_id)
+        )
         if receipt.status != CashWithdrawalReceipt.Status.PENDING:
             return False
         receipt.status = CashWithdrawalReceipt.Status.CLOSED

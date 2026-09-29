@@ -46,6 +46,9 @@ def handle_callback(*, payload: str, event_data: dict) -> tuple[int, dict]:
                 "tenant", "request", "wallet", "wallet__cash_register", "confirmed_by"
             ).get(pk=receipt_id)
         )
-        messaging.refresh_receipt_cards(receipt)
+        try:
+            messaging.refresh_receipt_cards(receipt)
+        except Exception:
+            logger.exception("cwr_callback: refresh on repeat press failed receipt_id=%s", receipt_id)
         return 200, {"detail": "already_processed", "status": receipt.status}
     return 201, {"detail": "confirmed", "cash_revenue_id": receipt.cash_revenue_id}
