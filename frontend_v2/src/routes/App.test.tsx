@@ -95,6 +95,20 @@ describe('App routing smoke', () => {
     expect(screen.getByText('ReportsPage')).toBeInTheDocument()
   })
 
+  it('keeps a reports address that names no card inside «Отчёты»', () => {
+    useAuthMock.mockReturnValue({ accessToken: 'token', logout: vi.fn() })
+    for (const url of ['/reports/classic', '/reports/classic/pnl/extra']) {
+      const { unmount } = render(
+        <MemoryRouter initialEntries={[url]}>
+          <App />
+        </MemoryRouter>,
+      )
+      expect(screen.getByText('Отчёт не найден')).toBeInTheDocument()
+      expect(screen.getByRole('link', { name: /Все отчёты/ })).toHaveAttribute('href', '/reports')
+      unmount()
+    }
+  })
+
   it('renders telegram layout route', () => {
     useAuthMock.mockReturnValue({ accessToken: null, logout: vi.fn() })
     render(

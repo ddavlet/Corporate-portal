@@ -22,6 +22,23 @@ export function createStorageMock(): MockStorage {
   }
 }
 
+/** Runs `check` as in a browser that refuses session storage (private mode, blocked site data): reading it throws. */
+export async function withoutSessionStorage(check: () => void | Promise<void>): Promise<void> {
+  const original = Object.getOwnPropertyDescriptor(globalThis, 'sessionStorage')
+  Object.defineProperty(globalThis, 'sessionStorage', {
+    configurable: true,
+    get: () => {
+      throw new DOMException('denied', 'SecurityError')
+    },
+  })
+  try {
+    await check()
+  } finally {
+    if (original) Object.defineProperty(globalThis, 'sessionStorage', original)
+    else delete (globalThis as { sessionStorage?: Storage }).sessionStorage
+  }
+}
+
 export function createJsonResponse(status: number, payload: unknown): Response {
   const base = {
     ok: status >= 200 && status < 300,

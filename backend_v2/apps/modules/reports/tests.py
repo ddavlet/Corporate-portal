@@ -23,19 +23,13 @@ from apps.modules.wallets.resolution import get_or_create_bank_wallet
 from apps.modules.reports.cashflow_builder import (
     build_cashflow_payload_from_db,
     compute_unassigned_payment_purposes_cashflow,
-    validate_cashflow_config_dict,
-    validate_cashflow_supplement_dict,
 )
-from apps.modules.reports.pnl_builder import (
-    ReportSettingsInvalid,
-    build_pnl_payload_from_db,
-    compute_unassigned_payment_purposes,
-    validate_pnl_config_dict,
-)
+from apps.modules.reports.pnl_builder import build_pnl_payload_from_db, compute_unassigned_payment_purposes
+from apps.modules.reports.report_rules import ReportSettingsInvalid, rules_snapshot, validate_rules
 from apps.modules.reports.services import (
-    fetch_n8n_report_payload,
+    fetch_report_payload,
     finalize_report_payload,
-    resolve_cashflow_source_for_tenant,
+    resolve_report_source,
 )
 from apps.tenants.models import Tenant, TenantMembership, TenantUserRole
 
@@ -78,21 +72,22 @@ class ReportsCacheTests(SimpleTestCase):
         response.raise_for_status.return_value = None
         mock_get.return_value = response
 
-        payload_1 = fetch_n8n_report_payload(
+        payload_1 = fetch_report_payload(
             tenant=self.tenant,
             user_id=7,
-            endpoint="/n8n/cashflow-data",
+            report="cashflow",
             query_params={"year": "2026", "month": "04"},
         )
-        payload_2 = fetch_n8n_report_payload(
+        payload_2 = fetch_report_payload(
             tenant=self.tenant,
             user_id=7,
-            endpoint="/n8n/cashflow-data",
+            report="cashflow",
             query_params={"month": "04", "year": "2026"},
         )
 
         self.assertEqual(payload_1, payload_2)
         self.assertEqual(mock_get.call_count, 1)
+        self.assertEqual(mock_get.call_args.args[0], "https://acme.example.com/n8n/cashflow-data")
 
     @patch("apps.modules.reports.services.get_n8n_integration_settings")
     @patch("apps.modules.reports.services.requests.get")
@@ -102,10 +97,10 @@ class ReportsCacheTests(SimpleTestCase):
         response.json.return_value = {"revenue": [], "expense": []}
         response.raise_for_status.return_value = None
         mock_get.return_value = response
-        kwargs = dict(tenant=self.tenant, user_id=7, endpoint="/n8n/pnl-data", query_params={})
+        kwargs = dict(tenant=self.tenant, user_id=7, report="pnl", query_params={})
 
-        fetch_n8n_report_payload(**kwargs)
-        fetch_n8n_report_payload(**kwargs, force_refresh=True)
+        fetch_report_payload(**kwargs)
+        fetch_report_payload(**kwargs, force_refresh=True)
 
         self.assertEqual(mock_get.call_count, 2)
 
@@ -118,16 +113,16 @@ class ReportsCacheTests(SimpleTestCase):
         response.raise_for_status.return_value = None
         mock_get.return_value = response
 
-        fetch_n8n_report_payload(
+        fetch_report_payload(
             tenant=self.tenant,
             user_id=7,
-            endpoint="/n8n/cashflow-data",
+            report="cashflow",
             query_params={},
         )
-        fetch_n8n_report_payload(
+        fetch_report_payload(
             tenant=self.tenant,
             user_id=8,
-            endpoint="/n8n/cashflow-data",
+            report="cashflow",
             query_params={},
         )
 
@@ -146,10 +141,10 @@ class ReportsCacheTests(SimpleTestCase):
         response.raise_for_status.return_value = None
         mock_get.return_value = response
 
-        payload = fetch_n8n_report_payload(
+        payload = fetch_report_payload(
             tenant=self.tenant,
             user_id=7,
-            endpoint="/n8n/pnl-data",
+            report="pnl",
             query_params={},
         )
 
@@ -175,10 +170,10 @@ class ReportsCacheTests(SimpleTestCase):
         response.raise_for_status.return_value = None
         mock_get.return_value = response
 
-        payload = fetch_n8n_report_payload(
+        payload = fetch_report_payload(
             tenant=self.tenant,
             user_id=7,
-            endpoint="/n8n/pnl-data",
+            report="pnl",
             query_params={},
         )
 
@@ -196,7 +191,7 @@ class BackendPnlSourceTests(SimpleTestCase):
     def setUp(self):
         cache.clear()
 
-    @patch("apps.modules.reports.services.resolve_pnl_source_for_tenant", return_value="backend")
+    @patch("apps.modules.reports.services.resolve_report_source", return_value=("backend", {}))
     @patch("apps.modules.reports.pnl_builder.build_pnl_payload_from_db")
     def test_pnl_backend_skips_http_upstream(self, mock_build: Mock, _mock_source: Mock):
         mock_build.return_value = {
@@ -210,10 +205,10 @@ class BackendPnlSourceTests(SimpleTestCase):
         tenant = SimpleNamespace(subdomain="acme")
 
         with patch("apps.modules.reports.services.requests.get") as mock_get:
-            payload = fetch_n8n_report_payload(
+            payload = fetch_report_payload(
                 tenant=tenant,
                 user_id=3,
-                endpoint="/n8n/pnl-data",
+                report="pnl",
                 query_params={},
             )
 
@@ -252,15 +247,13 @@ class FinalizeReportPayloadTests(SimpleTestCase):
 class PnlOpeningBalanceSettingsTests(SimpleTestCase):
     def test_snapshot_default_opening_when_key_missing(self):
         cfg = full_backend_pnl_config()
-        from apps.modules.reports.pnl_builder import _report_settings_snapshot
-
-        snap = _report_settings_snapshot(cfg)
+        snap = rules_snapshot(cfg)
         self.assertEqual(snap["opening_balance"], "0")
 
     def test_validate_rejects_invalid_opening_balance_when_present(self):
         cfg = full_backend_pnl_config(opening_balance="not-a-decimal")
         with self.assertRaises(ReportSettingsInvalid):
-            validate_pnl_config_dict(cfg)
+            validate_rules(cfg)
 
     def test_invest_returns_bucket_gets_fixed_category(self):
         raw = {
@@ -319,20 +312,20 @@ class BackendPnlDatabaseTests(TestCase):
 
     def test_missing_tenant_report_settings_raises(self):
         with self.assertRaises(RuntimeError) as ctx:
-            fetch_n8n_report_payload(
+            fetch_report_payload(
                 tenant=self.tenant,
                 user_id=1,
-                endpoint="/n8n/pnl-data",
+                report="pnl",
                 query_params={},
             )
         self.assertIn("tenant_report_settings", str(ctx.exception).lower())
 
     def test_backend_pnl_returns_empty_blocks_with_config(self):
         self._ensure_pnl_settings(request_payment_types_for_pnl=[])
-        payload = fetch_n8n_report_payload(
+        payload = fetch_report_payload(
             tenant=self.tenant,
             user_id=1,
-            endpoint="/n8n/pnl-data",
+            report="pnl",
             query_params={},
         )
         self.assertEqual(payload["metadata"]["source"], "backend")
@@ -527,15 +520,14 @@ class BackendPnlDatabaseTests(TestCase):
     def test_cashflow_keeps_bank_revenue_excluded_from_pnl(self):
         # Capital contributions are not income (PnL) but are a real cash inflow (Cashflow).
         self._ensure_pnl_settings(bank_exclude_purposes=["уставного капитала"])
+        TenantReportSettings.objects.filter(tenant=self.tenant).update(cashflow_config=full_backend_pnl_config())
         row = self._create_bank_revenue(doc_no="B-4", purpose="Пополнение уставного капитала")
         payload = build_cashflow_payload_from_db(tenant=self.tenant, query_params={})
         self.assertIn(str(row.id), [r["id"] for r in payload["revenue"]])
 
 
 @override_settings(BASE_DOMAIN="example.com", ALLOWED_HOSTS=["*"])
-class TenantReportSettingsConfigApiTests(APITestCase):
-    url = "/api/reports/tenant-report-settings/"
-
+class PaymentPurposePoolApiTests(APITestCase):
     def setUp(self):
         self.tenant = Tenant.objects.create(name="Acme", subdomain="pnlcfg", is_active=True)
         self.admin = User.objects.create_user(username="pnl_admin", password="x")
@@ -549,17 +541,6 @@ class TenantReportSettingsConfigApiTests(APITestCase):
         token = str(RefreshToken.for_user(user).access_token)
         return {"HTTP_HOST": "pnlcfg.example.com", "HTTP_AUTHORIZATION": f"Bearer {token}"}
 
-    def test_admin_get_creates_defaults(self):
-        self.assertFalse(TenantReportSettings.objects.filter(tenant=self.tenant).exists())
-        res = self.client.get(self.url, **self._auth(self.admin))
-        self.assertEqual(res.status_code, 200, res.content)
-        self.assertEqual(res.data["pnl_source"], TenantReportSettings.PNL_SOURCE_N8N)
-        self.assertEqual(res.data["pnl_config"], {})
-        self.assertTrue(TenantReportSettings.objects.filter(tenant=self.tenant).exists())
-
-    def test_director_forbidden(self):
-        res = self.client.get(self.url, **self._auth(self.director))
-        self.assertEqual(res.status_code, 403)
 
     def test_admin_get_payment_purpose_pool(self):
         pool_url = "/api/reports/payment-purpose-pool/"
@@ -617,67 +598,13 @@ class TenantReportSettingsConfigApiTests(APITestCase):
         res_dir = self.client.get(pool_url, **self._auth(self.director))
         self.assertEqual(res_dir.status_code, 403)
 
-    def test_admin_patch_backend_requires_full_config(self):
-        bad = self.client.patch(
-            self.url,
-            {"pnl_source": "backend", "pnl_config": {}},
-            format="json",
-            **self._auth(self.admin),
-        )
-        self.assertEqual(bad.status_code, 400, bad.content)
-
-        ok = self.client.patch(
-            self.url,
-            {
-                "pnl_source": "backend",
-                "pnl_config": full_backend_pnl_config(
-                    start_month="2026-02",
-                    cash_exclude_operations=["x"],
-                ),
-            },
-            format="json",
-            **self._auth(self.admin),
-        )
-        self.assertEqual(ok.status_code, 200, ok.content)
-        self.assertEqual(ok.data["pnl_source"], "backend")
-        row = TenantReportSettings.objects.get(tenant=self.tenant)
-        self.assertEqual(row.pnl_source, "backend")
-        self.assertEqual(row.pnl_config["start_month"], "2026-02")
-
-    def test_admin_get_pnl_diagnostics_unassigned_purposes(self):
-        TenantReportSettings.objects.create(
-            tenant=self.tenant,
-            pnl_source="backend",
-            pnl_config=full_backend_pnl_config(),
-        )
-        Request.objects.create(
-            tenant=self.tenant,
-            created_by=self.admin,
-            requester=self.admin,
-            title="r1",
-            description="",
-            amount="100.00",
-            currency="UZS",
-            payment_type=Request.PAYMENT_TYPE_TRANSFER,
-            urgency=Request.URGENCY_NORMAL,
-            billing_date=date(2026, 3, 1),
-            payment_purpose="Непокрытое назначение XYZ",
-            status=Request.STATUS_PAYED,
-        )
-        res = self.client.get(f"{self.url}?pnl_diagnostics=1", **self._auth(self.admin))
-        self.assertEqual(res.status_code, 200, res.content)
-        diag = res.data.get("pnl_diagnostics") or {}
-        items = diag.get("unassigned_payment_purposes") or []
-        purposes = {x["purpose"] for x in items}
-        self.assertIn("Непокрытое назначение XYZ", purposes)
-
 
 @override_settings(BASE_DOMAIN="example.com", REPORTS_CACHE_TTL_SECONDS=60)
 class BackendCashflowSourceTests(SimpleTestCase):
     def setUp(self):
         cache.clear()
 
-    @patch("apps.modules.reports.services.resolve_cashflow_source_for_tenant", return_value="backend")
+    @patch("apps.modules.reports.services.resolve_report_source", return_value=("backend", {}))
     @patch("apps.modules.reports.cashflow_builder.build_cashflow_payload_from_db")
     def test_cashflow_backend_skips_http_upstream(self, mock_build: Mock, _mock_source: Mock):
         mock_build.return_value = {
@@ -691,10 +618,10 @@ class BackendCashflowSourceTests(SimpleTestCase):
         tenant = SimpleNamespace(subdomain="acme")
 
         with patch("apps.modules.reports.services.requests.get") as mock_get:
-            payload = fetch_n8n_report_payload(
+            payload = fetch_report_payload(
                 tenant=tenant,
                 user_id=3,
-                endpoint="/n8n/cashflow-data",
+                report="cashflow",
                 query_params={},
             )
 
@@ -713,7 +640,7 @@ class BackendCashflowDatabaseTests(TestCase):
         TenantReportSettings.objects.create(
             tenant=self.tenant,
             cashflow_source="backend",
-            pnl_config=full_backend_pnl_config(),
+            cashflow_config=full_backend_pnl_config(),
         )
 
     def test_cashflow_request_item_names_its_author(self):
@@ -908,100 +835,24 @@ class BackendCashflowDatabaseTests(TestCase):
 
     def test_cashflow_n8n_when_source_not_backend(self):
         TenantReportSettings.objects.filter(tenant=self.tenant).update(cashflow_source="n8n")
-        self.assertEqual(resolve_cashflow_source_for_tenant(tenant=self.tenant), "n8n")
+        source, _rules = resolve_report_source(tenant=self.tenant, report="cashflow")
+        self.assertEqual(source, "n8n")
 
     def test_report_settings_opening_balance_from_cashflow_config(self):
         TenantReportSettings.objects.filter(tenant=self.tenant).update(
             pnl_config=full_backend_pnl_config(opening_balance="111"),
-            cashflow_config={"opening_balance": "222"},
+            cashflow_config=full_backend_pnl_config(opening_balance="222"),
         )
         payload = build_cashflow_payload_from_db(tenant=self.tenant, query_params={})
         self.assertEqual(payload["report_settings"]["opening_balance"], "222")
 
-    def test_report_settings_opening_balance_cashflow_defaults_without_extra_key(self):
+    def test_report_settings_opening_balance_cashflow_defaults_to_zero(self):
         TenantReportSettings.objects.filter(tenant=self.tenant).update(
             pnl_config=full_backend_pnl_config(opening_balance="999"),
-            cashflow_config={},
+            cashflow_config=full_backend_pnl_config(),
         )
         payload = build_cashflow_payload_from_db(tenant=self.tenant, query_params={})
         self.assertEqual(payload["report_settings"]["opening_balance"], "0")
-
-
-@override_settings(BASE_DOMAIN="example.com", ALLOWED_HOSTS=["*"])
-class TenantCashflowReportSettingsConfigApiTests(APITestCase):
-    url = "/api/reports/cashflow-report-settings/"
-
-    def setUp(self):
-        self.tenant = Tenant.objects.create(name="CfCfg", subdomain="cfcfg", is_active=True)
-        self.admin = User.objects.create_user(username="cf_cfg_admin", password="x")
-        TenantMembership.objects.create(tenant=self.tenant, user=self.admin, is_active=True)
-        TenantUserRole.objects.create(tenant=self.tenant, user=self.admin, role=TenantUserRole.ROLE_ADMIN)
-
-    def _auth(self, user):
-        token = str(RefreshToken.for_user(user).access_token)
-        return {"HTTP_HOST": "cfcfg.example.com", "HTTP_AUTHORIZATION": f"Bearer {token}"}
-
-    def test_admin_get_creates_defaults(self):
-        res = self.client.get(self.url, **self._auth(self.admin))
-        self.assertEqual(res.status_code, 200, res.content)
-        self.assertEqual(res.data["cashflow_source"], TenantReportSettings.CASHFLOW_SOURCE_N8N)
-        self.assertEqual(res.data["pnl_config"], {})
-        self.assertEqual(res.data["cashflow_config"], {})
-        self.assertTrue(res.data.get("uses_pnl_config"))
-
-    def test_admin_patch_backend_requires_pnl_config(self):
-        bad = self.client.patch(
-            self.url,
-            {"cashflow_source": "backend"},
-            format="json",
-            **self._auth(self.admin),
-        )
-        self.assertEqual(bad.status_code, 400, bad.content)
-
-        TenantReportSettings.objects.filter(tenant=self.tenant).update(
-            pnl_config=full_backend_pnl_config(),
-        )
-        ok = self.client.patch(
-            self.url,
-            {"cashflow_source": "backend"},
-            format="json",
-            **self._auth(self.admin),
-        )
-        self.assertEqual(ok.status_code, 200, ok.content)
-        self.assertEqual(ok.data["cashflow_source"], "backend")
-
-    def test_admin_patch_cashflow_config_opening_balance(self):
-        res = self.client.patch(
-            self.url,
-            {"cashflow_config": {"opening_balance": "99.5"}},
-            format="json",
-            **self._auth(self.admin),
-        )
-        self.assertEqual(res.status_code, 200, res.content)
-        self.assertEqual(res.data["cashflow_config"]["opening_balance"], "99.5")
-
-    def test_admin_patch_cashflow_config_rejects_bad_opening_balance(self):
-        res = self.client.patch(
-            self.url,
-            {"cashflow_config": {"opening_balance": "notnum"}},
-            format="json",
-            **self._auth(self.admin),
-        )
-        self.assertEqual(res.status_code, 400, res.content)
-
-
-class CashflowConfigValidationTests(TestCase):
-    def test_rejects_overlapping_payment_purposes(self):
-        cfg = full_backend_pnl_config(
-            payment_purpose_operational=["same"],
-            payment_purpose_other=["same"],
-        )
-        with self.assertRaises(ReportSettingsInvalid):
-            validate_cashflow_config_dict(cfg)
-
-    def test_rejects_invalid_opening_in_supplement(self):
-        with self.assertRaises(ReportSettingsInvalid):
-            validate_cashflow_supplement_dict({"opening_balance": "nope"})
 
 
 class PnlConfigValidationTests(TestCase):
@@ -1011,22 +862,22 @@ class PnlConfigValidationTests(TestCase):
             payment_purpose_other=["same"],
         )
         with self.assertRaises(ReportSettingsInvalid):
-            validate_pnl_config_dict(cfg)
+            validate_rules(cfg)
 
     def test_rejects_invalid_payment_type(self):
         cfg = full_backend_pnl_config(request_payment_types_for_pnl=["Неизвестный тип"])
         with self.assertRaises(ReportSettingsInvalid):
-            validate_pnl_config_dict(cfg)
+            validate_rules(cfg)
 
     def test_rejects_non_list_bank_exclude_purposes(self):
         cfg = full_backend_pnl_config(bank_exclude_purposes="пополнение уставного")
         with self.assertRaises(ReportSettingsInvalid):
-            validate_pnl_config_dict(cfg)
+            validate_rules(cfg)
 
     def test_rejects_incomplete_invest_type_partition(self):
         cfg = full_backend_pnl_config(invest_return_type_invest_returns=[])
         with self.assertRaises(ReportSettingsInvalid):
-            validate_pnl_config_dict(cfg)
+            validate_rules(cfg)
 
     def test_compute_unassigned_matches_builder_scope(self):
         tenant = Tenant.objects.create(name="DiagCo", subdomain="diagpnl")

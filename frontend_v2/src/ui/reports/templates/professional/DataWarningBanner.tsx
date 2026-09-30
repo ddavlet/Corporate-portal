@@ -2,7 +2,7 @@ import { Alert, Button } from 'antd'
 import type { StatementWarning } from '../../../../lib/reportsApi'
 import { formatAmount, UNITS_LABEL, type Units } from '../../../../lib/reportsFormat'
 
-type Props = { warnings: StatementWarning[]; units: Units; isAdmin: boolean; onOpenSettings: () => void }
+type Props = { warnings: StatementWarning[]; units: Units; isAdmin: boolean; onOpenSettings: (() => void) | null }
 
 /** Paid requests that fell out of the report because their payment purpose has no section (admins only). */
 export function DataWarningBanner({ warnings, units, isAdmin, onOpenSettings }: Props) {
@@ -15,9 +15,11 @@ export function DataWarningBanner({ warnings, units, isAdmin, onOpenSettings }: 
       showIcon
       message={`Не попали в отчёт оплаченные заявки: ${warning.count} шт. на ${formatAmount(warning.amount, units)} ${UNITS_LABEL[units]}. У назначений платежа не выбран раздел: ${purposes}.`}
       action={
-        <Button size="small" onClick={onOpenSettings}>
-          Распределить
-        </Button>
+        onOpenSettings ? (
+          <Button size="small" onClick={onOpenSettings}>
+            Распределить
+          </Button>
+        ) : undefined
       }
     />
   )

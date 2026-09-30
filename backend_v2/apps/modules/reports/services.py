@@ -27,6 +27,8 @@ from apps.modules.reports.ledger import SOURCE_REQUEST, LedgerEntry, build_ledge
 from apps.modules.reports.methodology import build_methodology
 from apps.modules.reports.models import TenantReportSettings
 from apps.modules.reports.periods import ColumnSet, PeriodSpec, build_column_set, is_month_key, month_key, range_label
+from apps.modules.reports.report_rules import ReportSettingsInvalid, ReportSettingsMissing
+from apps.modules.reports.report_kinds import REPORT_SOURCES, SOURCE_BACKEND, SOURCE_N8N, ReportKind, get_report_kind
 from apps.modules.reports.report_templates import (
     REPORT_TEMPLATES,
     resolve_statement_layout,
@@ -144,76 +146,6 @@ def _calc_monthly(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return result
 
 
-def _reports_cache_key(
-    *,
-    tenant_subdomain: str,
-    user_id: int,
-    endpoint: str,
-    query_params: dict[str, Any],
-    payload_source: str | None = None,
-) -> str:
-    payload = json.dumps(
-        {
-            "tenant": tenant_subdomain,
-            "user_id": user_id,
-            "endpoint": endpoint,
-            "query_params": query_params,
-            "payload_source": payload_source,
-        },
-        sort_keys=True,
-        ensure_ascii=True,
-        default=str,
-    )
-    digest = hashlib.sha256(payload.encode("utf-8")).hexdigest()
-    return f"reports:payload:{digest}"
-
-
-def _is_pnl_endpoint(endpoint: str) -> bool:
-    ep = endpoint.lstrip("/").lower()
-    return ep.endswith("pnl-data") or ep.endswith("n8n/pnl-data")
-
-
-def _is_cashflow_endpoint(endpoint: str) -> bool:
-    ep = endpoint.lstrip("/").lower()
-    return ep.endswith("cashflow-data") or ep.endswith("n8n/cashflow-data")
-
-
-def resolve_pnl_source_for_tenant(*, tenant) -> str:
-    """
-    Resolve per-tenant PnL source from TenantReportSettings.
-    For non-model test doubles (without id), fallback to n8n.
-    """
-    tenant_id = getattr(tenant, "id", None)
-    if not tenant_id:
-        return TenantReportSettings.PNL_SOURCE_N8N
-    try:
-        row = TenantReportSettings.objects.only("pnl_source").get(tenant_id=tenant_id)
-    except TenantReportSettings.DoesNotExist as exc:
-        raise RuntimeError(f"No tenant_report_settings for tenant_id={tenant_id}") from exc
-    source = (row.pnl_source or "").strip().lower()
-    if source not in {TenantReportSettings.PNL_SOURCE_N8N, TenantReportSettings.PNL_SOURCE_BACKEND}:
-        raise RuntimeError(f"Invalid pnl_source={source!r} for tenant_id={tenant_id}")
-    return source
-
-
-def resolve_cashflow_source_for_tenant(*, tenant) -> str:
-    """
-    Resolve per-tenant Cashflow source from TenantReportSettings.
-    For non-model test doubles (without id), fallback to n8n.
-    """
-    tenant_id = getattr(tenant, "id", None)
-    if not tenant_id:
-        return TenantReportSettings.CASHFLOW_SOURCE_N8N
-    try:
-        row = TenantReportSettings.objects.only("cashflow_source").get(tenant_id=tenant_id)
-    except TenantReportSettings.DoesNotExist as exc:
-        raise RuntimeError(f"No tenant_report_settings for tenant_id={tenant_id}") from exc
-    source = (row.cashflow_source or "").strip().lower()
-    if source not in {TenantReportSettings.CASHFLOW_SOURCE_N8N, TenantReportSettings.CASHFLOW_SOURCE_BACKEND}:
-        raise RuntimeError(f"Invalid cashflow_source={source!r} for tenant_id={tenant_id}")
-    return source
-
-
 def finalize_report_payload(
     *,
     payload_obj: dict[str, Any],
@@ -305,71 +237,53 @@ def finalize_report_payload(
     return result
 
 
-def fetch_n8n_report_payload(
+def resolve_report_source(*, tenant, report: str) -> tuple[str, dict[str, Any]]:
+    """The report's own source and rules. A tenant object without an id (test doubles) reads as n8n without rules."""
+    kind = get_report_kind(report)
+    tenant_id = getattr(tenant, "id", None)
+    if not tenant_id:
+        return SOURCE_N8N, {}
+    row = TenantReportSettings.objects.filter(tenant_id=tenant_id).first()
+    if row is None:
+        raise RuntimeError(f"No tenant_report_settings for tenant_id={tenant_id}")
+    source = kind.source_of(row)
+    if source not in REPORT_SOURCES:
+        raise RuntimeError(f"Invalid {kind.source_field}={source!r} for tenant_id={tenant_id}")
+    return source, kind.rules_of(row)
+
+
+def _rules_digest(rules: dict[str, Any]) -> str:
+    text = json.dumps(rules, sort_keys=True, ensure_ascii=True, default=str)
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def _reports_cache_key(
     *,
-    tenant,
+    tenant_subdomain: str,
     user_id: int,
-    endpoint: str,
+    report: str,
     query_params: dict[str, Any],
-    force_refresh: bool = False,
-) -> dict[str, Any]:
-    if not settings.BASE_DOMAIN:
-        raise RuntimeError("BASE_DOMAIN is not configured.")
-
-    pnl_backend = _is_pnl_endpoint(endpoint) and resolve_pnl_source_for_tenant(tenant=tenant) == TenantReportSettings.PNL_SOURCE_BACKEND
-    cashflow_backend = (
-        _is_cashflow_endpoint(endpoint)
-        and resolve_cashflow_source_for_tenant(tenant=tenant) == TenantReportSettings.CASHFLOW_SOURCE_BACKEND
+    payload_source: str,
+    rules_digest: str,
+) -> str:
+    payload = json.dumps(
+        {
+            "tenant": tenant_subdomain,
+            "user_id": user_id,
+            "report": report,
+            "query_params": query_params,
+            "payload_source": payload_source,
+            "rules": rules_digest,
+        },
+        sort_keys=True,
+        ensure_ascii=True,
+        default=str,
     )
-    payload_source = "backend" if (pnl_backend or cashflow_backend) else "n8n"
+    digest = hashlib.sha256(payload.encode("utf-8")).hexdigest()
+    return f"reports:payload:{digest}"
 
-    cache_key = _reports_cache_key(
-        tenant_subdomain=tenant.subdomain,
-        user_id=user_id,
-        endpoint=endpoint,
-        query_params=query_params,
-        payload_source=payload_source,
-    )
-    if force_refresh:
-        cache.delete(cache_key)
-    cached_payload = cache.get(cache_key)
-    if cached_payload is not None:
-        return cached_payload
 
-    if pnl_backend:
-        from apps.modules.reports.pnl_builder import (
-            ReportSettingsInvalid,
-            ReportSettingsMissing,
-            build_pnl_payload_from_db,
-        )
-
-        try:
-            raw = build_pnl_payload_from_db(tenant=tenant, query_params=query_params)
-        except (ReportSettingsMissing, ReportSettingsInvalid) as exc:
-            raise RuntimeError(str(exc)) from exc
-
-        result = finalize_report_payload(payload_obj=raw, endpoint=endpoint, source="backend")
-        cache_ttl = int(getattr(settings, "REPORTS_CACHE_TTL_SECONDS", 60))
-        cache.set(cache_key, result, timeout=max(1, cache_ttl))
-        return result
-
-    if cashflow_backend:
-        from apps.modules.reports.cashflow_builder import (
-            ReportSettingsInvalid,
-            ReportSettingsMissing,
-            build_cashflow_payload_from_db,
-        )
-
-        try:
-            raw = build_cashflow_payload_from_db(tenant=tenant, query_params=query_params)
-        except (ReportSettingsMissing, ReportSettingsInvalid) as exc:
-            raise RuntimeError(str(exc)) from exc
-
-        result = finalize_report_payload(payload_obj=raw, endpoint=endpoint, source="backend")
-        cache_ttl = int(getattr(settings, "REPORTS_CACHE_TTL_SECONDS", 60))
-        cache.set(cache_key, result, timeout=max(1, cache_ttl))
-        return result
-
+def _fetch_n8n_payload(*, tenant, user_id: int, endpoint: str, query_params: dict[str, Any]) -> dict[str, Any]:
     token = get_n8n_integration_settings(tenant=tenant).integration_token
     if not token:
         token = (getattr(settings, "N8N_INTEGRATION_TOKEN", None) or "").strip()
@@ -396,19 +310,54 @@ def fetch_n8n_report_payload(
         raise ValueError(f"Invalid JSON from n8n. body_preview={preview!r}") from exc
 
     if isinstance(payload, list):
-        payload_obj = payload[0] if payload else {}
-    elif isinstance(payload, dict):
-        payload_obj = payload
-    else:
-        payload_obj = {}
+        return payload[0] if payload else {}
+    if isinstance(payload, dict):
+        return payload
+    return {}
 
-    result = finalize_report_payload(payload_obj=payload_obj, endpoint=endpoint, source="n8n")
+
+def fetch_report_payload(
+    *,
+    tenant,
+    user_id: int,
+    report: str,
+    query_params: dict[str, Any],
+    force_refresh: bool = False,
+) -> dict[str, Any]:
+    """One report's payload from its own source and rules (application or n8n), cached for a minute."""
+    if not settings.BASE_DOMAIN:
+        raise RuntimeError("BASE_DOMAIN is not configured.")
+    kind = get_report_kind(report)
+    source, rules = resolve_report_source(tenant=tenant, report=report)
+    cache_key = _reports_cache_key(
+        tenant_subdomain=tenant.subdomain,
+        user_id=user_id,
+        report=report,
+        query_params=query_params,
+        payload_source=source,
+        # Saved rules change the key, so the next request builds the report with them.
+        rules_digest=_rules_digest(rules) if source == SOURCE_BACKEND else "",
+    )
+    if force_refresh:
+        cache.delete(cache_key)
+    cached_payload = cache.get(cache_key)
+    if cached_payload is not None:
+        return cached_payload
+
+    if source == SOURCE_BACKEND:
+        try:
+            raw = kind.build_payload(tenant=tenant, query_params=query_params)
+        except (ReportSettingsMissing, ReportSettingsInvalid) as exc:
+            raise RuntimeError(str(exc)) from exc
+    else:
+        raw = _fetch_n8n_payload(tenant=tenant, user_id=user_id, endpoint=kind.n8n_endpoint, query_params=query_params)
+
+    result = finalize_report_payload(payload_obj=raw, endpoint=kind.n8n_endpoint, source=source)
     cache_ttl = int(getattr(settings, "REPORTS_CACHE_TTL_SECONDS", 60))
     cache.set(cache_key, result, timeout=max(1, cache_ttl))
     return result
 
 
-REPORT_ENDPOINTS = {"pnl": "/n8n/pnl-data", "cashflow": "/n8n/cashflow-data"}
 MONEY = Decimal("0.01")
 
 
@@ -444,10 +393,10 @@ def ensure_statement_template(*, tenant, template_key: str, report: str) -> Stat
 
 def _fetch_report(*, tenant, user_id: int, report: str, refresh: bool = False) -> dict[str, Any]:
     try:
-        return fetch_n8n_report_payload(
+        return fetch_report_payload(
             tenant=tenant,
             user_id=user_id,
-            endpoint=REPORT_ENDPOINTS[report],
+            report=report,
             query_params={},
             force_refresh=refresh,
         )
@@ -476,19 +425,14 @@ def _payload_opening_balance(payload: dict[str, Any]) -> Decimal:
 
 
 def _statement_warnings(*, tenant, report: str, source: str) -> list[dict[str, Any]]:
-    if source != "backend":
+    if source != SOURCE_BACKEND:
         return []
-    from apps.modules.reports import cashflow_builder, pnl_builder
-
+    kind = get_report_kind(report)
     row = TenantReportSettings.objects.filter(tenant_id=tenant.id).first()
-    cfg = row.pnl_config if row is not None and isinstance(row.pnl_config, dict) else {}
-    compute = {
-        "pnl": pnl_builder.compute_unassigned_payment_purposes,
-        "cashflow": cashflow_builder.compute_unassigned_payment_purposes_cashflow,
-    }[report]
+    rules = kind.rules_of(row) if row is not None else {}
     try:
-        items = compute(tenant_id=tenant.id, cfg=cfg)
-    except pnl_builder.ReportSettingsInvalid as exc:
+        items = kind.unassigned_purposes(tenant_id=tenant.id, rules=rules)
+    except ReportSettingsInvalid as exc:
         logger.warning(
             "reports statement warnings skipped: tenant=%s report=%s error=%s", tenant.subdomain, report, exc
         )
@@ -758,6 +702,50 @@ def save_template_settings(*, tenant, default_template: str, allowed_templates: 
     row.allowed_templates = allowed_templates
     row.save(update_fields=["default_template", "allowed_templates", "updated_at"])
     return get_template_settings_response(tenant=tenant)
+
+
+def _settings_row(tenant) -> TenantReportSettings:
+    row, _ = TenantReportSettings.objects.get_or_create(tenant=tenant)
+    return row
+
+
+def _rules_response(*, row: TenantReportSettings, kind: ReportKind, diagnostics: bool) -> dict[str, Any]:
+    rules = kind.rules_of(row)
+    data: dict[str, Any] = {
+        "report": kind.key,
+        "source": kind.source_of(row),
+        "rules": rules,
+        "updated_at": row.updated_at.isoformat() if row.updated_at else None,
+    }
+    if diagnostics:
+        try:
+            data["diagnostics"] = {
+                "unassigned_payment_purposes": kind.unassigned_purposes(tenant_id=row.tenant_id, rules=rules)
+            }
+        except ReportSettingsInvalid as exc:
+            data["diagnostics"] = {"error": str(exc)}
+    return data
+
+
+def get_report_rules(*, tenant, report: str, diagnostics: bool = False) -> dict[str, Any]:
+    """A report's source and rules; the settings row is created on first use, as before."""
+    return _rules_response(row=_settings_row(tenant), kind=get_report_kind(report), diagnostics=diagnostics)
+
+
+def save_report_rules(
+    *, tenant, report: str, source: str | None = None, rules: dict[str, Any] | None = None
+) -> dict[str, Any]:
+    """Save a report's source and/or rules; rules for the backend source must be valid (ReportSettingsInvalid)."""
+    kind = get_report_kind(report)
+    row = _settings_row(tenant)
+    new_source = source if source is not None else kind.source_of(row)
+    new_rules = rules if rules is not None else kind.rules_of(row)
+    if new_source == SOURCE_BACKEND:
+        kind.validate_rules(new_rules)
+    setattr(row, kind.source_field, new_source)
+    setattr(row, kind.rules_field, new_rules)
+    row.save(update_fields=[kind.source_field, kind.rules_field, "updated_at"])
+    return _rules_response(row=row, kind=kind, diagnostics=False)
 
 
 def _section_labels(layout: StatementLayout) -> dict[str, str]:

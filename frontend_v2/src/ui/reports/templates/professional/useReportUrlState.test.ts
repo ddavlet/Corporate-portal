@@ -15,10 +15,9 @@ describe('parseReportUrlState', () => {
 
   it('reads every key', () => {
     const state = parseReportUrlState(
-      new URLSearchParams('r=cashflow&p=month&m=2026-08&g=quarter&cmp=none&u=k&view=operations&open=rev,opex&line=opex.1a2b3c4d&from=2026-08-01&to=2026-08-31'),
+      new URLSearchParams('p=month&m=2026-08&g=quarter&cmp=none&u=k&view=operations&open=rev,opex&line=opex.1a2b3c4d&from=2026-08-01&to=2026-08-31'),
     )
     expect(state).toEqual({
-      report: 'cashflow',
       period: 'month',
       year: null,
       month: '2026-08',
@@ -49,7 +48,7 @@ describe('writeReportUrlState', () => {
   })
 
   it('round-trips a full state', () => {
-    const state = parseReportUrlState(new URLSearchParams('r=cashflow&p=year&y=2025&u=sum&open=&line=rev&from=2025-01-01&to=2025-12-31'))
+    const state = parseReportUrlState(new URLSearchParams('p=year&y=2025&u=sum&open=&line=rev&from=2025-01-01&to=2025-12-31'))
     expect(parseReportUrlState(writeReportUrlState(new URLSearchParams(), state))).toEqual(state)
   })
 })
@@ -59,12 +58,12 @@ describe('toStatementQuery', () => {
 
   it('defaults the month pack to the last closed month', () => {
     const state = { ...DEFAULT_REPORT_URL_STATE, period: 'month' as const }
-    expect(toStatementQuery('professional', state, today)).toEqual({ template: 'professional', report: 'pnl', period: 'month', month: '2026-08' })
+    expect(toStatementQuery('professional', 'pnl', state, today)).toEqual({ template: 'professional', report: 'pnl', period: 'month', month: '2026-08' })
   })
 
   it('defaults the year to the current one and passes columns and comparison', () => {
     const state = { ...DEFAULT_REPORT_URL_STATE, period: 'year' as const, granularity: 'quarter' as const }
-    expect(toStatementQuery('professional', state, today)).toEqual({
+    expect(toStatementQuery('professional', 'pnl', state, today)).toEqual({
       template: 'professional',
       report: 'pnl',
       period: 'year',
@@ -77,10 +76,14 @@ describe('toStatementQuery', () => {
   it('never asks for a month or year that has not started', () => {
     const today = dayjs('2026-09-23')
     const month = (value: string) =>
-      toStatementQuery('professional', { ...DEFAULT_REPORT_URL_STATE, period: 'month', month: value }, today).month
+      toStatementQuery('professional', 'pnl', { ...DEFAULT_REPORT_URL_STATE, period: 'month', month: value }, today).month
     expect(month('2027-01')).toBe('2026-08')
     expect(month('2026-09')).toBe('2026-09')
-    expect(toStatementQuery('professional', { ...DEFAULT_REPORT_URL_STATE, period: 'year', year: 2099 }, today).year).toBe(2026)
+    expect(toStatementQuery('professional', 'pnl', { ...DEFAULT_REPORT_URL_STATE, period: 'year', year: 2099 }, today).year).toBe(2026)
+  })
+
+  it('asks for the report it is given', () => {
+    expect(toStatementQuery('professional', 'cashflow', DEFAULT_REPORT_URL_STATE, today).report).toBe('cashflow')
   })
 })
 

@@ -14,7 +14,7 @@ from apps.modules.reports.xlsx_export import XLSX_CONTENT_TYPE
 from apps.tenants.models import Tenant, TenantMembership, TenantModuleConfig, TenantUserRole
 
 User = get_user_model()
-FETCH = "apps.modules.reports.services.fetch_n8n_report_payload"
+FETCH = "apps.modules.reports.services.fetch_report_payload"
 STATEMENT = "/api/reports/statement/"
 LINES = "/api/reports/statement/lines/"
 TEMPLATES = "/api/reports/templates/"
@@ -116,6 +116,11 @@ class StatementApiTests(APITestCase):
         res = self.client.get(STATEMENT, {"template": "ghost", "report": "pnl"}, **self._auth(self.director))
         self.assertEqual(res.status_code, 400)
         self.assertEqual(res.data["detail"], "Шаблон «ghost» не найден.")
+
+    def test_statement_rejects_a_report_the_registry_does_not_have(self, _today):
+        res = self.client.get(STATEMENT, {"template": "professional", "report": "ghost"}, **self._auth(self.director))
+        self.assertEqual(res.status_code, 400)
+        self.assertIn("report", res.data)
 
     def test_lines_reject_a_line_the_report_does_not_have(self, _today):
         auth = self._auth(self.director)
@@ -256,7 +261,7 @@ class StatementApiTests(APITestCase):
 
     # legacy endpoints keep working
     def test_legacy_pnl_keeps_shape_and_adds_section(self, _today):
-        with patch("apps.modules.reports.views.fetch_n8n_report_payload", return_value=sample_payload()):
+        with patch("apps.modules.reports.views.fetch_report_payload", return_value=sample_payload()):
             res = self.client.get("/api/reports/pnl/", **self._auth(self.director))
         self.assertEqual(res.status_code, 200, res.content)
         for key in ("metadata", "totals", "monthly", "rows", "revenue", "operational_expenses", "other_expenses"):
@@ -264,7 +269,7 @@ class StatementApiTests(APITestCase):
         self.assertTrue(all("section" in row for row in res.data["rows"]))
 
     def test_legacy_pnl_runtime_error_is_503(self, _today):
-        with patch("apps.modules.reports.views.fetch_n8n_report_payload", side_effect=RuntimeError("n8n token missing")):
+        with patch("apps.modules.reports.views.fetch_report_payload", side_effect=RuntimeError("n8n token missing")):
             res = self.client.get("/api/reports/pnl/", **self._auth(self.director))
         self.assertEqual(res.status_code, 503)
 

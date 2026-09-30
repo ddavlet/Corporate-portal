@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Alert, Button, Card, DatePicker, Descriptions, Input, Segmented, Skeleton, Space, Table, Tag, Tooltip, Typography } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
-import type { Dayjs } from 'dayjs'
-import { useNavigate } from 'react-router-dom'
+import dayjs from 'dayjs'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import {
   getStructuredCashflowReport,
   getStructuredPnlReport,
@@ -10,6 +10,7 @@ import {
   type StructuredReportPayload,
   type StructuredReportRow,
 } from '../../../../lib/api'
+import type { ReportKind } from '../../../../lib/reportsApi'
 import {
   filterForMatrixRow,
   operationRowKey,
@@ -19,9 +20,16 @@ import {
   type OperationsFilter,
   type ReportSection,
 } from './reportsOperationsFilter'
+import { dateFromParam, yearFromParam } from './classicUrlState'
 import type { ReportTemplateProps } from '../types'
 
-type ReportKind = 'pnl' | 'cashflow'
+/** One loader per report: the page asks only for the report of its card. */
+const LOADERS: Record<ReportKind, () => Promise<StructuredReportPayload>> = {
+  pnl: getStructuredPnlReport,
+  cashflow: getStructuredCashflowReport,
+}
+
+const REPORT_NAMES: Record<ReportKind, string> = { pnl: 'PnL', cashflow: 'Cashflow' }
 
 type MatrixRow = {
   key: string
@@ -35,6 +43,8 @@ type KeyedReportRow = StructuredReportRow & { rowKey: string }
 
 const moneyFmt = new Intl.NumberFormat('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 const REPORT_TZ = 'Asia/Tashkent'
+/** How long the search box waits after the last keystroke before it writes the search to the link. */
+const SEARCH_LINK_DELAY_MS = 300
 const monthFmt = new Intl.DateTimeFormat('ru-RU', { month: 'short' })
 const MONTH_LABELS = Array.from({ length: 12 }, (_, i) => {
   const s = monthFmt.format(new Date(2000, i, 1))
@@ -420,35 +430,73 @@ function buildLegacyMatrix(report: StructuredReportPayload | null, year: number 
   return { months, rows, years }
 }
 
-export function ClassicReportTemplate({ templateSwitcher }: ReportTemplateProps) {
+export function ClassicReportTemplate({ report, rulesVersion }: ReportTemplateProps) {
   const navigate = useNavigate()
+  const [params, setParams] = useSearchParams()
   const operationsCardRef = useRef<HTMLDivElement | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [active, setActive] = useState<ReportKind>('pnl')
-  const [pnl, setPnl] = useState<StructuredReportPayload | null>(null)
-  const [cashflow, setCashflow] = useState<StructuredReportPayload | null>(null)
-  const [search, setSearch] = useState('')
-  const [range, setRange] = useState<[Dayjs | null, Dayjs | null] | null>(null)
-  const [year, setYear] = useState<number | null>(null)
+  const [payload, setPayload] = useState<StructuredReportPayload | null>(null)
   const [selectedDirection, setSelectedDirection] = useState<'revenue' | 'expense' | null>(null)
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null)
   const [selectedMonth, setSelectedMonth] = useState<MonthSelection | null>(null)
   const [selectedSection, setSelectedSection] = useState<ReportSection | null>(null)
+
+  // Year, search and dates live in the link: the card keeps them when the user comes back, and links share them.
+  const year = yearFromParam(params.get('y'))
+  const search = params.get('q') ?? ''
+  const dateFrom = dateFromParam(params.get('from'))
+  const dateTo = dateFromParam(params.get('to'))
+  // The box keeps its own text: the router applies a new link in a transition, and a box bound to the link would lose keystrokes.
+  const [searchText, setSearchText] = useState(search)
+  const writtenSearch = useRef(search)
+
+  /** Several keys in one navigation: consecutive setParams calls would each start from the same old query. */
+  const patchParams = (patch: Record<string, string | null>) => {
+    setParams(
+      (previous) => {
+        const next = new URLSearchParams(previous)
+        for (const [key, value] of Object.entries(patch)) {
+          if (value) next.set(key, value)
+          else next.delete(key)
+        }
+        return next
+      },
+      { replace: true },
+    )
+  }
+  // The current year is the default and stays out of the link.
+  const setYear = (value: number | null) =>
+    patchParams({ y: value === null || value === currentReportCalendarYear() ? null : String(value) })
+
+  useEffect(() => {
+    // A new link from outside (back, forward, another link): the box shows its search.
+    if (search === writtenSearch.current) return
+    writtenSearch.current = search
+    setSearchText(search)
+  }, [search])
+
+  useEffect(() => {
+    if (searchText === writtenSearch.current) return
+    const timer = window.setTimeout(() => {
+      writtenSearch.current = searchText
+      patchParams({ q: searchText || null })
+    }, SEARCH_LINK_DELAY_MS)
+    return () => window.clearTimeout(timer)
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- a new link restarts the pause, so the write starts from that link
+  }, [searchText, params])
 
   useEffect(() => {
     let cancelled = false
     ;(async () => {
       setError(null)
       setLoading(true)
+      setPayload(null)
       try {
-        const [pnlData, cashflowData] = await Promise.all([getStructuredPnlReport(), getStructuredCashflowReport()])
-        if (cancelled) return
-        setPnl(pnlData)
-        setCashflow(cashflowData)
+        const data = await LOADERS[report]()
+        if (!cancelled) setPayload(data)
       } catch (e: unknown) {
-        if (cancelled) return
-        setError(e instanceof Error ? e.message : 'Не удалось загрузить отчеты')
+        if (!cancelled) setError(e instanceof Error ? e.message : 'Не удалось загрузить отчёт')
       } finally {
         if (!cancelled) setLoading(false)
       }
@@ -456,14 +504,13 @@ export function ClassicReportTemplate({ templateSwitcher }: ReportTemplateProps)
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [report, rulesVersion])
 
-  const report = active === 'pnl' ? pnl : cashflow
   const rows: KeyedReportRow[] = useMemo(
-    () => (report?.rows ?? []).map((row, index) => ({ ...row, rowKey: operationRowKey(row, index) })),
-    [report],
+    () => (payload?.rows ?? []).map((row, index) => ({ ...row, rowKey: operationRowKey(row, index) })),
+    [payload],
   )
-  const matrix = useMemo(() => buildLegacyMatrix(report, year), [report, year])
+  const matrix = useMemo(() => buildLegacyMatrix(payload, year), [payload, year])
   const effectiveYear = year ?? currentReportCalendarYear()
 
   const yearSegmentOptions = useMemo(() => {
@@ -490,24 +537,17 @@ export function ClassicReportTemplate({ templateSwitcher }: ReportTemplateProps)
   )
 
   useEffect(() => {
-    const cy = currentReportCalendarYear()
-    if (year === null) {
-      setYear(cy)
-      return
-    }
-    if (matrix.years.length > 0 && !matrix.years.includes(year)) {
-      setYear(cy)
-    }
+    // A year from an old link that has no data falls back to the current year.
+    if (year !== null && matrix.years.length > 0 && !matrix.years.includes(year)) setYear(null)
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- setYear only writes the link
   }, [matrix.years, year])
 
   const filteredRows = useMemo(() => {
     const query = search.trim().toLowerCase()
-    const from = range?.[0]?.format('YYYY-MM-DD')
-    const to = range?.[1]?.format('YYYY-MM-DD')
     const filtered = rows.filter((row) => {
       const dateOnly = String(row.date || '').slice(0, 10)
-      if (from && (!dateOnly || dateOnly < from)) return false
-      if (to && (!dateOnly || dateOnly > to)) return false
+      if (dateFrom && (!dateOnly || dateOnly < dateFrom)) return false
+      if (dateTo && (!dateOnly || dateOnly > dateTo)) return false
       if (selectedDirection && row.direction !== selectedDirection) return false
       if (!rowMatchesSection(row, selectedSection)) return false
       if (selectedCategory) {
@@ -530,7 +570,7 @@ export function ClassicReportTemplate({ templateSwitcher }: ReportTemplateProps)
       })
     }
     return filtered
-  }, [rows, search, range, selectedDirection, selectedCategory, selectedMonth, selectedSection])
+  }, [rows, search, dateFrom, dateTo, selectedDirection, selectedCategory, selectedMonth, selectedSection])
 
   const rowColumns: ColumnsType<KeyedReportRow> = useMemo(
     () => [
@@ -641,27 +681,23 @@ export function ClassicReportTemplate({ templateSwitcher }: ReportTemplateProps)
   return (
     <Space direction="vertical" size="middle" style={{ width: '100%' }}>
       <Card>
-        <Typography.Title level={4} style={{ marginTop: 0 }}>
-          Отчеты
-        </Typography.Title>
         <Space wrap>
-          {templateSwitcher}
-          <Segmented
-            options={[
-              { label: 'PnL', value: 'pnl' },
-              { label: 'Cashflow', value: 'cashflow' },
-            ]}
-            value={active}
-            onChange={(v) => setActive(v as ReportKind)}
-          />
           <Input
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
+            value={searchText}
+            onChange={(e) => setSearchText(e.target.value)}
             placeholder="Поиск по назначению/каналу/описанию/поставщику"
             allowClear
             style={{ width: 360 }}
           />
-          <DatePicker.RangePicker value={range} onChange={(v) => setRange(v as [Dayjs | null, Dayjs | null])} />
+          <DatePicker.RangePicker
+            value={dateFrom || dateTo ? [dateFrom ? dayjs(dateFrom) : null, dateTo ? dayjs(dateTo) : null] : null}
+            onChange={(value) =>
+              patchParams({
+                from: value?.[0]?.format('YYYY-MM-DD') ?? null,
+                to: value?.[1]?.format('YYYY-MM-DD') ?? null,
+              })
+            }
+          />
           <Segmented
             options={yearSegmentOptions.map((y) => ({ label: String(y), value: y }))}
             value={effectiveYear}
@@ -685,53 +721,51 @@ export function ClassicReportTemplate({ templateSwitcher }: ReportTemplateProps)
       {error ? <Alert type="error" showIcon message={error} /> : null}
       {loading ? <Skeleton active /> : null}
 
-      {!loading && report ? (
+      {!loading && payload ? (
         <>
-          {(active === 'pnl' || active === 'cashflow') && report.report_settings ? (
-            <Card title={`Настройки отчёта (${active === 'pnl' ? 'PnL' : 'Cashflow'}, только просмотр)`}>
+          {payload.report_settings ? (
+            <Card title={`Настройки отчёта (${REPORT_NAMES[report]}, только просмотр)`}>
               <Descriptions bordered size="small" column={1}>
                 <Descriptions.Item label="Начало периода (start_month)">
-                  {report.report_settings.start_month ?? '—'}
+                  {payload.report_settings.start_month ?? '—'}
                 </Descriptions.Item>
-                <Descriptions.Item
-                  label={active === 'pnl' ? 'Начальный остаток (PnL)' : 'Начальный остаток (Cashflow)'}
-                >
-                  {money(report.report_settings.opening_balance ?? report.totals.opening_balance ?? '0')}
+                <Descriptions.Item label={`Начальный остаток (${REPORT_NAMES[report]})`}>
+                  {money(payload.report_settings.opening_balance ?? payload.totals.opening_balance ?? '0')}
                 </Descriptions.Item>
                 <Descriptions.Item label="Исключения операций кассы">
-                  {(report.report_settings.cash_exclude_operations ?? []).join(', ') || '—'}
+                  {(payload.report_settings.cash_exclude_operations ?? []).join(', ') || '—'}
                 </Descriptions.Item>
                 <Descriptions.Item label="Исключения категорий заявок">
-                  {(report.report_settings.request_exclude_categories ?? []).join(', ') || '—'}
+                  {(payload.report_settings.request_exclude_categories ?? []).join(', ') || '—'}
                 </Descriptions.Item>
                 <Descriptions.Item label="Типы оплаты заявок в PnL">
-                  {(report.report_settings.request_payment_types_for_pnl ?? []).join(', ') || '—'}
+                  {(payload.report_settings.request_payment_types_for_pnl ?? []).join(', ') || '—'}
                 </Descriptions.Item>
                 <Descriptions.Item label="Назначения: операционные">
-                  {(report.report_settings.payment_purpose_operational ?? []).join(', ') || '—'}
+                  {(payload.report_settings.payment_purpose_operational ?? []).join(', ') || '—'}
                 </Descriptions.Item>
                 <Descriptions.Item label="Назначения: прочие">
-                  {(report.report_settings.payment_purpose_other ?? []).join(', ') || '—'}
+                  {(payload.report_settings.payment_purpose_other ?? []).join(', ') || '—'}
                 </Descriptions.Item>
                 <Descriptions.Item label="Назначения: корзина invest_returns">
-                  {(report.report_settings.payment_purpose_invest_returns ?? []).join(', ') || '—'}
+                  {(payload.report_settings.payment_purpose_invest_returns ?? []).join(', ') || '—'}
                 </Descriptions.Item>
                 <Descriptions.Item label="Типы выплат → операционные">
-                  {(report.report_settings.invest_return_type_operational ?? []).join(', ') || '—'}
+                  {(payload.report_settings.invest_return_type_operational ?? []).join(', ') || '—'}
                 </Descriptions.Item>
                 <Descriptions.Item label="Типы выплат → прочие">
-                  {(report.report_settings.invest_return_type_other ?? []).join(', ') || '—'}
+                  {(payload.report_settings.invest_return_type_other ?? []).join(', ') || '—'}
                 </Descriptions.Item>
                 <Descriptions.Item label="Типы выплат → invest_returns">
-                  {(report.report_settings.invest_return_type_invest_returns ?? []).join(', ') || '—'}
+                  {(payload.report_settings.invest_return_type_invest_returns ?? []).join(', ') || '—'}
                 </Descriptions.Item>
               </Descriptions>
             </Card>
           ) : null}
 
           <Card
-            title={`${active === 'pnl' ? 'PnL' : 'Cashflow'}: сводный отчет`}
-            extra={report.metadata.company_name ? <Typography.Text type="secondary">{report.metadata.company_name}</Typography.Text> : null}
+            title={`${REPORT_NAMES[report]}: сводный отчет`}
+            extra={payload.metadata.company_name ? <Typography.Text type="secondary">{payload.metadata.company_name}</Typography.Text> : null}
           >
             <Table<MatrixRow>
               rowKey={(r) => r.key}
@@ -752,7 +786,7 @@ export function ClassicReportTemplate({ templateSwitcher }: ReportTemplateProps)
 
           <div ref={operationsCardRef}>
             <Card
-            title={`${active === 'pnl' ? 'PnL' : 'Cashflow'}: операции`}
+            title={`${REPORT_NAMES[report]}: операции`}
             extra={
               selectedDirection || selectedCategory || selectedMonth || selectedSection ? (
                 <Typography.Text type="secondary">
@@ -776,7 +810,7 @@ export function ClassicReportTemplate({ templateSwitcher }: ReportTemplateProps)
               pagination={{ pageSize: 50, showSizeChanger: true, pageSizeOptions: [20, 50, 100, 200] }}
               onRow={(row) => {
                 const requestId =
-                  active === 'pnl' && row.direction === 'expense'
+                  report === 'pnl' && row.direction === 'expense'
                     ? resolveRequestIdFromPnlExpenseRow(row)
                     : null
                 if (!requestId) return {}

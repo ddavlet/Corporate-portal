@@ -11,22 +11,13 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from apps.modules.reports.models import TenantReportSettings
-from apps.modules.reports.cashflow_builder import (
-    ReportSettingsInvalid as CashflowReportSettingsInvalid,
-    compute_unassigned_payment_purposes_cashflow,
-    validate_cashflow_config_dict,
-    validate_cashflow_supplement_dict,
-)
-from apps.modules.reports.pnl_builder import (
-    ReportSettingsInvalid,
-    compute_unassigned_payment_purposes,
-    list_tenant_payment_purpose_pool,
-    validate_pnl_config_dict,
-)
+from apps.modules.reports.pnl_builder import list_tenant_payment_purpose_pool
 from apps.modules.reports.registry import MODULE_KEY
+from apps.modules.reports.report_kinds import REPORT_KINDS
+from apps.modules.reports.report_rules import ReportSettingsInvalid
 from apps.modules.reports.report_templates import TemplateNotFound, TemplateNotStatement
 from apps.modules.reports.serializers import (
+    ReportRulesPatchSerializer,
     ReportTemplateSettingsSerializer,
     StatementExportQuerySerializer,
     StatementLinesQuerySerializer,
@@ -40,10 +31,12 @@ from apps.modules.reports.services import (
     build_statement_for_tenant,
     export_statement_lines_xlsx,
     export_statement_xlsx,
-    fetch_n8n_report_payload,
+    fetch_report_payload,
+    get_report_rules,
     get_template_settings_response,
     list_statement_lines,
     list_statement_vendors,
+    save_report_rules,
     save_template_settings,
 )
 from apps.tenants.permissions import HasEffectiveModuleAccess, IsTenantAdmin
@@ -77,213 +70,71 @@ class _ReportsBaseView(APIView):
     module_key = MODULE_KEY
     permission_classes = [IsAuthenticated, HasEffectiveModuleAccess]
 
-    report_path = "/n8n/pnl-data"
-    report_name = "pnl"
+    report = "pnl"
 
     def get(self, request):
         tenant = getattr(request, "tenant", None)
         if not tenant:
             return Response({"detail": "No tenant."}, status=status.HTTP_400_BAD_REQUEST)
         try:
-            payload = fetch_n8n_report_payload(
+            payload = fetch_report_payload(
                 tenant=tenant,
                 user_id=request.user.id,
-                endpoint=self.report_path,
+                report=self.report,
                 query_params=request.GET,
             )
         except (ValueError, RuntimeError, requests.RequestException) as exc:
-            return upstream_error_response(exc, tenant=tenant, report_name=self.report_name)
+            return upstream_error_response(exc, tenant=tenant, report_name=self.report)
 
-        payload["report"] = self.report_name
+        payload["report"] = self.report
         return Response(payload, status=status.HTTP_200_OK)
 
 
 class PnlReportView(_ReportsBaseView):
-    report_path = "/n8n/pnl-data"
-    report_name = "pnl"
+    report = "pnl"
 
 
 class CashflowReportView(_ReportsBaseView):
-    report_path = "/n8n/cashflow-data"
-    report_name = "cashflow"
+    report = "cashflow"
 
 
-class TenantReportSettingsConfigView(APIView):
-    """
-    Per-tenant PnL source (n8n vs backend) and backend filters — tenant admin only.
-    """
-
-    permission_classes = [IsAuthenticated, IsTenantAdmin]
-
-    @staticmethod
-    def _serialize(row: TenantReportSettings) -> dict:
-        return {
-            "pnl_source": row.pnl_source,
-            "pnl_config": row.pnl_config if isinstance(row.pnl_config, dict) else {},
-            "updated_at": row.updated_at.isoformat() if row.updated_at else None,
-        }
-
-    def get(self, request):
-        tenant = getattr(request, "tenant", None)
-        if not tenant:
-            return Response({"detail": "No tenant."}, status=status.HTTP_400_BAD_REQUEST)
-        row, _ = TenantReportSettings.objects.get_or_create(
-            tenant=tenant,
-            defaults={
-                "pnl_source": TenantReportSettings.PNL_SOURCE_N8N,
-                "pnl_config": {},
-            },
-        )
-        data = self._serialize(row)
-        if str(request.query_params.get("pnl_diagnostics") or "").strip() in {"1", "true", "yes"}:
-            cfg = row.pnl_config if isinstance(row.pnl_config, dict) else {}
-            try:
-                unassigned = compute_unassigned_payment_purposes(tenant_id=tenant.id, cfg=cfg)
-                data["pnl_diagnostics"] = {"unassigned_payment_purposes": unassigned}
-            except ReportSettingsInvalid as exc:
-                data["pnl_diagnostics"] = {"error": str(exc)}
-        return Response(data, status=status.HTTP_200_OK)
-
-    def patch(self, request):
-        tenant = getattr(request, "tenant", None)
-        if not tenant:
-            return Response({"detail": "No tenant."}, status=status.HTTP_400_BAD_REQUEST)
-
-        row, _ = TenantReportSettings.objects.get_or_create(
-            tenant=tenant,
-            defaults={
-                "pnl_source": TenantReportSettings.PNL_SOURCE_N8N,
-                "pnl_config": {},
-            },
-        )
-
-        body = request.data if isinstance(request.data, dict) else {}
-        new_source = row.pnl_source
-        if "pnl_source" in body:
-            raw = str(body.get("pnl_source") or "").strip().lower()
-            if raw not in {TenantReportSettings.PNL_SOURCE_N8N, TenantReportSettings.PNL_SOURCE_BACKEND}:
-                raise ValidationError({"pnl_source": "Must be 'n8n' or 'backend'."})
-            new_source = raw
-
-        new_cfg = row.pnl_config if isinstance(row.pnl_config, dict) else {}
-        if "pnl_config" in body:
-            cfg_in = body.get("pnl_config")
-            if cfg_in is None:
-                new_cfg = {}
-            elif not isinstance(cfg_in, dict):
-                raise ValidationError({"pnl_config": "Must be a JSON object."})
-            else:
-                new_cfg = cfg_in
-
-        if new_source == TenantReportSettings.PNL_SOURCE_BACKEND:
-            try:
-                validate_pnl_config_dict(new_cfg)
-            except ReportSettingsInvalid as exc:
-                raise ValidationError({"pnl_config": str(exc)}) from exc
-
-        row.pnl_source = new_source
-        row.pnl_config = new_cfg
-        row.save(update_fields=["pnl_source", "pnl_config", "updated_at"])
-
-        return Response(self._serialize(row), status=status.HTTP_200_OK)
+def _unknown_report_response(report: str) -> Response:
+    return Response({"detail": f"Отчёт «{report}» не найден."}, status=status.HTTP_404_NOT_FOUND)
 
 
-class TenantCashflowReportSettingsConfigView(APIView):
-    """
-    Per-tenant Cashflow source (n8n vs backend). Filters come from ``pnl_config`` (same as backend PnL).
-    ``cashflow_config`` holds Cashflow-only settings (e.g. opening_balance).
-    """
+class ReportRulesView(APIView):
+    """A report's data source and calculation rules; every report keeps its own (tenant admin only)."""
 
     permission_classes = [IsAuthenticated, IsTenantAdmin]
 
-    @staticmethod
-    def _serialize(row: TenantReportSettings) -> dict:
-        pnl_cfg = row.pnl_config if isinstance(row.pnl_config, dict) else {}
-        cf_cfg = row.cashflow_config if isinstance(row.cashflow_config, dict) else {}
-        return {
-            "cashflow_source": row.cashflow_source,
-            "pnl_config": pnl_cfg,
-            "cashflow_config": cf_cfg,
-            "uses_pnl_config": True,
-            "updated_at": row.updated_at.isoformat() if row.updated_at else None,
-        }
-
-    def get(self, request):
+    def get(self, request, report: str):
         tenant = getattr(request, "tenant", None)
         if not tenant:
             return Response({"detail": "No tenant."}, status=status.HTTP_400_BAD_REQUEST)
-        row, _ = TenantReportSettings.objects.get_or_create(
-            tenant=tenant,
-            defaults={
-                "pnl_source": TenantReportSettings.PNL_SOURCE_N8N,
-                "pnl_config": {},
-                "cashflow_source": TenantReportSettings.CASHFLOW_SOURCE_N8N,
-                "cashflow_config": {},
-            },
-        )
-        data = self._serialize(row)
-        if str(request.query_params.get("cashflow_diagnostics") or "").strip() in {"1", "true", "yes"}:
-            cfg = row.pnl_config if isinstance(row.pnl_config, dict) else {}
-            try:
-                unassigned = compute_unassigned_payment_purposes_cashflow(tenant_id=tenant.id, cfg=cfg)
-                data["cashflow_diagnostics"] = {"unassigned_payment_purposes": unassigned}
-            except CashflowReportSettingsInvalid as exc:
-                data["cashflow_diagnostics"] = {"error": str(exc)}
-        return Response(data, status=status.HTTP_200_OK)
+        if report not in REPORT_KINDS:
+            return _unknown_report_response(report)
+        diagnostics = str(request.query_params.get("diagnostics") or "").strip() in {"1", "true", "yes"}
+        return Response(get_report_rules(tenant=tenant, report=report, diagnostics=diagnostics), status=status.HTTP_200_OK)
 
-    def patch(self, request):
+    def patch(self, request, report: str):
         tenant = getattr(request, "tenant", None)
         if not tenant:
             return Response({"detail": "No tenant."}, status=status.HTTP_400_BAD_REQUEST)
-
-        row, _ = TenantReportSettings.objects.get_or_create(
-            tenant=tenant,
-            defaults={
-                "pnl_source": TenantReportSettings.PNL_SOURCE_N8N,
-                "pnl_config": {},
-                "cashflow_source": TenantReportSettings.CASHFLOW_SOURCE_N8N,
-                "cashflow_config": {},
-            },
-        )
-
-        body = request.data if isinstance(request.data, dict) else {}
-        new_source = row.cashflow_source
-        if "cashflow_source" in body:
-            raw = str(body.get("cashflow_source") or "").strip().lower()
-            if raw not in {TenantReportSettings.CASHFLOW_SOURCE_N8N, TenantReportSettings.CASHFLOW_SOURCE_BACKEND}:
-                raise ValidationError({"cashflow_source": "Must be 'n8n' or 'backend'."})
-            new_source = raw
-
-        if new_source == TenantReportSettings.CASHFLOW_SOURCE_BACKEND:
-            cfg = row.pnl_config if isinstance(row.pnl_config, dict) else {}
-            try:
-                validate_cashflow_config_dict(cfg)
-            except CashflowReportSettingsInvalid as exc:
-                raise ValidationError(
-                    {"pnl_config": f"Настройте отчёт PnL (backend): {exc}"}
-                ) from exc
-
-        update_fields = ["cashflow_source", "updated_at"]
-        if "cashflow_config" in body:
-            cf_in = body.get("cashflow_config")
-            if cf_in is None:
-                new_cf_merged: dict = {}
-            elif not isinstance(cf_in, dict):
-                raise ValidationError({"cashflow_config": "Must be a JSON object."})
-            else:
-                base_cf = row.cashflow_config if isinstance(row.cashflow_config, dict) else {}
-                new_cf_merged = {**base_cf, **cf_in}
-            try:
-                validate_cashflow_supplement_dict(new_cf_merged)
-            except CashflowReportSettingsInvalid as exc:
-                raise ValidationError({"cashflow_config": str(exc)}) from exc
-            row.cashflow_config = new_cf_merged
-            update_fields.append("cashflow_config")
-
-        row.cashflow_source = new_source
-        row.save(update_fields=update_fields)
-
-        return Response(self._serialize(row), status=status.HTTP_200_OK)
+        if report not in REPORT_KINDS:
+            return _unknown_report_response(report)
+        body = ReportRulesPatchSerializer(data=request.data)
+        body.is_valid(raise_exception=True)
+        data = body.validated_data
+        try:
+            payload = save_report_rules(
+                tenant=tenant,
+                report=report,
+                source=data.get("source"),
+                rules=(data["rules"] or {}) if "rules" in data else None,
+            )
+        except ReportSettingsInvalid as exc:
+            raise ValidationError({"rules": str(exc)}) from exc
+        return Response(payload, status=status.HTTP_200_OK)
 
 
 class TenantPnlPaymentPurposePoolView(APIView):

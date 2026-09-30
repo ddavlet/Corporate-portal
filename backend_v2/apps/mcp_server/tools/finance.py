@@ -254,7 +254,7 @@ def list_card_revenues(
 # ---------------------------------------------------------------------------
 #
 # build_pnl_payload_from_db / build_cashflow_payload_from_db always return
-# every line since pnl_config.start_month, unbounded — for a tenant with a
+# every line since the report's start_month, unbounded — for a tenant with a
 # year+ of history that is thousands of rows and can blow up a caller's
 # token budget. The MCP tools narrow that down after the fact (date_from /
 # date_to filter, optional aggregate mode) without touching the builders
@@ -340,11 +340,8 @@ def get_pnl_report(
     validate_date(date_from, "date_from")
     validate_date(date_to, "date_to")
 
-    from apps.modules.reports.pnl_builder import (
-        build_pnl_payload_from_db,
-        ReportSettingsMissing,
-        ReportSettingsInvalid,
-    )
+    from apps.modules.reports.pnl_builder import build_pnl_payload_from_db
+    from apps.modules.reports.report_rules import ReportSettingsInvalid, ReportSettingsMissing
 
     try:
         payload = build_pnl_payload_from_db(tenant=tenant, query_params={})
@@ -364,12 +361,12 @@ def get_cashflow_report(
 ) -> dict:
     """Build and return the Cashflow report from the database.
 
-    Uses the same pnl_config as PnL (cashflow reuses the same filter config).
+    Uses the tenant's Cashflow rules (cashflow_config): the same keys as PnL, saved separately.
     Raises ValueError if report settings are not configured or a date filter
     is malformed.
 
     - date_from / date_to: ISO date strings (YYYY-MM-DD); narrow the report
-      window on top of pnl_config.start_month (all optional).
+      window on top of cashflow_config.start_month (all optional).
     - aggregate: when True, each bucket collapses to totals (by_month,
       by_category, count) instead of individual line items.
     """
@@ -377,11 +374,8 @@ def get_cashflow_report(
     validate_date(date_from, "date_from")
     validate_date(date_to, "date_to")
 
-    from apps.modules.reports.cashflow_builder import (
-        build_cashflow_payload_from_db,
-        ReportSettingsInvalid,
-    )
-    from apps.modules.reports.pnl_builder import ReportSettingsMissing
+    from apps.modules.reports.cashflow_builder import build_cashflow_payload_from_db
+    from apps.modules.reports.report_rules import ReportSettingsInvalid, ReportSettingsMissing
 
     try:
         payload = build_cashflow_payload_from_db(tenant=tenant, query_params={})

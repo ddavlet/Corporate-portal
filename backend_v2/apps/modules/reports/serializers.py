@@ -16,10 +16,12 @@ from apps.modules.reports.periods import (
     PeriodSpec,
     month_key,
 )
+from apps.modules.reports.report_kinds import REPORT_KINDS, REPORT_SOURCES
 from apps.modules.reports.report_templates import TemplateSettingsInvalid, validate_template_settings
 from apps.modules.reports.units import UNITS
 
-REPORT_CHOICES = ("pnl", "cashflow")
+# The reports of the registry: a new ReportKind is accepted here without a change to this module.
+REPORT_CHOICES = tuple(REPORT_KINDS)
 
 
 class StatementQuerySerializer(serializers.Serializer):
@@ -117,3 +119,10 @@ class StatementVendorsQuerySerializer(serializers.Serializer):
         if attrs["date_from"] > attrs["date_to"]:
             raise serializers.ValidationError({"date_from": "Начало периода позже конца."})
         return attrs
+
+
+class ReportRulesPatchSerializer(serializers.Serializer):
+    """`PATCH rules/<report>/`: either field may be left out; `rules: null` clears the rules."""
+
+    source = serializers.ChoiceField(choices=REPORT_SOURCES, required=False)
+    rules = serializers.DictField(required=False, allow_null=True)

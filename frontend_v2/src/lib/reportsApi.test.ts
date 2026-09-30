@@ -12,6 +12,7 @@ import {
   downloadStatementXlsx,
   filenameFromContentDisposition,
   getReportRequestDetail,
+  getReportRules,
   getStatement,
   getStatementLines,
   getStatementVendors,
@@ -19,6 +20,7 @@ import {
   statementLinesSearchParams,
   statementSearchParams,
   statementVendorsSearchParams,
+  updateReportRules,
   updateReportTemplates,
 } from './reportsApi'
 import { createJsonResponse, createStorageMock, setWindowLocation } from '../test/helpers'
@@ -200,5 +202,36 @@ describe('reportsApi', () => {
     const params = statementLinesSearchParams({ template: 'professional', report: 'pnl', from: '2026-08-01', to: '2026-08-31', vendor: 'ООО Офис' })
     expect(params.get('vendor')).toBe('ООО Офис')
     expect(params.has('line')).toBe(false)
+  })
+
+  it('reads the rules of one report, with diagnostics when asked', async () => {
+    fetchMock.mockResolvedValueOnce(createJsonResponse(200, { report: 'cashflow', source: 'backend', rules: {}, updated_at: null }))
+    const data = await getReportRules('cashflow', { diagnostics: true })
+    expect(fetchMock.mock.calls[0][0]).toBe('/api/reports/rules/cashflow/?diagnostics=1')
+    expect(data.report).toBe('cashflow')
+    fetchMock.mockResolvedValueOnce(createJsonResponse(200, { report: 'pnl', source: 'n8n', rules: {}, updated_at: null }))
+    await getReportRules('pnl')
+    expect(fetchMock.mock.calls[1][0]).toBe('/api/reports/rules/pnl/')
+  })
+
+  it('saves the rules of one report as PATCH JSON', async () => {
+    fetchMock.mockResolvedValueOnce(
+      createJsonResponse(200, { report: 'pnl', source: 'backend', rules: { start_month: '2026-02' }, updated_at: null }),
+    )
+    await updateReportRules('pnl', { source: 'backend', rules: { start_month: '2026-02' } })
+    const [url, init] = fetchMock.mock.calls[0]
+    expect(url).toBe('/api/reports/rules/pnl/')
+    expect(init.method).toBe('PATCH')
+    expect(JSON.parse(init.body)).toEqual({ source: 'backend', rules: { start_month: '2026-02' } })
+  })
+
+  it('turns a rules validation error into ApiError without a toast', async () => {
+    fetchMock.mockResolvedValueOnce(createJsonResponse(400, { rules: "rules missing keys: ['start_month']" }))
+    await expect(updateReportRules('cashflow', { source: 'backend', rules: {} })).rejects.toMatchObject({
+      name: 'ApiError',
+      status: 400,
+      message: "rules missing keys: ['start_month']",
+    })
+    expect(notifyApiError).not.toHaveBeenCalled()
   })
 })
