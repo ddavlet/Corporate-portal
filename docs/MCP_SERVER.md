@@ -7,7 +7,7 @@
 
 ---
 
-Reference documentation for the **Kolberg Data Server** — a [Model Context Protocol](https://modelcontextprotocol.io) server that exposes **read-only** access to a single Kolberg tenant's data so AI assistants can query requests, finances, directories, and tenant configuration.
+Reference documentation for the **Kolberg Data Server** — a [Model Context Protocol](https://modelcontextprotocol.io) server that exposes access to the data of the tenants a user belongs to so AI assistants can query requests, finances, directories, and tenant configuration. Everything is read-only except the `tasks` module.
 
 Source: [`backend_v2/apps/mcp_server/`](../backend_v2/apps/mcp_server/)
 
@@ -17,7 +17,7 @@ Source: [`backend_v2/apps/mcp_server/`](../backend_v2/apps/mcp_server/)
 
 Kolberg is a multi-tenant corporate finance platform: payment **requests** (заявки) with multi-step approval, financial modules (cash desk, bank, corporate card, payroll), and reference directories (vendors, wallets).
 
-The MCP server lets an AI client (Claude Desktop, IDE extensions, custom agents) read that data through a fixed set of **17 tools**. It does **not** write, update, or delete anything — it is a query surface only.
+The MCP server lets an AI client (Claude Desktop, IDE extensions, custom agents) read that data through a fixed set of **39 tools**. The only writes are task operations (`create_task`, `update_task_status`, `add_task_comment`, `edit_task`, `delete_task`).
 
 - **Transport:** stdio (spawned as a subprocess, human `KOLBERG_JWT_TOKEN`) or streamable HTTP at `https://api.kolberg.uz/mcp` (human OAuth or service-key, see [§4a](#4a-service-key-authentication-tenant-scoped-non-human-callers)).
 - **Framework:** `MCPServer` (formerly `FastMCP`) from the `mcp` Python SDK (`mcp>=2.1.0,<3.0.0`).
@@ -30,7 +30,7 @@ The MCP server lets an AI client (Claude Desktop, IDE extensions, custom agents)
 
 | Area | Status |
 |------|--------|
-| 17 tools across 8 data domains | ✅ Implemented |
+| 39 tools across 10 data domains | ✅ Implemented |
 | Authentication via `KOLBERG_JWT_TOKEN` env var | ✅ Working |
 | Role + module-config access enforcement | ✅ Working (reuses `apps.tenants.permissions`) |
 | Tenant scoping on every query | ✅ Working |
@@ -38,7 +38,6 @@ The MCP server lets an AI client (Claude Desktop, IDE extensions, custom agents)
 | Uniform error envelope | ✅ Working |
 | Secrets redaction (integration tokens never exposed) | ✅ Working |
 | Unit tests (`json_safe`, `validate_date`) | ✅ 12/12 passing |
-| Live tool-invocation verification | ✅ All 17 tools verified |
 
 **Not implemented (by design):** write/create/update/delete operations outside the `tasks` module (see [§4a](#4a-service-key-authentication-tenant-scoped-non-human-callers) for the `create_task`/`update_task_status`/`add_task_comment`/`edit_task`/`delete_task` exception); the `investments`, `notes`, `contracts`, `clients_debt`, `budgets`, `reports`, `feedback` modules have no tools exposed yet.
 
@@ -97,7 +96,7 @@ Any failure raises `PermissionError`, which the tool converts into an error resu
 
 **Security properties:**
 
-- **Read-only.** No tool mutates data.
+- **Read-only except tasks.** Only the five task tools mutate data.
 - **Tenant-isolated.** Every query is filtered by `tenant=<resolved tenant>`. Cross-tenant access is impossible — passing another tenant's `tenant_id` fails the membership check.
 - **Secrets redacted.** `get_integration_config` never returns encrypted values — only booleans indicating whether each secret is set.
 - **Token off-channel.** The JWT lives in the process environment, never in tool arguments or results.
@@ -151,7 +150,11 @@ A module tool succeeds only when **both** conditions hold: the module is enabled
 | `cash`     | ✅ | ✅ | — | — | ✅ | — | — |
 | `bank`     | ✅ | ✅ | — | — | — | ✅ | — |
 | `corporate_card` | ✅ | ✅ | — | — | ✅ | ✅ | — |
-| `payroll`  | ✅ | ✅ | — | — | — | ✅ | — |
+| `payroll`  | ✅ | ✅ | — | — | — | — | — |
+| `reports`  | ✅ | ✅ | — | — | — | — | ✅ |
+| `investments` | ✅ | — | — | — | — | — | ✅ |
+| `budgets`  | ✅ | ✅ | — | — | — | — | — |
+| `tasks`    | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | — |
 
 Admin-only / admin-or-director tools do **not** depend on `TenantModuleConfig`:
 
@@ -186,7 +189,7 @@ Tools never raise to the client. On failure they return a uniform envelope:
 
 ## 7. Tools reference
 
-All 17 tools take `tenant_id` (integer) as the first argument. Date filters use **`YYYY-MM-DD`** only. `limit` is clamped to its valid range (out-of-range values are silently corrected, not rejected).
+All tools except `list_my_tenants` take `tenant_id` (integer) as the first argument. Date filters use **`YYYY-MM-DD`** only. `limit` is clamped to its valid range (out-of-range values are silently corrected, not rejected).
 
 ### 7.1 Requests (заявки) — module `requests`
 
@@ -195,7 +198,7 @@ Lists payment requests with optional filters. **Roles:** admin, director, approv
 
 | Parameter | Type | Notes |
 |-----------|------|-------|
-| `status` | str | `DRAFT`, `1`–`5`, `APPROVED`, `PAYED`, `REJECTED` |
+| `status` | str | `DRAFT`, `1`–`5`, `APPROVED`, `PAYED`, `REJECTED`, `DELETED` (deleted requests are excluded unless `DELETED` is passed) |
 | `currency` | str | `UZS`, `USD`, `EUR`, `RUB` |
 | `payment_type` | str | `Наличные`, `Перечисление`, `Пополнение`, `Платежная карта`, `Начисление ЗП` |
 | `urgency` | str | `Низко`, `Обычно`, `Срочно` |
@@ -242,12 +245,16 @@ Fields: `id`, `title`, `amount`, `currency`, `expense_at`, `note`, `wallet_id`, 
 ### 7.5 Payroll (начисления ЗП) — module `payroll`
 
 #### `list_payroll_documents`
-Payroll documents (headers). **Roles:** admin, director, accountant. Param: `limit` (50/200).
-Fields: `id`, `doc_id` (external document identifier), `created_at`.
+Payroll documents with totals and workflow state (same fields as the portal list). **Roles:** admin, director.
+Params: `status` (`draft`/`accepted`/`closed`/`cancelled`), `kind` (`salary`/`advance`/`bonus`), `period_from`/`period_to` (on `period_month`), `limit` (50/200).
+Fields: `id`, `doc_id`, `label`, `status`, `kind`, `period_month`, `source`, `payout_mode`, `created_at`, `total_sum`, `paid_total`, `lines_count`, `has_request`, `has_paid_request`, `matched_request_id`.
 
 #### `get_payroll_document`
 One payroll document by `document_id`, with **all employee lines**. **Roles:** same as above.
-Returns `id`, `doc_id`, `created_at`, and `lines[]`. Each line: `id`, `line_no`, `employee`, `item`, `description`, `sum`, `days_plan`, `days_fact`, `period_start`, `period_end`, `approval`.
+Returns the list fields plus `remaining_total`, `current_request`, `closed_underpaid_at`, `close_comment`, and:
+- `lines[]`: `id`, `line_no`, `employee`, `employee_id`, `item`, `description`, `sum`, `days_plan`, `days_fact`, `period_start`, `period_end`, `approval`;
+- `employees[]`: `employee_id`, `full_name`, `accrued`, `paid`, `remaining`;
+- `payouts[]`: `cash_expense_id`, `date`, `amount`, `wallet_id`.
 
 ### 7.6 Directories (справочники)
 
@@ -427,7 +434,7 @@ A `Wallet` is the money container for a channel. Its `wallet_type` is `cash`, `b
 
 ```
 backend_v2/apps/mcp_server/
-├── server.py            FastMCP instance + the 17 @mcp.tool() wrappers
+├── server.py            MCPServer instance + the 39 @tool wrappers
 ├── auth.py              JWT decode + tenant/role/module authorization
 ├── utils.py             json_safe() ORM-to-JSON, validate_date()
 ├── tests.py             Unit tests for utils

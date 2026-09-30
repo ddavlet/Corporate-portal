@@ -60,7 +60,8 @@ def list_requests(
     """Return requests for a tenant with optional filtering.
 
     Filters (all optional):
-    - status: DRAFT | 1 | 2 | 3 | 4 | 5 | APPROVED | PAYED | REJECTED
+    - status: DRAFT | 1 | 2 | 3 | 4 | 5 | APPROVED | PAYED | REJECTED | DELETED
+      (DELETED requests are excluded unless status=DELETED is passed explicitly)
     - currency: UZS | USD | EUR | RUB
     - payment_type: Наличные | Перечисление | Пополнение | Платежная карта | Начисление ЗП
     - urgency: Низко | Обычно | Срочно
@@ -78,6 +79,8 @@ def list_requests(
 
     if status:
         qs = qs.filter(status=status)
+    else:
+        qs = qs.exclude(status=Request.STATUS_DELETED)
     if currency:
         qs = qs.filter(currency=currency)
     if payment_type:

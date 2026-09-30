@@ -917,3 +917,197 @@ class ServiceKeyEndToEndTests(TestCase):
             require_module_access(self.tenant_b.id, "requests")
         # human path keeps the original, non-uniform message
         self.assertEqual(str(ctx.exception), "User is not an active member of this tenant")
+
+
+class McpListRequestsDeletedTests(TestCase):
+    """list_requests used to return DELETED requests when no status filter was given."""
+
+    def setUp(self):
+        from django.contrib.auth import get_user_model
+        from apps.modules.requests.models import Request
+        from apps.tenants.models import Tenant
+
+        self.user = get_user_model().objects.create_user(username="mcp_req_deleted", password="x")
+        self.tenant = Tenant.objects.create(name="T", subdomain="reqdeleted", is_active=True, mcp_enabled=True)
+
+        def _make(status):
+            return Request.objects.create(
+                tenant=self.tenant,
+                created_by=self.user,
+                requester=self.user,
+                category="Office",
+                amount=Decimal("100"),
+                currency="UZS",
+                status=status,
+                billing_date=date(2026, 1, 15),
+            )
+
+        self.live = _make(Request.STATUS_APPROVED)
+        self.deleted = _make(Request.STATUS_DELETED)
+
+    @patch("apps.mcp_server.tools.requests.require_module_access")
+    def test_deleted_requests_are_hidden_by_default(self, mock_access):
+        from apps.mcp_server.tools import requests as req_tools
+
+        mock_access.return_value = (None, self.tenant)
+        ids = [r["id"] for r in req_tools.list_requests(self.tenant.id)]
+        self.assertEqual(ids, [self.live.id])
+
+    @patch("apps.mcp_server.tools.requests.require_module_access")
+    def test_deleted_requests_available_with_explicit_status(self, mock_access):
+        from apps.mcp_server.tools import requests as req_tools
+
+        mock_access.return_value = (None, self.tenant)
+        ids = [r["id"] for r in req_tools.list_requests(self.tenant.id, status="DELETED")]
+        self.assertEqual(ids, [self.deleted.id])
+
+
+class McpPayrollToolsTests(TestCase):
+    """Payroll tools used to return only id/doc_id/created_at (list) and raw lines
+    (detail). They now expose status, kind, period, totals and per-employee progress."""
+
+    def setUp(self):
+        from apps.modules.payroll.models import Employee, PayrollDocument, PayrollLine
+        from apps.tenants.models import Tenant
+
+        self.tenant = Tenant.objects.create(name="T", subdomain="mcppayroll", is_active=True, mcp_enabled=True)
+        alice = Employee.objects.create(tenant=self.tenant, full_name="Alice")
+        self.doc = PayrollDocument.objects.create(
+            tenant=self.tenant,
+            doc_id="PR-1",
+            status=PayrollDocument.STATUS_ACCEPTED,
+            kind=PayrollDocument.KIND_SALARY,
+            period_month=date(2026, 8, 1),
+            payout_mode=PayrollDocument.PAYOUT_MODE_PORTAL,
+        )
+        PayrollLine.objects.create(document=self.doc, line_no=1, employee="Alice", employee_fk=alice, item="Salary", sum="400")
+        PayrollLine.objects.create(document=self.doc, line_no=2, employee="Alice", employee_fk=alice, item="Bonus", sum="150")
+        self.draft = PayrollDocument.objects.create(
+            tenant=self.tenant, doc_id="PR-2", status=PayrollDocument.STATUS_DRAFT, kind=PayrollDocument.KIND_ADVANCE
+        )
+
+    @patch("apps.mcp_server.tools.finance.require_module_access")
+    def test_list_returns_status_kind_period_and_totals(self, mock_access):
+        from apps.mcp_server.tools import finance as fin_tools
+
+        mock_access.return_value = (None, self.tenant)
+        rows = fin_tools.list_payroll_documents(self.tenant.id, status="accepted")
+        self.assertEqual(len(rows), 1)
+        row = rows[0]
+        self.assertEqual(row["id"], self.doc.id)
+        self.assertEqual(row["status"], "accepted")
+        self.assertEqual(row["kind"], "salary")
+        self.assertEqual(row["period_month"], "2026-08-01")
+        self.assertEqual(Decimal(row["total_sum"]), Decimal("550"))
+        self.assertEqual(Decimal(row["paid_total"]), Decimal("0"))
+        self.assertEqual(row["lines_count"], 2)
+
+    @patch("apps.mcp_server.tools.finance.require_module_access")
+    def test_list_filters_by_kind_and_period(self, mock_access):
+        from apps.mcp_server.tools import finance as fin_tools
+
+        mock_access.return_value = (None, self.tenant)
+        self.assertEqual([r["id"] for r in fin_tools.list_payroll_documents(self.tenant.id, kind="advance")], [self.draft.id])
+        self.assertEqual(
+            [r["id"] for r in fin_tools.list_payroll_documents(self.tenant.id, period_from="2026-08-01", period_to="2026-08-31")],
+            [self.doc.id],
+        )
+
+    @patch("apps.mcp_server.tools.finance.require_module_access")
+    def test_list_rejects_unknown_status(self, mock_access):
+        from apps.mcp_server.tools import finance as fin_tools
+
+        mock_access.return_value = (None, self.tenant)
+        with self.assertRaisesRegex(ValueError, "Invalid status"):
+            fin_tools.list_payroll_documents(self.tenant.id, status="PAYED")
+
+    @patch("apps.mcp_server.tools.finance.require_module_access")
+    def test_detail_includes_per_employee_progress(self, mock_access):
+        from apps.mcp_server.tools import finance as fin_tools
+
+        mock_access.return_value = (None, self.tenant)
+        data = fin_tools.get_payroll_document(self.tenant.id, self.doc.id)
+        self.assertEqual(data["status"], "accepted")
+        self.assertEqual(Decimal(data["remaining_total"]), Decimal("550"))
+        self.assertEqual(len(data["lines"]), 2)
+        self.assertEqual(len(data["employees"]), 1)
+        employee = data["employees"][0]
+        self.assertEqual(employee["full_name"], "Alice")
+        self.assertEqual(Decimal(employee["accrued"]), Decimal("550"))
+        self.assertEqual(Decimal(employee["paid"]), Decimal("0"))
+        self.assertEqual(data["payouts"], [])
+
+
+class McpTaskErrorLanguageTests(TestCase):
+    """Task tools returned Russian error messages while every other tool used English."""
+
+    @patch("apps.mcp_server.tools.tasks.require_module_access")
+    def test_missing_task_error_is_english(self, mock_access):
+        from django.contrib.auth import get_user_model
+        from apps.mcp_server.tools import tasks as task_tools
+        from apps.tenants.models import Tenant
+
+        user = get_user_model().objects.create_user(username="mcp_task_err", password="x")
+        tenant = Tenant.objects.create(name="T", subdomain="taskerr", is_active=True, mcp_enabled=True)
+        mock_access.return_value = (user, tenant)
+
+        with self.assertRaisesRegex(ValueError, r"^Task 999999 not found or not accessible\.$"):
+            task_tools.update_task_status(tenant.id, 999_999, "done")
+
+    def test_task_tools_have_no_cyrillic_messages(self):
+        import inspect
+        import re as _re
+
+        from apps.mcp_server.tools import tasks as task_tools
+
+        self.assertIsNone(_re.search(r"[А-Яа-яЁё]", inspect.getsource(task_tools)))
+
+
+class McpToolDocstringRolesTests(TestCase):
+    """Tool descriptions are what the AI client reads to decide whether a tool is
+    usable. The "Required roles" line drifted from ROLE_MODULE_ACCESS (e.g. investments
+    claimed director access, payroll claimed accountant access)."""
+
+    MODULE_BY_TOOL = {
+        "list_requests": "requests",
+        "get_request": "requests",
+        "list_request_categories": "requests",
+        "list_cash_expenses": "cash",
+        "list_cash_revenues": "cash",
+        "list_bank_expenses": "bank",
+        "list_bank_revenues": "bank",
+        "list_card_expenses": "corporate_card",
+        "list_card_revenues": "corporate_card",
+        "get_pnl_report": "reports",
+        "get_cashflow_report": "reports",
+        "list_payroll_documents": "payroll",
+        "get_payroll_document": "payroll",
+        "get_investment_form_config": "investments",
+        "list_invest_companies": "investments",
+        "list_invest_returns": "investments",
+        "list_project_investments": "investments",
+        "list_invest_payout_schedule": "investments",
+        "list_budgets": "budgets",
+        "get_budget": "budgets",
+        "list_budget_spend_requests": "budgets",
+        "list_my_tasks": "tasks",
+        "list_vendors": "vendors",
+        "list_wallets": "wallets",
+    }
+
+    def test_required_roles_match_role_module_access(self):
+        import re as _re
+
+        from apps.mcp_server import server
+        from apps.tenants.models import TenantUserRole
+        from apps.tenants.permissions import ROLE_MODULE_ACCESS
+
+        known_roles = {role for role, _ in TenantUserRole.ROLE_CHOICES}
+        for tool_name, module in self.MODULE_BY_TOOL.items():
+            with self.subTest(tool=tool_name):
+                doc = getattr(server, tool_name).__doc__
+                match = _re.search(r"Required roles:(.*?)(?:\n\s*\n|$)", doc, _re.S)
+                self.assertIsNotNone(match, "docstring has no 'Required roles:' line")
+                roles_text = match.group(1).split("(module:")[0]
+                documented = {w for w in _re.findall(r"[a-z_]+", roles_text) if w in known_roles}
+                self.assertEqual(documented, set(ROLE_MODULE_ACCESS[module]))
