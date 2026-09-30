@@ -171,6 +171,14 @@ export const SETTINGS_MODULES: SettingsModuleItem[] = [
     group: 'finance',
   },
   {
+    key: 'cash-withdrawal-config',
+    title: 'Снятие наличных',
+    description: 'Карточка «Ожидается поступление в кассу» после оплаты заявки на снятие, подтверждение кнопкой и предупреждения.',
+    path: '/settings/cash-withdrawal-config',
+    icon: <DollarOutlined />,
+    group: 'finance',
+  },
+  {
     key: 'payroll-config',
     title: 'Начисления ЗП',
     description: 'Формат номера документа, автосоздание заявки на оплату, справочник сотрудников.',

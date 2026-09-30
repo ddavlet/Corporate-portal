@@ -7,7 +7,7 @@ DEPLOY_TEST_PATH ?= $(TEST_PATH)
 BRANCH     := $(shell git rev-parse --abbrev-ref HEAD)
 
 .DEFAULT_GOAL := help
-.PHONY: help push test deploy makemigrations showmigrations logs backup-db create-postgres-mcp-role rollback refresh-approval-messages reconcile-card-revenues reconcile-expense-links send-to-vacation return-from-vacation reassign-unmatched-bank-expenses backfill-bank-expense-requests backfill-cash-expense-requests backfill-card-expenses backfill-cbu-exchange-rate redispatch-unsent-approval-cards local-up local-down local-logs test_local
+.PHONY: help push test deploy makemigrations showmigrations logs backup-db create-postgres-mcp-role rollback refresh-approval-messages reconcile-card-revenues reconcile-expense-links send-to-vacation return-from-vacation reassign-unmatched-bank-expenses backfill-bank-expense-requests backfill-cash-expense-requests backfill-card-expenses backfill-cbu-exchange-rate redispatch-unsent-approval-cards backfill-cash-withdrawals local-up local-down local-logs test_local
 
 help:
 	@echo ""
@@ -188,6 +188,14 @@ reassign-unmatched-bank-expenses:
 	ssh $(SERVER) "cd $(REMOTE_DIR) && \
 		docker compose --env-file ./.env exec -T backend_v2 \
 		python manage.py reassign_unmatched_bank_expenses --from $(FROM) --to $(TO) $(if $(APPLY),--apply,)"
+
+# ── 7d-8c. Ожидания поступления наличных для потерянных снятий (dry-run по умолчанию) ──
+# make backfill-cash-withdrawals TENANT=lemonaqua SINCE=2026-09-01 [APPLY=1] [NO_SEND=1]
+backfill-cash-withdrawals:
+	@test -n "$(TENANT)" -a -n "$(SINCE)" || (echo "Usage: make backfill-cash-withdrawals TENANT=<subdomain> SINCE=YYYY-MM-DD [APPLY=1] [NO_SEND=1]" && exit 1)
+	ssh $(SERVER) "cd $(REMOTE_DIR) && \
+		docker compose --env-file ./.env exec -T backend_v2 \
+		python manage.py backfill_cash_withdrawal_receipts --tenant=$(TENANT) --since=$(SINCE) $(if $(APPLY),--apply,) $(if $(NO_SEND),--no-send,)"
 
 # ── 7d-10. По требованию: backfill-команды (dry-run по умолчанию) ──
 # TENANT=1,lemonaqua (id или subdomain, через запятую) или ALL_TENANTS=1; DATE_FROM/DATE_TO=YYYY-MM-DD
