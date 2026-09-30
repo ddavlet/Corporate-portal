@@ -51,8 +51,10 @@ from apps.mcp_server.tools import (
 mcp = MCPServer(
     name="Kolberg Data Server",
     instructions="""
-Kolberg is a multi-tenant financial management platform. This server provides
-read-only access to one tenant's data.
+Kolberg is a multi-tenant financial management platform. This server gives
+access to the data of every tenant the current user belongs to; each tool takes
+an explicit tenant_id. Everything is read-only except the tasks module
+(create_task, update_task_status, add_task_comment, edit_task, delete_task).
 
 ════════════════════════════════════════════════════════════
 CRITICAL: SOURCE OF TRUTH FOR EXPENSES
@@ -118,8 +120,10 @@ Reports (module: "reports"):
                             date_from/date_to/aggregate options
 
 Payroll (module: "payroll"):
-  list_payroll_documents  — salary payment documents
-  get_payroll_document    — document with all employee lines
+  list_payroll_documents  — payroll documents (ведомости): status, kind, period,
+                            accrued total vs paid total; filter by status/kind/period
+  get_payroll_document    — one document: lines, per-employee accrued/paid/remaining,
+                            cash expenses it was paid out with
 
 Investments (module: "investments"):
   get_investment_form_config — companies on/off, allowed return types
@@ -136,7 +140,7 @@ Budgets (module: "budgets"):
 Tasks (module: "tasks"):
   list_my_tasks           — tasks visible to the current user (own tasks, or all if admin/director)
   get_task                — full task detail with comment thread
-  create_task             — create a manual task (admin/director only; can assign to any member)
+  create_task             — create a task (admin/director only; can assign to any member)
   update_task_status      — change task status (assignee, admin, or director)
   add_task_comment        — post a comment on a task (assignee, admin, or director)
   edit_task               — update title, description, or assignee (creator, admin, or director)
@@ -158,14 +162,16 @@ Tenant context (no module required):
   list_memberships        — all members (admin only)
 
 ════════════════════════════════════════════════════════════
-ROLE PERMISSIONS
+ROLE PERMISSIONS (a module must also be enabled for the tenant)
 ════════════════════════════════════════════════════════════
-admin / director  — all modules
-approver          — requests, vendors, contracts, notes
-requester         — requests, vendors, contracts, notes
-cashier           — requests, cash, corporate_card, wallets, vendors, contracts, notes, reports
-accountant        — requests, bank, payroll, corporate_card, wallets, vendors, contracts, notes, reports
-investor          — investments, reports
+admin       — all modules
+director    — all modules except investments
+approver    — requests, vendors, tasks
+requester   — requests, vendors, tasks
+cashier     — requests, cash, corporate_card, wallets, vendors, tasks
+accountant  — requests, bank, corporate_card, wallets, vendors, tasks
+investor    — investments, reports
+Use list_my_modules(tenant_id) for the effective list of the current user.
 
 ════════════════════════════════════════════════════════════
 ERRORS AND FILTERING
@@ -287,12 +293,14 @@ def list_requests(
     Args:
         tenant_id: Tenant primary key (get from list_my_tenants).
         status: Filter by status. One of: DRAFT, 1, 2, 3, 4, 5, APPROVED, PAYED, REJECTED.
+            Deleted requests are never returned.
         currency: Filter by currency. One of: UZS, USD, EUR, RUB.
         payment_type: How payment is made. One of:
             "Наличные" (cash),
             "Перечисление" (bank transfer),
             "Пополнение" (top-up / prepayment),
-            "Платежная карта" (corporate card).
+            "Платежная карта" (corporate card),
+            "Начисление ЗП" (payroll).
         urgency: One of: "Низко" (low), "Обычно" (normal), "Срочно" (urgent).
         date_from: Filter by creation date >= YYYY-MM-DD.
         date_to: Filter by creation date <= YYYY-MM-DD.
@@ -618,7 +626,7 @@ def get_pnl_report(
     Key rule: expenses use billing_date from requests; amortized requests are
     spread across months according to their amortization schedule.
 
-    Required roles: admin, director, accountant, cashier, investor (module: reports).
+    Required roles: admin, director, investor (module: reports).
 
     Args:
         tenant_id: Tenant primary key (get from list_my_tenants).
@@ -669,7 +677,7 @@ def get_cashflow_report(
     Cashflow  — actual payment date;    no amortization, cash-basis only.
     ────────────────────────────────────────────────────────────────────────
 
-    Required roles: admin, director, accountant, cashier, investor (module: reports).
+    Required roles: admin, director, investor (module: reports).
 
     Args:
         tenant_id: Tenant primary key (get from list_my_tenants).
@@ -689,24 +697,46 @@ def get_cashflow_report(
 
 
 @tool
-def list_payroll_documents(tenant_id: int, limit: int = 50) -> list:
-    """List payroll documents (ведомости) for a tenant.
+def list_payroll_documents(
+    tenant_id: int,
+    status: str = "",
+    kind: str = "",
+    period_from: str = "",
+    period_to: str = "",
+    limit: int = 50,
+) -> list:
+    """List payroll documents (ведомости начисления ЗП) for a tenant.
 
-    A payroll document is a salary payment batch — it groups multiple
-    employee payment lines under one document with a period (month/year),
-    status, and total amount. Use get_payroll_document to retrieve the
-    individual lines (per-employee amounts).
+    A payroll document is a salary accrual batch: lines per employee grouped
+    under one document for a period. Each row returns:
+      id, doc_id, label, status, kind, period_month, source, payout_mode,
+      created_at, total_sum (accrued), paid_total (paid out via the portal),
+      lines_count, has_request / has_paid_request / matched_request_id
+      (the "Начисление ЗП" payment request linked to the document).
 
-    Statuses: DRAFT, APPROVED, PAYED.
+    Statuses: draft (being edited), accepted (accrual accepted, being paid),
+    closed (fully paid or closed underpaid), cancelled.
+    Kinds: salary, advance, bonus. Documents imported from n8n may have no
+    kind / period_month and payout_mode "legacy" (paid outside the portal,
+    so paid_total stays 0).
 
-    Required roles: admin, director, accountant.
+    Use get_payroll_document for per-employee amounts.
+
+    Required roles: admin, director (module: payroll).
 
     Args:
         tenant_id: Tenant primary key (get from list_my_tenants).
+        status: One of: draft, accepted, closed, cancelled.
+        kind: One of: salary, advance, bonus.
+        period_from: period_month >= YYYY-MM-DD (excludes documents without a period).
+        period_to: period_month <= YYYY-MM-DD (excludes documents without a period).
         limit: Max records (1–200, default 50).
     """
     try:
-        return fin_tools.list_payroll_documents(tenant_id=tenant_id, limit=limit)
+        return fin_tools.list_payroll_documents(
+            tenant_id=tenant_id, status=status, kind=kind,
+            period_from=period_from, period_to=period_to, limit=limit,
+        )
     except (PermissionError, ValueError) as e:
         return _list_err(str(e))
     except Exception as e:
@@ -715,14 +745,21 @@ def list_payroll_documents(tenant_id: int, limit: int = 50) -> list:
 
 @tool
 def get_payroll_document(tenant_id: int, document_id: int) -> dict:
-    """Get a payroll document and all its employee payment lines.
+    """Get one payroll document with lines and per-employee payout progress.
 
-    Returns the document header (period, status, totals) plus an array
-    of lines — one per employee — each showing the employee name,
-    accrual amount, and payment amount. Use list_payroll_documents first
-    to find the document_id.
+    Returns the same header fields as list_payroll_documents plus:
+      total_sum / paid_total / remaining_total — accrued, paid, still to pay
+      current_request — linked "Начисление ЗП" request {id, status} or null
+      closed_underpaid_at, close_comment — set when closed without full payment
+      lines     — accrual lines: employee, employee_id, item, description, sum,
+                  days_plan, days_fact, period_start, period_end, approval
+      employees — per employee: employee_id, full_name, accrued, paid, remaining
+      payouts   — cash expenses the document was paid out with:
+                  cash_expense_id, date, amount, wallet_id
 
-    Required roles: admin, director, accountant.
+    Use list_payroll_documents first to find the document_id.
+
+    Required roles: admin, director (module: payroll).
 
     Args:
         tenant_id: Tenant primary key (get from list_my_tenants).
@@ -747,7 +784,7 @@ def get_investment_form_config(tenant_id: int) -> dict:
     Returns whether company_id filters apply (uses_companies) and which
     return_type strings are allowed when filtering list_invest_returns.
 
-    Required roles: admin, director, investor.
+    Required roles: admin, investor (module: investments).
 
     Args:
         tenant_id: Tenant primary key (from list_my_tenants).
@@ -772,7 +809,7 @@ def list_invest_companies(
     Use name_search to find company_id for other investment tools.
     Empty is_active = all; "true" / "false" to filter active flag.
 
-    Required roles: admin, director, investor.
+    Required roles: admin, investor (module: investments).
 
     Args:
         tenant_id: Tenant primary key.
@@ -811,7 +848,7 @@ def list_invest_returns(
     by billing_date. return_type examples: дивиденды, проценты, доля_прибыли,
     тело_инвестиций. recipient: инвестор | партнер.
 
-    Required roles: admin, director, investor.
+    Required roles: admin, investor (module: investments).
 
     Args:
         tenant_id: Tenant primary key.
@@ -849,7 +886,7 @@ def list_project_investments(
 ) -> list:
     """List capital invested into projects (вложения в проекты), inbound vs returns.
 
-    Required roles: admin, director, investor.
+    Required roles: admin, investor (module: investments).
 
     Args:
         tenant_id: Tenant primary key.
@@ -886,7 +923,7 @@ def list_invest_payout_schedule(
 
     Compare is_paid and payment_amount with list_invest_returns for plan vs fact.
 
-    Required roles: admin, director, investor.
+    Required roles: admin, investor (module: investments).
 
     Args:
         tenant_id: Tenant primary key.
@@ -931,7 +968,7 @@ def list_budgets(
 
     year=0 and period=0 default to current year/month.
 
-    Required roles: admin, director, accountant, approver.
+    Required roles: admin, director (module: budgets).
 
     Args:
         tenant_id: Tenant primary key.
@@ -965,7 +1002,7 @@ def get_budget(
 ) -> dict:
     """Get one budget with utilization for a period (use list_budgets for budget_id).
 
-    Required roles: admin, director, accountant, approver.
+    Required roles: admin, director (module: budgets).
 
     Args:
         tenant_id: Tenant primary key.
@@ -997,7 +1034,7 @@ def list_budget_spend_requests(
 
     Drill-down after list_budgets / get_budget when utilization is high.
 
-    Required roles: admin, director, accountant, approver.
+    Required roles: admin, director (module: budgets).
 
     Args:
         tenant_id: Tenant primary key.
@@ -1037,15 +1074,8 @@ def list_my_tasks(
 
     Status values: new | in_progress | done
 
-    Source types explain why a task was created:
-      approval_step    — an approval step awaiting a decision
-      request_approved — a payment ready to be processed
-      payment_verify   — payment verification step
-      request_rejected — cleanup/follow-up after rejection
-      escalation       — a stale task flagged for review
-      manual           — created directly by a user
-
-    Required roles: any (scope is automatically restricted by role).
+    Required roles: admin, director, accountant, cashier, approver, requester
+    (module: tasks; non-admin/director roles see only their own tasks).
 
     Args:
         tenant_id: Tenant primary key (get from list_my_tenants).
@@ -1071,7 +1101,7 @@ def get_task(tenant_id: int, task_id: int) -> dict:
     Access rules: assignee can always read their own task; admins and
     directors can read any task in the tenant.
 
-    Required roles: any (access is restricted to visible tasks).
+    Required roles: any role with the tasks module (access is restricted to visible tasks).
 
     Args:
         tenant_id: Tenant primary key (get from list_my_tenants).
@@ -1092,7 +1122,7 @@ def create_task(
     title: str,
     description: str = "",
 ) -> dict:
-    """Create a manual task and assign it to a tenant member.
+    """Create a task and assign it to a tenant member.
 
     Only admins and directors can use this tool — it allows assigning tasks
     to any active user in the tenant. Use this to delegate work, create
@@ -1102,7 +1132,7 @@ def create_task(
 
     Args:
         tenant_id: Tenant primary key (get from list_my_tenants).
-        assignee_id: User ID of the person who will own the task (get from list_active_users).
+        assignee_id: User ID of the person who will own the task (get from list_assignee_candidates).
         title: Short task title (max 255 chars).
         description: Optional detailed description.
     """
@@ -1135,7 +1165,7 @@ def update_task_status(
 
     Status values: new | in_progress | done
 
-    Required roles: any (scope restricted by role).
+    Required roles: any role with the tasks module (scope restricted by role).
 
     Args:
         tenant_id: Tenant primary key (get from list_my_tenants).
@@ -1162,11 +1192,10 @@ def add_task_comment(
 ) -> dict:
     """Post a comment on a task.
 
-    Admins and directors can comment on any task — their comments are shown
-    with a special badge so the assignee is notified. Regular users can only
-    comment on their own tasks.
+    Admins and directors can comment on any task. Other roles can only
+    comment on tasks assigned to themselves.
 
-    Required roles: any (scope restricted by role).
+    Required roles: any role with the tasks module (scope restricted by role).
 
     Args:
         tenant_id: Tenant primary key (get from list_my_tenants).
@@ -1251,7 +1280,7 @@ def list_assignee_candidates(tenant_id: int) -> list:
 
     Use this before create_task or edit_task to find valid assignee_id values.
 
-    Required roles: any.
+    Required roles: any role with the tasks module.
 
     Args:
         tenant_id: Tenant primary key (get from list_my_tenants).
@@ -1329,10 +1358,10 @@ def list_active_users(tenant_id: int) -> list:
 def list_wallets(tenant_id: int) -> list:
     """List all wallets (счета / кассы) for a tenant.
 
-    A wallet is a named account or register that holds funds. Types:
-      • cash    — physical cash register operated by a cashier
-      • bank    — company bank account for wire transfers
-      • card    — corporate card account
+    A wallet is a named account or register that holds funds. wallet_type:
+      • cash           — physical cash register operated by a cashier
+      • bank           — company bank account for wire transfers
+      • corporate_card — corporate card account
 
     Wallets appear on cash/bank/card transactions. Use this to understand
     which accounts the tenant operates and their currencies.

@@ -399,47 +399,88 @@ def get_cashflow_report(
 
 def list_payroll_documents(
     tenant_id: int,
+    status: str = "",
+    kind: str = "",
+    period_from: str = "",
+    period_to: str = "",
     limit: int = 50,
 ) -> list[dict[str, Any]]:
-    """Return payroll documents for a tenant.
+    """Return payroll documents for a tenant with totals and workflow state.
 
+    Same fields as the portal list (PayrollDocumentWorkflowListSerializer):
+    status, kind, period_month, total_sum, paid_total, lines_count, request match.
+
+    - status: draft | accepted | closed | cancelled
+    - kind: salary | advance | bonus
+    - period_from / period_to: YYYY-MM-DD on period_month (documents without
+      period_month are excluded when either is set)
     - limit: max records (default 50, max 200)
     """
     _, tenant = require_module_access(tenant_id, "payroll")
 
-    from apps.modules.payroll.models import PayrollDocument
+    validate_date(period_from, "period_from")
+    validate_date(period_to, "period_to")
+
+    from django.db.models import DecimalField, OuterRef, Subquery, Sum, Value
+    from django.db.models.functions import Coalesce
+
+    from apps.modules.payroll.models import PayrollDocument, PayrollPayout
+    from apps.modules.payroll.serializers import PayrollDocumentWorkflowListSerializer
+    from apps.modules.requests.expense_compliance import annotate_payroll_compliance
+
+    if status and status not in dict(PayrollDocument.STATUS_CHOICES):
+        raise ValueError(f"Invalid status '{status}'. One of: draft, accepted, closed, cancelled")
+    if kind and kind not in dict(PayrollDocument.KIND_CHOICES):
+        raise ValueError(f"Invalid kind '{kind}'. One of: salary, advance, bonus")
+
+    qs = annotate_payroll_compliance(
+        PayrollDocument.objects.filter(tenant=tenant),
+        tenant=tenant,
+    ).annotate(
+        paid_total=Coalesce(
+            Subquery(
+                PayrollPayout.objects.filter(document_id=OuterRef("pk"))
+                .values("document_id")
+                .annotate(s=Sum("amount"))
+                .values("s")[:1]
+            ),
+            Value(Decimal("0")),
+            output_field=DecimalField(max_digits=18, decimal_places=2),
+        )
+    )
+    if status:
+        qs = qs.filter(status=status)
+    if kind:
+        qs = qs.filter(kind=kind)
+    if period_from:
+        qs = qs.filter(period_month__gte=period_from)
+    if period_to:
+        qs = qs.filter(period_month__lte=period_to)
 
     limit = min(max(1, int(limit)), _MAX_LIMIT)
-    return json_safe(list(
-        PayrollDocument.objects.filter(tenant=tenant)
-        .order_by("-created_at")[:limit]
-        .values("id", "doc_id", "created_at")
-    ))
+    docs = qs.order_by("-created_at", "-id")[:limit]
+    return json_safe(list(PayrollDocumentWorkflowListSerializer(docs, many=True).data))
 
 
 def get_payroll_document(
     tenant_id: int,
     document_id: int,
 ) -> dict[str, Any]:
-    """Return a payroll document and all its lines."""
+    """Return a payroll document with its lines, per-employee accrued/paid/remaining
+    and the cash expenses it was paid out with (same data as the portal detail view)."""
     _, tenant = require_module_access(tenant_id, "payroll")
 
     from apps.modules.payroll.models import PayrollDocument
+    from apps.modules.payroll.payouts import payout_state
+    from apps.modules.payroll.serializers import PayrollDocumentWorkflowDetailSerializer
 
     try:
         doc = PayrollDocument.objects.get(id=document_id, tenant=tenant)
     except PayrollDocument.DoesNotExist:
         raise ValueError(f"PayrollDocument {document_id} not found in this tenant")
 
-    lines = json_safe(list(
-        doc.lines.order_by("line_no").values(
-            "id", "line_no", "employee", "item", "description",
-            "sum", "days_plan", "days_fact", "period_start", "period_end", "approval",
-        )
-    ))
-    return {
-        "id": doc.id,
-        "doc_id": doc.doc_id,
-        "created_at": doc.created_at.isoformat(),
-        "lines": lines,
-    }
+    data = dict(PayrollDocumentWorkflowDetailSerializer(doc).data)
+    state = payout_state(doc)
+    data["employees"] = state["employees"]
+    data["payouts"] = state["expenses"]
+    return json_safe(data)

@@ -89,7 +89,7 @@ def get_task_detail(tenant_id: int, task_id: int) -> dict[str, Any]:
 def _require_admin_or_director(user, tenant) -> None:
     from apps.modules.tasks.permissions import _is_tenant_admin_or_director
     if not _is_tenant_admin_or_director(user, tenant):
-        raise PermissionError("Только admin или director могут выполнять это действие.")
+        raise PermissionError("Only admin or director can perform this action.")
 
 
 def _require_task_access(user, tenant, task) -> None:
@@ -98,9 +98,9 @@ def _require_task_access(user, tenant, task) -> None:
     if task.assignee_id == user.id:
         return
     if task.tenant_id != tenant.id:
-        raise PermissionError("Задача не принадлежит этому тенанту.")
+        raise PermissionError("Task does not belong to this tenant.")
     if not _is_tenant_admin_or_director(user, tenant):
-        raise PermissionError("Доступ запрещён: вы не являетесь исполнителем задачи.")
+        raise PermissionError("Access denied: you are not the assignee of this task.")
 
 
 def create_task(
@@ -130,7 +130,7 @@ def create_task(
 
     User = get_user_model()
     if not TenantMembership.objects.filter(tenant=tenant, user_id=assignee_id, is_active=True).exists():
-        raise ValueError(f"Пользователь {assignee_id} не является активным участником тенанта.")
+        raise ValueError(f"User {assignee_id} is not an active member of this tenant.")
 
     assignee = User.objects.get(pk=assignee_id)
     task = task_service.create_task(
@@ -174,7 +174,7 @@ def update_task_status(
     try:
         task = qs.get(id=task_id)
     except Task.DoesNotExist:
-        raise ValueError(f"Задача {task_id} не найдена или недоступна.")
+        raise ValueError(f"Task {task_id} not found or not accessible.")
 
     _require_task_access(user, tenant, task)
 
@@ -182,7 +182,7 @@ def update_task_status(
     try:
         updated = task_service.set_status(task=task, new_status=new_status, actor=user)
     except DjangoValidationError as e:
-        raise ValueError(str(e))
+        raise ValueError("; ".join(e.messages))
     return json_safe(_task_to_dict(updated))
 
 
@@ -193,8 +193,7 @@ def add_task_comment(
 ) -> dict[str, Any]:
     """Post a comment on a task.
 
-    Admins and directors can comment on any task in the tenant (their comments
-    appear with an admin badge visible to the assignee).
+    Admins and directors can comment on any task in the tenant.
     Other roles can only comment on their own tasks.
 
     Args:
@@ -213,7 +212,7 @@ def add_task_comment(
     try:
         task = qs.get(id=task_id)
     except Task.DoesNotExist:
-        raise ValueError(f"Задача {task_id} не найдена или недоступна.")
+        raise ValueError(f"Task {task_id} not found or not accessible.")
 
     _require_task_access(user, tenant, task)
 
@@ -221,7 +220,7 @@ def add_task_comment(
     try:
         comment = comment_service.add_comment(task=task, author=user, body=body)
     except DjangoValidationError as e:
-        raise ValueError(str(e))
+        raise ValueError("; ".join(e.messages))
     return json_safe({
         "id": comment.id,
         "task_id": comment.task_id,
@@ -237,7 +236,7 @@ def _require_can_edit_or_delete(user, tenant, task) -> None:
     if task.created_by_id == user.id:
         return
     if task.tenant_id != tenant.id or not _is_tenant_admin_or_director(user, tenant):
-        raise PermissionError("Только создатель задачи, admin или director могут выполнить это действие.")
+        raise PermissionError("Only the task creator, admin or director can perform this action.")
 
 
 def edit_task(
@@ -271,7 +270,7 @@ def edit_task(
     try:
         task = qs.get(id=task_id)
     except Task.DoesNotExist:
-        raise ValueError(f"Задача {task_id} не найдена или недоступна.")
+        raise ValueError(f"Task {task_id} not found or not accessible.")
 
     _require_can_edit_or_delete(user, tenant, task)
 
@@ -284,10 +283,10 @@ def edit_task(
         update_fields.append("description")
     if assignee_id and assignee_id != task.assignee_id:
         if not _is_tenant_admin_or_director(user, tenant):
-            raise PermissionError("Только admin или director могут переназначить задачу.")
+            raise PermissionError("Only admin or director can reassign a task.")
         from apps.tenants.models import TenantMembership
         if not TenantMembership.objects.filter(tenant=tenant, user_id=assignee_id, is_active=True).exists():
-            raise ValueError(f"Пользователь {assignee_id} не является активным участником тенанта.")
+            raise ValueError(f"User {assignee_id} is not an active member of this tenant.")
         task.assignee_id = assignee_id
         update_fields.append("assignee_id")
 
@@ -318,7 +317,7 @@ def delete_task(tenant_id: int, task_id: int) -> dict[str, Any]:
     try:
         task = qs.get(id=task_id)
     except Task.DoesNotExist:
-        raise ValueError(f"Задача {task_id} не найдена или недоступна.")
+        raise ValueError(f"Task {task_id} not found or not accessible.")
 
     _require_can_edit_or_delete(user, tenant, task)
     task_id_deleted = task.id
