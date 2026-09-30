@@ -920,7 +920,8 @@ class ServiceKeyEndToEndTests(TestCase):
 
 
 class McpListRequestsDeletedTests(TestCase):
-    """list_requests used to return DELETED requests when no status filter was given."""
+    """Deleted requests must never reach the AI client: Request.objects is an
+    ActiveRequestManager that excludes DELETED, even for an explicit status filter."""
 
     def setUp(self):
         from django.contrib.auth import get_user_model
@@ -946,20 +947,12 @@ class McpListRequestsDeletedTests(TestCase):
         self.deleted = _make(Request.STATUS_DELETED)
 
     @patch("apps.mcp_server.tools.requests.require_module_access")
-    def test_deleted_requests_are_hidden_by_default(self, mock_access):
+    def test_deleted_requests_are_not_listed(self, mock_access):
         from apps.mcp_server.tools import requests as req_tools
 
         mock_access.return_value = (None, self.tenant)
-        ids = [r["id"] for r in req_tools.list_requests(self.tenant.id)]
-        self.assertEqual(ids, [self.live.id])
-
-    @patch("apps.mcp_server.tools.requests.require_module_access")
-    def test_deleted_requests_available_with_explicit_status(self, mock_access):
-        from apps.mcp_server.tools import requests as req_tools
-
-        mock_access.return_value = (None, self.tenant)
-        ids = [r["id"] for r in req_tools.list_requests(self.tenant.id, status="DELETED")]
-        self.assertEqual(ids, [self.deleted.id])
+        self.assertEqual([r["id"] for r in req_tools.list_requests(self.tenant.id)], [self.live.id])
+        self.assertEqual(req_tools.list_requests(self.tenant.id, status="DELETED"), [])
 
 
 class McpPayrollToolsTests(TestCase):

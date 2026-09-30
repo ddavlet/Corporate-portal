@@ -287,14 +287,13 @@ def list_requests(
       APPROVED  — all approvers signed off, awaiting payment
       PAYED     — payment confirmed by cashier/accountant
       REJECTED  — declined at some approval step
-      DELETED   — removed by the user (hidden by default)
 
     Required roles: admin, director, approver, requester, accountant, cashier.
 
     Args:
         tenant_id: Tenant primary key (get from list_my_tenants).
-        status: Filter by status. One of: DRAFT, 1, 2, 3, 4, 5, APPROVED, PAYED, REJECTED,
-            DELETED. Deleted requests are excluded unless status="DELETED" is passed.
+        status: Filter by status. One of: DRAFT, 1, 2, 3, 4, 5, APPROVED, PAYED, REJECTED.
+            Deleted requests are never returned.
         currency: Filter by currency. One of: UZS, USD, EUR, RUB.
         payment_type: How payment is made. One of:
             "Наличные" (cash),

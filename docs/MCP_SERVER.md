@@ -198,7 +198,7 @@ Lists payment requests with optional filters. **Roles:** admin, director, approv
 
 | Parameter | Type | Notes |
 |-----------|------|-------|
-| `status` | str | `DRAFT`, `1`–`5`, `APPROVED`, `PAYED`, `REJECTED`, `DELETED` (deleted requests are excluded unless `DELETED` is passed) |
+| `status` | str | `DRAFT`, `1`–`5`, `APPROVED`, `PAYED`, `REJECTED` (deleted requests are never returned) |
 | `currency` | str | `UZS`, `USD`, `EUR`, `RUB` |
 | `payment_type` | str | `Наличные`, `Перечисление`, `Пополнение`, `Платежная карта`, `Начисление ЗП` |
 | `urgency` | str | `Низко`, `Обычно`, `Срочно` |
