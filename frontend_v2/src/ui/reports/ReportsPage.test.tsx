@@ -1,89 +1,137 @@
-import { render, screen, waitFor } from '@testing-library/react'
-import { MemoryRouter } from 'react-router-dom'
+import { fireEvent, render, screen } from '@testing-library/react'
+import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import type { ReportTemplateProps } from './templates/types'
+import type { ReportTemplateInfo } from '../../lib/reportsApi'
+import { withoutSessionStorage } from '../../test/helpers'
 
-const getReportTemplatesMock = vi.fn()
-vi.mock('../../lib/reportsApi', () => ({ getReportTemplates: () => getReportTemplatesMock() }))
-
-const setUserPreferenceMock = vi.fn()
-vi.mock('../../lib/api', () => ({
-  getUserPreferences: vi.fn().mockResolvedValue({}),
-  setUserPreference: (...args: unknown[]) => setUserPreferenceMock(...args),
-}))
-
-// Stub templates: each renders its name and the switcher it was given. createElement, not JSX,
-// because this factory is hoisted above the file's imports.
-vi.mock('./templates/registry', async () => {
+const useReportTemplatesMock = vi.fn()
+vi.mock('../../lib/useReportTemplates', () => ({ useReportTemplates: () => useReportTemplatesMock() }))
+const useTenantAdminMock = vi.fn()
+vi.mock('../../lib/useTenantAdmin', () => ({ useTenantAdmin: () => useTenantAdminMock() }))
+// Stub drawer: shows which report's rules are open. createElement, not JSX: this factory is hoisted above the imports.
+vi.mock('./rules/ReportRulesDrawer', async () => {
   const { createElement } = await import('react')
-  const entry = (key: string, label: string) => ({
-    key,
-    label,
-    supports: ['pnl', 'cashflow'],
-    load: async () => ({
-      default: ({ templateSwitcher }: ReportTemplateProps) =>
-        createElement('div', null, createElement('span', null, `view:${key}`), templateSwitcher),
-    }),
-  })
   return {
-    REPORT_TEMPLATE_REGISTRY: {
-      classic: entry('classic', 'Классический'),
-      professional: entry('professional', 'Профессиональный'),
-    },
+    ReportRulesDrawer: ({ report }: { report: string | null }) => (report ? createElement('div', null, `rules:${report}`) : null),
   }
 })
 
 import { ReportsPage } from './ReportsPage'
 
-const info = (key: string, label: string) => ({ key, label, description: '', reports: ['pnl', 'cashflow'], engine: key === 'classic' ? 'legacy' : 'statement' })
+const info = (key: string, label: string): ReportTemplateInfo => ({
+  key,
+  label,
+  description: '',
+  reports: ['pnl', 'cashflow'],
+  engine: key === 'classic' ? 'legacy' : 'statement',
+})
+const classic = info('classic', 'Классический')
+const professional = info('professional', 'Профессиональный')
+const loaded = (defaultKey: string, allowed: ReportTemplateInfo[]) => ({
+  templates: { default: defaultKey, allowed, available: [classic, professional] },
+  failed: false,
+  loading: false,
+})
+
+function Location() {
+  const { pathname, search } = useLocation()
+  return <output data-testid="location">{`${pathname}${search}`}</output>
+}
 
 function renderAt(url: string) {
   return render(
     <MemoryRouter initialEntries={[url]}>
-      <ReportsPage />
+      <Routes>
+        <Route path="/reports" element={<ReportsPage />} />
+        <Route path="/reports/:template/:report" element={<Location />} />
+      </Routes>
     </MemoryRouter>,
   )
 }
 
+const cardTitles = () => screen.getAllByRole('link').map((link) => link.textContent)
+
 describe('ReportsPage', () => {
+  const fetchMock = vi.fn()
+
   beforeEach(() => {
-    getReportTemplatesMock.mockReset()
-    setUserPreferenceMock.mockReset().mockResolvedValue(undefined)
+    sessionStorage.clear()
+    useTenantAdminMock.mockReturnValue({ isAdmin: false, loading: false })
+    useReportTemplatesMock.mockReturnValue(loaded('professional', [classic, professional]))
+    Object.defineProperty(globalThis, 'fetch', { value: fetchMock, configurable: true })
   })
 
-  it('hides the switcher when only one template is allowed', async () => {
-    getReportTemplatesMock.mockResolvedValue({ default: 'classic', allowed: [info('classic', 'Классический')], available: [info('classic', 'Классический'), info('professional', 'Профессиональный')] })
+  it('shows a card for every report of every allowed template, the «show first» template first', () => {
     renderAt('/reports')
-    expect(await screen.findByText('view:classic')).toBeInTheDocument()
-    expect(screen.queryByText('Профессиональный')).toBeNull()
+    expect(cardTitles()).toEqual(['Прибыли и убытки', 'Движение денег', 'PnL', 'Cashflow'])
   })
 
-  it('opens the tenant default and offers the switcher', async () => {
-    const both = [info('classic', 'Классический'), info('professional', 'Профессиональный')]
-    getReportTemplatesMock.mockResolvedValue({ default: 'professional', allowed: both, available: both })
+  it('hides the cards of a template the company has not allowed', () => {
+    useReportTemplatesMock.mockReturnValue(loaded('classic', [classic]))
     renderAt('/reports')
-    expect(await screen.findByText('view:professional')).toBeInTheDocument()
-    expect(screen.getByText('Классический')).toBeInTheDocument()
+    expect(cardTitles()).toEqual(['PnL', 'Cashflow'])
   })
 
-  it('explains when the linked template is not available', async () => {
-    getReportTemplatesMock.mockResolvedValue({ default: 'classic', allowed: [info('classic', 'Классический')], available: [info('classic', 'Классический'), info('professional', 'Профессиональный')] })
-    renderAt('/reports?t=professional')
-    expect(await screen.findByText('Шаблон «Профессиональный» недоступен, показан «Классический».')).toBeInTheDocument()
-    expect(screen.getByText('view:classic')).toBeInTheDocument()
-  })
-
-  it('falls back to Classic when templates cannot be loaded', async () => {
-    getReportTemplatesMock.mockRejectedValue(new Error('network'))
+  it('shows the Classic cards when the template list cannot be loaded', () => {
+    useReportTemplatesMock.mockReturnValue({ templates: null, failed: true, loading: false })
     renderAt('/reports')
-    expect(await screen.findByText('view:classic')).toBeInTheDocument()
+    expect(cardTitles()).toEqual(['PnL', 'Cashflow'])
   })
 
-  it('never saves the template preference as null', async () => {
-    getReportTemplatesMock.mockResolvedValue({ default: 'classic', allowed: [info('classic', 'Классический')], available: [info('classic', 'Классический')] })
+  it('loads no report data', () => {
     renderAt('/reports')
-    await screen.findByText('view:classic')
-    await waitFor(() => expect(setUserPreferenceMock).toHaveBeenCalledWith('reports.template.v1', ''), { timeout: 2000 })
-    expect(setUserPreferenceMock.mock.calls.some(([, value]) => value === null)).toBe(false)
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it('opens a card with the view it was left in', () => {
+    sessionStorage.setItem('reports.view.professional.cashflow', '?p=month&m=2026-08')
+    renderAt('/reports')
+    const link = screen.getByRole('link', { name: 'Движение денег' })
+    expect(link).toHaveAttribute('href', '/reports/professional/cashflow?p=month&m=2026-08')
+    fireEvent.click(link)
+    expect(screen.getByTestId('location')).toHaveTextContent('/reports/professional/cashflow?p=month&m=2026-08')
+  })
+
+  it('opens the cards with their defaults when the browser refuses session storage', async () => {
+    await withoutSessionStorage(() => {
+      renderAt('/reports')
+      expect(screen.getByRole('link', { name: 'Движение денег' })).toHaveAttribute('href', '/reports/professional/cashflow')
+    })
+  })
+
+  it('leaves Ctrl, Cmd and Shift clicks on a card to the browser instead of opening the report here', () => {
+    renderAt('/reports')
+    const body = screen.getByText('Показатели, график и отчёт о движении денег с остатками и сравнением.')
+    for (const modifier of [{ ctrlKey: true }, { metaKey: true }, { shiftKey: true }]) {
+      fireEvent.click(body, modifier)
+      expect(screen.queryByTestId('location')).toBeNull()
+    }
+  })
+
+  it('opens the rules of a report for admins without leaving the cards', () => {
+    useTenantAdminMock.mockReturnValue({ isAdmin: true, loading: false })
+    renderAt('/reports')
+    fireEvent.click(screen.getByRole('button', { name: 'Правила отчёта «PnL»' }))
+    expect(screen.getByText('rules:pnl')).toBeInTheDocument()
+    expect(screen.queryByTestId('location')).toBeNull()
+  })
+
+  it('offers no rules to other users', () => {
+    renderAt('/reports')
+    expect(screen.queryByRole('button', { name: /Правила отчёта/ })).toBeNull()
+  })
+
+  it('sends a link from before the cards to the card of its report', () => {
+    useReportTemplatesMock.mockReturnValue(loaded('classic', [classic, professional]))
+    renderAt('/reports?t=professional&r=cashflow&p=month&line=rev.bank&from=2026-08-01&to=2026-08-31')
+    expect(screen.getByTestId('location')).toHaveTextContent(
+      '/reports/professional/cashflow?p=month&line=rev.bank&from=2026-08-01&to=2026-08-31',
+    )
+  })
+
+  it('sends a link copied from the old address bar, without `t` and `r`, to the template it was made in', () => {
+    useReportTemplatesMock.mockReturnValue(loaded('classic', [classic, professional]))
+    renderAt('/reports?p=month&m=2026-08&line=rev.bank')
+    expect(screen.getByTestId('location')).toHaveTextContent('/reports/professional/pnl?p=month&m=2026-08&line=rev.bank')
   })
 })

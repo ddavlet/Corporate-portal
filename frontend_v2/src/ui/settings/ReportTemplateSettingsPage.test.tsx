@@ -10,6 +10,8 @@ vi.mock('../../lib/reportsApi', () => ({
 vi.mock('../../lib/apiNotify', () => ({ notifyApiSuccess: vi.fn() }))
 const useTenantAdminMock = vi.fn()
 vi.mock('../../lib/useTenantAdmin', () => ({ useTenantAdmin: () => useTenantAdminMock() }))
+const resetReportTemplatesCacheMock = vi.fn()
+vi.mock('../../lib/useReportTemplates', () => ({ resetReportTemplatesCache: () => resetReportTemplatesCacheMock() }))
 
 import { ReportTemplateSettingsPage } from './ReportTemplateSettingsPage'
 
@@ -38,5 +40,17 @@ describe('ReportTemplateSettingsPage', () => {
     await waitFor(() =>
       expect(updateReportTemplatesMock).toHaveBeenCalledWith({ default_template: 'classic', allowed_templates: ['classic'] }),
     )
+  })
+
+  it('names the template whose cards come first', async () => {
+    render(<ReportTemplateSettingsPage />)
+    expect(await screen.findByText('Показывать первыми')).toBeInTheDocument()
+    expect(screen.getByText('Карточки этого шаблона стоят первыми на странице «Отчёты».')).toBeInTheDocument()
+  })
+
+  it('makes the report pages read the saved list', async () => {
+    render(<ReportTemplateSettingsPage />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Сохранить' }))
+    await waitFor(() => expect(resetReportTemplatesCacheMock).toHaveBeenCalledTimes(1))
   })
 })

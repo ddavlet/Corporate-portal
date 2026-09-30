@@ -1,12 +1,10 @@
 from __future__ import annotations
 
-from datetime import date, datetime
-from decimal import Decimal, InvalidOperation
+from datetime import date
+from decimal import Decimal
 from typing import Any
 
-from django.conf import settings
 from django.db.models import Count, Q, Sum
-from django.utils import timezone
 
 from apps.modules.bank_expenses.models import BankRevenue
 from apps.modules.cashier.models import CashRevenue
@@ -15,89 +13,30 @@ from apps.modules.investments.services import clamp_rate_date_to_cbu_availabilit
 from apps.modules.requests.amortization import build_amortization_schedule_rows
 from apps.modules.requests.models import Request, RequestPaymentPurposeConfig
 from apps.modules.reports.models import TenantReportSettings
-
-# --- pnl_config keys (backend PnL) ---
-CFG_START_MONTH = "start_month"
-CFG_CASH_EXCLUDE = "cash_exclude_operations"
-CFG_BANK_EXCLUDE = "bank_exclude_purposes"
-CFG_REQ_CAT_EXCLUDE = "request_exclude_categories"
-CFG_REQ_PAYMENT_TYPES = "request_payment_types_for_pnl"
-CFG_PURPOSE_OP = "payment_purpose_operational"
-CFG_PURPOSE_OTHER = "payment_purpose_other"
-CFG_PURPOSE_INV = "payment_purpose_invest_returns"
-CFG_IR_TYPE_OP = "invest_return_type_operational"
-CFG_IR_TYPE_OTHER = "invest_return_type_other"
-CFG_IR_TYPE_INV = "invest_return_type_invest_returns"
-CFG_OPENING_BALANCE = "opening_balance"
-
-_PAYMENT_TYPE_VALUES = frozenset(c[0] for c in Request.PAYMENT_TYPE_CHOICES)
-_RETURN_TYPE_VALUES = frozenset(c[0] for c in InvestReturn.ReturnType.choices)
-
-
-class ReportSettingsMissing(Exception):
-    """No TenantReportSettings row for tenant."""
-
-
-class ReportSettingsInvalid(Exception):
-    """pnl_config JSON is missing required keys or has invalid values."""
-
-
-def _parse_start_month(value: str) -> date:
-    text = (value or "").strip()
-    try:
-        y, m = text.split("-", 1)
-        return date(int(y), int(m), 1)
-    except (ValueError, AttributeError) as exc:
-        raise ReportSettingsInvalid(f"Invalid start_month {value!r}, expected YYYY-MM.") from exc
-
-
-def _parse_opening_balance(raw: Any) -> Decimal:
-    """Cash balance at the beginning of ``start_month`` (before flows in that month). Defaults to 0."""
-    if raw is None:
-        return Decimal("0")
-    text = str(raw).strip().replace(" ", "").replace(",", ".")
-    if not text:
-        return Decimal("0")
-    try:
-        return Decimal(text)
-    except (InvalidOperation, ValueError) as exc:
-        raise ReportSettingsInvalid(f"Invalid opening_balance {raw!r}, expected a decimal number.") from exc
-
-
-def _iso_local(dt: datetime | date | None) -> str:
-    if dt is None:
-        return ""
-    if isinstance(dt, date) and not isinstance(dt, datetime):
-        return dt.isoformat()
-    if isinstance(dt, datetime):
-        tz = timezone.get_default_timezone()
-        if settings.USE_TZ and timezone.is_naive(dt):
-            dt = timezone.make_aware(dt, tz)
-        local = timezone.localtime(dt, timezone=tz) if settings.USE_TZ else dt
-        return local.isoformat()
-    return ""
-
-
-def _cash_operation_label(row: CashRevenue) -> str:
-    payload = row.payload if isinstance(row.payload, dict) else {}
-    op = payload.get("operation")
-    if op is not None and str(op).strip():
-        return str(op).strip()
-    return str(row.operation or "").strip()
-
-
-def _normalize_str_list(raw: Any, *, field: str) -> list[str]:
-    if not isinstance(raw, list):
-        raise ReportSettingsInvalid(f"{field} must be a list")
-    seen: set[str] = set()
-    out: list[str] = []
-    for x in raw:
-        s = str(x).strip()
-        if not s or s in seen:
-            continue
-        seen.add(s)
-        out.append(s)
-    return out
+from apps.modules.reports.report_rules import (
+    CFG_BANK_EXCLUDE,
+    CFG_CASH_EXCLUDE,
+    CFG_IR_TYPE_INV,
+    CFG_IR_TYPE_OP,
+    CFG_IR_TYPE_OTHER,
+    CFG_PURPOSE_INV,
+    CFG_PURPOSE_OP,
+    CFG_PURPOSE_OTHER,
+    CFG_REQ_CAT_EXCLUDE,
+    CFG_REQ_PAYMENT_TYPES,
+    CFG_START_MONTH,
+    PAYMENT_TYPE_VALUES,
+    ReportSettingsMissing,
+    cash_operation_label,
+    invest_type_bucket,
+    iso_local,
+    normalize_str_list,
+    parse_start_month,
+    purpose_bucket,
+    request_author,
+    rules_snapshot,
+    validate_rules,
+)
 
 
 def _bank_purpose_excluded(purpose: str, patterns: list[str]) -> bool:
@@ -108,102 +47,6 @@ def _bank_purpose_excluded(purpose: str, patterns: list[str]) -> bool:
     return any(p.lower() in text for p in patterns)
 
 
-def _validate_disjoint_string_sets(
-    *,
-    a: list[str],
-    b: list[str],
-    c: list[str],
-    label: str,
-) -> None:
-    sa, sb, sc = set(a), set(b), set(c)
-    if sa & sb:
-        raise ReportSettingsInvalid(f"{label}: overlap between operational and other.")
-    if sa & sc:
-        raise ReportSettingsInvalid(f"{label}: overlap between operational and invest_returns bucket.")
-    if sb & sc:
-        raise ReportSettingsInvalid(f"{label}: overlap between other and invest_returns bucket.")
-
-
-def validate_pnl_config_dict(cfg: dict[str, Any]) -> None:
-    """Raise ReportSettingsInvalid if cfg cannot drive backend PnL."""
-    required = (
-        CFG_START_MONTH,
-        CFG_CASH_EXCLUDE,
-        CFG_REQ_CAT_EXCLUDE,
-        CFG_REQ_PAYMENT_TYPES,
-        CFG_PURPOSE_OP,
-        CFG_PURPOSE_OTHER,
-        CFG_PURPOSE_INV,
-        CFG_IR_TYPE_OP,
-        CFG_IR_TYPE_OTHER,
-        CFG_IR_TYPE_INV,
-    )
-    missing = [k for k in required if k not in cfg]
-    if missing:
-        raise ReportSettingsInvalid(f"pnl_config missing keys: {missing}")
-
-    _parse_start_month(str(cfg[CFG_START_MONTH]))
-
-    _normalize_str_list(cfg[CFG_CASH_EXCLUDE], field=CFG_CASH_EXCLUDE)
-    _normalize_str_list(cfg[CFG_REQ_CAT_EXCLUDE], field=CFG_REQ_CAT_EXCLUDE)
-
-    pay_types_in = cfg[CFG_REQ_PAYMENT_TYPES]
-    if not isinstance(pay_types_in, list):
-        raise ReportSettingsInvalid(f"{CFG_REQ_PAYMENT_TYPES} must be a list")
-    payment_types: list[str] = []
-    seen_pt: set[str] = set()
-    for x in pay_types_in:
-        s = str(x).strip()
-        if not s:
-            continue
-        if s not in _PAYMENT_TYPE_VALUES:
-            raise ReportSettingsInvalid(
-                f"{CFG_REQ_PAYMENT_TYPES} contains invalid value {s!r}; "
-                f"allowed: {sorted(_PAYMENT_TYPE_VALUES)}"
-            )
-        if s not in seen_pt:
-            seen_pt.add(s)
-            payment_types.append(s)
-
-    purp_op = _normalize_str_list(cfg[CFG_PURPOSE_OP], field=CFG_PURPOSE_OP)
-    purp_ot = _normalize_str_list(cfg[CFG_PURPOSE_OTHER], field=CFG_PURPOSE_OTHER)
-    purp_inv = _normalize_str_list(cfg[CFG_PURPOSE_INV], field=CFG_PURPOSE_INV)
-    _validate_disjoint_string_sets(a=purp_op, b=purp_ot, c=purp_inv, label="payment_purpose_*")
-
-    ir_op = _normalize_str_list(cfg[CFG_IR_TYPE_OP], field=CFG_IR_TYPE_OP)
-    ir_ot = _normalize_str_list(cfg[CFG_IR_TYPE_OTHER], field=CFG_IR_TYPE_OTHER)
-    ir_inv = _normalize_str_list(cfg[CFG_IR_TYPE_INV], field=CFG_IR_TYPE_INV)
-    for label, lst in (
-        (CFG_IR_TYPE_OP, ir_op),
-        (CFG_IR_TYPE_OTHER, ir_ot),
-        (CFG_IR_TYPE_INV, ir_inv),
-    ):
-        for x in lst:
-            if x not in _RETURN_TYPE_VALUES:
-                raise ReportSettingsInvalid(f"{label} contains invalid invest return type {x!r}.")
-    _validate_disjoint_string_sets(a=ir_op, b=ir_ot, c=ir_inv, label="invest_return_type_*")
-
-    union_ir = set(ir_op) | set(ir_ot) | set(ir_inv)
-    if union_ir != _RETURN_TYPE_VALUES:
-        raise ReportSettingsInvalid(
-            "invest_return_type_* must partition ReturnType exactly once each; "
-            f"expected {_sorted_return_types()}, got union={sorted(union_ir)}"
-        )
-    if len(ir_op) + len(ir_ot) + len(ir_inv) != len(_RETURN_TYPE_VALUES):
-        raise ReportSettingsInvalid("invest_return_type_* lists must not contain duplicates across buckets.")
-
-    if CFG_OPENING_BALANCE in cfg:
-        _parse_opening_balance(cfg.get(CFG_OPENING_BALANCE))
-
-    # Optional key: absent in configs saved before bank exclusions existed.
-    if CFG_BANK_EXCLUDE in cfg:
-        _normalize_str_list(cfg[CFG_BANK_EXCLUDE], field=CFG_BANK_EXCLUDE)
-
-
-def _sorted_return_types() -> list[str]:
-    return sorted(_RETURN_TYPE_VALUES)
-
-
 def get_pnl_config_or_raise(*, tenant) -> dict[str, Any]:
     try:
         row = TenantReportSettings.objects.get(tenant_id=tenant.id)
@@ -211,61 +54,9 @@ def get_pnl_config_or_raise(*, tenant) -> dict[str, Any]:
         raise ReportSettingsMissing(f"No tenant_report_settings for tenant_id={tenant.id}") from exc
 
     cfg = row.pnl_config if isinstance(row.pnl_config, dict) else {}
-    validate_pnl_config_dict(cfg)
+    validate_rules(cfg)
 
     return cfg
-
-
-def _report_settings_snapshot(cfg: dict[str, Any]) -> dict[str, Any]:
-    cash_exclude = {str(x).strip() for x in cfg[CFG_CASH_EXCLUDE] if str(x).strip()}
-    cat_exclude = {str(x).strip() for x in cfg[CFG_REQ_CAT_EXCLUDE] if str(x).strip()}
-    pay_types: list[str] = []
-    seen: set[str] = set()
-    for x in cfg[CFG_REQ_PAYMENT_TYPES]:
-        s = str(x).strip()
-        if s and s not in seen:
-            seen.add(s)
-            pay_types.append(s)
-    opening = _parse_opening_balance(cfg.get(CFG_OPENING_BALANCE))
-
-    bank_exclude = _normalize_str_list(cfg.get(CFG_BANK_EXCLUDE, []), field=CFG_BANK_EXCLUDE)
-
-    return {
-        CFG_START_MONTH: str(cfg[CFG_START_MONTH]).strip(),
-        CFG_CASH_EXCLUDE: sorted(cash_exclude),
-        CFG_BANK_EXCLUDE: sorted(bank_exclude),
-        CFG_REQ_CAT_EXCLUDE: sorted(cat_exclude),
-        CFG_REQ_PAYMENT_TYPES: pay_types,
-        CFG_PURPOSE_OP: sorted(_normalize_str_list(cfg[CFG_PURPOSE_OP], field=CFG_PURPOSE_OP)),
-        CFG_PURPOSE_OTHER: sorted(_normalize_str_list(cfg[CFG_PURPOSE_OTHER], field=CFG_PURPOSE_OTHER)),
-        CFG_PURPOSE_INV: sorted(_normalize_str_list(cfg[CFG_PURPOSE_INV], field=CFG_PURPOSE_INV)),
-        CFG_IR_TYPE_OP: sorted(_normalize_str_list(cfg[CFG_IR_TYPE_OP], field=CFG_IR_TYPE_OP)),
-        CFG_IR_TYPE_OTHER: sorted(_normalize_str_list(cfg[CFG_IR_TYPE_OTHER], field=CFG_IR_TYPE_OTHER)),
-        CFG_IR_TYPE_INV: sorted(_normalize_str_list(cfg[CFG_IR_TYPE_INV], field=CFG_IR_TYPE_INV)),
-        CFG_OPENING_BALANCE: str(opening),
-    }
-
-
-def _purpose_bucket(purpose: str, *, op: set[str], ot: set[str], inv: set[str]) -> str | None:
-    p = purpose.strip()
-    if p in op:
-        return "operational"
-    if p in ot:
-        return "other"
-    if p in inv:
-        return "invest_returns"
-    return None
-
-
-def _invest_type_bucket(type_value: str, *, op: set[str], ot: set[str], inv: set[str]) -> str | None:
-    t = type_value.strip()
-    if t in op:
-        return "operational"
-    if t in ot:
-        return "other"
-    if t in inv:
-        return "invest_returns"
-    return None
 
 
 def _parse_period_month(raw: str) -> date | None:
@@ -302,14 +93,6 @@ def _invest_return_row(ir: InvestReturn) -> dict[str, Any] | None:
         "description": description,
         "source": "invest_return",
     }
-
-
-def request_author(req: Request) -> str:
-    """Who asked for the money: full name, or the login when the profile has no name."""
-    user = req.requester
-    if user is None:
-        return ""
-    return (user.get_full_name() or user.username or "").strip()
 
 
 def _append_request_line(
@@ -366,13 +149,13 @@ def _append_request_line(
 
 def compute_unassigned_payment_purposes(*, tenant_id: int, cfg: dict[str, Any]) -> list[dict[str, Any]]:
     """Distinct payment_purpose values on paid requests in PnL scope that appear in no purpose bucket."""
-    validate_pnl_config_dict(cfg)
-    start = _parse_start_month(str(cfg[CFG_START_MONTH]))
-    pay_list = [str(x).strip() for x in cfg[CFG_REQ_PAYMENT_TYPES] if str(x).strip() and str(x).strip() in _PAYMENT_TYPE_VALUES]
+    validate_rules(cfg)
+    start = parse_start_month(str(cfg[CFG_START_MONTH]))
+    pay_list = [str(x).strip() for x in cfg[CFG_REQ_PAYMENT_TYPES] if str(x).strip() and str(x).strip() in PAYMENT_TYPE_VALUES]
     cat_exclude = {str(x).strip() for x in cfg[CFG_REQ_CAT_EXCLUDE] if str(x).strip()}
-    op = set(_normalize_str_list(cfg[CFG_PURPOSE_OP], field=CFG_PURPOSE_OP))
-    ot = set(_normalize_str_list(cfg[CFG_PURPOSE_OTHER], field=CFG_PURPOSE_OTHER))
-    inv = set(_normalize_str_list(cfg[CFG_PURPOSE_INV], field=CFG_PURPOSE_INV))
+    op = set(normalize_str_list(cfg[CFG_PURPOSE_OP], field=CFG_PURPOSE_OP))
+    ot = set(normalize_str_list(cfg[CFG_PURPOSE_OTHER], field=CFG_PURPOSE_OTHER))
+    inv = set(normalize_str_list(cfg[CFG_PURPOSE_INV], field=CFG_PURPOSE_INV))
     assigned = op | ot | inv
 
     qs = Request.objects.filter(
@@ -425,7 +208,7 @@ def list_tenant_payment_purpose_pool(
         allowed = [
             str(x).strip()
             for x in for_pnl_payment_types
-            if str(x).strip() and str(x).strip() in _PAYMENT_TYPE_VALUES
+            if str(x).strip() and str(x).strip() in PAYMENT_TYPE_VALUES
         ]
         purpose_qs = purpose_qs.filter(payment_type_config__payment_type__in=allowed)
         if allowed:
@@ -451,21 +234,21 @@ def build_pnl_payload_from_db(*, tenant, query_params: dict[str, Any]) -> dict[s
     del query_params
 
     cfg = get_pnl_config_or_raise(tenant=tenant)
-    start = _parse_start_month(str(cfg[CFG_START_MONTH]))
+    start = parse_start_month(str(cfg[CFG_START_MONTH]))
     cash_exclude = {str(x).strip() for x in cfg[CFG_CASH_EXCLUDE] if str(x).strip()}
-    bank_exclude = _normalize_str_list(cfg.get(CFG_BANK_EXCLUDE, []), field=CFG_BANK_EXCLUDE)
+    bank_exclude = normalize_str_list(cfg.get(CFG_BANK_EXCLUDE, []), field=CFG_BANK_EXCLUDE)
     cat_exclude = {str(x).strip() for x in cfg[CFG_REQ_CAT_EXCLUDE] if str(x).strip()}
-    pay_list = [str(x).strip() for x in cfg[CFG_REQ_PAYMENT_TYPES] if str(x).strip() in _PAYMENT_TYPE_VALUES]
+    pay_list = [str(x).strip() for x in cfg[CFG_REQ_PAYMENT_TYPES] if str(x).strip() in PAYMENT_TYPE_VALUES]
 
-    purp_op = set(_normalize_str_list(cfg[CFG_PURPOSE_OP], field=CFG_PURPOSE_OP))
-    purp_ot = set(_normalize_str_list(cfg[CFG_PURPOSE_OTHER], field=CFG_PURPOSE_OTHER))
-    purp_inv = set(_normalize_str_list(cfg[CFG_PURPOSE_INV], field=CFG_PURPOSE_INV))
+    purp_op = set(normalize_str_list(cfg[CFG_PURPOSE_OP], field=CFG_PURPOSE_OP))
+    purp_ot = set(normalize_str_list(cfg[CFG_PURPOSE_OTHER], field=CFG_PURPOSE_OTHER))
+    purp_inv = set(normalize_str_list(cfg[CFG_PURPOSE_INV], field=CFG_PURPOSE_INV))
 
-    ir_op = set(_normalize_str_list(cfg[CFG_IR_TYPE_OP], field=CFG_IR_TYPE_OP))
-    ir_ot = set(_normalize_str_list(cfg[CFG_IR_TYPE_OTHER], field=CFG_IR_TYPE_OTHER))
-    ir_inv = set(_normalize_str_list(cfg[CFG_IR_TYPE_INV], field=CFG_IR_TYPE_INV))
+    ir_op = set(normalize_str_list(cfg[CFG_IR_TYPE_OP], field=CFG_IR_TYPE_OP))
+    ir_ot = set(normalize_str_list(cfg[CFG_IR_TYPE_OTHER], field=CFG_IR_TYPE_OTHER))
+    ir_inv = set(normalize_str_list(cfg[CFG_IR_TYPE_INV], field=CFG_IR_TYPE_INV))
 
-    snapshot = _report_settings_snapshot(cfg)
+    snapshot = rules_snapshot(cfg)
 
     revenue: list[dict[str, Any]] = []
 
@@ -490,7 +273,7 @@ def build_pnl_payload_from_db(*, tenant, query_params: dict[str, Any]) -> dict[s
         revenue_at__date__gte=start,
     ).order_by("revenue_at", "id")
     for cr in cash_qs:
-        op_label = _cash_operation_label(cr)
+        op_label = cash_operation_label(cr)
         if op_label in cash_exclude:
             continue
         payload = cr.payload if isinstance(cr.payload, dict) else {}
@@ -498,7 +281,7 @@ def build_pnl_payload_from_db(*, tenant, query_params: dict[str, Any]) -> dict[s
         revenue.append(
             {
                 "id": str(cr.id),
-                "date": _iso_local(cr.revenue_at),
+                "date": iso_local(cr.revenue_at),
                 "amount": str(Decimal(cr.total_sum)),
                 "purpose": str(cr.operation or ""),
                 "description": str(cr.counterparty or ""),
@@ -527,7 +310,7 @@ def build_pnl_payload_from_db(*, tenant, query_params: dict[str, Any]) -> dict[s
         if cat in cat_exclude:
             continue
         purpose = str(req.payment_purpose or "").strip()
-        bucket = _purpose_bucket(purpose, op=purp_op, ot=purp_ot, inv=purp_inv)
+        bucket = purpose_bucket(purpose, op=purp_op, ot=purp_ot, inv=purp_inv)
         if bucket is None:
             continue
         _append_request_line(
@@ -543,7 +326,7 @@ def build_pnl_payload_from_db(*, tenant, query_params: dict[str, Any]) -> dict[s
         InvestReturn.objects.filter(tenant_id=tenant.id, confirmed=True, billing_date__gte=start)
         .order_by("billing_date", "id")
     ):
-        b = _invest_type_bucket(str(ir.type or ""), op=ir_op, ot=ir_ot, inv=ir_inv)
+        b = invest_type_bucket(str(ir.type or ""), op=ir_op, ot=ir_ot, inv=ir_inv)
         if b is None:
             continue
         row = _invest_return_row(ir)

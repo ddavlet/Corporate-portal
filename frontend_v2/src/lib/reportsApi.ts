@@ -1,4 +1,4 @@
-import { ApiError, apiFetch, parseErrorBody } from './api'
+import { ApiError, apiFetch, parseErrorBody, type PnlReportSettingsSnapshot } from './api'
 
 const BASE = '/api/reports'
 
@@ -25,6 +25,26 @@ export type ReportTemplatesResponse = {
 }
 
 export type ReportTemplateSettingsPayload = { default_template: string; allowed_templates: string[] }
+
+export type ReportSource = 'n8n' | 'backend'
+
+/** Calculation rules of one report. PnL and Cashflow use the same keys; only PnL applies `bank_exclude_purposes`. */
+export type ReportRules = PnlReportSettingsSnapshot
+
+export type UnassignedPurpose = { purpose: string; count: number; amount?: string }
+
+export type ReportRulesDiagnostics = { unassigned_payment_purposes?: UnassignedPurpose[]; error?: string }
+
+export type ReportRulesResponse = {
+  report: ReportKind
+  source: ReportSource
+  rules: ReportRules
+  updated_at: string | null
+  /** Only when asked for (`diagnostics=1`). */
+  diagnostics?: ReportRulesDiagnostics
+}
+
+export type ReportRulesPayload = { source?: ReportSource; rules?: ReportRules }
 
 export type ReportUnits = 'sum' | 'k' | 'm'
 
@@ -240,6 +260,24 @@ export async function updateReportTemplates(payload: ReportTemplateSettingsPaylo
     SILENT,
   )
   return readJson<ReportTemplatesResponse>(res)
+}
+
+/** One report's data source and rules (tenant admin); `diagnostics` adds the payment purposes no section takes. */
+export async function getReportRules(
+  report: ReportKind,
+  options: { diagnostics?: boolean } = {},
+): Promise<ReportRulesResponse> {
+  const query = options.diagnostics ? '?diagnostics=1' : ''
+  return readJson<ReportRulesResponse>(await apiFetch(`${BASE}/rules/${report}/${query}`, {}, SILENT))
+}
+
+export async function updateReportRules(report: ReportKind, payload: ReportRulesPayload): Promise<ReportRulesResponse> {
+  const res = await apiFetch(
+    `${BASE}/rules/${report}/`,
+    { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) },
+    SILENT,
+  )
+  return readJson<ReportRulesResponse>(res)
 }
 
 export async function getStatement(query: StatementQuery, signal?: AbortSignal): Promise<StatementResponse> {

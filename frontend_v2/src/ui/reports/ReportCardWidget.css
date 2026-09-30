@@ -1,0 +1,16 @@
+/*
+ * The title link covers the whole card, so a click anywhere on the card is a click on the link:
+ * the browser itself handles Ctrl/Cmd/Shift-click, middle-click and «Открыть в новой вкладке».
+ * The card (antd .ant-card) is position: relative, which bounds the cover.
+ */
+.report-card-link::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+}
+
+/* The rules button stays above the cover. */
+.report-card-rules {
+  position: relative;
+  z-index: 1;
+}

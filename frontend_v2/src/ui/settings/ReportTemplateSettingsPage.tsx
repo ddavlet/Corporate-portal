@@ -2,6 +2,7 @@ import { Alert, Button, Card, Checkbox, Radio, Result, Skeleton, Space, Typograp
 import { useEffect, useState } from 'react'
 import { notifyApiSuccess } from '../../lib/apiNotify'
 import { getReportTemplates, updateReportTemplates, type ReportTemplateInfo } from '../../lib/reportsApi'
+import { resetReportTemplatesCache } from '../../lib/useReportTemplates'
 import { useTenantAdmin } from '../../lib/useTenantAdmin'
 
 export function ReportTemplateSettingsPage() {
@@ -40,6 +41,7 @@ export function ReportTemplateSettingsPage() {
     setError(null)
     try {
       const data = await updateReportTemplates({ default_template: defaultKey, allowed_templates: allowed })
+      resetReportTemplatesCache()
       setAllowed(data.allowed.map((template) => template.key))
       setDefaultKey(data.default)
       notifyApiSuccess('Шаблоны отчётов сохранены')
@@ -58,8 +60,7 @@ export function ReportTemplateSettingsPage() {
     <Card title="Шаблоны отчётов">
       <Space direction="vertical" size="large" style={{ width: '100%' }}>
         <Typography.Paragraph type="secondary" style={{ marginBottom: 0 }}>
-          Какие виды страницы «Отчёты» доступны сотрудникам компании и какой открывается по умолчанию. Сотрудник может
-          переключаться между разрешёнными видами.
+          Какие шаблоны доступны сотрудникам компании на странице «Отчёты». У каждого шаблона свои карточки отчётов.
         </Typography.Paragraph>
         {error ? <Alert type="error" showIcon message={error} /> : null}
         {available ? (
@@ -76,7 +77,10 @@ export function ReportTemplateSettingsPage() {
               </Space>
             </div>
             <div>
-              <Typography.Text strong>Шаблон по умолчанию</Typography.Text>
+              <Typography.Text strong>Показывать первыми</Typography.Text>
+              <Typography.Paragraph type="secondary" style={{ margin: '4px 0 0' }}>
+                Карточки этого шаблона стоят первыми на странице «Отчёты».
+              </Typography.Paragraph>
               <Radio.Group
                 style={{ display: 'block', marginTop: 8 }}
                 value={defaultKey}

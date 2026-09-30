@@ -24,7 +24,7 @@ import { KpiStripWidget } from './KpiStripWidget'
 import { MethodologyDrawer } from './MethodologyDrawer'
 import { phoneChipOptions, phoneColumnKeys, resolvePhoneColumnKey } from './phoneColumns'
 import { REPORT_VISUALS } from './reportVisuals'
-import { REPORT_SETTINGS_PATHS, ReportToolbar } from './ReportToolbar'
+import { ReportToolbar } from './ReportToolbar'
 import { useRequestPreview } from './RequestPreview'
 import { StatementDrilldownDrawer, type DrillRequest } from './StatementDrilldownDrawer'
 import { StatementTableWidget } from './StatementTableWidget'
@@ -77,18 +77,21 @@ function drillRequest(statement: StatementResponse, drill: DrillTarget | null): 
   return { template: TEMPLATE_KEY, report: statement.report, row, column, crumbs: [NAMES[statement.report], ...ancestors] }
 }
 
-/** The copied link names the template, so the recipient sees this view even when their own default is another one. */
-function shareableHref(): string {
-  const url = new URL(window.location.href)
-  url.searchParams.set('t', TEMPLATE_KEY)
-  return url.toString()
-}
-
 function isNotConfigured(error: Error | null): error is ApiError {
   return error instanceof ApiError && error.status === 503
 }
 
-function LoadError({ error, isAdmin, onRetry, onOpenSettings }: { error: Error | null; isAdmin: boolean; onRetry: () => void; onOpenSettings: () => void }) {
+function LoadError({
+  error,
+  isAdmin,
+  onRetry,
+  onOpenRules,
+}: {
+  error: Error | null
+  isAdmin: boolean
+  onRetry: () => void
+  onOpenRules: (() => void) | null
+}) {
   if (isNotConfigured(error)) {
     return (
       <Result
@@ -102,8 +105,8 @@ function LoadError({ error, isAdmin, onRetry, onOpenSettings }: { error: Error |
           </>
         }
         extra={
-          isAdmin ? (
-            <Button type="primary" onClick={onOpenSettings}>
+          onOpenRules ? (
+            <Button type="primary" onClick={onOpenRules}>
               Настроить отчёт
             </Button>
           ) : (
@@ -127,7 +130,7 @@ function LoadError({ error, isAdmin, onRetry, onOpenSettings }: { error: Error |
   )
 }
 
-export function ProfessionalReportTemplate({ templateSwitcher }: ReportTemplateProps) {
+export function ProfessionalReportTemplate({ report, onOpenRules, rulesVersion }: ReportTemplateProps) {
   const navigate = useNavigate()
   const [state, update] = useReportUrlState()
   const { isAdmin } = useTenantAdmin()
@@ -166,7 +169,7 @@ export function ProfessionalReportTemplate({ templateSwitcher }: ReportTemplateP
   }, [flashRowId])
 
   // Only the fields that change the numbers trigger a reload; open groups, units, view and drill-down do not.
-  const queryKey = JSON.stringify(toStatementQuery(TEMPLATE_KEY, state))
+  const queryKey = JSON.stringify(toStatementQuery(TEMPLATE_KEY, report, state))
 
   useEffect(() => {
     const controller = new AbortController()
@@ -184,17 +187,16 @@ export function ProfessionalReportTemplate({ templateSwitcher }: ReportTemplateP
         if (!controller.signal.aborted) setLoading(false)
       })
     return () => controller.abort()
-  }, [queryKey, reloadKey])
+  }, [queryKey, reloadKey, rulesVersion])
 
   const reload = (withRefresh: boolean) => {
     refreshNext.current = withRefresh
     setReloadKey((key) => key + 1)
   }
 
-  const settingsPath = REPORT_SETTINGS_PATHS[state.report]
-
   const copyLink = async () => {
-    const href = shareableHref()
+    // The path already names the template and the report, so the page address is the link.
+    const href = window.location.href
     try {
       await navigator.clipboard.writeText(href)
       notifyApiSuccess('Ссылка скопирована')
@@ -207,7 +209,7 @@ export function ProfessionalReportTemplate({ templateSwitcher }: ReportTemplateP
   const exportExcel = async () => {
     setExporting(true)
     try {
-      saveFile(await downloadStatementXlsx({ ...toStatementQuery(TEMPLATE_KEY, state), units: state.units }))
+      saveFile(await downloadStatementXlsx({ ...toStatementQuery(TEMPLATE_KEY, report, state), units: state.units }))
     } catch (e: unknown) {
       notifyApiError(describeReportError(e, 'Не удалось выгрузить Excel'))
     } finally {
@@ -221,13 +223,13 @@ export function ProfessionalReportTemplate({ templateSwitcher }: ReportTemplateP
       update={update}
       meta={statement?.meta ?? null}
       isAdmin={isAdmin}
-      templateSwitcher={templateSwitcher}
       onCopyLink={() => void copyLink()}
       exporting={exporting}
       onExportExcel={() => void exportExcel()}
       onPrint={() => window.print()}
       onOpenMethodology={() => setMethodologyOpen(true)}
-      onOpenSettings={(path) => navigate(path)}
+      onOpenRules={onOpenRules}
+      onOpenTemplateSettings={() => navigate('/settings/report-templates')}
     />
   )
 
@@ -238,7 +240,7 @@ export function ProfessionalReportTemplate({ templateSwitcher }: ReportTemplateP
       <div className="rp-page">
         {toolbar}
         {showLoadError ? (
-          <LoadError error={error} isAdmin={isAdmin} onRetry={() => reload(false)} onOpenSettings={() => navigate(settingsPath)} />
+          <LoadError error={error} isAdmin={isAdmin} onRetry={() => reload(false)} onOpenRules={onOpenRules} />
         ) : (
           <Skeleton active />
         )}
@@ -301,7 +303,7 @@ export function ProfessionalReportTemplate({ templateSwitcher }: ReportTemplateP
           }
         />
       ) : null}
-      <DataWarningBanner warnings={statement.warnings} units={state.units} isAdmin={isAdmin} onOpenSettings={() => navigate(settingsPath)} />
+      <DataWarningBanner warnings={statement.warnings} units={state.units} isAdmin={isAdmin} onOpenSettings={onOpenRules} />
       {goBack ? (
         <div className="rp-focus-bar">
           {/* The arrow is part of the text, so the button is announced as «← С начала года». */}
@@ -423,9 +425,16 @@ export function ProfessionalReportTemplate({ templateSwitcher }: ReportTemplateP
         open={methodologyOpen}
         rules={statement.methodology}
         fullScreen={isPhone}
-        isAdmin={isAdmin}
         onClose={() => setMethodologyOpen(false)}
-        onOpenSettings={() => navigate(settingsPath)}
+        onOpenSettings={
+          onOpenRules
+            ? () => {
+                // One drawer at a time: «Как считается» closes, the rules open.
+                setMethodologyOpen(false)
+                onOpenRules()
+              }
+            : null
+        }
       />
       {preview.modal}
     </div>

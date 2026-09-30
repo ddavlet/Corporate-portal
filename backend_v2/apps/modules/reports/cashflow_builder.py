@@ -12,59 +12,40 @@ from apps.modules.investments.models import InvestReturn
 from apps.modules.investments.services import clamp_rate_date_to_cbu_availability, usd_uzs_equivalents_or_none
 from apps.modules.requests.models import Request
 from apps.modules.reports.models import TenantReportSettings
-from apps.modules.reports.pnl_builder import (
+from apps.modules.reports.report_rules import (
     CFG_CASH_EXCLUDE,
     CFG_IR_TYPE_INV,
     CFG_IR_TYPE_OP,
     CFG_IR_TYPE_OTHER,
-    CFG_OPENING_BALANCE,
     CFG_PURPOSE_INV,
     CFG_PURPOSE_OP,
     CFG_PURPOSE_OTHER,
     CFG_REQ_CAT_EXCLUDE,
     CFG_REQ_PAYMENT_TYPES,
     CFG_START_MONTH,
-    ReportSettingsInvalid,
+    PAYMENT_TYPE_VALUES,
     ReportSettingsMissing,
-    _cash_operation_label,
-    _invest_type_bucket,
-    _iso_local,
-    _normalize_str_list,
-    _parse_opening_balance,
-    _parse_start_month,
-    _purpose_bucket,
-    _report_settings_snapshot,
+    cash_operation_label,
+    invest_type_bucket,
+    iso_local,
+    normalize_str_list,
+    parse_start_month,
+    purpose_bucket,
     request_author,
-    validate_pnl_config_dict,
+    rules_snapshot,
+    validate_rules,
 )
-
-_PAYMENT_TYPE_VALUES = frozenset(c[0] for c in Request.PAYMENT_TYPE_CHOICES)
-
-
-def validate_cashflow_config_dict(cfg: dict[str, Any]) -> None:
-    """Cashflow uses the same config shape as backend PnL."""
-    validate_pnl_config_dict(cfg)
-
-
-def validate_cashflow_supplement_dict(cf: dict[str, Any]) -> None:
-    """
-    Keys from TenantReportSettings.cashflow_config (separate from pnl_config filters).
-
-    Currently: ``opening_balance`` for cashflow cumulative (not shared with PnL).
-    """
-    if CFG_OPENING_BALANCE in cf:
-        _parse_opening_balance(cf.get(CFG_OPENING_BALANCE))
 
 
 def get_cashflow_config_or_raise(*, tenant) -> dict[str, Any]:
-    """Backend Cashflow reuses PnL filter config (pnl_config) — only expense dates differ."""
+    """Backend Cashflow rules from ``cashflow_config``: the same keys as PnL, kept separately."""
     try:
         row = TenantReportSettings.objects.get(tenant_id=tenant.id)
     except TenantReportSettings.DoesNotExist as exc:
         raise ReportSettingsMissing(f"No tenant_report_settings for tenant_id={tenant.id}") from exc
 
-    cfg = row.pnl_config if isinstance(row.pnl_config, dict) else {}
-    validate_cashflow_config_dict(cfg)
+    cfg = row.cashflow_config if isinstance(row.cashflow_config, dict) else {}
+    validate_rules(cfg)
 
     return cfg
 
@@ -159,17 +140,17 @@ def _append_request_line_cashflow(
 
 def compute_unassigned_payment_purposes_cashflow(*, tenant_id: int, cfg: dict[str, Any]) -> list[dict[str, Any]]:
     """Distinct payment_purpose on paid requests in cashflow scope with no purpose bucket."""
-    validate_cashflow_config_dict(cfg)
-    start = _parse_start_month(str(cfg[CFG_START_MONTH]))
+    validate_rules(cfg)
+    start = parse_start_month(str(cfg[CFG_START_MONTH]))
     pay_list = [
         str(x).strip()
         for x in cfg[CFG_REQ_PAYMENT_TYPES]
-        if str(x).strip() and str(x).strip() in _PAYMENT_TYPE_VALUES
+        if str(x).strip() and str(x).strip() in PAYMENT_TYPE_VALUES
     ]
     cat_exclude = {str(x).strip() for x in cfg[CFG_REQ_CAT_EXCLUDE] if str(x).strip()}
-    op = set(_normalize_str_list(cfg[CFG_PURPOSE_OP], field=CFG_PURPOSE_OP))
-    ot = set(_normalize_str_list(cfg[CFG_PURPOSE_OTHER], field=CFG_PURPOSE_OTHER))
-    inv = set(_normalize_str_list(cfg[CFG_PURPOSE_INV], field=CFG_PURPOSE_INV))
+    op = set(normalize_str_list(cfg[CFG_PURPOSE_OP], field=CFG_PURPOSE_OP))
+    ot = set(normalize_str_list(cfg[CFG_PURPOSE_OTHER], field=CFG_PURPOSE_OTHER))
+    inv = set(normalize_str_list(cfg[CFG_PURPOSE_INV], field=CFG_PURPOSE_INV))
     assigned = op | ot | inv
 
     qs = Request.objects.filter(
@@ -198,34 +179,27 @@ def compute_unassigned_payment_purposes_cashflow(*, tenant_id: int, cfg: dict[st
 def build_cashflow_payload_from_db(*, tenant, query_params: dict[str, Any]) -> dict[str, Any]:
     """
     Build raw Cashflow blocks from ORM (same logical shape as n8n webhook output before enrichment).
-    Revenue matches backend PnL; expenses use cash payment dates without amortization.
+    Rules come from ``cashflow_config``; expenses use cash payment dates without amortization, and bank receipts
+    are never excluded (they are cash that arrived).
     """
     del query_params
 
-    try:
-        row = TenantReportSettings.objects.get(tenant_id=tenant.id)
-    except TenantReportSettings.DoesNotExist as exc:
-        raise ReportSettingsMissing(f"No tenant_report_settings for tenant_id={tenant.id}") from exc
+    cfg = get_cashflow_config_or_raise(tenant=tenant)
 
-    cfg = row.pnl_config if isinstance(row.pnl_config, dict) else {}
-    validate_cashflow_config_dict(cfg)
-    cf_extra = row.cashflow_config if isinstance(row.cashflow_config, dict) else {}
-
-    start = _parse_start_month(str(cfg[CFG_START_MONTH]))
+    start = parse_start_month(str(cfg[CFG_START_MONTH]))
     cash_exclude = {str(x).strip() for x in cfg[CFG_CASH_EXCLUDE] if str(x).strip()}
     cat_exclude = {str(x).strip() for x in cfg[CFG_REQ_CAT_EXCLUDE] if str(x).strip()}
-    pay_list = [str(x).strip() for x in cfg[CFG_REQ_PAYMENT_TYPES] if str(x).strip() in _PAYMENT_TYPE_VALUES]
+    pay_list = [str(x).strip() for x in cfg[CFG_REQ_PAYMENT_TYPES] if str(x).strip() in PAYMENT_TYPE_VALUES]
 
-    purp_op = set(_normalize_str_list(cfg[CFG_PURPOSE_OP], field=CFG_PURPOSE_OP))
-    purp_ot = set(_normalize_str_list(cfg[CFG_PURPOSE_OTHER], field=CFG_PURPOSE_OTHER))
-    purp_inv = set(_normalize_str_list(cfg[CFG_PURPOSE_INV], field=CFG_PURPOSE_INV))
+    purp_op = set(normalize_str_list(cfg[CFG_PURPOSE_OP], field=CFG_PURPOSE_OP))
+    purp_ot = set(normalize_str_list(cfg[CFG_PURPOSE_OTHER], field=CFG_PURPOSE_OTHER))
+    purp_inv = set(normalize_str_list(cfg[CFG_PURPOSE_INV], field=CFG_PURPOSE_INV))
 
-    ir_op = set(_normalize_str_list(cfg[CFG_IR_TYPE_OP], field=CFG_IR_TYPE_OP))
-    ir_ot = set(_normalize_str_list(cfg[CFG_IR_TYPE_OTHER], field=CFG_IR_TYPE_OTHER))
-    ir_inv = set(_normalize_str_list(cfg[CFG_IR_TYPE_INV], field=CFG_IR_TYPE_INV))
+    ir_op = set(normalize_str_list(cfg[CFG_IR_TYPE_OP], field=CFG_IR_TYPE_OP))
+    ir_ot = set(normalize_str_list(cfg[CFG_IR_TYPE_OTHER], field=CFG_IR_TYPE_OTHER))
+    ir_inv = set(normalize_str_list(cfg[CFG_IR_TYPE_INV], field=CFG_IR_TYPE_INV))
 
-    snapshot = _report_settings_snapshot(cfg)
-    snapshot["opening_balance"] = str(_parse_opening_balance(cf_extra.get(CFG_OPENING_BALANCE)))
+    snapshot = rules_snapshot(cfg)
 
     revenue: list[dict[str, Any]] = []
 
@@ -248,7 +222,7 @@ def build_cashflow_payload_from_db(*, tenant, query_params: dict[str, Any]) -> d
         revenue_at__date__gte=start,
     ).order_by("revenue_at", "id")
     for cr in cash_qs:
-        op_label = _cash_operation_label(cr)
+        op_label = cash_operation_label(cr)
         if op_label in cash_exclude:
             continue
         payload = cr.payload if isinstance(cr.payload, dict) else {}
@@ -256,7 +230,7 @@ def build_cashflow_payload_from_db(*, tenant, query_params: dict[str, Any]) -> d
         revenue.append(
             {
                 "id": str(cr.id),
-                "date": _iso_local(cr.revenue_at),
+                "date": iso_local(cr.revenue_at),
                 "amount": str(Decimal(cr.total_sum)),
                 "purpose": str(cr.operation or ""),
                 "description": str(cr.counterparty or ""),
@@ -283,7 +257,7 @@ def build_cashflow_payload_from_db(*, tenant, query_params: dict[str, Any]) -> d
         if cat in cat_exclude:
             continue
         purpose = str(req.payment_purpose or "").strip()
-        bucket = _purpose_bucket(purpose, op=purp_op, ot=purp_ot, inv=purp_inv)
+        bucket = purpose_bucket(purpose, op=purp_op, ot=purp_ot, inv=purp_inv)
         if bucket is None:
             continue
         _append_request_line_cashflow(
@@ -298,7 +272,7 @@ def build_cashflow_payload_from_db(*, tenant, query_params: dict[str, Any]) -> d
         InvestReturn.objects.filter(tenant_id=tenant.id, confirmed=True, date__gte=start)
         .order_by("date", "id")
     ):
-        b = _invest_type_bucket(str(ir.type or ""), op=ir_op, ot=ir_ot, inv=ir_inv)
+        b = invest_type_bucket(str(ir.type or ""), op=ir_op, ot=ir_ot, inv=ir_inv)
         if b is None:
             continue
         row = _invest_return_cashflow_row(ir)

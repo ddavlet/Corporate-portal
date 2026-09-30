@@ -43,13 +43,19 @@ import { ApiError } from '../../../../lib/api'
 import { NETWORK_ERROR_MESSAGE } from '../../../../lib/reportErrors'
 import { ProfessionalReportTemplate } from './ProfessionalReportTemplate'
 import { STATEMENT } from './testStatement'
+import type { ReportTemplateProps } from '../types'
 
-function renderAt(url: string) {
-  return render(
-    <MemoryRouter initialEntries={[url]}>
-      <ProfessionalReportTemplate templateSwitcher={null} />
-    </MemoryRouter>,
-  )
+function template(props: Partial<ReportTemplateProps> = {}) {
+  return <ProfessionalReportTemplate report="pnl" onOpenRules={null} rulesVersion={0} {...props} />
+}
+
+function renderAt(url: string, props: Partial<ReportTemplateProps> = {}) {
+  const view = render(<MemoryRouter initialEntries={[url]}>{template(props)}</MemoryRouter>)
+  return {
+    ...view,
+    rerenderWith: (next: Partial<ReportTemplateProps>) =>
+      view.rerender(<MemoryRouter initialEntries={[url]}>{template({ ...props, ...next })}</MemoryRouter>),
+  }
 }
 
 describe('ProfessionalReportTemplate', () => {
@@ -73,12 +79,14 @@ describe('ProfessionalReportTemplate', () => {
     expect(await screen.findByText('Отчёт о прибылях и убытках')).toBeInTheDocument()
   })
 
-  it('explains that the report is not configured', async () => {
+  it('explains that the report is not configured and opens its rules', async () => {
     useTenantAdminMock.mockReturnValue({ isAdmin: true, loading: false })
     getStatementMock.mockRejectedValue(new ApiError(503, 'No tenant_report_settings for tenant_id=1'))
-    renderAt('/reports')
+    const onOpenRules = vi.fn()
+    renderAt('/reports', { onOpenRules })
     expect(await screen.findByText('Отчёт не настроен')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Настроить отчёт' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Настроить отчёт' }))
+    expect(onOpenRules).toHaveBeenCalledTimes(1)
   })
 
   it('shows the data warning to admins only', async () => {
@@ -93,24 +101,23 @@ describe('ProfessionalReportTemplate', () => {
     expect(screen.queryByText(/Не попали в отчёт оплаченные заявки/)).toBeNull()
   })
 
-  it('copies a link that opens this template for the recipient', async () => {
+  it('copies the address of the page', async () => {
     getStatementMock.mockResolvedValue(STATEMENT)
     const writeText = vi.fn().mockResolvedValue(undefined)
     Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true })
     renderAt('/reports?p=month&m=2026-08')
     await screen.findByText('Отчёт о прибылях и убытках')
     fireEvent.click(screen.getByRole('button', { name: /Ссылка/ }))
-    await waitFor(() => expect(writeText).toHaveBeenCalledTimes(1))
-    expect(new URL(String(writeText.mock.calls[0][0])).searchParams.get('t')).toBe('professional')
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith(window.location.href))
   })
 
   it('does not keep the previous report on screen when the next one cannot be built', async () => {
     getStatementMock
       .mockResolvedValueOnce(STATEMENT)
       .mockRejectedValueOnce(new ApiError(503, 'Invalid cashflow settings'))
-    renderAt('/reports')
+    const { rerenderWith } = renderAt('/reports')
     await screen.findByText('Отчёт о прибылях и убытках')
-    fireEvent.click(screen.getByTitle('Движение денег'))
+    rerenderWith({ report: 'cashflow' })
     expect(await screen.findByText('Отчёт не настроен')).toBeInTheDocument()
     expect(screen.getByText('Обратитесь к администратору компании.')).toBeInTheDocument()
     expect(screen.queryByText('Отчёт о прибылях и убытках')).toBeNull()
@@ -228,11 +235,11 @@ describe('ProfessionalReportTemplate', () => {
 
   it('starts a new report or period on its latest period chip', async () => {
     getStatementMock.mockResolvedValue(STATEMENT)
-    renderAt('/reports')
+    const { rerenderWith } = renderAt('/reports')
     await screen.findByText('Отчёт о прибылях и убытках')
     fireEvent.click(screen.getByTitle('Авг'))
     expect(await screen.findByRole('button', { name: 'Банк: Авг' })).toBeInTheDocument()
-    fireEvent.click(screen.getByTitle('Движение денег'))
+    rerenderWith({ report: 'cashflow' })
     await waitFor(() => expect(getStatementMock).toHaveBeenCalledTimes(2))
     expect(await screen.findByRole('button', { name: 'Банк: Сен* 1–23' })).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Банк: Авг' })).toBeNull()
@@ -261,7 +268,7 @@ describe('ProfessionalReportTemplate', () => {
     fireEvent.click(screen.getByRole('button', { name: /Ссылка/ }))
     await waitFor(() => expect(prompt).toHaveBeenCalledTimes(1))
     expect(prompt.mock.calls[0][0]).toBe('Скопируйте ссылку')
-    expect(new URL(String(prompt.mock.calls[0][1])).searchParams.get('t')).toBe('professional')
+    expect(prompt.mock.calls[0][1]).toBe(window.location.href)
     expect(notifyApiSuccessMock).not.toHaveBeenCalled()
   })
 
@@ -311,5 +318,32 @@ describe('ProfessionalReportTemplate', () => {
     renderAt('/reports')
     fireEvent.click(await screen.findByRole('button', { name: 'Выручка: показать состав' }))
     expect(await screen.findByText(/^Выручка · /)).toBeInTheDocument()
+  })
+
+  it('asks for the report of its card', async () => {
+    getStatementMock.mockResolvedValue({ ...STATEMENT, report: 'cashflow' })
+    renderAt('/reports', { report: 'cashflow' })
+    await waitFor(() =>
+      expect(getStatementMock).toHaveBeenCalledWith(expect.objectContaining({ report: 'cashflow' }), expect.anything()),
+    )
+  })
+
+  it('opens the rules of the report from the menu', async () => {
+    useTenantAdminMock.mockReturnValue({ isAdmin: true, loading: false })
+    getStatementMock.mockResolvedValue(STATEMENT)
+    const onOpenRules = vi.fn()
+    renderAt('/reports', { onOpenRules })
+    await screen.findByText('Отчёт о прибылях и убытках')
+    fireEvent.click(screen.getByRole('button', { name: 'Ещё' }))
+    fireEvent.click(await screen.findByText('Настройки отчёта'))
+    expect(onOpenRules).toHaveBeenCalledTimes(1)
+  })
+
+  it('loads the report again after its rules are saved', async () => {
+    getStatementMock.mockResolvedValue(STATEMENT)
+    const { rerenderWith } = renderAt('/reports')
+    await screen.findByText('Отчёт о прибылях и убытках')
+    rerenderWith({ rulesVersion: 1 })
+    await waitFor(() => expect(getStatementMock).toHaveBeenCalledTimes(2))
   })
 })

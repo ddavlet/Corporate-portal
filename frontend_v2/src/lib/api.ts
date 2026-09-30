@@ -1171,13 +1171,13 @@ export type StructuredMonthlyRow = {
   net: string
 }
 
-/** Rules for backend PnL (also returned in structured report as report_settings). */
+/** Calculation rules of one report (`pnl_config` / `cashflow_config`); a report payload repeats them as `report_settings`. */
 export type PnlReportSettingsSnapshot = {
   start_month?: string
-  /** Начальный остаток для отчёта PnL (на начало ``start_month``). Cashflow задаётся отдельно в ``cashflow_config``. */
+  /** Начальный остаток на начало ``start_month``; у PnL и Cashflow свой. */
   opening_balance?: string
   cash_exclude_operations?: string[]
-  /** Фразы-подстроки: банковские поступления с таким назначением платежа не попадают в выручку PnL (Cashflow не фильтруется). */
+  /** Фразы-подстроки: банковские поступления с таким назначением платежа не попадают в выручку. Применяет только PnL. */
   bank_exclude_purposes?: string[]
   request_exclude_categories?: string[]
   request_payment_types_for_pnl?: string[]
@@ -1187,133 +1187,6 @@ export type PnlReportSettingsSnapshot = {
   invest_return_type_operational?: string[]
   invest_return_type_other?: string[]
   invest_return_type_invest_returns?: string[]
-}
-
-export type PnlDiagnosticsItem = { purpose: string; count: number; amount?: string }
-
-export type PnlDiagnosticsApi = {
-  unassigned_payment_purposes?: PnlDiagnosticsItem[]
-  error?: string
-}
-
-export type TenantReportSettingsApiResponse = {
-  pnl_source: 'n8n' | 'backend'
-  pnl_config: PnlReportSettingsSnapshot
-  updated_at?: string | null
-  pnl_diagnostics?: PnlDiagnosticsApi
-}
-
-function parseTenantReportSettingsApiResponse(json: unknown): TenantReportSettingsApiResponse {
-  const obj = json && typeof json === 'object' ? (json as Record<string, unknown>) : {}
-  const src = String(obj.pnl_source || '').toLowerCase()
-  const pnl_source: 'n8n' | 'backend' = src === 'backend' ? 'backend' : 'n8n'
-  const rawCfg = obj.pnl_config
-  const pnl_config: PnlReportSettingsSnapshot =
-    rawCfg && typeof rawCfg === 'object' ? (rawCfg as PnlReportSettingsSnapshot) : {}
-  const rawDiag = obj.pnl_diagnostics
-  const pnl_diagnostics: PnlDiagnosticsApi | undefined =
-    rawDiag && typeof rawDiag === 'object' ? (rawDiag as PnlDiagnosticsApi) : undefined
-  return {
-    pnl_source,
-    pnl_config,
-    updated_at: typeof obj.updated_at === 'string' ? obj.updated_at : null,
-    pnl_diagnostics,
-  }
-}
-
-export async function getTenantReportSettings(opts?: {
-  pnlDiagnostics?: boolean
-}): Promise<TenantReportSettingsApiResponse> {
-  const q = opts?.pnlDiagnostics ? '?pnl_diagnostics=1' : ''
-  const res = await apiFetch(`/api/reports/tenant-report-settings/${q}`)
-  if (!res.ok) throw new Error(await parseErrorBody(res))
-  const parsedJson: unknown = await res.json().catch(() => null)
-  return parseTenantReportSettingsApiResponse(parsedJson)
-}
-
-export async function patchTenantReportSettings(
-  payload: Partial<{ pnl_source: 'n8n' | 'backend'; pnl_config: PnlReportSettingsSnapshot }>,
-): Promise<TenantReportSettingsApiResponse> {
-  const res = await apiFetch('/api/reports/tenant-report-settings/', {
-    method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
-  })
-  if (!res.ok) throw new Error(await parseErrorBody(res))
-  const parsedJson: unknown = await res.json().catch(() => null)
-  return parseTenantReportSettingsApiResponse(parsedJson)
-}
-
-/** Доп. настройки backend Cashflow (не фильтры PnL); хранятся в ``cashflow_config`` на сервере. */
-export type CashflowOnlyReportConfig = {
-  opening_balance?: string
-}
-
-/** Rules for backend Cashflow (same keys as PnL; also returned in structured report as report_settings). */
-export type CashflowReportSettingsSnapshot = PnlReportSettingsSnapshot
-
-export type CashflowDiagnosticsItem = { purpose: string; count: number; amount?: string }
-
-export type CashflowDiagnosticsApi = {
-  unassigned_payment_purposes?: CashflowDiagnosticsItem[]
-  error?: string
-}
-
-export type TenantCashflowReportSettingsApiResponse = {
-  cashflow_source: 'n8n' | 'backend'
-  /** Shared with backend PnL — Cashflow reuses pnl_config for filters. */
-  pnl_config: CashflowReportSettingsSnapshot
-  /** Отдельно от PnL: например начальный остаток для Cashflow. */
-  cashflow_config: CashflowOnlyReportConfig
-  uses_pnl_config?: boolean
-  updated_at?: string | null
-  cashflow_diagnostics?: CashflowDiagnosticsApi
-}
-
-function parseTenantCashflowReportSettingsApiResponse(json: unknown): TenantCashflowReportSettingsApiResponse {
-  const obj = json && typeof json === 'object' ? (json as Record<string, unknown>) : {}
-  const src = String(obj.cashflow_source || '').toLowerCase()
-  const cashflow_source: 'n8n' | 'backend' = src === 'backend' ? 'backend' : 'n8n'
-  const rawPnl = obj.pnl_config
-  const rawCf = obj.cashflow_config
-  const pnl_config: CashflowReportSettingsSnapshot =
-    rawPnl && typeof rawPnl === 'object' ? (rawPnl as CashflowReportSettingsSnapshot) : {}
-  const cashflow_config: CashflowOnlyReportConfig =
-    rawCf && typeof rawCf === 'object' ? (rawCf as CashflowOnlyReportConfig) : {}
-  const rawDiag = obj.cashflow_diagnostics
-  const cashflow_diagnostics: CashflowDiagnosticsApi | undefined =
-    rawDiag && typeof rawDiag === 'object' ? (rawDiag as CashflowDiagnosticsApi) : undefined
-  return {
-    cashflow_source,
-    pnl_config,
-    cashflow_config,
-    uses_pnl_config: obj.uses_pnl_config === true,
-    updated_at: typeof obj.updated_at === 'string' ? obj.updated_at : null,
-    cashflow_diagnostics,
-  }
-}
-
-export async function getTenantCashflowReportSettings(opts?: {
-  cashflowDiagnostics?: boolean
-}): Promise<TenantCashflowReportSettingsApiResponse> {
-  const q = opts?.cashflowDiagnostics ? '?cashflow_diagnostics=1' : ''
-  const res = await apiFetch(`/api/reports/cashflow-report-settings/${q}`)
-  if (!res.ok) throw new Error(await parseErrorBody(res))
-  const parsedJson: unknown = await res.json().catch(() => null)
-  return parseTenantCashflowReportSettingsApiResponse(parsedJson)
-}
-
-export async function patchTenantCashflowReportSettings(
-  payload: Partial<{ cashflow_source: 'n8n' | 'backend'; cashflow_config: CashflowOnlyReportConfig }>,
-): Promise<TenantCashflowReportSettingsApiResponse> {
-  const res = await apiFetch('/api/reports/cashflow-report-settings/', {
-    method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
-  })
-  if (!res.ok) throw new Error(await parseErrorBody(res))
-  const parsedJson: unknown = await res.json().catch(() => null)
-  return parseTenantCashflowReportSettingsApiResponse(parsedJson)
 }
 
 export type TenantPnlPaymentPurposePoolResponse = {

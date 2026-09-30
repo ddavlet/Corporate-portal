@@ -11,7 +11,6 @@ export type ReportView = 'statement' | 'operations'
 export type ReportReturn = { period: StatementPeriod; year: number | null; month: string | null; granularity: 'month' | 'quarter' }
 
 export type ReportUrlState = {
-  report: ReportKind
   period: StatementPeriod
   year: number | null
   month: string | null
@@ -27,7 +26,6 @@ export type ReportUrlState = {
 }
 
 export const DEFAULT_REPORT_URL_STATE: ReportUrlState = {
-  report: 'pnl',
   period: 'ytd',
   year: null,
   month: null,
@@ -43,7 +41,7 @@ export const DEFAULT_REPORT_URL_STATE: ReportUrlState = {
 const MONTH_RE = /^\d{4}-(0[1-9]|1[0-2])$/
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/
 const LINE_RE = /^[a-z_]+(\.[a-z0-9_]+)*$/
-const KEYS = ['r', 'p', 'y', 'm', 'g', 'cmp', 'u', 'view', 'open', 'line', 'from', 'to', 'vendor', 'back']
+const KEYS = ['p', 'y', 'm', 'g', 'cmp', 'u', 'view', 'open', 'line', 'from', 'to', 'vendor', 'back']
 
 function pick<T extends string>(raw: string | null, allowed: readonly T[], fallback: T): T {
   return raw !== null && (allowed as readonly string[]).includes(raw) ? (raw as T) : fallback
@@ -78,7 +76,6 @@ export function parseReportUrlState(params: URLSearchParams): ReportUrlState {
   const datesOk = Boolean(from && to && DATE_RE.test(from) && DATE_RE.test(to))
   const period = pick(params.get('p'), PERIODS, d.period)
   return {
-    report: pick(params.get('r'), ['pnl', 'cashflow'] as const, d.report),
     period,
     year: Number.isInteger(year) && year >= 2000 && year <= 2100 ? year : null,
     month: month && MONTH_RE.test(month) ? month : null,
@@ -99,7 +96,6 @@ export function writeReportUrlState(base: URLSearchParams, state: ReportUrlState
   const d = DEFAULT_REPORT_URL_STATE
   const next = new URLSearchParams(base)
   for (const key of KEYS) next.delete(key)
-  if (state.report !== d.report) next.set('r', state.report)
   if (state.period !== d.period) next.set('p', state.period)
   if (state.year !== null) next.set('y', String(state.year))
   if (state.month) next.set('m', state.month)
@@ -145,8 +141,13 @@ export function effectiveYear(state: ReportUrlState, today: Dayjs = dayjs()): nu
   return state.year !== null && state.year <= today.year() ? state.year : today.year()
 }
 
-export function toStatementQuery(template: string, state: ReportUrlState, today: Dayjs = dayjs()): StatementQuery {
-  const base = { template, report: state.report, period: state.period }
+export function toStatementQuery(
+  template: string,
+  report: ReportKind,
+  state: ReportUrlState,
+  today: Dayjs = dayjs(),
+): StatementQuery {
+  const base = { template, report, period: state.period }
   if (state.period === 'month') return { ...base, month: effectiveMonth(state, today) }
   return {
     ...base,

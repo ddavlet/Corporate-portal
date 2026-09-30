@@ -11,6 +11,8 @@ import { CorporateCardPage } from '../ui/CorporateCardPage'
 import { CorporateCardSectionPage } from '../ui/CorporateCardSectionPage'
 import { PayrollPage } from '../ui/PayrollPage'
 import { ReportsPage } from '../ui/reports/ReportsPage'
+import { ReportDetailPage } from '../ui/reports/ReportDetailPage'
+import { ReportNotFoundPage } from '../ui/reports/ReportNotFoundPage'
 import { InvestmentsPage } from '../ui/InvestmentsPage'
 import { PublicInvestmentsSchedulePage } from '../ui/PublicInvestmentsSchedulePage'
 import { ClientsDebtPage } from '../ui/ClientsDebtPage'
@@ -38,10 +40,9 @@ import { InvestmentApprovalConfigPage } from '../ui/settings/InvestmentApprovalC
 import { InvestmentProjectApprovalConfigPage } from '../ui/settings/InvestmentProjectApprovalConfigPage'
 import { InvestmentFormConfigPage } from '../ui/settings/InvestmentFormConfigPage'
 import { InvestmentNotificationConfigPage } from '../ui/settings/InvestmentNotificationConfigPage'
-import { CashflowReportSettingsPage } from '../ui/settings/CashflowReportSettingsPage'
+import { ReportRulesSettingsPage } from '../ui/settings/ReportRulesSettingsPage'
 import { ReportTemplateSettingsPage } from '../ui/settings/ReportTemplateSettingsPage'
 import { TasksConfigPage } from '../ui/settings/TasksConfigPage'
-import { PnlReportSettingsPage } from '../ui/settings/PnlReportSettingsPage'
 import { PayrollSettingsPage } from '../ui/settings/PayrollSettingsPage'
 import { AdminRouteGate } from '../ui/admin/AdminRouteGate'
 import { TrainingPage } from '../ui/training/TrainingPage'
@@ -163,6 +164,8 @@ export function App() {
         <Route path="corporate-card/revenues" element={<CorporateCardSectionPage mode="revenues" />} />
         <Route path="payroll" element={<PayrollPage />} />
         <Route path="reports" element={<ReportsPage />} />
+        <Route path="reports/:template/:report" element={<ReportDetailPage />} />
+        <Route path="reports/*" element={<ReportNotFoundPage />} />
         <Route path="investments" element={<InvestmentsPage />} />
         <Route path="clients-debt" element={<ClientsDebtPage />} />
         <Route path="budgets" element={<BudgetsPage />} />
@@ -180,8 +183,8 @@ export function App() {
         <Route path="settings/cash-registers" element={<CashRegistersSettingsPage />} />
         <Route path="settings/cash-withdrawal-config" element={<CashWithdrawalConfigPage />} />
         <Route path="settings/telegram-chats" element={<TelegramChatsConfigPage />} />
-        <Route path="settings/pnl-report-config" element={<PnlReportSettingsPage />} />
-        <Route path="settings/cashflow-report-config" element={<CashflowReportSettingsPage />} />
+        <Route path="settings/pnl-report-config" element={<ReportRulesSettingsPage report="pnl" />} />
+        <Route path="settings/cashflow-report-config" element={<ReportRulesSettingsPage report="cashflow" />} />
         <Route path="settings/report-templates" element={<ReportTemplateSettingsPage />} />
         <Route path="settings/tasks-config" element={<TasksConfigPage />} />
         <Route path="settings/payroll-config" element={<PayrollSettingsPage />} />

@@ -654,13 +654,13 @@ def get_cashflow_report(
 ) -> dict:
     """Get the Cashflow report for a tenant.
 
-    Same structure and config as get_pnl_report, but expenses use the actual
+    Same structure as get_pnl_report, built with the tenant's own Cashflow rules (cashflow_config); expenses use the actual
     cash payment date (payed_at / expense_year+month) instead of billing_date,
     and there is NO amortization — every expense appears once on the day money
     left the account.
 
     ⚠ Without date_from/date_to or aggregate=True this returns EVERY line
-    since pnl_config.start_month — for a tenant with a long history that can
+    since cashflow_config.start_month — for a tenant with a long history that can
     be thousands of rows. Prefer narrowing the window and/or aggregate=True
     unless you actually need individual line items.
 
