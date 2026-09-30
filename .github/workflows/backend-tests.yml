@@ -56,8 +56,11 @@ jobs:
           cache: "pip"
           cache-dependency-path: backend_v2/requirements.txt
 
+      # tblib lets the --parallel runner pickle tracebacks; without it any failing
+      # test aborts the whole run with "cannot pickle 'traceback' object" and the
+      # real failure is lost.
       - name: Install backend dependencies
-        run: pip install -r requirements.txt
+        run: pip install -r requirements.txt tblib==3.2.2
 
       # Throwaway CI database: durability is irrelevant, skip fsync/WAL flushes
       # (speeds up migrations and parallel test-DB cloning).
