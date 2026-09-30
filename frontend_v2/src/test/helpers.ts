@@ -22,6 +22,29 @@ export function createStorageMock(): MockStorage {
   }
 }
 
+/**
+ * Resolves once the document has not changed for `quietMs`, or after `limitMs` at the latest. React commits change the
+ * page, so a quiet page means the work a test left running (closing dialogs, animation steps) has finished.
+ */
+export function waitForQuietDocument(quietMs = 50, limitMs = 2000): Promise<void> {
+  return new Promise((resolve) => {
+    let quietTimer = setTimeout(done, quietMs)
+    const limitTimer = setTimeout(done, limitMs)
+    const observer = new MutationObserver(() => {
+      clearTimeout(quietTimer)
+      quietTimer = setTimeout(done, quietMs)
+    })
+    observer.observe(document, { subtree: true, childList: true, attributes: true, characterData: true })
+
+    function done() {
+      observer.disconnect()
+      clearTimeout(quietTimer)
+      clearTimeout(limitTimer)
+      resolve()
+    }
+  })
+}
+
 /** Runs `check` as in a browser that refuses session storage (private mode, blocked site data): reading it throws. */
 export async function withoutSessionStorage(check: () => void | Promise<void>): Promise<void> {
   const original = Object.getOwnPropertyDescriptor(globalThis, 'sessionStorage')
