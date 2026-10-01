@@ -75,6 +75,8 @@ class KolbergOAuthProvider(
                 "response_types": list(client_info.response_types or []),
                 "scope": client_info.scope or "",
                 "token_endpoint_auth_method": client_info.token_endpoint_auth_method or "none",
+                "client_secret": client_info.client_secret or "",
+                "client_secret_expires_at": client_info.client_secret_expires_at,
             },
         )
 
@@ -259,6 +261,8 @@ class KolbergOAuthProvider(
             response_types=client.response_types or ["code"],
             scope=client.scope or None,
             token_endpoint_auth_method=client.token_endpoint_auth_method,
+            client_secret=client.client_secret or None,
+            client_secret_expires_at=client.client_secret_expires_at,
         )
 
 
