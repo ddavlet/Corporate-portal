@@ -1072,10 +1072,14 @@ class McpTenantAsgiTests(TestCase):
         from asgiref.sync import async_to_sync
         from config.asgi import application
 
+        from django.core.signals import request_finished, request_started
+        from django.db import close_old_connections
+
         sent = []
+        incoming = [{"type": "http.request", "body": b"", "more_body": False}]
 
         async def receive():
-            return {"type": "http.request", "body": b"", "more_body": False}
+            return incoming.pop(0) if incoming else {"type": "http.disconnect"}
 
         async def send(message):
             sent.append(message)
@@ -1085,11 +1089,19 @@ class McpTenantAsgiTests(TestCase):
             "root_path": "", "query_string": b"", "scheme": "https",
             "headers": [(b"host", host.encode())] + list(extra_headers),
         }
-        if mcp_app is None:
-            async_to_sync(application)(scope, receive, send)
-        else:
-            with patch("apps.mcp_server.http.app.get_mcp_asgi_app", return_value=mcp_app):
+        # Like django.test.Client: a request through the real ASGI handler must not
+        # close the TestCase's DB connection.
+        request_started.disconnect(close_old_connections)
+        request_finished.disconnect(close_old_connections)
+        try:
+            if mcp_app is None:
                 async_to_sync(application)(scope, receive, send)
+            else:
+                with patch("apps.mcp_server.http.app.get_mcp_asgi_app", return_value=mcp_app):
+                    async_to_sync(application)(scope, receive, send)
+        finally:
+            request_started.connect(close_old_connections)
+            request_finished.connect(close_old_connections)
         status = sent[0]["status"]
         body = b"".join(m.get("body", b"") for m in sent if m["type"] == "http.response.body")
         try:
