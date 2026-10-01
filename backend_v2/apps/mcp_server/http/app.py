@@ -17,6 +17,33 @@ from __future__ import annotations
 
 _mcp_asgi_app = None
 
+# Never a real host: the SDK requires an https issuer, but discovery for clients
+# is answered per tenant host by config/asgi.py.
+_PLACEHOLDER_URL = "https://mcp-placeholder.invalid/mcp"
+
+
+def build_auth_settings():
+    """SDK auth settings shared by all tenant hosts.
+
+    validate_token_resource=False: the SDK compares tokens with ONE resource_server_url,
+    but this app serves many hosts. Tokens are bound to their host by our own check
+    instead (authorize rejects a foreign RFC 8707 resource; mcp_tenant_id is matched
+    against the host tenant on every request — apps/mcp_server/auth.py). SDK 3.0 turns
+    the check on by default, which would reject every token against the placeholder.
+    """
+    from mcp.server.auth.settings import AuthSettings, ClientRegistrationOptions
+
+    return AuthSettings(
+        issuer_url=_PLACEHOLDER_URL,  # type: ignore[arg-type]
+        resource_server_url=_PLACEHOLDER_URL,  # type: ignore[arg-type]
+        validate_token_resource=False,
+        client_registration_options=ClientRegistrationOptions(
+            enabled=True,
+            valid_scopes=["mcp"],
+            default_scopes=["mcp"],
+        ),
+    )
+
 
 def get_mcp_asgi_app():
     """Return the MCP ASGI app (lazy singleton)."""
@@ -25,7 +52,6 @@ def get_mcp_asgi_app():
         return _mcp_asgi_app
 
     from mcp.server.auth.provider import ProviderTokenVerifier
-    from mcp.server.auth.settings import AuthSettings, ClientRegistrationOptions
     from mcp.server.transport_security import TransportSecuritySettings
 
     from apps.mcp_server.http.middleware import with_mcp_resource_metadata
@@ -33,18 +59,7 @@ def get_mcp_asgi_app():
     from apps.mcp_server.oauth.provider import KolbergOAuthProvider
     from apps.mcp_server.server import mcp
 
-    # Never a real host: the SDK requires an https issuer, but discovery for clients
-    # is answered per tenant host by config/asgi.py.
-    placeholder = "https://mcp-placeholder.invalid/mcp"
-    mcp.settings.auth = AuthSettings(
-        issuer_url=placeholder,  # type: ignore[arg-type]
-        resource_server_url=placeholder,  # type: ignore[arg-type]
-        client_registration_options=ClientRegistrationOptions(
-            enabled=True,
-            valid_scopes=["mcp"],
-            default_scopes=["mcp"],
-        ),
-    )
+    mcp.settings.auth = build_auth_settings()
     provider = KolbergOAuthProvider()
     mcp._auth_server_provider = provider
     mcp._token_verifier = ProviderTokenVerifier(provider)
