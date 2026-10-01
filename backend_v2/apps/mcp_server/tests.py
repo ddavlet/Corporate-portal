@@ -1079,7 +1079,13 @@ class McpTenantAsgiTests(TestCase):
         incoming = [{"type": "http.request", "body": b"", "more_body": False}]
 
         async def receive():
-            return incoming.pop(0) if incoming else {"type": "http.disconnect"}
+            if incoming:
+                return incoming.pop(0)
+            # Django 5 listens for a disconnect while handling; an immediate one aborts
+            # the response, so block until the handler cancels this listener.
+            import asyncio
+
+            await asyncio.Event().wait()
 
         async def send(message):
             sent.append(message)
