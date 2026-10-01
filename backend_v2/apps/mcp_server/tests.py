@@ -614,21 +614,114 @@ class ServiceModeUniformDenialTests(TestCase):
         self.assertEqual(str(ctx_a.exception), str(ctx_b.exception))
 
 
+def _bind_tenant(tenant):
+    from apps.mcp_server.tenant_context import McpTenant, set_current_tenant
+
+    return set_current_tenant(McpTenant(id=tenant.id, subdomain=tenant.subdomain, name=tenant.name))
+
+
+def _mcp_access_token(user, tenant_id):
+    from apps.mcp_server.oauth.tokens import mcp_jwt_pair_for_user
+
+    _, access = mcp_jwt_pair_for_user(user, tenant_id)
+    return str(access)
+
+
+class McpTokenBindingTests(TestCase):
+    def setUp(self):
+        from django.contrib.auth import get_user_model
+        from apps.tenants.models import Tenant
+
+        self.user = get_user_model().objects.create_user(username="bind-user")
+        self.a = Tenant.objects.create(name="A", subdomain="bind-a", is_active=True, mcp_enabled=True)
+        self.b = Tenant.objects.create(name="B", subdomain="bind-b", is_active=True, mcp_enabled=True)
+
+    def tearDown(self):
+        from apps.mcp_server.tenant_context import set_current_tenant
+
+        set_current_tenant(None)
+
+    def test_token_for_its_tenant_decodes(self):
+        from apps.mcp_server.auth import _decode_token
+
+        _bind_tenant(self.a)
+        self.assertEqual(_decode_token(_mcp_access_token(self.user, self.a.id)), self.user.id)
+
+    def test_token_for_other_tenant_rejected(self):
+        from apps.mcp_server.auth import _decode_token
+
+        _bind_tenant(self.b)
+        with self.assertRaisesRegex(PermissionError, "not valid for this company"):
+            _decode_token(_mcp_access_token(self.user, self.a.id))
+
+    def test_portal_token_rejected(self):
+        from rest_framework_simplejwt.tokens import AccessToken
+        from apps.mcp_server.auth import _decode_token
+
+        _bind_tenant(self.a)
+        with self.assertRaisesRegex(PermissionError, "not valid for this company"):
+            _decode_token(str(AccessToken.for_user(self.user)))
+
+    def test_no_env_token_fallback(self):
+        import os
+        from apps.mcp_server.auth import _get_token, set_request_token
+
+        set_request_token("")
+        with patch.dict(os.environ, {"KOLBERG_JWT_TOKEN": "x"}):
+            with self.assertRaises(PermissionError):
+                _get_token()
+
+
+class PortalRejectsMcpTokenTests(TestCase):
+    def setUp(self):
+        from django.contrib.auth import get_user_model
+
+        self.user = get_user_model().objects.create_user(username="portal-user")
+
+    def test_portal_auth_is_default(self):
+        from django.conf import settings
+
+        self.assertEqual(
+            settings.REST_FRAMEWORK["DEFAULT_AUTHENTICATION_CLASSES"],
+            ("apps.accounts.authentication.PortalJWTAuthentication",),
+        )
+
+    def test_mcp_token_rejected_by_portal(self):
+        from rest_framework_simplejwt.exceptions import InvalidToken
+        from apps.accounts.authentication import PortalJWTAuthentication
+
+        with self.assertRaises(InvalidToken):
+            PortalJWTAuthentication().get_validated_token(_mcp_access_token(self.user, 1).encode())
+
+    def test_portal_token_still_accepted(self):
+        from rest_framework_simplejwt.tokens import AccessToken
+        from apps.accounts.authentication import PortalJWTAuthentication
+
+        token = PortalJWTAuthentication().get_validated_token(str(AccessToken.for_user(self.user)).encode())
+        self.assertEqual(int(token["user_id"]), self.user.id)
+
+    def test_n8n_integration_auth_rejects_mcp_token(self):
+        from apps.accounts.authentication import RejectMcpTokenMixin
+        from apps.modules.n8n_integration.authentication import N8nIntegrationAuthentication
+
+        self.assertTrue(issubclass(N8nIntegrationAuthentication, RejectMcpTokenMixin))
+
+
 class ServiceKeyMiddlewareTests(TestCase):
     def setUp(self):
         from apps.tenants.models import Tenant
         from apps.mcp_server.services import provision_service_credential
 
-        self.tenant = Tenant.objects.create(
-            name="MW", subdomain="svc-mw", is_active=True, mcp_enabled=True
-        )
+        self.tenant = Tenant.objects.create(name="MW", subdomain="svc-mw", is_active=True, mcp_enabled=True)
+        self.other = Tenant.objects.create(name="MW2", subdomain="svc-mw2", is_active=True, mcp_enabled=True)
         self.credential, self.raw_key = provision_service_credential("mw-test", [self.tenant.id])
 
-    @staticmethod
-    def _scope(headers: list[tuple[bytes, bytes]]):
-        return {"type": "http", "path": "/", "headers": headers}
+    def tearDown(self):
+        from apps.mcp_server.tenant_context import set_current_tenant
 
-    def _run(self, app, headers):
+        set_current_tenant(None)
+
+    def _run(self, app, headers, tenant=None):
         from asgiref.sync import async_to_sync
         from apps.mcp_server.http.service_key import with_service_key_auth
 
@@ -640,58 +733,53 @@ class ServiceKeyMiddlewareTests(TestCase):
         async def send(message):
             sent.append(message)
 
-        wrapped = with_service_key_auth(app)
-        async_to_sync(wrapped)(self._scope(headers), receive, send)
+        _bind_tenant(tenant or self.tenant)
+        async_to_sync(with_service_key_auth(app))({"type": "http", "path": "/", "headers": headers}, receive, send)
         return sent
 
+    @staticmethod
+    async def _ok(scope, receive, send):
+        await send({"type": "http.response.start", "status": 200, "headers": []})
+        await send({"type": "http.response.body", "body": b""})
+
     def test_no_header_passes_through_unchanged(self):
-        seen_scopes = []
+        seen = []
 
         async def downstream(scope, receive, send):
-            seen_scopes.append(scope)
-            await send({"type": "http.response.start", "status": 200, "headers": []})
-            await send({"type": "http.response.body", "body": b""})
+            seen.append(scope)
+            await self._ok(scope, receive, send)
 
         self._run(downstream, headers=[(b"authorization", b"Bearer original")])
-        self.assertEqual(seen_scopes[0]["headers"], [(b"authorization", b"Bearer original")])
+        self.assertEqual(seen[0]["headers"], [(b"authorization", b"Bearer original")])
 
-    def test_valid_key_rewrites_authorization_header(self):
+    def test_valid_key_for_bound_tenant_mints_tenant_token(self):
         from apps.mcp_server.auth import _decode_token, _is_service_claim
 
-        seen_scopes = []
+        seen = []
 
         async def downstream(scope, receive, send):
-            seen_scopes.append(scope)
-            await send({"type": "http.response.start", "status": 200, "headers": []})
-            await send({"type": "http.response.body", "body": b""})
+            seen.append(scope)
+            await self._ok(scope, receive, send)
 
         self._run(downstream, headers=[(b"x-service-key", self.raw_key.encode("latin-1"))])
-
-        auth_headers = [v for k, v in seen_scopes[0]["headers"] if k == b"authorization"]
-        self.assertEqual(len(auth_headers), 1)
-        token = auth_headers[0].decode("latin-1").removeprefix("Bearer ")
+        token = [v for k, v in seen[0]["headers"] if k == b"authorization"][0].decode().removeprefix("Bearer ")
         self.assertEqual(_decode_token(token), self.credential.service_user_id)
         self.assertTrue(_is_service_claim(token))
 
-    def test_invalid_key_returns_401_and_never_calls_downstream(self):
-        downstream_called = []
+    def test_key_not_bound_to_host_tenant_gets_same_401_as_invalid_key(self):
+        called = []
 
         async def downstream(scope, receive, send):
-            downstream_called.append(True)
+            called.append(True)
 
-        sent = self._run(downstream, headers=[(b"x-service-key", b"svc_bad_bad")])
-
-        self.assertEqual(downstream_called, [])
-        self.assertEqual(sent[0]["status"], 401)
+        unbound = self._run(downstream, [(b"x-service-key", self.raw_key.encode("latin-1"))], tenant=self.other)
+        invalid = self._run(downstream, [(b"x-service-key", b"svc_bad_bad")])
+        self.assertEqual(called, [])
+        self.assertEqual(unbound[0]["status"], 401)
+        self.assertEqual(unbound[1]["body"], invalid[1]["body"])
 
     def test_valid_key_updates_last_used_at(self):
-        async def downstream(scope, receive, send):
-            await send({"type": "http.response.start", "status": 200, "headers": []})
-            await send({"type": "http.response.body", "body": b""})
-
-        self.assertIsNone(self.credential.last_used_at)
-        self._run(downstream, headers=[(b"x-service-key", self.raw_key.encode("latin-1"))])
-
+        self._run(self._ok, headers=[(b"x-service-key", self.raw_key.encode("latin-1"))])
         self.credential.refresh_from_db()
         self.assertIsNotNone(self.credential.last_used_at)
 
@@ -699,14 +787,13 @@ class ServiceKeyMiddlewareTests(TestCase):
         from asgiref.sync import async_to_sync
         from apps.mcp_server.http.service_key import with_service_key_auth
 
-        calls = []
+        seen = []
 
         async def downstream(scope, receive, send):
-            calls.append(scope["type"])
+            seen.append(scope["type"])
 
-        wrapped = with_service_key_auth(downstream)
-        async_to_sync(wrapped)({"type": "lifespan"}, None, None)
-        self.assertEqual(calls, ["lifespan"])
+        async_to_sync(with_service_key_auth(downstream))({"type": "lifespan"}, None, None)
+        self.assertEqual(seen, ["lifespan"])
 
 
 class McpServiceCredentialAdminTests(TestCase):
@@ -779,7 +866,7 @@ class _DummyMessages:
 
 class ServiceKeyEndToEndTests(TestCase):
     """Exercises the real seam between service_key.py's minted token and
-    auth.py's require_* functions — the same integration FastMCP relies on
+    auth.py's require_* functions — the same integration the MCP app relies on
     in production, without driving the full streamable-http/JSON-RPC stack."""
 
     def setUp(self):
@@ -793,14 +880,20 @@ class ServiceKeyEndToEndTests(TestCase):
 
         self.credential, self.raw_key = provision_service_credential("e2e", [self.tenant_a.id])
 
+    def tearDown(self):
+        from apps.mcp_server.tenant_context import set_current_tenant
+
+        set_current_tenant(None)
+
     def _minted_token(self):
         from apps.mcp_server.http.service_key import _mint_service_access_token
 
-        return _mint_service_access_token(self.credential.service_user)
+        return _mint_service_access_token(self.credential.service_user, self.tenant_a.id)
 
     def test_service_token_grants_module_access_for_scoped_tenant(self):
         from apps.mcp_server.auth import set_request_token, require_module_access
 
+        _bind_tenant(self.tenant_a)
         set_request_token(self._minted_token())
         user, tenant = require_module_access(self.tenant_a.id, "requests")
         self.assertEqual(tenant.id, self.tenant_a.id)
@@ -809,65 +902,31 @@ class ServiceKeyEndToEndTests(TestCase):
     def test_service_token_grants_admin_only_tools(self):
         from apps.mcp_server.auth import set_request_token, require_admin_access
 
+        _bind_tenant(self.tenant_a)
         set_request_token(self._minted_token())
         user, tenant = require_admin_access(self.tenant_a.id)
         self.assertEqual(tenant.id, self.tenant_a.id)
 
-    def test_service_token_denied_for_out_of_scope_tenant(self):
+    def test_service_token_rejected_on_other_tenant_host(self):
         from apps.mcp_server.auth import set_request_token, require_module_access
 
         set_request_token(self._minted_token())
-        with self.assertRaises(PermissionError) as ctx:
+        _bind_tenant(self.tenant_b)
+        with self.assertRaisesRegex(PermissionError, "not valid for this company"):
             require_module_access(self.tenant_b.id, "requests")
-        self.assertEqual(
-            str(ctx.exception),
-            f"Access denied: tenant {self.tenant_b.id} is not accessible with this key",
-        )
 
-    def test_service_token_denied_identically_for_nonexistent_tenant(self):
-        """Same *shape* of denial for an existing-but-out-of-scope tenant and
-        a tenant that doesn't exist at all — asserting literal string equality
-        would be wrong here (the two calls use different tenant_ids, and the
-        uniform message legitimately embeds the id it was asked about; that's
-        not a leak, the caller already supplied that id). What must not leak
-        is anything BEYOND "this id is inaccessible" — same template, only the
-        (caller-supplied) id varies."""
-        import re
-        from apps.mcp_server.auth import set_request_token, require_module_access
-
-        set_request_token(self._minted_token())
-        with self.assertRaises(PermissionError) as ctx_out_of_scope:
-            require_module_access(self.tenant_b.id, "requests")
-        with self.assertRaises(PermissionError) as ctx_nonexistent:
-            require_module_access(999_999, "requests")
-
-        pattern = re.compile(r"^Access denied: tenant \d+ is not accessible with this key$")
-        self.assertRegex(str(ctx_out_of_scope.exception), pattern)
-        self.assertRegex(str(ctx_nonexistent.exception), pattern)
-
-    def test_human_jwt_path_is_completely_unaffected(self):
-        """Sanity check: an ordinary human JWT still goes through the original,
-        unmodified messages — service_mode branching must be a strict no-op
-        for non-service tokens."""
+    def test_human_mcp_token_works_for_member(self):
         from django.contrib.auth import get_user_model
-        from apps.tenants.models import TenantMembership
+        from apps.tenants.models import TenantMembership, TenantUserRole
         from apps.mcp_server.auth import set_request_token, require_module_access
-        from rest_framework_simplejwt.tokens import AccessToken
 
         human = get_user_model().objects.create_user(username="e2e-human")
         TenantMembership.objects.create(user=human, tenant=self.tenant_a, is_active=True)
-        from apps.tenants.models import TenantUserRole
-
         TenantUserRole.objects.create(tenant=self.tenant_a, user=human, role=TenantUserRole.ROLE_REQUESTER)
-
-        set_request_token(str(AccessToken.for_user(human)))
+        _bind_tenant(self.tenant_a)
+        set_request_token(_mcp_access_token(human, self.tenant_a.id))
         user, tenant = require_module_access(self.tenant_a.id, "requests")
-        self.assertEqual(user.id, human.id)
-
-        with self.assertRaises(PermissionError) as ctx:
-            require_module_access(self.tenant_b.id, "requests")
-        # human path keeps the original, non-uniform message
-        self.assertEqual(str(ctx.exception), "User is not an active member of this tenant")
+        self.assertEqual((user.id, tenant.id), (human.id, self.tenant_a.id))
 
 
 class McpListRequestsDeletedTests(TestCase):
