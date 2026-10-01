@@ -1070,56 +1070,6 @@ class McpTaskErrorLanguageTests(TestCase):
         self.assertIsNone(_re.search(r"[А-Яа-яЁё]", inspect.getsource(task_tools)))
 
 
-class McpToolDocstringRolesTests(TestCase):
-    """Tool descriptions are what the AI client reads to decide whether a tool is
-    usable. The "Required roles" line drifted from ROLE_MODULE_ACCESS (e.g. investments
-    claimed director access, payroll claimed accountant access)."""
-
-    MODULE_BY_TOOL = {
-        "list_requests": "requests",
-        "get_request": "requests",
-        "list_request_categories": "requests",
-        "list_cash_expenses": "cash",
-        "list_cash_revenues": "cash",
-        "list_bank_expenses": "bank",
-        "list_bank_revenues": "bank",
-        "list_card_expenses": "corporate_card",
-        "list_card_revenues": "corporate_card",
-        "get_pnl_report": "reports",
-        "get_cashflow_report": "reports",
-        "list_payroll_documents": "payroll",
-        "get_payroll_document": "payroll",
-        "get_investment_form_config": "investments",
-        "list_invest_companies": "investments",
-        "list_invest_returns": "investments",
-        "list_project_investments": "investments",
-        "list_invest_payout_schedule": "investments",
-        "list_budgets": "budgets",
-        "get_budget": "budgets",
-        "list_budget_spend_requests": "budgets",
-        "list_my_tasks": "tasks",
-        "list_vendors": "vendors",
-        "list_wallets": "wallets",
-    }
-
-    def test_required_roles_match_role_module_access(self):
-        import re as _re
-
-        from apps.mcp_server import server
-        from apps.tenants.models import TenantUserRole
-        from apps.tenants.permissions import ROLE_MODULE_ACCESS
-
-        known_roles = {role for role, _ in TenantUserRole.ROLE_CHOICES}
-        for tool_name, module in self.MODULE_BY_TOOL.items():
-            with self.subTest(tool=tool_name):
-                doc = getattr(server, tool_name).__doc__
-                match = _re.search(r"Required roles:(.*?)(?:\n\s*\n|$)", doc, _re.S)
-                self.assertIsNotNone(match, "docstring has no 'Required roles:' line")
-                roles_text = match.group(1).split("(module:")[0]
-                documented = {w for w in _re.findall(r"[a-z_]+", roles_text) if w in known_roles}
-                self.assertEqual(documented, set(ROLE_MODULE_ACCESS[module]))
-
-
 @override_settings(MCP_HTTP_ENABLED=True, BASE_DOMAIN="kolberg.uz", MCP_ALLOWED_ORIGINS=["https://claude.ai"])
 class McpTenantAsgiTests(TestCase):
     """config.asgi.application on tenant hosts: tenant resolution, discovery, origin, dispatch."""
@@ -1440,3 +1390,189 @@ class McpTenantLoginViewTests(TestCase):
         self.assertEqual(r.status_code, 302)
         self.assertEqual(mock_verify.call_args.kwargs["tenant"].id, self.a.id)
         self.assertEqual(OAuthAuthorizationCode.objects.get().tenant_id, self.a.id)
+
+
+EXPECTED_TOOL_ACCESS = {
+    "get_current_tenant": ("always", None, False),
+    "get_my_role": ("always", None, False),
+    "list_my_modules": ("always", None, False),
+    "list_requests": ("module", "requests", False),
+    "get_request": ("module", "requests", False),
+    "list_request_categories": ("module", "requests", False),
+    "list_cash_expenses": ("module", "cash", False),
+    "list_cash_revenues": ("module", "cash", False),
+    "list_bank_expenses": ("module", "bank", False),
+    "list_bank_revenues": ("module", "bank", False),
+    "list_card_expenses": ("module", "corporate_card", False),
+    "list_card_revenues": ("module", "corporate_card", False),
+    "get_pnl_report": ("module", "reports", False),
+    "get_cashflow_report": ("module", "reports", False),
+    "list_payroll_documents": ("module", "payroll", False),
+    "get_payroll_document": ("module", "payroll", False),
+    "get_investment_form_config": ("module", "investments", False),
+    "list_invest_companies": ("module", "investments", False),
+    "list_invest_returns": ("module", "investments", False),
+    "list_project_investments": ("module", "investments", False),
+    "list_invest_payout_schedule": ("module", "investments", False),
+    "list_budgets": ("module", "budgets", False),
+    "get_budget": ("module", "budgets", False),
+    "list_budget_spend_requests": ("module", "budgets", False),
+    "list_my_tasks": ("module", "tasks", False),
+    "get_task": ("module", "tasks", False),
+    "update_task_status": ("module", "tasks", False),
+    "add_task_comment": ("module", "tasks", False),
+    "edit_task": ("module", "tasks", False),
+    "delete_task": ("module", "tasks", False),
+    "list_assignee_candidates": ("module", "tasks", False),
+    "create_task": ("module", "tasks", True),
+    "list_vendors": ("module", "vendors", False),
+    "list_wallets": ("module", "wallets", False),
+    "list_active_users": ("admin_or_director", None, False),
+    "get_tenant_info": ("admin_or_director", None, False),
+    "list_module_configs": ("admin_or_director", None, False),
+    "list_user_roles": ("admin", None, False),
+    "list_memberships": ("admin", None, False),
+}
+
+
+class McpToolAccessRegistryTests(TestCase):
+    """The access map is what list_tools filters by; it must match the spec table
+    and the module each tools/*.py function checks with require_module_access."""
+
+    def test_registry_matches_spec_table(self):
+        from apps.mcp_server import server  # noqa: F401 — registers tools
+        from apps.mcp_server.django_tools import TOOL_ACCESS
+
+        actual = {n: (a.kind, a.module_key, a.require_admin_or_director) for n, a in TOOL_ACCESS.items()}
+        self.assertEqual(actual, EXPECTED_TOOL_ACCESS)
+
+    def test_no_tool_exposes_tenant_id_or_stale_text(self):
+        from apps.mcp_server.server import mcp
+
+        tools = mcp._tool_manager.list_tools()
+        self.assertEqual(len(tools), len(EXPECTED_TOOL_ACCESS))
+        for info in tools:
+            with self.subTest(tool=info.name):
+                self.assertNotIn("tenant_id", info.parameters.get("properties", {}))
+                for stale in ("tenant_id", "list_my_tenants", "Required roles"):
+                    self.assertNotIn(stale, info.description or "")
+
+
+class DjangoMcpToolDecoratorTenantTests(TestCase):
+    def test_tenant_id_is_hidden_and_injected(self):
+        from asgiref.sync import async_to_sync
+        from mcp.server.mcpserver import MCPServer
+        from apps.mcp_server.access import Access
+        from apps.mcp_server.django_tools import django_mcp_tool
+        from apps.mcp_server.tenant_context import McpTenant, reset_current_tenant, set_current_tenant
+
+        test_mcp = MCPServer(name="t")
+        tool = django_mcp_tool(test_mcp)
+
+        @tool(access=Access.always())
+        def echo_tenant(tenant_id: int, word: str = "x") -> dict:
+            """Echo."""
+            return {"tenant_id": tenant_id, "word": word}
+
+        from apps.mcp_server.django_tools import TOOL_ACCESS
+
+        try:
+            info = test_mcp._tool_manager.list_tools()[0]
+            self.assertEqual(set(info.parameters["properties"]), {"word"})
+
+            token = set_current_tenant(McpTenant(id=42, subdomain="s", name="S"))
+            try:
+                result = async_to_sync(test_mcp.call_tool)("echo_tenant", {"word": "hi"})
+            finally:
+                reset_current_tenant(token)
+        finally:
+            TOOL_ACCESS.pop("echo_tenant", None)  # keep the global registry equal to the spec table
+        text = "".join(getattr(c, "text", "") for c in result.content)
+        self.assertIn("42", text)
+        self.assertIn("hi", text)
+
+
+class McpToolFilteringTests(TestCase):
+    def setUp(self):
+        from django.contrib.auth import get_user_model
+        from apps.tenants.models import Tenant, TenantMembership, TenantModuleConfig
+
+        self.tenant = Tenant.objects.create(name="F", subdomain="filt", is_active=True, mcp_enabled=True)
+        for key in ("requests", "vendors", "tasks", "cash", "reports", "investments", "payroll"):
+            TenantModuleConfig.objects.create(tenant=self.tenant, module_key=key, is_enabled=True)
+        self.User = get_user_model()
+        self.Membership = TenantMembership
+
+    def tearDown(self):
+        from apps.mcp_server.tenant_context import set_current_tenant
+
+        set_current_tenant(None)
+
+    def _user_with(self, *roles, member=True):
+        from apps.tenants.models import TenantUserRole
+
+        user = self.User.objects.create_user(username=f"u-{'-'.join(roles) or 'none'}-{member}")
+        if member:
+            self.Membership.objects.create(user=user, tenant=self.tenant, is_active=True)
+        for role in roles:
+            TenantUserRole.objects.create(tenant=self.tenant, user=user, role=role)
+        return user
+
+    def _visible(self, user):
+        from apps.mcp_server.access import visible_tools
+        from apps.mcp_server.django_tools import TOOL_ACCESS
+        from apps.mcp_server import server  # noqa: F401
+
+        return visible_tools(TOOL_ACCESS, user_id=user.id, tenant_id=self.tenant.id)
+
+    def test_requester_sees_requests_vendors_tasks_only(self):
+        v = self._visible(self._user_with("requester"))
+        self.assertIn("list_requests", v)
+        self.assertIn("list_vendors", v)
+        self.assertIn("list_my_tasks", v)
+        self.assertNotIn("create_task", v)
+        self.assertNotIn("list_cash_expenses", v)
+        self.assertNotIn("get_pnl_report", v)
+        self.assertNotIn("list_user_roles", v)
+
+    def test_investor_sees_investments_and_reports(self):
+        v = self._visible(self._user_with("investor"))
+        self.assertIn("list_invest_returns", v)
+        self.assertIn("get_pnl_report", v)
+        self.assertNotIn("list_requests", v)
+        self.assertNotIn("list_my_tasks", v)
+
+    def test_disabled_module_hides_tools_even_for_admin(self):
+        v = self._visible(self._user_with("admin"))
+        self.assertIn("list_user_roles", v)
+        self.assertIn("create_task", v)
+        self.assertNotIn("list_budgets", v)  # budgets not enabled
+        self.assertNotIn("list_bank_expenses", v)  # bank not enabled
+
+    def test_non_member_sees_nothing(self):
+        self.assertEqual(self._visible(self._user_with("admin", member=False)), set())
+
+    def test_hidden_tool_call_is_unknown_tool(self):
+        from asgiref.sync import async_to_sync
+        from mcp.server.mcpserver.exceptions import ToolError
+        from apps.mcp_server.auth import set_request_token
+        from apps.mcp_server.server import mcp
+
+        user = self._user_with("requester")
+        _bind_tenant(self.tenant)
+        set_request_token(_mcp_access_token(user, self.tenant.id))
+        with self.assertRaisesRegex(ToolError, "^Unknown tool: list_payroll_documents$"):
+            async_to_sync(mcp.call_tool)("list_payroll_documents", {})
+
+    def test_list_tools_is_filtered(self):
+        from asgiref.sync import async_to_sync
+        from apps.mcp_server.auth import set_request_token
+        from apps.mcp_server.server import mcp
+
+        user = self._user_with("requester")
+        _bind_tenant(self.tenant)
+        set_request_token(_mcp_access_token(user, self.tenant.id))
+        names = {t.name for t in async_to_sync(mcp.list_tools)()}
+        self.assertIn("get_current_tenant", names)
+        self.assertIn("list_requests", names)
+        self.assertNotIn("list_payroll_documents", names)
