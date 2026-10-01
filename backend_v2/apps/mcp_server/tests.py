@@ -162,7 +162,10 @@ class McpOAuthLongStateTest(TestCase):
         from django.contrib.auth import get_user_model
         from apps.mcp_server.oauth.models import OAuthClient
 
+        from apps.tenants.models import Tenant
+
         self.user = get_user_model().objects.create_user(username="n8n_state_test", password="x")
+        self.tenant = Tenant.objects.create(name="LS", subdomain="longstate", is_active=True, mcp_enabled=True)
         self.client_obj = OAuthClient.objects.create(
             client_id="n8n-test",
             redirect_uris=["https://dev.kolberg.uz/rest/oauth2-credential/callback"],
@@ -177,6 +180,7 @@ class McpOAuthLongStateTest(TestCase):
         code = create_authorization_code(
             client_id="n8n-test",
             user_id=self.user.id,
+            tenant_id=self.tenant.id,
             redirect_uri="https://dev.kolberg.uz/rest/oauth2-credential/callback",
             redirect_uri_provided_explicitly=True,
             code_challenge="A" * 43,
@@ -1253,3 +1257,186 @@ class McpTenantAsgiTests(TestCase):
     def test_non_mcp_paths_go_to_django(self):
         status, _ = self._call("lemonasgi.kolberg.uz", "/api/definitely-not-a-route/")
         self.assertEqual(status, 404)
+
+
+@override_settings(MCP_HTTP_ENABLED=True, BASE_DOMAIN="kolberg.uz")
+class McpOAuthProviderTenantTests(TestCase):
+    def setUp(self):
+        from django.contrib.auth import get_user_model
+        from apps.mcp_server.oauth.models import OAuthClient
+        from apps.tenants.models import Tenant
+
+        self.user = get_user_model().objects.create_user(username="prov-user")
+        self.a = Tenant.objects.create(name="A", subdomain="prov-a", is_active=True, mcp_enabled=True)
+        self.b = Tenant.objects.create(name="B", subdomain="prov-b", is_active=True, mcp_enabled=True)
+        OAuthClient.objects.create(
+            client_id="c1", redirect_uris=["https://claude.ai/api/mcp/auth_callback"],
+            grant_types=["authorization_code", "refresh_token"], response_types=["code"],
+        )
+
+    def tearDown(self):
+        from apps.mcp_server.tenant_context import set_current_tenant
+
+        set_current_tenant(None)
+
+    def _client(self):
+        from mcp.shared.auth import OAuthClientInformationFull
+
+        return OAuthClientInformationFull(client_id="c1", redirect_uris=["https://claude.ai/api/mcp/auth_callback"])
+
+    def _params(self, resource=None):
+        from mcp.server.auth.provider import AuthorizationParams
+
+        return AuthorizationParams(
+            state="st", scopes=["mcp"], code_challenge="A" * 43,
+            redirect_uri="https://claude.ai/api/mcp/auth_callback",
+            redirect_uri_provided_explicitly=True, resource=resource,
+        )
+
+    def _code_for(self, tenant):
+        from apps.mcp_server.oauth.provider import create_authorization_code
+
+        return create_authorization_code(
+            client_id="c1", user_id=self.user.id, tenant_id=tenant.id,
+            redirect_uri="https://claude.ai/api/mcp/auth_callback", redirect_uri_provided_explicitly=True,
+            code_challenge="A" * 43, code_challenge_method="S256", scopes=["mcp"], state="st",
+        )
+
+    def test_authorize_redirects_to_tenant_login_with_tenant_in_params(self):
+        from asgiref.sync import async_to_sync
+        from django.core import signing
+        from apps.mcp_server.oauth.provider import KolbergOAuthProvider
+
+        _bind_tenant(self.a)
+        url = async_to_sync(KolbergOAuthProvider().authorize)(self._client(), self._params())
+        self.assertTrue(url.startswith("https://prov-a.kolberg.uz/mcp/login/?t="), url)
+        params = signing.loads(url.split("t=", 1)[1], salt="mcp-oauth-authorize")
+        self.assertEqual(params["tenant_id"], self.a.id)
+
+    def test_authorize_rejects_foreign_resource(self):
+        from asgiref.sync import async_to_sync
+        from mcp.server.auth.provider import AuthorizeError
+        from apps.mcp_server.oauth.provider import KolbergOAuthProvider
+
+        _bind_tenant(self.a)
+        with self.assertRaises(AuthorizeError):
+            async_to_sync(KolbergOAuthProvider().authorize)(self._client(), self._params("https://prov-b.kolberg.uz/mcp"))
+
+    def test_authorize_accepts_resource_with_trailing_slash(self):
+        from asgiref.sync import async_to_sync
+        from apps.mcp_server.oauth.provider import KolbergOAuthProvider
+
+        _bind_tenant(self.a)
+        url = async_to_sync(KolbergOAuthProvider().authorize)(self._client(), self._params("https://prov-a.kolberg.uz/mcp/"))
+        self.assertIn("/mcp/login/", url)
+
+    def test_code_of_tenant_a_not_loadable_on_host_b(self):
+        from asgiref.sync import async_to_sync
+        from apps.mcp_server.oauth.provider import KolbergOAuthProvider
+
+        code = self._code_for(self.a)
+        _bind_tenant(self.b)
+        self.assertIsNone(async_to_sync(KolbergOAuthProvider().load_authorization_code)(self._client(), code))
+
+    def test_exchange_issues_tenant_bound_tokens(self):
+        from asgiref.sync import async_to_sync
+        from rest_framework_simplejwt.tokens import AccessToken, RefreshToken
+        from apps.mcp_server.oauth.provider import KolbergOAuthProvider
+
+        provider = KolbergOAuthProvider()
+        code = self._code_for(self.a)
+        _bind_tenant(self.a)
+        loaded = async_to_sync(provider.load_authorization_code)(self._client(), code)
+        token = async_to_sync(provider.exchange_authorization_code)(self._client(), loaded)
+        self.assertEqual(AccessToken(token.access_token)["mcp_tenant_id"], self.a.id)
+        self.assertEqual(RefreshToken(token.refresh_token)["mcp_tenant_id"], self.a.id)
+
+    def test_refresh_of_tenant_a_rejected_on_host_b(self):
+        from asgiref.sync import async_to_sync
+        from apps.mcp_server.oauth.provider import KolbergOAuthProvider
+        from apps.mcp_server.oauth.tokens import mcp_jwt_pair_for_user
+
+        refresh, _ = mcp_jwt_pair_for_user(self.user, self.a.id)
+        _bind_tenant(self.b)
+        self.assertIsNone(async_to_sync(KolbergOAuthProvider().load_refresh_token)(self._client(), str(refresh)))
+
+    def test_refresh_without_claim_rejected(self):
+        from asgiref.sync import async_to_sync
+        from rest_framework_simplejwt.tokens import RefreshToken
+        from apps.mcp_server.oauth.provider import KolbergOAuthProvider
+
+        _bind_tenant(self.a)
+        legacy = str(RefreshToken.for_user(self.user))
+        self.assertIsNone(async_to_sync(KolbergOAuthProvider().load_refresh_token)(self._client(), legacy))
+
+    def test_access_token_of_other_tenant_not_loaded(self):
+        from asgiref.sync import async_to_sync
+        from apps.mcp_server.oauth.provider import KolbergOAuthProvider
+
+        token = _mcp_access_token(self.user, self.a.id)
+        _bind_tenant(self.b)
+        self.assertIsNone(async_to_sync(KolbergOAuthProvider().load_access_token)(token))
+
+
+@override_settings(MCP_HTTP_ENABLED=True, BASE_DOMAIN="kolberg.uz", ALLOWED_HOSTS=["login-a.kolberg.uz", "login-b.kolberg.uz"])
+class McpTenantLoginViewTests(TestCase):
+    def setUp(self):
+        from django.contrib.auth import get_user_model
+        from apps.mcp_server.oauth.models import OAuthClient
+        from apps.tenants.models import Tenant, TenantMembership
+
+        self.a = Tenant.objects.create(name="A", subdomain="login-a", is_active=True, mcp_enabled=True)
+        self.b = Tenant.objects.create(name="B", subdomain="login-b", is_active=True, mcp_enabled=True)
+        self.alice = get_user_model().objects.create_user(username="alice", password="x")
+        TenantMembership.objects.create(user=self.alice, tenant=self.a, is_active=True)
+        OAuthClient.objects.create(client_id="c1", redirect_uris=["https://claude.ai/cb"])
+
+    def _t(self, tenant_id):
+        from django.core import signing
+
+        return signing.dumps(
+            {"client_id": "c1", "redirect_uri": "https://claude.ai/cb", "redirect_uri_provided_explicitly": True,
+             "code_challenge": "A" * 43, "state": "st", "scopes": ["mcp"], "tenant_id": tenant_id},
+            salt="mcp-oauth-authorize",
+        )
+
+    def test_old_login_url_is_gone(self):
+        self.assertEqual(self.client.get("/oauth/login/", HTTP_HOST="login-a.kolberg.uz").status_code, 404)
+
+    def test_login_page_renders_on_tenant_host(self):
+        r = self.client.get(f"/mcp/login/?t={self._t(self.a.id)}", HTTP_HOST="login-a.kolberg.uz")
+        self.assertEqual(r.status_code, 200)
+
+    def test_params_for_other_tenant_rejected(self):
+        r = self.client.get(f"/mcp/login/?t={self._t(self.b.id)}", HTTP_HOST="login-a.kolberg.uz")
+        self.assertEqual(r.status_code, 400)
+
+    @patch("apps.accounts.otp.send_otp")
+    def test_username_step_sends_otp_via_tenant(self, mock_send):
+        r = self.client.post(
+            "/mcp/login/", {"t": self._t(self.a.id), "step": "username", "username": "alice"},
+            HTTP_HOST="login-a.kolberg.uz",
+        )
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(mock_send.call_args.kwargs["tenant"].id, self.a.id)
+
+    @patch("apps.accounts.otp.send_otp")
+    def test_non_member_cannot_log_in(self, mock_send):
+        r = self.client.post(
+            "/mcp/login/", {"t": self._t(self.b.id), "step": "username", "username": "alice"},
+            HTTP_HOST="login-b.kolberg.uz",
+        )
+        self.assertContains(r, "Нет доступа к этой компании")
+        mock_send.assert_not_called()
+
+    @patch("apps.accounts.otp.verify_otp")
+    def test_otp_step_creates_code_bound_to_tenant(self, mock_verify):
+        from apps.mcp_server.oauth.models import OAuthAuthorizationCode
+
+        r = self.client.post(
+            "/mcp/login/", {"t": self._t(self.a.id), "step": "otp", "username": "alice", "otp": "123456"},
+            HTTP_HOST="login-a.kolberg.uz",
+        )
+        self.assertEqual(r.status_code, 302)
+        self.assertEqual(mock_verify.call_args.kwargs["tenant"].id, self.a.id)
+        self.assertEqual(OAuthAuthorizationCode.objects.get().tenant_id, self.a.id)
