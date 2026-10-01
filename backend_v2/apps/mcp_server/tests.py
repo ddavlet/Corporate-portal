@@ -1077,7 +1077,14 @@ class McpTaskErrorLanguageTests(TestCase):
         self.assertIsNone(_re.search(r"[А-Яа-яЁё]", inspect.getsource(task_tools)))
 
 
-@override_settings(MCP_HTTP_ENABLED=True, BASE_DOMAIN="kolberg.uz", MCP_ALLOWED_ORIGINS=["https://claude.ai"])
+# ALLOWED_HOSTS: the server's post-deploy run uses the real DJANGO_ALLOWED_HOSTS, where the
+# test hosts are unknown and Django would answer DisallowedHost (400) instead of routing.
+@override_settings(
+    MCP_HTTP_ENABLED=True,
+    BASE_DOMAIN="kolberg.uz",
+    MCP_ALLOWED_ORIGINS=["https://claude.ai"],
+    ALLOWED_HOSTS=[".kolberg.uz"],
+)
 class McpTenantAsgiTests(TestCase):
     """config.asgi.application on tenant hosts: tenant resolution, discovery, origin, dispatch."""
 
@@ -1922,6 +1929,26 @@ class McpEndToEndOAuthFlowTests(TestCase):
             await to_app.put({"type": "lifespan.shutdown"})
             await asyncio.wait_for(from_app.get(), timeout=30)
             await asyncio.wait_for(lifespan, timeout=30)
+
+
+class McpAuthSettingsTests(TestCase):
+    """The SDK's single-URL resource check cannot work for one app serving many tenant
+    hosts; tokens are bound to the host by our mcp_tenant_id check instead. It must be
+    off explicitly: SDK 3.0 turns it on by default, which would reject every token."""
+
+    def test_sdk_resource_check_explicitly_off_without_deprecation_warning(self):
+        import warnings
+
+        from mcp.shared.exceptions import MCPDeprecationWarning  # noqa: F401 — must exist in the SDK
+        from apps.mcp_server.http.app import build_auth_settings
+
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            settings = build_auth_settings()
+        self.assertIs(settings.validate_token_resource, False)
+        self.assertEqual(
+            [w for w in caught if "validate_token_resource" in str(w.message)], []
+        )
 
 
 @override_settings(MCP_HTTP_ENABLED=True, BASE_DOMAIN="kolberg.uz")
