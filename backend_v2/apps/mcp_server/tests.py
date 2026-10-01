@@ -1949,3 +1949,74 @@ class McpAuthSettingsTests(TestCase):
         self.assertEqual(
             [w for w in caught if "validate_token_resource" in str(w.message)], []
         )
+
+
+@override_settings(MCP_HTTP_ENABLED=True, BASE_DOMAIN="kolberg.uz")
+class McpClientSecretRegistrationTests(TestCase):
+    """Claude registers without token_endpoint_auth_method, so the SDK defaults to
+    client_secret_post and issues a secret. The secret was not stored, and /token
+    failed with "registered for secret-based authentication but has no stored secret"
+    (prod, 2026-10-01: "Authorization with Lemonfit failed")."""
+
+    def setUp(self):
+        from django.contrib.auth import get_user_model
+        from apps.tenants.models import Tenant, TenantMembership
+
+        self.tenant = Tenant.objects.create(name="Secret", subdomain="e2esecret", is_active=True, mcp_enabled=True)
+        self.user = get_user_model().objects.create_user(username="e2e-secret-user")
+        TenantMembership.objects.create(user=self.user, tenant=self.tenant, is_active=True)
+
+    def test_claude_style_client_exchanges_code_with_its_secret(self):
+        from asgiref.sync import async_to_sync
+
+        async_to_sync(self._flow)()
+
+    async def _flow(self):
+        import base64
+        import hashlib
+        import secrets
+
+        from asgiref.sync import sync_to_async
+
+        from apps.mcp_server.oauth.provider import create_authorization_code
+        from config.asgi import application
+
+        host = "e2esecret.kolberg.uz"
+        r = await _asgi_request(application, host, "POST", "/mcp/register", json_body={
+            "client_name": "Claude",
+            "redirect_uris": [_E2E_REDIRECT],
+            "grant_types": ["authorization_code", "refresh_token"],
+            "response_types": ["code"],
+        })
+        self.assertEqual(r.status_code, 201, r.text)
+        registered = r.json()
+        self.assertEqual(registered["token_endpoint_auth_method"], "client_secret_post")
+        self.assertTrue(registered.get("client_secret"))
+
+        verifier = secrets.token_urlsafe(48)
+        challenge = base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).rstrip(b"=").decode()
+        code = await sync_to_async(create_authorization_code, thread_sensitive=True)(
+            client_id=registered["client_id"], user_id=self.user.id, tenant_id=self.tenant.id,
+            redirect_uri=_E2E_REDIRECT, redirect_uri_provided_explicitly=True,
+            code_challenge=challenge, code_challenge_method="S256", scopes=["mcp"], state="st",
+        )
+        r = await _asgi_request(application, host, "POST", "/mcp/token", form={
+            "grant_type": "authorization_code", "code": code, "redirect_uri": _E2E_REDIRECT,
+            "client_id": registered["client_id"], "client_secret": registered["client_secret"],
+            "code_verifier": verifier,
+        })
+        self.assertEqual(r.status_code, 200, r.text)
+        self.assertTrue(r.json().get("access_token"))
+
+        # A wrong secret is still refused.
+        code2 = await sync_to_async(create_authorization_code, thread_sensitive=True)(
+            client_id=registered["client_id"], user_id=self.user.id, tenant_id=self.tenant.id,
+            redirect_uri=_E2E_REDIRECT, redirect_uri_provided_explicitly=True,
+            code_challenge=challenge, code_challenge_method="S256", scopes=["mcp"], state="st",
+        )
+        r = await _asgi_request(application, host, "POST", "/mcp/token", form={
+            "grant_type": "authorization_code", "code": code2, "redirect_uri": _E2E_REDIRECT,
+            "client_id": registered["client_id"], "client_secret": "wrong",
+            "code_verifier": verifier,
+        })
+        self.assertEqual(r.status_code, 401, r.text)

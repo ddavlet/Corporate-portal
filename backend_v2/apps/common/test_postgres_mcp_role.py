@@ -13,6 +13,7 @@ SECRET_COLUMN_RE = re.compile(r"(password|secret|token|hash|_enc$|webhook_url|^s
 # Matches the pattern but holds no secret.
 NOT_SECRET = {
     ("mcp_oauth_client", "token_endpoint_auth_method"),
+    ("mcp_oauth_client", "client_secret_expires_at"),  # a timestamp, not the secret
 }
 
 

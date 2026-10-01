@@ -12,6 +12,11 @@ class OAuthClient(models.Model):
     response_types = models.JSONField(default=list)
     scope = models.CharField(max_length=1000, blank=True)
     token_endpoint_auth_method = models.CharField(max_length=50, default="none")
+    # Issued by the SDK at registration for client_secret_post/basic clients (Claude
+    # registers this way); the SDK compares it in constant time at /token, so it is
+    # stored as issued. Hidden from the Postgres MCP read-only role.
+    client_secret = models.CharField(max_length=255, blank=True, default="")
+    client_secret_expires_at = models.BigIntegerField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

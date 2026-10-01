@@ -50,6 +50,7 @@ INSERT INTO mcp_hidden_columns (tbl, col) VALUES
     ('tenant_integration_configs', 'telegram_oidc_client_secret_enc'),
     ('tenant_integration_configs', 'request_ai_chat_webhook_url'),
     ('mcp_service_credential', 'key_hash'),
+    ('mcp_oauth_client', 'client_secret'),
     ('invest_payout_schedule_share_links', 'token');
 
 -- Table-level REVOKE also drops any column-level grants left from a previous run.
