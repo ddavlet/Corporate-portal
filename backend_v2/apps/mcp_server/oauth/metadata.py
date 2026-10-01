@@ -8,6 +8,7 @@ tenant's base URL.
 
 from __future__ import annotations
 
+
 def authorization_server_metadata(base_url: str) -> dict:
     """RFC 8414 — /.well-known/oauth-authorization-server[/mcp] on the tenant host."""
     base = base_url.rstrip("/")

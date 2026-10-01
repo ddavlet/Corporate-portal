@@ -226,32 +226,12 @@ N8N_INTEGRATION_TOKEN = os.getenv("N8N_INTEGRATION_TOKEN", "").strip()
 # When empty, backend falls back to the public https://{subdomain}.{BASE_DOMAIN} path.
 N8N_INTERNAL_BASE_URL = (os.getenv("N8N_INTERNAL_BASE_URL", "") or "").strip().rstrip("/")
 
-# MCP HTTP/OAuth (api.kolberg.uz) is parked in git. Default off so FastMCP is
-# not started in gunicorn. Re-enable: MCP_HTTP_ENABLED=true + Traefik router
-# (see docs/MCP_SERVER.md).
+# MCP HTTP/OAuth on tenant hosts: https://<subdomain>.<BASE_DOMAIN>/mcp (docs/MCP_SERVER.md).
+# Per-tenant switch: Tenant.mcp_enabled.
 MCP_HTTP_ENABLED = os.getenv("MCP_HTTP_ENABLED", "false").lower() in {"1", "true", "yes", "on"}
 
-# MCP server: OAuth issuer + MCP protocol base (e.g. https://api.kolberg.uz/mcp).
-MCP_BASE_URL = (os.getenv("MCP_BASE_URL", "") or "").strip().rstrip("/") or (
-    f"https://api.{BASE_DOMAIN}/mcp" if BASE_DOMAIN else "http://localhost:8000/mcp"
-)
-# Protected resource identifier (Streamable HTTP MCP endpoint).
-MCP_RESOURCE_URL = (os.getenv("MCP_RESOURCE_URL", "") or "").strip().rstrip("/") or MCP_BASE_URL
-
-def _mcp_public_origin() -> str:
-    from urllib.parse import urlparse
-
-    parsed = urlparse(MCP_BASE_URL)
-    return f"{parsed.scheme}://{parsed.netloc}"
-
-
-# Human OTP login page (outside /mcp/ — entire /mcp/* namespace is FastMCP).
-MCP_OAUTH_LOGIN_URL = (os.getenv("MCP_OAUTH_LOGIN_URL", "") or "").strip().rstrip("/") or (
-    f"{_mcp_public_origin()}/oauth/login"
-)
-
-# Origins allowed for Streamable HTTP (Claude.ai connector).
-_default_mcp_origins = f"{_mcp_public_origin()},https://claude.ai,https://claude.com"
+# Browser Origins allowed to call /mcp (requests without Origin are server-to-server and allowed).
+_default_mcp_origins = "https://claude.ai,https://claude.com,https://chatgpt.com"
 MCP_ALLOWED_ORIGINS = [
     o.strip()
     for o in (os.getenv("MCP_ALLOWED_ORIGINS", _default_mcp_origins) or _default_mcp_origins).split(",")

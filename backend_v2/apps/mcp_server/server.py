@@ -9,21 +9,6 @@ tools allowed by the tenant's enabled modules and the user's roles.
 
 from __future__ import annotations
 
-import os
-
-
-def _bootstrap_django() -> None:
-    """Set up Django if not already initialised (for direct invocation)."""
-    from django.apps import apps
-    if apps.ready:
-        return
-    os.environ.setdefault("DJANGO_SETTINGS_MODULE", "config.settings")
-    import django
-    django.setup()
-
-
-_bootstrap_django()
-
 from mcp.server.mcpserver import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 
@@ -1246,14 +1231,3 @@ def list_memberships(tenant_id: int) -> list:
     except Exception as e:
         return _list_err(f"Unexpected error: {e}")
 
-
-# ---------------------------------------------------------------------------
-# Entry point
-# ---------------------------------------------------------------------------
-
-def run() -> None:
-    mcp.run(transport="stdio")
-
-
-if __name__ == "__main__":
-    run()

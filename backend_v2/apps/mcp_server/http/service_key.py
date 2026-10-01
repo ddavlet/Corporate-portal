@@ -4,7 +4,7 @@ ASGI middleware: resolve an X-Service-Key header into a Bearer JWT before
 FastMCP's own OAuth token verifier sees the request.
 
 No X-Service-Key header -> pass through unchanged (normal Authorization path,
-either a manually-set human JWT or one obtained through /oauth/login).
+a JWT obtained through the tenant OAuth login at /mcp/login/).
 Invalid/inactive key -> 401 immediately; the wrapped app is never called
 (fail-closed — no silent fallback to Authorization).
 """

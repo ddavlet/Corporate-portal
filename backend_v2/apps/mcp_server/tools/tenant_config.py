@@ -18,7 +18,7 @@ from apps.mcp_server.utils import json_safe
 def get_my_role(tenant_id: int) -> dict[str, Any]:
     """Return the current user's roles in a tenant.
 
-    Call this after list_my_tenants() to understand what actions are available.
+    Call this first to understand what actions are available.
     Any active tenant member can call this.
     """
     token = _get_token()
