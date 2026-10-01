@@ -1204,6 +1204,47 @@ class McpTenantAsgiTests(TestCase):
         header = dict(sent[0]["headers"])[b"www-authenticate"].decode()
         self.assertIn('resource_metadata="https://lemonasgi.kolberg.uz/.well-known/oauth-protected-resource"', header)
 
+    def test_real_mcp_app_builds_and_requires_auth(self):
+        """Smoke test of the production app (SDK auth wiring, middlewares): an
+        unauthenticated call is rejected with the host's discovery hint."""
+        from asgiref.sync import async_to_sync
+        from django.core.signals import request_finished, request_started
+        from django.db import close_old_connections
+        from config.asgi import application
+
+        sent = []
+        incoming = [{"type": "http.request", "body": b"{}", "more_body": False}]
+
+        async def receive():
+            if incoming:
+                return incoming.pop(0)
+            import asyncio
+
+            await asyncio.Event().wait()
+
+        async def send(message):
+            sent.append(message)
+
+        scope = {
+            "type": "http", "method": "POST", "path": "/mcp/", "raw_path": b"/mcp/",
+            "root_path": "", "query_string": b"", "scheme": "https",
+            "headers": [
+                (b"host", b"lemonasgi.kolberg.uz"),
+                (b"content-type", b"application/json"),
+                (b"accept", b"application/json, text/event-stream"),
+            ],
+        }
+        request_started.disconnect(close_old_connections)
+        request_finished.disconnect(close_old_connections)
+        try:
+            async_to_sync(application)(scope, receive, send)
+        finally:
+            request_started.connect(close_old_connections)
+            request_finished.connect(close_old_connections)
+        self.assertEqual(sent[0]["status"], 401)
+        header = dict(sent[0]["headers"])[b"www-authenticate"].decode()
+        self.assertIn("https://lemonasgi.kolberg.uz/.well-known/oauth-protected-resource", header)
+
     def test_non_mcp_paths_go_to_django(self):
         status, _ = self._call("lemonasgi.kolberg.uz", "/api/definitely-not-a-route/")
         self.assertEqual(status, 404)
