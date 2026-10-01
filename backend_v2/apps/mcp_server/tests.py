@@ -6,8 +6,9 @@ from django.test import Client, TestCase, override_settings
 
 from apps.mcp_server.utils import json_safe, validate_date
 from apps.mcp_server.routing import (
-    is_mcp_host,
+    is_mcp_login_path,
     is_mcp_protocol_path,
+    is_tenant_mcp_path,
     is_well_known_oauth_path,
     mcp_http_enabled,
 )
@@ -69,141 +70,91 @@ class ValidateDateTests(TestCase):
 
 
 class McpRoutingTests(TestCase):
-    def test_fastmcp_paths(self):
+    def test_protocol_paths(self):
         for path in ("/mcp", "/mcp/", "/mcp/authorize", "/mcp/token", "/mcp/register"):
             self.assertTrue(is_mcp_protocol_path(path), path)
 
-    def test_canonical_login_not_fastmcp(self):
-        self.assertFalse(is_mcp_protocol_path("/oauth/login/"))
-
-    def test_well_known_not_fastmcp(self):
-        for path in (
-            "/.well-known/oauth-authorization-server",
-            "/.well-known/oauth-protected-resource",
-        ):
-            self.assertFalse(is_mcp_protocol_path(path), path)
+    def test_login_path(self):
+        self.assertTrue(is_mcp_login_path("/mcp/login/"))
+        self.assertTrue(is_mcp_login_path("/mcp/login"))
+        self.assertFalse(is_mcp_login_path("/oauth/login/"))
 
     def test_well_known_paths(self):
-        self.assertTrue(is_well_known_oauth_path("/.well-known/oauth-authorization-server"))
-        self.assertTrue(is_well_known_oauth_path("/.well-known/oauth-protected-resource/"))
-        self.assertTrue(is_well_known_oauth_path("/.well-known/oauth-protected-resource/mcp"))
-        self.assertTrue(is_well_known_oauth_path("/.well-known/oauth-authorization-server/mcp"))
+        for path in (
+            "/.well-known/oauth-authorization-server",
+            "/.well-known/oauth-authorization-server/mcp",
+            "/.well-known/oauth-protected-resource",
+            "/.well-known/oauth-protected-resource/mcp/",
+        ):
+            self.assertTrue(is_well_known_oauth_path(path), path)
         self.assertFalse(is_well_known_oauth_path("/mcp/.well-known/oauth-authorization-server"))
 
-    @override_settings(MCP_HTTP_ENABLED=False, MCP_BASE_URL="https://api.kolberg.uz/mcp")
-    def test_mcp_host_ignored_when_http_disabled(self):
+    def test_tenant_mcp_path_covers_protocol_and_discovery_only(self):
+        self.assertTrue(is_tenant_mcp_path("/mcp/"))
+        self.assertTrue(is_tenant_mcp_path("/.well-known/oauth-protected-resource"))
+        self.assertFalse(is_tenant_mcp_path("/api/requests/"))
+        self.assertFalse(is_tenant_mcp_path("/app/"))
+
+    @override_settings(MCP_HTTP_ENABLED=False)
+    def test_http_switch(self):
         self.assertFalse(mcp_http_enabled())
-        self.assertFalse(is_mcp_host("api.kolberg.uz"))
-
-    @override_settings(MCP_HTTP_ENABLED=True, MCP_BASE_URL="https://api.kolberg.uz/mcp")
-    def test_mcp_host_matches_when_http_enabled(self):
-        self.assertTrue(mcp_http_enabled())
-        self.assertTrue(is_mcp_host("api.kolberg.uz"))
-        self.assertFalse(is_mcp_host("lemonfit.kolberg.uz"))
 
 
-_MCP_TEST_HOST = "api.kolberg.uz"
-
-
-@override_settings(
-    MCP_HTTP_ENABLED=True,
-    MCP_BASE_URL="https://api.kolberg.uz/mcp",
-    MCP_RESOURCE_URL="https://api.kolberg.uz/mcp",
-    MCP_OAUTH_LOGIN_URL="https://api.kolberg.uz/oauth/login",
-    ALLOWED_HOSTS=[_MCP_TEST_HOST, "testserver"],
-)
-class McpOAuthMetadataTests(TestCase):
+@override_settings(BASE_DOMAIN="kolberg.uz", MCP_ALLOWED_ORIGINS=["https://claude.ai"])
+class McpTenantContextTests(TestCase):
     def setUp(self):
-        self.client = Client()
+        from apps.tenants.models import Tenant
 
-    def _mcp_get(self, path: str):
-        return self.client.get(path, HTTP_HOST=_MCP_TEST_HOST)
+        self.tenant = Tenant.objects.create(name="Lemon", subdomain="lemonctx", is_active=True, mcp_enabled=True)
 
-    def test_authorization_server_metadata_points_to_mcp_endpoints(self):
-        from apps.mcp_server.oauth.metadata import authorization_server_metadata
+    def test_resolves_enabled_tenant_from_host(self):
+        from apps.mcp_server.tenant_context import resolve_mcp_tenant
 
-        meta = authorization_server_metadata()
-        self.assertEqual(meta["issuer"], "https://api.kolberg.uz/mcp")
-        self.assertEqual(meta["authorization_endpoint"], "https://api.kolberg.uz/mcp/authorize")
-        self.assertEqual(meta["token_endpoint"], "https://api.kolberg.uz/mcp/token")
-        self.assertEqual(meta["registration_endpoint"], "https://api.kolberg.uz/mcp/register")
-        self.assertIn("S256", meta["code_challenge_methods_supported"])
+        t = resolve_mcp_tenant("lemonctx.kolberg.uz")
+        self.assertEqual((t.id, t.subdomain, t.name), (self.tenant.id, "lemonctx", "Lemon"))
+        self.assertEqual(t.base_url, "https://lemonctx.kolberg.uz/mcp")
 
-    def test_protected_resource_metadata(self):
-        from apps.mcp_server.oauth.metadata import protected_resource_metadata
+    def test_host_case_and_port_are_ignored(self):
+        from apps.mcp_server.tenant_context import resolve_mcp_tenant
 
-        meta = protected_resource_metadata()
-        self.assertEqual(meta["resource"], "https://api.kolberg.uz/mcp")
-        self.assertEqual(meta["authorization_servers"], ["https://api.kolberg.uz/mcp"])
+        self.assertEqual(resolve_mcp_tenant("LemonCtx.Kolberg.uz:443").id, self.tenant.id)
 
-    def test_protected_resource_metadata_url_has_no_extra_mcp_suffix(self):
-        from apps.mcp_server.oauth.metadata import protected_resource_metadata_url
+    def test_disabled_inactive_unknown_resolve_to_none(self):
+        from apps.mcp_server.tenant_context import resolve_mcp_tenant
+        from apps.tenants.models import Tenant
 
-        url = protected_resource_metadata_url()
-        self.assertEqual(url, "https://api.kolberg.uz/.well-known/oauth-protected-resource")
-        self.assertFalse(url.endswith("/mcp"))
+        Tenant.objects.create(name="Off", subdomain="offctx", is_active=True, mcp_enabled=False)
+        Tenant.objects.create(name="Gone", subdomain="gonectx", is_active=False, mcp_enabled=True)
+        for host in ("offctx.kolberg.uz", "gonectx.kolberg.uz", "nope.kolberg.uz", "api.kolberg.uz", "kolberg.uz"):
+            self.assertIsNone(resolve_mcp_tenant(host), host)
 
-    def test_root_well_known_endpoints_served_by_django(self):
-        r = self._mcp_get("/.well-known/oauth-authorization-server")
-        self.assertEqual(r.status_code, 200)
-        self.assertEqual(r.json()["authorization_endpoint"], "https://api.kolberg.uz/mcp/authorize")
-
-        r = self._mcp_get("/.well-known/oauth-protected-resource")
-        self.assertEqual(r.status_code, 200)
-        self.assertEqual(r.json()["resource"], "https://api.kolberg.uz/mcp")
-
-    def test_oauth_login_page_without_token_returns_400(self):
-        r = self._mcp_get("/oauth/login/")
-        self.assertEqual(r.status_code, 400)
-
-
-@override_settings(
-    MCP_HTTP_ENABLED=True,
-    MCP_BASE_URL="https://api.kolberg.uz/mcp",
-    MCP_OAUTH_LOGIN_URL="https://api.kolberg.uz/oauth/login",
-    ALLOWED_HOSTS=[_MCP_TEST_HOST, "testserver"],
-)
-class McpOAuthLoginFlowTests(TestCase):
-    def setUp(self):
-        from django.contrib.auth import get_user_model
-
-        self.client = Client()
-        get_user_model().objects.create_user(username="alice", password="test-pass")
-
-    def _signed_t(self) -> str:
-        from django.core import signing
-
-        return signing.dumps(
-            {
-                "client_id": "test-client",
-                "redirect_uri": "https://claude.ai/api/mcp/auth_callback",
-                "redirect_uri_provided_explicitly": True,
-                "code_challenge": "challenge",
-                "state": "st",
-                "scopes": ["mcp"],
-            },
-            salt="mcp-oauth-authorize",
+    def test_current_tenant_requires_binding(self):
+        from apps.mcp_server.tenant_context import (
+            McpTenant, current_tenant, reset_current_tenant, set_current_tenant,
         )
 
-    @patch("apps.accounts.otp.send_otp")
-    def test_username_post_does_not_500_when_otp_module_present(self, mock_send):
-        t = self._signed_t()
-        r = self.client.post(
-            "/oauth/login/",
-            {"t": t, "step": "username", "username": "alice"},
-            HTTP_HOST=_MCP_TEST_HOST,
-        )
-        self.assertEqual(r.status_code, 200, r.content[:500])
-        mock_send.assert_called_once()
-        self.assertIn(b"otp", r.content.lower())
+        with self.assertRaises(PermissionError):
+            current_tenant()
+        token = set_current_tenant(McpTenant(id=7, subdomain="x", name="X"))
+        try:
+            self.assertEqual(current_tenant().id, 7)
+        finally:
+            reset_current_tenant(token)
+        with self.assertRaises(PermissionError):
+            current_tenant()
+
+    def test_origin_rules(self):
+        from apps.mcp_server.tenant_context import McpTenant, origin_allowed
+
+        t = McpTenant(id=1, subdomain="lemonctx", name="L")
+        self.assertTrue(origin_allowed(None, t))
+        self.assertTrue(origin_allowed("", t))
+        self.assertTrue(origin_allowed("https://claude.ai", t))
+        self.assertTrue(origin_allowed("https://lemonctx.kolberg.uz", t))
+        self.assertFalse(origin_allowed("https://evil.example", t))
+        self.assertFalse(origin_allowed("https://other.kolberg.uz", t))
 
 
-@override_settings(
-    MCP_HTTP_ENABLED=True,
-    MCP_BASE_URL="https://api.kolberg.uz/mcp",
-    MCP_OAUTH_LOGIN_URL="https://api.kolberg.uz/oauth/login",
-    ALLOWED_HOSTS=[_MCP_TEST_HOST, "testserver"],
-)
 class McpOAuthLongStateTest(TestCase):
     """create_authorization_code must not fail when state exceeds 255 chars."""
 
