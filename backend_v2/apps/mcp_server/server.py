@@ -1,20 +1,10 @@
 """
-Kolberg MCP Server
+Kolberg MCP Server — one company (tenant) per connector.
 
-Entry point for the Model Context Protocol server.
-Run via the Django management command:
-
-    KOLBERG_JWT_TOKEN=<access_token> python manage.py run_mcp_server
-
-Or directly (sets up Django itself):
-
-    KOLBERG_JWT_TOKEN=<access_token> python -m apps.mcp_server.server
-
-The JWT token is read once from the KOLBERG_JWT_TOKEN environment variable
-and is never passed as a tool-call parameter, keeping it out of MCP logs
-and AI conversation history.
-
-The server communicates over stdio (standard MCP transport).
+Served over streamable HTTP at https://<tenant>.<BASE_DOMAIN>/mcp
+(see apps/mcp_server/http/app.py and config/asgi.py). The tenant comes from the
+Host subdomain; tools never take tenant_id. list_tools/call_tool expose only
+tools allowed by the tenant's enabled modules and the user's roles.
 """
 
 from __future__ import annotations
@@ -35,8 +25,11 @@ def _bootstrap_django() -> None:
 _bootstrap_django()
 
 from mcp.server.mcpserver import MCPServer
+from mcp.server.mcpserver.exceptions import ToolError
 
-from apps.mcp_server.django_tools import django_mcp_tool
+from apps.mcp_server.access import Access
+from apps.mcp_server.django_tools import TOOL_ACCESS, django_mcp_tool
+from apps.mcp_server.tenant_context import current_tenant
 from apps.mcp_server.tools import (
     requests as req_tools,
     finance as fin_tools,
@@ -48,13 +41,44 @@ from apps.mcp_server.tools import (
     tasks as task_tools,
 )
 
-mcp = MCPServer(
+
+def _visible_tool_names_sync() -> set[str]:
+    from apps.mcp_server.access import visible_tools
+    from apps.mcp_server.auth import _decode_token, _get_token
+
+    try:
+        user_id = _decode_token(_get_token())
+    except PermissionError:
+        return set()
+    return visible_tools(TOOL_ACCESS, user_id=user_id, tenant_id=current_tenant().id)
+
+
+class TenantScopedMCPServer(MCPServer):
+    """Hides tools the caller may not use; a hidden tool behaves as nonexistent."""
+
+    async def _visible(self) -> set[str]:
+        from asgiref.sync import sync_to_async
+
+        return await sync_to_async(_visible_tool_names_sync, thread_sensitive=True)()
+
+    async def list_tools(self):
+        visible = await self._visible()
+        return [t for t in await super().list_tools() if t.name in visible]
+
+    async def call_tool(self, name, arguments, context=None):
+        if name not in await self._visible():
+            raise ToolError(f"Unknown tool: {name}")
+        return await super().call_tool(name, arguments, context)
+
+
+mcp = TenantScopedMCPServer(
     name="Kolberg Data Server",
     instructions="""
-Kolberg is a multi-tenant financial management platform. This server gives
-access to the data of every tenant the current user belongs to; each tool takes
-an explicit tenant_id. Everything is read-only except the tasks module
-(create_task, update_task_status, add_task_comment, edit_task, delete_task).
+Kolberg is a financial management platform. This connector is bound to ONE
+company (tenant); every tool works on that company only — call
+get_current_tenant() to see which one. You only see the tools the current user
+may use (enabled modules × roles). Everything is read-only except the tasks
+tools (create_task, update_task_status, add_task_comment, edit_task, delete_task).
 
 ════════════════════════════════════════════════════════════
 CRITICAL: SOURCE OF TRUTH FOR EXPENSES
@@ -81,106 +105,12 @@ Revenues (list_cash_revenues, list_bank_revenues, list_card_revenues) are not
 covered by requests and can be queried directly at any time.
 
 ════════════════════════════════════════════════════════════
-HOW TO START A SESSION
-════════════════════════════════════════════════════════════
-1. list_my_tenants()            — discover which tenants the user belongs to.
-2. get_my_role(tenant_id)       — understand the user's roles and permissions.
-3. list_my_modules(tenant_id)   — see which modules are enabled and accessible.
-4. Only then call domain-specific tools for enabled modules.
-
-════════════════════════════════════════════════════════════
-TOOLS BY DOMAIN
-════════════════════════════════════════════════════════════
-Requests / заявки (PRIMARY source for expenses):
-  list_requests           — filter by status, currency, payment_type, urgency, date
-  get_request             — full detail + approval chain for one request
-  list_request_categories — categories configured for this tenant
-
-Cash (module: "cash") — reconciliation only, see CRITICAL above:
-  list_cash_expenses      — raw cash outflows
-  list_cash_revenues      — cash inflows (safe to query directly)
-
-Bank (module: "bank") — reconciliation only, see CRITICAL above:
-  list_bank_expenses      — raw bank debits
-  list_bank_revenues      — bank credits (safe to query directly)
-
-Corporate card (module: "corporate_card") — reconciliation only:
-  list_card_expenses      — raw card charges
-  list_card_revenues      — card credits (safe to query directly)
-
-Reports (module: "reports"):
-  get_pnl_report          — PnL: revenue + expenses split into operational /
-                            other / invest_returns; expenses on billing_date with
-                            amortization; includes report_settings explaining config.
-                            Supports date_from/date_to and aggregate=True (totals
-                            instead of line items) — use these, the unfiltered
-                            line-item report can be thousands of rows.
-  get_cashflow_report     — same structure as PnL but expenses on actual cash
-                            payment date, no amortization (cash-basis); same
-                            date_from/date_to/aggregate options
-
-Payroll (module: "payroll"):
-  list_payroll_documents  — payroll documents (ведомости): status, kind, period,
-                            accrued total vs paid total; filter by status/kind/period
-  get_payroll_document    — one document: lines, per-employee accrued/paid/remaining,
-                            cash expenses it was paid out with
-
-Investments (module: "investments"):
-  get_investment_form_config — companies on/off, allowed return types
-  list_invest_companies      — legal entities / projects dimension
-  list_invest_returns        — payouts to investors (PnL invest_returns)
-  list_project_investments   — capital invested into projects
-  list_invest_payout_schedule — planned payout calendar (plan vs fact)
-
-Budgets (module: "budgets"):
-  list_budgets               — limits vs spend by category and period
-  get_budget                 — one budget with utilization
-  list_budget_spend_requests — requests counted toward a budget
-
-Tasks (module: "tasks"):
-  list_my_tasks           — tasks visible to the current user (own tasks, or all if admin/director)
-  get_task                — full task detail with comment thread
-  create_task             — create a task (admin/director only; can assign to any member)
-  update_task_status      — change task status (assignee, admin, or director)
-  add_task_comment        — post a comment on a task (assignee, admin, or director)
-  edit_task               — update title, description, or assignee (creator, admin, or director)
-  delete_task             — permanently delete a task (creator, admin, or director)
-  list_assignee_candidates — users eligible as task assignees (admin/director: all; others: self only)
-
-Directories (modules: "vendors", "wallets"):
-  list_vendors            — vendor directory; filter by kind or name
-  list_wallets            — cash registers, bank accounts, card accounts
-  list_active_users       — active tenant members with roles (admin/director only)
-
-Tenant context (no module required):
-  list_my_tenants         — tenants the current user belongs to
-  get_my_role             — current user's roles in a tenant
-  list_my_modules         — enabled + accessible modules for current user
-  get_tenant_info         — tenant metadata (admin/director only)
-  list_module_configs     — all module flags (admin/director only)
-  list_user_roles         — user→role assignments (admin only)
-  list_memberships        — all members (admin only)
-
-════════════════════════════════════════════════════════════
-ROLE PERMISSIONS (a module must also be enabled for the tenant)
-════════════════════════════════════════════════════════════
-admin       — all modules
-director    — all modules except investments
-approver    — requests, vendors, tasks
-requester   — requests, vendors, tasks
-cashier     — requests, cash, corporate_card, wallets, vendors, tasks
-accountant  — requests, bank, corporate_card, wallets, vendors, tasks
-investor    — investments, reports
-Use list_my_modules(tenant_id) for the effective list of the current user.
-
-════════════════════════════════════════════════════════════
 ERRORS AND FILTERING
 ════════════════════════════════════════════════════════════
 - All tools return {"error": "..."} or [{"error": "..."}] on failure.
   Always check for the "error" key before using results.
 - Date filters: YYYY-MM-DD only.
 - limit: default 50, max 200 (max 500 for list_vendors).
-- All data is strictly scoped to the given tenant_id.
 """,
 )
 
@@ -210,29 +140,21 @@ def _parse_bool_filter(value: str) -> bool | None:
 # Discovery — call this first
 # ---------------------------------------------------------------------------
 
-@tool
-def list_my_tenants() -> list:
-    """List all active tenants the current user belongs to.
+@tool(access=Access.always())
+def get_current_tenant() -> dict:
+    """Return the company (tenant) this connector is bound to.
 
-    Call this first to discover available tenant IDs and names before
-    using any other tool that requires a tenant_id.
+    Every other tool works on this company only. Returns id, name, subdomain.
     """
-    try:
-        return cfg_tools.list_my_tenants()
-    except (PermissionError, ValueError) as e:
-        return _list_err(str(e))
-    except Exception as e:
-        return _list_err(f"Unexpected error: {e}")
+    tenant = current_tenant()
+    return {"id": tenant.id, "name": tenant.name, "subdomain": tenant.subdomain}
 
 
-@tool
+@tool(access=Access.always())
 def get_my_role(tenant_id: int) -> dict:
     """Return the current user's roles in a tenant.
 
-    Call after list_my_tenants() to understand what actions are available.
-
-    Args:
-        tenant_id: Tenant primary key.
+    Call first to understand what actions are available.
     """
     try:
         return cfg_tools.get_my_role(tenant_id=tenant_id)
@@ -242,14 +164,11 @@ def get_my_role(tenant_id: int) -> dict:
         return _err(f"Unexpected error: {e}")
 
 
-@tool
+@tool(access=Access.always())
 def list_my_modules(tenant_id: int) -> list:
     """List modules that are enabled AND accessible to the current user.
 
     Use this before calling finance/directory tools to know what's available.
-
-    Args:
-        tenant_id: Tenant primary key.
     """
     try:
         return cfg_tools.list_my_modules(tenant_id=tenant_id)
@@ -263,7 +182,7 @@ def list_my_modules(tenant_id: int) -> list:
 # Requests (заявки)
 # ---------------------------------------------------------------------------
 
-@tool
+@tool(access=Access.module("requests"))
 def list_requests(
     tenant_id: int,
     status: str = "",
@@ -288,10 +207,7 @@ def list_requests(
       PAYED     — payment confirmed by cashier/accountant
       REJECTED  — declined at some approval step
 
-    Required roles: admin, director, approver, requester, accountant, cashier.
-
     Args:
-        tenant_id: Tenant primary key (get from list_my_tenants).
         status: Filter by status. One of: DRAFT, 1, 2, 3, 4, 5, APPROVED, PAYED, REJECTED.
             Deleted requests are never returned.
         currency: Filter by currency. One of: UZS, USD, EUR, RUB.
@@ -318,7 +234,7 @@ def list_requests(
         return _list_err(f"Unexpected error: {e}")
 
 
-@tool
+@tool(access=Access.module("requests"))
 def get_request(tenant_id: int, request_id: int) -> dict:
     """Get full details of a single payment request by ID.
 
@@ -327,10 +243,7 @@ def get_request(tenant_id: int, request_id: int) -> dict:
     comment, and timestamp. Use this after list_requests to drill into
     a specific request.
 
-    Required roles: admin, director, approver, requester, accountant, cashier.
-
     Args:
-        tenant_id: Tenant primary key (get from list_my_tenants).
         request_id: Request primary key (get from list_requests).
     """
     try:
@@ -341,18 +254,13 @@ def get_request(tenant_id: int, request_id: int) -> dict:
         return _err(f"Unexpected error: {e}")
 
 
-@tool
+@tool(access=Access.module("requests"))
 def list_request_categories(tenant_id: int) -> list:
     """List active payment request categories configured for a tenant.
 
     Categories classify what a request is for (e.g. "Аренда", "Маркетинг",
     "Зарплата"). Use this to understand available categories before
     filtering or explaining requests to the user.
-
-    Required roles: admin, director, approver, requester, accountant, cashier.
-
-    Args:
-        tenant_id: Tenant primary key (get from list_my_tenants).
     """
     try:
         return req_tools.list_request_categories(tenant_id=tenant_id)
@@ -366,7 +274,7 @@ def list_request_categories(tenant_id: int) -> list:
 # Financial operations (финансовые операции)
 # ---------------------------------------------------------------------------
 
-@tool
+@tool(access=Access.module("cash"))
 def list_cash_expenses(
     tenant_id: int,
     date_from: str = "",
@@ -381,10 +289,7 @@ def list_cash_expenses(
     to verify that every cash payment has a matching request (заявка).
     Only call this when the user explicitly asks for raw cash data.
 
-    Required roles: admin, director, cashier.
-
     Args:
-        tenant_id: Tenant primary key (get from list_my_tenants).
         date_from: Filter expense_at >= this date (YYYY-MM-DD).
         date_to: Filter expense_at <= this date (YYYY-MM-DD).
         currency: One of: UZS, USD, EUR, RUB.
@@ -401,7 +306,7 @@ def list_cash_expenses(
         return _list_err(f"Unexpected error: {e}")
 
 
-@tool
+@tool(access=Access.module("cash"))
 def list_cash_revenues(
     tenant_id: int,
     date_from: str = "",
@@ -414,10 +319,7 @@ def list_cash_revenues(
     Use this to see money coming into the cash register (e.g. client
     payments, refunds received, cash deposits).
 
-    Required roles: admin, director, cashier.
-
     Args:
-        tenant_id: Tenant primary key (get from list_my_tenants).
         date_from: Filter revenue_at >= this date (YYYY-MM-DD).
         date_to: Filter revenue_at <= this date (YYYY-MM-DD).
         limit: Max records (1–200, default 50).
@@ -433,7 +335,7 @@ def list_cash_revenues(
         return _list_err(f"Unexpected error: {e}")
 
 
-@tool
+@tool(access=Access.module("bank"))
 def list_bank_expenses(
     tenant_id: int,
     date_from: str = "",
@@ -447,10 +349,7 @@ def list_bank_expenses(
     used to verify that every bank payment has a matching request (заявка).
     Only call this when the user explicitly asks for raw bank transaction data.
 
-    Required roles: admin, director, accountant.
-
     Args:
-        tenant_id: Tenant primary key (get from list_my_tenants).
         date_from: Filter doc_date >= this date (YYYY-MM-DD).
         date_to: Filter doc_date <= this date (YYYY-MM-DD).
         limit: Max records (1–200, default 50).
@@ -466,7 +365,7 @@ def list_bank_expenses(
         return _list_err(f"Unexpected error: {e}")
 
 
-@tool
+@tool(access=Access.module("bank"))
 def list_bank_revenues(
     tenant_id: int,
     date_from: str = "",
@@ -479,10 +378,7 @@ def list_bank_revenues(
     Use this to see money arriving in the company's bank accounts
     (e.g. client payments, loan receipts, refunds from suppliers).
 
-    Required roles: admin, director, accountant.
-
     Args:
-        tenant_id: Tenant primary key (get from list_my_tenants).
         date_from: Filter doc_date >= this date (YYYY-MM-DD).
         date_to: Filter doc_date <= this date (YYYY-MM-DD).
         limit: Max records (1–200, default 50).
@@ -498,7 +394,7 @@ def list_bank_revenues(
         return _list_err(f"Unexpected error: {e}")
 
 
-@tool
+@tool(access=Access.module("corporate_card"))
 def list_card_expenses(
     tenant_id: int,
     date_from: str = "",
@@ -512,10 +408,7 @@ def list_card_expenses(
     used to verify that every card payment has a matching request (заявка).
     Only call this when the user explicitly asks for raw card transaction data.
 
-    Required roles: admin, director, accountant, cashier.
-
     Args:
-        tenant_id: Tenant primary key (get from list_my_tenants).
         date_from: Filter expense_at >= this date (YYYY-MM-DD).
         date_to: Filter expense_at <= this date (YYYY-MM-DD).
         limit: Max records (1–200, default 50).
@@ -531,7 +424,7 @@ def list_card_expenses(
         return _list_err(f"Unexpected error: {e}")
 
 
-@tool
+@tool(access=Access.module("corporate_card"))
 def list_card_revenues(
     tenant_id: int,
     date_from: str = "",
@@ -544,10 +437,7 @@ def list_card_revenues(
     Use this to see money loaded onto corporate cards or refunded back
     to the card (e.g. "Пополнение" from the company, merchant refunds).
 
-    Required roles: admin, director, accountant, cashier.
-
     Args:
-        tenant_id: Tenant primary key (get from list_my_tenants).
         date_from: Filter revenue_at >= this date (YYYY-MM-DD).
         date_to: Filter revenue_at <= this date (YYYY-MM-DD).
         limit: Max records (1–200, default 50).
@@ -567,7 +457,7 @@ def list_card_revenues(
 # Reports — PnL and Cashflow
 # ---------------------------------------------------------------------------
 
-@tool
+@tool(access=Access.module("reports"))
 def get_pnl_report(
     tenant_id: int,
     date_from: str = "",
@@ -626,10 +516,7 @@ def get_pnl_report(
     Key rule: expenses use billing_date from requests; amortized requests are
     spread across months according to their amortization schedule.
 
-    Required roles: admin, director, investor (module: reports).
-
     Args:
-        tenant_id: Tenant primary key (get from list_my_tenants).
         date_from: Optional ISO date (YYYY-MM-DD) — drop lines before this date.
         date_to: Optional ISO date (YYYY-MM-DD) — drop lines after this date.
         aggregate: If True, return totals per bucket (by_month, by_category,
@@ -645,7 +532,7 @@ def get_pnl_report(
         return _err(f"Unexpected error: {e}")
 
 
-@tool
+@tool(access=Access.module("reports"))
 def get_cashflow_report(
     tenant_id: int,
     date_from: str = "",
@@ -677,10 +564,7 @@ def get_cashflow_report(
     Cashflow  — actual payment date;    no amortization, cash-basis only.
     ────────────────────────────────────────────────────────────────────────
 
-    Required roles: admin, director, investor (module: reports).
-
     Args:
-        tenant_id: Tenant primary key (get from list_my_tenants).
         date_from: Optional ISO date (YYYY-MM-DD) — drop lines before this date.
         date_to: Optional ISO date (YYYY-MM-DD) — drop lines after this date.
         aggregate: If True, return totals per bucket (by_month, by_category,
@@ -696,7 +580,7 @@ def get_cashflow_report(
         return _err(f"Unexpected error: {e}")
 
 
-@tool
+@tool(access=Access.module("payroll"))
 def list_payroll_documents(
     tenant_id: int,
     status: str = "",
@@ -722,10 +606,7 @@ def list_payroll_documents(
 
     Use get_payroll_document for per-employee amounts.
 
-    Required roles: admin, director (module: payroll).
-
     Args:
-        tenant_id: Tenant primary key (get from list_my_tenants).
         status: One of: draft, accepted, closed, cancelled.
         kind: One of: salary, advance, bonus.
         period_from: period_month >= YYYY-MM-DD (excludes documents without a period).
@@ -743,7 +624,7 @@ def list_payroll_documents(
         return _list_err(f"Unexpected error: {e}")
 
 
-@tool
+@tool(access=Access.module("payroll"))
 def get_payroll_document(tenant_id: int, document_id: int) -> dict:
     """Get one payroll document with lines and per-employee payout progress.
 
@@ -759,10 +640,7 @@ def get_payroll_document(tenant_id: int, document_id: int) -> dict:
 
     Use list_payroll_documents first to find the document_id.
 
-    Required roles: admin, director (module: payroll).
-
     Args:
-        tenant_id: Tenant primary key (get from list_my_tenants).
         document_id: PayrollDocument primary key (get from list_payroll_documents).
     """
     try:
@@ -777,17 +655,12 @@ def get_payroll_document(tenant_id: int, document_id: int) -> dict:
 # Investments
 # ---------------------------------------------------------------------------
 
-@tool
+@tool(access=Access.module("investments"))
 def get_investment_form_config(tenant_id: int) -> dict:
     """Per-tenant investment settings before other investment tools.
 
     Returns whether company_id filters apply (uses_companies) and which
     return_type strings are allowed when filtering list_invest_returns.
-
-    Required roles: admin, investor (module: investments).
-
-    Args:
-        tenant_id: Tenant primary key (from list_my_tenants).
     """
     try:
         return inv_tools.get_investment_form_config(tenant_id=tenant_id)
@@ -797,7 +670,7 @@ def get_investment_form_config(tenant_id: int) -> dict:
         return _err(f"Unexpected error: {e}")
 
 
-@tool
+@tool(access=Access.module("investments"))
 def list_invest_companies(
     tenant_id: int,
     name_search: str = "",
@@ -809,10 +682,7 @@ def list_invest_companies(
     Use name_search to find company_id for other investment tools.
     Empty is_active = all; "true" / "false" to filter active flag.
 
-    Required roles: admin, investor (module: investments).
-
     Args:
-        tenant_id: Tenant primary key.
         name_search: Substring match on company name.
         is_active: "", "true", or "false".
         limit: Max rows (default 100, max 200).
@@ -831,7 +701,7 @@ def list_invest_companies(
         return _list_err(f"Unexpected error: {e}")
 
 
-@tool
+@tool(access=Access.module("investments"))
 def list_invest_returns(
     tenant_id: int,
     date_from: str = "",
@@ -848,10 +718,7 @@ def list_invest_returns(
     by billing_date. return_type examples: дивиденды, проценты, доля_прибыли,
     тело_инвестиций. recipient: инвестор | партнер.
 
-    Required roles: admin, investor (module: investments).
-
     Args:
-        tenant_id: Tenant primary key.
         date_from / date_to: Filter payout date (YYYY-MM-DD).
         return_type / recipient: Exact DB enum labels.
         company_id: Filter by InvestCompany id (0 = all).
@@ -875,7 +742,7 @@ def list_invest_returns(
         return _list_err(f"Unexpected error: {e}")
 
 
-@tool
+@tool(access=Access.module("investments"))
 def list_project_investments(
     tenant_id: int,
     date_from: str = "",
@@ -886,10 +753,7 @@ def list_project_investments(
 ) -> list:
     """List capital invested into projects (вложения в проекты), inbound vs returns.
 
-    Required roles: admin, investor (module: investments).
-
     Args:
-        tenant_id: Tenant primary key.
         date_from / date_to: YYYY-MM-DD on investment date.
         company_id: 0 = all companies.
         confirmed: "", "true", or "false".
@@ -910,7 +774,7 @@ def list_project_investments(
         return _list_err(f"Unexpected error: {e}")
 
 
-@tool
+@tool(access=Access.module("investments"))
 def list_invest_payout_schedule(
     tenant_id: int,
     date_from: str = "",
@@ -923,10 +787,7 @@ def list_invest_payout_schedule(
 
     Compare is_paid and payment_amount with list_invest_returns for plan vs fact.
 
-    Required roles: admin, investor (module: investments).
-
     Args:
-        tenant_id: Tenant primary key.
         date_from / date_to: Filter payout_date (YYYY-MM-DD).
         company_id: 0 = all.
         is_paid: "", "true", or "false".
@@ -951,7 +812,7 @@ def list_invest_payout_schedule(
 # Budgets
 # ---------------------------------------------------------------------------
 
-@tool
+@tool(access=Access.module("budgets"))
 def list_budgets(
     tenant_id: int,
     year: int = 0,
@@ -968,10 +829,7 @@ def list_budgets(
 
     year=0 and period=0 default to current year/month.
 
-    Required roles: admin, director (module: budgets).
-
     Args:
-        tenant_id: Tenant primary key.
         year: Calendar year (0 = current).
         period: Month 1–12 (0 = current month).
         category_name: Exact request category name filter.
@@ -993,7 +851,7 @@ def list_budgets(
         return _list_err(f"Unexpected error: {e}")
 
 
-@tool
+@tool(access=Access.module("budgets"))
 def get_budget(
     tenant_id: int,
     budget_id: int,
@@ -1002,10 +860,7 @@ def get_budget(
 ) -> dict:
     """Get one budget with utilization for a period (use list_budgets for budget_id).
 
-    Required roles: admin, director (module: budgets).
-
     Args:
-        tenant_id: Tenant primary key.
         budget_id: Budget primary key.
         year / period: Same as list_budgets (0 = current).
     """
@@ -1022,7 +877,7 @@ def get_budget(
         return _err(f"Unexpected error: {e}")
 
 
-@tool
+@tool(access=Access.module("budgets"))
 def list_budget_spend_requests(
     tenant_id: int,
     budget_id: int,
@@ -1034,10 +889,7 @@ def list_budget_spend_requests(
 
     Drill-down after list_budgets / get_budget when utilization is high.
 
-    Required roles: admin, director (module: budgets).
-
     Args:
-        tenant_id: Tenant primary key.
         budget_id: Budget primary key.
         year / period: Evaluation period (0 = current).
         limit: Max requests (default 100, max 200).
@@ -1060,7 +912,7 @@ def list_budget_spend_requests(
 # Tasks (задачи)
 # ---------------------------------------------------------------------------
 
-@tool
+@tool(access=Access.module("tasks"))
 def list_my_tasks(
     tenant_id: int,
     status: str = "",
@@ -1074,11 +926,7 @@ def list_my_tasks(
 
     Status values: new | in_progress | done
 
-    Required roles: admin, director, accountant, cashier, approver, requester
-    (module: tasks; non-admin/director roles see only their own tasks).
-
     Args:
-        tenant_id: Tenant primary key (get from list_my_tenants).
         status: Filter by status. One of: new, in_progress, done.
         limit: Max tasks to return (1–200, default 50).
     """
@@ -1090,7 +938,7 @@ def list_my_tasks(
         return _list_err(f"Unexpected error: {e}")
 
 
-@tool
+@tool(access=Access.module("tasks"))
 def get_task(tenant_id: int, task_id: int) -> dict:
     """Get full details of a single task including its comment thread.
 
@@ -1101,10 +949,7 @@ def get_task(tenant_id: int, task_id: int) -> dict:
     Access rules: assignee can always read their own task; admins and
     directors can read any task in the tenant.
 
-    Required roles: any role with the tasks module (access is restricted to visible tasks).
-
     Args:
-        tenant_id: Tenant primary key (get from list_my_tenants).
         task_id: Task primary key (get from list_my_tasks).
     """
     try:
@@ -1115,7 +960,7 @@ def get_task(tenant_id: int, task_id: int) -> dict:
         return _err(f"Unexpected error: {e}")
 
 
-@tool
+@tool(access=Access.module("tasks", admin_or_director=True))
 def create_task(
     tenant_id: int,
     assignee_id: int,
@@ -1128,10 +973,7 @@ def create_task(
     to any active user in the tenant. Use this to delegate work, create
     follow-up tasks after reviewing financials, or set up ad-hoc assignments.
 
-    Required roles: admin, director.
-
     Args:
-        tenant_id: Tenant primary key (get from list_my_tenants).
         assignee_id: User ID of the person who will own the task (get from list_assignee_candidates).
         title: Short task title (max 255 chars).
         description: Optional detailed description.
@@ -1149,7 +991,7 @@ def create_task(
         return _err(f"Unexpected error: {e}")
 
 
-@tool
+@tool(access=Access.module("tasks"))
 def update_task_status(
     tenant_id: int,
     task_id: int,
@@ -1165,10 +1007,7 @@ def update_task_status(
 
     Status values: new | in_progress | done
 
-    Required roles: any role with the tasks module (scope restricted by role).
-
     Args:
-        tenant_id: Tenant primary key (get from list_my_tenants).
         task_id: Task primary key (get from list_my_tasks).
         new_status: Target status — one of: new, in_progress, done.
     """
@@ -1184,7 +1023,7 @@ def update_task_status(
         return _err(f"Unexpected error: {e}")
 
 
-@tool
+@tool(access=Access.module("tasks"))
 def add_task_comment(
     tenant_id: int,
     task_id: int,
@@ -1195,10 +1034,7 @@ def add_task_comment(
     Admins and directors can comment on any task. Other roles can only
     comment on tasks assigned to themselves.
 
-    Required roles: any role with the tasks module (scope restricted by role).
-
     Args:
-        tenant_id: Tenant primary key (get from list_my_tenants).
         task_id: Task primary key (get from list_my_tasks).
         body: Comment text (must not be empty).
     """
@@ -1214,7 +1050,7 @@ def add_task_comment(
         return _err(f"Unexpected error: {e}")
 
 
-@tool
+@tool(access=Access.module("tasks"))
 def edit_task(
     tenant_id: int,
     task_id: int,
@@ -1228,10 +1064,7 @@ def edit_task(
     Pass only the fields you want to change — omitted fields stay unchanged.
     Reassigning to a different user requires admin or director role.
 
-    Required roles: creator, admin, or director.
-
     Args:
-        tenant_id: Tenant primary key (get from list_my_tenants).
         task_id: Task primary key (get from list_my_tasks).
         title: New title (omit to keep current).
         description: New description (omit to keep current).
@@ -1251,16 +1084,13 @@ def edit_task(
         return _err(f"Unexpected error: {e}")
 
 
-@tool
+@tool(access=Access.module("tasks"))
 def delete_task(tenant_id: int, task_id: int) -> dict:
     """Delete a task permanently.
 
     Only the task creator, admin, or director can delete a task.
 
-    Required roles: creator, admin, or director.
-
     Args:
-        tenant_id: Tenant primary key (get from list_my_tenants).
         task_id: Task primary key (get from list_my_tasks).
     """
     try:
@@ -1271,7 +1101,7 @@ def delete_task(tenant_id: int, task_id: int) -> dict:
         return _err(f"Unexpected error: {e}")
 
 
-@tool
+@tool(access=Access.module("tasks"))
 def list_assignee_candidates(tenant_id: int) -> list:
     """List users who can be assigned a task in this tenant.
 
@@ -1279,11 +1109,6 @@ def list_assignee_candidates(tenant_id: int) -> list:
     Other roles see only themselves (they may only self-assign via the web UI).
 
     Use this before create_task or edit_task to find valid assignee_id values.
-
-    Required roles: any role with the tasks module.
-
-    Args:
-        tenant_id: Tenant primary key (get from list_my_tenants).
     """
     try:
         return task_tools.list_assignee_candidates(tenant_id=tenant_id)
@@ -1297,7 +1122,7 @@ def list_assignee_candidates(tenant_id: int) -> list:
 # Reference directories (справочники)
 # ---------------------------------------------------------------------------
 
-@tool
+@tool(access=Access.module("vendors"))
 def list_vendors(
     tenant_id: int,
     kind: str = "",
@@ -1314,10 +1139,7 @@ def list_vendors(
     Vendors are referenced on every payment request, so this directory is the
     starting point for understanding who the company pays.
 
-    Required roles: admin, director, approver, requester, cashier, accountant.
-
     Args:
-        tenant_id: Tenant primary key (get from list_my_tenants).
         kind: Filter by payment kind. One of: cash, transfer.
         name_search: Case-insensitive substring match on vendor name.
         limit: Max records (1–500, default 100).
@@ -1332,7 +1154,7 @@ def list_vendors(
         return _list_err(f"Unexpected error: {e}")
 
 
-@tool
+@tool(access=Access.admin_or_director())
 def list_active_users(tenant_id: int) -> list:
     """List active members of a tenant with their roles.
 
@@ -1340,11 +1162,6 @@ def list_active_users(tenant_id: int) -> list:
     payroll recipients, or to find who holds a given role in the tenant.
     Returns only id, full_name, username, and roles — no passwords,
     emails, or other sensitive fields.
-
-    Required roles: admin, director.
-
-    Args:
-        tenant_id: Tenant primary key (get from list_my_tenants).
     """
     try:
         return dir_tools.list_active_users(tenant_id=tenant_id)
@@ -1354,7 +1171,7 @@ def list_active_users(tenant_id: int) -> list:
         return _list_err(f"Unexpected error: {e}")
 
 
-@tool
+@tool(access=Access.module("wallets"))
 def list_wallets(tenant_id: int) -> list:
     """List all wallets (счета / кассы) for a tenant.
 
@@ -1365,11 +1182,6 @@ def list_wallets(tenant_id: int) -> list:
 
     Wallets appear on cash/bank/card transactions. Use this to understand
     which accounts the tenant operates and their currencies.
-
-    Required roles: admin, director, accountant, cashier.
-
-    Args:
-        tenant_id: Tenant primary key (get from list_my_tenants).
     """
     try:
         return dir_tools.list_wallets(tenant_id=tenant_id)
@@ -1387,14 +1199,9 @@ def list_wallets(tenant_id: int) -> list:
 # Tenant configuration
 # ---------------------------------------------------------------------------
 
-@tool
+@tool(access=Access.admin_or_director())
 def get_tenant_info(tenant_id: int) -> dict:
     """Get public metadata for a tenant.
-
-    Required roles: admin, director.
-
-    Args:
-        tenant_id: Tenant primary key.
     """
     try:
         return cfg_tools.get_tenant_info(tenant_id=tenant_id)
@@ -1404,14 +1211,9 @@ def get_tenant_info(tenant_id: int) -> dict:
         return _err(f"Unexpected error: {e}")
 
 
-@tool
+@tool(access=Access.admin_or_director())
 def list_module_configs(tenant_id: int) -> list:
     """List all module enable/disable flags for a tenant.
-
-    Required roles: admin, director.
-
-    Args:
-        tenant_id: Tenant primary key.
     """
     try:
         return cfg_tools.list_module_configs(tenant_id=tenant_id)
@@ -1421,14 +1223,9 @@ def list_module_configs(tenant_id: int) -> list:
         return _list_err(f"Unexpected error: {e}")
 
 
-@tool
+@tool(access=Access.admin())
 def list_user_roles(tenant_id: int) -> list:
     """List all user-role assignments for a tenant (admin only).
-
-    Required roles: admin.
-
-    Args:
-        tenant_id: Tenant primary key.
     """
     try:
         return cfg_tools.list_user_roles(tenant_id=tenant_id)
@@ -1438,14 +1235,9 @@ def list_user_roles(tenant_id: int) -> list:
         return _list_err(f"Unexpected error: {e}")
 
 
-@tool
+@tool(access=Access.admin())
 def list_memberships(tenant_id: int) -> list:
     """List all tenant memberships (admin only).
-
-    Required roles: admin.
-
-    Args:
-        tenant_id: Tenant primary key.
     """
     try:
         return cfg_tools.list_memberships(tenant_id=tenant_id)
