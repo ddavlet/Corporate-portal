@@ -1704,3 +1704,158 @@ class McpDeploymentConfigTests(TestCase):
         self.assertIn("traefik.http.routers.django-v2-tenant-mcp.rule=(${TRAEFIK_BACKEND_V2_HOST_RULE})", text)
         self.assertNotIn("routers.django-v2-mcp.", text)
         self.assertNotIn("MCP_BASE_URL", text)
+
+
+_E2E_REDIRECT = "https://claude.ai/api/mcp/auth_callback"
+
+
+def _rpc_payload(response):
+    """JSON-RPC message from a streamable-HTTP response (JSON or a one-event SSE stream)."""
+    import json
+
+    if "text/event-stream" in response.headers.get("content-type", ""):
+        for line in response.text.splitlines():
+            if line.startswith("data:"):
+                return json.loads(line[5:].strip())
+        raise AssertionError(f"no SSE data line in: {response.text[:300]}")
+    return response.json()
+
+
+@override_settings(MCP_HTTP_ENABLED=True, BASE_DOMAIN="kolberg.uz", MCP_ALLOWED_ORIGINS=["https://claude.ai"])
+class McpEndToEndOAuthFlowTests(TestCase):
+    """The whole connector path through the real SDK app with its lifespan running:
+    register → authorize (RFC 8707 resource) → token → tools/list (filtered) →
+    tools/call of a visible and of a hidden tool, all on a tenant host."""
+
+    def setUp(self):
+        from django.contrib.auth import get_user_model
+        from apps.tenants.models import Tenant, TenantMembership, TenantModuleConfig, TenantUserRole
+
+        self.tenant = Tenant.objects.create(name="Flow", subdomain="e2eflow", is_active=True, mcp_enabled=True)
+        TenantModuleConfig.objects.create(tenant=self.tenant, module_key="requests", is_enabled=True)
+        TenantModuleConfig.objects.create(tenant=self.tenant, module_key="payroll", is_enabled=True)
+        self.user = get_user_model().objects.create_user(username="e2e-flow-user")
+        TenantMembership.objects.create(user=self.user, tenant=self.tenant, is_active=True)
+        TenantUserRole.objects.create(tenant=self.tenant, user=self.user, role=TenantUserRole.ROLE_REQUESTER)
+
+    def test_full_connector_flow_on_tenant_host(self):
+        from asgiref.sync import async_to_sync
+        from django.core.signals import request_finished, request_started
+        from django.db import close_old_connections
+
+        request_started.disconnect(close_old_connections)
+        request_finished.disconnect(close_old_connections)
+        try:
+            async_to_sync(self._flow)()
+        finally:
+            request_started.connect(close_old_connections)
+            request_finished.connect(close_old_connections)
+
+    async def _flow(self):
+        import asyncio
+        import base64
+        import hashlib
+        import secrets
+
+        import httpx
+        from asgiref.sync import sync_to_async
+
+        from apps.mcp_server.oauth.provider import create_authorization_code
+        from config.asgi import application
+
+        to_app: asyncio.Queue = asyncio.Queue()
+        from_app: asyncio.Queue = asyncio.Queue()
+
+        async def lifespan_receive():
+            return await to_app.get()
+
+        async def lifespan_send(message):
+            await from_app.put(message)
+
+        lifespan = asyncio.ensure_future(
+            application({"type": "lifespan", "asgi": {"version": "3.0"}}, lifespan_receive, lifespan_send)
+        )
+        await to_app.put({"type": "lifespan.startup"})
+        started = await asyncio.wait_for(from_app.get(), timeout=30)
+        self.assertEqual(started["type"], "lifespan.startup.complete", started)
+        try:
+            base = "https://e2eflow.kolberg.uz/mcp"
+            transport = httpx.ASGITransport(app=application)
+            async with httpx.AsyncClient(transport=transport, base_url="https://e2eflow.kolberg.uz") as http:
+                r = await http.post("/mcp/register", json={
+                    "client_name": "e2e",
+                    "redirect_uris": [_E2E_REDIRECT],
+                    "grant_types": ["authorization_code", "refresh_token"],
+                    "response_types": ["code"],
+                    "token_endpoint_auth_method": "none",
+                })
+                self.assertEqual(r.status_code, 201, r.text)
+                client_id = r.json()["client_id"]
+
+                verifier = secrets.token_urlsafe(48)
+                challenge = base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).rstrip(b"=").decode()
+                r = await http.get("/mcp/authorize", params={
+                    "response_type": "code", "client_id": client_id, "redirect_uri": _E2E_REDIRECT,
+                    "code_challenge": challenge, "code_challenge_method": "S256",
+                    "state": "st", "scope": "mcp", "resource": base,
+                })
+                self.assertEqual(r.status_code, 302, r.text)
+                self.assertTrue(r.headers["location"].startswith(f"{base}/login/?t="), r.headers["location"])
+
+                # The OTP login itself is covered by McpTenantLoginViewTests; issue its result directly.
+                code = await sync_to_async(create_authorization_code, thread_sensitive=True)(
+                    client_id=client_id, user_id=self.user.id, tenant_id=self.tenant.id,
+                    redirect_uri=_E2E_REDIRECT, redirect_uri_provided_explicitly=True,
+                    code_challenge=challenge, code_challenge_method="S256", scopes=["mcp"], state="st",
+                )
+                r = await http.post("/mcp/token", data={
+                    "grant_type": "authorization_code", "code": code, "redirect_uri": _E2E_REDIRECT,
+                    "client_id": client_id, "code_verifier": verifier, "resource": base,
+                })
+                self.assertEqual(r.status_code, 200, r.text)
+                access = r.json()["access_token"]
+
+                headers = {
+                    "Authorization": f"Bearer {access}",
+                    "Accept": "application/json, text/event-stream",
+                    "Content-Type": "application/json",
+                }
+                r = await http.post("/mcp/", headers=headers, json={
+                    "jsonrpc": "2.0", "id": 1, "method": "initialize",
+                    "params": {"protocolVersion": "2025-06-18", "capabilities": {},
+                               "clientInfo": {"name": "e2e", "version": "1"}},
+                })
+                self.assertEqual(r.status_code, 200, r.text)
+
+                r = await http.post("/mcp/", headers=headers, json={"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}})
+                self.assertEqual(r.status_code, 200, r.text)
+                names = {t["name"] for t in _rpc_payload(r)["result"]["tools"]}
+                self.assertIn("get_current_tenant", names)
+                self.assertIn("list_requests", names)
+                self.assertNotIn("list_payroll_documents", names)  # payroll enabled, but not for requester
+                self.assertNotIn("list_user_roles", names)
+
+                r = await http.post("/mcp/", headers=headers, json={
+                    "jsonrpc": "2.0", "id": 3, "method": "tools/call",
+                    "params": {"name": "get_current_tenant", "arguments": {}},
+                })
+                self.assertEqual(r.status_code, 200, r.text)
+                result = _rpc_payload(r)["result"]
+                self.assertFalse(result.get("isError"), result)
+                self.assertIn("e2eflow", "".join(c.get("text", "") for c in result["content"]))
+
+                r = await http.post("/mcp/", headers=headers, json={
+                    "jsonrpc": "2.0", "id": 4, "method": "tools/call",
+                    "params": {"name": "list_payroll_documents", "arguments": {}},
+                })
+                result = _rpc_payload(r)["result"]
+                self.assertTrue(result.get("isError"), result)
+                self.assertIn("Unknown tool: list_payroll_documents", "".join(c.get("text", "") for c in result["content"]))
+
+                r = await http.post("/mcp/", headers={**headers, "Authorization": f"Bearer {access}x"},
+                                    json={"jsonrpc": "2.0", "id": 5, "method": "tools/list", "params": {}})
+                self.assertEqual(r.status_code, 401)
+        finally:
+            await to_app.put({"type": "lifespan.shutdown"})
+            await asyncio.wait_for(from_app.get(), timeout=30)
+            await asyncio.wait_for(lifespan, timeout=30)
