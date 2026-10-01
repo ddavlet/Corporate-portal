@@ -1055,3 +1055,124 @@ class McpToolDocstringRolesTests(TestCase):
                 roles_text = match.group(1).split("(module:")[0]
                 documented = {w for w in _re.findall(r"[a-z_]+", roles_text) if w in known_roles}
                 self.assertEqual(documented, set(ROLE_MODULE_ACCESS[module]))
+
+
+@override_settings(MCP_HTTP_ENABLED=True, BASE_DOMAIN="kolberg.uz", MCP_ALLOWED_ORIGINS=["https://claude.ai"])
+class McpTenantAsgiTests(TestCase):
+    """config.asgi.application on tenant hosts: tenant resolution, discovery, origin, dispatch."""
+
+    def setUp(self):
+        from apps.tenants.models import Tenant
+
+        self.tenant = Tenant.objects.create(name="Lemon", subdomain="lemonasgi", is_active=True, mcp_enabled=True)
+        Tenant.objects.create(name="Off", subdomain="offasgi", is_active=True, mcp_enabled=False)
+
+    def _call(self, host, path, extra_headers=(), mcp_app=None):
+        import json
+        from asgiref.sync import async_to_sync
+        from config.asgi import application
+
+        sent = []
+
+        async def receive():
+            return {"type": "http.request", "body": b"", "more_body": False}
+
+        async def send(message):
+            sent.append(message)
+
+        scope = {
+            "type": "http", "method": "GET", "path": path, "raw_path": path.encode(),
+            "root_path": "", "query_string": b"", "scheme": "https",
+            "headers": [(b"host", host.encode())] + list(extra_headers),
+        }
+        if mcp_app is None:
+            async_to_sync(application)(scope, receive, send)
+        else:
+            with patch("apps.mcp_server.http.app.get_mcp_asgi_app", return_value=mcp_app):
+                async_to_sync(application)(scope, receive, send)
+        status = sent[0]["status"]
+        body = b"".join(m.get("body", b"") for m in sent if m["type"] == "http.response.body")
+        try:
+            return status, json.loads(body)
+        except ValueError:
+            return status, body
+
+    def test_protected_resource_metadata_is_per_host(self):
+        status, body = self._call("lemonasgi.kolberg.uz", "/.well-known/oauth-protected-resource")
+        self.assertEqual(status, 200)
+        self.assertEqual(body["resource"], "https://lemonasgi.kolberg.uz/mcp")
+        self.assertEqual(body["authorization_servers"], ["https://lemonasgi.kolberg.uz/mcp"])
+
+    def test_authorization_server_metadata_is_per_host(self):
+        status, body = self._call("lemonasgi.kolberg.uz", "/.well-known/oauth-authorization-server/mcp")
+        self.assertEqual(status, 200)
+        self.assertEqual(body["issuer"], "https://lemonasgi.kolberg.uz/mcp")
+        self.assertEqual(body["authorization_endpoint"], "https://lemonasgi.kolberg.uz/mcp/authorize")
+        self.assertEqual(body["token_endpoint"], "https://lemonasgi.kolberg.uz/mcp/token")
+        self.assertEqual(body["registration_endpoint"], "https://lemonasgi.kolberg.uz/mcp/register")
+        self.assertIn("S256", body["code_challenge_methods_supported"])
+
+    def test_unknown_or_disabled_tenant_is_404(self):
+        for host in ("offasgi.kolberg.uz", "nope.kolberg.uz", "api.kolberg.uz"):
+            status, _ = self._call(host, "/.well-known/oauth-protected-resource")
+            self.assertEqual(status, 404, host)
+
+    def test_foreign_origin_is_403_and_missing_origin_passes(self):
+        status, _ = self._call(
+            "lemonasgi.kolberg.uz", "/.well-known/oauth-protected-resource",
+            extra_headers=[(b"origin", b"https://evil.example")],
+        )
+        self.assertEqual(status, 403)
+        status, _ = self._call("lemonasgi.kolberg.uz", "/.well-known/oauth-protected-resource")
+        self.assertEqual(status, 200)
+
+    def test_mcp_path_reaches_app_with_tenant_bound_and_prefix_stripped(self):
+        from apps.mcp_server.tenant_context import current_tenant
+
+        seen = {}
+
+        async def fake_mcp(scope, receive, send):
+            seen["path"] = scope["path"]
+            seen["root_path"] = scope["root_path"]
+            seen["tenant_id"] = current_tenant().id
+            await send({"type": "http.response.start", "status": 200, "headers": []})
+            await send({"type": "http.response.body", "body": b"{}"})
+
+        status, _ = self._call("lemonasgi.kolberg.uz", "/mcp/token", mcp_app=fake_mcp)
+        self.assertEqual(status, 200)
+        self.assertEqual(seen, {"path": "/token", "root_path": "/mcp", "tenant_id": self.tenant.id})
+
+    def test_unauthorized_response_points_to_host_metadata(self):
+        from apps.mcp_server.http.middleware import with_mcp_resource_metadata
+
+        async def unauthorized(scope, receive, send):
+            await send({"type": "http.response.start", "status": 401, "headers": []})
+            await send({"type": "http.response.body", "body": b""})
+
+        status, _ = self._call("lemonasgi.kolberg.uz", "/mcp/", mcp_app=with_mcp_resource_metadata(unauthorized))
+        self.assertEqual(status, 401)
+
+    def test_unauthorized_header_value(self):
+        from asgiref.sync import async_to_sync
+        from apps.mcp_server.http.middleware import with_mcp_resource_metadata
+        from apps.mcp_server.tenant_context import McpTenant, reset_current_tenant, set_current_tenant
+
+        sent = []
+
+        async def unauthorized(scope, receive, send):
+            await send({"type": "http.response.start", "status": 401, "headers": []})
+
+        async def send(message):
+            sent.append(message)
+
+        token = set_current_tenant(McpTenant(id=self.tenant.id, subdomain="lemonasgi", name="Lemon"))
+        try:
+            async_to_sync(with_mcp_resource_metadata(unauthorized))({"type": "http"}, None, send)
+        finally:
+            reset_current_tenant(token)
+        header = dict(sent[0]["headers"])[b"www-authenticate"].decode()
+        self.assertIn('resource_metadata="https://lemonasgi.kolberg.uz/.well-known/oauth-protected-resource"', header)
+
+    def test_non_mcp_paths_go_to_django(self):
+        status, _ = self._call("lemonasgi.kolberg.uz", "/api/definitely-not-a-route/")
+        self.assertEqual(status, 404)
