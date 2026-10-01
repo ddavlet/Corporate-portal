@@ -47,10 +47,12 @@ class Access:
 
 
 def visible_tools(registry: dict[str, Access], *, user_id: int, tenant_id: int) -> set[str]:
-    """Names of tools the user may use in the tenant; empty for non-members."""
+    """Names of tools the user may use in the tenant; empty for non-members and deactivated users."""
     from apps.tenants.models import TenantMembership, TenantModuleConfig
 
-    if not TenantMembership.objects.filter(user_id=user_id, tenant_id=tenant_id, is_active=True).exists():
+    if not TenantMembership.objects.filter(
+        user_id=user_id, user__is_active=True, tenant_id=tenant_id, is_active=True
+    ).exists():
         return set()
     roles = set(
         TenantUserRole.objects.filter(user_id=user_id, tenant_id=tenant_id).values_list("role", flat=True)

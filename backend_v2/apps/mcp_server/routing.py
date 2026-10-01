@@ -1,7 +1,9 @@
 """
 MCP routing on tenant hosts (https://<subdomain>.<BASE_DOMAIN>).
 
-  /.well-known/oauth-*[/mcp] → OAuth discovery JSON for the host (config/asgi.py)
+  /.well-known/oauth-*[/mcp] → OAuth discovery JSON for the host (config/asgi.py);
+                               the SDK-relative /mcp/.well-known/* variants too, so the
+                               SDK's placeholder issuer is never advertised
   /mcp/login/                → Django OTP login bound to the tenant
   /mcp, /mcp/*               → MCP app (protocol + OAuth endpoints)
 """
@@ -11,10 +13,19 @@ from __future__ import annotations
 from django.conf import settings
 
 _WELL_KNOWN_AUTHORIZATION_SERVER = frozenset(
-    {"/.well-known/oauth-authorization-server", "/.well-known/oauth-authorization-server/mcp"}
+    {
+        "/.well-known/oauth-authorization-server",
+        "/.well-known/oauth-authorization-server/mcp",
+        "/mcp/.well-known/oauth-authorization-server",
+    }
 )
 _WELL_KNOWN_PROTECTED_RESOURCE = frozenset(
-    {"/.well-known/oauth-protected-resource", "/.well-known/oauth-protected-resource/mcp"}
+    {
+        "/.well-known/oauth-protected-resource",
+        "/.well-known/oauth-protected-resource/mcp",
+        "/mcp/.well-known/oauth-protected-resource",
+        "/mcp/.well-known/oauth-protected-resource/mcp",
+    }
 )
 
 

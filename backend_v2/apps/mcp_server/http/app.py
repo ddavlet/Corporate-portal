@@ -8,8 +8,8 @@ binding the tenant; paths below are relative to /mcp:
   /token      → OAuth token
   /register   → dynamic client registration
 
-Per-host discovery (/.well-known/oauth-*) is served by config/asgi.py; the SDK's
-issuer_url below is a placeholder used only by its internal metadata route.
+Per-host discovery (/.well-known/oauth-* and /mcp/.well-known/*) is served by
+config/asgi.py; the SDK's issuer_url below is a placeholder that no client sees.
 Host and Origin are validated by config/asgi.py (the SDK only supports exact hosts).
 """
 
@@ -32,9 +32,10 @@ def get_mcp_asgi_app():
     from apps.mcp_server.http.service_key import with_service_key_auth
     from apps.mcp_server.oauth.provider import KolbergOAuthProvider
     from apps.mcp_server.server import mcp
-    from apps.mcp_server.tenant_context import tenant_origin
 
-    placeholder = f"{tenant_origin('mcp')}/mcp"
+    # Never a real host: the SDK requires an https issuer, but discovery for clients
+    # is answered per tenant host by config/asgi.py.
+    placeholder = "https://mcp-placeholder.invalid/mcp"
     mcp.settings.auth = AuthSettings(
         issuer_url=placeholder,  # type: ignore[arg-type]
         resource_server_url=placeholder,  # type: ignore[arg-type]

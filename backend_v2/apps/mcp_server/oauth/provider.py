@@ -149,7 +149,10 @@ class KolbergOAuthProvider(
 
         await OAuthAuthorizationCode.objects.filter(code=authorization_code.code).aupdate(used=True)
 
-        user = await User.objects.aget(id=authorization_code.user_id)
+        try:
+            user = await User.objects.aget(id=authorization_code.user_id, is_active=True)
+        except User.DoesNotExist:
+            raise TokenError(error="invalid_grant", error_description="User not found")
         refresh, access = mcp_jwt_pair_for_user(user, authorization_code.tenant_id)
 
         return OAuthToken(
@@ -206,7 +209,7 @@ class KolbergOAuthProvider(
         from apps.accounts.models import User
 
         try:
-            user = await User.objects.aget(id=refresh_token.user_id)
+            user = await User.objects.aget(id=refresh_token.user_id, is_active=True)
         except User.DoesNotExist:
             raise TokenError(error="invalid_grant", error_description="User not found")
 
