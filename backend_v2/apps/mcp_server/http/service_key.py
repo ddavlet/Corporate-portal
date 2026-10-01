@@ -33,16 +33,19 @@ async def _reject(send, message: str) -> None:
     await send({"type": "http.response.body", "body": body})
 
 
-def _mint_service_access_token(service_user) -> str:
-    """Mint a short-lived AccessToken for a service_user, tagged svc=True.
+def _mint_service_access_token(service_user, tenant_id: int) -> str:
+    """Short-lived AccessToken for a service_user, tagged svc=True and bound to tenant_id.
 
     Access-token only (no RefreshToken/OutstandingToken row) — safe to call
     on every request without growing the simplejwt blacklist table.
     """
     from rest_framework_simplejwt.tokens import AccessToken
 
+    from apps.accounts.authentication import MCP_TENANT_CLAIM
+
     token = AccessToken.for_user(service_user)
     token["svc"] = True
+    token[MCP_TENANT_CLAIM] = int(tenant_id)
     return str(token)
 
 
@@ -67,8 +70,18 @@ def with_service_key_auth(app):
             await _reject(send, "Invalid or inactive service key")
             return
 
+        from apps.mcp_server.tenant_context import current_tenant
+
+        tenant = current_tenant()
+        bound = await sync_to_async(
+            lambda: credential.tenants.filter(pk=tenant.id).exists(), thread_sensitive=True
+        )()
+        if not bound:
+            await _reject(send, "Invalid or inactive service key")
+            return
+
         service_user = await sync_to_async(lambda: credential.service_user, thread_sensitive=True)()
-        token = _mint_service_access_token(service_user)
+        token = _mint_service_access_token(service_user, tenant.id)
 
         from apps.mcp_server.models import McpServiceCredential
         from django.utils import timezone
