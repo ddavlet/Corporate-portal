@@ -1,7 +1,10 @@
 """
 Django login view for the MCP OAuth flow.
 
-URL: /oauth/login/?t=<signed_params>
+URL: https://<tenant>.<BASE_DOMAIN>/mcp/login/?t=<signed_params>
+
+The signed params carry tenant_id; it must match the host tenant, and the user
+must be an active member of it. The OTP is delivered via that tenant's bot.
 
 Two-step flow:
   Step 1 — username form  → triggers OTP via Telegram
@@ -30,24 +33,37 @@ def _decode_params(t: str) -> dict | None:
         return None
 
 
+def _is_member(user, tenant) -> bool:
+    from apps.tenants.models import TenantMembership
+
+    return TenantMembership.objects.filter(user=user, tenant=tenant, is_active=True).exists()
+
+
 class McpLoginView(View):
     template_name = "mcp_oauth/login.html"
 
     def dispatch(self, request, *args, **kwargs):
-        if not mcp_http_enabled():
+        tenant = getattr(request, "tenant", None)
+        if not mcp_http_enabled() or tenant is None or not tenant.mcp_enabled:
             raise Http404()
         return super().dispatch(request, *args, **kwargs)
 
+    def _params_for_tenant(self, request, t: str) -> dict | None:
+        params = _decode_params(t)
+        if not params or params.get("tenant_id") != request.tenant.id:
+            return None
+        return params
+
     def get(self, request: HttpRequest) -> HttpResponse:
         t = request.GET.get("t", "")
-        params = _decode_params(t)
+        params = self._params_for_tenant(request, t)
         if not params:
             return HttpResponseBadRequest("Invalid or expired authorization request.")
         return render(request, self.template_name, {"t": t, "step": "username"})
 
     def post(self, request: HttpRequest) -> HttpResponse:
         t = request.POST.get("t", "")
-        params = _decode_params(t)
+        params = self._params_for_tenant(request, t)
         if not params:
             return HttpResponseBadRequest("Invalid or expired authorization request.")
 
@@ -78,9 +94,14 @@ class McpLoginView(View):
                 "t": t, "step": "username", "error": "Пользователь не найден."
             })
 
+        if not _is_member(user, request.tenant):
+            return render(request, self.template_name, {
+                "t": t, "step": "username", "error": "Нет доступа к этой компании."
+            })
+
         ip = request.META.get("HTTP_X_REAL_IP") or request.META.get("REMOTE_ADDR") or ""
         try:
-            send_otp(user=user, ip=ip)
+            send_otp(user=user, tenant=request.tenant, ip=ip)
         except OtpError as exc:
             return render(request, self.template_name, {
                 "t": t, "step": "username", "error": str(exc),
@@ -104,8 +125,13 @@ class McpLoginView(View):
                 "t": t, "step": "username", "error": "Пользователь не найден."
             })
 
+        if not _is_member(user, request.tenant):
+            return render(request, self.template_name, {
+                "t": t, "step": "username", "error": "Нет доступа к этой компании."
+            })
+
         try:
-            verify_otp(user=user, code=otp_code)
+            verify_otp(user=user, code=otp_code, tenant=request.tenant)
         except OtpError as exc:
             return render(request, self.template_name, {
                 "t": t, "step": "otp", "username": username,
@@ -118,6 +144,7 @@ class McpLoginView(View):
         code = create_authorization_code(
             client_id=params["client_id"],
             user_id=user.id,
+            tenant_id=request.tenant.id,
             redirect_uri=params["redirect_uri"],
             redirect_uri_provided_explicitly=params["redirect_uri_provided_explicitly"],
             code_challenge=params["code_challenge"],

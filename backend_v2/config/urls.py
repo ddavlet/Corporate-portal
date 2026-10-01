@@ -107,8 +107,8 @@ urlpatterns = [
     # Messaging gateway webhook
     path("api/messaging-gateway/", include("apps.modules.telegram_approvals.urls")),
 
-    # MCP OAuth login (404 unless MCP_HTTP_ENABLED=true)
-    path("oauth/login/", McpLoginView.as_view(), name="mcp_oauth_login"),
+    # MCP OAuth login on tenant hosts (404 unless MCP_HTTP_ENABLED and Tenant.mcp_enabled)
+    path("mcp/login/", McpLoginView.as_view(), name="mcp_oauth_login"),
 ]
 
 for _n8n_seg in settings.N8N_INTEGRATION_MOUNT_PATHS:

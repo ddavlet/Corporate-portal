@@ -2,7 +2,7 @@
 KolbergOAuthProvider — реализация OAuthAuthorizationServerProvider для FastMCP.
 
 Поток авторизации:
-  1. FastMCP вызывает authorize() → редирект на /oauth/login/?t=<signed_params>
+  1. MCP SDK вызывает authorize() → редирект на https://<tenant>/mcp/login/?t=<signed_params>
   2. Пользователь логинится через OTP (Django-вью)
   3. После логина Django создаёт OAuthAuthorizationCode и редиректит на redirect_uri?code=...
   4. FastMCP вызывает exchange_authorization_code() → simplejwt access+refresh токены
@@ -16,13 +16,13 @@ from datetime import datetime, timezone, timedelta
 
 from django.core import signing
 
-from apps.mcp_server.oauth.metadata import mcp_oauth_login_url
 from mcp.server.auth.provider import (
     OAuthAuthorizationServerProvider,
     AuthorizationParams,
     AuthorizationCode,
     RefreshToken,
     AccessToken,
+    AuthorizeError,
     TokenError,
 )
 from mcp.shared.auth import OAuthClientInformationFull, OAuthToken
@@ -35,10 +35,12 @@ _CODE_TTL_SECONDS = 600  # 10 minutes
 
 class KolbergAuthCode(AuthorizationCode):
     user_id: int
+    tenant_id: int | None = None
 
 
 class KolbergRefreshToken(RefreshToken):
     user_id: int
+    tenant_id: int | None = None
 
 
 class KolbergAccessToken(AccessToken):
@@ -83,7 +85,15 @@ class KolbergOAuthProvider(
     async def authorize(
         self, client: OAuthClientInformationFull, params: AuthorizationParams
     ) -> str:
-        """Redirect user to our Django login page with signed OAuth params."""
+        """Redirect user to the tenant's OTP login page with signed OAuth params."""
+        from apps.mcp_server.tenant_context import current_tenant
+
+        tenant = current_tenant()
+        if params.resource and params.resource.rstrip("/") != tenant.base_url:
+            raise AuthorizeError(
+                error="invalid_request",
+                error_description="resource does not match this MCP server",
+            )
         payload = {
             "client_id": client.client_id,
             "redirect_uri": str(params.redirect_uri),
@@ -91,10 +101,10 @@ class KolbergOAuthProvider(
             "code_challenge": params.code_challenge,
             "state": params.state or "",
             "scopes": params.scopes or [],
+            "tenant_id": tenant.id,
         }
         signed = signing.dumps(payload, salt=_SIGN_SALT, compress=True)
-        login_base = mcp_oauth_login_url().rstrip("/")
-        return f"{login_base}/?t={signed}"
+        return f"{tenant.base_url}/login/?t={signed}"
 
     async def load_authorization_code(
         self, client: OAuthClientInformationFull, authorization_code: str
@@ -113,6 +123,11 @@ class KolbergOAuthProvider(
         if record.expires_at < datetime.now(tz=timezone.utc):
             return None
 
+        from apps.mcp_server.tenant_context import current_tenant
+
+        if record.tenant_id != current_tenant().id:
+            return None
+
         return KolbergAuthCode(
             code=record.code,
             client_id=client.client_id,
@@ -122,6 +137,7 @@ class KolbergOAuthProvider(
             redirect_uri=record.redirect_uri,  # type: ignore[arg-type]
             redirect_uri_provided_explicitly=record.redirect_uri_provided_explicitly,
             user_id=record.user_id,
+            tenant_id=record.tenant_id,
         )
 
     async def exchange_authorization_code(
@@ -134,7 +150,7 @@ class KolbergOAuthProvider(
         await OAuthAuthorizationCode.objects.filter(code=authorization_code.code).aupdate(used=True)
 
         user = await User.objects.aget(id=authorization_code.user_id)
-        refresh, access = mcp_jwt_pair_for_user(user)
+        refresh, access = mcp_jwt_pair_for_user(user, authorization_code.tenant_id)
 
         return OAuthToken(
             access_token=str(access),
@@ -154,13 +170,20 @@ class KolbergOAuthProvider(
         from rest_framework_simplejwt.tokens import RefreshToken as JwtRefresh
         from rest_framework_simplejwt.exceptions import TokenError as JwtTokenError
 
+        from apps.accounts.authentication import MCP_TENANT_CLAIM
+        from apps.mcp_server.tenant_context import current_tenant
+
         try:
             token = JwtRefresh(refresh_token)
+            token_tenant = token.get(MCP_TENANT_CLAIM)
+            if token_tenant is None or int(token_tenant) != current_tenant().id:
+                return None
             return KolbergRefreshToken(
                 token=refresh_token,
                 client_id=client.client_id,
                 scopes=["mcp"],
                 user_id=int(token["user_id"]),
+                tenant_id=int(token_tenant),
             )
         except (JwtTokenError, KeyError, ValueError):
             return None
@@ -189,7 +212,7 @@ class KolbergOAuthProvider(
 
         from apps.mcp_server.oauth.tokens import mcp_jwt_pair_for_user
 
-        new_refresh, access = mcp_jwt_pair_for_user(user)
+        new_refresh, access = mcp_jwt_pair_for_user(user, refresh_token.tenant_id)
 
         return OAuthToken(
             access_token=str(access),
@@ -237,8 +260,10 @@ class KolbergOAuthProvider(
 
 
 def create_authorization_code(
+    *,
     client_id: str,
     user_id: int,
+    tenant_id: int,
     redirect_uri: str,
     redirect_uri_provided_explicitly: bool,
     code_challenge: str,
@@ -257,6 +282,7 @@ def create_authorization_code(
         code=code,
         client=client,
         user_id=user_id,
+        tenant_id=tenant_id,
         redirect_uri=redirect_uri,
         redirect_uri_provided_explicitly=redirect_uri_provided_explicitly,
         code_challenge=code_challenge,

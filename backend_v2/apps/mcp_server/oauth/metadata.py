@@ -8,14 +8,6 @@ tenant's base URL.
 
 from __future__ import annotations
 
-from django.conf import settings
-
-
-def mcp_oauth_login_url() -> str:
-    """Temporary: removed together with the static login URL (tenant login replaces it)."""
-    return settings.MCP_OAUTH_LOGIN_URL
-
-
 def authorization_server_metadata(base_url: str) -> dict:
     """RFC 8414 — /.well-known/oauth-authorization-server[/mcp] on the tenant host."""
     base = base_url.rstrip("/")
