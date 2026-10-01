@@ -51,6 +51,34 @@ class RewriteDockerInternalHostMiddlewareTests(SimpleTestCase):
 
 
 class TenantAdminFormTests(TestCase):
+    def test_mcp_enabled_is_editable_in_admin(self):
+        """MCP per company (https://<subdomain>/mcp) is switched by Tenant.mcp_enabled;
+        it was missing from the admin, so a tenant could not be enabled from the UI."""
+        from django.contrib import admin as django_admin
+
+        tenant = Tenant.objects.create(name="KP", subdomain="kp-admin", is_active=True, mcp_enabled=False)
+        form = TenantAdminForm(
+            instance=tenant,
+            data={
+                "name": "KP",
+                "subdomain": "kp-admin",
+                "is_active": "on",
+                "mcp_enabled": "on",
+                "telegram_otp_enabled": "",
+                "telegram_bot_token": "",
+                "telegram_bot_username": "",
+                "enabled_modules": ["requests"],
+            },
+        )
+        self.assertTrue(form.is_valid(), form.errors)
+        form.save()
+        tenant.refresh_from_db()
+        self.assertTrue(tenant.mcp_enabled)
+
+        model_admin = django_admin.site._registry[Tenant]
+        self.assertIn("mcp_enabled", model_admin.fields)
+        self.assertIn("mcp_enabled", model_admin.list_display)
+
     def test_save_commit_false_persists_tenant_before_module_upserts(self):
         form = TenantAdminForm(
             data={
