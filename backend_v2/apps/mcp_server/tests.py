@@ -1077,7 +1077,14 @@ class McpTaskErrorLanguageTests(TestCase):
         self.assertIsNone(_re.search(r"[А-Яа-яЁё]", inspect.getsource(task_tools)))
 
 
-@override_settings(MCP_HTTP_ENABLED=True, BASE_DOMAIN="kolberg.uz", MCP_ALLOWED_ORIGINS=["https://claude.ai"])
+# ALLOWED_HOSTS: the server's post-deploy run uses the real DJANGO_ALLOWED_HOSTS, where the
+# test hosts are unknown and Django would answer DisallowedHost (400) instead of routing.
+@override_settings(
+    MCP_HTTP_ENABLED=True,
+    BASE_DOMAIN="kolberg.uz",
+    MCP_ALLOWED_ORIGINS=["https://claude.ai"],
+    ALLOWED_HOSTS=[".kolberg.uz"],
+)
 class McpTenantAsgiTests(TestCase):
     """config.asgi.application on tenant hosts: tenant resolution, discovery, origin, dispatch."""
 
