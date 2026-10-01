@@ -87,7 +87,14 @@ class McpRoutingTests(TestCase):
             "/.well-known/oauth-protected-resource/mcp/",
         ):
             self.assertTrue(is_well_known_oauth_path(path), path)
-        self.assertFalse(is_well_known_oauth_path("/mcp/.well-known/oauth-authorization-server"))
+        # SDK-relative variants are answered by config/asgi.py too, never by the SDK placeholder.
+        for path in (
+            "/mcp/.well-known/oauth-authorization-server",
+            "/mcp/.well-known/oauth-protected-resource",
+            "/mcp/.well-known/oauth-protected-resource/mcp",
+        ):
+            self.assertTrue(is_well_known_oauth_path(path), path)
+        self.assertFalse(is_well_known_oauth_path("/mcp/"))
 
     def test_tenant_mcp_path_covers_protocol_and_discovery_only(self):
         self.assertTrue(is_tenant_mcp_path("/mcp/"))
@@ -1245,6 +1252,21 @@ class McpTenantAsgiTests(TestCase):
         header = dict(sent[0]["headers"])[b"www-authenticate"].decode()
         self.assertIn("https://lemonasgi.kolberg.uz/.well-known/oauth-protected-resource", header)
 
+    def test_sdk_relative_discovery_paths_point_to_host(self):
+        status, body = self._call("lemonasgi.kolberg.uz", "/mcp/.well-known/oauth-authorization-server")
+        self.assertEqual(status, 200)
+        self.assertEqual(body["issuer"], "https://lemonasgi.kolberg.uz/mcp")
+        status, body = self._call("lemonasgi.kolberg.uz", "/mcp/.well-known/oauth-protected-resource/mcp")
+        self.assertEqual(status, 200)
+        self.assertEqual(body["resource"], "https://lemonasgi.kolberg.uz/mcp")
+
+    def test_sdk_placeholder_issuer_is_not_a_real_host(self):
+        from apps.mcp_server.http.app import get_mcp_asgi_app
+        from apps.mcp_server.server import mcp
+
+        get_mcp_asgi_app()
+        self.assertTrue(str(mcp.settings.auth.issuer_url).startswith("https://mcp-placeholder.invalid"))
+
     def test_non_mcp_paths_go_to_django(self):
         status, _ = self._call("lemonasgi.kolberg.uz", "/api/definitely-not-a-route/")
         self.assertEqual(status, 404)
@@ -1359,6 +1381,35 @@ class McpOAuthProviderTenantTests(TestCase):
         _bind_tenant(self.a)
         legacy = str(RefreshToken.for_user(self.user))
         self.assertIsNone(async_to_sync(KolbergOAuthProvider().load_refresh_token)(self._client(), legacy))
+
+    def test_refresh_rejected_for_deactivated_user(self):
+        from asgiref.sync import async_to_sync
+        from mcp.server.auth.provider import TokenError
+        from apps.mcp_server.oauth.provider import KolbergOAuthProvider
+        from apps.mcp_server.oauth.tokens import mcp_jwt_pair_for_user
+
+        provider = KolbergOAuthProvider()
+        refresh, _ = mcp_jwt_pair_for_user(self.user, self.a.id)
+        _bind_tenant(self.a)
+        loaded = async_to_sync(provider.load_refresh_token)(self._client(), str(refresh))
+        self.user.is_active = False
+        self.user.save(update_fields=["is_active"])
+        with self.assertRaises(TokenError):
+            async_to_sync(provider.exchange_refresh_token)(self._client(), loaded, ["mcp"])
+
+    def test_code_exchange_rejected_for_deactivated_user(self):
+        from asgiref.sync import async_to_sync
+        from mcp.server.auth.provider import TokenError
+        from apps.mcp_server.oauth.provider import KolbergOAuthProvider
+
+        provider = KolbergOAuthProvider()
+        code = self._code_for(self.a)
+        _bind_tenant(self.a)
+        loaded = async_to_sync(provider.load_authorization_code)(self._client(), code)
+        self.user.is_active = False
+        self.user.save(update_fields=["is_active"])
+        with self.assertRaises(TokenError):
+            async_to_sync(provider.exchange_authorization_code)(self._client(), loaded)
 
     def test_access_token_of_other_tenant_not_loaded(self):
         from asgiref.sync import async_to_sync
@@ -1589,6 +1640,12 @@ class McpToolFilteringTests(TestCase):
         self.assertIn("create_task", v)
         self.assertNotIn("list_budgets", v)  # budgets not enabled
         self.assertNotIn("list_bank_expenses", v)  # bank not enabled
+
+    def test_deactivated_user_sees_nothing(self):
+        user = self._user_with("admin")
+        user.is_active = False
+        user.save(update_fields=["is_active"])
+        self.assertEqual(self._visible(user), set())
 
     def test_non_member_sees_nothing(self):
         self.assertEqual(self._visible(self._user_with("admin", member=False)), set())
