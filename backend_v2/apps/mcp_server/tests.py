@@ -1576,3 +1576,33 @@ class McpToolFilteringTests(TestCase):
         self.assertIn("get_current_tenant", names)
         self.assertIn("list_requests", names)
         self.assertNotIn("list_payroll_documents", names)
+
+
+class McpDeploymentConfigTests(TestCase):
+    def test_static_mcp_urls_removed_from_settings(self):
+        from django.conf import settings
+
+        for name in ("MCP_BASE_URL", "MCP_RESOURCE_URL", "MCP_OAUTH_LOGIN_URL"):
+            self.assertFalse(hasattr(settings, name), name)
+
+    def test_default_allowed_origins_cover_claude_and_chatgpt(self):
+        from django.conf import settings
+
+        for origin in ("https://claude.ai", "https://claude.com", "https://chatgpt.com"):
+            self.assertIn(origin, settings.MCP_ALLOWED_ORIGINS)
+
+    def test_stdio_entry_point_removed(self):
+        from django.core.management import get_commands
+
+        self.assertNotIn("run_mcp_server", get_commands())
+
+    def test_traefik_routes_mcp_on_tenant_hosts_only(self):
+        from pathlib import Path
+
+        compose = Path(__file__).resolve().parents[3] / "docker-compose.yml"
+        if not compose.exists():
+            self.skipTest("docker-compose.yml not available (backend_v2-only checkout)")
+        text = compose.read_text()
+        self.assertIn("traefik.http.routers.django-v2-tenant-mcp.rule=(${TRAEFIK_BACKEND_V2_HOST_RULE})", text)
+        self.assertNotIn("routers.django-v2-mcp.", text)
+        self.assertNotIn("MCP_BASE_URL", text)
