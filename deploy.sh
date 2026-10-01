@@ -42,8 +42,20 @@ docker compose --env-file ./.env up -d --no-deps --force-recreate backend_v2
                           # --force-recreate: bind-mount код не меняет image-digest, поэтому без него docker
                           # считает контейнер актуальным и не перезапускает gunicorn
 
+# Команда контейнера сама запускает `migrate` при старте. Ждём, пока она закончит,
+# иначе наш `exec migrate` ниже гоняется с ней за те же таблицы и падает
+# (duplicate pg_type / column already exists) — деплой обрывался посередине.
+echo "Жду окончания стартовой миграции backend_v2..."
+for i in $(seq 1 60); do
+  if docker compose --env-file ./.env exec -T backend_v2 python manage.py migrate --check >/dev/null 2>&1; then
+    echo "Стартовая миграция завершена."
+    break
+  fi
+  sleep 3
+done
+
 docker compose --env-file ./.env exec -T backend_v2 python manage.py migrate
-                          # применяем новые миграции к БД
+                          # применяем оставшиеся миграции (обычно no-op; при таймауте покажет реальную ошибку)
 
 docker compose --env-file ./.env up -d --no-deps backend_cron
                           # планировщик management-команд; живёт отдельно от web-процесса
