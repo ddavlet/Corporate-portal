@@ -1,16 +1,32 @@
 """
-MCP host routing invariants (api.kolberg.uz).
+MCP routing on tenant hosts (https://<subdomain>.<BASE_DOMAIN>).
 
-  /.well-known/oauth-*  → OAuth discovery JSON (ASGI)
-  /mcp, /mcp/*          → FastMCP only (protocol + OAuth endpoints)
-  /oauth/login/         → Django OTP login
+  /.well-known/oauth-*[/mcp] → OAuth discovery JSON for the host (config/asgi.py);
+                               the SDK-relative /mcp/.well-known/* variants too, so the
+                               SDK's placeholder issuer is never advertised
+  /mcp/login/                → Django OTP login bound to the tenant
+  /mcp, /mcp/*               → MCP app (protocol + OAuth endpoints)
 """
 
 from __future__ import annotations
 
-from urllib.parse import urlparse
-
 from django.conf import settings
+
+_WELL_KNOWN_AUTHORIZATION_SERVER = frozenset(
+    {
+        "/.well-known/oauth-authorization-server",
+        "/.well-known/oauth-authorization-server/mcp",
+        "/mcp/.well-known/oauth-authorization-server",
+    }
+)
+_WELL_KNOWN_PROTECTED_RESOURCE = frozenset(
+    {
+        "/.well-known/oauth-protected-resource",
+        "/.well-known/oauth-protected-resource/mcp",
+        "/mcp/.well-known/oauth-protected-resource",
+        "/mcp/.well-known/oauth-protected-resource/mcp",
+    }
+)
 
 
 def path_normalized(path: str) -> str:
@@ -18,57 +34,26 @@ def path_normalized(path: str) -> str:
 
 
 def mcp_http_enabled() -> bool:
-    """HTTP/OAuth MCP surface is off in production unless explicitly re-enabled."""
+    """HTTP/OAuth MCP surface is off unless MCP_HTTP_ENABLED is set."""
     return bool(getattr(settings, "MCP_HTTP_ENABLED", False))
 
 
-def mcp_hostname() -> str:
-    """Public MCP API host (e.g. api.kolberg.uz), not a tenant subdomain."""
-    return (urlparse(settings.MCP_BASE_URL).hostname or "").lower()
-
-
-def host_no_port(host: str) -> str:
-    return (host or "").split(":")[0].lower()
-
-
-def is_mcp_host(host: str) -> bool:
-    if not mcp_http_enabled():
-        return False
-    name = mcp_hostname()
-    return bool(name) and host_no_port(host) == name
-
-
-def mcp_resource_path_suffix() -> str:
-    """Path component of MCP_RESOURCE_URL (e.g. /mcp) for RFC 9728 path-suffixed well-known URIs."""
-    path = urlparse(settings.MCP_RESOURCE_URL.rstrip("/")).path or ""
-    return path if path and path != "/" else ""
-
-
-def _well_known_paths() -> frozenset[str]:
-    paths = {
-        "/.well-known/oauth-authorization-server",
-        "/.well-known/oauth-protected-resource",
-    }
-    suffix = mcp_resource_path_suffix()
-    if suffix:
-        paths.add(f"/.well-known/oauth-authorization-server{suffix}")
-        paths.add(f"/.well-known/oauth-protected-resource{suffix}")
-    return frozenset(paths)
+def is_well_known_authorization_server_path(path: str) -> bool:
+    return path_normalized(path) in _WELL_KNOWN_AUTHORIZATION_SERVER
 
 
 def is_well_known_oauth_path(path: str) -> bool:
-    return path_normalized(path) in _well_known_paths()
-
-
-def is_well_known_authorization_server_path(path: str) -> bool:
     p = path_normalized(path)
-    paths = {"/.well-known/oauth-authorization-server"}
-    suffix = mcp_resource_path_suffix()
-    if suffix:
-        paths.add(f"/.well-known/oauth-authorization-server{suffix}")
-    return p in paths
+    return p in _WELL_KNOWN_AUTHORIZATION_SERVER or p in _WELL_KNOWN_PROTECTED_RESOURCE
+
+
+def is_mcp_login_path(path: str) -> bool:
+    return path_normalized(path) == "/mcp/login"
 
 
 def is_mcp_protocol_path(path: str) -> bool:
-    """All /mcp and /mcp/* go to FastMCP."""
     return path == "/mcp" or path.startswith("/mcp/")
+
+
+def is_tenant_mcp_path(path: str) -> bool:
+    return is_mcp_protocol_path(path) or is_well_known_oauth_path(path)

@@ -1,200 +1,117 @@
 # Kolberg MCP Server
 
-> **Production status (2026-08-24): HTTP/OAuth MCP is re-enabled.**  
-> `MCP_HTTP_ENABLED` and `MCP_BASE_URL` are hardcoded on the `backend_v2` service in `docker-compose.yml`, and the Traefik router `django-v2-mcp` (`Host(\`${MCP_HOST:-api.kolberg.uz}\`)` → `django-v2`) is restored. Both the human OAuth flow and the tenant-scoped service-key mode (for non-human callers like n8n workflows) are live behind this same flag.
->
-> Before this reaches production, confirm `api.kolberg.uz` resolves in DNS and is present in the server's `DJANGO_ALLOWED_HOSTS` (see `.env.example`), then deploy.
+Reference documentation for the **Kolberg Data Server** — a [Model Context Protocol](https://modelcontextprotocol.io) server that lets AI assistants (Claude, ChatGPT, n8n agents) work with **one company's** Kolberg data: requests, finances, reports, payroll, investments, budgets, tasks and directories.
 
----
-
-Reference documentation for the **Kolberg Data Server** — a [Model Context Protocol](https://modelcontextprotocol.io) server that exposes access to the data of the tenants a user belongs to so AI assistants can query requests, finances, directories, and tenant configuration. Everything is read-only except the `tasks` module.
-
-Source: [`backend_v2/apps/mcp_server/`](../backend_v2/apps/mcp_server/)
+Source: [`backend_v2/apps/mcp_server/`](../backend_v2/apps/mcp_server/) · Design: [`docs/superpowers/specs/2026-09-30-tenant-mcp-design.md`](superpowers/specs/2026-09-30-tenant-mcp-design.md)
 
 ---
 
 ## 1. Overview
 
-Kolberg is a multi-tenant corporate finance platform: payment **requests** (заявки) with multi-step approval, financial modules (cash desk, bank, corporate card, payroll), and reference directories (vendors, wallets).
+- **One connector = one company.** The server lives on every tenant host: `https://<subdomain>.kolberg.uz/mcp` (e.g. `https://lemonfit.kolberg.uz/mcp`). The tenant comes from the host; no tool takes `tenant_id`.
+- **39 tools.** Everything is read-only except the tasks tools (`create_task`, `update_task_status`, `add_task_comment`, `edit_task`, `delete_task`).
+- **Filtered per user.** `list_tools` returns only the tools allowed by the company's enabled modules and the user's roles (§5). Calling a hidden tool behaves exactly like calling a nonexistent one (`Unknown tool: <name>`).
+- **Transport:** streamable HTTP (stateless). **Framework:** `MCPServer` from the `mcp` Python SDK 2.x, running inside the Django project (same ORM, same tenant rules as the web API).
 
-The MCP server lets an AI client (Claude Desktop, IDE extensions, custom agents) read that data through a fixed set of **39 tools**. The only writes are task operations (`create_task`, `update_task_status`, `add_task_comment`, `edit_task`, `delete_task`).
-
-- **Transport:** stdio (spawned as a subprocess, human `KOLBERG_JWT_TOKEN`) or streamable HTTP at `https://api.kolberg.uz/mcp` (human OAuth or service-key, see [§4a](#4a-service-key-authentication-tenant-scoped-non-human-callers)).
-- **Framework:** `MCPServer` (formerly `FastMCP`) from the `mcp` Python SDK (`mcp>=2.1.0,<3.0.0`).
-- **Runtime:** runs inside the Django project — it imports the real ORM models, so every query goes through the same database and the same multi-tenant rules as the web API.
-- **Scope:** one running server instance = one user identity (one JWT) acting across the tenants that user belongs to.
+The former shared endpoint `https://api.kolberg.uz/mcp` and the stdio mode (`run_mcp_server`, `KOLBERG_JWT_TOKEN`) were removed.
 
 ---
 
-## 2. Status — what is working
+## 2. Connecting a client
 
-| Area | Status |
-|------|--------|
-| 39 tools across 10 data domains | ✅ Implemented |
-| Authentication via `KOLBERG_JWT_TOKEN` env var | ✅ Working |
-| Role + module-config access enforcement | ✅ Working (reuses `apps.tenants.permissions`) |
-| Tenant scoping on every query | ✅ Working |
-| Date-filter validation (`YYYY-MM-DD`) | ✅ Working |
-| Uniform error envelope | ✅ Working |
-| Secrets redaction (integration tokens never exposed) | ✅ Working |
-| Unit tests (`json_safe`, `validate_date`) | ✅ 12/12 passing |
+**Claude** (claude.ai / Desktop): Settings → Connectors → *Add custom connector* → URL `https://<subdomain>.kolberg.uz/mcp`.
 
-**Not implemented (by design):** write/create/update/delete operations outside the `tasks` module (see [§4a](#4a-service-key-authentication-tenant-scoped-non-human-callers) for the `create_task`/`update_task_status`/`add_task_comment`/`edit_task`/`delete_task` exception); the `investments`, `notes`, `contracts`, `clients_debt`, `budgets`, `reports`, `feedback` modules have no tools exposed yet.
+**ChatGPT**: Settings → Security and login → enable *Developer mode*; then Connectors → *Create* → URL `https://<subdomain>.kolberg.uz/mcp`, Authentication: **OAuth**.
+
+The client discovers OAuth automatically and opens the company's login page (`https://<subdomain>.kolberg.uz/mcp/login/`). The user enters their portal username and the one-time code sent by **that company's** Telegram bot. Requirements: the company has MCP enabled (§3) and the user is an active member of it.
+
+A user who works in several companies adds one connector per company.
 
 ---
 
-## 3. Starting the server
+## 3. Switches
 
-The JWT token is supplied through the `KOLBERG_JWT_TOKEN` environment variable. It is read **once at startup** and is never passed as a tool-call parameter — this keeps it out of MCP logs and AI conversation history.
-
-**Via the Django management command (recommended):**
-
-```bash
-KOLBERG_JWT_TOKEN=<access_token> python manage.py run_mcp_server
-```
-
-**Directly as a module (bootstraps Django itself):**
-
-```bash
-KOLBERG_JWT_TOKEN=<access_token> python -m apps.mcp_server.server
-```
-
-Both must run from the `backend_v2/` directory so `config.settings` and the database configuration resolve. If `KOLBERG_JWT_TOKEN` is missing, the management command exits immediately with a clear error.
-
-Obtain the access token from the portal auth endpoint `POST /api/auth/token/`.
-
-### MCP client configuration example
-
-```json
-{
-  "mcpServers": {
-    "kolberg": {
-      "command": "python",
-      "args": ["manage.py", "run_mcp_server"],
-      "cwd": "/path/to/backend_v2",
-      "env": { "KOLBERG_JWT_TOKEN": "<access_token>" }
-    }
-  }
-}
-```
+| Switch | Where | Effect |
+|---|---|---|
+| `MCP_HTTP_ENABLED` | `docker-compose.yml` (`backend_v2` env) | Global on/off. Off → `/mcp` and discovery return 404 on every host. |
+| `Tenant.mcp_enabled` | Django admin / DB | Per company. Off (or tenant inactive / unknown subdomain) → 404 on that host. |
+| `MCP_ALLOWED_ORIGINS` | env, default `https://claude.ai,https://claude.com,https://chatgpt.com` | Browser `Origin`s allowed to call `/mcp`. Requests without `Origin` (server-to-server) are allowed; any other `Origin` → 403. |
 
 ---
 
-## 4. Authentication & security model
+## 4. Authentication
 
-Every tool call runs through the same checks ([`auth.py`](../backend_v2/apps/mcp_server/auth.py)):
+### 4.1 OAuth (people)
 
-1. **Token presence** — `KOLBERG_JWT_TOKEN` must be set.
-2. **Token validity** — decoded with `rest_framework_simplejwt.AccessToken`; expired or malformed tokens fail. The `user_id` claim identifies the caller.
-3. **User & tenant resolution** — the user must exist; the `tenant_id` argument must point to an **active** tenant; the user must hold an **active** `TenantMembership` in that tenant.
-4. **Authorization** — one of three checks depending on the tool:
-   - **Module access** — the module must be enabled for the tenant (`TenantModuleConfig.is_enabled`) **and** the user's role must grant that module.
-   - **Admin** — the user must hold the `admin` role.
-   - **Admin or director** — the user must hold `admin` or `director`.
+Discovery is served per host by `config/asgi.py`:
 
-Any failure raises `PermissionError`, which the tool converts into an error result.
+- `/.well-known/oauth-protected-resource[/mcp]` → `resource` = `authorization_servers` = `https://<subdomain>.kolberg.uz/mcp`
+- `/.well-known/oauth-authorization-server[/mcp]` → issuer `https://<subdomain>.kolberg.uz/mcp`, endpoints `/mcp/authorize`, `/mcp/token`, `/mcp/register`; DCR, PKCE `S256`, `authorization_code` + `refresh_token`.
+- Any 401 carries `WWW-Authenticate: Bearer … resource_metadata="https://<subdomain>.kolberg.uz/.well-known/oauth-protected-resource"`.
 
-**Security properties:**
+Flow and checks:
 
-- **Read-only except tasks.** Only the five task tools mutate data.
-- **Tenant-isolated.** Every query is filtered by `tenant=<resolved tenant>`. Cross-tenant access is impossible — passing another tenant's `tenant_id` fails the membership check.
-- **Secrets redacted.** `get_integration_config` never returns encrypted values — only booleans indicating whether each secret is set.
-- **Token off-channel.** The JWT lives in the process environment, never in tool arguments or results.
+1. `authorize` — if the client sends an RFC 8707 `resource` that is not this host's `/mcp`, the request fails (`invalid_request`). The tenant id is put into the signed login parameters.
+2. `/mcp/login/` (Django, `McpLoginView`) — the signed tenant must equal the host tenant; the user must be an active member; the OTP is sent/verified with `tenant=<this company>`. The authorization code stores the tenant.
+3. `token` — a code issued for another tenant is rejected. Issued JWTs carry the claim **`mcp_tenant_id`**.
+4. Every MCP request — the access token's `mcp_tenant_id` must equal the host tenant, otherwise 401. Refresh tokens are exchanged only on their own host.
 
----
+Token isolation: tokens without `mcp_tenant_id` (portal tokens, tokens from the old shared endpoint) are not accepted by MCP, and the portal API (`PortalJWTAuthentication`, also the n8n integration auth) **rejects** tokens that have `mcp_tenant_id`. A leaked connector token cannot be used against the portal API.
 
-## 4a. Service-key authentication (tenant-scoped, non-human callers)
+Lifetimes: access `MCP_ACCESS_TOKEN_MINUTES` (default 60), refresh `MCP_REFRESH_TOKEN_DAYS` (default 7).
 
-For integrations that are not a specific human user (n8n workflows, other
-backends, agents), an admin can issue a service key scoped to one or more
-tenants via Django admin (`McpServiceCredential`).
+### 4.2 Service keys (n8n and other bots)
 
-- Header: `X-Service-Key: svc_<prefix>_<secret>`.
-- The key resolves to a real, synthetic `service_user` who is an admin
-  member of exactly the tenants the key was scoped to — so it can call
-  every tool (including admin-only ones: `get_integration_config`,
-  `list_user_roles`, `list_memberships`) within those tenants, subject to
-  the same per-tenant toggles (`Tenant.mcp_enabled`, `TenantModuleConfig`)
-  a human admin would be. This includes write access — the `tasks` module's
-  `create_task`, `update_task_status`, `add_task_comment`, `edit_task`, and
-  `delete_task` tools are not read-only, and a service key can use all of
-  them exactly as a human admin could. Treat a service key with the same
-  care as an admin password.
-- A `tenant_id` outside the key's scope — or one that doesn't exist at all —
-  produces the identical error: `Access denied: tenant {id} is not
-  accessible with this key`. The two cases are indistinguishable by design.
-- Issuing a key shows the raw secret exactly once, in the Django admin
-  success message on creation. It cannot be recovered afterward — only
-  reissued.
-- Revoke by unchecking "is active" on the credential in admin.
-
-**n8n / generic streamable-HTTP client setup:**
-
-- Server URL: `https://api.kolberg.uz/mcp`
-- Transport: Streamable HTTP (n8n's MCP Client node, or any MCP SDK client)
-- Header: `X-Service-Key: svc_<prefix>_<secret>` (from the admin-issued credential)
-- No `Authorization` header — the service-key middleware mints one internally.
-- Every tool call still takes `tenant_id`; it must be one of the tenants the key was scoped to.
+Header `X-Service-Key: <key>` on `https://<subdomain>.kolberg.uz/mcp`. The key (model `McpServiceCredential`, managed in Django admin; only its hash is stored) works **only on hosts of the tenants it is bound to**. The middleware mints a short-lived token for the key's synthetic admin user with `svc=True` and `mcp_tenant_id=<host tenant>`. An unknown, inactive or unbound key gets the same `401 {"error": "Invalid or inactive service key"}`. A service key sees every tool enabled for the company (synthetic admin).
 
 ---
 
-## 5. Roles & module access matrix
+## 5. Tool visibility
 
-A module tool succeeds only when **both** conditions hold: the module is enabled for the tenant, and the caller's role appears in the row below ([`apps/tenants/permissions.py`](../backend_v2/apps/tenants/permissions.py)).
+A tool is listed and callable when its rule allows the user in this company. Module rules also require the module to be enabled for the company (`TenantModuleConfig`) and the user's role to grant it in `ROLE_MODULE_ACCESS` (`apps/tenants/permissions.py`).
 
-| Module key | admin | director | approver | requester | cashier | accountant | investor |
-|------------|:-:|:-:|:-:|:-:|:-:|:-:|:-:|
-| `requests` | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | — |
-| `vendors`  | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | — |
-| `wallets`  | ✅ | ✅ | — | — | ✅ | ✅ | — |
-| `cash`     | ✅ | ✅ | — | — | ✅ | — | — |
-| `bank`     | ✅ | ✅ | — | — | — | ✅ | — |
-| `corporate_card` | ✅ | ✅ | — | — | ✅ | ✅ | — |
-| `payroll`  | ✅ | ✅ | — | — | — | — | — |
-| `reports`  | ✅ | ✅ | — | — | — | — | ✅ |
-| `investments` | ✅ | — | — | — | — | — | ✅ |
-| `budgets`  | ✅ | ✅ | — | — | — | — | — |
-| `tasks`    | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ | — |
+| Rule | Tools |
+|---|---|
+| always (members) | `get_current_tenant`, `get_my_role`, `list_my_modules` |
+| module `requests` | `list_requests`, `get_request`, `list_request_categories` |
+| module `cash` | `list_cash_expenses`, `list_cash_revenues` |
+| module `bank` | `list_bank_expenses`, `list_bank_revenues` |
+| module `corporate_card` | `list_card_expenses`, `list_card_revenues` |
+| module `reports` | `get_pnl_report`, `get_cashflow_report` |
+| module `payroll` | `list_payroll_documents`, `get_payroll_document` |
+| module `investments` | `get_investment_form_config`, `list_invest_companies`, `list_invest_returns`, `list_project_investments`, `list_invest_payout_schedule` |
+| module `budgets` | `list_budgets`, `get_budget`, `list_budget_spend_requests` |
+| module `tasks` | `list_my_tasks`, `get_task`, `update_task_status`, `add_task_comment`, `edit_task`, `delete_task`, `list_assignee_candidates` |
+| module `tasks` + admin/director | `create_task` |
+| module `vendors` | `list_vendors` |
+| module `wallets` | `list_wallets` |
+| admin or director | `list_active_users`, `get_tenant_info`, `list_module_configs` |
+| admin | `list_user_roles`, `list_memberships` |
 
-Admin-only / admin-or-director tools do **not** depend on `TenantModuleConfig`:
-
-| Tool | Required role |
-|------|---------------|
-| `get_integration_config`, `list_user_roles`, `list_memberships` | `admin` |
-| `get_tenant_info`, `list_module_configs` | `admin` or `director` |
+The map lives in the `@tool(access=...)` decorators in `server.py` and is pinned by `McpToolAccessRegistryTests`. Tool functions in `tools/*.py` still check access themselves (`require_module_access` etc.) as a second line of defence.
 
 ---
 
 ## 6. Error handling
 
-Tools never raise to the client. On failure they return a uniform envelope:
-
-- **Object-returning tools** → `{"error": "message"}`
-- **List-returning tools** → `[{"error": "message"}]`
-
-**Always check for an `error` key before using a result.** Common messages:
-
-| Cause | Example message |
-|-------|-----------------|
-| Token not set | `KOLBERG_JWT_TOKEN environment variable is not set.` |
-| Token invalid/expired | `Invalid or expired token: ...` |
-| Wrong / inactive tenant | `Tenant 5 not found or inactive` |
-| Not a member | `User is not an active member of this tenant` |
-| Role / module disabled | `Access denied: your role does not allow access to module 'cash', or the module is disabled for this tenant` |
-| Admin required | `Admin role required for this operation` |
-| Bad date filter | `'date_from' must be a valid date in YYYY-MM-DD format, got: '15/03/2024'` |
-| Record not found | `Request 99 not found in this tenant` |
+All tools return `{"error": "..."}` (or `[{"error": "..."}]` for list tools) instead of raising. Messages are in English, e.g. `Access denied: your role does not allow access to module 'cash', or the module is disabled for this tenant`, `Task 5 not found or not accessible.`, `Request 99 not found in this tenant`.
 
 ---
 
 ## 7. Tools reference
 
-All tools except `list_my_tenants` take `tenant_id` (integer) as the first argument. Date filters use **`YYYY-MM-DD`** only. `limit` is clamped to its valid range (out-of-range values are silently corrected, not rejected).
+No tool takes `tenant_id` — every tool works on the connector's company. Date filters use **`YYYY-MM-DD`** only. `limit` is clamped to its valid range (out-of-range values are silently corrected, not rejected). Who can see each tool: §5.
+
+### 7.0 Context
+
+- `get_current_tenant()` — the connector's company: `id`, `name`, `subdomain`.
+- `get_my_role()` — the current user's roles in the company.
+- `list_my_modules()` — modules that are enabled **and** accessible to the current user.
 
 ### 7.1 Requests (заявки) — module `requests`
 
 #### `list_requests`
-Lists payment requests with optional filters. **Roles:** admin, director, approver, requester, accountant, cashier.
+Lists payment requests with optional filters.
 
 | Parameter | Type | Notes |
 |-----------|------|-------|
@@ -208,49 +125,49 @@ Lists payment requests with optional filters. **Roles:** admin, director, approv
 Returns a list of request objects (see the field table in §8). Ordered newest-first by `created_at`.
 
 #### `get_request`
-Returns one request by `request_id`, including its full approval chain. **Roles:** same as above.
+Returns one request by `request_id`, including its full approval chain.
 
 The result is a request object plus an `approvals` list, each entry: `id`, `step`, `step_type`, `decision`, `approver_user_id`, `comment`, `decided_at`.
 
 #### `list_request_categories`
-Returns all **active** request categories for the tenant: `id`, `name`, `is_active`, `created_at`. **Roles:** same as above.
+Returns all **active** request categories for the tenant: `id`, `name`, `is_active`, `created_at`.
 
 ### 7.2 Cash desk (касса) — module `cash`
 
 #### `list_cash_expenses`
-Cash outflows. **Roles:** admin, director, cashier. Filters: `date_from`/`date_to` (on `expense_at`), `currency`, `limit` (50/200).
+Cash outflows. Filters: `date_from`/`date_to` (on `expense_at`), `currency`, `limit` (50/200).
 Fields: `id`, `external_id`, `title`, `amount`, `currency`, `expense_at`, `expense_year`, `expense_month`, `expense_day`, `note`, `confirmed`, `vendor_id`, `wallet_id`, `created_at`.
 
 #### `list_cash_revenues`
-Cash inflows. **Roles:** admin, director, cashier. Filters: `date_from`/`date_to` (on `revenue_at`), `limit` (50/200).
+Cash inflows. Filters: `date_from`/`date_to` (on `revenue_at`), `limit` (50/200).
 Fields: `id`, `external_id`, `total_sum` (the revenue amount), `currency`, `revenue_at`, `source_year`, `confirmed`, `created_at`.
 
 ### 7.3 Bank — module `bank`
 
 #### `list_bank_expenses`
-Bank statement **debit** rows. **Roles:** admin, director, accountant. Filters: `date_from`/`date_to` (on `doc_date`), `limit` (50/200).
+Bank statement **debit** rows. Filters: `date_from`/`date_to` (on `doc_date`), `limit` (50/200).
 Fields: `id`, `doc_no`, `doc_date`, `process_date`, `debit_turnover` (debited amount), `payment_purpose`, `expense_year`, `expense_month`, `expense_day`, `vendor_id`, `wallet_id`, `created_at`.
 
 #### `list_bank_revenues`
-Bank statement **credit** rows. **Roles:** admin, director, accountant. Filters: `date_from`/`date_to` (on `doc_date`), `limit` (50/200).
+Bank statement **credit** rows. Filters: `date_from`/`date_to` (on `doc_date`), `limit` (50/200).
 Fields: `id`, `doc_no`, `doc_date`, `process_date`, `kredit_turnover` (credited amount), `payment_purpose`, `account_name`, `inn`, `account_no`, `mfo`, `wallet_id`, `created_at`.
 > `account_name`, `inn`, `account_no`, `mfo` describe the **counterparty** on that statement line — not the tenant's own bank account.
 
 ### 7.4 Corporate card — module `corporate_card`
 
-#### `list_card_expenses`
-Corporate-card outflows. **Roles:** admin, director, accountant, cashier. Filters: `date_from`/`date_to` (on `expense_at`), `limit` (50/200).
+#### `list_card_expenses` / `list_card_revenues`
+Corporate-card outflows / inflows (top-ups, refunds). Filters: `date_from`/`date_to` (on `expense_at`), `limit` (50/200).
 Fields: `id`, `title`, `amount`, `currency`, `expense_at`, `note`, `wallet_id`, `created_at`.
 
 ### 7.5 Payroll (начисления ЗП) — module `payroll`
 
 #### `list_payroll_documents`
-Payroll documents with totals and workflow state (same fields as the portal list). **Roles:** admin, director.
+Payroll documents with totals and workflow state (same fields as the portal list).
 Params: `status` (`draft`/`accepted`/`closed`/`cancelled`), `kind` (`salary`/`advance`/`bonus`), `period_from`/`period_to` (on `period_month`), `limit` (50/200).
 Fields: `id`, `doc_id`, `label`, `status`, `kind`, `period_month`, `source`, `payout_mode`, `created_at`, `total_sum`, `paid_total`, `lines_count`, `has_request`, `has_paid_request`, `matched_request_id`.
 
 #### `get_payroll_document`
-One payroll document by `document_id`, with **all employee lines**. **Roles:** same as above.
+One payroll document by `document_id`, with **all employee lines**.
 Returns the list fields plus `remaining_total`, `current_request`, `closed_underpaid_at`, `close_comment`, and:
 - `lines[]`: `id`, `line_no`, `employee`, `employee_id`, `item`, `description`, `sum`, `days_plan`, `days_fact`, `period_start`, `period_end`, `approval`;
 - `employees[]`: `employee_id`, `full_name`, `accrued`, `paid`, `remaining`;
@@ -259,44 +176,37 @@ Returns the list fields plus `remaining_total`, `current_request`, `closed_under
 ### 7.6 Directories (справочники)
 
 #### `list_vendors` — module `vendors`
-Vendor directory. **Roles:** admin, director, approver, requester, cashier, accountant.
+Vendor directory.
 Filters: `kind` (`cash` or `transfer`), `name_search` (case-insensitive substring), `limit` (default **100**, max **500**).
 Fields: `id`, `kind`, `name`, `inn`, `account_number`, `created_at`, `created_by_id`.
 
 #### `list_wallets` — module `wallets`
-All wallets for the tenant (no limit). **Roles:** admin, director, accountant, cashier.
+All wallets of the company (no limit).
 Fields: `id`, `wallet_type` (`cash` / `bank` / `corporate_card`), `currency`, `opening_balance`, `opening_balance_at`, `is_visible_in_cash_section`, `cash_register_id`, `bank_account_id`, `corporate_card_account_id`.
 > Exactly one of the three `*_id` anchor columns is set per wallet, matching `wallet_type`.
-
-### 7.7 Integrations
-
-#### `get_integration_config`
-Integration metadata for the tenant. **Roles:** admin only.
-Returns `tenant_id`, `configured` (bool). When configured, also: `updated_at`, `updated_by_id`, `telegram_oidc_client_id`, `telegram_oidc_redirect_uri`, `messaging_gateway_feedback_recipient_id`, `messaging_gateway_feedback_action`, and the secret-presence booleans `n8n_integration_token_set`, `requests_file_gateway_token_set`, `telegram_oidc_client_secret_set`.
-> Encrypted secret **values** are never returned — only whether each secret is set.
 
 ### 7.8 Tenant configuration
 
 #### `get_tenant_info`
-Public tenant metadata. **Roles:** admin or director.
+Public tenant metadata.
 Fields: `id`, `name`, `subdomain`, `is_active`, `telegram_otp_enabled`, `telegram_bot_username`.
 
 #### `list_module_configs`
-Every module's enable/disable flag for the tenant. **Roles:** admin or director.
-Fields per row: `id`, `module_key`, `is_enabled`. Use this first to learn which module tools will work.
+Every module's enable/disable flag for the company.
+Fields per row: `id`, `module_key`, `is_enabled`.
 
 #### `list_user_roles`
-All user→role assignments in the tenant. **Roles:** admin only.
+All user→role assignments in the tenant.
 Fields per row: `id`, `user_id`, `role`.
 
 #### `list_memberships`
-All tenant memberships. **Roles:** admin only.
+All tenant memberships.
 Fields per row: `id`, `user_id`, `is_active`.
 
 ### 7.9 Reports — module `reports`
 
 #### `get_pnl_report` / `get_cashflow_report`
-Full PnL / Cashflow report built from the tenant's saved rules (`pnl_config` for PnL, `cashflow_config` for Cashflow). **Roles:** admin, director, accountant, cashier, investor.
+Full PnL / Cashflow report built from the company's saved rules (`pnl_config` for PnL, `cashflow_config` for Cashflow).
 
 | Parameter | Type | Notes |
 |-----------|------|-------|
@@ -309,6 +219,32 @@ Response shape (`aggregate=false`): `{ "revenue", "operational_expenses", "other
 Response shape (`aggregate=true`): same four keys, each `{ total, count, by_month: {"YYYY-MM": amount}, by_category: {category: amount} }`, plus `"aggregated": true`.
 
 `get_pnl_report` expenses use `billing_date` (accrual, amortization-aware); `get_cashflow_report` expenses use the actual cash payment date (no amortization).
+
+### 7.10 Investments — module `investments`
+
+- `get_investment_form_config()` — whether company filters apply and which `return_type` values are allowed.
+- `list_invest_companies(name_search, is_active, limit)` — legal entities / projects.
+- `list_invest_returns(date_from, date_to, return_type, recipient, company_id, confirmed, limit)` — payouts to investors (PnL `invest_returns`).
+- `list_project_investments(date_from, date_to, company_id, confirmed, limit)` — capital invested into projects.
+- `list_invest_payout_schedule(date_from, date_to, company_id, is_paid, limit)` — planned payout calendar (plan vs fact).
+
+### 7.11 Budgets — module `budgets`
+
+- `list_budgets(year, period, category_name, is_active, limit)` — limits vs spend (`spent_amount`, `remaining`, `utilization_pct`); spend = APPROVED + PAYED requests by `billing_date`.
+- `get_budget(budget_id, year, period)` — one budget with utilization.
+- `list_budget_spend_requests(budget_id, year, period, limit)` — requests counted toward the budget.
+
+### 7.12 Tasks — module `tasks` (the only write tools)
+
+- `list_my_tasks(status, limit)` / `get_task(task_id)` — admins and directors see all tasks, others only their own.
+- `create_task(assignee_id, title, description)` — admin/director only.
+- `update_task_status(task_id, new_status)` — `new → in_progress | done`, `in_progress → new | done`.
+- `add_task_comment(task_id, body)`, `edit_task(task_id, title, description, assignee_id)`, `delete_task(task_id)` — creator, admin or director (comment: assignee too).
+- `list_assignee_candidates()` — valid `assignee_id` values.
+
+### 7.13 Users
+
+- `list_active_users()` — active members with roles (`id`, `full_name`, `username`, `roles`); admin or director.
 
 ---
 
@@ -421,33 +357,39 @@ A `Wallet` is the money container for a channel. Its `wallet_type` is `cash`, `b
 
 ## 9. Recommended workflow for an AI client
 
-1. **Ask the user for their `tenant_id`** (the numeric ID of their organization).
-2. **Call `list_module_configs(tenant_id)`** to see which modules are enabled. Only call module tools whose module is enabled — disabled ones always return a permission error.
-3. **Query the data domains** the user asked about.
-4. **If access is denied**, and the caller is an admin, call `list_user_roles(tenant_id)` to inspect role assignments and explain the gap.
-5. **Always check each result for an `error` key** before using it.
-6. For "spend in month X" questions, filter on the **accrual period** (`billing_date` / `expense_year`+`expense_month`); for "cash movement in month X", filter on operational dates (`expense_at`, `doc_date`, `created_at`).
+1. Call `get_current_tenant()` to confirm which company the connector works on.
+2. Use only the tools you are given — they are already filtered to what this user may do. `list_my_modules()` explains what is enabled.
+3. For expenses use requests (`list_requests`), not raw cash/bank/card feeds, unless the user explicitly asks for raw transactions.
+4. Always check each result for an `error` key before using it.
+5. For "spend in month X" questions, filter on the **accrual period** (`billing_date` / `expense_year`+`expense_month`); for "cash movement in month X", filter on operational dates (`expense_at`, `doc_date`, `created_at`).
 
 ---
 
-## 10. File layout
+## 10. Routing & file layout
+
+- Traefik router `django-v2-tenant-mcp` (`docker-compose.yml`): tenant hosts × (`/mcp`, `/mcp/*`, `/.well-known/oauth-*`) → `django-v2`.
+- `config/asgi.py` `_tenant_mcp`: resolves the tenant from `Host` (404 if unknown/disabled), checks `Origin` (403), binds the tenant contextvar, then serves discovery JSON, sends `/mcp/login/` to Django, or `/mcp/*` to the MCP app.
 
 ```
 backend_v2/apps/mcp_server/
-├── server.py            MCPServer instance + the 39 @tool wrappers
-├── auth.py              JWT decode + tenant/role/module authorization
-├── utils.py             json_safe() ORM-to-JSON, validate_date()
-├── tests.py             Unit tests for utils
-├── admin.py             (placeholder — no models)
-├── management/commands/
-│   └── run_mcp_server.py   Django command to launch the server
-└── tools/
-    ├── requests.py      list_requests, get_request, list_request_categories
-    ├── finance.py       cash / bank / card / payroll tools
-    ├── directories.py   list_vendors, list_wallets
-    ├── integrations.py  get_integration_config
-    └── tenant_config.py get_tenant_info, list_module_configs,
-                         list_user_roles, list_memberships
+├── server.py            TenantScopedMCPServer + the 39 @tool(access=...) wrappers
+├── access.py            Access rules + visible_tools() (list_tools filtering)
+├── django_tools.py      @tool decorator: hides tenant_id, sync_to_async, TOOL_ACCESS
+├── tenant_context.py    tenant from Host, contextvar, Origin check
+├── routing.py           path predicates used by config/asgi.py
+├── auth.py              tenant-bound JWT decode + tenant/role/module checks
+├── services.py          service-key provisioning and verification
+├── http/
+│   ├── app.py           MCP ASGI app (SDK auth wiring)
+│   ├── middleware.py    401 → per-host resource_metadata
+│   └── service_key.py   X-Service-Key → tenant-bound token
+├── oauth/
+│   ├── provider.py      KolbergOAuthProvider (tenant-bound codes and tokens)
+│   ├── views.py         /mcp/login/ OTP login
+│   ├── metadata.py      per-host discovery documents
+│   └── tokens.py        JWT pair with mcp_tenant_id
+└── tools/               query logic per domain (requests, finance, directories,
+                         investments, budgets, tasks, tenant_config, integrations)
 ```
 
-**Design split:** `server.py` defines the MCP tool surface and the uniform error envelope; the `tools/` modules hold the query logic and call into `auth.py`. Django ORM models are imported lazily inside each function so the module graph stays light and import-order safe.
+**Design split:** `server.py` defines the tool surface, access rules and the uniform error envelope; `tools/` modules hold the query logic and call into `auth.py`. Django models are imported lazily inside functions.

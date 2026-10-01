@@ -6,8 +6,9 @@ from django.test import Client, TestCase, override_settings
 
 from apps.mcp_server.utils import json_safe, validate_date
 from apps.mcp_server.routing import (
-    is_mcp_host,
+    is_mcp_login_path,
     is_mcp_protocol_path,
+    is_tenant_mcp_path,
     is_well_known_oauth_path,
     mcp_http_enabled,
 )
@@ -69,141 +70,98 @@ class ValidateDateTests(TestCase):
 
 
 class McpRoutingTests(TestCase):
-    def test_fastmcp_paths(self):
+    def test_protocol_paths(self):
         for path in ("/mcp", "/mcp/", "/mcp/authorize", "/mcp/token", "/mcp/register"):
             self.assertTrue(is_mcp_protocol_path(path), path)
 
-    def test_canonical_login_not_fastmcp(self):
-        self.assertFalse(is_mcp_protocol_path("/oauth/login/"))
-
-    def test_well_known_not_fastmcp(self):
-        for path in (
-            "/.well-known/oauth-authorization-server",
-            "/.well-known/oauth-protected-resource",
-        ):
-            self.assertFalse(is_mcp_protocol_path(path), path)
+    def test_login_path(self):
+        self.assertTrue(is_mcp_login_path("/mcp/login/"))
+        self.assertTrue(is_mcp_login_path("/mcp/login"))
+        self.assertFalse(is_mcp_login_path("/oauth/login/"))
 
     def test_well_known_paths(self):
-        self.assertTrue(is_well_known_oauth_path("/.well-known/oauth-authorization-server"))
-        self.assertTrue(is_well_known_oauth_path("/.well-known/oauth-protected-resource/"))
-        self.assertTrue(is_well_known_oauth_path("/.well-known/oauth-protected-resource/mcp"))
-        self.assertTrue(is_well_known_oauth_path("/.well-known/oauth-authorization-server/mcp"))
-        self.assertFalse(is_well_known_oauth_path("/mcp/.well-known/oauth-authorization-server"))
+        for path in (
+            "/.well-known/oauth-authorization-server",
+            "/.well-known/oauth-authorization-server/mcp",
+            "/.well-known/oauth-protected-resource",
+            "/.well-known/oauth-protected-resource/mcp/",
+        ):
+            self.assertTrue(is_well_known_oauth_path(path), path)
+        # SDK-relative variants are answered by config/asgi.py too, never by the SDK placeholder.
+        for path in (
+            "/mcp/.well-known/oauth-authorization-server",
+            "/mcp/.well-known/oauth-protected-resource",
+            "/mcp/.well-known/oauth-protected-resource/mcp",
+        ):
+            self.assertTrue(is_well_known_oauth_path(path), path)
+        self.assertFalse(is_well_known_oauth_path("/mcp/"))
 
-    @override_settings(MCP_HTTP_ENABLED=False, MCP_BASE_URL="https://api.kolberg.uz/mcp")
-    def test_mcp_host_ignored_when_http_disabled(self):
+    def test_tenant_mcp_path_covers_protocol_and_discovery_only(self):
+        self.assertTrue(is_tenant_mcp_path("/mcp/"))
+        self.assertTrue(is_tenant_mcp_path("/.well-known/oauth-protected-resource"))
+        self.assertFalse(is_tenant_mcp_path("/api/requests/"))
+        self.assertFalse(is_tenant_mcp_path("/app/"))
+
+    @override_settings(MCP_HTTP_ENABLED=False)
+    def test_http_switch(self):
         self.assertFalse(mcp_http_enabled())
-        self.assertFalse(is_mcp_host("api.kolberg.uz"))
-
-    @override_settings(MCP_HTTP_ENABLED=True, MCP_BASE_URL="https://api.kolberg.uz/mcp")
-    def test_mcp_host_matches_when_http_enabled(self):
-        self.assertTrue(mcp_http_enabled())
-        self.assertTrue(is_mcp_host("api.kolberg.uz"))
-        self.assertFalse(is_mcp_host("lemonfit.kolberg.uz"))
 
 
-_MCP_TEST_HOST = "api.kolberg.uz"
-
-
-@override_settings(
-    MCP_HTTP_ENABLED=True,
-    MCP_BASE_URL="https://api.kolberg.uz/mcp",
-    MCP_RESOURCE_URL="https://api.kolberg.uz/mcp",
-    MCP_OAUTH_LOGIN_URL="https://api.kolberg.uz/oauth/login",
-    ALLOWED_HOSTS=[_MCP_TEST_HOST, "testserver"],
-)
-class McpOAuthMetadataTests(TestCase):
+@override_settings(BASE_DOMAIN="kolberg.uz", MCP_ALLOWED_ORIGINS=["https://claude.ai"])
+class McpTenantContextTests(TestCase):
     def setUp(self):
-        self.client = Client()
+        from apps.tenants.models import Tenant
 
-    def _mcp_get(self, path: str):
-        return self.client.get(path, HTTP_HOST=_MCP_TEST_HOST)
+        self.tenant = Tenant.objects.create(name="Lemon", subdomain="lemonctx", is_active=True, mcp_enabled=True)
 
-    def test_authorization_server_metadata_points_to_mcp_endpoints(self):
-        from apps.mcp_server.oauth.metadata import authorization_server_metadata
+    def test_resolves_enabled_tenant_from_host(self):
+        from apps.mcp_server.tenant_context import resolve_mcp_tenant
 
-        meta = authorization_server_metadata()
-        self.assertEqual(meta["issuer"], "https://api.kolberg.uz/mcp")
-        self.assertEqual(meta["authorization_endpoint"], "https://api.kolberg.uz/mcp/authorize")
-        self.assertEqual(meta["token_endpoint"], "https://api.kolberg.uz/mcp/token")
-        self.assertEqual(meta["registration_endpoint"], "https://api.kolberg.uz/mcp/register")
-        self.assertIn("S256", meta["code_challenge_methods_supported"])
+        t = resolve_mcp_tenant("lemonctx.kolberg.uz")
+        self.assertEqual((t.id, t.subdomain, t.name), (self.tenant.id, "lemonctx", "Lemon"))
+        self.assertEqual(t.base_url, "https://lemonctx.kolberg.uz/mcp")
 
-    def test_protected_resource_metadata(self):
-        from apps.mcp_server.oauth.metadata import protected_resource_metadata
+    def test_host_case_and_port_are_ignored(self):
+        from apps.mcp_server.tenant_context import resolve_mcp_tenant
 
-        meta = protected_resource_metadata()
-        self.assertEqual(meta["resource"], "https://api.kolberg.uz/mcp")
-        self.assertEqual(meta["authorization_servers"], ["https://api.kolberg.uz/mcp"])
+        self.assertEqual(resolve_mcp_tenant("LemonCtx.Kolberg.uz:443").id, self.tenant.id)
 
-    def test_protected_resource_metadata_url_has_no_extra_mcp_suffix(self):
-        from apps.mcp_server.oauth.metadata import protected_resource_metadata_url
+    def test_disabled_inactive_unknown_resolve_to_none(self):
+        from apps.mcp_server.tenant_context import resolve_mcp_tenant
+        from apps.tenants.models import Tenant
 
-        url = protected_resource_metadata_url()
-        self.assertEqual(url, "https://api.kolberg.uz/.well-known/oauth-protected-resource")
-        self.assertFalse(url.endswith("/mcp"))
+        Tenant.objects.create(name="Off", subdomain="offctx", is_active=True, mcp_enabled=False)
+        Tenant.objects.create(name="Gone", subdomain="gonectx", is_active=False, mcp_enabled=True)
+        for host in ("offctx.kolberg.uz", "gonectx.kolberg.uz", "nope.kolberg.uz", "api.kolberg.uz", "kolberg.uz"):
+            self.assertIsNone(resolve_mcp_tenant(host), host)
 
-    def test_root_well_known_endpoints_served_by_django(self):
-        r = self._mcp_get("/.well-known/oauth-authorization-server")
-        self.assertEqual(r.status_code, 200)
-        self.assertEqual(r.json()["authorization_endpoint"], "https://api.kolberg.uz/mcp/authorize")
-
-        r = self._mcp_get("/.well-known/oauth-protected-resource")
-        self.assertEqual(r.status_code, 200)
-        self.assertEqual(r.json()["resource"], "https://api.kolberg.uz/mcp")
-
-    def test_oauth_login_page_without_token_returns_400(self):
-        r = self._mcp_get("/oauth/login/")
-        self.assertEqual(r.status_code, 400)
-
-
-@override_settings(
-    MCP_HTTP_ENABLED=True,
-    MCP_BASE_URL="https://api.kolberg.uz/mcp",
-    MCP_OAUTH_LOGIN_URL="https://api.kolberg.uz/oauth/login",
-    ALLOWED_HOSTS=[_MCP_TEST_HOST, "testserver"],
-)
-class McpOAuthLoginFlowTests(TestCase):
-    def setUp(self):
-        from django.contrib.auth import get_user_model
-
-        self.client = Client()
-        get_user_model().objects.create_user(username="alice", password="test-pass")
-
-    def _signed_t(self) -> str:
-        from django.core import signing
-
-        return signing.dumps(
-            {
-                "client_id": "test-client",
-                "redirect_uri": "https://claude.ai/api/mcp/auth_callback",
-                "redirect_uri_provided_explicitly": True,
-                "code_challenge": "challenge",
-                "state": "st",
-                "scopes": ["mcp"],
-            },
-            salt="mcp-oauth-authorize",
+    def test_current_tenant_requires_binding(self):
+        from apps.mcp_server.tenant_context import (
+            McpTenant, current_tenant, reset_current_tenant, set_current_tenant,
         )
 
-    @patch("apps.accounts.otp.send_otp")
-    def test_username_post_does_not_500_when_otp_module_present(self, mock_send):
-        t = self._signed_t()
-        r = self.client.post(
-            "/oauth/login/",
-            {"t": t, "step": "username", "username": "alice"},
-            HTTP_HOST=_MCP_TEST_HOST,
-        )
-        self.assertEqual(r.status_code, 200, r.content[:500])
-        mock_send.assert_called_once()
-        self.assertIn(b"otp", r.content.lower())
+        with self.assertRaises(PermissionError):
+            current_tenant()
+        token = set_current_tenant(McpTenant(id=7, subdomain="x", name="X"))
+        try:
+            self.assertEqual(current_tenant().id, 7)
+        finally:
+            reset_current_tenant(token)
+        with self.assertRaises(PermissionError):
+            current_tenant()
+
+    def test_origin_rules(self):
+        from apps.mcp_server.tenant_context import McpTenant, origin_allowed
+
+        t = McpTenant(id=1, subdomain="lemonctx", name="L")
+        self.assertTrue(origin_allowed(None, t))
+        self.assertTrue(origin_allowed("", t))
+        self.assertTrue(origin_allowed("https://claude.ai", t))
+        self.assertTrue(origin_allowed("https://lemonctx.kolberg.uz", t))
+        self.assertFalse(origin_allowed("https://evil.example", t))
+        self.assertFalse(origin_allowed("https://other.kolberg.uz", t))
 
 
-@override_settings(
-    MCP_HTTP_ENABLED=True,
-    MCP_BASE_URL="https://api.kolberg.uz/mcp",
-    MCP_OAUTH_LOGIN_URL="https://api.kolberg.uz/oauth/login",
-    ALLOWED_HOSTS=[_MCP_TEST_HOST, "testserver"],
-)
 class McpOAuthLongStateTest(TestCase):
     """create_authorization_code must not fail when state exceeds 255 chars."""
 
@@ -211,7 +169,10 @@ class McpOAuthLongStateTest(TestCase):
         from django.contrib.auth import get_user_model
         from apps.mcp_server.oauth.models import OAuthClient
 
+        from apps.tenants.models import Tenant
+
         self.user = get_user_model().objects.create_user(username="n8n_state_test", password="x")
+        self.tenant = Tenant.objects.create(name="LS", subdomain="longstate", is_active=True, mcp_enabled=True)
         self.client_obj = OAuthClient.objects.create(
             client_id="n8n-test",
             redirect_uris=["https://dev.kolberg.uz/rest/oauth2-credential/callback"],
@@ -226,6 +187,7 @@ class McpOAuthLongStateTest(TestCase):
         code = create_authorization_code(
             client_id="n8n-test",
             user_id=self.user.id,
+            tenant_id=self.tenant.id,
             redirect_uri="https://dev.kolberg.uz/rest/oauth2-credential/callback",
             redirect_uri_provided_explicitly=True,
             code_challenge="A" * 43,
@@ -663,21 +625,114 @@ class ServiceModeUniformDenialTests(TestCase):
         self.assertEqual(str(ctx_a.exception), str(ctx_b.exception))
 
 
+def _bind_tenant(tenant):
+    from apps.mcp_server.tenant_context import McpTenant, set_current_tenant
+
+    return set_current_tenant(McpTenant(id=tenant.id, subdomain=tenant.subdomain, name=tenant.name))
+
+
+def _mcp_access_token(user, tenant_id):
+    from apps.mcp_server.oauth.tokens import mcp_jwt_pair_for_user
+
+    _, access = mcp_jwt_pair_for_user(user, tenant_id)
+    return str(access)
+
+
+class McpTokenBindingTests(TestCase):
+    def setUp(self):
+        from django.contrib.auth import get_user_model
+        from apps.tenants.models import Tenant
+
+        self.user = get_user_model().objects.create_user(username="bind-user")
+        self.a = Tenant.objects.create(name="A", subdomain="bind-a", is_active=True, mcp_enabled=True)
+        self.b = Tenant.objects.create(name="B", subdomain="bind-b", is_active=True, mcp_enabled=True)
+
+    def tearDown(self):
+        from apps.mcp_server.tenant_context import set_current_tenant
+
+        set_current_tenant(None)
+
+    def test_token_for_its_tenant_decodes(self):
+        from apps.mcp_server.auth import _decode_token
+
+        _bind_tenant(self.a)
+        self.assertEqual(_decode_token(_mcp_access_token(self.user, self.a.id)), self.user.id)
+
+    def test_token_for_other_tenant_rejected(self):
+        from apps.mcp_server.auth import _decode_token
+
+        _bind_tenant(self.b)
+        with self.assertRaisesRegex(PermissionError, "not valid for this company"):
+            _decode_token(_mcp_access_token(self.user, self.a.id))
+
+    def test_portal_token_rejected(self):
+        from rest_framework_simplejwt.tokens import AccessToken
+        from apps.mcp_server.auth import _decode_token
+
+        _bind_tenant(self.a)
+        with self.assertRaisesRegex(PermissionError, "not valid for this company"):
+            _decode_token(str(AccessToken.for_user(self.user)))
+
+    def test_no_env_token_fallback(self):
+        import os
+        from apps.mcp_server.auth import _get_token, set_request_token
+
+        set_request_token("")
+        with patch.dict(os.environ, {"KOLBERG_JWT_TOKEN": "x"}):
+            with self.assertRaises(PermissionError):
+                _get_token()
+
+
+class PortalRejectsMcpTokenTests(TestCase):
+    def setUp(self):
+        from django.contrib.auth import get_user_model
+
+        self.user = get_user_model().objects.create_user(username="portal-user")
+
+    def test_portal_auth_is_default(self):
+        from django.conf import settings
+
+        self.assertEqual(
+            settings.REST_FRAMEWORK["DEFAULT_AUTHENTICATION_CLASSES"],
+            ("apps.accounts.authentication.PortalJWTAuthentication",),
+        )
+
+    def test_mcp_token_rejected_by_portal(self):
+        from rest_framework_simplejwt.exceptions import InvalidToken
+        from apps.accounts.authentication import PortalJWTAuthentication
+
+        with self.assertRaises(InvalidToken):
+            PortalJWTAuthentication().get_validated_token(_mcp_access_token(self.user, 1).encode())
+
+    def test_portal_token_still_accepted(self):
+        from rest_framework_simplejwt.tokens import AccessToken
+        from apps.accounts.authentication import PortalJWTAuthentication
+
+        token = PortalJWTAuthentication().get_validated_token(str(AccessToken.for_user(self.user)).encode())
+        self.assertEqual(int(token["user_id"]), self.user.id)
+
+    def test_n8n_integration_auth_rejects_mcp_token(self):
+        from apps.accounts.authentication import RejectMcpTokenMixin
+        from apps.modules.n8n_integration.authentication import N8nIntegrationAuthentication
+
+        self.assertTrue(issubclass(N8nIntegrationAuthentication, RejectMcpTokenMixin))
+
+
 class ServiceKeyMiddlewareTests(TestCase):
     def setUp(self):
         from apps.tenants.models import Tenant
         from apps.mcp_server.services import provision_service_credential
 
-        self.tenant = Tenant.objects.create(
-            name="MW", subdomain="svc-mw", is_active=True, mcp_enabled=True
-        )
+        self.tenant = Tenant.objects.create(name="MW", subdomain="svc-mw", is_active=True, mcp_enabled=True)
+        self.other = Tenant.objects.create(name="MW2", subdomain="svc-mw2", is_active=True, mcp_enabled=True)
         self.credential, self.raw_key = provision_service_credential("mw-test", [self.tenant.id])
 
-    @staticmethod
-    def _scope(headers: list[tuple[bytes, bytes]]):
-        return {"type": "http", "path": "/", "headers": headers}
+    def tearDown(self):
+        from apps.mcp_server.tenant_context import set_current_tenant
 
-    def _run(self, app, headers):
+        set_current_tenant(None)
+
+    def _run(self, app, headers, tenant=None):
         from asgiref.sync import async_to_sync
         from apps.mcp_server.http.service_key import with_service_key_auth
 
@@ -689,58 +744,53 @@ class ServiceKeyMiddlewareTests(TestCase):
         async def send(message):
             sent.append(message)
 
-        wrapped = with_service_key_auth(app)
-        async_to_sync(wrapped)(self._scope(headers), receive, send)
+        _bind_tenant(tenant or self.tenant)
+        async_to_sync(with_service_key_auth(app))({"type": "http", "path": "/", "headers": headers}, receive, send)
         return sent
 
+    @staticmethod
+    async def _ok(scope, receive, send):
+        await send({"type": "http.response.start", "status": 200, "headers": []})
+        await send({"type": "http.response.body", "body": b""})
+
     def test_no_header_passes_through_unchanged(self):
-        seen_scopes = []
+        seen = []
 
         async def downstream(scope, receive, send):
-            seen_scopes.append(scope)
-            await send({"type": "http.response.start", "status": 200, "headers": []})
-            await send({"type": "http.response.body", "body": b""})
+            seen.append(scope)
+            await self._ok(scope, receive, send)
 
         self._run(downstream, headers=[(b"authorization", b"Bearer original")])
-        self.assertEqual(seen_scopes[0]["headers"], [(b"authorization", b"Bearer original")])
+        self.assertEqual(seen[0]["headers"], [(b"authorization", b"Bearer original")])
 
-    def test_valid_key_rewrites_authorization_header(self):
+    def test_valid_key_for_bound_tenant_mints_tenant_token(self):
         from apps.mcp_server.auth import _decode_token, _is_service_claim
 
-        seen_scopes = []
+        seen = []
 
         async def downstream(scope, receive, send):
-            seen_scopes.append(scope)
-            await send({"type": "http.response.start", "status": 200, "headers": []})
-            await send({"type": "http.response.body", "body": b""})
+            seen.append(scope)
+            await self._ok(scope, receive, send)
 
         self._run(downstream, headers=[(b"x-service-key", self.raw_key.encode("latin-1"))])
-
-        auth_headers = [v for k, v in seen_scopes[0]["headers"] if k == b"authorization"]
-        self.assertEqual(len(auth_headers), 1)
-        token = auth_headers[0].decode("latin-1").removeprefix("Bearer ")
+        token = [v for k, v in seen[0]["headers"] if k == b"authorization"][0].decode().removeprefix("Bearer ")
         self.assertEqual(_decode_token(token), self.credential.service_user_id)
         self.assertTrue(_is_service_claim(token))
 
-    def test_invalid_key_returns_401_and_never_calls_downstream(self):
-        downstream_called = []
+    def test_key_not_bound_to_host_tenant_gets_same_401_as_invalid_key(self):
+        called = []
 
         async def downstream(scope, receive, send):
-            downstream_called.append(True)
+            called.append(True)
 
-        sent = self._run(downstream, headers=[(b"x-service-key", b"svc_bad_bad")])
-
-        self.assertEqual(downstream_called, [])
-        self.assertEqual(sent[0]["status"], 401)
+        unbound = self._run(downstream, [(b"x-service-key", self.raw_key.encode("latin-1"))], tenant=self.other)
+        invalid = self._run(downstream, [(b"x-service-key", b"svc_bad_bad")])
+        self.assertEqual(called, [])
+        self.assertEqual(unbound[0]["status"], 401)
+        self.assertEqual(unbound[1]["body"], invalid[1]["body"])
 
     def test_valid_key_updates_last_used_at(self):
-        async def downstream(scope, receive, send):
-            await send({"type": "http.response.start", "status": 200, "headers": []})
-            await send({"type": "http.response.body", "body": b""})
-
-        self.assertIsNone(self.credential.last_used_at)
-        self._run(downstream, headers=[(b"x-service-key", self.raw_key.encode("latin-1"))])
-
+        self._run(self._ok, headers=[(b"x-service-key", self.raw_key.encode("latin-1"))])
         self.credential.refresh_from_db()
         self.assertIsNotNone(self.credential.last_used_at)
 
@@ -748,14 +798,13 @@ class ServiceKeyMiddlewareTests(TestCase):
         from asgiref.sync import async_to_sync
         from apps.mcp_server.http.service_key import with_service_key_auth
 
-        calls = []
+        seen = []
 
         async def downstream(scope, receive, send):
-            calls.append(scope["type"])
+            seen.append(scope["type"])
 
-        wrapped = with_service_key_auth(downstream)
-        async_to_sync(wrapped)({"type": "lifespan"}, None, None)
-        self.assertEqual(calls, ["lifespan"])
+        async_to_sync(with_service_key_auth(downstream))({"type": "lifespan"}, None, None)
+        self.assertEqual(seen, ["lifespan"])
 
 
 class McpServiceCredentialAdminTests(TestCase):
@@ -828,7 +877,7 @@ class _DummyMessages:
 
 class ServiceKeyEndToEndTests(TestCase):
     """Exercises the real seam between service_key.py's minted token and
-    auth.py's require_* functions — the same integration FastMCP relies on
+    auth.py's require_* functions — the same integration the MCP app relies on
     in production, without driving the full streamable-http/JSON-RPC stack."""
 
     def setUp(self):
@@ -842,14 +891,20 @@ class ServiceKeyEndToEndTests(TestCase):
 
         self.credential, self.raw_key = provision_service_credential("e2e", [self.tenant_a.id])
 
+    def tearDown(self):
+        from apps.mcp_server.tenant_context import set_current_tenant
+
+        set_current_tenant(None)
+
     def _minted_token(self):
         from apps.mcp_server.http.service_key import _mint_service_access_token
 
-        return _mint_service_access_token(self.credential.service_user)
+        return _mint_service_access_token(self.credential.service_user, self.tenant_a.id)
 
     def test_service_token_grants_module_access_for_scoped_tenant(self):
         from apps.mcp_server.auth import set_request_token, require_module_access
 
+        _bind_tenant(self.tenant_a)
         set_request_token(self._minted_token())
         user, tenant = require_module_access(self.tenant_a.id, "requests")
         self.assertEqual(tenant.id, self.tenant_a.id)
@@ -858,65 +913,31 @@ class ServiceKeyEndToEndTests(TestCase):
     def test_service_token_grants_admin_only_tools(self):
         from apps.mcp_server.auth import set_request_token, require_admin_access
 
+        _bind_tenant(self.tenant_a)
         set_request_token(self._minted_token())
         user, tenant = require_admin_access(self.tenant_a.id)
         self.assertEqual(tenant.id, self.tenant_a.id)
 
-    def test_service_token_denied_for_out_of_scope_tenant(self):
+    def test_service_token_rejected_on_other_tenant_host(self):
         from apps.mcp_server.auth import set_request_token, require_module_access
 
         set_request_token(self._minted_token())
-        with self.assertRaises(PermissionError) as ctx:
+        _bind_tenant(self.tenant_b)
+        with self.assertRaisesRegex(PermissionError, "not valid for this company"):
             require_module_access(self.tenant_b.id, "requests")
-        self.assertEqual(
-            str(ctx.exception),
-            f"Access denied: tenant {self.tenant_b.id} is not accessible with this key",
-        )
 
-    def test_service_token_denied_identically_for_nonexistent_tenant(self):
-        """Same *shape* of denial for an existing-but-out-of-scope tenant and
-        a tenant that doesn't exist at all — asserting literal string equality
-        would be wrong here (the two calls use different tenant_ids, and the
-        uniform message legitimately embeds the id it was asked about; that's
-        not a leak, the caller already supplied that id). What must not leak
-        is anything BEYOND "this id is inaccessible" — same template, only the
-        (caller-supplied) id varies."""
-        import re
-        from apps.mcp_server.auth import set_request_token, require_module_access
-
-        set_request_token(self._minted_token())
-        with self.assertRaises(PermissionError) as ctx_out_of_scope:
-            require_module_access(self.tenant_b.id, "requests")
-        with self.assertRaises(PermissionError) as ctx_nonexistent:
-            require_module_access(999_999, "requests")
-
-        pattern = re.compile(r"^Access denied: tenant \d+ is not accessible with this key$")
-        self.assertRegex(str(ctx_out_of_scope.exception), pattern)
-        self.assertRegex(str(ctx_nonexistent.exception), pattern)
-
-    def test_human_jwt_path_is_completely_unaffected(self):
-        """Sanity check: an ordinary human JWT still goes through the original,
-        unmodified messages — service_mode branching must be a strict no-op
-        for non-service tokens."""
+    def test_human_mcp_token_works_for_member(self):
         from django.contrib.auth import get_user_model
-        from apps.tenants.models import TenantMembership
+        from apps.tenants.models import TenantMembership, TenantUserRole
         from apps.mcp_server.auth import set_request_token, require_module_access
-        from rest_framework_simplejwt.tokens import AccessToken
 
         human = get_user_model().objects.create_user(username="e2e-human")
         TenantMembership.objects.create(user=human, tenant=self.tenant_a, is_active=True)
-        from apps.tenants.models import TenantUserRole
-
         TenantUserRole.objects.create(tenant=self.tenant_a, user=human, role=TenantUserRole.ROLE_REQUESTER)
-
-        set_request_token(str(AccessToken.for_user(human)))
+        _bind_tenant(self.tenant_a)
+        set_request_token(_mcp_access_token(human, self.tenant_a.id))
         user, tenant = require_module_access(self.tenant_a.id, "requests")
-        self.assertEqual(user.id, human.id)
-
-        with self.assertRaises(PermissionError) as ctx:
-            require_module_access(self.tenant_b.id, "requests")
-        # human path keeps the original, non-uniform message
-        self.assertEqual(str(ctx.exception), "User is not an active member of this tenant")
+        self.assertEqual((user.id, tenant.id), (human.id, self.tenant_a.id))
 
 
 class McpListRequestsDeletedTests(TestCase):
@@ -1056,51 +1077,848 @@ class McpTaskErrorLanguageTests(TestCase):
         self.assertIsNone(_re.search(r"[А-Яа-яЁё]", inspect.getsource(task_tools)))
 
 
-class McpToolDocstringRolesTests(TestCase):
-    """Tool descriptions are what the AI client reads to decide whether a tool is
-    usable. The "Required roles" line drifted from ROLE_MODULE_ACCESS (e.g. investments
-    claimed director access, payroll claimed accountant access)."""
+@override_settings(MCP_HTTP_ENABLED=True, BASE_DOMAIN="kolberg.uz", MCP_ALLOWED_ORIGINS=["https://claude.ai"])
+class McpTenantAsgiTests(TestCase):
+    """config.asgi.application on tenant hosts: tenant resolution, discovery, origin, dispatch."""
 
-    MODULE_BY_TOOL = {
-        "list_requests": "requests",
-        "get_request": "requests",
-        "list_request_categories": "requests",
-        "list_cash_expenses": "cash",
-        "list_cash_revenues": "cash",
-        "list_bank_expenses": "bank",
-        "list_bank_revenues": "bank",
-        "list_card_expenses": "corporate_card",
-        "list_card_revenues": "corporate_card",
-        "get_pnl_report": "reports",
-        "get_cashflow_report": "reports",
-        "list_payroll_documents": "payroll",
-        "get_payroll_document": "payroll",
-        "get_investment_form_config": "investments",
-        "list_invest_companies": "investments",
-        "list_invest_returns": "investments",
-        "list_project_investments": "investments",
-        "list_invest_payout_schedule": "investments",
-        "list_budgets": "budgets",
-        "get_budget": "budgets",
-        "list_budget_spend_requests": "budgets",
-        "list_my_tasks": "tasks",
-        "list_vendors": "vendors",
-        "list_wallets": "wallets",
-    }
+    def setUp(self):
+        from apps.tenants.models import Tenant
 
-    def test_required_roles_match_role_module_access(self):
-        import re as _re
+        self.tenant = Tenant.objects.create(name="Lemon", subdomain="lemonasgi", is_active=True, mcp_enabled=True)
+        Tenant.objects.create(name="Off", subdomain="offasgi", is_active=True, mcp_enabled=False)
 
-        from apps.mcp_server import server
+    def _call(self, host, path, extra_headers=(), mcp_app=None):
+        import json
+        from asgiref.sync import async_to_sync
+        from config.asgi import application
+
+        from django.core.signals import request_finished, request_started
+        from django.db import close_old_connections
+
+        sent = []
+        incoming = [{"type": "http.request", "body": b"", "more_body": False}]
+
+        async def receive():
+            if incoming:
+                return incoming.pop(0)
+            # Django 5 listens for a disconnect while handling; an immediate one aborts
+            # the response, so block until the handler cancels this listener.
+            import asyncio
+
+            await asyncio.Event().wait()
+
+        async def send(message):
+            sent.append(message)
+
+        scope = {
+            "type": "http", "method": "GET", "path": path, "raw_path": path.encode(),
+            "root_path": "", "query_string": b"", "scheme": "https",
+            "headers": [(b"host", host.encode())] + list(extra_headers),
+        }
+        # Like django.test.Client: a request through the real ASGI handler must not
+        # close the TestCase's DB connection.
+        request_started.disconnect(close_old_connections)
+        request_finished.disconnect(close_old_connections)
+        try:
+            if mcp_app is None:
+                async_to_sync(application)(scope, receive, send)
+            else:
+                with patch("apps.mcp_server.http.app.get_mcp_asgi_app", return_value=mcp_app):
+                    async_to_sync(application)(scope, receive, send)
+        finally:
+            request_started.connect(close_old_connections)
+            request_finished.connect(close_old_connections)
+        status = sent[0]["status"]
+        body = b"".join(m.get("body", b"") for m in sent if m["type"] == "http.response.body")
+        try:
+            return status, json.loads(body)
+        except ValueError:
+            return status, body
+
+    def test_protected_resource_metadata_is_per_host(self):
+        status, body = self._call("lemonasgi.kolberg.uz", "/.well-known/oauth-protected-resource")
+        self.assertEqual(status, 200)
+        self.assertEqual(body["resource"], "https://lemonasgi.kolberg.uz/mcp")
+        self.assertEqual(body["authorization_servers"], ["https://lemonasgi.kolberg.uz/mcp"])
+
+    def test_authorization_server_metadata_is_per_host(self):
+        status, body = self._call("lemonasgi.kolberg.uz", "/.well-known/oauth-authorization-server/mcp")
+        self.assertEqual(status, 200)
+        self.assertEqual(body["issuer"], "https://lemonasgi.kolberg.uz/mcp")
+        self.assertEqual(body["authorization_endpoint"], "https://lemonasgi.kolberg.uz/mcp/authorize")
+        self.assertEqual(body["token_endpoint"], "https://lemonasgi.kolberg.uz/mcp/token")
+        self.assertEqual(body["registration_endpoint"], "https://lemonasgi.kolberg.uz/mcp/register")
+        self.assertIn("S256", body["code_challenge_methods_supported"])
+
+    def test_unknown_or_disabled_tenant_is_404(self):
+        for host in ("offasgi.kolberg.uz", "nope.kolberg.uz", "api.kolberg.uz"):
+            status, _ = self._call(host, "/.well-known/oauth-protected-resource")
+            self.assertEqual(status, 404, host)
+
+    def test_foreign_origin_is_403_and_missing_origin_passes(self):
+        status, _ = self._call(
+            "lemonasgi.kolberg.uz", "/.well-known/oauth-protected-resource",
+            extra_headers=[(b"origin", b"https://evil.example")],
+        )
+        self.assertEqual(status, 403)
+        status, _ = self._call("lemonasgi.kolberg.uz", "/.well-known/oauth-protected-resource")
+        self.assertEqual(status, 200)
+
+    def test_mcp_path_reaches_app_with_tenant_bound_and_prefix_stripped(self):
+        from apps.mcp_server.tenant_context import current_tenant
+
+        seen = {}
+
+        async def fake_mcp(scope, receive, send):
+            seen["path"] = scope["path"]
+            seen["root_path"] = scope["root_path"]
+            seen["tenant_id"] = current_tenant().id
+            await send({"type": "http.response.start", "status": 200, "headers": []})
+            await send({"type": "http.response.body", "body": b"{}"})
+
+        status, _ = self._call("lemonasgi.kolberg.uz", "/mcp/token", mcp_app=fake_mcp)
+        self.assertEqual(status, 200)
+        self.assertEqual(seen, {"path": "/token", "root_path": "/mcp", "tenant_id": self.tenant.id})
+
+    def test_unauthorized_response_points_to_host_metadata(self):
+        from apps.mcp_server.http.middleware import with_mcp_resource_metadata
+
+        async def unauthorized(scope, receive, send):
+            await send({"type": "http.response.start", "status": 401, "headers": []})
+            await send({"type": "http.response.body", "body": b""})
+
+        status, _ = self._call("lemonasgi.kolberg.uz", "/mcp/", mcp_app=with_mcp_resource_metadata(unauthorized))
+        self.assertEqual(status, 401)
+
+    def test_unauthorized_header_value(self):
+        from asgiref.sync import async_to_sync
+        from apps.mcp_server.http.middleware import with_mcp_resource_metadata
+        from apps.mcp_server.tenant_context import McpTenant, reset_current_tenant, set_current_tenant
+
+        sent = []
+
+        async def unauthorized(scope, receive, send):
+            await send({"type": "http.response.start", "status": 401, "headers": []})
+
+        async def send(message):
+            sent.append(message)
+
+        token = set_current_tenant(McpTenant(id=self.tenant.id, subdomain="lemonasgi", name="Lemon"))
+        try:
+            async_to_sync(with_mcp_resource_metadata(unauthorized))({"type": "http"}, None, send)
+        finally:
+            reset_current_tenant(token)
+        header = dict(sent[0]["headers"])[b"www-authenticate"].decode()
+        self.assertIn('resource_metadata="https://lemonasgi.kolberg.uz/.well-known/oauth-protected-resource"', header)
+
+    def test_real_mcp_app_builds_and_requires_auth(self):
+        """Smoke test of the production app (SDK auth wiring, middlewares): an
+        unauthenticated call is rejected with the host's discovery hint."""
+        from asgiref.sync import async_to_sync
+        from django.core.signals import request_finished, request_started
+        from django.db import close_old_connections
+        from config.asgi import application
+
+        sent = []
+        incoming = [{"type": "http.request", "body": b"{}", "more_body": False}]
+
+        async def receive():
+            if incoming:
+                return incoming.pop(0)
+            import asyncio
+
+            await asyncio.Event().wait()
+
+        async def send(message):
+            sent.append(message)
+
+        scope = {
+            "type": "http", "method": "POST", "path": "/mcp/", "raw_path": b"/mcp/",
+            "root_path": "", "query_string": b"", "scheme": "https",
+            "headers": [
+                (b"host", b"lemonasgi.kolberg.uz"),
+                (b"content-type", b"application/json"),
+                (b"accept", b"application/json, text/event-stream"),
+            ],
+        }
+        request_started.disconnect(close_old_connections)
+        request_finished.disconnect(close_old_connections)
+        try:
+            async_to_sync(application)(scope, receive, send)
+        finally:
+            request_started.connect(close_old_connections)
+            request_finished.connect(close_old_connections)
+        self.assertEqual(sent[0]["status"], 401)
+        header = dict(sent[0]["headers"])[b"www-authenticate"].decode()
+        self.assertIn("https://lemonasgi.kolberg.uz/.well-known/oauth-protected-resource", header)
+
+    def test_sdk_relative_discovery_paths_point_to_host(self):
+        status, body = self._call("lemonasgi.kolberg.uz", "/mcp/.well-known/oauth-authorization-server")
+        self.assertEqual(status, 200)
+        self.assertEqual(body["issuer"], "https://lemonasgi.kolberg.uz/mcp")
+        status, body = self._call("lemonasgi.kolberg.uz", "/mcp/.well-known/oauth-protected-resource/mcp")
+        self.assertEqual(status, 200)
+        self.assertEqual(body["resource"], "https://lemonasgi.kolberg.uz/mcp")
+
+    def test_sdk_placeholder_issuer_is_not_a_real_host(self):
+        from apps.mcp_server.http.app import get_mcp_asgi_app
+        from apps.mcp_server.server import mcp
+
+        get_mcp_asgi_app()
+        self.assertTrue(str(mcp.settings.auth.issuer_url).startswith("https://mcp-placeholder.invalid"))
+
+    def test_non_mcp_paths_go_to_django(self):
+        status, _ = self._call("lemonasgi.kolberg.uz", "/api/definitely-not-a-route/")
+        self.assertEqual(status, 404)
+
+
+@override_settings(MCP_HTTP_ENABLED=True, BASE_DOMAIN="kolberg.uz")
+class McpOAuthProviderTenantTests(TestCase):
+    def setUp(self):
+        from django.contrib.auth import get_user_model
+        from apps.mcp_server.oauth.models import OAuthClient
+        from apps.tenants.models import Tenant
+
+        self.user = get_user_model().objects.create_user(username="prov-user")
+        self.a = Tenant.objects.create(name="A", subdomain="prov-a", is_active=True, mcp_enabled=True)
+        self.b = Tenant.objects.create(name="B", subdomain="prov-b", is_active=True, mcp_enabled=True)
+        OAuthClient.objects.create(
+            client_id="c1", redirect_uris=["https://claude.ai/api/mcp/auth_callback"],
+            grant_types=["authorization_code", "refresh_token"], response_types=["code"],
+        )
+
+    def tearDown(self):
+        from apps.mcp_server.tenant_context import set_current_tenant
+
+        set_current_tenant(None)
+
+    def _client(self):
+        from mcp.shared.auth import OAuthClientInformationFull
+
+        return OAuthClientInformationFull(client_id="c1", redirect_uris=["https://claude.ai/api/mcp/auth_callback"])
+
+    def _params(self, resource=None):
+        from mcp.server.auth.provider import AuthorizationParams
+
+        return AuthorizationParams(
+            state="st", scopes=["mcp"], code_challenge="A" * 43,
+            redirect_uri="https://claude.ai/api/mcp/auth_callback",
+            redirect_uri_provided_explicitly=True, resource=resource,
+        )
+
+    def _code_for(self, tenant):
+        from apps.mcp_server.oauth.provider import create_authorization_code
+
+        return create_authorization_code(
+            client_id="c1", user_id=self.user.id, tenant_id=tenant.id,
+            redirect_uri="https://claude.ai/api/mcp/auth_callback", redirect_uri_provided_explicitly=True,
+            code_challenge="A" * 43, code_challenge_method="S256", scopes=["mcp"], state="st",
+        )
+
+    def test_authorize_redirects_to_tenant_login_with_tenant_in_params(self):
+        from asgiref.sync import async_to_sync
+        from django.core import signing
+        from apps.mcp_server.oauth.provider import KolbergOAuthProvider
+
+        _bind_tenant(self.a)
+        url = async_to_sync(KolbergOAuthProvider().authorize)(self._client(), self._params())
+        self.assertTrue(url.startswith("https://prov-a.kolberg.uz/mcp/login/?t="), url)
+        params = signing.loads(url.split("t=", 1)[1], salt="mcp-oauth-authorize")
+        self.assertEqual(params["tenant_id"], self.a.id)
+
+    def test_authorize_rejects_foreign_resource(self):
+        from asgiref.sync import async_to_sync
+        from mcp.server.auth.provider import AuthorizeError
+        from apps.mcp_server.oauth.provider import KolbergOAuthProvider
+
+        _bind_tenant(self.a)
+        with self.assertRaises(AuthorizeError):
+            async_to_sync(KolbergOAuthProvider().authorize)(self._client(), self._params("https://prov-b.kolberg.uz/mcp"))
+
+    def test_authorize_accepts_resource_with_trailing_slash(self):
+        from asgiref.sync import async_to_sync
+        from apps.mcp_server.oauth.provider import KolbergOAuthProvider
+
+        _bind_tenant(self.a)
+        url = async_to_sync(KolbergOAuthProvider().authorize)(self._client(), self._params("https://prov-a.kolberg.uz/mcp/"))
+        self.assertIn("/mcp/login/", url)
+
+    def test_code_of_tenant_a_not_loadable_on_host_b(self):
+        from asgiref.sync import async_to_sync
+        from apps.mcp_server.oauth.provider import KolbergOAuthProvider
+
+        code = self._code_for(self.a)
+        _bind_tenant(self.b)
+        self.assertIsNone(async_to_sync(KolbergOAuthProvider().load_authorization_code)(self._client(), code))
+
+    def test_exchange_issues_tenant_bound_tokens(self):
+        from asgiref.sync import async_to_sync
+        from rest_framework_simplejwt.tokens import AccessToken, RefreshToken
+        from apps.mcp_server.oauth.provider import KolbergOAuthProvider
+
+        provider = KolbergOAuthProvider()
+        code = self._code_for(self.a)
+        _bind_tenant(self.a)
+        loaded = async_to_sync(provider.load_authorization_code)(self._client(), code)
+        token = async_to_sync(provider.exchange_authorization_code)(self._client(), loaded)
+        self.assertEqual(AccessToken(token.access_token)["mcp_tenant_id"], self.a.id)
+        self.assertEqual(RefreshToken(token.refresh_token)["mcp_tenant_id"], self.a.id)
+
+    def test_refresh_of_tenant_a_rejected_on_host_b(self):
+        from asgiref.sync import async_to_sync
+        from apps.mcp_server.oauth.provider import KolbergOAuthProvider
+        from apps.mcp_server.oauth.tokens import mcp_jwt_pair_for_user
+
+        refresh, _ = mcp_jwt_pair_for_user(self.user, self.a.id)
+        _bind_tenant(self.b)
+        self.assertIsNone(async_to_sync(KolbergOAuthProvider().load_refresh_token)(self._client(), str(refresh)))
+
+    def test_refresh_without_claim_rejected(self):
+        from asgiref.sync import async_to_sync
+        from rest_framework_simplejwt.tokens import RefreshToken
+        from apps.mcp_server.oauth.provider import KolbergOAuthProvider
+
+        _bind_tenant(self.a)
+        legacy = str(RefreshToken.for_user(self.user))
+        self.assertIsNone(async_to_sync(KolbergOAuthProvider().load_refresh_token)(self._client(), legacy))
+
+    def test_refresh_rejected_for_deactivated_user(self):
+        from asgiref.sync import async_to_sync
+        from mcp.server.auth.provider import TokenError
+        from apps.mcp_server.oauth.provider import KolbergOAuthProvider
+        from apps.mcp_server.oauth.tokens import mcp_jwt_pair_for_user
+
+        provider = KolbergOAuthProvider()
+        refresh, _ = mcp_jwt_pair_for_user(self.user, self.a.id)
+        _bind_tenant(self.a)
+        loaded = async_to_sync(provider.load_refresh_token)(self._client(), str(refresh))
+        self.user.is_active = False
+        self.user.save(update_fields=["is_active"])
+        with self.assertRaises(TokenError):
+            async_to_sync(provider.exchange_refresh_token)(self._client(), loaded, ["mcp"])
+
+    def test_code_exchange_rejected_for_deactivated_user(self):
+        from asgiref.sync import async_to_sync
+        from mcp.server.auth.provider import TokenError
+        from apps.mcp_server.oauth.provider import KolbergOAuthProvider
+
+        provider = KolbergOAuthProvider()
+        code = self._code_for(self.a)
+        _bind_tenant(self.a)
+        loaded = async_to_sync(provider.load_authorization_code)(self._client(), code)
+        self.user.is_active = False
+        self.user.save(update_fields=["is_active"])
+        with self.assertRaises(TokenError):
+            async_to_sync(provider.exchange_authorization_code)(self._client(), loaded)
+
+    def test_access_token_of_other_tenant_not_loaded(self):
+        from asgiref.sync import async_to_sync
+        from apps.mcp_server.oauth.provider import KolbergOAuthProvider
+
+        token = _mcp_access_token(self.user, self.a.id)
+        _bind_tenant(self.b)
+        self.assertIsNone(async_to_sync(KolbergOAuthProvider().load_access_token)(token))
+
+
+@override_settings(MCP_HTTP_ENABLED=True, BASE_DOMAIN="kolberg.uz", ALLOWED_HOSTS=["login-a.kolberg.uz", "login-b.kolberg.uz"])
+class McpTenantLoginViewTests(TestCase):
+    def setUp(self):
+        from django.contrib.auth import get_user_model
+        from apps.mcp_server.oauth.models import OAuthClient
+        from apps.tenants.models import Tenant, TenantMembership
+
+        self.a = Tenant.objects.create(name="A", subdomain="login-a", is_active=True, mcp_enabled=True)
+        self.b = Tenant.objects.create(name="B", subdomain="login-b", is_active=True, mcp_enabled=True)
+        self.alice = get_user_model().objects.create_user(username="alice", password="x")
+        TenantMembership.objects.create(user=self.alice, tenant=self.a, is_active=True)
+        OAuthClient.objects.create(client_id="c1", redirect_uris=["https://claude.ai/cb"])
+
+    def _t(self, tenant_id):
+        from django.core import signing
+
+        return signing.dumps(
+            {"client_id": "c1", "redirect_uri": "https://claude.ai/cb", "redirect_uri_provided_explicitly": True,
+             "code_challenge": "A" * 43, "state": "st", "scopes": ["mcp"], "tenant_id": tenant_id},
+            salt="mcp-oauth-authorize",
+        )
+
+    def test_old_login_url_is_gone(self):
+        self.assertEqual(self.client.get("/oauth/login/", HTTP_HOST="login-a.kolberg.uz").status_code, 404)
+
+    def test_login_page_renders_on_tenant_host(self):
+        r = self.client.get(f"/mcp/login/?t={self._t(self.a.id)}", HTTP_HOST="login-a.kolberg.uz")
+        self.assertEqual(r.status_code, 200)
+
+    def test_params_for_other_tenant_rejected(self):
+        r = self.client.get(f"/mcp/login/?t={self._t(self.b.id)}", HTTP_HOST="login-a.kolberg.uz")
+        self.assertEqual(r.status_code, 400)
+
+    @patch("apps.accounts.otp.send_otp")
+    def test_username_step_sends_otp_via_tenant(self, mock_send):
+        r = self.client.post(
+            "/mcp/login/", {"t": self._t(self.a.id), "step": "username", "username": "alice"},
+            HTTP_HOST="login-a.kolberg.uz",
+        )
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(mock_send.call_args.kwargs["tenant"].id, self.a.id)
+
+    @patch("apps.accounts.otp.send_otp")
+    def test_non_member_cannot_log_in(self, mock_send):
+        r = self.client.post(
+            "/mcp/login/", {"t": self._t(self.b.id), "step": "username", "username": "alice"},
+            HTTP_HOST="login-b.kolberg.uz",
+        )
+        self.assertContains(r, "Нет доступа к этой компании")
+        mock_send.assert_not_called()
+
+    @patch("apps.accounts.otp.verify_otp")
+    def test_otp_step_creates_code_bound_to_tenant(self, mock_verify):
+        from apps.mcp_server.oauth.models import OAuthAuthorizationCode
+
+        r = self.client.post(
+            "/mcp/login/", {"t": self._t(self.a.id), "step": "otp", "username": "alice", "otp": "123456"},
+            HTTP_HOST="login-a.kolberg.uz",
+        )
+        self.assertEqual(r.status_code, 302)
+        self.assertEqual(mock_verify.call_args.kwargs["tenant"].id, self.a.id)
+        self.assertEqual(OAuthAuthorizationCode.objects.get().tenant_id, self.a.id)
+
+
+EXPECTED_TOOL_ACCESS = {
+    "get_current_tenant": ("always", None, False),
+    "get_my_role": ("always", None, False),
+    "list_my_modules": ("always", None, False),
+    "list_requests": ("module", "requests", False),
+    "get_request": ("module", "requests", False),
+    "list_request_categories": ("module", "requests", False),
+    "list_cash_expenses": ("module", "cash", False),
+    "list_cash_revenues": ("module", "cash", False),
+    "list_bank_expenses": ("module", "bank", False),
+    "list_bank_revenues": ("module", "bank", False),
+    "list_card_expenses": ("module", "corporate_card", False),
+    "list_card_revenues": ("module", "corporate_card", False),
+    "get_pnl_report": ("module", "reports", False),
+    "get_cashflow_report": ("module", "reports", False),
+    "list_payroll_documents": ("module", "payroll", False),
+    "get_payroll_document": ("module", "payroll", False),
+    "get_investment_form_config": ("module", "investments", False),
+    "list_invest_companies": ("module", "investments", False),
+    "list_invest_returns": ("module", "investments", False),
+    "list_project_investments": ("module", "investments", False),
+    "list_invest_payout_schedule": ("module", "investments", False),
+    "list_budgets": ("module", "budgets", False),
+    "get_budget": ("module", "budgets", False),
+    "list_budget_spend_requests": ("module", "budgets", False),
+    "list_my_tasks": ("module", "tasks", False),
+    "get_task": ("module", "tasks", False),
+    "update_task_status": ("module", "tasks", False),
+    "add_task_comment": ("module", "tasks", False),
+    "edit_task": ("module", "tasks", False),
+    "delete_task": ("module", "tasks", False),
+    "list_assignee_candidates": ("module", "tasks", False),
+    "create_task": ("module", "tasks", True),
+    "list_vendors": ("module", "vendors", False),
+    "list_wallets": ("module", "wallets", False),
+    "list_active_users": ("admin_or_director", None, False),
+    "get_tenant_info": ("admin_or_director", None, False),
+    "list_module_configs": ("admin_or_director", None, False),
+    "list_user_roles": ("admin", None, False),
+    "list_memberships": ("admin", None, False),
+}
+
+
+class McpToolAccessRegistryTests(TestCase):
+    """The access map is what list_tools filters by; it must match the spec table
+    and the module each tools/*.py function checks with require_module_access."""
+
+    def test_registry_matches_spec_table(self):
+        from apps.mcp_server import server  # noqa: F401 — registers tools
+        from apps.mcp_server.django_tools import TOOL_ACCESS
+
+        actual = {n: (a.kind, a.module_key, a.require_admin_or_director) for n, a in TOOL_ACCESS.items()}
+        self.assertEqual(actual, EXPECTED_TOOL_ACCESS)
+
+    def test_no_tool_exposes_tenant_id_or_stale_text(self):
+        from apps.mcp_server.server import mcp
+
+        tools = mcp._tool_manager.list_tools()
+        self.assertEqual(len(tools), len(EXPECTED_TOOL_ACCESS))
+        for info in tools:
+            with self.subTest(tool=info.name):
+                self.assertNotIn("tenant_id", info.parameters.get("properties", {}))
+                for stale in ("tenant_id", "list_my_tenants", "Required roles"):
+                    self.assertNotIn(stale, info.description or "")
+
+
+class DjangoMcpToolDecoratorTenantTests(TestCase):
+    def test_tenant_id_is_hidden_and_injected(self):
+        from asgiref.sync import async_to_sync
+        from mcp.server.mcpserver import MCPServer
+        from apps.mcp_server.access import Access
+        from apps.mcp_server.django_tools import django_mcp_tool
+        from apps.mcp_server.tenant_context import McpTenant, reset_current_tenant, set_current_tenant
+
+        test_mcp = MCPServer(name="t")
+        tool = django_mcp_tool(test_mcp)
+
+        @tool(access=Access.always())
+        def echo_tenant(tenant_id: int, word: str = "x") -> dict:
+            """Echo."""
+            return {"tenant_id": tenant_id, "word": word}
+
+        from apps.mcp_server.django_tools import TOOL_ACCESS
+
+        try:
+            info = test_mcp._tool_manager.list_tools()[0]
+            self.assertEqual(set(info.parameters["properties"]), {"word"})
+
+            token = set_current_tenant(McpTenant(id=42, subdomain="s", name="S"))
+            try:
+                result = async_to_sync(test_mcp.call_tool)("echo_tenant", {"word": "hi"})
+            finally:
+                reset_current_tenant(token)
+        finally:
+            TOOL_ACCESS.pop("echo_tenant", None)  # keep the global registry equal to the spec table
+        text = "".join(getattr(c, "text", "") for c in result.content)
+        self.assertIn("42", text)
+        self.assertIn("hi", text)
+
+
+class McpToolFilteringTests(TestCase):
+    def setUp(self):
+        from django.contrib.auth import get_user_model
+        from apps.tenants.models import Tenant, TenantMembership, TenantModuleConfig
+
+        self.tenant = Tenant.objects.create(name="F", subdomain="filt", is_active=True, mcp_enabled=True)
+        for key in ("requests", "vendors", "tasks", "cash", "reports", "investments", "payroll"):
+            TenantModuleConfig.objects.create(tenant=self.tenant, module_key=key, is_enabled=True)
+        self.User = get_user_model()
+        self.Membership = TenantMembership
+
+    def tearDown(self):
+        from apps.mcp_server.tenant_context import set_current_tenant
+
+        set_current_tenant(None)
+
+    def _user_with(self, *roles, member=True):
         from apps.tenants.models import TenantUserRole
-        from apps.tenants.permissions import ROLE_MODULE_ACCESS
 
-        known_roles = {role for role, _ in TenantUserRole.ROLE_CHOICES}
-        for tool_name, module in self.MODULE_BY_TOOL.items():
-            with self.subTest(tool=tool_name):
-                doc = getattr(server, tool_name).__doc__
-                match = _re.search(r"Required roles:(.*?)(?:\n\s*\n|$)", doc, _re.S)
-                self.assertIsNotNone(match, "docstring has no 'Required roles:' line")
-                roles_text = match.group(1).split("(module:")[0]
-                documented = {w for w in _re.findall(r"[a-z_]+", roles_text) if w in known_roles}
-                self.assertEqual(documented, set(ROLE_MODULE_ACCESS[module]))
+        user = self.User.objects.create_user(username=f"u-{'-'.join(roles) or 'none'}-{member}")
+        if member:
+            self.Membership.objects.create(user=user, tenant=self.tenant, is_active=True)
+        for role in roles:
+            TenantUserRole.objects.create(tenant=self.tenant, user=user, role=role)
+        return user
+
+    def _visible(self, user):
+        from apps.mcp_server.access import visible_tools
+        from apps.mcp_server.django_tools import TOOL_ACCESS
+        from apps.mcp_server import server  # noqa: F401
+
+        return visible_tools(TOOL_ACCESS, user_id=user.id, tenant_id=self.tenant.id)
+
+    def test_requester_sees_requests_vendors_tasks_only(self):
+        v = self._visible(self._user_with("requester"))
+        self.assertIn("list_requests", v)
+        self.assertIn("list_vendors", v)
+        self.assertIn("list_my_tasks", v)
+        self.assertNotIn("create_task", v)
+        self.assertNotIn("list_cash_expenses", v)
+        self.assertNotIn("get_pnl_report", v)
+        self.assertNotIn("list_user_roles", v)
+
+    def test_investor_sees_investments_and_reports(self):
+        v = self._visible(self._user_with("investor"))
+        self.assertIn("list_invest_returns", v)
+        self.assertIn("get_pnl_report", v)
+        self.assertNotIn("list_requests", v)
+        self.assertNotIn("list_my_tasks", v)
+
+    def test_disabled_module_hides_tools_even_for_admin(self):
+        v = self._visible(self._user_with("admin"))
+        self.assertIn("list_user_roles", v)
+        self.assertIn("create_task", v)
+        self.assertNotIn("list_budgets", v)  # budgets not enabled
+        self.assertNotIn("list_bank_expenses", v)  # bank not enabled
+
+    def test_deactivated_user_sees_nothing(self):
+        user = self._user_with("admin")
+        user.is_active = False
+        user.save(update_fields=["is_active"])
+        self.assertEqual(self._visible(user), set())
+
+    def test_non_member_sees_nothing(self):
+        self.assertEqual(self._visible(self._user_with("admin", member=False)), set())
+
+    def test_hidden_tool_call_is_unknown_tool(self):
+        from asgiref.sync import async_to_sync
+        from mcp.server.mcpserver.exceptions import ToolError
+        from apps.mcp_server.auth import set_request_token
+        from apps.mcp_server.server import mcp
+
+        user = self._user_with("requester")
+        _bind_tenant(self.tenant)
+        set_request_token(_mcp_access_token(user, self.tenant.id))
+        with self.assertRaisesRegex(ToolError, "^Unknown tool: list_payroll_documents$"):
+            async_to_sync(mcp.call_tool)("list_payroll_documents", {})
+
+    def test_list_tools_is_filtered(self):
+        from asgiref.sync import async_to_sync
+        from apps.mcp_server.auth import set_request_token
+        from apps.mcp_server.server import mcp
+
+        user = self._user_with("requester")
+        _bind_tenant(self.tenant)
+        set_request_token(_mcp_access_token(user, self.tenant.id))
+        names = {t.name for t in async_to_sync(mcp.list_tools)()}
+        self.assertIn("get_current_tenant", names)
+        self.assertIn("list_requests", names)
+        self.assertNotIn("list_payroll_documents", names)
+
+
+class McpDeploymentConfigTests(TestCase):
+    def test_static_mcp_urls_removed_from_settings(self):
+        from django.conf import settings
+
+        for name in ("MCP_BASE_URL", "MCP_RESOURCE_URL", "MCP_OAUTH_LOGIN_URL"):
+            self.assertFalse(hasattr(settings, name), name)
+
+    def test_default_allowed_origins_cover_claude_and_chatgpt(self):
+        from django.conf import settings
+
+        for origin in ("https://claude.ai", "https://claude.com", "https://chatgpt.com"):
+            self.assertIn(origin, settings.MCP_ALLOWED_ORIGINS)
+
+    def test_stdio_entry_point_removed(self):
+        from django.core.management import get_commands
+
+        self.assertNotIn("run_mcp_server", get_commands())
+
+    def test_traefik_routes_mcp_on_tenant_hosts_only(self):
+        from pathlib import Path
+
+        compose = Path(__file__).resolve().parents[3] / "docker-compose.yml"
+        if not compose.exists():
+            self.skipTest("docker-compose.yml not available (backend_v2-only checkout)")
+        text = compose.read_text()
+        self.assertIn("traefik.http.routers.django-v2-tenant-mcp.rule=(${TRAEFIK_BACKEND_V2_HOST_RULE})", text)
+        self.assertNotIn("routers.django-v2-mcp.", text)
+        self.assertNotIn("MCP_BASE_URL", text)
+
+
+_E2E_REDIRECT = "https://claude.ai/api/mcp/auth_callback"
+
+
+class _AsgiResponse:
+    def __init__(self, status_code, headers, body):
+        self.status_code = status_code
+        self.headers = headers
+        self.text = body.decode("utf-8", "replace")
+
+    def json(self):
+        import json
+
+        return json.loads(self.text)
+
+
+async def _asgi_request(app, host, method, path, *, params=None, headers=None, json_body=None, form=None):
+    """Minimal ASGI client (no httpx in the project): one request, buffered response."""
+    import asyncio
+    import json
+    from urllib.parse import urlencode
+
+    hdrs = {"host": host, **{k.lower(): v for k, v in (headers or {}).items()}}
+    body = b""
+    if json_body is not None:
+        body = json.dumps(json_body).encode()
+        hdrs.setdefault("content-type", "application/json")
+    elif form is not None:
+        body = urlencode(form).encode()
+        hdrs["content-type"] = "application/x-www-form-urlencoded"
+    if body:
+        hdrs["content-length"] = str(len(body))
+    scope = {
+        "type": "http", "asgi": {"version": "3.0"}, "http_version": "1.1", "method": method,
+        "scheme": "https", "path": path, "raw_path": path.encode(), "root_path": "",
+        "query_string": urlencode(params or {}).encode(),
+        "headers": [(k.encode("latin-1"), v.encode("latin-1")) for k, v in hdrs.items()],
+        "client": ("127.0.0.1", 12345), "server": (host, 443),
+    }
+    incoming = [{"type": "http.request", "body": body, "more_body": False}]
+    done = asyncio.Event()
+    status = {"code": None, "headers": {}}
+    chunks = []
+
+    async def receive():
+        if incoming:
+            return incoming.pop(0)
+        await done.wait()
+        return {"type": "http.disconnect"}
+
+    async def send(message):
+        if message["type"] == "http.response.start":
+            status["code"] = message["status"]
+            status["headers"] = {k.decode("latin-1").lower(): v.decode("latin-1") for k, v in message.get("headers", [])}
+        elif message["type"] == "http.response.body":
+            chunks.append(message.get("body", b""))
+            if not message.get("more_body", False):
+                done.set()
+
+    await app(scope, receive, send)
+    done.set()
+    return _AsgiResponse(status["code"], status["headers"], b"".join(chunks))
+
+
+def _rpc_payload(response):
+    """JSON-RPC message from a streamable-HTTP response (JSON or a one-event SSE stream)."""
+    import json
+
+    if "text/event-stream" in response.headers.get("content-type", ""):
+        for line in response.text.splitlines():
+            if line.startswith("data:"):
+                return json.loads(line[5:].strip())
+        raise AssertionError(f"no SSE data line in: {response.text[:300]}")
+    return response.json()
+
+
+@override_settings(MCP_HTTP_ENABLED=True, BASE_DOMAIN="kolberg.uz", MCP_ALLOWED_ORIGINS=["https://claude.ai"])
+class McpEndToEndOAuthFlowTests(TestCase):
+    """The whole connector path through the real SDK app with its lifespan running:
+    register → authorize (RFC 8707 resource) → token → tools/list (filtered) →
+    tools/call of a visible and of a hidden tool, all on a tenant host."""
+
+    def setUp(self):
+        from django.contrib.auth import get_user_model
+        from apps.tenants.models import Tenant, TenantMembership, TenantModuleConfig, TenantUserRole
+
+        self.tenant = Tenant.objects.create(name="Flow", subdomain="e2eflow", is_active=True, mcp_enabled=True)
+        TenantModuleConfig.objects.create(tenant=self.tenant, module_key="requests", is_enabled=True)
+        TenantModuleConfig.objects.create(tenant=self.tenant, module_key="payroll", is_enabled=True)
+        self.user = get_user_model().objects.create_user(username="e2e-flow-user")
+        TenantMembership.objects.create(user=self.user, tenant=self.tenant, is_active=True)
+        TenantUserRole.objects.create(tenant=self.tenant, user=self.user, role=TenantUserRole.ROLE_REQUESTER)
+
+    def test_full_connector_flow_on_tenant_host(self):
+        from asgiref.sync import async_to_sync
+        from django.core.signals import request_finished, request_started
+        from django.db import close_old_connections
+
+        request_started.disconnect(close_old_connections)
+        request_finished.disconnect(close_old_connections)
+        try:
+            async_to_sync(self._flow)()
+        finally:
+            request_started.connect(close_old_connections)
+            request_finished.connect(close_old_connections)
+
+    async def _flow(self):
+        import asyncio
+        import base64
+        import hashlib
+        import secrets
+
+        from asgiref.sync import sync_to_async
+
+        from apps.mcp_server.oauth.provider import create_authorization_code
+        from config.asgi import application
+
+        to_app: asyncio.Queue = asyncio.Queue()
+        from_app: asyncio.Queue = asyncio.Queue()
+
+        async def lifespan_receive():
+            return await to_app.get()
+
+        async def lifespan_send(message):
+            await from_app.put(message)
+
+        lifespan = asyncio.ensure_future(
+            application({"type": "lifespan", "asgi": {"version": "3.0"}}, lifespan_receive, lifespan_send)
+        )
+        await to_app.put({"type": "lifespan.startup"})
+        started = await asyncio.wait_for(from_app.get(), timeout=30)
+        self.assertEqual(started["type"], "lifespan.startup.complete", started)
+        try:
+            base = "https://e2eflow.kolberg.uz/mcp"
+            host = "e2eflow.kolberg.uz"
+
+            async def call(method, path, **kw):
+                return await _asgi_request(application, host, method, path, **kw)
+
+            if True:
+                r = await call("POST", "/mcp/register", json_body={
+                    "client_name": "e2e",
+                    "redirect_uris": [_E2E_REDIRECT],
+                    "grant_types": ["authorization_code", "refresh_token"],
+                    "response_types": ["code"],
+                    "token_endpoint_auth_method": "none",
+                })
+                self.assertEqual(r.status_code, 201, r.text)
+                client_id = r.json()["client_id"]
+
+                verifier = secrets.token_urlsafe(48)
+                challenge = base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).rstrip(b"=").decode()
+                r = await call("GET", "/mcp/authorize", params={
+                    "response_type": "code", "client_id": client_id, "redirect_uri": _E2E_REDIRECT,
+                    "code_challenge": challenge, "code_challenge_method": "S256",
+                    "state": "st", "scope": "mcp", "resource": base,
+                })
+                self.assertEqual(r.status_code, 302, r.text)
+                self.assertTrue(r.headers["location"].startswith(f"{base}/login/?t="), r.headers["location"])
+
+                # The OTP login itself is covered by McpTenantLoginViewTests; issue its result directly.
+                code = await sync_to_async(create_authorization_code, thread_sensitive=True)(
+                    client_id=client_id, user_id=self.user.id, tenant_id=self.tenant.id,
+                    redirect_uri=_E2E_REDIRECT, redirect_uri_provided_explicitly=True,
+                    code_challenge=challenge, code_challenge_method="S256", scopes=["mcp"], state="st",
+                )
+                r = await call("POST", "/mcp/token", form={
+                    "grant_type": "authorization_code", "code": code, "redirect_uri": _E2E_REDIRECT,
+                    "client_id": client_id, "code_verifier": verifier, "resource": base,
+                })
+                self.assertEqual(r.status_code, 200, r.text)
+                access = r.json()["access_token"]
+
+                headers = {
+                    "Authorization": f"Bearer {access}",
+                    "Accept": "application/json, text/event-stream",
+                    "Content-Type": "application/json",
+                }
+                r = await call("POST", "/mcp/", headers=headers, json_body={
+                    "jsonrpc": "2.0", "id": 1, "method": "initialize",
+                    "params": {"protocolVersion": "2025-06-18", "capabilities": {},
+                               "clientInfo": {"name": "e2e", "version": "1"}},
+                })
+                self.assertEqual(r.status_code, 200, r.text)
+
+                r = await call("POST", "/mcp/", headers=headers, json_body={"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}})
+                self.assertEqual(r.status_code, 200, r.text)
+                names = {t["name"] for t in _rpc_payload(r)["result"]["tools"]}
+                self.assertIn("get_current_tenant", names)
+                self.assertIn("list_requests", names)
+                self.assertNotIn("list_payroll_documents", names)  # payroll enabled, but not for requester
+                self.assertNotIn("list_user_roles", names)
+
+                r = await call("POST", "/mcp/", headers=headers, json_body={
+                    "jsonrpc": "2.0", "id": 3, "method": "tools/call",
+                    "params": {"name": "get_current_tenant", "arguments": {}},
+                })
+                self.assertEqual(r.status_code, 200, r.text)
+                result = _rpc_payload(r)["result"]
+                self.assertFalse(result.get("isError"), result)
+                self.assertIn("e2eflow", "".join(c.get("text", "") for c in result["content"]))
+
+                r = await call("POST", "/mcp/", headers=headers, json_body={
+                    "jsonrpc": "2.0", "id": 4, "method": "tools/call",
+                    "params": {"name": "list_payroll_documents", "arguments": {}},
+                })
+                result = _rpc_payload(r)["result"]
+                self.assertTrue(result.get("isError"), result)
+                self.assertIn("Unknown tool: list_payroll_documents", "".join(c.get("text", "") for c in result["content"]))
+
+                r = await call("POST", "/mcp/", headers={**headers, "Authorization": f"Bearer {access}x"},
+                                    json_body={"jsonrpc": "2.0", "id": 5, "method": "tools/list", "params": {}})
+                self.assertEqual(r.status_code, 401)
+        finally:
+            await to_app.put({"type": "lifespan.shutdown"})
+            await asyncio.wait_for(from_app.get(), timeout=30)
+            await asyncio.wait_for(lifespan, timeout=30)

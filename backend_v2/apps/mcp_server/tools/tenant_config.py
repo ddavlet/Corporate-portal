@@ -15,38 +15,10 @@ from apps.mcp_server.auth import (
 from apps.mcp_server.utils import json_safe
 
 
-def list_my_tenants() -> list[dict[str, Any]]:
-    """Return all active tenants the current user is a member of.
-
-    Call this first to discover available tenant IDs and names.
-    No tenant_id required — works from the current user's token.
-    """
-    token = _get_token()
-    user_id = _decode_token(token)
-
-    from apps.tenants.models import TenantMembership
-
-    memberships = (
-        TenantMembership.objects
-        .filter(user_id=user_id, user__is_active=True, is_active=True, tenant__is_active=True, tenant__mcp_enabled=True)
-        .select_related("tenant")
-        .order_by("tenant__name")
-    )
-
-    return [
-        {
-            "id": m.tenant.id,
-            "name": m.tenant.name,
-            "subdomain": m.tenant.subdomain,
-        }
-        for m in memberships
-    ]
-
-
 def get_my_role(tenant_id: int) -> dict[str, Any]:
     """Return the current user's roles in a tenant.
 
-    Call this after list_my_tenants() to understand what actions are available.
+    Call this first to understand what actions are available.
     Any active tenant member can call this.
     """
     token = _get_token()

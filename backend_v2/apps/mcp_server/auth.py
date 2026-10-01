@@ -1,10 +1,9 @@
 """
 JWT validation and access-rights checking for the MCP server.
 
-Supports two modes:
-  - stdio: token read from KOLBERG_JWT_TOKEN environment variable.
-  - HTTP/OAuth: token set per-request via _request_token contextvar
-    (populated by KolbergOAuthProvider.load_access_token).
+The token is set per request via the _request_token contextvar (populated by
+KolbergOAuthProvider.load_access_token, or by the service-key middleware) and is
+valid only for the tenant of the request host (claim mcp_tenant_id).
 
 All public functions raise PermissionError on failure so tool handlers can
 catch a single exception type and return a clean error message.
@@ -13,49 +12,43 @@ catch a single exception type and return a clean error message.
 from __future__ import annotations
 
 import contextvars
-import os
 
 from rest_framework_simplejwt.tokens import AccessToken
 from rest_framework_simplejwt.exceptions import TokenError
 
-_ENV_VAR = "KOLBERG_JWT_TOKEN"
-
-# Set per-request in HTTP mode by the OAuth provider's load_access_token().
+# Set per request by the OAuth provider's load_access_token().
 _request_token: contextvars.ContextVar[str] = contextvars.ContextVar(
     "mcp_request_token", default=""
 )
 
 
 def set_request_token(token: str) -> None:
-    """Set the JWT token for the current async request context (HTTP mode)."""
+    """Set the JWT token for the current async request context."""
     _request_token.set(token)
 
 
 def _get_token() -> str:
-    """Return the JWT token for the current context.
-
-    HTTP mode: reads from _request_token (set by OAuth provider per-request).
-    stdio mode: reads from KOLBERG_JWT_TOKEN environment variable.
-    """
+    """JWT of the current request (set by the OAuth provider / service-key middleware)."""
     token = _request_token.get("").strip()
     if not token:
-        token = os.environ.get(_ENV_VAR, "").strip()
-    if not token:
-        raise PermissionError(
-            "No authentication token available. "
-            f"stdio mode: set {_ENV_VAR} env var. "
-            "HTTP mode: authenticate via OAuth at /mcp/authorize."
-        )
+        raise PermissionError("Not authenticated: connect this MCP server via OAuth.")
     return token
 
 
 def _decode_token(token: str) -> int:
-    """Return user_id from a valid JWT access token, or raise PermissionError."""
+    """user_id from a valid MCP access token bound to the current tenant, else PermissionError."""
+    from apps.accounts.authentication import MCP_TENANT_CLAIM
+    from apps.mcp_server.tenant_context import current_tenant
+
     try:
         payload = AccessToken(token)
-        return int(payload["user_id"])
+        user_id = int(payload["user_id"])
+        token_tenant = payload.get(MCP_TENANT_CLAIM)
     except (TokenError, KeyError, ValueError) as exc:
         raise PermissionError(f"Invalid or expired token: {exc}") from exc
+    if token_tenant is None or int(token_tenant) != current_tenant().id:
+        raise PermissionError("Token is not valid for this company")
+    return user_id
 
 
 def _is_service_claim(token: str) -> bool:

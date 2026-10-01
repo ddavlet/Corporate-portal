@@ -7,6 +7,7 @@ from rest_framework.authentication import BaseAuthentication
 from rest_framework.exceptions import APIException, AuthenticationFailed
 from rest_framework_simplejwt.authentication import JWTAuthentication
 
+from apps.accounts.authentication import RejectMcpTokenMixin
 from apps.tenants.integration_settings import get_n8n_integration_settings
 
 
@@ -25,7 +26,7 @@ def _expected_integration_token(tenant) -> str:
     return expected
 
 
-class N8nIntegrationAuthentication(JWTAuthentication):
+class N8nIntegrationAuthentication(RejectMcpTokenMixin, JWTAuthentication):
     """
     Requires X-N8N-Integration-Token matching settings, then a valid JWT (tenant admin checked separately).
     """

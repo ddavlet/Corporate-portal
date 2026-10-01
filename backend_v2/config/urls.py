@@ -12,10 +12,6 @@ from apps.accounts.views_telegram_webapp import TelegramWebAppAuthView
 from apps.modules.requests.views import FileGatewayView, FileDownloadView
 from apps.modules.n8n_integration.views import AiChatProxyView, CashflowDataProxyView, PnlDataProxyView
 from apps.mcp_server.oauth.views import McpLoginView
-from apps.mcp_server.oauth.metadata_views import (
-    AuthorizationServerMetadataView,
-    ProtectedResourceMetadataView,
-)
 from apps.tenants.views import (
     AccessMatrixView,
     ModuleCatalogView,
@@ -111,18 +107,8 @@ urlpatterns = [
     # Messaging gateway webhook
     path("api/messaging-gateway/", include("apps.modules.telegram_approvals.urls")),
 
-    # MCP OAuth — parked unless MCP_HTTP_ENABLED=true (views return 404 otherwise)
-    path(
-        ".well-known/oauth-authorization-server",
-        AuthorizationServerMetadataView.as_view(),
-        name="mcp_oauth_authorization_server_metadata",
-    ),
-    path(
-        ".well-known/oauth-protected-resource",
-        ProtectedResourceMetadataView.as_view(),
-        name="mcp_oauth_protected_resource_metadata",
-    ),
-    path("oauth/login/", McpLoginView.as_view(), name="mcp_oauth_login"),
+    # MCP OAuth login on tenant hosts (404 unless MCP_HTTP_ENABLED and Tenant.mcp_enabled)
+    path("mcp/login/", McpLoginView.as_view(), name="mcp_oauth_login"),
 ]
 
 for _n8n_seg in settings.N8N_INTEGRATION_MOUNT_PATHS:

@@ -31,6 +31,13 @@ class OAuthAuthorizationCode(models.Model):
         on_delete=models.CASCADE,
         related_name="mcp_oauth_codes",
     )
+    tenant = models.ForeignKey(
+        "tenants.Tenant",
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="mcp_oauth_codes",
+    )
     redirect_uri = models.TextField()
     redirect_uri_provided_explicitly = models.BooleanField(default=False)
     code_challenge = models.TextField()

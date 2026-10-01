@@ -605,9 +605,8 @@ services:
       N8N_INTERNAL_BASE_URL: ${N8N_INTERNAL_BASE_URL:-http://n8n:5678/webhook}
       MESSAGING_GATEWAY_SEND_URL: http://tg_gateway:8080/v1/messaging/send
       MESSAGING_GATEWAY_ADMIN_URL: http://tg_gateway:8080
-      # Kolberg MCP HTTP re-enabled (see docs/MCP_SERVER.md): human OAuth + tenant-scoped service-key auth for n8n.
+      # Kolberg MCP on tenant hosts (see docs/MCP_SERVER.md): OAuth + tenant-bound service keys.
       MCP_HTTP_ENABLED: "true"
-      MCP_BASE_URL: "https://${MCP_HOST:-api.kolberg.uz}/mcp"
     volumes:
       - ./backend_v2:/app
     depends_on:
@@ -655,13 +654,13 @@ services:
       - traefik.http.routers.django-v2-n8n.service=django-v2
       - traefik.http.routers.django-v2-n8n.priority=1200
 
-      # MCP server (see docs/MCP_SERVER.md): dedicated host, not part of tenant routing above.
-      - traefik.http.routers.django-v2-mcp.rule=Host(`${MCP_HOST:-api.kolberg.uz}`)
-      - traefik.http.routers.django-v2-mcp.entrypoints=web,websecure
-      - traefik.http.routers.django-v2-mcp.tls=true
-      - traefik.http.routers.django-v2-mcp.tls.certresolver=mytlschallenge
-      - traefik.http.routers.django-v2-mcp.service=django-v2
-      - traefik.http.routers.django-v2-mcp.priority=1100
+      # MCP server (see docs/MCP_SERVER.md): https://<tenant>/mcp + per-host OAuth discovery.
+      - traefik.http.routers.django-v2-tenant-mcp.rule=(${TRAEFIK_BACKEND_V2_HOST_RULE}) && (Path(`/mcp`) || PathPrefix(`/mcp/`) || PathPrefix(`/.well-known/oauth-`))
+      - traefik.http.routers.django-v2-tenant-mcp.entrypoints=web,websecure
+      - traefik.http.routers.django-v2-tenant-mcp.tls=true
+      - traefik.http.routers.django-v2-tenant-mcp.tls.certresolver=mytlschallenge
+      - traefik.http.routers.django-v2-tenant-mcp.service=django-v2
+      - traefik.http.routers.django-v2-tenant-mcp.priority=1300
     networks:
       traefik-public:
       backend:

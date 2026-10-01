@@ -253,7 +253,7 @@ def edit_task(
     Reassigning to a different user requires admin or director role.
 
     Args:
-        tenant_id: Tenant primary key (get from list_my_tenants).
+        tenant_id: Tenant primary key.
         task_id: Task primary key (get from list_my_tasks).
         title: New title (leave empty to keep current).
         description: New description (leave empty to keep current).
@@ -304,7 +304,7 @@ def delete_task(tenant_id: int, task_id: int) -> dict[str, Any]:
     Only the task creator, admin, or director can delete a task.
 
     Args:
-        tenant_id: Tenant primary key (get from list_my_tenants).
+        tenant_id: Tenant primary key.
         task_id: Task primary key (get from list_my_tasks).
     """
     user, tenant = require_module_access(tenant_id, MODULE)
@@ -334,7 +334,7 @@ def list_assignee_candidates(tenant_id: int) -> list[dict[str, Any]]:
     Use this before create_task or edit_task to find valid assignee_id values.
 
     Args:
-        tenant_id: Tenant primary key (get from list_my_tenants).
+        tenant_id: Tenant primary key.
     """
     user, tenant = require_module_access(tenant_id, MODULE)
 
