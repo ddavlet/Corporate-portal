@@ -117,7 +117,7 @@ export const SETTINGS_MODULES: SettingsModuleItem[] = [
   {
     key: 'pnl-report',
     title: 'Отчёт PnL',
-    description: 'Источник данных, начальный остаток PnL и параметры backend-PnL.',
+    description: 'Источник данных и правила расчёта PnL.',
     path: '/settings/pnl-report-config',
     icon: <BarChartOutlined />,
     group: 'reports',
@@ -125,7 +125,7 @@ export const SETTINGS_MODULES: SettingsModuleItem[] = [
   {
     key: 'cashflow-report',
     title: 'Отчёт Cashflow',
-    description: 'Источник данных, начальный остаток Cashflow; фильтры совместно с PnL.',
+    description: 'Источник данных и правила расчёта Cashflow.',
     path: '/settings/cashflow-report-config',
     icon: <BarChartOutlined />,
     group: 'reports',
@@ -133,7 +133,7 @@ export const SETTINGS_MODULES: SettingsModuleItem[] = [
   {
     key: 'report-templates',
     title: 'Шаблоны отчётов',
-    description: 'Какие виды страницы «Отчёты» доступны и какой открывается по умолчанию.',
+    description: 'Какие шаблоны доступны на странице «Отчёты» и чьи карточки стоят первыми.',
     path: '/settings/report-templates',
     icon: <BarChartOutlined />,
     group: 'reports',

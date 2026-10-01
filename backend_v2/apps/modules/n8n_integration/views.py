@@ -659,10 +659,10 @@ def _pnl_payload_backend_or_proxy(request, *, proxy_path: str, fetch_endpoint: s
             ),
             status=status.HTTP_400_BAD_REQUEST,
         )
-    from apps.modules.reports.services import fetch_n8n_report_payload, resolve_pnl_source_for_tenant
+    from apps.modules.reports.services import fetch_report_payload, resolve_report_source
 
     try:
-        pnl_source = resolve_pnl_source_for_tenant(tenant=tenant)
+        pnl_source, _rules = resolve_report_source(tenant=tenant, report="pnl")
     except RuntimeError as exc:
         return Response(
             _n8n_error_payload(
@@ -690,10 +690,10 @@ def _pnl_payload_backend_or_proxy(request, *, proxy_path: str, fetch_endpoint: s
     user = getattr(request, "user", None)
     user_id = int(getattr(user, "id", 0) or 0)
     try:
-        payload = fetch_n8n_report_payload(
+        payload = fetch_report_payload(
             tenant=tenant,
             user_id=user_id,
-            endpoint=fetch_endpoint,
+            report="pnl",
             query_params=dict(request.GET),
         )
     except RuntimeError as exc:

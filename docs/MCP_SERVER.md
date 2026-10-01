@@ -206,11 +206,11 @@ Fields per row: `id`, `user_id`, `is_active`.
 ### 7.9 Reports — module `reports`
 
 #### `get_pnl_report` / `get_cashflow_report`
-Full PnL / Cashflow report built from the company's saved report settings.
+Full PnL / Cashflow report built from the company's saved rules (`pnl_config` for PnL, `cashflow_config` for Cashflow).
 
 | Parameter | Type | Notes |
 |-----------|------|-------|
-| `date_from` / `date_to` | str | `YYYY-MM-DD`. Narrows the report window on top of `pnl_config.start_month`. Optional. |
+| `date_from` / `date_to` | str | `YYYY-MM-DD`. Narrows the report window on top of the report's `start_month`. Optional. |
 | `aggregate` | bool | Default `false`. When `true`, each bucket collapses to `{total, count, by_month, by_category}` instead of line items. |
 
 > ⚠ **Unfiltered, non-aggregated calls return every line since `start_month`** — for a tenant with a long history this can be thousands of rows and a very large response. Pass `date_from`/`date_to` and/or `aggregate=true` unless individual line items are actually needed.

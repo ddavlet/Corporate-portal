@@ -1,8 +1,7 @@
 import { FileExcelOutlined, LinkOutlined, MoreOutlined } from '@ant-design/icons'
-import { Button, Dropdown, Segmented, Select, Switch, Typography, type MenuProps } from 'antd'
+import { Button, Dropdown, Segmented, Select, Switch, type MenuProps } from 'antd'
 import dayjs from 'dayjs'
-import type { ReactNode } from 'react'
-import type { ReportKind, StatementMeta, StatementPeriod } from '../../../../lib/reportsApi'
+import type { StatementMeta, StatementPeriod } from '../../../../lib/reportsApi'
 import { MONTH_NAMES, type Units } from '../../../../lib/reportsFormat'
 import { effectiveMonth, effectiveYear, type ReportUrlState, type ReportView } from './useReportUrlState'
 
@@ -11,18 +10,14 @@ type Props = {
   update: (patch: Partial<ReportUrlState>) => void
   meta: StatementMeta | null
   isAdmin: boolean
-  templateSwitcher: ReactNode | null
   onCopyLink: () => void
   exporting: boolean
   onExportExcel: () => void
   onPrint: () => void
   onOpenMethodology: () => void
-  onOpenSettings: (path: string) => void
-}
-
-export const REPORT_SETTINGS_PATHS: Record<ReportKind, string> = {
-  pnl: '/settings/pnl-report-config',
-  cashflow: '/settings/cashflow-report-config',
+  /** Opens the rules drawer of this report; null hides «Настройки отчёта». */
+  onOpenRules: (() => void) | null
+  onOpenTemplateSettings: () => void
 }
 
 const PERIOD_OPTIONS: { value: StatementPeriod; label: string }[] = [
@@ -57,57 +52,38 @@ export function ReportToolbar({
   update,
   meta,
   isAdmin,
-  templateSwitcher,
   onCopyLink,
   exporting,
   onExportExcel,
   onPrint,
   onOpenMethodology,
-  onOpenSettings,
+  onOpenRules,
+  onOpenTemplateSettings,
 }: Props) {
   const menuItems: MenuProps['items'] = [
     { key: 'method', label: 'Как считается отчёт' },
     // Print lays out the statement card only; the operations list has no print layout.
     ...(state.view === 'statement' ? [{ key: 'print', label: 'Печать' }] : []),
-    ...(isAdmin
-      ? [
-          { key: REPORT_SETTINGS_PATHS[state.report], label: 'Настройки отчёта' },
-          { key: '/settings/report-templates', label: 'Шаблоны отчётов' },
-        ]
-      : []),
+    ...(onOpenRules ? [{ key: 'rules', label: 'Настройки отчёта' }] : []),
+    ...(isAdmin ? [{ key: 'templates', label: 'Шаблоны отчётов' }] : []),
   ]
+  const actions: Record<string, () => void> = {
+    method: onOpenMethodology,
+    print: onPrint,
+    rules: () => onOpenRules?.(),
+    templates: onOpenTemplateSettings,
+  }
   return (
     <div className="rp-toolbar">
       <div className="rp-toolbar-row">
-        <Typography.Title level={4}>Отчёты</Typography.Title>
-        <Segmented
-          aria-label="Отчёт"
-          value={state.report}
-          onChange={(value) => update({ report: String(value) as ReportKind, drill: null, open: null })}
-          options={[
-            { label: 'Прибыли и убытки', value: 'pnl' },
-            { label: 'Движение денег', value: 'cashflow' },
-          ]}
-        />
         <div className="rp-toolbar-spacer" />
-        {templateSwitcher}
         <Button icon={<LinkOutlined />} onClick={onCopyLink}>
           Ссылка
         </Button>
         <Button icon={<FileExcelOutlined />} loading={exporting} onClick={onExportExcel}>
           Excel
         </Button>
-        <Dropdown
-          trigger={['click']}
-          menu={{
-            items: menuItems,
-            onClick: ({ key }) => {
-              if (key === 'method') onOpenMethodology()
-              else if (key === 'print') onPrint()
-              else onOpenSettings(key)
-            },
-          }}
-        >
+        <Dropdown trigger={['click']} menu={{ items: menuItems, onClick: ({ key }) => actions[key]?.() }}>
           <Button icon={<MoreOutlined />} aria-label="Ещё" />
         </Dropdown>
       </div>
