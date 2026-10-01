@@ -1709,6 +1709,66 @@ class McpDeploymentConfigTests(TestCase):
 _E2E_REDIRECT = "https://claude.ai/api/mcp/auth_callback"
 
 
+class _AsgiResponse:
+    def __init__(self, status_code, headers, body):
+        self.status_code = status_code
+        self.headers = headers
+        self.text = body.decode("utf-8", "replace")
+
+    def json(self):
+        import json
+
+        return json.loads(self.text)
+
+
+async def _asgi_request(app, host, method, path, *, params=None, headers=None, json_body=None, form=None):
+    """Minimal ASGI client (no httpx in the project): one request, buffered response."""
+    import asyncio
+    import json
+    from urllib.parse import urlencode
+
+    hdrs = {"host": host, **{k.lower(): v for k, v in (headers or {}).items()}}
+    body = b""
+    if json_body is not None:
+        body = json.dumps(json_body).encode()
+        hdrs.setdefault("content-type", "application/json")
+    elif form is not None:
+        body = urlencode(form).encode()
+        hdrs["content-type"] = "application/x-www-form-urlencoded"
+    if body:
+        hdrs["content-length"] = str(len(body))
+    scope = {
+        "type": "http", "asgi": {"version": "3.0"}, "http_version": "1.1", "method": method,
+        "scheme": "https", "path": path, "raw_path": path.encode(), "root_path": "",
+        "query_string": urlencode(params or {}).encode(),
+        "headers": [(k.encode("latin-1"), v.encode("latin-1")) for k, v in hdrs.items()],
+        "client": ("127.0.0.1", 12345), "server": (host, 443),
+    }
+    incoming = [{"type": "http.request", "body": body, "more_body": False}]
+    done = asyncio.Event()
+    status = {"code": None, "headers": {}}
+    chunks = []
+
+    async def receive():
+        if incoming:
+            return incoming.pop(0)
+        await done.wait()
+        return {"type": "http.disconnect"}
+
+    async def send(message):
+        if message["type"] == "http.response.start":
+            status["code"] = message["status"]
+            status["headers"] = {k.decode("latin-1").lower(): v.decode("latin-1") for k, v in message.get("headers", [])}
+        elif message["type"] == "http.response.body":
+            chunks.append(message.get("body", b""))
+            if not message.get("more_body", False):
+                done.set()
+
+    await app(scope, receive, send)
+    done.set()
+    return _AsgiResponse(status["code"], status["headers"], b"".join(chunks))
+
+
 def _rpc_payload(response):
     """JSON-RPC message from a streamable-HTTP response (JSON or a one-event SSE stream)."""
     import json
@@ -1757,7 +1817,6 @@ class McpEndToEndOAuthFlowTests(TestCase):
         import hashlib
         import secrets
 
-        import httpx
         from asgiref.sync import sync_to_async
 
         from apps.mcp_server.oauth.provider import create_authorization_code
@@ -1780,9 +1839,13 @@ class McpEndToEndOAuthFlowTests(TestCase):
         self.assertEqual(started["type"], "lifespan.startup.complete", started)
         try:
             base = "https://e2eflow.kolberg.uz/mcp"
-            transport = httpx.ASGITransport(app=application)
-            async with httpx.AsyncClient(transport=transport, base_url="https://e2eflow.kolberg.uz") as http:
-                r = await http.post("/mcp/register", json={
+            host = "e2eflow.kolberg.uz"
+
+            async def call(method, path, **kw):
+                return await _asgi_request(application, host, method, path, **kw)
+
+            if True:
+                r = await call("POST", "/mcp/register", json_body={
                     "client_name": "e2e",
                     "redirect_uris": [_E2E_REDIRECT],
                     "grant_types": ["authorization_code", "refresh_token"],
@@ -1794,7 +1857,7 @@ class McpEndToEndOAuthFlowTests(TestCase):
 
                 verifier = secrets.token_urlsafe(48)
                 challenge = base64.urlsafe_b64encode(hashlib.sha256(verifier.encode()).digest()).rstrip(b"=").decode()
-                r = await http.get("/mcp/authorize", params={
+                r = await call("GET", "/mcp/authorize", params={
                     "response_type": "code", "client_id": client_id, "redirect_uri": _E2E_REDIRECT,
                     "code_challenge": challenge, "code_challenge_method": "S256",
                     "state": "st", "scope": "mcp", "resource": base,
@@ -1808,7 +1871,7 @@ class McpEndToEndOAuthFlowTests(TestCase):
                     redirect_uri=_E2E_REDIRECT, redirect_uri_provided_explicitly=True,
                     code_challenge=challenge, code_challenge_method="S256", scopes=["mcp"], state="st",
                 )
-                r = await http.post("/mcp/token", data={
+                r = await call("POST", "/mcp/token", form={
                     "grant_type": "authorization_code", "code": code, "redirect_uri": _E2E_REDIRECT,
                     "client_id": client_id, "code_verifier": verifier, "resource": base,
                 })
@@ -1820,14 +1883,14 @@ class McpEndToEndOAuthFlowTests(TestCase):
                     "Accept": "application/json, text/event-stream",
                     "Content-Type": "application/json",
                 }
-                r = await http.post("/mcp/", headers=headers, json={
+                r = await call("POST", "/mcp/", headers=headers, json_body={
                     "jsonrpc": "2.0", "id": 1, "method": "initialize",
                     "params": {"protocolVersion": "2025-06-18", "capabilities": {},
                                "clientInfo": {"name": "e2e", "version": "1"}},
                 })
                 self.assertEqual(r.status_code, 200, r.text)
 
-                r = await http.post("/mcp/", headers=headers, json={"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}})
+                r = await call("POST", "/mcp/", headers=headers, json_body={"jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {}})
                 self.assertEqual(r.status_code, 200, r.text)
                 names = {t["name"] for t in _rpc_payload(r)["result"]["tools"]}
                 self.assertIn("get_current_tenant", names)
@@ -1835,7 +1898,7 @@ class McpEndToEndOAuthFlowTests(TestCase):
                 self.assertNotIn("list_payroll_documents", names)  # payroll enabled, but not for requester
                 self.assertNotIn("list_user_roles", names)
 
-                r = await http.post("/mcp/", headers=headers, json={
+                r = await call("POST", "/mcp/", headers=headers, json_body={
                     "jsonrpc": "2.0", "id": 3, "method": "tools/call",
                     "params": {"name": "get_current_tenant", "arguments": {}},
                 })
@@ -1844,7 +1907,7 @@ class McpEndToEndOAuthFlowTests(TestCase):
                 self.assertFalse(result.get("isError"), result)
                 self.assertIn("e2eflow", "".join(c.get("text", "") for c in result["content"]))
 
-                r = await http.post("/mcp/", headers=headers, json={
+                r = await call("POST", "/mcp/", headers=headers, json_body={
                     "jsonrpc": "2.0", "id": 4, "method": "tools/call",
                     "params": {"name": "list_payroll_documents", "arguments": {}},
                 })
@@ -1852,8 +1915,8 @@ class McpEndToEndOAuthFlowTests(TestCase):
                 self.assertTrue(result.get("isError"), result)
                 self.assertIn("Unknown tool: list_payroll_documents", "".join(c.get("text", "") for c in result["content"]))
 
-                r = await http.post("/mcp/", headers={**headers, "Authorization": f"Bearer {access}x"},
-                                    json={"jsonrpc": "2.0", "id": 5, "method": "tools/list", "params": {}})
+                r = await call("POST", "/mcp/", headers={**headers, "Authorization": f"Bearer {access}x"},
+                                    json_body={"jsonrpc": "2.0", "id": 5, "method": "tools/list", "params": {}})
                 self.assertEqual(r.status_code, 401)
         finally:
             await to_app.put({"type": "lifespan.shutdown"})
