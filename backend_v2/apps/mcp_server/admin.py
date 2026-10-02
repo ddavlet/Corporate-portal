@@ -43,4 +43,4 @@ class McpServiceCredentialAdmin(admin.ModelAdmin):
         sync_tenant_access(form.instance)
 
 
-set_portal_labels(McpServiceCredential, "Ключ ИИ-сервиса", "Ключи ИИ-сервиса")
+set_portal_labels(McpServiceCredential, "Сервисный ключ MCP", "Сервисные ключи MCP")

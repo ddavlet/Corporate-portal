@@ -30,8 +30,10 @@ _APP_VERBOSE_NAMES = {
     "feedback": "Обратная связь",
     "telegram_approvals": "Telegram",
     "n8n_integration": "Связь с n8n",
-    "mcp_server": "Вопросы в ИИ",
-    "mcp_oauth": "Вопросы в ИИ",
+    # Not the portal's "Вопросы в ИИ" chat (n8n): these are the MCP connectors at
+    # https://<tenant>/mcp — service keys and OAuth clients.
+    "mcp_server": "MCP-коннекторы",
+    "mcp_oauth": "MCP-коннекторы: OAuth",
 }
 
 _MODEL_LABELS = {
@@ -56,6 +58,9 @@ _MODEL_LABELS = {
     "telegram_approvals.TenantTelegramChat": ("Telegram-группа", "Telegram-группы"),
     "wallets.CashRegister": ("Касса (кошелёк)", "Кассы"),
     "reports.TenantReportSettings": ("Настройки отчётов", "Настройки отчётов"),
+    "mcp_server.McpServiceCredential": ("Сервисный ключ MCP", "Сервисные ключи MCP"),
+    "mcp_oauth.OAuthClient": ("OAuth-клиент MCP", "OAuth-клиенты MCP"),
+    "mcp_oauth.OAuthAuthorizationCode": ("OAuth-код MCP", "OAuth-коды MCP"),
 }
 
 
