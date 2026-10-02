@@ -20,5 +20,5 @@ class OAuthAuthorizationCodeAdmin(admin.ModelAdmin):
     readonly_fields = ("code", "client", "user", "created_at")
 
 
-set_portal_labels(OAuthClient, "OAuth-клиент", "OAuth-клиенты")
-set_portal_labels(OAuthAuthorizationCode, "OAuth-код", "OAuth-коды")
+set_portal_labels(OAuthClient, "OAuth-клиент MCP", "OAuth-клиенты MCP")
+set_portal_labels(OAuthAuthorizationCode, "OAuth-код MCP", "OAuth-коды MCP")
