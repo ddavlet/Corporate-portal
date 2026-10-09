@@ -24,6 +24,10 @@ from apps.mcp_server.tools import (
     investments as inv_tools,
     budgets as bud_tools,
     tasks as task_tools,
+    contracts as contract_tools,
+    clients_debt as debt_tools,
+    cash_withdrawals as cw_tools,
+    notes as note_tools,
 )
 
 
@@ -76,6 +80,9 @@ every expense has a matching request. They are NOT the source of truth.
 DEFAULT BEHAVIOUR — always follow this:
   • When the user asks about expenses, spending, payments, or costs
     → use list_requests / get_request as the primary source.
+  • For totals ("сколько потратили на X", "расходы по категориям / месяцам /
+    поставщикам") use summarize_requests — it sums on the server, so do not
+    page through list_requests and add amounts up yourself.
   • Do NOT call list_cash_expenses / list_bank_expenses / list_card_expenses
     by default.
 
@@ -177,6 +184,12 @@ def list_requests(
     date_from: str = "",
     date_to: str = "",
     limit: int = 50,
+    category: str = "",
+    vendor: str = "",
+    contract_id: int = 0,
+    search: str = "",
+    billing_date_from: str = "",
+    billing_date_to: str = "",
 ) -> list:
     """List payment requests (заявки на оплату) for a tenant with optional filters.
 
@@ -193,7 +206,8 @@ def list_requests(
       REJECTED  — declined at some approval step
 
     Args:
-        status: Filter by status. One of: DRAFT, 1, 2, 3, 4, 5, APPROVED, PAYED, REJECTED.
+        status: Filter by status. One of: DRAFT, 1, 2, 3, 4, 5, APPROVED, PAYED, REJECTED,
+            or several comma-separated (e.g. "APPROVED,PAYED").
             Deleted requests are never returned.
         currency: Filter by currency. One of: UZS, USD, EUR, RUB.
         payment_type: How payment is made. One of:
@@ -206,17 +220,81 @@ def list_requests(
         date_from: Filter by creation date >= YYYY-MM-DD.
         date_to: Filter by creation date <= YYYY-MM-DD.
         limit: Max records to return (1–200, default 50).
+        category: Exact category name, case-insensitive (see list_request_categories).
+        vendor: Substring of the vendor name.
+        contract_id: Only requests linked to this contract (see list_contracts).
+        search: Substring of the description or payment purpose.
+        billing_date_from: Filter by billing date (the month the expense belongs to) >= YYYY-MM-DD.
+        billing_date_to: Filter by billing date <= YYYY-MM-DD.
     """
     try:
         return req_tools.list_requests(
             tenant_id=tenant_id, status=status,
             currency=currency, payment_type=payment_type, urgency=urgency,
             date_from=date_from, date_to=date_to, limit=limit,
+            category=category, vendor=vendor, contract_id=contract_id, search=search,
+            billing_date_from=billing_date_from, billing_date_to=billing_date_to,
         )
     except (PermissionError, ValueError) as e:
         return _list_err(str(e))
     except Exception as e:
         return _list_err(f"Unexpected error: {e}")
+
+
+@tool(access=Access.module("requests"))
+def summarize_requests(
+    tenant_id: int,
+    group_by: str = "category",
+    status: str = "",
+    currency: str = "",
+    payment_type: str = "",
+    urgency: str = "",
+    category: str = "",
+    vendor: str = "",
+    contract_id: int = 0,
+    search: str = "",
+    date_from: str = "",
+    date_to: str = "",
+    billing_date_from: str = "",
+    billing_date_to: str = "",
+    limit: int = 100,
+) -> dict:
+    """Totals of payment requests grouped by category, vendor, month, status, payment type or currency.
+
+    Use this for "how much was spent on X / by month / per vendor" instead of
+    adding up list_requests pages. Sums are computed on the server.
+
+    Every group is split by currency (amounts in different currencies are never
+    added together). Returns:
+      groups             — [{key, currency, count, total}], largest total first
+      groups_total       — number of groups before `limit`
+      totals_by_currency — [{currency, count, total}] over all matching requests
+
+    For actual spending pass status="PAYED"; for spending plus what is about to
+    be paid pass status="APPROVED,PAYED". Without status all non-deleted
+    requests are counted, including drafts and rejected ones.
+
+    Args:
+        group_by: category | vendor | month | status | payment_type | currency.
+            month groups by billing_date (the month the expense belongs to), key "YYYY-MM".
+        status, currency, payment_type, urgency, category, vendor, contract_id,
+        search, date_from, date_to, billing_date_from, billing_date_to:
+            the same filters as list_requests.
+        limit: Max groups to return (1–200, default 100).
+    """
+    try:
+        return req_tools.summarize_requests(
+            tenant_id=tenant_id, group_by=group_by, status=status,
+            currency=currency, payment_type=payment_type, urgency=urgency,
+            category=category, vendor=vendor, contract_id=contract_id, search=search,
+            date_from=date_from, date_to=date_to,
+            billing_date_from=billing_date_from, billing_date_to=billing_date_to,
+            limit=limit,
+        )
+    except (PermissionError, ValueError) as e:
+        return _err(str(e))
+    except Exception as e:
+        return _err(f"Unexpected error: {e}")
 
 
 @tool(access=Access.module("requests"))
@@ -1176,6 +1254,156 @@ def list_wallets(tenant_id: int) -> list:
     """
     try:
         return dir_tools.list_wallets(tenant_id=tenant_id)
+    except (PermissionError, ValueError) as e:
+        return _list_err(str(e))
+    except Exception as e:
+        return _list_err(f"Unexpected error: {e}")
+
+
+# ---------------------------------------------------------------------------
+# Contracts (договоры)
+# ---------------------------------------------------------------------------
+
+@tool(access=Access.module("contracts"))
+def list_contracts(
+    tenant_id: int,
+    status: str = "",
+    vendor_id: int = 0,
+    search: str = "",
+    active_on: str = "",
+    expires_from: str = "",
+    expires_to: str = "",
+    limit: int = 50,
+) -> list:
+    """List vendor contracts (договоры) with how much has already been paid on each.
+
+    paid_total — sum of PAYED requests linked to the contract, in the contract's
+    currency; remaining — contract_amount minus paid_total (null when the
+    contract has no amount).
+
+    Args:
+        status: accepted | refused | expired. "expired" = accepted with date_to in the past;
+            "accepted" = currently valid (not expired).
+        vendor_id: Contracts with this vendor (see list_vendors).
+        search: Substring of the contract number or vendor name.
+        active_on: Contracts valid on this date (YYYY-MM-DD).
+        expires_from / expires_to: date_to within this range (YYYY-MM-DD) — e.g.
+            "which contracts expire this month".
+        limit: Max records (1–200, default 50).
+    """
+    try:
+        return contract_tools.list_contracts(
+            tenant_id=tenant_id, status=status, vendor_id=vendor_id, search=search,
+            active_on=active_on, expires_from=expires_from, expires_to=expires_to, limit=limit,
+        )
+    except (PermissionError, ValueError) as e:
+        return _list_err(str(e))
+    except Exception as e:
+        return _list_err(f"Unexpected error: {e}")
+
+
+@tool(access=Access.module("contracts"))
+def get_contract(tenant_id: int, contract_id: int) -> dict:
+    """Get one contract with its terms (contract_terms) and every request linked to it.
+
+    Args:
+        contract_id: Contract primary key (get from list_contracts).
+    """
+    try:
+        return contract_tools.get_contract(tenant_id=tenant_id, contract_id=contract_id)
+    except (PermissionError, ValueError) as e:
+        return _err(str(e))
+    except Exception as e:
+        return _err(f"Unexpected error: {e}")
+
+
+# ---------------------------------------------------------------------------
+# Clients debt (дебиторка клиентов)
+# ---------------------------------------------------------------------------
+
+@tool(access=Access.module("clients_debt"))
+def get_client_debts(
+    tenant_id: int,
+    doc_type: str = "",
+    client_search: str = "",
+    as_of: str = "",
+    limit: int = 200,
+) -> dict:
+    """Client debts (дебиторская задолженность) from the latest imported snapshot.
+
+    Debts are imported as dated snapshots. Only the latest snapshot of each
+    doc_type is used — never add up several snapshots. Returns:
+      snapshots     — [{doc_type, snapshot_at, clients_count, total_debt}]
+      clients       — per-client rows (debt_sum etc.), largest debt first
+      clients_total — number of client rows before `limit`
+
+    Args:
+        doc_type: Only this snapshot type (see the doc_type values in `snapshots`).
+        client_search: Substring of the client name or client id.
+        as_of: Use the latest snapshots taken on or before this date (YYYY-MM-DD) —
+            e.g. "what was the debt at the start of the month".
+        limit: Max client rows (1–500, default 200).
+    """
+    try:
+        return debt_tools.get_client_debts(
+            tenant_id=tenant_id, doc_type=doc_type, client_search=client_search,
+            as_of=as_of, limit=limit,
+        )
+    except (PermissionError, ValueError) as e:
+        return _err(str(e))
+    except Exception as e:
+        return _err(f"Unexpected error: {e}")
+
+
+# ---------------------------------------------------------------------------
+# Cash withdrawals (снятие наличных)
+# ---------------------------------------------------------------------------
+
+@tool(access=Access.admin_or_director())
+def list_cash_withdrawal_receipts(tenant_id: int, status: str = "pending", limit: int = 50) -> list:
+    """Paid cash-withdrawal requests and whether the cash was confirmed as received at the register.
+
+    After a withdrawal request is PAYED, a cashier must confirm in Telegram that
+    the cash arrived. Pending receipts are money that left the bank but has not
+    yet been confirmed at a cash register — useful for control.
+
+    Args:
+        status: pending (default) | confirmed | closed (closed without a cash revenue) | all.
+        limit: Max records (1–200, default 50), oldest first.
+    """
+    try:
+        return cw_tools.list_cash_withdrawal_receipts(tenant_id=tenant_id, status=status, limit=limit)
+    except (PermissionError, ValueError) as e:
+        return _list_err(str(e))
+    except Exception as e:
+        return _list_err(f"Unexpected error: {e}")
+
+
+# ---------------------------------------------------------------------------
+# Notes (заметки)
+# ---------------------------------------------------------------------------
+
+@tool(access=Access.module("notes"))
+def list_my_notes(
+    tenant_id: int,
+    target_type: str = "",
+    target_id: int = 0,
+    limit: int = 50,
+) -> list:
+    """Notes the current user sent or received about a request or a cash/bank operation.
+
+    Notes are personal messages (delivered via Telegram), so only notes where
+    the current user is the author or the recipient are returned.
+
+    Args:
+        target_type: request | cash | bank.
+        target_id: Id of the request / cash operation / bank operation.
+        limit: Max records (1–200, default 50), newest first.
+    """
+    try:
+        return note_tools.list_my_notes(
+            tenant_id=tenant_id, target_type=target_type, target_id=target_id, limit=limit,
+        )
     except (PermissionError, ValueError) as e:
         return _list_err(str(e))
     except Exception as e:
