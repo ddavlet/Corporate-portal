@@ -239,6 +239,11 @@ export function PayrollDocumentDetailPage() {
               <Descriptions.Item label="Режим выплат">
                 {detail.payout_mode === 'portal' ? 'Через портал' : 'Как раньше'}
               </Descriptions.Item>
+              {detail.comment ? (
+                <Descriptions.Item label="Комментарий" span={2}>
+                  <span style={{ whiteSpace: 'pre-wrap' }}>{detail.comment}</span>
+                </Descriptions.Item>
+              ) : null}
               <Descriptions.Item label="Итого">{fmtMoney(detail.total_sum)}</Descriptions.Item>
               <Descriptions.Item label="Выплачено">{fmtMoney(detail.paid_total)}</Descriptions.Item>
               <Descriptions.Item label="Остаток">{fmtMoney(detail.remaining_total)}</Descriptions.Item>

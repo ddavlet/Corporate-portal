@@ -290,6 +290,33 @@ class PayrollDraftWorkflowTests(TestCase):
         second = accept_document(document=doc, actor=self.user)
         self.assertNotEqual(first.id, second.id)
 
+    def test_comment_is_appended_to_request_description(self, _tg):
+        doc = create_draft_document(
+            tenant=self.tenant, user=self.user, period_month=self.period, kind="salary",
+            lines_data=[{"employee": self.alice, "sum": Decimal("700")}], comment="  ЗП за сентябрь, без отпускных ",
+        )
+        self.assertEqual(doc.comment, "ЗП за сентябрь, без отпускных")
+        req = accept_document(document=doc, actor=self.user)
+        self.assertTrue(req.description.startswith(f"Автоматически создано на основании начисления ЗП №{doc.pk} "))
+        self.assertTrue(req.description.endswith("\nЗП за сентябрь, без отпускных"))
+
+    def test_request_description_unchanged_without_comment(self, _tg):
+        req = accept_document(document=self._draft(), actor=self.user)
+        self.assertNotIn("\n", req.description)
+
+    def test_update_draft_keeps_comment_unless_given(self, _tg):
+        doc = create_draft_document(
+            tenant=self.tenant, user=self.user, period_month=self.period, kind="salary",
+            lines_data=[{"employee": self.alice, "sum": Decimal("700")}], comment="первый",
+        )
+        lines = [{"employee": self.bob, "sum": Decimal("50")}]
+        update_draft_document(document=doc, period_month=self.period, kind="salary", lines_data=lines)
+        doc.refresh_from_db()
+        self.assertEqual(doc.comment, "первый")
+        update_draft_document(document=doc, period_month=self.period, kind="salary", lines_data=lines, comment="")
+        doc.refresh_from_db()
+        self.assertEqual(doc.comment, "")
+
     def test_legacy_rejected_request_is_not_recreated(self, _tg):
         self.tenant.create_payment_request_on_payroll_accrual = True
         self.tenant.save(update_fields=["create_payment_request_on_payroll_accrual"])

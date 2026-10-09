@@ -179,6 +179,7 @@ class PayrollDocumentViewSet(PortalListViewSetMixin, viewsets.ReadOnlyModelViewS
             period_month=ser.validated_data["period_month"],
             kind=ser.validated_data["kind"],
             lines_data=ser.validated_data["lines"],
+            comment=ser.validated_data.get("comment"),
         )
         return self._detail(document)
 
@@ -218,6 +219,7 @@ class PayrollDocumentCreateView(generics.CreateAPIView):
             period_month=serializer.validated_data["period_month"],
             kind=serializer.validated_data["kind"],
             lines_data=serializer.validated_data["lines"],
+            comment=serializer.validated_data.get("comment", ""),
         )
         fresh = PayrollDocument.objects.prefetch_related(
             Prefetch("lines", queryset=PayrollLine.objects.order_by("line_no", "id"))

@@ -35,6 +35,7 @@ function baseDoc(overrides: Partial<PayrollDocumentDetailDto> = {}): PayrollDocu
     kind: 'salary',
     closed_underpaid_at: null,
     close_comment: '',
+    comment: '',
     current_request: null,
     paid_total: '0.00',
     remaining_total: '1000.00',
@@ -125,6 +126,15 @@ describe('PayrollDocumentDetailPage', () => {
 
     expect(await screen.findByText('Нет одобренной заявки на выплату')).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Создать расход' })).not.toBeInTheDocument()
+  })
+
+  it('shows the accrual comment', async () => {
+    getPayrollDocumentMock.mockResolvedValue(baseDoc({ comment: 'Без отпускных' }))
+    getPayrollPayoutStateMock.mockResolvedValue(basePayoutState())
+    renderPage()
+
+    expect(await screen.findByText('Без отпускных')).toBeInTheDocument()
+    expect(screen.getByText('Комментарий')).toBeInTheDocument()
   })
 
   it('ignores a stale document response for a previous id after navigating to a new one', async () => {

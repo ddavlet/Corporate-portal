@@ -51,6 +51,8 @@ class PayrollDocument(models.Model):
         related_name="closed_payroll_documents",
     )
     close_comment = models.TextField(blank=True, default="")
+    # Free-text note from the author; appended to the linked Request.description.
+    comment = models.TextField(blank=True, default="")
 
     class Meta:
         db_table = "payroll_documents"

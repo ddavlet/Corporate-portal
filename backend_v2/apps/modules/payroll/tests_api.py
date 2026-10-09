@@ -69,6 +69,26 @@ class PayrollWorkflowApiTests(APITestCase):
         self.assertEqual(res.data["status"], "accepted")
         self.assertIsNotNone(res.data["current_request"])
 
+    def test_draft_comment_round_trip_and_goes_to_request(self, _tg):
+        from apps.modules.requests.models import Request
+
+        self.client.force_authenticate(self.director)
+        body = {
+            "period_month": "2026-09-01", "kind": "salary", "comment": "Премия отделу продаж",
+            "lines": [{"employee_id": self.alice.id, "sum": "100.00"}],
+        }
+        res = self.client.post("/api/payroll/documents/create/", body, format="json", HTTP_HOST=self.host)
+        self.assertEqual(res.status_code, 201, res.content)
+        self.assertEqual(res.data["comment"], "Премия отделу продаж")
+        doc_id = res.data["id"]
+        body["comment"] = "Премия отделу продаж за сентябрь"
+        res = self.client.patch(f"/api/payroll/documents/{doc_id}/", body, format="json", HTTP_HOST=self.host)
+        self.assertEqual(res.data["comment"], "Премия отделу продаж за сентябрь")
+        res = self.client.post(f"/api/payroll/documents/{doc_id}/accept/", HTTP_HOST=self.host)
+        self.assertEqual(res.status_code, 200, res.content)
+        req = Request.objects.get(pk=res.data["current_request"]["id"])
+        self.assertIn("Премия отделу продаж за сентябрь", req.description)
+
     def test_draft_validation(self, _tg):
         self.client.force_authenticate(self.director)
         other_tenant = Tenant.objects.create(name="Other", subdomain="other-pay", is_active=True)
