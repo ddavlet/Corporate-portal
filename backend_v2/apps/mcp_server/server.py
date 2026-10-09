@@ -1166,7 +1166,13 @@ def list_wallets(tenant_id: int) -> list:
       • corporate_card — corporate card account
 
     Wallets appear on cash/bank/card transactions. Use this to understand
-    which accounts the tenant operates and their currencies.
+    which accounts the tenant operates, their currencies and how much money
+    is on each of them.
+
+    current_balance — balance right now (as shown in the portal): the
+    balance carried over at Jan 1 plus all movements of the current year.
+    Use it to answer "сколько денег на счетах / в кассе"; do not sum raw
+    transactions yourself.
     """
     try:
         return dir_tools.list_wallets(tenant_id=tenant_id)

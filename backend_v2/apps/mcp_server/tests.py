@@ -1052,6 +1052,51 @@ class McpPayrollToolsTests(TestCase):
         self.assertEqual(data["payouts"], [])
 
 
+class McpListWalletsBalanceTests(TestCase):
+    """list_wallets used to expose only the Jan-1 opening_balance, so an assistant asked
+    "how much money is on the accounts" answered with a stale figure. It now returns the
+    current balance (opening + YTD movements) and hides the opening fields."""
+
+    def setUp(self):
+        from django.contrib.auth import get_user_model
+        from django.utils import timezone
+
+        from apps.modules.cashier.models import CashExpense, CashRevenue
+        from apps.modules.wallets.models import Wallet
+        from apps.modules.wallets.resolution import get_or_create_cash_wallet
+        from apps.tenants.models import Tenant
+
+        self.tenant = Tenant.objects.create(name="T", subdomain="mcpwallets", is_active=True, mcp_enabled=True)
+        user = get_user_model().objects.create_user(username="mcpwallets", password="x")
+        self.wallet = get_or_create_cash_wallet(tenant=self.tenant, currency="UZS")
+        Wallet.objects.filter(pk=self.wallet.pk).update(opening_balance=Decimal("1000"))
+        dt = timezone.now()
+        CashRevenue.objects.create(
+            tenant=self.tenant, external_id="r1", confirmed=True, currency="UZS", wallet=self.wallet,
+            total_sum=Decimal("300"), revenue_at=dt, created_by=user,
+        )
+        CashExpense.objects.create(
+            tenant=self.tenant, external_id="e1", confirmed=True, title="x", currency="UZS", wallet=self.wallet,
+            amount=Decimal("100"), expense_at=dt, expense_year=dt.year, expense_month=dt.month, expense_day=dt.day,
+            note="", payload={}, created_by=user,
+        )
+
+    @patch("apps.mcp_server.tools.directories.require_module_access")
+    def test_returns_current_balance_instead_of_opening_balance(self, mock_access):
+        from apps.mcp_server.tools import directories as dir_tools
+
+        mock_access.return_value = (None, self.tenant)
+        rows = dir_tools.list_wallets(self.tenant.id)
+        self.assertEqual(len(rows), 1)
+        row = rows[0]
+        self.assertEqual(row["id"], self.wallet.id)
+        self.assertEqual(Decimal(row["current_balance"]), Decimal("1200"))
+        self.assertEqual(row["currency"], "UZS")
+        self.assertTrue(row["name"])
+        self.assertNotIn("opening_balance", row)
+        self.assertNotIn("opening_balance_at", row)
+
+
 class McpTaskErrorLanguageTests(TestCase):
     """Task tools returned Russian error messages while every other tool used English."""
 
