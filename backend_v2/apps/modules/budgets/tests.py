@@ -227,3 +227,128 @@ class BudgetSpendComputeTests(APITestCase):
         budget_data = next(b for b in list_results(resp) if b["id"] == self.budget.pk)
         self.assertEqual(Decimal(budget_data["spent_amount"]), Decimal("300000"))
         self.assertGreater(float(budget_data["utilization_pct"]), 0)
+
+
+@override_settings(BASE_DOMAIN="example.com", ALLOWED_HOSTS=["*"])
+class BudgetByPaymentPurposeTests(APITestCase):
+    """Budgets could only be set on a request category; a budget on a payment purpose
+    (назначение платежа) counts requests with that purpose whatever their category."""
+
+    def setUp(self):
+        from apps.modules.requests.models import (
+            RequestFormConfig,
+            RequestFormPaymentTypeConfig,
+            RequestPaymentPurposeConfig,
+        )
+
+        self.tenant = Tenant.objects.create(name="PurposeCo", subdomain="purposeco", is_active=True)
+        self.admin = User.objects.create_user(username="padmin", password="x")
+        TenantMembership.objects.create(tenant=self.tenant, user=self.admin, is_active=True)
+        TenantUserRole.objects.create(tenant=self.tenant, user=self.admin, role=TenantUserRole.ROLE_ADMIN)
+        TenantModuleConfig.objects.create(tenant=self.tenant, module_key="budgets", is_enabled=True)
+        self.category = RequestCategory.objects.create(tenant=self.tenant, name="Office", is_active=True)
+
+        ptc = RequestFormPaymentTypeConfig.objects.create(
+            config=RequestFormConfig.objects.create(tenant=self.tenant),
+            payment_type=Request.PAYMENT_TYPE_TRANSFER,
+        )
+        RequestPaymentPurposeConfig.objects.create(payment_type_config=ptc, name="Аренда", category="Office")
+        RequestPaymentPurposeConfig.objects.create(
+            payment_type_config=ptc, name="Старое", category="Office", is_active=False
+        )
+
+        def _make(purpose, amount, *, category="Office", currency="UZS", status=Request.STATUS_PAYED,
+                  billing=date(2026, 3, 10)):
+            return Request.objects.create(
+                tenant=self.tenant, created_by=self.admin, requester=self.admin, category=category,
+                payment_purpose=purpose, amount=Decimal(amount), currency=currency, status=status,
+                billing_date=billing,
+            )
+
+        self.rent = _make("Аренда", "700")
+        self.rent_other_category = _make("Аренда", "100", category="Прочее", status=Request.STATUS_APPROVED)
+        self.rent_usd = _make("Аренда", "5", currency="USD")
+        self.rent_april = _make("Аренда", "900", billing=date(2026, 4, 1))
+        self.rent_draft = _make("Аренда", "999", status=Request.STATUS_DRAFT)
+        self.water = _make("Вода", "50")
+
+        self.budget = Budget.objects.create(
+            tenant=self.tenant, name="Аренда / мес", payment_purpose="Аренда",
+            period_type=Budget.PERIOD_MONTHLY, limit_amount=Decimal("1000"), currency="UZS",
+            created_by=self.admin,
+        )
+
+    def _headers(self):
+        token = str(RefreshToken.for_user(self.admin).access_token)
+        return {"HTTP_HOST": "purposeco.example.com", "HTTP_AUTHORIZATION": f"Bearer {token}"}
+
+    def _payload(self, **kw):
+        payload = {"name": "Новый", "period_type": Budget.PERIOD_MONTHLY, "limit_amount": "100.00", "currency": "UZS"}
+        payload.update(kw)
+        return payload
+
+    def test_spend_counts_requests_with_the_purpose_in_any_category(self):
+        resp = self.client.get("/api/budgets/?year=2026&period=3", **self._headers())
+        self.assertEqual(resp.status_code, 200)
+        row = next(b for b in list_results(resp) if b["id"] == self.budget.pk)
+        self.assertEqual(Decimal(row["spent_amount"]), Decimal("800"))
+        self.assertEqual(row["payment_purpose"], "Аренда")
+        self.assertIsNone(row["category"])
+        self.assertIsNone(row["category_name"])
+
+        resp = self.client.get(f"/api/budgets/{self.budget.pk}/spend-detail/?year=2026&period=3", **self._headers())
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(
+            {r["id"] for r in resp.json()["results"]}, {self.rent.id, self.rent_other_category.id}
+        )
+
+    def test_create_by_purpose_strips_and_stores_no_category(self):
+        resp = self.client.post(
+            "/api/budgets/", self._payload(payment_purpose="  Вода "), format="json", **self._headers()
+        )
+        self.assertEqual(resp.status_code, 201, resp.content)
+        budget = Budget.objects.get(pk=resp.json()["id"])
+        self.assertEqual(budget.payment_purpose, "Вода")
+        self.assertIsNone(budget.category_id)
+
+    def test_create_requires_exactly_one_of_category_and_purpose(self):
+        both = self._payload(category=self.category.pk, payment_purpose="Вода")
+        neither = self._payload(name="Пустой")
+        for payload in (both, neither):
+            resp = self.client.post("/api/budgets/", payload, format="json", **self._headers())
+            self.assertEqual(resp.status_code, 400, payload)
+
+    def test_category_budget_can_be_switched_to_purpose(self):
+        budget = Budget.objects.create(
+            tenant=self.tenant, name="Office", category=self.category, period_type=Budget.PERIOD_MONTHLY,
+            limit_amount=Decimal("100"), currency="UZS",
+        )
+        resp = self.client.patch(
+            f"/api/budgets/{budget.pk}/", {"category": None, "payment_purpose": "Вода"},
+            format="json", **self._headers(),
+        )
+        self.assertEqual(resp.status_code, 200, resp.content)
+        budget.refresh_from_db()
+        self.assertIsNone(budget.category_id)
+        self.assertEqual(budget.payment_purpose, "Вода")
+
+        resp = self.client.patch(
+            f"/api/budgets/{budget.pk}/", {"payment_purpose": "Аренда"}, format="json", **self._headers()
+        )
+        self.assertEqual(resp.status_code, 200, resp.content)
+
+    def test_filter_by_purpose(self):
+        Budget.objects.create(
+            tenant=self.tenant, name="Office", category=self.category, period_type=Budget.PERIOD_MONTHLY,
+            limit_amount=Decimal("100"), currency="UZS",
+        )
+        resp = self.client.get("/api/budgets/?payment_purpose=Аренда", **self._headers())
+        self.assertEqual([b["id"] for b in list_results(resp)], [self.budget.pk])
+
+    def test_payment_purposes_endpoint_merges_config_and_used(self):
+        resp = self.client.get("/api/budgets/payment-purposes/", **self._headers())
+        self.assertEqual(resp.status_code, 200)
+        self.assertEqual(
+            resp.json(),
+            [{"name": "Аренда", "category": "Office"}, {"name": "Вода", "category": ""}],
+        )

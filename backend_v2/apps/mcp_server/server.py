@@ -883,11 +883,14 @@ def list_budgets(
     category_name: str = "",
     is_active: str = "",
     limit: int = 100,
+    payment_purpose: str = "",
 ) -> list:
     """List budgets with spent_amount, remaining, utilization_pct for a period.
 
-    Spend = sum of APPROVED + PAYED requests matching category, currency,
-    and billing_date in the period (same as UI). period_type: monthly |
+    A budget is set either on a request category (category_name) or on a
+    payment purpose (payment_purpose); the other one is null.
+    Spend = sum of APPROVED + PAYED requests matching that category or
+    purpose, currency, and billing_date in the period (same as UI). period_type: monthly |
     quarterly | yearly. period is month 1–12 (quarterly uses month→quarter).
 
     year=0 and period=0 default to current year/month.
@@ -896,6 +899,7 @@ def list_budgets(
         year: Calendar year (0 = current).
         period: Month 1–12 (0 = current month).
         category_name: Exact request category name filter.
+        payment_purpose: Exact payment purpose filter.
         is_active: "", "true", or "false".
         limit: Max budgets (default 100, max 200).
     """
@@ -907,6 +911,7 @@ def list_budgets(
             category_name=category_name,
             is_active=_parse_bool_filter(is_active),
             limit=limit,
+            payment_purpose=payment_purpose,
         )
     except (PermissionError, ValueError) as e:
         return _list_err(str(e))

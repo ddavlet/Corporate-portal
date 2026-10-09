@@ -6,6 +6,7 @@ from django.db.models import Sum
 from rest_framework import serializers
 
 from apps.modules.budgets.models import Budget
+from apps.modules.budgets.services import budget_spend_requests
 from apps.modules.serializers_guard import reject_client_pk_on_create
 
 
@@ -35,7 +36,7 @@ def _period_date_range(period_type: str, year: int, period_index: int):
 
 
 class BudgetSerializer(serializers.ModelSerializer):
-    category_name = serializers.CharField(source="category.name", read_only=True)
+    category_name = serializers.SerializerMethodField()
     spent_amount = serializers.SerializerMethodField()
     remaining_amount = serializers.SerializerMethodField()
     utilization_pct = serializers.SerializerMethodField()
@@ -48,6 +49,7 @@ class BudgetSerializer(serializers.ModelSerializer):
             "name",
             "category",
             "category_name",
+            "payment_purpose",
             "period_type",
             "limit_amount",
             "currency",
@@ -74,6 +76,7 @@ class BudgetSerializer(serializers.ModelSerializer):
 
     def validate(self, attrs):
         reject_client_pk_on_create(self)
+        self._validate_dimension(attrs)
         request = self.context.get("request")
         tenant = getattr(request, "tenant", None) if request else None
 
@@ -90,6 +93,24 @@ class BudgetSerializer(serializers.ModelSerializer):
                     raise serializers.ValidationError({"name": "Бюджет с таким названием уже существует."})
         return attrs
 
+    def _validate_dimension(self, attrs):
+        """A budget is either by category or by payment purpose — never both, never neither."""
+        if "payment_purpose" in attrs:
+            attrs["payment_purpose"] = (attrs["payment_purpose"] or "").strip()
+        category = attrs["category"] if "category" in attrs else getattr(self.instance, "category", None)
+        purpose = (
+            attrs["payment_purpose"] if "payment_purpose" in attrs else getattr(self.instance, "payment_purpose", "")
+        )
+        if category is not None and purpose:
+            raise serializers.ValidationError(
+                {"payment_purpose": "Бюджет задаётся либо по категории, либо по назначению платежа."}
+            )
+        if category is None and not purpose:
+            raise serializers.ValidationError({"category": "Выберите категорию или назначение платежа."})
+
+    def get_category_name(self, obj):
+        return obj.category.name if obj.category_id else None
+
     def _get_period_context(self):
         ctx = self.context
         today = timezone.localdate()
@@ -98,7 +119,6 @@ class BudgetSerializer(serializers.ModelSerializer):
         return year, period_index
 
     def _compute_spent(self, obj) -> Decimal:
-        from apps.modules.requests.models import Request
         # Cache per budget pk to avoid 3 DB queries per row (one for each computed field).
         if not hasattr(self, "_spent_cache"):
             self._spent_cache: dict[int, Decimal] = {}
@@ -107,16 +127,7 @@ class BudgetSerializer(serializers.ModelSerializer):
             start, end = _period_date_range(obj.period_type, year, period_index)
             # Use billing_date (DateField, always set) instead of created_at__date so the
             # query can use a plain btree index rather than a function-based scan.
-            total = (
-                Request.objects.filter(
-                    tenant=obj.tenant,
-                    category=obj.category.name,
-                    currency=obj.currency,
-                    status__in=[Request.STATUS_APPROVED, Request.STATUS_PAYED],
-                    billing_date__gte=start,
-                    billing_date__lt=end,
-                ).aggregate(total=Sum("amount"))["total"]
-            )
+            total = budget_spend_requests(obj, start, end).aggregate(total=Sum("amount"))["total"]
             self._spent_cache[obj.pk] = total or Decimal("0")
         return self._spent_cache[obj.pk]
 

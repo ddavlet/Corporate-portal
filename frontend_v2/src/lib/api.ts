@@ -2887,8 +2887,10 @@ export type Budget = {
   id: number
   tenant: number
   name: string
-  category: number
-  category_name: string
+  /** A budget is set either on a category or on a payment purpose; the other one is empty. */
+  category: number | null
+  category_name: string | null
+  payment_purpose: string
   period_type: BudgetPeriodType
   limit_amount: string
   currency: string
@@ -2902,9 +2904,13 @@ export type Budget = {
 
 export type BudgetCategory = { id: number; name: string }
 
+/** Payment purpose (назначение платежа) and its category in the request form config ('' if unknown). */
+export type BudgetPaymentPurpose = { name: string; category: string }
+
 export type BudgetCreatePayload = {
   name: string
-  category: number
+  category: number | null
+  payment_purpose: string
   period_type: BudgetPeriodType
   limit_amount: string
   currency: string
@@ -2916,9 +2922,11 @@ export type BudgetUpdatePayload = Partial<BudgetCreatePayload>
 export type BudgetSpendDetailItem = {
   id: number
   title: string
+  description: string
   amount: string
   currency: string
   category: string
+  payment_purpose: string
   status: string
   billing_date: string
   payment_type: string
@@ -2926,6 +2934,7 @@ export type BudgetSpendDetailItem = {
 
 export type BudgetListParams = {
   category?: string
+  payment_purpose?: string
   is_active?: boolean
   year?: number
   period?: number
@@ -2938,9 +2947,17 @@ export async function getBudgetCategories(): Promise<BudgetCategory[]> {
   return Array.isArray(json) ? (json as BudgetCategory[]) : []
 }
 
+export async function getBudgetPaymentPurposes(): Promise<BudgetPaymentPurpose[]> {
+  const res = await apiFetch('/api/budgets/payment-purposes/')
+  if (!res.ok) throw new Error(await parseErrorBody(res))
+  const json = await res.json().catch(() => null)
+  return Array.isArray(json) ? (json as BudgetPaymentPurpose[]) : []
+}
+
 export async function getBudgets(params?: BudgetListParams): Promise<Budget[]> {
   const q = new URLSearchParams()
   if (params?.category) q.set('category', params.category)
+  if (params?.payment_purpose) q.set('payment_purpose', params.payment_purpose)
   if (params?.is_active !== undefined) q.set('is_active', String(params.is_active))
   if (params?.year) q.set('year', String(params.year))
   if (params?.period) q.set('period', String(params.period))
