@@ -976,6 +976,265 @@ class McpListRequestsDeletedTests(TestCase):
         self.assertEqual(req_tools.list_requests(self.tenant.id, status="DELETED"), [])
 
 
+class McpRequestFiltersAndSummaryTests(TestCase):
+    """list_requests could not filter by category/vendor/text/billing date, so totals like
+    "how much went on rent" meant paging through 200-row lists. summarize_requests sums
+    on the server and never mixes currencies."""
+
+    def setUp(self):
+        from django.contrib.auth import get_user_model
+        from apps.modules.requests.models import Request
+        from apps.tenants.models import Tenant
+
+        self.user = get_user_model().objects.create_user(username="mcp_req_sum", password="x")
+        self.tenant = Tenant.objects.create(name="T", subdomain="reqsum", is_active=True, mcp_enabled=True)
+
+        def _make(category, amount, currency="UZS", status=Request.STATUS_PAYED, billing=date(2026, 8, 10), **kw):
+            return Request.objects.create(
+                tenant=self.tenant, created_by=self.user, category=category, amount=Decimal(amount),
+                currency=currency, status=status, billing_date=billing, **kw,
+            )
+
+        self.rent_aug = _make("Аренда", "1000", vendor="ООО Офис", title="Аренда офиса август")
+        self.rent_sep = _make("Аренда", "1000", vendor="ООО Офис", billing=date(2026, 9, 10))
+        self.rent_usd = _make("Аренда", "50", currency="USD")
+        self.ads = _make("Маркетинг", "300", vendor="Реклама Про", description="баннеры")
+        self.draft = _make("Аренда", "999", status=Request.STATUS_DRAFT)
+
+    @patch("apps.mcp_server.tools.requests.require_module_access")
+    def test_list_filters_by_category_vendor_search_and_billing_date(self, mock_access):
+        from apps.mcp_server.tools import requests as req_tools
+
+        mock_access.return_value = (None, self.tenant)
+        ids = lambda **kw: {r["id"] for r in req_tools.list_requests(self.tenant.id, **kw)}
+        self.assertEqual(ids(category="Аренда", status="PAYED"), {self.rent_aug.id, self.rent_sep.id, self.rent_usd.id})
+        self.assertEqual(ids(vendor="Реклама"), {self.ads.id})
+        self.assertEqual(ids(search="баннер"), {self.ads.id})
+        self.assertEqual(ids(search="август"), {self.rent_aug.id})
+        self.assertEqual(
+            ids(category="Аренда", billing_date_from="2026-09-01", billing_date_to="2026-09-30"),
+            {self.rent_sep.id},
+        )
+        self.assertEqual(ids(status="DRAFT,PAYED", category="Маркетинг"), {self.ads.id})
+
+    @patch("apps.mcp_server.tools.requests.require_module_access")
+    def test_summary_by_category_splits_currencies(self, mock_access):
+        from apps.mcp_server.tools import requests as req_tools
+
+        mock_access.return_value = (None, self.tenant)
+        data = req_tools.summarize_requests(self.tenant.id, group_by="category", status="PAYED")
+        groups = {(g["key"], g["currency"]): (g["count"], Decimal(g["total"])) for g in data["groups"]}
+        self.assertEqual(groups, {
+            ("Аренда", "UZS"): (2, Decimal("2000")),
+            ("Аренда", "USD"): (1, Decimal("50")),
+            ("Маркетинг", "UZS"): (1, Decimal("300")),
+        })
+        self.assertEqual(data["groups"][0]["key"], "Аренда")
+        totals = {t["currency"]: Decimal(t["total"]) for t in data["totals_by_currency"]}
+        self.assertEqual(totals, {"UZS": Decimal("2300"), "USD": Decimal("50")})
+
+    @patch("apps.mcp_server.tools.requests.require_module_access")
+    def test_summary_by_month_uses_billing_date(self, mock_access):
+        from apps.mcp_server.tools import requests as req_tools
+
+        mock_access.return_value = (None, self.tenant)
+        data = req_tools.summarize_requests(self.tenant.id, group_by="month", status="PAYED", currency="UZS")
+        groups = {g["key"]: Decimal(g["total"]) for g in data["groups"]}
+        self.assertEqual(groups, {"2026-08": Decimal("1300"), "2026-09": Decimal("1000")})
+
+    @patch("apps.mcp_server.tools.requests.require_module_access")
+    def test_summary_rejects_unknown_group_by(self, mock_access):
+        from apps.mcp_server.tools import requests as req_tools
+
+        mock_access.return_value = (None, self.tenant)
+        with self.assertRaisesRegex(ValueError, "Invalid group_by"):
+            req_tools.summarize_requests(self.tenant.id, group_by="weekday")
+
+
+class McpContractsToolsTests(TestCase):
+    """Contracts were not exposed via MCP at all; paid_total counts only PAYED requests
+    in the contract's own currency."""
+
+    def setUp(self):
+        from django.contrib.auth import get_user_model
+        from apps.modules.contracts.models import Contract
+        from apps.modules.requests.models import Request
+        from apps.modules.vendors.models import Vendor
+        from apps.tenants.models import Tenant
+
+        user = get_user_model().objects.create_user(username="mcp_contracts", password="x")
+        self.tenant = Tenant.objects.create(name="T", subdomain="mcpcontracts", is_active=True, mcp_enabled=True)
+        vendor = Vendor.objects.create(tenant=self.tenant, kind=Vendor.KIND_TRANSFER, name="ООО Офис", created_by=user)
+        self.active = Contract.objects.create(
+            tenant=self.tenant, vendor=vendor, contract_number="A-1", date_from=date(2026, 1, 1),
+            date_to=date(2099, 12, 31), contract_amount=Decimal("1000"), currency="UZS",
+            contract_terms="Оплата ежемесячно",
+        )
+        self.expired = Contract.objects.create(
+            tenant=self.tenant, vendor=vendor, contract_number="OLD-1", date_from=date(2020, 1, 1),
+            date_to=date(2020, 12, 31), currency="UZS",
+        )
+
+        def _req(amount, currency="UZS", status=Request.STATUS_PAYED):
+            return Request.objects.create(
+                tenant=self.tenant, created_by=user, amount=Decimal(amount), currency=currency,
+                status=status, billing_date=date(2026, 3, 1), contract_ref=self.active,
+            )
+
+        self.paid = _req("300")
+        _req("50", currency="USD")
+        _req("200", status=Request.STATUS_APPROVED)
+
+    @patch("apps.mcp_server.tools.contracts.require_module_access")
+    def test_list_shows_paid_and_remaining(self, mock_access):
+        from apps.mcp_server.tools import contracts as contract_tools
+
+        mock_access.return_value = (None, self.tenant)
+        rows = {r["id"]: r for r in contract_tools.list_contracts(self.tenant.id)}
+        row = rows[self.active.id]
+        self.assertEqual(row["vendor"], "ООО Офис")
+        self.assertEqual(row["status"], "accepted")
+        self.assertEqual(Decimal(row["paid_total"]), Decimal("300"))
+        self.assertEqual(Decimal(row["remaining"]), Decimal("700"))
+        self.assertEqual(rows[self.expired.id]["status"], "expired")
+        self.assertIsNone(rows[self.expired.id]["remaining"])
+
+    @patch("apps.mcp_server.tools.contracts.require_module_access")
+    def test_list_filters_by_status_and_validity(self, mock_access):
+        from apps.mcp_server.tools import contracts as contract_tools
+
+        mock_access.return_value = (None, self.tenant)
+        ids = lambda **kw: [r["id"] for r in contract_tools.list_contracts(self.tenant.id, **kw)]
+        self.assertEqual(ids(status="expired"), [self.expired.id])
+        self.assertEqual(ids(status="accepted"), [self.active.id])
+        self.assertEqual(ids(active_on="2020-06-01"), [self.expired.id])
+        self.assertEqual(ids(expires_from="2099-01-01", expires_to="2099-12-31"), [self.active.id])
+
+    @patch("apps.mcp_server.tools.contracts.require_module_access")
+    def test_detail_has_terms_and_linked_requests(self, mock_access):
+        from apps.mcp_server.tools import contracts as contract_tools
+
+        mock_access.return_value = (None, self.tenant)
+        data = contract_tools.get_contract(self.tenant.id, self.active.id)
+        self.assertEqual(data["contract_terms"], "Оплата ежемесячно")
+        self.assertEqual(len(data["requests"]), 3)
+        with self.assertRaisesRegex(ValueError, "not found"):
+            contract_tools.get_contract(self.tenant.id, 999999)
+
+
+class McpClientDebtsToolTests(TestCase):
+    """Debt snapshots must not be summed across dates: only the latest one counts."""
+
+    def setUp(self):
+        from datetime import timezone as dt_tz
+        from django.contrib.auth import get_user_model
+        from apps.modules.clients_debt.models import ClientDebtSnapshot
+        from apps.tenants.models import Tenant
+
+        user = get_user_model().objects.create_user(username="mcp_debts", password="x")
+        self.tenant = Tenant.objects.create(name="T", subdomain="mcpdebts", is_active=True, mcp_enabled=True)
+        old = datetime(2026, 9, 1, 12, tzinfo=dt_tz.utc)
+        new = datetime(2026, 10, 1, 12, tzinfo=dt_tz.utc)
+        for at, client_id, client, debt in (
+            (old, "1", "Альфа", "500"), (old, "2", "Бета", "100"),
+            (new, "1", "Альфа", "700"), (new, "3", "Гамма", "50"),
+        ):
+            ClientDebtSnapshot.objects.create(
+                tenant=self.tenant, snapshot_at=at, client_id=client_id, client=client,
+                debt_sum=Decimal(debt), created_by=user,
+            )
+
+    @patch("apps.mcp_server.tools.clients_debt.require_module_access")
+    def test_uses_only_latest_snapshot(self, mock_access):
+        from apps.mcp_server.tools import clients_debt as debt_tools
+
+        mock_access.return_value = (None, self.tenant)
+        data = debt_tools.get_client_debts(self.tenant.id)
+        self.assertEqual(len(data["snapshots"]), 1)
+        self.assertEqual(Decimal(data["snapshots"][0]["total_debt"]), Decimal("750"))
+        self.assertEqual([c["client"] for c in data["clients"]], ["Альфа", "Гамма"])
+
+    @patch("apps.mcp_server.tools.clients_debt.require_module_access")
+    def test_as_of_and_client_search(self, mock_access):
+        from apps.mcp_server.tools import clients_debt as debt_tools
+
+        mock_access.return_value = (None, self.tenant)
+        data = debt_tools.get_client_debts(self.tenant.id, as_of="2026-09-15")
+        self.assertEqual(Decimal(data["snapshots"][0]["total_debt"]), Decimal("600"))
+        data = debt_tools.get_client_debts(self.tenant.id, client_search="Гам")
+        self.assertEqual([c["client"] for c in data["clients"]], ["Гамма"])
+        self.assertEqual(debt_tools.get_client_debts(self.tenant.id, as_of="2020-01-01")["clients"], [])
+
+
+class McpCashWithdrawalReceiptsToolTests(TestCase):
+    """Pending cash receipts (money left the bank, not yet confirmed at the register)."""
+
+    def setUp(self):
+        from apps.modules.cash_withdrawals.fixtures import CashWithdrawalFixtures
+        from apps.modules.cash_withdrawals.models import CashWithdrawalReceipt
+
+        fx = CashWithdrawalFixtures()
+        fx.make_fixtures()
+        self.tenant = fx.tenant
+        self.pending = fx.make_receipt()
+        self.confirmed = fx.make_receipt(status=CashWithdrawalReceipt.Status.CONFIRMED, confirmed_by=fx.cashier)
+
+    @patch("apps.mcp_server.tools.cash_withdrawals.require_admin_or_director")
+    def test_default_lists_pending_only(self, mock_access):
+        from apps.mcp_server.tools import cash_withdrawals as cw_tools
+
+        mock_access.return_value = (None, self.tenant)
+        rows = cw_tools.list_cash_withdrawal_receipts(self.tenant.id)
+        self.assertEqual([r["id"] for r in rows], [self.pending.id])
+        self.assertEqual(rows[0]["cash_register"], "Основная касса (касса)")
+        self.assertEqual(rows[0]["days_waiting"], 0)
+
+    @patch("apps.mcp_server.tools.cash_withdrawals.require_admin_or_director")
+    def test_all_and_confirmed(self, mock_access):
+        from apps.mcp_server.tools import cash_withdrawals as cw_tools
+
+        mock_access.return_value = (None, self.tenant)
+        self.assertEqual(len(cw_tools.list_cash_withdrawal_receipts(self.tenant.id, status="all")), 2)
+        rows = cw_tools.list_cash_withdrawal_receipts(self.tenant.id, status="confirmed")
+        self.assertEqual(rows[0]["confirmed_by"], "Иван Петров")
+        with self.assertRaisesRegex(ValueError, "Invalid status"):
+            cw_tools.list_cash_withdrawal_receipts(self.tenant.id, status="done")
+
+
+class McpMyNotesToolTests(TestCase):
+    """Notes are personal messages: the tool returns only notes the caller sent or received."""
+
+    def setUp(self):
+        from django.contrib.auth import get_user_model
+        from apps.modules.notes.models import Note
+        from apps.tenants.models import Tenant
+
+        User = get_user_model()
+        self.tenant = Tenant.objects.create(name="T", subdomain="mcpnotes", is_active=True, mcp_enabled=True)
+        self.me = User.objects.create_user(username="mcp_notes_me", password="x", full_name="Я")
+        other = User.objects.create_user(username="mcp_notes_other", password="x")
+        third = User.objects.create_user(username="mcp_notes_third", password="x")
+        mk = lambda frm, to, tid: Note.objects.create(
+            tenant=self.tenant, created_by=frm, recipient_user=to,
+            target_type=Note.TARGET_REQUEST, target_id=tid, message=f"note {tid}",
+        )
+        self.sent = mk(self.me, other, 1)
+        self.received = mk(other, self.me, 2)
+        mk(other, third, 1)
+
+    @patch("apps.mcp_server.tools.notes.require_module_access")
+    def test_only_own_notes(self, mock_access):
+        from apps.mcp_server.tools import notes as note_tools
+
+        mock_access.return_value = (self.me, self.tenant)
+        self.assertEqual(
+            {n["id"] for n in note_tools.list_my_notes(self.tenant.id)}, {self.sent.id, self.received.id}
+        )
+        rows = note_tools.list_my_notes(self.tenant.id, target_type="request", target_id=1)
+        self.assertEqual([n["id"] for n in rows], [self.sent.id])
+        self.assertEqual(rows[0]["from"], "Я")
+
+
 class McpPayrollToolsTests(TestCase):
     """Payroll tools used to return only id/doc_id/created_at (list) and raw lines
     (detail). They now expose status, kind, period, totals and per-employee progress."""
@@ -1498,6 +1757,7 @@ EXPECTED_TOOL_ACCESS = {
     "list_requests": ("module", "requests", False),
     "get_request": ("module", "requests", False),
     "list_request_categories": ("module", "requests", False),
+    "summarize_requests": ("module", "requests", False),
     "list_cash_expenses": ("module", "cash", False),
     "list_cash_revenues": ("module", "cash", False),
     "list_bank_expenses": ("module", "bank", False),
@@ -1526,6 +1786,11 @@ EXPECTED_TOOL_ACCESS = {
     "create_task": ("module", "tasks", True),
     "list_vendors": ("module", "vendors", False),
     "list_wallets": ("module", "wallets", False),
+    "list_contracts": ("module", "contracts", False),
+    "get_contract": ("module", "contracts", False),
+    "get_client_debts": ("module", "clients_debt", False),
+    "list_my_notes": ("module", "notes", False),
+    "list_cash_withdrawal_receipts": ("admin_or_director", None, False),
     "list_active_users": ("admin_or_director", None, False),
     "get_tenant_info": ("admin_or_director", None, False),
     "list_module_configs": ("admin_or_director", None, False),
