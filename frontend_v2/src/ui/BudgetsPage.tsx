@@ -8,6 +8,7 @@ import {
   InputNumber,
   Modal,
   Progress,
+  Radio,
   Select,
   Space,
   Switch,
@@ -22,6 +23,7 @@ import 'dayjs/locale/ru'
 import {
   getBudgets,
   getBudgetCategories,
+  getBudgetPaymentPurposes,
   createBudget,
   updateBudget,
   deleteBudget,
@@ -29,6 +31,7 @@ import {
   type Budget,
   type BudgetCategory,
   type BudgetCreatePayload,
+  type BudgetPaymentPurpose,
   type BudgetPeriodType,
   type BudgetSpendDetailItem,
 } from '../lib/api'
@@ -44,6 +47,15 @@ const PERIOD_LABELS: Record<BudgetPeriodType, string> = {
 }
 
 const CURRENCIES = ['UZS', 'USD', 'EUR', 'RUB']
+
+type BudgetDimension = 'category' | 'payment_purpose'
+
+type BudgetFormValues = Omit<BudgetCreatePayload, 'limit_amount' | 'category' | 'payment_purpose'> & {
+  dimension: BudgetDimension
+  category?: number
+  payment_purpose?: string
+  limit_amount: number
+}
 
 function utilizationColor(pct: number): string {
   if (pct >= 100) return '#ff4d4f'
@@ -67,6 +79,9 @@ export function BudgetsPage() {
   const [error, setError] = useState<string | null>(null)
 
   const [categoryFilter, setCategoryFilter] = useState<string | undefined>(undefined)
+  const [purposeFilter, setPurposeFilter] = useState<string | undefined>(undefined)
+  const [purposes, setPurposes] = useState<BudgetPaymentPurpose[]>([])
+  const [purposesLoading, setPurposesLoading] = useState(false)
   const [year, setYear] = useState(today.year())
   const [period, setPeriod] = useState(today.month() + 1)
 
@@ -74,7 +89,8 @@ export function BudgetsPage() {
   const [formBudget, setFormBudget] = useState<Budget | null>(null)
   const [formLoading, setFormLoading] = useState(false)
   const [formError, setFormError] = useState<string | null>(null)
-  const [form] = Form.useForm()
+  const [form] = Form.useForm<BudgetFormValues>()
+  const dimension = Form.useWatch('dimension', form)
 
   const [detailBudget, setDetailBudget] = useState<Budget | null>(null)
   const [detailItems, setDetailItems] = useState<BudgetSpendDetailItem[]>([])
@@ -84,24 +100,26 @@ export function BudgetsPage() {
   useEffect(() => {
     setCategoriesLoading(true)
     getBudgetCategories().then(setCategories).catch(() => setCategories([])).finally(() => setCategoriesLoading(false))
+    setPurposesLoading(true)
+    getBudgetPaymentPurposes().then(setPurposes).catch(() => setPurposes([])).finally(() => setPurposesLoading(false))
   }, [])
 
   const load = () => {
     setLoading(true)
     setError(null)
-    getBudgets({ category: categoryFilter, year, period })
+    getBudgets({ category: categoryFilter, payment_purpose: purposeFilter, year, period })
       .then(setBudgets)
       .catch((e: unknown) => setError(String(e)))
       .finally(() => setLoading(false))
   }
 
-  useEffect(load, [categoryFilter, year, period])
+  useEffect(load, [categoryFilter, purposeFilter, year, period])
 
   const openCreate = () => {
     setFormBudget(null)
     setFormError(null)
     form.resetFields()
-    form.setFieldsValue({ currency: 'UZS', is_active: true, period_type: 'monthly' })
+    form.setFieldsValue({ dimension: 'category', currency: 'UZS', is_active: true, period_type: 'monthly' })
     setFormOpen(true)
   }
 
@@ -110,7 +128,9 @@ export function BudgetsPage() {
     setFormError(null)
     form.setFieldsValue({
       name: b.name,
-      category: b.category,
+      dimension: b.payment_purpose ? 'payment_purpose' : 'category',
+      category: b.category ?? undefined,
+      payment_purpose: b.payment_purpose || undefined,
       period_type: b.period_type,
       limit_amount: parseFloat(b.limit_amount),
       currency: b.currency,
@@ -120,7 +140,7 @@ export function BudgetsPage() {
   }
 
   const handleFormSubmit = async () => {
-    let values: BudgetCreatePayload & { limit_amount: number }
+    let values: BudgetFormValues
     try {
       values = await form.validateFields()
     } catch {
@@ -129,7 +149,13 @@ export function BudgetsPage() {
     setFormLoading(true)
     setFormError(null)
     try {
-      const payload: BudgetCreatePayload = { ...values, limit_amount: String(values.limit_amount) }
+      const { dimension: dim, category, payment_purpose, ...rest } = values
+      const payload: BudgetCreatePayload = {
+        ...rest,
+        category: dim === 'category' ? category ?? null : null,
+        payment_purpose: dim === 'payment_purpose' ? payment_purpose ?? '' : '',
+        limit_amount: String(values.limit_amount),
+      }
       if (formBudget) {
         await updateBudget(formBudget.id, payload)
       } else {
@@ -182,7 +208,9 @@ export function BudgetsPage() {
       render: (name: string, row) => (
         <Space direction="vertical" size={0}>
           <Text strong>{name}</Text>
-          <Text type="secondary" style={{ fontSize: 12 }}>{row.category_name}</Text>
+          <Text type="secondary" style={{ fontSize: 12 }}>
+            {row.payment_purpose ? `Назначение: ${row.payment_purpose}` : row.category_name}
+          </Text>
         </Space>
       ),
     },
@@ -257,7 +285,8 @@ export function BudgetsPage() {
 
   const detailColumns: ColumnsType<BudgetSpendDetailItem> = [
     { title: 'ID', dataIndex: 'id', key: 'id', width: 60 },
-    { title: 'Название', dataIndex: 'title', key: 'title' },
+    { title: 'Назначение', dataIndex: 'payment_purpose', key: 'payment_purpose', render: (v: string) => v || '—' },
+    { title: 'Категория', dataIndex: 'category', key: 'category', width: 140, render: (v: string) => v || '—' },
     {
       title: 'Сумма',
       key: 'amount',
@@ -291,6 +320,15 @@ export function BudgetsPage() {
           value={categoryFilter}
           onChange={setCategoryFilter}
           options={categories.map((c) => ({ label: c.name, value: c.name }))}
+        />
+        <Select
+          allowClear
+          showSearch
+          placeholder="Все назначения"
+          style={{ width: 240 }}
+          value={purposeFilter}
+          onChange={setPurposeFilter}
+          options={purposes.map((p) => ({ label: p.name, value: p.name }))}
         />
         <Select
           style={{ width: 100 }}
@@ -331,14 +369,42 @@ export function BudgetsPage() {
           <Form.Item name="name" label="Название" rules={[{ required: true, message: 'Укажите название' }]}>
             <Input placeholder="Например: Маркетинг Q1 2026" />
           </Form.Item>
-          <Form.Item name="category" label="Категория" rules={[{ required: true, message: 'Выберите категорию' }]}>
-            <Select
-              placeholder="Выберите категорию"
-              loading={categoriesLoading}
-              notFoundContent={categoriesLoading ? 'Загрузка...' : 'Нет категорий'}
-              options={categories.map((c) => ({ label: c.name, value: c.id }))}
+          <Form.Item name="dimension" label="Лимит считается по">
+            <Radio.Group
+              optionType="button"
+              options={[
+                { label: 'Категории', value: 'category' },
+                { label: 'Назначению платежа', value: 'payment_purpose' },
+              ]}
             />
           </Form.Item>
+          {dimension === 'payment_purpose' ? (
+            <Form.Item
+              name="payment_purpose"
+              label="Назначение платежа"
+              rules={[{ required: true, message: 'Выберите назначение платежа' }]}
+            >
+              <Select
+                showSearch
+                placeholder="Выберите назначение платежа"
+                loading={purposesLoading}
+                notFoundContent={purposesLoading ? 'Загрузка...' : 'Нет назначений'}
+                options={purposes.map((p) => ({
+                  label: p.category ? `${p.name} · ${p.category}` : p.name,
+                  value: p.name,
+                }))}
+              />
+            </Form.Item>
+          ) : (
+            <Form.Item name="category" label="Категория" rules={[{ required: true, message: 'Выберите категорию' }]}>
+              <Select
+                placeholder="Выберите категорию"
+                loading={categoriesLoading}
+                notFoundContent={categoriesLoading ? 'Загрузка...' : 'Нет категорий'}
+                options={categories.map((c) => ({ label: c.name, value: c.id }))}
+              />
+            </Form.Item>
+          )}
           <Form.Item name="period_type" label="Тип периода" rules={[{ required: true }]}>
             <Select options={Object.entries(PERIOD_LABELS).map(([v, l]) => ({ value: v, label: l }))} />
           </Form.Item>

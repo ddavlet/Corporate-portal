@@ -242,6 +242,29 @@ class McpInvestmentsBudgetsToolsTests(TestCase):
         self.assertIn("spent_amount", rows[0])
         self.assertIn("utilization_pct", rows[0])
 
+    @patch("apps.mcp_server.tools.budgets.require_module_access")
+    def test_purpose_budget_has_no_category_and_counts_purpose_spend(self, mock_access):
+        from apps.modules.budgets.models import Budget
+        from apps.modules.requests.models import Request
+        from apps.mcp_server.tools import budgets as bud_tools
+
+        mock_access.return_value = (None, self.tenant)
+        budget = Budget.objects.create(
+            tenant=self.tenant, name="Аренда", payment_purpose="Аренда", period_type=Budget.PERIOD_MONTHLY,
+            limit_amount="1000.00", currency="UZS", created_by=self.user,
+        )
+        req = Request.objects.create(
+            tenant=self.tenant, created_by=self.user, category="Офис", payment_purpose="Аренда",
+            amount=Decimal("400"), currency="UZS", status=Request.STATUS_PAYED, billing_date=date(2026, 1, 5),
+        )
+        rows = bud_tools.list_budgets(self.tenant.id, year=2026, period=1, payment_purpose="Аренда")
+        self.assertEqual(len(rows), 1)
+        self.assertIsNone(rows[0]["category_name"])
+        self.assertEqual(rows[0]["payment_purpose"], "Аренда")
+        self.assertEqual(Decimal(rows[0]["spent_amount"]), Decimal("400"))
+        spend = bud_tools.list_budget_spend_requests(self.tenant.id, budget.id, year=2026, period=1)
+        self.assertEqual([r["id"] for r in spend], [req.id])
+
 
 class McpPnlReportFiltersTests(TestCase):
     """get_pnl_report / get_cashflow_report used to always return every line

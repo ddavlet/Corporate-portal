@@ -29,13 +29,19 @@ class Budget(models.Model):
 
     tenant = models.ForeignKey(Tenant, on_delete=models.CASCADE, related_name="budgets", db_index=False)
     name = models.CharField(max_length=255)
+    # A budget caps spend either on one request category or on one payment purpose
+    # (назначение платежа) — exactly one of the two is set (see budgets_one_dimension).
     # FK to RequestCategory — Option B: referential integrity on the budget side.
     # Spend queries match by category.name since Request.category is a CharField.
     category = models.ForeignKey(
         "requests.RequestCategory",
         on_delete=models.PROTECT,
         related_name="budgets",
+        null=True,
+        blank=True,
     )
+    # Matched against Request.payment_purpose, which is free text picked from the form config.
+    payment_purpose = models.CharField(max_length=200, default="", blank=True)
     period_type = models.CharField(max_length=20, choices=PERIOD_CHOICES)
     limit_amount = models.DecimalField(max_digits=18, decimal_places=2, validators=[MinValueValidator(Decimal("0.01"))])
     currency = models.CharField(max_length=3, default=CURRENCY_UZS, choices=CURRENCY_CHOICES)
@@ -54,7 +60,14 @@ class Budget(models.Model):
             models.UniqueConstraint(
                 fields=["tenant", "name"],
                 name="budgets_tenant_name_uniq",
-            )
+            ),
+            models.CheckConstraint(
+                condition=(
+                    (models.Q(category__isnull=False) & models.Q(payment_purpose=""))
+                    | (models.Q(category__isnull=True) & ~models.Q(payment_purpose=""))
+                ),
+                name="budgets_one_dimension",
+            ),
         ]
         indexes = [
             models.Index(fields=["tenant", "is_active"], name="budgets_tenant_active_idx"),
