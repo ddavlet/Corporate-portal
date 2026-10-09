@@ -34,7 +34,7 @@ describe('PayrollDocumentFormModal', () => {
         initial={{
           id: 5, doc_id: null, label: '№5', created_at: '', total_sum: '10', status: 'draft', source: 'portal',
           payout_mode: 'legacy', period_month: '2026-09-01', kind: 'salary', closed_underpaid_at: null,
-          close_comment: '', current_request: null, paid_total: '0', remaining_total: '10',
+          close_comment: '', comment: '', current_request: null, paid_total: '0', remaining_total: '10',
           lines: [
             { id: 1, line_no: 1, employee: 'Alice', employee_id: 1, item: 'Зарплата', sum: '10', days_plan: null,
               days_fact: null, period_start: null, period_end: null, approval: true },

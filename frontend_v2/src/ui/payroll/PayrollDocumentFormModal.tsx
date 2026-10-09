@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Button, DatePicker, Form, InputNumber, Modal, Select, Space, Typography, message } from 'antd'
+import { Button, DatePicker, Form, Input, InputNumber, Modal, Select, Space, Typography, message } from 'antd'
 import { DeleteOutlined, PlusOutlined } from '@ant-design/icons'
 import dayjs, { type Dayjs } from 'dayjs'
 import {
@@ -16,6 +16,7 @@ import { EmployeeSelect } from './EmployeeSelect'
 type FormValues = {
   period_month: Dayjs
   kind: PayrollKind
+  comment?: string
   lines: { employee_id?: number; sum?: number }[]
 }
 
@@ -42,6 +43,7 @@ export function PayrollDocumentFormModal({
     form.setFieldsValue({
       period_month: initial?.period_month ? dayjs(initial.period_month) : dayjs().startOf('month'),
       kind: initial?.kind ?? 'salary',
+      comment: initial?.comment ?? '',
       lines: initial
         ? initial.lines
             .filter((l) => l.employee_id !== null)
@@ -74,6 +76,7 @@ export function PayrollDocumentFormModal({
       const payload = {
         period_month: v.period_month.startOf('month').format('YYYY-MM-DD'),
         kind: v.kind,
+        comment: (v.comment ?? '').trim(),
         lines: v.lines.map((l) => ({ employee_id: l.employee_id as number, sum: String(l.sum) })),
       }
       const doc = initial ? await updatePayrollDraft(initial.id, payload) : await createPayrollDraft(payload)
@@ -111,6 +114,14 @@ export function PayrollDocumentFormModal({
             />
           </Form.Item>
         </Space>
+        <Form.Item
+          name="comment"
+          label="Комментарий"
+          extra="Попадёт в описание заявки на выплату"
+          rules={[{ max: 2000, message: 'Не длиннее 2000 символов' }]}
+        >
+          <Input.TextArea autoSize={{ minRows: 2, maxRows: 6 }} maxLength={2000} />
+        </Form.Item>
         <Form.List
           name="lines"
           rules={[

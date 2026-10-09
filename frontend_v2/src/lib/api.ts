@@ -353,6 +353,8 @@ export type EmployeeDto = { id: number; full_name: string }
 export type PayrollDraftPayload = {
   period_month: string
   kind: PayrollKind
+  /** Added to the linked payment request's description on accept. */
+  comment?: string
   lines: { employee_id: number; sum: string }[]
 }
 
@@ -382,6 +384,7 @@ export type PayrollDocumentDetailDto = {
   payout_mode: 'portal' | 'legacy'
   period_month: string | null
   kind: PayrollKind | null
+  comment: string
   closed_underpaid_at: string | null
   close_comment: string
   current_request: { id: number; status: string } | null

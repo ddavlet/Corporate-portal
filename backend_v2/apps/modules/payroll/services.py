@@ -114,6 +114,9 @@ def maybe_create_linked_request(
             f"Автоматически создано на основании начисления ЗП №{locked_document.pk} "
             f"от {timezone.localtime(locked_document.created_at):%d.%m.%Y}"
         )
+        comment = (locked_document.comment or "").strip()
+        if comment:
+            description = f"{description}\n{comment}"
 
         request_obj = Request.objects.create(
             tenant=tenant,
@@ -180,7 +183,9 @@ def _lock_draft(document: PayrollDocument) -> PayrollDocument:
     return locked
 
 
-def create_draft_document(*, tenant, user, period_month: date, kind: str, lines_data: list[dict]) -> PayrollDocument:
+def create_draft_document(
+    *, tenant, user, period_month: date, kind: str, lines_data: list[dict], comment: str = ""
+) -> PayrollDocument:
     with transaction.atomic():
         document = PayrollDocument.objects.create(
             tenant=tenant,
@@ -190,19 +195,27 @@ def create_draft_document(*, tenant, user, period_month: date, kind: str, lines_
             source=PayrollDocument.SOURCE_PORTAL,
             period_month=period_month.replace(day=1),
             kind=kind,
+            comment=(comment or "").strip(),
         )
         _write_draft_lines(document, kind=kind, lines_data=lines_data)
     return document
 
 
-def update_draft_document(*, document: PayrollDocument, period_month: date, kind: str, lines_data: list[dict]) -> PayrollDocument:
+def update_draft_document(
+    *, document: PayrollDocument, period_month: date, kind: str, lines_data: list[dict], comment: str | None = None
+) -> PayrollDocument:
+    """comment=None keeps the stored comment (clients that do not send it)."""
     with transaction.atomic():
         locked = _lock_draft(document)
         if PayrollPayout.objects.filter(document=locked).exists():
             raise ValidationError({"detail": "По начислению уже есть выплаты."})
         locked.period_month = period_month.replace(day=1)
         locked.kind = kind
-        locked.save(update_fields=["period_month", "kind"])
+        update_fields = ["period_month", "kind"]
+        if comment is not None:
+            locked.comment = comment.strip()
+            update_fields.append("comment")
+        locked.save(update_fields=update_fields)
         # Allowed exception to the no-delete rule (agreed): draft lines are user input,
         # never accepted, no payouts reference them.
         locked.lines.all().delete()

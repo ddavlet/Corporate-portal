@@ -132,6 +132,8 @@ class PayrollDraftLineSerializer(serializers.Serializer):
 class PayrollDraftSerializer(serializers.Serializer):
     period_month = serializers.DateField()
     kind = serializers.ChoiceField(choices=PayrollDocument.KIND_CHOICES)
+    # Optional: omitted on update keeps the stored comment.
+    comment = serializers.CharField(required=False, allow_blank=True, trim_whitespace=True, max_length=2000)
     lines = PayrollDraftLineSerializer(many=True)
 
     def validate_lines(self, value):
@@ -189,7 +191,7 @@ class PayrollDocumentWorkflowDetailSerializer(PayrollDocumentDetailSerializer):
 
     class Meta(PayrollDocumentDetailSerializer.Meta):
         fields = PayrollDocumentDetailSerializer.Meta.fields + [
-            "label", "status", "source", "payout_mode", "period_month", "kind",
+            "label", "status", "source", "payout_mode", "period_month", "kind", "comment",
             "closed_underpaid_at", "close_comment", "current_request", "paid_total", "remaining_total",
         ]
         read_only_fields = fields
