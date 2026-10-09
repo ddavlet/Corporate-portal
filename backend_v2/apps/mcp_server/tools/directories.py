@@ -77,18 +77,36 @@ def list_active_users(tenant_id: int) -> list[dict[str, Any]]:
 
 
 def list_wallets(tenant_id: int) -> list[dict[str, Any]]:
-    """Return all wallets (cash registers and bank/card accounts) for a tenant."""
+    """Return all wallets (cash registers and bank/card accounts) with their current balance."""
     _, tenant = require_module_access(tenant_id, "wallets")
 
     from apps.modules.wallets.models import Wallet
+    from apps.modules.wallets.services import wallet_balance_payload
 
-    return json_safe(list(
+    wallets = (
         Wallet.objects.filter(tenant=tenant)
+        .select_related("cash_register", "bank_account", "corporate_card_account")
         .order_by("wallet_type", "id")
-        .values(
-            "id", "wallet_type", "currency",
-            "opening_balance", "opening_balance_at",
-            "is_visible_in_cash_section",
-            "cash_register_id", "bank_account_id", "corporate_card_account_id",
-        )
-    ))
+    )
+    out: list[dict[str, Any]] = []
+    for w in wallets:
+        if w.cash_register_id:
+            name = (w.cash_register.name or "").strip() or w.currency
+        elif w.bank_account_id:
+            name = w.bank_account.label
+        elif w.corporate_card_account_id:
+            name = (w.corporate_card_account.label or "").strip() or w.currency
+        else:
+            name = w.currency
+        out.append({
+            "id": w.id,
+            "wallet_type": w.wallet_type,
+            "name": name,
+            "currency": w.currency,
+            "current_balance": wallet_balance_payload(wallet=w)["current_balance"],
+            "is_visible_in_cash_section": w.is_visible_in_cash_section,
+            "cash_register_id": w.cash_register_id,
+            "bank_account_id": w.bank_account_id,
+            "corporate_card_account_id": w.corporate_card_account_id,
+        })
+    return json_safe(out)
