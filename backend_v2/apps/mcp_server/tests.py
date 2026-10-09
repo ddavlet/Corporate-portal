@@ -995,7 +995,7 @@ class McpRequestFiltersAndSummaryTests(TestCase):
                 currency=currency, status=status, billing_date=billing, **kw,
             )
 
-        self.rent_aug = _make("Аренда", "1000", vendor="ООО Офис", title="Аренда офиса август")
+        self.rent_aug = _make("Аренда", "1000", vendor="ООО Офис", payment_purpose="Аренда офиса август")
         self.rent_sep = _make("Аренда", "1000", vendor="ООО Офис", billing=date(2026, 9, 10))
         self.rent_usd = _make("Аренда", "50", currency="USD")
         self.ads = _make("Маркетинг", "300", vendor="Реклама Про", description="баннеры")

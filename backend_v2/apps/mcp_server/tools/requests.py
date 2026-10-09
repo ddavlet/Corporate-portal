@@ -97,9 +97,8 @@ def _filtered_requests(
         qs = qs.filter(contract_ref_id=int(contract_id))
     if search:
         t = search.strip()
-        qs = qs.filter(
-            Q(title__icontains=t) | Q(description__icontains=t) | Q(payment_purpose__icontains=t)
-        )
+        # Request.title is always the tenant name (see Request.save), so it is not searched.
+        qs = qs.filter(Q(description__icontains=t) | Q(payment_purpose__icontains=t))
     if date_from:
         qs = qs.filter(created_at__date__gte=date_from)
     if date_to:

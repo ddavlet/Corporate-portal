@@ -223,7 +223,7 @@ def list_requests(
         category: Exact category name, case-insensitive (see list_request_categories).
         vendor: Substring of the vendor name.
         contract_id: Only requests linked to this contract (see list_contracts).
-        search: Substring of the title, description or payment purpose.
+        search: Substring of the description or payment purpose.
         billing_date_from: Filter by billing date (the month the expense belongs to) >= YYYY-MM-DD.
         billing_date_to: Filter by billing date <= YYYY-MM-DD.
     """

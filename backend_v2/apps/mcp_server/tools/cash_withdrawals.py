@@ -52,7 +52,7 @@ def list_cash_withdrawal_receipts(
         out.append({
             "id": r.id,
             "request_id": r.request_id,
-            "request_title": r.request.title,
+            "request_description": r.request.description,
             "amount": r.amount,
             "currency": r.currency,
             "cash_register": ((register.name or "").strip() or register.currency) if register else None,
