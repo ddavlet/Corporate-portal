@@ -1107,7 +1107,7 @@ class TelegramApprovalsTests(APITestCase):
             decision=Approval.DECISION_APPROVED,
         )
         txt = build_approval_message(request_obj=request_row, approval=approval)
-        self.assertIn("Месяц начисления", txt)
+        self.assertIn("Месяц биллинга", txt)
         self.assertIn("March 2026", txt)
         self.assertNotIn("2026-03-31", txt)
         self.assertNotIn("31.03", txt)

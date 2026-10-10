@@ -276,7 +276,7 @@ def build_approval_message(*, request_obj: Request, approval: Approval | None = 
             f"<b>📌 Назначение</b>\n"
             f"• Назначение платежа: {context['payment_purpose']}\n"
             f"• Описание: {context['description']}\n"
-            f"• Месяц начисления: {context['billing_month']}\n\n"
+            f"• Месяц биллинга: {context['billing_month']}\n\n"
             f"<b>⏱ Статус</b>\n"
             f"• Срочность: {context['urgency']}\n"
             f"• Заявитель: {context['requester']}\n\n"

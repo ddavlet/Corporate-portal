@@ -37,7 +37,7 @@ DEFAULT_MESSAGING_GATEWAY_MESSAGE_TEMPLATE = (
     "<b>📌 Назначение</b>\n"
     "• Назначение платежа: {payment_purpose}\n"
     "• Описание: {description}\n"
-    "• Месяц начисления: {billing_month}\n\n"
+    "• Месяц биллинга: {billing_month}\n\n"
     "<b>⏱ Статус</b>\n"
     "• Срочность: {urgency}\n"
     "• Заявитель: {requester}\n\n"
