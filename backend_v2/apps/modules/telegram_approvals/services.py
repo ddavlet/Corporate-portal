@@ -204,7 +204,7 @@ def dispatch_draft_request_notification(
         f"<b>📌 Назначение</b>\n"
         f"• Назначение платежа: {escape(payment_purpose_text)}\n"
         f"• Описание: {escape(description_text)}\n"
-        f"• Месяц начисления: {billing_month}\n\n"
+        f"• Месяц биллинга: {billing_month}\n\n"
         f"<b>⏱ Статус</b>\n"
         f"• Срочность: {escape(urgency_text)}\n"
         f"• Заявитель: {escape(requester_name)}\n\n"

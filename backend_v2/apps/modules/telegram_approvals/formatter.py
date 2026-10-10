@@ -88,19 +88,22 @@ def _format_contract_block(request_obj: Request) -> str:
 
 def _format_billing_month(request_obj: Request) -> str:
     """
-    Month + year only (no calendar day): accrual from expense_year/month, else from billing_date.
+    Month + year only (no calendar day): accrual month from billing_date, else from expense_year/month.
+
+    expense_year/month is the payment date stamped when the request becomes PAYED, so it must not
+    override the accrual month the requester chose (e.g. September salary paid in October).
     """
-    if request_obj.expense_year is not None and request_obj.expense_month is not None:
-        try:
-            dt = datetime(request_obj.expense_year, request_obj.expense_month, 1)
-        except ValueError:
-            dt = None
-        if dt is not None:
-            return date_format(dt, "F Y", use_l10n=True)
     bd = getattr(request_obj, "billing_date", None)
     if isinstance(bd, date):
         try:
             dt = datetime(bd.year, bd.month, 1)
+        except ValueError:
+            dt = None
+        if dt is not None:
+            return date_format(dt, "F Y", use_l10n=True)
+    if request_obj.expense_year is not None and request_obj.expense_month is not None:
+        try:
+            dt = datetime(request_obj.expense_year, request_obj.expense_month, 1)
         except ValueError:
             return "-"
         return date_format(dt, "F Y", use_l10n=True)
@@ -273,7 +276,7 @@ def build_approval_message(*, request_obj: Request, approval: Approval | None = 
             f"<b>📌 Назначение</b>\n"
             f"• Назначение платежа: {context['payment_purpose']}\n"
             f"• Описание: {context['description']}\n"
-            f"• Месяц начисления: {context['billing_month']}\n\n"
+            f"• Месяц биллинга: {context['billing_month']}\n\n"
             f"<b>⏱ Статус</b>\n"
             f"• Срочность: {context['urgency']}\n"
             f"• Заявитель: {context['requester']}\n\n"
