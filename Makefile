@@ -7,7 +7,7 @@ DEPLOY_TEST_PATH ?= $(TEST_PATH)
 BRANCH     := $(shell git rev-parse --abbrev-ref HEAD)
 
 .DEFAULT_GOAL := help
-.PHONY: help push test deploy makemigrations showmigrations logs backup-db create-postgres-mcp-role rollback refresh-approval-messages reconcile-card-revenues reconcile-expense-links send-to-vacation return-from-vacation reassign-unmatched-bank-expenses backfill-bank-expense-requests backfill-cash-expense-requests backfill-card-expenses backfill-cbu-exchange-rate redispatch-unsent-approval-cards backfill-cash-withdrawals local-up local-down local-logs test_local
+.PHONY: help push test deploy makemigrations showmigrations logs backup-db create-postgres-mcp-role rollback refresh-approval-messages reconcile-card-revenues reconcile-expense-links relink-unresolved-bank-doc-numbers send-to-vacation return-from-vacation reassign-unmatched-bank-expenses backfill-bank-expense-requests backfill-cash-expense-requests backfill-card-expenses backfill-cbu-exchange-rate redispatch-unsent-approval-cards backfill-cash-withdrawals local-up local-down local-logs test_local
 
 help:
 	@echo ""
@@ -29,6 +29,7 @@ help:
 	@echo "  make reconcile-expense-links TENANT=3 TYPE=\"bank cash\" — то же самое, но только указанные типы"
 	@echo "  make reconcile-expense-links TENANT=3 DATE_FROM=2026-09-01 DATE_TO=2026-09-09 — то же самое, с фильтром по дате оплаты"
 	@echo "  make reconcile-expense-links TENANT=3 APPLY=1 — то же самое, но с записью изменений"
+	@echo "  make relink-unresolved-bank-doc-numbers TENANT=lemonfit [APPLY=1] — привязать заявки с неверным № п/п к банковским расходам по сумме+дате"
 	@echo "  make send-to-vacation TENANT=3 EMPLOYEE_USERNAME=s.davletyarov — dry-run: отправить согласующего в отпуск"
 	@echo "  make send-to-vacation TENANT=3 EMPLOYEE_USERNAME=s.davletyarov APPLY=1 — то же самое, но с записью изменений"
 	@echo "  make return-from-vacation TENANT=3 EMPLOYEE_USERNAME=s.davletyarov APPLY=1 — вернуть согласующего из отпуска"
@@ -177,6 +178,17 @@ reconcile-expense-links:
 		docker compose --env-file ./.env exec -T backend_v2 \
 		python manage.py reconcile_expense_links --tenant=$(TENANT) \
 		$(foreach t,$(subst $(comma), ,$(TYPE)),--type=$(t)) \
+		$(if $(DATE_FROM),--date-from=$(DATE_FROM),) \
+		$(if $(DATE_TO),--date-to=$(DATE_TO),) \
+		$(if $(APPLY),--apply,)"
+
+# ── 7d-1d. Привязать заявки с неверным № п/п к банковским расходам (по сумме+дате) ──
+# make relink-unresolved-bank-doc-numbers TENANT=lemonfit [DATE_FROM=2026-09-01] [APPLY=1]
+relink-unresolved-bank-doc-numbers:
+	@test -n "$(TENANT)" || (echo "Usage: make relink-unresolved-bank-doc-numbers TENANT=<id|subdomain> [DATE_FROM=] [DATE_TO=] [APPLY=1]" && exit 1)
+	ssh $(SERVER) "cd $(REMOTE_DIR) && \
+		docker compose --env-file ./.env exec -T backend_v2 \
+		python manage.py relink_unresolved_bank_doc_numbers --tenant=$(TENANT) \
 		$(if $(DATE_FROM),--date-from=$(DATE_FROM),) \
 		$(if $(DATE_TO),--date-to=$(DATE_TO),) \
 		$(if $(APPLY),--apply,)"
