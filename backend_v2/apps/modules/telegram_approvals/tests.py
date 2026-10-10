@@ -1112,7 +1112,8 @@ class TelegramApprovalsTests(APITestCase):
         self.assertNotIn("2026-03-31", txt)
         self.assertNotIn("31.03", txt)
 
-    def test_build_approval_message_billing_month_prefers_expense_over_billing_date(self):
+    def test_build_approval_message_billing_month_prefers_billing_date_over_expense(self):
+        # expense_* is the payment date; the accrual month is billing_date.
         request_row = Request.objects.create(
             tenant=self.tenant,
             created_by=self.admin,
@@ -1132,8 +1133,8 @@ class TelegramApprovalsTests(APITestCase):
             decision=Approval.DECISION_PENDING,
         )
         txt = build_approval_message(request_obj=request_row, approval=approval)
-        self.assertIn("April 2026", txt)
-        self.assertNotIn("February 2026", txt)
+        self.assertIn("February 2026", txt)
+        self.assertNotIn("April 2026", txt)
 
     def test_build_approval_message_formats_amount_with_thousands_and_two_decimals(self):
         request_row = Request.objects.create(
