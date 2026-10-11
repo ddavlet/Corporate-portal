@@ -7,7 +7,7 @@ DEPLOY_TEST_PATH ?= $(TEST_PATH)
 BRANCH     := $(shell git rev-parse --abbrev-ref HEAD)
 
 .DEFAULT_GOAL := help
-.PHONY: help push test deploy makemigrations showmigrations logs backup-db create-postgres-mcp-role rollback refresh-approval-messages reconcile-card-revenues reconcile-expense-links relink-unresolved-bank-doc-numbers send-to-vacation return-from-vacation reassign-unmatched-bank-expenses backfill-bank-expense-requests backfill-cash-expense-requests backfill-card-expenses backfill-cbu-exchange-rate redispatch-unsent-approval-cards backfill-cash-withdrawals local-up local-down local-logs test_local
+.PHONY: help push test deploy makemigrations showmigrations logs backup-db create-postgres-mcp-role rollback refresh-approval-messages reconcile-card-revenues reconcile-expense-links relink-unresolved-bank-doc-numbers link-payroll-requests send-to-vacation return-from-vacation reassign-unmatched-bank-expenses backfill-bank-expense-requests backfill-cash-expense-requests backfill-card-expenses backfill-cbu-exchange-rate redispatch-unsent-approval-cards backfill-cash-withdrawals local-up local-down local-logs test_local
 
 help:
 	@echo ""
@@ -30,6 +30,7 @@ help:
 	@echo "  make reconcile-expense-links TENANT=3 DATE_FROM=2026-09-01 DATE_TO=2026-09-09 — то же самое, с фильтром по дате оплаты"
 	@echo "  make reconcile-expense-links TENANT=3 APPLY=1 — то же самое, но с записью изменений"
 	@echo "  make relink-unresolved-bank-doc-numbers TENANT=lemonfit [APPLY=1] — привязать заявки с неверным № п/п к банковским расходам по сумме+дате"
+	@echo "  make link-payroll-requests TENANT=lemonfit PAIRS=\"7226:1-000000077,...\" [SET_AMOUNT=1] [APPLY=1] — привязать заявки ЗП к указанным ведомостям"
 	@echo "  make send-to-vacation TENANT=3 EMPLOYEE_USERNAME=s.davletyarov — dry-run: отправить согласующего в отпуск"
 	@echo "  make send-to-vacation TENANT=3 EMPLOYEE_USERNAME=s.davletyarov APPLY=1 — то же самое, но с записью изменений"
 	@echo "  make return-from-vacation TENANT=3 EMPLOYEE_USERNAME=s.davletyarov APPLY=1 — вернуть согласующего из отпуска"
@@ -191,6 +192,17 @@ relink-unresolved-bank-doc-numbers:
 		python manage.py relink_unresolved_bank_doc_numbers --tenant=$(TENANT) \
 		$(if $(DATE_FROM),--date-from=$(DATE_FROM),) \
 		$(if $(DATE_TO),--date-to=$(DATE_TO),) \
+		$(if $(APPLY),--apply,)"
+
+# ── 7d-1e. Привязать заявки "Начисление ЗП" к явно указанным ведомостям ──
+# make link-payroll-requests TENANT=lemonfit PAIRS="7226:1-000000077,7585:1-000000084" [SET_AMOUNT=1] [APPLY=1]
+link-payroll-requests:
+	@test -n "$(TENANT)" -a -n "$(PAIRS)" || (echo "Usage: make link-payroll-requests TENANT=<id|subdomain> PAIRS=\"<request_id>:<doc_id>,...\" [SET_AMOUNT=1] [APPLY=1]" && exit 1)
+	ssh $(SERVER) "cd $(REMOTE_DIR) && \
+		docker compose --env-file ./.env exec -T backend_v2 \
+		python manage.py link_payroll_requests_to_documents --tenant=$(TENANT) \
+		$(foreach p,$(subst $(comma), ,$(PAIRS)),--pair=$(p)) \
+		$(if $(SET_AMOUNT),--set-amount-from-document,) \
 		$(if $(APPLY),--apply,)"
 
 # ── 7d-8b. Перенести непривязанные bank_expenses в другой тенант, где есть их PAYED-заявка ──
