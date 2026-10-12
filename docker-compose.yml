@@ -92,7 +92,7 @@ services:
       - traefik-public
       - backend
 
-  # Edge Traefik (ports 80/443, certificates) lives in its own project: edge/.
+  # Edge Traefik (ports 80/443, certificates) lives in the kolberg-infra repo (~/infra/edge).
   # This stack only attaches to its network traefik-public.
 
   browserless:
@@ -755,7 +755,7 @@ services:
 
 volumes:
   n8n_data:
-  # traefik_data (n8n_traefik_data, acme.json) is owned by edge/ now.
+  # traefik_data (n8n_traefik_data, acme.json) is owned by kolberg-infra edge/ now.
   pg_data:
   portainer_data:
   claude_sessions:
@@ -763,7 +763,7 @@ volumes:
   garlic-hub-var:
 # >>> CHANGE: добавили сети
 networks:
-  # Shared with edge/ and the other stacks on this host (it was
+  # Shared with the edge Traefik (kolberg-infra) and the other stacks on this host (it was
   # n8n_traefik-public until 2026-10). External so `docker compose down` here
   # never tries to remove it.
   traefik-public:
