@@ -32,6 +32,10 @@ services:
     image: adminer:latest
     restart: always
     container_name: adminer
+    # Paused 2026-10-13: replaced by the VPN-only Adminer in kolberg-infra
+    # (~/infra/ops). Not started by `up -d`/deploy.sh; to bring it back:
+    #   docker compose --env-file ./.env --profile adminer-legacy up -d adminer
+    profiles: ["adminer-legacy"]
     depends_on:
       db:
         condition: service_started
