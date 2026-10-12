@@ -14,6 +14,13 @@ URLS=(
   https://lemonfit.kolberg.uz/api/
   https://dev.kolberg.uz/
   https://lemonfit.kolberg.uz/form/
+  https://lemonaqua.kolberg.uz/app/
+  https://lemonhavo.kolberg.uz/app/
+  https://neuron.kolberg.uz/app/
+  https://qulay.kolberg.uz/app/
+  https://invest.kolberg.uz/form/
+  https://lemonfit2.kolberg.uz/form/
+  https://zarqand.kolberg.uz/form/
   https://lemonfit.kolberg.uz/webhook/
   https://construction.kolberg.uz/form/
   https://syrop.kolberg.uz/webhook/
