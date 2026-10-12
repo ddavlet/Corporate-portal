@@ -26,6 +26,12 @@ URLS=(
   https://medical-portal.botiq.uz/
   https://medical-portal.botiq.uz/api/
   http://lemonfit.kolberg.uz/
+  https://bot.botiq.uz/health
+  https://barbaza.botiq.uz/
+  https://bubbleking.kolberg.uz/
+  https://sklad.about-muse.uz/
+  https://signage.kolberg.uz/
+  https://syrop-recipebook.botiq.uz/
 )
 
 for url in "${URLS[@]}"; do
