@@ -1,3 +1,10 @@
+# Project name is pinned: volumes (n8n_pg_data, n8n_n8n_data, …), networks
+# (n8n_backend, …) and images (n8n-backend_v2, used by `make rollback`) are all
+# named after it. The checkout lives in ~/corporate-portal since 2026-10-13
+# (was ~/n8n); without this line compose would derive a new project name from
+# the directory and start with empty volumes.
+name: n8n
+
 services:
 
   db:

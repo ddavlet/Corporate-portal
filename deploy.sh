@@ -27,7 +27,7 @@ PY
   sleep "$sleep_seconds"
 fi
 
-cd ~/n8n                  # переходим в папку проекта
+cd "$(dirname "$(readlink -f "$0")")"   # папка проекта = папка этого скрипта (~/corporate-portal)
 
 git pull                  # скачиваем новый код с GitHub
 

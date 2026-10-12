@@ -1,5 +1,5 @@
 SERVER     := kolberg
-REMOTE_DIR := ~/n8n
+REMOTE_DIR := ~/corporate-portal
 TEST_PATH  ?= apps
 DEPLOY_AT  ?=
 DEPLOY_RUN_TESTS ?= 1

@@ -20,7 +20,7 @@ edge ничего не знает о проектах.
 ## Обычная работа
 
 ```bash
-cd ~/n8n/edge
+cd ~/corporate-portal/edge
 docker compose ps
 docker compose logs --since 10m traefik
 ```
@@ -50,6 +50,9 @@ marketing_signage, recipebook) переносит `edge/migrate-from-syrop.sh`
 На syrop остаются остановленные контейнеры и тома — копия для `rollback`.
 
 ## Однократный перенос из проекта n8n
+
+> История (2026-10-12). Тогда checkout лежал в `~/n8n`; с 2026-10-13 это
+> `~/corporate-portal` (имя compose-проекта осталось `n8n`).
 
 Простой всех сайтов — несколько секунд (шаг 4).
 

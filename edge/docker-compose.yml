@@ -8,7 +8,7 @@
 # n8n_traefik_data (acme.json); the network was n8n_traefik-public until
 # 2026-10, when it got the name the projects from the syrop VPS already used.
 #
-#   cd ~/n8n/edge && docker compose up -d
+#   cd ~/corporate-portal/edge && docker compose up -d
 #
 # Image is pinned to the major version: `docker compose pull` brings v3.x
 # fixes, a v4 upgrade is a deliberate tag change. Never `latest`.
