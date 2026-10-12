@@ -85,47 +85,8 @@ services:
       - traefik-public
       - backend
 
-  traefik:
-    image: "traefik"
-    restart: always
-    container_name: traefik
-    command:
-      - "--api.insecure=false"
-      - "--providers.docker=true"
-      - "--providers.docker.exposedbydefault=false"
-      - "--entrypoints.web.address=:80"
-      - "--entrypoints.web.http.redirections.entryPoint.to=websecure"
-      - "--entrypoints.web.http.redirections.entrypoint.scheme=https"
-      - "--entrypoints.websecure.address=:443"
-      - "--certificatesresolvers.mytlschallenge.acme.tlschallenge=true"
-      - "--certificatesresolvers.mytlschallenge.acme.email=${SSL_EMAIL}"
-      - "--certificatesresolvers.mytlschallenge.acme.storage=/letsencrypt/acme.json"
-      - "--log.level=WARN"
-
-    ports:
-      - "80:80"
-      - "443:443"
-    volumes:
-      - traefik_data:/letsencrypt
-      - /var/run/docker.sock:/var/run/docker.sock:ro
-
-    labels:
-      - traefik.enable=true
-      - traefik.docker.network=n8n_traefik-public
-
-      # Redirect only root path on frontend domains: https://<sub>.kolberg.uz[/] -> https://<sub>.kolberg.uz/app
-      - traefik.http.routers.kolberg-frontend-root-redirect.rule=(${TRAEFIK_FRONTEND_HOST_RULE}) && Path(`/`)
-      - traefik.http.routers.kolberg-frontend-root-redirect.entrypoints=web,websecure
-      - traefik.http.routers.kolberg-frontend-root-redirect.tls=true
-      - traefik.http.routers.kolberg-frontend-root-redirect.tls.certresolver=mytlschallenge
-      - traefik.http.routers.kolberg-frontend-root-redirect.priority=1500
-      - traefik.http.routers.kolberg-frontend-root-redirect.middlewares=kolberg-frontend-root-to-app@docker
-      - traefik.http.middlewares.kolberg-frontend-root-to-app.redirectregex.regex=^https?://([a-z0-9-]+)\.kolberg\.uz/?$
-      - traefik.http.middlewares.kolberg-frontend-root-to-app.redirectregex.replacement=https://$${1}.kolberg.uz/app
-      - traefik.http.middlewares.kolberg-frontend-root-to-app.redirectregex.permanent=true
-    # >>> CHANGE: traefik только в public
-    networks:
-      - traefik-public
+  # Edge Traefik (ports 80/443, certificates) lives in its own project: edge/.
+  # This stack only attaches to its network n8n_traefik-public.
 
   browserless:
     image: browserless/chrome:latest
@@ -749,6 +710,19 @@ services:
       - traefik.http.routers.frontend-v2.service=frontend-v2
       - traefik.http.routers.frontend-v2.priority=1050
 
+      # Redirect only root path on frontend domains: https://<sub>.kolberg.uz[/] -> https://<sub>.kolberg.uz/app
+      # (moved here from the edge Traefik container; it shares TRAEFIK_FRONTEND_HOST_RULE with frontend-v2)
+      - traefik.http.routers.frontend-v2-root-redirect.rule=(${TRAEFIK_FRONTEND_HOST_RULE}) && Path(`/`)
+      - traefik.http.routers.frontend-v2-root-redirect.entrypoints=web,websecure
+      - traefik.http.routers.frontend-v2-root-redirect.tls=true
+      - traefik.http.routers.frontend-v2-root-redirect.tls.certresolver=mytlschallenge
+      - traefik.http.routers.frontend-v2-root-redirect.priority=1500
+      - traefik.http.routers.frontend-v2-root-redirect.service=frontend-v2
+      - traefik.http.routers.frontend-v2-root-redirect.middlewares=frontend-v2-root-to-app@docker
+      - traefik.http.middlewares.frontend-v2-root-to-app.redirectregex.regex=^https?://([a-z0-9-]+)\.kolberg\.uz/?$
+      - traefik.http.middlewares.frontend-v2-root-to-app.redirectregex.replacement=https://$${1}.kolberg.uz/app
+      - traefik.http.middlewares.frontend-v2-root-to-app.redirectregex.permanent=true
+
     networks:
       - traefik-public
 
@@ -774,7 +748,7 @@ services:
 
 volumes:
   n8n_data:
-  traefik_data:
+  # traefik_data (n8n_traefik_data, acme.json) is owned by edge/ now.
   pg_data:
   portainer_data:
   claude_sessions:
@@ -782,7 +756,11 @@ volumes:
   garlic-hub-var:
 # >>> CHANGE: добавили сети
 networks:
+  # Created by this project originally; edge/ and other stacks attach to it by
+  # this name. External so `docker compose down` here never tries to remove it.
   traefik-public:
+    external: true
+    name: n8n_traefik-public
   backend:
   chromium:
   gateway:
