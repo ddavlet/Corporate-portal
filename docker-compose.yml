@@ -30,7 +30,7 @@ services:
         condition: service_started
     labels:
       - traefik.enable=true
-      - traefik.docker.network=n8n_traefik-public
+      - traefik.docker.network=traefik-public
       - traefik.http.routers.adminer.rule=Host(`database.kolberg.uz`)
       - traefik.http.routers.adminer.tls=true
       - traefik.http.routers.adminer.entrypoints=web,websecure
@@ -64,7 +64,7 @@ services:
       - --transport=sse
     labels:
       - traefik.enable=true
-      - traefik.docker.network=n8n_traefik-public
+      - traefik.docker.network=traefik-public
       - traefik.http.routers.postgres-mcp.rule=Host(`${POSTGRES_MCP_HOST:-postgres-mcp.kolberg.uz}`)
       - traefik.http.routers.postgres-mcp.tls=true
       - traefik.http.routers.postgres-mcp.entrypoints=web,websecure
@@ -86,7 +86,7 @@ services:
       - backend
 
   # Edge Traefik (ports 80/443, certificates) lives in its own project: edge/.
-  # This stack only attaches to its network n8n_traefik-public.
+  # This stack only attaches to its network traefik-public.
 
   browserless:
     image: browserless/chrome:latest
@@ -103,7 +103,7 @@ services:
     container_name: n8n
     labels:
        - traefik.enable=true
-       - traefik.docker.network=n8n_traefik-public
+       - traefik.docker.network=traefik-public
        # >>> CHANGE: можно убрать (не нужно для traefik)
        # - traefik.container.name=traefik
       # ---------- Shared security headers middleware ----------
@@ -454,7 +454,7 @@ services:
       - ./error-pages:/usr/share/nginx/html:ro
     labels:
       - traefik.enable=true
-      - traefik.docker.network=n8n_traefik-public
+      - traefik.docker.network=traefik-public
       - traefik.http.services.error-pages.loadbalancer.server.port=80
 
       # Serve custom pages for 404 and 409
@@ -580,7 +580,7 @@ services:
       "
     labels:
       - traefik.enable=true
-      - traefik.docker.network=n8n_traefik-public
+      - traefik.docker.network=traefik-public
       - traefik.http.services.django-v2.loadbalancer.server.port=8001
 
       # tenants: /api/* except n8n integration prefix (that prefix has its own router below)
@@ -675,7 +675,7 @@ services:
       DATABASE_URL: ${TG_GATEWAY_DATABASE_URL:-}
     labels:
       - traefik.enable=true
-      - traefik.docker.network=n8n_traefik-public
+      - traefik.docker.network=traefik-public
       - traefik.http.services.tg-gateway.loadbalancer.server.port=8080
       # External access is limited strictly to Telegram webhook delivery path.
       - traefik.http.routers.tg-gateway-webhook.rule=Host(`${TG_GATEWAY_PUBLIC_HOST:-tg-gateway.kolberg.uz}`) && PathPrefix(`/v1/messaging/webhook/`)
@@ -699,7 +699,7 @@ services:
     restart: always
     labels:
       - traefik.enable=true
-      - traefik.docker.network=n8n_traefik-public
+      - traefik.docker.network=traefik-public
       - traefik.http.services.frontend-v2.loadbalancer.server.port=80
 
       # tenants: /app/*
@@ -756,11 +756,12 @@ volumes:
   garlic-hub-var:
 # >>> CHANGE: добавили сети
 networks:
-  # Created by this project originally; edge/ and other stacks attach to it by
-  # this name. External so `docker compose down` here never tries to remove it.
+  # Shared with edge/ and the other stacks on this host (it was
+  # n8n_traefik-public until 2026-10). External so `docker compose down` here
+  # never tries to remove it.
   traefik-public:
     external: true
-    name: n8n_traefik-public
+    name: traefik-public
   backend:
   chromium:
   gateway:
