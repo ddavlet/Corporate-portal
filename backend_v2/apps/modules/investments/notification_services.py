@@ -9,10 +9,14 @@ from html import escape
 from zoneinfo import ZoneInfo
 
 from django.conf import settings
-from django.db.models import DecimalField, F, Sum, Value
-from django.db.models.functions import Coalesce
 from django.utils import timezone
 from rest_framework.exceptions import ValidationError
+
+from apps.modules.investments.services import (
+    CbuRateFetchError,
+    clamp_rate_date_to_cbu_availability,
+    usd_uzs_equivalents,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -50,19 +54,33 @@ def recompute_payout_schedule_paid_status(*, schedule) -> None:
       the scheduled amount (over-payment also closes it) and reflects reality if payouts later
       change. There is no cap — paying more or less than planned is allowed.
 
+    Payouts in another currency are converted into the schedule's currency at the CBU rate
+    on the payout date (see ``_linked_returns_total``). If a rate is unavailable the schedule
+    is left as is rather than overwritten with a wrong total.
+
     Idempotent and safe to call repeatedly. Uses ``.update()`` so it never recurses through
     InvestReturn signals.
     """
-    from apps.modules.investments.models import InvestPayoutSchedule, InvestReturn
+    from apps.modules.investments.models import InvestPayoutSchedule
 
-    row = InvestPayoutSchedule.objects.filter(pk=schedule.pk).values("amount", "closed_manually").first()
+    row = (
+        InvestPayoutSchedule.objects.filter(pk=schedule.pk)
+        .values("amount", "currency", "closed_manually")
+        .first()
+    )
     if row is None:
         return
 
-    paid = _money(
-        InvestReturn.objects.filter(payout_schedule_id=schedule.pk, confirmed=True)
-        .aggregate(total=Sum("sum"))["total"]
-    )
+    try:
+        paid = _linked_returns_total(
+            schedule_id=schedule.pk, schedule_currency=row["currency"], confirmed_only=True
+        )
+    except CbuRateFetchError:
+        logger.exception(
+            "invest_schedule: cannot convert linked payouts for schedule=%s; paid status left unchanged",
+            schedule.pk,
+        )
+        return
     fields = {"payment_amount": paid, "last_edit_at": timezone.now()}
     if not row["closed_manually"]:
         amount = _money(row["amount"])
@@ -75,14 +93,63 @@ def _schedule_committed_amount(schedule) -> Decimal:
 
     Rejected payouts are unlinked from the schedule (see approval routing), so every
     linked return — pending or confirmed — counts toward the committed total. The
-    outstanding remainder is ``amount - committed``.
+    outstanding remainder is ``amount - committed``. Raises ``CbuRateFetchError`` when a
+    foreign-currency payout cannot be converted.
     """
+    return _linked_returns_total(
+        schedule_id=schedule.pk, schedule_currency=schedule.currency, confirmed_only=False
+    )
+
+
+def _has_outstanding_remainder(schedule) -> bool:
+    """True while linked payouts (converted to the schedule's currency) don't cover its amount.
+
+    Without a rate the schedule counts as outstanding: a spare reminder beats a silent one.
+    """
+    try:
+        committed = _schedule_committed_amount(schedule)
+    except CbuRateFetchError:
+        logger.exception("invest_notify: cannot compute remainder for schedule=%s", schedule.pk)
+        return True
+    return committed < _money(schedule.amount)
+
+
+def _amount_in_schedule_currency(*, sum_val, currency: str, schedule_currency: str, payout_date) -> Decimal:
+    """``sum_val`` in ``currency`` expressed in ``schedule_currency``.
+
+    Same currency → as is; USD↔UZS → CBU rate on the payout date (the same archive the
+    reports use). Raises ``CbuRateFetchError`` for a missing rate or an unsupported pair.
+    """
+    source = str(currency or "USD").strip().upper()
+    target = str(schedule_currency or "USD").strip().upper()
+    if source == target:
+        return _money(sum_val)
+    if {source, target} != {"USD", "UZS"}:
+        raise CbuRateFetchError(f"Нет пересчёта {source} → {target}.")
+    sum_usd, sum_uzs = usd_uzs_equivalents(
+        sum_val=sum_val,
+        currency=source,
+        rate_date=clamp_rate_date_to_cbu_availability(requested=payout_date),
+    )
+    return _money(sum_usd if target == "USD" else sum_uzs)
+
+
+def _linked_returns_total(*, schedule_id, schedule_currency: str, confirmed_only: bool) -> Decimal:
+    """Sum of payouts linked to a schedule, each converted into the schedule's currency."""
     from apps.modules.investments.models import InvestReturn
 
-    return _money(
-        InvestReturn.objects.filter(payout_schedule_id=schedule.pk)
-        .aggregate(total=Sum("sum"))["total"]
-    )
+    qs = InvestReturn.objects.filter(payout_schedule_id=schedule_id)
+    if confirmed_only:
+        qs = qs.filter(confirmed=True)
+    total = Decimal("0.00")
+    for row in qs.values("sum", "currency", "date"):
+        total += _amount_in_schedule_currency(
+            sum_val=row["sum"],
+            currency=row["currency"],
+            schedule_currency=schedule_currency,
+            payout_date=row["date"],
+        )
+    return _money(total)
 
 
 _poller_started = False
@@ -190,7 +257,12 @@ def refresh_payout_notification_message(*, schedule, chat_id, message_id, note: 
         return False
 
     schedule.refresh_from_db()
-    outstanding = _money(schedule.amount) - _schedule_committed_amount(schedule)
+    try:
+        outstanding = _money(schedule.amount) - _schedule_committed_amount(schedule)
+    except CbuRateFetchError:
+        # Best-effort refresh: without a rate, keep the button while the schedule is open.
+        logger.exception("invest_notify: cannot compute remainder for schedule=%s", schedule.pk)
+        outstanding = _money(schedule.amount)
     keep_button = not schedule.is_paid and outstanding > 0
     text = f"{_build_payout_notification_text(schedule)}\n\n{escape(note)}"
     payload = {
@@ -248,26 +320,16 @@ def process_due_invest_payout_notifications(*, now_dt: dt.datetime | None = None
             continue
         # Remind only while an outstanding (uncommitted) remainder exists: keep nudging
         # through partial payments, stop once linked payouts cover the full amount.
-        # ``returns`` is the reverse of InvestReturn.payout_schedule; rejected payouts are
-        # unlinked, so only live (pending/confirmed) ones count toward the committed total.
-        outstanding = (
-            InvestPayoutSchedule.objects.filter(tenant=config.tenant, is_paid=False)
-            .annotate(
-                committed=Coalesce(
-                    Sum("returns__sum"),
-                    Value(Decimal("0.00")),
-                    output_field=DecimalField(max_digits=18, decimal_places=2),
-                )
-            )
-            .filter(committed__lt=F("amount"))
-        )
+        # The committed total is computed per schedule (not in SQL) so payouts in another
+        # currency are converted at the CBU rate first — see _has_outstanding_remainder.
+        outstanding = InvestPayoutSchedule.objects.filter(tenant=config.tenant, is_paid=False)
         # Upcoming payouts: due within the lead-time window and not yet fully committed.
         threshold_date = today + dt.timedelta(days=config.days_before)
         upcoming = outstanding.filter(
             payout_date__lte=threshold_date,
             payout_date__gte=today,
         ).select_related("company")
-        for schedule in upcoming:
+        for schedule in filter(_has_outstanding_remainder, upcoming):
             if _try_send(schedule=schedule, config=config, text=_build_payout_notification_text(schedule)):
                 sent += 1
 
@@ -276,7 +338,7 @@ def process_due_invest_payout_notifications(*, now_dt: dt.datetime | None = None
             overdue = outstanding.filter(
                 payout_date__lt=today,
             ).select_related("company")
-            for schedule in overdue:
+            for schedule in filter(_has_outstanding_remainder, overdue):
                 days_overdue = (today - schedule.payout_date).days
                 if days_overdue % config.overdue_notify_every_days != 0:
                     continue
@@ -326,7 +388,14 @@ def create_return_for_schedule(*, schedule, created_by, amount=None) -> tuple[ob
     if amount is None:
         # One-tap default: bill whatever remains. Nothing to auto-bill once fully committed,
         # but an explicit amount can still be sent to over-pay.
-        outstanding = _money(locked.amount) - _schedule_committed_amount(locked)
+        try:
+            committed = _schedule_committed_amount(locked)
+        except CbuRateFetchError as exc:
+            logger.exception("invest_schedule: cannot compute remainder for schedule=%s", locked.pk)
+            raise ValidationError(
+                {"detail": f"Не удалось пересчитать выплаты в валюту расписания: {exc}. Укажите сумму вручную."}
+            ) from exc
+        outstanding = _money(locked.amount) - committed
         if outstanding <= 0:
             return None, False, "✅ Остаток по расписанию уже покрыт; укажите сумму, чтобы доплатить/переплатить."
         req_amount = outstanding

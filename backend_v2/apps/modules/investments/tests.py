@@ -2579,10 +2579,10 @@ class InvestPayoutScheduleCurrencyConversionTests(TestCase):
         CbuExchangeRate.objects.create(date=date(2026, 2, 28), usd_uzs_rate=Decimal("12136.570000"))
         CbuExchangeRate.objects.create(date=date(2026, 3, 31), usd_uzs_rate=Decimal("12000.000000"))
 
-    def _schedule(self, *, amount, currency):
+    def _schedule(self, *, amount, currency, payout_date=date(2026, 2, 28)):
         return InvestPayoutSchedule.objects.create(
             tenant=self.tenant,
-            payout_date=date(2026, 2, 28),
+            payout_date=payout_date,
             amount=amount,
             currency=currency,
             return_type=InvestReturn.ReturnType.PRINCIPAL,
@@ -2661,3 +2661,28 @@ class InvestPayoutScheduleCurrencyConversionTests(TestCase):
         schedule.refresh_from_db()
         self.assertEqual(schedule.payment_amount, Decimal("150000000.00"))
         self.assertTrue(schedule.is_paid)
+
+    def test_reminder_still_sent_while_converted_remainder_is_open(self):
+        import datetime as dt
+        from apps.modules.investments.notification_services import process_due_invest_payout_notifications
+
+        self.user.telegram_chat_id = 777
+        self.user.save(update_fields=["telegram_chat_id"])
+        InvestNotificationConfig.objects.create(
+            tenant=self.tenant, responsible_user=self.user, days_before=3, is_active=True,
+        )
+        schedule = self._schedule(amount=Decimal("1000.00"), currency="USD", payout_date=date(2026, 4, 2))
+        # 6 000 000 UZS on 31.03 = 500 $ — half of the plan; raw 6 000 000 must not read as "covered".
+        self._return(
+            sum_=Decimal("6000000.00"), currency="UZS", on=date(2026, 3, 31), confirmed=False, schedule=schedule,
+        )
+
+        now = timezone.make_aware(dt.datetime.combine(date(2026, 3, 31), dt.time(9, 0)))
+        with patch(
+            "apps.modules.investments.notification_services._dispatch_payout_notification",
+            return_value=True,
+        ) as mock_send:
+            sent = process_due_invest_payout_notifications(now_dt=now)
+
+        self.assertEqual(sent, 1)
+        self.assertEqual(mock_send.call_args.kwargs["schedule"].pk, schedule.pk)
