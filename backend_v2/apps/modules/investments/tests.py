@@ -2563,3 +2563,101 @@ class InvestPayoutScheduleLinkReturnsAPITest(APITestCase):
         self.assertEqual(response.status_code, 400, response.data)
         linked.refresh_from_db()
         self.assertEqual(linked.payout_schedule_id, other_schedule.pk)
+
+
+class InvestPayoutScheduleCurrencyConversionTests(TestCase):
+    """Payouts in another currency count toward a schedule at the CBU rate on the payout date.
+
+    Regression: Lemonfit ONE recorded February's principal payouts in USD (12 384.49 $) against a
+    UZS schedule (150 000 000). The rollup summed raw ``sum`` values, so linking them showed
+    "paid 12 384.49" and reopened the schedule instead of closing it at ≈150.3M UZS.
+    """
+
+    def setUp(self):
+        self.tenant = Tenant.objects.create(name="FxCo", subdomain="fxco", is_active=True)
+        self.user = User.objects.create_user(username="fx-user", password="x")
+        CbuExchangeRate.objects.create(date=date(2026, 2, 28), usd_uzs_rate=Decimal("12136.570000"))
+        CbuExchangeRate.objects.create(date=date(2026, 3, 31), usd_uzs_rate=Decimal("12000.000000"))
+
+    def _schedule(self, *, amount, currency):
+        return InvestPayoutSchedule.objects.create(
+            tenant=self.tenant,
+            payout_date=date(2026, 2, 28),
+            amount=amount,
+            currency=currency,
+            return_type=InvestReturn.ReturnType.PRINCIPAL,
+            recipient=InvestReturn.Recipient.INVESTOR,
+            created_by=self.user,
+        )
+
+    def _return(self, *, sum_, currency, on=date(2026, 2, 28), confirmed=True, schedule=None):
+        return InvestReturn.objects.create(
+            tenant=self.tenant,
+            payout_schedule=schedule,
+            date=on,
+            billing_date=on.replace(day=1),
+            sum=sum_,
+            currency=currency,
+            type=InvestReturn.ReturnType.PRINCIPAL,
+            recipient=InvestReturn.Recipient.INVESTOR,
+            confirmed=confirmed,
+            created_by=self.user,
+        )
+
+    def test_usd_payouts_linked_to_uzs_schedule_convert_and_close_it(self):
+        from django.db import transaction
+        from apps.modules.investments.notification_services import link_returns_to_schedule
+
+        schedule = self._schedule(amount=Decimal("150000000.00"), currency="UZS")
+        r1 = self._return(sum_=Decimal("8525.34"), currency="USD")
+        r2 = self._return(sum_=Decimal("3859.15"), currency="USD")
+
+        with transaction.atomic():
+            link_returns_to_schedule(schedule=schedule, return_ids=[r1.pk, r2.pk])
+
+        schedule.refresh_from_db()
+        # 8525.34 * 12136.57 = 103 468 385.68; 3859.15 * 12136.57 = 46 836 844.12
+        self.assertEqual(schedule.payment_amount, Decimal("150305229.80"))
+        self.assertTrue(schedule.is_paid)
+
+    def test_uzs_payout_counts_toward_usd_schedule_at_cbu_rate(self):
+        schedule = self._schedule(amount=Decimal("1000.00"), currency="USD")
+        self._return(sum_=Decimal("6000000.00"), currency="UZS", on=date(2026, 3, 31), schedule=schedule)
+
+        schedule.refresh_from_db()
+        self.assertEqual(schedule.payment_amount, Decimal("500.00"))
+        self.assertFalse(schedule.is_paid)
+
+    def test_one_tap_remainder_converts_committed_foreign_payouts(self):
+        from django.db import transaction
+        from apps.modules.investments.notification_services import create_return_for_schedule
+
+        schedule = self._schedule(amount=Decimal("150000000.00"), currency="UZS")
+        # Pending (not yet confirmed) 5 000 $ on 31.03 still counts as committed: 60 000 000 UZS.
+        self._return(
+            sum_=Decimal("5000.00"), currency="USD", on=date(2026, 3, 31), confirmed=False, schedule=schedule,
+        )
+
+        with transaction.atomic():
+            ret, was_created, _ = create_return_for_schedule(schedule=schedule, created_by=self.user)
+
+        self.assertTrue(was_created)
+        self.assertEqual(ret.sum, Decimal("90000000.00"))
+        self.assertEqual(ret.currency, "UZS")
+
+    def test_unavailable_rate_leaves_paid_status_untouched(self):
+        schedule = self._schedule(amount=Decimal("150000000.00"), currency="UZS")
+        InvestPayoutSchedule.objects.filter(pk=schedule.pk).update(
+            payment_amount=Decimal("150000000.00"), is_paid=True
+        )
+
+        with patch(
+            "apps.modules.investments.services.fetch_cbu_usd_uzs_rate",
+            side_effect=CbuRateFetchError("ЦБ недоступен"),
+        ), self.assertLogs("apps.modules.investments.notification_services", level="ERROR"):
+            # No archived rate for 15.01 → conversion fails; the schedule must not be zeroed out.
+            self._return(sum_=Decimal("100.00"), currency="USD", on=date(2026, 1, 15), schedule=schedule)
+
+        schedule.refresh_from_db()
+        self.assertEqual(schedule.payment_amount, Decimal("150000000.00"))
+        self.assertTrue(schedule.is_paid)
