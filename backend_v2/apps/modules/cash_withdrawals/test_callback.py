@@ -1,3 +1,5 @@
+from datetime import datetime
+from datetime import timezone as dt_timezone
 from unittest.mock import Mock, patch
 
 from django.db import IntegrityError
@@ -63,6 +65,7 @@ class ReceiptCallbackTests(CashWithdrawalFixtures, APITestCase):
         self.assertEqual(revenue.created_by_id, self.cashier.id)
         self.assertTrue(revenue.confirmed)
         self.assertEqual(revenue.operation, "Наличные с банка Lemonfit AQUA")
+        self.assertIsNotNone(revenue.source_year)
 
         edit_payload = gw.call_args.kwargs["payload"]
         self.assertEqual(edit_payload["message_id"], 7001)
@@ -70,6 +73,19 @@ class ReceiptCallbackTests(CashWithdrawalFixtures, APITestCase):
         self.assertIn("Поступило в кассу", edit_payload["text"])
         self.n8n_handler.assert_called_once()
         self.assertEqual(self.n8n_handler.call_args.kwargs["receipt"].pk, self.receipt.pk)
+
+    @patch(GATEWAY_PATH)
+    def test_revenue_source_year_is_tashkent_year(self, gw):
+        # Production: cashier_cashrevenue.source_year is NOT NULL, so source_year=None made every
+        # confirm fail with IntegrityError (receipt for request #8666 stayed pending).
+        gw.side_effect = gateway_ok()
+        new_year_in_tashkent = datetime(2026, 12, 31, 20, 0, tzinfo=dt_timezone.utc)  # 01:00 on 1 Jan in Tashkent
+        with patch("apps.modules.cash_withdrawals.services.timezone.now", return_value=new_year_in_tashkent):
+            with self.captureOnCommitCallbacks(execute=True):
+                res = self._press(self.cashier.telegram_from_id)
+        self.assertEqual(res.status_code, 201, res.content)
+        self.receipt.refresh_from_db()
+        self.assertEqual(self.receipt.cash_revenue.source_year, 2027)
 
     @patch(GATEWAY_PATH)
     def test_confirmer_matched_by_telegram_chat_id(self, gw):

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from zoneinfo import ZoneInfo
 
 from django.contrib.auth import get_user_model
 from django.db import transaction
@@ -16,6 +17,7 @@ from apps.tenants.models import TenantMembership
 
 logger = logging.getLogger(__name__)
 User = get_user_model()
+TASHKENT_TZ = ZoneInfo("Asia/Tashkent")
 
 
 def _norm(value) -> str:
@@ -158,7 +160,8 @@ def confirm_receipt(*, receipt_id: int, user) -> tuple[CashWithdrawalReceipt, bo
             operation=f"Наличные с банка {request_obj.title or ''}".strip()[:255],
             comment=request_obj.description or "",
             external_id=f"cash-{request_obj.pk}",
-            source_year=None,
+            # Production column is NOT NULL (unlike the migration); CashRevenueSerializer derives it the same way.
+            source_year=timezone.localtime(now, TASHKENT_TZ).year,
             created_by=user,
             payload={"source": "cash_withdrawals", "receipt_id": receipt.pk, "request_id": request_obj.pk},
         )
