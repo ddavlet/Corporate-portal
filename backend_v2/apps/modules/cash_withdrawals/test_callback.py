@@ -1,8 +1,10 @@
 from unittest.mock import Mock, patch
 
+from django.db import IntegrityError
 from django.test import override_settings
 from rest_framework.test import APITestCase
 
+from apps.modules.cash_withdrawals import formatter
 from apps.modules.cash_withdrawals.fixtures import GATEWAY_PATH, CashWithdrawalFixtures, gateway_ok
 from apps.modules.cash_withdrawals.models import CashWithdrawalMessage, CashWithdrawalReceipt, CashWithdrawalRule
 from apps.modules.cashier.models import CashRevenue
@@ -140,6 +142,27 @@ class ReceiptCallbackTests(CashWithdrawalFixtures, APITestCase):
         with self.captureOnCommitCallbacks(execute=True):
             res = self._press(self.cashier.telegram_from_id)
         self.assertEqual(res.status_code, 201)
+
+    @patch(GATEWAY_PATH)
+    def test_confirm_failure_replies_and_keeps_receipt_pending(self, gw):
+        # Production: a lagging cashier id sequence made the CashRevenue insert hit a taken pk,
+        # and the confirmer's press ended as a silent 500 — no reply, no income.
+        gw.side_effect = gateway_ok()
+        with patch("apps.modules.cash_withdrawals.services.CashRevenue") as revenue_model:
+            revenue_model.objects.create.side_effect = IntegrityError(
+                'duplicate key value violates unique constraint "cashier_cashrevenue_pkey"'
+            )
+            with self.captureOnCommitCallbacks(execute=True):
+                res = self._press(self.cashier.telegram_from_id)
+        self.assertEqual(res.status_code, 500)
+        self.receipt.refresh_from_db()
+        self.assertEqual(self.receipt.status, CashWithdrawalReceipt.Status.PENDING)
+        self.assertIsNone(self.receipt.confirmed_by_id)
+        self.assertFalse(CashRevenue.objects.exists())
+        reply = gw.call_args.kwargs["payload"]
+        self.assertEqual(reply["text"], formatter.FAILED_TEXT)
+        self.assertEqual(reply["recipient_id"], "-100500")
+        self.n8n_handler.assert_not_called()
 
     @patch(GATEWAY_PATH)
     def test_unknown_receipt_is_404(self, gw):

@@ -7,7 +7,7 @@ DEPLOY_TEST_PATH ?= $(TEST_PATH)
 BRANCH     := $(shell git rev-parse --abbrev-ref HEAD)
 
 .DEFAULT_GOAL := help
-.PHONY: help push test deploy makemigrations showmigrations logs backup-db create-postgres-mcp-role rollback refresh-approval-messages reconcile-card-revenues reconcile-expense-links relink-unresolved-bank-doc-numbers link-payroll-requests send-to-vacation return-from-vacation reassign-unmatched-bank-expenses backfill-bank-expense-requests backfill-cash-expense-requests backfill-card-expenses backfill-cbu-exchange-rate redispatch-unsent-approval-cards backfill-cash-withdrawals local-up local-down local-logs test_local
+.PHONY: help push test deploy makemigrations showmigrations logs backup-db create-postgres-mcp-role rollback refresh-approval-messages reconcile-card-revenues reconcile-expense-links relink-unresolved-bank-doc-numbers link-payroll-requests send-to-vacation return-from-vacation reassign-unmatched-bank-expenses backfill-bank-expense-requests backfill-cash-expense-requests backfill-card-expenses backfill-cbu-exchange-rate redispatch-unsent-approval-cards backfill-cash-withdrawals repair-id-sequences local-up local-down local-logs test_local
 
 help:
 	@echo ""
@@ -42,6 +42,7 @@ help:
 	@echo "  make redispatch-unsent-approval-cards TENANT=5 — dry-run: заявки, ждущие карточку согласования, которая не была отправлена в Telegram"
 	@echo "  make redispatch-unsent-approval-cards TENANT=5 DATE_FROM=2026-09-18 DATE_TO=2026-09-19 PAYMENT_TYPE=\"Наличные,Перечисление\" — то же, с фильтрами (TENANT/PAYMENT_TYPE — через запятую; без TENANT — все тенанты)"
 	@echo "  make redispatch-unsent-approval-cards TENANT=5 APPLY=1 — то же самое, но с отправкой карточек"
+	@echo "  make repair-id-sequences [APPLY=1] — dry-run: таблицы, где id-последовательность отстала от max(id) (после импорта n8n с явными id)"
 	@echo "  make local-up        — поднять docker-compose.local.yml локально"
 	@echo "  make local-down      — остановить локальный compose (без удаления volumes)"
 	@echo "  make local-logs      — логи локального compose"
@@ -220,6 +221,14 @@ backfill-cash-withdrawals:
 	ssh $(SERVER) "cd $(REMOTE_DIR) && \
 		docker compose --env-file ./.env exec -T backend_v2 \
 		python manage.py backfill_cash_withdrawal_receipts --tenant=$(TENANT) --since=$(SINCE) $(if $(APPLY),--apply,) $(if $(NO_SEND),--no-send,)"
+
+# ── 7d-8d. Сдвинуть отставшие id-последовательности за max(id) (dry-run по умолчанию) ──
+# Импорт n8n с явными id не двигает последовательность → следующая обычная вставка падает на дубликате pk.
+# make repair-id-sequences [APPLY=1]
+repair-id-sequences:
+	ssh $(SERVER) "cd $(REMOTE_DIR) && \
+		docker compose --env-file ./.env exec -T backend_v2 \
+		python manage.py repair_id_sequences $(if $(APPLY),--apply,)"
 
 # ── 7d-10. По требованию: backfill-команды (dry-run по умолчанию) ──
 # TENANT=1,lemonaqua (id или subdomain, через запятую) или ALL_TENANTS=1; DATE_FROM/DATE_TO=YYYY-MM-DD

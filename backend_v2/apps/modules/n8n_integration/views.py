@@ -16,6 +16,7 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from apps.common.db_sequences import ensure_sequence_ahead
 from apps.modules.bank_expenses.models import BankExpense, BankRevenue
 from apps.modules.clients_debt.models import ClientDebtSnapshot
 from apps.modules.payroll.models import PayrollLine
@@ -302,7 +303,10 @@ def _n8n_upsert(
     ser.is_valid(raise_exception=True)
     try:
         with transaction.atomic():
-            ser.save(id=pk, **build_create_kwargs(request, su))
+            instance = ser.save(id=pk, **build_create_kwargs(request, su))
+            # A row inserted with its own id leaves the Postgres sequence behind; the next
+            # ordinary insert (e.g. the cash-withdrawal confirm button) would hit a taken pk.
+            ensure_sequence_ahead(type(instance))
     except IntegrityError as exc:
         return Response(_n8n_integrity_error_payload(exc), status=status.HTTP_400_BAD_REQUEST)
     return Response(ser.data, status=status.HTTP_201_CREATED)

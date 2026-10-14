@@ -39,7 +39,14 @@ def handle_callback(*, payload: str, event_data: dict) -> tuple[int, dict]:
         messaging.reply_denied(tenant=receipt.tenant, recipient_id=recipient_id)
         return 403, {"detail": "Not authorized."}
 
-    receipt, created = confirm_receipt(receipt_id=receipt_id, user=user)
+    try:
+        receipt, created = confirm_receipt(receipt_id=receipt_id, user=user)
+    except Exception:
+        # Otherwise the press dies as a bare 500: no reply, no income, and no traceback in the
+        # container logs (Django only emails tracebacks when DEBUG is off).
+        logger.exception("cwr_callback: confirm failed receipt_id=%s user_id=%s", receipt_id, user.pk)
+        messaging.reply_failed(tenant=receipt.tenant, recipient_id=recipient_id)
+        return 500, {"detail": "Confirmation failed."}
     if not created:
         receipt = (
             CashWithdrawalReceipt.objects.select_related(
