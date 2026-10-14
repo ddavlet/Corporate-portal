@@ -156,10 +156,37 @@ AUTH_PASSWORD_VALIDATORS = [
     {"NAME": "django.contrib.auth.password_validation.NumericPasswordValidator"},
 ]
 
+RUNNING_TESTS = len(sys.argv) > 1 and sys.argv[1] == "test"
+
 # Test runs only: PBKDF2 (~1M iterations) makes every create_user(password=...) cost ~0.25s,
 # and tests create users in setUp — this dominated CI time. MD5 is fine for throwaway test users.
-if len(sys.argv) > 1 and sys.argv[1] == "test":
+if RUNNING_TESTS:
     PASSWORD_HASHERS = ["django.contrib.auth.hashers.MD5PasswordHasher"]
+
+
+# Logging → container stderr (`make logs`). Django's default console handler only works with
+# DEBUG on, so with DEBUG off 500 tracebacks went to mail_admins (no ADMINS) and were lost, and
+# app `logger.info(...)` lines were dropped entirely.
+# django.request at ERROR: 5xx with traceback; 4xx stay quiet (every DRF 400 is a WARNING there).
+# DJANGO_LOG_LEVEL sets the apps.* level; tests default to WARNING to keep CI output readable.
+APP_LOG_LEVEL = (os.getenv("DJANGO_LOG_LEVEL") or ("WARNING" if RUNNING_TESTS else "INFO")).strip().upper()
+if APP_LOG_LEVEL not in {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}:
+    APP_LOG_LEVEL = "INFO"  # a typo in .env must not stop Django from booting (dictConfig raises)
+LOGGING = {
+    "version": 1,
+    "disable_existing_loggers": False,
+    "formatters": {
+        "plain": {"format": "%(asctime)s %(levelname)s %(name)s %(message)s"},
+    },
+    "handlers": {
+        "console": {"class": "logging.StreamHandler", "formatter": "plain"},
+    },
+    "root": {"handlers": ["console"], "level": "WARNING"},
+    "loggers": {
+        "django.request": {"handlers": ["console"], "level": "ERROR", "propagate": False},
+        "apps": {"handlers": ["console"], "level": APP_LOG_LEVEL, "propagate": False},
+    },
+}
 
 
 LANGUAGE_CODE = "en-us"

@@ -152,14 +152,22 @@ def send_alert(*, receipt, config, days: int) -> int:
     return sent
 
 
-def reply_denied(*, tenant, recipient_id) -> None:
+def _reply(*, tenant, recipient_id, text: str) -> None:
     if not recipient_id:
         return
     _send(
         tenant=tenant,
         recipient_id=str(recipient_id),
         external_user_id=None,
-        text=formatter.DENIED_TEXT,
+        text=text,
         buttons=[],
         request_id=None,
     )
+
+
+def reply_denied(*, tenant, recipient_id) -> None:
+    _reply(tenant=tenant, recipient_id=recipient_id, text=formatter.DENIED_TEXT)
+
+
+def reply_failed(*, tenant, recipient_id) -> None:
+    _reply(tenant=tenant, recipient_id=recipient_id, text=formatter.FAILED_TEXT)

@@ -999,6 +999,27 @@ class N8nIntegrationAuthTests(APITestCase):
         row = CashRevenue.objects.get(pk=95001)
         self.assertEqual(row.external_id, "1-000009999")
 
+    def test_cash_revenue_explicit_id_keeps_id_sequence_ahead(self):
+        # Regression: explicit-id imports left the Postgres sequence behind, so the next ordinary
+        # insert (the cash-withdrawal «Деньги получены» button) failed on a duplicate pk.
+        wallet = get_or_create_cash_wallet(tenant=self.tenant, currency="UZS")
+        probe = CashRevenue.objects.create(tenant=self.tenant, wallet=wallet, created_by=self.admin, total_sum=1)
+        url = f"{self.n8n_prefix}/cash/revenues/"
+        for explicit_id in (probe.pk + 1, probe.pk + 2):
+            body = {
+                "id": explicit_id,
+                "external_id": f"SEQ-{explicit_id}",
+                "date": "2026-03-19T19:00:00.000Z",
+                "confirmed": True,
+                "direction": "in",
+                "total_sum": "100",
+                "source_year": 2026,
+            }
+            res = self.client.post(url, body, format="json", **self._headers(self.admin))
+            self.assertEqual(res.status_code, 201, res.content)
+        after = CashRevenue.objects.create(tenant=self.tenant, wallet=wallet, created_by=self.admin, total_sum=2)
+        self.assertGreater(after.pk, probe.pk + 2)
+
     def test_cash_revenue_prefers_natural_key_when_numeric_id_conflicts(self):
         cash_register = CashRegister.objects.create(tenant=self.tenant, currency="UZS", name="Сейф (касса)")
         cash_wallet = Wallet.objects.create(

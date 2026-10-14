@@ -13,6 +13,10 @@ from apps.modules.telegram_approvals.formatter import build_request_draft_public
 CALLBACK_PREFIX = "cwr:"
 CONFIRM_BUTTON_LABEL = "✅ Деньги получены"
 DENIED_TEXT = "Нет прав на подтверждение."
+FAILED_TEXT = (
+    "⚠️ Не удалось подтвердить поступление: ошибка на сервере. "
+    "Доход в кассе не создан — попробуйте ещё раз позже или сообщите администратору."
+)
 
 _KASSA_SUFFIX_RE = re.compile(r"\s*\(касса\)\s*$", re.IGNORECASE)
 
