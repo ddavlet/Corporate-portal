@@ -312,6 +312,7 @@ Copy `.env.example` to `.env` and configure:
 | `TRAEFIK_BACKEND_V2_API_PATH_RULE` | Path rule for API routing |
 | `TRAEFIK_BACKEND_V2_N8N_RULE` | Routing rule for n8n |
 | `MCP_HTTP_ENABLED` | Kolberg MCP HTTP/OAuth (`false` in production; see `docs/MCP_SERVER.md`) |
+| `DJANGO_LOG_LEVEL` | Level of `apps.*` loggers in `make logs` (default `INFO`); 500 tracebacks are always logged |
 
 Additional secrets (database passwords, JWT secret, Telegram token, etc.) are configured directly in the server environment and are not committed to the repository.
 
