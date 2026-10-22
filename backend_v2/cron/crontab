@@ -3,6 +3,8 @@
 SHELL=/bin/bash
 PATH=/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin
 TZ=Asia/Tashkent
+# Container env (DB credentials etc.) written by entrypoint.sh; bash sources it for every job.
+BASH_ENV=/etc/kolberg-cron.env
 
 # Monthly auto-request copies (idempotent per day-of-month).
 0 8 * * * root cd /app && python manage.py run_auto_requests >> /proc/1/fd/1 2>&1
