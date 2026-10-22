@@ -517,7 +517,10 @@ services:
     restart: always
     # Локально db_backup держит ~10 дней; в Drive — только последние GDRIVE_RETENTION_DAYS дней
     # (upload по mtime + purge по min-age на remote). ~2.2–2.6 ГБ на дамп PG.
+    # RCLONE_DRIVE_USE_TRASH=false: rclone delete удаляет из Drive сразу, а не в корзину —
+    # иначе старые дампы копятся в корзине и забивают квоту (storageQuotaExceeded, окт. 2026).
     environment:
+      - RCLONE_DRIVE_USE_TRASH=false
       - GDRIVE_RETENTION_DAYS=3
       - MEDPORTAL_GDRIVE_RETENTION_DAYS=30
     entrypoint:
