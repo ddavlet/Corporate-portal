@@ -107,6 +107,7 @@ describe('AccountBalancesReport', () => {
     expect(screen.getAllByText('900').length).toBeGreaterThan(0)
     expect(screen.getAllByText('UZS').length).toBe(4)
     expect(screen.getByText('05.10.2026')).toBeInTheDocument()
+    expect(screen.getByText(/остатка счёта на 01\.01\.2026 плюс/)).toBeInTheDocument()
   })
 
   it('opens a day into its operations with the balance after each one', async () => {

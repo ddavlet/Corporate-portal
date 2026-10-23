@@ -243,7 +243,7 @@ export function AccountBalancesReport(_props: ReportTemplateProps<ReportKey>) {
       ) : null}
 
       <Typography.Paragraph type="secondary" style={{ marginTop: 12, fontSize: 12 }}>
-        Остатки считаются так же, как на страницах Банк, Касса и Корпоративная карта: от начального остатка счёта на
+        Остатки считаются так же, как на страницах Банк, Касса и Корпоративная карта: от начального остатка счёта на{' '}
         {formatDate(shown?.opening_balance_day ?? `${dayjs().year()}-01-01`)} плюс приходы и минус расходы; банк — по дате
         документа. Раскройте день, чтобы увидеть
         операции и остаток после каждой.

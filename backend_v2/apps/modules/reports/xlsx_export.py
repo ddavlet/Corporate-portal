@@ -445,6 +445,13 @@ def _count(value: int) -> str:
     return f"{value:,}".replace(",", " ")
 
 
+def _operations(value: int) -> str:
+    """«1 операция», «3 операции», «5 операций» (as `countLabel` on the page)."""
+    tens, ones = value % 100, value % 10
+    word = "операций" if 11 <= tens <= 14 else "операция" if ones == 1 else "операции" if 2 <= ones <= 4 else "операций"
+    return f"{_count(value)} {word}"
+
+
 def _decimal(value: Any) -> Decimal | None:
     return None if value is None or value == "" else Decimal(str(value))
 
@@ -550,7 +557,7 @@ def _write_balance_days(sheet: Worksheet, export: AccountBalancesExport) -> None
         income = f"{Decimal(unconfirmed['income']):,.2f}".replace(",", " ")
         expense = f"{Decimal(unconfirmed['expense']):,.2f}".replace(",", " ")
         note = (
-            f"Не подтверждено и не учтено: {_count(unconfirmed['count'])} операций "
+            f"Не подтверждено и не учтено: {_operations(unconfirmed['count'])} "
             f"(приход {income}, расход {expense})"
         )
         sheet.cell(row=11, column=1, value=note).font = Font(italic=True, color=BAD)

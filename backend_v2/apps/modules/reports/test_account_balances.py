@@ -4,7 +4,7 @@ from io import BytesIO
 from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
-from django.test import TestCase, override_settings
+from django.test import SimpleTestCase, TestCase, override_settings
 from openpyxl import load_workbook
 from rest_framework.test import APITestCase
 from rest_framework_simplejwt.tokens import RefreshToken
@@ -17,7 +17,7 @@ from apps.modules.reports.account_balances import (
     build_account_balances,
     list_balance_accounts,
 )
-from apps.modules.reports.xlsx_export import XLSX_CONTENT_TYPE
+from apps.modules.reports.xlsx_export import XLSX_CONTENT_TYPE, _operations
 from apps.modules.wallets.calendar_utils import TASHKENT
 from apps.modules.wallets.resolution import get_or_create_bank_wallet, get_or_create_cash_wallet
 from apps.tenants.models import Tenant, TenantMembership, TenantModuleConfig, TenantUserRole
@@ -273,3 +273,10 @@ class AccountBalancesApiTests(_Movements, APITestCase):
         TenantModuleConfig.objects.filter(tenant=self.tenant, module_key="reports").update(is_enabled=False)
         res = self.client.get(ACCOUNTS, **self._auth())
         self.assertEqual(res.status_code, 403)
+
+
+class OperationsLabelTests(SimpleTestCase):
+    def test_russian_plural(self):
+        cases = {1: "1 операция", 3: "3 операции", 5: "5 операций", 11: "11 операций", 21: "21 операция", 1012: "1 012 операций"}
+        for value, label in cases.items():
+            self.assertEqual(_operations(value), label)
