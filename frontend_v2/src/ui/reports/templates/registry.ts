@@ -20,6 +20,12 @@ export const REPORT_TEMPLATE_REGISTRY: Record<string, ReportTemplateDefinition> 
     reports: {
       pnl: { title: 'Прибыли и убытки', description: 'Показатели, график и отчёт о прибылях и убытках с итогами и сравнением.' },
       cashflow: { title: 'Движение денег', description: 'Показатели, график и отчёт о движении денег с остатками и сравнением.' },
+      balances: {
+        title: 'Остатки по счетам',
+        description: 'Остаток на начало и конец периода, приход и расход по дням для каждого счёта — для сверки с банком.',
+        load: () =>
+          import('./balances/AccountBalancesReport').then((module) => ({ default: module.AccountBalancesReport })),
+      },
     },
     transientParams: ['line', 'from', 'to', 'vendor'],
     legacyParams: ['r', 'p', 'y', 'm', 'g', 'cmp', 'u', 'view', 'open', 'line', 'from', 'to', 'vendor', 'back'],

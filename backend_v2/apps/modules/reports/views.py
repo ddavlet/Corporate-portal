@@ -11,12 +11,14 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from apps.modules.reports.account_balances import WalletNotFound
 from apps.modules.reports.pnl_builder import list_tenant_payment_purpose_pool
 from apps.modules.reports.registry import MODULE_KEY
 from apps.modules.reports.report_kinds import REPORT_KINDS
 from apps.modules.reports.report_rules import ReportSettingsInvalid
 from apps.modules.reports.report_templates import TemplateNotFound, TemplateNotStatement
 from apps.modules.reports.serializers import (
+    AccountBalancesQuerySerializer,
     ReportRulesPatchSerializer,
     ReportTemplateSettingsSerializer,
     StatementExportQuerySerializer,
@@ -29,9 +31,12 @@ from apps.modules.reports.services import (
     LineNotFound,
     TemplateNotAllowed,
     build_statement_for_tenant,
+    export_account_balances_xlsx,
     export_statement_lines_xlsx,
     export_statement_xlsx,
     fetch_report_payload,
+    get_account_balances,
+    list_account_balance_accounts,
     get_report_rules,
     get_template_settings_response,
     list_statement_lines,
@@ -369,4 +374,73 @@ class StatementLinesExportView(APIView):
             return Response({"detail": "Строка отчёта не найдена."}, status=status.HTTP_404_NOT_FOUND)
         except ReportSourceError as exc:
             return upstream_error_response(exc.original, tenant=tenant, report_name=data["report"])
+        return _file_response(file)
+
+
+def _wallet_not_found_response() -> Response:
+    return Response({"detail": "Счёт не найден."}, status=status.HTTP_404_NOT_FOUND)
+
+
+class AccountBalancesAccountsView(APIView):
+    """Accounts «Остатки по счетам» can show: the company's bank, cash and card wallets whose page the user may open."""
+
+    module_key = MODULE_KEY
+    permission_classes = [IsAuthenticated, HasEffectiveModuleAccess]
+
+    def get(self, request):
+        tenant = getattr(request, "tenant", None)
+        if not tenant:
+            return Response({"detail": "No tenant."}, status=status.HTTP_400_BAD_REQUEST)
+        accounts = list_account_balance_accounts(tenant=tenant, user=request.user)
+        return Response({"accounts": accounts}, status=status.HTTP_200_OK)
+
+
+class AccountBalancesView(APIView):
+    """One account's balance at the start and end of the period and of every day with operations."""
+
+    module_key = MODULE_KEY
+    permission_classes = [IsAuthenticated, HasEffectiveModuleAccess]
+
+    def get(self, request):
+        tenant = getattr(request, "tenant", None)
+        if not tenant:
+            return Response({"detail": "No tenant."}, status=status.HTTP_400_BAD_REQUEST)
+        query = AccountBalancesQuerySerializer(data=request.query_params)
+        query.is_valid(raise_exception=True)
+        data = query.validated_data
+        try:
+            payload = get_account_balances(
+                tenant=tenant,
+                user=request.user,
+                wallet_id=data["wallet"],
+                date_from=data["date_from"],
+                date_to=data["date_to"],
+            )
+        except WalletNotFound:
+            return _wallet_not_found_response()
+        return Response(payload, status=status.HTTP_200_OK)
+
+
+class AccountBalancesExportView(APIView):
+    module_key = MODULE_KEY
+    permission_classes = [IsAuthenticated, HasEffectiveModuleAccess]
+
+    def get(self, request):
+        tenant = getattr(request, "tenant", None)
+        if not tenant:
+            return Response({"detail": "No tenant."}, status=status.HTTP_400_BAD_REQUEST)
+        query = AccountBalancesQuerySerializer(data=request.query_params)
+        query.is_valid(raise_exception=True)
+        data = query.validated_data
+        try:
+            file = export_account_balances_xlsx(
+                tenant=tenant,
+                user=request.user,
+                wallet_id=data["wallet"],
+                date_from=data["date_from"],
+                date_to=data["date_to"],
+                author=_export_author(request.user),
+            )
+        except WalletNotFound:
+            return _wallet_not_found_response()
         return _file_response(file)

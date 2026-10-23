@@ -1,6 +1,9 @@
 from django.urls import path
 
 from apps.modules.reports.views import (
+    AccountBalancesAccountsView,
+    AccountBalancesExportView,
+    AccountBalancesView,
     CashflowReportView,
     PnlReportView,
     ReportRulesView,
@@ -23,6 +26,9 @@ urlpatterns = [
     path("statement/vendors/", StatementVendorsView.as_view(), name="reports-statement-vendors"),
     path("statement/export/", StatementExportView.as_view(), name="reports-statement-export"),
     path("statement/lines/export/", StatementLinesExportView.as_view(), name="reports-statement-lines-export"),
+    path("balances/", AccountBalancesView.as_view(), name="reports-balances"),
+    path("balances/accounts/", AccountBalancesAccountsView.as_view(), name="reports-balances-accounts"),
+    path("balances/export/", AccountBalancesExportView.as_view(), name="reports-balances-export"),
     path(
         "payment-purpose-pool/",
         TenantPnlPaymentPurposePoolView.as_view(),
