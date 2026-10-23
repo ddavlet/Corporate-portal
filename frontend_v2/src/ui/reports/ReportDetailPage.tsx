@@ -2,6 +2,7 @@ import { SettingOutlined } from '@ant-design/icons'
 import { Button, Result, Skeleton, Tag, Typography } from 'antd'
 import { lazy, Suspense, useEffect, useMemo, useState, type ComponentType, type LazyExoticComponent } from 'react'
 import { useLocation, useParams } from 'react-router-dom'
+import { isReportKind, type ReportKey } from '../../lib/reportsApi'
 import { useReportTemplates } from '../../lib/useReportTemplates'
 import { useTenantAdmin } from '../../lib/useTenantAdmin'
 import { AllReportsLink, ReportNotFoundPage } from './ReportNotFoundPage'
@@ -11,13 +12,19 @@ import { ReportRulesDrawer } from './rules/ReportRulesDrawer'
 import { REPORT_TEMPLATE_REGISTRY } from './templates/registry'
 import type { ReportTemplateProps } from './templates/types'
 
-/** One lazy component per template, created once, so moving between cards of one template does not reload its code. */
-const lazyTemplates = new Map<string, LazyExoticComponent<ComponentType<ReportTemplateProps>>>()
+type CardComponent = LazyExoticComponent<ComponentType<ReportTemplateProps<ReportKey>>>
 
-function templateComponent(key: string): LazyExoticComponent<ComponentType<ReportTemplateProps>> {
+/** One lazy component per template (and per report with its own page), created once, so moving between cards of one
+ * template does not reload its code. */
+const lazyTemplates = new Map<string, CardComponent>()
+
+function cardComponent(template: string, report: ReportKey): CardComponent {
+  const own = REPORT_TEMPLATE_REGISTRY[template].reports[report]?.load
+  const key = own ? `${template}/${report}` : template
   let component = lazyTemplates.get(key)
   if (!component) {
-    component = lazy(REPORT_TEMPLATE_REGISTRY[key].load)
+    // Without a page of its own a card is a statement report (ReportKind), which is what the template shows.
+    component = lazy(own ?? (REPORT_TEMPLATE_REGISTRY[template].load as NonNullable<typeof own>))
     lazyTemplates.set(key, component)
   }
   return component
@@ -72,8 +79,9 @@ export function ReportDetailPage() {
   }
 
   const current = resolution.card
-  const Template = templateComponent(current.template)
-  const openRules = isAdmin ? () => setRulesOpen(true) : null
+  const Template = cardComponent(current.template, current.report)
+  const rulesReport = isReportKind(current.report) ? current.report : null
+  const openRules = isAdmin && rulesReport ? () => setRulesOpen(true) : null
   return (
     <>
       <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', marginBottom: 12 }}>
@@ -90,7 +98,7 @@ export function ReportDetailPage() {
         <Template report={current.report} onOpenRules={openRules} rulesVersion={rulesVersion} />
       </Suspense>
       <ReportRulesDrawer
-        report={rulesOpen ? current.report : null}
+        report={rulesOpen ? rulesReport : null}
         cards={buildReportCards(known)}
         onClose={() => setRulesOpen(false)}
         onSaved={() => setRulesVersion((version) => version + 1)}

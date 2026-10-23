@@ -126,3 +126,24 @@ class ReportRulesPatchSerializer(serializers.Serializer):
 
     source = serializers.ChoiceField(choices=REPORT_SOURCES, required=False)
     rules = serializers.DictField(required=False, allow_null=True)
+
+
+class AccountBalancesQuerySerializer(serializers.Serializer):
+    """«Остатки по счетам»: one wallet, a period or (without `date_from`) everything up to `date_to`."""
+
+    wallet = serializers.IntegerField(min_value=1)
+    date_from = serializers.DateField(required=False, allow_null=True, default=None)
+    date_to = serializers.DateField()
+
+    MIN_YEAR, MAX_YEAR = 2000, 2100
+
+    def validate(self, attrs):
+        for key in ("date_from", "date_to"):
+            value = attrs[key]
+            if value is not None and not self.MIN_YEAR <= value.year <= self.MAX_YEAR:
+                raise serializers.ValidationError(
+                    {key: f"Дата вне допустимого диапазона ({self.MIN_YEAR}–{self.MAX_YEAR})."}
+                )
+        if attrs["date_from"] and attrs["date_from"] > attrs["date_to"]:
+            raise serializers.ValidationError({"date_from": "Начало периода позже конца."})
+        return attrs

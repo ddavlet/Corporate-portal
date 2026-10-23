@@ -8,13 +8,24 @@ const SILENT = { silent: true } as const
 /** File downloads: no JSON Accept header, and errors are shown by the page. */
 const FILE_DOWNLOAD = { silent: true, omitAcceptJson: true } as const
 
+/** Reports built by the statement engine; each has its own calculation rules. */
 export type ReportKind = 'pnl' | 'cashflow'
+
+/** Every report a card can show: the statement reports plus those with a page of their own. */
+export type ReportKey = ReportKind | 'balances'
+
+const REPORT_KINDS: readonly string[] = ['pnl', 'cashflow'] satisfies ReportKind[]
+
+/** Statement reports have rules (the gear on the card); the other reports do not. */
+export function isReportKind(report: string): report is ReportKind {
+  return REPORT_KINDS.includes(report)
+}
 
 export type ReportTemplateInfo = {
   key: string
   label: string
   description: string
-  reports: ReportKind[]
+  reports: ReportKey[]
   engine: 'legacy' | 'statement'
 }
 
@@ -337,4 +348,83 @@ export async function downloadStatementXlsx(query: StatementExportQuery, signal?
 export async function downloadLinesXlsx(query: StatementLinesExportQuery, signal?: AbortSignal): Promise<DownloadedFile> {
   const res = await apiFetch(`${BASE}/statement/lines/export/?${statementLinesSearchParams(query)}`, { signal }, FILE_DOWNLOAD)
   return readFile(res, `${query.report}-operations.xlsx`)
+}
+
+export type BalanceAccountType = 'bank' | 'cash' | 'corporate_card'
+
+export type BalanceAccount = {
+  wallet_id: number
+  wallet_type: BalanceAccountType
+  type_label: string
+  name: string
+  currency: string
+  account_no: string
+  /** A cash register hidden from «Касса». */
+  hidden: boolean
+}
+
+export type BalanceOperation = {
+  source: string
+  id: number
+  date: string
+  /** Tashkent time; null for bank lines (they only have a date). */
+  at: string | null
+  direction: 'in' | 'out'
+  amount: string
+  title: string
+  counterparty: string
+  document: string
+  /** Unconfirmed cash/card operations are listed but never change a balance. */
+  counted: boolean
+  balance_after: string | null
+}
+
+export type BalanceDay = {
+  date: string
+  opening: string
+  income: string
+  expense: string
+  closing: string
+  operations: BalanceOperation[]
+}
+
+export type AccountBalancesResponse = {
+  account: BalanceAccount
+  date_from: string
+  date_to: string
+  since_first_operation: boolean
+  /** The day the account's opening balance describes (1 January of the current year). */
+  opening_balance_day: string
+  opening: string
+  income: string
+  expense: string
+  closing: string
+  operations_count: number
+  unconfirmed: { count: number; income: string; expense: string }
+  days: BalanceDay[]
+}
+
+/** Without `dateFrom`: everything from the account's first operation up to `dateTo`. */
+export type AccountBalancesQuery = { wallet: number; dateFrom?: string; dateTo: string }
+
+export function accountBalancesSearchParams(query: AccountBalancesQuery): URLSearchParams {
+  const params = new URLSearchParams({ wallet: String(query.wallet), date_to: query.dateTo })
+  if (query.dateFrom) params.set('date_from', query.dateFrom)
+  return params
+}
+
+export async function getBalanceAccounts(signal?: AbortSignal): Promise<BalanceAccount[]> {
+  const body = await readJson<{ accounts: BalanceAccount[] }>(await apiFetch(`${BASE}/balances/accounts/`, { signal }, SILENT))
+  return body.accounts
+}
+
+export async function getAccountBalances(query: AccountBalancesQuery, signal?: AbortSignal): Promise<AccountBalancesResponse> {
+  return readJson<AccountBalancesResponse>(
+    await apiFetch(`${BASE}/balances/?${accountBalancesSearchParams(query)}`, { signal }, SILENT),
+  )
+}
+
+export async function downloadAccountBalancesXlsx(query: AccountBalancesQuery, signal?: AbortSignal): Promise<DownloadedFile> {
+  const res = await apiFetch(`${BASE}/balances/export/?${accountBalancesSearchParams(query)}`, { signal }, FILE_DOWNLOAD)
+  return readFile(res, 'balances.xlsx')
 }

@@ -44,6 +44,17 @@ describe('buildReportCards', () => {
     expect(cards.map((card) => `${card.template}/${card.report}`)).toEqual(['classic/pnl'])
   })
 
+  it('shows «Остатки по счетам» when the backend lists it for Professional', () => {
+    const withBalances = info('professional', 'Профессиональный', ['pnl', 'cashflow', 'balances'])
+    const cards = buildReportCards(templates('professional', [withBalances]))
+    expect(cards.map((card) => `${card.report}:${card.title}`)).toEqual([
+      'pnl:Прибыли и убытки',
+      'cashflow:Движение денег',
+      'balances:Остатки по счетам',
+    ])
+    expect(cards[2].path).toBe('/reports/professional/balances')
+  })
+
   it('falls back to the Classic cards without the template list', () => {
     expect(buildReportCards(null).map((card) => card.path)).toEqual(['/reports/classic/pnl', '/reports/classic/cashflow'])
   })

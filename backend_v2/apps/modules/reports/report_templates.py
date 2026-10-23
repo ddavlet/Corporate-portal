@@ -49,6 +49,8 @@ REPORT_TEMPLATES: dict[str, ReportTemplate] = {
             description="Ключевые показатели, график, отчёт с итогами и сравнением, детализация операций.",
             engine=ENGINE_STATEMENT,
             layouts={"pnl": ProfessionalPnlLayout, "cashflow": ProfessionalCashflowLayout},
+            # «Остатки по счетам» has its own page and endpoints (account_balances.py), not a statement layout.
+            reports=("pnl", "cashflow", "balances"),
         ),
     )
 }

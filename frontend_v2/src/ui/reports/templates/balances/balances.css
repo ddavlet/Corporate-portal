@@ -1,0 +1,39 @@
+.balances-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+
+.balances-toolbar-end {
+  margin-left: auto;
+}
+
+.balances-kpi {
+  height: 100%;
+}
+
+.balances-kpi-value {
+  margin-top: 4px;
+  font-size: 18px;
+  font-variant-numeric: tabular-nums;
+}
+
+.balances-report .ant-table {
+  font-variant-numeric: tabular-nums;
+}
+
+.balances-uncounted td {
+  opacity: 0.6;
+}
+
+@media (max-width: 575px) {
+  .balances-toolbar-end {
+    margin-left: 0;
+  }
+
+  .balances-kpi-value {
+    font-size: 15px;
+  }
+}

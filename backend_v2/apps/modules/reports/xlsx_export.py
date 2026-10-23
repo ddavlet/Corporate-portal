@@ -445,6 +445,13 @@ def _count(value: int) -> str:
     return f"{value:,}".replace(",", " ")
 
 
+def _operations(value: int) -> str:
+    """«1 операция», «3 операции», «5 операций» (as `countLabel` on the page)."""
+    tens, ones = value % 100, value % 10
+    word = "операций" if 11 <= tens <= 14 else "операция" if ones == 1 else "операции" if 2 <= ones <= 4 else "операций"
+    return f"{_count(value)} {word}"
+
+
 def _decimal(value: Any) -> Decimal | None:
     return None if value is None or value == "" else Decimal(str(value))
 
@@ -469,3 +476,163 @@ def _workbook_bytes(workbook: Workbook) -> bytes:
     buffer = BytesIO()
     workbook.save(buffer)
     return buffer.getvalue()
+
+
+@dataclass(frozen=True)
+class AccountBalancesExport:
+    """One wallet's balances exactly as the page gets them (`build_account_balances`)."""
+
+    report: dict[str, Any]
+    company: str
+    author: str
+    generated_at: datetime
+
+
+BALANCE_DAY_HEADERS = ("Дата", "На начало дня", "Приход", "Расход", "На конец дня", "Операций")
+BALANCE_DAY_WIDTHS = (12, 20, 18, 18, 20, 11)
+BALANCE_OPERATION_HEADERS = (
+    "Дата", "Время", "Движение", "Операция", "Контрагент", "Документ", "Приход", "Расход", "Остаток после", "Учтена",
+)
+BALANCE_OPERATION_WIDTHS = (12, 8, 10, 48, 28, 14, 16, 16, 18, 10)
+BALANCE_HEADER_ROW = 12
+
+
+class AccountBalancesRenderer(ABC):
+    @abstractmethod
+    def render(self, export: AccountBalancesExport) -> bytes:
+        raise NotImplementedError
+
+
+class AccountBalancesXlsxRenderer(AccountBalancesRenderer):
+    """«Остатки» (period totals and one row per day) and «Операции» (every operation with the balance after it)."""
+
+    def render(self, export: AccountBalancesExport) -> bytes:
+        workbook = Workbook()
+        workbook.properties.creator = export.author
+        sheet = workbook.active
+        sheet.title = "Остатки"
+        _write_balance_days(sheet, export)
+        _write_balance_operations(workbook.create_sheet("Операции"), export.report)
+        return _workbook_bytes(workbook)
+
+
+def account_balances_filename(report: dict[str, Any], subdomain: str, today: date) -> str:
+    account = report["account"]
+    return (
+        f"Balances_{account['wallet_type']}_{account['wallet_id']}_{report['date_from']}_{report['date_to']}"
+        f"_{subdomain}_{today.isoformat()}.xlsx"
+    )
+
+
+def _write_balance_days(sheet: Worksheet, export: AccountBalancesExport) -> None:
+    report = export.report
+    account = report["account"]
+    currency = account["currency"]
+    _put_text(sheet["A1"], export.company)
+    sheet["A1"].font = Font(bold=True, size=14)
+    sheet["A2"] = "Остатки по счёту"
+    sheet["A2"].font = Font(bold=True, size=12)
+    number = f" · {account['account_no']}" if account["account_no"] else ""
+    _put_text(sheet["A3"], f"Счёт: {account['type_label']} · {account['name']} · {currency}{number}")
+    since = " (с первой операции)" if report["since_first_operation"] else ""
+    _put_text(
+        sheet["A4"], f"Период: {_dmy_iso(report['date_from'])} – {_dmy_iso(report['date_to'])}{since}"
+    )
+    _put_text(sheet["A5"], _stamp(export.generated_at, export.author))
+
+    totals = (
+        ("Остаток на начало", report["opening"]),
+        ("Приход", report["income"]),
+        ("Расход", report["expense"]),
+        ("Остаток на конец", report["closing"]),
+    )
+    for offset, (label, value) in enumerate(totals):
+        row = 7 + offset
+        _put_text(sheet.cell(row=row, column=1), f"{label}, {currency}")
+        cell = sheet.cell(row=row, column=2, value=Decimal(value))
+        cell.number_format = MONEY_FORMAT
+        cell.font = Font(bold=True)
+    unconfirmed = report["unconfirmed"]
+    if unconfirmed["count"]:
+        income = f"{Decimal(unconfirmed['income']):,.2f}".replace(",", " ")
+        expense = f"{Decimal(unconfirmed['expense']):,.2f}".replace(",", " ")
+        note = (
+            f"Не подтверждено и не учтено: {_operations(unconfirmed['count'])} "
+            f"(приход {income}, расход {expense})"
+        )
+        sheet.cell(row=11, column=1, value=note).font = Font(italic=True, color=BAD)
+
+    header = BALANCE_HEADER_ROW
+    for position, title in enumerate(BALANCE_DAY_HEADERS, start=1):
+        cell = sheet.cell(row=header, column=position, value=title)
+        cell.font = Font(bold=True)
+        cell.fill = HEADER_FILL
+        cell.border = Border(bottom=THIN)
+    for offset, day in enumerate(report["days"], start=1):
+        row = header + offset
+        sheet.cell(row=row, column=1, value=date.fromisoformat(day["date"])).number_format = DATE_FORMAT
+        for position, key in enumerate(("opening", "income", "expense", "closing"), start=2):
+            cell = sheet.cell(row=row, column=position, value=Decimal(day[key]))
+            cell.number_format = MONEY_FORMAT
+        sheet.cell(row=row, column=3).font = Font(color=GOOD)
+        sheet.cell(row=row, column=4).font = Font(color=BAD)
+        sheet.cell(row=row, column=6, value=len(day["operations"]))
+    if not report["days"]:
+        sheet.cell(row=header + 1, column=1, value="Операций за период нет").font = Font(italic=True, color=MUTED)
+    sheet.freeze_panes = f"A{header + 1}"
+    for position, width in enumerate(BALANCE_DAY_WIDTHS, start=1):
+        sheet.column_dimensions[get_column_letter(position)].width = width
+    sheet.column_dimensions["A"].width = 30
+    _landscape(sheet, title_row=header)
+
+
+def _write_balance_operations(sheet: Worksheet, report: dict[str, Any]) -> None:
+    for position, title in enumerate(BALANCE_OPERATION_HEADERS, start=1):
+        sheet.cell(row=1, column=position, value=title).font = Font(bold=True)
+    operations = [operation for day in report["days"] for operation in day["operations"]]
+    shown = operations[:MAX_OPERATION_ROWS]
+    for row, operation in enumerate(shown, start=2):
+        amount = Decimal(operation["amount"])
+        incoming = operation["direction"] == "in"
+        at = datetime.fromisoformat(operation["at"]).strftime("%H:%M") if operation["at"] else None
+        balance_after = _decimal(operation["balance_after"])
+        values = (
+            date.fromisoformat(operation["date"]),
+            at,
+            "Приход" if incoming else "Расход",
+            operation["title"] or None,
+            operation["counterparty"] or None,
+            operation["document"] or None,
+            amount if incoming else None,
+            None if incoming else amount,
+            balance_after,
+            "Да" if operation["counted"] else "Нет",
+        )
+        for position, value in enumerate(values, start=1):
+            cell = sheet.cell(row=row, column=position)
+            if isinstance(value, str):
+                _put_text(cell, value)
+            else:
+                cell.value = value
+        sheet.cell(row=row, column=1).number_format = DATE_FORMAT
+        for position in (7, 8, 9):
+            sheet.cell(row=row, column=position).number_format = MONEY_FORMAT
+        if not operation["counted"]:
+            for position in range(1, len(values) + 1):
+                sheet.cell(row=row, column=position).font = Font(italic=True, color=MUTED)
+    if shown:
+        last = get_column_letter(len(BALANCE_OPERATION_HEADERS))
+        table = Table(displayName="BalanceOperations", ref=f"A1:{last}{len(shown) + 1}")
+        table.tableStyleInfo = TableStyleInfo(name="TableStyleLight9", showRowStripes=True)
+        sheet.add_table(table)
+    else:
+        sheet.cell(row=2, column=1, value="Операций за период нет").font = Font(italic=True, color=MUTED)
+    if len(operations) > len(shown):
+        note = (
+            f"В файле первые {_count(len(shown))} из {_count(len(operations))} операций. "
+            "Сузьте период, чтобы выгрузить все."
+        )
+        sheet.cell(row=len(shown) + 3, column=1, value=note).font = Font(italic=True, color=MUTED)
+    sheet.freeze_panes = "A2"
+    for position, width in enumerate(BALANCE_OPERATION_WIDTHS, start=1):
+        sheet.column_dimensions[get_column_letter(position)].width = width

@@ -883,3 +883,56 @@ def export_statement_lines_xlsx(
     )
     filename = lines_filename(report, date_from, date_to, tenant.subdomain, timezone.localdate())
     return ExportFile(filename=filename, content=content)
+
+
+def list_account_balance_accounts(*, tenant, user) -> list[dict[str, Any]]:
+    """Accounts «Остатки по счетам» can show this user: the wallet types whose own page the user may open."""
+    from apps.modules.reports.account_balances import allowed_wallet_types, list_balance_accounts
+
+    return list_balance_accounts(tenant_id=tenant.id, wallet_types=allowed_wallet_types(user=user, tenant=tenant))
+
+
+def get_account_balances(*, tenant, user, wallet_id: int, date_from, date_to) -> dict[str, Any]:
+    """«Остатки по счетам» for one wallet; `WalletNotFound` for a wallet of another company or one the user may not see."""
+    from apps.modules.reports.account_balances import allowed_wallet_types, build_account_balances
+
+    started = time.monotonic()
+    report = build_account_balances(
+        tenant_id=tenant.id,
+        wallet_id=wallet_id,
+        date_from=date_from,
+        date_to=date_to,
+        wallet_types=allowed_wallet_types(user=user, tenant=tenant),
+    )
+    logger.info(
+        "reports balances: tenant=%s wallet=%s from=%s to=%s operations=%s ms=%s",
+        tenant.subdomain,
+        wallet_id,
+        report["date_from"],
+        report["date_to"],
+        report["operations_count"],
+        int((time.monotonic() - started) * 1000),
+    )
+    return report
+
+
+def export_account_balances_xlsx(*, tenant, user, wallet_id: int, date_from, date_to, author: str) -> ExportFile:
+    from apps.modules.reports.xlsx_export import (
+        AccountBalancesExport,
+        AccountBalancesXlsxRenderer,
+        ExportFile,
+        account_balances_filename,
+    )
+
+    report = get_account_balances(tenant=tenant, user=user, wallet_id=wallet_id, date_from=date_from, date_to=date_to)
+    content = AccountBalancesXlsxRenderer().render(
+        AccountBalancesExport(
+            report=report,
+            company=str(getattr(tenant, "name", "") or ""),
+            author=author,
+            generated_at=timezone.localtime(),
+        )
+    )
+    return ExportFile(
+        filename=account_balances_filename(report, tenant.subdomain, timezone.localdate()), content=content
+    )

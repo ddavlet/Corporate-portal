@@ -1,11 +1,11 @@
-import type { ReportKind, ReportTemplatesResponse } from '../../lib/reportsApi'
+import type { ReportKey, ReportKind, ReportTemplatesResponse } from '../../lib/reportsApi'
 import { FALLBACK_TEMPLATE, REPORT_TEMPLATE_REGISTRY } from './templates/registry'
 import type { ReportCardInfo, ReportTemplateDefinition } from './templates/types'
 
 export type ReportCard = {
   template: string
   templateLabel: string
-  report: ReportKind
+  report: ReportKey
   title: string
   description: string
   /** `/reports/<template>/<report>` */
@@ -17,7 +17,7 @@ export type ReportCardResolution =
   | { status: 'unknown' }
   | { status: 'not-allowed'; templateLabel: string }
 
-type TemplateEntry = { key: string; label?: string; reports?: ReportKind[] }
+type TemplateEntry = { key: string; label?: string; reports?: ReportKey[] }
 
 // Own keys only: a path such as /reports/classic/__proto__ must not reach Object.prototype.
 function definitionOf(key: string): ReportTemplateDefinition | null {
@@ -25,7 +25,7 @@ function definitionOf(key: string): ReportTemplateDefinition | null {
 }
 
 function cardInfo(definition: ReportTemplateDefinition, report: string): ReportCardInfo | null {
-  return Object.hasOwn(definition.reports, report) ? (definition.reports[report as ReportKind] ?? null) : null
+  return Object.hasOwn(definition.reports, report) ? (definition.reports[report as ReportKey] ?? null) : null
 }
 
 export function reportPath(template: string, report: string): string {
@@ -45,7 +45,7 @@ export function buildReportCards(templates: ReportTemplatesResponse | null): Rep
   for (const entry of templatesInOrder(templates)) {
     const definition = definitionOf(entry.key)
     if (!definition) continue
-    for (const [report, info] of Object.entries(definition.reports) as [ReportKind, ReportCardInfo | undefined][]) {
+    for (const [report, info] of Object.entries(definition.reports) as [ReportKey, ReportCardInfo | undefined][]) {
       if (!info || (entry.reports && !entry.reports.includes(report))) continue
       cards.push({
         template: definition.key,
