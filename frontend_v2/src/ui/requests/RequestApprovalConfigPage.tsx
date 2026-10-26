@@ -13,6 +13,7 @@ import {
   type TenantTelegramChatDto,
 } from '../../lib/api'
 import { REQUEST_PAYMENT_TYPES } from '../../lib/requestPaymentTypes'
+import { tmeLinkForeignBot, tmeLinkPrefix } from '../../lib/telegramWebappLinks'
 import { labelBlockAboveField } from '../formSpacing'
 
 const PAYMENT_TYPES = REQUEST_PAYMENT_TYPES
@@ -107,6 +108,9 @@ export function RequestApprovalConfigPage() {
   const approverOptions = useMemo(() => {
     return (data?.approver_candidates ?? []).map((u) => ({ label: u.username, value: u.id }))
   }, [data])
+
+  const tenantBot = (data?.telegram_bot_username ?? '').trim()
+  const commentLinkForeignBot = tmeLinkForeignBot(data?.comment_webapp_url ?? '', tenantBot)
 
   const paymentTypeRow = (pt: string) => data?.payment_types.find((x) => x.payment_type === pt) ?? null
 
@@ -732,9 +736,35 @@ export function RequestApprovalConfigPage() {
             <Input
               value={data.comment_webapp_url ?? ''}
               onChange={(e) => setData((prev) => prev ? { ...prev, comment_webapp_url: e.target.value } : prev)}
-              placeholder="https://t.me/ВашБот/ИмяПриложения"
+              placeholder={tenantBot ? `${tmeLinkPrefix(tenantBot)}ИмяПриложения` : 'https://t.me/ВашБот/ИмяПриложения'}
+              status={commentLinkForeignBot ? 'error' : undefined}
               allowClear
             />
+            {tenantBot ? (
+              <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                Бот тенанта: <Typography.Text code>@{tenantBot}</Typography.Text>
+                {!(data.comment_webapp_url ?? '').trim() ? (
+                  <Button
+                    type="link"
+                    size="small"
+                    onClick={() => setData((prev) => prev ? { ...prev, comment_webapp_url: tmeLinkPrefix(tenantBot) } : prev)}
+                  >
+                    Подставить {tmeLinkPrefix(tenantBot)}
+                  </Button>
+                ) : null}
+              </Typography.Text>
+            ) : (
+              <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                У тенанта не указан Telegram-бот — проверить ссылку не получится. Укажите его в настройках тенанта.
+              </Typography.Text>
+            )}
+            {commentLinkForeignBot ? (
+              <Alert
+                type="error"
+                showIcon
+                message={`Ссылка ведёт на бота @${commentLinkForeignBot}, а бот тенанта — @${tenantBot}. Mini App откроется только в своём боте — сохранение не пройдёт.`}
+              />
+            ) : null}
           </Space>
 
           <Button type="primary" onClick={() => void save()} loading={saving} disabled={loading}>
