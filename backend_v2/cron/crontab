@@ -24,3 +24,8 @@ BASH_ENV=/etc/kolberg-cron.env
 # Weekly investor report to tenant Telegram groups (each tenant picks its weekday and hour;
 # command filters by them, InvestReportDispatch dedups per tenant/day).
 0 * * * * root cd /app && python manage.py run_invest_reports >> /proc/1/fd/1 2>&1
+
+# Kapitalbank statement import: daytime every 10 min on weekdays 06-22, nightly self-heal at 05:00.
+*/10 6-21 * * 1-5 root cd /app && python manage.py import_kapitalbank_statements --mode daytime >> /proc/1/fd/1 2>&1
+0 22 * * 1-5 root cd /app && python manage.py import_kapitalbank_statements --mode daytime >> /proc/1/fd/1 2>&1
+0 5 * * * root cd /app && python manage.py import_kapitalbank_statements --mode nightly >> /proc/1/fd/1 2>&1
