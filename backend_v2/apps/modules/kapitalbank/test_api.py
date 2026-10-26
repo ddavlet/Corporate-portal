@@ -53,3 +53,21 @@ class PendingAccountsApiTests(KapitalbankFixtures, APITestCase):
         res = self._get(self.owner)
         self.assertEqual(res.status_code, 200)
         self.assertEqual(res.json(), {"enabled": False, "accounts": []})
+
+    def test_pending_endpoint_isolated_per_tenant(self):
+        from apps.tenants.models import Tenant
+
+        self._grant(self.owner, TenantUserRole.ROLE_ADMIN)
+        tenant_b = Tenant.objects.create(name="Beta", subdomain="beta", is_active=True)
+        KapitalbankConnection.objects.create(tenant=tenant_b, login="IB#b", is_enabled=True)
+        BankAccountLink.objects.create(tenant=tenant_b, account_no="20208000111111111111", branch=MFO)
+
+        # Case 1: B's pending link must not leak into A's response.
+        data = self._get(self.owner).json()
+        self.assertEqual([a["account_no"] for a in data["accounts"]], [ACCOUNT_1])
+
+        # Case 2: A has no connection while B has one -> A is disabled and empty.
+        KapitalbankConnection.objects.filter(pk=self.connection.pk).delete()
+        res = self._get(self.owner)
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(res.json(), {"enabled": False, "accounts": []})
