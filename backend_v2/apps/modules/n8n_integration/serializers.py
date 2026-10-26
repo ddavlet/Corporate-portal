@@ -367,6 +367,7 @@ class N8nInvestPayoutScheduleImportSerializer(InvestPayoutScheduleSerializer):
 
 class N8nProjectInvestmentImportSerializer(ProjectInvestmentSerializer):
     id = serializers.IntegerField(required=False)
+    funding_method_required_on_create = False
 
     class Meta(ProjectInvestmentSerializer.Meta):
         read_only_fields = ["tenant", "created_at", "last_edit_at", "created_by"]

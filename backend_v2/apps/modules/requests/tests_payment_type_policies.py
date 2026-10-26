@@ -42,6 +42,7 @@ class FakePolicy:
 @override_settings(BASE_DOMAIN="example.com", N8N_INTEGRATION_TOKEN="", ALLOWED_HOSTS=["*"])
 class PaymentTypePolicyRegistryTests(APITestCase):
     def setUp(self):
+        self._registry_snapshot = registry._snapshot_registry_for_tests()
         registry._reset_registry_for_tests()
         self.tenant = Tenant.objects.create(name="PolCo", subdomain="polco", is_active=True)
         self.admin = User.objects.create_user(username="pol_admin", password="x")
@@ -66,7 +67,7 @@ class PaymentTypePolicyRegistryTests(APITestCase):
         self.client.force_authenticate(self.admin)
 
     def tearDown(self):
-        registry._reset_registry_for_tests()
+        registry._restore_registry_for_tests(self._registry_snapshot)
 
     def _payload(self, **extra):
         data = {

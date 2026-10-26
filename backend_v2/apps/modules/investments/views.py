@@ -17,8 +17,10 @@ from apps.modules.investments.approval_services import (
     deactivate_investment_return_approval_buttons,
     route_invest_return_approvals,
 )
+from apps.modules.investments.funding import apply_funding_config, has_active_project_approval_chain
 from apps.modules.investments.models import (
     InvestCompany,
+    InvestmentFundingConfig,
     InvestmentApprovalConfig,
     InvestmentApprovalConfigStep,
     InvestmentApprovalConfigStepApprover,
@@ -52,6 +54,7 @@ from apps.modules.investments.serializers import (
     InvestmentApprovalWebhookSerializer,
     InvestmentFormConfigReadSerializer,
     InvestmentFormConfigSerializer,
+    InvestmentFundingConfigSerializer,
     InvestmentProjectApprovalConfigReadSerializer,
     InvestmentProjectApprovalConfigSerializer,
     InvestmentProjectApprovalConfigStepApproverReadSerializer,
@@ -385,6 +388,43 @@ class InvestmentFormConfigView(APIView):
             },
         )
         return Response(self._payload(request.tenant))
+
+
+class InvestmentFundingConfigView(APIView):
+    permission_classes = [IsAuthenticated, HasEffectiveModuleAccess]
+    module_key = "investments"
+
+    def _payload(self, tenant):
+        cfg = InvestmentFundingConfig.objects.filter(tenant=tenant).select_related("cash_wallet").first()
+        return {
+            "is_enabled": bool(cfg and cfg.is_enabled),
+            "cash_wallet_id": cfg.cash_wallet_id if cfg else None,
+            "bank_wallet_id": cfg.bank_wallet_id if cfg else None,
+            "enabled_at": cfg.enabled_at if cfg else None,
+            "has_project_approval_chain": has_active_project_approval_chain(tenant),
+            "cash_wallet_currency": cfg.cash_wallet.currency if cfg and cfg.cash_wallet else None,
+        }
+
+    def get(self, request):
+        self.check_permissions(request)
+        return Response(self._payload(request.tenant))
+
+    def put(self, request):
+        self.check_permissions(request)
+        tenant = request.tenant
+        serializer = InvestmentFundingConfigSerializer(data=request.data, context={"tenant": tenant})
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+        if data["is_enabled"] and not has_active_project_approval_chain(tenant):
+            raise ValidationError({"detail": "Сначала настройте согласование заявок на вложение."})
+        apply_funding_config(
+            tenant=tenant,
+            user=request.user,
+            is_enabled=data["is_enabled"],
+            cash_wallet=data["cash_wallet"],
+            bank_wallet=data["bank_wallet"],
+        )
+        return Response(self._payload(tenant))
 
 
 class InvestNotificationConfigView(APIView):

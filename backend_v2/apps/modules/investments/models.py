@@ -137,6 +137,10 @@ class InvestPayoutSchedule(models.Model):
 class ProjectInvestment(models.Model):
     """Registered capital investment amounts into a project (per tenant)."""
 
+    class FundingMethod(models.TextChoices):
+        CASH = "cash", "Наличными"
+        BANK_TRANSFER = "bank_transfer", "Переводом на счёт"
+
     tenant = models.ForeignKey(Tenant, on_delete=models.CASCADE, related_name="project_investments", db_index=False)
     company = models.ForeignKey(
         "InvestCompany",
@@ -148,6 +152,7 @@ class ProjectInvestment(models.Model):
     date = models.DateField()
     amount = models.DecimalField(max_digits=18, decimal_places=2)
     currency = models.CharField(max_length=3, default="USD")
+    funding_method = models.CharField(max_length=16, choices=FundingMethod.choices, null=True, blank=True)
     comment = models.TextField(blank=True, default="")
     confirmed = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -240,6 +245,44 @@ class InvestmentFormConfig(models.Model):
 
     class Meta:
         db_table = "investment_form_config"
+
+
+class InvestmentFundingConfig(models.Model):
+    """Per-tenant «инвестиционный режим»: кошельки, через которые вносятся вложения."""
+
+    tenant = models.OneToOneField(
+        Tenant,
+        on_delete=models.CASCADE,
+        related_name="investment_funding_config",
+    )
+    is_enabled = models.BooleanField(default=False)
+    cash_wallet = models.ForeignKey(
+        "wallets.Wallet",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="+",
+    )
+    bank_wallet = models.ForeignKey(
+        "wallets.Wallet",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="+",
+    )
+    enabled_at = models.DateTimeField(null=True, blank=True)
+    updated_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="+",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "investment_funding_config"
 
 
 class InvestmentApprovalConfig(models.Model):

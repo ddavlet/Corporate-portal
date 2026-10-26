@@ -3,6 +3,8 @@ from decimal import Decimal, ROUND_HALF_UP
 from rest_framework import serializers
 
 from apps.modules.investments.billing_month_rules import month_first_day
+from apps.modules.investments.funding import get_enabled_funding_config, is_module_enabled
+from apps.modules.wallets.models import Wallet
 from apps.modules.investments.models import (
     InvestCompany,
     InvestmentApprovalConfig,
@@ -243,6 +245,7 @@ class ProjectInvestmentSerializer(_CompanyScopeMixin, serializers.ModelSerialize
             "date",
             "amount",
             "currency",
+            "funding_method",
             "comment",
             "confirmed",
             "created_at",
@@ -251,10 +254,30 @@ class ProjectInvestmentSerializer(_CompanyScopeMixin, serializers.ModelSerialize
         ]
         read_only_fields = ["id", "tenant", "confirmed", "created_at", "last_edit_at", "created_by"]
 
+    # Обязателен при создании; импорт из n8n (подкласс) отключает требование.
+    funding_method_required_on_create = True
+
     def validate(self, attrs):
         reject_client_pk_on_create(self)
         _normalize_currency(attrs)
+        if self.instance is None and self.funding_method_required_on_create and not attrs.get("funding_method"):
+            raise serializers.ValidationError({"funding_method": "Укажите способ внесения."})
+        self._validate_cash_currency(attrs)
         return investment_form_clear_company_if_disabled(attrs, self.context.get("request"))
+
+    def _validate_cash_currency(self, attrs):
+        tenant = getattr(self.context.get("request"), "tenant", None)
+        method = attrs.get("funding_method") or (self.instance.funding_method if self.instance else None)
+        if tenant is None or method != ProjectInvestment.FundingMethod.CASH:
+            return
+        cfg = get_enabled_funding_config(tenant)
+        if cfg is None or cfg.cash_wallet is None:
+            return
+        currency = attrs.get("currency") or (self.instance.currency if self.instance else None)
+        if currency and currency != cfg.cash_wallet.currency:
+            raise serializers.ValidationError(
+                {"currency": f"Валюта вложения должна совпадать с валютой инвестиционной кассы ({cfg.cash_wallet.currency})."}
+            )
 
 
 class ProjectInvestmentWithEquivalentsSerializer(ProjectInvestmentSerializer):
@@ -378,6 +401,38 @@ class InvestmentFormConfigSerializer(serializers.Serializer):
         child=serializers.ChoiceField(choices=InvestReturn.ReturnType.choices),
         allow_empty=False,
     )
+
+
+class InvestmentFundingConfigSerializer(serializers.Serializer):
+    """Вход PUT /funding-config/. Проверки принадлежности кошельков — в validate (нужен tenant)."""
+
+    is_enabled = serializers.BooleanField()
+    cash_wallet_id = serializers.IntegerField(required=False, allow_null=True)
+    bank_wallet_id = serializers.IntegerField(required=False, allow_null=True)
+
+    def validate(self, attrs):
+        tenant = self.context["tenant"]
+        enabled = attrs["is_enabled"]
+        resolved = {}
+        for key, wallet_type, label in (
+            ("cash_wallet_id", Wallet.Type.CASH, "Инвестиционная касса"),
+            ("bank_wallet_id", Wallet.Type.BANK, "Инвестиционный счёт"),
+        ):
+            wallet_id = attrs.get(key)
+            wallet = None
+            if wallet_id is not None:
+                wallet = Wallet.objects.filter(pk=wallet_id, tenant=tenant, wallet_type=wallet_type).first()
+                if wallet is None:
+                    raise serializers.ValidationError({key: f"{label}: кошелёк не найден или неверного типа."})
+            resolved[key] = wallet
+        if enabled:
+            if resolved["cash_wallet_id"] is None:
+                raise serializers.ValidationError({"cash_wallet_id": "Выберите инвестиционную кассу."})
+            if resolved["bank_wallet_id"] is None and is_module_enabled(tenant, "bank"):
+                raise serializers.ValidationError({"bank_wallet_id": "Выберите инвестиционный счёт."})
+        attrs["cash_wallet"] = resolved["cash_wallet_id"]
+        attrs["bank_wallet"] = resolved["bank_wallet_id"]
+        return attrs
 
 
 class InvestmentApprovalConfigSerializer(serializers.Serializer):

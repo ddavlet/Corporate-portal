@@ -33,6 +33,10 @@ class InvestmentsModuleConfig(AppConfig):
     def ready(self):
         # Always connect signals (cheap, no side effects).
         from apps.modules.investments import signals  # noqa: F401
+        from apps.modules.investments.funding import register_funding_policies
+
+        # Политики инвест-типов заявок — в реестр requests (нужны и для management-команд/тестов).
+        register_funding_policies()
 
         # Skip for management commands that shouldn't spawn daemon threads.
         if len(sys.argv) > 1 and sys.argv[1] in _NO_POLLER_COMMANDS:

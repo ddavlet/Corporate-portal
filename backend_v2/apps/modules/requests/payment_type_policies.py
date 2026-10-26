@@ -60,3 +60,15 @@ def check_request_mutation(*, request_obj: Request, attrs: dict) -> None:
 def _reset_registry_for_tests() -> None:
     _POLICIES.clear()
     _MUTATION_GUARDS.clear()
+
+
+def _snapshot_registry_for_tests() -> object:
+    return (dict(_POLICIES), list(_MUTATION_GUARDS))
+
+
+def _restore_registry_for_tests(snapshot: object) -> None:
+    policies, guards = snapshot  # type: ignore[misc]
+    _POLICIES.clear()
+    _POLICIES.update(policies)
+    _MUTATION_GUARDS.clear()
+    _MUTATION_GUARDS.extend(guards)

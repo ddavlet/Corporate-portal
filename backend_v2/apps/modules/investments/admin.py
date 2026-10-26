@@ -8,6 +8,7 @@ from apps.modules.investments.models import (
     InvestmentApprovalConfigStep,
     InvestmentApprovalConfigStepApprover,
     InvestmentFormConfig,
+    InvestmentFundingConfig,
     InvestmentProjectApprovalConfig,
     InvestmentProjectApprovalConfigStep,
     InvestmentProjectApprovalConfigStepApprover,
@@ -72,6 +73,13 @@ class InvestPayoutScheduleShareLinkAdmin(admin.ModelAdmin):
 class InvestmentFormConfigAdmin(admin.ModelAdmin):
     list_display = ("id", "tenant", "uses_companies", "updated_at")
     autocomplete_fields = ("tenant",)
+
+
+class InvestmentFundingConfigAdmin(admin.ModelAdmin):
+    list_display = ("id", "tenant", "is_enabled", "cash_wallet", "bank_wallet", "enabled_at")
+    list_filter = ("is_enabled",)
+    autocomplete_fields = ("tenant",)
+    raw_id_fields = ("cash_wallet", "bank_wallet", "updated_by")
 
 
 class InvestmentApprovalConfigStepApproverInline(admin.TabularInline):
@@ -168,6 +176,12 @@ register_portal(
     InvestPayoutScheduleShareLinkAdmin,
 )
 register_portal(InvestmentFormConfig, "Форма создания", "Форма создания", InvestmentFormConfigAdmin)
+register_portal(
+    InvestmentFundingConfig,
+    "Инвестиционный режим",
+    "Инвестиционный режим",
+    InvestmentFundingConfigAdmin,
+)
 register_portal(
     InvestmentApprovalConfig,
     "Этапы согласования выплат",
