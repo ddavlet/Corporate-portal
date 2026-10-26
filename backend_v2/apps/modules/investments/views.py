@@ -3,9 +3,11 @@ from decimal import Decimal, InvalidOperation
 
 from django.contrib.auth import get_user_model
 from django.db import transaction
+from django.db.models import Prefetch
 from django.utils import timezone
 from rest_framework import status, viewsets
-from rest_framework.exceptions import ValidationError
+from rest_framework.decorators import action
+from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -17,7 +19,16 @@ from apps.modules.investments.approval_services import (
     deactivate_investment_return_approval_buttons,
     route_invest_return_approvals,
 )
-from apps.modules.investments.funding import apply_funding_config, has_active_project_approval_chain
+from apps.modules.investments.funding import (
+    apply_funding_config,
+    get_enabled_funding_config,
+    has_active_project_approval_chain,
+)
+from apps.modules.investments.funding_pool import (
+    collect_requests_into_investments,
+    eligible_requests,
+    investment_has_cash_revenue,
+)
 from apps.modules.investments.models import (
     InvestCompany,
     InvestmentFundingConfig,
@@ -35,6 +46,7 @@ from apps.modules.investments.models import (
     InvestReturn,
     ProjectInvestment,
     ProjectInvestmentApproval,
+    ProjectInvestmentRequestLink,
 )
 from apps.modules.investments.project_investment_approval_services import (
     InvestmentProjectApprovalDecisionAlreadyMade,
@@ -66,7 +78,10 @@ from apps.modules.investments.serializers import (
     InvestReturnSerializer,
     PublicInvestPayoutScheduleShareViewSerializer,
     ProjectInvestmentApprovalReadSerializer,
+    ProjectInvestmentSerializer,
     ProjectInvestmentWithEquivalentsSerializer,
+    FundingCollectPayloadSerializer,
+    FundingPoolRequestSerializer,
 )
 from apps.common.pagination import PortalCursorPagination
 from apps.common.query_params import parse_bool_query, parse_date_query
@@ -250,14 +265,91 @@ class InvestPayoutScheduleViewSet(_EditableInvestmentsTenantViewSet):
         return qs.order_by("-payout_date", "-id")
 
 
+FUNDING_MODE_DISABLED_MESSAGE = "Инвестиционный режим выключен."
+MANUAL_INVESTMENT_FORBIDDEN_MESSAGE = (
+    "Инвестиционный режим включён: заявки на вложение создаются только через «Собрать по заявкам»."
+)
+INVESTMENT_WITH_CASH_REVENUE_DELETE_MESSAGE = "По вложению уже создан приход в кассу — удалить нельзя."
+
+
+def _funding_pool_group(requests_qs) -> dict:
+    rows = list(requests_qs)
+    totals: dict[str, dict] = {}
+    for row in rows:
+        bucket = totals.setdefault(row.currency, {"currency": row.currency, "amount": Decimal("0"), "count": 0})
+        bucket["amount"] += row.amount
+        bucket["count"] += 1
+    return {
+        "requests": FundingPoolRequestSerializer(rows, many=True).data,
+        "totals": [
+            {**bucket, "amount": str(bucket["amount"].quantize(Decimal("0.01")))} for bucket in totals.values()
+        ],
+    }
+
+
 class ProjectInvestmentViewSet(_EditableInvestmentsTenantViewSet):
     serializer_class = ProjectInvestmentWithEquivalentsSerializer
     queryset = ProjectInvestment.objects.all()
 
+    def get_queryset(self):
+        qs = super().get_queryset().prefetch_related(
+            Prefetch("request_links", queryset=ProjectInvestmentRequestLink.objects.select_related("request"))
+        )
+        source_request = (self.request.query_params.get("source_request") or "").strip()
+        if source_request.isdigit():
+            qs = qs.filter(request_links__request_id=int(source_request)).distinct()
+        return qs
+
     def perform_create(self, serializer):
+        # При включённом инвестиционном режиме вложения создаются только сбором по заявкам (from-requests).
+        if get_enabled_funding_config(self.request.tenant) is not None:
+            raise ValidationError({"detail": MANUAL_INVESTMENT_FORBIDDEN_MESSAGE})
         obj = serializer.save(tenant=self.request.tenant, created_by=self.request.user)
         create_approvals_for_project_investment(project_investment=obj)
         route_project_investment_approvals(project_investment=obj)
+
+    def perform_destroy(self, instance):
+        # Иначе заявки вернутся в пул, и повторный сбор даст второй приход в кассу.
+        if investment_has_cash_revenue(instance):
+            raise ValidationError({"detail": INVESTMENT_WITH_CASH_REVENUE_DELETE_MESSAGE})
+        super().perform_destroy(instance)
+
+    def _require_funding_mode(self):
+        if get_enabled_funding_config(self.request.tenant) is None:
+            raise PermissionDenied(FUNDING_MODE_DISABLED_MESSAGE)
+
+    @action(detail=False, methods=["get"], url_path="funding-pool")
+    def funding_pool(self, request):
+        self._require_funding_mode()
+        tenant = request.tenant
+        return Response(
+            {
+                "cash": _funding_pool_group(
+                    eligible_requests(tenant=tenant, funding_method=ProjectInvestment.FundingMethod.CASH)
+                ),
+                "bank_transfer": _funding_pool_group(
+                    eligible_requests(tenant=tenant, funding_method=ProjectInvestment.FundingMethod.BANK_TRANSFER)
+                ),
+                "approval_chain_ok": has_active_project_approval_chain(tenant),
+            }
+        )
+
+    @action(detail=False, methods=["post"], url_path="from-requests")
+    def from_requests(self, request):
+        self._require_funding_mode()
+        payload = FundingCollectPayloadSerializer(data=request.data, context=self.get_serializer_context())
+        payload.is_valid(raise_exception=True)
+        data = payload.validated_data
+        investments = collect_requests_into_investments(
+            tenant=request.tenant,
+            user=request.user,
+            funding_method=data["funding_method"],
+            request_ids=data["request_ids"],
+            comment=data.get("comment", ""),
+            company=data.get("company"),
+        )
+        body = ProjectInvestmentSerializer(investments, many=True, context=self.get_serializer_context()).data
+        return Response({"investments": body}, status=status.HTTP_201_CREATED)
 
 
 class InvestCompanyViewSet(_EditableInvestmentsTenantViewSet):

@@ -1,21 +1,27 @@
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal
+from unittest.mock import MagicMock, patch
 
 from django.contrib.auth import get_user_model
 from django.test import override_settings
 from django.utils import timezone
 from rest_framework.test import APITestCase
 
-from apps.modules.cashier.models import CashExpense
-from apps.modules.investments.funding import register_funding_policies
+from apps.modules.cashier.models import CashExpense, CashRevenue
+from apps.modules.investments.funding import INVESTOR_DEPOSIT_OPERATION, register_funding_policies
+from apps.modules.investments.funding_pool import build_default_comment
 from apps.modules.investments.models import (
+    InvestCompany,
     InvestmentApprovalConfigStep,
     InvestmentFundingConfig,
     ProjectInvestment,
+    ProjectInvestmentApproval,
+    ProjectInvestmentRequestLink,
 )
 from apps.modules.requests import payment_type_policies as registry
 from apps.modules.requests.models import (
     Request,
+    RequestComment,
     RequestFormConfig,
     RequestFormPaymentTypeConfig,
     RequestFormPaymentTypeRequester,
@@ -32,7 +38,9 @@ FUNDING_URL = "/api/investments/funding-config/"
 
 
 @override_settings(BASE_DOMAIN="example.com", N8N_INTEGRATION_TOKEN="", ALLOWED_HOSTS=["*"])
-class InvestmentFundingModeTests(APITestCase):
+class _FundingModeTestBase(APITestCase):
+    """Общая фикстура инвестиционного режима: тенант, цепочка согласования вложений, кассы, счёт."""
+
     def setUp(self):
         self._registry_snapshot = registry._snapshot_registry_for_tests()
         register_funding_policies()
@@ -124,6 +132,9 @@ class InvestmentFundingModeTests(APITestCase):
             "/api/requests/", self._request_payload(payment_type, **extra), format="json", HTTP_HOST=self.host
         )
 
+
+@override_settings(BASE_DOMAIN="example.com", N8N_INTEGRATION_TOKEN="", ALLOWED_HOSTS=["*"])
+class InvestmentFundingModeTests(_FundingModeTestBase):
     # ---- вложение: способ внесения ---------------------------------------------------------------
 
     def test_create_investment_requires_funding_method(self):
@@ -335,3 +346,310 @@ class InvestmentFundingModeTests(APITestCase):
         self.assertEqual(res.status_code, 400)
         self.assertIn("Удаление запрещено вложением", str(res.data))
         self.assertTrue(Request.objects.filter(pk=obj.pk).exists())
+
+
+POOL_URL = "/api/investments/project-investments/funding-pool/"
+COLLECT_URL = "/api/investments/project-investments/from-requests/"
+INVESTMENTS_URL = "/api/investments/project-investments/"
+
+
+@override_settings(BASE_DOMAIN="example.com", N8N_INTEGRATION_TOKEN="", ALLOWED_HOSTS=["*"])
+class InvestmentFundingCollectTests(_FundingModeTestBase):
+    """Пул заявок, сбор вложений по заявкам, защита собранного."""
+
+    def setUp(self):
+        super().setUp()
+        send_patcher = patch("apps.modules.telegram_approvals.services.TelegramDispatcher.send")
+        send_patcher.start().return_value = MagicMock()
+        self.addCleanup(send_patcher.stop)
+        rate_patcher = patch(
+            "apps.modules.investments.services.fetch_cbu_usd_uzs_rate", return_value=Decimal("12600")
+        )
+        rate_patcher.start()
+        self.addCleanup(rate_patcher.stop)
+        self.company = InvestCompany.objects.create(tenant=self.tenant, name="Инвестор", created_by=self.admin)
+
+    # ---- helpers -------------------------------------------------------------------------------
+
+    def _make_request(
+        self,
+        payment_type,
+        *,
+        amount="10",
+        currency="UZS",
+        status=Request.STATUS_APPROVED,
+        wallet=None,
+        purpose="",
+        description="",
+        submitted_at=None,
+    ):
+        if wallet is None:
+            wallet = self.bank_wallet if payment_type == INV_TRANSFER else self.cash_wallet
+        return Request.objects.create(
+            tenant=self.tenant,
+            created_by=self.admin,
+            requester=self.admin,
+            description=description,
+            amount=Decimal(amount),
+            currency=currency,
+            payment_type=payment_type,
+            payment_purpose=purpose,
+            urgency="Обычно",
+            billing_date=date(2026, 1, 1),
+            status=status,
+            submitted_at=submitted_at or timezone.now(),
+            wallet_ref=wallet,
+            company_payer="Co",
+        )
+
+    def _collect(self, funding_method, request_ids, **extra):
+        body = {"funding_method": funding_method, "request_ids": request_ids, "company": self.company.id}
+        body.update(extra)
+        return self.client.post(COLLECT_URL, body, format="json", HTTP_HOST=self.host)
+
+    def _collect_ok(self, funding_method, requests):
+        res = self._collect(funding_method, [r.id for r in requests])
+        self.assertEqual(res.status_code, 201, res.data)
+        return res.data["investments"]
+
+    def _pool(self):
+        res = self.client.get(POOL_URL, HTTP_HOST=self.host)
+        self.assertEqual(res.status_code, 200, res.data)
+        return res.data
+
+    @staticmethod
+    def _ids(group):
+        return {row["id"] for row in group["requests"]}
+
+    # ---- пул -----------------------------------------------------------------------------------
+
+    def test_pool_contains_approved_and_payed_invest_and_transfer_requests(self):
+        self._enable_mode()
+        enabled_at = InvestmentFundingConfig.objects.get(tenant=self.tenant).enabled_at
+        expense = self._make_request(INV_CASH, amount="10", description="компьютер")
+        transfer = self._make_request(
+            "Наличные", amount="5", status=Request.STATUS_PAYED, purpose="Перевод между кассами"
+        )
+        draft = self._make_request(INV_CASH, status=Request.STATUS_DRAFT)
+        rejected = self._make_request(INV_CASH, status=Request.STATUS_REJECTED)
+        other_cash = self._make_request("Наличные", wallet=self.other_cash_wallet)
+        before_mode = self._make_request(INV_CASH, submitted_at=enabled_at - timedelta(days=1))
+
+        data = self._pool()
+        cash_ids = self._ids(data["cash"])
+        self.assertEqual(cash_ids, {expense.id, transfer.id})
+        for excluded in (draft, rejected, other_cash, before_mode):
+            self.assertNotIn(excluded.id, cash_ids)
+        rows = {row["id"]: row for row in data["cash"]["requests"]}
+        self.assertEqual(rows[transfer.id]["kind"], "transfer")
+        self.assertTrue(rows[transfer.id]["is_payed"])
+        self.assertEqual(rows[expense.id]["kind"], "expense")
+        self.assertFalse(rows[expense.id]["is_payed"])
+        self.assertEqual(data["cash"]["totals"], [{"currency": "UZS", "amount": "15.00", "count": 2}])
+        self.assertEqual(data["bank_transfer"]["requests"], [])
+        self.assertTrue(data["approval_chain_ok"])
+
+    def test_pool_bank_contains_only_invest_transfer(self):
+        self._enable_mode()
+        invest_transfer = self._make_request(INV_TRANSFER)
+        plain_transfer = self._make_request("Перечисление", wallet=self.bank_wallet)
+
+        data = self._pool()
+        self.assertEqual(self._ids(data["bank_transfer"]), {invest_transfer.id})
+        self.assertNotIn(plain_transfer.id, self._ids(data["cash"]))
+
+    def test_default_comment_lists_requests(self):
+        expense = self._make_request(INV_CASH, description="компьютер")
+        transfer = self._make_request("Наличные", purpose="Перевод между кассами", description="в сейф")
+        self.assertEqual(
+            build_default_comment([expense, transfer]),
+            f"На основании заявок №{expense.id}, №{transfer.id}. "
+            f"№{expense.id} — компьютер; №{transfer.id} — перевод между кассами",
+        )
+
+    # ---- сбор ----------------------------------------------------------------------------------
+
+    def test_collect_splits_by_currency(self):
+        self._enable_mode()
+        uzs_a = self._make_request(INV_TRANSFER, amount="5000000")
+        uzs_b = self._make_request(INV_TRANSFER, amount="2000000")
+        usd = self._make_request(INV_TRANSFER, amount="100", currency="USD")
+
+        created = self._collect_ok("bank_transfer", [uzs_a, uzs_b, usd])
+        self.assertEqual(len(created), 2)
+        by_currency = {row["currency"]: ProjectInvestment.objects.get(pk=row["id"]) for row in created}
+        self.assertEqual(set(by_currency), {"UZS", "USD"})
+        self.assertEqual(by_currency["UZS"].amount, Decimal("7000000.00"))
+        self.assertEqual(by_currency["USD"].amount, Decimal("100.00"))
+        for inv in by_currency.values():
+            self.assertEqual(inv.funding_method, ProjectInvestment.FundingMethod.BANK_TRANSFER)
+            self.assertFalse(inv.confirmed)
+            self.assertEqual(inv.company_id, self.company.id)
+            self.assertTrue(inv.comment.startswith("На основании заявк"))
+
+        uzs_inv = by_currency["UZS"]
+        self.assertEqual(
+            set(uzs_inv.request_links.values_list("request_id", flat=True)), {uzs_a.id, uzs_b.id}
+        )
+        self.assertEqual(
+            set(by_currency["USD"].request_links.values_list("request_id", flat=True)), {usd.id}
+        )
+        uzs_row = next(row for row in created if row["currency"] == "UZS")
+        self.assertEqual({r["id"] for r in uzs_row["source_requests"]}, {uzs_a.id, uzs_b.id})
+
+        for req, inv in ((uzs_a, uzs_inv), (uzs_b, uzs_inv), (usd, by_currency["USD"])):
+            self.assertTrue(
+                RequestComment.objects.filter(
+                    request=req, body=f"Заявка включена в заявку на вложение №{inv.id}."
+                ).exists()
+            )
+        self.assertEqual(self._pool()["bank_transfer"]["requests"], [])
+
+    def test_collect_twice_same_requests_rejected(self):
+        self._enable_mode()
+        req = self._make_request(INV_CASH)
+        self._collect_ok("cash", [req])
+
+        res = self._collect("cash", [req.id])
+        self.assertEqual(res.status_code, 400)
+        self.assertIn("request_ids", res.data)
+        self.assertEqual(ProjectInvestment.objects.filter(tenant=self.tenant).count(), 1)
+
+    def test_collect_empty_request_ids_rejected(self):
+        self._enable_mode()
+        res = self._collect("cash", [])
+        self.assertEqual(res.status_code, 400)
+        self.assertIn("request_ids", res.data)
+
+    def test_rejected_investment_releases_requests(self):
+        self._enable_mode()
+        first = self._make_request(INV_CASH, amount="10")
+        second = self._make_request(INV_CASH, amount="20")
+        old_id = self._collect_ok("cash", [first, second])[0]["id"]
+        self.assertEqual(self._pool()["cash"]["requests"], [])
+
+        approval = ProjectInvestmentApproval.objects.get(project_investment_id=old_id, step=1)
+        res = self.client.post(
+            f"/api/investments/project-approvals/{approval.id}/decision/",
+            {"decision": "rejected"},
+            format="json",
+            HTTP_HOST=self.host,
+        )
+        self.assertEqual(res.status_code, 200, res.data)
+
+        self.assertEqual(self._ids(self._pool()["cash"]), {first.id, second.id})
+        new_id = self._collect_ok("cash", [first, second])[0]["id"]
+        self.assertNotEqual(new_id, old_id)
+        self.assertEqual(ProjectInvestmentRequestLink.objects.filter(project_investment_id=old_id).count(), 2)
+        self.assertEqual(ProjectInvestmentRequestLink.objects.filter(request=first).count(), 2)
+
+    # ---- защита собранного ---------------------------------------------------------------------
+
+    def test_collected_request_amount_locked(self):
+        self._enable_mode()
+        req = self._make_request(INV_CASH, amount="10")
+        inv_id = self._collect_ok("cash", [req])[0]["id"]
+
+        res = self.client.patch(f"/api/requests/{req.id}/", {"amount": "999"}, format="json", HTTP_HOST=self.host)
+        self.assertEqual(res.status_code, 400, res.data)
+        self.assertIn(f"входит в заявку на вложение №{inv_id}", str(res.data))
+        req.refresh_from_db()
+        self.assertEqual(req.amount, Decimal("10.00"))
+
+        res = self.client.delete(f"/api/requests/{req.id}/", HTTP_HOST=self.host)
+        self.assertEqual(res.status_code, 400)
+        self.assertIn("входит в заявку на вложение №", str(res.data))
+        self.assertTrue(Request.objects.filter(pk=req.pk).exists())
+
+    def test_collected_investment_amount_locked(self):
+        self._enable_mode()
+        req = self._make_request(INV_CASH, amount="10")
+        inv_id = self._collect_ok("cash", [req])[0]["id"]
+        url = f"{INVESTMENTS_URL}{inv_id}/"
+
+        res = self.client.patch(url, {"amount": "11.00"}, format="json", HTTP_HOST=self.host)
+        self.assertEqual(res.status_code, 400)
+        self.assertIn("amount", res.data)
+
+        res = self.client.patch(url, {"comment": "уточнение"}, format="json", HTTP_HOST=self.host)
+        self.assertEqual(res.status_code, 200, res.data)
+        inv = ProjectInvestment.objects.get(pk=inv_id)
+        self.assertEqual(inv.comment, "уточнение")
+        self.assertEqual(inv.amount, Decimal("10.00"))
+
+    def test_investment_with_cash_revenue_cannot_be_deleted(self):
+        self._enable_mode()
+        with_revenue = self._make_request(INV_CASH, amount="10")
+        without_revenue = self._make_request(INV_CASH, amount="20", currency="UZS")
+        inv_id = self._collect_ok("cash", [with_revenue])[0]["id"]
+        other_id = self._collect_ok("cash", [without_revenue])[0]["id"]
+        CashRevenue.objects.create(
+            tenant=self.tenant,
+            external_id=f"inv-{inv_id}",
+            source_year=timezone.now().year,
+            revenue_at=timezone.now(),
+            currency="UZS",
+            operation=INVESTOR_DEPOSIT_OPERATION,
+            total_sum=Decimal("10"),
+            payload={"project_investment_id": inv_id},
+            created_by=self.admin,
+            wallet=self.cash_wallet,
+        )
+
+        res = self.client.delete(f"{INVESTMENTS_URL}{inv_id}/", HTTP_HOST=self.host)
+        self.assertEqual(res.status_code, 400)
+        self.assertEqual(res.data["detail"], "По вложению уже создан приход в кассу — удалить нельзя.")
+        self.assertTrue(ProjectInvestment.objects.filter(pk=inv_id).exists())
+
+        res = self.client.delete(f"{INVESTMENTS_URL}{other_id}/", HTTP_HOST=self.host)
+        self.assertEqual(res.status_code, 204)
+        self.assertIn(without_revenue.id, self._ids(self._pool()["cash"]))
+
+    # ---- режим выключен / ручное создание -------------------------------------------------------
+
+    def test_pool_forbidden_when_mode_disabled(self):
+        req = self._make_request(INV_CASH)
+        res = self.client.get(POOL_URL, HTTP_HOST=self.host)
+        self.assertEqual(res.status_code, 403)
+        self.assertEqual(res.data["detail"], "Инвестиционный режим выключен.")
+
+        res = self._collect("cash", [req.id])
+        self.assertEqual(res.status_code, 403)
+        self.assertEqual(res.data["detail"], "Инвестиционный режим выключен.")
+        self.assertFalse(ProjectInvestment.objects.filter(tenant=self.tenant).exists())
+
+    def test_source_request_filter(self):
+        self._enable_mode()
+        req = self._make_request(INV_CASH)
+        inv_id = self._collect_ok("cash", [req])[0]["id"]
+        ProjectInvestment.objects.create(
+            tenant=self.tenant, date=date(2026, 3, 1), amount=Decimal("5"), currency="UZS", created_by=self.admin
+        )
+
+        res = self.client.get(f"{INVESTMENTS_URL}?source_request={req.id}", HTTP_HOST=self.host)
+        self.assertEqual(res.status_code, 200, res.data)
+        rows = res.data["results"]
+        self.assertEqual([row["id"] for row in rows], [inv_id])
+        self.assertEqual([r["id"] for r in rows[0]["source_requests"]], [req.id])
+
+    def test_manual_create_forbidden_when_mode_enabled(self):
+        self._enable_mode()
+        existing = ProjectInvestment.objects.create(
+            tenant=self.tenant, date=date(2026, 3, 1), amount=Decimal("5"), currency="UZS", created_by=self.admin
+        )
+        body = {"date": "2026-04-15", "amount": "1000.00", "currency": "UZS", "funding_method": "bank_transfer"}
+
+        res = self.client.post(INVESTMENTS_URL, body, format="json", HTTP_HOST=self.host)
+        self.assertEqual(res.status_code, 400)
+        self.assertIn("создаются только через «Собрать по заявкам»", str(res.data))
+        self.assertEqual(ProjectInvestment.objects.filter(tenant=self.tenant).count(), 1)
+
+        res = self.client.patch(
+            f"{INVESTMENTS_URL}{existing.id}/", {"comment": "правка"}, format="json", HTTP_HOST=self.host
+        )
+        self.assertEqual(res.status_code, 200, res.data)
+
+        res = self._put_funding(is_enabled=False)
+        self.assertEqual(res.status_code, 200, res.data)
+        res = self.client.post(INVESTMENTS_URL, body, format="json", HTTP_HOST=self.host)
+        self.assertEqual(res.status_code, 201, res.data)

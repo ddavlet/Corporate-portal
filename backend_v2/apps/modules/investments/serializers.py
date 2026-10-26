@@ -4,6 +4,8 @@ from rest_framework import serializers
 
 from apps.modules.investments.billing_month_rules import month_first_day
 from apps.modules.investments.funding import get_enabled_funding_config, is_module_enabled
+from apps.modules.investments.funding_pool import request_kind
+from apps.modules.requests.models import Request
 from apps.modules.wallets.models import Wallet
 from apps.modules.investments.models import (
     InvestCompany,
@@ -237,6 +239,9 @@ class InvestPayoutScheduleSerializer(_CompanyScopeMixin, serializers.ModelSerial
 
 
 class ProjectInvestmentSerializer(_CompanyScopeMixin, serializers.ModelSerializer):
+    # Заявки на расход — основания вложения (инвестиционный режим), только для чтения.
+    source_requests = serializers.SerializerMethodField()
+
     class Meta:
         model = ProjectInvestment
         fields = [
@@ -252,8 +257,12 @@ class ProjectInvestmentSerializer(_CompanyScopeMixin, serializers.ModelSerialize
             "created_at",
             "last_edit_at",
             "created_by",
+            "source_requests",
         ]
         read_only_fields = ["id", "tenant", "confirmed", "created_at", "last_edit_at", "created_by"]
+
+    # Поля вложения, собранного по заявкам: выведены из заявок и не редактируются.
+    COLLECTED_LOCKED_FIELDS = ("amount", "currency", "funding_method")
 
     # Обязателен при создании; импорт из n8n (подкласс) отключает требование.
     funding_method_required_on_create = True
@@ -263,8 +272,43 @@ class ProjectInvestmentSerializer(_CompanyScopeMixin, serializers.ModelSerialize
         _normalize_currency(attrs)
         if self.instance is None and self.funding_method_required_on_create and not attrs.get("funding_method"):
             raise serializers.ValidationError({"funding_method": "Укажите способ внесения."})
+        self._validate_collected_fields_locked(attrs)
         self._validate_cash_currency(attrs)
         return investment_form_clear_company_if_disabled(attrs, self.context.get("request"))
+
+    def get_source_requests(self, obj):
+        if not obj.pk:
+            return []
+        if "request_links" in getattr(obj, "_prefetched_objects_cache", {}):
+            links = obj.request_links.all()
+        else:
+            links = obj.request_links.select_related("request")
+        return [
+            {
+                "id": link.request.id,
+                "amount": str(link.request.amount),
+                "currency": link.request.currency,
+                "payment_type": link.request.payment_type,
+            }
+            for link in links
+        ]
+
+    def _validate_collected_fields_locked(self, attrs):
+        if self.instance is None:
+            return
+        changed = [
+            field
+            for field in self.COLLECTED_LOCKED_FIELDS
+            if field in attrs and attrs[field] != getattr(self.instance, field)
+        ]
+        if not changed or not self.instance.request_links.exists():
+            return
+        raise serializers.ValidationError(
+            {
+                field: "Вложение собрано по заявкам: сумма, валюта и способ внесения не меняются."
+                for field in changed
+            }
+        )
 
     def _validate_cash_currency(self, attrs):
         if "funding_method" not in attrs and "currency" not in attrs:
@@ -314,6 +358,54 @@ class ProjectInvestmentWithEquivalentsSerializer(ProjectInvestmentSerializer):
 
     def get_sum_uzs(self, obj):
         return self._equivalents(obj)[1]
+
+
+class FundingPoolRequestSerializer(serializers.ModelSerializer):
+    """Заявка в пуле «Вложение по заявкам»."""
+
+    kind = serializers.SerializerMethodField()
+    is_payed = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Request
+        fields = [
+            "id",
+            "submitted_at",
+            "kind",
+            "payment_type",
+            "payment_purpose",
+            "description",
+            "amount",
+            "currency",
+            "status",
+            "is_payed",
+        ]
+        read_only_fields = fields
+
+    def get_kind(self, obj) -> str:
+        return request_kind(obj)
+
+    def get_is_payed(self, obj) -> bool:
+        return obj.status == Request.STATUS_PAYED
+
+
+class FundingCollectPayloadSerializer(_CompanyScopeMixin, serializers.Serializer):
+    funding_method = serializers.ChoiceField(choices=ProjectInvestment.FundingMethod.choices)
+    request_ids = serializers.ListField(child=serializers.IntegerField(min_value=1), allow_empty=False)
+    comment = serializers.CharField(required=False, allow_blank=True, default="")
+    company = serializers.PrimaryKeyRelatedField(
+        queryset=InvestCompany.objects.none(), required=False, allow_null=True, default=None
+    )
+
+    def validate(self, attrs):
+        tenant = getattr(self.context.get("request"), "tenant", None)
+        cfg = InvestmentFormConfig.objects.filter(tenant=tenant).first() if tenant else None
+        uses_companies = cfg.uses_companies if cfg else True
+        if not uses_companies:
+            attrs["company"] = None
+        elif attrs.get("company") is None:
+            raise serializers.ValidationError({"company": "Укажите компанию."})
+        return attrs
 
 
 class InvestCompanySerializer(serializers.ModelSerializer):

@@ -14,7 +14,10 @@ from apps.modules.investments.models import (
     InvestmentProjectApprovalConfig,
 )
 from apps.modules.requests.models import Request, RequestFormConfig, RequestFormPaymentTypeConfig
-from apps.modules.requests.payment_type_policies import register_payment_type_policy
+from apps.modules.requests.payment_type_policies import (
+    register_payment_type_policy,
+    register_request_mutation_guard,
+)
 from apps.modules.wallets.models import Wallet
 from apps.tenants.models import TenantModuleConfig
 
@@ -156,3 +159,8 @@ def register_funding_policies() -> None:
     """Идемпотентно: повторная регистрация просто заменяет записи реестра."""
     register_payment_type_policy(Request.PAYMENT_TYPE_INVEST_CASH, InvestCashPolicy())
     register_payment_type_policy(Request.PAYMENT_TYPE_INVEST_TRANSFER, InvestTransferPolicy())
+    # Импорт здесь: funding_pool сам импортирует этот модуль.
+    from apps.modules.investments.funding_pool import collected_request_mutation_guard
+
+    # Реестр не дублирует одну и ту же функцию — повторный вызов безопасен.
+    register_request_mutation_guard(collected_request_mutation_guard)

@@ -172,6 +172,36 @@ class ProjectInvestment(models.Model):
         ]
 
 
+class ProjectInvestmentRequestLink(models.Model):
+    """Заявка на расход — основание заявки на вложение (инвестиционный режим).
+
+    Связи не удаляются при отказе по вложению (история); «действующей» считается связь,
+    у вложения которой нет отказа в согласовании (см. funding_pool.active_link_request_ids).
+    """
+
+    tenant = models.ForeignKey(
+        Tenant, on_delete=models.CASCADE, related_name="project_investment_request_links", db_index=False
+    )
+    project_investment = models.ForeignKey(
+        ProjectInvestment,
+        on_delete=models.CASCADE,
+        related_name="request_links",
+    )
+    request = models.ForeignKey(
+        "requests.Request",
+        on_delete=models.PROTECT,
+        related_name="investment_links",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "project_investment_request_links"
+        ordering = ["id"]
+        indexes = [
+            models.Index(fields=["tenant", "request"], name="invpireq_tenant_req_idx"),
+        ]
+
+
 class InvestCompany(models.Model):
     """Company/legal entity dimension for investments inside one tenant."""
 
