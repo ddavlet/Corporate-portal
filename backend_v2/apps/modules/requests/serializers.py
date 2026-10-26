@@ -49,6 +49,7 @@ from apps.modules.requests.request_required import (
     RULE_OPERATOR_EQ,
     request_not_required_field_options_for_payment_type,
 )
+from apps.modules.requests.telegram_webapp_links import normalize_tme_url, tenant_bot_mismatch_error
 from apps.modules.serializers_guard import reject_client_pk_on_create
 from apps.tenants.permissions import has_effective_module_access
 from apps.tenants.models import TenantMembership, TenantModuleConfig, TenantUserRole
@@ -1045,6 +1046,14 @@ class RequestApprovalPaymentTypePayloadSerializer(serializers.Serializer):
 class RequestApprovalConfigPayloadSerializer(serializers.Serializer):
     comment_webapp_url = serializers.CharField(required=False, allow_blank=True, default="")
     payment_types = serializers.ListField(child=RequestApprovalPaymentTypePayloadSerializer())
+
+    def validate_comment_webapp_url(self, value):
+        url = normalize_tme_url(value)
+        tenant = getattr(self.context.get("request"), "tenant", None)
+        error = tenant_bot_mismatch_error(url=url, tenant=tenant) if tenant else None
+        if error:
+            raise serializers.ValidationError(error)
+        return url
 
     def validate(self, attrs):
         attrs = super().validate(attrs)

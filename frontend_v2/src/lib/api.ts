@@ -2551,6 +2551,7 @@ export type RequestApprovalConfigPaymentTypeItem = {
 export type RequestApprovalConfigResponse = {
   is_tenant_admin?: boolean
   comment_webapp_url?: string
+  telegram_bot_username?: string
   payment_types: RequestApprovalConfigPaymentTypeItem[]
   approver_candidates: Array<{ id: number; username: string }>
 }

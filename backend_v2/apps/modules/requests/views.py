@@ -83,6 +83,7 @@ from apps.modules.requests.approval_bootstrap import create_approval_rows_for_re
 from apps.modules.requests.approval_config_resolver import resolve_effective_payment_step_config_for_request
 from apps.modules.requests.auto_requests import create_request_copy_for_template
 from apps.modules.requests.payment_step_guards import payment_step_suppression_reason
+from apps.modules.requests.telegram_webapp_links import tenant_bot_username
 from apps.modules.requests.approval_workflow import (
     _recalculate_request_status,
     confirm_approval_by_id,
@@ -1607,6 +1608,7 @@ class RequestApprovalConfigView(APIView):
         is_admin = self._is_tenant_admin(request)
         response = build_request_approval_config_response(tenant=tenant)
         response["is_tenant_admin"] = is_admin
+        response["telegram_bot_username"] = tenant_bot_username(tenant)
         if not is_admin:
             for pt in response.get("payment_types", []):
                 pt["request_not_required_field_options"] = []
@@ -1820,6 +1822,7 @@ class RequestApprovalConfigView(APIView):
 
         response = build_request_approval_config_response(tenant=tenant)
         response["is_tenant_admin"] = is_admin
+        response["telegram_bot_username"] = tenant_bot_username(tenant)
         if not is_admin:
             for pt in response.get("payment_types", []):
                 pt["request_not_required_field_options"] = []
