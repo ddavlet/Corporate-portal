@@ -79,6 +79,7 @@ from apps.modules.requests.expense_refs import (
     expense_ref_target_for,
     resolve_request_expense_ref,
 )
+from apps.modules.requests.payment_type_families import cash_like_payment_types, canonical_payment_type
 from apps.modules.requests.approval_bootstrap import create_approval_rows_for_request
 from apps.modules.requests.approval_config_resolver import resolve_effective_payment_step_config_for_request
 from apps.modules.requests.auto_requests import create_request_copy_for_template
@@ -402,7 +403,7 @@ class RequestApprovalsMixin:
                 expense_year=request_obj.expense_year,
                 amount=request_obj.amount,
             )
-            if normalized_expense_id and request_obj.payment_type in (
+            if normalized_expense_id and canonical_payment_type(request_obj.payment_type) in (
                 Request.PAYMENT_TYPE_CASH,
                 Request.PAYMENT_TYPE_PAYROLL,
             ):
@@ -693,10 +694,11 @@ class PortalRequestViewSet(
                         Request.PAYMENT_TYPE_TOPUP,
                         Request.PAYMENT_TYPE_CARD,
                         Request.PAYMENT_TYPE_PAYROLL,
+                        Request.PAYMENT_TYPE_INVEST_TRANSFER,
                     }
                 )
             if is_cashier:
-                allowed_payment_types.add(Request.PAYMENT_TYPE_CASH)
+                allowed_payment_types.update(cash_like_payment_types())
             qs = qs.filter(payment_type__in=allowed_payment_types)
 
         if is_approver and not (is_admin or is_director):

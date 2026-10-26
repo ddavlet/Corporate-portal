@@ -25,6 +25,7 @@ from apps.modules.requests.expense_refs import (
 )
 from apps.modules.requests.expense_compliance import request_is_payed_missing_portal_expense
 from apps.modules.requests.models import Approval, Request
+from apps.modules.requests.payment_type_families import canonical_payment_type
 from apps.modules.vendors.models import Vendor
 from apps.modules.vendors.serializers import VendorSerializer
 from apps.modules.clients_debt.serializers import ClientDebtSnapshotSerializer
@@ -475,7 +476,7 @@ class N8nRequestImportSerializer(serializers.ModelSerializer):
             if payment_type is None:
                 payment_type = self.instance.payment_type
         if vendor_ref and payment_type:
-            expected_kind = Vendor.KIND_CASH if payment_type == Request.PAYMENT_TYPE_CASH else Vendor.KIND_TRANSFER
+            expected_kind = Vendor.KIND_CASH if canonical_payment_type(payment_type) == Request.PAYMENT_TYPE_CASH else Vendor.KIND_TRANSFER
             if vendor_ref.kind != expected_kind:
                 raise serializers.ValidationError(
                     {"vendor_ref": "Vendor payment type does not match request payment type."}
@@ -516,7 +517,7 @@ class N8nRequestImportSerializer(serializers.ModelSerializer):
             tgt = expense_ref_target_for(payment_type=effective_payment_type, category=effective_category) if ref else None
             attrs["expense_ref_id"] = ref
             attrs["expense_ref_target"] = tgt
-            if normalized_expense_id and effective_payment_type in (
+            if normalized_expense_id and canonical_payment_type(effective_payment_type) in (
                 Request.PAYMENT_TYPE_CASH,
                 Request.PAYMENT_TYPE_PAYROLL,
             ):

@@ -28,6 +28,7 @@ from apps.modules.requests.models import (
     RequestCategory,
     AutoRequestTemplate,
 )
+from apps.modules.requests.payment_type_families import bank_like_payment_types, canonical_payment_type
 from apps.modules.contracts.models import Contract
 from apps.modules.contracts.services import tenant_has_contracts_module
 from apps.modules.vendors.models import Vendor
@@ -65,15 +66,15 @@ def _display_user_name(user) -> str | None:
 
 
 def payment_type_to_vendor_kind(payment_type: str) -> str:
-    if payment_type == Request.PAYMENT_TYPE_CASH:
+    if canonical_payment_type(payment_type) == Request.PAYMENT_TYPE_CASH:
         return Vendor.KIND_CASH
     return Vendor.KIND_TRANSFER
 
 
 def payment_type_to_create_module_key(payment_type: str) -> str | None:
-    if payment_type == Request.PAYMENT_TYPE_CASH:
+    if canonical_payment_type(payment_type) == Request.PAYMENT_TYPE_CASH:
         return "cash"
-    if payment_type in (Request.PAYMENT_TYPE_TRANSFER, Request.PAYMENT_TYPE_TOPUP):
+    if payment_type in bank_like_payment_types():
         return "bank"
     if payment_type == Request.PAYMENT_TYPE_CARD:
         return "corporate_card"
@@ -434,7 +435,7 @@ class PortalRequestSerializer(serializers.ModelSerializer):
             tgt = expense_ref_target_for(payment_type=effective_pt, category=effective_cat) if ref else None
             attrs["expense_ref_id"] = ref
             attrs["expense_ref_target"] = tgt
-            if normalized_expense_id and effective_pt in (
+            if normalized_expense_id and canonical_payment_type(effective_pt) in (
                 Request.PAYMENT_TYPE_CASH,
                 Request.PAYMENT_TYPE_PAYROLL,
             ):
@@ -535,7 +536,7 @@ class PortalRequestSerializer(serializers.ModelSerializer):
                     "url": url,
                 }
 
-        if ref_id is not None and pt == Request.PAYMENT_TYPE_CASH and has_effective_module_access(
+        if ref_id is not None and canonical_payment_type(pt) == Request.PAYMENT_TYPE_CASH and has_effective_module_access(
             user=user, tenant=tenant, module_key="cash"
         ):
             cash_expense = CashExpense.objects.filter(tenant=tenant, id=ref_id).first()
@@ -549,7 +550,7 @@ class PortalRequestSerializer(serializers.ModelSerializer):
                     "url": url,
                 }
 
-        if ref_id is not None and pt in (Request.PAYMENT_TYPE_TRANSFER, Request.PAYMENT_TYPE_TOPUP) and has_effective_module_access(
+        if ref_id is not None and pt in bank_like_payment_types() and has_effective_module_access(
             user=user, tenant=tenant, module_key="bank"
         ):
             bank_expense = BankExpense.objects.filter(tenant=tenant, id=ref_id).first()
