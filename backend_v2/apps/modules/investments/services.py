@@ -171,3 +171,111 @@ def usd_uzs_equivalents_or_none(
         return usd_uzs_equivalents(sum_val=sum_val, currency=currency, rate_date=rate_date)
     except CbuRateFetchError:
         return None, None
+
+
+_ALL_RATES_CACHE_KEY = "__all_rates__"
+
+
+def usd_uzs_rate_on_or_before(rate_date: date, *, cache: dict | None = None) -> Decimal | None:
+    """
+    UZS за 1 USD из архива CbuExchangeRate без сетевых запросов: курс на ``rate_date``,
+    иначе ближайший предыдущий, а если дата раньше архива — самый ранний курс архива.
+    Пустой архив — ``None``.
+
+    С ``cache`` весь архив читается одним запросом и переиспользуется (для отчётов,
+    где сотни строк с разными датами).
+    """
+    from bisect import bisect_right
+
+    from apps.modules.investments.models import CbuExchangeRate
+
+    if cache is None:
+        row = CbuExchangeRate.objects.filter(date__lte=rate_date).order_by("-date").first()
+        if row is None:
+            row = CbuExchangeRate.objects.order_by("date").first()
+        return row.usd_uzs_rate if row is not None else None
+
+    rates = cache.get(_ALL_RATES_CACHE_KEY)
+    if rates is None:
+        rates = list(CbuExchangeRate.objects.order_by("date").values_list("date", "usd_uzs_rate"))
+        cache[_ALL_RATES_CACHE_KEY] = rates
+    if not rates:
+        return None
+    idx = bisect_right(rates, rate_date, key=lambda r: r[0])
+    return rates[idx - 1][1] if idx > 0 else rates[0][1]
+
+
+def _report_chat_options(tenant) -> list[dict]:
+    from apps.modules.telegram_approvals.models import TenantTelegramChat
+
+    return [
+        {"id": chat.pk, "name": chat.name}
+        for chat in TenantTelegramChat.objects.filter(tenant=tenant, is_active=True).order_by("name", "id")
+    ]
+
+
+def get_report_config_payload(tenant) -> dict:
+    """Настройки еженедельного отчёта для инвесторов (или default, если ещё не сохранены)."""
+    from apps.modules.investments.models import InvestReportConfig
+
+    config = InvestReportConfig.objects.filter(tenant=tenant).first()
+    if config is None:
+        config = InvestReportConfig(tenant=tenant)
+    rate = config.target_annual_rate
+    return {
+        "is_active": config.is_active,
+        "telegram_chat_id": config.telegram_chat_id,
+        "weekday": config.weekday,
+        "send_hour": config.send_hour,
+        "target_annual_rate": str(rate) if rate is not None else None,
+        "start_month": config.start_month,
+        "last_payouts_count": config.last_payouts_count,
+        "late_payment_day": config.late_payment_day,
+        "updated_at": config.updated_at.isoformat() if config.updated_at else None,
+        "options": {"chats": _report_chat_options(tenant)},
+    }
+
+
+def save_report_config(*, tenant, data: dict, actor):
+    from apps.modules.investments.models import InvestReportConfig
+
+    config, _ = InvestReportConfig.objects.update_or_create(
+        tenant=tenant,
+        defaults={
+            "is_active": data["is_active"],
+            "telegram_chat_id": data.get("telegram_chat_id"),
+            "weekday": data["weekday"],
+            "send_hour": data["send_hour"],
+            "target_annual_rate": data.get("target_annual_rate"),
+            "start_month": data.get("start_month"),
+            "last_payouts_count": data["last_payouts_count"],
+            "late_payment_day": data["late_payment_day"],
+            "updated_by": actor,
+        },
+    )
+    return config
+
+
+def list_report_dispatches_payload(tenant, *, limit: int = 20) -> list[dict]:
+    """Последние отправки отчёта для таблицы на странице настроек."""
+    from apps.modules.investments.models import InvestReportDispatch
+    from apps.modules.telegram_approvals.models import TenantTelegramChat
+
+    chat_names = dict(TenantTelegramChat.objects.filter(tenant=tenant).values_list("chat_id", "name"))
+    rows = InvestReportDispatch.objects.filter(tenant=tenant).select_related("created_by")[:limit]
+    return [report_dispatch_payload(row, chat_names=chat_names) for row in rows]
+
+
+def report_dispatch_payload(dispatch, *, chat_names: dict | None = None) -> dict:
+    user = dispatch.created_by
+    return {
+        "id": dispatch.pk,
+        "report_date": dispatch.report_date.isoformat(),
+        "kind": dispatch.kind,
+        "status": dispatch.status,
+        "chat_id": dispatch.chat_id,
+        "chat_name": (chat_names or {}).get(dispatch.chat_id, ""),
+        "error": dispatch.error,
+        "created_by_name": ((getattr(user, "full_name", "") or user.username or "").strip() if user else ""),
+        "created_at": dispatch.created_at.isoformat() if dispatch.created_at else None,
+    }

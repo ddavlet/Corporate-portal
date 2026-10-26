@@ -16,6 +16,8 @@ from apps.modules.investments.models import (
     InvestPayoutNotificationLog,
     InvestPayoutSchedule,
     InvestPayoutScheduleShareLink,
+    InvestReportConfig,
+    InvestReportDispatch,
     InvestReturn,
     ProjectInvestment,
     ProjectInvestmentApproval,
@@ -157,6 +159,33 @@ class CbuExchangeRateAdmin(admin.ModelAdmin):
     ordering = ["-date"]
 
 
+class InvestReportConfigAdmin(admin.ModelAdmin):
+    list_display = ("id", "tenant", "is_active", "telegram_chat", "weekday", "send_hour", "target_annual_rate", "updated_at")
+    list_filter = ("is_active",)
+    autocomplete_fields = ("tenant",)
+    raw_id_fields = ("telegram_chat", "updated_by")
+
+
+class InvestReportDispatchAdmin(admin.ModelAdmin):
+    """Journal: read-only."""
+
+    list_display = ("id", "tenant", "report_date", "kind", "status", "chat_id", "created_at")
+    list_filter = ("kind", "status", "tenant")
+    date_hierarchy = "report_date"
+    readonly_fields = (
+        "tenant", "report_date", "kind", "status", "chat_id", "text", "telegram_message", "error", "created_by", "created_at",
+    )
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
+
+
 register_portal(InvestReturn, "Выплата", "Выплаты", InvestReturnAdmin)
 register_portal(InvestPayoutSchedule, "Расписание выплат", "Расписание выплат", InvestPayoutScheduleAdmin)
 register_portal(ProjectInvestment, "Заявка на вложение", "Заявки на вложение", ProjectInvestmentAdmin)
@@ -231,3 +260,10 @@ register_portal(
     ProjectInvestmentApprovalAdmin,
 )
 register_portal(CbuExchangeRate, "Курс ЦБ (USD/UZS)", "Курсы ЦБ (USD/UZS)", CbuExchangeRateAdmin)
+register_portal(
+    InvestReportConfig,
+    "Инвестиции — отчёт для инвесторов",
+    "Инвестиции — отчёт для инвесторов",
+    InvestReportConfigAdmin,
+)
+register_portal(InvestReportDispatch, "Отправка отчёта инвесторам", "Отправки отчёта инвесторам", InvestReportDispatchAdmin)

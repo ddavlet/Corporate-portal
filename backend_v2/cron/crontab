@@ -21,3 +21,6 @@ BASH_ENV=/etc/kolberg-cron.env
 # Archive CBU USD/UZS exchange rate (yesterday finalized, today refreshed).
 5 9 * * * root cd /app && python manage.py sync_cbu_exchange_rate >> /proc/1/fd/1 2>&1
 
+# Weekly investor report to tenant Telegram groups (each tenant picks its weekday and hour;
+# command filters by them, InvestReportDispatch dedups per tenant/day).
+0 * * * * root cd /app && python manage.py run_invest_reports >> /proc/1/fd/1 2>&1
