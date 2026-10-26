@@ -485,7 +485,9 @@ class InvestmentFundingCollectTests(_FundingModeTestBase):
             self.assertEqual(inv.funding_method, ProjectInvestment.FundingMethod.BANK_TRANSFER)
             self.assertFalse(inv.confirmed)
             self.assertEqual(inv.company_id, self.company.id)
-            self.assertTrue(inv.comment.startswith("На основании заявк"))
+        # Пустой comment → текст по умолчанию на каждую валютную группу.
+        self.assertEqual(by_currency["UZS"].comment, f"На основании заявок №{uzs_a.id}, №{uzs_b.id}.")
+        self.assertEqual(by_currency["USD"].comment, f"На основании заявки №{usd.id}.")
 
         uzs_inv = by_currency["UZS"]
         self.assertEqual(

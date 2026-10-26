@@ -5,6 +5,7 @@
 """
 from __future__ import annotations
 
+import logging
 from collections import OrderedDict
 from decimal import Decimal
 from typing import Sequence
@@ -36,6 +37,8 @@ _DESCRIPTION_LIMIT = 80
 _POOL_STATUSES = (Request.STATUS_APPROVED, Request.STATUS_PAYED)
 _CASH_POOL_PAYMENT_TYPES = (Request.PAYMENT_TYPE_INVEST_CASH, Request.PAYMENT_TYPE_CASH)
 _SYSTEM_USER_PK = 1
+
+logger = logging.getLogger(__name__)
 
 
 def request_kind(request_obj: Request) -> str:
@@ -91,6 +94,18 @@ def eligible_requests(*, tenant, funding_method: str) -> QuerySet:
     else:
         return Request.objects.none()
     return qs.order_by("submitted_at", "id")
+
+
+def funding_pool_totals(requests: Sequence[Request]) -> list[dict]:
+    """Итоги пула по валютам: [{"currency", "amount" (строка с 2 знаками), "count"}] в порядке появления."""
+    totals: "OrderedDict[str, dict]" = OrderedDict()
+    for request_obj in requests:
+        bucket = totals.setdefault(
+            request_obj.currency, {"currency": request_obj.currency, "amount": Decimal("0"), "count": 0}
+        )
+        bucket["amount"] += request_obj.amount
+        bucket["count"] += 1
+    return [{**bucket, "amount": str(bucket["amount"].quantize(Decimal("0.01")))} for bucket in totals.values()]
 
 
 def _request_note(request_obj: Request) -> str:
@@ -189,7 +204,13 @@ def collect_requests_into_investments(
 
     # Рассылка карточек согласования — после фиксации, чтобы не слать сообщения по откатившимся данным.
     for investment in investments:
-        route_project_investment_approvals(project_investment=investment)
+        try:
+            route_project_investment_approvals(project_investment=investment)
+        except Exception:
+            # Вложение уже создано; сбой рассылки по одному не должен оставить без карточек остальные.
+            logger.exception(
+                "Failed to route approvals for project investment %s collected from requests", investment.pk
+            )
     return investments
 
 

@@ -27,6 +27,7 @@ from apps.modules.investments.funding import (
 from apps.modules.investments.funding_pool import (
     collect_requests_into_investments,
     eligible_requests,
+    funding_pool_totals,
     investment_has_cash_revenue,
 )
 from apps.modules.investments.models import (
@@ -274,17 +275,7 @@ INVESTMENT_WITH_CASH_REVENUE_DELETE_MESSAGE = "По вложению уже со
 
 def _funding_pool_group(requests_qs) -> dict:
     rows = list(requests_qs)
-    totals: dict[str, dict] = {}
-    for row in rows:
-        bucket = totals.setdefault(row.currency, {"currency": row.currency, "amount": Decimal("0"), "count": 0})
-        bucket["amount"] += row.amount
-        bucket["count"] += 1
-    return {
-        "requests": FundingPoolRequestSerializer(rows, many=True).data,
-        "totals": [
-            {**bucket, "amount": str(bucket["amount"].quantize(Decimal("0.01")))} for bucket in totals.values()
-        ],
-    }
+    return {"requests": FundingPoolRequestSerializer(rows, many=True).data, "totals": funding_pool_totals(rows)}
 
 
 class ProjectInvestmentViewSet(_EditableInvestmentsTenantViewSet):

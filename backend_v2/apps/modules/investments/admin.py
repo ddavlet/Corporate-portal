@@ -20,6 +20,7 @@ from apps.modules.investments.models import (
     InvestReturn,
     ProjectInvestment,
     ProjectInvestmentApproval,
+    ProjectInvestmentRequestLink,
 )
 
 
@@ -160,6 +161,12 @@ class ProjectInvestmentApprovalAdmin(admin.ModelAdmin):
     raw_id_fields = ("tenant", "project_investment", "approver_user", "telegram_message")
 
 
+class ProjectInvestmentRequestLinkAdmin(admin.ModelAdmin):
+    list_display = ("id", "tenant", "project_investment", "request", "created_at")
+    list_filter = ("tenant",)
+    raw_id_fields = ("tenant", "project_investment", "request")
+
+
 class CbuExchangeRateAdmin(admin.ModelAdmin):
     list_display = ["date", "usd_uzs_rate", "updated_at"]
     ordering = ["-date"]
@@ -243,5 +250,11 @@ register_portal(
     "Согласование заявки на вложение",
     "Согласования заявок на вложение",
     ProjectInvestmentApprovalAdmin,
+)
+register_portal(
+    ProjectInvestmentRequestLink,
+    "Заявка-основание вложения",
+    "Заявки-основания вложений",
+    ProjectInvestmentRequestLinkAdmin,
 )
 register_portal(CbuExchangeRate, "Курс ЦБ (USD/UZS)", "Курсы ЦБ (USD/UZS)", CbuExchangeRateAdmin)
