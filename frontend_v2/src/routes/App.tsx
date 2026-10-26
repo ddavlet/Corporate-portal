@@ -46,7 +46,6 @@ import { ReportTemplateSettingsPage } from '../ui/settings/ReportTemplateSetting
 import { TasksConfigPage } from '../ui/settings/TasksConfigPage'
 import { PayrollSettingsPage } from '../ui/settings/PayrollSettingsPage'
 import { AdminRouteGate } from '../ui/admin/AdminRouteGate'
-import { TrainingPage } from '../ui/training/TrainingPage'
 import { TasksPage } from '../ui/tasks/TasksPage'
 import { TgWebAppLayout } from '../ui/tg/TgWebAppLayout'
 import { TgHomePage } from '../ui/tg/TgHomePage'
@@ -192,7 +191,6 @@ export function App() {
         <Route path="settings/payroll-config" element={<PayrollSettingsPage />} />
         <Route path="admin" element={<AdminRouteGate />} />
         <Route path="tasks" element={<TasksPage />} />
-        <Route path="training" element={<TrainingPage />} />
       </Route>
 
       <Route path="*" element={<Navigate to="/requests" replace />} />
