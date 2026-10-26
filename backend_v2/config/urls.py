@@ -82,6 +82,9 @@ urlpatterns = [
     # Bank module
     path("api/bank/", include("apps.modules.bank_expenses.urls")),
 
+    # Kapitalbank statement import
+    path("api/kapitalbank/", include("apps.modules.kapitalbank.urls")),
+
     # Corporate card module
     path("api/corporate-card/", include("apps.modules.corporate_card.urls")),
 
