@@ -21,3 +21,8 @@ export const INVEST_REQUEST_PAYMENT_TYPES: readonly RequestPaymentType[] = ['И�
 export function isInvestPaymentType(pt: string): boolean {
   return (INVEST_REQUEST_PAYMENT_TYPES as readonly string[]).includes(pt)
 }
+
+/** Валюта, зафиксированная подсказкой списания; null — у типа валюта не фиксируется (выбирает заявитель). */
+export function lockedCurrencyFromHint(hint: { currency?: string | null } | null | undefined): string | null {
+  return hint?.currency || null
+}

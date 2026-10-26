@@ -3,6 +3,7 @@ import {
   INVEST_REQUEST_PAYMENT_TYPES,
   REQUEST_PAYMENT_TYPES,
   isInvestPaymentType,
+  lockedCurrencyFromHint,
   requestPaymentTypeSelectOptions,
 } from './requestPaymentTypes'
 
@@ -26,5 +27,13 @@ describe('requestPaymentTypes', () => {
     expect(isInvestPaymentType('Инвест. наличные')).toBe(true)
     expect(isInvestPaymentType('Инвест. перечисление')).toBe(true)
     expect(isInvestPaymentType('Наличные')).toBe(false)
+  })
+})
+
+describe('lockedCurrencyFromHint', () => {
+  it('locks currency only when the hint carries one', () => {
+    expect(lockedCurrencyFromHint({ currency: 'UZS' })).toBe('UZS')
+    expect(lockedCurrencyFromHint({ currency: null })).toBeNull()
+    expect(lockedCurrencyFromHint(null)).toBeNull()
   })
 })

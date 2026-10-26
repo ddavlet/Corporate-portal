@@ -373,7 +373,9 @@ export function RequestFormConfigPage() {
               Типы оплаты
             </Typography.Text>
             <Space wrap>
-              {data.payment_types.map((pt) => (
+              {data.payment_types
+                .filter((pt) => investmentMode || !isInvestPaymentType(pt.payment_type))
+                .map((pt) => (
                 <Checkbox
                   key={pt.payment_type}
                   checked={pt.is_enabled}

@@ -35,6 +35,7 @@ import {
   uploadRequestAttachment,
   validateRequestAttachment,
 } from '../../lib/api'
+import { lockedCurrencyFromHint } from '../../lib/requestPaymentTypes'
 import { labelBlockAboveField } from '../formSpacing'
 import { clampToAllowedBillingMonth, isAllowedBillingMonth } from '../../lib/billingMonth'
 import { monthStartTashkent } from '../../lib/tashkentTime'
@@ -109,6 +110,7 @@ export function RequestCreatePage({ requestsBasePath = '/requests', variant = 'p
 
   /** Инвест-типы: кошелёк списания и валюта фиксируются настройкой инвестиционного режима. */
   const fundingHint = activePt?.funding_hint ?? null
+  const lockedCurrency = lockedCurrencyFromHint(fundingHint)
 
   /** Заявители, разрешённые настройками формы для выбранного типа оплаты (не все роли заявителя в тенанте). */
   const allowedRequesters = useMemo(() => activePt?.requesters ?? [], [activePt])
@@ -195,9 +197,9 @@ export function RequestCreatePage({ requestsBasePath = '/requests', variant = 'p
   }, [step, paymentType, formOptions, detailStep])
 
   useEffect(() => {
-    if (step !== detailStep || !fundingHint) return
-    setCurrency(fundingHint.currency)
-  }, [step, detailStep, fundingHint])
+    if (step !== detailStep || !lockedCurrency) return
+    setCurrency(lockedCurrency)
+  }, [step, detailStep, lockedCurrency])
 
   const searchTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
   const onVendorSearch = (value: string) => {
@@ -577,7 +579,7 @@ export function RequestCreatePage({ requestsBasePath = '/requests', variant = 'p
                     style={{ display: 'block', width: '100%' }}
                     value={currency}
                     onChange={setCurrency}
-                    disabled={Boolean(fundingHint)}
+                    disabled={Boolean(lockedCurrency)}
                     options={['UZS', 'USD', 'EUR', 'RUB'].map((c) => ({ value: c, label: c }))}
                     getPopupContainer={tgPopupContainer}
                     popupMatchSelectWidth
@@ -672,7 +674,7 @@ export function RequestCreatePage({ requestsBasePath = '/requests', variant = 'p
                     style={{ display: 'block', width: 120 }}
                     value={currency}
                     onChange={setCurrency}
-                    disabled={Boolean(fundingHint)}
+                    disabled={Boolean(lockedCurrency)}
                     options={['UZS', 'USD', 'EUR', 'RUB'].map((c) => ({ value: c, label: c }))}
                   />
                 </div>

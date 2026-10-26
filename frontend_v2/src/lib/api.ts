@@ -2648,7 +2648,7 @@ export type RequestFormOptionsPaymentType = {
   payment_purposes: Array<{ name: string; category: string }>
   defaults?: RequestFormOptionsFormDefaults
   /** Инвест-типы: кошелёк списания; валюта заявки фиксирована валютой кошелька. */
-  funding_hint?: { wallet_id: number; wallet_label: string; currency: string } | null
+  funding_hint?: { wallet_id: number; wallet_label: string; currency: string | null } | null
 }
 
 export type RequestFormOptionsResponse = {
