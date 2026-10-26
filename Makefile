@@ -7,7 +7,7 @@ DEPLOY_TEST_PATH ?= $(TEST_PATH)
 BRANCH     := $(shell git rev-parse --abbrev-ref HEAD)
 
 .DEFAULT_GOAL := help
-.PHONY: help push test deploy makemigrations showmigrations logs backup-db create-postgres-mcp-role rollback refresh-approval-messages reconcile-card-revenues reconcile-expense-links relink-unresolved-bank-doc-numbers align-payment-purposes link-payroll-requests send-to-vacation return-from-vacation reassign-unmatched-bank-expenses backfill-bank-expense-requests backfill-cash-expense-requests backfill-card-expenses backfill-cbu-exchange-rate redispatch-unsent-approval-cards backfill-cash-withdrawals repair-id-sequences local-up local-down local-logs test_local
+.PHONY: help push test deploy makemigrations showmigrations logs backup-db create-postgres-mcp-role rollback refresh-approval-messages reconcile-card-revenues reconcile-expense-links relink-unresolved-bank-doc-numbers align-payment-purposes clone-tenant-config link-payroll-requests send-to-vacation return-from-vacation reassign-unmatched-bank-expenses backfill-bank-expense-requests backfill-cash-expense-requests backfill-card-expenses backfill-cbu-exchange-rate redispatch-unsent-approval-cards backfill-cash-withdrawals repair-id-sequences local-up local-down local-logs test_local
 
 help:
 	@echo ""
@@ -31,6 +31,7 @@ help:
 	@echo "  make reconcile-expense-links TENANT=3 APPLY=1 — то же самое, но с записью изменений"
 	@echo "  make relink-unresolved-bank-doc-numbers TENANT=lemonfit [APPLY=1] — привязать заявки с неверным № п/п к банковским расходам по сумме+дате"
 	@echo "  make align-payment-purposes PLAN=lemonfit_2026_10 [APPLY=1] — выровнять категории и назначения платежа тенантов по JSON-плану"
+	@echo "  make clone-tenant-config SOURCE=lemonhavo TARGET=lemonnew [NAME=\"Lemonfit NEW\"] [WITH_MEMBERS=1] [APPLY=1] — скопировать настройки тенанта в новый филиал"
 	@echo "  make link-payroll-requests TENANT=lemonfit PAIRS=\"7226:1-000000077,...\" [SET_AMOUNT=1] [APPLY=1] — привязать заявки ЗП к указанным ведомостям"
 	@echo "  make send-to-vacation TENANT=3 EMPLOYEE_USERNAME=s.davletyarov — dry-run: отправить согласующего в отпуск"
 	@echo "  make send-to-vacation TENANT=3 EMPLOYEE_USERNAME=s.davletyarov APPLY=1 — то же самое, но с записью изменений"
@@ -204,6 +205,17 @@ align-payment-purposes:
 	ssh $(SERVER) "cd $(REMOTE_DIR) && \
 		docker compose --env-file ./.env exec -T backend_v2 \
 		python manage.py align_payment_purposes --plan=$(PLAN) \
+		$(if $(APPLY),--apply,)"
+
+# ── 7d-1d3. Скопировать настройки тенанта (модули, форма, маршруты согласования…) в новый филиал ──
+# make clone-tenant-config SOURCE=lemonhavo TARGET=lemonnew [NAME="Lemonfit NEW"] [WITH_MEMBERS=1] [APPLY=1]
+clone-tenant-config:
+	@test -n "$(SOURCE)" -a -n "$(TARGET)" || (echo "Usage: make clone-tenant-config SOURCE=<id|subdomain> TARGET=<subdomain> [NAME=] [WITH_MEMBERS=1] [APPLY=1]" && exit 1)
+	ssh $(SERVER) "cd $(REMOTE_DIR) && \
+		docker compose --env-file ./.env exec -T backend_v2 \
+		python manage.py clone_tenant_config --source=$(SOURCE) --target=$(TARGET) \
+		$(if $(NAME),--name='$(NAME)',) \
+		$(if $(WITH_MEMBERS),--with-members,) \
 		$(if $(APPLY),--apply,)"
 
 # ── 7d-1e. Привязать заявки "Начисление ЗП" к явно указанным ведомостям ──

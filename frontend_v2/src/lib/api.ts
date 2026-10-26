@@ -1923,6 +1923,111 @@ export async function updateInvestNotificationConfig(
   return json
 }
 
+export type InvestReportConfigDto = {
+  is_active: boolean
+  telegram_chat_id: number | null
+  /** 0 = понедельник … 6 = воскресенье */
+  weekday: number
+  /** 0–23, Asia/Tashkent */
+  send_hour: number
+  /** % годовых, строка-decimal; null — без цели */
+  target_annual_rate: string | null
+  /** 1–12; null — месяц после первой инвестиции года, иначе январь */
+  start_month: number | null
+  last_payouts_count: number
+  late_payment_day: number
+}
+
+export type InvestReportConfigResponse = InvestReportConfigDto & {
+  updated_at: string | null
+  options: { chats: Array<{ id: number; name: string }> }
+}
+
+/** Параметры предпросмотра/пробной отправки: перекрывают сохранённые; null очищает значение. */
+export type InvestReportParams = {
+  date?: string
+  target_annual_rate?: string | null
+  start_month?: number | null
+  last_payouts_count?: number
+  late_payment_day?: number
+}
+
+export type InvestReportPreviewResponse = {
+  text: string
+  metrics: Record<string, unknown>
+}
+
+export type InvestReportDispatchDto = {
+  id: number
+  report_date: string
+  kind: 'scheduled' | 'manual' | 'test'
+  status: 'sent' | 'failed'
+  chat_id: string
+  chat_name: string
+  error: string
+  created_by_name: string
+  created_at: string | null
+}
+
+/** 403/404: модуль выключен или нет прав на настройку отчёта. */
+export class InvestReportUnavailableError extends Error {}
+
+const INVEST_REPORT_URL = '/api/investments/report/'
+
+async function investReportJson<T>(res: Response): Promise<T> {
+  if (res.status === 403 || res.status === 404) throw new InvestReportUnavailableError('Отчёт для инвесторов недоступен')
+  if (!res.ok) throw new Error(await parseErrorBody(res))
+  const json = (await res.json().catch(() => null)) as T | null
+  if (json === null) throw new Error('Пустой ответ от сервера')
+  return json
+}
+
+function investReportQuery(params: InvestReportParams): string {
+  const query = new URLSearchParams()
+  for (const [key, value] of Object.entries(params)) {
+    if (value === undefined) continue
+    query.set(key, value === null ? '' : String(value))
+  }
+  const qs = query.toString()
+  return qs ? `?${qs}` : ''
+}
+
+export async function getInvestReportConfig(): Promise<InvestReportConfigResponse> {
+  return investReportJson(await apiFetch(`${INVEST_REPORT_URL}config/`))
+}
+
+export async function saveInvestReportConfig(payload: InvestReportConfigDto): Promise<InvestReportConfigResponse> {
+  return investReportJson(
+    await apiFetch(`${INVEST_REPORT_URL}config/`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    }),
+  )
+}
+
+export async function previewInvestReport(params: InvestReportParams, signal?: AbortSignal): Promise<InvestReportPreviewResponse> {
+  return investReportJson(await apiFetch(`${INVEST_REPORT_URL}preview/${investReportQuery(params)}`, { signal }))
+}
+
+export async function sendInvestReportTest(params: InvestReportParams): Promise<InvestReportDispatchDto> {
+  return investReportJson(
+    await apiFetch(`${INVEST_REPORT_URL}send-test/`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(params),
+    }),
+  )
+}
+
+export async function sendInvestReportNow(): Promise<InvestReportDispatchDto> {
+  return investReportJson(await apiFetch(`${INVEST_REPORT_URL}send-now/`, { method: 'POST' }))
+}
+
+export async function listInvestReportDispatches(limit = 20): Promise<InvestReportDispatchDto[]> {
+  return investReportJson(await apiFetch(`${INVEST_REPORT_URL}dispatches/?limit=${limit}`))
+}
+
 export async function createReturnFromPayoutSchedule(
   scheduleId: number,
   amount?: string | number,

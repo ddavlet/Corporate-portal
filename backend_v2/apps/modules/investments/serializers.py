@@ -791,3 +791,50 @@ class ProjectInvestmentApprovalReadSerializer(serializers.ModelSerializer):
 
     def get_approver_username(self, obj):
         return _display_user_name(getattr(obj, "approver_user", None))
+
+
+class InvestReportConfigWriteSerializer(serializers.Serializer):
+    is_active = serializers.BooleanField()
+    telegram_chat_id = serializers.IntegerField(required=False, allow_null=True, default=None)
+    weekday = serializers.IntegerField(min_value=0, max_value=6)
+    send_hour = serializers.IntegerField(min_value=0, max_value=23)
+    target_annual_rate = serializers.DecimalField(
+        max_digits=6, decimal_places=2, min_value=Decimal("0"), max_value=Decimal("1000"),
+        required=False, allow_null=True, default=None,
+    )
+    start_month = serializers.IntegerField(min_value=1, max_value=12, required=False, allow_null=True, default=None)
+    last_payouts_count = serializers.IntegerField(min_value=0, max_value=10)
+    late_payment_day = serializers.IntegerField(min_value=1, max_value=31)
+
+    def validate(self, attrs):
+        from apps.modules.telegram_approvals.models import TenantTelegramChat
+
+        tenant = self.context["tenant"]
+        chat_id = attrs.get("telegram_chat_id")
+        if chat_id is not None and not TenantTelegramChat.objects.filter(
+            tenant=tenant, pk=chat_id, is_active=True
+        ).exists():
+            raise serializers.ValidationError({"telegram_chat_id": "Telegram-группа не найдена или отключена."})
+        if attrs["is_active"] and chat_id is None:
+            raise serializers.ValidationError({"telegram_chat_id": "Выберите Telegram-группу, чтобы включить отчёт."})
+        return attrs
+
+
+class InvestReportPreviewQuerySerializer(serializers.Serializer):
+    """Preview query: date + unsaved calculation settings (empty value = clear the setting)."""
+
+    date = serializers.DateField(required=False)
+    target_annual_rate = serializers.DecimalField(
+        max_digits=6, decimal_places=2, min_value=Decimal("0"), max_value=Decimal("1000"),
+        required=False, allow_null=True,
+    )
+    start_month = serializers.IntegerField(min_value=1, max_value=12, required=False, allow_null=True)
+    last_payouts_count = serializers.IntegerField(min_value=0, max_value=10, required=False)
+    late_payment_day = serializers.IntegerField(min_value=1, max_value=31, required=False)
+
+    def validate_date(self, value):
+        from apps.modules.investments.services import tashkent_today
+
+        if value > tashkent_today():
+            raise serializers.ValidationError("Дата отчёта не может быть позже сегодняшней.")
+        return value

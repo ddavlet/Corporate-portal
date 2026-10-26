@@ -53,6 +53,8 @@ export function SettingsPage() {
       // IsTenantAdminOrDirector) rather than the tenant-admin-only pattern used by the
       // reports pages above — admin-only here would regress access directors already had.
       if (m.path === '/settings/payroll-config') return Boolean(canOpenSettings)
+      // Investor report: backend allows IsTenantAdminOrDirector (when the investments module is on).
+      if (m.path === '/settings/investment-report') return Boolean(canOpenSettings)
       if (m.path === '/settings/telegram-chats') return access.can_manage_tenant_settings
       if (m.path === '/settings/tasks-config') return access.can_manage_tenant_settings
       return false

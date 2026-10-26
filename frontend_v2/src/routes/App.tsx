@@ -41,6 +41,7 @@ import { InvestmentProjectApprovalConfigPage } from '../ui/settings/InvestmentPr
 import { InvestmentFormConfigPage } from '../ui/settings/InvestmentFormConfigPage'
 import { InvestmentFundingConfigPage } from '../ui/settings/InvestmentFundingConfigPage'
 import { InvestmentNotificationConfigPage } from '../ui/settings/InvestmentNotificationConfigPage'
+import { InvestmentReportConfigPage } from '../ui/settings/InvestmentReportConfigPage'
 import { ReportRulesSettingsPage } from '../ui/settings/ReportRulesSettingsPage'
 import { ReportTemplateSettingsPage } from '../ui/settings/ReportTemplateSettingsPage'
 import { TasksConfigPage } from '../ui/settings/TasksConfigPage'
@@ -178,6 +179,7 @@ export function App() {
         <Route path="settings/investment-funding-config" element={<InvestmentFundingConfigPage />} />
         <Route path="settings/investment-form-config" element={<InvestmentFormConfigPage />} />
         <Route path="settings/investment-notification-config" element={<InvestmentNotificationConfigPage />} />
+        <Route path="settings/investment-report" element={<InvestmentReportConfigPage />} />
         <Route path="settings/investment-approval-config" element={<InvestmentApprovalConfigPage />} />
         <Route path="settings/investment-project-approval-config" element={<InvestmentProjectApprovalConfigPage />} />
         <Route path="settings/tenant-integration-config" element={<TenantIntegrationConfigPage />} />

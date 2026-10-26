@@ -22,6 +22,7 @@ _NO_POLLER_COMMANDS = frozenset({
     "makemessages",
     "diffsettings",
     "run_invest_notifications",
+    "run_invest_reports",
 })
 
 

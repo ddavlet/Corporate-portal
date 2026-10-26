@@ -1,3 +1,4 @@
+import dataclasses
 import json
 from decimal import Decimal, InvalidOperation
 
@@ -90,6 +91,25 @@ from apps.common.viewsets import NoPortalPaginationMixin, PortalListViewSetMixin
 from apps.modules.telegram_approvals.services import ensure_callback_identity
 from apps.tenants.models import TenantMembership
 from apps.tenants.permissions import HasEffectiveModuleAccess, IsTenantAdminForRecordEdit
+
+from apps.modules.investments.investor_report import (
+    InvestorReportError,
+    ReportSettings,
+    build_investor_report,
+    report_metrics,
+)
+from apps.modules.investments.investor_report_formatter import format_investor_report
+from apps.modules.investments.investor_report_jobs import group_recipient_id, send_report
+from apps.modules.investments.models import InvestReportConfig, InvestReportDispatch
+from apps.modules.investments.serializers import InvestReportConfigWriteSerializer, InvestReportPreviewQuerySerializer
+from apps.modules.investments.services import (
+    get_report_config_payload,
+    list_report_dispatches_payload,
+    report_dispatch_payload,
+    save_report_config,
+    tashkent_today,
+)
+from apps.tenants.permissions import IsTenantAdminOrDirector, IsTenantModuleEnabled
 
 
 class _InvestmentsTenantViewSet(PortalListViewSetMixin, viewsets.ModelViewSet):
@@ -1071,3 +1091,119 @@ class InvestmentApprovalWebhookView(APIView):
         except ValueError as exc:
             raise ValidationError({"detail": str(exc)}) from exc
         return Response({"detail": "Callback processed."}, status=status.HTTP_200_OK)
+
+
+# --- Weekly investor report (investor_report*.py) -------------------------------------------
+
+_REPORT_SETTING_FIELDS = ("target_annual_rate", "start_month", "last_payouts_count", "late_payment_day")
+_REPORT_DISPATCH_LIMIT_MAX = 100
+
+
+class _InvestReportView(APIView):
+    """Module users, plus tenant admins/directors (they configure the report) when the module is on."""
+
+    module_key = "investments"
+    permission_classes = [IsAuthenticated, HasEffectiveModuleAccess | (IsTenantModuleEnabled & IsTenantAdminOrDirector)]
+
+
+class _InvestReportAdminView(APIView):
+    module_key = "investments"
+    permission_classes = [IsAuthenticated, IsTenantModuleEnabled, IsTenantAdminOrDirector]
+
+
+def _saved_report_config(tenant):
+    return InvestReportConfig.objects.filter(tenant=tenant).select_related("telegram_chat").first()
+
+
+def _report_params(tenant, data) -> tuple:
+    """(report date, ReportSettings): saved config overridden by the given values; "" clears a setting."""
+    raw = {}
+    if data.get("date"):
+        raw["date"] = data.get("date")
+    for key in _REPORT_SETTING_FIELDS:
+        if key in data:
+            value = data.get(key)
+            raw[key] = None if value == "" else value
+    ser = InvestReportPreviewQuerySerializer(data=raw)
+    ser.is_valid(raise_exception=True)
+    values = dict(ser.validated_data)
+    report_date = values.pop("date", None) or tashkent_today()
+    settings_obj = dataclasses.replace(ReportSettings.from_config(_saved_report_config(tenant)), **values)
+    return report_date, settings_obj
+
+
+class InvestReportConfigView(_InvestReportAdminView):
+    def get(self, request):
+        return Response(get_report_config_payload(request.tenant))
+
+    def put(self, request):
+        ser = InvestReportConfigWriteSerializer(data=request.data, context={"tenant": request.tenant})
+        ser.is_valid(raise_exception=True)
+        save_report_config(tenant=request.tenant, data=ser.validated_data, actor=request.user)
+        return Response(get_report_config_payload(request.tenant))
+
+
+class InvestReportPreviewView(_InvestReportView):
+    def get(self, request):
+        report_date, settings_obj = _report_params(request.tenant, request.query_params)
+        try:
+            report = build_investor_report(tenant=request.tenant, today=report_date, config=settings_obj)
+        except InvestorReportError as exc:
+            raise ValidationError({"detail": str(exc)}) from exc
+        return Response(
+            {
+                "text": format_investor_report(report, tenant_name=request.tenant.name),
+                "metrics": report_metrics(report),
+            }
+        )
+
+
+class InvestReportSendTestView(_InvestReportView):
+    """Trial report to the current user's own Telegram (unsaved settings may be passed like in preview)."""
+
+    def post(self, request):
+        chat_id = getattr(request.user, "telegram_chat_id", None)
+        if not chat_id:
+            return Response({"detail": "Привяжите Telegram в профиле"}, status=status.HTTP_400_BAD_REQUEST)
+        report_date, settings_obj = _report_params(request.tenant, request.data)
+        dispatch = send_report(
+            tenant=request.tenant,
+            config=settings_obj,
+            today=report_date,
+            kind=InvestReportDispatch.Kind.TEST,
+            recipient_id=str(chat_id),
+            user=request.user,
+        )
+        return Response(report_dispatch_payload(dispatch))
+
+
+class InvestReportSendNowView(_InvestReportAdminView):
+    """Unscheduled send of today's report to the tenant group (does not block the scheduled one)."""
+
+    def post(self, request):
+        config = _saved_report_config(request.tenant)
+        recipient_id = group_recipient_id(config)
+        if recipient_id is None:
+            return Response(
+                {"detail": "Выберите активную Telegram-группу и сохраните настройки."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        dispatch = send_report(
+            tenant=request.tenant,
+            config=config,
+            today=tashkent_today(),
+            kind=InvestReportDispatch.Kind.MANUAL,
+            recipient_id=recipient_id,
+            user=request.user,
+        )
+        return Response(report_dispatch_payload(dispatch, chat_names={recipient_id: config.telegram_chat.name}))
+
+
+class InvestReportDispatchListView(_InvestReportAdminView):
+    def get(self, request):
+        try:
+            limit = int(request.query_params.get("limit") or 20)
+        except (TypeError, ValueError):
+            raise ValidationError({"limit": "Ожидается число."})
+        limit = max(1, min(limit, _REPORT_DISPATCH_LIMIT_MAX))
+        return Response(list_report_dispatches_payload(request.tenant, limit=limit))
