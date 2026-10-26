@@ -1,0 +1,481 @@
+from datetime import date, datetime, timedelta, timezone as dt_timezone
+from decimal import Decimal
+from unittest.mock import patch
+
+from django.db import DEFAULT_DB_ALIAS, connections
+from django.test import TestCase
+
+from apps.modules.bank_expenses.models import BankExpense, BankRevenue
+from apps.modules.cash_withdrawals.fixtures import GATEWAY_PATH, gateway_ok
+from apps.modules.vendors.models import Vendor
+from apps.modules.wallets.calendar_utils import TASHKENT, start_of_year_utc
+
+from .client import BankListedAccount, KapitalbankError, Statement, StatementDoc
+from .fixtures import ACCOUNT_1, ACCOUNT_2, MFO, KapitalbankFixtures
+from .ingest import IngestResult
+from .models import AccountSyncState, BankAccountLink, KapitalbankAlertSettings, KapitalbankConnection, SyncEvent
+from .runner import LOCK_ID, NIGHTLY_DAYS_BACK, days_for, run
+
+PASSWORD = "S3cret-bank-pass"
+LOGIN = "IB#secretlogin"
+PENDING_ACCOUNT = "20208000904843803009"
+IGNORED_ACCOUNT = "20208000904843803010"
+NEW_ACCOUNT = "20208000904843803011"
+COUNTERPARTY = "20208840100400002020"
+NOW = datetime(2026, 10, 26, 7, 0, tzinfo=dt_timezone.utc)  # 12:00 in Tashkent
+TODAY = date(2026, 10, 26)
+NIGHTLY_DAYS = [TODAY - timedelta(days=n) for n in range(NIGHTLY_DAYS_BACK, -1, -1)]
+PAST_DAYS = NIGHTLY_DAYS[:-1]
+
+
+def make_doc(n, *, day, incoming, account=ACCOUNT_1, counterparty=COUNTERPARTY, amount="1000.00"):
+    ours = (MFO, account, "ООО Наша")
+    theirs = ("00365", counterparty, "ООО Контрагент")
+    dt, ct = (theirs, ours) if incoming else (ours, theirs)
+    return StatementDoc(
+        general_id=f"RUN{n}",
+        b2_id=f"B{n}",
+        num=f"{n:012d}",
+        ddate=day,
+        vdate=day,
+        acc_dt=dt[1],
+        acc_ct=ct[1],
+        name_dt=dt[2],
+        name_ct=ct[2],
+        inn_dt="201122919",
+        inn_ct="201122920",
+        mfo_dt=dt[0],
+        mfo_ct=ct[0],
+        purpose=f"Оплата {n}",
+        dtype="21",
+        amount=Decimal(amount),
+        state=1,
+        dir=1 if incoming else 2,
+    )
+
+
+def statement(*docs, saldo_out="0.00"):
+    return Statement(
+        docs=list(docs),
+        saldo_in=Decimal(0),
+        saldo_out=Decimal(saldo_out),
+        total_debit=Decimal(0),
+        total_credit=Decimal(0),
+        fin=True,
+        oper_day=None,
+    )
+
+
+def listed(account_no):
+    return BankListedAccount(
+        account_no=account_no, branch=MFO, name="Счёт", currency="000", state_name="Открыт", balance=Decimal("1.00")
+    )
+
+
+class FakeClient:
+    """statements[(account_no, day)] is a queue: each fetch pops one, the last one repeats."""
+
+    def __init__(self):
+        self.calls = []
+        self.statements = {}
+        self.errors = {}
+        self.accounts = []
+        self.list_calls = 0
+        self.list_error = None
+
+    def get_statement(self, *, account_no, branch, day):
+        self.calls.append((account_no, day))
+        if account_no in self.errors:
+            raise self.errors[account_no]
+        queue = self.statements.get((account_no, day))
+        if not queue:
+            return statement()
+        return queue.pop(0) if len(queue) > 1 else queue[0]
+
+    def list_accounts(self):
+        self.list_calls += 1
+        if self.list_error is not None:
+            raise self.list_error
+        return self.accounts
+
+    def days(self, account_no):
+        return [day for acc, day in self.calls if acc == account_no]
+
+
+class RunnerTests(KapitalbankFixtures, TestCase):
+    def setUp(self):
+        self.make_fixtures()
+        self.conn = KapitalbankConnection(tenant=self.tenant, login=LOGIN, is_enabled=True)
+        self.conn.set_password(PASSWORD)
+        self.conn.save()
+        alert_settings = KapitalbankAlertSettings.load()
+        alert_settings.bot_tenant = self.tenant
+        alert_settings.recipient = self.owner
+        alert_settings.save()
+        # …3004 is created first, so it is processed before …3001.
+        self.link2 = BankAccountLink.objects.create(
+            tenant=self.tenant, account_no=ACCOUNT_2, branch=MFO, name="Счёт 2",
+            decision=BankAccountLink.LINKED, bank_account=self.bank_account2,
+        )
+        self.link1 = BankAccountLink.objects.create(
+            tenant=self.tenant, account_no=ACCOUNT_1, branch=MFO, name="Счёт 1",
+            decision=BankAccountLink.LINKED, bank_account=self.bank_account1,
+        )
+        BankAccountLink.objects.create(tenant=self.tenant, account_no=PENDING_ACCOUNT, branch=MFO)
+        BankAccountLink.objects.create(
+            tenant=self.tenant, account_no=IGNORED_ACCOUNT, branch=MFO,
+            decision=BankAccountLink.IGNORED, ignore_reason="депозит",
+        )
+        self.fake = FakeClient()
+        self.factory_calls = 0
+        # Portal balance is "as of now" (wall clock); pin it to NOW so the tests are date-independent.
+        patches = [
+            patch("apps.modules.wallets.services.now_tashkent", lambda: NOW.astimezone(TASHKENT)),
+            patch("apps.modules.wallets.services.ytd_bounds", lambda: (start_of_year_utc(2026), NOW, 2026)),
+            patch(GATEWAY_PATH, side_effect=gateway_ok()),
+        ]
+        mocks = [p.start() for p in patches]
+        for p in patches:
+            self.addCleanup(p.stop)
+        self.gw = mocks[-1]
+
+    def factory(self, conn):
+        self.factory_calls += 1
+        return self.fake
+
+    def run_import(self, mode="daytime", **kwargs):
+        kwargs.setdefault("now", NOW)
+        return run(mode=mode, client_factory=self.factory, **kwargs)
+
+    def texts(self):
+        return [c.kwargs["payload"]["text"] for c in self.gw.call_args_list]
+
+    def other_connection(self):
+        other = connections.create_connection(DEFAULT_DB_ALIAS)
+        self.addCleanup(other.close)
+        return other
+
+    # --- days and scope -------------------------------------------------------------------
+
+    def test_days_for(self):
+        self.assertEqual(days_for("daytime", TODAY), [TODAY])
+        self.assertEqual(days_for("nightly", TODAY), NIGHTLY_DAYS)
+        manual = [date(2026, 10, 20), date(2026, 10, 21)]
+        self.assertEqual(days_for("manual", TODAY, manual), manual)
+        with self.assertRaises(ValueError):
+            days_for("manual", TODAY)
+
+    def test_daytime_loads_today_only(self):
+        report = self.run_import("daytime")
+
+        self.assertEqual(self.fake.days(ACCOUNT_1), [TODAY])
+        self.assertEqual(self.fake.days(ACCOUNT_2), [TODAY])
+        self.assertEqual(self.fake.list_calls, 0)
+        self.assertFalse(report.skipped_locked)
+        self.assertEqual((report.accounts_ok, report.accounts_failed, report.alerts), (2, 0, 0))
+        state = AccountSyncState.objects.get(link=self.link1)
+        self.assertEqual(state.last_success_at, NOW)
+        self.assertEqual(state.consecutive_failures, 0)
+        self.gw.assert_not_called()
+
+    def test_nightly_loads_six_days_and_refreshes_accounts(self):
+        self.fake.accounts = [listed(ACCOUNT_1), listed(NEW_ACCOUNT)]
+
+        report = self.run_import("nightly")
+
+        self.assertEqual(self.fake.days(ACCOUNT_1), NIGHTLY_DAYS)
+        self.assertEqual(self.fake.days(ACCOUNT_2), NIGHTLY_DAYS)
+        self.assertEqual(self.fake.list_calls, 1)
+        new = BankAccountLink.objects.get(tenant=self.tenant, account_no=NEW_ACCOUNT)
+        self.assertEqual(new.decision, BankAccountLink.PENDING)
+        self.link1.refresh_from_db()
+        self.assertEqual(self.link1.decision, BankAccountLink.LINKED)
+        self.assertEqual(report.accounts_ok, 2)
+        self.gw.assert_not_called()
+
+    def test_manual_loads_given_days(self):
+        manual = [date(2026, 10, 1), date(2026, 10, 2)]
+        self.run_import("manual", days=manual, tenant_subdomain="kp")
+        self.assertEqual(self.fake.days(ACCOUNT_1), manual)
+        self.assertEqual(self.fake.list_calls, 0)
+
+    def test_only_linked_accounts_are_loaded(self):
+        self.run_import("daytime")
+        self.assertEqual({acc for acc, _ in self.fake.calls}, {ACCOUNT_1, ACCOUNT_2})
+
+    def test_other_tenant_filter_loads_nothing(self):
+        report = self.run_import("daytime", tenant_subdomain="other")
+        self.assertEqual(self.fake.calls, [])
+        self.assertEqual(report.accounts_ok, 0)
+
+    # --- isolation and errors -------------------------------------------------------------
+
+    def test_one_account_failure_does_not_stop_others(self):
+        self.fake.statements[(ACCOUNT_1, TODAY)] = [
+            statement(make_doc(1, day=TODAY, incoming=True), saldo_out="1000.00")
+        ]
+        self.fake.errors[ACCOUNT_2] = KapitalbankError(60102, "Счёт заблокирован")
+
+        report = self.run_import("daytime")
+
+        self.assertTrue(BankRevenue.objects.filter(external_id="RUN1", wallet=self.wallet1).exists())
+        self.assertEqual((report.accounts_ok, report.accounts_failed, report.created), (1, 1, 1))
+        state = AccountSyncState.objects.get(link=self.link2)
+        self.assertEqual(state.last_error_code, 60102)
+        self.assertEqual(state.last_error_message, "Счёт заблокирован")
+        self.assertEqual(state.last_error_at, NOW)
+        self.assertEqual(state.consecutive_failures, 1)
+        self.assertIsNone(state.last_success_at)
+        self.assertTrue(SyncEvent.objects.filter(link=self.link2, kind=SyncEvent.ERROR).exists())
+        self.assertTrue(SyncEvent.objects.filter(link=self.link1, kind=SyncEvent.IMPORTED, day=TODAY).exists())
+        self.assertEqual(AccountSyncState.objects.get(link=self.link1).last_success_at, NOW)
+        # Never succeeded → down alert right away (only for the failed account; …3001 balance matches).
+        self.assertEqual(self.gw.call_count, 1)
+        self.assertIn("не работает", self.texts()[0])
+        self.assertEqual(report.alerts, 1)
+
+    def test_non_bank_error_is_isolated_without_code(self):
+        self.fake.errors[ACCOUNT_2] = ValueError("bad saldo")
+
+        report = self.run_import("daytime")
+
+        self.assertEqual((report.accounts_ok, report.accounts_failed), (1, 1))
+        state = AccountSyncState.objects.get(link=self.link2)
+        self.assertIsNone(state.last_error_code)
+        self.assertIn("ValueError", state.last_error_message)
+        self.assertEqual(self.fake.days(ACCOUNT_1), [TODAY])
+
+    def test_error_texts_never_contain_credentials(self):
+        self.fake.errors[ACCOUNT_2] = RuntimeError(f"auth {LOGIN}:{PASSWORD} rejected")
+
+        self.run_import("daytime")
+
+        state = AccountSyncState.objects.get(link=self.link2)
+        stored = [state.last_error_message, *SyncEvent.objects.values_list("message", flat=True)]
+        stored += [str(p) for p in SyncEvent.objects.values_list("payload", flat=True)]
+        stored += self.texts()
+        self.assertTrue(self.texts())
+        for text in stored:
+            self.assertNotIn(PASSWORD, text)
+            self.assertNotIn("secretlogin", text)
+
+    def test_missing_password_is_config_error(self):
+        KapitalbankConnection.objects.filter(pk=self.conn.pk).update(password_enc="not-a-fernet-token")
+
+        report = self.run_import("daytime")
+
+        self.assertEqual(self.factory_calls, 0)
+        self.assertEqual(self.fake.calls, [])
+        self.assertEqual(report.accounts_failed, 2)
+        event = SyncEvent.objects.get(kind=SyncEvent.ERROR)
+        self.assertIsNone(event.link)
+        self.assertEqual(event.tenant, self.tenant)
+        self.assertNotIn("secretlogin", event.message)
+
+    def test_account_list_failure_still_loads_statements(self):
+        self.fake.list_error = KapitalbankError(None, "HTTP 503")
+
+        report = self.run_import("nightly")
+
+        self.assertTrue(SyncEvent.objects.filter(kind=SyncEvent.ERROR, link=None, tenant=self.tenant).exists())
+        self.assertEqual(self.fake.days(ACCOUNT_1), NIGHTLY_DAYS)
+        self.assertEqual(report.accounts_ok, 2)
+
+    def test_alert_failure_does_not_fail_run(self):
+        self.fake.statements[(ACCOUNT_1, TODAY)] = [statement(saldo_out="1000.00")]
+        with patch("apps.modules.kapitalbank.alerts.notify_mismatch", side_effect=RuntimeError("boom")):
+            report = self.run_import("daytime")
+        self.assertEqual((report.accounts_ok, report.accounts_failed, report.alerts), (2, 0, 0))
+        self.assertEqual(AccountSyncState.objects.get(link=self.link1).last_success_at, NOW)
+
+    def test_missing_docs_are_alerted(self):
+        missing = IngestResult(missing_external_ids=["X1"])
+        with patch("apps.modules.kapitalbank.runner.ingest_statement", return_value=missing):
+            report = self.run_import("daytime", tenant_subdomain="kp")
+        self.assertEqual(self.gw.call_count, 2)  # one per account
+        self.assertIn("Документы пропали", self.texts()[0])
+        self.assertEqual(report.alerts, 2)
+
+    # --- balance reconciliation -----------------------------------------------------------
+
+    def test_past_day_load_does_not_alert_balance(self):
+        for day in PAST_DAYS:
+            self.fake.statements[(ACCOUNT_1, day)] = [statement(saldo_out="999999.00")]
+
+        self.run_import("nightly")
+
+        self.gw.assert_not_called()
+        self.assertEqual(self.fake.days(ACCOUNT_1), NIGHTLY_DAYS)  # no re-fetch
+
+    def test_mismatch_self_heals_before_alert(self):
+        late_day = TODAY - timedelta(days=3)
+        late = make_doc(1, day=late_day, incoming=True, amount="1000.00")
+        self.fake.statements[(ACCOUNT_1, late_day)] = [statement(), statement(late)]
+        self.fake.statements[(ACCOUNT_1, TODAY)] = [statement(saldo_out="1000.00")]
+
+        report = self.run_import("nightly")
+
+        self.gw.assert_not_called()
+        self.assertTrue(BankRevenue.objects.filter(external_id="RUN1", wallet=self.wallet1).exists())
+        self.assertEqual(self.fake.days(ACCOUNT_1), NIGHTLY_DAYS + PAST_DAYS + [TODAY])
+        self.assertEqual((report.created, report.alerts), (1, 0))
+        self.assertIsNone(AccountSyncState.objects.get(link=self.link1).mismatch_alerted_at)
+
+    def test_persistent_mismatch_alerts_once(self):
+        self.fake.statements[(ACCOUNT_1, TODAY)] = [statement(saldo_out="1000.00")]
+
+        first = self.run_import("daytime")
+        second = self.run_import("daytime", now=NOW + timedelta(minutes=10))
+
+        self.assertEqual(self.gw.call_count, 1)
+        self.assertEqual((first.alerts, second.alerts), (1, 0))
+        self.assertIn("Расхождение остатка", self.texts()[0])
+        self.assertIn("1 000,00", self.texts()[0])
+        state = AccountSyncState.objects.get(link=self.link1)
+        self.assertEqual(state.mismatch_bank, Decimal("1000.00"))
+        self.assertEqual(state.mismatch_portal, Decimal("0.00"))
+        self.assertEqual(state.mismatch_alerted_at, NOW)
+
+    def test_balance_checked_on_empty_statement(self):
+        self.fake.statements[(ACCOUNT_1, TODAY)] = [statement(saldo_out="500.00")]
+
+        self.run_import("daytime")
+
+        self.assertEqual(self.fake.days(ACCOUNT_1), [TODAY] + PAST_DAYS + [TODAY])
+        self.assertEqual(self.gw.call_count, 1)
+        self.assertIn("Расхождение остатка", self.texts()[0])
+
+    def test_resolved_after_alerted_mismatch(self):
+        self.fake.statements[(ACCOUNT_1, TODAY)] = [statement(saldo_out="1000.00")]
+        self.run_import("daytime")
+        self.fake.statements[(ACCOUNT_1, TODAY)] = [
+            statement(make_doc(1, day=TODAY, incoming=True), saldo_out="1000.00")
+        ]
+
+        report = self.run_import("daytime", now=NOW + timedelta(minutes=10))
+
+        self.assertEqual(self.gw.call_count, 2)
+        self.assertEqual(report.alerts, 1)
+        self.assertIn("сошёлся", self.texts()[1])
+        self.assertIsNone(AccountSyncState.objects.get(link=self.link1).mismatch_alerted_at)
+
+    # --- own transfers --------------------------------------------------------------------
+
+    def test_transfer_to_untracked_own_account_alerts(self):
+        to_pending = make_doc(1, day=TODAY, incoming=False, counterparty=PENDING_ACCOUNT, amount="300.00")
+        to_linked = make_doc(2, day=TODAY, incoming=False, counterparty=ACCOUNT_2, amount="200.00")
+        self.fake.statements[(ACCOUNT_1, TODAY)] = [statement(to_pending, to_linked, saldo_out="-500.00")]
+
+        first = self.run_import("daytime")
+        second = self.run_import("daytime", now=NOW + timedelta(minutes=10))
+
+        self.assertEqual(self.gw.call_count, 1)
+        self.assertEqual((first.alerts, second.alerts), (1, 0))
+        self.assertIn("Перевод на свой счёт", self.texts()[0])
+        self.assertIn(PENDING_ACCOUNT, self.texts()[0])
+        self.assertEqual(BankExpense.objects.filter(wallet=self.wallet1).count(), 2)
+
+    def test_transfer_to_ignored_own_account_alerts(self):
+        doc = make_doc(1, day=TODAY, incoming=False, counterparty=IGNORED_ACCOUNT, amount="300.00")
+        self.fake.statements[(ACCOUNT_1, TODAY)] = [statement(doc, saldo_out="-300.00")]
+
+        self.run_import("daytime")
+
+        self.assertEqual(self.gw.call_count, 1)
+        self.assertIn(IGNORED_ACCOUNT, self.texts()[0])
+
+    def test_own_transfer_only_for_new_documents(self):
+        doc = make_doc(1, day=TODAY, incoming=False, counterparty=NEW_ACCOUNT, amount="300.00")
+        self.fake.statements[(ACCOUNT_1, TODAY)] = [statement(doc, saldo_out="-300.00")]
+        self.run_import("daytime")  # NEW_ACCOUNT unknown yet: imported, no alert
+        BankAccountLink.objects.create(tenant=self.tenant, account_no=NEW_ACCOUNT, branch=MFO)
+
+        self.run_import("daytime", now=NOW + timedelta(minutes=10))
+
+        self.gw.assert_not_called()
+
+    # --- down alerts ----------------------------------------------------------------------
+
+    def test_down_alert_after_an_hour_without_success(self):
+        AccountSyncState.objects.create(link=self.link2, last_success_at=NOW - timedelta(minutes=61))
+        self.fake.errors[ACCOUNT_2] = KapitalbankError(None, "HTTP 502")
+
+        report = self.run_import("daytime")
+
+        self.assertEqual(self.gw.call_count, 1)
+        self.assertIn("не работает", self.texts()[0])
+        self.assertIn("HTTP 502", self.texts()[0])
+        self.assertEqual(report.alerts, 1)
+
+    def test_no_down_alert_within_an_hour(self):
+        AccountSyncState.objects.create(link=self.link2, last_success_at=NOW - timedelta(minutes=30))
+        self.fake.errors[ACCOUNT_2] = KapitalbankError(None, "HTTP 502")
+
+        self.run_import("daytime")
+
+        self.gw.assert_not_called()
+        self.assertEqual(AccountSyncState.objects.get(link=self.link2).consecutive_failures, 1)
+
+    def test_nightly_failure_alerts_down_even_after_recent_success(self):
+        AccountSyncState.objects.create(link=self.link2, last_success_at=NOW - timedelta(minutes=10))
+        self.fake.errors[ACCOUNT_2] = KapitalbankError(None, "HTTP 502")
+
+        self.run_import("nightly")
+
+        self.assertEqual(self.gw.call_count, 1)
+        self.assertIn("не работает", self.texts()[0])
+
+    # --- lock and dry run -----------------------------------------------------------------
+
+    def test_concurrent_run_is_skipped(self):
+        other = self.other_connection()
+        with other.cursor() as cursor:
+            cursor.execute("SELECT pg_advisory_lock(%s)", [LOCK_ID])
+        try:
+            report = self.run_import("daytime")
+        finally:
+            with other.cursor() as cursor:
+                cursor.execute("SELECT pg_advisory_unlock(%s)", [LOCK_ID])
+
+        self.assertTrue(report.skipped_locked)
+        self.assertEqual(self.factory_calls, 0)
+        self.assertEqual(self.fake.calls, [])
+
+    def test_lock_released_after_run(self):
+        self.fake.errors[ACCOUNT_2] = ValueError("boom")
+        self.run_import("daytime")
+
+        other = self.other_connection()
+        with other.cursor() as cursor:
+            cursor.execute("SELECT pg_try_advisory_lock(%s)", [LOCK_ID])
+            acquired = cursor.fetchone()[0]
+            cursor.execute("SELECT pg_advisory_unlock(%s)", [LOCK_ID])
+        self.assertTrue(acquired)
+
+    def test_dry_run_writes_nothing(self):
+        self.fake.accounts = [listed(NEW_ACCOUNT)]
+        self.fake.statements[(ACCOUNT_1, TODAY)] = [
+            statement(
+                make_doc(1, day=TODAY, incoming=True),
+                make_doc(2, day=TODAY, incoming=False, counterparty=PENDING_ACCOUNT),
+                saldo_out="77.00",
+            )
+        ]
+        self.fake.errors[ACCOUNT_2] = KapitalbankError(60102, "x")
+        links_before = BankAccountLink.objects.count()
+
+        report = self.run_import("nightly", dry_run=True)
+
+        self.assertEqual(BankRevenue.objects.count(), 0)
+        self.assertEqual(BankExpense.objects.count(), 0)
+        self.assertFalse(Vendor.objects.filter(tenant=self.tenant).exists())
+        self.assertEqual(SyncEvent.objects.count(), 0)
+        self.assertEqual(AccountSyncState.objects.count(), 0)
+        self.assertEqual(BankAccountLink.objects.count(), links_before)
+        self.assertEqual(self.fake.list_calls, 0)
+        self.gw.assert_not_called()
+        self.assertEqual((report.accounts_ok, report.accounts_failed, report.alerts), (1, 1, 0))
+        today_detail = [d for d in report.details if d["account_no"] == ACCOUNT_1 and d["day"] == TODAY.isoformat()]
+        self.assertEqual(len(today_detail), 1)
+        self.assertEqual(len(today_detail[0]["would_create"]), 2)
+        self.assertEqual(today_detail[0]["portal_balance"], "0.00")
