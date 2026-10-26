@@ -46,7 +46,7 @@ export function SettingsPage() {
       if (m.path === '/settings/request-form-config' || m.path === '/settings/request-approval-config') return access.can_manage_requests_settings
       if (m.path === '/settings/cash-registers' || m.path === '/settings/cash-withdrawal-config') return access.can_manage_wallet_settings
       if (m.path === '/settings/users-roles') return access.can_manage_tenant_settings
-      if (m.path === '/settings/investment-form-config' || m.path === '/settings/investment-approval-config' || m.path === '/settings/investment-project-approval-config' || m.path === '/settings/investment-notification-config') return access.can_manage_requests_settings
+      if (m.path === '/settings/investment-form-config' || m.path === '/settings/investment-approval-config' || m.path === '/settings/investment-project-approval-config' || m.path === '/settings/investment-funding-config' || m.path === '/settings/investment-notification-config') return access.can_manage_requests_settings
       if (m.path === '/settings/pnl-report-config' || m.path === '/settings/cashflow-report-config' || m.path === '/settings/report-templates') return access.can_manage_tenant_settings
       // Payroll settings: matches the existing backend permission on these two specific
       // endpoints (TenantPayrollDocIdFormatView / TenantPayrollSettingsView both allow

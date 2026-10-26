@@ -107,6 +107,9 @@ export function RequestCreatePage({ requestsBasePath = '/requests', variant = 'p
     [formOptions, paymentType],
   )
 
+  /** Инвест-типы: кошелёк списания и валюта фиксируются настройкой инвестиционного режима. */
+  const fundingHint = activePt?.funding_hint ?? null
+
   /** Заявители, разрешённые настройками формы для выбранного типа оплаты (не все роли заявителя в тенанте). */
   const allowedRequesters = useMemo(() => activePt?.requesters ?? [], [activePt])
 
@@ -190,6 +193,11 @@ export function RequestCreatePage({ requestsBasePath = '/requests', variant = 'p
       setBillingDate((prev) => clampToAllowedBillingMonth(prev ?? monthStartTashkent()))
     }
   }, [step, paymentType, formOptions, detailStep])
+
+  useEffect(() => {
+    if (step !== detailStep || !fundingHint) return
+    setCurrency(fundingHint.currency)
+  }, [step, detailStep, fundingHint])
 
   const searchTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
   const onVendorSearch = (value: string) => {
@@ -555,6 +563,11 @@ export function RequestCreatePage({ requestsBasePath = '/requests', variant = 'p
                     onChange={(v) => setAmount(typeof v === 'number' ? v : null)}
                   />
                 </div>
+                {fundingHint ? (
+                  <Typography.Text type="secondary" style={{ display: 'block' }}>
+                    Списание: {fundingHint.wallet_label}
+                  </Typography.Text>
+                ) : null}
                 <div className="tg-field-block">
                   <Typography.Text strong style={labelBlockAboveField}>
                     Валюта
@@ -564,6 +577,7 @@ export function RequestCreatePage({ requestsBasePath = '/requests', variant = 'p
                     style={{ display: 'block', width: '100%' }}
                     value={currency}
                     onChange={setCurrency}
+                    disabled={Boolean(fundingHint)}
                     options={['UZS', 'USD', 'EUR', 'RUB'].map((c) => ({ value: c, label: c }))}
                     getPopupContainer={tgPopupContainer}
                     popupMatchSelectWidth
@@ -645,6 +659,11 @@ export function RequestCreatePage({ requestsBasePath = '/requests', variant = 'p
                     onChange={(v) => setAmount(typeof v === 'number' ? v : null)}
                   />
                 </div>
+                {fundingHint ? (
+                  <Typography.Text type="secondary" style={{ display: 'block' }}>
+                    Списание: {fundingHint.wallet_label}
+                  </Typography.Text>
+                ) : null}
                 <div>
                   <Typography.Text strong style={labelBlockAboveField}>
                     Валюта
@@ -653,6 +672,7 @@ export function RequestCreatePage({ requestsBasePath = '/requests', variant = 'p
                     style={{ display: 'block', width: 120 }}
                     value={currency}
                     onChange={setCurrency}
+                    disabled={Boolean(fundingHint)}
                     options={['UZS', 'USD', 'EUR', 'RUB'].map((c) => ({ value: c, label: c }))}
                   />
                 </div>

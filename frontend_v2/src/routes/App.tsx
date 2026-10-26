@@ -39,6 +39,7 @@ import { TelegramChatsConfigPage } from '../ui/settings/TelegramChatsConfigPage'
 import { InvestmentApprovalConfigPage } from '../ui/settings/InvestmentApprovalConfigPage'
 import { InvestmentProjectApprovalConfigPage } from '../ui/settings/InvestmentProjectApprovalConfigPage'
 import { InvestmentFormConfigPage } from '../ui/settings/InvestmentFormConfigPage'
+import { InvestmentFundingConfigPage } from '../ui/settings/InvestmentFundingConfigPage'
 import { InvestmentNotificationConfigPage } from '../ui/settings/InvestmentNotificationConfigPage'
 import { ReportRulesSettingsPage } from '../ui/settings/ReportRulesSettingsPage'
 import { ReportTemplateSettingsPage } from '../ui/settings/ReportTemplateSettingsPage'
@@ -174,6 +175,7 @@ export function App() {
         <Route path="settings" element={<SettingsPage />} />
         <Route path="settings/request-form-config" element={<RequestFormConfigPage />} />
         <Route path="settings/request-approval-config" element={<RequestApprovalConfigPage />} />
+        <Route path="settings/investment-funding-config" element={<InvestmentFundingConfigPage />} />
         <Route path="settings/investment-form-config" element={<InvestmentFormConfigPage />} />
         <Route path="settings/investment-notification-config" element={<InvestmentNotificationConfigPage />} />
         <Route path="settings/investment-approval-config" element={<InvestmentApprovalConfigPage />} />

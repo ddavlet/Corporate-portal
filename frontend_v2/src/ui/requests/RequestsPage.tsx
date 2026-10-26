@@ -28,6 +28,7 @@ import { RequestAiChatButton } from './RequestAiChatButton'
 import { AdminEditRecordButton } from '../admin/AdminEditRecordButton'
 import { NoteCreateModal } from '../NoteCreateModal'
 import { useInfiniteList, useRestoreInfinitePages } from '../../lib/useInfiniteList'
+import { requestPaymentTypeSelectOptions } from '../../lib/requestPaymentTypes'
 import { useListPageSession } from '../../lib/useListPageSession'
 import { useUserPreference } from '../../lib/useUserPreference'
 import { ListInfiniteScrollFooter } from '../ListInfiniteScrollFooter'
@@ -103,7 +104,7 @@ const REQUESTS_FILTER_PREF_KEY = 'requests.page.filters.v1'
 const REQUESTS_LIST_SESSION_KEY = 'list-session:/requests'
 
 const STATUS_OPTIONS = ['DRAFT', '1', '2', '3', '4', '5', 'APPROVED', 'PAYED', 'REJECTED'].map((v) => ({ label: v, value: v }))
-const PAYMENT_TYPE_OPTIONS = ['Наличные', 'Перечисление', 'Пополнение', 'Платежная карта', 'Начисление ЗП'].map((v) => ({ label: v, value: v }))
+const PAYMENT_TYPE_OPTIONS = requestPaymentTypeSelectOptions()
 const URGENCY_OPTIONS = ['Низко', 'Обычно', 'Срочно'].map((v) => ({ label: v, value: v }))
 const CURRENCY_OPTIONS = ['UZS', 'USD', 'EUR', 'RUB'].map((v) => ({ label: v, value: v }))
 

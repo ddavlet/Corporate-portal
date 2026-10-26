@@ -115,6 +115,14 @@ export const SETTINGS_MODULES: SettingsModuleItem[] = [
     group: 'investments',
   },
   {
+    key: 'investments-funding-mode',
+    title: 'Инвестиционный режим',
+    description: 'Вложения по заявкам на расход: инвестиционная касса и счёт.',
+    path: '/settings/investment-funding-config',
+    icon: <FileTextOutlined />,
+    group: 'investments',
+  },
+  {
     key: 'pnl-report',
     title: 'Отчёт PnL',
     description: 'Источник данных и правила расчёта PnL.',

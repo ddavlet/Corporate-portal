@@ -12,7 +12,8 @@ import {
   type RequestApprovalConfigStepItem,
   type TenantTelegramChatDto,
 } from '../../lib/api'
-import { REQUEST_PAYMENT_TYPES } from '../../lib/requestPaymentTypes'
+import { REQUEST_PAYMENT_TYPES, isInvestPaymentType } from '../../lib/requestPaymentTypes'
+import { useInvestmentFundingMode } from '../../lib/useInvestmentFundingMode'
 import { labelBlockAboveField } from '../formSpacing'
 
 const PAYMENT_TYPES = REQUEST_PAYMENT_TYPES
@@ -78,6 +79,7 @@ export function RequestApprovalConfigPage() {
   const [error, setError] = useState<string | null>(null)
 
   const [data, setData] = useState<RequestApprovalConfigResponse | null>(null)
+  const investmentMode = useInvestmentFundingMode()
   const [activeTab, setActiveTab] = useState<string>(PAYMENT_TYPES[0])
   const [tgChats, setTgChats] = useState<TenantTelegramChatDto[]>([])
 
@@ -383,7 +385,9 @@ export function RequestApprovalConfigPage() {
           <Tabs
             activeKey={activeTab}
             onChange={setActiveTab}
-            items={data.payment_types.map((pt) => ({
+            items={data.payment_types
+              .filter((pt) => investmentMode || !isInvestPaymentType(pt.payment_type))
+              .map((pt) => ({
               key: pt.payment_type,
               label: pt.payment_type,
               children: (
