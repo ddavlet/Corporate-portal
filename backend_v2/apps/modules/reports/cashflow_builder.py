@@ -9,7 +9,7 @@ from django.db.models import Count, Q, Sum
 from apps.modules.bank_expenses.models import BankRevenue
 from apps.modules.cashier.models import CashRevenue
 from apps.modules.investments.models import InvestReturn
-from apps.modules.investments.services import clamp_rate_date_to_cbu_availability, usd_uzs_equivalents_or_none
+from apps.modules.investments.services import clamp_rate_date_to_cbu_availability, usd_uzs_equivalents_for_read
 from apps.modules.requests.models import Request
 from apps.modules.requests.payment_type_families import expand_with_invest_types
 from apps.modules.reports.models import TenantReportSettings
@@ -82,10 +82,12 @@ def _request_cash_expense_date(req: Request) -> date | None:
     return None
 
 
-def _invest_return_cashflow_row(ir: InvestReturn) -> dict[str, Any] | None:
+def _invest_return_cashflow_row(ir: InvestReturn, rate_memo: dict | None = None) -> dict[str, Any] | None:
     """None, если курс ЦБ на дату выплаты недоступен (архив ещё не заполнен и сеть недоступна)."""
     rate_date = clamp_rate_date_to_cbu_availability(requested=ir.date)
-    _, sum_uzs = usd_uzs_equivalents_or_none(sum_val=ir.sum, currency=ir.currency, rate_date=rate_date)
+    _, sum_uzs = usd_uzs_equivalents_for_read(
+        sum_val=ir.sum, currency=ir.currency, rate_date=rate_date, memo=rate_memo if rate_memo is not None else {}
+    )
     if sum_uzs is None:
         return None
     label = ir.get_type_display()
@@ -273,6 +275,7 @@ def build_cashflow_payload_from_db(*, tenant, query_params: dict[str, Any]) -> d
             invest_returns=invest_returns,
         )
 
+    rate_memo: dict = {}
     for ir in (
         InvestReturn.objects.filter(tenant_id=tenant.id, confirmed=True, date__gte=start)
         .order_by("date", "id")
@@ -280,7 +283,7 @@ def build_cashflow_payload_from_db(*, tenant, query_params: dict[str, Any]) -> d
         b = invest_type_bucket(str(ir.type or ""), op=ir_op, ot=ir_ot, inv=ir_inv)
         if b is None:
             continue
-        row = _invest_return_cashflow_row(ir)
+        row = _invest_return_cashflow_row(ir, rate_memo)
         if row is None:
             continue
         if b == "operational":

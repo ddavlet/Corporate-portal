@@ -7,7 +7,7 @@ from typing import Any
 
 from apps.mcp_server.auth import require_module_access
 from apps.mcp_server.utils import json_safe, validate_date
-from apps.modules.investments.services import clamp_rate_date_to_cbu_availability, usd_uzs_equivalents_or_none
+from apps.modules.investments.services import clamp_rate_date_to_cbu_availability, usd_uzs_equivalents_for_read
 
 MODULE = "investments"
 _MAX_LIMIT = 200
@@ -97,9 +97,12 @@ def list_invest_returns(
 
     limit = min(max(1, int(limit)), _MAX_LIMIT)
     rows = []
+    rate_memo: dict = {}
     for r in qs.order_by("-date", "-id")[:limit]:
         rate_date = clamp_rate_date_to_cbu_availability(requested=r.date)
-        sum_usd, sum_uzs = usd_uzs_equivalents_or_none(sum_val=r.sum, currency=r.currency, rate_date=rate_date)
+        sum_usd, sum_uzs = usd_uzs_equivalents_for_read(
+            sum_val=r.sum, currency=r.currency, rate_date=rate_date, memo=rate_memo
+        )
         rows.append(
             {
                 "id": r.id,

@@ -152,6 +152,10 @@ def usd_uzs_equivalents(*, sum_val: Decimal, currency: str, rate_date: date) -> 
     get_or_fetch_usd_uzs_rate). Поднимает CbuRateFetchError, если курс недоступен.
     """
     rate = get_or_fetch_usd_uzs_rate(rate_date=rate_date)
+    return _equivalents_from_rate(sum_val=sum_val, currency=currency, rate=rate)
+
+
+def _equivalents_from_rate(*, sum_val: Decimal, currency: str, rate: Decimal) -> tuple[Decimal, Decimal]:
     d_sum = Decimal(str(sum_val)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
     cur = str(currency or "USD").strip().upper()
     if cur == "UZS":
@@ -171,6 +175,39 @@ def usd_uzs_equivalents_or_none(
         return usd_uzs_equivalents(sum_val=sum_val, currency=currency, rate_date=rate_date)
     except CbuRateFetchError:
         return None, None
+
+
+# Чтение списков и отчётов: короткий таймаут и не больше одной неудачной попытки сети на запрос портала.
+CBU_READ_FETCH_TIMEOUT = 4
+_CBU_UNAVAILABLE_MEMO_KEY = "__cbu_unavailable__"
+
+
+def usd_uzs_equivalents_for_read(
+    *, sum_val: Decimal, currency: str, rate_date: date, memo: dict
+) -> tuple[Decimal | None, Decimal | None]:
+    """
+    (сумма в USD, сумма в UZS) для чтения: много строк в одном HTTP-запросе портала.
+
+    Курс берётся из архива; за недостающей датой сайт ЦБ запрашивается с коротким таймаутом
+    (и сохраняется в архив, см. get_or_fetch_usd_uzs_rate). После первой неудачи ``memo``
+    (общий словарь на запрос) запоминает, что cbu.uz недоступен, и остальные строки без курса
+    в архиве сразу получают (None, None) — иначе каждая строка ждала бы таймаут, и воркер
+    убивался по таймауту («список вложений грузится бесконечно»).
+    """
+    from apps.modules.investments.models import CbuExchangeRate
+
+    if memo.get(_CBU_UNAVAILABLE_MEMO_KEY):
+        archived = CbuExchangeRate.objects.filter(date=rate_date).first()
+        if archived is None:
+            return None, None
+        rate = archived.usd_uzs_rate
+    else:
+        try:
+            rate = get_or_fetch_usd_uzs_rate(rate_date=rate_date, timeout=CBU_READ_FETCH_TIMEOUT)
+        except CbuRateFetchError:
+            memo[_CBU_UNAVAILABLE_MEMO_KEY] = True
+            return None, None
+    return _equivalents_from_rate(sum_val=sum_val, currency=currency, rate=rate)
 
 
 _ALL_RATES_CACHE_KEY = "__all_rates__"
