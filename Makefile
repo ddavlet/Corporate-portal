@@ -7,7 +7,7 @@ DEPLOY_TEST_PATH ?= $(TEST_PATH)
 BRANCH     := $(shell git rev-parse --abbrev-ref HEAD)
 
 .DEFAULT_GOAL := help
-.PHONY: help push test deploy makemigrations showmigrations logs backup-db create-postgres-mcp-role rollback refresh-approval-messages reconcile-card-revenues reconcile-expense-links relink-unresolved-bank-doc-numbers link-payroll-requests send-to-vacation return-from-vacation reassign-unmatched-bank-expenses backfill-bank-expense-requests backfill-cash-expense-requests backfill-card-expenses backfill-cbu-exchange-rate redispatch-unsent-approval-cards backfill-cash-withdrawals repair-id-sequences local-up local-down local-logs test_local
+.PHONY: help push test deploy makemigrations showmigrations logs backup-db create-postgres-mcp-role rollback refresh-approval-messages reconcile-card-revenues reconcile-expense-links relink-unresolved-bank-doc-numbers align-payment-purposes link-payroll-requests send-to-vacation return-from-vacation reassign-unmatched-bank-expenses backfill-bank-expense-requests backfill-cash-expense-requests backfill-card-expenses backfill-cbu-exchange-rate redispatch-unsent-approval-cards backfill-cash-withdrawals repair-id-sequences local-up local-down local-logs test_local
 
 help:
 	@echo ""
@@ -30,6 +30,7 @@ help:
 	@echo "  make reconcile-expense-links TENANT=3 DATE_FROM=2026-09-01 DATE_TO=2026-09-09 — то же самое, с фильтром по дате оплаты"
 	@echo "  make reconcile-expense-links TENANT=3 APPLY=1 — то же самое, но с записью изменений"
 	@echo "  make relink-unresolved-bank-doc-numbers TENANT=lemonfit [APPLY=1] — привязать заявки с неверным № п/п к банковским расходам по сумме+дате"
+	@echo "  make align-payment-purposes PLAN=lemonfit_2026_10 [APPLY=1] — выровнять категории и назначения платежа тенантов по JSON-плану"
 	@echo "  make link-payroll-requests TENANT=lemonfit PAIRS=\"7226:1-000000077,...\" [SET_AMOUNT=1] [APPLY=1] — привязать заявки ЗП к указанным ведомостям"
 	@echo "  make send-to-vacation TENANT=3 EMPLOYEE_USERNAME=s.davletyarov — dry-run: отправить согласующего в отпуск"
 	@echo "  make send-to-vacation TENANT=3 EMPLOYEE_USERNAME=s.davletyarov APPLY=1 — то же самое, но с записью изменений"
@@ -193,6 +194,16 @@ relink-unresolved-bank-doc-numbers:
 		python manage.py relink_unresolved_bank_doc_numbers --tenant=$(TENANT) \
 		$(if $(DATE_FROM),--date-from=$(DATE_FROM),) \
 		$(if $(DATE_TO),--date-to=$(DATE_TO),) \
+		$(if $(APPLY),--apply,)"
+
+# ── 7d-1d2. Выровнять справочник категорий/назначений платежа по JSON-плану ──
+# Планы: backend_v2/apps/modules/requests/purpose_alignment_plans/<PLAN>.json
+# make align-payment-purposes PLAN=lemonfit_2026_10 [APPLY=1]
+align-payment-purposes:
+	@test -n "$(PLAN)" || (echo "Usage: make align-payment-purposes PLAN=<plan name> [APPLY=1]" && exit 1)
+	ssh $(SERVER) "cd $(REMOTE_DIR) && \
+		docker compose --env-file ./.env exec -T backend_v2 \
+		python manage.py align_payment_purposes --plan=$(PLAN) \
 		$(if $(APPLY),--apply,)"
 
 # ── 7d-1e. Привязать заявки "Начисление ЗП" к явно указанным ведомостям ──
