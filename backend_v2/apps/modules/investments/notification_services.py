@@ -211,8 +211,12 @@ def _payout_notification_buttons(schedule) -> list[list[dict]]:
 
 def _dispatch_payout_notification(*, schedule, config, text: str) -> bool:
     """Send an interactive Telegram message carrying the 'Create Payment' button. Shared by
-    the upcoming and overdue flows — they differ only in the message text."""
-    from apps.modules.telegram_approvals.services import get_tenant_bot_token, post_messaging_gateway
+    the upcoming and overdue flows — they differ only in the message text.
+
+    Goes through ``TelegramDispatcher`` so the card is persisted as ``TelegramMessage`` with
+    a ``TelegramMessageHistory`` row, like every other outbound card."""
+    from apps.modules.telegram_approvals.services import TelegramDispatcher
+    from apps.tenants.integration_settings import get_messaging_gateway_settings
 
     user = config.responsible_user
     chat_id = config.telegram_chat.chat_id if config.telegram_chat else getattr(user, "telegram_chat_id", None)
@@ -224,21 +228,19 @@ def _dispatch_payout_notification(*, schedule, config, text: str) -> bool:
         )
         return False
 
-    bot_token = get_tenant_bot_token(config.tenant)
-    if not bot_token:
+    dispatcher = TelegramDispatcher(config.tenant)
+    if not dispatcher.bot_token:
         logger.warning("invest_notify: tenant=%s has no Telegram bot token, skipping", config.tenant_id)
         return False
 
-    payload = {
-        "action": "send_interactive",
-        "text": text,
-        "recipient_id": str(chat_id),
-        "bot_token": bot_token,
-        "tenant_id": str(config.tenant_id),
-        "buttons": _payout_notification_buttons(schedule),
-    }
-    result = post_messaging_gateway(tenant=config.tenant, payload=payload)
-    return result is not None
+    message = dispatcher.send(
+        action=get_messaging_gateway_settings(tenant=config.tenant).send_action,
+        recipient_id=chat_id,
+        text=text,
+        buttons=_payout_notification_buttons(schedule),
+        external_user_id=None if config.telegram_chat else getattr(user, "telegram_from_id", None),
+    )
+    return message is not None
 
 
 def refresh_payout_notification_message(*, schedule, chat_id, message_id, note: str) -> bool:
@@ -282,8 +284,11 @@ def process_due_invest_payout_notifications(*, now_dt: dt.datetime | None = None
     from apps.modules.investments.models import InvestNotificationConfig, InvestPayoutNotificationLog, InvestPayoutSchedule
 
     now_dt = now_dt or timezone.now()
-    today = now_dt.date()
-    local_hour = timezone.localtime(now_dt, TASHKENT_TZ).hour
+    # Both the day and the hour are Tashkent-local: the UTC date lags a day before 05:00
+    # local, which would shift the due/overdue windows and the per-day dedup key.
+    local_now = timezone.localtime(now_dt, TASHKENT_TZ)
+    today = local_now.date()
+    local_hour = local_now.hour
     sent = 0
 
     configs = (

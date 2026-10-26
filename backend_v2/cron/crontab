@@ -12,8 +12,9 @@ BASH_ENV=/etc/kolberg-cron.env
 # Soft-delete draft requests older than DRAFT_RETENTION_DAYS.
 15 8 * * * root cd /app && python manage.py purge_expired_draft_requests >> /proc/1/fd/1 2>&1
 
-# Investment payout Telegram reminders.
-0 9 * * * root cd /app && python manage.py run_invest_notifications >> /proc/1/fd/1 2>&1
+# Investment payout Telegram reminders (each tenant picks its own notify_hour; command filters by it,
+# InvestPayoutNotificationLog dedups per schedule/recipient/day).
+0 * * * * root cd /app && python manage.py run_invest_notifications >> /proc/1/fd/1 2>&1
 
 # Cash-withdrawal overdue alerts (each tenant picks its own hour; command filters by it).
 0 * * * * root cd /app && python manage.py run_cash_withdrawal_alerts >> /proc/1/fd/1 2>&1

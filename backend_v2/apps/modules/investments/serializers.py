@@ -28,6 +28,7 @@ from apps.modules.investments.services import (
     usd_uzs_equivalents_or_none,
 )
 from apps.modules.serializers_guard import reject_client_pk_on_create
+from apps.modules.telegram_approvals.models import TenantTelegramChat
 
 
 def _normalize_currency(attrs: dict, key: str = "currency") -> None:
@@ -337,6 +338,12 @@ class InvestNotificationConfigSerializer(serializers.Serializer):
     notify_hour = serializers.IntegerField(min_value=0, max_value=23)
     is_active = serializers.BooleanField()
     telegram_chat_id = serializers.IntegerField(required=False, allow_null=True, default=None)
+
+    def validate_telegram_chat_id(self, value):
+        # The chat receives payout amounts: it must be one of this tenant's groups.
+        if value is not None and not TenantTelegramChat.objects.filter(tenant=self.context["tenant"], pk=value).exists():
+            raise serializers.ValidationError("Telegram-группа не найдена.")
+        return value
 
 
 class InvestmentFormConfigSerializer(serializers.Serializer):
