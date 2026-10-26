@@ -11,6 +11,7 @@ from apps.modules.investments.models import (
     InvestmentApprovalConfigStep,
     InvestmentApprovalConfigStepApprover,
     InvestmentFormConfig,
+    InvestmentFundingConfig,
     InvestmentProjectApprovalConfig,
     InvestmentProjectApprovalConfigStep,
     InvestmentProjectApprovalConfigStepApprover,
@@ -266,6 +267,8 @@ class ProjectInvestmentSerializer(_CompanyScopeMixin, serializers.ModelSerialize
         return investment_form_clear_company_if_disabled(attrs, self.context.get("request"))
 
     def _validate_cash_currency(self, attrs):
+        if "funding_method" not in attrs and "currency" not in attrs:
+            return
         tenant = getattr(self.context.get("request"), "tenant", None)
         method = attrs.get("funding_method") or (self.instance.funding_method if self.instance else None)
         if tenant is None or method != ProjectInvestment.FundingMethod.CASH:
@@ -414,12 +417,19 @@ class InvestmentFundingConfigSerializer(serializers.Serializer):
         tenant = self.context["tenant"]
         enabled = attrs["is_enabled"]
         resolved = {}
+        stored = InvestmentFundingConfig.objects.filter(tenant=tenant).first()
         for key, wallet_type, label in (
             ("cash_wallet_id", Wallet.Type.CASH, "Инвестиционная касса"),
             ("bank_wallet_id", Wallet.Type.BANK, "Инвестиционный счёт"),
         ):
-            wallet_id = attrs.get(key)
             wallet = None
+            if key not in attrs:
+                # Ключ не передан — сохраняем текущее значение; очищает только явный null.
+                if stored is not None:
+                    wallet = stored.cash_wallet if key == "cash_wallet_id" else stored.bank_wallet
+                resolved[key] = wallet
+                continue
+            wallet_id = attrs[key]
             if wallet_id is not None:
                 wallet = Wallet.objects.filter(pk=wallet_id, tenant=tenant, wallet_type=wallet_type).first()
                 if wallet is None:

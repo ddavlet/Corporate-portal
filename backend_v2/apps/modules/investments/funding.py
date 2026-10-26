@@ -64,9 +64,20 @@ class _InvestPolicyBase:
         return cfg is not None and self._wallet(cfg) is not None
 
     def normalize_attrs(self, *, tenant, attrs: dict, instance: Request | None) -> dict:
+        type_changed = instance is None or (
+            "payment_type" in attrs and attrs["payment_type"] != instance.payment_type
+        )
+        if not type_changed:
+            # Существующая заявка: касса/счёт зафиксированы при создании и не меняются ни клиентом,
+            # ни перенастройкой режима.
+            current = instance.wallet_ref
+            attrs["wallet_ref"] = current
+            if current is not None and "currency" in attrs:
+                self._check_currency(attrs=attrs, instance=instance, wallet=current)
+            return attrs
         cfg = get_enabled_funding_config(tenant)
         if cfg is None:
-            # Режим выключен: существующую заявку не трогаем (создание блокирует is_available).
+            # Создание блокирует is_available; здесь только страховка.
             return attrs
         wallet = self._wallet(cfg)
         if wallet is None:

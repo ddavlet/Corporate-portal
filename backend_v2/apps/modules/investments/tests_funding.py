@@ -254,7 +254,10 @@ class InvestmentFundingModeTests(APITestCase):
         self.assertEqual(res.status_code, 200, res.data)
 
         res = self.client.patch(
-            f"/api/requests/{req_id}/", {"description": "новое"}, format="json", HTTP_HOST=self.host
+            f"/api/requests/{req_id}/",
+            {"description": "новое", "wallet_ref": self.other_cash_wallet.id},
+            format="json",
+            HTTP_HOST=self.host,
         )
         self.assertEqual(res.status_code, 200, res.data)
         req = Request.objects.get(pk=req_id)
@@ -266,6 +269,49 @@ class InvestmentFundingModeTests(APITestCase):
         target, expense_id = create_expense_for_request_payment(request_obj=req, actor_user=self.admin)
         self.assertEqual(target, "cash")
         self.assertEqual(CashExpense.objects.get(pk=expense_id).wallet_id, self.cash_wallet.id)
+
+    def test_existing_invest_request_keeps_wallet_after_cash_reconfigured(self):
+        self._enable_mode()
+        created = self._post_request(INV_CASH)
+        self.assertEqual(created.status_code, 201, created.data)
+        req_id = created.data["id"]
+        Request.objects.filter(pk=req_id).update(status=Request.STATUS_DRAFT)
+
+        res = self._put_funding(cash_wallet_id=self.other_cash_wallet.id)
+        self.assertEqual(res.status_code, 200, res.data)
+
+        res = self.client.patch(
+            f"/api/requests/{req_id}/", {"description": "новое"}, format="json", HTTP_HOST=self.host
+        )
+        self.assertEqual(res.status_code, 200, res.data)
+        self.assertEqual(Request.objects.get(pk=req_id).wallet_ref_id, self.cash_wallet.id)
+
+    def test_investment_comment_patch_ignores_currency_mismatch(self):
+        inv = ProjectInvestment.objects.create(
+            tenant=self.tenant,
+            date=date(2026, 3, 1),
+            amount=Decimal("500"),
+            currency="USD",
+            funding_method="cash",
+            created_by=self.admin,
+        )
+        self._enable_mode()
+        res = self.client.patch(
+            f"/api/investments/project-investments/{inv.pk}/",
+            {"comment": "только комментарий"},
+            format="json",
+            HTTP_HOST=self.host,
+        )
+        self.assertEqual(res.status_code, 200, res.data)
+
+    def test_put_without_wallet_keys_keeps_stored_wallets(self):
+        self._enable_mode()
+        res = self.client.put(FUNDING_URL, {"is_enabled": False}, format="json", HTTP_HOST=self.host)
+        self.assertEqual(res.status_code, 200, res.data)
+        cfg = InvestmentFundingConfig.objects.get(tenant=self.tenant)
+        self.assertFalse(cfg.is_enabled)
+        self.assertEqual(cfg.cash_wallet_id, self.cash_wallet.id)
+        self.assertEqual(cfg.bank_wallet_id, self.bank_wallet.id)
 
     def test_request_delete_hook_calls_mutation_guard(self):
         obj = Request.objects.create(
