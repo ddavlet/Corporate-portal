@@ -11,6 +11,7 @@ from apps.modules.cashier.models import CashRevenue
 from apps.modules.investments.models import InvestReturn
 from apps.modules.investments.services import clamp_rate_date_to_cbu_availability, usd_uzs_equivalents_or_none
 from apps.modules.requests.models import Request
+from apps.modules.requests.payment_type_families import expand_with_invest_types
 from apps.modules.reports.models import TenantReportSettings
 from apps.modules.reports.report_rules import (
     CFG_CASH_EXCLUDE,
@@ -142,11 +143,13 @@ def compute_unassigned_payment_purposes_cashflow(*, tenant_id: int, cfg: dict[st
     """Distinct payment_purpose on paid requests in cashflow scope with no purpose bucket."""
     validate_rules(cfg)
     start = parse_start_month(str(cfg[CFG_START_MONTH]))
-    pay_list = [
-        str(x).strip()
-        for x in cfg[CFG_REQ_PAYMENT_TYPES]
-        if str(x).strip() and str(x).strip() in PAYMENT_TYPE_VALUES
-    ]
+    pay_list = expand_with_invest_types(
+        [
+            str(x).strip()
+            for x in cfg[CFG_REQ_PAYMENT_TYPES]
+            if str(x).strip() and str(x).strip() in PAYMENT_TYPE_VALUES
+        ]
+    )
     cat_exclude = {str(x).strip() for x in cfg[CFG_REQ_CAT_EXCLUDE] if str(x).strip()}
     op = set(normalize_str_list(cfg[CFG_PURPOSE_OP], field=CFG_PURPOSE_OP))
     ot = set(normalize_str_list(cfg[CFG_PURPOSE_OTHER], field=CFG_PURPOSE_OTHER))
@@ -189,7 +192,9 @@ def build_cashflow_payload_from_db(*, tenant, query_params: dict[str, Any]) -> d
     start = parse_start_month(str(cfg[CFG_START_MONTH]))
     cash_exclude = {str(x).strip() for x in cfg[CFG_CASH_EXCLUDE] if str(x).strip()}
     cat_exclude = {str(x).strip() for x in cfg[CFG_REQ_CAT_EXCLUDE] if str(x).strip()}
-    pay_list = [str(x).strip() for x in cfg[CFG_REQ_PAYMENT_TYPES] if str(x).strip() in PAYMENT_TYPE_VALUES]
+    pay_list = expand_with_invest_types(
+        [str(x).strip() for x in cfg[CFG_REQ_PAYMENT_TYPES] if str(x).strip() in PAYMENT_TYPE_VALUES]
+    )
 
     purp_op = set(normalize_str_list(cfg[CFG_PURPOSE_OP], field=CFG_PURPOSE_OP))
     purp_ot = set(normalize_str_list(cfg[CFG_PURPOSE_OTHER], field=CFG_PURPOSE_OTHER))
