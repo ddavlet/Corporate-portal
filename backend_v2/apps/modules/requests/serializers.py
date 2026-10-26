@@ -29,6 +29,11 @@ from apps.modules.requests.models import (
     AutoRequestTemplate,
 )
 from apps.modules.requests.payment_type_families import bank_like_payment_types, canonical_payment_type
+from apps.modules.requests.payment_type_policies import (
+    check_request_mutation,
+    get_payment_type_policy,
+    is_payment_type_available,
+)
 from apps.modules.contracts.models import Contract
 from apps.modules.contracts.services import tenant_has_contracts_module
 from apps.modules.vendors.models import Vendor
@@ -177,9 +182,8 @@ class PortalRequestSerializer(serializers.ModelSerializer):
         if tenant and "contract_ref" in self.fields:
             self.fields["contract_ref"].queryset = Contract.objects.filter(tenant=tenant)
         if tenant and "wallet_ref" in self.fields:
-            self.fields["wallet_ref"].queryset = Wallet.objects.filter(
-                tenant=tenant, wallet_type=Wallet.Type.CASH
-            )
+            # Тип кошелька проверяется в validate (зависит от типа заявки: касса / банк для инвест-перечисления).
+            self.fields["wallet_ref"].queryset = Wallet.objects.filter(tenant=tenant)
 
     def validate(self, attrs):
         reject_client_pk_on_create(self)
@@ -215,6 +219,17 @@ class PortalRequestSerializer(serializers.ModelSerializer):
         payment_type = attrs.get("payment_type")
         if payment_type is None and self.instance is not None:
             payment_type = self.instance.payment_type
+
+        policy = get_payment_type_policy(payment_type) if payment_type else None
+        if policy is not None:
+            type_changed = self.instance is None or (
+                "payment_type" in attrs and attrs["payment_type"] != self.instance.payment_type
+            )
+            if type_changed and not is_payment_type_available(tenant=tenant, payment_type=payment_type):
+                raise serializers.ValidationError(
+                    {"payment_type": "Тип заявки недоступен: инвестиционный режим выключен."}
+                )
+            attrs = policy.normalize_attrs(tenant=tenant, attrs=attrs, instance=self.instance)
 
         requester = attrs.get("requester")
         if requester is None and self.instance is not None:
@@ -390,17 +405,26 @@ class PortalRequestSerializer(serializers.ModelSerializer):
         if wref:
             if wref.tenant_id != tenant.id:
                 raise serializers.ValidationError({"wallet_ref": "Касса должна принадлежать этому тенанту."})
-            if wref.wallet_type != Wallet.Type.CASH:
-                raise serializers.ValidationError(
-                    {"wallet_ref": "Можно выбрать только кассу (наличный кошелёк)."}
+            if payment_type == Request.PAYMENT_TYPE_INVEST_TRANSFER:
+                if wref.wallet_type != Wallet.Type.BANK:
+                    raise serializers.ValidationError(
+                        {"wallet_ref": "Для инвест. перечисления нужен банковский кошелёк."}
+                    )
+            else:
+                if wref.wallet_type != Wallet.Type.CASH:
+                    raise serializers.ValidationError(
+                        {"wallet_ref": "Можно выбрать только кассу (наличный кошелёк)."}
+                    )
+                effective_currency = attrs.get("currency") or (
+                    self.instance.currency if self.instance is not None else None
                 )
-            effective_currency = attrs.get("currency") or (
-                self.instance.currency if self.instance is not None else None
-            )
-            if effective_currency and wref.currency != effective_currency:
-                raise serializers.ValidationError(
-                    {"wallet_ref": "Валюта кассы не совпадает с валютой заявки."}
-                )
+                if effective_currency and wref.currency != effective_currency:
+                    raise serializers.ValidationError(
+                        {"wallet_ref": "Валюта кассы не совпадает с валютой заявки."}
+                    )
+
+        if self.instance is not None:
+            check_request_mutation(request_obj=self.instance, attrs=attrs)
 
         effective_pt = attrs.get("payment_type")
         if effective_pt is None and self.instance is not None:
