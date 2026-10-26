@@ -259,8 +259,9 @@ class SyncEventAdmin(NoDeleteAdminMixin, admin.ModelAdmin):
 
 @admin.register(KapitalbankAlertSettings)
 class KapitalbankAlertSettingsAdmin(NoDeleteAdminMixin, admin.ModelAdmin):
-    list_display = ("__str__", "bot_tenant", "recipient")
-    raw_id_fields = ("bot_tenant", "recipient")
+    list_display = ("__str__", "recipient")
+    fields = ("recipient",)
+    raw_id_fields = ("recipient",)
 
     def has_add_permission(self, request):
         return not KapitalbankAlertSettings.objects.exists()

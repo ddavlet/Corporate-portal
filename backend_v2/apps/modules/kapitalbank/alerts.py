@@ -1,5 +1,8 @@
 """Telegram alerts to the owner only, deduplicated. Failures are logged, never raised.
 
+Each alert is sent by the Telegram bot of the tenant whose account it is about; the
+recipient (the owner) comes from KapitalbankAlertSettings.
+
 Dedup of keyed alerts (``dedup_key``): the SyncEvent row is created first, inside a
 savepoint, so the unique constraint arbitrates races (IntegrityError = someone else already
 sent/is sending). If the send then fails, the row is not deleted (CLAUDE.md: no data
@@ -47,27 +50,27 @@ def _fmt_time(value: datetime) -> str:
     return timezone.localtime(value).strftime("%d.%m.%Y %H:%M")
 
 
-def _send_text(*, bot_tenant, recipient_id: str, text: str) -> bool:
+def _send_text(*, tenant, recipient_id: str, text: str) -> bool:
     """True when the gateway accepted the message. With require_message_id the dispatcher
     tells the cases apart: None = gateway unreachable or non-OK response (failed);
     TelegramDispatchMissingMessageId = OK response without message_id (sent, nothing to
     persist on our side)."""
     try:
-        gateway = get_requests_messaging_gateway_settings(tenant=bot_tenant)
-        message = TelegramDispatcher(bot_tenant).send(
+        gateway = get_requests_messaging_gateway_settings(tenant=tenant)
+        message = TelegramDispatcher(tenant).send(
             action=gateway.send_action, recipient_id=recipient_id, text=text, buttons=None, require_message_id=True
         )
     except TelegramDispatchMissingMessageId:
         logger.warning(
-            "kapitalbank alerts: gateway answered OK without message_id; treated as sent bot_tenant_id=%s",
-            getattr(bot_tenant, "pk", None),
+            "kapitalbank alerts: gateway answered OK without message_id; treated as sent tenant_id=%s",
+            getattr(tenant, "pk", None),
         )
         return True
     except Exception:
-        logger.exception("kapitalbank alerts: send failed bot_tenant_id=%s", getattr(bot_tenant, "pk", None))
+        logger.exception("kapitalbank alerts: send failed tenant_id=%s", getattr(tenant, "pk", None))
         return False
     if message is None:
-        logger.error("kapitalbank alerts: not delivered bot_tenant_id=%s", getattr(bot_tenant, "pk", None))
+        logger.error("kapitalbank alerts: not delivered tenant_id=%s", getattr(tenant, "pk", None))
         return False
     return True
 
@@ -81,12 +84,10 @@ def send_owner_alert(
     dedup_key: str | None = None,
     payload: dict | None = None,
 ) -> bool:
-    alert_settings = KapitalbankAlertSettings.load()
-    bot_tenant = alert_settings.bot_tenant
-    recipient = alert_settings.recipient
+    recipient = KapitalbankAlertSettings.load().recipient
     chat_id = getattr(recipient, "telegram_chat_id", None) if recipient is not None else None
-    if bot_tenant is None or recipient is None or not chat_id:
-        logger.error("kapitalbank alerts: alert settings incomplete (bot tenant / recipient / telegram chat id)")
+    if recipient is None or not chat_id:
+        logger.error("kapitalbank alerts: alert settings incomplete (recipient / telegram chat id)")
         return False
     recipient_id = str(chat_id)
 
@@ -102,7 +103,7 @@ def send_owner_alert(
     }
 
     if dedup_key is None:
-        if not _send_text(bot_tenant=bot_tenant, recipient_id=recipient_id, text=text):
+        if not _send_text(tenant=tenant, recipient_id=recipient_id, text=text):
             return False
         SyncEvent.objects.create(**event_fields)
         return True
@@ -114,7 +115,7 @@ def send_owner_alert(
             event = SyncEvent.objects.create(dedup_key=dedup_key, **event_fields)
     except IntegrityError:
         return False
-    if _send_text(bot_tenant=bot_tenant, recipient_id=recipient_id, text=text):
+    if _send_text(tenant=tenant, recipient_id=recipient_id, text=text):
         return True
     failed_payload = dict(event_payload, failed=True, failed_dedup_key=dedup_key)
     SyncEvent.objects.filter(pk=event.pk).update(dedup_key=None, payload=failed_payload)

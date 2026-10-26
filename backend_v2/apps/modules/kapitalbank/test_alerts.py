@@ -25,7 +25,6 @@ class AlertsTests(KapitalbankFixtures, TestCase):
         conn.set_password(PASSWORD)
         conn.save()
         settings_obj = KapitalbankAlertSettings.load()
-        settings_obj.bot_tenant = self.tenant
         settings_obj.recipient = self.owner
         settings_obj.save()
         self.link = BankAccountLink.objects.create(
@@ -126,9 +125,28 @@ class AlertsTests(KapitalbankFixtures, TestCase):
         gw.return_value = {"message_id": 1}
         self.assertTrue(notify_mismatch(self.link, now=utc(1, 10, 5), **kw))
 
+    def test_alert_sent_by_bot_of_account_tenant(self):
+        from apps.tenants.models import Tenant
+
+        other = Tenant.objects.create(name="Other", subdomain="other", is_active=True)
+        other_link = BankAccountLink.objects.create(
+            tenant=other, account_no="20208000999999999999", branch=MFO, name="Чужой счёт",
+            decision=BankAccountLink.IGNORED, ignore_reason="тест",
+        )
+        with patch("apps.modules.kapitalbank.alerts.get_requests_messaging_gateway_settings") as gw_settings, patch(
+            "apps.modules.kapitalbank.alerts.TelegramDispatcher"
+        ) as dispatcher:
+            dispatcher.return_value.send.return_value = {"message_id": 1}
+            self.assertTrue(notify_down(self.link, code=1, message="m", now=utc(1, 10, 0)))
+            self.assertTrue(notify_down(other_link, code=1, message="m", now=utc(1, 10, 0)))
+        self.assertEqual([c.args[0] for c in dispatcher.call_args_list], [self.tenant, other])
+        self.assertEqual([c.kwargs["tenant"] for c in gw_settings.call_args_list], [self.tenant, other])
+        for call in dispatcher.return_value.send.call_args_list:
+            self.assertEqual(call.kwargs["recipient_id"], "1387986")
+
     @patch(GATEWAY_PATH)
     def test_no_settings_logs_and_returns_false(self, gw):
-        KapitalbankAlertSettings.objects.filter(pk=1).update(bot_tenant=None)
+        KapitalbankAlertSettings.objects.filter(pk=1).update(recipient=None)
         with self.assertLogs("apps.modules.kapitalbank.alerts", level="ERROR"):
             self.assertFalse(notify_down(self.link, code=1, message="m", now=utc(1, 10, 0)))
         gw.assert_not_called()

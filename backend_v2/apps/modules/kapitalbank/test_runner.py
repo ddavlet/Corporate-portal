@@ -115,7 +115,6 @@ class RunnerTests(KapitalbankFixtures, TestCase):
         self.conn.set_password(PASSWORD)
         self.conn.save()
         alert_settings = KapitalbankAlertSettings.load()
-        alert_settings.bot_tenant = self.tenant
         alert_settings.recipient = self.owner
         alert_settings.save()
         # …3004 is created first, so it is processed before …3001.

@@ -30,7 +30,8 @@ class KapitalbankConnection(models.Model):
 
 
 class KapitalbankAlertSettings(models.Model):
-    """Singleton (pk=1): which tenant's Telegram bot sends alerts and to whom."""
+    """Singleton (pk=1): who receives the alerts. Each alert is sent by the bot of the account's
+    tenant; ``bot_tenant`` is no longer used (kept to avoid a data-dropping migration)."""
 
     bot_tenant = models.ForeignKey(Tenant, null=True, blank=True, on_delete=models.SET_NULL, related_name="+")
     recipient = models.ForeignKey(
