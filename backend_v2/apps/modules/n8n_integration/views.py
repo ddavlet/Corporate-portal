@@ -36,6 +36,7 @@ from apps.modules.investments.models import (
 from apps.modules.investments.serializers import InvestReturnSerializer
 from apps.modules.notes.models import Note
 from apps.modules.requests.models import Approval, Request
+from apps.modules.requests.payment_type_families import bank_like_payment_types
 from apps.modules.requests.amortization import build_amortization_schedule_rows, is_request_amortized
 from apps.modules.requests.approval_bootstrap import create_approval_rows_for_request
 from apps.modules.requests.approval_workflow import _recalculate_request_status, route_request_approvals
@@ -200,7 +201,7 @@ def _relink_requests_to_bank_expenses(*, tenant, candidates: list[tuple[str, int
             continue
         updated += Request.objects.filter(
             tenant=tenant,
-            payment_type__in=(Request.PAYMENT_TYPE_TRANSFER, Request.PAYMENT_TYPE_TOPUP),
+            payment_type__in=bank_like_payment_types(),
             expense_id=doc_no,
             expense_year=expense_year,
             amount=expense["debit_turnover"],
@@ -2002,6 +2003,8 @@ class N8nVendorListView(APIView):
                 Request.PAYMENT_TYPE_TRANSFER: transfer_vendors,
                 Request.PAYMENT_TYPE_TOPUP: transfer_vendors,
                 Request.PAYMENT_TYPE_CARD: transfer_vendors,
+                Request.PAYMENT_TYPE_INVEST_CASH: cash_vendors,
+                Request.PAYMENT_TYPE_INVEST_TRANSFER: transfer_vendors,
             }
         )
 

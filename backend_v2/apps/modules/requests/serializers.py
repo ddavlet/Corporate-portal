@@ -28,6 +28,16 @@ from apps.modules.requests.models import (
     RequestCategory,
     AutoRequestTemplate,
 )
+from apps.modules.requests.payment_type_families import (
+    INVEST_PAYMENT_TYPES,
+    bank_like_payment_types,
+    canonical_payment_type,
+)
+from apps.modules.requests.payment_type_policies import (
+    check_request_mutation,
+    get_payment_type_policy,
+    is_payment_type_available,
+)
 from apps.modules.contracts.models import Contract
 from apps.modules.contracts.services import tenant_has_contracts_module
 from apps.modules.vendors.models import Vendor
@@ -66,15 +76,15 @@ def _display_user_name(user) -> str | None:
 
 
 def payment_type_to_vendor_kind(payment_type: str) -> str:
-    if payment_type == Request.PAYMENT_TYPE_CASH:
+    if canonical_payment_type(payment_type) == Request.PAYMENT_TYPE_CASH:
         return Vendor.KIND_CASH
     return Vendor.KIND_TRANSFER
 
 
 def payment_type_to_create_module_key(payment_type: str) -> str | None:
-    if payment_type == Request.PAYMENT_TYPE_CASH:
+    if canonical_payment_type(payment_type) == Request.PAYMENT_TYPE_CASH:
         return "cash"
-    if payment_type in (Request.PAYMENT_TYPE_TRANSFER, Request.PAYMENT_TYPE_TOPUP):
+    if payment_type in bank_like_payment_types():
         return "bank"
     if payment_type == Request.PAYMENT_TYPE_CARD:
         return "corporate_card"
@@ -177,9 +187,8 @@ class PortalRequestSerializer(serializers.ModelSerializer):
         if tenant and "contract_ref" in self.fields:
             self.fields["contract_ref"].queryset = Contract.objects.filter(tenant=tenant)
         if tenant and "wallet_ref" in self.fields:
-            self.fields["wallet_ref"].queryset = Wallet.objects.filter(
-                tenant=tenant, wallet_type=Wallet.Type.CASH
-            )
+            # Тип кошелька проверяется в validate (зависит от типа заявки: касса / банк для инвест-перечисления).
+            self.fields["wallet_ref"].queryset = Wallet.objects.filter(tenant=tenant)
 
     def validate(self, attrs):
         reject_client_pk_on_create(self)
@@ -215,6 +224,19 @@ class PortalRequestSerializer(serializers.ModelSerializer):
         payment_type = attrs.get("payment_type")
         if payment_type is None and self.instance is not None:
             payment_type = self.instance.payment_type
+
+        if payment_type:
+            type_changed = self.instance is None or (
+                "payment_type" in attrs and attrs["payment_type"] != self.instance.payment_type
+            )
+            # Доступность проверяется и без политики: инвест-типы без политики закрыты по умолчанию.
+            if type_changed and not is_payment_type_available(tenant=tenant, payment_type=payment_type):
+                raise serializers.ValidationError(
+                    {"payment_type": "Тип заявки недоступен: инвестиционный режим выключен."}
+                )
+        policy = get_payment_type_policy(payment_type) if payment_type else None
+        if policy is not None:
+            attrs = policy.normalize_attrs(tenant=tenant, attrs=attrs, instance=self.instance)
 
         requester = attrs.get("requester")
         if requester is None and self.instance is not None:
@@ -390,17 +412,26 @@ class PortalRequestSerializer(serializers.ModelSerializer):
         if wref:
             if wref.tenant_id != tenant.id:
                 raise serializers.ValidationError({"wallet_ref": "Касса должна принадлежать этому тенанту."})
-            if wref.wallet_type != Wallet.Type.CASH:
-                raise serializers.ValidationError(
-                    {"wallet_ref": "Можно выбрать только кассу (наличный кошелёк)."}
+            if payment_type == Request.PAYMENT_TYPE_INVEST_TRANSFER:
+                if wref.wallet_type != Wallet.Type.BANK:
+                    raise serializers.ValidationError(
+                        {"wallet_ref": "Для инвест. перечисления нужен банковский кошелёк."}
+                    )
+            else:
+                if wref.wallet_type != Wallet.Type.CASH:
+                    raise serializers.ValidationError(
+                        {"wallet_ref": "Можно выбрать только кассу (наличный кошелёк)."}
+                    )
+                effective_currency = attrs.get("currency") or (
+                    self.instance.currency if self.instance is not None else None
                 )
-            effective_currency = attrs.get("currency") or (
-                self.instance.currency if self.instance is not None else None
-            )
-            if effective_currency and wref.currency != effective_currency:
-                raise serializers.ValidationError(
-                    {"wallet_ref": "Валюта кассы не совпадает с валютой заявки."}
-                )
+                if effective_currency and wref.currency != effective_currency:
+                    raise serializers.ValidationError(
+                        {"wallet_ref": "Валюта кассы не совпадает с валютой заявки."}
+                    )
+
+        if self.instance is not None:
+            check_request_mutation(request_obj=self.instance, attrs=attrs)
 
         effective_pt = attrs.get("payment_type")
         if effective_pt is None and self.instance is not None:
@@ -435,7 +466,7 @@ class PortalRequestSerializer(serializers.ModelSerializer):
             tgt = expense_ref_target_for(payment_type=effective_pt, category=effective_cat) if ref else None
             attrs["expense_ref_id"] = ref
             attrs["expense_ref_target"] = tgt
-            if normalized_expense_id and effective_pt in (
+            if normalized_expense_id and canonical_payment_type(effective_pt) in (
                 Request.PAYMENT_TYPE_CASH,
                 Request.PAYMENT_TYPE_PAYROLL,
             ):
@@ -536,7 +567,7 @@ class PortalRequestSerializer(serializers.ModelSerializer):
                     "url": url,
                 }
 
-        if ref_id is not None and pt == Request.PAYMENT_TYPE_CASH and has_effective_module_access(
+        if ref_id is not None and canonical_payment_type(pt) == Request.PAYMENT_TYPE_CASH and has_effective_module_access(
             user=user, tenant=tenant, module_key="cash"
         ):
             cash_expense = CashExpense.objects.filter(tenant=tenant, id=ref_id).first()
@@ -550,7 +581,7 @@ class PortalRequestSerializer(serializers.ModelSerializer):
                     "url": url,
                 }
 
-        if ref_id is not None and pt in (Request.PAYMENT_TYPE_TRANSFER, Request.PAYMENT_TYPE_TOPUP) and has_effective_module_access(
+        if ref_id is not None and pt in bank_like_payment_types() and has_effective_module_access(
             user=user, tenant=tenant, module_key="bank"
         ):
             bank_expense = BankExpense.objects.filter(tenant=tenant, id=ref_id).first()
@@ -1257,10 +1288,13 @@ def validate_auto_template_against_form_config(*, tenant, item: dict) -> None:
     When tenant has request form config, auto-templates must follow the same rules as portal creates:
     enabled payment type, requester subset, vendor from allowed list / kind match, purpose from list when configured.
     """
+    payment_type = item["payment_type"]
+    if payment_type in INVEST_PAYMENT_TYPES:
+        # Инвест-заявки привязаны к инвестиционной кассе/счёту режима — по расписанию не создаются.
+        raise serializers.ValidationError(f"Тип оплаты «{payment_type}» нельзя использовать в автозаявках.")
     cfg = RequestFormConfig.objects.filter(tenant=tenant).first()
     if not cfg:
         return
-    payment_type = item["payment_type"]
     pt_cfg = RequestFormPaymentTypeConfig.objects.filter(config=cfg, payment_type=payment_type).first()
     if not pt_cfg or not pt_cfg.is_enabled:
         raise serializers.ValidationError(

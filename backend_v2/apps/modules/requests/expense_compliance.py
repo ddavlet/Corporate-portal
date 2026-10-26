@@ -16,6 +16,11 @@ from apps.modules.payroll.models import PayrollDocument, PayrollLine, PayrollPay
 from apps.modules.requests.approval_workflow import min_pending_approval_step
 from apps.modules.requests.expense_refs import resolve_request_expense_ref
 from apps.modules.requests.models import Approval, Request
+from apps.modules.requests.payment_type_families import (
+    bank_like_payment_types,
+    canonical_payment_type,
+    cash_like_payment_types,
+)
 from apps.modules.requests.request_required import is_request_required_for_expense
 from apps.modules.requests.serializers import build_request_approval_config_response
 from apps.tenants.models import Tenant, TenantModuleConfig
@@ -129,7 +134,7 @@ def build_approval_rules_snapshot(*, tenant) -> dict[str, dict]:
 def annotate_bank_expense_compliance(qs, *, tenant):
     request_subquery = Request.objects.filter(
         tenant=tenant,
-        payment_type__in=(Request.PAYMENT_TYPE_TRANSFER, Request.PAYMENT_TYPE_TOPUP),
+        payment_type__in=bank_like_payment_types(),
         amount=OuterRef("debit_turnover"),
     ).filter(
         Q(expense_ref_id=OuterRef("id"))
@@ -149,7 +154,7 @@ def annotate_bank_expense_compliance(qs, *, tenant):
 def annotate_cash_expense_compliance(qs, *, tenant):
     request_subquery = Request.objects.filter(
         tenant=tenant,
-        payment_type=Request.PAYMENT_TYPE_CASH,
+        payment_type__in=cash_like_payment_types(),
         amount=OuterRef("amount"),
     ).filter(Q(expense_ref_id=OuterRef("id")) | Q(expense_id=OuterRef("external_id")))
     paid_request_subquery = request_subquery.filter(status=Request.STATUS_PAYED)
@@ -816,10 +821,10 @@ def resolve_request_portal_expense_module(request_obj: Request, *, tenant) -> st
     if ref_id is not None and pt == Request.PAYMENT_TYPE_PAYROLL:
         if PayrollDocument.objects.filter(tenant=tenant, id=ref_id).exists():
             return "payroll"
-    if ref_id is not None and pt == Request.PAYMENT_TYPE_CASH:
+    if ref_id is not None and canonical_payment_type(pt) == Request.PAYMENT_TYPE_CASH:
         if CashExpense.objects.filter(tenant=tenant, id=ref_id).exists():
             return "cash"
-    if ref_id is not None and pt in (Request.PAYMENT_TYPE_TRANSFER, Request.PAYMENT_TYPE_TOPUP):
+    if ref_id is not None and pt in bank_like_payment_types():
         if BankExpense.objects.filter(tenant=tenant, id=ref_id).exists():
             return "bank"
     if ref_id is not None and pt == Request.PAYMENT_TYPE_TOPUP:

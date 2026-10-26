@@ -79,6 +79,12 @@ from apps.modules.requests.expense_refs import (
     expense_ref_target_for,
     resolve_request_expense_ref,
 )
+from apps.modules.requests.payment_type_families import cash_like_payment_types, canonical_payment_type
+from apps.modules.requests.payment_type_policies import (
+    check_request_mutation,
+    get_payment_type_policy,
+    is_payment_type_available,
+)
 from apps.modules.requests.approval_bootstrap import create_approval_rows_for_request
 from apps.modules.requests.approval_config_resolver import resolve_effective_payment_step_config_for_request
 from apps.modules.requests.auto_requests import create_request_copy_for_template
@@ -403,7 +409,7 @@ class RequestApprovalsMixin:
                 expense_year=request_obj.expense_year,
                 amount=request_obj.amount,
             )
-            if normalized_expense_id and request_obj.payment_type in (
+            if normalized_expense_id and canonical_payment_type(request_obj.payment_type) in (
                 Request.PAYMENT_TYPE_CASH,
                 Request.PAYMENT_TYPE_PAYROLL,
             ):
@@ -694,10 +700,11 @@ class PortalRequestViewSet(
                         Request.PAYMENT_TYPE_TOPUP,
                         Request.PAYMENT_TYPE_CARD,
                         Request.PAYMENT_TYPE_PAYROLL,
+                        Request.PAYMENT_TYPE_INVEST_TRANSFER,
                     }
                 )
             if is_cashier:
-                allowed_payment_types.add(Request.PAYMENT_TYPE_CASH)
+                allowed_payment_types.update(cash_like_payment_types())
             qs = qs.filter(payment_type__in=allowed_payment_types)
 
         if is_approver and not (is_admin or is_director):
@@ -854,6 +861,10 @@ class PortalRequestViewSet(
         super().perform_update(serializer)
         obj = serializer.instance
         route_request_approvals(request_obj=obj)
+
+    def perform_destroy(self, instance):
+        check_request_mutation(request_obj=instance, attrs={"status": Request.STATUS_DELETED})
+        super().perform_destroy(instance)
 
     @action(detail=True, methods=["post"], url_path="copy")
     def copy(self, request, pk=None):
@@ -1560,6 +1571,10 @@ class RequestFormOptionsView(APIView):
                 "vendor_ref": pt_cfg.default_vendor_id,
             }
 
+        def funding_hint(payment_type: str):
+            policy = get_payment_type_policy(payment_type)
+            return policy.form_hint(tenant=tenant) if policy is not None else None
+
         return Response(
             {
                 "is_tenant_admin": is_tenant_admin,
@@ -1578,10 +1593,14 @@ class RequestFormOptionsView(APIView):
                             for p in pt.payment_purposes.filter(is_active=True).order_by("name", "id")
                         ],
                         "defaults": form_defaults(pt),
+                        "funding_hint": funding_hint(pt.payment_type),
                     }
                     for pt in pt_qs
-                    if pt.payment_type != Request.PAYMENT_TYPE_PAYROLL
-                    or tenant_has_payroll_module_enabled(tenant)
+                    if (
+                        pt.payment_type != Request.PAYMENT_TYPE_PAYROLL
+                        or tenant_has_payroll_module_enabled(tenant)
+                    )
+                    and is_payment_type_available(tenant=tenant, payment_type=pt.payment_type)
                 ],
             }
         )

@@ -374,8 +374,15 @@ def route_project_investment_approvals(*, project_investment: ProjectInvestment)
                 project_investment.save(update_fields=["confirmed"])
             return 0
         if not project_investment.confirmed:
-            project_investment.confirmed = True
-            project_investment.save(update_fields=["confirmed"])
+            # Атомарно: post_save-хуки (приход в кассу) должны откатывать подтверждение при сбое,
+            # в том числе когда маршрутизация идёт вне внешней транзакции.
+            try:
+                with transaction.atomic():
+                    project_investment.confirmed = True
+                    project_investment.save(update_fields=["confirmed"])
+            except Exception:
+                project_investment.confirmed = False
+                raise
         return 0
     return dispatch_pending_project_investment_approvals(project_investment=project_investment)
 

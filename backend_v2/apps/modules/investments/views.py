@@ -4,9 +4,11 @@ from decimal import Decimal, InvalidOperation
 
 from django.contrib.auth import get_user_model
 from django.db import transaction
+from django.db.models import Prefetch
 from django.utils import timezone
 from rest_framework import status, viewsets
-from rest_framework.exceptions import ValidationError
+from rest_framework.decorators import action
+from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -18,8 +20,20 @@ from apps.modules.investments.approval_services import (
     deactivate_investment_return_approval_buttons,
     route_invest_return_approvals,
 )
+from apps.modules.investments.funding import (
+    apply_funding_config,
+    get_enabled_funding_config,
+    has_active_project_approval_chain,
+)
+from apps.modules.investments.funding_pool import (
+    collect_requests_into_investments,
+    eligible_requests,
+    funding_pool_totals,
+    investment_has_cash_revenue,
+)
 from apps.modules.investments.models import (
     InvestCompany,
+    InvestmentFundingConfig,
     InvestmentApprovalConfig,
     InvestmentApprovalConfigStep,
     InvestmentApprovalConfigStepApprover,
@@ -34,6 +48,7 @@ from apps.modules.investments.models import (
     InvestReturn,
     ProjectInvestment,
     ProjectInvestmentApproval,
+    ProjectInvestmentRequestLink,
 )
 from apps.modules.investments.project_investment_approval_services import (
     InvestmentProjectApprovalDecisionAlreadyMade,
@@ -53,6 +68,7 @@ from apps.modules.investments.serializers import (
     InvestmentApprovalWebhookSerializer,
     InvestmentFormConfigReadSerializer,
     InvestmentFormConfigSerializer,
+    InvestmentFundingConfigSerializer,
     InvestmentProjectApprovalConfigReadSerializer,
     InvestmentProjectApprovalConfigSerializer,
     InvestmentProjectApprovalConfigStepApproverReadSerializer,
@@ -64,14 +80,17 @@ from apps.modules.investments.serializers import (
     InvestReturnSerializer,
     PublicInvestPayoutScheduleShareViewSerializer,
     ProjectInvestmentApprovalReadSerializer,
+    ProjectInvestmentSerializer,
     ProjectInvestmentWithEquivalentsSerializer,
+    FundingCollectPayloadSerializer,
+    FundingPoolRequestSerializer,
 )
 from apps.common.pagination import PortalCursorPagination
 from apps.common.query_params import parse_bool_query, parse_date_query
 from apps.common.viewsets import NoPortalPaginationMixin, PortalListViewSetMixin
 from apps.modules.telegram_approvals.services import ensure_callback_identity
 from apps.tenants.models import TenantMembership
-from apps.tenants.permissions import HasEffectiveModuleAccess, IsTenantAdminForRecordEdit
+from apps.tenants.permissions import HasEffectiveModuleAccess, IsTenantAdmin, IsTenantAdminForRecordEdit
 
 from apps.modules.investments.investor_report import (
     InvestorReportError,
@@ -267,14 +286,86 @@ class InvestPayoutScheduleViewSet(_EditableInvestmentsTenantViewSet):
         return qs.order_by("-payout_date", "-id")
 
 
+FUNDING_MODE_DISABLED_MESSAGE = "Инвестиционный режим выключен."
+MANUAL_INVESTMENT_FORBIDDEN_MESSAGE = (
+    "Инвестиционный режим включён: заявки на вложение создаются только через «Собрать по заявкам»."
+)
+INVESTMENT_WITH_CASH_REVENUE_DELETE_MESSAGE = "По вложению уже создан приход в кассу — удалить нельзя."
+CONFIRMED_COLLECTED_INVESTMENT_DELETE_MESSAGE = "Подтверждённое вложение по заявкам удалить нельзя."
+
+
+def _funding_pool_group(requests_qs) -> dict:
+    rows = list(requests_qs)
+    return {"requests": FundingPoolRequestSerializer(rows, many=True).data, "totals": funding_pool_totals(rows)}
+
+
 class ProjectInvestmentViewSet(_EditableInvestmentsTenantViewSet):
     serializer_class = ProjectInvestmentWithEquivalentsSerializer
     queryset = ProjectInvestment.objects.all()
 
+    def get_queryset(self):
+        qs = super().get_queryset().prefetch_related(
+            Prefetch("request_links", queryset=ProjectInvestmentRequestLink.objects.select_related("request"))
+        )
+        source_request = (self.request.query_params.get("source_request") or "").strip()
+        if source_request.isdigit():
+            qs = qs.filter(request_links__request_id=int(source_request)).distinct()
+        return qs
+
     def perform_create(self, serializer):
+        # При включённом инвестиционном режиме вложения создаются только сбором по заявкам (from-requests).
+        if get_enabled_funding_config(self.request.tenant) is not None:
+            raise ValidationError({"detail": MANUAL_INVESTMENT_FORBIDDEN_MESSAGE})
         obj = serializer.save(tenant=self.request.tenant, created_by=self.request.user)
         create_approvals_for_project_investment(project_investment=obj)
         route_project_investment_approvals(project_investment=obj)
+
+    def perform_destroy(self, instance):
+        # Иначе заявки вернутся в пул, и повторный сбор даст второй приход в кассу.
+        if investment_has_cash_revenue(instance):
+            raise ValidationError({"detail": INVESTMENT_WITH_CASH_REVENUE_DELETE_MESSAGE})
+        # Подтверждённое вложение по заявкам (любой способ внесения) — факт внесения денег:
+        # удаление вернуло бы оплаченные заявки в пул.
+        if instance.confirmed and instance.request_links.exists():
+            raise ValidationError({"detail": CONFIRMED_COLLECTED_INVESTMENT_DELETE_MESSAGE})
+        super().perform_destroy(instance)
+
+    def _require_funding_mode(self):
+        if get_enabled_funding_config(self.request.tenant) is None:
+            raise PermissionDenied(FUNDING_MODE_DISABLED_MESSAGE)
+
+    @action(detail=False, methods=["get"], url_path="funding-pool")
+    def funding_pool(self, request):
+        self._require_funding_mode()
+        tenant = request.tenant
+        return Response(
+            {
+                "cash": _funding_pool_group(
+                    eligible_requests(tenant=tenant, funding_method=ProjectInvestment.FundingMethod.CASH)
+                ),
+                "bank_transfer": _funding_pool_group(
+                    eligible_requests(tenant=tenant, funding_method=ProjectInvestment.FundingMethod.BANK_TRANSFER)
+                ),
+                "approval_chain_ok": has_active_project_approval_chain(tenant),
+            }
+        )
+
+    @action(detail=False, methods=["post"], url_path="from-requests")
+    def from_requests(self, request):
+        self._require_funding_mode()
+        payload = FundingCollectPayloadSerializer(data=request.data, context=self.get_serializer_context())
+        payload.is_valid(raise_exception=True)
+        data = payload.validated_data
+        investments = collect_requests_into_investments(
+            tenant=request.tenant,
+            user=request.user,
+            funding_method=data["funding_method"],
+            request_ids=data["request_ids"],
+            comment=data.get("comment", ""),
+            company=data.get("company"),
+        )
+        body = ProjectInvestmentSerializer(investments, many=True, context=self.get_serializer_context()).data
+        return Response({"investments": body}, status=status.HTTP_201_CREATED)
 
 
 class InvestCompanyViewSet(_EditableInvestmentsTenantViewSet):
@@ -405,6 +496,53 @@ class InvestmentFormConfigView(APIView):
             },
         )
         return Response(self._payload(request.tenant))
+
+
+class InvestmentFundingConfigView(APIView):
+    permission_classes = [IsAuthenticated, HasEffectiveModuleAccess]
+    module_key = "investments"
+
+    def get_permissions(self):
+        permissions = super().get_permissions()
+        # Читают все с доступом к модулю; менять режим — только администратор тенанта.
+        if self.request is not None and self.request.method == "PUT":
+            permissions.append(IsTenantAdmin())
+        return permissions
+
+    def _payload(self, tenant):
+        cfg = InvestmentFundingConfig.objects.filter(tenant=tenant).select_related("cash_wallet").first()
+        return {
+            "is_enabled": bool(cfg and cfg.is_enabled),
+            "cash_wallet_id": cfg.cash_wallet_id if cfg else None,
+            "bank_wallet_id": cfg.bank_wallet_id if cfg else None,
+            "enabled_at": cfg.enabled_at if cfg else None,
+            "has_project_approval_chain": has_active_project_approval_chain(tenant),
+            "cash_wallet_currency": cfg.cash_wallet.currency if cfg and cfg.cash_wallet else None,
+        }
+
+    def get(self, request):
+        self.check_permissions(request)
+        return Response(self._payload(request.tenant))
+
+    def put(self, request):
+        self.check_permissions(request)
+        tenant = request.tenant
+        serializer = InvestmentFundingConfigSerializer(data=request.data, context={"tenant": tenant})
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+        # Цепочка согласования обязательна только для включения режима (выкл→вкл); сохранение уже
+        # включённого режима и выключение не блокируются, даже если цепочку отключили позже.
+        stored_enabled = InvestmentFundingConfig.objects.filter(tenant=tenant, is_enabled=True).exists()
+        if data["is_enabled"] and not stored_enabled and not has_active_project_approval_chain(tenant):
+            raise ValidationError({"detail": "Сначала настройте согласование заявок на вложение."})
+        apply_funding_config(
+            tenant=tenant,
+            user=request.user,
+            is_enabled=data["is_enabled"],
+            cash_wallet=data["cash_wallet"],
+            bank_wallet=data["bank_wallet"],
+        )
+        return Response(self._payload(tenant))
 
 
 class InvestNotificationConfigView(APIView):

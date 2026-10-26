@@ -35,13 +35,10 @@ import {
   uploadRequestAttachment,
   validateRequestAttachment,
 } from '../../lib/api'
+import { lockedCurrencyFromHint, vendorKindForPaymentType } from '../../lib/requestPaymentTypes'
 import { labelBlockAboveField } from '../formSpacing'
 import { clampToAllowedBillingMonth, isAllowedBillingMonth } from '../../lib/billingMonth'
 import { monthStartTashkent } from '../../lib/tashkentTime'
-
-function vendorKindForPaymentType(paymentType: string): 'cash' | 'transfer' {
-  return paymentType === 'Наличные' ? 'cash' : 'transfer'
-}
 
 const tgPopupContainer = () => document.body
 
@@ -106,6 +103,10 @@ export function RequestCreatePage({ requestsBasePath = '/requests', variant = 'p
     () => formOptions.find((p) => p.payment_type === paymentType) || null,
     [formOptions, paymentType],
   )
+
+  /** Инвест-типы: кошелёк списания и валюта фиксируются настройкой инвестиционного режима. */
+  const fundingHint = activePt?.funding_hint ?? null
+  const lockedCurrency = lockedCurrencyFromHint(fundingHint)
 
   /** Заявители, разрешённые настройками формы для выбранного типа оплаты (не все роли заявителя в тенанте). */
   const allowedRequesters = useMemo(() => activePt?.requesters ?? [], [activePt])
@@ -190,6 +191,11 @@ export function RequestCreatePage({ requestsBasePath = '/requests', variant = 'p
       setBillingDate((prev) => clampToAllowedBillingMonth(prev ?? monthStartTashkent()))
     }
   }, [step, paymentType, formOptions, detailStep])
+
+  useEffect(() => {
+    if (step !== detailStep || !lockedCurrency) return
+    setCurrency(lockedCurrency)
+  }, [step, detailStep, lockedCurrency])
 
   const searchTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
   const onVendorSearch = (value: string) => {
@@ -555,6 +561,11 @@ export function RequestCreatePage({ requestsBasePath = '/requests', variant = 'p
                     onChange={(v) => setAmount(typeof v === 'number' ? v : null)}
                   />
                 </div>
+                {fundingHint ? (
+                  <Typography.Text type="secondary" style={{ display: 'block' }}>
+                    Списание: {fundingHint.wallet_label}
+                  </Typography.Text>
+                ) : null}
                 <div className="tg-field-block">
                   <Typography.Text strong style={labelBlockAboveField}>
                     Валюта
@@ -564,6 +575,7 @@ export function RequestCreatePage({ requestsBasePath = '/requests', variant = 'p
                     style={{ display: 'block', width: '100%' }}
                     value={currency}
                     onChange={setCurrency}
+                    disabled={Boolean(lockedCurrency)}
                     options={['UZS', 'USD', 'EUR', 'RUB'].map((c) => ({ value: c, label: c }))}
                     getPopupContainer={tgPopupContainer}
                     popupMatchSelectWidth
@@ -645,6 +657,11 @@ export function RequestCreatePage({ requestsBasePath = '/requests', variant = 'p
                     onChange={(v) => setAmount(typeof v === 'number' ? v : null)}
                   />
                 </div>
+                {fundingHint ? (
+                  <Typography.Text type="secondary" style={{ display: 'block' }}>
+                    Списание: {fundingHint.wallet_label}
+                  </Typography.Text>
+                ) : null}
                 <div>
                   <Typography.Text strong style={labelBlockAboveField}>
                     Валюта
@@ -653,6 +670,7 @@ export function RequestCreatePage({ requestsBasePath = '/requests', variant = 'p
                     style={{ display: 'block', width: 120 }}
                     value={currency}
                     onChange={setCurrency}
+                    disabled={Boolean(lockedCurrency)}
                     options={['UZS', 'USD', 'EUR', 'RUB'].map((c) => ({ value: c, label: c }))}
                   />
                 </div>
@@ -861,13 +879,14 @@ export function RequestCreatePage({ requestsBasePath = '/requests', variant = 'p
         getContainer={isTg ? () => document.body : undefined}
       >
         <Typography.Paragraph type="secondary">
-          Тип: {paymentType === 'Наличные' ? 'наличные' : 'перечисление'} (по выбранному типу оплаты заявки).
+          Тип: {vendorKindForPaymentType(paymentType ?? '') === 'cash' ? 'наличные' : 'перечисление'} (по выбранному
+          типу оплаты заявки).
         </Typography.Paragraph>
         <Form layout="vertical">
           <Form.Item label="Наименование" required>
             <Input value={newVendorName} onChange={(e) => setNewVendorName(e.target.value)} />
           </Form.Item>
-          {paymentType && paymentType !== 'Наличные' ? (
+          {paymentType && vendorKindForPaymentType(paymentType) !== 'cash' ? (
             <Form.Item label="ИНН" required>
               <Input value={newVendorInn} onChange={(e) => setNewVendorInn(e.target.value)} />
             </Form.Item>

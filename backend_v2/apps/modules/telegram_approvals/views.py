@@ -378,6 +378,16 @@ class TelegramApprovalWebhookView(APIView):
                     approval.save(update_fields=["telegram_message"])
                     deactivate_approval_message_buttons(approval=approval, request_context=approval.request)
                 raise
+            except ValidationError as exc:
+                # Решение невозможно (этап не активен, выплату ведёт модуль, заявка собрана во вложение):
+                # ответ 400 с причиной, решение не сохранено.
+                logger.warning(
+                    "messaging_gateway_webhook decision not allowed approval_id=%s request_id=%s detail=%s",
+                    approval.id,
+                    approval.request_id,
+                    exc.detail,
+                )
+                raise
 
         logger.info(
             "messaging_gateway_webhook processed approval_id=%s request_id=%s tenant_id=%s decision=%s",

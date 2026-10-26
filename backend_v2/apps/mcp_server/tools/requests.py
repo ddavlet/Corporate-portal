@@ -131,7 +131,7 @@ def list_requests(
     Filters (all optional):
     - status: DRAFT | 1 | 2 | 3 | 4 | 5 | APPROVED | PAYED | REJECTED, or several comma-separated
     - currency: UZS | USD | EUR | RUB
-    - payment_type: Наличные | Перечисление | Пополнение | Платежная карта | Начисление ЗП
+    - payment_type: Наличные | Перечисление | Пополнение | Платежная карта | Начисление ЗП | Инвест. наличные | Инвест. перечисление
     - urgency: Низко | Обычно | Срочно
     - category: exact category name (case-insensitive)
     - vendor: substring of the vendor name
