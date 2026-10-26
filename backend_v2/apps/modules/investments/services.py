@@ -177,46 +177,21 @@ def usd_uzs_equivalents_or_none(
         return None, None
 
 
-# Чтение списков и отчётов: короткий таймаут и не больше одной неудачной попытки сети на запрос портала.
-CBU_READ_FETCH_TIMEOUT = 4
-_CBU_UNAVAILABLE_MEMO_KEY = "__cbu_unavailable__"
-# После неудачи чтение не ходит на cbu.uz столько секунд (иначе каждое открытие списка ждёт таймаут).
-CBU_READ_FAILURE_COOLDOWN_SECONDS = 300
-CBU_READ_UNAVAILABLE_CACHE_KEY = "investments:cbu-read-unavailable"
-
-
 def usd_uzs_equivalents_for_read(
     *, sum_val: Decimal, currency: str, rate_date: date, memo: dict
 ) -> tuple[Decimal | None, Decimal | None]:
     """
-    (сумма в USD, сумма в UZS) для чтения: много строк в одном HTTP-запросе портала.
+    (сумма в USD, сумма в UZS) для чтения списков и отчётов — без сетевых запросов.
 
-    Курс берётся из архива; за недостающей датой сайт ЦБ запрашивается с коротким таймаутом
-    (и сохраняется в архив, см. get_or_fetch_usd_uzs_rate). После первой неудачи ``memo``
-    (общий словарь на запрос) запоминает, что cbu.uz недоступен, и остальные строки без курса
-    в архиве сразу получают (None, None) — иначе каждая строка ждала бы таймаут, и воркер
-    убивался по таймауту («список вложений грузится бесконечно»). Неудача также запоминается
-    в кэше на CBU_READ_FAILURE_COOLDOWN_SECONDS: следующие запросы портала сразу читают только архив.
+    Курс — из архива CbuExchangeRate на ``rate_date``, иначе ближайший предыдущий (как в отчёте
+    для инвесторов, см. usd_uzs_rate_on_or_before). Архив пополняет backend_cron
+    (sync_cbu_exchange_rate --fill-gaps-days) и создание/изменение записей. Поход на cbu.uz при
+    чтении убран: при недоступном ЦБ каждое открытие списка ждало таймаут, а итоги теряли строки.
+    ``memo`` — общий словарь на запрос: архив читается из БД один раз. (None, None) — архив пуст.
     """
-    from django.core.cache import cache
-
-    from apps.modules.investments.models import CbuExchangeRate
-
-    if not memo.get(_CBU_UNAVAILABLE_MEMO_KEY) and cache.get(CBU_READ_UNAVAILABLE_CACHE_KEY):
-        memo[_CBU_UNAVAILABLE_MEMO_KEY] = True
-
-    if memo.get(_CBU_UNAVAILABLE_MEMO_KEY):
-        archived = CbuExchangeRate.objects.filter(date=rate_date).first()
-        if archived is None:
-            return None, None
-        rate = archived.usd_uzs_rate
-    else:
-        try:
-            rate = get_or_fetch_usd_uzs_rate(rate_date=rate_date, timeout=CBU_READ_FETCH_TIMEOUT)
-        except CbuRateFetchError:
-            memo[_CBU_UNAVAILABLE_MEMO_KEY] = True
-            cache.set(CBU_READ_UNAVAILABLE_CACHE_KEY, True, CBU_READ_FAILURE_COOLDOWN_SECONDS)
-            return None, None
+    rate = usd_uzs_rate_on_or_before(rate_date, cache=memo)
+    if rate is None:
+        return None, None
     return _equivalents_from_rate(sum_val=sum_val, currency=currency, rate=rate)
 
 

@@ -18,7 +18,7 @@ from apps.modules.requests.models import (
 )
 from apps.modules.bank_expenses.models import BankRevenue
 from apps.modules.reports.models import TenantReportSettings
-from apps.modules.investments.models import InvestReturn
+from apps.modules.investments.models import CbuExchangeRate, InvestReturn
 from apps.modules.wallets.resolution import get_or_create_bank_wallet
 from apps.modules.reports.cashflow_builder import (
     build_cashflow_payload_from_db,
@@ -755,6 +755,7 @@ class BackendCashflowDatabaseTests(TestCase):
 
     @patch("apps.modules.investments.services.fetch_cbu_usd_uzs_rate", return_value=Decimal("10000"))
     def test_invest_return_uses_payout_date_not_billing_date(self, _mock_fetch):
+        CbuExchangeRate.objects.create(date=date(2026, 3, 15), usd_uzs_rate=Decimal("10000"))
         InvestReturn.objects.create(
             tenant=self.tenant,
             date=date(2026, 3, 15),
@@ -798,6 +799,7 @@ class BackendCashflowDatabaseTests(TestCase):
 
     @patch("apps.modules.investments.services.fetch_cbu_usd_uzs_rate", return_value=Decimal("10000"))
     def test_cashflow_invest_return_has_source(self, _mock_fetch):
+        CbuExchangeRate.objects.create(date=date(2026, 3, 15), usd_uzs_rate=Decimal("10000"))
         InvestReturn.objects.create(
             tenant=self.tenant,
             date=date(2026, 3, 15),

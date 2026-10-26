@@ -51,7 +51,6 @@ from apps.modules.investments.services import (
     invest_return_cbu_usd_rate_and_sum_uzs_from_bulletin,
     usd_uzs_equivalents,
     usd_uzs_equivalents_or_none,
-    CBU_READ_FETCH_TIMEOUT,
 )
 from apps.modules.investments.views import PublicInvestPayoutScheduleByTokenView
 from apps.tenants.models import Tenant
@@ -789,6 +788,7 @@ class ProjectInvestmentWithEquivalentsSerializerTests(TestCase):
     def setUp(self):
         self.tenant = Tenant.objects.create(name="ProjEqCo", subdomain="projeqco", is_active=True)
         self.user = User.objects.create_user(username="proj-eq-user", password="x")
+        CbuExchangeRate.objects.create(date=date(2026, 4, 17), usd_uzs_rate=Decimal("12600"))
 
     def _make(self, amount, currency):
         return ProjectInvestment.objects.create(
@@ -811,7 +811,8 @@ class ProjectInvestmentWithEquivalentsSerializerTests(TestCase):
         self.assertEqual(Decimal(str(data["sum_uzs"])), Decimal("5000000.00"))
         expected_usd = (Decimal("5000000.00") / Decimal("12600")).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
         self.assertEqual(Decimal(str(data["sum_usd"])), expected_usd)
-        mock_fetch.assert_called_once_with(rate_date=date(2026, 4, 17), timeout=CBU_READ_FETCH_TIMEOUT)
+        # Чтение берёт курс из архива и в сеть не ходит.
+        mock_fetch.assert_not_called()
 
     @patch("apps.modules.investments.services.fetch_cbu_usd_uzs_rate", return_value=Decimal("12600"))
     def test_eur_has_no_equivalents_instead_of_treating_as_usd(self, mock_fetch):
