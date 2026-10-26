@@ -1,3 +1,4 @@
+import itertools
 from datetime import date, datetime, timezone as dt_timezone
 
 from django.contrib.auth import get_user_model
@@ -16,6 +17,8 @@ from apps.modules.wallets.resolution import get_or_create_cash_wallet
 from apps.tenants.models import Tenant
 
 User = get_user_model()
+
+_external_ids = itertools.count(1)
 
 
 @override_settings(BASE_DOMAIN="example.com", REPORTS_CACHE_TTL_SECONDS=60)
@@ -40,6 +43,7 @@ class InvestmentFundingReportsTests(TestCase):
             tenant=self.tenant,
             created_by=self.user,
             wallet=get_or_create_cash_wallet(tenant=self.tenant, currency="UZS"),
+            external_id=f"inv-{next(_external_ids)}",
             source_year=2026,
             revenue_at=datetime(2026, 3, 5, 10, 0, tzinfo=dt_timezone.utc),
             total_sum=amount,
