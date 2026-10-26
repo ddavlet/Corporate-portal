@@ -3,7 +3,7 @@ from unittest import skipUnless
 
 from django.contrib.admin.sites import site
 from django.contrib.auth import get_user_model
-from django.test import Client, RequestFactory, TestCase
+from django.test import Client, RequestFactory, TestCase, override_settings
 from django.urls import reverse
 
 from apps.modules.kapitalbank.admin import BankAccountLinkForm
@@ -22,6 +22,7 @@ User = get_user_model()
 SECRET = "Zx9-very-secret-pw"
 
 
+@override_settings(BASE_DOMAIN="example.com", ALLOWED_HOSTS=["*"])
 class KapitalbankAdminTests(KapitalbankFixtures, TestCase):
     def setUp(self):
         self.make_fixtures()
