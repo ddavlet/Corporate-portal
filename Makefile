@@ -7,7 +7,7 @@ DEPLOY_TEST_PATH ?= $(TEST_PATH)
 BRANCH     := $(shell git rev-parse --abbrev-ref HEAD)
 
 .DEFAULT_GOAL := help
-.PHONY: help push test deploy makemigrations showmigrations logs backup-db create-postgres-mcp-role rollback refresh-approval-messages reconcile-card-revenues reconcile-expense-links relink-unresolved-bank-doc-numbers align-payment-purposes clone-tenant-config link-payroll-requests send-to-vacation return-from-vacation reassign-unmatched-bank-expenses backfill-bank-expense-requests backfill-cash-expense-requests backfill-card-expenses backfill-cbu-exchange-rate redispatch-unsent-approval-cards backfill-cash-withdrawals repair-id-sequences local-up local-down local-logs test_local
+.PHONY: help push test deploy makemigrations showmigrations logs backup-db create-postgres-mcp-role rollback refresh-approval-messages reconcile-card-revenues reconcile-expense-links relink-unresolved-bank-doc-numbers align-payment-purposes clone-tenant-config link-payroll-requests send-to-vacation return-from-vacation reassign-unmatched-bank-expenses backfill-bank-expense-requests backfill-cash-expense-requests backfill-card-expenses backfill-cbu-exchange-rate redispatch-unsent-approval-cards backfill-cash-withdrawals repair-id-sequences import-kapitalbank local-up local-down local-logs test_local
 
 help:
 	@echo ""
@@ -45,6 +45,9 @@ help:
 	@echo "  make redispatch-unsent-approval-cards TENANT=5 DATE_FROM=2026-09-18 DATE_TO=2026-09-19 PAYMENT_TYPE=\"Наличные,Перечисление\" — то же, с фильтрами (TENANT/PAYMENT_TYPE — через запятую; без TENANT — все тенанты)"
 	@echo "  make redispatch-unsent-approval-cards TENANT=5 APPLY=1 — то же самое, но с отправкой карточек"
 	@echo "  make repair-id-sequences [APPLY=1] — dry-run: таблицы, где id-последовательность отстала от max(id) (после импорта n8n с явными id)"
+	@echo "  make import-kapitalbank REFRESH_ACCOUNTS=1 TENANT=kp — список счетов тенанта из банка (новые — «ожидает решения»)"
+	@echo "  make import-kapitalbank MODE=manual TENANT=kp DATE_FROM=2026-10-21 DATE_TO=2026-10-26 DRY_RUN=1 — пробная загрузка выписки без записи"
+	@echo "  make import-kapitalbank MODE=manual TENANT=kp DATE=2026-10-26 — загрузить выписку за день (MODE=daytime|nightly — как по расписанию)"
 	@echo "  make local-up        — поднять docker-compose.local.yml локально"
 	@echo "  make local-down      — остановить локальный compose (без удаления volumes)"
 	@echo "  make local-logs      — логи локального compose"
@@ -252,6 +255,30 @@ repair-id-sequences:
 	ssh $(SERVER) "cd $(REMOTE_DIR) && \
 		docker compose --env-file ./.env exec -T backend_v2 \
 		python manage.py repair_id_sequences $(if $(APPLY),--apply,)"
+
+# ── 7d-9. Загрузка выписки Капиталбанка (по требованию; по расписанию её запускает backend_cron) ──
+# make import-kapitalbank REFRESH_ACCOUNTS=1 TENANT=kp
+# make import-kapitalbank MODE=manual TENANT=kp DATE_FROM=2026-10-21 DATE_TO=2026-10-26 [DRY_RUN=1]
+# make import-kapitalbank MODE=manual TENANT=kp DATE=2026-10-26 [DRY_RUN=1]
+# make import-kapitalbank MODE=daytime|nightly [TENANT=kp] [DRY_RUN=1]
+# Проверку сочетаний параметров делает сама команда import_kapitalbank_statements.
+MODE ?=
+DATE ?=
+DRY_RUN ?=
+REFRESH_ACCOUNTS ?=
+
+import-kapitalbank:
+	@test -n "$(MODE)$(REFRESH_ACCOUNTS)" || (echo "Usage: make import-kapitalbank MODE=daytime|nightly|manual [TENANT=<subdomain>] [DATE=YYYY-MM-DD | DATE_FROM=YYYY-MM-DD DATE_TO=YYYY-MM-DD] [DRY_RUN=1]" && echo "   or: make import-kapitalbank REFRESH_ACCOUNTS=1 TENANT=<subdomain>" && exit 1)
+	ssh $(SERVER) "cd $(REMOTE_DIR) && \
+		docker compose --env-file ./.env exec -T backend_v2 \
+		python manage.py import_kapitalbank_statements \
+		$(if $(REFRESH_ACCOUNTS),--refresh-accounts,) \
+		$(if $(MODE),--mode=$(MODE),) \
+		$(if $(TENANT),--tenant=$(TENANT),) \
+		$(if $(DATE),--date=$(DATE),) \
+		$(if $(DATE_FROM),--from=$(DATE_FROM),) \
+		$(if $(DATE_TO),--to=$(DATE_TO),) \
+		$(if $(DRY_RUN),--dry-run,)"
 
 # ── 7d-10. По требованию: backfill-команды (dry-run по умолчанию) ──
 # TENANT=1,lemonaqua (id или subdomain, через запятую) или ALL_TENANTS=1; DATE_FROM/DATE_TO=YYYY-MM-DD

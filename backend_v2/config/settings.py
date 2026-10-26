@@ -74,6 +74,7 @@ INSTALLED_APPS = [
     "apps.modules.reports",
     "apps.modules.tasks",
     "apps.modules.cash_withdrawals",
+    "apps.modules.kapitalbank",
 
     # MCP server (HTTP disabled by default; code kept to re-enable later)
     "apps.mcp_server",
