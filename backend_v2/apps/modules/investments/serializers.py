@@ -30,9 +30,17 @@ from apps.modules.investments.services import (
     CbuRateFetchError,
     clamp_rate_date_to_cbu_availability,
     get_or_fetch_usd_uzs_rate,
-    usd_uzs_equivalents_or_none,
+    usd_uzs_equivalents_for_read,
 )
 from apps.modules.serializers_guard import reject_client_pk_on_create
+
+
+def _cbu_rate_memo(serializer) -> dict:
+    """Общий на запрос словарь для usd_uzs_equivalents_for_read (context разделяют все строки списка)."""
+    context = serializer.context
+    if not isinstance(context, dict):
+        return {}
+    return context.setdefault("_cbu_rate_memo", {})
 
 
 def _normalize_currency(attrs: dict, key: str = "currency") -> None:
@@ -108,7 +116,9 @@ class InvestReturnSerializer(_CompanyScopeMixin, serializers.ModelSerializer):
         cached = getattr(obj, "_usd_uzs_equivalents_cache", None)
         if cached is None:
             rate_date = clamp_rate_date_to_cbu_availability(requested=obj.date)
-            cached = usd_uzs_equivalents_or_none(sum_val=obj.sum, currency=obj.currency, rate_date=rate_date)
+            cached = usd_uzs_equivalents_for_read(
+                sum_val=obj.sum, currency=obj.currency, rate_date=rate_date, memo=_cbu_rate_memo(self)
+            )
             obj._usd_uzs_equivalents_cache = cached
         return cached
 
@@ -345,8 +355,8 @@ class ProjectInvestmentWithEquivalentsSerializer(ProjectInvestmentSerializer):
         if cached is None:
             if str(obj.currency or "").strip().upper() in ("USD", "UZS"):
                 rate_date = clamp_rate_date_to_cbu_availability(requested=obj.date)
-                cached = usd_uzs_equivalents_or_none(
-                    sum_val=obj.amount, currency=obj.currency, rate_date=rate_date
+                cached = usd_uzs_equivalents_for_read(
+                    sum_val=obj.amount, currency=obj.currency, rate_date=rate_date, memo=_cbu_rate_memo(self)
                 )
             else:
                 cached = (None, None)
