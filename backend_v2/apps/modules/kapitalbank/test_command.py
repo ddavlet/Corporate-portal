@@ -1,4 +1,5 @@
 from datetime import date, timedelta
+from decimal import Decimal
 from io import StringIO
 from pathlib import Path
 from unittest import mock
@@ -8,9 +9,11 @@ from django.core.management import call_command
 from django.core.management.base import CommandError
 from django.test import SimpleTestCase
 
-from apps.modules.kapitalbank.runner import RunReport
+from apps.modules.kapitalbank.models import BankAccountLink
+from apps.modules.kapitalbank.runner import RefreshReport, RunReport
 
 RUN = "apps.modules.kapitalbank.runner.run"
+REFRESH = "apps.modules.kapitalbank.runner.refresh_accounts"
 
 
 def _call(*args):
@@ -107,3 +110,43 @@ class ImportKapitalbankStatementsCommandTests(SimpleTestCase):
             f"0 5 * * * root {tail} --mode nightly {out}",
         ):
             self.assertIn(line, crontab)
+
+    def test_mode_required_without_refresh_accounts(self):
+        with mock.patch(RUN) as run, self.assertRaises(CommandError):
+            _call()
+        run.assert_not_called()
+
+    def test_refresh_accounts_argument_rules(self):
+        cases = {
+            "no tenant": ["--refresh-accounts"],
+            "with dry-run": ["--refresh-accounts", "--tenant", "kp", "--dry-run"],
+            "with mode": ["--refresh-accounts", "--tenant", "kp", "--mode", "nightly"],
+            "with date": ["--refresh-accounts", "--tenant", "kp", "--date", "2026-10-20"],
+        }
+        for name, args in cases.items():
+            with self.subTest(name), mock.patch(REFRESH) as refresh, mock.patch(RUN) as run:
+                with self.assertRaises(CommandError):
+                    _call(*args)
+                refresh.assert_not_called()
+                run.assert_not_called()
+
+    def test_refresh_accounts_prints_list_and_runs_no_import(self):
+        links = [
+            BankAccountLink(
+                account_no="20208000504843803001", branch="01158", name="Расчетный счет 1", currency="UZS",
+                last_balance=Decimal("460000.5"), decision=BankAccountLink.LINKED,
+            ),
+            BankAccountLink(account_no="20208000904843803009", branch="01158", name="Новый", currency="USD"),
+        ]
+        with mock.patch(REFRESH, return_value=RefreshReport(links=links)) as refresh, mock.patch(RUN) as run:
+            output = _call("--refresh-accounts", "--tenant", "kp")
+        run.assert_not_called()
+        self.assertEqual(refresh.call_args.kwargs["tenant_subdomain"], "kp")
+        self.assertIn("20208000504843803001 | 01158 | Расчетный счет 1 | UZS | 460000.50 | linked", output)
+        self.assertIn("20208000904843803009 | 01158 | Новый | USD | - | pending", output)
+
+    def test_refresh_accounts_error_is_command_error(self):
+        with mock.patch(REFRESH, return_value=RefreshReport(error="Пароль банка не задан")):
+            with self.assertRaises(CommandError) as ctx:
+                _call("--refresh-accounts", "--tenant", "kp")
+        self.assertIn("Пароль", str(ctx.exception))

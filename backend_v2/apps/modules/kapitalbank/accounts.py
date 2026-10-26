@@ -13,6 +13,14 @@ from django.db.models import QuerySet
 from apps.modules.kapitalbank.client import KapitalbankClient
 from apps.modules.kapitalbank.models import BankAccountLink, KapitalbankConnection
 
+# APILogin `val` is a numeric currency code; stored as letters so the API and admin show them.
+CURRENCY_LETTERS = {"000": "UZS", "860": "UZS", "840": "USD", "978": "EUR", "643": "RUB"}
+
+
+def currency_letters(code: str) -> str:
+    """'000'/'860' -> 'UZS', '840' -> 'USD', '978' -> 'EUR', '643' -> 'RUB'; anything else stays raw."""
+    return CURRENCY_LETTERS.get((code or "").strip(), code)
+
 
 def refresh_account_list(
     connection: KapitalbankConnection, client: KapitalbankClient, *, now: datetime
@@ -30,7 +38,7 @@ def refresh_account_list(
         for acc in listed:
             fields = {
                 "name": acc.name,
-                "currency": acc.currency,
+                "currency": currency_letters(acc.currency),
                 "last_balance": acc.balance,
                 "bank_state": acc.state_name,
             }

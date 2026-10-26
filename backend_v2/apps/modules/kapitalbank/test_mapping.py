@@ -56,6 +56,20 @@ class MappingTests(SimpleTestCase):
         self.assertEqual(exp["debit_turnover"], "361569643.41")
         self.assertEqual(exp["account_no"], ACC1)
 
+    def test_debit_side_decides_direction_like_n8n(self):
+        # n8n: outgoing when our account is acc_dt, even if it is also acc_ct.
+        self.assertIs(is_incoming(make_doc(acc_dt=ACC1, acc_ct=ACC1), ACC1), False)
+        self.assertIs(is_incoming(make_doc(acc_dt=ACC1, acc_ct=ACC4), ACC1), False)
+        self.assertIs(is_incoming(make_doc(acc_dt=ACC4, acc_ct=ACC1), ACC1), True)
+
+    def test_neither_side_is_incoming_with_warning(self):
+        doc = make_doc(acc_dt=ACC4, acc_ct=CARD)
+        with self.assertLogs("apps.modules.kapitalbank.mapping", level="WARNING") as logs:
+            self.assertIs(is_incoming(doc, ACC1), True)
+        self.assertEqual(len(logs.output), 1)
+        self.assertIn("…3001", logs.output[0])
+        self.assertNotIn(ACC1, logs.output[0])
+
     def test_bank_item_fields_match_n8n(self):
         doc = make_doc()
         self.assertEqual(

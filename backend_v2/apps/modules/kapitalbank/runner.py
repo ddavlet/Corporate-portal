@@ -128,7 +128,9 @@ def run(
     try:
         report = RunReport()
         ctx = _Run(mode=mode, now=now, today=today, days=run_days, dry_run=dry_run, report=report, secrets=secrets)
-        for conn in _enabled_connections(tenant_subdomain):
+        # A dry run for one named tenant ignores is_enabled, so the cutover can be previewed
+        # before the import is switched on; it still loads only LINKED accounts.
+        for conn in _enabled_connections(tenant_subdomain, include_disabled=dry_run and bool(tenant_subdomain)):
             try:
                 _run_tenant(ctx, conn, client_factory)
             except Exception as exc:
@@ -148,6 +150,47 @@ def run(
         _unlock(secrets)
 
 
+@dataclass
+class RefreshReport:
+    skipped_locked: bool = False
+    links: list[BankAccountLink] = field(default_factory=list)
+    error: str = ""  # redacted, safe to print
+
+
+def refresh_accounts(
+    *,
+    tenant_subdomain: str,
+    now: datetime,
+    client_factory: Callable[[KapitalbankConnection], KapitalbankClient] = default_client_factory,
+) -> RefreshReport:
+    """Cutover helper: refresh one tenant's bank account list regardless of is_enabled.
+
+    Writes only BankAccountLink rows (new ones PENDING, decisions untouched); loads no
+    statements, records no SyncEvent and sends no alert. Holds the run lock like a run.
+    """
+    secrets = _Secrets()
+    if not _try_lock():
+        logger.warning("kapitalbank: previous run still holds the lock; account list refresh skipped")
+        return RefreshReport(skipped_locked=True)
+    try:
+        conn = KapitalbankConnection.objects.select_related("tenant").filter(tenant__subdomain=tenant_subdomain).first()
+        if conn is None:
+            return RefreshReport(error=f"Подключение Капиталбанк для тенанта {tenant_subdomain} не найдено")
+        password = _read_password(secrets, conn)
+        secrets.add(conn.login, password)
+        if not password:
+            return RefreshReport(error="Пароль банка не задан или не расшифровывается")
+        try:
+            links = refresh_account_list(conn, client_factory(conn), now=now)
+        except Exception as exc:
+            _log_error(secrets, "kapitalbank: tenant_id=%s manual account list refresh failed", conn.tenant_id)
+            return RefreshReport(error=f"Не удалось обновить список счетов: {_safe_text(secrets, exc)}")
+        logger.info("kapitalbank: tenant_id=%s account list refreshed: %s accounts", conn.tenant_id, len(links))
+        return RefreshReport(links=links)
+    finally:
+        _unlock(secrets)
+
+
 def _try_lock() -> bool:
     with db_connection.cursor() as cursor:
         cursor.execute("SELECT pg_try_advisory_lock(%s)", [LOCK_ID])
@@ -162,8 +205,10 @@ def _unlock(secrets: _Secrets) -> None:
         _log_error(secrets, "kapitalbank: failed to release the run lock")
 
 
-def _enabled_connections(tenant_subdomain: str | None) -> list[KapitalbankConnection]:
-    qs = KapitalbankConnection.objects.filter(is_enabled=True).select_related("tenant").order_by("tenant_id")
+def _enabled_connections(tenant_subdomain: str | None, *, include_disabled: bool = False) -> list[KapitalbankConnection]:
+    qs = KapitalbankConnection.objects.select_related("tenant").order_by("tenant_id")
+    if not include_disabled:
+        qs = qs.filter(is_enabled=True)
     if tenant_subdomain:
         qs = qs.filter(tenant__subdomain=tenant_subdomain)
     return list(qs)
@@ -186,17 +231,17 @@ def _own_targets(tenant) -> set[str]:
     }
 
 
-def _read_password(ctx: _Run, conn: KapitalbankConnection) -> str:
+def _read_password(secrets: _Secrets, conn: KapitalbankConnection) -> str:
     try:
         return conn.get_password() if conn.has_password else ""
     except Exception:
-        _log_error(ctx.secrets, "kapitalbank: tenant_id=%s bank password cannot be read", conn.tenant_id)
+        _log_error(secrets, "kapitalbank: tenant_id=%s bank password cannot be read", conn.tenant_id)
         return ""
 
 
 def _run_tenant(ctx: _Run, conn: KapitalbankConnection, client_factory) -> None:
     tenant = conn.tenant
-    password = _read_password(ctx, conn)
+    password = _read_password(ctx.secrets, conn)
     ctx.secrets.add(conn.login, password)
     if not password:
         # Never send a request with an empty password (decrypt_secret returns "" on a bad key).
@@ -216,13 +261,15 @@ def _run_tenant(ctx: _Run, conn: KapitalbankConnection, client_factory) -> None:
             refresh_account_list(conn, client, now=ctx.now)
         except Exception as exc:
             _log_error(ctx.secrets, "kapitalbank: tenant_id=%s account list refresh failed", tenant.pk)
+            message = _safe_message(ctx, exc)
             _tenant_event(
                 ctx,
                 tenant,
                 "account_list",
-                f"Не удалось обновить список счетов: {_safe_message(ctx, exc)}",
+                f"Не удалось обновить список счетов: {message}",
                 payload={"code": _error_code(exc), "error_type": type(exc).__name__},
             )
+            _alert(ctx, kb_alerts.notify_accounts_refresh_failed, tenant, message=message, today=ctx.today, now=ctx.now)
 
     own_targets = _own_targets(tenant)
     for link in _linked(tenant):
@@ -376,7 +423,9 @@ def _new_own_transfers(link: BankAccountLink, statement: Statement, own_targets:
             candidates.setdefault(str(doc.general_id), doc)
     if not candidates:
         return []
-    present = existing_external_ids(link, set(candidates))
+    # All candidates are outgoing: look only in the expense model (a transfer between our own
+    # accounts is a revenue on the other one with the same general_id).
+    present = existing_external_ids(link, {general_id: False for general_id in candidates})
     return [doc for general_id, doc in candidates.items() if general_id not in present]
 
 
@@ -495,13 +544,17 @@ def _error_code(exc: Exception) -> int | None:
 
 
 def _safe_message(ctx: _Run, exc: Exception) -> str:
+    return _safe_text(ctx.secrets, exc)
+
+
+def _safe_text(secrets: _Secrets, exc: Exception) -> str:
     if isinstance(exc, KapitalbankError):
         text = str(exc.message)
     elif isinstance(exc, IngestError):
         text = f"Ошибка приёма выписки (HTTP {exc.status}): {exc.detail}"
     else:
         text = f"{type(exc).__name__}: {exc}"
-    return ctx.secrets.redact(text)[:_MAX_MESSAGE]
+    return secrets.redact(text)[:_MAX_MESSAGE]
 
 
 def _event(ctx: _Run, tenant, link, kind: str, message: str, *, day: date | None = None, payload: dict | None = None) -> None:

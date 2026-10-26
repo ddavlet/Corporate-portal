@@ -3,7 +3,7 @@ from decimal import Decimal
 
 from django.test import TestCase
 
-from apps.modules.kapitalbank.accounts import pending_accounts, refresh_account_list
+from apps.modules.kapitalbank.accounts import currency_letters, pending_accounts, refresh_account_list
 from apps.modules.kapitalbank.client import BankListedAccount
 from apps.modules.kapitalbank.fixtures import ACCOUNT_1, ACCOUNT_2, MFO, KapitalbankFixtures
 from apps.modules.kapitalbank.models import BankAccountLink, KapitalbankConnection
@@ -19,12 +19,12 @@ class StubClient:
         return self._accounts
 
 
-def listed(account_no, balance="100.00"):
+def listed(account_no, balance="100.00", currency="000"):
     return BankListedAccount(
         account_no=account_no,
         branch=MFO,
         name="Расчетный счет",
-        currency="000",
+        currency=currency,
         state_name="Открыт",
         balance=Decimal(balance),
     )
@@ -72,3 +72,20 @@ class RefreshAccountListTests(KapitalbankFixtures, TestCase):
         refresh_account_list(self.connection, StubClient([]), now=self.now)
         self.assertEqual(BankAccountLink.objects.count(), 1)
         self.assertEqual(list(pending_accounts(self.tenant).values_list("account_no", flat=True)), [ACCOUNT_1])
+
+    def test_numeric_currency_codes_are_stored_as_letters(self):
+        self.assertEqual(
+            [currency_letters(c) for c in ("000", "860", "840", "978", "643", "999", "")],
+            ["UZS", "UZS", "USD", "EUR", "RUB", "999", ""],
+        )
+        existing = BankAccountLink.objects.create(tenant=self.tenant, account_no=ACCOUNT_1, branch=MFO, currency="000")
+        refresh_account_list(
+            self.connection,
+            StubClient([listed(ACCOUNT_1), listed(ACCOUNT_2, currency="840"), listed(NEW_ACCOUNT, currency="392")]),
+            now=self.now,
+        )
+        existing.refresh_from_db()
+        self.assertEqual(existing.currency, "UZS")
+        currencies = dict(BankAccountLink.objects.values_list("account_no", "currency"))
+        self.assertEqual(currencies[ACCOUNT_2], "USD")
+        self.assertEqual(currencies[NEW_ACCOUNT], "392")

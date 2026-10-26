@@ -1,10 +1,14 @@
+import re
+from unittest import skipUnless
+
 from django.contrib.admin.sites import site
 from django.contrib.auth import get_user_model
 from django.test import Client, RequestFactory, TestCase
 from django.urls import reverse
 
 from apps.modules.kapitalbank.admin import BankAccountLinkForm
-from apps.modules.kapitalbank.fixtures import ACCOUNT_1, KapitalbankFixtures
+from apps.common.test_postgres_mcp_role import ROLE_SQL
+from apps.modules.kapitalbank.fixtures import ACCOUNT_1, ACCOUNT_2, CARD_REF, KapitalbankFixtures
 from apps.modules.kapitalbank.models import (
     BankAccountLink,
     KapitalbankAlertSettings,
@@ -170,3 +174,80 @@ class KapitalbankAdminTests(KapitalbankFixtures, TestCase):
         KapitalbankAlertSettings.load()
         self.assertFalse(s_admin.has_add_permission(request))
         self.assertFalse(s_admin.has_delete_permission(request))
+
+    def test_login_not_in_connection_list_but_editable(self):
+        c = self._conn()
+        listing = self.client.get(reverse("admin:kapitalbank_kapitalbankconnection_changelist")).content.decode()
+        self.assertNotIn("bank-user", listing)
+        self.assertNotIn("login", site._registry[KapitalbankConnection].list_display)
+        self.assertNotIn("login", site._registry[KapitalbankConnection].search_fields)
+        change = self.client.get(reverse("admin:kapitalbank_kapitalbankconnection_change", args=[c.pk])).content.decode()
+        self.assertIn('name="login"', change)
+        self.assertIn("bank-user", change)
+
+    @skipUnless(ROLE_SQL.exists(), "scripts/ is not available (backend_v2-only checkout)")
+    def test_mcp_readonly_role_hides_bank_login_and_password(self):
+        sql = ROLE_SQL.read_text()
+        block = sql.split("INSERT INTO mcp_hidden_columns (tbl, col) VALUES", 1)[1].split(";", 1)[0]
+        hidden = set(re.findall(r"\('([a-z0-9_]+)',\s*'([a-z0-9_]+)'\)", block))
+        self.assertIn(("kapitalbank_kapitalbankconnection", "login"), hidden)
+        self.assertIn(("kapitalbank_kapitalbankconnection", "password_enc"), hidden)
+
+    def test_bank_link_must_match_account_and_mfo(self):
+        link = self._link()  # ACCOUNT_1 / 01158
+        form = BankAccountLinkForm(self._link_data(bank_account=self.bank_account2.pk), instance=link)
+        self.assertFalse(form.is_valid())
+        self.assertIn("не совпадает со счётом банка", form.errors["bank_account"][0])
+        other_mfo = get_or_create_bank_wallet_for_account(tenant=self.tenant, account_no=ACCOUNT_1, mfo="00014")
+        form = BankAccountLinkForm(self._link_data(bank_account=other_mfo.bank_account.pk), instance=link)
+        self.assertFalse(form.is_valid())
+        self.assertIn("МФО", form.errors["bank_account"][0])
+        # add form: account_no/branch come from the submitted data
+        add_form = BankAccountLinkForm(self._link_data(account_no=ACCOUNT_2, bank_account=self.bank_account1.pk))
+        self.assertFalse(add_form.is_valid())
+        self.assertIn("bank_account", add_form.errors)
+        ok = BankAccountLinkForm(self._link_data(account_no=ACCOUNT_2, bank_account=self.bank_account2.pk))
+        self.assertTrue(ok.is_valid(), ok.errors)
+
+    def test_card_link_must_match_external_ref(self):
+        link = self._link(account_no="22618000100000000999")
+        form = BankAccountLinkForm(
+            self._link_data(account_no="22618000100000000999", card_account=self.card_account.pk), instance=link
+        )
+        self.assertFalse(form.is_valid())
+        self.assertIn("Внешний номер карточного счёта", form.errors["card_account"][0])
+        card_link = self._link(account_no=CARD_REF)
+        form = BankAccountLinkForm(self._link_data(account_no=CARD_REF, card_account=self.card_account.pk), instance=card_link)
+        self.assertTrue(form.is_valid(), form.errors)
+
+    def test_change_form_with_readonly_account_still_checks_match(self):
+        link = self._link()
+        url = reverse("admin:kapitalbank_bankaccountlink_change", args=[link.pk])
+        data = {
+            **self._link_data(bank_account=self.bank_account2.pk),
+            "sync_state-TOTAL_FORMS": "0",
+            "sync_state-INITIAL_FORMS": "0",
+            "sync_state-MIN_NUM_FORMS": "0",
+            "sync_state-MAX_NUM_FORMS": "1",
+        }
+        resp = self.client.post(url, data)
+        self.assertEqual(resp.status_code, 200)
+        self.assertIn("bank_account", resp.context_data["adminform"].form.errors)
+        link.refresh_from_db()
+        self.assertEqual(link.decision, BankAccountLink.PENDING)
+
+    def test_add_form_limits_accounts_to_known_tenant(self):
+        other = Tenant.objects.create(name="Other", subdomain="other", is_active=True)
+        foreign = get_or_create_bank_wallet_for_account(tenant=other, account_no="20208000111111111001", mfo="01158")
+        bound = BankAccountLinkForm(self._link_data())
+        unbound = BankAccountLinkForm(initial={"tenant": str(self.tenant.pk)})
+        for form in (bound, unbound):
+            banks = set(form.fields["bank_account"].queryset.values_list("pk", flat=True))
+            self.assertIn(self.bank_account1.pk, banks)
+            self.assertNotIn(foreign.bank_account.pk, banks)
+            self.assertTrue(
+                set(form.fields["card_account"].queryset.values_list("tenant_id", flat=True)) <= {self.tenant.pk}
+            )
+
+    def test_event_list_selects_tenant_and_link(self):
+        self.assertEqual(site._registry[SyncEvent].list_select_related, ("tenant", "link"))

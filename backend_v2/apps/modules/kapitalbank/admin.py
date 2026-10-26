@@ -55,7 +55,8 @@ class KapitalbankConnectionForm(forms.ModelForm):
 class KapitalbankConnectionAdmin(NoDeleteAdminMixin, admin.ModelAdmin):
     form = KapitalbankConnectionForm
     fields = ("tenant", "login", "password", "is_enabled")
-    list_display = ("tenant", "login", "password_state", "is_enabled", "updated_at")
+    # The bank login is shown only on the change form (the owner edits it), not in the list.
+    list_display = ("tenant", "password_state", "is_enabled", "updated_at")
     raw_id_fields = ("tenant",)
 
     @admin.display(description="Пароль")
@@ -98,12 +99,25 @@ class BankAccountLinkForm(forms.ModelForm):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        tenant_id = self.instance.tenant_id
+        tenant_id = self._known_tenant_id()
         if tenant_id:
             if "bank_account" in self.fields:
                 self.fields["bank_account"].queryset = BankAccount.objects.filter(tenant_id=tenant_id)
             if "card_account" in self.fields:
                 self.fields["card_account"].queryset = CorporateCardAccount.objects.filter(tenant_id=tenant_id)
+
+    def _known_tenant_id(self):
+        """Tenant before validation: the instance's, else the submitted (bound add form) or
+        initial (?tenant=<id>) value. An unbound add form without it lists all accounts;
+        clean() still rejects a foreign or mismatching one."""
+        if self.instance.tenant_id:
+            return self.instance.tenant_id
+        raw = self.data.get(self.add_prefix("tenant")) if self.is_bound else self.initial.get("tenant")
+        raw = getattr(raw, "pk", raw)
+        try:
+            return int(raw) if raw not in (None, "") else None
+        except (TypeError, ValueError):
+            return None
 
     def _tenant_id(self):
         if self.instance.tenant_id:
@@ -124,6 +138,26 @@ class BankAccountLinkForm(forms.ModelForm):
                 self.add_error("bank_account", "Банковский счёт принадлежит другому тенанту.")
             if card is not None and card.tenant_id != tenant_id:
                 self.add_error("card_account", "Карточный счёт принадлежит другому тенанту.")
+        if self.errors:
+            return cleaned
+
+        # account_no/branch are read-only on the change form: fall back to the instance.
+        account_no = (cleaned.get("account_no", self.instance.account_no) or "").strip()
+        branch = (cleaned.get("branch", self.instance.branch) or "").strip()
+        if bank is not None and (bank.account_no.strip() != account_no or bank.mfo.strip() != branch):
+            self.add_error(
+                "bank_account",
+                f"Банковский счёт портала ({bank.account_no.strip() or '—'}, МФО {bank.mfo.strip() or '—'}) "
+                f"не совпадает со счётом банка ({account_no}, МФО {branch}). "
+                "Выберите счёт портала с тем же номером и МФО.",
+            )
+        if card is not None and card.external_ref.strip() != account_no:
+            self.add_error(
+                "card_account",
+                f"Внешний номер карточного счёта портала ({card.external_ref.strip() or 'не задан'}) "
+                f"не совпадает со счётом банка ({account_no}). "
+                "Выберите карточный счёт, у которого внешний номер равен номеру счёта в банке.",
+            )
         if self.errors:
             return cleaned
 
@@ -211,6 +245,7 @@ class RecentPeriodFilter(admin.SimpleListFilter):
 @admin.register(SyncEvent)
 class SyncEventAdmin(NoDeleteAdminMixin, admin.ModelAdmin):
     list_display = ("created_at", "tenant", "link", "kind", "day", "message")
+    list_select_related = ("tenant", "link")
     list_filter = (RecentPeriodFilter, "kind", "tenant")
     date_hierarchy = "created_at"
     search_fields = ("message",)

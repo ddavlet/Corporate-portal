@@ -15,7 +15,7 @@ from .client import BankListedAccount, KapitalbankError, Statement, StatementDoc
 from .fixtures import ACCOUNT_1, ACCOUNT_2, MFO, KapitalbankFixtures
 from .ingest import IngestResult
 from .models import AccountSyncState, BankAccountLink, KapitalbankAlertSettings, KapitalbankConnection, SyncEvent
-from .runner import LOCK_ID, NIGHTLY_DAYS_BACK, days_for, run
+from .runner import LOCK_ID, NIGHTLY_DAYS_BACK, days_for, refresh_accounts, run
 
 PASSWORD = "S3cret-bank-pass"
 LOGIN = "IB#secretlogin"
@@ -614,3 +614,120 @@ class RunnerTests(KapitalbankFixtures, TestCase):
         self.assertEqual(len(today_detail), 1)
         self.assertEqual(len(today_detail[0]["would_create"]), 2)
         self.assertEqual(today_detail[0]["portal_balance"], "0.00")
+
+    # --- transfers between linked accounts ------------------------------------------------
+
+    def test_transfer_between_two_linked_accounts_imports_both_sides(self):
+        # …3004 -> …3001, both LINKED: expense on …3004, revenue on …3001, balances match.
+        transfer = make_doc(7, day=TODAY, incoming=False, account=ACCOUNT_2, counterparty=ACCOUNT_1, amount="1000.00")
+        self.fake.statements[(ACCOUNT_2, TODAY)] = [statement(transfer, saldo_out="-1000.00")]
+        self.fake.statements[(ACCOUNT_1, TODAY)] = [statement(transfer, saldo_out="1000.00")]
+
+        report = self.run_import("daytime")
+
+        self.assertEqual(BankExpense.objects.get(external_id="RUN7").wallet, self.wallet2)
+        self.assertEqual(BankRevenue.objects.get(external_id="RUN7").wallet, self.wallet1)
+        self.assertEqual((report.accounts_ok, report.accounts_failed, report.created, report.alerts), (2, 0, 2, 0))
+        self.gw.assert_not_called()  # no missing-docs, no mismatch, no own-transfer alert
+        self.assertFalse(SyncEvent.objects.filter(kind=SyncEvent.MISSING_DOCS).exists())
+        for detail in report.details:
+            self.assertEqual(detail["missing_external_ids"], [])
+            self.assertEqual(detail["reconcile"], "match")
+        self.assertEqual(self.fake.days(ACCOUNT_1), [TODAY])  # no self-heal re-fetch needed
+
+    # --- cutover: dry run before enabling, account list refresh ---------------------------
+
+    def test_dry_run_for_named_tenant_ignores_is_enabled(self):
+        KapitalbankConnection.objects.filter(pk=self.conn.pk).update(is_enabled=False)
+        self.fake.statements[(ACCOUNT_1, TODAY)] = [statement(make_doc(1, day=TODAY, incoming=True), saldo_out="1000.00")]
+
+        report = self.run_import("daytime", dry_run=True, tenant_subdomain="kp")
+
+        self.assertEqual({acc for acc, _ in self.fake.calls}, {ACCOUNT_1, ACCOUNT_2})  # LINKED only
+        self.assertEqual(report.accounts_ok, 2)
+        detail = [d for d in report.details if d["account_no"] == ACCOUNT_1][0]
+        self.assertEqual([i["external_id"] for i in detail["would_create"]], ["RUN1"])
+        self.assertEqual(BankRevenue.objects.count(), 0)
+        self.assertEqual(SyncEvent.objects.count(), 0)
+        self.assertEqual(AccountSyncState.objects.count(), 0)
+        self.gw.assert_not_called()
+
+    def test_disabled_tenant_is_not_loaded_without_dry_run_or_tenant(self):
+        KapitalbankConnection.objects.filter(pk=self.conn.pk).update(is_enabled=False)
+
+        self.run_import("daytime", tenant_subdomain="kp")
+        self.run_import("daytime", dry_run=True)
+
+        self.assertEqual(self.fake.calls, [])
+        self.assertEqual(self.factory_calls, 0)
+
+    def test_dry_run_disabled_tenant_without_password_fails_cleanly(self):
+        KapitalbankConnection.objects.filter(pk=self.conn.pk).update(is_enabled=False, password_enc="")
+
+        report = self.run_import("daytime", dry_run=True, tenant_subdomain="kp")
+
+        self.assertEqual(self.factory_calls, 0)
+        self.assertEqual(report.accounts_failed, 2)
+        self.assertEqual(SyncEvent.objects.count(), 0)
+
+    def test_refresh_accounts_works_while_disabled_and_writes_links_only(self):
+        KapitalbankConnection.objects.filter(pk=self.conn.pk).update(is_enabled=False)
+        self.fake.accounts = [listed(ACCOUNT_1), listed(NEW_ACCOUNT)]
+
+        report = refresh_accounts(tenant_subdomain="kp", now=NOW, client_factory=self.factory)
+
+        self.assertEqual(report.error, "")
+        self.assertEqual([link.account_no for link in report.links], [ACCOUNT_1, NEW_ACCOUNT])
+        self.assertEqual(self.fake.list_calls, 1)
+        self.assertEqual(self.fake.calls, [])  # no statements
+        new = BankAccountLink.objects.get(tenant=self.tenant, account_no=NEW_ACCOUNT)
+        self.assertEqual(new.decision, BankAccountLink.PENDING)
+        self.assertEqual(new.currency, "UZS")
+        self.link1.refresh_from_db()
+        self.assertEqual(self.link1.decision, BankAccountLink.LINKED)
+        self.assertEqual(self.link1.bank_account_id, self.bank_account1.pk)
+        self.assertEqual(SyncEvent.objects.count(), 0)
+        self.assertEqual(AccountSyncState.objects.count(), 0)
+        self.assertEqual(BankRevenue.objects.count() + BankExpense.objects.count(), 0)
+        self.gw.assert_not_called()
+        other = self.other_connection()
+        with other.cursor() as cursor:
+            cursor.execute("SELECT pg_try_advisory_lock(%s)", [LOCK_ID])
+            acquired = cursor.fetchone()[0]
+            cursor.execute("SELECT pg_advisory_unlock(%s)", [LOCK_ID])
+        self.assertTrue(acquired)
+
+    def test_refresh_accounts_errors_are_redacted(self):
+        self.fake.list_error = RuntimeError(f"auth {LOGIN}:{PASSWORD} rejected")
+
+        with self.assertLogs("apps.modules.kapitalbank.runner", level="ERROR") as logs:
+            report = refresh_accounts(tenant_subdomain="kp", now=NOW, client_factory=self.factory)
+
+        self.assertIn("Не удалось обновить список счетов", report.error)
+        for text in [report.error, *logs.output]:
+            self.assertNotIn(PASSWORD, text)
+            self.assertNotIn("secretlogin", text)
+        self.assertEqual(refresh_accounts(tenant_subdomain="nope", now=NOW, client_factory=self.factory).links, [])
+        KapitalbankConnection.objects.filter(pk=self.conn.pk).update(password_enc="")
+        no_password = refresh_accounts(tenant_subdomain="kp", now=NOW, client_factory=self.factory)
+        self.assertIn("Пароль", no_password.error)
+        self.assertEqual(self.factory_calls, 1)
+
+    # --- nightly account list failure reaches the owner ----------------------------------
+
+    def test_nightly_account_list_failure_alerts_owner_once_per_day(self):
+        self.fake.list_error = KapitalbankError(None, f"HTTP 503 for {LOGIN}:{PASSWORD}")
+
+        first = self.run_import("nightly")
+        second = self.run_import("nightly", now=NOW + timedelta(minutes=10))
+
+        self.assertEqual(self.gw.call_count, 1)
+        self.assertEqual((first.alerts, second.alerts), (1, 0))
+        text = self.texts()[0]
+        self.assertIn("Список счетов", text)
+        self.assertIn("HTTP 503", text)
+        self.assertNotIn(PASSWORD, text)
+        self.assertNotIn("secretlogin", text)
+        event = SyncEvent.objects.get(dedup_key=f"accounts_refresh:{self.tenant.pk}:{TODAY.isoformat()}")
+        self.assertNotIn(PASSWORD, event.message)
+        self.assertEqual(self.fake.days(ACCOUNT_1), NIGHTLY_ORDER)  # statements still loaded

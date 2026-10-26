@@ -6,16 +6,28 @@ including the typo in the card top-up operation name.
 
 from __future__ import annotations
 
+import logging
 from decimal import Decimal
 
 from .client import StatementDoc
+
+logger = logging.getLogger(__name__)
 
 CARD_TOPUP_OPERATION = "Пополение корп-карты"
 _TZ = "+05:00"
 
 
 def is_incoming(doc: StatementDoc, our_account: str) -> bool:
-    return doc.acc_ct == our_account
+    """n8n rule: outgoing (expense) when our account is the debit side, otherwise incoming."""
+    if doc.acc_dt == our_account:
+        return False
+    if doc.acc_ct != our_account:
+        logger.warning(
+            "kapitalbank: document %s has account …%s on neither side; treated as incoming (n8n rule)",
+            doc.general_id,
+            our_account[-4:],
+        )
+    return True
 
 
 def _money(value: Decimal) -> str:

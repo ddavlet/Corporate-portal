@@ -20,19 +20,35 @@ def _parse_date(option: str, raw: str) -> dt.date:
 
 
 class Command(BaseCommand):
-    help = "Import Kapitalbank statements into the portal (daytime, nightly or manual for a tenant)."
+    help = (
+        "Import Kapitalbank statements into the portal (daytime, nightly or manual for a tenant), "
+        "or refresh one tenant's bank account list (--refresh-accounts --tenant <subdomain>)."
+    )
 
     def add_arguments(self, parser):
-        parser.add_argument("--mode", required=True, choices=["daytime", "nightly", "manual"])
+        parser.add_argument("--mode", choices=["daytime", "nightly", "manual"], help="Required unless --refresh-accounts.")
         parser.add_argument("--tenant", help="Tenant subdomain (required for manual mode).")
         parser.add_argument("--date", help="Single day YYYY-MM-DD (manual mode).")
         parser.add_argument("--from", dest="date_from", help="Range start YYYY-MM-DD (manual mode).")
         parser.add_argument("--to", dest="date_to", help="Range end YYYY-MM-DD (manual mode).")
         parser.add_argument("--dry-run", action="store_true", help="Create nothing; print what would change.")
         parser.add_argument("--now", help="ISO 8601 timestamp to treat as 'now'. Defaults to current time.")
+        parser.add_argument(
+            "--refresh-accounts",
+            action="store_true",
+            help=(
+                "Only refresh the bank account list of --tenant (even if the import is disabled) and print it. "
+                "Writes BankAccountLink rows only: new accounts PENDING, existing ones keep their decision."
+            ),
+        )
 
     def handle(self, *args, **options):
+        if options["refresh_accounts"]:
+            self._refresh_accounts(options)
+            return
         mode = options["mode"]
+        if not mode:
+            raise CommandError("--mode is required (or use --refresh-accounts --tenant <subdomain>)")
         now = self._parse_now(options.get("now"))
         days = self._resolve_days(mode, options)
         report = runner.run(
@@ -43,6 +59,28 @@ class Command(BaseCommand):
             dry_run=options["dry_run"],
         )
         self._print_report(report, options["dry_run"])
+
+    def _refresh_accounts(self, options):
+        tenant = options.get("tenant")
+        if not tenant:
+            raise CommandError("--refresh-accounts requires --tenant")
+        if options["dry_run"]:
+            raise CommandError("--refresh-accounts cannot be combined with --dry-run (it writes the account list)")
+        if options.get("mode") or options.get("date") or options.get("date_from") or options.get("date_to"):
+            raise CommandError("--refresh-accounts loads no statements: do not pass --mode/--date/--from/--to")
+        report = runner.refresh_accounts(tenant_subdomain=tenant, now=self._parse_now(options.get("now")))
+        if report.skipped_locked:
+            self.stdout.write("Another Kapitalbank run holds the lock; the account list was not refreshed.")
+            return
+        if report.error:
+            raise CommandError(report.error)
+        self.stdout.write(f"Kapitalbank accounts of {tenant}: {len(report.links)}")
+        self.stdout.write("account_no | branch | name | currency | balance | decision")
+        for link in report.links:
+            balance = "-" if link.last_balance is None else f"{link.last_balance:.2f}"
+            self.stdout.write(
+                f"{link.account_no} | {link.branch} | {link.name} | {link.currency} | {balance} | {link.decision}"
+            )
 
     @staticmethod
     def _parse_now(raw):

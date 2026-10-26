@@ -16,9 +16,10 @@ from datetime import date, datetime, timedelta
 from decimal import Decimal
 
 from django.db import IntegrityError, transaction
+from django.utils import timezone
 
 from apps.modules.requests.integration_settings import get_requests_messaging_gateway_settings
-from apps.modules.telegram_approvals.services import TelegramDispatcher
+from apps.modules.telegram_approvals.services import TelegramDispatcher, TelegramDispatchMissingMessageId
 
 from .client import StatementDoc
 from .models import AccountSyncState, BankAccountLink, KapitalbankAlertSettings, SyncEvent
@@ -43,15 +44,25 @@ def _account_label(link: BankAccountLink) -> str:
 
 
 def _fmt_time(value: datetime) -> str:
-    return value.strftime("%d.%m.%Y %H:%M")
+    return timezone.localtime(value).strftime("%d.%m.%Y %H:%M")
 
 
 def _send_text(*, bot_tenant, recipient_id: str, text: str) -> bool:
+    """True when the gateway accepted the message. With require_message_id the dispatcher
+    tells the cases apart: None = gateway unreachable or non-OK response (failed);
+    TelegramDispatchMissingMessageId = OK response without message_id (sent, nothing to
+    persist on our side)."""
     try:
         gateway = get_requests_messaging_gateway_settings(tenant=bot_tenant)
         message = TelegramDispatcher(bot_tenant).send(
-            action=gateway.send_action, recipient_id=recipient_id, text=text, buttons=None
+            action=gateway.send_action, recipient_id=recipient_id, text=text, buttons=None, require_message_id=True
         )
+    except TelegramDispatchMissingMessageId:
+        logger.warning(
+            "kapitalbank alerts: gateway answered OK without message_id; treated as sent bot_tenant_id=%s",
+            getattr(bot_tenant, "pk", None),
+        )
+        return True
     except Exception:
         logger.exception("kapitalbank alerts: send failed bot_tenant_id=%s", getattr(bot_tenant, "pk", None))
         return False
@@ -163,21 +174,25 @@ def notify_resolved(link: BankAccountLink, *, now: datetime) -> bool:
     state = _state(link)
     if state.mismatch_since is None and state.mismatch_alerted_at is None:
         return False
-    was_alerted = state.mismatch_alerted_at is not None
+    if state.mismatch_alerted_at is not None:
+        text = (
+            "<b>Остаток Капиталбанк сошёлся</b>\n"
+            f"Организация: {_esc(link.tenant.name)}\n"
+            f"Счёт: {_esc(_account_label(link))}\n"
+            f"Сверка: {_fmt_time(now)}"
+        )
+        if not send_owner_alert(text, tenant=link.tenant, link=link, kind=SyncEvent.ALERT_RESOLVED):
+            # Keep the mismatch state: the next matching run retries the message.
+            return False
+        sent = True
+    else:
+        sent = False  # the mismatch was never alerted: nothing to tell the owner
     state.mismatch_bank = None
     state.mismatch_portal = None
     state.mismatch_since = None
     state.mismatch_alerted_at = None
     state.save(update_fields=["mismatch_bank", "mismatch_portal", "mismatch_since", "mismatch_alerted_at"])
-    if not was_alerted:
-        return False
-    text = (
-        "<b>Остаток Капиталбанк сошёлся</b>\n"
-        f"Организация: {_esc(link.tenant.name)}\n"
-        f"Счёт: {_esc(_account_label(link))}\n"
-        f"Сверка: {_fmt_time(now)}"
-    )
-    return send_owner_alert(text, tenant=link.tenant, link=link, kind=SyncEvent.ALERT_RESOLVED)
+    return sent
 
 
 def notify_down(link: BankAccountLink, *, code: int | None, message: str, now: datetime) -> bool:
@@ -246,6 +261,25 @@ def notify_missing_docs(link: BankAccountLink, *, day: date, external_ids: list[
         tenant=link.tenant,
         link=link,
         kind=SyncEvent.MISSING_DOCS,
-        dedup_key=f"missing:{link.pk}:{day.isoformat()}:{now.date().isoformat()}",
+        dedup_key=f"missing:{link.pk}:{day.isoformat()}:{timezone.localtime(now).date().isoformat()}",
         payload={"day": day.isoformat(), "external_ids": list(external_ids)},
+    )
+
+
+def notify_accounts_refresh_failed(tenant, *, message: str, today: date, now: datetime) -> bool:
+    """Nightly account-list refresh failed; at most once per tenant and local day.
+    ``message`` must already be redacted by the caller."""
+    text = (
+        "<b>Список счетов Капиталбанк не обновился</b>\n"
+        f"Организация: {_esc(tenant.name)}\n"
+        f"Ошибка: {_esc(message)}\n"
+        f"Время: {_fmt_time(now)}"
+    )
+    return send_owner_alert(
+        text,
+        tenant=tenant,
+        link=None,
+        kind=SyncEvent.ALERT_DOWN,
+        dedup_key=f"accounts_refresh:{tenant.pk}:{today.isoformat()}",
+        payload={"stage": "account_list"},
     )

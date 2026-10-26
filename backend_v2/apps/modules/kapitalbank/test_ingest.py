@@ -6,14 +6,14 @@ from django.test import TestCase
 from rest_framework.response import Response
 
 from apps.modules.bank_expenses.models import BankExpense, BankRevenue
-from apps.modules.corporate_card.models import CardRevenue
+from apps.modules.corporate_card.models import CardExpense, CardRevenue
 from apps.modules.n8n_integration.views import N8nBankExpenseBatchUpsertView
 from django.contrib.auth import get_user_model
 from apps.modules.vendors.models import Vendor
 from apps.tenants.models import Tenant
 
 from .client import Statement, StatementDoc
-from .fixtures import ACCOUNT_1, CARD_REF, MFO, KapitalbankFixtures
+from .fixtures import ACCOUNT_1, ACCOUNT_2, CARD_REF, MFO, KapitalbankFixtures
 from .ingest import IngestError, ingest_statement
 from .models import BankAccountLink
 
@@ -212,3 +212,68 @@ class IngestStatementTests(KapitalbankFixtures, TestCase):
         with self.assertRaises(IngestError) as ctx:
             ingest_statement(self.link, self.statement)
         self.assertEqual(ctx.exception.status, 409)
+
+    def test_transfer_between_two_linked_accounts_keeps_both_sides(self):
+        # 28.09, doc 94430077: one bank document, expense on …3004 and revenue on …3001.
+        link_a = BankAccountLink.objects.create(
+            tenant=self.tenant,
+            account_no=ACCOUNT_2,
+            branch=MFO,
+            decision=BankAccountLink.LINKED,
+            bank_account=self.bank_account2,
+        )
+        transfer = make_doc(9, incoming=False, account=ACCOUNT_2, counterparty=ACCOUNT_1, amount="361569643.41")
+        statement = make_statement(transfer)
+
+        result_a = ingest_statement(link_a, statement)
+        result_b = ingest_statement(self.link, statement)
+
+        self.assertEqual((result_a.created, result_a.missing_external_ids), (1, []))
+        self.assertEqual((result_b.created, result_b.missing_external_ids), (1, []))
+        expense = BankExpense.objects.get(external_id="GEN009")
+        revenue = BankRevenue.objects.get(external_id="GEN009")
+        self.assertEqual(expense.wallet, self.wallet2)
+        self.assertEqual(revenue.wallet, self.wallet1)
+        self.assertEqual(expense.debit_turnover, Decimal("361569643.41"))
+        self.assertEqual(revenue.kredit_turnover, Decimal("361569643.41"))
+        # Re-running either side creates nothing and finds its own row.
+        again_a = ingest_statement(link_a, statement)
+        again_b = ingest_statement(self.link, statement)
+        self.assertEqual((again_a.created, again_a.skipped_existing, again_a.missing_external_ids), (0, 1, []))
+        self.assertEqual((again_b.created, again_b.skipped_existing, again_b.missing_external_ids), (0, 1, []))
+        self.assertEqual(BankExpense.objects.filter(external_id="GEN009").count(), 1)
+        self.assertEqual(BankRevenue.objects.filter(external_id="GEN009").count(), 1)
+
+    def test_transfer_dry_run_on_receiver_would_create_revenue(self):
+        link_a = BankAccountLink.objects.create(
+            tenant=self.tenant,
+            account_no=ACCOUNT_2,
+            branch=MFO,
+            decision=BankAccountLink.LINKED,
+            bank_account=self.bank_account2,
+        )
+        statement = make_statement(make_doc(9, incoming=False, account=ACCOUNT_2, counterparty=ACCOUNT_1))
+        ingest_statement(link_a, statement)
+
+        result = ingest_statement(self.link, statement, dry_run=True)
+
+        self.assertEqual([i["external_id"] for i in result.would_create], ["GEN009"])
+        self.assertIn("kredit_turnover", result.would_create[0])
+        self.assertEqual(result.skipped_existing, 0)
+
+    def test_card_account_mismatch_raises_409(self):
+        link = BankAccountLink.objects.create(
+            tenant=self.tenant,
+            account_no="22618000100000000999",
+            branch=MFO,
+            decision=BankAccountLink.LINKED,
+            card_account=self.card_account,
+        )
+        statement = make_statement(make_doc(5, incoming=True, account="22618000100000000999"))
+
+        with self.assertRaises(IngestError) as ctx:
+            ingest_statement(link, statement)
+
+        self.assertEqual(ctx.exception.status, 409)
+        self.assertFalse(CardRevenue.objects.exists())
+        self.assertFalse(CardExpense.objects.exists())

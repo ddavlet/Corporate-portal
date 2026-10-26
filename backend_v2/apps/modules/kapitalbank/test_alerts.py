@@ -149,3 +149,64 @@ class AlertsTests(KapitalbankFixtures, TestCase):
             self.assertNotIn("secretlogin", text)
         for payload in SyncEvent.objects.values_list("payload", flat=True):
             self.assertNotIn(PASSWORD, str(payload))
+
+    @patch(GATEWAY_PATH)
+    def test_times_and_dedup_day_are_local(self, gw):
+        gw.side_effect = gateway_ok()
+        now = utc(26, 20, 30)  # 2026-10-27 01:30 in Tashkent
+
+        notify_down(self.link, code=500, message="err", now=now)
+        notify_missing_docs(self.link, day=date(2026, 10, 26), external_ids=["A"], now=now)
+
+        self.assertIn("27.10.2026 01:30", gw.call_args_list[0].kwargs["payload"]["text"])
+        self.assertTrue(
+            SyncEvent.objects.filter(dedup_key=f"missing:{self.link.pk}:2026-10-26:2026-10-27").exists()
+        )
+
+    @patch(GATEWAY_PATH)
+    def test_ok_response_without_message_id_counts_as_sent(self, gw):
+        gw.return_value = {"ok": True}
+        with self.assertLogs("apps.modules.kapitalbank.alerts", level="WARNING") as logs:
+            self.assertTrue(notify_down(self.link, code=500, message="err", now=utc(1, 10, 0)))
+        self.assertTrue(any("without message_id" in line for line in logs.output))
+        self.assertIsNotNone(AccountSyncState.objects.get(link=self.link).down_alerted_at)
+        args = dict(tenant=self.tenant, link=self.link, kind=SyncEvent.ALERT_OWN_TRANSFER, dedup_key="k-ok")
+        self.assertTrue(send_owner_alert("t", **args))
+        event = SyncEvent.objects.get(dedup_key="k-ok")
+        self.assertNotIn("failed", event.payload)
+
+    @patch(GATEWAY_PATH)
+    def test_gateway_exception_or_non_ok_is_failed(self, gw):
+        gw.side_effect = RuntimeError("gateway down")
+        self.assertFalse(notify_down(self.link, code=500, message="err", now=utc(1, 10, 0)))
+        gw.side_effect = None
+        gw.return_value = None  # non-OK HTTP status / unreachable: post_messaging_gateway returns None
+        self.assertFalse(notify_down(self.link, code=500, message="err", now=utc(1, 10, 5)))
+        self.assertIsNone(AccountSyncState.objects.get(link=self.link).down_alerted_at)
+
+    @patch(GATEWAY_PATH)
+    def test_resolved_keeps_state_when_send_fails(self, gw):
+        gw.side_effect = gateway_ok()
+        notify_mismatch(self.link, bank=Decimal("1"), portal=Decimal("2"), now=utc(1, 10, 0))
+        gw.side_effect = None
+        gw.return_value = None
+
+        self.assertFalse(notify_resolved(self.link, now=utc(1, 11, 0)))
+
+        state = AccountSyncState.objects.get(link=self.link)
+        self.assertEqual(state.mismatch_alerted_at, utc(1, 10, 0))
+        self.assertIsNotNone(state.mismatch_since)
+        self.assertEqual(state.mismatch_bank, Decimal("1"))
+        gw.return_value = None
+        gw.side_effect = gateway_ok()
+        self.assertTrue(notify_resolved(self.link, now=utc(1, 11, 10)))
+        state.refresh_from_db()
+        self.assertIsNone(state.mismatch_alerted_at)
+        self.assertIsNone(state.mismatch_since)
+
+    @patch(GATEWAY_PATH)
+    def test_unalerted_mismatch_is_cleared_silently(self, gw):
+        AccountSyncState.objects.create(link=self.link, mismatch_since=utc(1, 10, 0), mismatch_bank=Decimal("1"))
+        self.assertFalse(notify_resolved(self.link, now=utc(1, 11, 0)))
+        gw.assert_not_called()
+        self.assertIsNone(AccountSyncState.objects.get(link=self.link).mismatch_since)

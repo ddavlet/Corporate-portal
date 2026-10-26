@@ -70,25 +70,37 @@ def _models(link: BankAccountLink):
     return (CardRevenue, CardExpense) if link.is_card else (BankRevenue, BankExpense)
 
 
-def existing_external_ids(link: BankAccountLink, external_ids: set[str]) -> set[str]:
-    """external_ids already present on the link's wallet, in any tenant."""
-    if not external_ids:
-        return set()
+def _ids_by_model(link: BankAccountLink, directions: dict[str, bool]):
+    """Group external_ids by the model their direction maps to (True = incoming = revenue).
+
+    One bank document can be an expense on one of our accounts and a revenue on another (a
+    transfer between two linked accounts of one tenant). The n8n upsert views bind by
+    external_id within one model only and the unique constraints are per model, so every
+    "already exists" check looks only in the model the item goes to.
+    """
+    revenue_model, expense_model = _models(link)
+    revenue_ids = {ext_id for ext_id, incoming in directions.items() if incoming}
+    expense_ids = {ext_id for ext_id, incoming in directions.items() if not incoming}
+    return [(model, ids) for model, ids in ((revenue_model, revenue_ids), (expense_model, expense_ids)) if ids]
+
+
+def existing_external_ids(link: BankAccountLink, directions: dict[str, bool]) -> set[str]:
+    """external_ids already on the link's wallet (in any tenant), each looked up only in the
+    model its direction maps to. ``directions``: external_id -> is_incoming."""
     wallet = link.wallet()
     found: set[str] = set()
-    for model in _models(link):
-        found.update(
-            model.objects.filter(wallet=wallet, external_id__in=external_ids).values_list("external_id", flat=True)
-        )
+    for model, ids in _ids_by_model(link, directions):
+        found.update(model.objects.filter(wallet=wallet, external_id__in=ids).values_list("external_id", flat=True))
     return found
 
 
-def _tenant_external_ids(link: BankAccountLink, external_ids: set[str]) -> set[str]:
-    """external_ids of this tenant on ANY wallet; the upsert views would update these."""
+def _tenant_external_ids(link: BankAccountLink, directions: dict[str, bool]) -> set[str]:
+    """external_ids of this tenant on ANY wallet, in the model their direction maps to;
+    the upsert views would update these."""
     found: set[str] = set()
-    for model in _models(link):
+    for model, ids in _ids_by_model(link, directions):
         found.update(
-            model.objects.filter(tenant=link.tenant, external_id__in=external_ids).values_list("external_id", flat=True)
+            model.objects.filter(tenant=link.tenant, external_id__in=ids).values_list("external_id", flat=True)
         )
     return found
 
@@ -100,6 +112,17 @@ def _check_bank_wallet(link: BankAccountLink) -> None:
     if ba.tenant_id != link.tenant_id or ba.account_no.strip() != link.account_no.strip() or ba.mfo.strip() != link.branch.strip():
         raise IngestError(
             f"Linked bank account {ba.pk} does not match statement account {link.account_no}/{link.branch}",
+            status=409,
+        )
+
+
+def _check_card_account(link: BankAccountLink) -> None:
+    # The card account's external_ref is the bank account number of the card; a link to
+    # another card would put the statement on the wrong card wallet.
+    card = link.card_account
+    if card.tenant_id != link.tenant_id or card.external_ref.strip() != link.account_no.strip():
+        raise IngestError(
+            f"Linked card account {card.pk} does not match statement account {link.account_no}",
             status=409,
         )
 
@@ -175,7 +198,9 @@ def ingest_statement(link: BankAccountLink, statement: Statement, *, dry_run: bo
     user = User.objects.filter(pk=_SERVICE_USER_PK).first()
     if user is None:
         raise IngestError(f"Service user pk={_SERVICE_USER_PK} does not exist", status=503)
-    if not link.is_card:
+    if link.is_card:
+        _check_card_account(link)
+    else:
         _check_bank_wallet(link)
 
     # One entry per external_id; the first occurrence wins.
@@ -183,15 +208,16 @@ def ingest_statement(link: BankAccountLink, statement: Statement, *, dry_run: bo
     for doc in statement.docs:
         docs.setdefault(str(doc.general_id), doc)
     all_ids = set(docs)
+    directions = {ext_id: mapping.is_incoming(doc, link.account_no) for ext_id, doc in docs.items()}
 
-    on_wallet = existing_external_ids(link, all_ids)
-    blocked = on_wallet | _tenant_external_ids(link, all_ids)
+    on_wallet = existing_external_ids(link, directions)
+    blocked = on_wallet | _tenant_external_ids(link, directions)
 
     revenue_items: list[dict] = []
     expense_items: list[dict] = []
     existing_items: list[tuple[bool, dict]] = []  # (is_revenue, item) for docs already on the wallet
     for row_no, (ext_id, doc) in enumerate(docs.items(), start=1):
-        incoming = mapping.is_incoming(doc, link.account_no)
+        incoming = directions[ext_id]
         if link.is_card:
             item = (
                 mapping.card_revenue_item(doc, wallet_id=wallet.id)
@@ -255,7 +281,7 @@ def ingest_statement(link: BankAccountLink, statement: Statement, *, dry_run: bo
                         get=get,
                     )
     result.created = created
-    result.missing_external_ids = sorted(all_ids - existing_external_ids(link, all_ids))
+    result.missing_external_ids = sorted(all_ids - existing_external_ids(link, directions))
     return result
 
 
