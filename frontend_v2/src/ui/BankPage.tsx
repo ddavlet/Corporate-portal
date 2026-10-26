@@ -1,4 +1,5 @@
 import { AppstoreOutlined, ArrowDownOutlined, ArrowUpOutlined } from '@ant-design/icons'
+import { KapitalbankPendingAccountsWidget } from './KapitalbankPendingAccountsWidget'
 import { ChannelBalancesSummary } from './ChannelBalancesSummary'
 import { FinanceModuleLandingPage, type FinanceModuleTile } from './finance/FinanceModuleLandingPage'
 
@@ -30,6 +31,7 @@ export function BankPage() {
   return (
     <>
       <FinanceModuleLandingPage title="Банк" tiles={TILES} />
+      <KapitalbankPendingAccountsWidget style={{ marginTop: 16 }} />
       <div style={{ marginTop: 16 }}>
         <ChannelBalancesSummary channel="bank" />
       </div>

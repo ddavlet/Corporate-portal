@@ -2202,6 +2202,24 @@ export async function getBankAccounts(): Promise<BankAccountDto[]> {
   return normalizeListPayload<BankAccountDto>(json)
 }
 
+export type KapitalbankPendingAccount = {
+  account_no: string
+  branch: string
+  name: string
+  currency: string
+  balance: string | null
+  first_seen_at: string
+}
+
+export async function getKapitalbankPendingAccounts(): Promise<{
+  enabled: boolean
+  accounts: KapitalbankPendingAccount[]
+}> {
+  const res = await apiFetch('/api/kapitalbank/pending-accounts/')
+  if (!res.ok) throw new Error(await parseErrorBody(res))
+  return (await res.json()) as { enabled: boolean; accounts: KapitalbankPendingAccount[] }
+}
+
 export async function createBankAccount(payload: {
   label?: string
   account_no?: string

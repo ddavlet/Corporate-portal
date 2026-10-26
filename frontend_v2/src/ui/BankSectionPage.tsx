@@ -13,6 +13,7 @@ import type { RequestReturnTo } from '../lib/requestNavigation'
 import { RequestDetailModal, type RequestDetail } from './requests/RequestDetailModal'
 import { NoteCreateModal } from './NoteCreateModal'
 import { labelBlockAboveField } from './formSpacing'
+import { KapitalbankPendingAccountsWidget } from './KapitalbankPendingAccountsWidget'
 import { ChannelBalancesSummary } from './ChannelBalancesSummary'
 import { AdminEditRecordButton } from './admin/AdminEditRecordButton'
 import { renderExpenseRequestStatusTag, shouldHighlightMissingRequiredRequest } from './expenseRequestStatus'
@@ -475,6 +476,7 @@ export function BankSectionPage({ mode }: { mode: BankSectionMode }) {
       <Typography.Title level={4} style={{ marginTop: 0 }}>
         {SECTION_TITLES[mode]}
       </Typography.Title>
+      <KapitalbankPendingAccountsWidget style={{ marginBottom: 12 }} />
       <ChannelBalancesSummary channel="bank" />
       <div style={{ marginTop: 12, marginBottom: 12 }}>
         <Typography.Text type="secondary" style={labelBlockAboveField}>
