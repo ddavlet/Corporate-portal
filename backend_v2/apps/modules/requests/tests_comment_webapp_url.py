@@ -8,7 +8,7 @@ Covers:
 """
 
 from django.contrib.auth import get_user_model
-from django.test import SimpleTestCase
+from django.test import SimpleTestCase, override_settings
 from rest_framework.test import APITestCase
 
 from apps.modules.requests.models import RequestApprovalConfig
@@ -49,6 +49,7 @@ class TelegramWebappLinksTests(SimpleTestCase):
         self.assertIsNone(tenant_bot_mismatch_error(url="https://t.me/other_bot/comments", tenant=tenant))
 
 
+@override_settings(BASE_DOMAIN="example.com", N8N_INTEGRATION_TOKEN="", ALLOWED_HOSTS=["*"])
 class CommentWebappUrlApiTests(APITestCase):
     def setUp(self):
         self.tenant = Tenant.objects.create(
