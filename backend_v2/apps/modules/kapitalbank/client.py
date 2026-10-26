@@ -55,7 +55,7 @@ class StatementDoc:
 class Statement:
     docs: list[StatementDoc]
     saldo_in: Decimal
-    saldo_out: Decimal
+    saldo_out: Decimal | None  # None when the bank omits it or sends null: never compare as 0
     total_debit: Decimal
     total_credit: Decimal
     fin: bool
@@ -154,7 +154,7 @@ class KapitalbankClient:
         return Statement(
             docs=docs,
             saldo_in=_money(result.get("saldo_in")),
-            saldo_out=_money(result.get("saldo_out")),
+            saldo_out=None if result.get("saldo_out") is None else _money(result.get("saldo_out")),
             total_debit=_money(result.get("total_debit")),
             total_credit=_money(result.get("total_credit")),
             fin=bool(int(result.get("fin") or 0)),

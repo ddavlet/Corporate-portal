@@ -35,6 +35,16 @@ class KapitalbankClientTests(SimpleTestCase):
         self.assertEqual(kwargs["json"], {"branch": MFO, "account": ACCOUNT_1, "date": "24.02.2026"})
         self.assertTrue(session.post.call_args[0][0].endswith("/GetDoc1C"))
 
+    def test_missing_or_null_saldo_out_is_none(self):
+        session = mock.Mock()
+        for result in ({"content": [], "saldo_in": 0}, {"content": [], "saldo_in": 0, "saldo_out": None}):
+            session.post.return_value = _resp({"error": None, "result": result})
+            st = _client(session).get_statement(account_no=ACCOUNT_1, branch=MFO, day=date(2026, 2, 24))
+            self.assertIsNone(st.saldo_out)
+        session.post.return_value = _resp({"error": None, "result": {"content": [], "saldo_out": 0}})
+        st = _client(session).get_statement(account_no=ACCOUNT_1, branch=MFO, day=date(2026, 2, 24))
+        self.assertEqual(st.saldo_out, Decimal("0.00"))
+
     def test_basic_auth_header_and_no_secret_in_errors(self):
         session = mock.Mock()
         session.post.return_value = _resp({"error": {"code": 61002, "message": "IP"}, "result": None})

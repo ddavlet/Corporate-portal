@@ -1,3 +1,4 @@
+import base64
 from datetime import date, datetime, timedelta, timezone as dt_timezone
 from decimal import Decimal
 from unittest.mock import patch
@@ -25,7 +26,9 @@ COUNTERPARTY = "20208840100400002020"
 NOW = datetime(2026, 10, 26, 7, 0, tzinfo=dt_timezone.utc)  # 12:00 in Tashkent
 TODAY = date(2026, 10, 26)
 NIGHTLY_DAYS = [TODAY - timedelta(days=n) for n in range(NIGHTLY_DAYS_BACK, -1, -1)]
-PAST_DAYS = NIGHTLY_DAYS[:-1]
+PAST_DAYS = NIGHTLY_DAYS[:-1]  # oldest first, as re-fetched by the self-heal
+NIGHTLY_ORDER = [TODAY] + PAST_DAYS[::-1]  # nightly load order: today, then newest to oldest
+BASIC_TOKEN = base64.b64encode(f"{LOGIN}:{PASSWORD}".encode()).decode()
 
 
 def make_doc(n, *, day, incoming, account=ACCOUNT_1, counterparty=COUNTERPARTY, amount="1000.00"):
@@ -58,7 +61,7 @@ def statement(*docs, saldo_out="0.00"):
     return Statement(
         docs=list(docs),
         saldo_in=Decimal(0),
-        saldo_out=Decimal(saldo_out),
+        saldo_out=None if saldo_out is None else Decimal(saldo_out),
         total_debit=Decimal(0),
         total_credit=Decimal(0),
         fin=True,
@@ -79,6 +82,7 @@ class FakeClient:
         self.calls = []
         self.statements = {}
         self.errors = {}
+        self.day_errors = {}
         self.accounts = []
         self.list_calls = 0
         self.list_error = None
@@ -87,6 +91,8 @@ class FakeClient:
         self.calls.append((account_no, day))
         if account_no in self.errors:
             raise self.errors[account_no]
+        if (account_no, day) in self.day_errors:
+            raise self.day_errors[(account_no, day)]
         queue = self.statements.get((account_no, day))
         if not queue:
             return statement()
@@ -183,8 +189,8 @@ class RunnerTests(KapitalbankFixtures, TestCase):
 
         report = self.run_import("nightly")
 
-        self.assertEqual(self.fake.days(ACCOUNT_1), NIGHTLY_DAYS)
-        self.assertEqual(self.fake.days(ACCOUNT_2), NIGHTLY_DAYS)
+        self.assertEqual(self.fake.days(ACCOUNT_1), NIGHTLY_ORDER)
+        self.assertEqual(self.fake.days(ACCOUNT_2), NIGHTLY_ORDER)
         self.assertEqual(self.fake.list_calls, 1)
         new = BankAccountLink.objects.get(tenant=self.tenant, account_no=NEW_ACCOUNT)
         self.assertEqual(new.decision, BankAccountLink.PENDING)
@@ -229,10 +235,9 @@ class RunnerTests(KapitalbankFixtures, TestCase):
         self.assertTrue(SyncEvent.objects.filter(link=self.link2, kind=SyncEvent.ERROR).exists())
         self.assertTrue(SyncEvent.objects.filter(link=self.link1, kind=SyncEvent.IMPORTED, day=TODAY).exists())
         self.assertEqual(AccountSyncState.objects.get(link=self.link1).last_success_at, NOW)
-        # Never succeeded → down alert right away (only for the failed account; …3001 balance matches).
-        self.assertEqual(self.gw.call_count, 1)
-        self.assertIn("не работает", self.texts()[0])
-        self.assertEqual(report.alerts, 1)
+        # A single daytime failure is not "down" yet; …3001 balance matches.
+        self.gw.assert_not_called()
+        self.assertEqual(report.alerts, 0)
 
     def test_non_bank_error_is_isolated_without_code(self):
         self.fake.errors[ACCOUNT_2] = ValueError("bad saldo")
@@ -246,18 +251,22 @@ class RunnerTests(KapitalbankFixtures, TestCase):
         self.assertEqual(self.fake.days(ACCOUNT_1), [TODAY])
 
     def test_error_texts_never_contain_credentials(self):
-        self.fake.errors[ACCOUNT_2] = RuntimeError(f"auth {LOGIN}:{PASSWORD} rejected")
+        self.fake.errors[ACCOUNT_2] = RuntimeError(f"auth {LOGIN}:{PASSWORD} Basic {BASIC_TOKEN} rejected")
 
-        self.run_import("daytime")
+        with self.assertLogs("apps.modules.kapitalbank.runner", level="ERROR") as logs:
+            self.run_import("nightly")  # nightly: the failure is alerted, so the alert text is checked too
 
         state = AccountSyncState.objects.get(link=self.link2)
         stored = [state.last_error_message, *SyncEvent.objects.values_list("message", flat=True)]
         stored += [str(p) for p in SyncEvent.objects.values_list("payload", flat=True)]
         stored += self.texts()
+        stored += logs.output
         self.assertTrue(self.texts())
+        self.assertTrue(any("RuntimeError" in line for line in logs.output))
         for text in stored:
             self.assertNotIn(PASSWORD, text)
             self.assertNotIn("secretlogin", text)
+            self.assertNotIn(BASIC_TOKEN, text)
 
     def test_missing_password_is_config_error(self):
         KapitalbankConnection.objects.filter(pk=self.conn.pk).update(password_enc="not-a-fernet-token")
@@ -272,13 +281,88 @@ class RunnerTests(KapitalbankFixtures, TestCase):
         self.assertEqual(event.tenant, self.tenant)
         self.assertNotIn("secretlogin", event.message)
 
+    def test_missing_password_reaches_accounts_and_owner(self):
+        KapitalbankConnection.objects.filter(pk=self.conn.pk).update(password_enc="")
+
+        self.run_import("daytime")
+        report = self.run_import("daytime", now=NOW + timedelta(minutes=10))
+
+        self.assertEqual(self.fake.calls, [])
+        state = AccountSyncState.objects.get(link=self.link1)
+        self.assertEqual(state.consecutive_failures, 2)
+        self.assertEqual(state.last_error_at, NOW + timedelta(minutes=10))
+        self.assertIsNone(state.last_error_code)
+        self.assertIn("Пароль банка", state.last_error_message)
+        # second failure without any success → down alert for each linked account
+        self.assertEqual(self.gw.call_count, 2)
+        self.assertEqual(report.alerts, 2)
+        self.assertIn("не работает", self.texts()[0])
+        # one tenant-level event per day and cause, not one per run
+        self.assertEqual(SyncEvent.objects.filter(kind=SyncEvent.ERROR, link=None).count(), 1)
+
+    def test_dry_run_with_missing_password_writes_nothing(self):
+        KapitalbankConnection.objects.filter(pk=self.conn.pk).update(password_enc="")
+
+        report = self.run_import("nightly", dry_run=True)
+
+        self.assertEqual(report.accounts_failed, 2)
+        self.assertEqual(SyncEvent.objects.count(), 0)
+        self.assertEqual(AccountSyncState.objects.count(), 0)
+        self.gw.assert_not_called()
+
+    def test_client_factory_failure_reaches_accounts(self):
+        def broken_factory(conn):
+            raise RuntimeError(f"cannot build client for {LOGIN}")
+
+        run(mode="nightly", now=NOW, client_factory=broken_factory)
+
+        state = AccountSyncState.objects.get(link=self.link2)
+        self.assertEqual(state.consecutive_failures, 1)
+        self.assertNotIn("secretlogin", state.last_error_message)
+        event = SyncEvent.objects.get(kind=SyncEvent.ERROR, link=None)
+        self.assertNotIn("secretlogin", event.message)
+        self.assertEqual(self.gw.call_count, 2)  # nightly failure → down alert per account
+
+    def test_tenant_level_exception_is_recorded_once_per_day(self):
+        with patch("apps.modules.kapitalbank.runner._own_targets", side_effect=RuntimeError("db hiccup")):
+            first = self.run_import("daytime")
+            self.run_import("daytime", now=NOW + timedelta(minutes=10))
+
+        self.assertEqual(first.accounts_failed, 2)
+        self.assertEqual(self.fake.calls, [])
+        events = SyncEvent.objects.filter(kind=SyncEvent.ERROR, link=None)
+        self.assertEqual(events.count(), 1)
+        self.assertEqual(events.get().payload["stage"], "tenant")
+        self.assertEqual(AccountSyncState.objects.get(link=self.link1).consecutive_failures, 2)
+
+    def test_bad_past_day_does_not_block_today(self):
+        self.fake.day_errors[(ACCOUNT_1, TODAY - timedelta(days=2))] = KapitalbankError(None, "HTTP 502")
+        self.fake.statements[(ACCOUNT_1, TODAY)] = [
+            statement(make_doc(1, day=TODAY, incoming=True), saldo_out="1000.00")
+        ]
+
+        report = self.run_import("nightly")
+
+        self.assertEqual(self.fake.days(ACCOUNT_1), NIGHTLY_ORDER)  # today first, all days tried
+        self.assertTrue(BankRevenue.objects.filter(external_id="RUN1", wallet=self.wallet1).exists())
+        self.assertEqual((report.accounts_ok, report.accounts_failed), (1, 1))
+        state = AccountSyncState.objects.get(link=self.link1)
+        self.assertEqual(state.consecutive_failures, 1)
+        self.assertIsNone(state.last_success_at)
+        self.assertTrue(
+            SyncEvent.objects.filter(link=self.link1, kind=SyncEvent.ERROR, day=TODAY - timedelta(days=2)).exists()
+        )
+        # balance matched; the only message is the nightly down alert
+        self.assertEqual(self.gw.call_count, 1)
+        self.assertIn("не работает", self.texts()[0])
+
     def test_account_list_failure_still_loads_statements(self):
         self.fake.list_error = KapitalbankError(None, "HTTP 503")
 
         report = self.run_import("nightly")
 
         self.assertTrue(SyncEvent.objects.filter(kind=SyncEvent.ERROR, link=None, tenant=self.tenant).exists())
-        self.assertEqual(self.fake.days(ACCOUNT_1), NIGHTLY_DAYS)
+        self.assertEqual(self.fake.days(ACCOUNT_1), NIGHTLY_ORDER)
         self.assertEqual(report.accounts_ok, 2)
 
     def test_alert_failure_does_not_fail_run(self):
@@ -305,7 +389,7 @@ class RunnerTests(KapitalbankFixtures, TestCase):
         self.run_import("nightly")
 
         self.gw.assert_not_called()
-        self.assertEqual(self.fake.days(ACCOUNT_1), NIGHTLY_DAYS)  # no re-fetch
+        self.assertEqual(self.fake.days(ACCOUNT_1), NIGHTLY_ORDER)  # no re-fetch
 
     def test_mismatch_self_heals_before_alert(self):
         late_day = TODAY - timedelta(days=3)
@@ -317,7 +401,7 @@ class RunnerTests(KapitalbankFixtures, TestCase):
 
         self.gw.assert_not_called()
         self.assertTrue(BankRevenue.objects.filter(external_id="RUN1", wallet=self.wallet1).exists())
-        self.assertEqual(self.fake.days(ACCOUNT_1), NIGHTLY_DAYS + PAST_DAYS + [TODAY])
+        self.assertEqual(self.fake.days(ACCOUNT_1), NIGHTLY_ORDER + PAST_DAYS + [TODAY])
         self.assertEqual((report.created, report.alerts), (1, 0))
         self.assertIsNone(AccountSyncState.objects.get(link=self.link1).mismatch_alerted_at)
 
@@ -344,6 +428,26 @@ class RunnerTests(KapitalbankFixtures, TestCase):
         self.assertEqual(self.fake.days(ACCOUNT_1), [TODAY] + PAST_DAYS + [TODAY])
         self.assertEqual(self.gw.call_count, 1)
         self.assertIn("Расхождение остатка", self.texts()[0])
+
+    def test_missing_saldo_out_skips_reconcile(self):
+        AccountSyncState.objects.create(
+            link=self.link1, mismatch_since=NOW - timedelta(hours=1), mismatch_alerted_at=NOW - timedelta(hours=1)
+        )
+        self.fake.statements[(ACCOUNT_1, TODAY)] = [
+            statement(make_doc(1, day=TODAY, incoming=True), saldo_out=None)
+        ]
+
+        with self.assertLogs("apps.modules.kapitalbank.runner", level="WARNING") as logs:
+            report = self.run_import("daytime")
+
+        self.gw.assert_not_called()  # neither mismatch (portal 1000 vs nothing) nor resolved
+        self.assertEqual(self.fake.days(ACCOUNT_1), [TODAY])  # no self-heal re-fetch
+        self.assertTrue(any("saldo_out" in line for line in logs.output))
+        detail = [d for d in report.details if d["account_no"] == ACCOUNT_1][0]
+        self.assertIsNone(detail["saldo_out"])
+        self.assertIn("skipped", detail["reconcile"])
+        self.assertIsNotNone(AccountSyncState.objects.get(link=self.link1).mismatch_alerted_at)
+        self.assertEqual(report.accounts_ok, 2)
 
     def test_resolved_after_alerted_mismatch(self):
         self.fake.statements[(ACCOUNT_1, TODAY)] = [statement(saldo_out="1000.00")]
@@ -397,7 +501,9 @@ class RunnerTests(KapitalbankFixtures, TestCase):
     # --- down alerts ----------------------------------------------------------------------
 
     def test_down_alert_after_an_hour_without_success(self):
-        AccountSyncState.objects.create(link=self.link2, last_success_at=NOW - timedelta(minutes=61))
+        AccountSyncState.objects.create(
+            link=self.link2, last_success_at=NOW - timedelta(minutes=61), consecutive_failures=1
+        )
         self.fake.errors[ACCOUNT_2] = KapitalbankError(None, "HTTP 502")
 
         report = self.run_import("daytime")
@@ -408,13 +514,30 @@ class RunnerTests(KapitalbankFixtures, TestCase):
         self.assertEqual(report.alerts, 1)
 
     def test_no_down_alert_within_an_hour(self):
-        AccountSyncState.objects.create(link=self.link2, last_success_at=NOW - timedelta(minutes=30))
+        AccountSyncState.objects.create(
+            link=self.link2, last_success_at=NOW - timedelta(minutes=30), consecutive_failures=5
+        )
+        self.fake.errors[ACCOUNT_2] = KapitalbankError(None, "HTTP 502")
+
+        self.run_import("daytime")
+
+        self.gw.assert_not_called()
+        self.assertEqual(AccountSyncState.objects.get(link=self.link2).consecutive_failures, 6)
+
+    def test_single_daytime_failure_does_not_alert_down(self):
+        # e.g. the first daytime run after the 05:00 success fails once at 06:10
+        AccountSyncState.objects.create(link=self.link2, last_success_at=NOW - timedelta(hours=7))
         self.fake.errors[ACCOUNT_2] = KapitalbankError(None, "HTTP 502")
 
         self.run_import("daytime")
 
         self.gw.assert_not_called()
         self.assertEqual(AccountSyncState.objects.get(link=self.link2).consecutive_failures, 1)
+
+        self.run_import("daytime", now=NOW + timedelta(minutes=10))
+
+        self.assertEqual(self.gw.call_count, 1)
+        self.assertIn("не работает", self.texts()[0])
 
     def test_nightly_failure_alerts_down_even_after_recent_success(self):
         AccountSyncState.objects.create(link=self.link2, last_success_at=NOW - timedelta(minutes=10))
@@ -444,6 +567,18 @@ class RunnerTests(KapitalbankFixtures, TestCase):
     def test_lock_released_after_run(self):
         self.fake.errors[ACCOUNT_2] = ValueError("boom")
         self.run_import("daytime")
+
+        other = self.other_connection()
+        with other.cursor() as cursor:
+            cursor.execute("SELECT pg_try_advisory_lock(%s)", [LOCK_ID])
+            acquired = cursor.fetchone()[0]
+            cursor.execute("SELECT pg_advisory_unlock(%s)", [LOCK_ID])
+        self.assertTrue(acquired)
+
+    def test_lock_released_when_run_raises(self):
+        with patch("apps.modules.kapitalbank.runner._enabled_connections", side_effect=RuntimeError("boom")):
+            with self.assertRaises(RuntimeError):
+                self.run_import("daytime")
 
         other = self.other_connection()
         with other.cursor() as cursor:
