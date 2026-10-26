@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react'
 import { getProjectInvestmentsBySourceRequest } from '../../lib/api'
 import { CASH_REGISTER_TRANSFER_PAYMENT_PURPOSE, CASH_REGISTER_TRANSFER_PAYMENT_TYPE } from '../../lib/cashRegisterTransfer'
 import { isInvestPaymentType } from '../../lib/requestPaymentTypes'
+import { useInvestmentFundingMode } from '../../lib/useInvestmentFundingMode'
 
 type RequestLike = { id: number; payment_type?: string | null; payment_purpose?: string | null }
 
@@ -16,13 +17,17 @@ export function canBeInvestmentSource(detail: RequestLike | null | undefined): b
   )
 }
 
-/** Номера вложений, в которые вошла заявка; при ошибке или для прочих заявок — пустой список. */
+/**
+ * Номера вложений, в которые вошла заявка; при ошибке, выключенном инвестиционном режиме или для
+ * прочих заявок — пустой список. Конфиг режима запрашивается только для заявок-кандидатов.
+ */
 export function useRequestInvestmentIds(detail: RequestLike | null | undefined): number[] {
   const [ids, setIds] = useState<number[]>([])
   const requestId = detail?.id ?? null
   const eligible = canBeInvestmentSource(detail)
+  const fundingMode = useInvestmentFundingMode(requestId != null && eligible)
   useEffect(() => {
-    if (requestId == null || !eligible) {
+    if (requestId == null || !eligible || !fundingMode) {
       setIds([])
       return
     }
@@ -37,6 +42,6 @@ export function useRequestInvestmentIds(detail: RequestLike | null | undefined):
     return () => {
       cancelled = true
     }
-  }, [requestId, eligible])
+  }, [requestId, eligible, fundingMode])
   return ids
 }

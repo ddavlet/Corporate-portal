@@ -35,14 +35,10 @@ import {
   uploadRequestAttachment,
   validateRequestAttachment,
 } from '../../lib/api'
-import { lockedCurrencyFromHint } from '../../lib/requestPaymentTypes'
+import { lockedCurrencyFromHint, vendorKindForPaymentType } from '../../lib/requestPaymentTypes'
 import { labelBlockAboveField } from '../formSpacing'
 import { clampToAllowedBillingMonth, isAllowedBillingMonth } from '../../lib/billingMonth'
 import { monthStartTashkent } from '../../lib/tashkentTime'
-
-function vendorKindForPaymentType(paymentType: string): 'cash' | 'transfer' {
-  return paymentType === 'Наличные' ? 'cash' : 'transfer'
-}
 
 const tgPopupContainer = () => document.body
 
@@ -883,13 +879,14 @@ export function RequestCreatePage({ requestsBasePath = '/requests', variant = 'p
         getContainer={isTg ? () => document.body : undefined}
       >
         <Typography.Paragraph type="secondary">
-          Тип: {paymentType === 'Наличные' ? 'наличные' : 'перечисление'} (по выбранному типу оплаты заявки).
+          Тип: {vendorKindForPaymentType(paymentType ?? '') === 'cash' ? 'наличные' : 'перечисление'} (по выбранному
+          типу оплаты заявки).
         </Typography.Paragraph>
         <Form layout="vertical">
           <Form.Item label="Наименование" required>
             <Input value={newVendorName} onChange={(e) => setNewVendorName(e.target.value)} />
           </Form.Item>
-          {paymentType && paymentType !== 'Наличные' ? (
+          {paymentType && vendorKindForPaymentType(paymentType) !== 'cash' ? (
             <Form.Item label="ИНН" required>
               <Input value={newVendorInn} onChange={(e) => setNewVendorInn(e.target.value)} />
             </Form.Item>

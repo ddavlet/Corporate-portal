@@ -127,21 +127,29 @@ function Body({ onCancel, onCreated, usesCompanies, companies }: Omit<Props, 'op
 
   const submit = async () => {
     setSubmitting(true)
+    let created: Awaited<ReturnType<typeof createInvestmentsFromRequests>>
     try {
-      const res = await createInvestmentsFromRequests({
+      created = await createInvestmentsFromRequests({
         funding_method: method,
         request_ids: chosen.map((r) => r.id),
-        comment,
+        // Текст по умолчанию — только превью: пустой comment бэкенд заменит описанием на каждую валюту.
+        comment: editedComment ?? '',
         ...(usesCompanies ? { company } : {}),
       })
-      const ids = res.investments.map((i) => `№${i.id}`).join(', ')
-      message.success(`Создано вложений: ${ids}`)
-      onCancel()
-      await onCreated()
     } catch (e: unknown) {
       message.error(e instanceof Error ? e.message : 'Не удалось создать вложение')
-    } finally {
       setSubmitting(false)
+      return
+    }
+    const ids = created.investments.map((i) => `№${i.id}`).join(', ')
+    message.success(`Создано вложений: ${ids}`)
+    setSubmitting(false)
+    onCancel()
+    try {
+      await onCreated()
+    } catch (e: unknown) {
+      // Вложение уже создано — сбой перезагрузки списка не выдаём за ошибку создания.
+      console.error('Failed to reload investments after collecting requests', e)
     }
   }
 
@@ -165,7 +173,7 @@ function Body({ onCancel, onCreated, usesCompanies, companies }: Omit<Props, 'op
             <Alert
               type="warning"
               showIcon
-              message="Не настроена цепочка согласования вложений: вложение будет создано без этапов согласования."
+              message="Вложения не будут подтверждаться — не настроено согласование"
             />
           ) : null}
           <Tabs

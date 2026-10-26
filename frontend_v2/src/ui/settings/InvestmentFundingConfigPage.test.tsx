@@ -53,6 +53,34 @@ describe('InvestmentFundingConfigPage', () => {
     expect(toggle.disabled).toBe(true)
   })
 
+  it('keeps the switch usable to turn the mode off when the chain was removed later', async () => {
+    getInvestmentFundingConfigMock.mockResolvedValueOnce({
+      ...baseConfig,
+      is_enabled: true,
+      has_project_approval_chain: false,
+    })
+    saveInvestmentFundingConfigMock.mockResolvedValueOnce({
+      ...baseConfig,
+      is_enabled: false,
+      has_project_approval_chain: false,
+    })
+    renderPage()
+
+    expect(await screen.findByText('Сначала настройте согласование заявок на вложение')).toBeTruthy()
+    const toggle = screen.getByRole('switch') as HTMLButtonElement
+    expect(toggle.disabled).toBe(false)
+    fireEvent.click(toggle)
+    fireEvent.click(screen.getByRole('button', { name: /Сохранить/ }))
+
+    await waitFor(() => {
+      expect(saveInvestmentFundingConfigMock).toHaveBeenCalledWith({
+        is_enabled: false,
+        cash_wallet_id: 101,
+        bank_wallet_id: 202,
+      })
+    })
+  })
+
   it('saves the selected wallet ids', async () => {
     getInvestmentFundingConfigMock.mockResolvedValueOnce(baseConfig)
     saveInvestmentFundingConfigMock.mockResolvedValueOnce({ ...baseConfig, is_enabled: true })

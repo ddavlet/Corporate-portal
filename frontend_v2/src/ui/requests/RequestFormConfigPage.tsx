@@ -25,7 +25,7 @@ import {
   type RequestFormConfigPurposeItem,
   type RequestFormConfigResponse,
 } from '../../lib/api'
-import { REQUEST_PAYMENT_TYPES, isInvestPaymentType } from '../../lib/requestPaymentTypes'
+import { REQUEST_PAYMENT_TYPES, isInvestPaymentType, vendorKindForPaymentType } from '../../lib/requestPaymentTypes'
 import { useInvestmentFundingMode } from '../../lib/useInvestmentFundingMode'
 import { labelBlockAboveField } from '../formSpacing'
 import { RequestReturnBackButton } from './RequestReturnBackButton'
@@ -701,7 +701,7 @@ export function RequestFormConfigPage() {
                           }
                           options={(data?.vendor_candidates || [])
                             .filter((v) =>
-                              pt.payment_type === 'Наличные' ? v.kind === 'cash' : v.kind === 'transfer',
+                              v.kind === vendorKindForPaymentType(pt.payment_type),
                             )
                             .map((v) => {
                               const bits = [v.name]

@@ -123,7 +123,8 @@ export function InvestmentFundingConfigPage() {
             <Switch
               aria-label="Включить инвестиционный режим"
               checked={isEnabled}
-              disabled={chainMissing}
+              // Без цепочки согласования режим нельзя включить, но выключить — всегда можно.
+              disabled={chainMissing && !isEnabled}
               onChange={setIsEnabled}
             />
             <Typography.Text>Включить инвестиционный режим</Typography.Text>

@@ -22,6 +22,41 @@ export function isInvestPaymentType(pt: string): boolean {
   return (INVEST_REQUEST_PAYMENT_TYPES as readonly string[]).includes(pt)
 }
 
+/** Наличные-семейство: «Наличные» и «Инвест. наличные» (как backend ``cash_like_payment_types``). */
+const CASH_FAMILY_PAYMENT_TYPES: readonly string[] = ['Наличные', 'Инвест. наличные']
+
+/** Вид поставщика по типу оплаты (как backend ``payment_type_to_vendor_kind``). */
+export function vendorKindForPaymentType(pt: string): 'cash' | 'transfer' {
+  return CASH_FAMILY_PAYMENT_TYPES.includes(pt) ? 'cash' : 'transfer'
+}
+
+/** Убирает инвест-типы, если инвестиционный режим тенанта выключен. */
+export function withoutInvestTypesUnlessEnabled<T>(
+  items: readonly T[],
+  paymentTypeOf: (item: T) => string,
+  investModeEnabled: boolean,
+): T[] {
+  if (investModeEnabled) return [...items]
+  return items.filter((item) => !isInvestPaymentType(paymentTypeOf(item)))
+}
+
+/**
+ * Варианты типов оплаты для правил отчётов: инвест-типы не предлагаются (backend подключает их
+ * автоматически к «Наличные»/«Перечисление»), но уже сохранённые значения остаются в списке,
+ * чтобы не пропасть из выбора.
+ */
+export function reportRulePaymentTypeOptions(
+  selected: readonly string[] = [],
+): { value: string; label: string }[] {
+  const base: { value: string; label: string }[] = withoutInvestTypesUnlessEnabled(
+    requestPaymentTypeSelectOptions(),
+    (o) => o.value,
+    false,
+  )
+  const savedInvest = INVEST_REQUEST_PAYMENT_TYPES.filter((pt) => selected.includes(pt))
+  return [...base, ...savedInvest.map((value) => ({ value, label: value }))]
+}
+
 /** Валюта, зафиксированная подсказкой списания; null — у типа валюта не фиксируется (выбирает заявитель). */
 export function lockedCurrencyFromHint(hint: { currency?: string | null } | null | undefined): string | null {
   return hint?.currency || null

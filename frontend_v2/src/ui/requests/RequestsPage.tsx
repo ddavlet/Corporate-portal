@@ -28,14 +28,15 @@ import { RequestAiChatButton } from './RequestAiChatButton'
 import { AdminEditRecordButton } from '../admin/AdminEditRecordButton'
 import { NoteCreateModal } from '../NoteCreateModal'
 import { useInfiniteList, useRestoreInfinitePages } from '../../lib/useInfiniteList'
-import { requestPaymentTypeSelectOptions } from '../../lib/requestPaymentTypes'
+import {
+  requestPaymentTypeSelectOptions,
+  vendorKindForPaymentType,
+  withoutInvestTypesUnlessEnabled,
+} from '../../lib/requestPaymentTypes'
+import { useInvestmentFundingMode } from '../../lib/useInvestmentFundingMode'
 import { useListPageSession } from '../../lib/useListPageSession'
 import { useUserPreference } from '../../lib/useUserPreference'
 import { ListInfiniteScrollFooter } from '../ListInfiniteScrollFooter'
-
-function vendorKindForPaymentType(paymentType: string): 'cash' | 'transfer' {
-  return paymentType === 'Наличные' ? 'cash' : 'transfer'
-}
 
 type RequestRow = {
   id: number
@@ -156,6 +157,12 @@ function serializeRange(value: [Dayjs | null, Dayjs | null] | null): [string | n
 
 export function RequestsPage() {
   const navigate = useNavigate()
+  const investmentMode = useInvestmentFundingMode()
+  // Инвест-типы в фильтре — только у тенантов с включённым инвестиционным режимом.
+  const paymentTypeFilterOptions = useMemo(
+    () => withoutInvestTypesUnlessEnabled(PAYMENT_TYPE_OPTIONS, (o) => o.value, investmentMode),
+    [investmentMode],
+  )
   const [restorePages, setRestorePages] = useState<number | undefined>(undefined)
   const [search, setSearch] = useState('')
   const [debouncedSearch, setDebouncedSearch] = useState('')
@@ -792,7 +799,7 @@ export function RequestsPage() {
             style={{ width: 200 }}
             value={paymentType}
             onChange={(value) => setPaymentType(value)}
-            options={PAYMENT_TYPE_OPTIONS}
+            options={paymentTypeFilterOptions}
           />
           <Button onClick={resetFilters}>Сбросить фильтры</Button>
         </Space>

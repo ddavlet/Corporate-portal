@@ -10,7 +10,7 @@ import {
   type ReportSource,
   type UnassignedPurpose,
 } from '../../../lib/reportsApi'
-import { requestPaymentTypeSelectOptions } from '../../../lib/requestPaymentTypes'
+import { reportRulePaymentTypeOptions } from '../../../lib/requestPaymentTypes'
 import { REPORT_RULES_FORMS } from './reportRulesForms'
 import {
   INVEST_BUCKET_OPTIONS,
@@ -300,7 +300,7 @@ export function ReportRulesForm({ report, onSaved }: Props) {
             update({ requestPaymentTypes: types })
             void refetchPurposePool(types)
           }}
-          options={requestPaymentTypeSelectOptions()}
+          options={reportRulePaymentTypeOptions(values.requestPaymentTypes)}
         />
       </div>
 
