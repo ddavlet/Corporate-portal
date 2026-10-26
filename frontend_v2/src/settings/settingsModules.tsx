@@ -1,4 +1,4 @@
-import { BarChartOutlined, BankOutlined, CheckSquareOutlined, DollarOutlined, FileTextOutlined, MessageOutlined, SettingOutlined, ShopOutlined, TeamOutlined } from '@ant-design/icons'
+import { BarChartOutlined, BankOutlined, CheckSquareOutlined, DollarOutlined, FileTextOutlined, LineChartOutlined, MessageOutlined, SettingOutlined, ShopOutlined, TeamOutlined } from '@ant-design/icons'
 import type { ReactNode } from 'react'
 
 export type SettingsModuleItem = {
@@ -144,6 +144,14 @@ export const SETTINGS_MODULES: SettingsModuleItem[] = [
     description: 'Ответственный получает Telegram-уведомление перед каждой плановой выплатой и может создать заявку в один клик.',
     path: '/settings/investment-notification-config',
     icon: <FileTextOutlined />,
+    group: 'investments',
+  },
+  {
+    key: 'investments-report',
+    title: 'Отчёт для инвесторов',
+    description: 'Еженедельный отчёт в Telegram-группу: вложено, выплачено, доходность и план. Предпросмотр и пробная отправка.',
+    path: '/settings/investment-report',
+    icon: <LineChartOutlined />,
     group: 'investments',
   },
   {
