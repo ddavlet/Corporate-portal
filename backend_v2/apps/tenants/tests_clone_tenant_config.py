@@ -35,6 +35,7 @@ from apps.modules.requests.models import (
     RequestPaymentPurposeConfig,
 )
 from apps.modules.telegram_approvals.models import TenantTelegramChat
+from apps.modules.wallets.models import CashRegister, Wallet
 from apps.tenants.config_clone import clone_tenant_config
 from apps.tenants.models import Tenant, TenantMembership, TenantModuleConfig, TenantUserRole
 
@@ -226,3 +227,49 @@ class CloneTenantConfigTests(TestCase):
         self.assertIn("Модуль requests включён", out.getvalue())
         self.assertIn("Dry run complete", out.getvalue())
         self.assertFalse(Tenant.objects.filter(subdomain="clone-new").exists())
+
+
+class CloneCashRegistersTests(TestCase):
+    def setUp(self):
+        self.source = Tenant.objects.create(name="Club Havo", subdomain="clone-src", is_active=True)
+        for name, currency, code, default, balance in (
+            ("Сейф (UZS)", "UZS", "1", True, 17590000),
+            ("Основная (USD)", "USD", "", True, 264420),
+        ):
+            reg = CashRegister.objects.create(
+                tenant=self.source, name=name, currency=currency, code=code, is_default_for_currency=default,
+            )
+            Wallet.objects.create(
+                tenant=self.source, wallet_type=Wallet.Type.CASH, currency=currency, cash_register=reg,
+                opening_balance=balance, is_visible_in_cash_section=currency == "UZS",
+            )
+
+    def _clone(self):
+        return clone_tenant_config(
+            source=self.source, target_subdomain="clone-new", target_name="Club NEW",
+            with_members=False, apply_changes=True,
+        )
+
+    def test_registers_are_copied_with_zero_opening_balance(self):
+        self._clone()
+        target = Tenant.objects.get(subdomain="clone-new")
+
+        self.assertEqual(
+            set(CashRegister.objects.filter(tenant=target).values_list("name", "currency", "code", "is_default_for_currency")),
+            {("Сейф (UZS)", "UZS", "1", True), ("Основная (USD)", "USD", "", True)},
+        )
+        wallets = Wallet.objects.filter(tenant=target, wallet_type=Wallet.Type.CASH).select_related("cash_register")
+        self.assertEqual(wallets.count(), 2)
+        self.assertTrue(all(w.opening_balance == 0 and w.cash_register.tenant_id == target.pk for w in wallets))
+        self.assertEqual(
+            {w.currency: w.is_visible_in_cash_section for w in wallets}, {"UZS": True, "USD": False},
+        )
+
+    def test_rerun_and_own_registers_are_left_alone(self):
+        target = Tenant.objects.create(name="Club NEW", subdomain="clone-new", is_active=True)
+        CashRegister.objects.create(tenant=target, name="Своя касса", currency="UZS")
+
+        report = self._clone()
+
+        self.assertEqual(list(CashRegister.objects.filter(tenant=target).values_list("name", flat=True)), ["Своя касса"])
+        self.assertFalse(any("Касса" in line for line in report.changes))
