@@ -51,7 +51,8 @@ INSERT INTO mcp_hidden_columns (tbl, col) VALUES
     ('tenant_integration_configs', 'request_ai_chat_webhook_url'),
     ('mcp_service_credential', 'key_hash'),
     ('mcp_oauth_client', 'client_secret'),
-    ('invest_payout_schedule_share_links', 'token');
+    ('invest_payout_schedule_share_links', 'token'),
+    ('kapitalbank_kapitalbankconnection', 'password_enc');
 
 -- Table-level REVOKE also drops any column-level grants left from a previous run.
 SELECT format('REVOKE SELECT ON TABLE %I FROM %I', t.tbl, :'mcp_user')
