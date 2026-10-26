@@ -65,7 +65,7 @@ def vendor_items(expense_items: list[dict]) -> list[dict]:
             {
                 "kind": "transfer",
                 "name": item["account_name"],
-                "inn": _inn(item["inn"]) if item["inn"] != 0 else 0,
+                "inn": item["inn"],
                 "account_no": account_no,
             }
         )
