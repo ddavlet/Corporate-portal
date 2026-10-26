@@ -32,7 +32,9 @@ function renderTab() {
 }
 
 describe('InvestmentsTab funding mode', () => {
-  beforeEach(() => getInvestmentFundingConfigMock.mockReset())
+  beforeEach(() => {
+    getInvestmentFundingConfigMock.mockReset()
+  })
 
   it('hides manual creation and shows "Собрать по заявкам" when the mode is on', async () => {
     getInvestmentFundingConfigMock.mockResolvedValue({ is_enabled: true })

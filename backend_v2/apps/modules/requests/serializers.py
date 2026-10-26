@@ -225,15 +225,17 @@ class PortalRequestSerializer(serializers.ModelSerializer):
         if payment_type is None and self.instance is not None:
             payment_type = self.instance.payment_type
 
-        policy = get_payment_type_policy(payment_type) if payment_type else None
-        if policy is not None:
+        if payment_type:
             type_changed = self.instance is None or (
                 "payment_type" in attrs and attrs["payment_type"] != self.instance.payment_type
             )
+            # Доступность проверяется и без политики: инвест-типы без политики закрыты по умолчанию.
             if type_changed and not is_payment_type_available(tenant=tenant, payment_type=payment_type):
                 raise serializers.ValidationError(
                     {"payment_type": "Тип заявки недоступен: инвестиционный режим выключен."}
                 )
+        policy = get_payment_type_policy(payment_type) if payment_type else None
+        if policy is not None:
             attrs = policy.normalize_attrs(tenant=tenant, attrs=attrs, instance=self.instance)
 
         requester = attrs.get("requester")
