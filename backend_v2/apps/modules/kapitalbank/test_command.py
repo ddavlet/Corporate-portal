@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, timedelta
 from io import StringIO
 from pathlib import Path
 from unittest import mock
@@ -21,16 +21,45 @@ def _call(*args):
 
 class ImportKapitalbankStatementsCommandTests(SimpleTestCase):
     def test_manual_requires_tenant_and_dates(self):
-        with mock.patch(RUN) as run:
+        cases = {
+            "no tenant": ["--mode", "manual", "--date", "2026-10-20"],
+            "no dates": ["--mode", "manual", "--tenant", "kolberg"],
+            "from after to": ["--mode", "manual", "--tenant", "kolberg", "--from", "2026-10-22", "--to", "2026-10-20"],
+            "only from": ["--mode", "manual", "--tenant", "kolberg", "--from", "2026-10-22"],
+            "dates in daytime": ["--mode", "daytime", "--date", "2026-10-20"],
+            "dates in nightly": ["--mode", "nightly", "--from", "2026-10-20", "--to", "2026-10-21"],
+            "date and range": ["--mode", "manual", "--tenant", "kolberg", "--date", "2026-10-20",
+                               "--from", "2026-10-20", "--to", "2026-10-21"],
+            "invalid date": ["--mode", "manual", "--tenant", "kolberg", "--date", "20-10-2026"],
+            "invalid now": ["--mode", "daytime", "--now", "not-a-date"],
+        }
+        for name, args in cases.items():
+            with self.subTest(name), mock.patch(RUN) as run:
+                with self.assertRaises(CommandError):
+                    _call(*args)
+                run.assert_not_called()
+
+    def test_scheduled_modes_pass_no_days(self):
+        for mode in ("daytime", "nightly"):
+            with self.subTest(mode), mock.patch(RUN, return_value=RunReport()) as run:
+                _call("--mode", mode)
+            kwargs = run.call_args.kwargs
+            self.assertEqual(kwargs["mode"], mode)
+            self.assertIsNone(kwargs["days"])
+            self.assertFalse(kwargs["dry_run"])
+
+    def test_manual_single_date(self):
+        with mock.patch(RUN, return_value=RunReport()) as run:
+            _call("--mode", "manual", "--tenant", "kolberg", "--date", "2026-10-20")
+        self.assertEqual(run.call_args.kwargs["days"], [date(2026, 10, 20)])
+
+    def test_manual_range_limit(self):
+        base = ["--mode", "manual", "--tenant", "kolberg", "--from", "2026-10-01"]
+        with mock.patch(RUN, return_value=RunReport()) as run:
+            _call(*base, "--to", "2026-10-31")
+            self.assertEqual(len(run.call_args.kwargs["days"]), 31)
             with self.assertRaises(CommandError):
-                _call("--mode", "manual", "--date", "2026-10-20")
-            with self.assertRaises(CommandError):
-                _call("--mode", "manual", "--tenant", "kolberg")
-            with self.assertRaises(CommandError):
-                _call("--mode", "manual", "--tenant", "kolberg", "--from", "2026-10-22", "--to", "2026-10-20")
-            with self.assertRaises(CommandError):
-                _call("--mode", "daytime", "--date", "2026-10-20")
-            run.assert_not_called()
+                _call(*base, "--to", "2026-11-01")
 
     def test_manual_range_passes_days(self):
         with mock.patch(RUN, return_value=RunReport()) as run:
@@ -54,8 +83,13 @@ class ImportKapitalbankStatementsCommandTests(SimpleTestCase):
                 }
             ]
         )
-        with mock.patch(RUN, return_value=report):
+        with mock.patch(RUN, return_value=report) as run:
             output = _call("--mode", "daytime", "--dry-run", "--now", "2026-10-20T10:00:00")
+        now = run.call_args.kwargs["now"]
+        self.assertTrue(run.call_args.kwargs["dry_run"])
+        self.assertIsNotNone(now.tzinfo)
+        self.assertEqual(now.utcoffset(), timedelta(hours=5))
+        self.assertEqual((now.hour, now.minute), (10, 0))
         self.assertIn("field_diffs", output)
         self.assertIn("kb-1", output)
 
