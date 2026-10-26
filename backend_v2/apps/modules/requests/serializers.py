@@ -28,7 +28,11 @@ from apps.modules.requests.models import (
     RequestCategory,
     AutoRequestTemplate,
 )
-from apps.modules.requests.payment_type_families import bank_like_payment_types, canonical_payment_type
+from apps.modules.requests.payment_type_families import (
+    INVEST_PAYMENT_TYPES,
+    bank_like_payment_types,
+    canonical_payment_type,
+)
 from apps.modules.requests.payment_type_policies import (
     check_request_mutation,
     get_payment_type_policy,
@@ -1273,10 +1277,13 @@ def validate_auto_template_against_form_config(*, tenant, item: dict) -> None:
     When tenant has request form config, auto-templates must follow the same rules as portal creates:
     enabled payment type, requester subset, vendor from allowed list / kind match, purpose from list when configured.
     """
+    payment_type = item["payment_type"]
+    if payment_type in INVEST_PAYMENT_TYPES:
+        # Инвест-заявки привязаны к инвестиционной кассе/счёту режима — по расписанию не создаются.
+        raise serializers.ValidationError(f"Тип оплаты «{payment_type}» нельзя использовать в автозаявках.")
     cfg = RequestFormConfig.objects.filter(tenant=tenant).first()
     if not cfg:
         return
-    payment_type = item["payment_type"]
     pt_cfg = RequestFormPaymentTypeConfig.objects.filter(config=cfg, payment_type=payment_type).first()
     if not pt_cfg or not pt_cfg.is_enabled:
         raise serializers.ValidationError(

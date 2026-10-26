@@ -14,12 +14,15 @@ from apps.modules.investments.models import (
     InvestCompany,
     InvestmentApprovalConfigStep,
     InvestmentFundingConfig,
+    InvestmentProjectApprovalConfig,
     ProjectInvestment,
     ProjectInvestmentApproval,
     ProjectInvestmentRequestLink,
 )
 from apps.modules.requests import payment_type_policies as registry
 from apps.modules.requests.models import (
+    Approval,
+    AutoRequestTemplate,
     Request,
     RequestComment,
     RequestFormConfig,
@@ -347,6 +350,55 @@ class InvestmentFundingModeTests(_FundingModeTestBase):
         self.assertIn("Удаление запрещено вложением", str(res.data))
         self.assertTrue(Request.objects.filter(pk=obj.pk).exists())
 
+    def test_mode_stays_editable_after_approval_chain_disabled(self):
+        self._enable_mode()
+        InvestmentProjectApprovalConfig.objects.filter(tenant=self.tenant).update(is_enabled=False)
+
+        # Режим уже включён: смена кассы не требует цепочки согласования.
+        res = self._put_funding(is_enabled=True, cash_wallet_id=self.other_cash_wallet.id)
+        self.assertEqual(res.status_code, 200, res.data)
+        self.assertFalse(res.data["has_project_approval_chain"])
+        cfg = InvestmentFundingConfig.objects.get(tenant=self.tenant)
+        self.assertEqual(cfg.cash_wallet_id, self.other_cash_wallet.id)
+
+        res = self.client.put(FUNDING_URL, {"is_enabled": False}, format="json", HTTP_HOST=self.host)
+        self.assertEqual(res.status_code, 200, res.data)
+        self.assertFalse(InvestmentFundingConfig.objects.get(tenant=self.tenant).is_enabled)
+
+        # Повторное включение без цепочки — снова запрещено.
+        res = self._put_funding()
+        self.assertEqual(res.status_code, 400)
+        self.assertEqual(res.data["detail"], "Сначала настройте согласование заявок на вложение.")
+
+    def test_funding_config_put_admin_only(self):
+        investor = User.objects.create_user(username="fund_investor", password="x")
+        TenantMembership.objects.create(tenant=self.tenant, user=investor, is_active=True)
+        TenantUserRole.objects.create(tenant=self.tenant, user=investor, role=TenantUserRole.ROLE_INVESTOR)
+        self._setup_chain()
+        self.client.force_authenticate(investor)
+
+        res = self.client.get(FUNDING_URL, HTTP_HOST=self.host)
+        self.assertEqual(res.status_code, 200, res.data)
+
+        res = self._put_funding()
+        self.assertEqual(res.status_code, 403)
+        self.assertFalse(InvestmentFundingConfig.objects.filter(tenant=self.tenant, is_enabled=True).exists())
+
+    def test_auto_request_template_rejects_invest_types(self):
+        self._enable_mode()
+        for payment_type in (INV_CASH, INV_TRANSFER):
+            payload = {
+                "templates": [
+                    {"payment_type": payment_type, "day_of_month": 5, "requester_id": self.admin.id}
+                ]
+            }
+            res = self.client.put("/api/requests/auto-config/", payload, format="json", HTTP_HOST=self.host)
+            self.assertEqual(res.status_code, 400, res.data)
+            self.assertEqual(
+                res.data["detail"], f"Шаблон 1: Тип оплаты «{payment_type}» нельзя использовать в автозаявках."
+            )
+        self.assertFalse(AutoRequestTemplate.objects.filter(tenant=self.tenant).exists())
+
 
 POOL_URL = "/api/investments/project-investments/funding-pool/"
 COLLECT_URL = "/api/investments/project-investments/from-requests/"
@@ -562,6 +614,62 @@ class InvestmentFundingCollectTests(_FundingModeTestBase):
         self.assertEqual(res.status_code, 400)
         self.assertIn("входит в заявку на вложение №", str(res.data))
         self.assertTrue(Request.objects.filter(pk=req.pk).exists())
+
+    def _pending_payment_approval(self, req):
+        return Approval.objects.create(
+            request=req,
+            approver_user=self.admin,
+            approver_recipient_id="255001",
+            approver_external_user_id=277001,
+            step=1,
+            step_type=Approval.STEP_TYPE_PAYMENT,
+            decision=Approval.DECISION_PENDING,
+        )
+
+    def test_collected_request_rejection_on_payment_step_blocked_in_portal(self):
+        self._enable_mode()
+        req = self._make_request(INV_CASH, amount="10")
+        approval = self._pending_payment_approval(req)
+        inv_id = self._collect_ok("cash", [req])[0]["id"]
+
+        res = self.client.post(
+            f"/api/requests/{req.id}/approvals/decision/",
+            {"step": 1, "decision": "rejected"},
+            format="json",
+            HTTP_HOST=self.host,
+        )
+        self.assertEqual(res.status_code, 400, res.data)
+        self.assertIn(f"входит в заявку на вложение №{inv_id}", str(res.data))
+        req.refresh_from_db()
+        self.assertEqual(req.status, Request.STATUS_APPROVED)
+        approval.refresh_from_db()
+        self.assertEqual(approval.decision, Approval.DECISION_PENDING)
+
+    def test_collected_request_rejection_via_telegram_callback_blocked(self):
+        self._enable_mode()
+        req = self._make_request(INV_CASH, amount="10")
+        approval = self._pending_payment_approval(req)
+        inv_id = self._collect_ok("cash", [req])[0]["id"]
+
+        self.client.force_authenticate(None)
+        res = self.client.post(
+            "/api/messaging-gateway/webhook/",
+            {
+                "event": "interaction",
+                "payload": f"v2_{approval.id}:r",
+                "user_id": "277001",
+                "recipient_id": "255001",
+                "platform": "telegram",
+            },
+            format="json",
+            HTTP_HOST=self.host,
+        )
+        self.assertEqual(res.status_code, 400, res.content)
+        self.assertIn(f"входит в заявку на вложение №{inv_id}", str(res.data))
+        req.refresh_from_db()
+        self.assertEqual(req.status, Request.STATUS_APPROVED)
+        approval.refresh_from_db()
+        self.assertEqual(approval.decision, Approval.DECISION_PENDING)
 
     def test_collected_investment_amount_locked(self):
         self._enable_mode()
@@ -790,3 +898,48 @@ class InvestmentFundingRevenueTests(_FundingModeTestBase):
         inv.save()
         self.assertTrue(ProjectInvestment.objects.get(pk=inv.id).confirmed)
         self.assertFalse(CashRevenue.objects.filter(tenant=self.tenant).exists())
+
+    def test_no_revenue_on_resave_of_investment_confirmed_while_mode_off(self):
+        inv = ProjectInvestment.objects.create(
+            tenant=self.tenant,
+            date=date(2026, 3, 1),
+            amount=Decimal("10"),
+            currency="UZS",
+            funding_method=ProjectInvestment.FundingMethod.CASH,
+            created_by=self.admin,
+        )
+        inv.confirmed = True
+        inv.save()
+        self._enable_mode()
+
+        res = self.client.patch(
+            f"{INVESTMENTS_URL}{inv.pk}/", {"comment": "уточнение"}, format="json", HTTP_HOST=self.host
+        )
+        self.assertEqual(res.status_code, 200, res.data)
+        ProjectInvestment.objects.get(pk=inv.pk).save()
+        self.assertFalse(CashRevenue.objects.filter(tenant=self.tenant).exists())
+
+    def test_no_revenue_for_investment_created_confirmed(self):
+        self._enable_mode()
+        inv = ProjectInvestment.objects.create(
+            tenant=self.tenant,
+            date=date(2026, 3, 1),
+            amount=Decimal("10"),
+            currency="UZS",
+            funding_method=ProjectInvestment.FundingMethod.CASH,
+            confirmed=True,
+            created_by=self.admin,
+        )
+        inv.comment = "пересохранение"
+        inv.save()
+        self.assertFalse(CashRevenue.objects.filter(tenant=self.tenant).exists())
+
+    def test_confirmed_collected_investment_cannot_be_deleted(self):
+        self._enable_mode()
+        inv_id = self._collect_and_approve("bank_transfer", INV_TRANSFER)
+        self.assertFalse(CashRevenue.objects.filter(tenant=self.tenant).exists())
+
+        res = self.client.delete(f"{INVESTMENTS_URL}{inv_id}/", HTTP_HOST=self.host)
+        self.assertEqual(res.status_code, 400)
+        self.assertEqual(res.data["detail"], "Подтверждённое вложение по заявкам удалить нельзя.")
+        self.assertTrue(ProjectInvestment.objects.filter(pk=inv_id).exists())

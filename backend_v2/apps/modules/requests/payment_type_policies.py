@@ -10,6 +10,7 @@ from typing import Callable, Protocol
 from rest_framework.exceptions import ValidationError
 
 from apps.modules.requests.models import Request
+from apps.modules.requests.payment_type_families import INVEST_PAYMENT_TYPES
 
 
 class PaymentTypePolicy(Protocol):
@@ -41,7 +42,9 @@ def get_payment_type_policy(payment_type: str) -> PaymentTypePolicy | None:
 def is_payment_type_available(*, tenant, payment_type: str) -> bool:
     policy = _POLICIES.get(payment_type)
     if policy is None:
-        return True
+        # Инвест-типы закрыты по умолчанию: без политики (модуль investments не загрузил её)
+        # их нельзя выбрать. Остальные типы — без изменений.
+        return payment_type not in INVEST_PAYMENT_TYPES
     return bool(policy.is_available(tenant=tenant))
 
 

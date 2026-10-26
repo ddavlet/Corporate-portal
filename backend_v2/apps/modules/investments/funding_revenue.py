@@ -31,6 +31,7 @@ def _revenue_author(project_investment: ProjectInvestment):
 def ensure_investor_cash_revenue(*, project_investment: ProjectInvestment) -> CashRevenue | None:
     """Создаёт (один раз) приход в инвестиционную кассу для подтверждённого вложения «наличными».
 
+    Вызывается из post_save только на переходе confirmed False→True (см. signals.py).
     Возвращает None, если вложение не подтверждено, не наличное или режим выключен.
     """
     if not project_investment.confirmed or project_investment.funding_method != ProjectInvestment.FundingMethod.CASH:

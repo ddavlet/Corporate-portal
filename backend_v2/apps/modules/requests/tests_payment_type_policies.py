@@ -145,3 +145,23 @@ class PaymentTypePolicyRegistryTests(APITestCase):
         types = [p["payment_type"] for p in res.data["payment_types"]]
         self.assertNotIn(PT, types)
         self.assertIn("Наличные", types)
+
+    def test_invest_types_without_policy_are_unavailable(self):
+        # Реестр очищен в setUp: политик инвест-типов нет — типы закрыты по умолчанию.
+        self.assertFalse(registry.is_payment_type_available(tenant=self.tenant, payment_type=PT))
+        self.assertFalse(
+            registry.is_payment_type_available(
+                tenant=self.tenant, payment_type=Request.PAYMENT_TYPE_INVEST_TRANSFER
+            )
+        )
+        self.assertTrue(registry.is_payment_type_available(tenant=self.tenant, payment_type="Наличные"))
+
+        res = self.client.post("/api/requests/", self._payload(), format="json", HTTP_HOST=self.host)
+        self.assertEqual(res.status_code, 400)
+        self.assertIn("payment_type", res.data)
+
+        res = self.client.get("/api/requests/form-options/", HTTP_HOST=self.host)
+        self.assertEqual(res.status_code, 200)
+        types = [p["payment_type"] for p in res.data["payment_types"]]
+        self.assertNotIn(PT, types)
+        self.assertIn("Наличные", types)

@@ -90,7 +90,7 @@ from apps.common.query_params import parse_bool_query, parse_date_query
 from apps.common.viewsets import NoPortalPaginationMixin, PortalListViewSetMixin
 from apps.modules.telegram_approvals.services import ensure_callback_identity
 from apps.tenants.models import TenantMembership
-from apps.tenants.permissions import HasEffectiveModuleAccess, IsTenantAdminForRecordEdit
+from apps.tenants.permissions import HasEffectiveModuleAccess, IsTenantAdmin, IsTenantAdminForRecordEdit
 
 from apps.modules.investments.investor_report import (
     InvestorReportError,
@@ -291,6 +291,7 @@ MANUAL_INVESTMENT_FORBIDDEN_MESSAGE = (
     "Инвестиционный режим включён: заявки на вложение создаются только через «Собрать по заявкам»."
 )
 INVESTMENT_WITH_CASH_REVENUE_DELETE_MESSAGE = "По вложению уже создан приход в кассу — удалить нельзя."
+CONFIRMED_COLLECTED_INVESTMENT_DELETE_MESSAGE = "Подтверждённое вложение по заявкам удалить нельзя."
 
 
 def _funding_pool_group(requests_qs) -> dict:
@@ -323,6 +324,10 @@ class ProjectInvestmentViewSet(_EditableInvestmentsTenantViewSet):
         # Иначе заявки вернутся в пул, и повторный сбор даст второй приход в кассу.
         if investment_has_cash_revenue(instance):
             raise ValidationError({"detail": INVESTMENT_WITH_CASH_REVENUE_DELETE_MESSAGE})
+        # Подтверждённое вложение по заявкам (любой способ внесения) — факт внесения денег:
+        # удаление вернуло бы оплаченные заявки в пул.
+        if instance.confirmed and instance.request_links.exists():
+            raise ValidationError({"detail": CONFIRMED_COLLECTED_INVESTMENT_DELETE_MESSAGE})
         super().perform_destroy(instance)
 
     def _require_funding_mode(self):
@@ -497,6 +502,13 @@ class InvestmentFundingConfigView(APIView):
     permission_classes = [IsAuthenticated, HasEffectiveModuleAccess]
     module_key = "investments"
 
+    def get_permissions(self):
+        permissions = super().get_permissions()
+        # Читают все с доступом к модулю; менять режим — только администратор тенанта.
+        if self.request is not None and self.request.method == "PUT":
+            permissions.append(IsTenantAdmin())
+        return permissions
+
     def _payload(self, tenant):
         cfg = InvestmentFundingConfig.objects.filter(tenant=tenant).select_related("cash_wallet").first()
         return {
@@ -518,7 +530,10 @@ class InvestmentFundingConfigView(APIView):
         serializer = InvestmentFundingConfigSerializer(data=request.data, context={"tenant": tenant})
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
-        if data["is_enabled"] and not has_active_project_approval_chain(tenant):
+        # Цепочка согласования обязательна только для включения режима (выкл→вкл); сохранение уже
+        # включённого режима и выключение не блокируются, даже если цепочку отключили позже.
+        stored_enabled = InvestmentFundingConfig.objects.filter(tenant=tenant, is_enabled=True).exists()
+        if data["is_enabled"] and not stored_enabled and not has_active_project_approval_chain(tenant):
             raise ValidationError({"detail": "Сначала настройте согласование заявок на вложение."})
         apply_funding_config(
             tenant=tenant,
