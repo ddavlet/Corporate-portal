@@ -117,8 +117,10 @@ def _has_outstanding_remainder(schedule) -> bool:
 def _amount_in_schedule_currency(*, sum_val, currency: str, schedule_currency: str, payout_date) -> Decimal:
     """``sum_val`` in ``currency`` expressed in ``schedule_currency``.
 
-    Same currency → as is; USD↔UZS → CBU rate on the payout date (the same archive the
-    reports use). Raises ``CbuRateFetchError`` for a missing rate or an unsupported pair.
+    Same currency → as is; USD↔UZS → CBU rate from the archive (the same one the reports use):
+    on the payout date, else the nearest earlier one — never the network, so a request or a
+    cron reminder doesn't wait for cbu.uz. Raises ``CbuRateFetchError`` for an empty archive
+    or an unsupported pair.
     """
     source = str(currency or "USD").strip().upper()
     target = str(schedule_currency or "USD").strip().upper()

@@ -6,11 +6,15 @@ Only reads the ORM. The text lives in investor_report_formatter, sending in inve
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import date
 from decimal import Decimal
 
-from apps.modules.investments.services import usd_uzs_rate_on_or_before
+from apps.modules.investments.services import (
+    clamp_rate_date_to_cbu_availability,
+    latest_archived_cbu_rate_date,
+    usd_uzs_rate_and_date_on_or_before,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -85,6 +89,9 @@ class InvestorReport:
     target_annual_rate: Decimal | None = None
     planned: Decimal | None = None
     last_payouts: tuple[Payout, ...] = field(default_factory=tuple)
+    # (date whose CBU rate is not loaded yet, date of the rate used instead) — for the latest
+    # such UZS row; None when every UZS row was converted at its own date's rate.
+    preliminary_rate: tuple[date, date] | None = None
 
     @property
     def has_yield(self) -> bool:
@@ -177,12 +184,36 @@ def compute_investor_report(
     )
 
 
-def _to_usd(*, amount: Decimal, currency: str, on_date: date, rate_cache: dict, what: str) -> Decimal:
+class _PreliminaryRate:
+    """The latest UZS row whose date is past the newest archived CBU rate (not loaded yet)."""
+
+    def __init__(self, rate_cache: dict):
+        self._rate_cache = rate_cache
+        self.value: tuple[date, date] | None = None
+
+    def note(self, *, rate_date: date, used_date: date) -> None:
+        # Only dates after the newest archived rate are «not loaded yet»: those get filled by
+        # backend_cron within the hour. Older holes in the archive (rows before it started,
+        # dates never backfilled) keep the old behaviour — the reference texts depend on it.
+        latest = latest_archived_cbu_rate_date(cache=self._rate_cache)
+        if latest is None or rate_date <= latest or used_date == rate_date:
+            return
+        if self.value is None or rate_date > self.value[0]:
+            self.value = (rate_date, used_date)
+
+
+def _to_usd(
+    *, amount: Decimal, currency: str, on_date: date, rate_cache: dict, what: str,
+    preliminary: _PreliminaryRate | None = None,
+) -> Decimal:
     cur = str(currency or "").strip().upper()
     if cur == "UZS":
-        rate = usd_uzs_rate_on_or_before(on_date, cache=rate_cache)
-        if rate is None:
+        found = usd_uzs_rate_and_date_on_or_before(on_date, cache=rate_cache)
+        if found is None:
             raise InvestorReportError("Нет курса ЦБ в архиве: суммы в UZS не перевести в USD.")
+        rate, used_date = found
+        if preliminary is not None:
+            preliminary.note(rate_date=clamp_rate_date_to_cbu_availability(requested=on_date), used_date=used_date)
         return Decimal(amount) / rate
     if cur != "USD":
         logger.warning("investor_report: %s in %r counted as USD", what, currency)
@@ -195,13 +226,14 @@ def build_investor_report(*, tenant, today: date, config) -> InvestorReport:
 
     settings = config if isinstance(config, ReportSettings) else ReportSettings.from_config(config)
     rate_cache: dict = {}
+    preliminary = _PreliminaryRate(rate_cache)
 
     investments = [
         ReportRow(
             date=row["date"],
             usd=_to_usd(
                 amount=row["amount"], currency=row["currency"], on_date=row["date"], rate_cache=rate_cache,
-                what=f"project_investment {row['id']}",
+                what=f"project_investment {row['id']}", preliminary=preliminary,
             ),
             confirmed=row["confirmed"],
         )
@@ -217,7 +249,7 @@ def build_investor_report(*, tenant, today: date, config) -> InvestorReport:
             billing_date=row["billing_date"],
             usd=_to_usd(
                 amount=row["sum"], currency=row["currency"], on_date=row["date"], rate_cache=rate_cache,
-                what=f"invest_return {row['id']}",
+                what=f"invest_return {row['id']}", preliminary=preliminary,
             ),
             confirmed=row["confirmed"],
             type=row["type"] or "",
@@ -226,7 +258,10 @@ def build_investor_report(*, tenant, today: date, config) -> InvestorReport:
         .order_by("billing_date", "date", "-id")
         .values("id", "date", "billing_date", "sum", "currency", "confirmed", "type")
     ]
-    return compute_investor_report(today=today, investments=investments, returns=returns, settings=settings)
+    report = compute_investor_report(today=today, investments=investments, returns=returns, settings=settings)
+    if preliminary.value is not None:
+        report = replace(report, preliminary_rate=preliminary.value)
+    return report
 
 
 def _dec(value: Decimal | None) -> str | None:
@@ -251,6 +286,11 @@ def report_metrics(report: InvestorReport) -> dict:
         "skipped_month": report.skipped_month,
         "target_annual_rate": _dec(report.target_annual_rate),
         "planned": _dec(report.planned),
+        "preliminary_rate": (
+            {"date": report.preliminary_rate[0].isoformat(), "rate_date": report.preliminary_rate[1].isoformat()}
+            if report.preliminary_rate is not None
+            else None
+        ),
         "gap": _dec(report.gap),
         "last_payouts": [
             {

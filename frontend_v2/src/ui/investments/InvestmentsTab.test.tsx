@@ -2,7 +2,9 @@ import { render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
+import type { ProjectInvestmentRow } from '../../lib/api'
 import { InvestmentsTab } from './InvestmentsTab'
+import { asMoney } from './utils'
 
 const getInvestmentFundingConfigMock = vi.fn()
 
@@ -15,12 +17,12 @@ vi.mock('../../lib/api', () => ({
 
 vi.mock('../admin/AdminEditRecordButton', () => ({ AdminEditRecordButton: () => null }))
 
-function renderTab() {
+function renderTab(rows: ProjectInvestmentRow[] = []) {
   return render(
     <MemoryRouter>
       <InvestmentsTab
         loading={false}
-        rows={[]}
+        rows={rows}
         companies={[]}
         companyLabel={() => '-'}
         companyFilter="all"
@@ -56,5 +58,57 @@ describe('InvestmentsTab funding mode', () => {
     renderTab()
     expect(await screen.findByRole('button', { name: 'Подать заявку на вложение' })).toBeTruthy()
     expect(screen.queryByRole('button', { name: 'Собрать по заявкам' })).toBeNull()
+  })
+})
+
+function row(id: number, confirmed: boolean, sumUsd: number, sumUzs: number): ProjectInvestmentRow {
+  return {
+    id,
+    company: null,
+    date: '2026-10-20',
+    amount: String(sumUzs),
+    currency: 'UZS',
+    sum_usd: String(sumUsd),
+    sum_uzs: String(sumUzs),
+    comment: '',
+    confirmed,
+    created_at: '2026-10-20T10:00:00Z',
+  }
+}
+
+describe('InvestmentsTab totals', () => {
+  beforeEach(() => {
+    getInvestmentFundingConfigMock.mockReset()
+    getInvestmentFundingConfigMock.mockResolvedValue({ is_enabled: false })
+  })
+
+  it('shows confirmed and unconfirmed totals separately', async () => {
+    renderTab([row(1, true, 100, 1200000), row(2, true, 50, 600000), row(3, false, 10, 120000)])
+
+    const confirmedUsd = await screen.findByText('Подтверждено, USD')
+    expect(confirmedUsd.parentElement?.textContent).toContain(asMoney(150))
+    expect(screen.getByText('Подтверждено, UZS').parentElement?.textContent).toContain(asMoney(1800000))
+    expect(screen.getByText('Не подтверждено, USD').parentElement?.textContent).toContain(asMoney(10))
+    expect(screen.getByText('Не подтверждено, UZS').parentElement?.textContent).toContain(asMoney(120000))
+    expect(screen.queryByText('Не учтено в сумме')).toBeNull()
+  })
+
+  it('shows no CBU rate warning when every row uses the rate on its date', async () => {
+    renderTab([{ ...row(1, true, 100, 1200000), rate_date: '2026-10-20' }])
+    await screen.findByText('Подтверждено, USD')
+    expect(screen.queryByText(/Курс ЦБ может быть неактуален/)).toBeNull()
+  })
+
+  it('warns above the totals when a row was converted at an earlier CBU rate', async () => {
+    renderTab([
+      { ...row(1, true, 100, 1200000), rate_date: '2026-10-20' },
+      { ...row(2, false, 10, 120000), date: '2026-10-24', rate_date: '2026-10-22' },
+    ])
+    expect(
+      await screen.findByText(
+        'Курс ЦБ может быть неактуален: нет связи с источником. ' +
+          'Суммы в USD/UZS посчитаны по последнему загруженному курсу (на 22.10.2026).',
+      ),
+    ).toBeTruthy()
   })
 })

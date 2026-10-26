@@ -1,3 +1,4 @@
+from datetime import date
 from decimal import Decimal, ROUND_HALF_UP
 
 from rest_framework import serializers
@@ -27,16 +28,16 @@ from apps.modules.investments.models import (
 )
 from apps.modules.requests.serializers import _display_user_name
 from apps.modules.investments.services import (
-    CbuRateFetchError,
+    CBU_ARCHIVE_EMPTY_MESSAGE,
     clamp_rate_date_to_cbu_availability,
-    get_or_fetch_usd_uzs_rate,
-    usd_uzs_equivalents_for_read,
+    usd_uzs_equivalents_with_rate_date_for_read,
+    usd_uzs_rate_on_or_before,
 )
 from apps.modules.serializers_guard import reject_client_pk_on_create
 
 
 def _cbu_rate_memo(serializer) -> dict:
-    """Общий на запрос словарь для usd_uzs_equivalents_for_read (context разделяют все строки списка)."""
+    """Общий на запрос словарь для курсов из архива ЦБ (context разделяют все строки списка)."""
     context = serializer.context
     if not isinstance(context, dict):
         return {}
@@ -77,10 +78,13 @@ class InvestReturnSerializer(_CompanyScopeMixin, serializers.ModelSerializer):
     """
     ``sum_usd``/``sum_uzs`` — не хранятся в БД, а считаются на лету из ``sum``/``currency``
     и курса ЦБ на дату выплаты (CbuExchangeRate — единая точка правды, см. investments.services).
+    ``rate_date`` — дата курса, по которому посчитаны эквиваленты: если курс на дату выплаты ещё
+    не загружен, берётся ближайший предыдущий и ``rate_date`` отличается от ``date``.
     """
 
     sum_usd = serializers.SerializerMethodField()
     sum_uzs = serializers.SerializerMethodField()
+    rate_date = serializers.SerializerMethodField()
 
     class Meta:
         model = InvestReturn
@@ -94,6 +98,7 @@ class InvestReturnSerializer(_CompanyScopeMixin, serializers.ModelSerializer):
             "sum",
             "sum_usd",
             "sum_uzs",
+            "rate_date",
             "comment",
             "confirmed",
             "currency",
@@ -112,11 +117,11 @@ class InvestReturnSerializer(_CompanyScopeMixin, serializers.ModelSerializer):
             "created_by",
         ]
 
-    def _equivalents(self, obj) -> tuple[Decimal | None, Decimal | None]:
+    def _equivalents(self, obj) -> tuple[Decimal | None, Decimal | None, date | None]:
         cached = getattr(obj, "_usd_uzs_equivalents_cache", None)
         if cached is None:
             rate_date = clamp_rate_date_to_cbu_availability(requested=obj.date)
-            cached = usd_uzs_equivalents_for_read(
+            cached = usd_uzs_equivalents_with_rate_date_for_read(
                 sum_val=obj.sum, currency=obj.currency, rate_date=rate_date, memo=_cbu_rate_memo(self)
             )
             obj._usd_uzs_equivalents_cache = cached
@@ -127,6 +132,17 @@ class InvestReturnSerializer(_CompanyScopeMixin, serializers.ModelSerializer):
 
     def get_sum_uzs(self, obj):
         return self._equivalents(obj)[1]
+
+    def get_rate_date(self, obj) -> str | None:
+        used = self._equivalents(obj)[2]
+        return used.isoformat() if used is not None else None
+
+    @staticmethod
+    def _require_cbu_archive(effective_date) -> None:
+        """Суммы считаются по архиву курсов (без сети): пустой архив — понятная ошибка, не 500."""
+        rate_date = clamp_rate_date_to_cbu_availability(requested=effective_date)
+        if usd_uzs_rate_on_or_before(rate_date) is None:
+            raise serializers.ValidationError({"detail": CBU_ARCHIVE_EMPTY_MESSAGE})
 
     def validate(self, attrs):
         reject_client_pk_on_create(self)
@@ -173,22 +189,13 @@ class InvestReturnSerializer(_CompanyScopeMixin, serializers.ModelSerializer):
         return investment_form_clear_company_if_disabled(attrs, self.context.get("request"))
 
     def create(self, validated_data):
-        rate_date = clamp_rate_date_to_cbu_availability(requested=validated_data["date"])
-        try:
-            get_or_fetch_usd_uzs_rate(rate_date=rate_date)
-        except CbuRateFetchError as exc:
-            raise serializers.ValidationError({"detail": str(exc)}) from exc
+        self._require_cbu_archive(validated_data["date"])
         validated_data["sum"] = Decimal(str(validated_data["sum"])).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
         return super().create(validated_data)
 
     def update(self, instance, validated_data):
         if "sum" in validated_data or "currency" in validated_data:
-            effective_date = validated_data.get("date", instance.date)
-            rate_date = clamp_rate_date_to_cbu_availability(requested=effective_date)
-            try:
-                get_or_fetch_usd_uzs_rate(rate_date=rate_date)
-            except CbuRateFetchError as exc:
-                raise serializers.ValidationError({"detail": str(exc)}) from exc
+            self._require_cbu_archive(validated_data.get("date", instance.date))
             if "sum" in validated_data:
                 validated_data["sum"] = Decimal(str(validated_data["sum"])).quantize(
                     Decimal("0.01"), rounding=ROUND_HALF_UP
@@ -342,24 +349,27 @@ class ProjectInvestmentWithEquivalentsSerializer(ProjectInvestmentSerializer):
     Заявка на вложение + ``sum_usd``/``sum_uzs`` — эквиваленты ``amount`` по курсу ЦБ на дату заявки
     (как у InvestReturnSerializer), чтобы UI мог показать общий итог без деления по валютам.
     Для валют кроме USD/UZS (EUR) кросс-курса в архиве нет — эквиваленты ``None``.
+    ``rate_date`` — дата курса ЦБ, по которому посчитаны эквиваленты (None — эквивалентов нет);
+    отличается от ``date``, если курс на дату ещё не загружен и взят ближайший предыдущий.
     """
 
     sum_usd = serializers.SerializerMethodField()
     sum_uzs = serializers.SerializerMethodField()
+    rate_date = serializers.SerializerMethodField()
 
     class Meta(ProjectInvestmentSerializer.Meta):
-        fields = ProjectInvestmentSerializer.Meta.fields + ["sum_usd", "sum_uzs"]
+        fields = ProjectInvestmentSerializer.Meta.fields + ["sum_usd", "sum_uzs", "rate_date"]
 
-    def _equivalents(self, obj) -> tuple[Decimal | None, Decimal | None]:
+    def _equivalents(self, obj) -> tuple[Decimal | None, Decimal | None, date | None]:
         cached = getattr(obj, "_usd_uzs_equivalents_cache", None)
         if cached is None:
             if str(obj.currency or "").strip().upper() in ("USD", "UZS"):
                 rate_date = clamp_rate_date_to_cbu_availability(requested=obj.date)
-                cached = usd_uzs_equivalents_for_read(
+                cached = usd_uzs_equivalents_with_rate_date_for_read(
                     sum_val=obj.amount, currency=obj.currency, rate_date=rate_date, memo=_cbu_rate_memo(self)
                 )
             else:
-                cached = (None, None)
+                cached = (None, None, None)
             obj._usd_uzs_equivalents_cache = cached
         return cached
 
@@ -368,6 +378,10 @@ class ProjectInvestmentWithEquivalentsSerializer(ProjectInvestmentSerializer):
 
     def get_sum_uzs(self, obj):
         return self._equivalents(obj)[1]
+
+    def get_rate_date(self, obj) -> str | None:
+        used = self._equivalents(obj)[2]
+        return used.isoformat() if used is not None else None
 
 
 class FundingPoolRequestSerializer(serializers.ModelSerializer):

@@ -28,6 +28,7 @@ import { InvestmentRecordDetailModal } from './InvestmentRecordDetailModal'
 import { InvestmentFromRequestsModal } from './InvestmentFromRequestsModal'
 import { FUNDING_METHOD_LABELS, fundingMethodLabel, type FundingMethod } from './fundingPool'
 import { AdminEditRecordButton } from '../admin/AdminEditRecordButton'
+import { CbuRateAlert } from './CbuRateAlert'
 import { KpiStrip } from './KpiStrip'
 import {
   asMoney,
@@ -97,8 +98,9 @@ export function InvestmentsTab({
     return byDate.filter((r) => r.funding_method === methodFilter)
   }, [rows, companyFilter, dateRange, methodFilter])
 
-  // Общий итог по всем заявкам в USD и UZS (по курсу ЦБ на дату), а не разбивка по валютам заявок.
-  const totals = useMemo(() => totalsInBothCurrencies(filtered), [filtered])
+  // Итоги в USD и UZS (по курсу ЦБ на дату) отдельно по подтверждённым и неподтверждённым заявкам.
+  const confirmedTotals = useMemo(() => totalsInBothCurrencies(filtered.filter((r) => r.confirmed)), [filtered])
+  const pendingTotals = useMemo(() => totalsInBothCurrencies(filtered.filter((r) => !r.confirmed)), [filtered])
   const notConvertedCount = useMemo(
     () => filtered.filter((r) => r.sum_usd == null || r.sum_uzs == null).length,
     [filtered],
@@ -234,20 +236,23 @@ export function InvestmentsTab({
         )}
       </Space>
 
+      <CbuRateAlert rows={filtered} />
+
       <KpiStrip
-        totals={totals}
-        totalsLabel="Сумма по заявкам на вложение"
-        extra={
-          notConvertedCount > 0
+        totals={confirmedTotals}
+        totalsLabel="Подтверждено"
+        extra={[
+          ...pendingTotals.map((t) => ({ label: `Не подтверждено, ${t.currency}`, value: asMoney(t.total) })),
+          ...(notConvertedCount > 0
             ? [
                 {
                   label: 'Не учтено в сумме',
                   value: String(notConvertedCount),
-                  hint: 'Заявки без курса ЦБ на дату (например, в EUR)',
+                  hint: 'Заявки без пересчёта по курсу ЦБ (EUR или курсы ещё не загружены)',
                 },
               ]
-            : undefined
-        }
+            : []),
+        ]}
       />
 
       {loading ? (
