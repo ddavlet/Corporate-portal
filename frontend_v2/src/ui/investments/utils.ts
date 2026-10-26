@@ -1,5 +1,4 @@
 import type { InvestCompanyRow } from '../../lib/api'
-import { nowTashkent } from '../../lib/tashkentTime'
 
 export type CompanyFilter = 'all' | 'none' | number
 export type SchedulePaidFilter = 'all' | 'paid' | 'unpaid'
@@ -141,7 +140,13 @@ export function isoDate(d: Date): string {
 
 /** Сегодняшняя дата по Ташкенту в формате YYYY-MM-DD (так же бэкенд ограничивает дату курса ЦБ). */
 export function tashkentTodayIso(): string {
-  return nowTashkent().format('YYYY-MM-DD')
+  // Intl, а не dayjs.tz: плагин часовых поясов подключается только в main.tsx (в тестах его нет).
+  return new Intl.DateTimeFormat('en-CA', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    timeZone: 'Asia/Tashkent',
+  }).format(new Date())
 }
 
 /**
