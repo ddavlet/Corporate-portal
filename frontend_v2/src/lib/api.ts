@@ -1331,6 +1331,9 @@ export type ProjectInvestmentRow = {
   date: string
   amount: string | number
   currency: string
+  /** Эквиваленты amount по курсу ЦБ на дату заявки; null — курса нет (EUR или ЦБ недоступен). */
+  sum_usd?: string | number | null
+  sum_uzs?: string | number | null
   comment: string
   confirmed: boolean
   created_at: string

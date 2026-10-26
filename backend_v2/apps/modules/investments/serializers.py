@@ -257,6 +257,39 @@ class ProjectInvestmentSerializer(_CompanyScopeMixin, serializers.ModelSerialize
         return investment_form_clear_company_if_disabled(attrs, self.context.get("request"))
 
 
+class ProjectInvestmentWithEquivalentsSerializer(ProjectInvestmentSerializer):
+    """
+    Заявка на вложение + ``sum_usd``/``sum_uzs`` — эквиваленты ``amount`` по курсу ЦБ на дату заявки
+    (как у InvestReturnSerializer), чтобы UI мог показать общий итог без деления по валютам.
+    Для валют кроме USD/UZS (EUR) кросс-курса в архиве нет — эквиваленты ``None``.
+    """
+
+    sum_usd = serializers.SerializerMethodField()
+    sum_uzs = serializers.SerializerMethodField()
+
+    class Meta(ProjectInvestmentSerializer.Meta):
+        fields = ProjectInvestmentSerializer.Meta.fields + ["sum_usd", "sum_uzs"]
+
+    def _equivalents(self, obj) -> tuple[Decimal | None, Decimal | None]:
+        cached = getattr(obj, "_usd_uzs_equivalents_cache", None)
+        if cached is None:
+            if str(obj.currency or "").strip().upper() in ("USD", "UZS"):
+                rate_date = clamp_rate_date_to_cbu_availability(requested=obj.date)
+                cached = usd_uzs_equivalents_or_none(
+                    sum_val=obj.amount, currency=obj.currency, rate_date=rate_date
+                )
+            else:
+                cached = (None, None)
+            obj._usd_uzs_equivalents_cache = cached
+        return cached
+
+    def get_sum_usd(self, obj):
+        return self._equivalents(obj)[0]
+
+    def get_sum_uzs(self, obj):
+        return self._equivalents(obj)[1]
+
+
 class InvestCompanySerializer(serializers.ModelSerializer):
     class Meta:
         model = InvestCompany
