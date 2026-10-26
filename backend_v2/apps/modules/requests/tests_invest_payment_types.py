@@ -7,10 +7,13 @@ from django.utils import timezone
 from rest_framework.test import APITestCase
 
 from apps.common.test_utils import list_results
+from apps.modules.bank_expenses.models import BankExpense
+from apps.modules.cashier.models import CashExpense
 from apps.modules.requests.expense_refs import expense_ref_target_for
 from apps.modules.requests.models import Request
 from apps.modules.requests.payment_type_families import canonical_payment_type, expand_with_invest_types
 from apps.modules.requests.services import create_expense_for_request_payment
+from apps.modules.wallets.models import BankAccount, CashRegister, Wallet
 from apps.tenants.models import Tenant, TenantMembership, TenantModuleConfig, TenantUserRole
 
 User = get_user_model()
@@ -102,16 +105,14 @@ class InvestPayoutWalletTests(APITestCase):
         )
 
     def _bank_wallet(self, label, is_default):
-        from apps.modules.wallets.models import BankAccount, Wallet
-
-        account = BankAccount.objects.create(tenant=self.tenant, label=label, is_default=is_default)
+        account = BankAccount.objects.create(
+            tenant=self.tenant, label=label, account_no=f"acc-{label}", is_default=is_default
+        )
         return Wallet.objects.create(
             tenant=self.tenant, wallet_type=Wallet.Type.BANK, currency="UZS", bank_account=account
         )
 
     def test_invest_cash_payout_creates_cash_expense_in_wallet_ref(self):
-        from apps.modules.cashier.models import CashExpense
-        from apps.modules.wallets.models import CashRegister, Wallet
 
         CashRegister.objects.create(tenant=self.tenant, currency="UZS", name="Default", is_default_for_currency=True)
         other_register = CashRegister.objects.create(
@@ -130,7 +131,6 @@ class InvestPayoutWalletTests(APITestCase):
         self.assertEqual(req.expense_ref_target, "cash")
 
     def test_invest_transfer_payout_uses_request_bank_wallet(self):
-        from apps.modules.bank_expenses.models import BankExpense
 
         default_wallet = self._bank_wallet("Default", True)
         request_wallet = self._bank_wallet("Invest", False)
@@ -144,7 +144,6 @@ class InvestPayoutWalletTests(APITestCase):
         self.assertNotEqual(expense.wallet_id, default_wallet.id)
 
     def test_regular_transfer_payout_unchanged(self):
-        from apps.modules.bank_expenses.models import BankExpense
 
         default_wallet = self._bank_wallet("Default", True)
         req = self._request(Request.PAYMENT_TYPE_TRANSFER)
