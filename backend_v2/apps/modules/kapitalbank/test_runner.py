@@ -730,4 +730,4 @@ class RunnerTests(KapitalbankFixtures, TestCase):
         self.assertNotIn("secretlogin", text)
         event = SyncEvent.objects.get(dedup_key=f"accounts_refresh:{self.tenant.pk}:{TODAY.isoformat()}")
         self.assertNotIn(PASSWORD, event.message)
-        self.assertEqual(self.fake.days(ACCOUNT_1), NIGHTLY_ORDER)  # statements still loaded
+        self.assertEqual(self.fake.days(ACCOUNT_1), NIGHTLY_ORDER * 2)  # statements still loaded on both runs
