@@ -752,3 +752,41 @@ class InvestmentFundingRevenueTests(_FundingModeTestBase):
         self.assertEqual(res.status_code, 400)
         self.assertTrue(ProjectInvestment.objects.filter(pk=inv_id).exists())
         self.assertEqual(CashRevenue.objects.filter(tenant=self.tenant).count(), 1)
+
+    def test_revenue_failure_rolls_back_confirmation(self):
+        from apps.modules.investments.project_investment_approval_services import (
+            route_project_investment_approvals,
+        )
+
+        self._enable_mode()
+        req = self._make_request(INV_CASH)
+        inv_id = self._collect_ok("cash", [req])[0]["id"]
+        ProjectInvestmentApproval.objects.filter(project_investment_id=inv_id).update(
+            decision=ProjectInvestmentApproval.DECISION_APPROVED, decided_at=timezone.now()
+        )
+        inv = ProjectInvestment.objects.get(pk=inv_id)
+
+        with patch(
+            "apps.modules.investments.funding_revenue.ensure_investor_cash_revenue",
+            side_effect=RuntimeError("boom"),
+        ):
+            with self.assertRaises(RuntimeError):
+                route_project_investment_approvals(project_investment=inv)
+
+        self.assertFalse(ProjectInvestment.objects.get(pk=inv_id).confirmed)
+        self.assertFalse(CashRevenue.objects.filter(tenant=self.tenant).exists())
+
+    def test_no_revenue_on_wallet_currency_mismatch(self):
+        self._enable_mode()
+        inv = ProjectInvestment.objects.create(
+            tenant=self.tenant,
+            date=date(2026, 3, 1),
+            amount=Decimal("10"),
+            currency="USD",
+            funding_method=ProjectInvestment.FundingMethod.CASH,
+            created_by=self.admin,
+        )
+        inv.confirmed = True
+        inv.save()
+        self.assertTrue(ProjectInvestment.objects.get(pk=inv.id).confirmed)
+        self.assertFalse(CashRevenue.objects.filter(tenant=self.tenant).exists())
