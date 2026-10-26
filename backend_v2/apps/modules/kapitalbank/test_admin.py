@@ -140,7 +140,7 @@ class KapitalbankAdminTests(KapitalbankFixtures, TestCase):
 
         from django.utils import timezone
 
-        new = SyncEvent.objects.create(tenant=self.tenant, kind="imported", message="fresh-evt")
+        SyncEvent.objects.create(tenant=self.tenant, kind="imported", message="fresh-evt")
         old = SyncEvent.objects.create(tenant=self.tenant, kind="imported", message="stale-evt")
         SyncEvent.objects.filter(pk=old.pk).update(created_at=timezone.now() - timedelta(days=60))
         url = reverse("admin:kapitalbank_syncevent_changelist")
@@ -149,7 +149,6 @@ class KapitalbankAdminTests(KapitalbankFixtures, TestCase):
         self.assertNotIn("stale-evt", body)
         body_all = self.client.get(url, {"period": "all"}).content.decode()
         self.assertIn("stale-evt", body_all)
-        self.assertEqual(new.pk and 1, 1)
 
     def test_alert_settings_single_and_not_deletable(self):
         request = RequestFactory().get("/")
