@@ -63,7 +63,7 @@ from apps.modules.investments.serializers import (
     InvestReturnSerializer,
     PublicInvestPayoutScheduleShareViewSerializer,
     ProjectInvestmentApprovalReadSerializer,
-    ProjectInvestmentSerializer,
+    ProjectInvestmentWithEquivalentsSerializer,
 )
 from apps.common.pagination import PortalCursorPagination
 from apps.common.query_params import parse_bool_query, parse_date_query
@@ -248,7 +248,7 @@ class InvestPayoutScheduleViewSet(_EditableInvestmentsTenantViewSet):
 
 
 class ProjectInvestmentViewSet(_EditableInvestmentsTenantViewSet):
-    serializer_class = ProjectInvestmentSerializer
+    serializer_class = ProjectInvestmentWithEquivalentsSerializer
     queryset = ProjectInvestment.objects.all()
 
     def perform_create(self, serializer):

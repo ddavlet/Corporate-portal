@@ -35,7 +35,7 @@ import {
   inDateRange,
   makeCompanySelectOptions,
   precisionFor,
-  totalsByCurrency,
+  totalsInBothCurrencies,
   type CompanyFilter,
 } from './utils'
 
@@ -80,7 +80,12 @@ export function InvestmentsTab({
     return inDateRange(byCo, 'date', from, to)
   }, [rows, companyFilter, dateRange])
 
-  const totals = useMemo(() => totalsByCurrency(filtered, 'amount'), [filtered])
+  // Общий итог по всем заявкам в USD и UZS (по курсу ЦБ на дату), а не разбивка по валютам заявок.
+  const totals = useMemo(() => totalsInBothCurrencies(filtered), [filtered])
+  const notConvertedCount = useMemo(
+    () => filtered.filter((r) => r.sum_usd == null || r.sum_uzs == null).length,
+    [filtered],
+  )
 
   const columns: ColumnsType<ProjectInvestmentRow> = useMemo(() => {
     const companyCol = {
@@ -188,7 +193,21 @@ export function InvestmentsTab({
         </Button>
       </Space>
 
-      <KpiStrip totals={totals} totalsLabel="Сумма по заявкам на вложение" />
+      <KpiStrip
+        totals={totals}
+        totalsLabel="Сумма по заявкам на вложение"
+        extra={
+          notConvertedCount > 0
+            ? [
+                {
+                  label: 'Не учтено в сумме',
+                  value: String(notConvertedCount),
+                  hint: 'Заявки без курса ЦБ на дату (например, в EUR)',
+                },
+              ]
+            : undefined
+        }
+      />
 
       {loading ? (
         <Skeleton active />

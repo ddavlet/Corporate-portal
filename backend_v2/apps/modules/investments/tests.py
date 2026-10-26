@@ -42,6 +42,7 @@ from apps.modules.investments.serializers import (
     InvestPayoutScheduleShareLinkSerializer,
     InvestReturnSerializer,
     ProjectInvestmentSerializer,
+    ProjectInvestmentWithEquivalentsSerializer,
 )
 from apps.modules.investments.services import (
     CbuRateFetchError,
@@ -778,6 +779,44 @@ class ProjectInvestmentSerializerTests(TestCase):
         self.assertFalse(obj.confirmed)
         self.assertIsNotNone(obj.last_edit_at)
         self.assertIsNone(obj.company)
+
+
+class ProjectInvestmentWithEquivalentsSerializerTests(TestCase):
+    """sum_usd/sum_uzs у заявок на вложение — для общего итога в USD без деления по валютам."""
+
+    def setUp(self):
+        self.tenant = Tenant.objects.create(name="ProjEqCo", subdomain="projeqco", is_active=True)
+        self.user = User.objects.create_user(username="proj-eq-user", password="x")
+
+    def _make(self, amount, currency):
+        return ProjectInvestment.objects.create(
+            tenant=self.tenant,
+            date=date(2026, 4, 17),
+            amount=Decimal(amount),
+            currency=currency,
+            created_by=self.user,
+        )
+
+    @patch("apps.modules.investments.services.fetch_cbu_usd_uzs_rate", return_value=Decimal("12600"))
+    def test_usd_amount_equivalents(self, _mock_fetch):
+        data = ProjectInvestmentWithEquivalentsSerializer(self._make("100.00", "USD")).data
+        self.assertEqual(Decimal(str(data["sum_usd"])), Decimal("100.00"))
+        self.assertEqual(Decimal(str(data["sum_uzs"])), Decimal("1260000.00"))
+
+    @patch("apps.modules.investments.services.fetch_cbu_usd_uzs_rate", return_value=Decimal("12600"))
+    def test_uzs_amount_converted_to_usd_by_rate_on_date(self, mock_fetch):
+        data = ProjectInvestmentWithEquivalentsSerializer(self._make("5000000", "UZS")).data
+        self.assertEqual(Decimal(str(data["sum_uzs"])), Decimal("5000000.00"))
+        expected_usd = (Decimal("5000000.00") / Decimal("12600")).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        self.assertEqual(Decimal(str(data["sum_usd"])), expected_usd)
+        mock_fetch.assert_called_once_with(rate_date=date(2026, 4, 17), timeout=12)
+
+    @patch("apps.modules.investments.services.fetch_cbu_usd_uzs_rate", return_value=Decimal("12600"))
+    def test_eur_has_no_equivalents_instead_of_treating_as_usd(self, mock_fetch):
+        data = ProjectInvestmentWithEquivalentsSerializer(self._make("100.00", "EUR")).data
+        self.assertIsNone(data["sum_usd"])
+        self.assertIsNone(data["sum_uzs"])
+        mock_fetch.assert_not_called()
 
 
 class InvestCompanyScopeTests(TestCase):
