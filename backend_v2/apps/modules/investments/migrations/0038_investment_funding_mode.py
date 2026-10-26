@@ -5,7 +5,7 @@ import django.db.models.deletion
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("investments", "0036_remove_investreturn_sum_uzs"),
+        ("investments", "0037_invest_report"),
         ("tenants", "0026_tenant_payroll_payout_mode"),
         ("wallets", "0006_bankaccount_is_default"),
         migrations.swappable_dependency(settings.AUTH_USER_MODEL),

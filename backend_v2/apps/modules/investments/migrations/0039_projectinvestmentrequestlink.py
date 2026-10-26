@@ -4,7 +4,7 @@ import django.db.models.deletion
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("investments", "0037_investment_funding_mode"),
+        ("investments", "0038_investment_funding_mode"),
         ("requests", "0067_request_invest_payment_types"),
         ("tenants", "0026_tenant_payroll_payout_mode"),
     ]
