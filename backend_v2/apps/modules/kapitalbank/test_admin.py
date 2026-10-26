@@ -120,14 +120,22 @@ class KapitalbankAdminTests(KapitalbankFixtures, TestCase):
     def test_decided_by_only_set_when_decision_changes(self):
         link = self._link()
         url = reverse("admin:kapitalbank_bankaccountlink_change", args=[link.pk])
-        resp = self.client.post(url, self._link_data(bank_account=self.bank_account1.pk))
-        self.assertEqual(resp.status_code, 302)
+        data = {
+            **self._link_data(bank_account=self.bank_account1.pk),
+            "sync_state-TOTAL_FORMS": "0",
+            "sync_state-INITIAL_FORMS": "0",
+            "sync_state-MIN_NUM_FORMS": "0",
+            "sync_state-MAX_NUM_FORMS": "1",
+        }
+        resp = self.client.post(url, data)
+        form = resp.context_data["adminform"].form if resp.status_code == 200 else None
+        self.assertEqual(resp.status_code, 302, form.errors if form else "")
         link.refresh_from_db()
         self.assertEqual(link.decided_by, self.admin_user)
         first = link.decided_at
         self.assertIsNotNone(first)
         # unchanged resubmission keeps decided_at
-        self.client.post(url, self._link_data(bank_account=self.bank_account1.pk))
+        self.client.post(url, data)
         link.refresh_from_db()
         self.assertEqual(link.decided_at, first)
 
