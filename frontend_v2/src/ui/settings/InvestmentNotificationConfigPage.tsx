@@ -4,6 +4,7 @@ import { ArrowLeftOutlined } from '@ant-design/icons'
 import { useNavigate } from 'react-router-dom'
 
 import {
+  ApiError,
   getInvestNotificationConfig,
   listTelegramChats,
   updateInvestNotificationConfig,
@@ -62,7 +63,11 @@ export function InvestmentNotificationConfigPage() {
       setData(next)
       message.success('Сохранено')
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : 'Ошибка сохранения')
+      if (e instanceof ApiError && e.status === 403) {
+        setError('Недостаточно прав: изменять настройки уведомлений может только администратор или директор.')
+      } else {
+        setError(e instanceof Error ? e.message : 'Ошибка сохранения')
+      }
     } finally {
       setSaving(false)
     }

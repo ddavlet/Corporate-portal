@@ -2686,3 +2686,249 @@ class InvestPayoutScheduleCurrencyConversionTests(TestCase):
 
         self.assertEqual(sent, 1)
         self.assertEqual(mock_send.call_args.kwargs["schedule"].pk, schedule.pk)
+
+
+class InvestNotificationTelegramDispatcherTests(TestCase):
+    """Payout reminders go through TelegramDispatcher, so every sent card is persisted as a
+    TelegramMessage with a TelegramMessageHistory row (previously the gateway was called
+    directly and nothing was recorded)."""
+
+    def setUp(self):
+        self.tenant = Tenant.objects.create(name="DispCo", subdomain="dispco", is_active=True)
+        self.user = User.objects.create_user(
+            username="disp-user", password="x", telegram_chat_id=987654, telegram_from_id=555,
+        )
+        self.cfg = InvestNotificationConfig.objects.create(
+            tenant=self.tenant,
+            responsible_user=self.user,
+            days_before=3,
+            overdue_notify_every_days=3,
+            is_active=True,
+        )
+        self.schedule = InvestPayoutSchedule.objects.create(
+            tenant=self.tenant,
+            payout_date=date(2026, 6, 1),
+            amount=Decimal("100"),
+            currency="USD",
+            created_by=self.user,
+        )
+
+    def _dispatch(self, *, gateway_response):
+        from apps.modules.investments.notification_services import _dispatch_payout_notification
+
+        with patch(
+            "apps.modules.telegram_approvals.services.get_tenant_bot_token", return_value="BOT_TOKEN_X",
+        ), patch(
+            "apps.modules.telegram_approvals.services.post_messaging_gateway", return_value=gateway_response,
+        ):
+            return _dispatch_payout_notification(schedule=self.schedule, config=self.cfg, text="<b>hello</b>")
+
+    def test_sent_card_is_persisted_with_history(self):
+        from apps.modules.telegram_approvals.models import TelegramMessage, TelegramMessageHistory
+
+        self.assertTrue(self._dispatch(gateway_response={"message_id": 999}))
+
+        message = TelegramMessage.objects.get(tenant=self.tenant)
+        self.assertEqual(message.recipient_id, "987654")
+        self.assertEqual(message.message_id, 999)
+        self.assertEqual(message.external_user_id, 555)
+        history = TelegramMessageHistory.objects.get(telegram_message=message)
+        self.assertEqual(history.action, TelegramMessageHistory.ACTION_SEND)
+        self.assertEqual(history.text, "<b>hello</b>")
+        self.assertEqual(history.buttons[0][0]["value"], f"invest_pay:{self.schedule.pk}")
+        self.assertEqual(history.request_payload["bot_token"], "***")
+
+    def test_group_chat_card_has_no_external_user(self):
+        from apps.modules.telegram_approvals.models import TelegramMessage
+
+        chat = TenantTelegramChat.objects.create(tenant=self.tenant, name="Инвест", chat_id="-100777")
+        self.cfg.telegram_chat = chat
+        self.cfg.save(update_fields=["telegram_chat"])
+
+        self.assertTrue(self._dispatch(gateway_response={"message_id": 1000}))
+
+        message = TelegramMessage.objects.get(tenant=self.tenant)
+        self.assertEqual(message.recipient_id, "-100777")
+        self.assertIsNone(message.external_user_id)
+
+    def test_gateway_failure_records_nothing(self):
+        from apps.modules.telegram_approvals.models import TelegramMessage
+
+        self.assertFalse(self._dispatch(gateway_response=None))
+        self.assertFalse(TelegramMessage.objects.filter(tenant=self.tenant).exists())
+
+
+class InvestNotificationHourlyCronTests(TestCase):
+    """The command filters tenants by notify_hour, so cron must run it every hour; repeated
+    hourly runs must still send each reminder at most once per local day."""
+
+    def setUp(self):
+        self.tenant = Tenant.objects.create(name="HourCo", subdomain="hourco", is_active=True)
+        self.user = User.objects.create_user(username="hour-user", password="x", telegram_chat_id=1)
+        InvestNotificationConfig.objects.create(
+            tenant=self.tenant,
+            responsible_user=self.user,
+            days_before=3,
+            overdue_notify_every_days=0,
+            notify_hour=14,
+            is_active=True,
+        )
+        self.schedule = InvestPayoutSchedule.objects.create(
+            tenant=self.tenant,
+            payout_date=date(2026, 5, 23),
+            amount=Decimal("100"),
+            currency="USD",
+            created_by=self.user,
+        )
+
+    def test_crontab_runs_invest_notifications_hourly(self):
+        from pathlib import Path
+        from django.conf import settings as django_settings
+
+        crontab = (Path(django_settings.BASE_DIR) / "cron" / "crontab").read_text()
+        lines = [
+            line for line in crontab.splitlines()
+            if "run_invest_notifications" in line and not line.lstrip().startswith("#")
+        ]
+        self.assertEqual(len(lines), 1)
+        self.assertTrue(lines[0].startswith("0 * * * * "), lines[0])
+
+    def test_hourly_runs_send_once_and_only_in_notify_hour(self):
+        import datetime as dt
+        from apps.modules.investments.notification_services import (
+            TASHKENT_TZ,
+            process_due_invest_payout_notifications,
+        )
+
+        def at(hour, minute=0):
+            return dt.datetime(2026, 5, 22, hour, minute, tzinfo=TASHKENT_TZ)
+
+        with patch(
+            "apps.modules.investments.notification_services._dispatch_payout_notification",
+            return_value=True,
+        ) as mock_send:
+            sent_by_hour = [process_due_invest_payout_notifications(now_dt=at(h)) for h in range(24)]
+            # A second run within the same notify_hour (e.g. cron retry) must not duplicate.
+            sent_again = process_due_invest_payout_notifications(now_dt=at(14, 30))
+
+        self.assertEqual(sent_by_hour[14], 1)
+        self.assertEqual(sum(sent_by_hour), 1)
+        self.assertEqual(sent_again, 0)
+        self.assertEqual(mock_send.call_count, 1)
+        self.assertEqual(
+            InvestPayoutNotificationLog.objects.filter(schedule=self.schedule, sent_date=date(2026, 5, 22)).count(),
+            1,
+        )
+
+
+class InvestNotificationLocalDateTests(TestCase):
+    """'Today' is the Tashkent date: before 05:00 local the UTC date is still yesterday,
+    which shifted the lead-time window and the dedup key by a day."""
+
+    def setUp(self):
+        self.tenant = Tenant.objects.create(name="TzCo", subdomain="tzco", is_active=True)
+        self.user = User.objects.create_user(username="tz-user", password="x", telegram_chat_id=1)
+        InvestNotificationConfig.objects.create(
+            tenant=self.tenant,
+            responsible_user=self.user,
+            days_before=3,
+            overdue_notify_every_days=3,
+            notify_hour=3,
+            is_active=True,
+        )
+
+    def _make_schedule(self, payout_date):
+        return InvestPayoutSchedule.objects.create(
+            tenant=self.tenant,
+            payout_date=payout_date,
+            amount=Decimal("100"),
+            currency="USD",
+            created_by=self.user,
+        )
+
+    def test_uses_tashkent_date_not_utc_date(self):
+        import datetime as dt
+        from apps.modules.investments.notification_services import process_due_invest_payout_notifications
+
+        # 2026-05-21 22:00 UTC == 2026-05-22 03:00 Asia/Tashkent.
+        now = dt.datetime(2026, 5, 21, 22, 0, tzinfo=dt.timezone.utc)
+        upcoming = self._make_schedule(date(2026, 5, 25))  # local window 22..25; UTC window ends 24
+        overdue = self._make_schedule(date(2026, 5, 19))  # 3 days overdue locally (2 by UTC date)
+
+        with patch(
+            "apps.modules.investments.notification_services._dispatch_payout_notification",
+            return_value=True,
+        ) as mock_send:
+            sent = process_due_invest_payout_notifications(now_dt=now)
+
+        self.assertEqual(sent, 2)
+        self.assertEqual({c.kwargs["schedule"].pk for c in mock_send.call_args_list}, {upcoming.pk, overdue.pk})
+        self.assertEqual(
+            set(InvestPayoutNotificationLog.objects.values_list("sent_date", flat=True)),
+            {date(2026, 5, 22)},
+        )
+
+
+@override_settings(BASE_DOMAIN="example.com", ALLOWED_HOSTS=["*"])
+class InvestNotificationConfigApiTests(APITestCase):
+    """PUT is limited to tenant admins/directors and only accepts this tenant's Telegram groups;
+    GET stays available to every module user."""
+
+    URL = "/api/investments/notification-config/"
+
+    def setUp(self):
+        self.tenant = Tenant.objects.create(name="NotifCfg", subdomain="notifcfg", is_active=True)
+        self.host = "notifcfg.example.com"
+        TenantModuleConfig.objects.create(tenant=self.tenant, module_key="investments", is_enabled=True)
+        self.admin = User.objects.create_user(username="notif_admin", password="x")
+        TenantMembership.objects.create(tenant=self.tenant, user=self.admin, is_active=True)
+        TenantUserRole.objects.create(tenant=self.tenant, user=self.admin, role=TenantUserRole.ROLE_ADMIN)
+        self.investor = User.objects.create_user(username="notif_investor", password="x")
+        TenantMembership.objects.create(tenant=self.tenant, user=self.investor, is_active=True)
+        TenantUserRole.objects.create(tenant=self.tenant, user=self.investor, role=TenantUserRole.ROLE_INVESTOR)
+        self.own_chat = TenantTelegramChat.objects.create(tenant=self.tenant, name="Свой", chat_id="-1001")
+        other_tenant = Tenant.objects.create(name="OtherCfg", subdomain="othercfg", is_active=True)
+        self.foreign_chat = TenantTelegramChat.objects.create(tenant=other_tenant, name="Чужой", chat_id="-1002")
+
+    def _payload(self, **overrides):
+        payload = {
+            "responsible_user_id": self.admin.pk,
+            "days_before": 3,
+            "overdue_notify_every_days": 1,
+            "notify_hour": 10,
+            "is_active": True,
+            "telegram_chat_id": None,
+        }
+        payload.update(overrides)
+        return payload
+
+    def _put(self, user, **overrides):
+        self.client.force_authenticate(user)
+        return self.client.put(self.URL, self._payload(**overrides), format="json", HTTP_HOST=self.host)
+
+    def test_foreign_tenant_chat_rejected(self):
+        res = self._put(self.admin, telegram_chat_id=self.foreign_chat.pk)
+        self.assertEqual(res.status_code, 400)
+        self.assertIn("telegram_chat_id", res.data)
+        self.assertFalse(InvestNotificationConfig.objects.filter(tenant=self.tenant).exists())
+
+    def test_unknown_chat_rejected(self):
+        res = self._put(self.admin, telegram_chat_id=self.foreign_chat.pk + 1000)
+        self.assertEqual(res.status_code, 400)
+        self.assertIn("telegram_chat_id", res.data)
+
+    def test_own_chat_accepted(self):
+        res = self._put(self.admin, telegram_chat_id=self.own_chat.pk)
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(InvestNotificationConfig.objects.get(tenant=self.tenant).telegram_chat_id, self.own_chat.pk)
+
+    def test_module_user_without_admin_role_cannot_put(self):
+        res = self._put(self.investor)
+        self.assertEqual(res.status_code, 403)
+        self.assertFalse(InvestNotificationConfig.objects.filter(tenant=self.tenant).exists())
+
+    def test_module_user_without_admin_role_can_get(self):
+        self.client.force_authenticate(self.investor)
+        res = self.client.get(self.URL, HTTP_HOST=self.host)
+        self.assertEqual(res.status_code, 200)
+        self.assertIn("approver_candidates", res.data)

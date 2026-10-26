@@ -1813,7 +1813,7 @@ export async function updateInvestNotificationConfig(
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
   })
-  if (!res.ok) throw new Error(await parseErrorBody(res))
+  if (!res.ok) throw new ApiError(res.status, await parseErrorBody(res))
   const json = (await res.json().catch(() => null)) as InvestNotificationConfigResponse | null
   if (!json) throw new Error('Empty response from server')
   return json
