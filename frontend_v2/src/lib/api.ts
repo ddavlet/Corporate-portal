@@ -1334,6 +1334,8 @@ export type ProjectInvestmentRow = {
   /** Эквиваленты amount по курсу ЦБ на дату заявки; null — курса нет (EUR или ЦБ недоступен). */
   sum_usd?: string | number | null
   sum_uzs?: string | number | null
+  /** Дата курса ЦБ, по которому посчитаны sum_usd/sum_uzs (YYYY-MM-DD); null — эквивалентов нет. */
+  rate_date?: string | null
   comment: string
   confirmed: boolean
   created_at: string
@@ -1413,6 +1415,8 @@ export type InvestReturnRow = {
   sum: string | number
   sum_usd?: string | number | null
   sum_uzs?: string | number | null
+  /** Дата курса ЦБ, по которому посчитаны sum_usd/sum_uzs (YYYY-MM-DD); null — эквивалентов нет. */
+  rate_date?: string | null
   currency: string
   confirmed: boolean
   type: string

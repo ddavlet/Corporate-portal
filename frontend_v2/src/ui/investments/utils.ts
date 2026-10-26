@@ -1,4 +1,5 @@
 import type { InvestCompanyRow } from '../../lib/api'
+import { nowTashkent } from '../../lib/tashkentTime'
 
 export type CompanyFilter = 'all' | 'none' | number
 export type SchedulePaidFilter = 'all' | 'paid' | 'unpaid'
@@ -136,4 +137,30 @@ export function isoDate(d: Date): string {
   const m = String(d.getMonth() + 1).padStart(2, '0')
   const day = String(d.getDate()).padStart(2, '0')
   return `${y}-${m}-${day}`
+}
+
+/** Сегодняшняя дата по Ташкенту в формате YYYY-MM-DD (так же бэкенд ограничивает дату курса ЦБ). */
+export function tashkentTodayIso(): string {
+  return nowTashkent().format('YYYY-MM-DD')
+}
+
+/**
+ * Самая поздняя дата курса ЦБ среди строк, посчитанных не по курсу на свою дату
+ * (курс на дату ещё не загружен — бэкенд взял последний известный). Дата строки в будущем
+ * сравнивается с сегодняшней, как в расчёте на бэкенде. null — все строки по курсу на дату.
+ */
+export function staleCbuRateDate<T extends { date: string; rate_date?: string | null }>(
+  rows: T[],
+  todayIso: string = tashkentTodayIso(),
+): string | null {
+  let latest: string | null = null
+  for (const r of rows) {
+    const rateDate = r.rate_date ? String(r.rate_date).slice(0, 10) : ''
+    if (!rateDate) continue
+    const rowDate = String(r.date || '').slice(0, 10)
+    const expected = rowDate > todayIso ? todayIso : rowDate
+    if (rateDate === expected) continue
+    if (latest == null || rateDate > latest) latest = rateDate
+  }
+  return latest
 }

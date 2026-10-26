@@ -27,6 +27,7 @@ import { clampToAllowedBillingMonth, isAllowedBillingMonth } from '../../lib/bil
 import { monthStartTashkent } from '../../lib/tashkentTime'
 import { InvestmentRecordDetailModal } from './InvestmentRecordDetailModal'
 import { AdminEditRecordButton } from '../admin/AdminEditRecordButton'
+import { CbuRateAlert } from './CbuRateAlert'
 import { KpiStrip } from './KpiStrip'
 import {
   asMoney,
@@ -240,6 +241,8 @@ export function ReturnsTab({
           Создать выплату
         </Button>
       </Space>
+
+      <CbuRateAlert rows={filtered} />
 
       <KpiStrip
         totals={totals}

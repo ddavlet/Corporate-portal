@@ -28,6 +28,7 @@ import { InvestmentRecordDetailModal } from './InvestmentRecordDetailModal'
 import { InvestmentFromRequestsModal } from './InvestmentFromRequestsModal'
 import { FUNDING_METHOD_LABELS, fundingMethodLabel, type FundingMethod } from './fundingPool'
 import { AdminEditRecordButton } from '../admin/AdminEditRecordButton'
+import { CbuRateAlert } from './CbuRateAlert'
 import { KpiStrip } from './KpiStrip'
 import {
   asMoney,
@@ -235,6 +236,8 @@ export function InvestmentsTab({
         )}
       </Space>
 
+      <CbuRateAlert rows={filtered} />
+
       <KpiStrip
         totals={confirmedTotals}
         totalsLabel="Подтверждено"
@@ -245,7 +248,7 @@ export function InvestmentsTab({
                 {
                   label: 'Не учтено в сумме',
                   value: String(notConvertedCount),
-                  hint: 'Заявки в валюте без курса ЦБ (например, EUR)',
+                  hint: 'Заявки без пересчёта по курсу ЦБ (EUR или курсы ещё не загружены)',
                 },
               ]
             : []),

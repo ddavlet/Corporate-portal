@@ -92,4 +92,23 @@ describe('InvestmentsTab totals', () => {
     expect(screen.getByText('Не подтверждено, UZS').parentElement?.textContent).toContain(asMoney(120000))
     expect(screen.queryByText('Не учтено в сумме')).toBeNull()
   })
+
+  it('shows no CBU rate warning when every row uses the rate on its date', async () => {
+    renderTab([{ ...row(1, true, 100, 1200000), rate_date: '2026-10-20' }])
+    await screen.findByText('Подтверждено, USD')
+    expect(screen.queryByText(/Курс ЦБ может быть неактуален/)).toBeNull()
+  })
+
+  it('warns above the totals when a row was converted at an earlier CBU rate', async () => {
+    renderTab([
+      { ...row(1, true, 100, 1200000), rate_date: '2026-10-20' },
+      { ...row(2, false, 10, 120000), date: '2026-10-24', rate_date: '2026-10-22' },
+    ])
+    expect(
+      await screen.findByText(
+        'Курс ЦБ может быть неактуален: нет связи с источником. ' +
+          'Суммы в USD/UZS посчитаны по последнему загруженному курсу (на 22.10.2026).',
+      ),
+    ).toBeTruthy()
+  })
 })
