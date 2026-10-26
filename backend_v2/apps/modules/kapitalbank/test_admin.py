@@ -1,6 +1,6 @@
 from django.contrib.admin.sites import site
 from django.contrib.auth import get_user_model
-from django.test import RequestFactory, TestCase
+from django.test import Client, RequestFactory, TestCase
 from django.urls import reverse
 
 from apps.modules.kapitalbank.admin import BankAccountLinkForm
@@ -22,6 +22,7 @@ class KapitalbankAdminTests(KapitalbankFixtures, TestCase):
     def setUp(self):
         self.make_fixtures()
         self.admin_user = User.objects.create_superuser(username="kb-root", password="x", full_name="Root")
+        self.client = Client(HTTP_HOST="kp.example.com")
         self.client.force_login(self.admin_user)
 
     def _conn(self):
@@ -71,6 +72,9 @@ class KapitalbankAdminTests(KapitalbankFixtures, TestCase):
 
     def _link_data(self, **kw):
         data = {
+            "tenant": self.tenant.pk,
+            "account_no": ACCOUNT_1,
+            "branch": "01158",
             "decision": "linked",
             "ignore_reason": "",
             "bank_account": "",
