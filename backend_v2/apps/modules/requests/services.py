@@ -134,7 +134,12 @@ def create_expense_for_request_payment(*, request_obj: Request, actor_user):
         created_target = Request.EXPENSE_REF_TARGET_CASH
         created_id = expense.id
     elif request_obj.payment_type in bank_like_payment_types():
-        attrs = {"wallet": None}
+        # «Инвест. перечисление» платится со счёта, выбранного в заявке; прочие — дефолтный.
+        attrs = {
+            "wallet": request_obj.wallet_ref
+            if request_obj.payment_type == Request.PAYMENT_TYPE_INVEST_TRANSFER
+            else None
+        }
         attrs = assign_wallet_for_bank_movement(
             instance=None,
             tenant=request_obj.tenant,
