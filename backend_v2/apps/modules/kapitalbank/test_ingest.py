@@ -8,6 +8,7 @@ from rest_framework.response import Response
 from apps.modules.bank_expenses.models import BankExpense, BankRevenue
 from apps.modules.corporate_card.models import CardRevenue
 from apps.modules.n8n_integration.views import N8nBankExpenseBatchUpsertView
+from django.contrib.auth import get_user_model
 from apps.modules.vendors.models import Vendor
 from apps.tenants.models import Tenant
 
@@ -105,7 +106,7 @@ class IngestStatementTests(KapitalbankFixtures, TestCase):
         post.assert_not_called()
         self.assertEqual(result.created, 0)
 
-    def test_rejected_row_reported_as_missing(self):
+    def test_rejected_batch_raises_and_rolls_back(self):
         with patch.object(N8nBankExpenseBatchUpsertView, "post", return_value=Response({"detail": "bad"}, status=400)):
             with self.assertRaises(IngestError) as ctx:
                 ingest_statement(self.link, self.statement)
@@ -160,3 +161,54 @@ class IngestStatementTests(KapitalbankFixtures, TestCase):
 
         self.assertEqual(result.created, 1)
         self.assertEqual(CardRevenue.objects.get(external_id="GEN005").wallet, link.wallet())
+
+    def test_legacy_duplicate_skipped_by_view_is_not_counted_and_is_missing(self):
+        BankExpense.objects.create(
+            tenant=self.tenant,
+            created_by=get_user_model().objects.get(pk=1),
+            external_id="",
+            row_no=1,
+            doc_date=date(2026, 2, 24),
+            process_date=date(2026, 2, 24),
+            expense_year=2026,
+            expense_month=2,
+            expense_day=24,
+            doc_no="000000000002",
+            debit_turnover=Decimal("50000.00"),
+            payment_purpose="Оплата по счету 2",
+            wallet=self.wallet1,
+        )
+
+        result = ingest_statement(self.link, make_statement(make_doc(2, incoming=False)))
+
+        self.assertEqual(result.created, 0)
+        self.assertEqual(result.missing_external_ids, ["GEN002"])
+
+    def test_doc_on_other_wallet_of_same_tenant_is_not_sent(self):
+        BankExpense.objects.create(
+            tenant=self.tenant,
+            created_by=get_user_model().objects.get(pk=1),
+            external_id="GEN002",
+            row_no=1,
+            doc_date=date(2026, 2, 24),
+            process_date=date(2026, 2, 24),
+            expense_year=2026,
+            expense_month=2,
+            expense_day=24,
+            doc_no="X",
+            debit_turnover=Decimal("1.00"),
+            payment_purpose="other",
+            wallet=self.wallet2,
+        )
+
+        result = ingest_statement(self.link, self.statement)
+
+        self.assertEqual(result.created, 1)
+        self.assertEqual(result.missing_external_ids, ["GEN002"])
+        self.assertEqual(BankExpense.objects.get(external_id="GEN002").wallet, self.wallet2)
+
+    def test_bank_account_mismatch_raises_409(self):
+        self.link.bank_account = self.bank_account2
+        with self.assertRaises(IngestError) as ctx:
+            ingest_statement(self.link, self.statement)
+        self.assertEqual(ctx.exception.status, 409)

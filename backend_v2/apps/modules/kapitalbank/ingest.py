@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
 
 from django.contrib.auth import get_user_model
@@ -108,7 +108,7 @@ def _has_inn(item: dict) -> bool:
     return str(item.get("inn") or "").strip() not in ("", "0")
 
 
-def _post(view_cls, *, link, user, kind: str, data: list[dict], get: dict | None = None) -> None:
+def _post(view_cls, *, link, user, kind: str, data: list[dict], get: dict | None = None) -> int:
     request = _FakeRequest(
         data=data, tenant=link.tenant, user=user, path=f"/internal/kapitalbank/{kind}/", get=get or {}
     )
@@ -116,11 +116,14 @@ def _post(view_cls, *, link, user, kind: str, data: list[dict], get: dict | None
     code = int(getattr(response, "status_code", 500))
     if code != 200:
         raise IngestError(getattr(response, "data", None), status=code)
+    # "count" = items actually persisted; duplicates skipped by the view are reported separately.
+    payload = getattr(response, "data", None) or {}
+    return int(payload.get("count", 0)) if isinstance(payload, dict) else 0
 
 
 def _normalize(model_field, value):
     if value is None:
-        return None
+        return ""
     internal = model_field.get_internal_type()
     try:
         if internal == "DecimalField":
@@ -132,7 +135,15 @@ def _normalize(model_field, value):
                 return date.fromisoformat(value)
             return value
     except (InvalidOperation, ValueError):
-        return value
+        return str(value).strip()
+    return str(value).strip()
+
+
+def _jsonable(value) -> str:
+    if isinstance(value, Decimal):
+        return f"{value:.2f}"
+    if isinstance(value, (date, datetime)):
+        return value.isoformat()
     return str(value)
 
 
@@ -146,7 +157,14 @@ def _diffs(model, row, item: dict) -> list[dict]:
         portal = _normalize(model_field, getattr(row, key))
         bank = _normalize(model_field, bank_value)
         if portal != bank:
-            diffs.append({"external_id": item["external_id"], "field": key, "portal": portal, "bank": bank})
+            diffs.append(
+                {
+                    "external_id": item["external_id"],
+                    "field": key,
+                    "portal": _jsonable(portal),
+                    "bank": _jsonable(bank),
+                }
+            )
     return diffs
 
 
@@ -205,20 +223,21 @@ def ingest_statement(link: BankAccountLink, statement: Statement, *, dry_run: bo
         result.missing_external_ids = sorted(all_ids - on_wallet)
         return result
 
+    created = 0
     if to_create:
         with transaction.atomic():
             if link.is_card:
                 if revenue_items:
-                    _post(N8nCardRevenueBatchUpsertView, link=link, user=user, kind="card-revenue", data=revenue_items)
+                    created += _post(N8nCardRevenueBatchUpsertView, link=link, user=user, kind="card-revenue", data=revenue_items)
                 if expense_items:
-                    _post(N8nCardExpenseBatchUpsertView, link=link, user=user, kind="card-expense", data=expense_items)
+                    created += _post(N8nCardExpenseBatchUpsertView, link=link, user=user, kind="card-expense", data=expense_items)
             else:
                 get = {"our_account_no": link.account_no, "our_mfo": link.branch}
                 if expense_items:
                     new_vendors = _new_vendor_items(link, expense_items)
                     if new_vendors:
                         _post(N8nVendorBatchUpsertView, link=link, user=user, kind="vendors", data=new_vendors)
-                    _post(
+                    created += _post(
                         N8nBankExpenseBatchUpsertView,
                         link=link,
                         user=user,
@@ -227,7 +246,7 @@ def ingest_statement(link: BankAccountLink, statement: Statement, *, dry_run: bo
                         get=get,
                     )
                 if revenue_items:
-                    _post(
+                    created += _post(
                         N8nBankRevenueBatchUpsertView,
                         link=link,
                         user=user,
@@ -235,7 +254,7 @@ def ingest_statement(link: BankAccountLink, statement: Statement, *, dry_run: bo
                         data=revenue_items,
                         get=get,
                     )
-    result.created = len(to_create)
+    result.created = created
     result.missing_external_ids = sorted(all_ids - existing_external_ids(link, all_ids))
     return result
 
