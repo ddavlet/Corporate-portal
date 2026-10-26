@@ -1,8 +1,9 @@
 import { useEffect, useState, type CSSProperties } from 'react'
 import { Alert } from 'antd'
+import { formatExact } from '../lib/reportsFormat'
 import { getKapitalbankPendingAccounts, type KapitalbankPendingAccount } from '../lib/api'
 
-export function KapitalbankPendingAccountsWidget({ style }: { style?: CSSProperties } = {}) {
+export function KapitalbankPendingAccountsWidget({ style }: { style?: CSSProperties }) {
   const [accounts, setAccounts] = useState<KapitalbankPendingAccount[]>([])
 
   useEffect(() => {
@@ -32,7 +33,7 @@ export function KapitalbankPendingAccountsWidget({ style }: { style?: CSSPropert
           <ul style={{ margin: 0, paddingLeft: 20 }}>
             {accounts.map((a) => (
               <li key={`${a.branch}-${a.account_no}`}>
-                {a.account_no} · {a.name} · {a.currency} · {a.balance ?? '—'}
+                {a.account_no} · {a.name} · {a.currency} · {formatExact(a.balance)}
               </li>
             ))}
           </ul>

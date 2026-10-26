@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react'
+import { act, render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { KapitalbankPendingAccountsWidget } from './KapitalbankPendingAccountsWidget'
 
@@ -24,11 +24,11 @@ describe('KapitalbankPendingAccountsWidget', () => {
   })
 
   it('renders count and accounts when pending', async () => {
-    getPendingMock.mockResolvedValue({ enabled: true, accounts: [ACC('20208000111', '100.00'), ACC('20208000222', null)] })
+    getPendingMock.mockResolvedValue({ enabled: true, accounts: [ACC('20208000111', '100.50'), ACC('20208000222', null)] })
     render(<KapitalbankPendingAccountsWidget />)
     expect(await screen.findByText('Требуется решение по счетам в банке: 2')).toBeTruthy()
-    expect(screen.getByText(/20208000111/)).toBeTruthy()
-    expect(screen.getByText(/20208000222/)).toBeTruthy()
+    expect(screen.getByText('20208000111 · Основной · UZS · 100,50')).toBeTruthy()
+    expect(screen.getByText('20208000222 · Основной · UZS · —')).toBeTruthy()
     expect(screen.getByText('Решение по счёту принимает администратор в админке портала.')).toBeTruthy()
   })
 
@@ -36,6 +36,9 @@ describe('KapitalbankPendingAccountsWidget', () => {
     getPendingMock.mockResolvedValue({ enabled: false, accounts: [ACC('20208000111', null)] })
     const { container } = render(<KapitalbankPendingAccountsWidget />)
     await waitFor(() => expect(getPendingMock).toHaveBeenCalled())
+    await act(async () => {
+      await Promise.resolve()
+    })
     expect(container.innerHTML).toBe('')
   })
 
@@ -43,6 +46,9 @@ describe('KapitalbankPendingAccountsWidget', () => {
     getPendingMock.mockResolvedValue({ enabled: true, accounts: [] })
     const { container } = render(<KapitalbankPendingAccountsWidget />)
     await waitFor(() => expect(getPendingMock).toHaveBeenCalled())
+    await act(async () => {
+      await Promise.resolve()
+    })
     expect(container.innerHTML).toBe('')
   })
 
@@ -50,6 +56,9 @@ describe('KapitalbankPendingAccountsWidget', () => {
     getPendingMock.mockRejectedValue(new Error('403'))
     const { container } = render(<KapitalbankPendingAccountsWidget />)
     await waitFor(() => expect(console.warn).toHaveBeenCalled())
+    await act(async () => {
+      await Promise.resolve()
+    })
     expect(container.innerHTML).toBe('')
   })
 })
