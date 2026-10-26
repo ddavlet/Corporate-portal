@@ -8,6 +8,7 @@ from apps.modules.investments.models import (
     InvestmentApprovalConfigStep,
     InvestmentApprovalConfigStepApprover,
     InvestmentFormConfig,
+    InvestmentFundingConfig,
     InvestmentProjectApprovalConfig,
     InvestmentProjectApprovalConfigStep,
     InvestmentProjectApprovalConfigStepApprover,
@@ -21,6 +22,7 @@ from apps.modules.investments.models import (
     InvestReturn,
     ProjectInvestment,
     ProjectInvestmentApproval,
+    ProjectInvestmentRequestLink,
 )
 
 
@@ -74,6 +76,13 @@ class InvestPayoutScheduleShareLinkAdmin(admin.ModelAdmin):
 class InvestmentFormConfigAdmin(admin.ModelAdmin):
     list_display = ("id", "tenant", "uses_companies", "updated_at")
     autocomplete_fields = ("tenant",)
+
+
+class InvestmentFundingConfigAdmin(admin.ModelAdmin):
+    list_display = ("id", "tenant", "is_enabled", "cash_wallet", "bank_wallet", "enabled_at")
+    list_filter = ("is_enabled",)
+    autocomplete_fields = ("tenant",)
+    raw_id_fields = ("cash_wallet", "bank_wallet", "updated_by")
 
 
 class InvestmentApprovalConfigStepApproverInline(admin.TabularInline):
@@ -154,6 +163,12 @@ class ProjectInvestmentApprovalAdmin(admin.ModelAdmin):
     raw_id_fields = ("tenant", "project_investment", "approver_user", "telegram_message")
 
 
+class ProjectInvestmentRequestLinkAdmin(admin.ModelAdmin):
+    list_display = ("id", "tenant", "project_investment", "request", "created_at")
+    list_filter = ("tenant",)
+    raw_id_fields = ("tenant", "project_investment", "request")
+
+
 class CbuExchangeRateAdmin(admin.ModelAdmin):
     list_display = ["date", "usd_uzs_rate", "updated_at"]
     ordering = ["-date"]
@@ -197,6 +212,12 @@ register_portal(
     InvestPayoutScheduleShareLinkAdmin,
 )
 register_portal(InvestmentFormConfig, "Форма создания", "Форма создания", InvestmentFormConfigAdmin)
+register_portal(
+    InvestmentFundingConfig,
+    "Инвестиционный режим",
+    "Инвестиционный режим",
+    InvestmentFundingConfigAdmin,
+)
 register_portal(
     InvestmentApprovalConfig,
     "Этапы согласования выплат",
@@ -258,6 +279,12 @@ register_portal(
     "Согласование заявки на вложение",
     "Согласования заявок на вложение",
     ProjectInvestmentApprovalAdmin,
+)
+register_portal(
+    ProjectInvestmentRequestLink,
+    "Заявка-основание вложения",
+    "Заявки-основания вложений",
+    ProjectInvestmentRequestLinkAdmin,
 )
 register_portal(CbuExchangeRate, "Курс ЦБ (USD/UZS)", "Курсы ЦБ (USD/UZS)", CbuExchangeRateAdmin)
 register_portal(

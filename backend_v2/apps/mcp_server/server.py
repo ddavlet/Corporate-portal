@@ -215,7 +215,9 @@ def list_requests(
             "Перечисление" (bank transfer),
             "Пополнение" (top-up / prepayment),
             "Платежная карта" (corporate card),
-            "Начисление ЗП" (payroll).
+            "Начисление ЗП" (payroll),
+            "Инвест. наличные" (investment cash),
+            "Инвест. перечисление" (investment bank transfer).
         urgency: One of: "Низко" (low), "Обычно" (normal), "Срочно" (urgent).
         date_from: Filter by creation date >= YYYY-MM-DD.
         date_to: Filter by creation date <= YYYY-MM-DD.

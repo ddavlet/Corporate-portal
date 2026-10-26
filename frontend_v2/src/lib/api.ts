@@ -1337,6 +1337,17 @@ export type ProjectInvestmentRow = {
   comment: string
   confirmed: boolean
   created_at: string
+  /** Способ внесения (инвестиционный режим); у старых вложений может быть null. */
+  funding_method?: 'cash' | 'bank_transfer' | null
+  /** Заявки на расход — основания вложения (инвестиционный режим). */
+  source_requests?: ProjectInvestmentSourceRequest[]
+}
+
+export type ProjectInvestmentSourceRequest = {
+  id: number
+  amount: string
+  currency: string
+  payment_type: string
 }
 
 export type InvestPayoutScheduleRow = {
@@ -1628,6 +1639,7 @@ export type CreateProjectInvestmentPayload = {
   amount: string | number
   currency: string
   comment?: string
+  funding_method?: 'cash' | 'bank_transfer'
 }
 
 export type InvestmentApprovalItem = {
@@ -1667,6 +1679,7 @@ export async function createProjectInvestment(payload: CreateProjectInvestmentPa
     comment: payload.comment ?? '',
   }
   if (payload.company !== undefined) body.company = payload.company
+  if (payload.funding_method !== undefined) body.funding_method = payload.funding_method
   const res = await apiFetch('/api/investments/project-investments/', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -1787,6 +1800,94 @@ export async function updateInvestmentFormConfig(
   const json = (await res.json().catch(() => null)) as InvestmentFormConfigResponse | null
   if (!json) throw new Error('Пустой ответ от сервера')
   return json
+}
+
+export type InvestmentFundingConfigDto = {
+  is_enabled: boolean
+  cash_wallet_id: number | null
+  bank_wallet_id: number | null
+  enabled_at: string | null
+  has_project_approval_chain: boolean
+  cash_wallet_currency: string | null
+}
+
+export async function getInvestmentFundingConfig(): Promise<InvestmentFundingConfigDto> {
+  const res = await apiFetch('/api/investments/funding-config/')
+  if (!res.ok) throw new Error(await parseErrorBody(res))
+  const json = (await res.json().catch(() => null)) as InvestmentFundingConfigDto | null
+  if (!json) throw new Error('Пустой ответ от сервера')
+  return json
+}
+
+/** Опущенные cash_wallet_id/bank_wallet_id сервер оставляет без изменений; null — очищает. */
+export async function saveInvestmentFundingConfig(payload: {
+  is_enabled: boolean
+  cash_wallet_id: number | null
+  bank_wallet_id: number | null
+}): Promise<InvestmentFundingConfigDto> {
+  const res = await apiFetch('/api/investments/funding-config/', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+  if (!res.ok) throw new Error(await parseErrorBody(res))
+  const json = (await res.json().catch(() => null)) as InvestmentFundingConfigDto | null
+  if (!json) throw new Error('Пустой ответ от сервера')
+  return json
+}
+
+export type FundingPoolRequestDto = {
+  id: number
+  submitted_at: string | null
+  kind: 'expense' | 'transfer'
+  payment_type: string
+  payment_purpose: string
+  description: string
+  amount: string
+  currency: string
+  status: string
+  is_payed: boolean
+}
+
+export type FundingPoolTotalDto = { currency: string; amount: string; count: number }
+
+export type FundingPoolGroupDto = { requests: FundingPoolRequestDto[]; totals: FundingPoolTotalDto[] }
+
+export type FundingPoolDto = {
+  cash: FundingPoolGroupDto
+  bank_transfer: FundingPoolGroupDto
+  approval_chain_ok: boolean
+}
+
+export async function getFundingPool(): Promise<FundingPoolDto> {
+  const res = await apiFetch('/api/investments/project-investments/funding-pool/')
+  if (!res.ok) throw new Error(await parseErrorBody(res))
+  const json = (await res.json().catch(() => null)) as FundingPoolDto | null
+  if (!json) throw new Error('Пустой ответ от сервера')
+  return json
+}
+
+export async function createInvestmentsFromRequests(payload: {
+  funding_method: 'cash' | 'bank_transfer'
+  request_ids: number[]
+  comment: string
+  company?: number | null
+}): Promise<{ investments: ProjectInvestmentRow[] }> {
+  const res = await apiFetch('/api/investments/project-investments/from-requests/', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  })
+  if (!res.ok) throw new Error(await parseErrorBody(res))
+  const json = (await res.json().catch(() => null)) as { investments: ProjectInvestmentRow[] } | null
+  if (!json) throw new Error('Пустой ответ от сервера')
+  return json
+}
+
+export async function getProjectInvestmentsBySourceRequest(requestId: number): Promise<ProjectInvestmentRow[]> {
+  return fetchAllCursorPages<ProjectInvestmentRow>(
+    `/api/investments/project-investments/?source_request=${encodeURIComponent(String(requestId))}`,
+  )
 }
 
 export type InvestNotificationConfigResponse = {
@@ -2569,6 +2670,7 @@ export type RequestApprovalConfigPaymentTypeItem = {
 export type RequestApprovalConfigResponse = {
   is_tenant_admin?: boolean
   comment_webapp_url?: string
+  telegram_bot_username?: string
   payment_types: RequestApprovalConfigPaymentTypeItem[]
   approver_candidates: Array<{ id: number; username: string }>
 }
@@ -2669,6 +2771,8 @@ export type RequestFormOptionsPaymentType = {
   contracts_required?: boolean
   payment_purposes: Array<{ name: string; category: string }>
   defaults?: RequestFormOptionsFormDefaults
+  /** Инвест-типы: кошелёк списания; валюта заявки фиксирована валютой кошелька. */
+  funding_hint?: { wallet_id: number; wallet_label: string; currency: string | null } | null
 }
 
 export type RequestFormOptionsResponse = {

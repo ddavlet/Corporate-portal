@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { Alert, Card, Descriptions, Divider, Modal, Skeleton, Space, Tag, Typography } from 'antd'
 
 import {
@@ -8,6 +9,7 @@ import {
   type InvestReturnRow,
   type ProjectInvestmentRow,
 } from '../../lib/api'
+import { fundingMethodLabel } from './fundingPool'
 import { asMoney, dateText } from './utils'
 
 type RecordKind = 'project' | 'return'
@@ -220,6 +222,22 @@ export function InvestmentRecordDetailModal({
             {returnRecord?.type ? <Descriptions.Item label="Тип">{returnRecord.type}</Descriptions.Item> : null}
             {returnRecord?.recipient ? (
               <Descriptions.Item label="Получатель">{returnRecord.recipient}</Descriptions.Item>
+            ) : null}
+            {projectRecord ? (
+              <Descriptions.Item label="Способ внесения">
+                {fundingMethodLabel(projectRecord.funding_method)}
+              </Descriptions.Item>
+            ) : null}
+            {projectRecord?.source_requests?.length ? (
+              <Descriptions.Item label="Заявки-основания">
+                <Space direction="vertical" size={2}>
+                  {projectRecord.source_requests.map((r) => (
+                    <Link key={r.id} to={`/requests/${r.id}`}>
+                      {`№${r.id} — ${asMoney(r.amount)} ${r.currency} (${r.payment_type})`}
+                    </Link>
+                  ))}
+                </Space>
+              </Descriptions.Item>
             ) : null}
             <Descriptions.Item label="Комментарий">{record.comment?.trim() || '—'}</Descriptions.Item>
             <Descriptions.Item label="Создано">{formatDateTime(record.created_at)}</Descriptions.Item>

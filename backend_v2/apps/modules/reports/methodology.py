@@ -68,6 +68,8 @@ def build_methodology(
         cash = "Подтверждённые кассовые операции."
         if _list(cfg, "cash_exclude_operations"):
             cash += f" Не учитываются операции: {_quoted(_list(cfg, 'cash_exclude_operations'))}."
+        if report == "pnl":
+            cash += " Не учитываются поступления «Вложение инвестора» (деньги инвестора — не выручка)."
         rules.append({"label": "Выручка: касса", "text": cash})
         pay_types = _list(cfg, "request_payment_types_for_pnl")
         if pay_types:
