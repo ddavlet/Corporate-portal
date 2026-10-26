@@ -36,7 +36,7 @@ logger = logging.getLogger(__name__)
 User = get_user_model()
 
 _SERVICE_USER_PK = 1  # same user the n8n views use internally (`_system_user()`)
-_NON_COMPARED_KEYS = {"external_id", "wallet_id", "payload"}
+_NON_COMPARED_KEYS = {"external_id", "wallet_id", "payload", "row_no"}
 
 
 class IngestError(Exception):
@@ -172,7 +172,7 @@ def ingest_statement(link: BankAccountLink, statement: Statement, *, dry_run: bo
     revenue_items: list[dict] = []
     expense_items: list[dict] = []
     existing_items: list[tuple[bool, dict]] = []  # (is_revenue, item) for docs already on the wallet
-    for ext_id, doc in docs.items():
+    for row_no, (ext_id, doc) in enumerate(docs.items(), start=1):
         incoming = mapping.is_incoming(doc, link.account_no)
         if link.is_card:
             item = (
@@ -182,6 +182,9 @@ def ingest_statement(link: BankAccountLink, statement: Statement, *, dry_run: bo
             )
         else:
             item = mapping.bank_revenue_item(doc) if incoming else mapping.bank_expense_item(doc)
+            if not incoming:
+                # BankExpense.row_no is required by the serializer; the mapping does not emit it.
+                item["row_no"] = row_no
         if ext_id in on_wallet:
             existing_items.append((incoming, item))
         if ext_id in blocked:
