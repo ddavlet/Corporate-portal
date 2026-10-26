@@ -11,6 +11,7 @@ from apps.modules.cashier.models import CashExpense, CashRevenue
 from apps.modules.investments.funding import INVESTOR_DEPOSIT_OPERATION, register_funding_policies
 from apps.modules.investments.funding_pool import build_default_comment
 from apps.modules.investments.models import (
+    CbuExchangeRate,
     InvestCompany,
     InvestmentApprovalConfigStep,
     InvestmentFundingConfig,
@@ -19,6 +20,7 @@ from apps.modules.investments.models import (
     ProjectInvestmentApproval,
     ProjectInvestmentRequestLink,
 )
+from apps.modules.investments.services import CbuRateFetchError
 from apps.modules.requests import payment_type_policies as registry
 from apps.modules.requests.models import (
     Approval,
@@ -414,8 +416,10 @@ class InvestmentFundingCollectTests(_FundingModeTestBase):
         send_patcher = patch("apps.modules.telegram_approvals.services.TelegramDispatcher.send")
         send_patcher.start().return_value = MagicMock()
         self.addCleanup(send_patcher.stop)
+        # Курсы — только из архива; сеть в запросах не используется (фетч «недоступен»).
+        CbuExchangeRate.objects.get_or_create(date=date(2026, 1, 1), defaults={"usd_uzs_rate": Decimal("12600")})
         rate_patcher = patch(
-            "apps.modules.investments.services.fetch_cbu_usd_uzs_rate", return_value=Decimal("12600")
+            "apps.modules.investments.services.fetch_cbu_usd_uzs_rate", side_effect=CbuRateFetchError("offline")
         )
         rate_patcher.start()
         self.addCleanup(rate_patcher.stop)
@@ -779,8 +783,10 @@ class InvestmentFundingRevenueTests(_FundingModeTestBase):
         send_patcher = patch("apps.modules.telegram_approvals.services.TelegramDispatcher.send")
         send_patcher.start().return_value = MagicMock()
         self.addCleanup(send_patcher.stop)
+        # Курсы — только из архива; сеть в запросах не используется (фетч «недоступен»).
+        CbuExchangeRate.objects.get_or_create(date=date(2026, 1, 1), defaults={"usd_uzs_rate": Decimal("12600")})
         rate_patcher = patch(
-            "apps.modules.investments.services.fetch_cbu_usd_uzs_rate", return_value=Decimal("12600")
+            "apps.modules.investments.services.fetch_cbu_usd_uzs_rate", side_effect=CbuRateFetchError("offline")
         )
         rate_patcher.start()
         self.addCleanup(rate_patcher.stop)

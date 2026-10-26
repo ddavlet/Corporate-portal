@@ -10,7 +10,7 @@ from django.core.management import call_command
 from django.test import TestCase, override_settings
 from rest_framework.test import APITestCase
 
-from apps.modules.investments.models import CbuExchangeRate, ProjectInvestment
+from apps.modules.investments.models import CbuExchangeRate, InvestReturn, ProjectInvestment
 from apps.modules.investments.services import CbuRateFetchError, usd_uzs_equivalents_for_read
 from apps.tenants.models import Tenant, TenantMembership, TenantModuleConfig, TenantUserRole
 
@@ -84,6 +84,30 @@ class ProjectInvestmentListCbuDownTests(APITestCase):
         for row in rows:
             self.assertEqual(Decimal(str(row["sum_uzs"])), Decimal("57200000.00"))
             self.assertEqual(Decimal(str(row["sum_usd"])), Decimal("4766.67"))
+            # Курс не на дату строки — дата курса видна в API (UI предупреждает о неактуальном курсе).
+            self.assertEqual(row["rate_date"], "2026-10-22")
+        mock_fetch.assert_not_called()
+
+    @patch(FETCH, side_effect=CbuRateFetchError("offline"))
+    def test_returns_list_exposes_rate_date(self, mock_fetch):
+        CbuExchangeRate.objects.create(date=date(2026, 10, 20), usd_uzs_rate=Decimal("12000"))
+        exact = InvestReturn.objects.create(
+            tenant=self.tenant, date=date(2026, 10, 20), billing_date=date(2026, 10, 1), sum=Decimal("100.00"),
+            currency="USD", type="дивиденды", recipient="инвестор", confirmed=True, created_by=self.admin,
+        )
+        later = InvestReturn.objects.create(
+            tenant=self.tenant, date=date(2026, 10, 23), billing_date=date(2026, 10, 1), sum=Decimal("100.00"),
+            currency="USD", type="дивиденды", recipient="инвестор", confirmed=True, created_by=self.admin,
+        )
+
+        res = self.client.get("/api/investments/returns/?page_size=200", HTTP_HOST=self.host)
+
+        self.assertEqual(res.status_code, 200, res.content)
+        rows = res.data["results"] if isinstance(res.data, dict) else res.data
+        by_id = {row["id"]: row for row in rows}
+        self.assertEqual(by_id[exact.id]["rate_date"], "2026-10-20")
+        self.assertEqual(by_id[later.id]["rate_date"], "2026-10-20")
+        self.assertEqual(Decimal(str(by_id[later.id]["sum_uzs"])), Decimal("1200000.00"))
         mock_fetch.assert_not_called()
 
 

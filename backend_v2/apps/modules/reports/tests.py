@@ -753,8 +753,7 @@ class BackendCashflowDatabaseTests(TestCase):
         self.assertEqual(op[0]["amount"], "500.00")
         self.assertEqual(op[0]["date"], "2026-03-15")
 
-    @patch("apps.modules.investments.services.fetch_cbu_usd_uzs_rate", return_value=Decimal("10000"))
-    def test_invest_return_uses_payout_date_not_billing_date(self, _mock_fetch):
+    def test_invest_return_uses_payout_date_not_billing_date(self):
         CbuExchangeRate.objects.create(date=date(2026, 3, 15), usd_uzs_rate=Decimal("10000"))
         InvestReturn.objects.create(
             tenant=self.tenant,
@@ -797,8 +796,7 @@ class BackendCashflowDatabaseTests(TestCase):
         self.assertEqual(item["request_id"], str(req.id))
         self.assertEqual(item["vendor"], "ООО Поставщик")
 
-    @patch("apps.modules.investments.services.fetch_cbu_usd_uzs_rate", return_value=Decimal("10000"))
-    def test_cashflow_invest_return_has_source(self, _mock_fetch):
+    def test_cashflow_invest_return_has_source(self):
         CbuExchangeRate.objects.create(date=date(2026, 3, 15), usd_uzs_rate=Decimal("10000"))
         InvestReturn.objects.create(
             tenant=self.tenant,

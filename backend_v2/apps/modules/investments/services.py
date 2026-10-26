@@ -127,31 +127,18 @@ def fetch_cbu_usd_uzs_rate(*, rate_date: date, timeout: int = 12) -> Decimal:
     return usd_uzs_rate_from_cbu_rows(rows)
 
 
-def get_or_fetch_usd_uzs_rate(*, rate_date: date, timeout: int = 12) -> Decimal:
-    """
-    UZS за 1 USD на дату ``rate_date`` — единая точка правды (CbuExchangeRate).
-
-    Архив (заполняется ежедневно, см. sync_cbu_exchange_rate) проверяется первым;
-    если дата ещё не заархивирована, курс забирается с сайта ЦБ и тут же сохраняется
-    в архив, чтобы последующие обращения на эту дату не ходили в сеть.
-    """
-    from apps.modules.investments.models import CbuExchangeRate
-
-    archived = CbuExchangeRate.objects.filter(date=rate_date).first()
-    if archived is not None:
-        return archived.usd_uzs_rate
-
-    rate = fetch_cbu_usd_uzs_rate(rate_date=rate_date, timeout=timeout)
-    CbuExchangeRate.objects.update_or_create(date=rate_date, defaults={"usd_uzs_rate": rate})
-    return rate
+CBU_ARCHIVE_EMPTY_MESSAGE = "Курсы ЦБ ещё не загружены, попробуйте позже."
 
 
 def usd_uzs_equivalents(*, sum_val: Decimal, currency: str, rate_date: date) -> tuple[Decimal, Decimal]:
     """
-    (сумма в USD, сумма в UZS) на дату ``rate_date`` по курсу из архива (см.
-    get_or_fetch_usd_uzs_rate). Поднимает CbuRateFetchError, если курс недоступен.
+    (сумма в USD, сумма в UZS) по курсу из архива CbuExchangeRate — на ``rate_date``, иначе
+    ближайший предыдущий (см. usd_uzs_rate_on_or_before). Без сетевых запросов: архив пополняет
+    только backend_cron (sync_cbu_exchange_rate). Поднимает CbuRateFetchError, если архив пуст.
     """
-    rate = get_or_fetch_usd_uzs_rate(rate_date=rate_date)
+    rate = usd_uzs_rate_on_or_before(rate_date)
+    if rate is None:
+        raise CbuRateFetchError(CBU_ARCHIVE_EMPTY_MESSAGE)
     return _equivalents_from_rate(sum_val=sum_val, currency=currency, rate=rate)
 
 
@@ -184,15 +171,31 @@ def usd_uzs_equivalents_for_read(
     (сумма в USD, сумма в UZS) для чтения списков и отчётов — без сетевых запросов.
 
     Курс — из архива CbuExchangeRate на ``rate_date``, иначе ближайший предыдущий (как в отчёте
-    для инвесторов, см. usd_uzs_rate_on_or_before). Архив пополняет backend_cron
-    (sync_cbu_exchange_rate --fill-gaps-days) и создание/изменение записей. Поход на cbu.uz при
-    чтении убран: при недоступном ЦБ каждое открытие списка ждало таймаут, а итоги теряли строки.
+    для инвесторов, см. usd_uzs_rate_on_or_before). Архив пополняет только backend_cron
+    (sync_cbu_exchange_rate --fill-gaps-days). Поход на cbu.uz из запросов убран: при недоступном
+    ЦБ каждое открытие списка ждало таймаут, а итоги теряли строки.
     ``memo`` — общий словарь на запрос: архив читается из БД один раз. (None, None) — архив пуст.
     """
-    rate = usd_uzs_rate_on_or_before(rate_date, cache=memo)
-    if rate is None:
-        return None, None
-    return _equivalents_from_rate(sum_val=sum_val, currency=currency, rate=rate)
+    sum_usd, sum_uzs, _ = usd_uzs_equivalents_with_rate_date_for_read(
+        sum_val=sum_val, currency=currency, rate_date=rate_date, memo=memo
+    )
+    return sum_usd, sum_uzs
+
+
+def usd_uzs_equivalents_with_rate_date_for_read(
+    *, sum_val: Decimal, currency: str, rate_date: date, memo: dict
+) -> tuple[Decimal | None, Decimal | None, date | None]:
+    """
+    То же, что usd_uzs_equivalents_for_read, плюс дата курса ЦБ, по которому посчитано.
+    Дата курса != ``rate_date`` — курс на дату ещё не загружен, использован ближайший известный
+    (UI помечает такие суммы как предварительные). (None, None, None) — архив пуст.
+    """
+    found = usd_uzs_rate_and_date_on_or_before(rate_date, cache=memo)
+    if found is None:
+        return None, None, None
+    rate, used_date = found
+    sum_usd, sum_uzs = _equivalents_from_rate(sum_val=sum_val, currency=currency, rate=rate)
+    return sum_usd, sum_uzs, used_date
 
 
 _ALL_RATES_CACHE_KEY = "__all_rates__"
@@ -202,7 +205,19 @@ def usd_uzs_rate_on_or_before(rate_date: date, *, cache: dict | None = None) -> 
     """
     UZS за 1 USD из архива CbuExchangeRate без сетевых запросов: курс на ``rate_date``,
     иначе ближайший предыдущий, а если дата раньше архива — самый ранний курс архива.
-    Пустой архив — ``None``.
+    Пустой архив — ``None``. См. usd_uzs_rate_and_date_on_or_before.
+    """
+    found = usd_uzs_rate_and_date_on_or_before(rate_date, cache=cache)
+    return found[0] if found is not None else None
+
+
+def usd_uzs_rate_and_date_on_or_before(
+    rate_date: date, *, cache: dict | None = None
+) -> tuple[Decimal, date] | None:
+    """
+    (UZS за 1 USD, дата этого курса) из архива CbuExchangeRate без сетевых запросов: курс на
+    ``rate_date``, иначе ближайший предыдущий, а если дата раньше архива — самый ранний курс
+    архива. Пустой архив — ``None``.
 
     С ``cache`` весь архив читается одним запросом и переиспользуется (для отчётов,
     где сотни строк с разными датами).
@@ -215,7 +230,7 @@ def usd_uzs_rate_on_or_before(rate_date: date, *, cache: dict | None = None) -> 
         row = CbuExchangeRate.objects.filter(date__lte=rate_date).order_by("-date").first()
         if row is None:
             row = CbuExchangeRate.objects.order_by("date").first()
-        return row.usd_uzs_rate if row is not None else None
+        return (row.usd_uzs_rate, row.date) if row is not None else None
 
     rates = cache.get(_ALL_RATES_CACHE_KEY)
     if rates is None:
@@ -224,7 +239,21 @@ def usd_uzs_rate_on_or_before(rate_date: date, *, cache: dict | None = None) -> 
     if not rates:
         return None
     idx = bisect_right(rates, rate_date, key=lambda r: r[0])
-    return rates[idx - 1][1] if idx > 0 else rates[0][1]
+    used_date, rate = rates[idx - 1] if idx > 0 else rates[0]
+    return rate, used_date
+
+
+def latest_archived_cbu_rate_date(*, cache: dict | None = None) -> date | None:
+    """Самая поздняя дата в архиве курсов ЦБ (None — архив пуст); с ``cache`` — без лишнего запроса."""
+    from apps.modules.investments.models import CbuExchangeRate
+
+    if cache is None:
+        return CbuExchangeRate.objects.order_by("-date").values_list("date", flat=True).first()
+    rates = cache.get(_ALL_RATES_CACHE_KEY)
+    if rates is None:
+        rates = list(CbuExchangeRate.objects.order_by("date").values_list("date", "usd_uzs_rate"))
+        cache[_ALL_RATES_CACHE_KEY] = rates
+    return rates[-1][0] if rates else None
 
 
 def _report_chat_options(tenant) -> list[dict]:

@@ -365,6 +365,54 @@ class RateOnOrBeforeTests(TestCase):
         fetch.assert_not_called()
 
 
+RATE_WARNING = "⚠️ Курс ЦБ может быть неактуален: нет связи с источником"
+
+
+class PreliminaryRateNoteTests(InvestorReportFixtures, TestCase):
+    """UZS row dated after the newest archived rate → one warning line at the end of the text."""
+
+    def setUp(self):
+        self.make_fixtures()
+        self.tenant = self.tenants["lemonhavo"]
+
+    def _uzs_investment(self, on: date):
+        ProjectInvestment.objects.create(
+            tenant=self.tenant, date=on, amount=Decimal("125000000.00"), currency="UZS",
+            confirmed=True, created_by=self.admin,
+        )
+
+    @patch("apps.modules.investments.services.fetch_cbu_usd_uzs_rate")
+    def test_note_when_rate_for_row_date_not_loaded_yet(self, fetch):
+        self._uzs_investment(date(2026, 10, 20))  # newest archived rate is 01.09.2026
+
+        report = build_investor_report(tenant=self.tenant, today=date(2026, 10, 26), config=None)
+        text = format_investor_report(report, tenant_name=self.tenant.name)
+
+        self.assertEqual(report.preliminary_rate, (date(2026, 10, 20), date(2026, 9, 1)))
+        self.assertTrue(
+            text.endswith(f"\n\n{RATE_WARNING} (последний курс на 01.09.2026)."), text
+        )
+        self.assertEqual(text.count(RATE_WARNING), 1)
+        fetch.assert_not_called()
+
+    def test_no_note_once_rate_is_loaded(self):
+        self._uzs_investment(date(2026, 10, 20))
+        CbuExchangeRate.objects.create(date=date(2026, 10, 20), usd_uzs_rate=Decimal("12500.00"))
+
+        report = build_investor_report(tenant=self.tenant, today=date(2026, 10, 26), config=None)
+
+        self.assertIsNone(report.preliminary_rate)
+        self.assertNotIn(RATE_WARNING, format_investor_report(report, tenant_name=self.tenant.name))
+
+    def test_usd_rows_after_archive_need_no_rate_and_no_note(self):
+        ProjectInvestment.objects.create(
+            tenant=self.tenant, date=date(2026, 10, 20), amount=Decimal("100.00"), currency="USD",
+            confirmed=True, created_by=self.admin,
+        )
+        report = build_investor_report(tenant=self.tenant, today=date(2026, 10, 26), config=None)
+        self.assertIsNone(report.preliminary_rate)
+
+
 def inv(day, usd, confirmed=True):
     return ReportRow(date=d(day), usd=Decimal(usd), confirmed=confirmed)
 

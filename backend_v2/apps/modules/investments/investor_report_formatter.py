@@ -134,6 +134,11 @@ def _render(report: InvestorReport, *, tenant_name: str, payout_lines: list[str]
         out.append("🧾 <b>Последние выплаты:</b>")
         out.extend(payout_lines)
 
+    if report.preliminary_rate is not None:
+        _missing, used = report.preliminary_rate
+        out.append("")
+        out.append(f"⚠️ Курс ЦБ может быть неактуален: нет связи с источником (последний курс на {used:%d.%m.%Y}).")
+
     return "\n".join(out)
 
 
