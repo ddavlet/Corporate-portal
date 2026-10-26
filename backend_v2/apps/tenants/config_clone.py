@@ -42,6 +42,7 @@ MODULE_CLONE_STEPS = (
     "apps.modules.investments.tenant_config_clone.clone",
     "apps.modules.reports.tenant_config_clone.clone",
     "apps.modules.cash_withdrawals.tenant_config_clone.clone",
+    "apps.modules.wallets.tenant_config_clone.clone",
 )
 
 # Copied only while the target still has the model default (fresh tenant).
@@ -223,7 +224,7 @@ def clone_tenant_config(
             step(ctx)
 
         _warn_integrations(ctx)
-        ctx.warn("Кассы, банковские счета, карты, поставщики и сотрудники не копируются — это данные филиала.")
+        ctx.warn("Остатки касс, банковские счета, карты, поставщики и сотрудники не копируются — это данные филиала.")
 
         if not apply_changes:
             transaction.set_rollback(True)
