@@ -1,9 +1,13 @@
 """Signal handlers for the investments module."""
 
+import logging
+
 from django.db.models.signals import post_delete, post_save
 from django.dispatch import receiver
 
-from apps.modules.investments.models import InvestReturn
+from apps.modules.investments.models import InvestReturn, ProjectInvestment
+
+logger = logging.getLogger(__name__)
 
 
 def _recompute_linked_schedule(schedule_id) -> None:
@@ -34,3 +38,17 @@ def recompute_schedule_on_return_save(sender, instance, **kwargs):
 @receiver(post_delete, sender=InvestReturn, dispatch_uid="investments_recompute_schedule_on_return_delete")
 def recompute_schedule_on_return_delete(sender, instance, **kwargs):
     _recompute_linked_schedule(instance.payout_schedule_id)
+
+
+@receiver(post_save, sender=ProjectInvestment, dispatch_uid="investments_ensure_cash_revenue_on_investment_save")
+def ensure_cash_revenue_on_investment_save(sender, instance, **kwargs):
+    if kwargs.get("raw"):
+        return
+    from apps.modules.investments.funding_revenue import ensure_investor_cash_revenue
+
+    try:
+        ensure_investor_cash_revenue(project_investment=instance)
+    except Exception:
+        # Пробрасываем: подтверждение идёт в transaction.atomic() и откатится целиком.
+        logger.exception("Failed to create investor cash revenue for project investment %s", instance.pk)
+        raise

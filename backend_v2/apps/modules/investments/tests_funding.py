@@ -655,3 +655,100 @@ class InvestmentFundingCollectTests(_FundingModeTestBase):
         self.assertEqual(res.status_code, 200, res.data)
         res = self.client.post(INVESTMENTS_URL, body, format="json", HTTP_HOST=self.host)
         self.assertEqual(res.status_code, 201, res.data)
+
+
+@override_settings(BASE_DOMAIN="example.com", N8N_INTEGRATION_TOKEN="", ALLOWED_HOSTS=["*"])
+class InvestmentFundingRevenueTests(_FundingModeTestBase):
+    """Приход в инвестиционную кассу при подтверждении вложения «наличными»."""
+
+    # Хелперы сбора переиспользуем без наследования (иначе повторятся тесты сбора).
+    _make_request = InvestmentFundingCollectTests._make_request
+    _collect = InvestmentFundingCollectTests._collect
+    _collect_ok = InvestmentFundingCollectTests._collect_ok
+
+    def setUp(self):
+        super().setUp()
+        send_patcher = patch("apps.modules.telegram_approvals.services.TelegramDispatcher.send")
+        send_patcher.start().return_value = MagicMock()
+        self.addCleanup(send_patcher.stop)
+        rate_patcher = patch(
+            "apps.modules.investments.services.fetch_cbu_usd_uzs_rate", return_value=Decimal("12600")
+        )
+        rate_patcher.start()
+        self.addCleanup(rate_patcher.stop)
+        self.company = InvestCompany.objects.create(tenant=self.tenant, name="Инвестор", created_by=self.admin)
+
+    def _approve(self, inv_id):
+        approval = ProjectInvestmentApproval.objects.get(project_investment_id=inv_id, step=1)
+        res = self.client.post(
+            f"/api/investments/project-approvals/{approval.id}/decision/",
+            {"decision": "approved"},
+            format="json",
+            HTTP_HOST=self.host,
+        )
+        self.assertEqual(res.status_code, 200, res.data)
+        self.assertTrue(ProjectInvestment.objects.get(pk=inv_id).confirmed)
+
+    def _collect_and_approve(self, funding_method, payment_type, amount="10"):
+        req = self._make_request(payment_type, amount=amount)
+        inv_id = self._collect_ok(funding_method, [req])[0]["id"]
+        self._approve(inv_id)
+        return inv_id
+
+    def test_confirmed_cash_investment_creates_revenue_in_invest_cash(self):
+        self._enable_mode()
+        inv_id = self._collect_and_approve("cash", INV_CASH, amount="10")
+
+        revenues = CashRevenue.objects.filter(tenant=self.tenant)
+        self.assertEqual(revenues.count(), 1)
+        revenue = revenues.get()
+        self.assertEqual(revenue.wallet_id, self.cash_wallet.id)
+        self.assertEqual(revenue.total_sum, Decimal("10"))
+        self.assertEqual(revenue.currency, "UZS")
+        self.assertEqual(revenue.operation, INVESTOR_DEPOSIT_OPERATION)
+        self.assertEqual(revenue.comment, f"На основании заявки на вложение №{inv_id}")
+        self.assertIsNotNone(revenue.source_year)
+        self.assertEqual(revenue.payload["project_investment_id"], inv_id)
+        self.assertEqual(revenue.created_by_id, self.approver.id)
+
+    def test_revenue_idempotent_on_resave(self):
+        self._enable_mode()
+        inv_id = self._collect_and_approve("cash", INV_CASH)
+
+        inv = ProjectInvestment.objects.get(pk=inv_id)
+        inv.save()
+        inv.save(update_fields=["confirmed"])
+        res = self.client.patch(
+            f"{INVESTMENTS_URL}{inv_id}/", {"comment": "уточнение"}, format="json", HTTP_HOST=self.host
+        )
+        self.assertEqual(res.status_code, 200, res.data)
+
+        self.assertEqual(CashRevenue.objects.filter(tenant=self.tenant).count(), 1)
+
+    def test_bank_transfer_investment_creates_no_revenue(self):
+        self._enable_mode()
+        self._collect_and_approve("bank_transfer", INV_TRANSFER)
+        self.assertFalse(CashRevenue.objects.filter(tenant=self.tenant).exists())
+
+    def test_no_revenue_when_mode_disabled(self):
+        inv = ProjectInvestment.objects.create(
+            tenant=self.tenant,
+            date=date(2026, 3, 1),
+            amount=Decimal("10"),
+            currency="UZS",
+            funding_method=ProjectInvestment.FundingMethod.CASH,
+            created_by=self.admin,
+        )
+        inv.confirmed = True
+        inv.save()
+        self.assertFalse(CashRevenue.objects.filter(tenant=self.tenant).exists())
+
+    def test_delete_investment_with_revenue_forbidden(self):
+        self._enable_mode()
+        inv_id = self._collect_and_approve("cash", INV_CASH)
+        self.assertEqual(CashRevenue.objects.filter(tenant=self.tenant).count(), 1)
+
+        res = self.client.delete(f"{INVESTMENTS_URL}{inv_id}/", HTTP_HOST=self.host)
+        self.assertEqual(res.status_code, 400)
+        self.assertTrue(ProjectInvestment.objects.filter(pk=inv_id).exists())
+        self.assertEqual(CashRevenue.objects.filter(tenant=self.tenant).count(), 1)
