@@ -96,3 +96,13 @@ class KapitalbankClientTests(SimpleTestCase):
         self.assertEqual(accounts[0].currency, "000")
         self.assertEqual(accounts[0].state_name, "Открыт")
         self.assertTrue(session.post.call_args[0][0].endswith("/APILogin"))
+
+    def test_list_accounts_pads_numeric_branch_and_currency(self):
+        # The real APILogin returns branch and val as numbers: 1158 and 0.
+        account = {**APILOGIN_JSON["result"]["clients"][0]["accounts"][0], "branch": 1158, "val": 0}
+        usd = {**account, "account": ACCOUNT_2, "val": 840}
+        payload = {**APILOGIN_JSON, "result": {**APILOGIN_JSON["result"], "clients": [{"accounts": [account, usd]}]}}
+        session = mock.Mock()
+        session.post.return_value = _resp(payload)
+        accounts = _client(session).list_accounts()
+        self.assertEqual([(a.branch, a.currency) for a in accounts], [(MFO, "000"), (MFO, "840")])

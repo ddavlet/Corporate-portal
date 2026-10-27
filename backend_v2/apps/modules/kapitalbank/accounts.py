@@ -43,6 +43,7 @@ def refresh_account_list(
                 "last_balance": acc.balance,
                 "bank_state": acc.state_name,
             }
+            _heal_unpadded_branch(tenant, acc.account_no, acc.branch)
             link, created = BankAccountLink.objects.get_or_create(
                 tenant=tenant,
                 account_no=acc.account_no,
@@ -59,6 +60,18 @@ def refresh_account_list(
             link.refresh_from_db()
             links.append(link)
     return links
+
+
+def _heal_unpadded_branch(tenant, account_no: str, branch: str) -> None:
+    """Rows saved before the client padded the bank's numeric branch (1158 -> 01158) get the
+    padded branch, so the refresh updates them instead of adding a second row for the account."""
+    unpadded = branch.lstrip("0")
+    if not unpadded or unpadded == branch:
+        return
+    rows = BankAccountLink.objects.filter(tenant=tenant, account_no=account_no)
+    if rows.filter(branch=branch).exists():
+        return
+    rows.filter(branch=unpadded).update(branch=branch)
 
 
 def pending_accounts(tenant) -> QuerySet[BankAccountLink]:

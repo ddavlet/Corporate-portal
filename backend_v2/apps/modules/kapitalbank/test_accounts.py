@@ -89,3 +89,23 @@ class RefreshAccountListTests(KapitalbankFixtures, TestCase):
         currencies = dict(BankAccountLink.objects.values_list("account_no", "currency"))
         self.assertEqual(currencies[ACCOUNT_2], "USD")
         self.assertEqual(currencies[NEW_ACCOUNT], "392")
+
+    def test_rows_saved_with_unpadded_branch_are_healed_not_duplicated(self):
+        # Before the client padded APILogin's numeric branch, kp's accounts were saved with "1158".
+        old = BankAccountLink.objects.create(tenant=self.tenant, account_no=ACCOUNT_1, branch="1158", currency="0")
+        refresh_account_list(self.connection, StubClient([listed(ACCOUNT_1)]), now=self.now)
+        self.assertEqual(BankAccountLink.objects.count(), 1)
+        old.refresh_from_db()
+        self.assertEqual(old.branch, MFO)
+        self.assertEqual(old.currency, "UZS")
+        self.assertEqual(old.decision, BankAccountLink.PENDING)
+
+    def test_unpadded_row_is_left_when_padded_row_exists(self):
+        padded = BankAccountLink.objects.create(tenant=self.tenant, account_no=ACCOUNT_1, branch=MFO)
+        unpadded = BankAccountLink.objects.create(tenant=self.tenant, account_no=ACCOUNT_1, branch="1158")
+        refresh_account_list(self.connection, StubClient([listed(ACCOUNT_1)]), now=self.now)
+        padded.refresh_from_db()
+        unpadded.refresh_from_db()
+        self.assertEqual(padded.branch, MFO)
+        self.assertEqual(unpadded.branch, "1158")
+        self.assertEqual(BankAccountLink.objects.count(), 2)
