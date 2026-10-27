@@ -86,6 +86,13 @@ def _s(value) -> str:
     return "" if value is None else str(value)
 
 
+def _code(value, width: int) -> str:
+    """APILogin returns branch (МФО) and currency as numbers (1158, 0); restore the leading zeros
+    ("01158", "000") the statement API, n8n and the portal accounts use."""
+    raw = _s(value).strip()
+    return raw.zfill(width) if raw.isdigit() else raw
+
+
 class KapitalbankClient:
     def __init__(self, login: str, password: str, *, session: requests.Session | None = None):
         token = base64.b64encode(f"{login}:{password}".encode()).decode()
@@ -170,9 +177,9 @@ class KapitalbankClient:
                 accounts.append(
                     BankListedAccount(
                         account_no=_s(a.get("account")),
-                        branch=_s(a.get("branch")),
+                        branch=_code(a.get("branch"), 5),
                         name=_s(a.get("name")),
-                        currency=_s(a.get("val")),
+                        currency=_code(a.get("val"), 3),
                         state_name=_s(a.get("stateName")),
                         balance=_money(a.get("s_out")),
                     )
