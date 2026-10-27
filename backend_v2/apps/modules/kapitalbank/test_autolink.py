@@ -150,12 +150,34 @@ class AutoLinkPendingTests(KapitalbankFixtures, TestCase):
             decision=BankAccountLink.IGNORED,
             ignore_reason="ведётся в другом тенанте",
         )
+        linked = BankAccountLink.objects.create(
+            tenant=self.tenant,
+            account_no=ACCOUNT_2,
+            branch=MFO,
+            decision=BankAccountLink.LINKED,
+            bank_account=self.bank_account2,
+        )
 
         self.assertEqual(auto_link_pending(apply=True, now=NOW), [])
 
         ignored.refresh_from_db()
         self.assertEqual(ignored.decision, BankAccountLink.IGNORED)
         self.assertIsNone(ignored.bank_account)
+        linked.refresh_from_db()
+        self.assertEqual(linked.decision, BankAccountLink.LINKED)
+        self.assertEqual(linked.bank_account, self.bank_account2)
+        self.assertIsNone(linked.decided_at)
+
+    def test_empty_account_number_is_not_linked(self):
+        # The default portal bank account may have an empty number and MFO.
+        BankAccount.objects.filter(pk=self.bank_account1.pk).update(account_no="", mfo="")
+        link = self._pending("", branch="")
+
+        [result] = auto_link_pending(apply=True, now=NOW)
+
+        self.assertEqual(result.skip_reason, autolink.NO_MATCH)
+        link.refresh_from_db()
+        self.assertEqual(link.decision, BankAccountLink.PENDING)
 
     def test_tenant_filter(self):
         other = Tenant.objects.create(name="Other", subdomain="other", is_active=True)

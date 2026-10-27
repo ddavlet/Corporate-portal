@@ -43,6 +43,9 @@ class AutoLinkResult:
 
 def _candidates(link: BankAccountLink, banks: list[BankAccount], cards: list[CorporateCardAccount]):
     account_no, branch = link.account_no.strip(), link.branch.strip()
+    if not account_no:
+        # An empty number would match the default portal account ("", "") or a card without external_ref.
+        return [], []
     matched_banks = [b for b in banks if b.account_no.strip() == account_no and b.mfo.strip() == branch]
     matched_cards = [c for c in cards if c.external_ref.strip() == account_no]
     return matched_banks, matched_cards
