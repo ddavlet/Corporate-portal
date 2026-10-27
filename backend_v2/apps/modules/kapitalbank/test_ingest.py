@@ -162,27 +162,73 @@ class IngestStatementTests(KapitalbankFixtures, TestCase):
         self.assertEqual(result.created, 1)
         self.assertEqual(CardRevenue.objects.get(external_id="GEN005").wallet, link.wallet())
 
-    def test_legacy_duplicate_skipped_by_view_is_not_counted_and_is_missing(self):
-        BankExpense.objects.create(
+    def _n8n_expense(self, n, *, wallet=None, purpose=None, process_date=date(2026, 2, 24)):
+        """A BankExpense as n8n creates it: no external_id, deduplicated by the natural key."""
+        return BankExpense.objects.create(
             tenant=self.tenant,
             created_by=get_user_model().objects.get(pk=1),
             external_id="",
             row_no=1,
             doc_date=date(2026, 2, 24),
-            process_date=date(2026, 2, 24),
+            process_date=process_date,
             expense_year=2026,
             expense_month=2,
             expense_day=24,
-            doc_no="000000000002",
+            doc_no=f"{n:012d}",
             debit_turnover=Decimal("50000.00"),
-            payment_purpose="Оплата по счету 2",
-            wallet=self.wallet1,
+            payment_purpose=purpose or f"Оплата по счету {n}",
+            wallet=wallet or self.wallet1,
         )
+
+    def test_n8n_expense_without_external_id_counts_as_loaded(self):
+        self._n8n_expense(2)
+
+        result = ingest_statement(self.link, make_statement(make_doc(2, incoming=False)))
+
+        self.assertEqual(result.created, 0)
+        self.assertEqual(result.skipped_existing, 1)
+        self.assertEqual(result.missing_external_ids, [])
+        self.assertEqual(BankExpense.objects.count(), 1)
+
+    def test_n8n_expense_dry_run_is_not_new_and_reports_diffs(self):
+        # Purpose stored trimmed (DRF trims input) still matches the bank's text with spaces.
+        self._n8n_expense(2, process_date=date(2026, 2, 23))
+        statement = make_statement(make_doc(2, incoming=False, purpose="  Оплата по счету 2 "))
+
+        result = ingest_statement(self.link, statement, dry_run=True)
+
+        self.assertEqual(result.would_create, [])
+        self.assertEqual(result.skipped_existing, 1)
+        self.assertEqual(result.missing_external_ids, [])
+        self.assertEqual(
+            result.field_diffs,
+            [{"external_id": "GEN002", "field": "process_date", "portal": "2026-02-23", "bank": "2026-02-24"}],
+        )
+
+    def test_n8n_expense_with_other_amount_or_purpose_is_a_new_document(self):
+        self._n8n_expense(2, purpose="Другое назначение")
+
+        result = ingest_statement(self.link, make_statement(make_doc(2, incoming=False)), dry_run=True)
+
+        self.assertEqual([i["external_id"] for i in result.would_create], ["GEN002"])
+        self.assertEqual(result.skipped_existing, 0)
+
+    def test_n8n_expense_on_other_wallet_is_not_sent_and_is_missing(self):
+        self._n8n_expense(2, wallet=self.wallet2)
 
         result = ingest_statement(self.link, make_statement(make_doc(2, incoming=False)))
 
         self.assertEqual(result.created, 0)
         self.assertEqual(result.missing_external_ids, ["GEN002"])
+        self.assertEqual(BankExpense.objects.count(), 1)
+
+    def test_revenue_is_not_matched_by_expense_natural_key(self):
+        self._n8n_expense(1)
+
+        result = ingest_statement(self.link, make_statement(make_doc(1, incoming=True)))
+
+        self.assertEqual(result.created, 1)
+        self.assertEqual(BankRevenue.objects.filter(external_id="GEN001").count(), 1)
 
     def test_doc_on_other_wallet_of_same_tenant_is_not_sent(self):
         BankExpense.objects.create(

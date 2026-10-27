@@ -487,6 +487,33 @@ class RunnerTests(KapitalbankFixtures, TestCase):
         self.assertEqual(self.gw.call_count, 1)
         self.assertIn(IGNORED_ACCOUNT, self.texts()[0])
 
+    def test_own_transfer_already_loaded_by_n8n_does_not_alert(self):
+        # n8n's expense rows have no external_id; the document is already in the portal.
+        doc = make_doc(1, day=TODAY, incoming=False, counterparty=PENDING_ACCOUNT, amount="300.00")
+        BankExpense.objects.create(
+            tenant=self.tenant,
+            created_by_id=1,
+            external_id="",
+            row_no=1,
+            doc_date=TODAY,
+            process_date=TODAY,
+            expense_year=TODAY.year,
+            expense_month=TODAY.month,
+            expense_day=TODAY.day,
+            doc_no=doc.num,
+            debit_turnover=Decimal("300.00"),
+            payment_purpose=doc.purpose,
+            wallet=self.wallet1,
+        )
+        self.fake.statements[(ACCOUNT_1, TODAY)] = [statement(doc, saldo_out="-300.00")]
+
+        report = self.run_import("daytime")
+
+        self.gw.assert_not_called()
+        self.assertEqual(report.alerts, 0)
+        self.assertEqual(BankExpense.objects.filter(wallet=self.wallet1).count(), 1)
+        self.assertFalse(SyncEvent.objects.filter(kind=SyncEvent.MISSING_DOCS).exists())
+
     def test_own_transfer_only_for_new_documents(self):
         doc = make_doc(1, day=TODAY, incoming=False, counterparty=NEW_ACCOUNT, amount="300.00")
         self.fake.statements[(ACCOUNT_1, TODAY)] = [statement(doc, saldo_out="-300.00")]
