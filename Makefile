@@ -7,7 +7,7 @@ DEPLOY_TEST_PATH ?= $(TEST_PATH)
 BRANCH     := $(shell git rev-parse --abbrev-ref HEAD)
 
 .DEFAULT_GOAL := help
-.PHONY: help push test deploy makemigrations showmigrations logs backup-db create-postgres-mcp-role rollback refresh-approval-messages reconcile-card-revenues reconcile-expense-links relink-unresolved-bank-doc-numbers align-payment-purposes clone-tenant-config link-payroll-requests send-to-vacation return-from-vacation reassign-unmatched-bank-expenses backfill-bank-expense-requests backfill-cash-expense-requests backfill-card-expenses backfill-cbu-exchange-rate redispatch-unsent-approval-cards backfill-cash-withdrawals repair-id-sequences import-kapitalbank local-up local-down local-logs test_local
+.PHONY: help push test deploy makemigrations showmigrations logs backup-db create-postgres-mcp-role rollback refresh-approval-messages reconcile-card-revenues reconcile-expense-links relink-unresolved-bank-doc-numbers align-payment-purposes clone-tenant-config link-payroll-requests send-to-vacation return-from-vacation reassign-unmatched-bank-expenses backfill-bank-expense-requests backfill-cash-expense-requests backfill-card-expenses backfill-cbu-exchange-rate redispatch-unsent-approval-cards backfill-cash-withdrawals repair-id-sequences import-kapitalbank link-kapitalbank local-up local-down local-logs test_local
 
 help:
 	@echo ""
@@ -48,6 +48,7 @@ help:
 	@echo "  make import-kapitalbank REFRESH_ACCOUNTS=1 TENANT=kp — список счетов тенанта из банка (новые — «ожидает решения»)"
 	@echo "  make import-kapitalbank MODE=manual TENANT=kp DATE_FROM=2026-10-21 DATE_TO=2026-10-26 DRY_RUN=1 — пробная загрузка выписки без записи"
 	@echo "  make import-kapitalbank MODE=manual TENANT=kp DATE=2026-10-26 — загрузить выписку за день (MODE=daytime|nightly — как по расписанию)"
+	@echo "  make link-kapitalbank [TENANT=kp] [APPLY=1] — dry-run: привязать счета «ожидает решения» к счёту портала с тем же номером и МФО (карта — external_ref)"
 	@echo "  make local-up        — поднять docker-compose.local.yml локально"
 	@echo "  make local-down      — остановить локальный compose (без удаления volumes)"
 	@echo "  make local-logs      — логи локального compose"
@@ -279,6 +280,17 @@ import-kapitalbank:
 		$(if $(DATE_FROM),--from=$(DATE_FROM),) \
 		$(if $(DATE_TO),--to=$(DATE_TO),) \
 		$(if $(DRY_RUN),--dry-run,)"
+
+# ── 7d-9a. Автопривязка счетов Капиталбанка «ожидает решения» (dry-run по умолчанию) ──
+# Привязывает только точное совпадение в том же тенанте: банковский счёт портала с тем же номером и МФО,
+# корпкарта — external_ref = номер счёта. Остальные счета остаются «ожидает решения».
+# make link-kapitalbank [TENANT=kp] [APPLY=1]
+link-kapitalbank:
+	ssh $(SERVER) "cd $(REMOTE_DIR) && \
+		docker compose --env-file ./.env exec -T backend_v2 \
+		python manage.py link_kapitalbank_accounts \
+		$(if $(TENANT),--tenant=$(TENANT),) \
+		$(if $(APPLY),--apply,)"
 
 # ── 7d-10. По требованию: backfill-команды (dry-run по умолчанию) ──
 # TENANT=1,lemonaqua (id или subdomain, через запятую) или ALL_TENANTS=1; DATE_FROM/DATE_TO=YYYY-MM-DD

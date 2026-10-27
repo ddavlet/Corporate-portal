@@ -1,6 +1,7 @@
 """Bank account list refresh: every account visible under the bank login becomes a BankAccountLink.
 
-Nothing is linked automatically: the owner decides on each account in admin.
+Refresh never links an account: the owner decides in admin, or `link_kapitalbank_accounts` links
+the unambiguous matches (autolink.py).
 """
 
 from __future__ import annotations
