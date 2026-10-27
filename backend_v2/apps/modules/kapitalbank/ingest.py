@@ -120,11 +120,12 @@ def _legacy_expense_rows(link: BankAccountLink, expense_items: dict[str, dict]) 
     Items without doc_no have no such key (the index skips empty doc_no)."""
     if link.is_card:
         return {}
-    by_key = {
-        _expense_key(i["doc_date"], i["doc_no"], i["debit_turnover"], i["payment_purpose"]): ext_id
-        for ext_id, i in expense_items.items()
-        if str(i.get("doc_no") or "").strip()
-    }
+    # Several bank documents with one key are one row to the unique index: all map to it.
+    by_key: dict[tuple, list[str]] = {}
+    for ext_id, i in expense_items.items():
+        if str(i.get("doc_no") or "").strip():
+            key = _expense_key(i["doc_date"], i["doc_no"], i["debit_turnover"], i["payment_purpose"])
+            by_key.setdefault(key, []).append(ext_id)
     if not by_key:
         return {}
     rows = BankExpense.objects.filter(
@@ -132,11 +133,12 @@ def _legacy_expense_rows(link: BankAccountLink, expense_items: dict[str, dict]) 
         external_id="",
         doc_date__in={key[0] for key in by_key},
         doc_no__in={key[1] for key in by_key},
+        debit_turnover__in={key[2] for key in by_key},
     ).order_by("id")
     found: dict[str, BankExpense] = {}
     for row in rows:
-        ext_id = by_key.get(_expense_key(row.doc_date.isoformat(), row.doc_no, row.debit_turnover, row.payment_purpose))
-        if ext_id is not None:
+        key = _expense_key(row.doc_date.isoformat(), row.doc_no, row.debit_turnover, row.payment_purpose)
+        for ext_id in by_key.get(key, []):
             found.setdefault(ext_id, row)
     return found
 
