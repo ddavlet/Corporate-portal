@@ -252,3 +252,53 @@ class KapitalbankAdminTests(KapitalbankFixtures, TestCase):
 
     def test_event_list_selects_tenant_and_link(self):
         self.assertEqual(site._registry[SyncEvent].list_select_related, ("tenant", "link"))
+
+    def _ignore_post(self, links, **extra):
+        url = reverse("admin:kapitalbank_bankaccountlink_changelist")
+        data = {"action": "ignore_selected", "index": "0", "_selected_action": [str(link.pk) for link in links]}
+        data.update(extra)
+        return self.client.post(url, data)
+
+    def test_bulk_ignore_asks_for_reason_first(self):
+        link = self._link(account_no="16401000504843803001")
+        resp = self._ignore_post([link])
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, "16401000504843803001")
+        self.assertContains(resp, 'name="ignore_reason"')
+        link.refresh_from_db()
+        self.assertEqual(link.decision, BankAccountLink.PENDING)
+
+    def test_bulk_ignore_sets_reason_only_on_pending(self):
+        pending = [self._link(account_no="16401000504843803001"), self._link(account_no="23510000104843803001")]
+        linked = self._link(decision=BankAccountLink.LINKED, bank_account=self.bank_account1)
+        old = self._link(account_no="22613000204843803001", decision=BankAccountLink.IGNORED, ignore_reason="старая")
+        resp = self._ignore_post(pending + [linked, old], apply="1", ignore_reason="  Служебный счёт банка  ")
+        self.assertEqual(resp.status_code, 302)
+        for link in pending:
+            link.refresh_from_db()
+            self.assertEqual(link.decision, BankAccountLink.IGNORED)
+            self.assertEqual(link.ignore_reason, "Служебный счёт банка")
+            self.assertEqual(link.decided_by, self.admin_user)
+            self.assertIsNotNone(link.decided_at)
+        linked.refresh_from_db()
+        self.assertEqual(linked.decision, BankAccountLink.LINKED)
+        self.assertEqual(linked.bank_account, self.bank_account1)
+        old.refresh_from_db()
+        self.assertEqual(old.ignore_reason, "старая")
+        self.assertIsNone(old.decided_by)
+
+    def test_bulk_ignore_requires_reason(self):
+        link = self._link(account_no="16401000504843803001")
+        resp = self._ignore_post([link], apply="1", ignore_reason="   ")
+        self.assertEqual(resp.status_code, 200)
+        self.assertTrue(resp.context_data["form"].errors)
+        link.refresh_from_db()
+        self.assertEqual(link.decision, BankAccountLink.PENDING)
+        self.assertEqual(link.ignore_reason, "")
+
+    def test_bulk_ignore_without_pending_changes_nothing(self):
+        linked = self._link(decision=BankAccountLink.LINKED, bank_account=self.bank_account1)
+        resp = self._ignore_post([linked])
+        self.assertEqual(resp.status_code, 302)
+        linked.refresh_from_db()
+        self.assertEqual(linked.decision, BankAccountLink.LINKED)

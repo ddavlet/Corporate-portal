@@ -1,0 +1,36 @@
+{% extends "admin/base_site.html" %}
+{% load i18n admin_urls %}
+
+{% block breadcrumbs %}
+<div class="breadcrumbs">
+  <a href="{% url 'admin:index' %}">{% translate 'Home' %}</a>
+  &rsaquo; <a href="{% url 'admin:app_list' app_label=opts.app_label %}">{{ opts.app_config.verbose_name }}</a>
+  &rsaquo; <a href="{% url opts|admin_urlname:'changelist' %}">{{ opts.verbose_name_plural|capfirst }}</a>
+  &rsaquo; {{ title }}
+</div>
+{% endblock %}
+
+{% block content %}
+<p>Эти счета перестанут ожидать решения и будут отмечены «Игнорируется» с одной причиной:</p>
+<ul>
+  {% for link in pending %}
+    <li>{{ link.tenant }} — {{ link.account_no }} ({{ link.currency }}) — {{ link.name }}</li>
+  {% endfor %}
+</ul>
+{% if skipped %}
+  <p>Пропущено, потому что решение уже принято: {{ skipped }}.</p>
+{% endif %}
+<form method="post">
+  {% csrf_token %}
+  {{ form.as_p }}
+  {% for pk in selected %}
+    <input type="hidden" name="{{ action_checkbox_name }}" value="{{ pk }}">
+  {% endfor %}
+  <input type="hidden" name="select_across" value="{{ select_across }}">
+  <input type="hidden" name="index" value="0">
+  <input type="hidden" name="action" value="ignore_selected">
+  <input type="hidden" name="apply" value="1">
+  <input type="submit" class="default" value="Не отслеживать">
+  <a href="{% url opts|admin_urlname:'changelist' %}" class="button cancel-link">{% translate 'Cancel' %}</a>
+</form>
+{% endblock %}
