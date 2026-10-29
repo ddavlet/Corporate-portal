@@ -4,6 +4,10 @@ Rows are created through the existing n8n batch upsert views, so validation, ven
 resolution, relinking and reconciliation behave exactly like the n8n workflow. Those
 views UPDATE rows that already exist by external_id; this module is what makes the
 import create-only: documents whose external_id already exists are never sent.
+
+n8n creates bank expenses WITHOUT external_id (revenues and card rows carry it) and relies on
+the natural-key unique index for duplicates; such a row counts as the document already being
+in the portal (see ``_legacy_expense_rows``).
 """
 
 from __future__ import annotations
@@ -103,6 +107,56 @@ def _tenant_external_ids(link: BankAccountLink, directions: dict[str, bool]) -> 
             model.objects.filter(tenant=link.tenant, external_id__in=ids).values_list("external_id", flat=True)
         )
     return found
+
+
+def _expense_key(doc_date, doc_no, debit_turnover, payment_purpose) -> tuple:
+    return (str(doc_date), str(doc_no).strip(), Decimal(str(debit_turnover)), str(payment_purpose).strip())
+
+
+def _legacy_expense_rows(link: BankAccountLink, expense_items: dict[str, dict]) -> dict[str, BankExpense]:
+    """external_id -> this tenant's BankExpense row WITHOUT external_id (any wallet) that is the
+    same document: the key of ``uniq_bank_expense_tenant_doc_date_doc_no_turnover_purpose``
+    (doc_date, doc_no, debit_turnover, payment_purpose), which is how n8n dedups expenses.
+    Items without doc_no have no such key (the index skips empty doc_no)."""
+    if link.is_card:
+        return {}
+    # Several bank documents with one key are one row to the unique index: all map to it.
+    by_key: dict[tuple, list[str]] = {}
+    for ext_id, i in expense_items.items():
+        if str(i.get("doc_no") or "").strip():
+            key = _expense_key(i["doc_date"], i["doc_no"], i["debit_turnover"], i["payment_purpose"])
+            by_key.setdefault(key, []).append(ext_id)
+    if not by_key:
+        return {}
+    rows = BankExpense.objects.filter(
+        tenant=link.tenant,
+        external_id="",
+        doc_date__in={key[0] for key in by_key},
+        doc_no__in={key[1] for key in by_key},
+        debit_turnover__in={key[2] for key in by_key},
+    ).order_by("id")
+    found: dict[str, BankExpense] = {}
+    for row in rows:
+        key = _expense_key(row.doc_date.isoformat(), row.doc_no, row.debit_turnover, row.payment_purpose)
+        for ext_id in by_key.get(key, []):
+            found.setdefault(ext_id, row)
+    return found
+
+
+def present_on_wallet(link: BankAccountLink, docs: dict) -> set[str]:
+    """general_ids of ``docs`` (general_id -> StatementDoc) already on the link's wallet: by
+    external_id, or for bank expenses n8n created without one, by the natural key."""
+    directions = {ext_id: mapping.is_incoming(doc, link.account_no) for ext_id, doc in docs.items()}
+    found = existing_external_ids(link, directions)
+    if link.is_card:
+        return found
+    expenses = {
+        ext_id: mapping.bank_expense_item(doc)
+        for ext_id, doc in docs.items()
+        if not directions[ext_id] and ext_id not in found
+    }
+    wallet_id = link.wallet().id
+    return found | {ext_id for ext_id, row in _legacy_expense_rows(link, expenses).items() if row.wallet_id == wallet_id}
 
 
 def _check_bank_wallet(link: BankAccountLink) -> None:
@@ -213,9 +267,7 @@ def ingest_statement(link: BankAccountLink, statement: Statement, *, dry_run: bo
     on_wallet = existing_external_ids(link, directions)
     blocked = on_wallet | _tenant_external_ids(link, directions)
 
-    revenue_items: list[dict] = []
-    expense_items: list[dict] = []
-    existing_items: list[tuple[bool, dict]] = []  # (is_revenue, item) for docs already on the wallet
+    items: dict[str, dict] = {}
     for row_no, (ext_id, doc) in enumerate(docs.items(), start=1):
         incoming = directions[ext_id]
         if link.is_card:
@@ -229,6 +281,23 @@ def ingest_statement(link: BankAccountLink, statement: Statement, *, dry_run: bo
             if not incoming:
                 # BankExpense.row_no is required by the serializer; the mapping does not emit it.
                 item["row_no"] = row_no
+        items[ext_id] = item
+
+    # n8n's expense rows have no external_id: match them by the natural key. One on this wallet
+    # is the document already loaded; one on another wallet of the tenant is not sent either
+    # (the unique index would reject it).
+    legacy = _legacy_expense_rows(
+        link, {ext_id: item for ext_id, item in items.items() if not directions[ext_id] and ext_id not in blocked}
+    )
+    legacy_on_wallet = {ext_id for ext_id, row in legacy.items() if row.wallet_id == wallet.id}
+    on_wallet = on_wallet | legacy_on_wallet
+    blocked = blocked | set(legacy)
+
+    revenue_items: list[dict] = []
+    expense_items: list[dict] = []
+    existing_items: list[tuple[bool, dict]] = []  # (is_revenue, item) for docs already on the wallet
+    for ext_id, item in items.items():
+        incoming = directions[ext_id]
         if ext_id in on_wallet:
             existing_items.append((incoming, item))
         if ext_id in blocked:
@@ -244,6 +313,8 @@ def ingest_statement(link: BankAccountLink, statement: Statement, *, dry_run: bo
         for is_revenue, item in existing_items:
             model = revenue_model if is_revenue else expense_model
             row = model.objects.filter(wallet=wallet, external_id=item["external_id"]).first()
+            if row is None and not is_revenue:
+                row = legacy.get(item["external_id"])
             if row is not None:
                 result.field_diffs.extend(_diffs(model, row, item))
         result.missing_external_ids = sorted(all_ids - on_wallet)
@@ -281,7 +352,7 @@ def ingest_statement(link: BankAccountLink, statement: Statement, *, dry_run: bo
                         get=get,
                     )
     result.created = created
-    result.missing_external_ids = sorted(all_ids - existing_external_ids(link, directions))
+    result.missing_external_ids = sorted(all_ids - existing_external_ids(link, directions) - legacy_on_wallet)
     return result
 
 

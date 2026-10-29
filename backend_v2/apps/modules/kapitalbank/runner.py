@@ -29,7 +29,7 @@ from apps.modules.wallets.services import wallet_balance_payload
 from . import alerts as kb_alerts
 from .accounts import refresh_account_list
 from .client import KapitalbankClient, KapitalbankError, Statement, StatementDoc
-from .ingest import IngestError, existing_external_ids, ingest_statement
+from .ingest import IngestError, ingest_statement, present_on_wallet
 from .mapping import is_incoming
 from .models import AccountSyncState, BankAccountLink, KapitalbankConnection, SyncEvent
 
@@ -423,9 +423,10 @@ def _new_own_transfers(link: BankAccountLink, statement: Statement, own_targets:
             candidates.setdefault(str(doc.general_id), doc)
     if not candidates:
         return []
-    # All candidates are outgoing: look only in the expense model (a transfer between our own
-    # accounts is a revenue on the other one with the same general_id).
-    present = existing_external_ids(link, {general_id: False for general_id in candidates})
+    # All candidates are outgoing: only the expense model is looked at (a transfer between our own
+    # accounts is a revenue on the other one with the same general_id), including n8n's expense
+    # rows without external_id.
+    present = present_on_wallet(link, candidates)
     return [doc for general_id, doc in candidates.items() if general_id not in present]
 
 
