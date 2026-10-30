@@ -3,8 +3,10 @@ from __future__ import annotations
 from datetime import timedelta
 
 from django import forms
-from django.contrib import admin
+from django.contrib import admin, messages
+from django.contrib.admin.helpers import ACTION_CHECKBOX_NAME
 from django.core.exceptions import ValidationError
+from django.template.response import TemplateResponse
 from django.utils import timezone
 
 from apps.modules.kapitalbank.models import (
@@ -177,9 +179,18 @@ class BankAccountLinkForm(forms.ModelForm):
         return cleaned
 
 
+class IgnoreReasonForm(forms.Form):
+    ignore_reason = forms.CharField(
+        label="Причина",
+        widget=forms.Textarea(attrs={"rows": 3, "cols": 80}),
+        help_text="Будет записана у каждого выбранного счёта.",
+    )
+
+
 @admin.register(BankAccountLink)
 class BankAccountLinkAdmin(NoDeleteAdminMixin, admin.ModelAdmin):
     form = BankAccountLinkForm
+    actions = ("ignore_selected",)
     list_display = ("tenant", "account_no", "name", "currency", "last_balance", "decision", "last_seen_at")
     list_filter = ("decision", "tenant")
     search_fields = ("account_no", "name")
@@ -212,6 +223,42 @@ class BankAccountLinkAdmin(NoDeleteAdminMixin, admin.ModelAdmin):
             obj.decided_by = request.user
             obj.decided_at = timezone.now()
         super().save_model(request, obj, form, change)
+
+    @admin.action(description="Не отслеживать (с общей причиной)")
+    def ignore_selected(self, request, queryset):
+        """Marks the selected PENDING links IGNORED with one reason. Linked and already ignored
+        links are left as they are: unlinking a tracked account stays a per-account decision."""
+        pending = queryset.filter(decision=BankAccountLink.PENDING)
+        if not pending.exists():
+            self.message_user(request, "Среди выбранных нет счетов, ожидающих решения.", messages.WARNING)
+            return None
+        form = IgnoreReasonForm(request.POST if "apply" in request.POST else None)
+        if form.is_bound and form.is_valid():
+            reason = form.cleaned_data["ignore_reason"].strip()
+            ignored = pending.update(
+                decision=BankAccountLink.IGNORED,
+                ignore_reason=reason,
+                decided_by=request.user,
+                decided_at=timezone.now(),
+            )
+            self.message_user(
+                request,
+                f"Не отслеживаются: {ignored}. Пропущено (уже с решением): {queryset.count() - ignored}.",
+                messages.SUCCESS,
+            )
+            return None
+        context = {
+            **self.admin_site.each_context(request),
+            "title": "Не отслеживать выбранные счета",
+            "opts": self.model._meta,
+            "form": form,
+            "pending": pending.select_related("tenant").order_by("tenant__subdomain", "account_no"),
+            "skipped": queryset.exclude(decision=BankAccountLink.PENDING).count(),
+            "selected": request.POST.getlist(ACTION_CHECKBOX_NAME),
+            "select_across": request.POST.get("select_across", "0"),
+            "action_checkbox_name": ACTION_CHECKBOX_NAME,
+        }
+        return TemplateResponse(request, "admin/kapitalbank/bankaccountlink/ignore_selected.html", context)
 
 
 class RecentPeriodFilter(admin.SimpleListFilter):
