@@ -497,7 +497,12 @@ function BankTab() {
       width: 150,
       render: (value: BankAccountType | undefined) => renderBankAccountType(value),
     },
-    { title: 'Валюта кошелька', key: 'cur', width: 120, render: () => 'UZS' },
+    {
+      title: 'Валюта кошелька',
+      dataIndex: 'wallet_currency',
+      width: 120,
+      render: (value: string | undefined) => value || '—',
+    },
     {
       title: '',
       key: 'actions',

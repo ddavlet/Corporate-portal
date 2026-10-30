@@ -2304,6 +2304,8 @@ export type BankAccountDto = {
   /** Read-only on the backend. */
   account_type?: BankAccountType
   wallet_id: number
+  /** Read-only on the backend: currency of the linked wallet (UZS, USD, …). */
+  wallet_currency?: string
 }
 
 export async function getBankAccounts(): Promise<BankAccountDto[]> {
