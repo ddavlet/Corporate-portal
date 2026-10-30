@@ -7,6 +7,7 @@ from rest_framework_simplejwt.tokens import RefreshToken
 
 from apps.modules.bank_expenses.models import BankRevenue
 from apps.modules.bank_expenses.models import BankExpense
+from apps.modules.wallets.models import BankAccount, Wallet
 from apps.modules.wallets.resolution import get_or_create_bank_wallet, get_or_create_bank_wallet_for_account
 from apps.modules.vendors.models import Vendor
 from apps.modules.requests.models import Request, RequestApprovalConfig, RequestApprovalPaymentTypeConfig
@@ -515,3 +516,70 @@ class BankMovementWalletAccountApiTests(APITestCase):
         res = self.client.get(f"/api/bank/revenues/?wallet={self.wallet_main.id}", **self._headers())
         self.assertEqual(res.status_code, 200, res.content)
         self.assertEqual({r["doc_no"] for r in self._rows(res)}, {"R-MAIN"})
+
+
+class BankAccountsOverviewApiTests(APITestCase):
+    URL = "/api/bank/accounts/"
+
+    def setUp(self):
+        self.tenant = Tenant.objects.create(name="Overview", subdomain="overview", is_active=True)
+        self.admin = User.objects.create_user(username="overview_admin", password="x")
+        TenantMembership.objects.create(tenant=self.tenant, user=self.admin, is_active=True)
+        TenantUserRole.objects.create(tenant=self.tenant, user=self.admin, role=TenantUserRole.ROLE_ADMIN)
+        TenantModuleConfig.objects.create(tenant=self.tenant, module_key="bank", is_enabled=True)
+
+    def _get(self):
+        token = str(RefreshToken.for_user(self.admin).access_token)
+        return self.client.get(self.URL, HTTP_HOST="overview.example.com", HTTP_AUTHORIZATION=f"Bearer {token}")
+
+    def _wallet(self, tenant, account_no, account_type, label, is_default=False):
+        wallet = get_or_create_bank_wallet_for_account(
+            tenant=tenant, account_no=account_no, mfo="00444", account_type=account_type
+        )
+        BankAccount.objects.filter(pk=wallet.bank_account_id).update(label=label, is_default=is_default)
+        return wallet
+
+    @override_settings(BASE_DOMAIN="example.com", ALLOWED_HOSTS=["*"])
+    def test_accounts_overview_order_and_fields(self):
+        T = BankAccount.AccountType
+        service = self._wallet(self.tenant, "20208000000000000001", T.SERVICE, "A service")
+        info = self._wallet(self.tenant, "20208000000000000002", T.INFORMATIONAL, "B info")
+        ctl_b = self._wallet(self.tenant, "20208000000000000003", T.CONTROLLED, "B controlled")
+        ctl_default = self._wallet(self.tenant, "20208000000000000004", T.CONTROLLED, "Z default", is_default=True)
+        ctl_a = self._wallet(self.tenant, "20208000000000000005", T.CONTROLLED, "A controlled")
+        Wallet.objects.filter(pk=ctl_a.pk).update(opening_balance="125.50", currency="USD")
+
+        res = self._get()
+        self.assertEqual(res.status_code, 200)
+        data = res.json()
+        self.assertEqual(
+            [row["wallet_id"] for row in data],
+            [ctl_default.id, ctl_a.id, ctl_b.id, info.id, service.id],
+        )
+        row = data[1]
+        self.assertEqual(
+            set(row),
+            {
+                "wallet_id", "bank_account_id", "label", "account_no", "mfo", "is_default",
+                "account_type", "currency", "current_balance",
+            },
+        )
+        self.assertEqual(row["bank_account_id"], ctl_a.bank_account_id)
+        self.assertEqual(row["label"], "A controlled")
+        self.assertEqual(row["account_no"], "20208000000000000005")
+        self.assertEqual(row["mfo"], "00444")
+        self.assertFalse(row["is_default"])
+        self.assertEqual(row["account_type"], "controlled")
+        self.assertEqual(row["currency"], "USD")
+        self.assertEqual(row["current_balance"], "125.50")
+        self.assertTrue(data[0]["is_default"])
+        self.assertEqual(data[4]["account_type"], "service")
+
+    @override_settings(BASE_DOMAIN="example.com", ALLOWED_HOSTS=["*"])
+    def test_accounts_overview_other_tenant_hidden(self):
+        other = Tenant.objects.create(name="Other", subdomain="other-ov", is_active=True)
+        mine = self._wallet(self.tenant, "20208000000000000001", BankAccount.AccountType.CONTROLLED, "Mine")
+        self._wallet(other, "20208000000000000009", BankAccount.AccountType.CONTROLLED, "Theirs")
+
+        data = self._get().json()
+        self.assertEqual([row["wallet_id"] for row in data], [mine.id])

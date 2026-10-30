@@ -71,3 +71,50 @@ class PendingAccountsApiTests(KapitalbankFixtures, APITestCase):
         res = self._get(self.owner)
         self.assertEqual(res.status_code, 200)
         self.assertEqual(res.json(), {"enabled": False, "accounts": []})
+
+
+@override_settings(BASE_DOMAIN="example.com", ALLOWED_HOSTS=["*"])
+class UntrackedAccountsApiTests(KapitalbankFixtures, APITestCase):
+    URL = "/api/kapitalbank/untracked-accounts/"
+
+    def setUp(self):
+        self.make_fixtures()
+        TenantMembership.objects.create(tenant=self.tenant, user=self.owner, is_active=True)
+        TenantUserRole.objects.create(tenant=self.tenant, user=self.owner, role=TenantUserRole.ROLE_ADMIN)
+
+    def _get(self):
+        token = str(RefreshToken.for_user(self.owner).access_token)
+        return self.client.get(self.URL, HTTP_HOST="kp.example.com", HTTP_AUTHORIZATION=f"Bearer {token}")
+
+    def test_untracked_accounts_pending_and_service(self):
+        BankAccountLink.objects.create(
+            tenant=self.tenant, account_no="20208000000000000003", branch=MFO, name="Новый", currency="000",
+            last_balance="10.5",
+        )
+        BankAccountLink.objects.create(
+            tenant=self.tenant, account_no="20208000000000000002", branch=MFO,
+            decision=BankAccountLink.IGNORED, ignore_reason="not ours",
+        )
+        BankAccountLink.objects.create(
+            tenant=self.tenant, account_no="20208000000000000001", branch=MFO,
+            decision=BankAccountLink.LINKED, bank_account=self.bank_account1,
+        )
+        from apps.tenants.models import Tenant
+
+        other = Tenant.objects.create(name="Beta", subdomain="beta", is_active=True)
+        BankAccountLink.objects.create(tenant=other, account_no="20208000000000000009", branch=MFO)
+
+        res = self._get()
+        self.assertEqual(res.status_code, 200)
+        data = res.json()
+        self.assertEqual([a["account_no"] for a in data], ["20208000000000000003", "20208000000000000002"])
+        self.assertEqual(
+            data[0],
+            {
+                "account_no": "20208000000000000003", "branch": MFO, "name": "Новый", "currency": "000",
+                "balance": "10.50", "status": "pending", "reason": "",
+            },
+        )
+        self.assertEqual(data[1]["status"], "service")
+        self.assertEqual(data[1]["reason"], "not ours")
+        self.assertIsNone(data[1]["balance"])
