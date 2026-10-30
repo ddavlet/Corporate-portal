@@ -53,6 +53,7 @@ NOT_PENDING = "решение уже принято"
 EMPTY_NUMBER = "у счёта банка нет номера"
 LINKED_ELSEWHERE = "счёт портала уже привязан к другому счёту банка"
 HAS_MOVEMENTS = "У счёта портала уже есть движения — привяжите его вручную в админке"
+CARD_ACCOUNT = "счёт корпоративной карты — привязывается в «Корпоративные карты», не как банковский"
 OTHER_CURRENCY = "кошелёк счёта портала в другой валюте — привяжите его вручную в админке"
 USE_IGNORE = "служебный счёт «ожидает решения» — используйте make ignore-kapitalbank"
 CARD_LINKED = "счёт привязан к корпоративной карте, тип не меняется"
@@ -100,6 +101,9 @@ def bank_attach_problem(link: BankAccountLink) -> str:
     account_no, branch = link.account_no.strip(), link.branch.strip()
     if not account_no:
         return EMPTY_NUMBER
+    if kind_for_account(account_no, link.currency) == KIND_CARD:
+        # A corporate card account is attached only as a corporate card (attach_card), never as a bank account.
+        return CARD_ACCOUNT
     existing = BankAccount.objects.filter(tenant_id=link.tenant_id, account_no=account_no, mfo=branch).first()
     if existing is None:
         return ""

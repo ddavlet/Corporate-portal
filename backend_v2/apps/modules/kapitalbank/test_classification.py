@@ -284,3 +284,29 @@ class ClassificationTests(KapitalbankFixtures, TestCase):
         )
         ignored.refresh_from_db()
         self.assertEqual(ignored.decision, BankAccountLink.IGNORED)
+
+    def test_classify_refuses_card_account_as_bank(self):
+        link = self._link(CARD_ACCOUNT, currency="UZS")
+
+        for account_type in (CONTROLLED, INFORMATIONAL):
+            with self.subTest(account_type=account_type):
+                results = classify(
+                    tenant=self.tenant, account_nos=[CARD_ACCOUNT], account_type=account_type,
+                    apply=False, today=TODAY, now=NOW,
+                )
+                self.assertEqual(
+                    [(r.action, r.skip_reason, r.done) for r in results],
+                    [(classification.ACTION_ATTACH, classification.CARD_ACCOUNT, False)],
+                )
+        out = self._run(f"--account={CARD_ACCOUNT}", "--type=controlled", "--apply")
+        self.assertIn("attached=0 type_changed=0 skipped=1", out)
+        self.assertIn("Корпоративные карты", out)
+
+        with self.assertRaisesMessage(ClassificationError, "Корпоративные карты"):
+            attach_bank(link, account_type=CONTROLLED, today=TODAY, now=NOW)
+
+        link.refresh_from_db()
+        self.assertEqual(link.decision, BankAccountLink.PENDING)
+        self.assertIsNone(link.bank_account)
+        self.assertFalse(BankAccount.objects.filter(account_no=CARD_ACCOUNT).exists())
+        self.assertFalse(self._type_events().exists())
