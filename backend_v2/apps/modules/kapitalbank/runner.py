@@ -24,6 +24,7 @@ from django.db import IntegrityError, transaction
 from django.db import connection as db_connection
 from django.utils import timezone
 
+from apps.modules.wallets.models import BankAccount, Wallet
 from apps.modules.wallets.services import wallet_balance_payload
 
 from . import alerts as kb_alerts
@@ -44,6 +45,7 @@ Mode = Literal["daytime", "nightly", "manual"]
 _CENTS = Decimal("0.01")
 _MAX_MESSAGE = 2000
 _UNTRACKED = (BankAccountLink.PENDING, BankAccountLink.IGNORED)
+_SERVICE = BankAccount.AccountType.SERVICE
 
 
 @dataclass
@@ -215,20 +217,31 @@ def _enabled_connections(tenant_subdomain: str | None, *, include_disabled: bool
 
 
 def _linked(tenant) -> list[BankAccountLink]:
+    """LINKED accounts to load; those whose portal account is a service one are not loaded
+    (card links have no bank_account and stay included)."""
     return list(
         BankAccountLink.objects.filter(tenant=tenant, decision=BankAccountLink.LINKED)
+        .exclude(bank_account__account_type=_SERVICE)
         .select_related("tenant", "bank_account__wallet", "card_account__wallet")
         .order_by("id")
     )
 
 
 def _own_targets(tenant) -> set[str]:
-    return {
-        account_no.strip()
-        for account_no in BankAccountLink.objects.filter(tenant=tenant, decision__in=_UNTRACKED).values_list(
-            "account_no", flat=True
-        )
-    }
+    """The tenant's own accounts whose statements are not loaded: undecided, ignored, and
+    LINKED to a service account. A transfer to one of them is alerted."""
+    untracked = BankAccountLink.objects.filter(tenant=tenant, decision__in=_UNTRACKED).values_list(
+        "account_no", flat=True
+    )
+    service = BankAccountLink.objects.filter(
+        tenant=tenant, decision=BankAccountLink.LINKED, bank_account__account_type=_SERVICE
+    ).values_list("account_no", flat=True)
+    return {account_no.strip() for account_no in [*untracked, *service]}
+
+
+def _tracked(link: BankAccountLink, day: date) -> bool:
+    """Days before the link's tracking start are skipped silently (no load, no event)."""
+    return link.track_from is None or day >= link.track_from
 
 
 def _read_password(secrets: _Secrets, conn: KapitalbankConnection) -> str:
@@ -343,6 +356,8 @@ def _load_link(ctx: _Run, link: BankAccountLink, client, own_targets: set[str]) 
     failures: list[tuple[date | None, Exception]] = []
     today: tuple[Statement, dict] | None = None
     for day in _ordered_days(ctx):
+        if not _tracked(link, day):
+            continue
         try:
             loaded = _load_day(ctx, link, client, day, own_targets)
         except Exception as exc:
@@ -387,6 +402,8 @@ def _load_day(
     if ctx.dry_run:
         return statement, detail
 
+    if day == link.track_from and link.opening_synced_at is None:
+        _sync_opening_balance(ctx, link, statement)
     if result.created:
         _event(
             ctx,
@@ -409,6 +426,23 @@ def _load_day(
     for doc in new_own_transfers:
         _alert(ctx, kb_alerts.notify_own_transfer, link, doc, target_account=doc.acc_ct.strip())
     return statement, detail
+
+
+def _sync_opening_balance(ctx: _Run, link: BankAccountLink, statement: Statement) -> None:
+    """Once per link: the bank's saldo_in of the tracking start day becomes the wallet's opening
+    balance, so the portal balance (opening + loaded movements) matches the bank from day one."""
+    wallet = link.wallet()
+    with transaction.atomic():
+        Wallet.objects.filter(pk=wallet.pk).update(opening_balance=statement.saldo_in)
+        BankAccountLink.objects.filter(pk=link.pk).update(opening_synced_at=ctx.now)
+    # The reconciliation and later days of this run read these same objects.
+    wallet.refresh_from_db(fields=["opening_balance"])
+    link.refresh_from_db(fields=["opening_synced_at"])
+    logger.info(
+        "kapitalbank: account …%s opening balance set from bank saldo_in of %s",
+        link.account_no[-4:],
+        link.track_from,
+    )
 
 
 def _new_own_transfers(link: BankAccountLink, statement: Statement, own_targets: set[str]) -> list[StatementDoc]:
@@ -455,6 +489,8 @@ def _reconcile(
         recheck_failed = False
         for n in range(NIGHTLY_DAYS_BACK, 0, -1):
             day = ctx.today - timedelta(days=n)
+            if not _tracked(link, day):
+                continue
             try:
                 _load_day(ctx, link, client, day, own_targets, stage="recheck")
             except Exception as exc:

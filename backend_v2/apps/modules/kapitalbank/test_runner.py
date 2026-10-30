@@ -10,6 +10,8 @@ from apps.modules.bank_expenses.models import BankExpense, BankRevenue
 from apps.modules.cash_withdrawals.fixtures import GATEWAY_PATH, gateway_ok
 from apps.modules.vendors.models import Vendor
 from apps.modules.wallets.calendar_utils import TASHKENT, start_of_year_utc
+from apps.modules.wallets.models import BankAccount, Wallet
+from apps.modules.wallets.resolution import get_or_create_bank_wallet_for_account
 
 from .client import BankListedAccount, KapitalbankError, Statement, StatementDoc
 from .fixtures import ACCOUNT_1, ACCOUNT_2, MFO, KapitalbankFixtures
@@ -22,6 +24,7 @@ LOGIN = "IB#secretlogin"
 PENDING_ACCOUNT = "20208000904843803009"
 IGNORED_ACCOUNT = "20208000904843803010"
 NEW_ACCOUNT = "20208000904843803011"
+SERVICE_ACCOUNT = "20208000000000000001"
 COUNTERPARTY = "20208840100400002020"
 NOW = datetime(2026, 10, 26, 7, 0, tzinfo=dt_timezone.utc)  # 12:00 in Tashkent
 TODAY = date(2026, 10, 26)
@@ -57,10 +60,10 @@ def make_doc(n, *, day, incoming, account=ACCOUNT_1, counterparty=COUNTERPARTY, 
     )
 
 
-def statement(*docs, saldo_out="0.00"):
+def statement(*docs, saldo_out="0.00", saldo_in="0.00"):
     return Statement(
         docs=list(docs),
-        saldo_in=Decimal(0),
+        saldo_in=Decimal(saldo_in),
         saldo_out=None if saldo_out is None else Decimal(saldo_out),
         total_debit=Decimal(0),
         total_credit=Decimal(0),
@@ -757,3 +760,120 @@ class RunnerTests(KapitalbankFixtures, TestCase):
         event = SyncEvent.objects.get(dedup_key=f"accounts_refresh:{self.tenant.pk}:{TODAY.isoformat()}")
         self.assertNotIn(PASSWORD, event.message)
         self.assertEqual(self.fake.days(ACCOUNT_1), NIGHTLY_ORDER * 2)  # statements still loaded on both runs
+
+    # --- tracking start, opening balance, service accounts --------------------------------
+
+    def track_link1_from(self, day):
+        BankAccountLink.objects.filter(pk=self.link1.pk).update(track_from=day)
+
+    def test_days_before_track_from_are_not_loaded(self):
+        self.track_link1_from(TODAY)
+
+        report = self.run_import("nightly")
+
+        self.assertEqual(self.fake.days(ACCOUNT_1), [TODAY])
+        self.assertEqual(self.fake.days(ACCOUNT_2), NIGHTLY_ORDER)  # no track_from: unchanged
+        self.assertEqual((report.accounts_ok, report.accounts_failed), (2, 0))
+        self.assertFalse(SyncEvent.objects.filter(link=self.link1).exclude(kind=SyncEvent.IMPORTED).exists())
+        self.gw.assert_not_called()
+
+    def test_recheck_does_not_load_before_track_from(self):
+        self.track_link1_from(TODAY - timedelta(days=2))
+        self.fake.statements[(ACCOUNT_1, TODAY)] = [statement(saldo_out="1000.00")]
+
+        self.run_import("daytime")
+
+        recheck = [TODAY - timedelta(days=2), TODAY - timedelta(days=1)]
+        self.assertEqual(self.fake.days(ACCOUNT_1), [TODAY] + recheck + [TODAY])
+        self.assertEqual(self.fake.days(ACCOUNT_2), [TODAY])
+        self.assertEqual(self.gw.call_count, 1)
+        self.assertIn("Расхождение остатка", self.texts()[0])
+
+    def test_opening_balance_synced_once_from_saldo_in(self):
+        self.track_link1_from(TODAY)
+        doc = make_doc(1, day=TODAY, incoming=True, amount="200.00")
+        self.fake.statements[(ACCOUNT_1, TODAY)] = [statement(doc, saldo_in="1500.00", saldo_out="1700.00")]
+
+        self.run_import("daytime")
+
+        self.wallet1.refresh_from_db()
+        self.link1.refresh_from_db()
+        self.assertEqual(self.wallet1.opening_balance, Decimal("1500.00"))
+        self.assertEqual(self.link1.opening_synced_at, NOW)
+        self.gw.assert_not_called()  # opening 1500 + 200 = bank 1700
+
+        self.fake.statements[(ACCOUNT_1, TODAY)] = [statement(doc, saldo_in="9999.00", saldo_out="1700.00")]
+        self.run_import("daytime", now=NOW + timedelta(minutes=10))
+
+        self.wallet1.refresh_from_db()
+        self.link1.refresh_from_db()
+        self.assertEqual(self.wallet1.opening_balance, Decimal("1500.00"))
+        self.assertEqual(self.link1.opening_synced_at, NOW)
+        self.wallet2.refresh_from_db()
+        self.assertEqual(self.wallet2.opening_balance, Decimal("0.00"))  # no track_from: never synced
+
+    def test_first_night_after_attach_has_no_mismatch_alert(self):
+        self.track_link1_from(TODAY)
+        before = TODAY - timedelta(days=2)
+        self.fake.statements[(ACCOUNT_1, before)] = [
+            statement(make_doc(1, day=before, incoming=True, amount="500.00"), saldo_in="1000.00", saldo_out="1500.00")
+        ]
+        self.fake.statements[(ACCOUNT_1, TODAY)] = [
+            statement(make_doc(2, day=TODAY, incoming=True, amount="200.00"), saldo_in="1500.00", saldo_out="1700.00")
+        ]
+
+        report = self.run_import("nightly")
+
+        self.assertFalse(SyncEvent.objects.filter(kind=SyncEvent.ALERT_MISMATCH).exists())
+        self.gw.assert_not_called()
+        self.assertEqual(self.fake.days(ACCOUNT_1), [TODAY])
+        self.assertFalse(BankRevenue.objects.filter(external_id="RUN1").exists())
+        self.assertTrue(BankRevenue.objects.filter(external_id="RUN2", wallet=self.wallet1).exists())
+        detail = [d for d in report.details if d["account_no"] == ACCOUNT_1][0]
+        self.assertEqual(detail["reconcile"], "match")
+
+    def test_service_typed_linked_account_not_loaded_but_is_own_target(self):
+        service_wallet = get_or_create_bank_wallet_for_account(
+            tenant=self.tenant, account_no=SERVICE_ACCOUNT, mfo=MFO, account_type=BankAccount.AccountType.SERVICE
+        )
+        BankAccountLink.objects.create(
+            tenant=self.tenant, account_no=SERVICE_ACCOUNT, branch=MFO, name="Служебный",
+            decision=BankAccountLink.LINKED, bank_account=service_wallet.bank_account,
+        )
+        doc = make_doc(1, day=TODAY, incoming=False, counterparty=SERVICE_ACCOUNT, amount="300.00")
+        self.fake.statements[(ACCOUNT_1, TODAY)] = [statement(doc, saldo_out="-300.00")]
+
+        report = self.run_import("daytime")
+
+        self.assertEqual(self.fake.days(SERVICE_ACCOUNT), [])
+        self.assertEqual({acc for acc, _ in self.fake.calls}, {ACCOUNT_1, ACCOUNT_2})
+        self.assertEqual((report.accounts_ok, report.accounts_failed), (2, 0))
+        self.assertTrue(SyncEvent.objects.filter(link=self.link1, kind=SyncEvent.ALERT_OWN_TRANSFER).exists())
+        self.assertEqual(self.gw.call_count, 1)
+        self.assertIn("Перевод на свой счёт", self.texts()[0])
+        self.assertIn(SERVICE_ACCOUNT, self.texts()[0])
+
+    def test_mismatch_alert_shows_currency_for_foreign_wallet(self):
+        Wallet.objects.filter(pk=self.wallet1.pk).update(currency="USD")
+        self.fake.statements[(ACCOUNT_1, TODAY)] = [statement(saldo_out="1000.00")]
+        self.fake.statements[(ACCOUNT_2, TODAY)] = [statement(saldo_out="500.00")]
+
+        self.run_import("daytime")
+
+        self.assertEqual(self.gw.call_count, 2)
+        usd = [t for t in self.texts() if "…3001" in t][0]
+        uzs = [t for t in self.texts() if "…3004" in t][0]
+        self.assertIn("Банк: 1 000,00 USD\nПортал: 0,00 USD\nРазница: -1 000,00 USD\n", usd)
+        self.assertIn("Банк: 500,00\nПортал: 0,00\nРазница: -500,00\nСверка: ", uzs)
+        self.assertNotIn("USD", uzs)
+        self.assertNotIn("UZS", uzs)
+
+    def test_own_transfer_alert_shows_currency_for_foreign_wallet(self):
+        Wallet.objects.filter(pk=self.wallet1.pk).update(currency="USD")
+        doc = make_doc(1, day=TODAY, incoming=False, counterparty=PENDING_ACCOUNT, amount="300.00")
+        self.fake.statements[(ACCOUNT_1, TODAY)] = [statement(doc, saldo_out="-300.00")]
+
+        self.run_import("daytime")
+
+        self.assertEqual(self.gw.call_count, 1)
+        self.assertIn("Сумма: 300,00 USD\n", self.texts()[0])

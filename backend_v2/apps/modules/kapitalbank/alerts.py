@@ -18,6 +18,7 @@ import logging
 from datetime import date, datetime, timedelta
 from decimal import Decimal
 
+from django.core.exceptions import ObjectDoesNotExist
 from django.db import IntegrityError, transaction
 from django.utils import timezone
 
@@ -36,6 +37,19 @@ def format_amount(value: Decimal) -> str:
     """'-361 569 643,41': space thousands separator, comma decimals, always two decimals."""
     text = f"{Decimal(value):,.2f}"
     return text.replace(",", " ").replace(".", ",")
+
+
+def _money(value: Decimal, link: BankAccountLink) -> str:
+    """format_amount plus the wallet currency when it is not UZS (UZS texts stay unchanged)."""
+    text = format_amount(value)
+    try:
+        wallet = link.wallet()
+    except ObjectDoesNotExist:
+        wallet = None
+    currency = (getattr(wallet, "currency", "") or "").strip()
+    if currency and currency != "UZS":
+        text = f"{text} {_esc(currency)}"
+    return text
 
 
 def _esc(value) -> str:
@@ -153,9 +167,9 @@ def notify_mismatch(link: BankAccountLink, *, bank: Decimal, portal: Decimal, no
         "<b>Расхождение остатка Капиталбанк</b>\n"
         f"Организация: {_esc(link.tenant.name)}\n"
         f"Счёт: {_esc(_account_label(link))}\n"
-        f"Банк: {format_amount(bank)}\n"
-        f"Портал: {format_amount(portal)}\n"
-        f"Разница: {format_amount(portal - bank)}\n"
+        f"Банк: {_money(bank, link)}\n"
+        f"Портал: {_money(portal, link)}\n"
+        f"Разница: {_money(portal - bank, link)}\n"
         f"Сверка: {_fmt_time(now)}"
     )
     sent = send_owner_alert(
@@ -231,7 +245,7 @@ def notify_own_transfer(link: BankAccountLink, doc: StatementDoc, *, target_acco
         "<b>Перевод на свой счёт</b>\n"
         f"Организация: {_esc(link.tenant.name)}\n"
         f"Со счёта: {_esc(_account_label(link))}\n"
-        f"Сумма: {format_amount(doc.amount)}\n"
+        f"Сумма: {_money(doc.amount, link)}\n"
         f"Дата: {doc.ddate.strftime('%d.%m.%Y')}\n"
         f"Счёт получателя: {_esc(target_account)} ({note})\n"
         f"Назначение: {_esc(doc.purpose)}"
