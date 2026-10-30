@@ -12,8 +12,8 @@ from apps.modules.kapitalbank.models import BankAccountLink
 from apps.tenants.models import Tenant
 
 NOW = dt.datetime(2026, 10, 30, 10, 0, tzinfo=dt.timezone.utc)
-FEES = "16401000504843803001"
-TRANSIT = "23510000104843803001"
+FEES = "16401000000000000001"
+TRANSIT = "23510000000000000001"
 MISSING = "99999000000000000001"
 
 
