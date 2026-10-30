@@ -288,7 +288,7 @@ class BankAccountLinkAdmin(NoDeleteAdminMixin, admin.ModelAdmin):
             return None
         context = {
             **self.admin_site.each_context(request),
-            "title": "Не отслеживать выбранные счета",
+            "title": "Отметить выбранные счета служебными",
             "opts": self.model._meta,
             "form": form,
             "pending": pending.select_related("tenant").order_by("tenant__subdomain", "account_no"),
