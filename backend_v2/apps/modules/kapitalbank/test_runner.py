@@ -1035,16 +1035,16 @@ class RunnerTests(KapitalbankFixtures, TestCase):
         self.assertEqual((report.accounts_ok, report.accounts_failed), (3, 0))
 
     def test_nightly_new_account_unexpected_error_does_not_stop_others(self):
-        from .classification import auto_attach_new as real_auto_attach_new
+        from .classification import new_account_outcome as real_new_account_outcome
 
         def flaky(link, **kwargs):
             if link.account_no == NEW_ACCOUNT:
                 raise RuntimeError(f"boom {PASSWORD}")
-            return real_auto_attach_new(link, **kwargs)
+            return real_new_account_outcome(link, **kwargs)
 
         self.fake.accounts = [listed(NEW_ACCOUNT), listed(NEW_ACCOUNT_2)]
 
-        with patch("apps.modules.kapitalbank.runner.auto_attach_new", side_effect=flaky):
+        with patch("apps.modules.kapitalbank.runner.new_account_outcome", side_effect=flaky):
             with self.assertLogs("apps.modules.kapitalbank.runner", level="ERROR") as logs:
                 report = self.run_import("nightly")
 
@@ -1058,3 +1058,94 @@ class RunnerTests(KapitalbankFixtures, TestCase):
         self.assertEqual((report.accounts_ok, report.accounts_failed), (3, 0))
         for text in [*logs.output, *self.texts()]:
             self.assertNotIn(PASSWORD, text)
+
+    def gateway_down(self):
+        self.gw.side_effect = None
+        self.gw.return_value = None  # non-OK / unreachable gateway: the send fails
+
+    def gateway_up(self):
+        self.gw.reset_mock()
+        self.gw.side_effect = gateway_ok()
+
+    def delivered_new_account_events(self, link):
+        return SyncEvent.objects.filter(kind=SyncEvent.ALERT_NEW_ACCOUNT, dedup_key=f"new_account:{link.pk}")
+
+    def test_new_account_alert_retried_next_night_after_failed_send(self):
+        self.fake.accounts = [listed(ACCOUNT_1), listed(NEW_ACCOUNT)]
+        self.gateway_down()
+
+        self.run_import("nightly")
+
+        new = BankAccountLink.objects.get(tenant=self.tenant, account_no=NEW_ACCOUNT)
+        self.assertEqual(new.decision, BankAccountLink.LINKED)  # attached although the message failed
+        self.assertFalse(self.delivered_new_account_events(new).exists())
+        self.assertTrue(self.new_account_events().filter(link=new, payload__failed=True).exists())
+
+        self.gateway_up()
+        second = self.run_import("nightly", now=NOW + timedelta(days=1))
+
+        texts = self.new_account_texts()
+        self.assertEqual(len(texts), 1)
+        self.assertIn(NEW_ACCOUNT, texts[0])
+        self.assertIn("Тип: поставлен на контроль", texts[0])
+        self.assertEqual(self.delivered_new_account_events(new).count(), 1)
+        self.assertEqual(second.alerts, 1)
+        new.refresh_from_db()
+        # Attached once, on the first night: the retry only resends the message.
+        self.assertEqual(new.decided_at, NOW)
+        self.assertEqual(new.track_from, TODAY)
+        self.assertEqual(BankAccount.objects.filter(tenant=self.tenant, account_no=NEW_ACCOUNT).count(), 1)
+
+        self.gateway_up()
+        self.run_import("nightly", now=NOW + timedelta(days=2))
+
+        self.assertEqual(self.new_account_texts(), [])  # delivered: never sent again
+        self.assertEqual(self.delivered_new_account_events(new).count(), 1)
+
+    def test_new_account_attach_retried_next_night_when_first_night_failed(self):
+        # Night 1: the attach fails (portal wallet in USD, bank says UZS) and the message is not delivered.
+        usd_wallet = get_or_create_bank_wallet_for_account(
+            tenant=self.tenant, account_no=NEW_ACCOUNT, mfo=MFO, currency="USD"
+        )
+        self.fake.accounts = [listed(NEW_ACCOUNT)]
+        self.gateway_down()
+
+        self.run_import("nightly")
+
+        new = BankAccountLink.objects.get(tenant=self.tenant, account_no=NEW_ACCOUNT)
+        self.assertEqual(new.decision, BankAccountLink.PENDING)
+        self.assertEqual(self.fake.days(NEW_ACCOUNT), [])
+        self.assertFalse(self.delivered_new_account_events(new).exists())
+
+        # Before night 2 the wallet currency is corrected: the retry now attaches it.
+        Wallet.objects.filter(pk=usd_wallet.pk).update(currency="UZS")
+        self.gateway_up()
+        self.run_import("nightly", now=NOW + timedelta(days=1))
+
+        new.refresh_from_db()
+        self.assertEqual(new.decision, BankAccountLink.LINKED)
+        self.assertEqual(new.bank_account_id, usd_wallet.bank_account_id)
+        self.assertEqual(new.track_from, TODAY + timedelta(days=1))
+        self.assertEqual(new.decided_at, NOW + timedelta(days=1))
+        self.assertEqual(self.fake.days(NEW_ACCOUNT), [TODAY + timedelta(days=1)])  # loaded that night
+        texts = self.new_account_texts()
+        self.assertEqual(len(texts), 1)
+        self.assertIn("Тип: поставлен на контроль", texts[0])
+        self.assertNotIn("не удалось", texts[0])
+        self.assertEqual(self.delivered_new_account_events(new).count(), 1)
+
+    def test_new_account_still_failing_attach_is_alerted_on_retry(self):
+        get_or_create_bank_wallet_for_account(tenant=self.tenant, account_no=NEW_ACCOUNT, mfo=MFO, currency="USD")
+        self.fake.accounts = [listed(NEW_ACCOUNT)]
+        self.gateway_down()
+        self.run_import("nightly")
+
+        self.gateway_up()
+        self.run_import("nightly", now=NOW + timedelta(days=1))
+
+        new = BankAccountLink.objects.get(tenant=self.tenant, account_no=NEW_ACCOUNT)
+        self.assertEqual(new.decision, BankAccountLink.PENDING)
+        texts = self.new_account_texts()
+        self.assertEqual(len(texts), 1)
+        self.assertIn(f"не удалось поставить на контроль автоматически: {OTHER_CURRENCY}", texts[0])
+        self.assertEqual(self.delivered_new_account_events(new).count(), 1)

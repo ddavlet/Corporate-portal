@@ -32,7 +32,7 @@ from apps.modules.wallets.services import wallet_balance_payload
 
 from . import alerts as kb_alerts
 from .accounts import refresh_account_list
-from .classification import AutoAttachResult, auto_attach_new, kind_for_account
+from .classification import AutoAttachResult, kind_for_account, new_account_outcome
 from .client import KapitalbankClient, KapitalbankError, Statement, StatementDoc
 from .ingest import IngestError, ingest_statement, present_on_wallet
 from .mapping import is_incoming
@@ -288,7 +288,7 @@ def _run_tenant(ctx: _Run, conn: KapitalbankConnection, client_factory) -> None:
             )
             _alert(ctx, kb_alerts.notify_accounts_refresh_failed, tenant, message=message, today=ctx.today, now=ctx.now)
         else:
-            _attach_new_accounts(ctx, listed)
+            _attach_new_accounts(ctx, tenant, listed)
 
     own_targets = _own_targets(tenant)
     for link in _linked(tenant):
@@ -296,14 +296,16 @@ def _run_tenant(ctx: _Run, conn: KapitalbankConnection, client_factory) -> None:
         _run_link(ctx, link, client, own_targets)
 
 
-def _attach_new_accounts(ctx: _Run, listed: list[BankAccountLink]) -> None:
+def _attach_new_accounts(ctx: _Run, tenant, listed: list[BankAccountLink]) -> None:
     """Accounts this refresh created (PENDING, first seen now) are attached by kind and alerted;
-    one that cannot be attached stays PENDING and the alert says why. Never stops the run."""
-    for link in listed:
-        if link.decision != BankAccountLink.PENDING or link.first_seen_at != ctx.now:
-            continue
+    one that cannot be attached stays PENDING and the alert says why. Accounts whose new-account
+    message was never delivered are retried too (a PENDING one is re-attached first). Never stops the run."""
+    candidates = [link for link in listed if link.decision == BankAccountLink.PENDING and link.first_seen_at == ctx.now]
+    seen = {link.pk for link in candidates}
+    candidates += [link for link in _undelivered_new_accounts(tenant) if link.pk not in seen]
+    for link in candidates:
         try:
-            outcome = auto_attach_new(link, today=ctx.today, now=ctx.now)
+            outcome = new_account_outcome(link, today=ctx.today, now=ctx.now)
         except Exception:
             _log_error(ctx.secrets, "kapitalbank: new account …%s (link_id=%s) not attached", link.account_no[-4:], link.pk)
             try:
@@ -314,6 +316,20 @@ def _attach_new_accounts(ctx: _Run, listed: list[BankAccountLink]) -> None:
                 kind_for_account(link.account_no, link.currency), "внутренняя ошибка портала (подробности в журнале)"
             )
         _alert(ctx, kb_alerts.notify_new_account, link, kind=outcome.kind, problem=outcome.problem, now=ctx.now)
+
+
+def _undelivered_new_accounts(tenant) -> list[BankAccountLink]:
+    """Links with a failed new-account message (send_owner_alert frees the dedup key and marks the
+    payload ``failed``) and no delivered one (a delivered message keeps its dedup key)."""
+    events = SyncEvent.objects.filter(tenant=tenant, kind=SyncEvent.ALERT_NEW_ACCOUNT, link__isnull=False)
+    failed = events.filter(dedup_key__isnull=True, payload__failed=True).values("link_id")
+    delivered = events.filter(dedup_key__isnull=False).values("link_id")
+    return list(
+        BankAccountLink.objects.filter(tenant=tenant, pk__in=failed)
+        .exclude(pk__in=delivered)
+        .select_related("tenant", "bank_account")
+        .order_by("id")
+    )
 
 
 def _fail_tenant(ctx: _Run, conn: KapitalbankConnection, stage: str, message: str, exc: Exception | None = None) -> None:

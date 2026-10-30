@@ -228,6 +228,18 @@ def auto_attach_new(link: BankAccountLink, *, today: date, now: datetime) -> Aut
     return AutoAttachResult(kind)
 
 
+def new_account_outcome(link: BankAccountLink, *, today: date, now: datetime) -> AutoAttachResult:
+    """For the new-account message: a PENDING link is (re)tried with ``auto_attach_new``; one already
+    decided (e.g. attached on a night whose message was not delivered) is described as it is now."""
+    if link.decision == BankAccountLink.PENDING:
+        return auto_attach_new(link, today=today, now=now)
+    if link.card_account_id is not None:
+        return AutoAttachResult(KIND_CARD)
+    if link.bank_account_id is not None:
+        return AutoAttachResult(link.bank_account.account_type)
+    return AutoAttachResult(KIND_SERVICE)  # IGNORED
+
+
 def _ignore_service(link: BankAccountLink, *, now: datetime) -> None:
     fields = {
         "decision": BankAccountLink.IGNORED,
