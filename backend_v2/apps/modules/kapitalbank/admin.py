@@ -9,6 +9,7 @@ from django.core.exceptions import ValidationError
 from django.template.response import TemplateResponse
 from django.utils import timezone
 
+from apps.modules.kapitalbank.classification import set_account_type
 from apps.modules.kapitalbank.models import (
     AccountSyncState,
     BankAccountLink,
@@ -95,12 +96,34 @@ class AccountSyncStateInline(admin.StackedInline):
 
 
 class BankAccountLinkForm(forms.ModelForm):
+    # Not a model field: the type of the linked portal bank account, saved through set_account_type
+    # (which alerts the owner). Present only on a LINKED bank link (see has_account_type_field).
+    account_type = forms.ChoiceField(
+        label="Тип счёта портала",
+        choices=BankAccount.AccountType.choices,
+        required=False,
+        help_text="Смена типа отправляет сообщение владельцу.",
+    )
+
     class Meta:
         model = BankAccountLink
         fields = "__all__"
 
+    @staticmethod
+    def has_account_type_field(link) -> bool:
+        return (
+            link is not None
+            and link.pk is not None
+            and link.decision == BankAccountLink.LINKED
+            and link.bank_account_id is not None
+        )
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        if self.has_account_type_field(self.instance):
+            self.fields["account_type"].initial = self.instance.bank_account.account_type
+        else:
+            self.fields.pop("account_type", None)
         tenant_id = self._known_tenant_id()
         if tenant_id:
             if "bank_account" in self.fields:
@@ -170,9 +193,9 @@ class BankAccountLinkForm(forms.ModelForm):
                 raise ValidationError("Выберите только один счёт: банковский или карточный.")
         elif decision == BankAccountLink.IGNORED:
             if not reason:
-                self.add_error("ignore_reason", "Укажите причину, почему счёт игнорируется.")
+                self.add_error("ignore_reason", "Укажите причину, почему счёт служебный.")
             if bank is not None or card is not None:
-                raise ValidationError("Игнорируемый счёт не может быть привязан к счёту портала.")
+                raise ValidationError("Служебный счёт не может быть привязан к счёту портала.")
         elif decision == BankAccountLink.PENDING:
             if bank is not None or card is not None:
                 raise ValidationError("Счёт, ожидающий решения, не может быть привязан к счёту портала.")
@@ -212,6 +235,12 @@ class BankAccountLinkAdmin(NoDeleteAdminMixin, admin.ModelAdmin):
         "decided_at",
     )
 
+    def get_fields(self, request, obj=None):
+        fields = tuple(super().get_fields(request, obj))
+        if BankAccountLinkForm.has_account_type_field(obj):
+            fields += ("account_type",)
+        return fields
+
     def get_readonly_fields(self, request, obj=None):
         bank_fields = ("name", "currency", "last_balance", "bank_state", "decided_by", "decided_at")
         if obj is not None:
@@ -223,8 +252,18 @@ class BankAccountLinkAdmin(NoDeleteAdminMixin, admin.ModelAdmin):
             obj.decided_by = request.user
             obj.decided_at = timezone.now()
         super().save_model(request, obj, form, change)
+        new_type = form.cleaned_data.get("account_type")
+        if (
+            change
+            and new_type
+            and "bank_account" not in form.changed_data
+            and obj.decision == BankAccountLink.LINKED
+            and obj.bank_account_id is not None
+        ):
+            # set_account_type is a no-op (no alert) when the type is unchanged; decided_by/at stay as they are.
+            set_account_type(obj.bank_account, new_type, changed_by=request.user, now=timezone.now())
 
-    @admin.action(description="Не отслеживать (с общей причиной)")
+    @admin.action(description="Служебный (с общей причиной)")
     def ignore_selected(self, request, queryset):
         """Marks the selected PENDING links IGNORED with one reason. Linked and already ignored
         links are left as they are: unlinking a tracked account stays a per-account decision."""

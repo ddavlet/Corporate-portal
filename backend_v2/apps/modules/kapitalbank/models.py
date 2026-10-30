@@ -58,7 +58,7 @@ class BankAccountLink(models.Model):
     DECISION_CHOICES = [
         (PENDING, "Ожидает решения"),
         (LINKED, "Привязан"),
-        (IGNORED, "Игнорируется"),
+        (IGNORED, "Служебный"),
     ]
 
     tenant = models.ForeignKey(Tenant, on_delete=models.CASCADE, related_name="kapitalbank_links", db_index=False)
@@ -86,6 +86,10 @@ class BankAccountLink(models.Model):
         settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL, related_name="+"
     )
     decided_at = models.DateTimeField(null=True, blank=True)
+    # Statements are loaded only from this day on (None: no limit); its saldo_in becomes the
+    # wallet's opening balance once, recorded by opening_synced_at.
+    track_from = models.DateField(null=True, blank=True)
+    opening_synced_at = models.DateTimeField(null=True, blank=True)
 
     class Meta:
         constraints = [
@@ -146,6 +150,8 @@ class SyncEvent(models.Model):
     ALERT_RESOLVED = "alert_resolved"
     ALERT_DOWN = "alert_down"
     ALERT_OWN_TRANSFER = "alert_own_transfer"
+    ALERT_NEW_ACCOUNT = "alert_new_account"
+    ALERT_TYPE_CHANGED = "alert_type_change"
     KIND_CHOICES = [
         (IMPORTED, "Загружено"),
         (ERROR, "Ошибка"),
@@ -154,6 +160,8 @@ class SyncEvent(models.Model):
         (ALERT_RESOLVED, "Алерт: расхождение устранено"),
         (ALERT_DOWN, "Алерт: банк недоступен"),
         (ALERT_OWN_TRANSFER, "Алерт: перевод между своими счетами"),
+        (ALERT_NEW_ACCOUNT, "Алерт: новый счёт в банке"),
+        (ALERT_TYPE_CHANGED, "Алерт: смена типа счёта"),
     ]
 
     tenant = models.ForeignKey(Tenant, on_delete=models.CASCADE, related_name="kapitalbank_events", db_index=False)

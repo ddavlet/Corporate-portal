@@ -18,6 +18,7 @@ import logging
 from datetime import date, datetime, timedelta
 from decimal import Decimal
 
+from django.core.exceptions import ObjectDoesNotExist
 from django.db import IntegrityError, transaction
 from django.utils import timezone
 
@@ -36,6 +37,19 @@ def format_amount(value: Decimal) -> str:
     """'-361 569 643,41': space thousands separator, comma decimals, always two decimals."""
     text = f"{Decimal(value):,.2f}"
     return text.replace(",", " ").replace(".", ",")
+
+
+def _money(value: Decimal, link: BankAccountLink) -> str:
+    """format_amount plus the wallet currency when it is not UZS (UZS texts stay unchanged)."""
+    text = format_amount(value)
+    try:
+        wallet = link.wallet()
+    except ObjectDoesNotExist:
+        wallet = None
+    currency = (getattr(wallet, "currency", "") or "").strip()
+    if currency and currency != "UZS":
+        text = f"{text} {_esc(currency)}"
+    return text
 
 
 def _esc(value) -> str:
@@ -153,9 +167,9 @@ def notify_mismatch(link: BankAccountLink, *, bank: Decimal, portal: Decimal, no
         "<b>Расхождение остатка Капиталбанк</b>\n"
         f"Организация: {_esc(link.tenant.name)}\n"
         f"Счёт: {_esc(_account_label(link))}\n"
-        f"Банк: {format_amount(bank)}\n"
-        f"Портал: {format_amount(portal)}\n"
-        f"Разница: {format_amount(portal - bank)}\n"
+        f"Банк: {_money(bank, link)}\n"
+        f"Портал: {_money(portal, link)}\n"
+        f"Разница: {_money(portal - bank, link)}\n"
         f"Сверка: {_fmt_time(now)}"
     )
     sent = send_owner_alert(
@@ -231,7 +245,7 @@ def notify_own_transfer(link: BankAccountLink, doc: StatementDoc, *, target_acco
         "<b>Перевод на свой счёт</b>\n"
         f"Организация: {_esc(link.tenant.name)}\n"
         f"Со счёта: {_esc(_account_label(link))}\n"
-        f"Сумма: {format_amount(doc.amount)}\n"
+        f"Сумма: {_money(doc.amount, link)}\n"
         f"Дата: {doc.ddate.strftime('%d.%m.%Y')}\n"
         f"Счёт получателя: {_esc(target_account)} ({note})\n"
         f"Назначение: {_esc(doc.purpose)}"
@@ -283,4 +297,81 @@ def notify_accounts_refresh_failed(tenant, *, message: str, today: date, now: da
         kind=SyncEvent.ALERT_DOWN,
         dedup_key=f"accounts_refresh:{tenant.pk}:{today.isoformat()}",
         payload={"stage": "account_list"},
+    )
+
+
+def _user_label(user) -> str:
+    if user is None:
+        return "команда"
+    return (getattr(user, "full_name", "") or "").strip() or user.get_username()
+
+
+def notify_account_type_changed(bank_account, *, old: str, new: str, changed_by=None, now: datetime) -> bool:
+    """Every type change of a portal bank account; ``link`` is its Kapitalbank link or None
+    (e.g. the synthetic default account). No dedup: each change is its own message."""
+    labels = dict(type(bank_account).AccountType.choices)
+    link = (
+        BankAccountLink.objects.filter(bank_account=bank_account, decision=BankAccountLink.LINKED)
+        .order_by("pk")
+        .first()
+    )
+    tenant = bank_account.tenant
+    text = (
+        "<b>Смена типа счёта</b>\n"
+        f"Организация: {_esc(tenant.name)}\n"
+        f"Счёт: {_esc(bank_account.label or '—')} · {_esc(bank_account.account_no or '—')}\n"
+        f"Было → стало: {_esc(labels.get(old, old))} → {_esc(labels.get(new, new))}\n"
+        f"Кто изменил: {_esc(_user_label(changed_by))}\n"
+        f"Время: {_fmt_time(now)}"
+    )
+    return send_owner_alert(
+        text,
+        tenant=tenant,
+        link=link,
+        kind=SyncEvent.ALERT_TYPE_CHANGED,
+        payload={
+            "bank_account": bank_account.pk,
+            "old": old,
+            "new": new,
+            "changed_by": getattr(changed_by, "pk", None),
+        },
+    )
+
+
+# Keyed by classification.KIND_* (not imported: classification imports this module).
+NEW_ACCOUNT_KIND_LINES = {
+    "controlled": "поставлен на контроль",
+    "informational": "информационный",
+    "service": "служебный, не загружается",
+    "card": "привязан в Корпоративные карты",
+}
+
+
+def notify_new_account(link: BankAccountLink, *, kind: str, now: datetime, problem: str = "") -> bool:
+    """An account the bank listed for the first time (nightly run); once per link. ``problem`` is
+    why it could not be attached automatically ("" when it was attached / marked service)."""
+    if problem:
+        kind_line = f"не удалось поставить на контроль автоматически: {problem}; привяжите вручную в админке"
+    else:
+        kind_line = NEW_ACCOUNT_KIND_LINES.get(kind, kind)
+    currency = (link.currency or "").strip() or "UZS"
+    balance = "—" if link.last_balance is None else format_amount(link.last_balance)
+    text = (
+        "<b>Открыт новый счёт</b>\n"
+        f"Организация: {_esc(link.tenant.name)}\n"
+        f"Счёт: {_esc(link.account_no)}\n"
+        f"Название в банке: {_esc(link.name or '—')}\n"
+        f"Валюта: {_esc(currency)}\n"
+        f"Остаток: {balance}\n"
+        f"Тип: {_esc(kind_line)}\n"
+        "Сменить тип: админка → Капиталбанк → Привязки счетов\n"
+        f"Время: {_fmt_time(now)}"
+    )
+    return send_owner_alert(
+        text,
+        tenant=link.tenant,
+        link=link,
+        kind=SyncEvent.ALERT_NEW_ACCOUNT,
+        dedup_key=f"new_account:{link.pk}",
+        payload={"account_kind": kind, "problem": problem, "decision": link.decision},
     )

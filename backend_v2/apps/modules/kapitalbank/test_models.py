@@ -1,3 +1,6 @@
+from io import StringIO
+
+from django.core.management import call_command
 from django.db import IntegrityError, transaction
 from django.test import TestCase
 
@@ -64,3 +67,12 @@ class KapitalbankModelsTests(KapitalbankFixtures, TestCase):
         self.assertEqual(a.pk, 1)
         self.assertEqual(a.pk, b.pk)
         self.assertEqual(KapitalbankAlertSettings.objects.count(), 1)
+
+
+class MigrationsInSyncTests(TestCase):
+    def test_no_missing_migrations_for_kapitalbank(self):
+        out = StringIO()
+        try:
+            call_command("makemigrations", "kapitalbank", "--check", "--dry-run", stdout=out, stderr=out)
+        except SystemExit:
+            self.fail(f"kapitalbank models and migrations are out of sync:\n{out.getvalue()}")

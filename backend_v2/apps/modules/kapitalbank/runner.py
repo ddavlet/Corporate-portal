@@ -1,5 +1,8 @@
 """One Kapitalbank import run: daytime (today), nightly (account list + today + last 5 days), manual.
 
+The nightly run attaches an account the bank lists for the first time right away (by its kind,
+tracked from today, so it is loaded the same night) and tells the owner about it.
+
 Per enabled tenant and per LINKED account: fetch the statement of every day, create the
 missing rows (ingest is create-only and atomic per call), then alert. Alerts are sent
 outside any transaction and never fail the run. Today's balance is reconciled only after
@@ -24,10 +27,12 @@ from django.db import IntegrityError, transaction
 from django.db import connection as db_connection
 from django.utils import timezone
 
+from apps.modules.wallets.models import BankAccount, Wallet
 from apps.modules.wallets.services import wallet_balance_payload
 
 from . import alerts as kb_alerts
 from .accounts import refresh_account_list
+from .classification import AutoAttachResult, kind_for_account, new_account_outcome
 from .client import KapitalbankClient, KapitalbankError, Statement, StatementDoc
 from .ingest import IngestError, ingest_statement, present_on_wallet
 from .mapping import is_incoming
@@ -44,6 +49,7 @@ Mode = Literal["daytime", "nightly", "manual"]
 _CENTS = Decimal("0.01")
 _MAX_MESSAGE = 2000
 _UNTRACKED = (BankAccountLink.PENDING, BankAccountLink.IGNORED)
+_SERVICE = BankAccount.AccountType.SERVICE
 
 
 @dataclass
@@ -215,20 +221,31 @@ def _enabled_connections(tenant_subdomain: str | None, *, include_disabled: bool
 
 
 def _linked(tenant) -> list[BankAccountLink]:
+    """LINKED accounts to load; those whose portal account is a service one are not loaded
+    (card links have no bank_account and stay included)."""
     return list(
         BankAccountLink.objects.filter(tenant=tenant, decision=BankAccountLink.LINKED)
+        .exclude(bank_account__account_type=_SERVICE)
         .select_related("tenant", "bank_account__wallet", "card_account__wallet")
         .order_by("id")
     )
 
 
 def _own_targets(tenant) -> set[str]:
-    return {
-        account_no.strip()
-        for account_no in BankAccountLink.objects.filter(tenant=tenant, decision__in=_UNTRACKED).values_list(
-            "account_no", flat=True
-        )
-    }
+    """The tenant's own accounts whose statements are not loaded: undecided, ignored, and
+    LINKED to a service account. A transfer to one of them is alerted."""
+    untracked = BankAccountLink.objects.filter(tenant=tenant, decision__in=_UNTRACKED).values_list(
+        "account_no", flat=True
+    )
+    service = BankAccountLink.objects.filter(
+        tenant=tenant, decision=BankAccountLink.LINKED, bank_account__account_type=_SERVICE
+    ).values_list("account_no", flat=True)
+    return {account_no.strip() for account_no in [*untracked, *service]}
+
+
+def _tracked(link: BankAccountLink, day: date) -> bool:
+    """Days before the link's tracking start are skipped silently (no load, no event)."""
+    return link.track_from is None or day >= link.track_from
 
 
 def _read_password(secrets: _Secrets, conn: KapitalbankConnection) -> str:
@@ -258,7 +275,7 @@ def _run_tenant(ctx: _Run, conn: KapitalbankConnection, client_factory) -> None:
 
     if ctx.mode == "nightly" and not ctx.dry_run:
         try:
-            refresh_account_list(conn, client, now=ctx.now)
+            listed = refresh_account_list(conn, client, now=ctx.now)
         except Exception as exc:
             _log_error(ctx.secrets, "kapitalbank: tenant_id=%s account list refresh failed", tenant.pk)
             message = _safe_message(ctx, exc)
@@ -270,11 +287,49 @@ def _run_tenant(ctx: _Run, conn: KapitalbankConnection, client_factory) -> None:
                 payload={"code": _error_code(exc), "error_type": type(exc).__name__},
             )
             _alert(ctx, kb_alerts.notify_accounts_refresh_failed, tenant, message=message, today=ctx.today, now=ctx.now)
+        else:
+            _attach_new_accounts(ctx, tenant, listed)
 
     own_targets = _own_targets(tenant)
     for link in _linked(tenant):
         ctx.processed.add(link.pk)
         _run_link(ctx, link, client, own_targets)
+
+
+def _attach_new_accounts(ctx: _Run, tenant, listed: list[BankAccountLink]) -> None:
+    """Accounts this refresh created (PENDING, first seen now) are attached by kind and alerted;
+    one that cannot be attached stays PENDING and the alert says why. Accounts whose new-account
+    message was never delivered are retried too (a PENDING one is re-attached first). Never stops the run."""
+    candidates = [link for link in listed if link.decision == BankAccountLink.PENDING and link.first_seen_at == ctx.now]
+    seen = {link.pk for link in candidates}
+    candidates += [link for link in _undelivered_new_accounts(tenant) if link.pk not in seen]
+    for link in candidates:
+        try:
+            outcome = new_account_outcome(link, today=ctx.today, now=ctx.now)
+        except Exception:
+            _log_error(ctx.secrets, "kapitalbank: new account …%s (link_id=%s) not attached", link.account_no[-4:], link.pk)
+            try:
+                link.refresh_from_db()  # the attach rolled back; drop its in-memory decision
+            except Exception:
+                _log_error(ctx.secrets, "kapitalbank: link_id=%s cannot be re-read", link.pk)
+            outcome = AutoAttachResult(
+                kind_for_account(link.account_no, link.currency), "внутренняя ошибка портала (подробности в журнале)"
+            )
+        _alert(ctx, kb_alerts.notify_new_account, link, kind=outcome.kind, problem=outcome.problem, now=ctx.now)
+
+
+def _undelivered_new_accounts(tenant) -> list[BankAccountLink]:
+    """Links with a failed new-account message (send_owner_alert frees the dedup key and marks the
+    payload ``failed``) and no delivered one (a delivered message keeps its dedup key)."""
+    events = SyncEvent.objects.filter(tenant=tenant, kind=SyncEvent.ALERT_NEW_ACCOUNT, link__isnull=False)
+    failed = events.filter(dedup_key__isnull=True, payload__failed=True).values("link_id")
+    delivered = events.filter(dedup_key__isnull=False).values("link_id")
+    return list(
+        BankAccountLink.objects.filter(tenant=tenant, pk__in=failed)
+        .exclude(pk__in=delivered)
+        .select_related("tenant", "bank_account")
+        .order_by("id")
+    )
 
 
 def _fail_tenant(ctx: _Run, conn: KapitalbankConnection, stage: str, message: str, exc: Exception | None = None) -> None:
@@ -343,6 +398,8 @@ def _load_link(ctx: _Run, link: BankAccountLink, client, own_targets: set[str]) 
     failures: list[tuple[date | None, Exception]] = []
     today: tuple[Statement, dict] | None = None
     for day in _ordered_days(ctx):
+        if not _tracked(link, day):
+            continue
         try:
             loaded = _load_day(ctx, link, client, day, own_targets)
         except Exception as exc:
@@ -387,6 +444,8 @@ def _load_day(
     if ctx.dry_run:
         return statement, detail
 
+    if day == link.track_from and link.opening_synced_at is None:
+        _sync_opening_balance(ctx, link, statement)
     if result.created:
         _event(
             ctx,
@@ -409,6 +468,23 @@ def _load_day(
     for doc in new_own_transfers:
         _alert(ctx, kb_alerts.notify_own_transfer, link, doc, target_account=doc.acc_ct.strip())
     return statement, detail
+
+
+def _sync_opening_balance(ctx: _Run, link: BankAccountLink, statement: Statement) -> None:
+    """Once per link: the bank's saldo_in of the tracking start day becomes the wallet's opening
+    balance, so the portal balance (opening + loaded movements) matches the bank from day one."""
+    wallet = link.wallet()
+    with transaction.atomic():
+        Wallet.objects.filter(pk=wallet.pk).update(opening_balance=statement.saldo_in)
+        BankAccountLink.objects.filter(pk=link.pk).update(opening_synced_at=ctx.now)
+    # The reconciliation and later days of this run read these same objects.
+    wallet.refresh_from_db(fields=["opening_balance"])
+    link.refresh_from_db(fields=["opening_synced_at"])
+    logger.info(
+        "kapitalbank: account …%s opening balance set from bank saldo_in of %s",
+        link.account_no[-4:],
+        link.track_from,
+    )
 
 
 def _new_own_transfers(link: BankAccountLink, statement: Statement, own_targets: set[str]) -> list[StatementDoc]:
@@ -455,6 +531,8 @@ def _reconcile(
         recheck_failed = False
         for n in range(NIGHTLY_DAYS_BACK, 0, -1):
             day = ctx.today - timedelta(days=n)
+            if not _tracked(link, day):
+                continue
             try:
                 _load_day(ctx, link, client, day, own_targets, stage="recheck")
             except Exception as exc:

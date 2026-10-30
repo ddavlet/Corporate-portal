@@ -54,9 +54,9 @@ class Command(BaseCommand):
             if not r.matched:
                 self.stdout.write(f"{prefix}пропущен: {r.skip_reason} ({decisions.get(r.link.decision, r.link.decision)})")
             elif not apply:
-                self.stdout.write(f"{prefix}будет отмечен «Игнорируется»")
+                self.stdout.write(f"{prefix}будет отмечен «Служебный»")
             elif r.ignored:
-                self.stdout.write(f"{prefix}отмечен «Игнорируется»")
+                self.stdout.write(f"{prefix}отмечен «Служебный»")
             else:
                 self.stdout.write(f"{prefix}не изменён: решение уже принято в админке")
 
