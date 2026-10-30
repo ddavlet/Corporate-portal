@@ -33,6 +33,7 @@ vi.mock('../ui/CashPage', () => ({ CashPage: () => <div>CashPage</div> }))
 vi.mock('../ui/CashSectionPage', () => ({ CashSectionPage: () => <div>CashSectionPage</div> }))
 vi.mock('../ui/BankPage', () => ({ BankPage: () => <div>BankPage</div> }))
 vi.mock('../ui/BankSectionPage', () => ({ BankSectionPage: () => <div>BankSectionPage</div> }))
+vi.mock('../ui/BankAccountPage', () => ({ BankAccountPage: () => <div>BankAccountPage</div> }))
 vi.mock('../ui/CorporateCardPage', () => ({ CorporateCardPage: () => <div>CorporateCardPage</div> }))
 vi.mock('../ui/CorporateCardSectionPage', () => ({
   CorporateCardSectionPage: () => <div>CorporateCardSectionPage</div>,
@@ -116,6 +117,16 @@ describe('App routing smoke', () => {
       </MemoryRouter>,
     )
     expect(screen.getByText('RequestsPage')).toBeInTheDocument()
+  })
+
+  it('opens a bank account page instead of the legacy bank expense redirect', () => {
+    useAuthMock.mockReturnValue({ accessToken: 'token', logout: vi.fn() })
+    render(
+      <MemoryRouter initialEntries={['/bank/accounts/11']}>
+        <App />
+      </MemoryRouter>,
+    )
+    expect(screen.getByText('BankAccountPage')).toBeInTheDocument()
   })
 
   it('renders telegram layout route', () => {
