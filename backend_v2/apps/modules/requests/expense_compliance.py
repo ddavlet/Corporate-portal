@@ -513,7 +513,7 @@ def collect_bank_channel_payload(
 
     qs = BankExpense.objects.filter(tenant=tenant)
     qs = _apply_date_filter_bank(qs, date_from=date_from, date_to=date_to)
-    qs = annotate_bank_expense_compliance(qs, tenant=tenant).select_related("vendor").order_by(
+    qs = annotate_bank_expense_compliance(qs, tenant=tenant).select_related("vendor", "wallet__bank_account").order_by(
         "-doc_date", "-process_date", "-id"
     )[: limit * 4]
 

@@ -103,7 +103,7 @@ class Command(BaseCommand):
             qs = qs.filter(doc_date__gte=date_from)
         if date_to:
             qs = qs.filter(doc_date__lte=date_to)
-        unmatched = list(qs.select_related("vendor").order_by("doc_date", "id"))
+        unmatched = list(qs.select_related("vendor", "wallet__bank_account").order_by("doc_date", "id"))
 
         # Apply "no request required" rules — only keep entries that genuinely need a request
         candidates = [

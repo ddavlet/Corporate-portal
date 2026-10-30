@@ -43,6 +43,13 @@ class BankAccount(models.Model):
     mfo = models.CharField(max_length=10, blank=True, default="")
     is_default = models.BooleanField(default=False)
 
+    class AccountType(models.TextChoices):
+        CONTROLLED = "controlled", "Контролируемый"
+        INFORMATIONAL = "informational", "Информационный"
+        SERVICE = "service", "Служебный"
+
+    account_type = models.CharField(max_length=16, choices=AccountType.choices, default=AccountType.CONTROLLED)
+
     class Meta:
         db_table = "wallets_bank_accounts"
         constraints = [

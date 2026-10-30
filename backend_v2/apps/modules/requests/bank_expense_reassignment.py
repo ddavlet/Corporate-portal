@@ -23,6 +23,7 @@ from django.db import transaction
 from apps.modules.bank_expenses.models import BankExpense
 from apps.modules.requests.models import Request
 from apps.modules.requests.payment_type_families import bank_like_payment_types
+from apps.modules.wallets.models import BankAccount
 from apps.modules.vendors.models import Vendor
 
 
@@ -74,6 +75,12 @@ def reassign_unmatched_bank_expenses(
     candidates = (
         BankExpense.objects.filter(tenant=tenant)
         .exclude(pk__in=linked_expense_ids)
+        .exclude(
+            wallet__bank_account__account_type__in=[
+                BankAccount.AccountType.INFORMATIONAL,
+                BankAccount.AccountType.SERVICE,
+            ]
+        )
         .select_related("vendor")
     )
 
