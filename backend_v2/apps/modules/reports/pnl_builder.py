@@ -6,7 +6,7 @@ from typing import Any
 
 from django.db.models import Count, Q, Sum
 
-from apps.modules.bank_expenses.models import BankRevenue
+from apps.modules.reports.bank_revenue_scope import report_bank_revenues
 from apps.modules.cashier.models import CashRevenue
 from apps.modules.investments.funding import INVESTOR_DEPOSIT_OPERATION
 from apps.modules.investments.models import InvestReturn
@@ -262,7 +262,7 @@ def build_pnl_payload_from_db(*, tenant, query_params: dict[str, Any]) -> dict[s
 
     revenue: list[dict[str, Any]] = []
 
-    for br in BankRevenue.objects.filter(tenant_id=tenant.id, doc_date__gte=start).order_by("doc_date", "id"):
+    for br in report_bank_revenues(tenant=tenant, start=start):
         if _bank_purpose_excluded(str(br.payment_purpose or ""), bank_exclude):
             continue
         revenue.append(

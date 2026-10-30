@@ -6,7 +6,7 @@ from typing import Any
 
 from django.db.models import Count, Q, Sum
 
-from apps.modules.bank_expenses.models import BankRevenue
+from apps.modules.reports.bank_revenue_scope import report_bank_revenues
 from apps.modules.cashier.models import CashRevenue
 from apps.modules.investments.models import InvestReturn
 from apps.modules.investments.services import clamp_rate_date_to_cbu_availability, usd_uzs_equivalents_for_read
@@ -210,7 +210,7 @@ def build_cashflow_payload_from_db(*, tenant, query_params: dict[str, Any]) -> d
 
     revenue: list[dict[str, Any]] = []
 
-    for br in BankRevenue.objects.filter(tenant_id=tenant.id, doc_date__gte=start).order_by("doc_date", "id"):
+    for br in report_bank_revenues(tenant=tenant, start=start):
         revenue.append(
             {
                 "id": str(br.id),
