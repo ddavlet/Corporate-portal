@@ -493,16 +493,21 @@ export function BankSectionPage({ mode, walletId }: { mode: BankSectionMode; wal
 
   return (
     <Card>
-      <Space style={{ marginBottom: 12 }}>
-        <Button type="text" icon={<ArrowLeftOutlined />} onClick={() => navigate('/bank')}>
-          Банк
-        </Button>
-      </Space>
-      <Typography.Title level={4} style={{ marginTop: 0 }}>
-        {SECTION_TITLES[mode]}
-      </Typography.Title>
-      <KapitalbankPendingAccountsWidget style={{ marginBottom: 12 }} />
-      <ChannelBalancesSummary channel="bank" />
+      {/* On an account page (walletId) BankAccountPage shows its own header: back link, account, tabs. */}
+      {walletId === undefined ? (
+        <>
+          <Space style={{ marginBottom: 12 }}>
+            <Button type="text" icon={<ArrowLeftOutlined />} onClick={() => navigate('/bank')}>
+              Банк
+            </Button>
+          </Space>
+          <Typography.Title level={4} style={{ marginTop: 0 }}>
+            {SECTION_TITLES[mode]}
+          </Typography.Title>
+          <KapitalbankPendingAccountsWidget style={{ marginBottom: 12 }} />
+          <ChannelBalancesSummary channel="bank" />
+        </>
+      ) : null}
       <div style={{ marginTop: 12, marginBottom: 12 }}>
         <Typography.Text type="secondary" style={labelBlockAboveField}>
           Расходы и доходы
