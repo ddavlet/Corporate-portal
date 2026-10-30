@@ -2482,8 +2482,8 @@ export async function patchWallet(
   return (await res.json()) as WalletDto
 }
 
-export async function getBankRevenues(): Promise<BankRevenue[]> {
-  const res = await apiFetch('/api/bank/revenues/')
+export async function getBankRevenues(walletId?: number): Promise<BankRevenue[]> {
+  const res = await apiFetch(walletId !== undefined ? `/api/bank/revenues/?wallet=${walletId}` : '/api/bank/revenues/')
   if (!res.ok) throw new Error(await parseErrorBody(res))
   const json = await res.json().catch(() => null)
   return normalizeListPayload<BankRevenue>(json)

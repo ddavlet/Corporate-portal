@@ -60,7 +60,7 @@ const TITLES: Record<TgBankListMode, string> = {
   revenues: 'Банк — доходы',
 }
 
-export function TgBankListPage({ mode }: { mode: TgBankListMode }) {
+export function TgBankListPage({ mode, walletId }: { mode: TgBankListMode; walletId?: number }) {
   const navigate = useNavigate()
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -76,8 +76,8 @@ export function TgBankListPage({ mode }: { mode: TgBankListMode }) {
     setLoading(true)
     try {
       const [expensesRes, revenueRows] = await Promise.all([
-        needExpenses ? apiFetch('/api/bank/expenses/') : Promise.resolve(null),
-        needRevenues ? getBankRevenues() : Promise.resolve([] as BankRevenue[]),
+        needExpenses ? apiFetch(walletId !== undefined ? `/api/bank/expenses/?wallet=${walletId}` : '/api/bank/expenses/') : Promise.resolve(null),
+        needRevenues ? getBankRevenues(walletId) : Promise.resolve([] as BankRevenue[]),
       ])
       if (expensesRes) {
         const expensesJson = await expensesRes.json().catch(() => null)
@@ -98,7 +98,7 @@ export function TgBankListPage({ mode }: { mode: TgBankListMode }) {
     } finally {
       setLoading(false)
     }
-  }, [needExpenses, needRevenues])
+  }, [needExpenses, needRevenues, walletId])
 
   useEffect(() => {
     void loadRows()
