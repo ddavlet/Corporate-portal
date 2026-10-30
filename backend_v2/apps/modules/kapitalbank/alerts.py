@@ -298,3 +298,41 @@ def notify_accounts_refresh_failed(tenant, *, message: str, today: date, now: da
         dedup_key=f"accounts_refresh:{tenant.pk}:{today.isoformat()}",
         payload={"stage": "account_list"},
     )
+
+
+def _user_label(user) -> str:
+    if user is None:
+        return "команда"
+    return (getattr(user, "full_name", "") or "").strip() or user.get_username()
+
+
+def notify_account_type_changed(bank_account, *, old: str, new: str, changed_by=None, now: datetime) -> bool:
+    """Every type change of a portal bank account; ``link`` is its Kapitalbank link or None
+    (e.g. the synthetic default account). No dedup: each change is its own message."""
+    labels = dict(type(bank_account).AccountType.choices)
+    link = (
+        BankAccountLink.objects.filter(bank_account=bank_account, decision=BankAccountLink.LINKED)
+        .order_by("pk")
+        .first()
+    )
+    tenant = bank_account.tenant
+    text = (
+        "<b>Смена типа счёта</b>\n"
+        f"Организация: {_esc(tenant.name)}\n"
+        f"Счёт: {_esc(bank_account.label or '—')} · {_esc(bank_account.account_no or '—')}\n"
+        f"Было → стало: {_esc(labels.get(old, old))} → {_esc(labels.get(new, new))}\n"
+        f"Кто изменил: {_esc(_user_label(changed_by))}\n"
+        f"Время: {_fmt_time(now)}"
+    )
+    return send_owner_alert(
+        text,
+        tenant=tenant,
+        link=link,
+        kind=SyncEvent.ALERT_TYPE_CHANGED,
+        payload={
+            "bank_account": bank_account.pk,
+            "old": old,
+            "new": new,
+            "changed_by": getattr(changed_by, "pk", None),
+        },
+    )

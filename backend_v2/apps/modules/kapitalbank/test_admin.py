@@ -1,13 +1,17 @@
 import re
+from datetime import timedelta
 from unittest import skipUnless
+from unittest.mock import patch
 
 from django.contrib.admin.sites import site
 from django.contrib.auth import get_user_model
 from django.test import Client, RequestFactory, TestCase, override_settings
 from django.urls import reverse
+from django.utils import timezone
 
 from apps.modules.kapitalbank.admin import BankAccountLinkForm
 from apps.common.test_postgres_mcp_role import ROLE_SQL
+from apps.modules.cash_withdrawals.fixtures import GATEWAY_PATH, gateway_ok
 from apps.modules.kapitalbank.fixtures import ACCOUNT_1, ACCOUNT_2, CARD_REF, KapitalbankFixtures
 from apps.modules.kapitalbank.models import (
     BankAccountLink,
@@ -15,6 +19,7 @@ from apps.modules.kapitalbank.models import (
     KapitalbankConnection,
     SyncEvent,
 )
+from apps.modules.wallets.models import BankAccount
 from apps.modules.wallets.resolution import get_or_create_bank_wallet_for_account
 from apps.tenants.models import Tenant
 
@@ -302,3 +307,47 @@ class KapitalbankAdminTests(KapitalbankFixtures, TestCase):
         self.assertEqual(resp.status_code, 302)
         linked.refresh_from_db()
         self.assertEqual(linked.decision, BankAccountLink.LINKED)
+
+    @patch(GATEWAY_PATH)
+    def test_admin_type_change_on_linked_bank_link_alerts(self, gw):
+        gw.side_effect = gateway_ok()
+        settings_obj = KapitalbankAlertSettings.load()
+        settings_obj.recipient = self.owner
+        settings_obj.save()
+        decided_at = timezone.now() - timedelta(days=3)
+        link = self._link(
+            decision=BankAccountLink.LINKED, bank_account=self.bank_account1, decided_by=self.owner, decided_at=decided_at
+        )
+        pending = self._link(account_no=ACCOUNT_2)
+        url = reverse("admin:kapitalbank_bankaccountlink_change", args=[link.pk])
+        self.assertContains(self.client.get(url), 'name="account_type"')
+        pending_page = self.client.get(reverse("admin:kapitalbank_bankaccountlink_change", args=[pending.pk]))
+        self.assertNotContains(pending_page, 'name="account_type"')
+
+        data = {
+            **self._link_data(bank_account=self.bank_account1.pk, account_type=BankAccount.AccountType.INFORMATIONAL),
+            "sync_state-TOTAL_FORMS": "0",
+            "sync_state-INITIAL_FORMS": "0",
+            "sync_state-MIN_NUM_FORMS": "0",
+            "sync_state-MAX_NUM_FORMS": "1",
+        }
+        resp = self.client.post(url, data)
+        form = resp.context_data["adminform"].form if resp.status_code == 200 else None
+        self.assertEqual(resp.status_code, 302, form.errors if form else "")
+
+        self.bank_account1.refresh_from_db()
+        self.assertEqual(self.bank_account1.account_type, BankAccount.AccountType.INFORMATIONAL)
+        link.refresh_from_db()
+        self.assertEqual(link.decision, BankAccountLink.LINKED)
+        self.assertEqual(link.decided_by, self.owner)
+        self.assertEqual(link.decided_at, decided_at)
+        event = SyncEvent.objects.get(kind=SyncEvent.ALERT_TYPE_CHANGED)
+        self.assertEqual(event.link, link)
+        self.assertEqual(event.payload["changed_by"], self.admin_user.pk)
+        self.assertIn("Root", event.message)
+        self.assertEqual(gw.call_count, 1)
+
+        # resubmitting the same type changes nothing and sends nothing
+        self.client.post(url, data)
+        self.assertEqual(SyncEvent.objects.filter(kind=SyncEvent.ALERT_TYPE_CHANGED).count(), 1)
+        self.assertEqual(gw.call_count, 1)

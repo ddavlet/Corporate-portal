@@ -7,7 +7,7 @@ DEPLOY_TEST_PATH ?= $(TEST_PATH)
 BRANCH     := $(shell git rev-parse --abbrev-ref HEAD)
 
 .DEFAULT_GOAL := help
-.PHONY: help push test deploy makemigrations showmigrations logs backup-db create-postgres-mcp-role rollback refresh-approval-messages reconcile-card-revenues reconcile-expense-links relink-unresolved-bank-doc-numbers align-payment-purposes clone-tenant-config link-payroll-requests send-to-vacation return-from-vacation reassign-unmatched-bank-expenses backfill-bank-expense-requests backfill-cash-expense-requests backfill-card-expenses backfill-cbu-exchange-rate redispatch-unsent-approval-cards backfill-cash-withdrawals repair-id-sequences import-kapitalbank link-kapitalbank ignore-kapitalbank local-up local-down local-logs test_local
+.PHONY: help push test deploy makemigrations showmigrations logs backup-db create-postgres-mcp-role rollback refresh-approval-messages reconcile-card-revenues reconcile-expense-links relink-unresolved-bank-doc-numbers align-payment-purposes clone-tenant-config link-payroll-requests send-to-vacation return-from-vacation reassign-unmatched-bank-expenses backfill-bank-expense-requests backfill-cash-expense-requests backfill-card-expenses backfill-cbu-exchange-rate redispatch-unsent-approval-cards backfill-cash-withdrawals repair-id-sequences import-kapitalbank link-kapitalbank ignore-kapitalbank classify-kapitalbank local-up local-down local-logs test_local
 
 help:
 	@echo ""
@@ -50,6 +50,7 @@ help:
 	@echo "  make import-kapitalbank MODE=manual TENANT=kp DATE=2026-10-26 — загрузить выписку за день (MODE=daytime|nightly — как по расписанию)"
 	@echo "  make link-kapitalbank [TENANT=kp] [APPLY=1] — dry-run: привязать счета «ожидает решения» к счёту портала с тем же номером и МФО (карта — external_ref)"
 	@echo "  make ignore-kapitalbank TENANT=kp ACCOUNTS=a,b REASON='...' [APPLY=1] — dry-run: отметить счета «ожидает решения» «не отслеживать» с общей причиной"
+	@echo "  make classify-kapitalbank TENANT=kp ACCOUNTS=a,b TYPE=controlled|informational|service [APPLY=1] — dry-run: привязать счета «ожидает решения» с этим типом или сменить тип привязанных"
 	@echo "  make local-up        — поднять docker-compose.local.yml локально"
 	@echo "  make local-down      — остановить локальный compose (без удаления volumes)"
 	@echo "  make local-logs      — логи локального compose"
@@ -309,6 +310,21 @@ ignore-kapitalbank:
 		--tenant=$(TENANT) \
 		$(foreach a,$(subst $(comma), ,$(ACCOUNTS)),--account=$(a)) \
 		--reason='$(REASON)' \
+		$(if $(APPLY),--apply,)"
+
+# ── 7d-9c. Тип счетов Капиталбанка (dry-run по умолчанию) ──
+# «Ожидает решения» → создаёт счёт портала с кошельком в валюте банка, привязывает (отслеживание с сегодня), ставит TYPE.
+# Привязанные банковские → меняет тип (владельцу уходит сообщение). Служебные «ожидает решения» — через ignore-kapitalbank.
+# make classify-kapitalbank TENANT=kp ACCOUNTS=20208000000000000001,20208000000000000002 TYPE=controlled [APPLY=1]
+classify-kapitalbank:
+	@test -n "$(TENANT)" -a -n "$(ACCOUNTS)" -a -n "$(TYPE)" || (echo "Usage: make classify-kapitalbank TENANT=<subdomain> ACCOUNTS=<no>,<no> TYPE=controlled|informational|service [APPLY=1]" && exit 1)
+	$(if $(or $(filter-out controlled informational service,$(TYPE)),$(filter-out 1,$(words $(TYPE)))),$(error TYPE must be one of controlled, informational, service),)
+	ssh $(SERVER) "cd $(REMOTE_DIR) && \
+		docker compose --env-file ./.env exec -T backend_v2 \
+		python manage.py classify_kapitalbank_accounts \
+		--tenant=$(TENANT) \
+		$(foreach a,$(subst $(comma), ,$(ACCOUNTS)),--account=$(a)) \
+		--type=$(TYPE) \
 		$(if $(APPLY),--apply,)"
 
 # ── 7d-10. По требованию: backfill-команды (dry-run по умолчанию) ──
