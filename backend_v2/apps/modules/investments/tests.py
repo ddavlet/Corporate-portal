@@ -56,11 +56,32 @@ from apps.modules.investments.services import (
 )
 from apps.modules.investments.views import PublicInvestPayoutScheduleByTokenView
 from apps.tenants.models import Tenant
-from apps.modules.telegram_approvals.models import TenantTelegramChat
+from apps.modules.telegram_approvals.models import TelegramMessage, TenantTelegramChat
 
 
 User = get_user_model()
 factory = APIRequestFactory()
+
+
+def _send_linking_message(tenant):
+    """Mock TelegramDispatcher.send как в проде: создаёт TelegramMessage и привязывает его к approval."""
+    counter = {"n": 0}
+
+    def _send(*, recipient_id, link=None, external_user_id=None, **_kwargs):
+        counter["n"] += 1
+        message = TelegramMessage.objects.create(
+            tenant=tenant,
+            recipient_id=str(recipient_id or ""),
+            external_user_id=external_user_id,
+            message_id=9000 + counter["n"],
+            sent_at=timezone.now(),
+        )
+        if link is not None:
+            link.telegram_message = message
+            link.save(update_fields=["telegram_message"])
+        return message
+
+    return _send
 
 
 class InvestReturnApprovalTelegramMessageTests(SimpleTestCase):
@@ -233,6 +254,42 @@ class InvestReturnApprovalTelegramMessageTests(SimpleTestCase):
         )
         self.assertIn("Заявка на вложение подтверждена", out)
         self.assertNotIn("Шаг 2 согласован", out)
+
+    def test_project_investment_card_shows_funding_method_under_amount(self):
+        pi = MagicMock()
+        pi.id = 188
+        pi.company = None
+        pi.tenant = MagicMock()
+        pi.tenant.name = "T"
+        pi.amount = Decimal("16000000.00")
+        pi.currency = "UZS"
+        pi.date = date(2026, 10, 28)
+        pi.comment = "Предоплата"
+
+        approval = MagicMock()
+        approval.step = 2
+        approval.step_type = InvestmentApprovalConfigStep.STEP_TYPE_CONFIRMATION
+        approval.decision = ProjectInvestmentApproval.DECISION_PENDING
+        approval.approver_user = None
+
+        def render(funding_method):
+            pi.funding_method = funding_method
+            return build_project_investment_approval_telegram_message(
+                project_investment=pi,
+                approval=approval,
+                blocked_by_rejection=False,
+                current_pending_step=2,
+            )
+
+        cash = render(ProjectInvestment.FundingMethod.CASH)
+        self.assertIn("💸 Способ вложения: <b>Наличными</b>", cash)
+        self.assertLess(cash.index("16 000 000.00"), cash.index("Способ вложения"))
+        self.assertLess(cash.index("Способ вложения"), cash.index("Комментарий"))
+
+        bank = render(ProjectInvestment.FundingMethod.BANK_TRANSFER)
+        self.assertIn("🏦 Способ вложения: <b>Переводом на счёт</b>", bank)
+
+        self.assertNotIn("Способ вложения", render(None))
 
 
 class InvestReturnSerializerTests(TestCase):
@@ -1265,6 +1322,75 @@ class InvestmentApprovalFlowTests(APITestCase):
         inv_return.refresh_from_db()
         self.assertTrue(inv_return.confirmed)
 
+    @patch("apps.modules.telegram_approvals.services.TelegramDispatcher.edit")
+    @patch("apps.modules.telegram_approvals.services.TelegramDispatcher.send")
+    def test_serial_step_with_several_approvers_sends_card_once_each(self, bridge_mock, edit_mock):
+        """Решение одного согласующего на шаге не должно заново слать карточку остальным."""
+        cfg_payload = {
+            "return_type": None,
+            "recipient": None,
+            "is_enabled": True,
+            "steps": [
+                {
+                    "step": 1,
+                    "step_type": InvestmentApprovalConfigStep.STEP_TYPE_SERIAL,
+                    "is_enabled": True,
+                    "approver_user_ids": [self.approver1.id, self.approver2.id],
+                },
+                {
+                    "step": 2,
+                    "step_type": InvestmentApprovalConfigStep.STEP_TYPE_CONFIRMATION,
+                    "is_enabled": True,
+                    "telegram_chat_id": self.tg_chat_666.pk,
+                    "approver_user_ids": [self.approver2.id],
+                },
+            ],
+        }
+        response = self.client.put("/api/investments/approval-config/", cfg_payload, format="json", HTTP_HOST=self.host)
+        self.assertEqual(response.status_code, 200)
+        bridge_mock.side_effect = _send_linking_message(self.tenant)
+        edit_mock.return_value = MagicMock()
+
+        response = self.client.post(
+            "/api/investments/returns/",
+            {
+                "date": "2026-04-29",
+                "billing_date": "2026-04-01",
+                "sum": "700.00",
+                "currency": "USD",
+                "type": "дивиденды",
+                "recipient": "инвестор",
+            },
+            format="json",
+            HTTP_HOST=self.host,
+        )
+        self.assertEqual(response.status_code, 201)
+        inv_return = InvestReturn.objects.get(id=response.data["id"])
+        self.assertEqual(bridge_mock.call_count, 2)
+
+        for approver in (self.approver1, self.approver2):
+            approval = inv_return.approvals.get(step=1, approver_user=approver)
+            res = self.client.post(
+                "/api/messaging-gateway/webhook/",
+                {
+                    "event": "interaction",
+                    "payload": f"inv_{approval.id}:a",
+                    "user_id": str(approver.telegram_from_id),
+                    "recipient_id": str(approver.telegram_chat_id),
+                    "message_id": approval.gateway_message_id,
+                    "platform": "telegram",
+                },
+                format="json",
+                HTTP_HOST=self.host,
+            )
+            self.assertEqual(res.status_code, 200)
+
+        # 2 карточки шага 1 + 1 карточка шага 2 в чат; без повторов шага 1.
+        self.assertEqual(bridge_mock.call_count, 3)
+        sent_approval_ids = [c.kwargs["approval_id"] for c in bridge_mock.call_args_list]
+        self.assertEqual(len(sent_approval_ids), len(set(sent_approval_ids)))
+        self.assertEqual(bridge_mock.call_args_list[-1].kwargs["recipient_id"], "666000")
+
     @patch("apps.modules.telegram_approvals.services.TelegramDispatcher.send")
     def test_reject_keeps_return_unconfirmed(self, bridge_mock):
         bridge_mock.return_value = MagicMock()
@@ -1928,6 +2054,83 @@ class InvestmentProjectApprovalFlowTests(APITestCase):
                 project_investment=pi, decision=ProjectInvestmentApproval.DECISION_PENDING
             ).exists()
         )
+
+    @patch("apps.modules.telegram_approvals.services.TelegramDispatcher.edit")
+    @patch("apps.modules.telegram_approvals.services.TelegramDispatcher.send")
+    def test_serial_step_with_several_approvers_sends_card_once_each(self, bridge_mock, edit_mock):
+        """Решение одного согласующего на шаге не должно заново слать карточку остальным."""
+        approver3 = User.objects.create_user(
+            username="pi_appr_3",
+            password="x",
+            telegram_chat_id=155003,
+            telegram_from_id=177003,
+        )
+        TenantMembership.objects.create(tenant=self.tenant, user=approver3, is_active=True)
+        TenantUserRole.objects.create(tenant=self.tenant, user=approver3, role=TenantUserRole.ROLE_DIRECTOR)
+        serial_approvers = (self.approver1, self.approver2, approver3)
+        cfg_payload = {
+            "is_enabled": True,
+            "steps": [
+                {
+                    "step": 1,
+                    "step_type": InvestmentApprovalConfigStep.STEP_TYPE_SERIAL,
+                    "is_enabled": True,
+                    "approver_user_ids": [u.id for u in serial_approvers],
+                },
+                {
+                    "step": 2,
+                    "step_type": InvestmentApprovalConfigStep.STEP_TYPE_CONFIRMATION,
+                    "is_enabled": True,
+                    "telegram_chat_id": self.tg_chat_166.pk,
+                    "approver_user_ids": [self.approver2.id],
+                },
+            ],
+        }
+        response = self.client.put(
+            "/api/investments/project-approval-config/", cfg_payload, format="json", HTTP_HOST=self.host
+        )
+        self.assertEqual(response.status_code, 200)
+        bridge_mock.side_effect = _send_linking_message(self.tenant)
+        edit_mock.return_value = MagicMock()
+
+        response = self.client.post(
+            "/api/investments/project-investments/",
+            {
+                "date": "2026-05-01",
+                "amount": "10000.00",
+                "currency": "USD",
+                "funding_method": "cash",
+                "comment": "",
+            },
+            format="json",
+            HTTP_HOST=self.host,
+        )
+        self.assertEqual(response.status_code, 201)
+        pi = ProjectInvestment.objects.get(id=response.data["id"])
+        self.assertEqual(bridge_mock.call_count, 3)
+
+        for approver in serial_approvers:
+            approval = pi.approvals.get(step=1, approver_user=approver)
+            res = self.client.post(
+                "/api/messaging-gateway/webhook/",
+                {
+                    "event": "interaction",
+                    "payload": f"invp_{approval.id}:a",
+                    "user_id": str(approver.telegram_from_id),
+                    "recipient_id": str(approver.telegram_chat_id),
+                    "message_id": approval.gateway_message_id,
+                    "platform": "telegram",
+                },
+                format="json",
+                HTTP_HOST=self.host,
+            )
+            self.assertEqual(res.status_code, 200)
+
+        # 3 карточки шага 1 + 1 карточка шага 2 в чат; без повторов шага 1.
+        self.assertEqual(bridge_mock.call_count, 4)
+        sent_approval_ids = [c.kwargs["approval_id"] for c in bridge_mock.call_args_list]
+        self.assertEqual(len(sent_approval_ids), len(set(sent_approval_ids)))
+        self.assertEqual(bridge_mock.call_args_list[-1].kwargs["recipient_id"], "166000")
 
 
 class BillingMonthRulesTests(SimpleTestCase):
