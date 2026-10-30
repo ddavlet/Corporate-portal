@@ -410,6 +410,8 @@ def dispatch_pending_invest_return_approvals(*, invest_return: InvestReturn) -> 
             invest_return=invest_return,
             step=pending_step,
             decision=InvestmentReturnApproval.DECISION_PENDING,
+            # Уже отправленные карточки обновляет refresh_*; повторная отправка = дубль у согласующего.
+            telegram_message__isnull=True,
         ).select_related("invest_return", "tenant", "approver_user")
     )
     any_notification_finalized = False

@@ -325,6 +325,8 @@ def dispatch_pending_project_investment_approvals(*, project_investment: Project
             project_investment=project_investment,
             step=pending_step,
             decision=ProjectInvestmentApproval.DECISION_PENDING,
+            # Уже отправленные карточки обновляет refresh_*; повторная отправка = дубль у согласующего.
+            telegram_message__isnull=True,
         ).select_related("project_investment", "tenant")
     )
     any_notification_finalized = False
