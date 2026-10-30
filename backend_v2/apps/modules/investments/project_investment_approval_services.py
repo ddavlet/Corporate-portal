@@ -84,6 +84,20 @@ def _project_investment_telegram_card_should_be_readonly(
     return False
 
 
+_FUNDING_METHOD_ICONS = {
+    ProjectInvestment.FundingMethod.CASH: "💸",
+    ProjectInvestment.FundingMethod.BANK_TRANSFER: "🏦",
+}
+
+
+def _funding_method_line(funding_method: str | None) -> str:
+    """Способ вложения сразу под суммой: от него зависит, куда придут деньги."""
+    if funding_method not in ProjectInvestment.FundingMethod.values:
+        return ""
+    method = ProjectInvestment.FundingMethod(funding_method)
+    return f"{_FUNDING_METHOD_ICONS[method]} Способ вложения: <b>{escape(method.label)}</b>\n"
+
+
 def build_project_investment_approval_telegram_message(
     *,
     project_investment: ProjectInvestment,
@@ -156,6 +170,9 @@ def build_project_investment_approval_telegram_message(
         f"{sep}\n",
         f"💵 <b>{amount_text} {currency_text}</b>\n",
     ]
+    funding_method_line = _funding_method_line(pi.funding_method)
+    if funding_method_line:
+        parts.append(funding_method_line)
     if comment_raw:
         parts.extend([f"\n{sep}\n", f"💬 Комментарий: {escape(comment_raw)}\n"])
     parts.append(f"{action_hint}{expected_approver_footer}")

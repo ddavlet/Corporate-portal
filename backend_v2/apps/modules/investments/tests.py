@@ -255,6 +255,42 @@ class InvestReturnApprovalTelegramMessageTests(SimpleTestCase):
         self.assertIn("Заявка на вложение подтверждена", out)
         self.assertNotIn("Шаг 2 согласован", out)
 
+    def test_project_investment_card_shows_funding_method_under_amount(self):
+        pi = MagicMock()
+        pi.id = 188
+        pi.company = None
+        pi.tenant = MagicMock()
+        pi.tenant.name = "T"
+        pi.amount = Decimal("16000000.00")
+        pi.currency = "UZS"
+        pi.date = date(2026, 10, 28)
+        pi.comment = "Предоплата"
+
+        approval = MagicMock()
+        approval.step = 2
+        approval.step_type = InvestmentApprovalConfigStep.STEP_TYPE_CONFIRMATION
+        approval.decision = ProjectInvestmentApproval.DECISION_PENDING
+        approval.approver_user = None
+
+        def render(funding_method):
+            pi.funding_method = funding_method
+            return build_project_investment_approval_telegram_message(
+                project_investment=pi,
+                approval=approval,
+                blocked_by_rejection=False,
+                current_pending_step=2,
+            )
+
+        cash = render(ProjectInvestment.FundingMethod.CASH)
+        self.assertIn("💸 Способ вложения: <b>Наличными</b>", cash)
+        self.assertLess(cash.index("16 000 000.00"), cash.index("Способ вложения"))
+        self.assertLess(cash.index("Способ вложения"), cash.index("Комментарий"))
+
+        bank = render(ProjectInvestment.FundingMethod.BANK_TRANSFER)
+        self.assertIn("🏦 Способ вложения: <b>Переводом на счёт</b>", bank)
+
+        self.assertNotIn("Способ вложения", render(None))
+
 
 class InvestReturnSerializerTests(TestCase):
     """Курс — только из архива CbuExchangeRate: запросы не ходят на cbu.uz (фетч патчится и не вызывается)."""
