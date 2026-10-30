@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 from apps.modules.requests.models import Request, RequestApprovalPaymentTypeConfig
+from apps.modules.wallets.models import BankAccount
 
 
 RULE_OPERATOR_EQ = "eq"
@@ -25,11 +26,24 @@ def request_not_required_field_options_for_payment_type(payment_type: str) -> li
     return list(RULE_FIELD_OPTIONS.get(payment_type, ()))
 
 
+def is_uncontrolled_bank_expense(expense_obj: Any) -> bool:
+    """True when the expense sits on an informational/service bank account (never raises)."""
+    wallet = getattr(expense_obj, "wallet", None)
+    bank_account = getattr(wallet, "bank_account", None)
+    account_type = getattr(bank_account, "account_type", None)
+    if account_type is None:
+        return False
+    return account_type != BankAccount.AccountType.CONTROLLED
+
+
 def is_request_required_for_expense(*, tenant, payment_type: str, expense_obj: Any) -> bool:
     """
     Request is required by default.
-    It becomes not required when at least one tenant rule matches the expense row.
+    It becomes not required when at least one tenant rule matches the expense row,
+    or when the expense is on an informational/service bank account.
     """
+    if is_uncontrolled_bank_expense(expense_obj):
+        return False
     pt_cfg = (
         RequestApprovalPaymentTypeConfig.objects.filter(
             config__tenant=tenant,
