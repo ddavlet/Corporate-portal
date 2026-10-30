@@ -6,7 +6,17 @@ from django.test import TestCase
 
 from apps.modules.cash_withdrawals.fixtures import GATEWAY_PATH, gateway_ok
 
-from .alerts import format_amount, notify_down, notify_missing_docs, notify_mismatch, notify_own_transfer, notify_resolved, send_owner_alert
+from .alerts import (
+    format_amount,
+    notify_down,
+    notify_missing_docs,
+    notify_mismatch,
+    notify_new_account,
+    notify_own_transfer,
+    notify_resolved,
+    send_owner_alert,
+)
+from .classification import HAS_MOVEMENTS, KIND_CONTROLLED, KIND_INFORMATIONAL
 from .client import StatementDoc
 from .fixtures import ACCOUNT_1, ACCOUNT_2, MFO, KapitalbankFixtures
 from .models import AccountSyncState, BankAccountLink, KapitalbankAlertSettings, KapitalbankConnection, SyncEvent
@@ -228,3 +238,47 @@ class AlertsTests(KapitalbankFixtures, TestCase):
         self.assertFalse(notify_resolved(self.link, now=utc(1, 11, 0)))
         gw.assert_not_called()
         self.assertIsNone(AccountSyncState.objects.get(link=self.link).mismatch_since)
+
+    @patch(GATEWAY_PATH)
+    def test_new_account_alert_text(self, gw):
+        gw.side_effect = gateway_ok()
+        new_account = "20208840900000000001"  # placeholder
+        link = BankAccountLink.objects.create(
+            tenant=self.tenant, account_no=new_account, branch=MFO, name="Текущий <валютный>",
+            currency="USD", last_balance=Decimal("1234567.50"),
+        )
+
+        self.assertTrue(notify_new_account(link, kind=KIND_INFORMATIONAL, now=utc(1, 10, 0)))
+        self.assertFalse(notify_new_account(link, kind=KIND_INFORMATIONAL, now=utc(2, 10, 0)))  # once per link
+
+        self.assertEqual(gw.call_count, 1)
+        text = gw.call_args_list[0].kwargs["payload"]["text"]
+        self.assertIn("Открыт новый счёт", text)
+        self.assertIn("Kolberg Plus", text)
+        self.assertIn(f"Счёт: {new_account}\n", text)
+        self.assertIn("Название в банке: Текущий &lt;валютный&gt;\n", text)
+        self.assertIn("Валюта: USD\n", text)
+        self.assertIn("Остаток: 1 234 567,50\n", text)
+        self.assertIn("Тип: информационный\n", text)
+        self.assertIn("Сменить тип: админка → Капиталбанк → Привязки счетов", text)
+        event = SyncEvent.objects.get(kind=SyncEvent.ALERT_NEW_ACCOUNT)
+        self.assertEqual(event.dedup_key, f"new_account:{link.pk}")
+        self.assertEqual(event.link_id, link.pk)
+        self.assertEqual(event.payload["account_kind"], KIND_INFORMATIONAL)
+
+    @patch(GATEWAY_PATH)
+    def test_new_account_alert_text_when_not_attached(self, gw):
+        gw.side_effect = gateway_ok()
+        link = BankAccountLink.objects.create(tenant=self.tenant, account_no="20208000900000000002", branch=MFO)
+
+        self.assertTrue(notify_new_account(link, kind=KIND_CONTROLLED, problem=HAS_MOVEMENTS, now=utc(1, 10, 0)))
+
+        text = gw.call_args_list[0].kwargs["payload"]["text"]
+        self.assertIn(
+            f"Тип: не удалось поставить на контроль автоматически: {HAS_MOVEMENTS}; привяжите вручную в админке\n",
+            text,
+        )
+        self.assertNotIn("поставлен на контроль", text)
+        self.assertIn("Название в банке: —\n", text)
+        self.assertIn("Валюта: UZS\n", text)
+        self.assertIn("Остаток: —\n", text)

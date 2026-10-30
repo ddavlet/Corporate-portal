@@ -1,5 +1,8 @@
 """One Kapitalbank import run: daytime (today), nightly (account list + today + last 5 days), manual.
 
+The nightly run attaches an account the bank lists for the first time right away (by its kind,
+tracked from today, so it is loaded the same night) and tells the owner about it.
+
 Per enabled tenant and per LINKED account: fetch the statement of every day, create the
 missing rows (ingest is create-only and atomic per call), then alert. Alerts are sent
 outside any transaction and never fail the run. Today's balance is reconciled only after
@@ -29,6 +32,7 @@ from apps.modules.wallets.services import wallet_balance_payload
 
 from . import alerts as kb_alerts
 from .accounts import refresh_account_list
+from .classification import AutoAttachResult, auto_attach_new, kind_for_account
 from .client import KapitalbankClient, KapitalbankError, Statement, StatementDoc
 from .ingest import IngestError, ingest_statement, present_on_wallet
 from .mapping import is_incoming
@@ -271,7 +275,7 @@ def _run_tenant(ctx: _Run, conn: KapitalbankConnection, client_factory) -> None:
 
     if ctx.mode == "nightly" and not ctx.dry_run:
         try:
-            refresh_account_list(conn, client, now=ctx.now)
+            listed = refresh_account_list(conn, client, now=ctx.now)
         except Exception as exc:
             _log_error(ctx.secrets, "kapitalbank: tenant_id=%s account list refresh failed", tenant.pk)
             message = _safe_message(ctx, exc)
@@ -283,11 +287,33 @@ def _run_tenant(ctx: _Run, conn: KapitalbankConnection, client_factory) -> None:
                 payload={"code": _error_code(exc), "error_type": type(exc).__name__},
             )
             _alert(ctx, kb_alerts.notify_accounts_refresh_failed, tenant, message=message, today=ctx.today, now=ctx.now)
+        else:
+            _attach_new_accounts(ctx, listed)
 
     own_targets = _own_targets(tenant)
     for link in _linked(tenant):
         ctx.processed.add(link.pk)
         _run_link(ctx, link, client, own_targets)
+
+
+def _attach_new_accounts(ctx: _Run, listed: list[BankAccountLink]) -> None:
+    """Accounts this refresh created (PENDING, first seen now) are attached by kind and alerted;
+    one that cannot be attached stays PENDING and the alert says why. Never stops the run."""
+    for link in listed:
+        if link.decision != BankAccountLink.PENDING or link.first_seen_at != ctx.now:
+            continue
+        try:
+            outcome = auto_attach_new(link, today=ctx.today, now=ctx.now)
+        except Exception:
+            _log_error(ctx.secrets, "kapitalbank: new account …%s (link_id=%s) not attached", link.account_no[-4:], link.pk)
+            try:
+                link.refresh_from_db()  # the attach rolled back; drop its in-memory decision
+            except Exception:
+                _log_error(ctx.secrets, "kapitalbank: link_id=%s cannot be re-read", link.pk)
+            outcome = AutoAttachResult(
+                kind_for_account(link.account_no, link.currency), "внутренняя ошибка портала (подробности в журнале)"
+            )
+        _alert(ctx, kb_alerts.notify_new_account, link, kind=outcome.kind, problem=outcome.problem, now=ctx.now)
 
 
 def _fail_tenant(ctx: _Run, conn: KapitalbankConnection, stage: str, message: str, exc: Exception | None = None) -> None:

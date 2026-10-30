@@ -10,9 +10,10 @@ from apps.modules.bank_expenses.models import BankExpense, BankRevenue
 from apps.modules.cash_withdrawals.fixtures import GATEWAY_PATH, gateway_ok
 from apps.modules.vendors.models import Vendor
 from apps.modules.wallets.calendar_utils import TASHKENT, start_of_year_utc
-from apps.modules.wallets.models import BankAccount, Wallet
+from apps.modules.wallets.models import BankAccount, CorporateCardAccount, Wallet
 from apps.modules.wallets.resolution import get_or_create_bank_wallet_for_account
 
+from .classification import OTHER_CURRENCY, SERVICE_IGNORE_REASON
 from .client import BankListedAccount, KapitalbankError, Statement, StatementDoc
 from .fixtures import ACCOUNT_1, ACCOUNT_2, MFO, KapitalbankFixtures
 from .ingest import IngestResult
@@ -25,6 +26,10 @@ PENDING_ACCOUNT = "20208000904843803009"
 IGNORED_ACCOUNT = "20208000904843803010"
 NEW_ACCOUNT = "20208000904843803011"
 SERVICE_ACCOUNT = "20208000000000000001"
+# Placeholder numbers whose balance-account prefix gives the kind (classification.PREFIX_KINDS).
+NEW_ACCOUNT_2 = "20208000904843803012"
+NEW_SERVICE_ACCOUNT = "22613000900000000001"
+NEW_CARD_ACCOUNT = "22620000900000000001"
 COUNTERPARTY = "20208840100400002020"
 NOW = datetime(2026, 10, 26, 7, 0, tzinfo=dt_timezone.utc)  # 12:00 in Tashkent
 TODAY = date(2026, 10, 26)
@@ -194,12 +199,16 @@ class RunnerTests(KapitalbankFixtures, TestCase):
         self.assertEqual(self.fake.days(ACCOUNT_1), NIGHTLY_ORDER)
         self.assertEqual(self.fake.days(ACCOUNT_2), NIGHTLY_ORDER)
         self.assertEqual(self.fake.list_calls, 1)
+        # A new account is attached the same night and loaded from today (see the new-account tests).
         new = BankAccountLink.objects.get(tenant=self.tenant, account_no=NEW_ACCOUNT)
-        self.assertEqual(new.decision, BankAccountLink.PENDING)
+        self.assertEqual(new.decision, BankAccountLink.LINKED)
+        self.assertEqual(self.fake.days(NEW_ACCOUNT), [TODAY])
         self.link1.refresh_from_db()
         self.assertEqual(self.link1.decision, BankAccountLink.LINKED)
-        self.assertEqual(report.accounts_ok, 2)
-        self.gw.assert_not_called()
+        self.assertEqual(self.link1.bank_account_id, self.bank_account1.pk)
+        self.assertEqual(report.accounts_ok, 3)
+        self.assertEqual(self.gw.call_count, 1)
+        self.assertIn("Открыт новый счёт", self.texts()[0])
 
     def test_manual_loads_given_days(self):
         manual = [date(2026, 10, 1), date(2026, 10, 2)]
@@ -877,3 +886,175 @@ class RunnerTests(KapitalbankFixtures, TestCase):
 
         self.assertEqual(self.gw.call_count, 1)
         self.assertIn("Сумма: 300,00 USD\n", self.texts()[0])
+
+    # --- a new account found at night is attached and the owner is told -------------------
+
+    def new_account_events(self):
+        return SyncEvent.objects.filter(kind=SyncEvent.ALERT_NEW_ACCOUNT)
+
+    def new_account_texts(self):
+        return [t for t in self.texts() if "Открыт новый счёт" in t]
+
+    def test_nightly_attaches_new_controlled_account_and_alerts(self):
+        self.fake.accounts = [listed(ACCOUNT_1), listed(PENDING_ACCOUNT), listed(NEW_ACCOUNT)]
+
+        report = self.run_import("nightly")
+
+        new = BankAccountLink.objects.select_related("bank_account").get(tenant=self.tenant, account_no=NEW_ACCOUNT)
+        self.assertEqual(new.decision, BankAccountLink.LINKED)
+        self.assertEqual(new.track_from, TODAY)
+        self.assertEqual(new.decided_at, NOW)
+        self.assertIsNone(new.decided_by)
+        self.assertEqual(new.bank_account.account_no, NEW_ACCOUNT)
+        self.assertEqual(new.bank_account.account_type, BankAccount.AccountType.CONTROLLED)
+        wallet = Wallet.objects.get(bank_account=new.bank_account)
+        self.assertEqual(wallet.currency, "UZS")
+        self.assertEqual(self.fake.days(NEW_ACCOUNT), [TODAY])  # loaded the same night, from today
+        self.assertEqual(new.opening_synced_at, NOW)  # opening balance taken from today's saldo_in
+        event = self.new_account_events().get()
+        self.assertEqual(event.link_id, new.pk)
+        self.assertEqual(event.dedup_key, f"new_account:{new.pk}")
+        # An account that was already pending before tonight is not touched.
+        old_pending = BankAccountLink.objects.get(tenant=self.tenant, account_no=PENDING_ACCOUNT)
+        self.assertEqual(old_pending.decision, BankAccountLink.PENDING)
+        self.assertEqual(self.fake.days(PENDING_ACCOUNT), [])
+        texts = self.new_account_texts()
+        self.assertEqual(len(texts), 1)
+        self.assertIn(NEW_ACCOUNT, texts[0])
+        self.assertIn("Тип: поставлен на контроль", texts[0])
+        self.assertEqual((report.accounts_ok, report.accounts_failed), (3, 0))
+
+    def test_nightly_new_service_account_ignored_with_alert(self):
+        self.fake.accounts = [listed(NEW_SERVICE_ACCOUNT)]
+
+        self.run_import("nightly")
+
+        new = BankAccountLink.objects.get(tenant=self.tenant, account_no=NEW_SERVICE_ACCOUNT)
+        self.assertEqual(new.decision, BankAccountLink.IGNORED)
+        self.assertEqual(new.ignore_reason, SERVICE_IGNORE_REASON)
+        self.assertEqual(new.decided_at, NOW)
+        self.assertIsNone(new.decided_by)
+        self.assertIsNone(new.bank_account_id)
+        self.assertIsNone(new.card_account_id)
+        self.assertFalse(BankAccount.objects.filter(account_no=NEW_SERVICE_ACCOUNT).exists())
+        self.assertEqual(self.fake.days(NEW_SERVICE_ACCOUNT), [])
+        self.assertEqual(self.new_account_events().get().link_id, new.pk)
+        texts = self.new_account_texts()
+        self.assertEqual(len(texts), 1)
+        self.assertIn(NEW_SERVICE_ACCOUNT, texts[0])
+        self.assertIn("Тип: служебный, не загружается", texts[0])
+
+    def test_nightly_new_card_account_attached_to_corporate_cards(self):
+        self.fake.accounts = [listed(NEW_CARD_ACCOUNT)]
+
+        self.run_import("nightly")
+
+        new = BankAccountLink.objects.get(tenant=self.tenant, account_no=NEW_CARD_ACCOUNT)
+        self.assertEqual(new.decision, BankAccountLink.LINKED)
+        self.assertIsNone(new.bank_account_id)
+        self.assertEqual(new.track_from, TODAY)
+        card = CorporateCardAccount.objects.get(pk=new.card_account_id)
+        self.assertEqual(card.external_ref, NEW_CARD_ACCOUNT)
+        self.assertEqual(card.wallet.wallet_type, Wallet.Type.CORPORATE_CARD)
+        self.assertFalse(BankAccount.objects.filter(account_no=NEW_CARD_ACCOUNT).exists())
+        self.assertEqual(self.fake.days(NEW_CARD_ACCOUNT), [TODAY])
+        self.assertEqual(self.new_account_events().get().link_id, new.pk)
+        texts = self.new_account_texts()
+        self.assertEqual(len(texts), 1)
+        self.assertIn("Тип: привязан в Корпоративные карты", texts[0])
+
+    def test_new_account_alert_sent_once_across_nights(self):
+        self.fake.accounts = [listed(ACCOUNT_1), listed(NEW_ACCOUNT)]
+
+        self.run_import("nightly")
+        second = self.run_import("nightly", now=NOW + timedelta(days=1))
+
+        self.assertEqual(self.new_account_events().count(), 1)
+        self.assertEqual(len(self.new_account_texts()), 1)
+        self.assertEqual(second.alerts, 0)
+        new = BankAccountLink.objects.get(tenant=self.tenant, account_no=NEW_ACCOUNT)
+        self.assertEqual(new.decision, BankAccountLink.LINKED)
+        self.assertEqual(new.track_from, TODAY)  # the second night does not re-attach it
+        self.assertEqual(new.decided_at, NOW)
+
+    def test_manual_refresh_leaves_new_accounts_pending(self):
+        self.fake.accounts = [listed(NEW_ACCOUNT), listed(NEW_SERVICE_ACCOUNT), listed(NEW_CARD_ACCOUNT)]
+
+        report = refresh_accounts(tenant_subdomain="kp", now=NOW, client_factory=self.factory)
+
+        self.assertEqual(report.error, "")
+        for account_no in (NEW_ACCOUNT, NEW_SERVICE_ACCOUNT, NEW_CARD_ACCOUNT):
+            link = BankAccountLink.objects.get(tenant=self.tenant, account_no=account_no)
+            self.assertEqual(link.decision, BankAccountLink.PENDING)
+        self.assertEqual(SyncEvent.objects.count(), 0)
+        self.assertFalse(BankAccount.objects.filter(account_no=NEW_ACCOUNT).exists())
+        self.gw.assert_not_called()
+
+    def test_daytime_run_does_not_attach(self):
+        self.fake.accounts = [listed(NEW_ACCOUNT_2)]
+        # Even a pending account first seen at this very moment is left alone by a daytime run.
+        fresh = BankAccountLink.objects.create(tenant=self.tenant, account_no=NEW_ACCOUNT, branch=MFO)
+        BankAccountLink.objects.filter(pk=fresh.pk).update(first_seen_at=NOW)
+
+        report = self.run_import("daytime")
+
+        self.assertEqual(self.fake.list_calls, 0)
+        self.assertFalse(BankAccountLink.objects.filter(account_no=NEW_ACCOUNT_2).exists())
+        fresh.refresh_from_db()
+        self.assertEqual(fresh.decision, BankAccountLink.PENDING)
+        self.assertEqual(self.fake.days(NEW_ACCOUNT), [])
+        self.assertFalse(self.new_account_events().exists())
+        self.assertEqual(report.accounts_ok, 2)
+        self.gw.assert_not_called()
+
+    def test_nightly_new_account_attach_failure_still_alerts(self):
+        # The portal already has this account with a USD wallet; the bank lists it in UZS.
+        get_or_create_bank_wallet_for_account(tenant=self.tenant, account_no=NEW_ACCOUNT, mfo=MFO, currency="USD")
+        self.fake.accounts = [listed(NEW_ACCOUNT), listed(NEW_ACCOUNT_2)]
+
+        report = self.run_import("nightly")
+
+        failed = BankAccountLink.objects.get(tenant=self.tenant, account_no=NEW_ACCOUNT)
+        self.assertEqual(failed.decision, BankAccountLink.PENDING)
+        self.assertIsNone(failed.bank_account_id)
+        self.assertIsNone(failed.track_from)
+        self.assertEqual(self.fake.days(NEW_ACCOUNT), [])
+        # The other new account of the same night is still attached and loaded.
+        ok = BankAccountLink.objects.get(tenant=self.tenant, account_no=NEW_ACCOUNT_2)
+        self.assertEqual(ok.decision, BankAccountLink.LINKED)
+        self.assertEqual(self.fake.days(NEW_ACCOUNT_2), [TODAY])
+        self.assertEqual(self.new_account_events().count(), 2)
+        event = self.new_account_events().get(link=failed)
+        self.assertEqual(event.payload["problem"], OTHER_CURRENCY)
+        text = [t for t in self.new_account_texts() if NEW_ACCOUNT in t][0]
+        self.assertIn(
+            f"Тип: не удалось поставить на контроль автоматически: {OTHER_CURRENCY}; привяжите вручную в админке",
+            text,
+        )
+        self.assertNotIn("Тип: поставлен на контроль", text)
+        self.assertEqual((report.accounts_ok, report.accounts_failed), (3, 0))
+
+    def test_nightly_new_account_unexpected_error_does_not_stop_others(self):
+        from .classification import auto_attach_new as real_auto_attach_new
+
+        def flaky(link, **kwargs):
+            if link.account_no == NEW_ACCOUNT:
+                raise RuntimeError(f"boom {PASSWORD}")
+            return real_auto_attach_new(link, **kwargs)
+
+        self.fake.accounts = [listed(NEW_ACCOUNT), listed(NEW_ACCOUNT_2)]
+
+        with patch("apps.modules.kapitalbank.runner.auto_attach_new", side_effect=flaky):
+            with self.assertLogs("apps.modules.kapitalbank.runner", level="ERROR") as logs:
+                report = self.run_import("nightly")
+
+        failed = BankAccountLink.objects.get(tenant=self.tenant, account_no=NEW_ACCOUNT)
+        self.assertEqual(failed.decision, BankAccountLink.PENDING)
+        ok = BankAccountLink.objects.get(tenant=self.tenant, account_no=NEW_ACCOUNT_2)
+        self.assertEqual(ok.decision, BankAccountLink.LINKED)
+        self.assertEqual(self.new_account_events().count(), 2)
+        self.assertEqual(self.new_account_events().get(link=failed).payload["decision"], BankAccountLink.PENDING)
+        self.assertEqual(self.fake.days(ACCOUNT_1), NIGHTLY_ORDER)  # the tenant is still loaded
+        self.assertEqual((report.accounts_ok, report.accounts_failed), (3, 0))
+        for text in [*logs.output, *self.texts()]:
+            self.assertNotIn(PASSWORD, text)

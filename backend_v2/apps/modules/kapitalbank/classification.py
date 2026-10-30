@@ -4,6 +4,7 @@
 - ``attach_bank`` / ``attach_card``: link a PENDING account to a portal bank / corporate card account
   (created when missing), tracked from ``today``;
 - ``set_account_type``: change a portal bank account's type; every change alerts the owner;
+- ``auto_attach_new``: the nightly run's handling of an account the bank listed for the first time;
 - ``classify``: the ``classify_kapitalbank_accounts`` command (attach PENDING or change the type of LINKED).
 
 Nothing here unlinks an account or deletes data.
@@ -14,6 +15,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 from datetime import date, datetime
+from typing import NamedTuple
 
 from django.db import transaction
 
@@ -60,6 +62,7 @@ CARD_LINKED = "счёт привязан к корпоративной карт�
 IGNORED = "счёт отмечен «Служебный»"
 SAME_TYPE = "тип уже такой"
 BAD_TYPE = "неизвестный тип счёта"
+SERVICE_IGNORE_REASON = "Служебный счёт банка (определён автоматически)"
 
 ACTION_ATTACH = "attach"
 ACTION_SET_TYPE = "set_type"
@@ -196,6 +199,47 @@ def _write_linked(link, *, bank_account, card_account, today, now, user) -> None
     BankAccountLink.objects.filter(pk=link.pk).update(**fields)
     for name, value in fields.items():
         setattr(link, name, value)
+
+
+class AutoAttachResult(NamedTuple):
+    kind: str
+    problem: str = ""  # why the account stays PENDING ("" when it was attached / ignored)
+
+
+def auto_attach_new(link: BankAccountLink, *, today: date, now: datetime) -> AutoAttachResult:
+    """A PENDING account the bank listed for the first time, by its kind: a card account is attached
+    to a corporate card, a service one is marked IGNORED, any other is attached as a bank account of
+    that kind (tracked from ``today``). When it cannot be attached it stays PENDING and ``problem``
+    says why (the owner attaches it in admin)."""
+    kind = kind_for_account(link.account_no, link.currency)
+    try:
+        if kind == KIND_CARD:
+            attach_card(link, today=today, now=now)
+        elif kind == KIND_SERVICE:
+            _ignore_service(link, now=now)
+        else:
+            attach_bank(link, account_type=kind, today=today, now=now)
+    except ClassificationError as exc:
+        logger.warning(
+            "kapitalbank new account: tenant=%s account=%s/%s left pending: %s",
+            link.tenant_id, link.account_no, link.branch, exc,
+        )
+        return AutoAttachResult(kind, str(exc))
+    return AutoAttachResult(kind)
+
+
+def _ignore_service(link: BankAccountLink, *, now: datetime) -> None:
+    fields = {
+        "decision": BankAccountLink.IGNORED,
+        "ignore_reason": SERVICE_IGNORE_REASON,
+        "decided_by": None,
+        "decided_at": now,
+    }
+    if not BankAccountLink.objects.filter(pk=link.pk, decision=BankAccountLink.PENDING).update(**fields):
+        raise ClassificationError(NOT_PENDING)
+    for name, value in fields.items():
+        setattr(link, name, value)
+    logger.info("kapitalbank ignore: tenant=%s account=%s/%s (service)", link.tenant_id, link.account_no, link.branch)
 
 
 def set_account_type(bank_account: BankAccount, new_type: str, *, changed_by=None, now: datetime) -> bool:

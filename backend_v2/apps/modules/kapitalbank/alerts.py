@@ -336,3 +336,42 @@ def notify_account_type_changed(bank_account, *, old: str, new: str, changed_by=
             "changed_by": getattr(changed_by, "pk", None),
         },
     )
+
+
+# Keyed by classification.KIND_* (not imported: classification imports this module).
+NEW_ACCOUNT_KIND_LINES = {
+    "controlled": "поставлен на контроль",
+    "informational": "информационный",
+    "service": "служебный, не загружается",
+    "card": "привязан в Корпоративные карты",
+}
+
+
+def notify_new_account(link: BankAccountLink, *, kind: str, now: datetime, problem: str = "") -> bool:
+    """An account the bank listed for the first time (nightly run); once per link. ``problem`` is
+    why it could not be attached automatically ("" when it was attached / marked service)."""
+    if problem:
+        kind_line = f"не удалось поставить на контроль автоматически: {problem}; привяжите вручную в админке"
+    else:
+        kind_line = NEW_ACCOUNT_KIND_LINES.get(kind, kind)
+    currency = (link.currency or "").strip() or "UZS"
+    balance = "—" if link.last_balance is None else format_amount(link.last_balance)
+    text = (
+        "<b>Открыт новый счёт</b>\n"
+        f"Организация: {_esc(link.tenant.name)}\n"
+        f"Счёт: {_esc(link.account_no)}\n"
+        f"Название в банке: {_esc(link.name or '—')}\n"
+        f"Валюта: {_esc(currency)}\n"
+        f"Остаток: {balance}\n"
+        f"Тип: {_esc(kind_line)}\n"
+        "Сменить тип: админка → Капиталбанк → Привязки счетов\n"
+        f"Время: {_fmt_time(now)}"
+    )
+    return send_owner_alert(
+        text,
+        tenant=link.tenant,
+        link=link,
+        kind=SyncEvent.ALERT_NEW_ACCOUNT,
+        dedup_key=f"new_account:{link.pk}",
+        payload={"account_kind": kind, "problem": problem, "decision": link.decision},
+    )
