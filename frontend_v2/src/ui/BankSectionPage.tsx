@@ -94,6 +94,12 @@ export function BankSectionPage({ mode, walletId }: { mode: BankSectionMode; wal
   const [openFullRequestModal, setOpenFullRequestModal] = useState(false)
   const [openNoteModal, setOpenNoteModal] = useState(false)
 
+  // Movements on informational and service accounts never need a request, so the filter is meaningless there.
+  const showMissingRequestSwitch =
+    needExpenses && lockedAccountType !== 'informational' && lockedAccountType !== 'service'
+  // A toggle made before the account type loaded must not stay applied once the switch is hidden.
+  const applyMissingRequest = missingRequestOnly && showMissingRequestSwitch
+
   const expenseListUrl = useMemo(() => {
     const params = new URLSearchParams()
     if (search.trim()) params.set('search', search.trim())
@@ -105,10 +111,10 @@ export function BankSectionPage({ mode, walletId }: { mode: BankSectionMode; wal
     if (docTo) params.set('doc_to', docTo)
     if (amountMin !== null) params.set('amount_min', String(amountMin))
     if (amountMax !== null) params.set('amount_max', String(amountMax))
-    if (missingRequestOnly) params.set('missing_request', '1')
+    if (applyMissingRequest) params.set('missing_request', '1')
     const q = params.toString()
     return q ? `/api/bank/expenses/?${q}` : '/api/bank/expenses/'
-  }, [search, counterpartyFilter, walletFilter, docDateRange, amountMin, amountMax, missingRequestOnly])
+  }, [search, counterpartyFilter, walletFilter, docDateRange, amountMin, amountMax, applyMissingRequest])
 
   const revenueListUrl = useMemo(() => {
     const params = new URLSearchParams()
@@ -188,10 +194,6 @@ export function BankSectionPage({ mode, walletId }: { mode: BankSectionMode; wal
       cancelled = true
     }
   }, [walletId])
-
-  // Movements on informational and service accounts never need a request, so the filter is meaningless there.
-  const showMissingRequestSwitch =
-    needExpenses && lockedAccountType !== 'informational' && lockedAccountType !== 'service'
 
   const listLoading = (needExpenses && expensesLoading) || (needRevenues && revenuesLoading)
   const listError = expensesError || revenuesError

@@ -131,4 +131,37 @@ describe('BankSectionPage', () => {
     await openAdvancedFilters()
     await waitFor(() => expect(screen.queryByText('Без заявки (обязательна)')).toBeNull())
   })
+
+  it('drops missing_request once the switch hides for an informational account', async () => {
+    let resolveOverview: (rows: unknown[]) => void = () => {}
+    getOverviewMock.mockReturnValue(
+      new Promise<unknown[]>((resolve) => {
+        resolveOverview = resolve
+      }),
+    )
+    renderPage({ mode: 'expenses', walletId: 12 })
+
+    // The type is not loaded yet: the switch is visible and turning it on applies the filter.
+    await openAdvancedFilters()
+    const label = screen.getByText('Без заявки (обязательна)')
+    const toggle = label.closest('.ant-space')?.querySelector('[role="switch"]')
+    expect(toggle).toBeTruthy()
+    fireEvent.click(toggle as Element)
+    await waitFor(() => expect(lastExpensesUrl()).toBe('/api/bank/expenses/?wallet=12&missing_request=1'))
+
+    // The account turns out informational: the switch hides and the filter is no longer sent.
+    await act(async () => {
+      resolveOverview([OVERVIEW_ROW(12, 'informational')])
+    })
+    await waitFor(() => expect(screen.queryByText('Без заявки (обязательна)')).toBeNull())
+    expect(lastExpensesUrl()).toBe('/api/bank/expenses/?wallet=12')
+  })
 })
+
+/** URL of the most recent expenses list request made through useInfiniteList. */
+function lastExpensesUrl(): string | undefined {
+  const urls = useInfiniteListMock.mock.calls
+    .map(([options]) => (options as { url: string }).url)
+    .filter((url) => url.startsWith('/api/bank/expenses/'))
+  return urls[urls.length - 1]
+}
