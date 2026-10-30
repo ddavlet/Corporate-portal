@@ -27,7 +27,14 @@ def request_not_required_field_options_for_payment_type(payment_type: str) -> li
 
 
 def is_uncontrolled_bank_expense(expense_obj: Any) -> bool:
-    """True when the expense sits on an informational/service bank account (never raises)."""
+    """True when the expense sits on an informational/service bank account (never raises).
+
+    Only BankExpense rows are inspected, so cash/card expenses never touch `.wallet` (no extra query).
+    """
+    from apps.modules.bank_expenses.models import BankExpense
+
+    if not isinstance(expense_obj, BankExpense):
+        return False
     wallet = getattr(expense_obj, "wallet", None)
     bank_account = getattr(wallet, "bank_account", None)
     account_type = getattr(bank_account, "account_type", None)

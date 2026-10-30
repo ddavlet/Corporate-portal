@@ -68,11 +68,18 @@ class RequestRequiredTests(_Base):
         self.assertTrue(self._required(e))
 
     def test_expense_without_wallet_or_bank_account_unchanged(self):
-        e = self._expense(wallet=None, doc_no="1")
-        self.assertTrue(self._required(e))
+        unsaved = BankExpense(tenant=self.tenant, doc_no="1", payment_purpose="x")
+        self.assertTrue(self._required(unsaved))
+        walletless = SimpleNamespace(wallet=None, payment_purpose="x", payload={}, vendor=None)
+        self.assertTrue(self._required(walletless))
         card_wallet = get_or_create_corporate_wallet(tenant=self.tenant, currency="UZS")
         card_expense = SimpleNamespace(wallet=card_wallet, payment_purpose="x", payload={}, vendor=None)
         self.assertTrue(self._required(card_expense))
+        # Non-bank objects are never inspected, even if their wallet were an informational bank wallet.
+        other_kind = SimpleNamespace(
+            wallet=self._wallet(ACC_INFO, "informational"), payment_purpose="x", payload={}, vendor=None
+        )
+        self.assertTrue(self._required(other_kind))
 
 
 class ComplianceTests(_Base):
@@ -106,7 +113,7 @@ class BackfillAndReassignTests(_Base):
 
     def test_reassignment_skips_informational(self):
         info = self._expense(wallet=self._wallet(ACC_INFO, "informational"), doc_no="57", amount="3000.00")
-        walletless = self._expense(wallet=None, doc_no="58", amount="4000.00")
+        controlled = self._expense(wallet=self._wallet(ACC_CONTROLLED, "controlled"), doc_no="58", amount="4000.00")
         for no, amount in (("57", "3000.00"), ("58", "4000.00")):
             Request.objects.create(
                 tenant=self.other, created_by=self.user, title=f"Заявка {no}", amount=amount,
@@ -116,7 +123,7 @@ class BackfillAndReassignTests(_Base):
             )
         moved = reassign_unmatched_bank_expenses(tenant=self.tenant, other_tenant=self.other, created_by=self.user)
         info.refresh_from_db()
-        walletless.refresh_from_db()
+        controlled.refresh_from_db()
         self.assertEqual(info.tenant_id, self.tenant.id)
-        self.assertEqual(walletless.tenant_id, self.other.id)
+        self.assertEqual(controlled.tenant_id, self.other.id)
         self.assertEqual(len(moved), 1)
