@@ -56,6 +56,24 @@ class BankAccountTypeTests(TestCase):
         ba.refresh_from_db()
         self.assertEqual(ba.account_type, "controlled")
 
+    def test_serializer_exposes_wallet_currency_read_only(self):
+        wallet = get_or_create_bank_wallet_for_account(
+            tenant=self.tenant, account_no=ACCOUNT_NO, mfo="01158", currency="USD", account_type="informational"
+        )
+        ba = wallet.bank_account
+        self.assertEqual(BankAccountSerializer(ba).data["wallet_currency"], "USD")
+        ser = BankAccountSerializer(ba, data={"wallet_currency": "UZS"}, partial=True)
+        self.assertTrue(ser.is_valid(), ser.errors)
+        ser.save()
+        wallet.refresh_from_db()
+        self.assertEqual(wallet.currency, "USD")
+        ba.refresh_from_db()
+        self.assertEqual(BankAccountSerializer(ba).data["wallet_currency"], "USD")
+
+    def test_serializer_wallet_currency_for_default_uzs_wallet(self):
+        wallet = get_or_create_bank_wallet(tenant=self.tenant)
+        self.assertEqual(BankAccountSerializer(wallet.bank_account).data["wallet_currency"], "UZS")
+
 
 class MigrationsInSyncTests(TestCase):
     def test_no_missing_migrations_for_wallets(self):

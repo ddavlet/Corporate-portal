@@ -60,11 +60,22 @@ class BankAccountSerializer(serializers.ModelSerializer):
     """
 
     wallet_id = serializers.IntegerField(source="wallet.id", read_only=True)
+    wallet_currency = serializers.CharField(source="wallet.currency", read_only=True)
 
     class Meta:
         model = BankAccount
-        fields = ["id", "tenant", "label", "account_no", "mfo", "is_default", "account_type", "wallet_id"]
-        read_only_fields = ["id", "tenant", "is_default", "account_type", "wallet_id"]
+        fields = [
+            "id",
+            "tenant",
+            "label",
+            "account_no",
+            "mfo",
+            "is_default",
+            "account_type",
+            "wallet_id",
+            "wallet_currency",
+        ]
+        read_only_fields = ["id", "tenant", "is_default", "account_type", "wallet_id", "wallet_currency"]
 
     def create(self, validated_data):
         tenant = validated_data["tenant"]

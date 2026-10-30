@@ -2291,13 +2291,21 @@ export async function deleteCashRegister(id: number): Promise<void> {
   if (!res.ok) throw new Error(await parseErrorBody(res))
 }
 
+/** Bank account role: controlled (requests required), informational (no requests), service (internal, hidden). */
+export type BankAccountType = 'controlled' | 'informational' | 'service'
+
 export type BankAccountDto = {
   id: number
   tenant: number
   label: string
   account_no: string
   mfo: string
+  is_default?: boolean
+  /** Read-only on the backend. */
+  account_type?: BankAccountType
   wallet_id: number
+  /** Read-only on the backend: currency of the linked wallet (UZS, USD, …). */
+  wallet_currency?: string
 }
 
 export async function getBankAccounts(): Promise<BankAccountDto[]> {
@@ -2323,6 +2331,47 @@ export async function getKapitalbankPendingAccounts(): Promise<{
   const res = await apiFetch('/api/kapitalbank/pending-accounts/')
   if (!res.ok) throw new Error(await parseErrorBody(res))
   return (await res.json()) as { enabled: boolean; accounts: KapitalbankPendingAccount[] }
+}
+
+/** Row from GET /api/bank/accounts/ (controlled → informational → service, default first). */
+export type BankAccountOverviewDto = {
+  wallet_id: number
+  bank_account_id: number
+  label: string
+  account_no: string
+  mfo: string
+  is_default: boolean
+  account_type: BankAccountType
+  currency: string
+  current_balance: string
+}
+
+export async function getBankAccountsOverview(): Promise<BankAccountOverviewDto[]> {
+  const res = await apiFetch('/api/bank/accounts/', {}, { treatAuthErrorsAsGlobal: false, ignoreForbidden: true })
+  if (res.status === 403) return []
+  if (!res.ok) throw new Error(await parseErrorBody(res))
+  const json = await res.json().catch(() => null)
+  return Array.isArray(json) ? (json as BankAccountOverviewDto[]) : []
+}
+
+/** Row from GET /api/kapitalbank/untracked-accounts/: accounts in the bank without a decision or marked as service. */
+export type KapitalbankUntrackedAccountDto = {
+  account_no: string
+  branch: string
+  name: string
+  currency: string
+  balance: string | null
+  status: 'pending' | 'service'
+  reason: string
+}
+
+export async function getKapitalbankUntrackedAccounts(): Promise<KapitalbankUntrackedAccountDto[]> {
+  // The kapitalbank module may be off for the tenant: 403/404 mean "nothing to show", without an error toast.
+  const res = await apiFetch('/api/kapitalbank/untracked-accounts/', {}, { treatAuthErrorsAsGlobal: false, silent: true })
+  if (res.status === 403 || res.status === 404) return []
+  if (!res.ok) throw new Error(await parseErrorBody(res))
+  const json = await res.json().catch(() => null)
+  return Array.isArray(json) ? (json as KapitalbankUntrackedAccountDto[]) : []
 }
 
 export async function createBankAccount(payload: {
@@ -2435,8 +2484,8 @@ export async function patchWallet(
   return (await res.json()) as WalletDto
 }
 
-export async function getBankRevenues(): Promise<BankRevenue[]> {
-  const res = await apiFetch('/api/bank/revenues/')
+export async function getBankRevenues(walletId?: number): Promise<BankRevenue[]> {
+  const res = await apiFetch(walletId !== undefined ? `/api/bank/revenues/?wallet=${walletId}` : '/api/bank/revenues/')
   if (!res.ok) throw new Error(await parseErrorBody(res))
   const json = await res.json().catch(() => null)
   return normalizeListPayload<BankRevenue>(json)

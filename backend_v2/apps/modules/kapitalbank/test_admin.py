@@ -270,6 +270,9 @@ class KapitalbankAdminTests(KapitalbankFixtures, TestCase):
         self.assertEqual(resp.status_code, 200)
         self.assertContains(resp, "16401000504843803001")
         self.assertContains(resp, 'name="ignore_reason"')
+        self.assertContains(resp, "Отметить выбранные счета служебными")
+        self.assertContains(resp, 'value="Отметить служебными"')
+        self.assertNotContains(resp, "Не отслеживать")
         link.refresh_from_db()
         self.assertEqual(link.decision, BankAccountLink.PENDING)
 

@@ -5,7 +5,7 @@ import type { ColumnsType } from 'antd/es/table'
 import type { Dayjs } from 'dayjs'
 import { useNavigate } from 'react-router-dom'
 import { FileSearchOutlined, MessageOutlined } from '@ant-design/icons'
-import { apiFetch, getBankAccounts, type BankRevenue } from '../lib/api'
+import { apiFetch, getBankAccounts, getBankAccountsOverview, type BankAccountType, type BankRevenue } from '../lib/api'
 import { useFinanceInfiniteScrollFooter } from '../lib/useFinanceInfiniteScrollFooter'
 import { useInfiniteList } from '../lib/useInfiniteList'
 import { ListInfiniteScrollFooter } from './ListInfiniteScrollFooter'
@@ -71,14 +71,17 @@ const SECTION_TITLES: Record<BankSectionMode, string> = {
   revenues: 'Банк — доходы',
 }
 
-export function BankSectionPage({ mode }: { mode: BankSectionMode }) {
+export function BankSectionPage({ mode, walletId }: { mode: BankSectionMode; walletId?: number }) {
   const navigate = useNavigate()
   const needExpenses = mode !== 'revenues'
   const needRevenues = mode !== 'expenses'
+  /** On an account page the wallet filter is fixed to that account and cannot be changed. */
+  const lockedWalletFilter = walletId !== undefined ? String(walletId) : undefined
+  const [lockedAccountType, setLockedAccountType] = useState<BankAccountType | null>(null)
   const [missingRequestOnly, setMissingRequestOnly] = useState(false)
   const [search, setSearch] = useState('')
   const [counterpartyFilter, setCounterpartyFilter] = useState<string | undefined>(undefined)
-  const [walletFilter, setWalletFilter] = useState<string | undefined>(undefined)
+  const [walletFilter, setWalletFilter] = useState<string | undefined>(lockedWalletFilter)
   const [bankAccountLabelByWalletId, setBankAccountLabelByWalletId] = useState<Record<number, string>>({})
   const [amountMin, setAmountMin] = useState<number | null>(null)
   const [amountMax, setAmountMax] = useState<number | null>(null)
@@ -91,6 +94,12 @@ export function BankSectionPage({ mode }: { mode: BankSectionMode }) {
   const [openFullRequestModal, setOpenFullRequestModal] = useState(false)
   const [openNoteModal, setOpenNoteModal] = useState(false)
 
+  // Movements on informational and service accounts never need a request, so the filter is meaningless there.
+  const showMissingRequestSwitch =
+    needExpenses && lockedAccountType !== 'informational' && lockedAccountType !== 'service'
+  // A toggle made before the account type loaded must not stay applied once the switch is hidden.
+  const applyMissingRequest = missingRequestOnly && showMissingRequestSwitch
+
   const expenseListUrl = useMemo(() => {
     const params = new URLSearchParams()
     if (search.trim()) params.set('search', search.trim())
@@ -102,10 +111,10 @@ export function BankSectionPage({ mode }: { mode: BankSectionMode }) {
     if (docTo) params.set('doc_to', docTo)
     if (amountMin !== null) params.set('amount_min', String(amountMin))
     if (amountMax !== null) params.set('amount_max', String(amountMax))
-    if (missingRequestOnly) params.set('missing_request', '1')
+    if (applyMissingRequest) params.set('missing_request', '1')
     const q = params.toString()
     return q ? `/api/bank/expenses/?${q}` : '/api/bank/expenses/'
-  }, [search, counterpartyFilter, walletFilter, docDateRange, amountMin, amountMax, missingRequestOnly])
+  }, [search, counterpartyFilter, walletFilter, docDateRange, amountMin, amountMax, applyMissingRequest])
 
   const revenueListUrl = useMemo(() => {
     const params = new URLSearchParams()
@@ -167,6 +176,24 @@ export function BankSectionPage({ mode }: { mode: BankSectionMode }) {
       cancelled = true
     }
   }, [])
+
+  useEffect(() => {
+    if (walletId === undefined) return
+    let cancelled = false
+    getBankAccountsOverview()
+      .then((accounts) => {
+        if (cancelled) return
+        const account = accounts.find((a) => a.wallet_id === walletId)
+        setLockedAccountType(account ? account.account_type : null)
+      })
+      .catch((e) => {
+        // Without the account type the «без заявки» switch stays visible, as on the common list.
+        console.warn('Bank accounts overview request failed', e)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [walletId])
 
   const listLoading = (needExpenses && expensesLoading) || (needRevenues && revenuesLoading)
   const listError = expensesError || revenuesError
@@ -468,16 +495,21 @@ export function BankSectionPage({ mode }: { mode: BankSectionMode }) {
 
   return (
     <Card>
-      <Space style={{ marginBottom: 12 }}>
-        <Button type="text" icon={<ArrowLeftOutlined />} onClick={() => navigate('/bank')}>
-          Банк
-        </Button>
-      </Space>
-      <Typography.Title level={4} style={{ marginTop: 0 }}>
-        {SECTION_TITLES[mode]}
-      </Typography.Title>
-      <KapitalbankPendingAccountsWidget style={{ marginBottom: 12 }} />
-      <ChannelBalancesSummary channel="bank" />
+      {/* On an account page (walletId) BankAccountPage shows its own header: back link, account, tabs. */}
+      {walletId === undefined ? (
+        <>
+          <Space style={{ marginBottom: 12 }}>
+            <Button type="text" icon={<ArrowLeftOutlined />} onClick={() => navigate('/bank')}>
+              Банк
+            </Button>
+          </Space>
+          <Typography.Title level={4} style={{ marginTop: 0 }}>
+            {SECTION_TITLES[mode]}
+          </Typography.Title>
+          <KapitalbankPendingAccountsWidget style={{ marginBottom: 12 }} />
+          <ChannelBalancesSummary channel="bank" />
+        </>
+      ) : null}
       <div style={{ marginTop: 12, marginBottom: 12 }}>
         <Typography.Text type="secondary" style={labelBlockAboveField}>
           Расходы и доходы
@@ -506,18 +538,20 @@ export function BankSectionPage({ mode }: { mode: BankSectionMode }) {
                     onChange={setCounterpartyFilter}
                     options={optionize(allRows.map((r) => r.account_name || ''))}
                   />
-                  <Select
-                    placeholder="Наш счёт"
-                    allowClear
-                    style={{ width: 260 }}
-                    value={walletFilter}
-                    onChange={setWalletFilter}
-                    options={walletOptions}
-                  />
+                  {lockedWalletFilter === undefined ? (
+                    <Select
+                      placeholder="Наш счёт"
+                      allowClear
+                      style={{ width: 260 }}
+                      value={walletFilter}
+                      onChange={setWalletFilter}
+                      options={walletOptions}
+                    />
+                  ) : null}
                   <DatePicker.RangePicker value={docDateRange} onChange={setDocDateRange} placeholder={['Дата док. от', 'Дата док. до']} />
                   <InputNumber placeholder="Мин. сумма" min={0} value={amountMin} onChange={setAmountMin} />
                   <InputNumber placeholder="Макс. сумма" min={0} value={amountMax} onChange={setAmountMax} />
-                  {needExpenses ? (
+                  {showMissingRequestSwitch ? (
                     <Space align="center">
                       <Typography.Text style={{ marginBottom: 0 }}>Без заявки (обязательна)</Typography.Text>
                       <Switch checked={missingRequestOnly} onChange={setMissingRequestOnly} />
@@ -526,7 +560,7 @@ export function BankSectionPage({ mode }: { mode: BankSectionMode }) {
                   <Button
                     onClick={() => {
                       setCounterpartyFilter(undefined)
-                      setWalletFilter(undefined)
+                      setWalletFilter(lockedWalletFilter)
                       setAmountMin(null)
                       setAmountMax(null)
                       setDocDateRange(null)

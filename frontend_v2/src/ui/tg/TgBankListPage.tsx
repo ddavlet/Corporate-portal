@@ -2,7 +2,13 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Alert, Button, Input, Skeleton, Tag, Typography } from 'antd'
 import { useNavigate } from 'react-router-dom'
 import { ArrowLeftOutlined, SearchOutlined } from '@ant-design/icons'
-import { apiFetch, getBankRevenues, type BankRevenue } from '../../lib/api'
+import {
+  apiFetch,
+  getBankAccountsOverview,
+  getBankRevenues,
+  type BankAccountOverviewDto,
+  type BankRevenue,
+} from '../../lib/api'
 import { AdminEditRecordButton } from '../admin/AdminEditRecordButton'
 import { tgHaptic } from './tgHaptic'
 
@@ -54,19 +60,98 @@ function formatAmount(value: string | number | undefined): string {
   return Number.isFinite(num) ? num.toLocaleString('ru-RU') : '0'
 }
 
+/** Amount with the account currency appended for non-UZS accounts (UZS rows stay as before). */
+function formatMoney(value: string | number | undefined, currency: string | null): string {
+  const amount = formatAmount(value)
+  return currency && currency !== 'UZS' ? `${amount} ${currency}` : amount
+}
+
 const TITLES: Record<TgBankListMode, string> = {
   all: 'Банк — все операции',
   expenses: 'Банк — расходы',
   revenues: 'Банк — доходы',
 }
 
-export function TgBankListPage({ mode }: { mode: TgBankListMode }) {
+const ACCOUNT_MODES: { key: TgBankListMode; label: string }[] = [
+  { key: 'all', label: 'Все' },
+  { key: 'expenses', label: 'Расходы' },
+  { key: 'revenues', label: 'Доходы' },
+]
+
+/** Header of one account's movements: name, number, currency and the «Все» / «Расходы» / «Доходы» switch. */
+function TgBankAccountHeader({
+  walletId,
+  mode,
+  account,
+}: {
+  walletId: number
+  mode: TgBankListMode
+  account: BankAccountOverviewDto | null
+}) {
+  const navigate = useNavigate()
+  const title = account?.label?.trim() || account?.account_no || `Счёт #${walletId}`
+  const details = [account?.account_no && account.account_no !== title ? account.account_no : '', account?.currency ?? '']
+    .filter(Boolean)
+    .join(' · ')
+
+  return (
+    <div style={{ marginBottom: 16 }}>
+      <Typography.Title level={4} style={{ margin: details ? '0 0 4px' : 0, fontWeight: 700 }}>
+        {title}
+      </Typography.Title>
+      {details ? (
+        <Typography.Text type="secondary" data-testid="tg-bank-account-details">
+          {details}
+        </Typography.Text>
+      ) : null}
+      <div style={{ display: 'flex', gap: 8, marginTop: 12 }} role="group" aria-label="Раздел счёта">
+        {ACCOUNT_MODES.map((item) => (
+          <Button
+            key={item.key}
+            type={item.key === mode ? 'primary' : 'default'}
+            aria-pressed={item.key === mode}
+            style={{ flex: 1, borderRadius: 12 }}
+            onClick={() => {
+              if (item.key === mode) return
+              tgHaptic.tap()
+              navigate(`/tg/bank/accounts/${walletId}/${item.key}`, { replace: true })
+            }}
+          >
+            {item.label}
+          </Button>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+export function TgBankListPage({ mode, walletId }: { mode: TgBankListMode; walletId?: number }) {
   const navigate = useNavigate()
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [expenses, setExpenses] = useState<BankExpenseRow[]>([])
   const [revenues, setRevenues] = useState<BankRevenue[]>([])
   const [search, setSearch] = useState('')
+  const [account, setAccount] = useState<BankAccountOverviewDto | null>(null)
+
+  useEffect(() => {
+    if (walletId === undefined) return
+    let cancelled = false
+    setAccount(null)
+    getBankAccountsOverview()
+      .then((accounts) => {
+        if (!cancelled) setAccount(accounts.find((a) => a.wallet_id === walletId) ?? null)
+      })
+      .catch((e: unknown) => {
+        // The header falls back to the wallet number; the movements below still load.
+        console.warn('Bank accounts overview request failed', e)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [walletId])
+
+  const currency = walletId !== undefined ? (account?.currency ?? null) : null
 
   const needExpenses = mode !== 'revenues'
   const needRevenues = mode !== 'expenses'
@@ -76,8 +161,8 @@ export function TgBankListPage({ mode }: { mode: TgBankListMode }) {
     setLoading(true)
     try {
       const [expensesRes, revenueRows] = await Promise.all([
-        needExpenses ? apiFetch('/api/bank/expenses/') : Promise.resolve(null),
-        needRevenues ? getBankRevenues() : Promise.resolve([] as BankRevenue[]),
+        needExpenses ? apiFetch(walletId !== undefined ? `/api/bank/expenses/?wallet=${walletId}` : '/api/bank/expenses/') : Promise.resolve(null),
+        needRevenues ? getBankRevenues(walletId) : Promise.resolve([] as BankRevenue[]),
       ])
       if (expensesRes) {
         const expensesJson = await expensesRes.json().catch(() => null)
@@ -98,7 +183,7 @@ export function TgBankListPage({ mode }: { mode: TgBankListMode }) {
     } finally {
       setLoading(false)
     }
-  }, [needExpenses, needRevenues])
+  }, [needExpenses, needRevenues, walletId])
 
   useEffect(() => {
     void loadRows()
@@ -142,9 +227,13 @@ export function TgBankListPage({ mode }: { mode: TgBankListMode }) {
         Назад
       </Button>
 
-      <Typography.Title level={4} style={{ margin: '0 0 16px', fontWeight: 700 }}>
-        {TITLES[mode]}
-      </Typography.Title>
+      {walletId !== undefined ? (
+        <TgBankAccountHeader walletId={walletId} mode={mode} account={account} />
+      ) : (
+        <Typography.Title level={4} style={{ margin: '0 0 16px', fontWeight: 700 }}>
+          {TITLES[mode]}
+        </Typography.Title>
+      )}
 
       <div className="tg-list-search">
         <Input
@@ -182,7 +271,7 @@ export function TgBankListPage({ mode }: { mode: TgBankListMode }) {
                   {row.vendor_name?.trim() || row.payment_purpose || `Платёж #${row.id}`}
                 </div>
                 <div className="tg-request-row-meta">
-                  <span className="tg-request-row-amount">{formatAmount(row.debit_turnover)}</span>
+                  <span className="tg-request-row-amount">{formatMoney(row.debit_turnover, currency)}</span>
                   <span>Док. №{row.doc_no || '—'}</span>
                   <span>{formatDate(row.doc_date)}</span>
                   {row.matched_request_id ? <Tag color="blue">Заявка #{row.matched_request_id}</Tag> : null}
@@ -208,7 +297,7 @@ export function TgBankListPage({ mode }: { mode: TgBankListMode }) {
                   {row.account_name?.trim() || row.payment_purpose || `Поступление #${row.id}`}
                 </div>
                 <div className="tg-request-row-meta">
-                  <span className="tg-request-row-amount">{formatAmount(row.kredit_turnover)}</span>
+                  <span className="tg-request-row-amount">{formatMoney(row.kredit_turnover, currency)}</span>
                   <span>Док. №{row.doc_no || '—'}</span>
                   <span>{formatDate(row.doc_date)}</span>
                   {row.inn ? <span>ИНН {row.inn}</span> : null}

@@ -7,6 +7,7 @@ import { CashPage } from '../ui/CashPage'
 import { CashSectionPage } from '../ui/CashSectionPage'
 import { BankPage } from '../ui/BankPage'
 import { BankSectionPage } from '../ui/BankSectionPage'
+import { BankAccountPage } from '../ui/BankAccountPage'
 import { CorporateCardPage } from '../ui/CorporateCardPage'
 import { CorporateCardSectionPage } from '../ui/CorporateCardSectionPage'
 import { PayrollPage } from '../ui/PayrollPage'
@@ -68,6 +69,7 @@ import { TgCashListPage } from '../ui/tg/TgCashListPage'
 import { TgCashExpenseDetailPage } from '../ui/tg/TgCashExpenseDetailPage'
 import { TgBankPage } from '../ui/tg/TgBankPage'
 import { TgBankListPage } from '../ui/tg/TgBankListPage'
+import { TgBankAccountMovementsPage } from '../ui/tg/TgBankAccountMovementsPage'
 import { TgBankExpenseDetailPage } from '../ui/tg/TgBankExpenseDetailPage'
 import { TgTasksPage } from '../ui/tg/TgTasksPage'
 import { useAuth } from '../ui/auth'
@@ -124,6 +126,7 @@ export function App() {
         <Route path="bank/expenses" element={<TgBankListPage mode="expenses" />} />
         <Route path="bank/revenues" element={<TgBankListPage mode="revenues" />} />
         <Route path="bank/expenses/:id" element={<TgBankExpenseDetailPage />} />
+        <Route path="bank/accounts/:walletId/:mode" element={<TgBankAccountMovementsPage />} />
         <Route path="tasks" element={<TgTasksPage />} />
         <Route path="payment" element={<TgPaymentConfirmPage />} />
         <Route path="comment" element={<TgCommentPage />} />
@@ -158,6 +161,7 @@ export function App() {
         <Route path="bank/expenses" element={<BankSectionPage mode="expenses" />} />
         <Route path="bank/revenues" element={<BankSectionPage mode="revenues" />} />
         <Route path="bank/expenses/:id" element={<BankExpenseDetailPage />} />
+        <Route path="bank/accounts/:walletId" element={<BankAccountPage />} />
         <Route path="bank/:id" element={<BankExpenseLegacyRedirect />} />
         <Route path="corporate-card" element={<CorporateCardPage />} />
         <Route path="corporate-card/all" element={<CorporateCardSectionPage mode="all" />} />

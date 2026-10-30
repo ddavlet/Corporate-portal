@@ -12,6 +12,7 @@ import {
   Space,
   Switch,
   Table,
+  Tag,
   Typography,
 } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
@@ -30,6 +31,7 @@ import {
   patchCorporateCardAccount,
   patchWallet,
   type BankAccountDto,
+  type BankAccountType,
   type CashRegisterDto,
   type CorporateCardAccountDto,
   apiFetch,
@@ -40,6 +42,18 @@ function previewCashExpenseCanonicalId(prefix: string, digitWidth: number, sampl
   const w = Number.isFinite(digitWidth) ? Math.min(32, Math.max(1, Math.floor(digitWidth))) : 9
   const core = String(Math.trunc(sampleNumeric)).padStart(w, '0')
   return `${prefix}${core}`
+}
+
+const BANK_ACCOUNT_TYPE_TAGS: Record<BankAccountType, { label: string; color?: string }> = {
+  controlled: { label: 'Контролируемый', color: 'blue' },
+  informational: { label: 'Информационный' },
+  service: { label: 'Служебный' },
+}
+
+function renderBankAccountType(type: BankAccountType | undefined) {
+  if (!type) return '—'
+  const tag = BANK_ACCOUNT_TYPE_TAGS[type]
+  return tag ? <Tag color={tag.color}>{tag.label}</Tag> : type
 }
 
 function CashExpenseExternalIdFormatSection() {
@@ -477,7 +491,18 @@ function BankTab() {
     { title: 'ID кошелька', dataIndex: 'wallet_id', width: 110 },
     { title: 'Счёт (справочно)', dataIndex: 'account_no' },
     { title: 'МФО', dataIndex: 'mfo', width: 100 },
-    { title: 'Валюта кошелька', key: 'cur', width: 120, render: () => 'UZS' },
+    {
+      title: 'Тип',
+      dataIndex: 'account_type',
+      width: 150,
+      render: (value: BankAccountType | undefined) => renderBankAccountType(value),
+    },
+    {
+      title: 'Валюта кошелька',
+      dataIndex: 'wallet_currency',
+      width: 120,
+      render: (value: string | undefined) => value || '—',
+    },
     {
       title: '',
       key: 'actions',
