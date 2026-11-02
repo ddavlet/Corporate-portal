@@ -38,6 +38,7 @@ def _tg_ok(message_id: int = 101):
 
 def _tg_delete_ok():
     mock_resp = MagicMock()
+    mock_resp.status_code = 200
     mock_resp.json.return_value = {"ok": True, "result": True}
     m = AsyncMock()
     m.__aenter__ = AsyncMock(return_value=m)
@@ -48,6 +49,7 @@ def _tg_delete_ok():
 
 def _tg_err(description: str = "chat not found"):
     mock_resp = MagicMock()
+    mock_resp.status_code = 400
     mock_resp.json.return_value = {"ok": False, "description": description}
     m = AsyncMock()
     m.__aenter__ = AsyncMock(return_value=m)
