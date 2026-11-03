@@ -43,6 +43,7 @@ class KindForAccountTests(TestCase):
             ("16401000000000000001", "", classification.KIND_SERVICE),
             ("23510000000000000001", "", classification.KIND_SERVICE),
             ("22613000000000000001", "", classification.KIND_SERVICE),
+            ("23102000000000000001", "", classification.KIND_SERVICE),
             ("23106000000000000001", "", classification.KIND_SERVICE),
             ("22614840000000000001", "USD", classification.KIND_INFORMATIONAL),
             ("20208840000000000001", "USD", classification.KIND_INFORMATIONAL),

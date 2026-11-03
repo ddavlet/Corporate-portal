@@ -36,12 +36,13 @@ BANK_ACCOUNT_TYPES = (KIND_CONTROLLED, KIND_INFORMATIONAL, KIND_SERVICE)
 
 # Balance-account prefixes of the unified chart of accounts of Uzbekistan's banks (the first digits
 # of a 20-digit account number are its balance account). Checked in this order, first match wins:
-# 22620 — corporate card accounts; 16… (bank fees), 22613, 23106, 23510 (transit / settlement
-# accounts of the bank) — service; 22614 — informational.
+# 22620 — corporate card accounts; 16… (bank fees), 22613, 23102 (card top-up transit), 23106,
+# 23510 (transit / settlement accounts of the bank) — service; 22614 — informational.
 PREFIX_KINDS: tuple[tuple[str, str], ...] = (
     ("22620", KIND_CARD),
     ("16", KIND_SERVICE),
     ("22613", KIND_SERVICE),
+    ("23102", KIND_SERVICE),
     ("23106", KIND_SERVICE),
     ("23510", KIND_SERVICE),
     ("22614", KIND_INFORMATIONAL),

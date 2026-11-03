@@ -499,6 +499,28 @@ class RunnerTests(KapitalbankFixtures, TestCase):
         self.assertEqual(self.gw.call_count, 1)
         self.assertIn(IGNORED_ACCOUNT, self.texts()[0])
 
+    def test_transfer_to_bank_service_account_does_not_alert(self):
+        # Fees (16…), conversion block (22613), card top-up (23102) and salary (23106) transits:
+        # the owner's own accounts, ignored or undecided, but routine — no alert.
+        targets = [
+            ("16413000905698846002", BankAccountLink.IGNORED),
+            ("22613000205698846001", BankAccountLink.IGNORED),
+            ("23102000305425326001", BankAccountLink.IGNORED),
+            ("23106000704843803001", BankAccountLink.PENDING),
+        ]
+        docs = []
+        for n, (account_no, decision) in enumerate(targets, start=1):
+            BankAccountLink.objects.create(tenant=self.tenant, account_no=account_no, branch=MFO, decision=decision)
+            docs.append(make_doc(n, day=TODAY, incoming=False, counterparty=account_no, amount="100.00"))
+        self.fake.statements[(ACCOUNT_1, TODAY)] = [statement(*docs, saldo_out="-400.00")]
+
+        report = self.run_import("daytime")
+
+        self.assertEqual(report.alerts, 0)
+        self.gw.assert_not_called()
+        self.assertFalse(SyncEvent.objects.filter(kind=SyncEvent.ALERT_OWN_TRANSFER).exists())
+        self.assertEqual(BankExpense.objects.filter(wallet=self.wallet1).count(), 4)
+
     def test_own_transfer_already_loaded_by_n8n_does_not_alert(self):
         # n8n's expense rows have no external_id; the document is already in the portal.
         doc = make_doc(1, day=TODAY, incoming=False, counterparty=PENDING_ACCOUNT, amount="300.00")
