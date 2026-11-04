@@ -6,7 +6,6 @@ from django.db import transaction
 from django.utils import timezone
 
 from apps.modules.requests.integration_settings import get_requests_messaging_gateway_settings
-from apps.modules.telegram_approvals.command_handlers import resolve_tenant_by_bot_id
 from apps.modules.telegram_approvals.models import TelegramMessageHistory
 from apps.modules.telegram_approvals.services import TelegramDispatcher
 
@@ -79,19 +78,13 @@ def handle_confirmation_callback(*, payload: str, event_data: dict) -> tuple[int
         return _ignored(202)
     pending_id, choice = parsed
 
-    tenant = resolve_tenant_by_bot_id(event_data.get("bot_id"))
-    if tenant is None:
-        logger.warning("ai_assistant: confirmation callback with unknown bot_id=%s", event_data.get("bot_id"))
-        return _ignored()
-
     chat_id = str(event_data.get("recipient_id") or "").strip()
     presser = _int_or_none(event_data.get("user_id"))
     message_id = _int_or_none(event_data.get("message_id"))
     pending = (
-        PendingConfirmation.objects.select_related("confirmation_message")
+        PendingConfirmation.objects.select_related("tenant", "confirmation_message")
         .filter(
             pk=pending_id,
-            tenant=tenant,
             chat_id=chat_id,
             confirmation_message__message_id=message_id,
         )
@@ -102,6 +95,7 @@ def handle_confirmation_callback(*, payload: str, event_data: dict) -> tuple[int
     if pending is None:
         logger.info("ai_assistant: confirmation %s not found for this chat/message", pending_id)
         return _ignored()
+    tenant = pending.tenant
     if presser is None or presser != pending.requester_tg_id:
         logger.info("ai_assistant: confirmation %s pressed by non-requester %s", pending_id, presser)
         return _ignored()

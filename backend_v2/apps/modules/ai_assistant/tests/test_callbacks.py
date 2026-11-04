@@ -29,14 +29,13 @@ class ConfirmationCallbackTests(TestCase):
         )
         self.pending = self._pending()
         patches = [
-            mock.patch.object(callbacks, "resolve_tenant_by_bot_id", return_value=self.tenant),
             mock.patch.object(callbacks, "submit_resume"),
             mock.patch.object(callbacks, "TelegramDispatcher"),
         ]
         mocks = [p.start() for p in patches]
         for p in patches:
             self.addCleanup(p.stop)
-        self.resolve, self.submit, self.dispatcher_cls = mocks
+        self.submit, self.dispatcher_cls = mocks
         self.deactivate = self.dispatcher_cls.return_value.deactivate
 
     def _pending(self, **over):
@@ -51,7 +50,7 @@ class ConfirmationCallbackTests(TestCase):
     def _event(self, **over):
         event = {
             "event": "interaction", "payload": f"aiq:{self.pending.pk}:y", "user_id": str(TG_ID),
-            "recipient_id": CHAT, "message_id": 300, "platform": "telegram", "bot_id": "555",
+            "recipient_id": CHAT, "message_id": 300, "platform": "telegram",
         }
         event.update(over)
         return event
@@ -113,12 +112,13 @@ class ConfirmationCallbackTests(TestCase):
         self.pending.refresh_from_db()
         self.assertEqual(self.pending.status, PendingConfirmation.STATUS_PENDING)
 
-    def test_other_tenant_ignored(self):
-        other = Tenant.objects.create(name="Other", subdomain="other", is_active=True)
-        self.resolve.return_value = other
-        code, body = self._press("y")
+    def test_pending_in_other_chat_ignored(self):
+        code, body = self._press("y", recipient_id="-100999")
         self.assertEqual((code, body), (200, {"detail": "ignored"}))
         self.submit.assert_not_called()
+        self.deactivate.assert_not_called()
+        self.pending.refresh_from_db()
+        self.assertEqual(self.pending.status, PendingConfirmation.STATUS_PENDING)
 
     def test_bad_payload_is_202(self):
         code, _ = callbacks.handle_confirmation_callback(payload="aiq:abc:y", event_data=self._event())
