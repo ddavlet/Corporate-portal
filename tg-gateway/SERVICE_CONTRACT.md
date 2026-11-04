@@ -1,6 +1,6 @@
 # Service Contract — Messaging Gateway
 
-Version: 2.2
+Version: 2.3
 Base URL:
 - Internal (backend -> gateway): `http://tg-gateway:8080`
 - Public (Telegram -> gateway webhook only): `https://<TG_GATEWAY_PUBLIC_HOST>`
@@ -64,6 +64,7 @@ Send, edit, or delete a message on any platform.
 | `text`         | string          | no | Message body (`null/empty` is passed through to platform API) |
 | `format`       | `html` / `markdown` / `plain` | no | Default: `html` |
 | `message_id`   | integer         | yes (edit/delete) | ID of the message to edit or delete |
+| `reply_to_message_id` | integer  | no       | Send actions only: send as a reply to this message (`reply_parameters`, `allow_sending_without_reply: true`) |
 | `buttons`      | array of rows   | no       | `[[{label, value}, ...], ...]` |
 | `request_id`   | integer         | no       | Passed through; echoed in logs |
 | `approval_id`  | string/integer  | no       | Passed through; echoed in logs |
@@ -77,6 +78,7 @@ Send, edit, or delete a message on any platform.
 | `edit`             | `editMessageText`  | If `buttons` present, they are updated |
 | `edit_interactive` | `editMessageText`  | Same behavior as `edit`, semantic alias |
 | `delete`           | `deleteMessage`    | Deletes message by id |
+| `typing`           | `sendChatAction`   | Shows "typing" in the chat; response `message_id` is `null` |
 
 For `edit`/`edit_interactive`, passing `buttons: []` clears buttons.
 

@@ -20,6 +20,7 @@ Actions:
   edit             → editMessageText (also clears buttons when buttons=[])
   edit_interactive → editMessageText (with dynamic button update)
   delete           → deleteMessage
+  typing           → sendChatAction (typing indicator)
 """
 from __future__ import annotations
 
@@ -36,6 +37,7 @@ from fastapi.responses import JSONResponse
 import db
 from log_redaction import install_log_redaction
 from models import (
+    CHAT_ACTIONS,
     DELETE_ACTIONS,
     EDIT_ACTIONS,
     SEND_ACTIONS,
@@ -231,6 +233,11 @@ async def dispatch(payload: DispatchRequest) -> JSONResponse:
                 markup = _markup(payload.tg_keyboard())
                 if markup:
                     body["reply_markup"] = markup
+            if payload.reply_to_message_id:
+                body["reply_parameters"] = {
+                    "message_id": payload.reply_to_message_id,
+                    "allow_sending_without_reply": True,
+                }
             tg_data = await _tg_post(payload.bot_token, "sendMessage", body)
 
         elif action in EDIT_ACTIONS:
@@ -258,10 +265,19 @@ async def dispatch(payload: DispatchRequest) -> JSONResponse:
                 "message_id": payload.message_id,
             })
 
+        elif action in CHAT_ACTIONS:
+            tg_data = await _tg_post(payload.bot_token, "sendChatAction", {
+                "chat_id": payload.tg_recipient(),
+                "action":  "typing",
+            })
+
         if tg_data.get("ok"):
             ok = True
             result = tg_data.get("result", {})
-            message_id = result.get("message_id") if isinstance(result, dict) else payload.message_id
+            if action in CHAT_ACTIONS:
+                message_id = None
+            else:
+                message_id = result.get("message_id") if isinstance(result, dict) else payload.message_id
         else:
             error_text = tg_data.get("description", "Unknown Telegram error")
             logger.error("Telegram %s failed: %s", action, error_text)

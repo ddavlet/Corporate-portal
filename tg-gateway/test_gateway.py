@@ -78,6 +78,33 @@ def test_health():
     assert "db" in data
 
 
+# ── reply_to_message_id and typing ───────────────────────────────────────────
+
+def test_send_with_reply_to_sets_reply_parameters():
+    with patch("main._tg_post", new=AsyncMock(return_value={"ok": True, "result": {"message_id": 5}})) as m:
+        resp = client.post(SEND, json={**BASE, "action": "send", "text": "hi", "reply_to_message_id": 77})
+    assert resp.status_code == 200
+    body = m.call_args.args[2]
+    assert body["reply_parameters"] == {"message_id": 77, "allow_sending_without_reply": True}
+
+
+def test_send_without_reply_to_has_no_reply_parameters():
+    with patch("main._tg_post", new=AsyncMock(return_value={"ok": True, "result": {"message_id": 5}})) as m:
+        resp = client.post(SEND, json={**BASE, "action": "send", "text": "hi"})
+    assert resp.status_code == 200
+    assert "reply_parameters" not in m.call_args.args[2]
+
+
+def test_typing_action_calls_send_chat_action():
+    with patch("main._tg_post", new=AsyncMock(return_value={"ok": True, "result": True})) as m:
+        resp = client.post(SEND, json={**BASE, "action": "typing"})
+    assert resp.status_code == 200
+    assert resp.json()["ok"] is True
+    assert resp.json()["message_id"] is None
+    assert m.call_args.args[1] == "sendChatAction"
+    assert m.call_args.args[2] == {"chat_id": int(RECIPIENT), "action": "typing"}
+
+
 # ── Contract: response shape ──────────────────────────────────────────────────
 
 def test_response_contains_tenant_recipient_message_id():
