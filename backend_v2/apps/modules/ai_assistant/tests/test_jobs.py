@@ -61,6 +61,11 @@ class JobsTests(TestCase):
             kind=ChainNode.KIND_USER, text="сколько в кассе?", author_user=self.user,
             author_tg_id=TG_ID, author_label="Boss", author_roles="director",
         )
+        # Внутри TestCase close_old_connections закрыл бы тестовое соединение с БД.
+        self.close_conn = mock.Mock()
+        p = mock.patch.object(jobs, "close_old_connections", self.close_conn)
+        p.start()
+        self.addCleanup(p.stop)
         self.run_agent = mock.AsyncMock()
         self.send_answer = mock.Mock(return_value=[SimpleNamespace(message_id=200)])
         self.send_confirmation = mock.Mock()
@@ -88,6 +93,7 @@ class JobsTests(TestCase):
         self.run_agent.return_value = outcome
         jobs.run_turn(self.node.id)
         self.send_typing.assert_called_once()
+        self.assertEqual(self.close_conn.call_count, 3)
         self.send_answer.assert_called_once_with(self.tenant, CHAT, 100, "В кассе 100")
         bot = ChainNode.objects.get(tenant=self.tenant, message_id=200)
         self.assertEqual(bot.kind, ChainNode.KIND_BOT_AGENT)
