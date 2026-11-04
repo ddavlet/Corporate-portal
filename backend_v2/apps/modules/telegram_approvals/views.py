@@ -241,6 +241,12 @@ class TelegramApprovalWebhookView(APIView):
         return Response({"detail": "ok", "command": result.get("command")}, status=status.HTTP_200_OK)
 
     def post(self, request):
+        if request.data.get("event") == "message":
+            from apps.modules.ai_assistant.events import handle_message_event
+
+            body, status_code = handle_message_event(request.data)
+            return Response(body, status=status_code)
+
         serializer = MessagingGatewayCallbackSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         event_data = serializer.validated_data
@@ -265,6 +271,12 @@ class TelegramApprovalWebhookView(APIView):
             from apps.modules.cash_withdrawals.telegram import handle_callback as handle_cash_withdrawal_callback
 
             status_code, body = handle_cash_withdrawal_callback(payload=payload_str, event_data=event_data)
+            return Response(body, status=status_code)
+
+        if payload_str.startswith("aiq:"):
+            from apps.modules.ai_assistant.callbacks import handle_confirmation_callback
+
+            status_code, body = handle_confirmation_callback(payload=payload_str, event_data=event_data)
             return Response(body, status=status_code)
 
         if payload_str.startswith("task_"):

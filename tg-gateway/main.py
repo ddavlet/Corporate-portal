@@ -20,6 +20,7 @@ Actions:
   edit             → editMessageText (also clears buttons when buttons=[])
   edit_interactive → editMessageText (with dynamic button update)
   delete           → deleteMessage
+  typing           → sendChatAction (typing indicator)
 """
 from __future__ import annotations
 
@@ -36,6 +37,7 @@ from fastapi.responses import JSONResponse
 import db
 from log_redaction import install_log_redaction
 from models import (
+    CHAT_ACTIONS,
     DELETE_ACTIONS,
     EDIT_ACTIONS,
     SEND_ACTIONS,
@@ -231,6 +233,11 @@ async def dispatch(payload: DispatchRequest) -> JSONResponse:
                 markup = _markup(payload.tg_keyboard())
                 if markup:
                     body["reply_markup"] = markup
+            if payload.reply_to_message_id:
+                body["reply_parameters"] = {
+                    "message_id": payload.reply_to_message_id,
+                    "allow_sending_without_reply": True,
+                }
             tg_data = await _tg_post(payload.bot_token, "sendMessage", body)
 
         elif action in EDIT_ACTIONS:
@@ -258,10 +265,19 @@ async def dispatch(payload: DispatchRequest) -> JSONResponse:
                 "message_id": payload.message_id,
             })
 
+        elif action in CHAT_ACTIONS:
+            tg_data = await _tg_post(payload.bot_token, "sendChatAction", {
+                "chat_id": payload.tg_recipient(),
+                "action":  "typing",
+            })
+
         if tg_data.get("ok"):
             ok = True
             result = tg_data.get("result", {})
-            message_id = result.get("message_id") if isinstance(result, dict) else payload.message_id
+            if action in CHAT_ACTIONS:
+                message_id = None
+            else:
+                message_id = result.get("message_id") if isinstance(result, dict) else payload.message_id
         else:
             error_text = tg_data.get("description", "Unknown Telegram error")
             logger.error("Telegram %s failed: %s", action, error_text)
@@ -341,6 +357,127 @@ def _extract_forwardable_command(update: dict) -> dict[str, Any] | None:
     }
 
 
+# Bot username cache (getMe) keyed by public bot id. Failures are not cached.
+_bot_username_cache: dict[str, str] = {}
+
+
+async def _bot_username(bot_token: str) -> str:
+    """Return the bot's @username (without @), cached per bot id. "" on failure."""
+    bot_id = _bot_id_from_token(bot_token)
+    cached = _bot_username_cache.get(bot_id)
+    if cached:
+        return cached
+    try:
+        data = await _tg_post(bot_token, "getMe", {})
+    except Exception as exc:
+        logger.warning("getMe failed bot_id=%s: %s", bot_id, exc)
+        return ""
+    result = data.get("result") if isinstance(data, dict) else None
+    username = (result.get("username") or "") if isinstance(result, dict) else ""
+    if not data.get("ok") or not username:
+        logger.warning("getMe returned no username bot_id=%s", bot_id)
+        return ""
+    _bot_username_cache[bot_id] = username
+    return username
+
+
+def _entity_text(text: str, entity: dict) -> str:
+    """Slice entity text; Telegram offsets/lengths are in UTF-16 code units."""
+    raw = text.encode("utf-16-le")
+    start = int(entity.get("offset", 0)) * 2
+    end = start + int(entity.get("length", 0)) * 2
+    return raw[start:end].decode("utf-16-le", errors="ignore")
+
+
+def _message_mentions_bot(msg: dict, bot_id: str, bot_username: str) -> bool:
+    """True if the message has a @mention of the bot or a text_mention of the bot user."""
+    for text_key, ent_key in (("text", "entities"), ("caption", "caption_entities")):
+        text = msg.get(text_key) or ""
+        for ent in msg.get(ent_key) or []:
+            if not isinstance(ent, dict):
+                continue
+            if ent.get("type") == "mention" and bot_username:
+                if _entity_text(text, ent).lower() == f"@{bot_username}".lower():
+                    return True
+            elif ent.get("type") == "text_mention":
+                if str((ent.get("user") or {}).get("id", "")) == str(bot_id):
+                    return True
+    return False
+
+
+def _has_mention_entity(update: dict) -> bool:
+    msg = update.get("message")
+    if not isinstance(msg, dict):
+        return False
+    return any(
+        isinstance(e, dict) and e.get("type") == "mention"
+        for key in ("entities", "caption_entities")
+        for e in (msg.get(key) or [])
+    )
+
+
+def _extract_forwardable_message(update: dict, bot_id: str, bot_username: str) -> dict | None:
+    """Build the event=message payload for messages addressed to the bot, else None.
+
+    Private chats: every non-command text/caption message. Groups: only @mentions of
+    the bot and replies. Everything else (and edited_message etc.) is dropped.
+    """
+    msg = update.get("message")
+    if not isinstance(msg, dict):
+        return None
+    text = (msg.get("text") or msg.get("caption") or "").strip()
+    if not text or text.startswith("/"):
+        return None
+    chat = msg.get("chat") or {}
+    sender = msg.get("from") or {}
+    chat_type = chat.get("type")
+    if chat.get("id") is None or sender.get("id") is None or chat_type not in ("private", "group", "supergroup"):
+        return None
+
+    mentions_bot = _message_mentions_bot(msg, bot_id, bot_username)
+    reply = msg.get("reply_to_message")
+    is_reply = isinstance(reply, dict)
+    if chat_type != "private" and not (mentions_bot or is_reply):
+        return None
+
+    reply = reply if is_reply else {}
+    reply_from = reply.get("from") or {}
+    sender_name = " ".join(
+        part for part in (sender.get("first_name"), sender.get("last_name")) if part
+    ).strip()
+    return {
+        "event": "message",
+        "payload": text,
+        "user_id": str(sender["id"]),
+        "recipient_id": str(chat["id"]),
+        "message_id": msg.get("message_id"),
+        "platform": "telegram",
+        "bot_id": bot_id,
+        "chat_type": chat_type,
+        "sender_name": sender_name,
+        "mentions_bot": mentions_bot,
+        "reply_to_message_id": reply.get("message_id") if is_reply else None,
+        "reply_to_text": (reply.get("text") or reply.get("caption") or "") if is_reply else "",
+        "reply_to_from_id": str(reply_from["id"]) if reply_from.get("id") is not None else "",
+        "reply_to_is_bot": is_reply and str(reply_from.get("id", "")) == str(bot_id),
+    }
+
+
+def _is_unaddressed_group_message(forward: dict) -> bool:
+    """Group reply forwarded only so the backend can keep it inside a known chain (not addressed to the bot)."""
+    return (
+        forward.get("event") == "message"
+        and forward.get("chat_type") in ("group", "supergroup")
+        and not forward.get("mentions_bot")
+        and not forward.get("reply_to_is_bot")
+    )
+
+
+def _without_message_text(forward: dict) -> dict:
+    """Copy of a message event without the message text and the quoted reply text."""
+    return {k: v for k, v in forward.items() if k not in ("payload", "reply_to_text")}
+
+
 async def _forward_backend_event(forward: dict) -> tuple[bool, int, str | None]:
     """POST a platform-neutral event to BACKEND_WEBHOOK_URL. Returns (ok, status, error)."""
     if not BACKEND_URL:
@@ -358,7 +495,8 @@ async def _forward_backend_event(forward: dict) -> tuple[bool, int, str | None]:
             "event forwarded: event=%s recipient=%s payload=%s",
             forward.get("event"),
             forward.get("recipient_id"),
-            forward.get("payload"),
+            # user message text must not be logged
+            "<hidden>" if forward.get("event") == "message" else forward.get("payload"),
         )
         return True, resp.status_code, None
     except Exception as exc:
@@ -399,6 +537,21 @@ async def messaging_webhook(
     cb = update.get("callback_query")
     if not cb:
         info = _extract_chat_info(update)
+        command_info = _extract_forwardable_command(update)
+
+        message_forward: dict | None = None
+        if not command_info:
+            bot_id = _bot_id_from_token(bot_token)
+            username = await _bot_username(bot_token) if _has_mention_entity(update) else ""
+            message_forward = _extract_forwardable_message(update, bot_id, username)
+
+        # Privacy: text of unrelated group chatter must never reach logs or storage.
+        hide_text = bool(
+            info
+            and not command_info
+            and not message_forward
+            and info.get("chat_type") in ("group", "supergroup")
+        )
         if info and info.get("chat_id") is not None:
             logger.info(
                 "discovery kind=%s chat_id=%s chat_type=%s chat_title=%r from_id=%s from_username=%s status=%s text=%r",
@@ -409,10 +562,10 @@ async def messaging_webhook(
                 info.get("from_id"),
                 info.get("from_username"),
                 info.get("new_member_status"),
-                info.get("text"),
+                # Message text is never logged: dropped group chatter and forwarded user messages alike.
+                None if (hide_text or message_forward) else info.get("text"),
             )
 
-        command_info = _extract_forwardable_command(update)
         if command_info:
             forward = {
                 "event": "command",
@@ -436,6 +589,43 @@ async def messaging_webhook(
                 "event_type": "command",
                 "update_id": update.get("update_id"),
                 "payload": {k: v for k, v in forward.items() if k != "bot_id"},
+            }))
+            return {"ok": True}
+
+        if message_forward:
+            # The backend webhook always gets the text (it stores it only inside a known chain).
+            ok, fwd_status, error_text = await _forward_backend_event(message_forward)
+            # Privacy: a group reply not addressed to the bot may be chatter outside any chain,
+            # so its text never reaches gateway_logs or the backend event log.
+            unaddressed = _is_unaddressed_group_message(message_forward)
+            logged_forward = _without_message_text(message_forward) if unaddressed else message_forward
+            await db.log_event(
+                direction="in", endpoint="/v1/messaging/webhook",
+                action="message", recipient_id=message_forward["recipient_id"],
+                message_id=message_forward["message_id"],
+                ok=ok, status_code=fwd_status, error_text=error_text,
+                payload=None if unaddressed else update, tg_response=logged_forward,
+            )
+            _schedule(_forward_event_log({
+                "direction": "incoming",
+                "event_type": "message",
+                "update_id": update.get("update_id"),
+                "payload": {k: v for k, v in logged_forward.items() if k != "bot_id"},
+            }))
+            return {"ok": True}
+
+        if hide_text:
+            # Dropped group chatter: record only that an update arrived, never its content.
+            await db.log_event(
+                direction="in", endpoint="/v1/messaging/webhook",
+                action=info["update_kind"],
+                recipient_id=(str(info["chat_id"]) if info.get("chat_id") is not None else None),
+                ok=True, status_code=200,
+            )
+            _schedule(_forward_event_log({
+                "direction":  "incoming",
+                "event_type": _detect_update_type(update),
+                "update_id":  update.get("update_id"),
             }))
             return {"ok": True}
 

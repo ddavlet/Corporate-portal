@@ -84,6 +84,7 @@ def build_gateway_payload(
     request_id: int | str | None = None,
     message_id: int | None = None,
     buttons: list | None = None,
+    reply_to_message_id: int | None = None,
 ) -> dict:
     payload: dict = {
         "action": action,
@@ -99,6 +100,8 @@ def build_gateway_payload(
         payload["request_id"] = request_id
     if message_id is not None:
         payload["message_id"] = message_id
+    if reply_to_message_id is not None:
+        payload["reply_to_message_id"] = reply_to_message_id
     return payload
 
 
@@ -372,6 +375,7 @@ class TelegramDispatcher:
         approval_id: int | str | None = None,
         request_id: int | str | None = None,
         require_message_id: bool = False,
+        reply_to_message_id: int | None = None,
     ) -> TelegramMessage | None:
         """Send a new message. Returns the persisted TelegramMessage, or None when the
         gateway is unreachable. With ``require_message_id`` a reachable gateway that returns
@@ -385,6 +389,7 @@ class TelegramDispatcher:
             approval_id=approval_id,
             request_id=request_id,
             buttons=buttons or [],
+            reply_to_message_id=reply_to_message_id,
         )
         response_data = self._post(payload)
         if response_data is None:

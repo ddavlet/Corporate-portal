@@ -5,7 +5,8 @@ from pydantic import BaseModel, field_validator
 SEND_ACTIONS   = {"send", "send_interactive", "send_portal_feedback"}
 EDIT_ACTIONS   = {"edit", "edit_interactive"}
 DELETE_ACTIONS = {"delete"}
-ALL_ACTIONS    = SEND_ACTIONS | EDIT_ACTIONS | DELETE_ACTIONS
+CHAT_ACTIONS   = {"typing"}
+ALL_ACTIONS    = SEND_ACTIONS | EDIT_ACTIONS | DELETE_ACTIONS | CHAT_ACTIONS
 
 # Universal format → Telegram parse_mode
 _FORMAT_TO_TG: dict[str, str | None] = {
@@ -29,6 +30,7 @@ class DispatchRequest(BaseModel):
     text:         str | None = None
     format:       str = "html"                  # html | markdown | plain
     message_id:   int | None = None
+    reply_to_message_id: int | None = None      # send actions: reply to this message
     buttons:      list[list[Button]] = []       # [[{label, value}, ...], ...]
     request_id:   int | None = None
     approval_id:  str | None = None

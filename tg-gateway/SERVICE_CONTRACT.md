@@ -1,6 +1,6 @@
 # Service Contract — Messaging Gateway
 
-Version: 2.2
+Version: 2.3
 Base URL:
 - Internal (backend -> gateway): `http://tg-gateway:8080`
 - Public (Telegram -> gateway webhook only): `https://<TG_GATEWAY_PUBLIC_HOST>`
@@ -64,6 +64,7 @@ Send, edit, or delete a message on any platform.
 | `text`         | string          | no | Message body (`null/empty` is passed through to platform API) |
 | `format`       | `html` / `markdown` / `plain` | no | Default: `html` |
 | `message_id`   | integer         | yes (edit/delete) | ID of the message to edit or delete |
+| `reply_to_message_id` | integer  | no       | Send actions only: send as a reply to this message (`reply_parameters`, `allow_sending_without_reply: true`) |
 | `buttons`      | array of rows   | no       | `[[{label, value}, ...], ...]` |
 | `request_id`   | integer         | no       | Passed through; echoed in logs |
 | `approval_id`  | string/integer  | no       | Passed through; echoed in logs |
@@ -77,6 +78,7 @@ Send, edit, or delete a message on any platform.
 | `edit`             | `editMessageText`  | If `buttons` present, they are updated |
 | `edit_interactive` | `editMessageText`  | Same behavior as `edit`, semantic alias |
 | `delete`           | `deleteMessage`    | Deletes message by id |
+| `typing`           | `sendChatAction`   | Shows "typing" in the chat; response `message_id` is `null` |
 
 For `edit`/`edit_interactive`, passing `buttons: []` clears buttons.
 
@@ -111,7 +113,10 @@ Receive platform events (Telegram updates). The gateway filters for:
 1. **interactive events** (button clicks) → `event=interaction`
 2. **known slash commands** (`/bank_ostatki`, `/cash_ostatki`, `/card_ostatki`) → `event=command`
 
-Other non-interactive events (plain messages, etc.) are acknowledged with `{"ok": true}`
+3. **messages addressed to the bot** → `event=message` (private chats: every non-command text/caption
+   message; groups/supergroups: only @mentions of the bot and replies to any message)
+
+Other non-interactive events (unaddressed group chatter, etc.) are acknowledged with `{"ok": true}`
 and not forwarded as business events (they may still be discovery-logged / event-logged).
 
 **Telegram registers this URL as the bot webhook.** The `{bot_token}` in the path is used to
@@ -159,6 +164,26 @@ immediately regardless.
 | `message_id`   | integer | ID of the message containing the button / command |
 | `platform`     | string  | `"telegram"`, `"slack"`, etc. — for logging only; business logic must not branch on this |
 | `bot_id`       | string  | (commands only) Numeric Telegram bot id — **not** the bot secret |
+
+**Forwarded payload — message (gateway → backend):**
+
+```json
+{
+  "event": "message", "payload": "<text or caption>", "user_id": "<from.id>",
+  "recipient_id": "<chat.id>", "message_id": 123, "platform": "telegram",
+  "bot_id": "110201543", "chat_type": "private|group|supergroup",
+  "sender_name": "<first last>", "mentions_bot": true,
+  "reply_to_message_id": 120, "reply_to_text": "...", "reply_to_from_id": "<id or ''>",
+  "reply_to_is_bot": true
+}
+```
+
+`reply_to_*` are `null` / `""` / `false` when the message is not a reply. `reply_to_is_bot` is `true` only when the replied-to message was sent by this bot itself (`reply_to_message.from.id == bot_id`); a reply to another bot gives `false`. `mentions_bot` is true for an
+`@bot_username` mention (case-insensitive) or a `text_mention` of the bot user; in private chats it is
+informational. Commands (starting with `/`) never produce `event=message`.
+
+**Privacy:** group/supergroup messages that are not forwarded are dropped without their text: it is not
+written to logs, `db.log_event` payload, or the event log.
 
 **Backend webhook URL:** configured via `BACKEND_WEBHOOK_URL` env var.
 No auth header is sent — network isolation is the only access control.

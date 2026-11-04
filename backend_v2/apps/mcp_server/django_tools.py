@@ -5,6 +5,7 @@ Register sync Django ORM callables as MCP tools bound to the request's tenant.
   contextvars: JWT and tenant) — bare ORM raises SynchronousOnlyOperation in ASGI.
 - A `tenant_id` parameter is removed from the tool schema and filled from the
   tenant resolved from the Host subdomain (apps.mcp_server.tenant_context).
+- read_only=True sets the MCP readOnlyHint annotation (reading tools only).
 - The tool's Access rule is recorded in TOOL_ACCESS for list_tools filtering.
 """
 
@@ -16,6 +17,7 @@ from functools import wraps
 from typing import TypeVar
 
 from asgiref.sync import sync_to_async
+from mcp.types import ToolAnnotations
 
 from apps.mcp_server.access import Access
 
@@ -25,7 +27,7 @@ TOOL_ACCESS: dict[str, Access] = {}
 
 
 def django_mcp_tool(mcp) -> Callable[..., Callable[[F], F]]:
-    def tool(*, access: Access) -> Callable[[F], F]:
+    def tool(*, access: Access, read_only: bool = False) -> Callable[[F], F]:
         def decorator(fn: F) -> F:
             sig = inspect.signature(fn)
             takes_tenant = "tenant_id" in sig.parameters
@@ -43,7 +45,9 @@ def django_mcp_tool(mcp) -> Callable[..., Callable[[F], F]]:
             async_wrapper.__annotations__ = {
                 k: v for k, v in getattr(fn, "__annotations__", {}).items() if k != "tenant_id"
             }
-            mcp.tool()(async_wrapper)
+            # readOnlyHint only for tools that explicitly opt in; the default is "may write".
+            annotations = ToolAnnotations(read_only_hint=True) if read_only else None
+            mcp.tool(annotations=annotations)(async_wrapper)
             TOOL_ACCESS[fn.__name__] = access
             return fn
 
