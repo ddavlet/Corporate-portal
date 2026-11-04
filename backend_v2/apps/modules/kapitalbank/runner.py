@@ -32,7 +32,7 @@ from apps.modules.wallets.services import wallet_balance_payload
 
 from . import alerts as kb_alerts
 from .accounts import refresh_account_list
-from .classification import AutoAttachResult, kind_for_account, new_account_outcome
+from .classification import KIND_SERVICE, AutoAttachResult, kind_for_account, new_account_outcome
 from .client import KapitalbankClient, KapitalbankError, Statement, StatementDoc
 from .ingest import IngestError, ingest_statement, present_on_wallet
 from .mapping import is_incoming
@@ -233,14 +233,20 @@ def _linked(tenant) -> list[BankAccountLink]:
 
 def _own_targets(tenant) -> set[str]:
     """The tenant's own accounts whose statements are not loaded: undecided, ignored, and
-    LINKED to a service account. A transfer to one of them is alerted."""
+    LINKED to a service account. A transfer to one of them is alerted, except to the bank's
+    service accounts by number (fees, conversion block, transits): those are routine, the money
+    does not stay there."""
     untracked = BankAccountLink.objects.filter(tenant=tenant, decision__in=_UNTRACKED).values_list(
-        "account_no", flat=True
+        "account_no", "currency"
     )
     service = BankAccountLink.objects.filter(
         tenant=tenant, decision=BankAccountLink.LINKED, bank_account__account_type=_SERVICE
-    ).values_list("account_no", flat=True)
-    return {account_no.strip() for account_no in [*untracked, *service]}
+    ).values_list("account_no", "currency")
+    return {
+        account_no.strip()
+        for account_no, currency in [*untracked, *service]
+        if kind_for_account(account_no, currency) != KIND_SERVICE
+    }
 
 
 def _tracked(link: BankAccountLink, day: date) -> bool:
