@@ -90,7 +90,7 @@ describe('TgInvestmentsCollectPage', () => {
     createFromRequestsMock.mockResolvedValue({ investments: [{ id: 501 }] })
     renderAt('/tg/investments/projects/collect')
 
-    expect(await screen.findByText(/Описание 11/)).toBeTruthy()
+    expect(await screen.findByLabelText('Заявка №11')).toBeTruthy()
     expect(screen.getByText(/\(2 заявки\)/)).toBeTruthy()
 
     fireEvent.click(screen.getByLabelText('Заявка №12'))
