@@ -19,6 +19,8 @@ ALLOWED_ROLES = frozenset(
 # Decimal strings, USD per million tokens.
 MODEL_PRICES_USD_PER_MTOK = {
     "claude-sonnet-5-5": {"input": "2.00", "output": "10.00", "cache_read": "0.20", "cache_write": "2.50"},
+    # Серверный fallback (fallbacks="default") отправляет отказ Sonnet 5.5 на Sonnet 5 — те же цены.
+    "claude-sonnet-5": {"input": "2.00", "output": "10.00", "cache_read": "0.20", "cache_write": "2.50"},
     "claude-opus-5-5": {"input": "4.00", "output": "20.00", "cache_read": "0.20", "cache_write": "5.00"},
 }
 
