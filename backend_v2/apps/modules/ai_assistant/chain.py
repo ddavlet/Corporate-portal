@@ -32,6 +32,38 @@ def user_label(user) -> str:
     return (user.get_full_name() or getattr(user, "full_name", "") or user.get_username() or "").strip()
 
 
+def get_or_create_node(
+    *,
+    tenant,
+    chat_id,
+    message_id,
+    parent_message_id,
+    kind,
+    text,
+    author_user=None,
+    author_tg_id=None,
+    author_label="",
+    author_roles="",
+    agent_messages=None,
+) -> tuple[ChainNode, bool]:
+    """Узел цепочки и признак «создан сейчас» (False — сообщение уже было, например повторная доставка)."""
+    return ChainNode.objects.get_or_create(
+        tenant=tenant,
+        chat_id=str(chat_id),
+        message_id=message_id,
+        defaults={
+            "parent_message_id": parent_message_id,
+            "kind": kind,
+            "text": text or "",
+            "author_user": author_user,
+            "author_tg_id": author_tg_id,
+            "author_label": author_label or "",
+            "author_roles": author_roles or "",
+            "agent_messages": agent_messages,
+        },
+    )
+
+
 def add_node(
     *,
     tenant,
@@ -46,20 +78,18 @@ def add_node(
     author_roles="",
     agent_messages=None,
 ) -> ChainNode:
-    node, _ = ChainNode.objects.get_or_create(
+    node, _ = get_or_create_node(
         tenant=tenant,
-        chat_id=str(chat_id),
+        chat_id=chat_id,
         message_id=message_id,
-        defaults={
-            "parent_message_id": parent_message_id,
-            "kind": kind,
-            "text": text or "",
-            "author_user": author_user,
-            "author_tg_id": author_tg_id,
-            "author_label": author_label or "",
-            "author_roles": author_roles or "",
-            "agent_messages": agent_messages,
-        },
+        parent_message_id=parent_message_id,
+        kind=kind,
+        text=text,
+        author_user=author_user,
+        author_tg_id=author_tg_id,
+        author_label=author_label,
+        author_roles=author_roles,
+        agent_messages=agent_messages,
     )
     return node
 

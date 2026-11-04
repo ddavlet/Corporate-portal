@@ -112,6 +112,15 @@ class MessageEventTests(TestCase):
         self.assertIn(TenantUserRole.ROLE_DIRECTOR, node.author_roles)
         self.submit.assert_called_once_with(node.id)
 
+    def test_duplicate_delivery_submits_once(self):
+        self._user("dir", TenantUserRole.ROLE_DIRECTOR)
+        first = handle_message_event(self._event())
+        second = handle_message_event(self._event())
+        self.assertEqual(first, ({"status": "accepted"}, 202))
+        self.assertEqual(second, ({"status": "accepted"}, 202))
+        self.assertEqual(ChainNode.objects.filter(message_id=100).count(), 1)
+        self.submit.assert_called_once_with(ChainNode.objects.get(message_id=100).id)
+
     def test_allowed_group_mention_submits_turn(self):
         self._user("dir", TenantUserRole.ROLE_DIRECTOR)
         body, code = handle_message_event(self._event(chat_type="supergroup", mentions_bot=True))

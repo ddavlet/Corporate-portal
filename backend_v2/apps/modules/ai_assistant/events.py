@@ -5,7 +5,7 @@ from django.db import transaction
 from apps.modules.telegram_approvals.command_handlers import resolve_tenant_by_bot_id
 
 from .access import REASON_OK, assistant_enabled, portal_identity, resolve_assistant_user
-from .chain import add_node, ensure_parent, find_known_node, user_label
+from .chain import add_node, ensure_parent, find_known_node, get_or_create_node, user_label
 from .jobs import submit_turn
 from .models import ChainNode
 from .serializers import AssistantMessageEventSerializer
@@ -87,7 +87,7 @@ def handle_message_event(data: dict) -> tuple[dict, int]:
             return IGNORED
 
         ensure_parent(tenant, chat_id, event)
-        node = add_node(
+        node, created = get_or_create_node(
             tenant=tenant,
             chat_id=chat_id,
             message_id=event["message_id"],
@@ -99,5 +99,12 @@ def handle_message_event(data: dict) -> tuple[dict, int]:
             author_label=user_label(access.user),
             author_roles=",".join(sorted(access.roles)),
         )
+        if not created:
+            # Повторная доставка того же сообщения Telegram: ход уже запущен, второй ответ не нужен.
+            logger.info(
+                "ai_assistant: duplicate message ignored tenant=%s chat=%s message_id=%s",
+                tenant.pk, chat_id, event["message_id"],
+            )
+            return ACCEPTED
         submit_turn(node.id)
     return ACCEPTED
