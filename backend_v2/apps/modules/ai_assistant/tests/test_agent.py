@@ -7,6 +7,7 @@ from types import SimpleNamespace
 from django.test import SimpleTestCase
 
 from apps.modules.ai_assistant.agent import CANCELLED_RESULT, run_agent
+from apps.modules.ai_assistant.calculator import CALCULATOR_TOOL, CALCULATOR_TOOL_NAME
 from apps.modules.ai_assistant.config import (
     AGENT_EFFORT,
     AGENT_MAX_STEPS,
@@ -414,10 +415,10 @@ class RunAgentTests(SimpleTestCase):
         run(client=client, session=FakeSession([READ_B, WRITE, READ_A]))
 
         first, second = client.requests
-        self.assertEqual([t["name"] for t in first["tools"]], ["create_task", "get_balance", "list_requests"])
+        self.assertEqual([t["name"] for t in first["tools"]], ["calculate", "create_task", "get_balance", "list_requests"])
         self.assertEqual(first["tools"], second["tools"])
         self.assertEqual(
-            first["tools"][0],
+            first["tools"][1],
             {"name": "create_task", "description": "Create task", "input_schema": {"type": "object"}},
         )
         self.assertEqual(
@@ -437,6 +438,101 @@ class RunAgentTests(SimpleTestCase):
             self.assertIn(f"<{section}>", SYSTEM_PROMPT)
             self.assertIn(f"</{section}>", SYSTEM_PROMPT)
         self.assertNotRegex(SYSTEM_PROMPT, r"\d{4}-\d{2}-\d{2}")
+
+    def test_calculator_tool_listed_and_sorted(self):
+        client = FakeClient([response([text("ok")], "end_turn")])
+        run(client=client, session=FakeSession([WRITE, READ_A, READ_B]))
+
+        tools = client.requests[0]["tools"]
+        names = [t["name"] for t in tools]
+        self.assertEqual(names, sorted(names))
+        self.assertIn(CALCULATOR_TOOL_NAME, names)
+        self.assertEqual(next(t for t in tools if t["name"] == CALCULATOR_TOOL_NAME), CALCULATOR_TOOL)
+
+    def test_calculator_runs_locally_without_mcp_call(self):
+        client = FakeClient(
+            [
+                response([tool_use("tu_c", CALCULATOR_TOOL_NAME, {"expression": "0.1 + 0.2"})], "tool_use"),
+                response([text("0.3")], "end_turn"),
+            ]
+        )
+        session = FakeSession([READ_A])
+
+        outcome = run(client=client, session=session)
+
+        self.assertEqual(outcome.kind, "answer")
+        self.assertEqual(session.calls, [])
+        self.assertEqual(outcome.usage.mcp_calls, 0)
+        self.assertEqual(
+            outcome.messages[2]["content"],
+            [{"type": "tool_result", "tool_use_id": "tu_c", "content": "0.3", "is_error": False}],
+        )
+
+    def test_calculator_error_returned_as_is_error(self):
+        client = FakeClient(
+            [
+                response([tool_use("tu_c", CALCULATOR_TOOL_NAME, {"expression": "1 / 0"})], "tool_use"),
+                response([tool_use("tu_d", CALCULATOR_TOOL_NAME, {})], "tool_use"),
+                response([text("done")], "end_turn"),
+            ]
+        )
+        session = FakeSession([READ_A])
+
+        outcome = run(client=client, session=session)
+
+        self.assertEqual(outcome.kind, "answer")
+        first, second = outcome.messages[2]["content"][0], outcome.messages[4]["content"][0]
+        self.assertEqual((first["content"], first["is_error"]), ("Division by zero", True))
+        self.assertTrue(second["is_error"])
+        self.assertEqual(session.calls, [])
+
+    def test_calculator_does_not_trigger_confirmation(self):
+        client = FakeClient(
+            [
+                response([tool_use("tu_c", CALCULATOR_TOOL_NAME, {"expression": "2 + 2"})], "tool_use"),
+                response([text("4")], "end_turn"),
+            ]
+        )
+
+        outcome = run(client=client, session=FakeSession([WRITE]))
+
+        self.assertEqual(outcome.kind, "answer")
+        self.assertEqual(len(client.requests), 2)
+
+    def test_calculator_executed_on_resume_confirm_and_cancel(self):
+        calls = [
+            {"id": "tu_c", "name": CALCULATOR_TOOL_NAME, "input": {"expression": "1 + 1"}},
+            {"id": "tu_w", "name": "create_task", "input": {}},
+        ]
+        for decision, write_result in (("confirm", ("create_task ok", False)), ("cancel", (CANCELLED_RESULT, True))):
+            with self.subTest(decision=decision):
+                client = FakeClient([response([text("ok")], "end_turn")])
+                session = FakeSession([WRITE])
+                outcome = run(
+                    client=client,
+                    session=session,
+                    resume_tool_calls=calls,
+                    resume_decision=decision,
+                )
+                results = outcome.messages[1]["content"]
+                self.assertEqual(results[0]["content"], "2")
+                self.assertFalse(results[0]["is_error"])
+                self.assertEqual((results[1]["content"], results[1]["is_error"]), write_result)
+                self.assertEqual(outcome.usage.mcp_calls, 1 if decision == "confirm" else 0)
+
+    def test_mcp_tool_named_calculate_is_replaced_by_local_one(self):
+        shadow = ToolSpec(name=CALCULATOR_TOOL_NAME, description="remote", input_schema={"type": "object"}, read_only=False)
+        client = FakeClient([response([tool_use("tu_c", CALCULATOR_TOOL_NAME, {"expression": "1 + 1"})], "tool_use"), response([text("2")], "end_turn")])
+        session = FakeSession([shadow])
+
+        with self.assertLogs("apps.modules.ai_assistant.agent", level="WARNING") as logs:
+            outcome = run(client=client, session=session)
+
+        self.assertEqual(outcome.kind, "answer")
+        self.assertEqual(session.calls, [])
+        self.assertEqual([t["name"] for t in client.requests[0]["tools"]], [CALCULATOR_TOOL_NAME])
+        self.assertEqual(client.requests[0]["tools"][0]["description"], CALCULATOR_TOOL["description"])
+        self.assertEqual(len(logs.output), 1)
 
     def test_assistant_content_appended_unchanged(self):
         fallback = Block(

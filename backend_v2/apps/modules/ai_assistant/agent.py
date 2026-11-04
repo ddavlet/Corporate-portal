@@ -6,6 +6,8 @@
 - Инструменты с read_only выполняются сразу; если модель запросила хотя бы
   один изменяющий инструмент — ничего не выполняется, исход "confirm" с
   pending_tool_calls (все tool_use этого ответа).
+- Калькулятор (`calculate`) — локальный read-only инструмент: всегда в списке рядом с
+  инструментами MCP, выполняется на месте, в mcp_calls не считается.
 - Продолжение после решения пользователя: resume_tool_calls + resume_decision.
 - Ошибки API и MCP → исход "error" (в лог), из run_agent ничего не вылетает.
   Ошибка самого инструмента — не ошибка агента: уходит модели как is_error.
@@ -20,6 +22,7 @@ from typing import TYPE_CHECKING, Literal
 
 import anthropic
 
+from .calculator import CALCULATOR_TOOL, CALCULATOR_TOOL_NAME, CalculatorError, evaluate
 from .config import (
     AGENT_EFFORT,
     AGENT_MAX_STEPS,
@@ -44,6 +47,13 @@ EMPTY_RESULT = "(empty result)"
 # инструментов по роли, описания инструментов после деплоя, порядок ключей jsonb в
 # сохранённом tool_use.input). Такие блоки API отбрасывает, а не отвечает 400.
 THINKING_CONFIG = {"type": "adaptive", "block_binding": {"prefix_mismatch_behavior": "drop_block"}}
+
+CALCULATOR_SPEC = ToolSpec(
+    name=CALCULATOR_TOOL_NAME,
+    description=CALCULATOR_TOOL["description"],
+    input_schema=CALCULATOR_TOOL["input_schema"],
+    read_only=True,
+)
 
 # Строки usage.iterations, которые соответствуют попыткам модели (основной и fallback).
 _MODEL_ITERATION_TYPES = ("message", "fallback_message")
@@ -159,6 +169,24 @@ async def _call_tool(session: McpSession, name: str, arguments: dict) -> tuple[s
         return f"Tool error: {exc}", True
 
 
+def _run_calculator(arguments: dict) -> tuple[str, bool]:
+    """Локальный вызов калькулятора; ошибка выражения уходит модели как is_error."""
+    try:
+        return evaluate(arguments.get("expression")), False
+    except CalculatorError as exc:
+        return str(exc), True
+
+
+def _with_calculator(specs: list[ToolSpec]) -> list[ToolSpec]:
+    """Инструменты MCP + локальный калькулятор; при совпадении имени побеждает локальный."""
+    clashing = [spec.name for spec in specs if spec.name == CALCULATOR_TOOL_NAME]
+    if clashing:
+        logger.warning(
+            "ai_assistant agent: MCP tool %r clashes with the local calculator and is ignored", CALCULATOR_TOOL_NAME
+        )
+    return [spec for spec in specs if spec.name != CALCULATOR_TOOL_NAME] + [CALCULATOR_SPEC]
+
+
 async def _tool_results(
     session: McpSession,
     by_name: dict[str, ToolSpec],
@@ -173,6 +201,8 @@ async def _tool_results(
         name = call.get("name", "")
         if cancel_writes and not _is_read_only(by_name, name):
             content, is_error = CANCELLED_RESULT, True
+        elif name == CALCULATOR_TOOL_NAME:
+            content, is_error = _run_calculator(call.get("input") or {})
         else:
             content, is_error = await _call_tool(session, name, call.get("input") or {})
             usage.mcp_calls += 1
@@ -245,7 +275,7 @@ async def run_agent(
         )
 
     try:
-        specs = list(await session.list_tools())
+        specs = _with_calculator(list(await session.list_tools()))
     except Exception:
         logger.exception("ai_assistant agent: MCP list_tools failed")
         return outcome("error")
