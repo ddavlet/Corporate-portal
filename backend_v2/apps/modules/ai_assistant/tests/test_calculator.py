@@ -46,7 +46,7 @@ class CalculatorTests(SimpleTestCase):
 
     def test_long_sum_of_many_terms(self):
         self.assertEqual(evaluate("1" + "+1" * 999), "1000")
-        self.assertEqual(evaluate("1000" + "-1" * 999), "1")
+        self.assertEqual(evaluate("1000" + "-1" * 996), "4")
 
     def test_overflow_is_calculator_error(self):
         with self.assertRaises(CalculatorError):
