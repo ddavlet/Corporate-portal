@@ -16,7 +16,9 @@ from apps.modules.investments.views import (
     InvestmentProjectApprovalConfigStepReadViewSet,
     InvestmentProjectApprovalConfigView,
     InvestmentProjectApprovalDecisionView,
+    InvestmentProjectApprovalResendView,
     InvestmentReturnApprovalReadViewSet,
+    InvestmentReturnApprovalResendView,
     InvestNotificationConfigView,
     InvestReportConfigView,
     InvestReportDispatchListView,
@@ -104,5 +106,11 @@ urlpatterns = [
         "project-approvals/<int:approval_id>/decision/",
         InvestmentProjectApprovalDecisionView.as_view(),
         name="invest-project-approval-decision",
+    ),
+    path("approvals/<int:approval_id>/resend/", InvestmentReturnApprovalResendView.as_view(), name="invest-approval-resend"),
+    path(
+        "project-approvals/<int:approval_id>/resend/",
+        InvestmentProjectApprovalResendView.as_view(),
+        name="invest-project-approval-resend",
     ),
 ]

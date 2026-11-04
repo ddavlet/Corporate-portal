@@ -728,7 +728,32 @@ class InvestmentApprovalConfigStepApproverReadSerializer(serializers.ModelSerial
         read_only_fields = fields
 
 
-class InvestmentReturnApprovalReadSerializer(serializers.ModelSerializer):
+class ApprovalResendStateMixin(serializers.Serializer):
+    """Состояние переотправки Telegram-карточки (как у согласований заявок на расходы)."""
+
+    resend_count = serializers.SerializerMethodField()
+    can_resend = serializers.SerializerMethodField()
+    resend_available_at = serializers.SerializerMethodField()
+
+    RESEND_FIELDS = ["resend_count", "can_resend", "resend_available_at"]
+
+    def get_resend_count(self, obj):
+        tm = obj.telegram_message if obj.telegram_message_id else None
+        return tm.resend_count if tm else 0
+
+    def get_can_resend(self, obj):
+        from apps.modules.investments.approval_resend_services import approval_can_resend
+
+        return approval_can_resend(obj)
+
+    def get_resend_available_at(self, obj):
+        from apps.modules.investments.approval_resend_services import approval_resend_available_at
+
+        available = approval_resend_available_at(obj)
+        return available.isoformat() if available else None
+
+
+class InvestmentReturnApprovalReadSerializer(ApprovalResendStateMixin, serializers.ModelSerializer):
     approver_username = serializers.SerializerMethodField()
     # Derived from the single source of truth (`telegram_message`); kept for API stability.
     gateway_message_id = serializers.ReadOnlyField()
@@ -753,6 +778,7 @@ class InvestmentReturnApprovalReadSerializer(serializers.ModelSerializer):
             "gateway_message_id",
             "message_sent",
             "message_sent_at",
+            *ApprovalResendStateMixin.RESEND_FIELDS,
             "created_at",
             "updated_at",
         ]
@@ -783,7 +809,7 @@ class InvestmentProjectApprovalConfigStepApproverReadSerializer(serializers.Mode
         read_only_fields = fields
 
 
-class ProjectInvestmentApprovalReadSerializer(serializers.ModelSerializer):
+class ProjectInvestmentApprovalReadSerializer(ApprovalResendStateMixin, serializers.ModelSerializer):
     approver_username = serializers.SerializerMethodField()
     # Derived from the single source of truth (`telegram_message`); kept for API stability.
     gateway_message_id = serializers.ReadOnlyField()
@@ -808,6 +834,7 @@ class ProjectInvestmentApprovalReadSerializer(serializers.ModelSerializer):
             "gateway_message_id",
             "message_sent",
             "message_sent_at",
+            *ApprovalResendStateMixin.RESEND_FIELDS,
             "created_at",
             "updated_at",
         ]

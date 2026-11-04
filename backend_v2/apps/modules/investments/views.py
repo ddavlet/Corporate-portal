@@ -13,6 +13,10 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from apps.modules.investments.approval_resend_services import (
+    resend_invest_return_approval_card,
+    resend_project_investment_approval_card,
+)
 from apps.modules.investments.approval_services import (
     InvestmentApprovalDecisionAlreadyMade,
     confirm_invest_return_approval_by_id,
@@ -89,7 +93,7 @@ from apps.common.pagination import PortalCursorPagination
 from apps.common.query_params import parse_bool_query, parse_date_query
 from apps.common.viewsets import NoPortalPaginationMixin, PortalListViewSetMixin
 from apps.modules.telegram_approvals.services import ensure_callback_identity
-from apps.tenants.models import TenantMembership
+from apps.tenants.models import TenantMembership, TenantUserRole
 from apps.tenants.permissions import HasEffectiveModuleAccess, IsTenantAdmin, IsTenantAdminForRecordEdit
 
 from apps.modules.investments.investor_report import (
@@ -955,6 +959,42 @@ class InvestmentProjectApprovalDecisionView(APIView):
                 },
             }
         )
+
+
+class _InvestmentApprovalResendView(APIView):
+    """Переотправить одну Telegram-карточку согласования (лимит 3, пауза 10 с)."""
+
+    permission_classes = [IsAuthenticated, HasEffectiveModuleAccess]
+    module_key = "investments"
+    resend_service = None
+
+    def post(self, request, approval_id: int):
+        self.check_permissions(request)
+        allowed = TenantUserRole.objects.filter(
+            tenant=request.tenant,
+            user=request.user,
+            role__in=[TenantUserRole.ROLE_ADMIN, TenantUserRole.ROLE_DIRECTOR, TenantUserRole.ROLE_APPROVER],
+        ).exists()
+        if not allowed:
+            raise PermissionDenied("Only admins, directors, or approvers can resend approval cards.")
+        # The service returns None on gateway failure after committing the failed-attempt
+        # history; raise here, outside its transaction, so the history persists.
+        result = type(self).resend_service(
+            tenant=request.tenant,
+            approval_pk=int(approval_id),
+            actor_user=request.user,
+        )
+        if result is None:
+            raise ValidationError({"detail": "Не удалось отправить сообщение через messaging gateway."})
+        return Response({"detail": "Approval card resent."}, status=status.HTTP_200_OK)
+
+
+class InvestmentProjectApprovalResendView(_InvestmentApprovalResendView):
+    resend_service = staticmethod(resend_project_investment_approval_card)
+
+
+class InvestmentReturnApprovalResendView(_InvestmentApprovalResendView):
+    resend_service = staticmethod(resend_invest_return_approval_card)
 
 
 class InvestmentApprovalWebhookView(APIView):
