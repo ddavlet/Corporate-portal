@@ -550,8 +550,14 @@ class InvestmentFundingConfigView(APIView):
 
 
 class InvestNotificationConfigView(APIView):
-    permission_classes = [IsAuthenticated, HasEffectiveModuleAccess]
     module_key = "investments"
+
+    def get_permissions(self):
+        # Any module user may read the config; only tenant admins/directors may change who
+        # receives payout reminders and where.
+        if self.request.method == "PUT":
+            return [IsAuthenticated(), HasEffectiveModuleAccess(), IsTenantAdminOrDirector()]
+        return [IsAuthenticated(), HasEffectiveModuleAccess()]
 
     def _payload(self, tenant):
         cfg = InvestNotificationConfig.objects.filter(tenant=tenant).select_related("responsible_user", "telegram_chat").first()
@@ -596,7 +602,7 @@ class InvestNotificationConfigView(APIView):
 
     def put(self, request):
         self.check_permissions(request)
-        serializer = InvestNotificationConfigSerializer(data=request.data)
+        serializer = InvestNotificationConfigSerializer(data=request.data, context={"tenant": request.tenant})
         serializer.is_valid(raise_exception=True)
         payload = serializer.validated_data
         User = get_user_model()
