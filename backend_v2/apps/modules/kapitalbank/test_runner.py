@@ -510,7 +510,10 @@ class RunnerTests(KapitalbankFixtures, TestCase):
         ]
         docs = []
         for n, (account_no, decision) in enumerate(targets, start=1):
-            BankAccountLink.objects.create(tenant=self.tenant, account_no=account_no, branch=MFO, decision=decision)
+            reason = "служебный" if decision == BankAccountLink.IGNORED else ""
+            BankAccountLink.objects.create(
+                tenant=self.tenant, account_no=account_no, branch=MFO, decision=decision, ignore_reason=reason
+            )
             docs.append(make_doc(n, day=TODAY, incoming=False, counterparty=account_no, amount="100.00"))
         self.fake.statements[(ACCOUNT_1, TODAY)] = [statement(*docs, saldo_out="-400.00")]
 
