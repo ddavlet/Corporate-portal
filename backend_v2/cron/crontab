@@ -31,3 +31,6 @@ BASH_ENV=/etc/kolberg-cron.env
 */10 6-21 * * 1-5 root cd /app && python manage.py import_kapitalbank_statements --mode daytime >> /proc/1/fd/1 2>&1
 0 22 * * 1-5 root cd /app && python manage.py import_kapitalbank_statements --mode daytime >> /proc/1/fd/1 2>&1
 0 5 * * * root cd /app && python manage.py import_kapitalbank_statements --mode nightly >> /proc/1/fd/1 2>&1
+
+# AI-assistant: hard-delete reply-chain branches older than CHAIN_TTL_DAYS (owner-approved exception).
+30 3 * * * root cd /app && python manage.py purge_ai_assistant_chains >> /proc/1/fd/1 2>&1
