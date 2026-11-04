@@ -262,7 +262,7 @@ def run_turn(node_id: int) -> None:
             chat_id=node.chat_id,
             reply_to_message_id=node.message_id,
             origin_message_id=node.message_id,
-            prepare=lambda: build_messages(path_to_root(node)),
+            prepare=lambda: build_messages(path_to_root(node), asker_user_id=node.author_user_id),
         )
     finally:
         close_old_connections()

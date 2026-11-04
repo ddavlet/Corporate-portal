@@ -159,12 +159,36 @@ def _text_turn(role: str, text: str) -> dict:
     return {"role": role, "content": [{"type": "text", "text": text}]}
 
 
-def build_messages(path: list) -> list:
+def _snapshot_producers(path: list) -> list:
+    """Для каждого узла пути — author_user_id ближайшего узла kind=user выше него (или None).
+
+    Снимок agent_messages узла сделан в ходе, который запросил именно этот пользователь
+    (для продолжения после подтверждения — исходный автор запроса).
+    """
+    producers = []
+    last_user_id = None
+    for node in path:
+        producers.append(last_user_id)
+        if node.kind == ChainNode.KIND_USER:
+            last_user_id = node.author_user_id
+    return producers
+
+
+def build_messages(path: list, *, asker_user_id) -> list:
+    """История для хода `asker_user_id`.
+
+    Снимок (с сырыми tool_result MCP) берём только из хода этого же пользователя:
+    чужой снимок может содержать данные, которых спрашивающий не видит в портале.
+    Всё после снимка (в том числе чужие вопросы и ответы бота) идёт обычным текстом —
+    ровно то, что было видно в чате.
+    """
+    producers = _snapshot_producers(path)
     start = -1
-    for index in range(len(path) - 1, -1, -1):
-        if path[index].agent_messages:
-            start = index
-            break
+    if asker_user_id is not None:
+        for index in range(len(path) - 1, -1, -1):
+            if path[index].agent_messages and producers[index] == asker_user_id:
+                start = index
+                break
     messages = copy.deepcopy(path[start].agent_messages) if start >= 0 else []
     for node in path[start + 1 :]:
         if node.kind == ChainNode.KIND_BOT_AGENT:
