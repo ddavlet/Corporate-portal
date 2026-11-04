@@ -9,6 +9,7 @@ from django.conf import settings
 from django.utils.formats import date_format
 from django.utils import timezone
 
+from apps.modules.telegram_approvals.miniapp_links import default_payment_webapp_url
 from apps.modules.requests.integration_settings import get_requests_messaging_gateway_settings
 from apps.modules.requests.models import (
     Approval,
@@ -348,6 +349,8 @@ def _resolve_comment_webapp_url(*, request_obj: Request) -> str:
 def _resolve_payment_webapp_url(*, approval: Approval) -> str:
     step_cfg = _step_config_for_approval(approval=approval)
     template = (step_cfg.payment_webapp_url if step_cfg else "") or ""
+    if not template.strip():
+        template = default_payment_webapp_url(approval.request.tenant)
     if not template.strip():
         return ""
     try:
