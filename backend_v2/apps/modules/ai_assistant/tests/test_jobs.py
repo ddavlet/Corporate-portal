@@ -141,7 +141,10 @@ class JobsTests(TestCase):
             jobs.run_turn(self.node.id)
         self.send_answer.assert_called_once_with(self.tenant, CHAT, 100, jobs.ERROR_TEXT)
         self.assertEqual(UsageRecord.objects.get().outcome, UsageRecord.OUTCOME_ERROR)
-        self.assertFalse(ChainNode.objects.filter(kind=ChainNode.KIND_BOT_AGENT).exists())
+        node = ChainNode.objects.get(kind=ChainNode.KIND_BOT_AGENT)
+        self.assertEqual((node.message_id, node.parent_message_id), (200, 100))
+        self.assertIsNone(node.agent_messages)
+        self.assertFalse(ChainNode.objects.filter(kind=ChainNode.KIND_BOT_AGENT, agent_messages__isnull=False).exists())
 
     def test_agent_error_outcome_sends_error_without_snapshot(self):
         self.run_agent.return_value = AgentOutcome(kind="error", messages=[{"x": 1}], usage=_usage())
