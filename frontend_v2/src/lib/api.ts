@@ -1657,6 +1657,19 @@ export type InvestmentApprovalItem = {
   approver_username?: string | null
   message_sent?: boolean
   message_sent_at?: string | null
+  resend_count?: number
+  can_resend?: boolean
+  resend_available_at?: string | null
+}
+
+export async function resendProjectInvestmentApprovalCard(approvalId: number): Promise<void> {
+  const res = await apiFetch(`/api/investments/project-approvals/${approvalId}/resend/`, { method: 'POST' })
+  if (!res.ok) throw new Error(await parseErrorBody(res))
+}
+
+export async function resendInvestReturnApprovalCard(approvalId: number): Promise<void> {
+  const res = await apiFetch(`/api/investments/approvals/${approvalId}/resend/`, { method: 'POST' })
+  if (!res.ok) throw new Error(await parseErrorBody(res))
 }
 
 export async function getProjectInvestmentApprovals(projectInvestmentId: number): Promise<InvestmentApprovalItem[]> {

@@ -5,11 +5,14 @@ import { Alert, Card, Descriptions, Divider, Modal, Skeleton, Space, Tag, Typogr
 import {
   getInvestReturnApprovals,
   getProjectInvestmentApprovals,
+  resendInvestReturnApprovalCard,
+  resendProjectInvestmentApprovalCard,
   type InvestmentApprovalItem,
   type InvestReturnRow,
   type ProjectInvestmentRow,
 } from '../../lib/api'
 import { fundingMethodLabel } from './fundingPool'
+import { InvestmentApprovalResendButton } from './InvestmentApprovalResendButton'
 import { asMoney, dateText } from './utils'
 
 type RecordKind = 'project' | 'return'
@@ -74,7 +77,12 @@ function accrualMonthLabel(iso: string | undefined): string {
   return `${m}.${y}`
 }
 
-function renderApprovalGroup(title: string, items: InvestmentApprovalItem[]) {
+type ResendOptions = {
+  resend: (approvalId: number) => Promise<void>
+  onResent: () => void
+}
+
+function renderApprovalGroup(title: string, items: InvestmentApprovalItem[], resendOptions?: ResendOptions) {
   return (
     <Space direction="vertical" size={8} style={{ display: 'flex' }}>
       <Typography.Text strong>{title}</Typography.Text>
@@ -93,6 +101,13 @@ function renderApprovalGroup(title: string, items: InvestmentApprovalItem[]) {
                 <Typography.Text type="secondary">{item.decision_comment.trim()}</Typography.Text>
               ) : null}
               <Typography.Text type="secondary">Дата решения: {formatDateTime(item.decided_at)}</Typography.Text>
+              {resendOptions ? (
+                <InvestmentApprovalResendButton
+                  item={item}
+                  resend={resendOptions.resend}
+                  onResent={resendOptions.onResent}
+                />
+              ) : null}
             </Space>
           </Card>
         ))
@@ -252,7 +267,10 @@ export function InvestmentRecordDetailModal({
           <Space direction="vertical" size={12} style={{ display: 'flex' }}>
             {renderApprovalGroup(`Одобрено (${approvedApprovals.length})`, approvedApprovals)}
             {renderApprovalGroup(`Отклонено (${rejectedApprovals.length})`, rejectedApprovals)}
-            {renderApprovalGroup(`В ожидании (${pendingApprovals.length})`, pendingApprovals)}
+            {renderApprovalGroup(`В ожидании (${pendingApprovals.length})`, pendingApprovals, {
+              resend: kind === 'project' ? resendProjectInvestmentApprovalCard : resendInvestReturnApprovalCard,
+              onResent: () => void loadApprovals(),
+            })}
           </Space>
         </>
       ) : null}
