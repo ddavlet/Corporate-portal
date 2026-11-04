@@ -75,6 +75,7 @@ describe('TgInvestmentsCollectPage', () => {
     getFormConfigMock.mockResolvedValue({ uses_companies: false })
     getCompaniesMock.mockResolvedValue([])
     getProjectInvestmentsMock.mockResolvedValue([])
+    getFundingConfigMock.mockResolvedValue({ is_enabled: true })
   })
 
   afterEach(() => {
@@ -106,7 +107,8 @@ describe('TgInvestmentsCollectPage', () => {
       request_ids: [11],
       comment: '',
     })
-    await waitFor(() => expect(screen.getByTestId('where').textContent).toBe('/tg/investments/projects'))
+    // После создания — возврат к списку вложений.
+    expect(await screen.findByRole('heading', { name: 'Заявки на вложение' })).toBeTruthy()
   })
 
   it('shows the error and stays on the page when the backend rejects', async () => {
