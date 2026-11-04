@@ -13,6 +13,7 @@ from apps.modules.telegram_approvals.services import (
     post_messaging_gateway,
 )
 
+from .calculator import CALCULATOR_TOOL_NAME
 from .config import CALLBACK_PREFIX, TELEGRAM_TEXT_LIMIT
 
 logger = logging.getLogger(__name__)
@@ -272,6 +273,9 @@ def render_confirmation(tool_calls: list[dict], tool_descriptions: dict[str, str
     blocks = ["Подтвердите действие:"]
     for call in tool_calls:
         name = call.get("name") or ""
+        if name == CALCULATOR_TOOL_NAME:
+            # Локальный read-only калькулятор: в pending он нужен для resume, пользователю не показывается.
+            continue
         description = (tool_descriptions.get(name) or "").strip().splitlines()
         lines = [f"<b>{esc(name)}</b>"]
         if description:

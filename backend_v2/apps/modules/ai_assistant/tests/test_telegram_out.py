@@ -87,6 +87,18 @@ class ConfirmationTests(SimpleTestCase):
         self.assertIn("&lt;x&gt; &amp; y", text)
         self.assertIn('<code>["a"]</code>', text.replace("&quot;", '"'))
 
+    def test_render_confirmation_skips_calculator_calls(self):
+        text = render_confirmation(
+            [
+                {"id": "tu_c", "name": "calculate", "input": {"expression": "1 + 1"}},
+                {"id": "tu_w", "name": "create_expense", "input": {"amount": 100}},
+            ],
+            {"create_expense": "Создать расход."},
+        )
+        self.assertNotIn("calculate", text)
+        self.assertNotIn("1 + 1", text)
+        self.assertIn("create_expense", text)
+
     def test_confirmation_buttons_values(self):
         with mock.patch.object(telegram_out, "TelegramDispatcher") as dispatcher:
             send_confirmation(mock.Mock(), "5", 9, 42, "t")

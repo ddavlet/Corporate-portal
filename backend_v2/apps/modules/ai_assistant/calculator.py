@@ -70,6 +70,21 @@ def _number(node: ast.Constant, source: str) -> Decimal:
         raise CalculatorError(f"Unsupported expression: number {segment!r}") from None
 
 
+_BIN_OPS = (ast.Add, ast.Sub, ast.Mult, ast.Div)
+
+
+def _apply(op: ast.operator, left: Decimal, right: Decimal, ctx: decimal.Context) -> Decimal:
+    if isinstance(op, ast.Add):
+        return ctx.add(left, right)
+    if isinstance(op, ast.Sub):
+        return ctx.subtract(left, right)
+    if isinstance(op, ast.Mult):
+        return ctx.multiply(left, right)
+    if right == 0:
+        raise CalculatorError("Division by zero")
+    return ctx.divide(left, right)
+
+
 def _eval(node: ast.AST, source: str, ctx: decimal.Context, depth: int) -> Decimal:
     if depth > MAX_DEPTH:
         raise CalculatorError("Expression is nested too deeply")
@@ -78,18 +93,18 @@ def _eval(node: ast.AST, source: str, ctx: decimal.Context, depth: int) -> Decim
     if isinstance(node, ast.UnaryOp) and isinstance(node.op, (ast.USub, ast.UAdd)):
         operand = _eval(node.operand, source, ctx, depth + 1)
         return ctx.minus(operand) if isinstance(node.op, ast.USub) else ctx.plus(operand)
-    if isinstance(node, ast.BinOp) and isinstance(node.op, (ast.Add, ast.Sub, ast.Mult, ast.Div)):
-        left = _eval(node.left, source, ctx, depth + 1)
-        right = _eval(node.right, source, ctx, depth + 1)
-        if isinstance(node.op, ast.Add):
-            return ctx.add(left, right)
-        if isinstance(node.op, ast.Sub):
-            return ctx.subtract(left, right)
-        if isinstance(node.op, ast.Mult):
-            return ctx.multiply(left, right)
-        if right == 0:
-            raise CalculatorError("Division by zero")
-        return ctx.divide(left, right)
+    if isinstance(node, ast.BinOp) and isinstance(node.op, _BIN_OPS):
+        # Левоассоциативная цепочка (a + b - c * d ...) обходится итеративно по левому ребру:
+        # длинная сумма не увеличивает глубину и не упирается в рекурсию.
+        chain = []
+        while isinstance(node, ast.BinOp) and isinstance(node.op, _BIN_OPS):
+            chain.append((node.op, node.right))
+            node = node.left
+        value = _eval(node, source, ctx, depth + 1)
+        for op, right_node in reversed(chain):
+            right = _eval(right_node, source, ctx, depth + 1)
+            value = _apply(op, value, right, ctx)
+        return value
     raise _unsupported(node)
 
 

@@ -43,3 +43,11 @@ class CalculatorTests(SimpleTestCase):
 
     def test_periodic_division_has_fixed_precision(self):
         self.assertEqual(evaluate("100 / 3"), "33.33333333333333333333333333333333")
+
+    def test_long_sum_of_many_terms(self):
+        self.assertEqual(evaluate("1" + "+1" * 999), "1000")
+        self.assertEqual(evaluate("1000" + "-1" * 999), "1")
+
+    def test_overflow_is_calculator_error(self):
+        with self.assertRaises(CalculatorError):
+            evaluate("1e999999999 * 1e999999999")
