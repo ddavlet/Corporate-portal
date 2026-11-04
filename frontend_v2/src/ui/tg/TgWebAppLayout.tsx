@@ -40,12 +40,16 @@ export function TgWebAppLayout() {
   const [ready, setReady] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
+  // Shell setup runs once per mount; the auth effect below may re-run when `login` changes.
   useEffect(() => {
     const tw = typeof window !== 'undefined' ? window.Telegram?.WebApp : undefined
     tw?.ready()
     tw?.expand?.()
     requestMobileFullscreen(tw)
+  }, [])
 
+  useEffect(() => {
+    const tw = typeof window !== 'undefined' ? window.Telegram?.WebApp : undefined
     const initData = tw?.initData ?? ''
     if (!initData.trim()) {
       setError('Откройте мини-приложение из Telegram. Для отладки в браузере нужен тестовый initData.')
