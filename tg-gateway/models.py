@@ -1,6 +1,6 @@
 from __future__ import annotations
 from typing import Any
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, Field, field_validator
 
 SEND_ACTIONS   = {"send", "send_interactive", "send_portal_feedback"}
 EDIT_ACTIONS   = {"edit", "edit_interactive"}
@@ -83,3 +83,23 @@ class BotCommandItem(BaseModel):
 class CommandsSetRequest(BaseModel):
     bot_token: str
     commands: list[BotCommandItem]
+
+
+class DescriptionSetRequest(BaseModel):
+    bot_token: str
+    description: str = Field(max_length=512)
+    short_description: str = Field(max_length=120)
+
+
+class MenuButtonSetRequest(BaseModel):
+    bot_token: str
+    text: str = Field(min_length=1, max_length=64)
+    url: str
+
+    @field_validator("url")
+    @classmethod
+    def _https_only(cls, v: str) -> str:
+        v = v.strip()
+        if not v.startswith("https://") or len(v) <= len("https://"):
+            raise ValueError("url must be an https:// URL")
+        return v
