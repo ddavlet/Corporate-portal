@@ -5,6 +5,7 @@ from unittest import mock
 
 from django.contrib.auth import get_user_model
 from django.test import TestCase
+from django.utils import timezone
 
 from apps.modules.ai_assistant import jobs
 from apps.modules.ai_assistant.agent import AgentOutcome, TurnUsage
@@ -123,7 +124,7 @@ class JobsTests(TestCase):
         self.run_agent.return_value = AgentOutcome(
             kind="confirm", messages=[{"role": "user", "content": "q"}], pending_tool_calls=calls, usage=_usage()
         )
-        tg = TelegramMessage.objects.create(tenant=self.tenant, recipient_id=CHAT, message_id=300)
+        tg = TelegramMessage.objects.create(tenant=self.tenant, recipient_id=CHAT, message_id=300, sent_at=timezone.now())
         self.send_confirmation.return_value = tg
         jobs.run_turn(self.node.id)
         pending = PendingConfirmation.objects.get()
@@ -196,7 +197,7 @@ class JobsTests(TestCase):
         self.assertEqual(node.text, jobs.ERROR_TEXT)
 
     def test_resume_uses_pending_messages_and_fresh_token(self):
-        tg = TelegramMessage.objects.create(tenant=self.tenant, recipient_id=CHAT, message_id=300)
+        tg = TelegramMessage.objects.create(tenant=self.tenant, recipient_id=CHAT, message_id=300, sent_at=timezone.now())
         history = [{"role": "user", "content": "q"}]
         calls = [{"id": "t1", "name": "create_request", "input": {}}]
         pending = PendingConfirmation.objects.create(
@@ -219,7 +220,7 @@ class JobsTests(TestCase):
         self.assertEqual(UsageRecord.objects.get().outcome, UsageRecord.OUTCOME_ANSWERED)
 
     def test_resume_silent_when_requester_lost_access(self):
-        tg = TelegramMessage.objects.create(tenant=self.tenant, recipient_id=CHAT, message_id=300)
+        tg = TelegramMessage.objects.create(tenant=self.tenant, recipient_id=CHAT, message_id=300, sent_at=timezone.now())
         pending = PendingConfirmation.objects.create(
             tenant=self.tenant, chat_id=CHAT, requester_user=self.user, requester_tg_id=TG_ID,
             origin_message_id=100, confirmation_message=tg, agent_messages=[], tool_calls=[],
