@@ -485,6 +485,127 @@ def test_webhook_unknown_slash_command_not_forwarded_as_command():
     assert m.post.call_count == 0
 
 
+# ── Webhook: event=message (addressed messages) ──────────────────────────────
+
+TOKEN_FULL = "110201543:AAHdqTcvCH1vGWJxfSeofSAs0K5PALDsaw"
+HOOK_FULL = f"/v1/messaging/webhook/{TOKEN_FULL}"
+
+
+def _msg_update(text="hello", chat_type="private", chat_id=500, **extra):
+    msg = {
+        "message_id": 123,
+        "chat": {"id": chat_id, "type": chat_type},
+        "from": {"id": 42, "first_name": "Ann", "last_name": "Lee"},
+        **extra,
+    }
+    if text is not None:
+        msg["text"] = text
+    return {"update_id": 1, "message": msg}
+
+
+def _post_hook(update, username="MyBot"):
+    """Post an update with backend forward and getMe mocked; return (resp, fwd_mock, log_mock)."""
+    with patch("main.BACKEND_URL", "http://backend/webhook"), \
+         patch("main.BACKEND_EVENT_LOG_URL", ""), \
+         patch("main._bot_username", new=AsyncMock(return_value=username)), \
+         patch("main._forward_backend_event", new=AsyncMock(return_value=(True, 200, None))) as fwd, \
+         patch("main.db.log_event", new=AsyncMock()) as log:
+        resp = client.post(HOOK_FULL, json=update)
+    return resp, fwd, log
+
+
+def test_private_text_forwarded_as_message_event():
+    resp, fwd, _ = _post_hook(_msg_update("how much cash?"))
+    assert resp.status_code == 200
+    fwd.assert_awaited_once()
+    assert fwd.await_args.args[0] == {
+        "event": "message", "payload": "how much cash?", "user_id": "42",
+        "recipient_id": "500", "message_id": 123, "platform": "telegram",
+        "bot_id": "110201543", "chat_type": "private", "sender_name": "Ann Lee",
+        "mentions_bot": False, "reply_to_message_id": None, "reply_to_text": "",
+        "reply_to_from_id": "", "reply_to_is_bot": False,
+    }
+
+
+def test_private_command_still_uses_command_path():
+    resp, fwd, _ = _post_hook(_msg_update("/bank_ostatki"))
+    assert resp.status_code == 200
+    fwd.assert_awaited_once()
+    assert fwd.await_args.args[0]["event"] == "command"
+
+
+def test_group_mention_forwarded_mentions_bot_true():
+    upd = _msg_update(
+        "@MyBot balance?", chat_type="supergroup", chat_id=-100,
+        entities=[{"type": "mention", "offset": 0, "length": 6}],
+    )
+    resp, fwd, _ = _post_hook(upd)
+    assert resp.status_code == 200
+    sent = fwd.await_args.args[0]
+    assert sent["event"] == "message"
+    assert sent["mentions_bot"] is True
+    assert sent["chat_type"] == "supergroup"
+
+
+def test_group_reply_to_human_forwarded_reply_to_is_bot_false():
+    upd = _msg_update(
+        "and bank?", chat_type="group", chat_id=-100,
+        reply_to_message={"message_id": 120, "text": "prev", "from": {"id": 7, "is_bot": False}},
+    )
+    resp, fwd, _ = _post_hook(upd)
+    assert resp.status_code == 200
+    sent = fwd.await_args.args[0]
+    assert sent["mentions_bot"] is False
+    assert sent["reply_to_message_id"] == 120
+    assert sent["reply_to_text"] == "prev"
+    assert sent["reply_to_from_id"] == "7"
+    assert sent["reply_to_is_bot"] is False
+
+
+def test_group_plain_message_not_forwarded_and_text_not_logged(caplog):
+    import logging
+    caplog.set_level(logging.INFO, logger="main")
+    resp, fwd, log = _post_hook(_msg_update("secret chatter", chat_type="supergroup", chat_id=-100))
+    assert resp.status_code == 200
+    fwd.assert_not_awaited()
+    log.assert_awaited()
+    for call in log.await_args_list:
+        assert not call.kwargs.get("payload")
+        assert "secret chatter" not in str(call)
+    assert "secret chatter" not in caplog.text
+
+
+def test_caption_used_when_no_text():
+    upd = _msg_update(None, caption="photo caption")
+    resp, fwd, _ = _post_hook(upd)
+    assert fwd.await_args.args[0]["payload"] == "photo caption"
+
+
+def test_message_without_text_ignored():
+    resp, fwd, _ = _post_hook(_msg_update(None))
+    assert resp.status_code == 200
+    fwd.assert_not_awaited()
+
+
+def test_get_me_cached_per_bot():
+    import main
+    main._bot_username_cache.clear()
+    ok = AsyncMock(return_value={"ok": True, "result": {"username": "MyBot"}})
+    with patch("main._tg_post", new=ok):
+        import asyncio
+        assert asyncio.run(main._bot_username("1:AAA")) == "MyBot"
+        assert asyncio.run(main._bot_username("1:AAA")) == "MyBot"
+        assert ok.await_count == 1
+        asyncio.run(main._bot_username("2:BBB"))
+        assert ok.await_count == 2
+    main._bot_username_cache.clear()
+    fail = AsyncMock(return_value={"ok": False, "description": "boom"})
+    with patch("main._tg_post", new=fail):
+        assert asyncio.run(main._bot_username("3:CCC")) == ""
+        assert asyncio.run(main._bot_username("3:CCC")) == ""
+        assert fail.await_count == 2  # failures are not cached
+
+
 # ── Commands menu (setMyCommands) ────────────────────────────────────────────
 
 def test_commands_set_calls_setMyCommands():

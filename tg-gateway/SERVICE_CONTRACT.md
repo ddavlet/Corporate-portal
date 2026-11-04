@@ -113,7 +113,10 @@ Receive platform events (Telegram updates). The gateway filters for:
 1. **interactive events** (button clicks) → `event=interaction`
 2. **known slash commands** (`/bank_ostatki`, `/cash_ostatki`, `/card_ostatki`) → `event=command`
 
-Other non-interactive events (plain messages, etc.) are acknowledged with `{"ok": true}`
+3. **messages addressed to the bot** → `event=message` (private chats: every non-command text/caption
+   message; groups/supergroups: only @mentions of the bot and replies to any message)
+
+Other non-interactive events (unaddressed group chatter, etc.) are acknowledged with `{"ok": true}`
 and not forwarded as business events (they may still be discovery-logged / event-logged).
 
 **Telegram registers this URL as the bot webhook.** The `{bot_token}` in the path is used to
@@ -161,6 +164,26 @@ immediately regardless.
 | `message_id`   | integer | ID of the message containing the button / command |
 | `platform`     | string  | `"telegram"`, `"slack"`, etc. — for logging only; business logic must not branch on this |
 | `bot_id`       | string  | (commands only) Numeric Telegram bot id — **not** the bot secret |
+
+**Forwarded payload — message (gateway → backend):**
+
+```json
+{
+  "event": "message", "payload": "<text or caption>", "user_id": "<from.id>",
+  "recipient_id": "<chat.id>", "message_id": 123, "platform": "telegram",
+  "bot_id": "110201543", "chat_type": "private|group|supergroup",
+  "sender_name": "<first last>", "mentions_bot": true,
+  "reply_to_message_id": 120, "reply_to_text": "...", "reply_to_from_id": "<id or ''>",
+  "reply_to_is_bot": true
+}
+```
+
+`reply_to_*` are `null` / `""` / `false` when the message is not a reply. `mentions_bot` is true for an
+`@bot_username` mention (case-insensitive) or a `text_mention` of the bot user; in private chats it is
+informational. Commands (starting with `/`) never produce `event=message`.
+
+**Privacy:** group/supergroup messages that are not forwarded are dropped without their text: it is not
+written to logs, `db.log_event` payload, or the event log.
 
 **Backend webhook URL:** configured via `BACKEND_WEBHOOK_URL` env var.
 No auth header is sent — network isolation is the only access control.
