@@ -1910,14 +1910,14 @@ class ToolReadOnlyHintTests(TestCase):
             with self.subTest(tool=name):
                 ann = tools[name].annotations
                 self.assertIsNotNone(ann)
-                self.assertIs(ann.readOnlyHint, True)
+                self.assertIs(ann.read_only_hint, True)
 
     def test_write_tools_have_no_read_only_hint(self):
         tools = self._tools()
         for name in self.WRITE_TOOLS:
             with self.subTest(tool=name):
                 ann = tools[name].annotations
-                self.assertTrue(ann is None or ann.readOnlyHint is not True)
+                self.assertTrue(ann is None or ann.read_only_hint is not True)
 
 
 class DjangoMcpToolDecoratorTenantTests(TestCase):

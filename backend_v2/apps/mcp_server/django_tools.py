@@ -46,7 +46,7 @@ def django_mcp_tool(mcp) -> Callable[..., Callable[[F], F]]:
                 k: v for k, v in getattr(fn, "__annotations__", {}).items() if k != "tenant_id"
             }
             # readOnlyHint only for tools that explicitly opt in; the default is "may write".
-            annotations = ToolAnnotations(readOnlyHint=True) if read_only else None
+            annotations = ToolAnnotations(read_only_hint=True) if read_only else None
             mcp.tool(annotations=annotations)(async_wrapper)
             TOOL_ACCESS[fn.__name__] = access
             return fn
