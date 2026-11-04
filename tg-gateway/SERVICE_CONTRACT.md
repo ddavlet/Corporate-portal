@@ -178,7 +178,7 @@ immediately regardless.
 }
 ```
 
-`reply_to_*` are `null` / `""` / `false` when the message is not a reply. `mentions_bot` is true for an
+`reply_to_*` are `null` / `""` / `false` when the message is not a reply. `reply_to_is_bot` is `true` only when the replied-to message was sent by this bot itself (`reply_to_message.from.id == bot_id`); a reply to another bot gives `false`. `mentions_bot` is true for an
 `@bot_username` mention (case-insensitive) or a `text_mention` of the bot user; in private chats it is
 informational. Commands (starting with `/`) never produce `event=message`.
 

@@ -459,7 +459,7 @@ def _extract_forwardable_message(update: dict, bot_id: str, bot_username: str) -
         "reply_to_message_id": reply.get("message_id") if is_reply else None,
         "reply_to_text": (reply.get("text") or reply.get("caption") or "") if is_reply else "",
         "reply_to_from_id": str(reply_from["id"]) if reply_from.get("id") is not None else "",
-        "reply_to_is_bot": bool(reply_from.get("is_bot")) if is_reply else False,
+        "reply_to_is_bot": is_reply and str(reply_from.get("id", "")) == str(bot_id),
     }
 
 

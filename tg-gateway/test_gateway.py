@@ -562,6 +562,24 @@ def test_group_reply_to_human_forwarded_reply_to_is_bot_false():
     assert sent["reply_to_is_bot"] is False
 
 
+def test_group_reply_to_own_bot_sets_reply_to_is_bot_true():
+    upd = _msg_update(
+        "thanks", chat_type="group", chat_id=-100,
+        reply_to_message={"message_id": 120, "text": "answer", "from": {"id": 110201543, "is_bot": True}},
+    )
+    resp, fwd, _ = _post_hook(upd)
+    assert fwd.await_args.args[0]["reply_to_is_bot"] is True
+
+
+def test_group_reply_to_other_bot_reply_to_is_bot_false():
+    upd = _msg_update(
+        "thanks", chat_type="group", chat_id=-100,
+        reply_to_message={"message_id": 120, "text": "answer", "from": {"id": 999, "is_bot": True}},
+    )
+    resp, fwd, _ = _post_hook(upd)
+    assert fwd.await_args.args[0]["reply_to_is_bot"] is False
+
+
 def test_group_plain_message_not_forwarded_and_text_not_logged(caplog):
     import logging
     caplog.set_level(logging.INFO, logger="main")
