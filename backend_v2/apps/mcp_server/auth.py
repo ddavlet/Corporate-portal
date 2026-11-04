@@ -151,3 +151,14 @@ def require_admin_or_director(tenant_id: int):
         raise PermissionError("Admin or Director role required for this operation")
 
     return user, tenant
+
+
+def require_member(tenant_id: int):
+    """Validate the env token and ensure the user is an active member of the tenant.
+
+    No module or role check: callers that span several modules (search_everywhere)
+    check access per module themselves. Returns (user, tenant).
+    """
+    token = _get_token()
+    user_id = _decode_token(token)
+    return _get_user_and_tenant(user_id, tenant_id, service_mode=_is_service_claim(token))

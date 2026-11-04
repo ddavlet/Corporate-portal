@@ -28,6 +28,7 @@ from apps.mcp_server.tools import (
     clients_debt as debt_tools,
     cash_withdrawals as cw_tools,
     notes as note_tools,
+    search as search_tools,
 )
 
 
@@ -168,6 +169,53 @@ def list_my_modules(tenant_id: int) -> list:
         return _list_err(str(e))
     except Exception as e:
         return _list_err(f"Unexpected error: {e}")
+
+
+@tool(access=Access.always(), read_only=True)
+def search_everywhere(tenant_id: int, query: str, types: str = "", limit: int = 10) -> dict:
+    """Search every document and directory you can see for a word, phrase, number or date.
+
+    Call this first whenever the person mentions something and you do not know
+    where it lives: a number (request number, bank document number, contract
+    number, amount), a name (vendor, employee, client, company) or any word
+    from a description, purpose, comment or note.
+
+    Every text field of every record is searched as a case-insensitive
+    substring, together with the names of linked people and directory entries.
+    A number additionally matches record ids and numeric fields such as
+    amounts exactly ("9003", "#9003", "21 005 000"). A date (YYYY-MM-DD or
+    DD.MM.YYYY) matches date fields. Only modules the person has access to
+    are searched; the rest are listed in not_searched_no_access.
+
+    Returns groups by type, each with the total number of matches and the
+    newest `limit` items. Every item has id, a short title, date, amount,
+    currency, status and `matched` (which fields matched and their text).
+    Comments, approvals, attachments, payroll lines and task comments carry
+    `parent`: the request, payroll document or task they belong to.
+    Open a match with its own tool afterwards: request -> get_request,
+    task -> get_task, contract -> get_contract, payroll_document ->
+    get_payroll_document. Raw cash, bank and card operations are
+    reconciliation records; spending questions are still answered from requests.
+
+    Types: request, request_comment, request_approval, request_attachment,
+    request_category, cash_expense, cash_revenue, bank_expense, bank_revenue,
+    card_expense, card_revenue, payroll_document, payroll_line, payroll_payout,
+    employee, invest_company, invest_return, project_investment,
+    invest_payout_schedule, contract, vendor, budget, client_debt, wallet,
+    cash_register, bank_account, card_account, task, task_comment, note,
+    cash_withdrawal_receipt.
+
+    Args:
+        query: Text to find (at least 2 characters), a number or a date.
+        types: Optional comma-separated types to search; default is all.
+        limit: Max items per type (1-50, default 10).
+    """
+    try:
+        return search_tools.search_everywhere(tenant_id=tenant_id, query=query, types=types, limit=limit)
+    except (PermissionError, ValueError) as e:
+        return _err(str(e))
+    except Exception as e:
+        return _err(f"Unexpected error: {e}")
 
 
 # ---------------------------------------------------------------------------
