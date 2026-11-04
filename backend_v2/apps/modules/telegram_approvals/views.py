@@ -273,6 +273,12 @@ class TelegramApprovalWebhookView(APIView):
             status_code, body = handle_cash_withdrawal_callback(payload=payload_str, event_data=event_data)
             return Response(body, status=status_code)
 
+        if payload_str.startswith("aiq:"):
+            from apps.modules.ai_assistant.callbacks import handle_confirmation_callback
+
+            status_code, body = handle_confirmation_callback(payload=payload_str, event_data=event_data)
+            return Response(body, status=status_code)
+
         if payload_str.startswith("task_"):
             return self._handle_task_callback(payload_str, event_data)
 
