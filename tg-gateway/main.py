@@ -463,6 +463,21 @@ def _extract_forwardable_message(update: dict, bot_id: str, bot_username: str) -
     }
 
 
+def _is_unaddressed_group_message(forward: dict) -> bool:
+    """Group reply forwarded only so the backend can keep it inside a known chain (not addressed to the bot)."""
+    return (
+        forward.get("event") == "message"
+        and forward.get("chat_type") in ("group", "supergroup")
+        and not forward.get("mentions_bot")
+        and not forward.get("reply_to_is_bot")
+    )
+
+
+def _without_message_text(forward: dict) -> dict:
+    """Copy of a message event without the message text and the quoted reply text."""
+    return {k: v for k, v in forward.items() if k not in ("payload", "reply_to_text")}
+
+
 async def _forward_backend_event(forward: dict) -> tuple[bool, int, str | None]:
     """POST a platform-neutral event to BACKEND_WEBHOOK_URL. Returns (ok, status, error)."""
     if not BACKEND_URL:
@@ -547,7 +562,8 @@ async def messaging_webhook(
                 info.get("from_id"),
                 info.get("from_username"),
                 info.get("new_member_status"),
-                None if hide_text else info.get("text"),
+                # Message text is never logged: dropped group chatter and forwarded user messages alike.
+                None if (hide_text or message_forward) else info.get("text"),
             )
 
         if command_info:
@@ -577,19 +593,24 @@ async def messaging_webhook(
             return {"ok": True}
 
         if message_forward:
+            # The backend webhook always gets the text (it stores it only inside a known chain).
             ok, fwd_status, error_text = await _forward_backend_event(message_forward)
+            # Privacy: a group reply not addressed to the bot may be chatter outside any chain,
+            # so its text never reaches gateway_logs or the backend event log.
+            unaddressed = _is_unaddressed_group_message(message_forward)
+            logged_forward = _without_message_text(message_forward) if unaddressed else message_forward
             await db.log_event(
                 direction="in", endpoint="/v1/messaging/webhook",
                 action="message", recipient_id=message_forward["recipient_id"],
                 message_id=message_forward["message_id"],
                 ok=ok, status_code=fwd_status, error_text=error_text,
-                payload=update, tg_response=message_forward,
+                payload=None if unaddressed else update, tg_response=logged_forward,
             )
             _schedule(_forward_event_log({
                 "direction": "incoming",
                 "event_type": "message",
                 "update_id": update.get("update_id"),
-                "payload": {k: v for k, v in message_forward.items() if k != "bot_id"},
+                "payload": {k: v for k, v in logged_forward.items() if k != "bot_id"},
             }))
             return {"ok": True}
 

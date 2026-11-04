@@ -593,6 +593,56 @@ def test_group_plain_message_not_forwarded_and_text_not_logged(caplog):
     assert "secret chatter" not in caplog.text
 
 
+def test_group_unaddressed_reply_forwarded_but_text_not_logged(caplog):
+    """A group reply to a human is forwarded (backend keeps it only inside a known chain),
+    but its text and the quoted text never reach gateway_logs, the event log or the logger."""
+    import logging
+    caplog.set_level(logging.INFO, logger="main")
+    upd = _msg_update(
+        "secret reply", chat_type="supergroup", chat_id=-100,
+        reply_to_message={"message_id": 120, "text": "quoted secret", "from": {"id": 7, "is_bot": False}},
+    )
+    with patch("main._forward_event_log", new=AsyncMock()) as event_log:
+        resp, fwd, log = _post_hook(upd)
+    assert resp.status_code == 200
+    fwd.assert_awaited_once()
+    sent = fwd.await_args.args[0]
+    assert sent["payload"] == "secret reply"
+    assert sent["reply_to_text"] == "quoted secret"
+    log.assert_awaited_once()
+    assert log.await_args.kwargs.get("payload") is None
+    assert "secret" not in str(log.await_args)
+    event_log.assert_called_once()
+    logged = event_log.call_args.args[0]
+    assert "payload" not in logged["payload"]
+    assert "reply_to_text" not in logged["payload"]
+    assert logged["payload"]["reply_to_message_id"] == 120
+    assert "secret" not in str(logged)
+    assert "secret" not in caplog.text
+
+
+def test_group_addressed_reply_still_logged_in_full():
+    upd = _msg_update(
+        "thanks", chat_type="group", chat_id=-100,
+        reply_to_message={"message_id": 120, "text": "answer", "from": {"id": 110201543, "is_bot": True}},
+    )
+    with patch("main._forward_event_log", new=AsyncMock()) as event_log:
+        resp, fwd, log = _post_hook(upd)
+    assert resp.status_code == 200
+    assert log.await_args.kwargs.get("payload") == upd
+    assert event_log.call_args.args[0]["payload"]["payload"] == "thanks"
+
+
+def test_forwarded_private_message_text_not_in_discovery_log(caplog):
+    import logging
+    caplog.set_level(logging.INFO, logger="main")
+    resp, fwd, _ = _post_hook(_msg_update("private question text"))
+    assert resp.status_code == 200
+    fwd.assert_awaited_once()
+    assert any("discovery" in r.message for r in caplog.records)
+    assert "private question text" not in caplog.text
+
+
 def test_caption_used_when_no_text():
     upd = _msg_update(None, caption="photo caption")
     resp, fwd, _ = _post_hook(upd)
