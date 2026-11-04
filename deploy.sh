@@ -57,6 +57,11 @@ done
 docker compose --env-file ./.env exec -T backend_v2 python manage.py migrate
                           # применяем оставшиеся миграции (обычно no-op; при таймауте покажет реальную ошибку)
 
+echo "Синхронизирую профили Telegram-ботов (команды, описание, кнопка меню)..."
+docker compose --env-file ./.env exec -T backend_v2 python manage.py sync_telegram_bots \
+  || echo "⚠️ sync_telegram_bots не удался — деплой продолжается (повторить: make sync-telegram-bots)"
+                          # best-effort: сбой Telegram/gateway не должен обрывать деплой (set -e выше)
+
 docker compose --env-file ./.env up -d --no-deps backend_cron
                           # планировщик management-команд; живёт отдельно от web-процесса
 

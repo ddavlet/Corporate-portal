@@ -230,7 +230,9 @@ class TenantIntegrationConfigView(APIView):
         cfg.save()
         tenant.save(update_fields=["telegram_bot_token_enc", "telegram_bot_username"])
         if new_bot_token:
-            sync_telegram_bot_commands(tenant)
+            from apps.modules.telegram_approvals.bot_profile import sync_bot_profile
+
+            sync_bot_profile(tenant)
         return self.get(request)
 
 

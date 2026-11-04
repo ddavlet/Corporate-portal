@@ -300,8 +300,9 @@ class TenantIntegrationConfigApiTests(APITestCase):
         )
         self.assertEqual(res.status_code, 200, res.content)
 
-        mocked_post.assert_called_once()
-        call_args = mocked_post.call_args
+        # commands + description + menu button (the latter may be skipped without BASE_DOMAIN)
+        self.assertGreaterEqual(mocked_post.call_count, 2)
+        call_args = mocked_post.call_args_list[0]
         self.assertEqual(call_args.args[0], "http://tg_gateway:8080/v1/messaging/commands/set")
         sent_commands = {c["command"] for c in call_args.kwargs["json"]["commands"]}
         self.assertEqual(sent_commands, {"bank_ostatki", "cash_ostatki", "card_ostatki"})
