@@ -109,6 +109,23 @@ class SyncBotProfileTests(TestCase):
         self.assertNotIn("123456:abcdef", joined)
 
     @patch(POST)
+    def test_unexpected_error_in_one_part_does_not_raise(self, mocked_post):
+        bad = MagicMock()
+        bad.status_code = 200
+        bad.content = b"[]"
+        bad.json.return_value = ["not", "a", "dict"]
+        mocked_post.side_effect = [bad, _resp(), _resp()]
+        tenant = _make_tenant()
+
+        with self.assertLogs(bot_profile.logger, level="WARNING"):
+            with patch.object(bot_profile, "_assistant_enabled", side_effect=RuntimeError("x")):
+                result = bot_profile.sync_bot_profile(tenant)
+
+        self.assertFalse(result.commands_ok)
+        self.assertFalse(result.description_ok)
+        self.assertTrue(result.menu_button_ok)
+
+    @patch(POST)
     def test_no_token_returns_none(self, mocked_post):
         tenant = _make_tenant(subdomain="nobot-bp", token="")
 

@@ -40,7 +40,11 @@ def _assistant_enabled(tenant) -> bool:
     except ImportError:
         logger.warning("ai_assistant module unavailable; bot description without assistant text")
         return False
-    return bool(assistant_enabled(tenant))
+    try:
+        return bool(assistant_enabled(tenant))
+    except Exception:
+        logger.exception("assistant_enabled failed tenant=%s", tenant.pk)
+        return False
 
 
 def build_descriptions(tenant) -> tuple[str, str]:
@@ -63,8 +67,10 @@ def _post(tenant, path: str, payload: dict) -> tuple[bool, str]:
     try:
         resp = requests.post(f"{_gateway_base_url()}{path}", json=payload, timeout=REQUEST_TIMEOUT)
         data = resp.json() if resp.content else {}
-    except (requests.RequestException, ValueError) as exc:
-        logger.warning("Telegram bot profile %s failed tenant=%s: %s", path, tenant.pk, type(exc).__name__)
+        if not isinstance(data, dict):
+            raise ValueError("non-object JSON body")
+    except Exception as exc:
+        logger.exception("Telegram bot profile %s failed tenant=%s", path, tenant.pk)
         return False, type(exc).__name__
     if resp.status_code >= 400 or not data.get("ok"):
         reason = (
@@ -77,6 +83,15 @@ def _post(tenant, path: str, payload: dict) -> tuple[bool, str]:
     return True, ""
 
 
+def _safe_part(tenant, name: str, fn):
+    """Run one sync part; any unexpected error counts as that part failing (never raises)."""
+    try:
+        return fn()
+    except Exception:
+        logger.exception("Telegram bot profile part %s crashed tenant=%s", name, tenant.pk)
+        return False
+
+
 def sync_bot_profile(tenant) -> BotProfileSyncResult | None:
     from apps.modules.telegram_approvals.command_handlers import WALLET_BALANCE_COMMANDS
 
@@ -85,25 +100,34 @@ def sync_bot_profile(tenant) -> BotProfileSyncResult | None:
         return None
 
     commands = [{"command": spec.command, "description": spec.title} for spec in WALLET_BALANCE_COMMANDS.values()]
-    commands_ok, _ = _post(tenant, "/v1/messaging/commands/set", {"bot_token": bot_token, "commands": commands})
-
-    description, short_description = build_descriptions(tenant)
-    description_ok, _ = _post(
+    commands_ok = _safe_part(
         tenant,
-        "/v1/messaging/description/set",
-        {"bot_token": bot_token, "description": description, "short_description": short_description},
+        "commands",
+        lambda: _post(tenant, "/v1/messaging/commands/set", {"bot_token": bot_token, "commands": commands})[0],
     )
 
-    url = mini_app_url(tenant)
-    if url is None:
-        logger.warning("BASE_DOMAIN is empty or localhost; skipping menu button tenant=%s", tenant.pk)
-        menu_button_ok = None
-    else:
-        menu_button_ok, _ = _post(
+    def _description():
+        description, short_description = build_descriptions(tenant)
+        return _post(
+            tenant,
+            "/v1/messaging/description/set",
+            {"bot_token": bot_token, "description": description, "short_description": short_description},
+        )[0]
+
+    description_ok = _safe_part(tenant, "description", _description)
+
+    def _menu_button():
+        url = mini_app_url(tenant)
+        if url is None:
+            logger.warning("BASE_DOMAIN is empty or localhost; skipping menu button tenant=%s", tenant.pk)
+            return None
+        return _post(
             tenant,
             "/v1/messaging/menu-button/set",
             {"bot_token": bot_token, "text": MENU_BUTTON_TEXT, "url": url},
-        )
+        )[0]
+
+    menu_button_ok = _safe_part(tenant, "menu_button", _menu_button)
 
     return BotProfileSyncResult(
         tenant_id=tenant.pk,

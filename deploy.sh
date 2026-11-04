@@ -57,11 +57,6 @@ done
 docker compose --env-file ./.env exec -T backend_v2 python manage.py migrate
                           # применяем оставшиеся миграции (обычно no-op; при таймауте покажет реальную ошибку)
 
-echo "Синхронизирую профили Telegram-ботов (команды, описание, кнопка меню)..."
-docker compose --env-file ./.env exec -T backend_v2 python manage.py sync_telegram_bots \
-  || echo "⚠️ sync_telegram_bots не удался — деплой продолжается (повторить: make sync-telegram-bots)"
-                          # best-effort: сбой Telegram/gateway не должен обрывать деплой (set -e выше)
-
 docker compose --env-file ./.env up -d --no-deps backend_cron
                           # планировщик management-команд; живёт отдельно от web-процесса
 
@@ -69,6 +64,20 @@ docker compose --env-file ./.env up -d --no-deps frontend_v2 tg-gateway
                           # перезапускаем frontend_v2 и tg-gateway с новыми образами
                           # --no-deps = не трогать db, n8n и остальные
                           # -d = в фоне
+
+# Профили Telegram-ботов синхронизируем только когда НОВЫЙ tg-gateway поднялся
+# (старый образ не знает новых эндпоинтов). Best-effort: никогда не обрывает деплой.
+echo "Жду готовности tg-gateway..."
+for i in $(seq 1 10); do
+  if docker compose --env-file ./.env exec -T backend_v2 python -c \
+    "import urllib.request; urllib.request.urlopen('http://tg_gateway:8080/health', timeout=3)" >/dev/null 2>&1; then
+    break
+  fi
+  sleep 2
+done
+echo "Синхронизирую профили Telegram-ботов (команды, описание, кнопка меню)..."
+docker compose --env-file ./.env exec -T backend_v2 python manage.py sync_telegram_bots \
+  || echo "⚠️ sync_telegram_bots не удался — деплой продолжается (повторить: make sync-telegram-bots)"
 
 if [ "$DEPLOY_RUN_TESTS" = "1" ]; then
   echo "Запускаю тесты после перезапуска: ${DEPLOY_TEST_PATH}"

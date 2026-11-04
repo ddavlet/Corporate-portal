@@ -55,6 +55,10 @@ class Command(BaseCommand):
             else:
                 ok += 1
 
+        if options.get("tenant") and ok + partial == 0:
+            self.stdout.write(f"sync_telegram_bots: tenant {options['tenant']} not found or has no bot token")
+            return
+
         self.stdout.write(
             f"sync_telegram_bots: {ok} bots fully synced, {partial} with errors, {skipped} without token"
         )
