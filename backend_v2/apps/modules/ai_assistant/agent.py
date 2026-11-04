@@ -292,7 +292,12 @@ async def run_agent(
             continue
 
         if stop_reason in ("end_turn", "stop_sequence"):
-            return outcome("answer", text=_answer_text(response))
+            text = _answer_text(response)
+            if not text:
+                # Пустой ответ (например, только thinking) — иначе пользователь получит тишину.
+                logger.warning("ai_assistant agent: stop_reason=%s with empty answer text", stop_reason)
+                return outcome("error")
+            return outcome("answer", text=text)
 
         if stop_reason == "max_tokens" and not _tool_calls(response):
             text = _answer_text(response)

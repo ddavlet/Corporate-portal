@@ -330,6 +330,13 @@ class RunAgentTests(SimpleTestCase):
         self.assertTrue(outcome.messages[2]["content"][0]["is_error"])
         self.assertIn("boom", outcome.messages[2]["content"][0]["content"])
 
+    def test_empty_end_turn_is_error(self):
+        client = FakeClient([response([thinking()], "end_turn")])
+        with self.assertLogs("apps.modules.ai_assistant.agent", level="WARNING"):
+            outcome = run(client=client, session=FakeSession([READ_A]))
+        self.assertEqual(outcome.kind, "error")
+        self.assertEqual(outcome.text, "")
+
     def test_refusal_outcome(self):
         client = FakeClient([response([], "refusal")])
         outcome = run(client=client, session=FakeSession([READ_A]))
