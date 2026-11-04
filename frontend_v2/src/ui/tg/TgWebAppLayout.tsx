@@ -17,6 +17,20 @@ function shouldShowBottomNav(pathname: string): boolean {
   return NAV_VISIBLE_PATHS.test(normalized)
 }
 
+const MOBILE_TG_PLATFORMS = new Set(['ios', 'android'])
+
+/** Fullscreen only on phones with Telegram 8.0+; never on desktop/web clients. */
+function requestMobileFullscreen(tw: TelegramWebApp | undefined) {
+  if (!tw || !MOBILE_TG_PLATFORMS.has(tw.platform ?? '')) return
+  if (!tw.isVersionAtLeast?.('8.0') || typeof tw.requestFullscreen !== 'function') return
+  if (tw.isFullscreen) return
+  try {
+    tw.requestFullscreen()
+  } catch (e) {
+    console.warn('Telegram requestFullscreen failed', e)
+  }
+}
+
 export function TgWebAppLayout() {
   const { login } = useAuth()
   const location = useLocation()
@@ -26,11 +40,16 @@ export function TgWebAppLayout() {
   const [ready, setReady] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
+  // Shell setup runs once per mount; the auth effect below may re-run when `login` changes.
   useEffect(() => {
     const tw = typeof window !== 'undefined' ? window.Telegram?.WebApp : undefined
     tw?.ready()
     tw?.expand?.()
+    requestMobileFullscreen(tw)
+  }, [])
 
+  useEffect(() => {
+    const tw = typeof window !== 'undefined' ? window.Telegram?.WebApp : undefined
     const initData = tw?.initData ?? ''
     if (!initData.trim()) {
       setError('Откройте мини-приложение из Telegram. Для отладки в браузере нужен тестовый initData.')

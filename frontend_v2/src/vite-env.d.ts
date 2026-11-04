@@ -50,6 +50,10 @@ interface TelegramWebApp {
   initDataUnsafe: TelegramWebAppInitDataUnsafe
   ready: () => void
   expand?: () => void
+  platform?: string
+  isFullscreen?: boolean
+  isVersionAtLeast?: (version: string) => boolean
+  requestFullscreen?: () => void
   close?: () => void
   themeParams?: TelegramThemeParams
   colorScheme?: 'light' | 'dark'

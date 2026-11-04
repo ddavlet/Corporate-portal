@@ -10,6 +10,8 @@ Endpoints:
   POST /v1/messaging/webhook/{bot_token}— receive Telegram updates, forward
                                           interactions and known slash commands
   POST /v1/messaging/commands/set       — register the bot's slash-command menu
+  POST /v1/messaging/description/set    — set the bot's description + short description
+  POST /v1/messaging/menu-button/set    — set the default menu button (web app)
   GET  /health                          — liveness + DB status
 
 Authentication: none — Docker internal network only (no public exposure).
@@ -42,7 +44,9 @@ from models import (
     EDIT_ACTIONS,
     SEND_ACTIONS,
     CommandsSetRequest,
+    DescriptionSetRequest,
     DispatchRequest,
+    MenuButtonSetRequest,
     WebhookDeleteRequest,
     WebhookSetRequest,
 )
@@ -810,6 +814,65 @@ async def set_telegram_commands(payload: CommandsSetRequest) -> JSONResponse:
             "telegram_status": status_code,
             "telegram": tg_data,
         },
+    )
+
+
+# ── Telegram bot profile: description and menu button ──────────────────────────
+
+@app.post("/v1/messaging/description/set")
+async def set_telegram_description(payload: DescriptionSetRequest) -> JSONResponse:
+    token_mask = _mask_bot_token(payload.bot_token)
+    logger.info(
+        "description set requested token=%s description_len=%d short_len=%d",
+        token_mask,
+        len(payload.description),
+        len(payload.short_description),
+    )
+    desc_status, desc_data = await _telegram_api(
+        payload.bot_token, "setMyDescription", {"description": payload.description}
+    )
+    short_status, short_data = await _telegram_api(
+        payload.bot_token, "setMyShortDescription", {"short_description": payload.short_description}
+    )
+    ok = bool(desc_data.get("ok")) and bool(short_data.get("ok"))
+    logger.info(
+        "description set result token=%s ok=%s description_ok=%s short_ok=%s errors=%s/%s",
+        token_mask,
+        ok,
+        bool(desc_data.get("ok")),
+        bool(short_data.get("ok")),
+        desc_data.get("description") if not desc_data.get("ok") else None,
+        short_data.get("description") if not short_data.get("ok") else None,
+    )
+    return JSONResponse(
+        status_code=200 if ok else 502,
+        content={
+            "ok": ok,
+            "telegram_status": desc_status,
+            "telegram": desc_data,
+            "short_telegram_status": short_status,
+            "short_telegram": short_data,
+        },
+    )
+
+
+@app.post("/v1/messaging/menu-button/set")
+async def set_telegram_menu_button(payload: MenuButtonSetRequest) -> JSONResponse:
+    token_mask = _mask_bot_token(payload.bot_token)
+    logger.info("menu button set requested token=%s text=%r url=%s", token_mask, payload.text, payload.url)
+    # No chat_id => default menu button for all private chats.
+    body = {"menu_button": {"type": "web_app", "text": payload.text, "web_app": {"url": payload.url}}}
+    status_code, tg_data = await _telegram_api(payload.bot_token, "setChatMenuButton", body)
+    logger.info(
+        "menu button set result token=%s ok=%s status=%s description=%s",
+        token_mask,
+        bool(tg_data.get("ok")),
+        status_code,
+        tg_data.get("description"),
+    )
+    return JSONResponse(
+        status_code=200 if tg_data.get("ok") else 502,
+        content={"ok": bool(tg_data.get("ok")), "telegram_status": status_code, "telegram": tg_data},
     )
 
 

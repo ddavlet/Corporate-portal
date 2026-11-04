@@ -1,6 +1,6 @@
 # Service Contract — Messaging Gateway
 
-Version: 2.3
+Version: 2.4
 Base URL:
 - Internal (backend -> gateway): `http://tg-gateway:8080`
 - Public (Telegram -> gateway webhook only): `https://<TG_GATEWAY_PUBLIC_HOST>`
@@ -216,6 +216,57 @@ Create/update Telegram webhook for a bot.
   "telegram_status": 200,
   "telegram": { "ok": true, "result": true }
 }
+```
+
+---
+
+### POST /v1/messaging/description/set
+
+Set the bot's profile texts (Telegram `setMyDescription` + `setMyShortDescription`).
+
+**Request body:**
+```json
+{
+  "bot_token": "123:abc",
+  "description": "up to 512 chars",
+  "short_description": "up to 120 chars"
+}
+```
+
+**Response (200 only if both Telegram calls succeed, otherwise 502):**
+```json
+{
+  "ok": true,
+  "telegram_status": 200,
+  "telegram": { "ok": true, "result": true },
+  "short_telegram_status": 200,
+  "short_telegram": { "ok": true, "result": true }
+}
+```
+
+The gateway logs only text lengths, never the texts or the full token.
+
+---
+
+### POST /v1/messaging/menu-button/set
+
+Set the default menu button for all private chats (Telegram `setChatMenuButton`, no `chat_id`).
+
+**Request body:**
+```json
+{
+  "bot_token": "123:abc",
+  "text": "Портал",
+  "url": "https://tenant.example.com/app/tg/"
+}
+```
+
+- `text`: 1..64 chars. `url`: `https://` only (422 otherwise).
+- Sent to Telegram as `{"menu_button": {"type": "web_app", "text": ..., "web_app": {"url": ...}}}`.
+
+**Response (200 on success, 502 on Telegram failure):**
+```json
+{ "ok": true, "telegram_status": 200, "telegram": { "ok": true, "result": true } }
 ```
 
 ---

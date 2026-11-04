@@ -713,3 +713,81 @@ def test_commands_set_telegram_failure_returns_502():
 def _posted_body_from(mock_client) -> dict:
     call_args = mock_client.post.call_args
     return call_args.kwargs.get("json") or {}
+
+
+def _tg_seq(*responses):
+    """AsyncClient mock whose successive post() calls return the given (status, json) pairs."""
+    results = []
+    for status, data in responses:
+        r = MagicMock()
+        r.status_code = status
+        r.json.return_value = data
+        results.append(r)
+    m = AsyncMock()
+    m.__aenter__ = AsyncMock(return_value=m)
+    m.__aexit__ = AsyncMock(return_value=False)
+    m.post = AsyncMock(side_effect=results)
+    return m
+
+
+def test_description_set_calls_both_methods():
+    ok = (200, {"ok": True, "result": True})
+    m = _tg_seq(ok, ok)
+    with patch("httpx.AsyncClient", return_value=m):
+        resp = client.post(
+            "/v1/messaging/description/set",
+            json={"bot_token": BOT, "description": "Длинное описание", "short_description": "Короткое"},
+        )
+    assert resp.status_code == 200
+    assert resp.json()["ok"] is True
+    calls = m.post.call_args_list
+    assert calls[0].args[0] == f"https://api.telegram.org/bot{BOT}/setMyDescription"
+    assert calls[0].kwargs["json"] == {"description": "Длинное описание"}
+    assert calls[1].args[0] == f"https://api.telegram.org/bot{BOT}/setMyShortDescription"
+    assert calls[1].kwargs["json"] == {"short_description": "Короткое"}
+    assert BOT not in resp.text
+
+
+def test_description_set_fails_if_one_fails():
+    m = _tg_seq((200, {"ok": True, "result": True}), (400, {"ok": False, "description": "bad"}))
+    with patch("httpx.AsyncClient", return_value=m):
+        resp = client.post(
+            "/v1/messaging/description/set",
+            json={"bot_token": BOT, "description": "d", "short_description": "s"},
+        )
+    assert resp.status_code == 502
+    data = resp.json()
+    assert data["ok"] is False
+    assert data["telegram"]["ok"] is True
+    assert data["short_telegram"]["ok"] is False
+
+
+def test_menu_button_set_web_app_payload():
+    m = _tg_delete_ok()
+    with patch("httpx.AsyncClient", return_value=m):
+        resp = client.post(
+            "/v1/messaging/menu-button/set",
+            json={"bot_token": BOT, "text": "Портал", "url": "https://lemonfit.kolberg.uz/app/tg/"},
+        )
+    assert resp.status_code == 200
+    assert resp.json()["ok"] is True
+    assert m.post.call_args.args[0] == f"https://api.telegram.org/bot{BOT}/setChatMenuButton"
+    assert _posted_body_from(m) == {
+        "menu_button": {
+            "type": "web_app",
+            "text": "Портал",
+            "web_app": {"url": "https://lemonfit.kolberg.uz/app/tg/"},
+        }
+    }
+    assert BOT not in resp.text
+
+
+def test_menu_button_rejects_non_https_url():
+    m = _tg_delete_ok()
+    with patch("httpx.AsyncClient", return_value=m):
+        resp = client.post(
+            "/v1/messaging/menu-button/set",
+            json={"bot_token": BOT, "text": "Портал", "url": "http://lemonfit.kolberg.uz/app/tg/"},
+        )
+    assert resp.status_code == 422
+    m.post.assert_not_called()
