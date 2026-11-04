@@ -534,6 +534,15 @@ class RunAgentTests(SimpleTestCase):
         self.assertEqual(client.requests[0]["tools"][0]["description"], CALCULATOR_TOOL["description"])
         self.assertEqual(len(logs.output), 1)
 
+    def test_system_prompt_has_answer_style_and_calculations(self):
+        for section in ("answer_style", "calculations"):
+            self.assertIn(f"<{section}>", SYSTEM_PROMPT)
+            self.assertIn(f"</{section}>", SYSTEM_PROMPT)
+        self.assertIn("calculate tool", SYSTEM_PROMPT)
+        self.assertTrue(SYSTEM_PROMPT.isascii())
+        self.assertNotRegex(SYSTEM_PROMPT, r"\d{4}-\d{2}-\d{2}")
+        self.assertNotRegex(SYSTEM_PROMPT, r"\d{1,2}\.\d{1,2}\.\d{2,4}")
+
     def test_assistant_content_appended_unchanged(self):
         fallback = Block(
             type="fallback",
