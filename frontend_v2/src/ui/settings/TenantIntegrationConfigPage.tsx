@@ -7,6 +7,7 @@ import {
   type TenantIntegrationConfigUpdatePayload,
   updateTenantIntegrationConfig,
 } from '../../lib/api'
+import { TelegramBotSetupWidget } from './TelegramBotSetupWidget'
 
 type FormState = {
   telegram_bot_token: string
@@ -48,6 +49,7 @@ export function TenantIntegrationConfigPage() {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [form, setForm] = useState<FormState | null>(null)
+  const [setupReloadKey, setSetupReloadKey] = useState(0)
 
   const load = async () => {
     setLoading(true)
@@ -55,6 +57,7 @@ export function TenantIntegrationConfigPage() {
     try {
       const data = await getTenantIntegrationConfig()
       setForm(toFormState(data))
+      setSetupReloadKey((k) => k + 1)
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Не удалось загрузить настройки')
     } finally {
@@ -181,6 +184,8 @@ export function TenantIntegrationConfigPage() {
               value={form.telegram_oidc_redirect_uri}
               onChange={(e) => setField('telegram_oidc_redirect_uri', e.target.value)}
             />
+
+            <TelegramBotSetupWidget reloadKey={setupReloadKey} />
 
             <Divider style={{ margin: '4px 0' }} />
             <Typography.Text strong>Telegram webhook</Typography.Text>

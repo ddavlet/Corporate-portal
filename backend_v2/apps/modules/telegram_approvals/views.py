@@ -42,6 +42,17 @@ class TenantTelegramChatViewSet(viewsets.ModelViewSet):
             raise ValidationError({"chat_id": "Telegram-группа с таким Chat ID уже существует."})
 
 
+class TelegramBotSetupView(APIView):
+    """BotFather checklist (Main App / Direct Links values) for the current tenant."""
+
+    permission_classes = [IsAuthenticated, IsTenantAdmin]
+
+    def get(self, request):
+        from apps.modules.telegram_approvals.miniapp_links import bot_setup_checklist
+
+        return Response(bot_setup_checklist(request.tenant))
+
+
 class TelegramApprovalWebhookView(APIView):
     permission_classes = [AllowAny]
     authentication_classes = []

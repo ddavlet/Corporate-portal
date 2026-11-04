@@ -1,3 +1,4 @@
+import logging
 from datetime import date
 from decimal import Decimal
 
@@ -766,7 +767,22 @@ class ApprovalSerializer(serializers.ModelSerializer):
 
     def get_payment_webapp_url(self, obj):
         cfg = self._get_payment_step_cfg(obj)
-        return (cfg.payment_webapp_url or "") if cfg else ""
+        if not cfg:
+            return ""
+        url = cfg.payment_webapp_url or ""
+        if url.strip():
+            return url
+        return self._default_payment_webapp_url(obj)
+
+    def _default_payment_webapp_url(self, obj):
+        try:
+            from apps.modules.telegram_approvals.miniapp_links import default_payment_webapp_url
+        except ImportError:
+            logging.getLogger(__name__).warning("telegram_approvals unavailable; no default payment webapp url")
+            return ""
+        req = getattr(obj, "request", None)
+        tenant = getattr(req, "tenant", None)
+        return default_payment_webapp_url(tenant) if tenant is not None else ""
 
 
 class RequestCommentSerializer(serializers.ModelSerializer):

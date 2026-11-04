@@ -253,6 +253,23 @@ export async function getTenantIntegrationConfig(): Promise<TenantIntegrationCon
   return json
 }
 
+export type TelegramBotSetupChecklist = {
+  bot_username: string
+  has_bot_token: boolean
+  main_app_url: string
+  launch_mode: string
+  direct_links: { short_name: string; web_app_url: string; link: string }[]
+  auto_synced: string[]
+}
+
+export async function getTelegramBotSetup(): Promise<TelegramBotSetupChecklist> {
+  const res = await apiFetch('/api/messaging-gateway/bot-setup/')
+  if (!res.ok) throw new Error(await parseErrorBody(res))
+  const json = (await res.json().catch(() => null)) as TelegramBotSetupChecklist | null
+  if (!json) throw new Error('Пустой ответ от сервера')
+  return json
+}
+
 export type TenantCashExpenseIdFormatDto = {
   cash_expense_external_id_prefix: string
   cash_expense_external_id_digit_width: number
