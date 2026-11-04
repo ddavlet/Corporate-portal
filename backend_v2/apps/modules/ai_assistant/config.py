@@ -7,6 +7,9 @@ AGENT_EFFORT = "medium"
 AGENT_MAX_TOKENS = 16000
 AGENT_MAX_STEPS = 12
 FALLBACK_BETA = "server-side-fallback-2026-07-01"
+# Разрешает thinking.block_binding: thinking-блоки, не прошедшие проверку префикса
+# (изменился system/tools/история), отбрасываются вместо ошибки 400.
+THINKING_BINDING_BETA = "thinking-binding-controls-2026-08-01"
 
 ALLOWED_ROLES = frozenset(
     {

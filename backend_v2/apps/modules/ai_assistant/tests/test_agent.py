@@ -13,6 +13,7 @@ from apps.modules.ai_assistant.config import (
     AGENT_MAX_TOKENS,
     AGENT_MODEL,
     FALLBACK_BETA,
+    THINKING_BINDING_BETA,
 )
 from apps.modules.ai_assistant.mcp_client import (
     ClientMcpSession,
@@ -379,12 +380,33 @@ class RunAgentTests(SimpleTestCase):
         request = client.requests[0]
         self.assertEqual(request["model"], AGENT_MODEL)
         self.assertEqual(request["max_tokens"], AGENT_MAX_TOKENS)
-        self.assertEqual(request["thinking"], {"type": "adaptive"})
+        self.assertEqual(
+            request["thinking"],
+            {"type": "adaptive", "block_binding": {"prefix_mismatch_behavior": "drop_block"}},
+        )
         self.assertEqual(request["output_config"], {"effort": AGENT_EFFORT})
         self.assertEqual(request["cache_control"], {"type": "ephemeral"})
-        self.assertEqual(request["betas"], [FALLBACK_BETA])
+        self.assertEqual(request["betas"], [FALLBACK_BETA, THINKING_BINDING_BETA])
+        self.assertEqual(THINKING_BINDING_BETA, "thinking-binding-controls-2026-08-01")
         self.assertEqual(request["fallbacks"], "default")
         self.assertEqual(request["messages"], USER_MSG)
+
+    def test_dropped_thinking_blocks_logged_with_counts_only(self):
+        reply = response([text("ok")], "end_turn")
+        reply.input_transformations = [
+            SimpleNamespace(type="thinking_dropped", path="messages.1.content.0", reason="prefix_binding_mismatch"),
+            SimpleNamespace(type="thinking_dropped", path="messages.3.content.0", reason="prefix_binding_mismatch"),
+            {"type": "thinking_dropped", "path": "messages.5.content.0", "reason": "model_binding_mismatch"},
+        ]
+        client = FakeClient([reply])
+        with self.assertLogs("apps.modules.ai_assistant.agent", level="WARNING") as logs:
+            result = run(client=client, session=FakeSession([READ_A]))
+
+        self.assertEqual(result.kind, "answer")
+        warning = "\n".join(logs.output)
+        self.assertIn("thinking_dropped/prefix_binding_mismatch=2", warning)
+        self.assertIn("thinking_dropped/model_binding_mismatch=1", warning)
+        self.assertNotIn("messages.1", warning)
 
     def test_tools_sorted_and_system_prompt_constant(self):
         client = FakeClient([response([text("ok")], "end_turn"), response([text("ok")], "end_turn")])

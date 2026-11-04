@@ -26,6 +26,7 @@ from .config import (
     AGENT_MAX_TOKENS,
     AGENT_MODEL,
     FALLBACK_BETA,
+    THINKING_BINDING_BETA,
 )
 from .mcp_client import McpSession, ToolSpec
 from .pricing import cost_usd
@@ -38,6 +39,11 @@ logger = logging.getLogger(__name__)
 
 CANCELLED_RESULT = "Cancelled by the user."
 EMPTY_RESULT = "(empty result)"
+
+# Префикс, к которому привязан thinking-блок, между ходами может меняться (список
+# инструментов по роли, описания инструментов после деплоя, порядок ключей jsonb в
+# сохранённом tool_use.input). Такие блоки API отбрасывает, а не отвечает 400.
+THINKING_CONFIG = {"type": "adaptive", "block_binding": {"prefix_mismatch_behavior": "drop_block"}}
 
 # Строки usage.iterations, которые соответствуют попыткам модели (основной и fallback).
 _MODEL_ITERATION_TYPES = ("message", "fallback_message")
@@ -181,6 +187,27 @@ async def _tool_results(
     return {"role": "user", "content": results}
 
 
+def _field(item, name: str) -> str:
+    value = item.get(name) if isinstance(item, dict) else getattr(item, name, None)
+    return str(value or "?")
+
+
+def _log_input_transformations(response, step: int) -> None:
+    """Предупреждение о блоках, которые API отбросил/пропустил при проверке привязки (только счётчики)."""
+    entries = getattr(response, "input_transformations", None) or []
+    if not entries:
+        return
+    counts: dict[str, int] = {}
+    for entry in entries:
+        key = f"{_field(entry, 'type')}/{_field(entry, 'reason')}"
+        counts[key] = counts.get(key, 0) + 1
+    logger.warning(
+        "ai_assistant agent: input_transformations on step %s: %s",
+        step,
+        ", ".join(f"{key}={count}" for key, count in sorted(counts.items())),
+    )
+
+
 async def _create(client: "AsyncAnthropic", tools: list[dict], messages: list[dict]):
     return await client.beta.messages.create(
         model=AGENT_MODEL,
@@ -188,10 +215,10 @@ async def _create(client: "AsyncAnthropic", tools: list[dict], messages: list[di
         system=[{"type": "text", "text": SYSTEM_PROMPT, "cache_control": {"type": "ephemeral"}}],
         tools=tools,
         messages=list(messages),
-        thinking={"type": "adaptive"},
+        thinking=THINKING_CONFIG,
         output_config={"effort": AGENT_EFFORT},
         cache_control={"type": "ephemeral"},
-        betas=[FALLBACK_BETA],
+        betas=[FALLBACK_BETA, THINKING_BINDING_BETA],
         fallbacks="default",
     )
 
@@ -259,6 +286,8 @@ async def run_agent(
         except Exception:
             # Учёт расхода не должен ломать ответ пользователю.
             logger.exception("ai_assistant agent: usage accounting failed on step %s", steps)
+
+        _log_input_transformations(response, steps)
 
         # Полный content без изменений (thinking/fallback-блоки нужны API в истории).
         history.append({"role": "assistant", "content": [block.to_dict() for block in response.content]})
