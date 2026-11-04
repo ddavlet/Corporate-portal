@@ -1890,6 +1890,36 @@ class McpToolAccessRegistryTests(TestCase):
                     self.assertNotIn(stale, info.description or "")
 
 
+class ToolReadOnlyHintTests(TestCase):
+    """read_only=True must surface as MCP annotations.readOnlyHint; writers must not."""
+
+    READ_TOOLS = [
+        "list_requests", "get_request", "get_pnl_report",
+        "list_invest_returns", "list_my_tasks", "get_current_tenant",
+    ]
+    WRITE_TOOLS = ["create_task", "update_task_status", "add_task_comment", "edit_task", "delete_task"]
+
+    def _tools(self):
+        from apps.mcp_server.server import mcp
+
+        return {t.name: t for t in mcp._tool_manager.list_tools()}
+
+    def test_read_tools_have_read_only_hint(self):
+        tools = self._tools()
+        for name in self.READ_TOOLS:
+            with self.subTest(tool=name):
+                ann = tools[name].annotations
+                self.assertIsNotNone(ann)
+                self.assertIs(ann.readOnlyHint, True)
+
+    def test_write_tools_have_no_read_only_hint(self):
+        tools = self._tools()
+        for name in self.WRITE_TOOLS:
+            with self.subTest(tool=name):
+                ann = tools[name].annotations
+                self.assertTrue(ann is None or ann.readOnlyHint is not True)
+
+
 class DjangoMcpToolDecoratorTenantTests(TestCase):
     def test_tenant_id_is_hidden_and_injected(self):
         from asgiref.sync import async_to_sync

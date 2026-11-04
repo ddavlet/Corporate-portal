@@ -132,7 +132,7 @@ def _parse_bool_filter(value: str) -> bool | None:
 # Discovery — call this first
 # ---------------------------------------------------------------------------
 
-@tool(access=Access.always())
+@tool(access=Access.always(), read_only=True)
 def get_current_tenant() -> dict:
     """Return the company (tenant) this connector is bound to.
 
@@ -142,7 +142,7 @@ def get_current_tenant() -> dict:
     return {"id": tenant.id, "name": tenant.name, "subdomain": tenant.subdomain}
 
 
-@tool(access=Access.always())
+@tool(access=Access.always(), read_only=True)
 def get_my_role(tenant_id: int) -> dict:
     """Return the current user's roles in a tenant.
 
@@ -156,7 +156,7 @@ def get_my_role(tenant_id: int) -> dict:
         return _err(f"Unexpected error: {e}")
 
 
-@tool(access=Access.always())
+@tool(access=Access.always(), read_only=True)
 def list_my_modules(tenant_id: int) -> list:
     """List modules that are enabled AND accessible to the current user.
 
@@ -174,7 +174,7 @@ def list_my_modules(tenant_id: int) -> list:
 # Requests (заявки)
 # ---------------------------------------------------------------------------
 
-@tool(access=Access.module("requests"))
+@tool(access=Access.module("requests"), read_only=True)
 def list_requests(
     tenant_id: int,
     status: str = "",
@@ -243,7 +243,7 @@ def list_requests(
         return _list_err(f"Unexpected error: {e}")
 
 
-@tool(access=Access.module("requests"))
+@tool(access=Access.module("requests"), read_only=True)
 def summarize_requests(
     tenant_id: int,
     group_by: str = "category",
@@ -299,7 +299,7 @@ def summarize_requests(
         return _err(f"Unexpected error: {e}")
 
 
-@tool(access=Access.module("requests"))
+@tool(access=Access.module("requests"), read_only=True)
 def get_request(tenant_id: int, request_id: int) -> dict:
     """Get full details of a single payment request by ID.
 
@@ -319,7 +319,7 @@ def get_request(tenant_id: int, request_id: int) -> dict:
         return _err(f"Unexpected error: {e}")
 
 
-@tool(access=Access.module("requests"))
+@tool(access=Access.module("requests"), read_only=True)
 def list_request_categories(tenant_id: int) -> list:
     """List active payment request categories configured for a tenant.
 
@@ -339,7 +339,7 @@ def list_request_categories(tenant_id: int) -> list:
 # Financial operations (финансовые операции)
 # ---------------------------------------------------------------------------
 
-@tool(access=Access.module("cash"))
+@tool(access=Access.module("cash"), read_only=True)
 def list_cash_expenses(
     tenant_id: int,
     date_from: str = "",
@@ -371,7 +371,7 @@ def list_cash_expenses(
         return _list_err(f"Unexpected error: {e}")
 
 
-@tool(access=Access.module("cash"))
+@tool(access=Access.module("cash"), read_only=True)
 def list_cash_revenues(
     tenant_id: int,
     date_from: str = "",
@@ -400,7 +400,7 @@ def list_cash_revenues(
         return _list_err(f"Unexpected error: {e}")
 
 
-@tool(access=Access.module("bank"))
+@tool(access=Access.module("bank"), read_only=True)
 def list_bank_expenses(
     tenant_id: int,
     date_from: str = "",
@@ -430,7 +430,7 @@ def list_bank_expenses(
         return _list_err(f"Unexpected error: {e}")
 
 
-@tool(access=Access.module("bank"))
+@tool(access=Access.module("bank"), read_only=True)
 def list_bank_revenues(
     tenant_id: int,
     date_from: str = "",
@@ -459,7 +459,7 @@ def list_bank_revenues(
         return _list_err(f"Unexpected error: {e}")
 
 
-@tool(access=Access.module("corporate_card"))
+@tool(access=Access.module("corporate_card"), read_only=True)
 def list_card_expenses(
     tenant_id: int,
     date_from: str = "",
@@ -489,7 +489,7 @@ def list_card_expenses(
         return _list_err(f"Unexpected error: {e}")
 
 
-@tool(access=Access.module("corporate_card"))
+@tool(access=Access.module("corporate_card"), read_only=True)
 def list_card_revenues(
     tenant_id: int,
     date_from: str = "",
@@ -522,7 +522,7 @@ def list_card_revenues(
 # Reports — PnL and Cashflow
 # ---------------------------------------------------------------------------
 
-@tool(access=Access.module("reports"))
+@tool(access=Access.module("reports"), read_only=True)
 def get_pnl_report(
     tenant_id: int,
     date_from: str = "",
@@ -597,7 +597,7 @@ def get_pnl_report(
         return _err(f"Unexpected error: {e}")
 
 
-@tool(access=Access.module("reports"))
+@tool(access=Access.module("reports"), read_only=True)
 def get_cashflow_report(
     tenant_id: int,
     date_from: str = "",
@@ -645,7 +645,7 @@ def get_cashflow_report(
         return _err(f"Unexpected error: {e}")
 
 
-@tool(access=Access.module("payroll"))
+@tool(access=Access.module("payroll"), read_only=True)
 def list_payroll_documents(
     tenant_id: int,
     status: str = "",
@@ -689,7 +689,7 @@ def list_payroll_documents(
         return _list_err(f"Unexpected error: {e}")
 
 
-@tool(access=Access.module("payroll"))
+@tool(access=Access.module("payroll"), read_only=True)
 def get_payroll_document(tenant_id: int, document_id: int) -> dict:
     """Get one payroll document with lines and per-employee payout progress.
 
@@ -720,7 +720,7 @@ def get_payroll_document(tenant_id: int, document_id: int) -> dict:
 # Investments
 # ---------------------------------------------------------------------------
 
-@tool(access=Access.module("investments"))
+@tool(access=Access.module("investments"), read_only=True)
 def get_investment_form_config(tenant_id: int) -> dict:
     """Per-tenant investment settings before other investment tools.
 
@@ -735,7 +735,7 @@ def get_investment_form_config(tenant_id: int) -> dict:
         return _err(f"Unexpected error: {e}")
 
 
-@tool(access=Access.module("investments"))
+@tool(access=Access.module("investments"), read_only=True)
 def list_invest_companies(
     tenant_id: int,
     name_search: str = "",
@@ -766,7 +766,7 @@ def list_invest_companies(
         return _list_err(f"Unexpected error: {e}")
 
 
-@tool(access=Access.module("investments"))
+@tool(access=Access.module("investments"), read_only=True)
 def list_invest_returns(
     tenant_id: int,
     date_from: str = "",
@@ -807,7 +807,7 @@ def list_invest_returns(
         return _list_err(f"Unexpected error: {e}")
 
 
-@tool(access=Access.module("investments"))
+@tool(access=Access.module("investments"), read_only=True)
 def list_project_investments(
     tenant_id: int,
     date_from: str = "",
@@ -839,7 +839,7 @@ def list_project_investments(
         return _list_err(f"Unexpected error: {e}")
 
 
-@tool(access=Access.module("investments"))
+@tool(access=Access.module("investments"), read_only=True)
 def list_invest_payout_schedule(
     tenant_id: int,
     date_from: str = "",
@@ -877,7 +877,7 @@ def list_invest_payout_schedule(
 # Budgets
 # ---------------------------------------------------------------------------
 
-@tool(access=Access.module("budgets"))
+@tool(access=Access.module("budgets"), read_only=True)
 def list_budgets(
     tenant_id: int,
     year: int = 0,
@@ -921,7 +921,7 @@ def list_budgets(
         return _list_err(f"Unexpected error: {e}")
 
 
-@tool(access=Access.module("budgets"))
+@tool(access=Access.module("budgets"), read_only=True)
 def get_budget(
     tenant_id: int,
     budget_id: int,
@@ -947,7 +947,7 @@ def get_budget(
         return _err(f"Unexpected error: {e}")
 
 
-@tool(access=Access.module("budgets"))
+@tool(access=Access.module("budgets"), read_only=True)
 def list_budget_spend_requests(
     tenant_id: int,
     budget_id: int,
@@ -982,7 +982,7 @@ def list_budget_spend_requests(
 # Tasks (задачи)
 # ---------------------------------------------------------------------------
 
-@tool(access=Access.module("tasks"))
+@tool(access=Access.module("tasks"), read_only=True)
 def list_my_tasks(
     tenant_id: int,
     status: str = "",
@@ -1008,7 +1008,7 @@ def list_my_tasks(
         return _list_err(f"Unexpected error: {e}")
 
 
-@tool(access=Access.module("tasks"))
+@tool(access=Access.module("tasks"), read_only=True)
 def get_task(tenant_id: int, task_id: int) -> dict:
     """Get full details of a single task including its comment thread.
 
@@ -1171,7 +1171,7 @@ def delete_task(tenant_id: int, task_id: int) -> dict:
         return _err(f"Unexpected error: {e}")
 
 
-@tool(access=Access.module("tasks"))
+@tool(access=Access.module("tasks"), read_only=True)
 def list_assignee_candidates(tenant_id: int) -> list:
     """List users who can be assigned a task in this tenant.
 
@@ -1192,7 +1192,7 @@ def list_assignee_candidates(tenant_id: int) -> list:
 # Reference directories (справочники)
 # ---------------------------------------------------------------------------
 
-@tool(access=Access.module("vendors"))
+@tool(access=Access.module("vendors"), read_only=True)
 def list_vendors(
     tenant_id: int,
     kind: str = "",
@@ -1224,7 +1224,7 @@ def list_vendors(
         return _list_err(f"Unexpected error: {e}")
 
 
-@tool(access=Access.admin_or_director())
+@tool(access=Access.admin_or_director(), read_only=True)
 def list_active_users(tenant_id: int) -> list:
     """List active members of a tenant with their roles.
 
@@ -1241,7 +1241,7 @@ def list_active_users(tenant_id: int) -> list:
         return _list_err(f"Unexpected error: {e}")
 
 
-@tool(access=Access.module("wallets"))
+@tool(access=Access.module("wallets"), read_only=True)
 def list_wallets(tenant_id: int) -> list:
     """List all wallets (счета / кассы) for a tenant.
 
@@ -1271,7 +1271,7 @@ def list_wallets(tenant_id: int) -> list:
 # Contracts (договоры)
 # ---------------------------------------------------------------------------
 
-@tool(access=Access.module("contracts"))
+@tool(access=Access.module("contracts"), read_only=True)
 def list_contracts(
     tenant_id: int,
     status: str = "",
@@ -1309,7 +1309,7 @@ def list_contracts(
         return _list_err(f"Unexpected error: {e}")
 
 
-@tool(access=Access.module("contracts"))
+@tool(access=Access.module("contracts"), read_only=True)
 def get_contract(tenant_id: int, contract_id: int) -> dict:
     """Get one contract with its terms (contract_terms) and every request linked to it.
 
@@ -1328,7 +1328,7 @@ def get_contract(tenant_id: int, contract_id: int) -> dict:
 # Clients debt (дебиторка клиентов)
 # ---------------------------------------------------------------------------
 
-@tool(access=Access.module("clients_debt"))
+@tool(access=Access.module("clients_debt"), read_only=True)
 def get_client_debts(
     tenant_id: int,
     doc_type: str = "",
@@ -1366,7 +1366,7 @@ def get_client_debts(
 # Cash withdrawals (снятие наличных)
 # ---------------------------------------------------------------------------
 
-@tool(access=Access.admin_or_director())
+@tool(access=Access.admin_or_director(), read_only=True)
 def list_cash_withdrawal_receipts(tenant_id: int, status: str = "pending", limit: int = 50) -> list:
     """Paid cash-withdrawal requests and whether the cash was confirmed as received at the register.
 
@@ -1390,7 +1390,7 @@ def list_cash_withdrawal_receipts(tenant_id: int, status: str = "pending", limit
 # Notes (заметки)
 # ---------------------------------------------------------------------------
 
-@tool(access=Access.module("notes"))
+@tool(access=Access.module("notes"), read_only=True)
 def list_my_notes(
     tenant_id: int,
     target_type: str = "",
@@ -1425,7 +1425,7 @@ def list_my_notes(
 # Tenant configuration
 # ---------------------------------------------------------------------------
 
-@tool(access=Access.admin_or_director())
+@tool(access=Access.admin_or_director(), read_only=True)
 def get_tenant_info(tenant_id: int) -> dict:
     """Get public metadata for a tenant.
     """
@@ -1437,7 +1437,7 @@ def get_tenant_info(tenant_id: int) -> dict:
         return _err(f"Unexpected error: {e}")
 
 
-@tool(access=Access.admin_or_director())
+@tool(access=Access.admin_or_director(), read_only=True)
 def list_module_configs(tenant_id: int) -> list:
     """List all module enable/disable flags for a tenant.
     """
@@ -1449,7 +1449,7 @@ def list_module_configs(tenant_id: int) -> list:
         return _list_err(f"Unexpected error: {e}")
 
 
-@tool(access=Access.admin())
+@tool(access=Access.admin(), read_only=True)
 def list_user_roles(tenant_id: int) -> list:
     """List all user-role assignments for a tenant (admin only).
     """
@@ -1461,7 +1461,7 @@ def list_user_roles(tenant_id: int) -> list:
         return _list_err(f"Unexpected error: {e}")
 
 
-@tool(access=Access.admin())
+@tool(access=Access.admin(), read_only=True)
 def list_memberships(tenant_id: int) -> list:
     """List all tenant memberships (admin only).
     """
