@@ -72,18 +72,35 @@ async def _agent_job(*, subdomain, token, messages, resume_tool_calls=None, resu
             return outcome, descriptions
 
 
+def _send_text_node(tenant, chat_id, reply_to_message_id, text) -> bool:
+    """Короткий служебный ответ; при успехе становится узлом цепочки (без снимка истории)."""
+    sent = send_answer(tenant, chat_id, reply_to_message_id, text)
+    if not sent:
+        logger.warning("ai_assistant: service reply was not delivered chat_id=%s", chat_id)
+        return False
+    add_node(
+        tenant=tenant,
+        chat_id=chat_id,
+        message_id=sent[0].message_id,
+        parent_message_id=reply_to_message_id,
+        kind=ChainNode.KIND_BOT_AGENT,
+        text=text,
+        agent_messages=None,
+    )
+    return True
+
+
 def _send_error(tenant, chat_id, reply_to_message_id) -> None:
     try:
-        send_answer(tenant, chat_id, reply_to_message_id, ERROR_TEXT)
+        _send_text_node(tenant, chat_id, reply_to_message_id, ERROR_TEXT)
     except Exception:
         logger.exception("ai_assistant: failed to send error text chat_id=%s", chat_id)
 
 
-def _deliver_answer(tenant, chat_id, reply_to_message_id, outcome) -> None:
+def _deliver_answer(tenant, chat_id, reply_to_message_id, outcome) -> bool:
+    """True, если доставлены все части ответа."""
     sent = send_answer(tenant, chat_id, reply_to_message_id, outcome.text)
     parts = split_message(to_telegram_html(outcome.text))
-    if not sent:
-        logger.warning("ai_assistant: answer was not delivered chat_id=%s", chat_id)
     parent = reply_to_message_id
     for message, part in zip(sent, parts):
         add_node(
@@ -96,6 +113,14 @@ def _deliver_answer(tenant, chat_id, reply_to_message_id, outcome) -> None:
             agent_messages=outcome.messages,
         )
         parent = message.message_id
+    if len(sent) < len(parts):
+        logger.warning(
+            "ai_assistant: answer delivered %s of %s parts chat_id=%s", len(sent), len(parts), chat_id
+        )
+        if not sent:
+            _send_error(tenant, chat_id, reply_to_message_id)
+        return False
+    return True
 
 
 def _deliver_confirmation(tenant, chat_id, reply_to_message_id, *, user, tg_id, origin_message_id, outcome, descriptions):
@@ -180,7 +205,7 @@ def _execute(
                 _send_error(tenant, chat_id, reply_to_message_id)
             elif outcome.kind == "refused":
                 usage_outcome = UsageRecord.OUTCOME_REFUSED
-                send_answer(tenant, chat_id, reply_to_message_id, REFUSED_TEXT)
+                _send_text_node(tenant, chat_id, reply_to_message_id, REFUSED_TEXT)
             elif outcome.kind == "confirm":
                 usage_outcome = UsageRecord.OUTCOME_CONFIRMATION_REQUESTED
                 _deliver_confirmation(
@@ -194,8 +219,10 @@ def _execute(
                     descriptions=descriptions,
                 )
             else:
-                usage_outcome = UsageRecord.OUTCOME_ANSWERED
-                _deliver_answer(tenant, chat_id, reply_to_message_id, outcome)
+                delivered = _deliver_answer(tenant, chat_id, reply_to_message_id, outcome)
+                usage_outcome = (
+                    UsageRecord.OUTCOME_ANSWERED if delivered else UsageRecord.OUTCOME_ERROR
+                )
         except Exception:
             logger.exception("ai_assistant: failed to deliver result tenant=%s chat_id=%s", tenant.pk, chat_id)
             usage_outcome = UsageRecord.OUTCOME_ERROR

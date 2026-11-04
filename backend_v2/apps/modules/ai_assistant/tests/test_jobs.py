@@ -147,7 +147,7 @@ class JobsTests(TestCase):
         self.run_agent.return_value = AgentOutcome(kind="error", messages=[{"x": 1}], usage=_usage())
         jobs.run_turn(self.node.id)
         self.send_answer.assert_called_once_with(self.tenant, CHAT, 100, jobs.ERROR_TEXT)
-        self.assertFalse(ChainNode.objects.filter(kind=ChainNode.KIND_BOT_AGENT).exists())
+        self.assertFalse(ChainNode.objects.filter(agent_messages__isnull=False, kind=ChainNode.KIND_BOT_AGENT).exists())
         usage = UsageRecord.objects.get()
         self.assertEqual(usage.outcome, UsageRecord.OUTCOME_ERROR)
         self.assertEqual(usage.input_tokens, 10)
@@ -157,6 +157,34 @@ class JobsTests(TestCase):
         jobs.run_turn(self.node.id)
         self.send_answer.assert_called_once_with(self.tenant, CHAT, 100, jobs.REFUSED_TEXT)
         self.assertEqual(UsageRecord.objects.get().outcome, UsageRecord.OUTCOME_REFUSED)
+
+    def test_answer_not_delivered_records_error_and_sends_error_text(self):
+        self.run_agent.return_value = self._answer()
+        self.send_answer.side_effect = [[], [SimpleNamespace(message_id=210)]]
+        jobs.run_turn(self.node.id)
+        self.assertEqual(self.send_answer.call_count, 2)
+        self.assertEqual(self.send_answer.call_args.args[3], jobs.ERROR_TEXT)
+        self.assertEqual(UsageRecord.objects.get().outcome, UsageRecord.OUTCOME_ERROR)
+
+    def test_partial_delivery_records_error_keeps_sent_nodes(self):
+        text = ("Абзац текста. " * 40 + "\n\n") * 20
+        self.run_agent.return_value = self._answer(text)
+        self.send_answer.return_value = [SimpleNamespace(message_id=201)]
+        jobs.run_turn(self.node.id)
+        self.assertEqual(self.send_answer.call_count, 1)
+        self.assertEqual(list(ChainNode.objects.filter(kind=ChainNode.KIND_BOT_AGENT).values_list("message_id", flat=True)), [201])
+        self.assertEqual(UsageRecord.objects.get().outcome, UsageRecord.OUTCOME_ERROR)
+
+    def test_error_reply_is_chain_node_under_user_message(self):
+        self.run_agent.side_effect = RuntimeError("boom")
+        self.send_answer.return_value = [SimpleNamespace(message_id=250)]
+        with self.assertLogs(jobs.logger, level="ERROR"):
+            jobs.run_turn(self.node.id)
+        node = ChainNode.objects.get(message_id=250)
+        self.assertEqual(node.parent_message_id, 100)
+        self.assertEqual(node.kind, ChainNode.KIND_BOT_AGENT)
+        self.assertIsNone(node.agent_messages)
+        self.assertEqual(node.text, jobs.ERROR_TEXT)
 
     def test_resume_uses_pending_messages_and_fresh_token(self):
         tg = TelegramMessage.objects.create(tenant=self.tenant, recipient_id=CHAT, message_id=300)
