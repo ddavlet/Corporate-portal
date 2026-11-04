@@ -253,8 +253,8 @@ def send_answer(tenant, chat_id: str, reply_to_message_id: int, text: str) -> li
             logger.exception("ai_assistant: failed to send answer part chat_id=%s", chat_id)
             break
         if message is None:
-            logger.warning("ai_assistant: gateway returned no message for answer part chat_id=%s", chat_id)
-            continue
+            logger.warning("ai_assistant: gateway returned no message for answer part, stopping chat_id=%s", chat_id)
+            break
         sent.append(message)
         reply_to = message.message_id
     return sent

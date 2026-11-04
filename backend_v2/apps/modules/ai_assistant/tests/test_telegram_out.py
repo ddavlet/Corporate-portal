@@ -52,7 +52,7 @@ class SanitizerTests(SimpleTestCase):
 
 class SplitTests(SimpleTestCase):
     def test_split_message_respects_limit_and_tags(self):
-        text = to_telegram_html(("Абзац текста. " * 40 + "\n\n") * 14)
+        text = to_telegram_html(("Абзац текста. " * 40 + "\n\n") * 20)
         self.assertGreater(len(text), 9000)
         parts = split_message(text)
         self.assertGreaterEqual(len(parts), 3)
@@ -118,3 +118,11 @@ class SendAnswerTests(SimpleTestCase):
             dispatcher.return_value.send.side_effect = [first, RuntimeError("boom")]
             result = send_answer(mock.Mock(), "5", 100, "x" * 9000)
         self.assertEqual(result, [first])
+
+    def test_none_result_stops_sending(self):
+        first = mock.Mock(message_id=101)
+        with mock.patch.object(telegram_out, "TelegramDispatcher") as dispatcher:
+            dispatcher.return_value.send.side_effect = [first, None, mock.Mock(message_id=103)]
+            result = send_answer(mock.Mock(), "5", 100, "x" * 9000)
+        self.assertEqual(result, [first])
+        self.assertEqual(dispatcher.return_value.send.call_count, 2)
