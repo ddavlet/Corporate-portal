@@ -62,6 +62,7 @@ import { TgInvestmentsProjectsPage } from '../ui/tg/TgInvestmentsProjectsPage'
 import { TgInvestmentsReturnsPage } from '../ui/tg/TgInvestmentsReturnsPage'
 import { TgInvestmentsSchedulePage } from '../ui/tg/TgInvestmentsSchedulePage'
 import { TgInvestmentsCreatePage } from '../ui/tg/TgInvestmentsCreatePage'
+import { TgInvestmentsCollectPage } from '../ui/tg/TgInvestmentsCollectPage'
 import { TgInvestmentsReturnCreatePage } from '../ui/tg/TgInvestmentsReturnCreatePage'
 import { TgCashPage } from '../ui/tg/TgCashPage'
 import { TgCashRegisterTransferPage } from '../ui/tg/TgCashRegisterTransferPage'
@@ -110,6 +111,7 @@ export function App() {
         <Route path="investments/companies" element={<TgInvestmentsCompaniesPage />} />
         <Route path="investments/projects" element={<TgInvestmentsProjectsPage />} />
         <Route path="investments/projects/new" element={<TgInvestmentsCreatePage />} />
+        <Route path="investments/projects/collect" element={<TgInvestmentsCollectPage />} />
         <Route path="investments/schedule" element={<TgInvestmentsSchedulePage />} />
         <Route path="investments/returns" element={<TgInvestmentsReturnsPage />} />
         <Route path="investments/returns/new" element={<TgInvestmentsReturnCreatePage />} />
