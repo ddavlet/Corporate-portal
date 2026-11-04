@@ -584,6 +584,8 @@ services:
       MESSAGING_GATEWAY_ADMIN_URL: http://tg_gateway:8080
       # Kolberg MCP on tenant hosts (see docs/MCP_SERVER.md): OAuth + tenant-bound service keys.
       MCP_HTTP_ENABLED: "true"
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      AI_ASSISTANT_MCP_URL: http://backend_v2:8001/mcp/
     volumes:
       - ./backend_v2:/app
     depends_on:
