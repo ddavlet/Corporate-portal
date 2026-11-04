@@ -15,6 +15,7 @@ from apps.modules.telegram_approvals.services import (
 
 from .calculator import CALCULATOR_TOOL_NAME
 from .config import CALLBACK_PREFIX, TELEGRAM_TEXT_LIMIT
+from .markdown_fallback import markdown_to_telegram_html
 
 logger = logging.getLogger(__name__)
 
@@ -236,9 +237,14 @@ def send_typing(tenant, chat_id: str) -> None:
         logger.exception("ai_assistant: failed to send typing chat_id=%s", chat_id)
 
 
+def render_answer_html(text: str) -> str:
+    """Ответ модели → безопасный Telegram HTML (случайный Markdown переводится в теги)."""
+    return to_telegram_html(markdown_to_telegram_html(text))
+
+
 def send_answer(tenant, chat_id: str, reply_to_message_id: int, text: str) -> list:
     """Санитизирует, режет и отправляет ответ; каждая часть отвечает на предыдущую."""
-    parts = split_message(to_telegram_html(text))
+    parts = split_message(render_answer_html(text))
     dispatcher = TelegramDispatcher(tenant)
     sent = []
     reply_to = reply_to_message_id

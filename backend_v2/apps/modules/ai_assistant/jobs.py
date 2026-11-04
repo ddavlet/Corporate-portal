@@ -16,12 +16,12 @@ from .config import AGENT_MODEL, CONFIRMATION_TTL_HOURS, EXECUTOR_MAX_WORKERS
 from .mcp_client import mint_mcp_access_token, open_mcp
 from .models import ChainNode, PendingConfirmation, UsageRecord
 from .telegram_out import (
+    render_answer_html,
     render_confirmation,
     send_answer,
     send_confirmation,
     send_typing,
     split_message,
-    to_telegram_html,
 )
 
 logger = logging.getLogger(__name__)
@@ -100,7 +100,7 @@ def _send_error(tenant, chat_id, reply_to_message_id) -> None:
 def _deliver_answer(tenant, chat_id, reply_to_message_id, outcome) -> bool:
     """True, если доставлены все части ответа."""
     sent = send_answer(tenant, chat_id, reply_to_message_id, outcome.text)
-    parts = split_message(to_telegram_html(outcome.text))
+    parts = split_message(render_answer_html(outcome.text))
     parent = reply_to_message_id
     for message, part in zip(sent, parts):
         add_node(
