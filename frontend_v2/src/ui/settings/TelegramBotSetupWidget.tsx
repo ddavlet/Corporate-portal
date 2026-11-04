@@ -15,13 +15,16 @@ function CopyValue({ value, hint }: { value: string; hint?: string }) {
   )
 }
 
-export function TelegramBotSetupWidget() {
+/** `reloadKey` changes after the tenant settings are (re)loaded, so saved token/username show up. */
+export function TelegramBotSetupWidget({ reloadKey = 0 }: { reloadKey?: number }) {
   const [data, setData] = useState<TelegramBotSetupChecklist | null>(null)
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
     let cancelled = false
+    setLoading(true)
+    setError('')
     getTelegramBotSetup()
       .then((res) => {
         if (!cancelled) setData(res)
@@ -35,7 +38,7 @@ export function TelegramBotSetupWidget() {
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [reloadKey])
 
   const bot = data?.bot_username ? `@${data.bot_username}` : '@<бот>'
   const noBaseDomain = 'BASE_DOMAIN не настроен'
