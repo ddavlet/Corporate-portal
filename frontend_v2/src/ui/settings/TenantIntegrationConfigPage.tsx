@@ -7,6 +7,7 @@ import {
   type TenantIntegrationConfigUpdatePayload,
   updateTenantIntegrationConfig,
 } from '../../lib/api'
+import { TelegramBotSetupWidget } from './TelegramBotSetupWidget'
 
 type FormState = {
   telegram_bot_token: string
@@ -181,6 +182,8 @@ export function TenantIntegrationConfigPage() {
               value={form.telegram_oidc_redirect_uri}
               onChange={(e) => setField('telegram_oidc_redirect_uri', e.target.value)}
             />
+
+            <TelegramBotSetupWidget />
 
             <Divider style={{ margin: '4px 0' }} />
             <Typography.Text strong>Telegram webhook</Typography.Text>

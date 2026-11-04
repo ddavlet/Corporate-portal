@@ -112,6 +112,9 @@ export function RequestApprovalConfigPage() {
   }, [data])
 
   const tenantBot = (data?.telegram_bot_username ?? '').trim()
+  const paymentWebappPlaceholder = tenantBot
+    ? `Пусто — https://t.me/${tenantBot.replace(/^@/, '')}/payment (по умолчанию)`
+    : 'https://t.me/ВашБот/ИмяПриложения (добавится startapp с id одобрения)'
   const commentLinkForeignBot = tmeLinkForeignBot(data?.comment_webapp_url ?? '', tenantBot)
 
   const paymentTypeRow = (pt: string) => data?.payment_types.find((x) => x.payment_type === pt) ?? null
@@ -565,7 +568,7 @@ export function RequestApprovalConfigPage() {
                                           payment_webapp_url: e.target.value,
                                         })
                                       }
-                                      placeholder="https://t.me/ВашБот/ИмяПриложения (добавится startapp с id одобрения)"
+                                      placeholder={paymentWebappPlaceholder}
                                       style={{ width: 420 }}
                                     />
                                   ) : null}
@@ -687,7 +690,7 @@ export function RequestApprovalConfigPage() {
                                             payment_webapp_url: e.target.value,
                                           })
                                         }
-                                        placeholder="https://t.me/ВашБот/ИмяПриложения (добавится startapp с id одобрения)"
+                                        placeholder={paymentWebappPlaceholder}
                                       />
                                     </div>
                                   ) : null}
