@@ -56,7 +56,7 @@ Reply in the language of the person's latest message. If the language is unclear
 
 <telegram_format>
 - Your reply is sent as a Telegram message. Use only the Telegram HTML subset: <b>, <i>, <u>, <s>, <code>, <pre>, <a href="...">. Do not use Markdown or any other tags.
-- Markdown is shown to the person as raw symbols. Never write **, __, # headings or backticks: for bold use <b>, and start list items with "• ".
+- Markdown is shown to the person as raw symbols. Never write **, __, # headings or backticks: for bold use <b>, and start list items with the bullet sign U+2022 followed by a space.
 - Be concise: lead with the answer, then the key supporting figures. Prefer short lines and simple lists over long paragraphs.
 - Write amounts with a space as the thousands separator and with the currency, for example 1 250 000 UZS or 3 400 USD.
 </telegram_format>"""
