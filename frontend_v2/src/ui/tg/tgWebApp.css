@@ -12,8 +12,13 @@
   box-sizing: border-box;
   padding-left: max(0px, env(safe-area-inset-left));
   padding-right: max(0px, env(safe-area-inset-right));
-  padding-top: max(0px, env(safe-area-inset-top));
-  padding-bottom: max(8px, env(safe-area-inset-bottom));
+  /* В fullscreen Telegram рисует свои кнопки поверх страницы: --tg-*-safe-area-* (telegram-web-app.js) = 0 вне fullscreen */
+  padding-top: max(
+    0px,
+    env(safe-area-inset-top),
+    calc(var(--tg-safe-area-inset-top, 0px) + var(--tg-content-safe-area-inset-top, 0px))
+  );
+  padding-bottom: max(8px, env(safe-area-inset-bottom), var(--tg-safe-area-inset-bottom, 0px));
   overflow-x: clip;
   background: var(--tg-bg, var(--tg-secondary-bg, #eef2f6));
   color: var(--tg-text, rgba(0, 0, 0, 0.88));
