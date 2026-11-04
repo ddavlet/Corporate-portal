@@ -137,6 +137,10 @@ class InvestPayoutSchedule(models.Model):
 class ProjectInvestment(models.Model):
     """Registered capital investment amounts into a project (per tenant)."""
 
+    class FundingMethod(models.TextChoices):
+        CASH = "cash", "Наличными"
+        BANK_TRANSFER = "bank_transfer", "Переводом на счёт"
+
     tenant = models.ForeignKey(Tenant, on_delete=models.CASCADE, related_name="project_investments", db_index=False)
     company = models.ForeignKey(
         "InvestCompany",
@@ -148,6 +152,7 @@ class ProjectInvestment(models.Model):
     date = models.DateField()
     amount = models.DecimalField(max_digits=18, decimal_places=2)
     currency = models.CharField(max_length=3, default="USD")
+    funding_method = models.CharField(max_length=16, choices=FundingMethod.choices, null=True, blank=True)
     comment = models.TextField(blank=True, default="")
     confirmed = models.BooleanField(default=False)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -164,6 +169,36 @@ class ProjectInvestment(models.Model):
         indexes = [
             models.Index(fields=["tenant", "date"], name="invproj_tenant_date_idx"),
             models.Index(fields=["tenant", "confirmed"], name="invproj_tenant_conf_idx"),
+        ]
+
+
+class ProjectInvestmentRequestLink(models.Model):
+    """Заявка на расход — основание заявки на вложение (инвестиционный режим).
+
+    Связи не удаляются при отказе по вложению (история); «действующей» считается связь,
+    у вложения которой нет отказа в согласовании (см. funding_pool.active_link_request_ids).
+    """
+
+    tenant = models.ForeignKey(
+        Tenant, on_delete=models.CASCADE, related_name="project_investment_request_links", db_index=False
+    )
+    project_investment = models.ForeignKey(
+        ProjectInvestment,
+        on_delete=models.CASCADE,
+        related_name="request_links",
+    )
+    request = models.ForeignKey(
+        "requests.Request",
+        on_delete=models.PROTECT,
+        related_name="investment_links",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "project_investment_request_links"
+        ordering = ["id"]
+        indexes = [
+            models.Index(fields=["tenant", "request"], name="invpireq_tenant_req_idx"),
         ]
 
 
@@ -240,6 +275,44 @@ class InvestmentFormConfig(models.Model):
 
     class Meta:
         db_table = "investment_form_config"
+
+
+class InvestmentFundingConfig(models.Model):
+    """Per-tenant «инвестиционный режим»: кошельки, через которые вносятся вложения."""
+
+    tenant = models.OneToOneField(
+        Tenant,
+        on_delete=models.CASCADE,
+        related_name="investment_funding_config",
+    )
+    is_enabled = models.BooleanField(default=False)
+    cash_wallet = models.ForeignKey(
+        "wallets.Wallet",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="+",
+    )
+    bank_wallet = models.ForeignKey(
+        "wallets.Wallet",
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name="+",
+    )
+    enabled_at = models.DateTimeField(null=True, blank=True)
+    updated_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="+",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "investment_funding_config"
 
 
 class InvestmentApprovalConfig(models.Model):
@@ -632,3 +705,105 @@ class CbuExchangeRate(models.Model):
 
     def __str__(self):
         return f"{self.date}: {self.usd_uzs_rate}"
+
+
+class InvestReportConfig(models.Model):
+    """Per-tenant weekly investor report in Telegram (see investor_report_jobs)."""
+
+    tenant = models.OneToOneField(Tenant, on_delete=models.CASCADE, related_name="invest_report_config")
+    is_active = models.BooleanField(default=False)
+    telegram_chat = models.ForeignKey(
+        "telegram_approvals.TenantTelegramChat",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="invest_report_configs",
+    )
+    weekday = models.PositiveSmallIntegerField(
+        default=0,
+        validators=[MaxValueValidator(6)],
+        help_text="0 = Monday … 6 = Sunday (Asia/Tashkent).",
+    )
+    send_hour = models.PositiveSmallIntegerField(
+        default=10,
+        validators=[MaxValueValidator(23)],
+        help_text="Hour of day (0–23, Asia/Tashkent).",
+    )
+    target_annual_rate = models.DecimalField(
+        max_digits=6,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        help_text="Target yield, % per year. Empty — no target/plan blocks in the report.",
+    )
+    start_month = models.PositiveSmallIntegerField(
+        null=True,
+        blank=True,
+        validators=[MinValueValidator(1), MaxValueValidator(12)],
+        help_text="First month of the yield period. Empty — month after the first investment of the year, else January.",
+    )
+    last_payouts_count = models.PositiveSmallIntegerField(default=3, validators=[MaxValueValidator(10)])
+    late_payment_day = models.PositiveSmallIntegerField(
+        default=25,
+        validators=[MinValueValidator(1), MaxValueValidator(31)],
+        help_text="Until this day an unpaid previous month is also shown excluded from the yield.",
+    )
+    updated_at = models.DateTimeField(auto_now=True)
+    updated_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="updated_invest_report_configs",
+    )
+
+    class Meta:
+        db_table = "invest_report_config"
+
+
+class InvestReportDispatch(models.Model):
+    """Journal of investor report sends; also the dedup key for scheduled sends."""
+
+    class Kind(models.TextChoices):
+        SCHEDULED = "scheduled", "По расписанию"
+        MANUAL = "manual", "Вручную в группу"
+        TEST = "test", "Пробный в личку"
+
+    class Status(models.TextChoices):
+        SENT = "sent", "Отправлен"
+        FAILED = "failed", "Ошибка"
+
+    tenant = models.ForeignKey(Tenant, on_delete=models.CASCADE, related_name="invest_report_dispatches", db_index=False)
+    report_date = models.DateField()
+    kind = models.CharField(max_length=16, choices=Kind.choices)
+    status = models.CharField(max_length=16, choices=Status.choices)
+    chat_id = models.CharField(max_length=50, blank=True, default="")
+    text = models.TextField(blank=True, default="")
+    telegram_message = models.ForeignKey(
+        "telegram_approvals.TelegramMessage",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="invest_report_dispatches",
+    )
+    error = models.TextField(blank=True, default="")
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="invest_report_dispatches",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "invest_report_dispatches"
+        ordering = ["-created_at", "-id"]
+        indexes = [models.Index(fields=["tenant", "report_date"], name="invrepdisp_tenant_date_idx")]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["tenant", "report_date"],
+                condition=Q(kind="scheduled", status="sent"),
+                name="invrepdisp_sched_sent_uniq",
+            ),
+        ]

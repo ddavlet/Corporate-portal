@@ -3,8 +3,9 @@ of the current year through today, or re-fetch a range after a gap/correction.
 
 Daily archiving is normally handled by sync_cbu_exchange_rate (yesterday +
 today only, via cron). This command fills in historical dates that were never
-archived -- e.g. after the archive (get_or_fetch_usd_uzs_rate /
-CbuExchangeRate) was introduced, to backfill rates predating it.
+archived -- e.g. after the archive (CbuExchangeRate) was introduced, to backfill
+rates predating it. Portal requests never fetch from cbu.uz: dates missing from the
+archive are shown at the nearest earlier archived rate, marked as preliminary.
 
 Only dates missing from the archive are fetched; already-archived dates are
 left untouched unless --overwrite is passed (then the whole range is re-fetched

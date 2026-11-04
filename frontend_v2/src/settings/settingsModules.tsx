@@ -1,4 +1,4 @@
-import { BarChartOutlined, BankOutlined, CheckSquareOutlined, DollarOutlined, FileTextOutlined, MessageOutlined, SettingOutlined, ShopOutlined, TeamOutlined } from '@ant-design/icons'
+import { BarChartOutlined, BankOutlined, CheckSquareOutlined, DollarOutlined, FileTextOutlined, LineChartOutlined, MessageOutlined, SettingOutlined, ShopOutlined, TeamOutlined } from '@ant-design/icons'
 import type { ReactNode } from 'react'
 
 export type SettingsModuleItem = {
@@ -115,6 +115,14 @@ export const SETTINGS_MODULES: SettingsModuleItem[] = [
     group: 'investments',
   },
   {
+    key: 'investments-funding-mode',
+    title: 'Инвестиционный режим',
+    description: 'Вложения по заявкам на расход: инвестиционная касса и счёт.',
+    path: '/settings/investment-funding-config',
+    icon: <FileTextOutlined />,
+    group: 'investments',
+  },
+  {
     key: 'pnl-report',
     title: 'Отчёт PnL',
     description: 'Источник данных и правила расчёта PnL.',
@@ -144,6 +152,14 @@ export const SETTINGS_MODULES: SettingsModuleItem[] = [
     description: 'Ответственный получает Telegram-уведомление перед каждой плановой выплатой и может создать заявку в один клик.',
     path: '/settings/investment-notification-config',
     icon: <FileTextOutlined />,
+    group: 'investments',
+  },
+  {
+    key: 'investments-report',
+    title: 'Отчёт для инвесторов',
+    description: 'Еженедельный отчёт в Telegram-группу: вложено, выплачено, доходность и план. Предпросмотр и пробная отправка.',
+    path: '/settings/investment-report',
+    icon: <LineChartOutlined />,
     group: 'investments',
   },
   {

@@ -9,7 +9,9 @@ import {
   createProjectInvestment,
   type InvestCompanyRow,
 } from '../../lib/api'
+import { useInvestmentFundingMode } from '../../lib/useInvestmentFundingMode'
 import { CURRENCY_OPTIONS } from '../investments/utils'
+import { FUNDING_METHOD_LABELS, type FundingMethod } from '../investments/fundingPool'
 import { useTgMainButton } from './useTgMainButton'
 
 export function TgInvestmentsCreatePage() {
@@ -20,6 +22,12 @@ export function TgInvestmentsCreatePage() {
   const [error, setError] = useState<string | null>(null)
   const [companies, setCompanies] = useState<InvestCompanyRow[]>([])
   const [usesCompanies, setUsesCompanies] = useState(false)
+  const fundingMode = useInvestmentFundingMode()
+
+  // В инвестиционном режиме ручная подача запрещена (backend отклонит) — ведём на сбор по заявкам.
+  useEffect(() => {
+    if (fundingMode) navigate('/tg/investments/projects/collect', { replace: true })
+  }, [fundingMode, navigate])
 
   useEffect(() => {
     let cancelled = false
@@ -59,6 +67,7 @@ export function TgInvestmentsCreatePage() {
         amount: String(values.amount),
         currency: values.currency as string,
         comment: (values.comment as string | undefined) ?? '',
+        funding_method: values.funding_method as FundingMethod,
       })
       navigate('/tg/investments/projects', { replace: true })
     } catch (e: unknown) {
@@ -129,6 +138,22 @@ export function TgInvestmentsCreatePage() {
             rules={[{ required: true }]}
           >
             <Select size="large" options={CURRENCY_OPTIONS} />
+          </Form.Item>
+
+          <Form.Item
+            label="Способ внесения"
+            name="funding_method"
+            rules={[{ required: true, message: 'Укажите способ внесения' }]}
+          >
+            <Select
+              size="large"
+              placeholder="Выберите способ"
+              getPopupContainer={() => document.body}
+              options={[
+                { value: 'cash', label: FUNDING_METHOD_LABELS.cash },
+                { value: 'bank_transfer', label: FUNDING_METHOD_LABELS.bank_transfer },
+              ]}
+            />
           </Form.Item>
 
           <Form.Item label="Комментарий" name="comment">

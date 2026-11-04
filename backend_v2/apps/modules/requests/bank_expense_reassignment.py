@@ -22,6 +22,8 @@ from django.db import transaction
 
 from apps.modules.bank_expenses.models import BankExpense
 from apps.modules.requests.models import Request
+from apps.modules.requests.payment_type_families import bank_like_payment_types
+from apps.modules.wallets.models import BankAccount
 from apps.modules.vendors.models import Vendor
 
 
@@ -73,6 +75,12 @@ def reassign_unmatched_bank_expenses(
     candidates = (
         BankExpense.objects.filter(tenant=tenant)
         .exclude(pk__in=linked_expense_ids)
+        .exclude(
+            wallet__bank_account__account_type__in=[
+                BankAccount.AccountType.INFORMATIONAL,
+                BankAccount.AccountType.SERVICE,
+            ]
+        )
         .select_related("vendor")
     )
 
@@ -85,7 +93,7 @@ def reassign_unmatched_bank_expenses(
         # put is the safe answer.
         locally_claimed = Request.objects.filter(
             tenant=tenant,
-            payment_type__in=(Request.PAYMENT_TYPE_TRANSFER, Request.PAYMENT_TYPE_TOPUP),
+            payment_type__in=bank_like_payment_types(),
             expense_id=expense.doc_no,
             expense_year=expense.expense_year,
             amount=expense.debit_turnover,
@@ -99,7 +107,7 @@ def reassign_unmatched_bank_expenses(
         matches = list(
             Request.objects.filter(
                 tenant=other_tenant,
-                payment_type__in=(Request.PAYMENT_TYPE_TRANSFER, Request.PAYMENT_TYPE_TOPUP),
+                payment_type__in=bank_like_payment_types(),
                 status=Request.STATUS_PAYED,
                 expense_id=expense.doc_no,
                 expense_year=expense.expense_year,

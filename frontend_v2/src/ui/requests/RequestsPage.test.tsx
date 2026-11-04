@@ -32,6 +32,7 @@ vi.mock('../../lib/api', () => ({
   getSettingsAccess: (...args: unknown[]) => getSettingsAccessMock(...args),
   getUserPreferences: (...args: unknown[]) => getUserPreferencesMock(...args),
   setUserPreference: (...args: unknown[]) => setUserPreferenceMock(...args),
+  getInvestmentFundingConfig: vi.fn().mockResolvedValue({ is_enabled: false }),
 }))
 
 const requestRow = {

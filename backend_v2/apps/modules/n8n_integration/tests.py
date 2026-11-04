@@ -1953,12 +1953,8 @@ class N8nInvestReturnPortalCreateTests(APITestCase):
         )
         self.assertEqual(r.status_code, 200)
 
-        cbu_patcher = patch(
-            "apps.modules.investments.serializers.get_or_fetch_usd_uzs_rate",
-            return_value=__import__("decimal").Decimal("12500"),
-        )
-        cbu_patcher.start()
-        self.addCleanup(cbu_patcher.stop)
+        # Суммы выплат считаются по архиву курсов ЦБ (без сети): нужен хотя бы один курс.
+        CbuExchangeRate.objects.create(date=date(2026, 6, 8), usd_uzs_rate=Decimal("12500.000000"))
 
         self.url = f"{settings.N8N_INTEGRATION_URL_PREFIX.rstrip('/')}/investments/returns/portal-create/"
 

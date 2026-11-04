@@ -6,11 +6,12 @@ from typing import Any
 
 from django.db.models import Count, Q, Sum
 
-from apps.modules.bank_expenses.models import BankRevenue
+from apps.modules.reports.bank_revenue_scope import report_bank_revenues
 from apps.modules.cashier.models import CashRevenue
 from apps.modules.investments.models import InvestReturn
-from apps.modules.investments.services import clamp_rate_date_to_cbu_availability, usd_uzs_equivalents_or_none
+from apps.modules.investments.services import clamp_rate_date_to_cbu_availability, usd_uzs_equivalents_for_read
 from apps.modules.requests.models import Request
+from apps.modules.requests.payment_type_families import expand_with_invest_types
 from apps.modules.reports.models import TenantReportSettings
 from apps.modules.reports.report_rules import (
     CFG_CASH_EXCLUDE,
@@ -81,10 +82,12 @@ def _request_cash_expense_date(req: Request) -> date | None:
     return None
 
 
-def _invest_return_cashflow_row(ir: InvestReturn) -> dict[str, Any] | None:
+def _invest_return_cashflow_row(ir: InvestReturn, rate_memo: dict | None = None) -> dict[str, Any] | None:
     """None, если курс ЦБ на дату выплаты недоступен (архив ещё не заполнен и сеть недоступна)."""
     rate_date = clamp_rate_date_to_cbu_availability(requested=ir.date)
-    _, sum_uzs = usd_uzs_equivalents_or_none(sum_val=ir.sum, currency=ir.currency, rate_date=rate_date)
+    _, sum_uzs = usd_uzs_equivalents_for_read(
+        sum_val=ir.sum, currency=ir.currency, rate_date=rate_date, memo=rate_memo if rate_memo is not None else {}
+    )
     if sum_uzs is None:
         return None
     label = ir.get_type_display()
@@ -142,11 +145,13 @@ def compute_unassigned_payment_purposes_cashflow(*, tenant_id: int, cfg: dict[st
     """Distinct payment_purpose on paid requests in cashflow scope with no purpose bucket."""
     validate_rules(cfg)
     start = parse_start_month(str(cfg[CFG_START_MONTH]))
-    pay_list = [
-        str(x).strip()
-        for x in cfg[CFG_REQ_PAYMENT_TYPES]
-        if str(x).strip() and str(x).strip() in PAYMENT_TYPE_VALUES
-    ]
+    pay_list = expand_with_invest_types(
+        [
+            str(x).strip()
+            for x in cfg[CFG_REQ_PAYMENT_TYPES]
+            if str(x).strip() and str(x).strip() in PAYMENT_TYPE_VALUES
+        ]
+    )
     cat_exclude = {str(x).strip() for x in cfg[CFG_REQ_CAT_EXCLUDE] if str(x).strip()}
     op = set(normalize_str_list(cfg[CFG_PURPOSE_OP], field=CFG_PURPOSE_OP))
     ot = set(normalize_str_list(cfg[CFG_PURPOSE_OTHER], field=CFG_PURPOSE_OTHER))
@@ -189,7 +194,9 @@ def build_cashflow_payload_from_db(*, tenant, query_params: dict[str, Any]) -> d
     start = parse_start_month(str(cfg[CFG_START_MONTH]))
     cash_exclude = {str(x).strip() for x in cfg[CFG_CASH_EXCLUDE] if str(x).strip()}
     cat_exclude = {str(x).strip() for x in cfg[CFG_REQ_CAT_EXCLUDE] if str(x).strip()}
-    pay_list = [str(x).strip() for x in cfg[CFG_REQ_PAYMENT_TYPES] if str(x).strip() in PAYMENT_TYPE_VALUES]
+    pay_list = expand_with_invest_types(
+        [str(x).strip() for x in cfg[CFG_REQ_PAYMENT_TYPES] if str(x).strip() in PAYMENT_TYPE_VALUES]
+    )
 
     purp_op = set(normalize_str_list(cfg[CFG_PURPOSE_OP], field=CFG_PURPOSE_OP))
     purp_ot = set(normalize_str_list(cfg[CFG_PURPOSE_OTHER], field=CFG_PURPOSE_OTHER))
@@ -203,7 +210,7 @@ def build_cashflow_payload_from_db(*, tenant, query_params: dict[str, Any]) -> d
 
     revenue: list[dict[str, Any]] = []
 
-    for br in BankRevenue.objects.filter(tenant_id=tenant.id, doc_date__gte=start).order_by("doc_date", "id"):
+    for br in report_bank_revenues(tenant=tenant, start=start):
         revenue.append(
             {
                 "id": str(br.id),
@@ -268,6 +275,7 @@ def build_cashflow_payload_from_db(*, tenant, query_params: dict[str, Any]) -> d
             invest_returns=invest_returns,
         )
 
+    rate_memo: dict = {}
     for ir in (
         InvestReturn.objects.filter(tenant_id=tenant.id, confirmed=True, date__gte=start)
         .order_by("date", "id")
@@ -275,7 +283,7 @@ def build_cashflow_payload_from_db(*, tenant, query_params: dict[str, Any]) -> d
         b = invest_type_bucket(str(ir.type or ""), op=ir_op, ot=ir_ot, inv=ir_inv)
         if b is None:
             continue
-        row = _invest_return_cashflow_row(ir)
+        row = _invest_return_cashflow_row(ir, rate_memo)
         if row is None:
             continue
         if b == "operational":

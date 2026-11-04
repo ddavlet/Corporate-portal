@@ -87,21 +87,32 @@ def get_or_create_bank_wallet(*, tenant: Tenant) -> Wallet:
     return w
 
 
-def get_or_create_bank_wallet_for_account(*, tenant: Tenant, account_no: str, mfo: str = "") -> Wallet:
+def get_or_create_bank_wallet_for_account(
+    *,
+    tenant: Tenant,
+    account_no: str,
+    mfo: str = "",
+    currency: str | None = None,
+    account_type: str | None = None,
+) -> Wallet:
+    """Currency applies only when the wallet is created; account_type only when the BankAccount is created."""
     account_no = (account_no or "").strip()
     mfo = (mfo or "").strip()
+    ba_defaults = {"label": account_no}
+    if account_type:
+        ba_defaults["account_type"] = account_type
     ba, _ = BankAccount.objects.get_or_create(
         tenant=tenant,
         account_no=account_no,
         mfo=mfo,
-        defaults={"label": account_no},
+        defaults=ba_defaults,
     )
     w, _ = Wallet.objects.get_or_create(
         bank_account=ba,
         defaults={
             "tenant": tenant,
             "wallet_type": Wallet.Type.BANK,
-            "currency": "UZS",
+            "currency": normalized_currency(currency),
             "opening_balance": 0,
         },
     )

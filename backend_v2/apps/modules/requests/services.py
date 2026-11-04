@@ -13,6 +13,7 @@ from apps.modules.requests.models import (
     RequestFormPaymentTypeConfig,
     RequestPaymentPurposeConfig,
 )
+from apps.modules.requests.payment_type_families import bank_like_payment_types, canonical_payment_type
 from apps.modules.wallets.serializer_integration import (
     assign_wallet_for_bank_movement,
     assign_wallet_for_cash_movement,
@@ -49,9 +50,9 @@ def resolve_payment_type_form_defaults(*, tenant, payment_type: str, payment_pur
 
 
 def _create_module_key_for_payment_type(payment_type: str) -> str | None:
-    if payment_type == Request.PAYMENT_TYPE_CASH:
+    if canonical_payment_type(payment_type) == Request.PAYMENT_TYPE_CASH:
         return "cash"
-    if payment_type in (Request.PAYMENT_TYPE_TRANSFER, Request.PAYMENT_TYPE_TOPUP):
+    if payment_type in bank_like_payment_types():
         return "bank"
     if payment_type == Request.PAYMENT_TYPE_CARD:
         return "corporate_card"
@@ -103,7 +104,7 @@ def create_expense_for_request_payment(*, request_obj: Request, actor_user):
     created_id = None
     created_target = None
 
-    if request_obj.payment_type == Request.PAYMENT_TYPE_CASH:
+    if canonical_payment_type(request_obj.payment_type) == Request.PAYMENT_TYPE_CASH:
         attrs = {
             "currency": request_obj.currency,
             "wallet": request_obj.wallet_ref,
@@ -132,8 +133,13 @@ def create_expense_for_request_payment(*, request_obj: Request, actor_user):
         )
         created_target = Request.EXPENSE_REF_TARGET_CASH
         created_id = expense.id
-    elif request_obj.payment_type in (Request.PAYMENT_TYPE_TRANSFER, Request.PAYMENT_TYPE_TOPUP):
-        attrs = {"wallet": None}
+    elif request_obj.payment_type in bank_like_payment_types():
+        # «Инвест. перечисление» платится со счёта, выбранного в заявке; прочие — дефолтный.
+        attrs = {
+            "wallet": request_obj.wallet_ref
+            if request_obj.payment_type == Request.PAYMENT_TYPE_INVEST_TRANSFER
+            else None
+        }
         attrs = assign_wallet_for_bank_movement(
             instance=None,
             tenant=request_obj.tenant,
@@ -185,9 +191,9 @@ def create_expense_for_request_payment(*, request_obj: Request, actor_user):
 
     # Set expense_id to the value the resolver uses for lookups, not the raw PK.
     # Cash: resolver matches by external_id; Bank: by doc_no; Card: by PK (str).
-    if request_obj.payment_type == Request.PAYMENT_TYPE_CASH:
+    if canonical_payment_type(request_obj.payment_type) == Request.PAYMENT_TYPE_CASH:
         created_expense_id = expense.external_id
-    elif request_obj.payment_type in (Request.PAYMENT_TYPE_TRANSFER, Request.PAYMENT_TYPE_TOPUP):
+    elif request_obj.payment_type in bank_like_payment_types():
         created_expense_id = expense.doc_no
     else:
         created_expense_id = str(created_id)

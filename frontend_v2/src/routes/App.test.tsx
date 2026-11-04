@@ -33,6 +33,7 @@ vi.mock('../ui/CashPage', () => ({ CashPage: () => <div>CashPage</div> }))
 vi.mock('../ui/CashSectionPage', () => ({ CashSectionPage: () => <div>CashSectionPage</div> }))
 vi.mock('../ui/BankPage', () => ({ BankPage: () => <div>BankPage</div> }))
 vi.mock('../ui/BankSectionPage', () => ({ BankSectionPage: () => <div>BankSectionPage</div> }))
+vi.mock('../ui/BankAccountPage', () => ({ BankAccountPage: () => <div>BankAccountPage</div> }))
 vi.mock('../ui/CorporateCardPage', () => ({ CorporateCardPage: () => <div>CorporateCardPage</div> }))
 vi.mock('../ui/CorporateCardSectionPage', () => ({
   CorporateCardSectionPage: () => <div>CorporateCardSectionPage</div>,
@@ -60,7 +61,6 @@ vi.mock('../ui/settings/CashRegistersSettingsPage', () => ({
   CashRegistersSettingsPage: () => <div>CashRegistersSettingsPage</div>,
 }))
 vi.mock('../ui/admin/AdminModulePage', () => ({ AdminModulePage: () => <div>AdminModulePage</div> }))
-vi.mock('../ui/training/TrainingPage', () => ({ TrainingPage: () => <div>TrainingPage</div> }))
 vi.mock('../ui/tg/TgWebAppLayout', () => ({ TgWebAppLayout: () => <div>TgWebAppLayout</div> }))
 vi.mock('../ui/tg/TgRequestsPage', () => ({ TgRequestsPage: () => <div>TgRequestsPage</div> }))
 vi.mock('../ui/tg/TgRequestCreatePage', () => ({ TgRequestCreatePage: () => <div>TgRequestCreatePage</div> }))
@@ -107,6 +107,26 @@ describe('App routing smoke', () => {
       expect(screen.getByRole('link', { name: /Все отчёты/ })).toHaveAttribute('href', '/reports')
       unmount()
     }
+  })
+
+  it('redirects the removed «Обучалка» page to requests', () => {
+    useAuthMock.mockReturnValue({ accessToken: 'token', logout: vi.fn() })
+    render(
+      <MemoryRouter initialEntries={['/training']}>
+        <App />
+      </MemoryRouter>,
+    )
+    expect(screen.getByText('RequestsPage')).toBeInTheDocument()
+  })
+
+  it('opens a bank account page instead of the legacy bank expense redirect', () => {
+    useAuthMock.mockReturnValue({ accessToken: 'token', logout: vi.fn() })
+    render(
+      <MemoryRouter initialEntries={['/bank/accounts/11']}>
+        <App />
+      </MemoryRouter>,
+    )
+    expect(screen.getByText('BankAccountPage')).toBeInTheDocument()
   })
 
   it('renders telegram layout route', () => {

@@ -7,7 +7,7 @@ DEPLOY_TEST_PATH ?= $(TEST_PATH)
 BRANCH     := $(shell git rev-parse --abbrev-ref HEAD)
 
 .DEFAULT_GOAL := help
-.PHONY: help push test deploy makemigrations showmigrations logs backup-db create-postgres-mcp-role rollback refresh-approval-messages reconcile-card-revenues reconcile-expense-links relink-unresolved-bank-doc-numbers align-payment-purposes link-payroll-requests send-to-vacation return-from-vacation reassign-unmatched-bank-expenses backfill-bank-expense-requests backfill-cash-expense-requests backfill-card-expenses backfill-cbu-exchange-rate redispatch-unsent-approval-cards backfill-cash-withdrawals repair-id-sequences local-up local-down local-logs test_local
+.PHONY: help push test deploy makemigrations showmigrations logs backup-db create-postgres-mcp-role rollback refresh-approval-messages reconcile-card-revenues reconcile-expense-links relink-unresolved-bank-doc-numbers align-payment-purposes clone-tenant-config link-payroll-requests send-to-vacation return-from-vacation reassign-unmatched-bank-expenses backfill-bank-expense-requests backfill-cash-expense-requests backfill-card-expenses backfill-cbu-exchange-rate redispatch-unsent-approval-cards backfill-cash-withdrawals repair-id-sequences import-kapitalbank link-kapitalbank ignore-kapitalbank classify-kapitalbank local-up local-down local-logs test_local
 
 help:
 	@echo ""
@@ -31,6 +31,7 @@ help:
 	@echo "  make reconcile-expense-links TENANT=3 APPLY=1 — то же самое, но с записью изменений"
 	@echo "  make relink-unresolved-bank-doc-numbers TENANT=lemonfit [APPLY=1] — привязать заявки с неверным № п/п к банковским расходам по сумме+дате"
 	@echo "  make align-payment-purposes PLAN=lemonfit_2026_10 [APPLY=1] — выровнять категории и назначения платежа тенантов по JSON-плану"
+	@echo "  make clone-tenant-config SOURCE=lemonhavo TARGET=lemonnew [NAME=\"Lemonfit NEW\"] [WITH_MEMBERS=1] [APPLY=1] — скопировать настройки тенанта в новый филиал"
 	@echo "  make link-payroll-requests TENANT=lemonfit PAIRS=\"7226:1-000000077,...\" [SET_AMOUNT=1] [APPLY=1] — привязать заявки ЗП к указанным ведомостям"
 	@echo "  make send-to-vacation TENANT=3 EMPLOYEE_USERNAME=s.davletyarov — dry-run: отправить согласующего в отпуск"
 	@echo "  make send-to-vacation TENANT=3 EMPLOYEE_USERNAME=s.davletyarov APPLY=1 — то же самое, но с записью изменений"
@@ -44,6 +45,12 @@ help:
 	@echo "  make redispatch-unsent-approval-cards TENANT=5 DATE_FROM=2026-09-18 DATE_TO=2026-09-19 PAYMENT_TYPE=\"Наличные,Перечисление\" — то же, с фильтрами (TENANT/PAYMENT_TYPE — через запятую; без TENANT — все тенанты)"
 	@echo "  make redispatch-unsent-approval-cards TENANT=5 APPLY=1 — то же самое, но с отправкой карточек"
 	@echo "  make repair-id-sequences [APPLY=1] — dry-run: таблицы, где id-последовательность отстала от max(id) (после импорта n8n с явными id)"
+	@echo "  make import-kapitalbank REFRESH_ACCOUNTS=1 TENANT=kp — список счетов тенанта из банка (новые — «ожидает решения»)"
+	@echo "  make import-kapitalbank MODE=manual TENANT=kp DATE_FROM=2026-10-21 DATE_TO=2026-10-26 DRY_RUN=1 — пробная загрузка выписки без записи"
+	@echo "  make import-kapitalbank MODE=manual TENANT=kp DATE=2026-10-26 — загрузить выписку за день (MODE=daytime|nightly — как по расписанию)"
+	@echo "  make link-kapitalbank [TENANT=kp] [APPLY=1] — dry-run: привязать счета «ожидает решения» к счёту портала с тем же номером и МФО (карта — external_ref)"
+	@echo "  make ignore-kapitalbank TENANT=kp ACCOUNTS=a,b REASON='...' [APPLY=1] — dry-run: отметить счета «ожидает решения» «не отслеживать» с общей причиной"
+	@echo "  make classify-kapitalbank TENANT=kp ACCOUNTS=a,b TYPE=controlled|informational|service [APPLY=1] — dry-run: привязать счета «ожидает решения» с этим типом или сменить тип привязанных"
 	@echo "  make local-up        — поднять docker-compose.local.yml локально"
 	@echo "  make local-down      — остановить локальный compose (без удаления volumes)"
 	@echo "  make local-logs      — логи локального compose"
@@ -206,6 +213,17 @@ align-payment-purposes:
 		python manage.py align_payment_purposes --plan=$(PLAN) \
 		$(if $(APPLY),--apply,)"
 
+# ── 7d-1d3. Скопировать настройки тенанта (модули, форма, маршруты согласования…) в новый филиал ──
+# make clone-tenant-config SOURCE=lemonhavo TARGET=lemonnew [NAME="Lemonfit NEW"] [WITH_MEMBERS=1] [APPLY=1]
+clone-tenant-config:
+	@test -n "$(SOURCE)" -a -n "$(TARGET)" || (echo "Usage: make clone-tenant-config SOURCE=<id|subdomain> TARGET=<subdomain> [NAME=] [WITH_MEMBERS=1] [APPLY=1]" && exit 1)
+	ssh $(SERVER) "cd $(REMOTE_DIR) && \
+		docker compose --env-file ./.env exec -T backend_v2 \
+		python manage.py clone_tenant_config --source=$(SOURCE) --target=$(TARGET) \
+		$(if $(NAME),--name='$(NAME)',) \
+		$(if $(WITH_MEMBERS),--with-members,) \
+		$(if $(APPLY),--apply,)"
+
 # ── 7d-1e. Привязать заявки "Начисление ЗП" к явно указанным ведомостям ──
 # make link-payroll-requests TENANT=lemonfit PAIRS="7226:1-000000077,7585:1-000000084" [SET_AMOUNT=1] [APPLY=1]
 link-payroll-requests:
@@ -240,6 +258,74 @@ repair-id-sequences:
 	ssh $(SERVER) "cd $(REMOTE_DIR) && \
 		docker compose --env-file ./.env exec -T backend_v2 \
 		python manage.py repair_id_sequences $(if $(APPLY),--apply,)"
+
+# ── 7d-9. Загрузка выписки Капиталбанка (по требованию; по расписанию её запускает backend_cron) ──
+# make import-kapitalbank REFRESH_ACCOUNTS=1 TENANT=kp
+# make import-kapitalbank MODE=manual TENANT=kp DATE_FROM=2026-10-21 DATE_TO=2026-10-26 [DRY_RUN=1]
+# make import-kapitalbank MODE=manual TENANT=kp DATE=2026-10-26 [DRY_RUN=1]
+# make import-kapitalbank MODE=daytime|nightly [TENANT=kp] [DRY_RUN=1]
+# Проверку сочетаний параметров делает сама команда import_kapitalbank_statements.
+MODE ?=
+DATE ?=
+DRY_RUN ?=
+REFRESH_ACCOUNTS ?=
+
+import-kapitalbank:
+	@test -n "$(MODE)$(REFRESH_ACCOUNTS)" || (echo "Usage: make import-kapitalbank MODE=daytime|nightly|manual [TENANT=<subdomain>] [DATE=YYYY-MM-DD | DATE_FROM=YYYY-MM-DD DATE_TO=YYYY-MM-DD] [DRY_RUN=1]" && echo "   or: make import-kapitalbank REFRESH_ACCOUNTS=1 TENANT=<subdomain>" && exit 1)
+	ssh $(SERVER) "cd $(REMOTE_DIR) && \
+		docker compose --env-file ./.env exec -T backend_v2 \
+		python manage.py import_kapitalbank_statements \
+		$(if $(REFRESH_ACCOUNTS),--refresh-accounts,) \
+		$(if $(MODE),--mode=$(MODE),) \
+		$(if $(TENANT),--tenant=$(TENANT),) \
+		$(if $(DATE),--date=$(DATE),) \
+		$(if $(DATE_FROM),--from=$(DATE_FROM),) \
+		$(if $(DATE_TO),--to=$(DATE_TO),) \
+		$(if $(DRY_RUN),--dry-run,)"
+
+# ── 7d-9a. Автопривязка счетов Капиталбанка «ожидает решения» (dry-run по умолчанию) ──
+# Привязывает только точное совпадение в том же тенанте: банковский счёт портала с тем же номером и МФО,
+# корпкарта — external_ref = номер счёта. Остальные счета остаются «ожидает решения».
+# make link-kapitalbank [TENANT=kp] [APPLY=1]
+link-kapitalbank:
+	ssh $(SERVER) "cd $(REMOTE_DIR) && \
+		docker compose --env-file ./.env exec -T backend_v2 \
+		python manage.py link_kapitalbank_accounts \
+		$(if $(TENANT),--tenant=$(TENANT),) \
+		$(if $(APPLY),--apply,)"
+
+# ── 7d-9b. Счета Капиталбанка «не отслеживать» с общей причиной (dry-run по умолчанию) ──
+# Меняет только счета «ожидает решения» тенанта; привязанные и уже игнорируемые не трогает.
+# ACCOUNTS — номера счетов через запятую. REASON — без кавычек, $ и обратных апострофов.
+# make ignore-kapitalbank TENANT=kp ACCOUNTS=16401000000000000001,16413000000000000001 REASON='Служебный счёт банка' [APPLY=1]
+ACCOUNTS ?=
+REASON ?=
+
+ignore-kapitalbank:
+	@test -n "$(TENANT)" -a -n "$(ACCOUNTS)" -a -n "$(REASON)" || (echo "Usage: make ignore-kapitalbank TENANT=<subdomain> ACCOUNTS=<no>,<no> REASON='<причина>' [APPLY=1]" && exit 1)
+	$(if $(or $(findstring ',$(REASON)),$(findstring ",$(REASON)),$(findstring `,$(REASON)),$(findstring \,$(REASON))),$(error REASON must not contain quotes, backticks or backslashes),)
+	ssh $(SERVER) "cd $(REMOTE_DIR) && \
+		docker compose --env-file ./.env exec -T backend_v2 \
+		python manage.py ignore_kapitalbank_accounts \
+		--tenant=$(TENANT) \
+		$(foreach a,$(subst $(comma), ,$(ACCOUNTS)),--account=$(a)) \
+		--reason='$(REASON)' \
+		$(if $(APPLY),--apply,)"
+
+# ── 7d-9c. Тип счетов Капиталбанка (dry-run по умолчанию) ──
+# «Ожидает решения» → создаёт счёт портала с кошельком в валюте банка, привязывает (отслеживание с сегодня), ставит TYPE.
+# Привязанные банковские → меняет тип (владельцу уходит сообщение). Служебные «ожидает решения» — через ignore-kapitalbank.
+# make classify-kapitalbank TENANT=kp ACCOUNTS=20208000000000000001,20208000000000000002 TYPE=controlled [APPLY=1]
+classify-kapitalbank:
+	@test -n "$(TENANT)" -a -n "$(ACCOUNTS)" -a -n "$(TYPE)" || (echo "Usage: make classify-kapitalbank TENANT=<subdomain> ACCOUNTS=<no>,<no> TYPE=controlled|informational|service [APPLY=1]" && exit 1)
+	$(if $(or $(filter-out controlled informational service,$(TYPE)),$(filter-out 1,$(words $(TYPE)))),$(error TYPE must be one of controlled, informational, service),)
+	ssh $(SERVER) "cd $(REMOTE_DIR) && \
+		docker compose --env-file ./.env exec -T backend_v2 \
+		python manage.py classify_kapitalbank_accounts \
+		--tenant=$(TENANT) \
+		$(foreach a,$(subst $(comma), ,$(ACCOUNTS)),--account=$(a)) \
+		--type=$(TYPE) \
+		$(if $(APPLY),--apply,)"
 
 # ── 7d-10. По требованию: backfill-команды (dry-run по умолчанию) ──
 # TENANT=1,lemonaqua (id или subdomain, через запятую) или ALL_TENANTS=1; DATE_FROM/DATE_TO=YYYY-MM-DD

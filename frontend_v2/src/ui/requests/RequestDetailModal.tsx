@@ -17,6 +17,7 @@ import {
   vendorDirectoryPath,
 } from './RequestEntityLink'
 import { RequestCommentsSection } from './RequestCommentsSection'
+import { useRequestInvestmentIds } from './useRequestInvestments'
 
 export type ApprovalItem = {
   id: number
@@ -428,6 +429,7 @@ export function RequestDetailContent({
   const fileRows = detail ? buildRequestFileRows(detail) : []
 
   const [fileBusy, setFileBusy] = useState(false)
+  const investmentIds = useRequestInvestmentIds(detail)
 
   const downloadFileViaAuthBlob = async (fileUrl: string, fileLabel: string) => {
     setFileBusy(true)
@@ -673,6 +675,17 @@ export function RequestDetailContent({
               linkedExpenseText || '-'
             )}
           </Descriptions.Item>
+          {investmentIds.length ? (
+            <Descriptions.Item label="Вложение">
+              <Space wrap>
+                {investmentIds.map((id) => (
+                  <RequestEntityLink key={id} to="/investments" returnTo={returnTo}>
+                    {`Вошла во вложение №${id}`}
+                  </RequestEntityLink>
+                ))}
+              </Space>
+            </Descriptions.Item>
+          ) : null}
           <Descriptions.Item label="Дата оплаты">{formatPayedAt(detail.payed_at)}</Descriptions.Item>
           <Descriptions.Item label="Файлы">
             {fileRows.length ? (

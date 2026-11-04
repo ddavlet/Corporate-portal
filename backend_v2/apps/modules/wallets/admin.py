@@ -12,9 +12,10 @@ class CashRegisterAdmin(admin.ModelAdmin):
 
 
 class BankAccountAdmin(admin.ModelAdmin):
-    list_display = ("id", "tenant", "label", "account_no", "mfo", "is_default")
-    list_filter = ("tenant", "is_default")
+    list_display = ("id", "tenant", "label", "account_no", "mfo", "is_default", "account_type")
+    list_filter = ("tenant", "is_default", "account_type")
     search_fields = ("label", "account_no", "mfo")
+    readonly_fields = ("account_type",)
     autocomplete_fields = ("tenant",)
 
 

@@ -34,6 +34,7 @@ from fastapi import FastAPI, HTTPException, Path, Request
 from fastapi.responses import JSONResponse
 
 import db
+from log_redaction import install_log_redaction
 from models import (
     DELETE_ACTIONS,
     EDIT_ACTIONS,
@@ -45,6 +46,7 @@ from models import (
 )
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+install_log_redaction()  # httpx/uvicorn log full URLs with bot tokens
 logger = logging.getLogger(__name__)
 
 BACKEND_URL = os.environ.get("BACKEND_WEBHOOK_URL", "")

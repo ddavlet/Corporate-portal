@@ -8,6 +8,7 @@ from apps.modules.corporate_card.models import CardExpense
 from apps.modules.payroll.models import PayrollDocument
 from apps.modules.payroll.utils import tenant_has_payroll_module_enabled
 from apps.modules.requests.models import Request
+from apps.modules.requests.payment_type_families import bank_like_payment_types, canonical_payment_type
 from apps.tenants.cash_expense_id_format import cash_expense_external_id_match_candidates
 from apps.tenants.payroll_doc_id_format import payroll_doc_id_match_candidates
 
@@ -40,7 +41,7 @@ def _single_match(qs, *, limit: int = 2):
 
 
 def _normalize_expense_id_on_match(*, payment_type: str) -> bool:
-    return payment_type in (Request.PAYMENT_TYPE_CASH, Request.PAYMENT_TYPE_PAYROLL)
+    return canonical_payment_type(payment_type) in (Request.PAYMENT_TYPE_CASH, Request.PAYMENT_TYPE_PAYROLL)
 
 
 def resolve_request_expense_ref(
@@ -80,7 +81,7 @@ def resolve_request_expense_ref(
             return match.id, normalized
         return None, None
 
-    if payment_type == Request.PAYMENT_TYPE_CASH:
+    if canonical_payment_type(payment_type) == Request.PAYMENT_TYPE_CASH:
         candidates = cash_expense_external_id_match_candidates(raw, tenant)
         qs = CashExpense.objects.filter(tenant=tenant, external_id__in=candidates).order_by("-expense_year", "-id")
         if expense_year is not None:
@@ -92,7 +93,7 @@ def resolve_request_expense_ref(
         normalized = str(match.external_id or "").strip() or raw
         return match.id, normalized
 
-    if payment_type in (Request.PAYMENT_TYPE_TRANSFER, Request.PAYMENT_TYPE_TOPUP):
+    if payment_type in bank_like_payment_types():
         if expense_year is None:
             return None, None
         qs = BankExpense.objects.filter(
@@ -132,9 +133,9 @@ def resolve_request_expense_ref(
 def expense_ref_target_for(*, payment_type: str, category: str) -> str | None:
     if payment_type == Request.PAYMENT_TYPE_PAYROLL:
         return Request.EXPENSE_REF_TARGET_PAYROLL
-    if payment_type == Request.PAYMENT_TYPE_CASH:
+    if canonical_payment_type(payment_type) == Request.PAYMENT_TYPE_CASH:
         return Request.EXPENSE_REF_TARGET_CASH
-    if payment_type in (Request.PAYMENT_TYPE_TRANSFER, Request.PAYMENT_TYPE_TOPUP):
+    if payment_type in bank_like_payment_types():
         return Request.EXPENSE_REF_TARGET_BANK
     if payment_type == Request.PAYMENT_TYPE_CARD:
         return Request.EXPENSE_REF_TARGET_CARD

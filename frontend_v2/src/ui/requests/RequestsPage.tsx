@@ -28,13 +28,15 @@ import { RequestAiChatButton } from './RequestAiChatButton'
 import { AdminEditRecordButton } from '../admin/AdminEditRecordButton'
 import { NoteCreateModal } from '../NoteCreateModal'
 import { useInfiniteList, useRestoreInfinitePages } from '../../lib/useInfiniteList'
+import {
+  requestPaymentTypeSelectOptions,
+  vendorKindForPaymentType,
+  withoutInvestTypesUnlessEnabled,
+} from '../../lib/requestPaymentTypes'
+import { useInvestmentFundingMode } from '../../lib/useInvestmentFundingMode'
 import { useListPageSession } from '../../lib/useListPageSession'
 import { useUserPreference } from '../../lib/useUserPreference'
 import { ListInfiniteScrollFooter } from '../ListInfiniteScrollFooter'
-
-function vendorKindForPaymentType(paymentType: string): 'cash' | 'transfer' {
-  return paymentType === 'Наличные' ? 'cash' : 'transfer'
-}
 
 type RequestRow = {
   id: number
@@ -103,7 +105,7 @@ const REQUESTS_FILTER_PREF_KEY = 'requests.page.filters.v1'
 const REQUESTS_LIST_SESSION_KEY = 'list-session:/requests'
 
 const STATUS_OPTIONS = ['DRAFT', '1', '2', '3', '4', '5', 'APPROVED', 'PAYED', 'REJECTED'].map((v) => ({ label: v, value: v }))
-const PAYMENT_TYPE_OPTIONS = ['Наличные', 'Перечисление', 'Пополнение', 'Платежная карта', 'Начисление ЗП'].map((v) => ({ label: v, value: v }))
+const PAYMENT_TYPE_OPTIONS = requestPaymentTypeSelectOptions()
 const URGENCY_OPTIONS = ['Низко', 'Обычно', 'Срочно'].map((v) => ({ label: v, value: v }))
 const CURRENCY_OPTIONS = ['UZS', 'USD', 'EUR', 'RUB'].map((v) => ({ label: v, value: v }))
 
@@ -155,6 +157,12 @@ function serializeRange(value: [Dayjs | null, Dayjs | null] | null): [string | n
 
 export function RequestsPage() {
   const navigate = useNavigate()
+  const investmentMode = useInvestmentFundingMode()
+  // Инвест-типы в фильтре — только у тенантов с включённым инвестиционным режимом.
+  const paymentTypeFilterOptions = useMemo(
+    () => withoutInvestTypesUnlessEnabled(PAYMENT_TYPE_OPTIONS, (o) => o.value, investmentMode),
+    [investmentMode],
+  )
   const [restorePages, setRestorePages] = useState<number | undefined>(undefined)
   const [search, setSearch] = useState('')
   const [debouncedSearch, setDebouncedSearch] = useState('')
@@ -791,7 +799,7 @@ export function RequestsPage() {
             style={{ width: 200 }}
             value={paymentType}
             onChange={(value) => setPaymentType(value)}
-            options={PAYMENT_TYPE_OPTIONS}
+            options={paymentTypeFilterOptions}
           />
           <Button onClick={resetFilters}>Сбросить фильтры</Button>
         </Space>

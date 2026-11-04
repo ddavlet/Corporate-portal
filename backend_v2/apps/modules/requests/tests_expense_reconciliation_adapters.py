@@ -12,6 +12,7 @@ from apps.modules.cashier.models import CashExpense
 from apps.modules.corporate_card.models import CardExpense
 from apps.modules.requests.expense_reconciliation_adapters import ALL_ADAPTERS, BANK, CARD, CASH
 from apps.modules.requests.models import Request
+from apps.modules.requests.payment_type_families import bank_like_payment_types, cash_like_payment_types
 from apps.modules.vendors.models import Vendor
 
 
@@ -20,7 +21,7 @@ class ExpenseTypeAdapterTests(SimpleTestCase):
         self.assertEqual(BANK.key, "bank")
         self.assertIs(BANK.model, BankExpense)
         self.assertEqual(BANK.ref_target, Request.EXPENSE_REF_TARGET_BANK)
-        self.assertEqual(BANK.payment_types, (Request.PAYMENT_TYPE_TRANSFER, Request.PAYMENT_TYPE_TOPUP))
+        self.assertEqual(BANK.payment_types, bank_like_payment_types())
         self.assertEqual(BANK.amount_field, "debit_turnover")
         self.assertEqual(BANK.date_field, "doc_date")
         self.assertFalse(BANK.date_is_datetime)
@@ -32,7 +33,7 @@ class ExpenseTypeAdapterTests(SimpleTestCase):
         self.assertEqual(CASH.key, "cash")
         self.assertIs(CASH.model, CashExpense)
         self.assertEqual(CASH.ref_target, Request.EXPENSE_REF_TARGET_CASH)
-        self.assertEqual(CASH.payment_types, (Request.PAYMENT_TYPE_CASH,))
+        self.assertEqual(CASH.payment_types, cash_like_payment_types())
         self.assertEqual(CASH.amount_field, "amount")
         self.assertEqual(CASH.date_field, "expense_at")
         self.assertTrue(CASH.date_is_datetime)

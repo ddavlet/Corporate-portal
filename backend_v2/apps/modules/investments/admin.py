@@ -8,6 +8,7 @@ from apps.modules.investments.models import (
     InvestmentApprovalConfigStep,
     InvestmentApprovalConfigStepApprover,
     InvestmentFormConfig,
+    InvestmentFundingConfig,
     InvestmentProjectApprovalConfig,
     InvestmentProjectApprovalConfigStep,
     InvestmentProjectApprovalConfigStepApprover,
@@ -16,9 +17,12 @@ from apps.modules.investments.models import (
     InvestPayoutNotificationLog,
     InvestPayoutSchedule,
     InvestPayoutScheduleShareLink,
+    InvestReportConfig,
+    InvestReportDispatch,
     InvestReturn,
     ProjectInvestment,
     ProjectInvestmentApproval,
+    ProjectInvestmentRequestLink,
 )
 
 
@@ -72,6 +76,13 @@ class InvestPayoutScheduleShareLinkAdmin(admin.ModelAdmin):
 class InvestmentFormConfigAdmin(admin.ModelAdmin):
     list_display = ("id", "tenant", "uses_companies", "updated_at")
     autocomplete_fields = ("tenant",)
+
+
+class InvestmentFundingConfigAdmin(admin.ModelAdmin):
+    list_display = ("id", "tenant", "is_enabled", "cash_wallet", "bank_wallet", "enabled_at")
+    list_filter = ("is_enabled",)
+    autocomplete_fields = ("tenant",)
+    raw_id_fields = ("cash_wallet", "bank_wallet", "updated_by")
 
 
 class InvestmentApprovalConfigStepApproverInline(admin.TabularInline):
@@ -152,9 +163,42 @@ class ProjectInvestmentApprovalAdmin(admin.ModelAdmin):
     raw_id_fields = ("tenant", "project_investment", "approver_user", "telegram_message")
 
 
+class ProjectInvestmentRequestLinkAdmin(admin.ModelAdmin):
+    list_display = ("id", "tenant", "project_investment", "request", "created_at")
+    list_filter = ("tenant",)
+    raw_id_fields = ("tenant", "project_investment", "request")
+
+
 class CbuExchangeRateAdmin(admin.ModelAdmin):
     list_display = ["date", "usd_uzs_rate", "updated_at"]
     ordering = ["-date"]
+
+
+class InvestReportConfigAdmin(admin.ModelAdmin):
+    list_display = ("id", "tenant", "is_active", "telegram_chat", "weekday", "send_hour", "target_annual_rate", "updated_at")
+    list_filter = ("is_active",)
+    autocomplete_fields = ("tenant",)
+    raw_id_fields = ("telegram_chat", "updated_by")
+
+
+class InvestReportDispatchAdmin(admin.ModelAdmin):
+    """Journal: read-only."""
+
+    list_display = ("id", "tenant", "report_date", "kind", "status", "chat_id", "created_at")
+    list_filter = ("kind", "status", "tenant")
+    date_hierarchy = "report_date"
+    readonly_fields = (
+        "tenant", "report_date", "kind", "status", "chat_id", "text", "telegram_message", "error", "created_by", "created_at",
+    )
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_change_permission(self, request, obj=None):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
 
 
 register_portal(InvestReturn, "Выплата", "Выплаты", InvestReturnAdmin)
@@ -168,6 +212,12 @@ register_portal(
     InvestPayoutScheduleShareLinkAdmin,
 )
 register_portal(InvestmentFormConfig, "Форма создания", "Форма создания", InvestmentFormConfigAdmin)
+register_portal(
+    InvestmentFundingConfig,
+    "Инвестиционный режим",
+    "Инвестиционный режим",
+    InvestmentFundingConfigAdmin,
+)
 register_portal(
     InvestmentApprovalConfig,
     "Этапы согласования выплат",
@@ -230,4 +280,17 @@ register_portal(
     "Согласования заявок на вложение",
     ProjectInvestmentApprovalAdmin,
 )
+register_portal(
+    ProjectInvestmentRequestLink,
+    "Заявка-основание вложения",
+    "Заявки-основания вложений",
+    ProjectInvestmentRequestLinkAdmin,
+)
 register_portal(CbuExchangeRate, "Курс ЦБ (USD/UZS)", "Курсы ЦБ (USD/UZS)", CbuExchangeRateAdmin)
+register_portal(
+    InvestReportConfig,
+    "Инвестиции — отчёт для инвесторов",
+    "Инвестиции — отчёт для инвесторов",
+    InvestReportConfigAdmin,
+)
+register_portal(InvestReportDispatch, "Отправка отчёта инвесторам", "Отправки отчёта инвесторам", InvestReportDispatchAdmin)

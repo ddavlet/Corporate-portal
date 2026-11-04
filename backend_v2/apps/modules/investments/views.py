@@ -1,15 +1,22 @@
+import dataclasses
 import json
 from decimal import Decimal, InvalidOperation
 
 from django.contrib.auth import get_user_model
 from django.db import transaction
+from django.db.models import Prefetch
 from django.utils import timezone
 from rest_framework import status, viewsets
-from rest_framework.exceptions import ValidationError
+from rest_framework.decorators import action
+from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from apps.modules.investments.approval_resend_services import (
+    resend_invest_return_approval_card,
+    resend_project_investment_approval_card,
+)
 from apps.modules.investments.approval_services import (
     InvestmentApprovalDecisionAlreadyMade,
     confirm_invest_return_approval_by_id,
@@ -17,8 +24,20 @@ from apps.modules.investments.approval_services import (
     deactivate_investment_return_approval_buttons,
     route_invest_return_approvals,
 )
+from apps.modules.investments.funding import (
+    apply_funding_config,
+    get_enabled_funding_config,
+    has_active_project_approval_chain,
+)
+from apps.modules.investments.funding_pool import (
+    collect_requests_into_investments,
+    eligible_requests,
+    funding_pool_totals,
+    investment_has_cash_revenue,
+)
 from apps.modules.investments.models import (
     InvestCompany,
+    InvestmentFundingConfig,
     InvestmentApprovalConfig,
     InvestmentApprovalConfigStep,
     InvestmentApprovalConfigStepApprover,
@@ -33,6 +52,7 @@ from apps.modules.investments.models import (
     InvestReturn,
     ProjectInvestment,
     ProjectInvestmentApproval,
+    ProjectInvestmentRequestLink,
 )
 from apps.modules.investments.project_investment_approval_services import (
     InvestmentProjectApprovalDecisionAlreadyMade,
@@ -52,6 +72,7 @@ from apps.modules.investments.serializers import (
     InvestmentApprovalWebhookSerializer,
     InvestmentFormConfigReadSerializer,
     InvestmentFormConfigSerializer,
+    InvestmentFundingConfigSerializer,
     InvestmentProjectApprovalConfigReadSerializer,
     InvestmentProjectApprovalConfigSerializer,
     InvestmentProjectApprovalConfigStepApproverReadSerializer,
@@ -64,13 +85,35 @@ from apps.modules.investments.serializers import (
     PublicInvestPayoutScheduleShareViewSerializer,
     ProjectInvestmentApprovalReadSerializer,
     ProjectInvestmentSerializer,
+    ProjectInvestmentWithEquivalentsSerializer,
+    FundingCollectPayloadSerializer,
+    FundingPoolRequestSerializer,
 )
 from apps.common.pagination import PortalCursorPagination
 from apps.common.query_params import parse_bool_query, parse_date_query
 from apps.common.viewsets import NoPortalPaginationMixin, PortalListViewSetMixin
 from apps.modules.telegram_approvals.services import ensure_callback_identity
-from apps.tenants.models import TenantMembership
-from apps.tenants.permissions import HasEffectiveModuleAccess, IsTenantAdminForRecordEdit, IsTenantAdminOrDirector
+from apps.tenants.models import TenantMembership, TenantUserRole
+from apps.tenants.permissions import HasEffectiveModuleAccess, IsTenantAdmin, IsTenantAdminForRecordEdit
+
+from apps.modules.investments.investor_report import (
+    InvestorReportError,
+    ReportSettings,
+    build_investor_report,
+    report_metrics,
+)
+from apps.modules.investments.investor_report_formatter import format_investor_report
+from apps.modules.investments.investor_report_jobs import group_recipient_id, send_report
+from apps.modules.investments.models import InvestReportConfig, InvestReportDispatch
+from apps.modules.investments.serializers import InvestReportConfigWriteSerializer, InvestReportPreviewQuerySerializer
+from apps.modules.investments.services import (
+    get_report_config_payload,
+    list_report_dispatches_payload,
+    report_dispatch_payload,
+    save_report_config,
+    tashkent_today,
+)
+from apps.tenants.permissions import IsTenantAdminOrDirector, IsTenantModuleEnabled
 
 
 class _InvestmentsTenantViewSet(PortalListViewSetMixin, viewsets.ModelViewSet):
@@ -247,14 +290,86 @@ class InvestPayoutScheduleViewSet(_EditableInvestmentsTenantViewSet):
         return qs.order_by("-payout_date", "-id")
 
 
+FUNDING_MODE_DISABLED_MESSAGE = "Инвестиционный режим выключен."
+MANUAL_INVESTMENT_FORBIDDEN_MESSAGE = (
+    "Инвестиционный режим включён: заявки на вложение создаются только через «Собрать по заявкам»."
+)
+INVESTMENT_WITH_CASH_REVENUE_DELETE_MESSAGE = "По вложению уже создан приход в кассу — удалить нельзя."
+CONFIRMED_COLLECTED_INVESTMENT_DELETE_MESSAGE = "Подтверждённое вложение по заявкам удалить нельзя."
+
+
+def _funding_pool_group(requests_qs) -> dict:
+    rows = list(requests_qs)
+    return {"requests": FundingPoolRequestSerializer(rows, many=True).data, "totals": funding_pool_totals(rows)}
+
+
 class ProjectInvestmentViewSet(_EditableInvestmentsTenantViewSet):
-    serializer_class = ProjectInvestmentSerializer
+    serializer_class = ProjectInvestmentWithEquivalentsSerializer
     queryset = ProjectInvestment.objects.all()
 
+    def get_queryset(self):
+        qs = super().get_queryset().prefetch_related(
+            Prefetch("request_links", queryset=ProjectInvestmentRequestLink.objects.select_related("request"))
+        )
+        source_request = (self.request.query_params.get("source_request") or "").strip()
+        if source_request.isdigit():
+            qs = qs.filter(request_links__request_id=int(source_request)).distinct()
+        return qs
+
     def perform_create(self, serializer):
+        # При включённом инвестиционном режиме вложения создаются только сбором по заявкам (from-requests).
+        if get_enabled_funding_config(self.request.tenant) is not None:
+            raise ValidationError({"detail": MANUAL_INVESTMENT_FORBIDDEN_MESSAGE})
         obj = serializer.save(tenant=self.request.tenant, created_by=self.request.user)
         create_approvals_for_project_investment(project_investment=obj)
         route_project_investment_approvals(project_investment=obj)
+
+    def perform_destroy(self, instance):
+        # Иначе заявки вернутся в пул, и повторный сбор даст второй приход в кассу.
+        if investment_has_cash_revenue(instance):
+            raise ValidationError({"detail": INVESTMENT_WITH_CASH_REVENUE_DELETE_MESSAGE})
+        # Подтверждённое вложение по заявкам (любой способ внесения) — факт внесения денег:
+        # удаление вернуло бы оплаченные заявки в пул.
+        if instance.confirmed and instance.request_links.exists():
+            raise ValidationError({"detail": CONFIRMED_COLLECTED_INVESTMENT_DELETE_MESSAGE})
+        super().perform_destroy(instance)
+
+    def _require_funding_mode(self):
+        if get_enabled_funding_config(self.request.tenant) is None:
+            raise PermissionDenied(FUNDING_MODE_DISABLED_MESSAGE)
+
+    @action(detail=False, methods=["get"], url_path="funding-pool")
+    def funding_pool(self, request):
+        self._require_funding_mode()
+        tenant = request.tenant
+        return Response(
+            {
+                "cash": _funding_pool_group(
+                    eligible_requests(tenant=tenant, funding_method=ProjectInvestment.FundingMethod.CASH)
+                ),
+                "bank_transfer": _funding_pool_group(
+                    eligible_requests(tenant=tenant, funding_method=ProjectInvestment.FundingMethod.BANK_TRANSFER)
+                ),
+                "approval_chain_ok": has_active_project_approval_chain(tenant),
+            }
+        )
+
+    @action(detail=False, methods=["post"], url_path="from-requests")
+    def from_requests(self, request):
+        self._require_funding_mode()
+        payload = FundingCollectPayloadSerializer(data=request.data, context=self.get_serializer_context())
+        payload.is_valid(raise_exception=True)
+        data = payload.validated_data
+        investments = collect_requests_into_investments(
+            tenant=request.tenant,
+            user=request.user,
+            funding_method=data["funding_method"],
+            request_ids=data["request_ids"],
+            comment=data.get("comment", ""),
+            company=data.get("company"),
+        )
+        body = ProjectInvestmentSerializer(investments, many=True, context=self.get_serializer_context()).data
+        return Response({"investments": body}, status=status.HTTP_201_CREATED)
 
 
 class InvestCompanyViewSet(_EditableInvestmentsTenantViewSet):
@@ -385,6 +500,53 @@ class InvestmentFormConfigView(APIView):
             },
         )
         return Response(self._payload(request.tenant))
+
+
+class InvestmentFundingConfigView(APIView):
+    permission_classes = [IsAuthenticated, HasEffectiveModuleAccess]
+    module_key = "investments"
+
+    def get_permissions(self):
+        permissions = super().get_permissions()
+        # Читают все с доступом к модулю; менять режим — только администратор тенанта.
+        if self.request is not None and self.request.method == "PUT":
+            permissions.append(IsTenantAdmin())
+        return permissions
+
+    def _payload(self, tenant):
+        cfg = InvestmentFundingConfig.objects.filter(tenant=tenant).select_related("cash_wallet").first()
+        return {
+            "is_enabled": bool(cfg and cfg.is_enabled),
+            "cash_wallet_id": cfg.cash_wallet_id if cfg else None,
+            "bank_wallet_id": cfg.bank_wallet_id if cfg else None,
+            "enabled_at": cfg.enabled_at if cfg else None,
+            "has_project_approval_chain": has_active_project_approval_chain(tenant),
+            "cash_wallet_currency": cfg.cash_wallet.currency if cfg and cfg.cash_wallet else None,
+        }
+
+    def get(self, request):
+        self.check_permissions(request)
+        return Response(self._payload(request.tenant))
+
+    def put(self, request):
+        self.check_permissions(request)
+        tenant = request.tenant
+        serializer = InvestmentFundingConfigSerializer(data=request.data, context={"tenant": tenant})
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+        # Цепочка согласования обязательна только для включения режима (выкл→вкл); сохранение уже
+        # включённого режима и выключение не блокируются, даже если цепочку отключили позже.
+        stored_enabled = InvestmentFundingConfig.objects.filter(tenant=tenant, is_enabled=True).exists()
+        if data["is_enabled"] and not stored_enabled and not has_active_project_approval_chain(tenant):
+            raise ValidationError({"detail": "Сначала настройте согласование заявок на вложение."})
+        apply_funding_config(
+            tenant=tenant,
+            user=request.user,
+            is_enabled=data["is_enabled"],
+            cash_wallet=data["cash_wallet"],
+            bank_wallet=data["bank_wallet"],
+        )
+        return Response(self._payload(tenant))
 
 
 class InvestNotificationConfigView(APIView):
@@ -805,6 +967,42 @@ class InvestmentProjectApprovalDecisionView(APIView):
         )
 
 
+class _InvestmentApprovalResendView(APIView):
+    """Переотправить одну Telegram-карточку согласования (лимит 3, пауза 10 с)."""
+
+    permission_classes = [IsAuthenticated, HasEffectiveModuleAccess]
+    module_key = "investments"
+    resend_service = None
+
+    def post(self, request, approval_id: int):
+        self.check_permissions(request)
+        allowed = TenantUserRole.objects.filter(
+            tenant=request.tenant,
+            user=request.user,
+            role__in=[TenantUserRole.ROLE_ADMIN, TenantUserRole.ROLE_DIRECTOR, TenantUserRole.ROLE_APPROVER],
+        ).exists()
+        if not allowed:
+            raise PermissionDenied("Only admins, directors, or approvers can resend approval cards.")
+        # The service returns None on gateway failure after committing the failed-attempt
+        # history; raise here, outside its transaction, so the history persists.
+        result = type(self).resend_service(
+            tenant=request.tenant,
+            approval_pk=int(approval_id),
+            actor_user=request.user,
+        )
+        if result is None:
+            raise ValidationError({"detail": "Не удалось отправить сообщение через messaging gateway."})
+        return Response({"detail": "Approval card resent."}, status=status.HTTP_200_OK)
+
+
+class InvestmentProjectApprovalResendView(_InvestmentApprovalResendView):
+    resend_service = staticmethod(resend_project_investment_approval_card)
+
+
+class InvestmentReturnApprovalResendView(_InvestmentApprovalResendView):
+    resend_service = staticmethod(resend_invest_return_approval_card)
+
+
 class InvestmentApprovalWebhookView(APIView):
     """
     Handle investment approval button callbacks (inv_ / invp_).
@@ -954,3 +1152,119 @@ class InvestmentApprovalWebhookView(APIView):
         except ValueError as exc:
             raise ValidationError({"detail": str(exc)}) from exc
         return Response({"detail": "Callback processed."}, status=status.HTTP_200_OK)
+
+
+# --- Weekly investor report (investor_report*.py) -------------------------------------------
+
+_REPORT_SETTING_FIELDS = ("target_annual_rate", "start_month", "last_payouts_count", "late_payment_day")
+_REPORT_DISPATCH_LIMIT_MAX = 100
+
+
+class _InvestReportView(APIView):
+    """Module users, plus tenant admins/directors (they configure the report) when the module is on."""
+
+    module_key = "investments"
+    permission_classes = [IsAuthenticated, HasEffectiveModuleAccess | (IsTenantModuleEnabled & IsTenantAdminOrDirector)]
+
+
+class _InvestReportAdminView(APIView):
+    module_key = "investments"
+    permission_classes = [IsAuthenticated, IsTenantModuleEnabled, IsTenantAdminOrDirector]
+
+
+def _saved_report_config(tenant):
+    return InvestReportConfig.objects.filter(tenant=tenant).select_related("telegram_chat").first()
+
+
+def _report_params(tenant, data) -> tuple:
+    """(report date, ReportSettings): saved config overridden by the given values; "" clears a setting."""
+    raw = {}
+    if data.get("date"):
+        raw["date"] = data.get("date")
+    for key in _REPORT_SETTING_FIELDS:
+        if key in data:
+            value = data.get(key)
+            raw[key] = None if value == "" else value
+    ser = InvestReportPreviewQuerySerializer(data=raw)
+    ser.is_valid(raise_exception=True)
+    values = dict(ser.validated_data)
+    report_date = values.pop("date", None) or tashkent_today()
+    settings_obj = dataclasses.replace(ReportSettings.from_config(_saved_report_config(tenant)), **values)
+    return report_date, settings_obj
+
+
+class InvestReportConfigView(_InvestReportAdminView):
+    def get(self, request):
+        return Response(get_report_config_payload(request.tenant))
+
+    def put(self, request):
+        ser = InvestReportConfigWriteSerializer(data=request.data, context={"tenant": request.tenant})
+        ser.is_valid(raise_exception=True)
+        save_report_config(tenant=request.tenant, data=ser.validated_data, actor=request.user)
+        return Response(get_report_config_payload(request.tenant))
+
+
+class InvestReportPreviewView(_InvestReportView):
+    def get(self, request):
+        report_date, settings_obj = _report_params(request.tenant, request.query_params)
+        try:
+            report = build_investor_report(tenant=request.tenant, today=report_date, config=settings_obj)
+        except InvestorReportError as exc:
+            raise ValidationError({"detail": str(exc)}) from exc
+        return Response(
+            {
+                "text": format_investor_report(report, tenant_name=request.tenant.name),
+                "metrics": report_metrics(report),
+            }
+        )
+
+
+class InvestReportSendTestView(_InvestReportView):
+    """Trial report to the current user's own Telegram (unsaved settings may be passed like in preview)."""
+
+    def post(self, request):
+        chat_id = getattr(request.user, "telegram_chat_id", None)
+        if not chat_id:
+            return Response({"detail": "Привяжите Telegram в профиле"}, status=status.HTTP_400_BAD_REQUEST)
+        report_date, settings_obj = _report_params(request.tenant, request.data)
+        dispatch = send_report(
+            tenant=request.tenant,
+            config=settings_obj,
+            today=report_date,
+            kind=InvestReportDispatch.Kind.TEST,
+            recipient_id=str(chat_id),
+            user=request.user,
+        )
+        return Response(report_dispatch_payload(dispatch))
+
+
+class InvestReportSendNowView(_InvestReportAdminView):
+    """Unscheduled send of today's report to the tenant group (does not block the scheduled one)."""
+
+    def post(self, request):
+        config = _saved_report_config(request.tenant)
+        recipient_id = group_recipient_id(config)
+        if recipient_id is None:
+            return Response(
+                {"detail": "Выберите активную Telegram-группу и сохраните настройки."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        dispatch = send_report(
+            tenant=request.tenant,
+            config=config,
+            today=tashkent_today(),
+            kind=InvestReportDispatch.Kind.MANUAL,
+            recipient_id=recipient_id,
+            user=request.user,
+        )
+        return Response(report_dispatch_payload(dispatch, chat_names={recipient_id: config.telegram_chat.name}))
+
+
+class InvestReportDispatchListView(_InvestReportAdminView):
+    def get(self, request):
+        try:
+            limit = int(request.query_params.get("limit") or 20)
+        except (TypeError, ValueError):
+            raise ValidationError({"limit": "Ожидается число."})
+        limit = max(1, min(limit, _REPORT_DISPATCH_LIMIT_MAX))
+        return Response(list_report_dispatches_payload(request.tenant, limit=limit))

@@ -253,6 +253,17 @@ class HasEffectiveModuleAccess(BasePermission):
         return role_allows_module(user=user, tenant=tenant, module_key=module_key)
 
 
+class IsTenantModuleEnabled(BasePermission):
+    """The view's `module_key` is switched on for the tenant (no role check: combine with a role permission)."""
+
+    def has_permission(self, request, view) -> bool:
+        tenant = getattr(request, "tenant", None)
+        module_key = getattr(view, "module_key", None)
+        if not module_key or not tenant:
+            return False
+        return TenantModuleConfig.objects.filter(tenant=tenant, module_key=module_key, is_enabled=True).exists()
+
+
 def has_effective_module_access(*, user, tenant, module_key: str) -> bool:
     """
     Shared helper for non-view code (e.g. serializers) to check effective access.

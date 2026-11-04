@@ -137,3 +137,35 @@ export function isoDate(d: Date): string {
   const day = String(d.getDate()).padStart(2, '0')
   return `${y}-${m}-${day}`
 }
+
+/** Сегодняшняя дата по Ташкенту в формате YYYY-MM-DD (так же бэкенд ограничивает дату курса ЦБ). */
+export function tashkentTodayIso(): string {
+  // Intl, а не dayjs.tz: плагин часовых поясов подключается только в main.tsx (в тестах его нет).
+  return new Intl.DateTimeFormat('en-CA', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    timeZone: 'Asia/Tashkent',
+  }).format(new Date())
+}
+
+/**
+ * Самая поздняя дата курса ЦБ среди строк, посчитанных не по курсу на свою дату
+ * (курс на дату ещё не загружен — бэкенд взял последний известный). Дата строки в будущем
+ * сравнивается с сегодняшней, как в расчёте на бэкенде. null — все строки по курсу на дату.
+ */
+export function staleCbuRateDate<T extends { date: string; rate_date?: string | null }>(
+  rows: T[],
+  todayIso: string = tashkentTodayIso(),
+): string | null {
+  let latest: string | null = null
+  for (const r of rows) {
+    const rateDate = r.rate_date ? String(r.rate_date).slice(0, 10) : ''
+    if (!rateDate) continue
+    const rowDate = String(r.date || '').slice(0, 10)
+    const expected = rowDate > todayIso ? todayIso : rowDate
+    if (rateDate === expected) continue
+    if (latest == null || rateDate > latest) latest = rateDate
+  }
+  return latest
+}

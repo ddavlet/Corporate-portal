@@ -18,13 +18,17 @@ import {
 import type { ColumnsType } from 'antd/es/table'
 import dayjs, { type Dayjs } from 'dayjs'
 
+import { useInvestmentFundingMode } from '../../lib/useInvestmentFundingMode'
 import {
   createProjectInvestment,
   type InvestCompanyRow,
   type ProjectInvestmentRow,
 } from '../../lib/api'
 import { InvestmentRecordDetailModal } from './InvestmentRecordDetailModal'
+import { InvestmentFromRequestsModal } from './InvestmentFromRequestsModal'
+import { FUNDING_METHOD_LABELS, fundingMethodLabel, type FundingMethod } from './fundingPool'
 import { AdminEditRecordButton } from '../admin/AdminEditRecordButton'
+import { CbuRateAlert } from './CbuRateAlert'
 import { KpiStrip } from './KpiStrip'
 import {
   asMoney,
@@ -35,7 +39,7 @@ import {
   inDateRange,
   makeCompanySelectOptions,
   precisionFor,
-  totalsByCurrency,
+  totalsInBothCurrencies,
   type CompanyFilter,
 } from './utils'
 
@@ -55,7 +59,15 @@ type FormValues = {
   amount: number
   currency: string
   comment?: string
+  funding_method?: FundingMethod
 }
+
+type MethodFilter = 'all' | FundingMethod | 'none'
+
+const FUNDING_METHOD_OPTIONS = [
+  { value: 'cash', label: FUNDING_METHOD_LABELS.cash },
+  { value: 'bank_transfer', label: FUNDING_METHOD_LABELS.bank_transfer },
+]
 
 export function InvestmentsTab({
   loading,
@@ -71,16 +83,28 @@ export function InvestmentsTab({
   const [selectedRow, setSelectedRow] = useState<ProjectInvestmentRow | null>(null)
   const [submitting, setSubmitting] = useState(false)
   const [dateRange, setDateRange] = useState<[Dayjs | null, Dayjs | null] | null>(null)
+  const fundingMode = useInvestmentFundingMode()
+  const [collectOpen, setCollectOpen] = useState(false)
+  const [methodFilter, setMethodFilter] = useState<MethodFilter>('all')
   const watchedCurrency = Form.useWatch('currency', form) || 'USD'
 
   const filtered = useMemo(() => {
     const byCo = byCompany(rows, companyFilter)
     const from = dateRange?.[0]?.format('YYYY-MM-DD')
     const to = dateRange?.[1]?.format('YYYY-MM-DD')
-    return inDateRange(byCo, 'date', from, to)
-  }, [rows, companyFilter, dateRange])
+    const byDate = inDateRange(byCo, 'date', from, to)
+    if (methodFilter === 'all') return byDate
+    if (methodFilter === 'none') return byDate.filter((r) => !r.funding_method)
+    return byDate.filter((r) => r.funding_method === methodFilter)
+  }, [rows, companyFilter, dateRange, methodFilter])
 
-  const totals = useMemo(() => totalsByCurrency(filtered, 'amount'), [filtered])
+  // Итоги в USD и UZS (по курсу ЦБ на дату) отдельно по подтверждённым и неподтверждённым заявкам.
+  const confirmedTotals = useMemo(() => totalsInBothCurrencies(filtered.filter((r) => r.confirmed)), [filtered])
+  const pendingTotals = useMemo(() => totalsInBothCurrencies(filtered.filter((r) => !r.confirmed)), [filtered])
+  const notConvertedCount = useMemo(
+    () => filtered.filter((r) => r.sum_usd == null || r.sum_uzs == null).length,
+    [filtered],
+  )
 
   const columns: ColumnsType<ProjectInvestmentRow> = useMemo(() => {
     const companyCol = {
@@ -115,6 +139,12 @@ export function InvestmentsTab({
       dataIndex: 'currency',
       width: 90,
       sorter: (a, b) => a.currency.localeCompare(b.currency),
+    },
+    {
+      title: 'Способ внесения',
+      dataIndex: 'funding_method',
+      width: 160,
+      render: (v: ProjectInvestmentRow['funding_method']) => fundingMethodLabel(v),
     },
     {
       title: 'Статус заявки',
@@ -160,6 +190,7 @@ export function InvestmentsTab({
         amount: String(values.amount),
         currency: values.currency,
         comment: values.comment ?? '',
+        funding_method: values.funding_method,
       })
       message.success('Заявка на вложение создана')
       setOpen(false)
@@ -181,14 +212,48 @@ export function InvestmentsTab({
             format="DD.MM.YYYY"
             allowClear
           />
+          <Select
+            value={methodFilter}
+            onChange={setMethodFilter}
+            style={{ width: 200 }}
+            aria-label="Способ внесения"
+            options={[
+              { value: 'all', label: 'Все способы внесения' },
+              ...FUNDING_METHOD_OPTIONS,
+              { value: 'none', label: 'Способ не указан' },
+            ]}
+          />
           <Typography.Text type="secondary">Записей: {filtered.length}</Typography.Text>
         </Space>
-        <Button type="primary" onClick={openCreate}>
-          Подать заявку на вложение
-        </Button>
+        {fundingMode ? (
+          <Button type="primary" onClick={() => setCollectOpen(true)}>
+            Собрать по заявкам
+          </Button>
+        ) : (
+          <Button type="primary" onClick={openCreate}>
+            Подать заявку на вложение
+          </Button>
+        )}
       </Space>
 
-      <KpiStrip totals={totals} totalsLabel="Сумма по заявкам на вложение" />
+      <CbuRateAlert rows={filtered} />
+
+      <KpiStrip
+        totals={confirmedTotals}
+        totalsLabel="Подтверждено"
+        extra={[
+          ...pendingTotals.map((t) => ({ label: `Не подтверждено, ${t.currency}`, value: asMoney(t.total) })),
+          ...(notConvertedCount > 0
+            ? [
+                {
+                  label: 'Не учтено в сумме',
+                  value: String(notConvertedCount),
+                  hint: 'Заявки без пересчёта по курсу ЦБ (EUR или курсы ещё не загружены)',
+                },
+              ]
+            : []),
+        ]}
+      />
 
       {loading ? (
         <Skeleton active />
@@ -207,9 +272,15 @@ export function InvestmentsTab({
           locale={{
             emptyText: (
               <Empty description="Заявок на вложение пока нет" image={Empty.PRESENTED_IMAGE_SIMPLE}>
-                <Button type="primary" onClick={openCreate}>
-                  Подать первую заявку
-                </Button>
+                {fundingMode ? (
+                  <Button type="primary" onClick={() => setCollectOpen(true)}>
+                    Собрать по заявкам
+                  </Button>
+                ) : (
+                  <Button type="primary" onClick={openCreate}>
+                    Подать первую заявку
+                  </Button>
+                )}
               </Empty>
             ),
           }}
@@ -223,6 +294,14 @@ export function InvestmentsTab({
         record={selectedRow}
         companyLabel={companyLabel}
         usesCompanies={usesCompanies}
+      />
+
+      <InvestmentFromRequestsModal
+        open={collectOpen}
+        onCancel={() => setCollectOpen(false)}
+        onCreated={onCreated}
+        usesCompanies={usesCompanies}
+        companies={companies}
       />
 
       <Modal
@@ -261,6 +340,13 @@ export function InvestmentsTab({
               />
             </Form.Item>
           </Space>
+          <Form.Item
+            label="Способ внесения"
+            name="funding_method"
+            rules={[{ required: true, message: 'Укажите способ внесения' }]}
+          >
+            <Select options={FUNDING_METHOD_OPTIONS} placeholder="Выберите способ" />
+          </Form.Item>
           <Form.Item label="Комментарий" name="comment">
             <Input.TextArea rows={3} maxLength={1000} />
           </Form.Item>

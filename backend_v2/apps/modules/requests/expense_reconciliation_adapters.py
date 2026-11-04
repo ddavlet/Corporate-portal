@@ -12,6 +12,7 @@ from apps.modules.bank_expenses.models import BankExpense
 from apps.modules.cashier.models import CashExpense
 from apps.modules.corporate_card.models import CardExpense
 from apps.modules.requests.models import Request
+from apps.modules.requests.payment_type_families import bank_like_payment_types, cash_like_payment_types
 from apps.modules.vendors.models import Vendor
 
 
@@ -33,7 +34,7 @@ BANK = ExpenseTypeAdapter(
     key="bank",
     model=BankExpense,
     ref_target=Request.EXPENSE_REF_TARGET_BANK,
-    payment_types=(Request.PAYMENT_TYPE_TRANSFER, Request.PAYMENT_TYPE_TOPUP),
+    payment_types=bank_like_payment_types(),
     amount_field="debit_turnover",
     date_field="doc_date",
     date_is_datetime=False,
@@ -46,7 +47,7 @@ CASH = ExpenseTypeAdapter(
     key="cash",
     model=CashExpense,
     ref_target=Request.EXPENSE_REF_TARGET_CASH,
-    payment_types=(Request.PAYMENT_TYPE_CASH,),
+    payment_types=cash_like_payment_types(),
     amount_field="amount",
     date_field="expense_at",
     date_is_datetime=True,

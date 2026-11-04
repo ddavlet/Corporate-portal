@@ -10,7 +10,9 @@ import {
   type InvestCompanyRow,
   type ProjectInvestmentRow,
 } from '../../lib/api'
+import { useInvestmentFundingMode } from '../../lib/useInvestmentFundingMode'
 import { AdminEditRecordButton } from '../admin/AdminEditRecordButton'
+import { fundingMethodLabel } from '../investments/fundingPool'
 import { tgHaptic } from './tgHaptic'
 
 const dateFormatter = new Intl.DateTimeFormat('ru-RU', {
@@ -41,6 +43,8 @@ export function TgInvestmentsProjectsPage() {
   const [companies, setCompanies] = useState<InvestCompanyRow[]>([])
   const [search, setSearch] = useState('')
   const [usesCompanies, setUsesCompanies] = useState(true)
+  // Инвестиционный режим: ручная подача запрещена — вложение собирается по заявкам на расход.
+  const fundingMode = useInvestmentFundingMode()
 
   const loadRows = useCallback(async () => {
     setError(null)
@@ -102,8 +106,11 @@ export function TgInvestmentsProjectsPage() {
         type="primary"
         className="tg-fab"
         icon={<PlusOutlined />}
-        onClick={() => { tgHaptic.impact(); navigate('/tg/investments/projects/new') }}
-        aria-label="Создать заявку на вложение"
+        onClick={() => {
+          tgHaptic.impact()
+          navigate(fundingMode ? '/tg/investments/projects/collect' : '/tg/investments/projects/new')
+        }}
+        aria-label={fundingMode ? 'Собрать вложение по заявкам' : 'Создать заявку на вложение'}
       />
 
       <div className="tg-list-search">
@@ -138,6 +145,7 @@ export function TgInvestmentsProjectsPage() {
                 <div className="tg-request-row-meta">
                   <span className="tg-request-row-amount">{formatAmount(row.amount, row.currency)}</span>
                   <span>{formatDate(row.date)}</span>
+                  {row.funding_method ? <span>{fundingMethodLabel(row.funding_method)}</span> : null}
                   {row.confirmed ? (
                     <Tag color="success" style={{ margin: 0 }}>
                       Заявка подтверждена

@@ -42,22 +42,46 @@ from apps.modules.investments.serializers import (
     InvestPayoutScheduleShareLinkSerializer,
     InvestReturnSerializer,
     ProjectInvestmentSerializer,
+    ProjectInvestmentWithEquivalentsSerializer,
 )
 from apps.modules.investments.services import (
+    CBU_ARCHIVE_EMPTY_MESSAGE,
     CbuRateFetchError,
     fetch_cbu_usd_uzs_rate,
-    get_or_fetch_usd_uzs_rate,
     invest_return_cbu_usd_rate_and_sum_uzs_from_bulletin,
+    tashkent_today,
     usd_uzs_equivalents,
     usd_uzs_equivalents_or_none,
+    usd_uzs_rate_and_date_on_or_before,
 )
 from apps.modules.investments.views import PublicInvestPayoutScheduleByTokenView
 from apps.tenants.models import Tenant
-from apps.modules.telegram_approvals.models import TenantTelegramChat
+from apps.modules.telegram_approvals.models import TelegramMessage, TenantTelegramChat
 
 
 User = get_user_model()
 factory = APIRequestFactory()
+
+
+def _send_linking_message(tenant):
+    """Mock TelegramDispatcher.send как в проде: создаёт TelegramMessage и привязывает его к approval."""
+    counter = {"n": 0}
+
+    def _send(*, recipient_id, link=None, external_user_id=None, **_kwargs):
+        counter["n"] += 1
+        message = TelegramMessage.objects.create(
+            tenant=tenant,
+            recipient_id=str(recipient_id or ""),
+            external_user_id=external_user_id,
+            message_id=9000 + counter["n"],
+            sent_at=timezone.now(),
+        )
+        if link is not None:
+            link.telegram_message = message
+            link.save(update_fields=["telegram_message"])
+        return message
+
+    return _send
 
 
 class InvestReturnApprovalTelegramMessageTests(SimpleTestCase):
@@ -231,14 +255,53 @@ class InvestReturnApprovalTelegramMessageTests(SimpleTestCase):
         self.assertIn("Заявка на вложение подтверждена", out)
         self.assertNotIn("Шаг 2 согласован", out)
 
+    def test_project_investment_card_shows_funding_method_under_amount(self):
+        pi = MagicMock()
+        pi.id = 188
+        pi.company = None
+        pi.tenant = MagicMock()
+        pi.tenant.name = "T"
+        pi.amount = Decimal("16000000.00")
+        pi.currency = "UZS"
+        pi.date = date(2026, 10, 28)
+        pi.comment = "Предоплата"
+
+        approval = MagicMock()
+        approval.step = 2
+        approval.step_type = InvestmentApprovalConfigStep.STEP_TYPE_CONFIRMATION
+        approval.decision = ProjectInvestmentApproval.DECISION_PENDING
+        approval.approver_user = None
+
+        def render(funding_method):
+            pi.funding_method = funding_method
+            return build_project_investment_approval_telegram_message(
+                project_investment=pi,
+                approval=approval,
+                blocked_by_rejection=False,
+                current_pending_step=2,
+            )
+
+        cash = render(ProjectInvestment.FundingMethod.CASH)
+        self.assertIn("💸 Способ вложения: <b>Наличными</b>", cash)
+        self.assertLess(cash.index("16 000 000.00"), cash.index("Способ вложения"))
+        self.assertLess(cash.index("Способ вложения"), cash.index("Комментарий"))
+
+        bank = render(ProjectInvestment.FundingMethod.BANK_TRANSFER)
+        self.assertIn("🏦 Способ вложения: <b>Переводом на счёт</b>", bank)
+
+        self.assertNotIn("Способ вложения", render(None))
+
 
 class InvestReturnSerializerTests(TestCase):
+    """Курс — только из архива CbuExchangeRate: запросы не ходят на cbu.uz (фетч патчится и не вызывается)."""
+
     def setUp(self):
         self.tenant = Tenant.objects.create(name="Acme", subdomain="acme", is_active=True)
         self.user = User.objects.create_user(username="invest-admin", password="x")
+        CbuExchangeRate.objects.create(date=date(2026, 4, 17), usd_uzs_rate=Decimal("12600"))
 
-    @patch("apps.modules.investments.services.fetch_cbu_usd_uzs_rate", return_value=Decimal("12600"))
-    def test_usd_normalizes_currency_and_computes_sum_uzs(self, _mock_fetch):
+    @patch("apps.modules.investments.services.fetch_cbu_usd_uzs_rate")
+    def test_usd_normalizes_currency_and_computes_sum_uzs(self, mock_fetch):
         serializer = InvestReturnSerializer(
             data={
                 "date": date(2026, 4, 17),
@@ -259,10 +322,14 @@ class InvestReturnSerializerTests(TestCase):
         data = InvestReturnSerializer(obj).data
         self.assertEqual(Decimal(str(data["sum_usd"])), Decimal("100.00"))
         self.assertEqual(Decimal(str(data["sum_uzs"])), Decimal("1260000.00"))
+        self.assertEqual(data["rate_date"], "2026-04-17")
         self.assertEqual(obj.billing_date, date(2026, 4, 1))
+        mock_fetch.assert_not_called()
 
-    @patch("apps.modules.investments.services.fetch_cbu_usd_uzs_rate", return_value=Decimal("12345"))
+    @patch("apps.modules.investments.services.fetch_cbu_usd_uzs_rate")
     def test_create_uses_payout_date_not_creation_date_for_rate(self, mock_fetch):
+        # Курс на дату создания (сегодня) другой — суммы считаются по курсу на дату выплаты.
+        CbuExchangeRate.objects.update_or_create(date=tashkent_today(), defaults={"usd_uzs_rate": Decimal("99999")})
         serializer = InvestReturnSerializer(
             data={
                 "date": date(2026, 4, 17),
@@ -274,11 +341,12 @@ class InvestReturnSerializerTests(TestCase):
             }
         )
         self.assertTrue(serializer.is_valid(), serializer.errors)
-        serializer.save(tenant=self.tenant, created_by=self.user)
-        mock_fetch.assert_called_once_with(rate_date=date(2026, 4, 17), timeout=12)
+        obj = serializer.save(tenant=self.tenant, created_by=self.user)
+        data = InvestReturnSerializer(obj).data
+        self.assertEqual(Decimal(str(data["sum_uzs"])), Decimal("1260000.00"))
+        mock_fetch.assert_not_called()
 
-    @patch("apps.modules.investments.services.fetch_cbu_usd_uzs_rate", return_value=Decimal("12600"))
-    def test_uzs_sets_sum_equal_sum_uzs(self, _mock_fetch):
+    def test_uzs_sets_sum_equal_sum_uzs(self):
         serializer = InvestReturnSerializer(
             data={
                 "date": date(2026, 4, 17),
@@ -315,8 +383,7 @@ class InvestReturnSerializerTests(TestCase):
         self.assertFalse(serializer.is_valid())
         self.assertIn("currency", serializer.errors)
 
-    @patch("apps.modules.investments.services.fetch_cbu_usd_uzs_rate", return_value=Decimal("10000"))
-    def test_client_sum_uzs_is_ignored(self, _mock_fetch):
+    def test_client_sum_uzs_is_ignored(self):
         serializer = InvestReturnSerializer(
             data={
                 "date": date(2026, 4, 17),
@@ -331,13 +398,11 @@ class InvestReturnSerializerTests(TestCase):
         self.assertTrue(serializer.is_valid(), serializer.errors)
         obj = serializer.save(tenant=self.tenant, created_by=self.user)
         data = InvestReturnSerializer(obj).data
-        self.assertEqual(Decimal(str(data["sum_uzs"])), Decimal("100000.00"))
+        self.assertEqual(Decimal(str(data["sum_uzs"])), Decimal("126000.00"))
 
     @patch("apps.modules.investments.services.fetch_cbu_usd_uzs_rate")
-    def test_create_fails_when_cbu_unavailable(self, mock_fetch):
-        from apps.modules.investments.services import CbuRateFetchError
-
-        mock_fetch.side_effect = CbuRateFetchError("offline")
+    def test_create_fails_when_cbu_archive_empty(self, mock_fetch):
+        CbuExchangeRate.objects.all().delete()
         serializer = InvestReturnSerializer(
             data={
                 "date": date(2026, 4, 17),
@@ -349,11 +414,36 @@ class InvestReturnSerializerTests(TestCase):
             }
         )
         self.assertTrue(serializer.is_valid(), serializer.errors)
-        with self.assertRaises(serializers.ValidationError):
+        with self.assertRaises(serializers.ValidationError) as ctx:
             serializer.save(tenant=self.tenant, created_by=self.user)
+        self.assertEqual(str(ctx.exception.detail["detail"]), CBU_ARCHIVE_EMPTY_MESSAGE)
+        self.assertEqual(CBU_ARCHIVE_EMPTY_MESSAGE, "Курсы ЦБ ещё не загружены, попробуйте позже.")
+        self.assertFalse(InvestReturn.objects.exists())
+        mock_fetch.assert_not_called()
 
-    @patch("apps.modules.investments.services.fetch_cbu_usd_uzs_rate", return_value=Decimal("10000"))
+    @patch("apps.modules.investments.services.fetch_cbu_usd_uzs_rate", side_effect=CbuRateFetchError("offline"))
+    def test_create_succeeds_when_cbu_unavailable_but_archive_has_rates(self, mock_fetch):
+        # Курса на 20.04 в архиве нет, ЦБ недоступен — выплата создаётся по курсу на 17.04.
+        serializer = InvestReturnSerializer(
+            data={
+                "date": date(2026, 4, 20),
+                "billing_date": date(2026, 4, 1),
+                "sum": "10.00",
+                "currency": "USD",
+                "type": "дивиденды",
+                "recipient": "инвестор",
+            }
+        )
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+        obj = serializer.save(tenant=self.tenant, created_by=self.user)
+        data = InvestReturnSerializer(obj).data
+        self.assertEqual(Decimal(str(data["sum_uzs"])), Decimal("126000.00"))
+        self.assertEqual(data["rate_date"], "2026-04-17")
+        mock_fetch.assert_not_called()
+
+    @patch("apps.modules.investments.services.fetch_cbu_usd_uzs_rate")
     def test_update_recomputes_sum_uzs_using_rate_for_original_payout_date(self, mock_fetch):
+        CbuExchangeRate.objects.create(date=date(2026, 4, 1), usd_uzs_rate=Decimal("10000"))
         obj = InvestReturn.objects.create(
             tenant=self.tenant,
             date=date(2026, 4, 1),
@@ -371,10 +461,11 @@ class InvestReturnSerializerTests(TestCase):
         )
         self.assertTrue(serializer.is_valid(), serializer.errors)
         updated = serializer.save()
-        mock_fetch.assert_called_once_with(rate_date=date(2026, 4, 1), timeout=12)
+        mock_fetch.assert_not_called()
         self.assertEqual(updated.sum, Decimal("200.00"))
         data = InvestReturnSerializer(updated).data
         self.assertEqual(Decimal(str(data["sum_uzs"])), Decimal("2000000.00"))
+        self.assertEqual(data["rate_date"], "2026-04-01")
 
     def test_investreturn_last_edit_at_updates_on_change(self):
         ret = InvestReturn.objects.create(
@@ -394,8 +485,7 @@ class InvestReturnSerializerTests(TestCase):
         self.assertIsNotNone(ret.last_edit_at)
         self.assertGreaterEqual(ret.last_edit_at, t1)
 
-    @patch("apps.modules.investments.serializers.get_or_fetch_usd_uzs_rate", return_value=Decimal("12600"))
-    def test_rejects_disallowed_return_type(self, _mock_fetch):
+    def test_rejects_disallowed_return_type(self):
         InvestmentFormConfig.objects.create(
             tenant=self.tenant,
             uses_companies=True,
@@ -417,8 +507,7 @@ class InvestReturnSerializerTests(TestCase):
         self.assertFalse(serializer.is_valid())
         self.assertIn("type", serializer.errors)
 
-    @patch("apps.modules.investments.serializers.get_or_fetch_usd_uzs_rate", return_value=Decimal("12600"))
-    def test_create_clears_company_when_form_disables_companies(self, _mock_fetch):
+    def test_create_clears_company_when_form_disables_companies(self):
         co = InvestCompany.objects.create(tenant=self.tenant, name="Co", created_by=self.user)
         InvestmentFormConfig.objects.create(
             tenant=self.tenant,
@@ -495,70 +584,74 @@ class InvestReturnCbuServicesTests(TestCase):
         self.assertEqual(su, Decimal("130000"))
 
 
-class GetOrFetchUsdUzsRateTests(TestCase):
-    """get_or_fetch_usd_uzs_rate — единая точка правды: архив первым, сеть как fallback."""
+class UsdUzsRateAndDateOnOrBeforeTests(TestCase):
+    """usd_uzs_rate_and_date_on_or_before — курс и его дата из архива, без сети."""
+
+    def setUp(self):
+        CbuExchangeRate.objects.create(date=date(2026, 5, 8), usd_uzs_rate=Decimal("12500.000000"))
+        CbuExchangeRate.objects.create(date=date(2026, 5, 11), usd_uzs_rate=Decimal("12600.000000"))
+
+    def _both(self, day):
+        return usd_uzs_rate_and_date_on_or_before(day), usd_uzs_rate_and_date_on_or_before(day, cache={})
 
     @patch("apps.modules.investments.services.fetch_cbu_usd_uzs_rate")
-    def test_returns_archived_rate_without_hitting_network(self, mock_fetch):
-        CbuExchangeRate.objects.create(date=date(2026, 5, 9), usd_uzs_rate=Decimal("12500.000000"))
-
-        out = get_or_fetch_usd_uzs_rate(rate_date=date(2026, 5, 9))
-
-        self.assertEqual(out, Decimal("12500.000000"))
+    def test_exact_date(self, mock_fetch):
+        self.assertEqual(self._both(date(2026, 5, 11)), ((Decimal("12600.000000"), date(2026, 5, 11)),) * 2)
         mock_fetch.assert_not_called()
 
-    @patch("apps.modules.investments.services.fetch_cbu_usd_uzs_rate", return_value=Decimal("12345"))
-    def test_fetches_and_archives_when_date_missing(self, mock_fetch):
-        out = get_or_fetch_usd_uzs_rate(rate_date=date(2026, 5, 9))
+    def test_missing_date_takes_previous_with_its_date(self):
+        self.assertEqual(self._both(date(2026, 5, 10)), ((Decimal("12500.000000"), date(2026, 5, 8)),) * 2)
 
-        self.assertEqual(out, Decimal("12345"))
-        mock_fetch.assert_called_once_with(rate_date=date(2026, 5, 9), timeout=12)
-        self.assertEqual(
-            CbuExchangeRate.objects.get(date=date(2026, 5, 9)).usd_uzs_rate,
-            Decimal("12345"),
-        )
+    def test_before_archive_takes_earliest(self):
+        self.assertEqual(self._both(date(2020, 1, 1)), ((Decimal("12500.000000"), date(2026, 5, 8)),) * 2)
 
-    @patch("apps.modules.investments.services.fetch_cbu_usd_uzs_rate")
-    def test_propagates_fetch_error_without_archiving(self, mock_fetch):
-        mock_fetch.side_effect = CbuRateFetchError("offline")
-
-        with self.assertRaises(CbuRateFetchError):
-            get_or_fetch_usd_uzs_rate(rate_date=date(2026, 5, 9))
-
-        self.assertFalse(CbuExchangeRate.objects.filter(date=date(2026, 5, 9)).exists())
+    def test_empty_archive(self):
+        CbuExchangeRate.objects.all().delete()
+        self.assertEqual(self._both(date(2026, 5, 10)), (None, None))
 
 
 class UsdUzsEquivalentsTests(TestCase):
-    """usd_uzs_equivalents(_or_none) — sum_usd/sum_uzs по sum/currency и курсу на дату."""
+    """usd_uzs_equivalents(_or_none) — sum_usd/sum_uzs по курсу из архива (на дату или ближайшему предыдущему)."""
 
-    @patch("apps.modules.investments.services.fetch_cbu_usd_uzs_rate", return_value=Decimal("12600"))
-    def test_usd_currency_uzs_is_sum_times_rate(self, _mock_fetch):
+    def setUp(self):
+        CbuExchangeRate.objects.create(date=date(2026, 5, 9), usd_uzs_rate=Decimal("12600"))
+        patcher = patch(
+            "apps.modules.investments.services.fetch_cbu_usd_uzs_rate",
+            side_effect=AssertionError("usd_uzs_equivalents must not fetch CBU rates"),
+        )
+        self.mock_fetch = patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def test_usd_currency_uzs_is_sum_times_rate(self):
         sum_usd, sum_uzs = usd_uzs_equivalents(sum_val=Decimal("100.00"), currency="USD", rate_date=date(2026, 5, 9))
         self.assertEqual(sum_usd, Decimal("100.00"))
         self.assertEqual(sum_uzs, Decimal("1260000.00"))
 
-    @patch("apps.modules.investments.services.fetch_cbu_usd_uzs_rate", return_value=Decimal("12600"))
-    def test_uzs_currency_usd_is_sum_divided_by_rate(self, _mock_fetch):
+    def test_uzs_currency_usd_is_sum_divided_by_rate(self):
         sum_usd, sum_uzs = usd_uzs_equivalents(
             sum_val=Decimal("1260000.00"), currency="UZS", rate_date=date(2026, 5, 9)
         )
         self.assertEqual(sum_uzs, Decimal("1260000.00"))
         self.assertEqual(sum_usd, Decimal("100.00"))
 
-    @patch("apps.modules.investments.services.fetch_cbu_usd_uzs_rate")
-    def test_or_none_variant_swallows_fetch_error(self, mock_fetch):
-        mock_fetch.side_effect = CbuRateFetchError("offline")
+    def test_missing_date_uses_previous_archived_rate(self):
+        sum_usd, sum_uzs = usd_uzs_equivalents(sum_val=Decimal("100.00"), currency="USD", rate_date=date(2026, 5, 12))
+        self.assertEqual(sum_uzs, Decimal("1260000.00"))
+        self.mock_fetch.assert_not_called()
+
+    def test_or_none_variant_returns_none_for_empty_archive(self):
+        CbuExchangeRate.objects.all().delete()
         sum_usd, sum_uzs = usd_uzs_equivalents_or_none(
             sum_val=Decimal("100.00"), currency="USD", rate_date=date(2026, 5, 9)
         )
         self.assertIsNone(sum_usd)
         self.assertIsNone(sum_uzs)
 
-    @patch("apps.modules.investments.services.fetch_cbu_usd_uzs_rate")
-    def test_strict_variant_raises_on_fetch_error(self, mock_fetch):
-        mock_fetch.side_effect = CbuRateFetchError("offline")
+    def test_strict_variant_raises_for_empty_archive(self):
+        CbuExchangeRate.objects.all().delete()
         with self.assertRaises(CbuRateFetchError):
             usd_uzs_equivalents(sum_val=Decimal("100.00"), currency="USD", rate_date=date(2026, 5, 9))
+        self.mock_fetch.assert_not_called()
 
 
 class SyncCbuExchangeRateCommandTests(TestCase):
@@ -769,6 +862,7 @@ class ProjectInvestmentSerializerTests(TestCase):
                 "date": date(2026, 3, 15),
                 "amount": "100000.00",
                 "currency": "usd",
+                "funding_method": "cash",
                 "comment": "Round A",
             }
         )
@@ -778,6 +872,60 @@ class ProjectInvestmentSerializerTests(TestCase):
         self.assertFalse(obj.confirmed)
         self.assertIsNotNone(obj.last_edit_at)
         self.assertIsNone(obj.company)
+
+
+class ProjectInvestmentWithEquivalentsSerializerTests(TestCase):
+    """sum_usd/sum_uzs у заявок на вложение — для общего итога в USD без деления по валютам."""
+
+    def setUp(self):
+        self.tenant = Tenant.objects.create(name="ProjEqCo", subdomain="projeqco", is_active=True)
+        self.user = User.objects.create_user(username="proj-eq-user", password="x")
+        CbuExchangeRate.objects.create(date=date(2026, 4, 17), usd_uzs_rate=Decimal("12600"))
+
+    def _make(self, amount, currency, on=date(2026, 4, 17)):
+        return ProjectInvestment.objects.create(
+            tenant=self.tenant,
+            date=on,
+            amount=Decimal(amount),
+            currency=currency,
+            created_by=self.user,
+        )
+
+    def test_usd_amount_equivalents(self):
+        data = ProjectInvestmentWithEquivalentsSerializer(self._make("100.00", "USD")).data
+        self.assertEqual(Decimal(str(data["sum_usd"])), Decimal("100.00"))
+        self.assertEqual(Decimal(str(data["sum_uzs"])), Decimal("1260000.00"))
+        self.assertEqual(data["rate_date"], "2026-04-17")
+
+    @patch("apps.modules.investments.services.fetch_cbu_usd_uzs_rate")
+    def test_rate_date_is_previous_archived_date_when_rate_missing(self, mock_fetch):
+        data = ProjectInvestmentWithEquivalentsSerializer(self._make("100.00", "USD", on=date(2026, 4, 20))).data
+        self.assertEqual(Decimal(str(data["sum_uzs"])), Decimal("1260000.00"))
+        self.assertEqual(data["rate_date"], "2026-04-17")
+        mock_fetch.assert_not_called()
+
+    def test_rate_date_is_none_when_archive_empty(self):
+        CbuExchangeRate.objects.all().delete()
+        data = ProjectInvestmentWithEquivalentsSerializer(self._make("100.00", "USD")).data
+        self.assertIsNone(data["sum_usd"])
+        self.assertIsNone(data["rate_date"])
+
+    @patch("apps.modules.investments.services.fetch_cbu_usd_uzs_rate")
+    def test_uzs_amount_converted_to_usd_by_rate_on_date(self, mock_fetch):
+        data = ProjectInvestmentWithEquivalentsSerializer(self._make("5000000", "UZS")).data
+        self.assertEqual(Decimal(str(data["sum_uzs"])), Decimal("5000000.00"))
+        expected_usd = (Decimal("5000000.00") / Decimal("12600")).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        self.assertEqual(Decimal(str(data["sum_usd"])), expected_usd)
+        # Чтение берёт курс из архива и в сеть не ходит.
+        mock_fetch.assert_not_called()
+
+    @patch("apps.modules.investments.services.fetch_cbu_usd_uzs_rate")
+    def test_eur_has_no_equivalents_instead_of_treating_as_usd(self, mock_fetch):
+        data = ProjectInvestmentWithEquivalentsSerializer(self._make("100.00", "EUR")).data
+        self.assertIsNone(data["sum_usd"])
+        self.assertIsNone(data["sum_uzs"])
+        self.assertIsNone(data["rate_date"])
+        mock_fetch.assert_not_called()
 
 
 class InvestCompanyScopeTests(TestCase):
@@ -804,6 +952,7 @@ class InvestCompanyScopeTests(TestCase):
                 "date": date(2026, 3, 15),
                 "amount": "100000.00",
                 "currency": "usd",
+                "funding_method": "cash",
                 "company": self.company.id,
             },
             context={"request": request},
@@ -818,6 +967,7 @@ class InvestCompanyScopeTests(TestCase):
                 "date": date(2026, 3, 15),
                 "amount": "100000.00",
                 "currency": "usd",
+                "funding_method": "cash",
                 "company": self.other_company.id,
             },
             context={"request": request},
@@ -1020,11 +1170,16 @@ class InvestmentApprovalFlowTests(APITestCase):
         response = self.client.put("/api/investments/approval-config/", cfg_payload, format="json", HTTP_HOST=self.host)
         self.assertEqual(response.status_code, 200)
 
-        # Мокаем на уровне сетевого фетча (не get_or_fetch_usd_uzs_rate), чтобы реальная
-        # архивирующая логика отработала и Telegram-сообщение нашло курс в CbuExchangeRate.
+        # Курсы только из архива (его пополняет backend_cron): кладём курс на даты выплат, чтобы
+        # Telegram-сообщение показало блок «Курс CBU». Сеть запросы не трогают — фетч падает.
+        for day in (
+            date(2026, 4, 15), date(2026, 4, 20), date(2026, 4, 21), date(2026, 4, 29),
+            date(2026, 5, 1), date(2026, 6, 1),
+        ):
+            CbuExchangeRate.objects.create(date=day, usd_uzs_rate=Decimal("10000"))
         cbu_patcher = patch(
             "apps.modules.investments.services.fetch_cbu_usd_uzs_rate",
-            return_value=Decimal("10000"),
+            side_effect=AssertionError("portal requests must not fetch CBU rates"),
         )
         cbu_patcher.start()
         self.addCleanup(cbu_patcher.stop)
@@ -1166,6 +1321,75 @@ class InvestmentApprovalFlowTests(APITestCase):
         self.assertEqual(ok_second.status_code, 200)
         inv_return.refresh_from_db()
         self.assertTrue(inv_return.confirmed)
+
+    @patch("apps.modules.telegram_approvals.services.TelegramDispatcher.edit")
+    @patch("apps.modules.telegram_approvals.services.TelegramDispatcher.send")
+    def test_serial_step_with_several_approvers_sends_card_once_each(self, bridge_mock, edit_mock):
+        """Решение одного согласующего на шаге не должно заново слать карточку остальным."""
+        cfg_payload = {
+            "return_type": None,
+            "recipient": None,
+            "is_enabled": True,
+            "steps": [
+                {
+                    "step": 1,
+                    "step_type": InvestmentApprovalConfigStep.STEP_TYPE_SERIAL,
+                    "is_enabled": True,
+                    "approver_user_ids": [self.approver1.id, self.approver2.id],
+                },
+                {
+                    "step": 2,
+                    "step_type": InvestmentApprovalConfigStep.STEP_TYPE_CONFIRMATION,
+                    "is_enabled": True,
+                    "telegram_chat_id": self.tg_chat_666.pk,
+                    "approver_user_ids": [self.approver2.id],
+                },
+            ],
+        }
+        response = self.client.put("/api/investments/approval-config/", cfg_payload, format="json", HTTP_HOST=self.host)
+        self.assertEqual(response.status_code, 200)
+        bridge_mock.side_effect = _send_linking_message(self.tenant)
+        edit_mock.return_value = MagicMock()
+
+        response = self.client.post(
+            "/api/investments/returns/",
+            {
+                "date": "2026-04-29",
+                "billing_date": "2026-04-01",
+                "sum": "700.00",
+                "currency": "USD",
+                "type": "дивиденды",
+                "recipient": "инвестор",
+            },
+            format="json",
+            HTTP_HOST=self.host,
+        )
+        self.assertEqual(response.status_code, 201)
+        inv_return = InvestReturn.objects.get(id=response.data["id"])
+        self.assertEqual(bridge_mock.call_count, 2)
+
+        for approver in (self.approver1, self.approver2):
+            approval = inv_return.approvals.get(step=1, approver_user=approver)
+            res = self.client.post(
+                "/api/messaging-gateway/webhook/",
+                {
+                    "event": "interaction",
+                    "payload": f"inv_{approval.id}:a",
+                    "user_id": str(approver.telegram_from_id),
+                    "recipient_id": str(approver.telegram_chat_id),
+                    "message_id": approval.gateway_message_id,
+                    "platform": "telegram",
+                },
+                format="json",
+                HTTP_HOST=self.host,
+            )
+            self.assertEqual(res.status_code, 200)
+
+        # 2 карточки шага 1 + 1 карточка шага 2 в чат; без повторов шага 1.
+        self.assertEqual(bridge_mock.call_count, 3)
+        sent_approval_ids = [c.kwargs["approval_id"] for c in bridge_mock.call_args_list]
+        self.assertEqual(len(sent_approval_ids), len(set(sent_approval_ids)))
+        self.assertEqual(bridge_mock.call_args_list[-1].kwargs["recipient_id"], "666000")
 
     @patch("apps.modules.telegram_approvals.services.TelegramDispatcher.send")
     def test_reject_keeps_return_unconfirmed(self, bridge_mock):
@@ -1614,6 +1838,7 @@ class InvestmentProjectApprovalFlowTests(APITestCase):
                 "date": "2026-04-15",
                 "amount": "250000.00",
                 "currency": "USD",
+                "funding_method": "cash",
                 "comment": "Seed round",
             },
             format="json",
@@ -1642,6 +1867,7 @@ class InvestmentProjectApprovalFlowTests(APITestCase):
                 "date": "2026-04-20",
                 "amount": "1000.00",
                 "currency": "USD",
+                "funding_method": "cash",
                 "comment": "Filter test",
             },
             format="json",
@@ -1656,6 +1882,7 @@ class InvestmentProjectApprovalFlowTests(APITestCase):
                 "date": "2026-04-21",
                 "amount": "2000.00",
                 "currency": "USD",
+                "funding_method": "cash",
                 "comment": "Other",
             },
             format="json",
@@ -1683,6 +1910,7 @@ class InvestmentProjectApprovalFlowTests(APITestCase):
                 "date": "2026-06-01",
                 "amount": "5000.00",
                 "currency": "USD",
+                "funding_method": "cash",
                 "comment": "",
             },
             format="json",
@@ -1730,6 +1958,7 @@ class InvestmentProjectApprovalFlowTests(APITestCase):
                 "date": "2026-05-01",
                 "amount": "10000.00",
                 "currency": "USD",
+                "funding_method": "cash",
                 "comment": "",
             },
             format="json",
@@ -1790,6 +2019,7 @@ class InvestmentProjectApprovalFlowTests(APITestCase):
                 "date": "2026-05-01",
                 "amount": "10000.00",
                 "currency": "USD",
+                "funding_method": "cash",
                 "comment": "",
             },
             format="json",
@@ -1825,6 +2055,83 @@ class InvestmentProjectApprovalFlowTests(APITestCase):
             ).exists()
         )
 
+    @patch("apps.modules.telegram_approvals.services.TelegramDispatcher.edit")
+    @patch("apps.modules.telegram_approvals.services.TelegramDispatcher.send")
+    def test_serial_step_with_several_approvers_sends_card_once_each(self, bridge_mock, edit_mock):
+        """Решение одного согласующего на шаге не должно заново слать карточку остальным."""
+        approver3 = User.objects.create_user(
+            username="pi_appr_3",
+            password="x",
+            telegram_chat_id=155003,
+            telegram_from_id=177003,
+        )
+        TenantMembership.objects.create(tenant=self.tenant, user=approver3, is_active=True)
+        TenantUserRole.objects.create(tenant=self.tenant, user=approver3, role=TenantUserRole.ROLE_DIRECTOR)
+        serial_approvers = (self.approver1, self.approver2, approver3)
+        cfg_payload = {
+            "is_enabled": True,
+            "steps": [
+                {
+                    "step": 1,
+                    "step_type": InvestmentApprovalConfigStep.STEP_TYPE_SERIAL,
+                    "is_enabled": True,
+                    "approver_user_ids": [u.id for u in serial_approvers],
+                },
+                {
+                    "step": 2,
+                    "step_type": InvestmentApprovalConfigStep.STEP_TYPE_CONFIRMATION,
+                    "is_enabled": True,
+                    "telegram_chat_id": self.tg_chat_166.pk,
+                    "approver_user_ids": [self.approver2.id],
+                },
+            ],
+        }
+        response = self.client.put(
+            "/api/investments/project-approval-config/", cfg_payload, format="json", HTTP_HOST=self.host
+        )
+        self.assertEqual(response.status_code, 200)
+        bridge_mock.side_effect = _send_linking_message(self.tenant)
+        edit_mock.return_value = MagicMock()
+
+        response = self.client.post(
+            "/api/investments/project-investments/",
+            {
+                "date": "2026-05-01",
+                "amount": "10000.00",
+                "currency": "USD",
+                "funding_method": "cash",
+                "comment": "",
+            },
+            format="json",
+            HTTP_HOST=self.host,
+        )
+        self.assertEqual(response.status_code, 201)
+        pi = ProjectInvestment.objects.get(id=response.data["id"])
+        self.assertEqual(bridge_mock.call_count, 3)
+
+        for approver in serial_approvers:
+            approval = pi.approvals.get(step=1, approver_user=approver)
+            res = self.client.post(
+                "/api/messaging-gateway/webhook/",
+                {
+                    "event": "interaction",
+                    "payload": f"invp_{approval.id}:a",
+                    "user_id": str(approver.telegram_from_id),
+                    "recipient_id": str(approver.telegram_chat_id),
+                    "message_id": approval.gateway_message_id,
+                    "platform": "telegram",
+                },
+                format="json",
+                HTTP_HOST=self.host,
+            )
+            self.assertEqual(res.status_code, 200)
+
+        # 3 карточки шага 1 + 1 карточка шага 2 в чат; без повторов шага 1.
+        self.assertEqual(bridge_mock.call_count, 4)
+        sent_approval_ids = [c.kwargs["approval_id"] for c in bridge_mock.call_args_list]
+        self.assertEqual(len(sent_approval_ids), len(set(sent_approval_ids)))
+        self.assertEqual(bridge_mock.call_args_list[-1].kwargs["recipient_id"], "166000")
+
 
 class BillingMonthRulesTests(SimpleTestCase):
     @patch("apps.modules.investments.billing_month_rules.tashkent_today", return_value=date(2026, 5, 10))
@@ -1849,9 +2156,10 @@ class InvestReturnPnLBillingMonthTests(TestCase):
             pnl_config=full_backend_pnl_config(start_month="2026-02"),
         )
         self.user = User.objects.create_user(username="pnl_ir_u", password="x")
+        # P&L берёт курс только из архива (на дату выплаты или ближайший предыдущий).
+        CbuExchangeRate.objects.create(date=date(2026, 5, 10), usd_uzs_rate=Decimal("10000"))
 
-    @patch("apps.modules.investments.services.fetch_cbu_usd_uzs_rate", return_value=Decimal("10000"))
-    def test_operational_line_uses_billing_month_as_report_date(self, _mock_fetch):
+    def test_operational_line_uses_billing_month_as_report_date(self):
         ir = InvestReturn.objects.create(
             tenant=self.tenant,
             created_by=self.user,
@@ -1870,8 +2178,7 @@ class InvestReturnPnLBillingMonthTests(TestCase):
         self.assertIsNotNone(match)
         self.assertEqual(match["date"], "2026-03-01")
 
-    @patch("apps.modules.investments.services.fetch_cbu_usd_uzs_rate", return_value=Decimal("10000"))
-    def test_excluded_when_billing_month_before_config_start(self, _mock_fetch):
+    def test_excluded_when_billing_month_before_config_start(self):
         ir = InvestReturn.objects.create(
             tenant=self.tenant,
             created_by=self.user,
@@ -2377,10 +2684,11 @@ class InvestReturnCreateAPITest(APITestCase):
         TenantModuleConfig.objects.create(tenant=self.tenant, module_key="investments", is_enabled=True)
         self.client.force_authenticate(self.user)
 
-    @patch("apps.modules.investments.serializers.get_or_fetch_usd_uzs_rate", return_value=Decimal("10000"))
-    def test_creates_invest_return(self, _mock_fetch_cbu):
+    @patch("apps.modules.investments.services.fetch_cbu_usd_uzs_rate")
+    def test_creates_invest_return(self, mock_fetch):
         from datetime import date
         today = date.today()
+        CbuExchangeRate.objects.create(date=date(2026, 1, 1), usd_uzs_rate=Decimal("10000"))
         payload = {
             "date": today.strftime("%Y-%m-%d"),
             "billing_date": today.replace(day=1).strftime("%Y-%m-%d"),
@@ -2397,6 +2705,8 @@ class InvestReturnCreateAPITest(APITestCase):
         self.assertEqual(response.data["type"], "дивиденды")
         self.assertEqual(response.data["recipient"], "инвестор")
         self.assertFalse(response.data["confirmed"])
+        self.assertIsNotNone(response.data["rate_date"])
+        mock_fetch.assert_not_called()
 
 
 @override_settings(BASE_DOMAIN="example.com", ALLOWED_HOSTS=["*"])
@@ -2449,8 +2759,8 @@ class InvestPayoutScheduleSoftCloseAPITest(APITestCase):
         self.assertTrue(self.schedule.is_paid)
         self.assertEqual(self.schedule.payment_amount, Decimal("40.00"))
 
-    @patch("apps.modules.investments.serializers.get_or_fetch_usd_uzs_rate", return_value=Decimal("10000"))
-    def test_create_return_endpoint_allows_overpayment(self, _mock_fetch_cbu):
+    def test_create_return_endpoint_allows_overpayment(self):
+        CbuExchangeRate.objects.create(date=date(2026, 6, 1), usd_uzs_rate=Decimal("10000"))
         response = self.client.post(
             f"/api/investments/payout-schedule/{self.schedule.pk}/create-return/",
             data={"amount": "150.00"},
@@ -2650,17 +2960,33 @@ class InvestPayoutScheduleCurrencyConversionTests(TestCase):
         InvestPayoutSchedule.objects.filter(pk=schedule.pk).update(
             payment_amount=Decimal("150000000.00"), is_paid=True
         )
+        CbuExchangeRate.objects.all().delete()
 
         with patch(
             "apps.modules.investments.services.fetch_cbu_usd_uzs_rate",
             side_effect=CbuRateFetchError("ЦБ недоступен"),
-        ), self.assertLogs("apps.modules.investments.notification_services", level="ERROR"):
-            # No archived rate for 15.01 → conversion fails; the schedule must not be zeroed out.
+        ) as mock_fetch, self.assertLogs("apps.modules.investments.notification_services", level="ERROR"):
+            # Empty rate archive → conversion fails; the schedule must not be zeroed out.
             self._return(sum_=Decimal("100.00"), currency="USD", on=date(2026, 1, 15), schedule=schedule)
+        mock_fetch.assert_not_called()
 
         schedule.refresh_from_db()
         self.assertEqual(schedule.payment_amount, Decimal("150000000.00"))
         self.assertTrue(schedule.is_paid)
+
+    def test_missing_rate_uses_previous_archived_rate_without_network(self):
+        schedule = self._schedule(amount=Decimal("150000000.00"), currency="UZS")
+        with patch(
+            "apps.modules.investments.services.fetch_cbu_usd_uzs_rate",
+            side_effect=AssertionError("payout rollup must not fetch CBU rates"),
+        ):
+            # No archived rate for 15.03 → the 28.02 rate (12 136.57): 100 $ = 1 213 657 UZS.
+            self._return(sum_=Decimal("100.00"), currency="USD", on=date(2026, 3, 15), schedule=schedule)
+            schedule.refresh_from_db()
+            data = InvestPayoutScheduleSerializer(schedule).data
+
+        self.assertEqual(schedule.payment_amount, Decimal("1213657.00"))
+        self.assertEqual(data["remaining_amount"], "148786343.00")
 
     def test_reminder_still_sent_while_converted_remainder_is_open(self):
         import datetime as dt

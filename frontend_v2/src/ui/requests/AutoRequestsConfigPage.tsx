@@ -13,10 +13,15 @@ import {
   type RequestFormConfigCandidateUser,
   type RequestFormConfigPaymentTypeItem,
 } from '../../lib/api'
-import { REQUEST_PAYMENT_TYPES } from '../../lib/requestPaymentTypes'
+import {
+  REQUEST_PAYMENT_TYPES,
+  vendorKindForPaymentType,
+  withoutInvestTypesUnlessEnabled,
+} from '../../lib/requestPaymentTypes'
 import { labelBlockAboveField } from '../formSpacing'
 
-const PAYMENT_TYPES_FALLBACK = REQUEST_PAYMENT_TYPES
+// Инвест-типы в автозаявках запрещены (backend отклоняет такие шаблоны) — не предлагаем их никогда.
+const PAYMENT_TYPES_FALLBACK = withoutInvestTypesUnlessEnabled(REQUEST_PAYMENT_TYPES, (pt) => pt, false)
 
 const BILLING_MONTH_OPTIONS: { value: AutoRequestBillingMonthMode; label: string }[] = [
   { value: 'previous', label: 'Предыдущий месяц' },
@@ -24,18 +29,20 @@ const BILLING_MONTH_OPTIONS: { value: AutoRequestBillingMonthMode; label: string
   { value: 'next', label: 'Следующий месяц' },
 ]
 
-function vendorKindForPaymentType(paymentType: string): 'cash' | 'transfer' {
-  return paymentType === 'Наличные' ? 'cash' : 'transfer'
+/** Типы оплаты, доступные для шаблонов автозаявок: включённые в форме, без инвест-типов. */
+function autoRequestFormPaymentTypes(data: AutoRequestConfigResponse | null) {
+  const enabled = (data?.form_payment_types || []).filter((p) => p.is_enabled)
+  return withoutInvestTypesUnlessEnabled(enabled, (p) => p.payment_type, false)
 }
 
 function paymentTypeSelectOptions(data: AutoRequestConfigResponse | null) {
-  const pts = (data?.form_payment_types || []).filter((p) => p.is_enabled)
+  const pts = autoRequestFormPaymentTypes(data)
   if (pts.length) return pts.map((p) => ({ value: p.payment_type, label: p.payment_type }))
   return PAYMENT_TYPES_FALLBACK.map((v) => ({ value: v, label: v }))
 }
 
 function defaultPaymentTypeForNew(data: AutoRequestConfigResponse | null): string {
-  const pts = (data?.form_payment_types || []).filter((p) => p.is_enabled)
+  const pts = autoRequestFormPaymentTypes(data)
   return pts[0]?.payment_type || 'Наличные'
 }
 

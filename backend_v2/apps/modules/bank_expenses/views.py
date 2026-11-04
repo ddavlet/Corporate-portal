@@ -19,8 +19,8 @@ from apps.modules.bank_expenses.tashkent_dates import (
 from apps.modules.requests.expense_compliance import annotate_bank_expense_compliance, filter_expenses_missing_request
 from apps.modules.requests.models import Request
 from apps.tenants.permissions import HasEffectiveModuleAccess, IsTenantAdminForRecordEdit
-from apps.modules.wallets.models import Wallet
-from apps.modules.wallets.services import balances_for_tenant_channel
+from apps.modules.wallets.models import BankAccount, Wallet
+from apps.modules.wallets.services import balances_for_tenant_channel, wallet_balance_payload
 
 
 class BankBalancesView(APIView):
@@ -33,6 +33,53 @@ class BankBalancesView(APIView):
             return Response([])
         return Response(
             balances_for_tenant_channel(tenant_id=tenant.id, wallet_type=Wallet.Type.BANK)
+        )
+
+
+_ACCOUNT_TYPE_ORDER = {
+    BankAccount.AccountType.CONTROLLED: 0,
+    BankAccount.AccountType.INFORMATIONAL: 1,
+    BankAccount.AccountType.SERVICE: 2,
+}
+
+
+class BankAccountsOverviewView(APIView):
+    """Bank accounts of the tenant with type and current balance: controlled, informational, service."""
+
+    module_key = "bank"
+    permission_classes = [IsAuthenticated, HasEffectiveModuleAccess]
+
+    def get(self, request):
+        tenant = getattr(request, "tenant", None)
+        if not tenant:
+            return Response([])
+        wallets = Wallet.objects.filter(
+            tenant=tenant, wallet_type=Wallet.Type.BANK, bank_account__isnull=False, bank_account__tenant=tenant
+        ).select_related("bank_account")
+        wallets = sorted(
+            wallets,
+            key=lambda w: (
+                _ACCOUNT_TYPE_ORDER.get(w.bank_account.account_type, len(_ACCOUNT_TYPE_ORDER)),
+                not w.bank_account.is_default,
+                w.bank_account.label,
+                w.id,
+            ),
+        )
+        return Response(
+            [
+                {
+                    "wallet_id": w.id,
+                    "bank_account_id": w.bank_account_id,
+                    "label": w.bank_account.label,
+                    "account_no": w.bank_account.account_no,
+                    "mfo": w.bank_account.mfo,
+                    "is_default": w.bank_account.is_default,
+                    "account_type": w.bank_account.account_type,
+                    "currency": w.currency,
+                    "current_balance": wallet_balance_payload(wallet=w)["current_balance"],
+                }
+                for w in wallets
+            ]
         )
 
 

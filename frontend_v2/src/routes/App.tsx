@@ -7,6 +7,7 @@ import { CashPage } from '../ui/CashPage'
 import { CashSectionPage } from '../ui/CashSectionPage'
 import { BankPage } from '../ui/BankPage'
 import { BankSectionPage } from '../ui/BankSectionPage'
+import { BankAccountPage } from '../ui/BankAccountPage'
 import { CorporateCardPage } from '../ui/CorporateCardPage'
 import { CorporateCardSectionPage } from '../ui/CorporateCardSectionPage'
 import { PayrollPage } from '../ui/PayrollPage'
@@ -39,13 +40,14 @@ import { TelegramChatsConfigPage } from '../ui/settings/TelegramChatsConfigPage'
 import { InvestmentApprovalConfigPage } from '../ui/settings/InvestmentApprovalConfigPage'
 import { InvestmentProjectApprovalConfigPage } from '../ui/settings/InvestmentProjectApprovalConfigPage'
 import { InvestmentFormConfigPage } from '../ui/settings/InvestmentFormConfigPage'
+import { InvestmentFundingConfigPage } from '../ui/settings/InvestmentFundingConfigPage'
 import { InvestmentNotificationConfigPage } from '../ui/settings/InvestmentNotificationConfigPage'
+import { InvestmentReportConfigPage } from '../ui/settings/InvestmentReportConfigPage'
 import { ReportRulesSettingsPage } from '../ui/settings/ReportRulesSettingsPage'
 import { ReportTemplateSettingsPage } from '../ui/settings/ReportTemplateSettingsPage'
 import { TasksConfigPage } from '../ui/settings/TasksConfigPage'
 import { PayrollSettingsPage } from '../ui/settings/PayrollSettingsPage'
 import { AdminRouteGate } from '../ui/admin/AdminRouteGate'
-import { TrainingPage } from '../ui/training/TrainingPage'
 import { TasksPage } from '../ui/tasks/TasksPage'
 import { TgWebAppLayout } from '../ui/tg/TgWebAppLayout'
 import { TgHomePage } from '../ui/tg/TgHomePage'
@@ -60,6 +62,7 @@ import { TgInvestmentsProjectsPage } from '../ui/tg/TgInvestmentsProjectsPage'
 import { TgInvestmentsReturnsPage } from '../ui/tg/TgInvestmentsReturnsPage'
 import { TgInvestmentsSchedulePage } from '../ui/tg/TgInvestmentsSchedulePage'
 import { TgInvestmentsCreatePage } from '../ui/tg/TgInvestmentsCreatePage'
+import { TgInvestmentsCollectPage } from '../ui/tg/TgInvestmentsCollectPage'
 import { TgInvestmentsReturnCreatePage } from '../ui/tg/TgInvestmentsReturnCreatePage'
 import { TgCashPage } from '../ui/tg/TgCashPage'
 import { TgCashRegisterTransferPage } from '../ui/tg/TgCashRegisterTransferPage'
@@ -67,6 +70,7 @@ import { TgCashListPage } from '../ui/tg/TgCashListPage'
 import { TgCashExpenseDetailPage } from '../ui/tg/TgCashExpenseDetailPage'
 import { TgBankPage } from '../ui/tg/TgBankPage'
 import { TgBankListPage } from '../ui/tg/TgBankListPage'
+import { TgBankAccountMovementsPage } from '../ui/tg/TgBankAccountMovementsPage'
 import { TgBankExpenseDetailPage } from '../ui/tg/TgBankExpenseDetailPage'
 import { TgTasksPage } from '../ui/tg/TgTasksPage'
 import { useAuth } from '../ui/auth'
@@ -107,6 +111,7 @@ export function App() {
         <Route path="investments/companies" element={<TgInvestmentsCompaniesPage />} />
         <Route path="investments/projects" element={<TgInvestmentsProjectsPage />} />
         <Route path="investments/projects/new" element={<TgInvestmentsCreatePage />} />
+        <Route path="investments/projects/collect" element={<TgInvestmentsCollectPage />} />
         <Route path="investments/schedule" element={<TgInvestmentsSchedulePage />} />
         <Route path="investments/returns" element={<TgInvestmentsReturnsPage />} />
         <Route path="investments/returns/new" element={<TgInvestmentsReturnCreatePage />} />
@@ -123,6 +128,7 @@ export function App() {
         <Route path="bank/expenses" element={<TgBankListPage mode="expenses" />} />
         <Route path="bank/revenues" element={<TgBankListPage mode="revenues" />} />
         <Route path="bank/expenses/:id" element={<TgBankExpenseDetailPage />} />
+        <Route path="bank/accounts/:walletId/:mode" element={<TgBankAccountMovementsPage />} />
         <Route path="tasks" element={<TgTasksPage />} />
         <Route path="payment" element={<TgPaymentConfirmPage />} />
         <Route path="comment" element={<TgCommentPage />} />
@@ -157,6 +163,7 @@ export function App() {
         <Route path="bank/expenses" element={<BankSectionPage mode="expenses" />} />
         <Route path="bank/revenues" element={<BankSectionPage mode="revenues" />} />
         <Route path="bank/expenses/:id" element={<BankExpenseDetailPage />} />
+        <Route path="bank/accounts/:walletId" element={<BankAccountPage />} />
         <Route path="bank/:id" element={<BankExpenseLegacyRedirect />} />
         <Route path="corporate-card" element={<CorporateCardPage />} />
         <Route path="corporate-card/all" element={<CorporateCardSectionPage mode="all" />} />
@@ -174,8 +181,10 @@ export function App() {
         <Route path="settings" element={<SettingsPage />} />
         <Route path="settings/request-form-config" element={<RequestFormConfigPage />} />
         <Route path="settings/request-approval-config" element={<RequestApprovalConfigPage />} />
+        <Route path="settings/investment-funding-config" element={<InvestmentFundingConfigPage />} />
         <Route path="settings/investment-form-config" element={<InvestmentFormConfigPage />} />
         <Route path="settings/investment-notification-config" element={<InvestmentNotificationConfigPage />} />
+        <Route path="settings/investment-report" element={<InvestmentReportConfigPage />} />
         <Route path="settings/investment-approval-config" element={<InvestmentApprovalConfigPage />} />
         <Route path="settings/investment-project-approval-config" element={<InvestmentProjectApprovalConfigPage />} />
         <Route path="settings/tenant-integration-config" element={<TenantIntegrationConfigPage />} />
@@ -190,7 +199,6 @@ export function App() {
         <Route path="settings/payroll-config" element={<PayrollSettingsPage />} />
         <Route path="admin" element={<AdminRouteGate />} />
         <Route path="tasks" element={<TasksPage />} />
-        <Route path="training" element={<TrainingPage />} />
       </Route>
 
       <Route path="*" element={<Navigate to="/requests" replace />} />

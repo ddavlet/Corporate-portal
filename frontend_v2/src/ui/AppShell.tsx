@@ -22,7 +22,6 @@ import {
   SettingOutlined,
   SafetyOutlined,
   TeamOutlined,
-  ReadOutlined,
   UserOutlined,
 } from '@ant-design/icons'
 import { useAuth } from './auth'
@@ -91,7 +90,6 @@ export function AppShell() {
         { path: '/clients-debt', name: 'Долги клиентов', icon: <ContactsOutlined />, moduleKey: 'clients_debt' },
         { path: '/budgets', name: 'Бюджеты', icon: <FundOutlined />, moduleKey: 'budgets' },
         { path: '/contracts', name: 'Договоры', icon: <SolutionOutlined />, moduleKey: 'contracts' },
-        { path: '/training', name: 'Обучалка', icon: <ReadOutlined /> },
         ...(canOpenAdmin ? [{ path: '/admin', name: 'Админка', icon: <SafetyOutlined /> }] : []),
         ...(canOpenSettings ? [{ path: '/settings', name: 'Настройки', icon: <SettingOutlined /> }] : []),
       ] as ShellMenuRoute[])

@@ -7,6 +7,7 @@ from rest_framework.exceptions import APIException, NotFound, PermissionDenied, 
 from apps.modules.requests.approval_config_resolver import resolve_effective_payment_step_config_for_request
 from apps.modules.requests.models import Approval, Request, RequestApprovalStepConfig
 from apps.modules.requests.payment_step_guards import payment_step_suppression_reason
+from apps.modules.requests.payment_type_policies import check_request_mutation
 from apps.modules.requests.services import create_expense_for_request_payment
 from apps.modules.requests.status_events import (
     dispatch_request_payed_event_handlers,
@@ -301,6 +302,12 @@ def confirm_approval_by_id(
             suppression_reason = payment_step_suppression_reason(request_obj=request_obj)
             if suppression_reason:
                 raise ValidationError({"detail": suppression_reason})
+
+        if decision == Approval.DECISION_REJECTED:
+            # Отказ переводит заявку в REJECTED — та же мутация статуса, что и через API заявки:
+            # зарегистрированные охранники (например, собранная во вложение заявка) могут её запретить.
+            # ValidationError -> 400 в портале и в callback Telegram, решение не сохраняется.
+            check_request_mutation(request_obj=request_obj, attrs={"status": Request.STATUS_REJECTED})
 
         if (
             decision == Approval.DECISION_APPROVED
