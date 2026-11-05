@@ -2,7 +2,7 @@
 
 В группе бот получает упоминания и ответы на свои сообщения. Ответ на автоуведомление
 или реплика с упоминанием коллеги («все верно? @natali») — это разговор людей, и бот
-в нём молчит. Решает дешёвая модель по тексту, без жёстких правил.
+в нём молчит. Решает модель по тексту цепочки, без жёстких правил.
 """
 
 import json
@@ -10,7 +10,13 @@ import logging
 from dataclasses import dataclass
 from xml.sax.saxutils import escape
 
-from .config import ADDRESSEE_CONTEXT_NODES, ADDRESSEE_MAX_TOKENS, ADDRESSEE_MODEL, ADDRESSEE_TEXT_LIMIT
+from .config import (
+    ADDRESSEE_CONTEXT_NODES,
+    ADDRESSEE_EFFORT,
+    ADDRESSEE_MAX_TOKENS,
+    ADDRESSEE_MODEL,
+    ADDRESSEE_TEXT_LIMIT,
+)
 from .models import ChainNode
 
 logger = logging.getLogger(__name__)
@@ -95,14 +101,13 @@ def render_addressee_input(path: list, *, mentions_bot: bool) -> str:
 
 
 async def classify_addressee(client, path: list, *, mentions_bot: bool) -> AddresseeVerdict:
-    """Ask the small model whether path[-1] is addressed to the assistant. Raises on API/format errors."""
+    """Ask the model whether path[-1] is addressed to the assistant. Raises on API/format errors."""
     response = await client.messages.create(
         model=ADDRESSEE_MODEL,
         max_tokens=ADDRESSEE_MAX_TOKENS,
         system=ADDRESSEE_PROMPT,
         messages=[{"role": "user", "content": render_addressee_input(path, mentions_bot=mentions_bot)}],
-        thinking={"type": "disabled"},
-        output_config={"effort": "low", "format": {"type": "json_schema", "schema": _OUTPUT_SCHEMA}},
+        output_config={"effort": ADDRESSEE_EFFORT, "format": {"type": "json_schema", "schema": _OUTPUT_SCHEMA}},
     )
     if response.stop_reason not in ("end_turn", "stop_sequence"):
         raise ValueError(f"addressee classifier stopped with {response.stop_reason}")

@@ -71,15 +71,17 @@ class ClassifyTests(SimpleTestCase):
         verdict = asyncio.run(classify_addressee(client, path, mentions_bot=mentions_bot))
         return verdict, messages.kwargs
 
-    def test_parses_verdict_and_uses_small_model_with_json_schema(self):
+    def test_parses_verdict_and_uses_strong_model_with_json_schema(self):
         verdict, kwargs = self._classify(_response('{"addressed": false, "reason": "confirmation to colleague"}'))
         self.assertEqual(
             verdict,
             AddresseeVerdict(addressed=False, reason="confirmation to colleague", input_tokens=321, output_tokens=12),
         )
         self.assertEqual(kwargs["model"], ADDRESSEE_MODEL)
-        self.assertEqual(kwargs["model"], "claude-haiku-5-5")
-        self.assertEqual(kwargs["thinking"], {"type": "disabled"})
+        self.assertEqual(kwargs["model"], "claude-opus-5-5")
+        # Opus 5.5: thinking отключить нельзя ({"type": "disabled"} даёт 400).
+        self.assertNotIn("thinking", kwargs)
+        self.assertEqual(kwargs["output_config"]["effort"], "medium")
         self.assertEqual(kwargs["output_config"]["format"]["type"], "json_schema")
         self.assertEqual(kwargs["system"], ADDRESSEE_PROMPT)
         self.assertIn("<new_message", kwargs["messages"][0]["content"])
