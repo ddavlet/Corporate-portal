@@ -48,7 +48,7 @@ def fetch_cbu_rows_for_date(*, rate_date: date, timeout: int = 12) -> list[dict]
     """
     Сырые строки бюллетеня ЦБ РУз на дату ``rate_date`` (UZS за Nominal единиц валюты).
 
-    Адрес — ``settings.CBU_RATES_BASE_URL`` (ретранслятор на neuron: cbu.uz не пускает неузбекские IP),
+    Адрес — ``settings.CBU_RATES_BASE_URL`` (ретранслятор на kolberg-tash: cbu.uz не пускает неузбекские IP),
     по умолчанию cbu.uz напрямую.
     """
     d = clamp_rate_date_to_cbu_availability(requested=rate_date)

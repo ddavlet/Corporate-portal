@@ -251,7 +251,7 @@ N8N_INTEGRATION_URL_PREFIXES = frozenset(
 N8N_INTEGRATION_TOKEN = os.getenv("N8N_INTEGRATION_TOKEN", "").strip()
 
 # CBU RUz exchange rates. cbu.uz answers only Uzbek IPs, so production points this at the relay on
-# neuron (https://cbu-relay.kolberg.uz/json, repo neuron-infra/cbu-relay) with its Bearer token.
+# kolberg-tash via Cloudflare Tunnel (https://cbu-relay.kolberg.uz/json, repo kolberg-infra/cbu-relay) with its Bearer token.
 # Empty -> cbu.uz directly. The URL is followed by /all/YYYY-MM-DD/ in both cases.
 CBU_RATES_BASE_URL = (os.getenv("CBU_RATES_BASE_URL", "") or "").strip().rstrip("/")
 CBU_RATES_TOKEN = os.getenv("CBU_RATES_TOKEN", "").strip()

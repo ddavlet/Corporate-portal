@@ -293,7 +293,7 @@ class InvestReturnApprovalTelegramMessageTests(SimpleTestCase):
 
 
 class CbuRatesSourceTests(SimpleTestCase):
-    """Адрес ЦБ берётся из настроек: в проде — ретранслятор на neuron с Bearer-токеном."""
+    """Адрес ЦБ берётся из настроек: в проде — ретранслятор на kolberg-tash с Bearer-токеном."""
 
     def _fetch(self):
         from apps.modules.investments.services import fetch_cbu_rows_for_date
