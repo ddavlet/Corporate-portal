@@ -1,6 +1,5 @@
 import logging
 import time
-import uuid
 from datetime import date, datetime
 import requests
 from requests.adapters import HTTPAdapter
@@ -38,17 +37,13 @@ from apps.modules.notes.models import Note
 from apps.modules.requests.models import Approval, Request
 from apps.modules.requests.payment_type_families import bank_like_payment_types
 from apps.modules.requests.amortization import build_amortization_schedule_rows, is_request_amortized
-from apps.modules.requests.approval_bootstrap import create_approval_rows_for_request
-from apps.modules.requests.approval_workflow import _recalculate_request_status, route_request_approvals
 from apps.modules.requests.bank_expense_reassignment import reassign_unmatched_bank_expenses
 from apps.modules.requests.bank_expense_reconciliation import reconcile_bank_expenses_by_vendor_amount_date
 from apps.modules.requests.card_expense_reconciliation import reconcile_card_expenses_by_amount_date
 from apps.modules.requests.card_revenue_reconciliation import reconcile_card_revenues_by_amount_date
-from apps.modules.requests.serializers import PortalRequestSerializer
 from apps.modules.requests.services import list_payment_purposes_by_payment_type
 from apps.modules.vendors.models import Vendor
 from apps.modules.n8n_integration.authentication import (
-    N8nIntegrationAuthentication,
     N8nIntegrationTokenOnlyAuthentication,
 )
 from apps.modules.n8n_integration.serializers import (
@@ -73,7 +68,6 @@ from apps.modules.wallets.models import Wallet
 from apps.modules.wallets.services import balances_for_tenant_channel
 from apps.tenants.integration_settings import get_n8n_integration_settings
 from apps.tenants.models import Tenant, TenantModuleConfig
-from apps.tenants.permissions import HasEffectiveModuleAccess
 
 User = get_user_model()
 logger = logging.getLogger(__name__)
@@ -757,164 +751,6 @@ class CashflowDataProxyView(APIView):
         return _proxy_n8n_json(request, "/n8n/cashflow-data")
 
 
-class AiChatProxyView(APIView):
-    permission_classes = [IsAuthenticated]
-
-    def post(self, request):
-        tenant = getattr(request, "tenant", None)
-        endpoint = "/n8n/aichat"
-        if not tenant:
-            return Response(
-                _n8n_error_payload(
-                    "No tenant.",
-                    error_type="tenant_missing",
-                    error_location=endpoint,
-                    reason="Tenant could not be resolved from request host/context.",
-                ),
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-        if not settings.BASE_DOMAIN:
-            return Response(
-                _n8n_error_payload(
-                    "BASE_DOMAIN is not configured.",
-                    error_type="config_error",
-                    error_location=endpoint,
-                    reason="Missing BASE_DOMAIN setting.",
-                ),
-                status=status.HTTP_503_SERVICE_UNAVAILABLE,
-            )
-
-        question = str(request.data.get("question") or "").strip()
-        if not question:
-            return Response({"question": ["This field is required."]}, status=status.HTTP_400_BAD_REQUEST)
-
-        raw_session_id = str(request.data.get("session_id") or "").strip()
-        session_id = raw_session_id or uuid.uuid4().hex
-
-        token = get_n8n_integration_settings(tenant=tenant).integration_token
-        if not token:
-            token = (getattr(settings, "N8N_INTEGRATION_TOKEN", None) or "").strip()
-        if not token:
-            return Response(
-                _n8n_error_payload(
-                    "N8N_INTEGRATION_TOKEN is not configured.",
-                    error_type="config_error",
-                    error_location=endpoint,
-                    reason="Missing n8n integration token in tenant or global settings.",
-                ),
-                status=status.HTTP_503_SERVICE_UNAVAILABLE,
-            )
-
-        url, host_override, transport = _build_n8n_url(tenant, endpoint)
-        actor_id = _n8n_actor_user_id(request)
-        payload = {
-            "user": actor_id,
-            "session_id": session_id,
-            "question": question,
-        }
-        headers = {
-            "Accept": "application/json",
-            "Content-Type": "application/json",
-            "X-N8N-Integration-Token": token,
-            "X-Tenant": tenant.subdomain,
-            "X-User-Id": str(actor_id),
-        }
-        if host_override:
-            headers["Host"] = host_override
-
-        started = time.perf_counter()
-        try:
-            resp = _n8n_session.post(url, json=payload, timeout=30, headers=headers)
-        except requests.RequestException as exc:
-            elapsed_ms = (time.perf_counter() - started) * 1000
-            logger.warning(
-                "n8n proxy failed: tenant=%s endpoint=%s transport=%s duration_ms=%.0f error=%s",
-                tenant.subdomain, endpoint, transport, elapsed_ms, exc,
-            )
-            return Response(
-                _n8n_error_payload(
-                    f"n8n request failed: {exc}",
-                    error_type="n8n_request_failed",
-                    error_location=endpoint,
-                    reason=exc.__class__.__name__,
-                ),
-                status=status.HTTP_502_BAD_GATEWAY,
-            )
-        elapsed_ms = (time.perf_counter() - started) * 1000
-        logger.info(
-            "n8n proxy: tenant=%s endpoint=%s transport=%s status=%s duration_ms=%.0f",
-            tenant.subdomain, endpoint, transport, resp.status_code, elapsed_ms,
-        )
-
-        if resp.status_code in (401, 403):
-            return Response(
-                _n8n_error_payload(
-                    "Forbidden by n8n.",
-                    error_type="n8n_forbidden",
-                    error_location=endpoint,
-                    reason=f"n8n returned HTTP {resp.status_code}.",
-                ),
-                status=status.HTTP_403_FORBIDDEN,
-            )
-        if resp.status_code >= 400:
-            return Response(
-                _n8n_error_payload(
-                    f"n8n error {resp.status_code}",
-                    error_type="n8n_bad_response",
-                    error_location=endpoint,
-                    reason="Upstream n8n endpoint returned non-success status.",
-                ),
-                status=status.HTTP_502_BAD_GATEWAY,
-            )
-
-        try:
-            data = resp.json()
-        except ValueError:
-            return Response(
-                _n8n_error_payload(
-                    "Invalid JSON returned by n8n.",
-                    error_type="invalid_upstream_json",
-                    error_location=endpoint,
-                    reason="n8n response body is not valid JSON.",
-                ),
-                status=status.HTTP_502_BAD_GATEWAY,
-            )
-        payload = data
-        if isinstance(data, list):
-            payload = data[0] if data else {}
-        if isinstance(payload, dict) and isinstance(payload.get("output"), dict):
-            payload = payload.get("output")
-        if not isinstance(payload, dict):
-            return Response(
-                _n8n_error_payload(
-                    "Invalid JSON shape returned by n8n.",
-                    error_type="invalid_upstream_json_shape",
-                    error_location=endpoint,
-                    reason="Expected object payload, or [ { output: {...} } ] wrapper.",
-                ),
-                status=status.HTTP_502_BAD_GATEWAY,
-            )
-
-        response_text = payload.get("response")
-        if not isinstance(response_text, str):
-            response_text = payload.get("reponse")
-        if not isinstance(response_text, str):
-            return Response(
-                _n8n_error_payload(
-                    "Missing AI response text in n8n payload.",
-                    error_type="invalid_upstream_payload",
-                    error_location=endpoint,
-                    reason="Expected `response` (or legacy `reponse`) string field.",
-                ),
-                status=status.HTTP_502_BAD_GATEWAY,
-            )
-
-        normalized = dict(payload)
-        normalized["session_id"] = str(payload.get("session_id") or session_id)
-        normalized["response"] = response_text
-        normalized["reponse"] = response_text
-        return Response(normalized, status=status.HTTP_200_OK)
-
 
 class N8nVendorUpsertView(_N8nBaseView):
     def post(self, request):
@@ -1037,34 +873,6 @@ class N8nRequestsMissingExpenseView(_N8nBaseView):
         ]
         return Response({"results": rows, "count": len(rows)})
 
-
-class N8nAiRequestCreateView(APIView):
-    """
-    n8n gateway for AI assistants:
-    accepts frontend-like user fields and runs the same create flow as portal.
-    """
-
-    module_key = "requests"
-    authentication_classes = [N8nIntegrationAuthentication]
-    permission_classes = [IsAuthenticated, HasEffectiveModuleAccess]
-
-    def post(self, request):
-        tenant = getattr(request, "tenant", None)
-        if not tenant:
-            return Response({"detail": "Unknown tenant."}, status=status.HTTP_400_BAD_REQUEST)
-
-        serializer = PortalRequestSerializer(data=request.data, context={"request": request})
-        serializer.is_valid(raise_exception=True)
-
-        with transaction.atomic():
-            request_obj = serializer.save(tenant=tenant, created_by=request.user)
-            created_approvals = create_approval_rows_for_request(request_obj)
-            if created_approvals and request_obj.status == Request.STATUS_DRAFT:
-                _recalculate_request_status(request_obj)
-
-        route_request_approvals(request_obj=request_obj)
-        output = PortalRequestSerializer(request_obj, context={"request": request}).data
-        return Response(output, status=status.HTTP_201_CREATED)
 
 
 class N8nRequestAmortizationView(_N8nBaseView):

@@ -86,7 +86,6 @@ def run_all():
     )
     from apps.modules.tasks.notifications.task_notifier import send_task_notification
     from apps.modules.tasks.models import Task, TasksConfig
-    from apps.modules.feedback.models import PortalFeedback
     from django.contrib.auth import get_user_model
 
     User = get_user_model()
@@ -428,63 +427,6 @@ def run_all():
     task.refresh_from_db()
     assert task.status == "in_progress"
     _ok("task_p_ webhook → in_progress via messaging gateway")
-
-    # ── 12. Portal feedback dispatch → Notification ──────────────────────────
-    print(); print("=" * 60); print("TEST 12: Portal feedback → Notification → TelegramMessage")
-    print("=" * 60)
-
-    fb = PortalFeedback.objects.create(
-        tenant=tenant, created_by=admin, kind=PortalFeedback.KIND_ERROR,
-        body="Test feedback body", page_path="/app/requests/1",
-    )
-    from apps.tenants.integration_settings import get_portal_feedback_settings
-    from apps.modules.telegram_approvals.models import Notification as NotifModel
-    pf = get_portal_feedback_settings(tenant=tenant)
-
-    # Test tenant may not have feedback recipient configured — test the dispatcher path directly
-    if pf.recipient_id is not None:
-        dispatcher = TelegramDispatcher(tenant)
-        msg = dispatcher.send(
-            action=pf.action,
-            recipient_id=int(pf.recipient_id),
-            text=f"<b>Обратная связь портала</b>\nТип: Ошибка\nОт: test_admin\nID: {fb.pk}\nСтраница: /app/requests/1\n\nTest feedback body",
-            buttons=[],
-            link=None,
-            request_id=fb.pk,
-        )
-        assert msg is not None
-        NotifModel.objects.create(
-            tenant=tenant,
-            kind=NotifModel.KIND_PORTAL_FEEDBACK,
-            telegram_message=msg,
-            content_type=ContentType.objects.get_for_model(PortalFeedback),
-            object_id=fb.pk,
-        )
-        notif = NotifModel.objects.filter(kind=NotifModel.KIND_PORTAL_FEEDBACK, object_id=fb.pk).first()
-        assert notif is not None and notif.telegram_message_id is not None
-        _ok("Portal feedback → Notification → TelegramMessage")
-    else:
-        # Fallback: test dispatcher directly with known recipient
-        dispatcher = TelegramDispatcher(tenant)
-        msg = dispatcher.send(
-            action="send_portal_feedback",
-            recipient_id=ddavlet.telegram_chat_id,
-            text="<b>Обратная связь портала</b>\nTest",
-            buttons=[],
-            link=None,
-            request_id=fb.pk,
-        )
-        assert msg is not None
-        NotifModel.objects.create(
-            tenant=tenant,
-            kind=NotifModel.KIND_PORTAL_FEEDBACK,
-            telegram_message=msg,
-            content_type=ContentType.objects.get_for_model(PortalFeedback),
-            object_id=fb.pk,
-        )
-        notif = NotifModel.objects.filter(kind=NotifModel.KIND_PORTAL_FEEDBACK, object_id=fb.pk).first()
-        assert notif is not None
-        _ok("Portal feedback → Notification → TelegramMessage (via direct dispatcher)")
 
     # ── 13. STEP_TYPE_NOTIFICATION auto-approval ─────────────────────────────
     print(); print("=" * 60); print("TEST 13: STEP_TYPE_NOTIFICATION auto-approves after send")

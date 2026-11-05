@@ -8,7 +8,6 @@ from apps.modules.requests.views import (
     RequestFormOptionsView,
     RequestApprovalConfigView,
     AutoRequestConfigView,
-    RequestAiChatProxyView,
     RequestCategoriesView,
     RequestVendorsView,
 )
@@ -18,7 +17,6 @@ router = DefaultRouter()
 router.register(r"", PortalRequestViewSet, basename="requests")
 
 urlpatterns = [
-    path("ai-chat/", RequestAiChatProxyView.as_view(), name="requests_ai_chat"),
     path("form-config/", RequestFormConfigView.as_view(), name="requests_form_config"),
     path(
         "form-config/requesters/",

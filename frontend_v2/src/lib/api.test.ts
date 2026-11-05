@@ -14,7 +14,6 @@ vi.mock('./apiNotify', () => ({
 import {
   ApiError,
   apiFetch,
-  askAiQuestion,
   changePassword,
   confirmPaymentViaWebApp,
   createVendor,
@@ -224,24 +223,6 @@ describe('api module', () => {
 
     const response = await getRequestFormOptions()
     expect(response).toEqual({ is_tenant_admin: false, is_tenant_director: false, requester_candidates: [], payment_types: [] })
-  })
-
-  it('validates AI question and accepts typo key "reponse"', async () => {
-    fetchMock.mockResolvedValueOnce(
-      createJsonResponse(200, {
-        session_id: 'sid-1',
-        reponse: 'hello from ai',
-      }),
-    )
-
-    const response = await askAiQuestion({ question: '  hello?  ' })
-    expect(response.session_id).toBe('sid-1')
-    expect(response.response).toBe('hello from ai')
-  })
-
-  it('rejects empty AI question before network call', async () => {
-    await expect(askAiQuestion({ question: '   ' })).rejects.toThrow('Вопрос не может быть пустым')
-    expect(fetchMock).not.toHaveBeenCalled()
   })
 
   it('returns backend detail for failed password change', async () => {

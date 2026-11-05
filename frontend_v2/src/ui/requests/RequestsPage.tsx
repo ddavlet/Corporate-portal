@@ -24,7 +24,6 @@ import { formatRequestBillingMonth, formatRequestDate, getRequestStatusColor } f
 import { requestReturnToForDetail } from '../../lib/requestNavigation'
 import { RequestDetailModal, type RequestDetail } from './RequestDetailModal'
 import { labelBlockAboveField } from '../formSpacing'
-import { RequestAiChatButton } from './RequestAiChatButton'
 import { AdminEditRecordButton } from '../admin/AdminEditRecordButton'
 import { NoteCreateModal } from '../NoteCreateModal'
 import { useInfiniteList, useRestoreInfinitePages } from '../../lib/useInfiniteList'
@@ -770,7 +769,6 @@ export function RequestsPage() {
         <Space>
           <Button onClick={() => navigate('/requests/audit')}>Аудит месяцев</Button>
           <Button onClick={() => navigate('/requests/auto-config')}>Автозаявки</Button>
-          <RequestAiChatButton />
           <Button type="primary" icon={<FileAddOutlined />} onClick={() => navigate('/requests/new')}>
             Новая заявка
           </Button>

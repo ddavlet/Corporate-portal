@@ -298,40 +298,6 @@ class N8nIntegrationAuthTests(APITestCase):
         v.refresh_from_db()
         self.assertEqual(v.name, "Updated")
 
-    @patch("apps.modules.n8n_integration.views._n8n_session.post")
-    def test_ai_chat_proxy_generates_session_id_and_forwards_payload(self, mocked_post):
-        mocked_response = Mock()
-        mocked_response.status_code = 200
-        mocked_response.json.return_value = [
-            {
-                "user_id": self.admin.id,
-                "session_id": "existing-session-id",
-                "response": "AI says hello",
-                "history": {"ai": "old", "user": "old"},
-            }
-        ]
-        mocked_post.return_value = mocked_response
-
-        res = self.client.post(
-            "/api/ai-questions/chat/",
-            {"question": "Как дела?"},
-            format="json",
-            **self._headers(self.admin, integration=False),
-        )
-        self.assertEqual(res.status_code, 200, res.content)
-        payload = res.json()
-        self.assertEqual(payload["response"], "AI says hello")
-        self.assertEqual(payload["reponse"], "AI says hello")
-        self.assertIn("session_id", payload)
-        self.assertEqual(payload["session_id"], "existing-session-id")
-
-        called_args = mocked_post.call_args.args
-        called_kwargs = mocked_post.call_args.kwargs
-        self.assertTrue(called_args[0].endswith("/n8n/aichat"))
-        self.assertEqual(called_kwargs["json"]["user"], self.admin.id)
-        self.assertEqual(called_kwargs["json"]["question"], "Как дела?")
-        self.assertEqual(len(called_kwargs["json"]["session_id"]), 32)
-
     def test_vendor_upsert_by_account_no_when_id_missing(self):
         Vendor.objects.create(
             tenant=self.tenant,
@@ -1194,44 +1160,6 @@ class N8nIntegrationAuthTests(APITestCase):
         req.refresh_from_db()
         # Title is derived from tenant name at model-level.
         self.assertEqual(req.title, self.tenant.name)
-
-    def test_request_frontend_create_gateway_allows_requester_role(self):
-        url = f"{self.n8n_prefix}/requests/ai-create/"
-        body = {
-            "title": "AI created request",
-            "description": "from assistant",
-            "amount": "1200.00",
-            "currency": "UZS",
-            "payment_type": Request.PAYMENT_TYPE_CASH,
-            "urgency": Request.URGENCY_NORMAL,
-            "billing_date": "2026-04-01",
-            # non-admin requester field should be ignored (same as frontend behavior)
-            "requester": self.admin.id,
-        }
-        res = self.client.post(url, body, format="json", **self._headers(self.other))
-        self.assertEqual(res.status_code, 201, res.content)
-        req = Request.objects.get(pk=res.data["id"])
-        self.assertEqual(req.tenant_id, self.tenant.id)
-        self.assertEqual(req.created_by_id, self.other.id)
-        self.assertEqual(req.requester_id, self.other.id)
-        self.assertTrue(Approval.objects.filter(request=req).exists())
-
-    def test_request_frontend_create_gateway_requires_requests_module(self):
-        TenantModuleConfig.objects.filter(
-            tenant=self.tenant,
-            module_key="requests",
-        ).update(is_enabled=False)
-        url = f"{self.n8n_prefix}/requests/ai-create/"
-        body = {
-            "title": "AI created request",
-            "amount": "1200.00",
-            "currency": "UZS",
-            "payment_type": Request.PAYMENT_TYPE_CASH,
-            "urgency": Request.URGENCY_NORMAL,
-            "billing_date": "2026-04-01",
-        }
-        res = self.client.post(url, body, format="json", **self._headers(self.other))
-        self.assertEqual(res.status_code, 403)
 
     def test_requests_amortization_endpoint_works_without_jwt(self):
         url = f"{self.n8n_prefix}/requests/amortization/"

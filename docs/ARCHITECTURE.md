@@ -4,7 +4,7 @@
 
 ## Назначение продукта
 
-**Kolberg v2** — мультитенантный корпоративный портал: заявки на оплату с многошаговым согласованием, финансовые модули (касса, банк, корпоративная карта, начисления ЗП), справочники (поставщики, кошельки/кассы), заметки, обратная связь. Данные из внешних систем (в т.ч. **n8n**) импортируются через отдельный интеграционный API. Согласование через **Telegram** идёт через webhook-мост.
+**Kolberg v2** — мультитенантный корпоративный портал: заявки на оплату с многошаговым согласованием, финансовые модули (касса, банк, корпоративная карта, начисления ЗП), справочники (поставщики, кошельки/кассы), заметки. Данные из внешних систем (в т.ч. **n8n**) импортируются через отдельный интеграционный API. Согласование через **Telegram** идёт через webhook-мост.
 
 ---
 
@@ -42,7 +42,7 @@
 
 - `requests`, `vendors`, `cash`, `bank`, `corporate_card`, `notes`, `n8n_integration`, `telegram_approvals`, `payroll`, `wallets`
 
-**Обратная связь** (`apps.modules.feedback`) в `INSTALLED_APPS` и URL есть, но **не входит** в `list_modules()` — на панели модулей не отображается как отдельный модуль.
+**Обратная связь** (`apps.modules.feedback`) с портала удалена: API и UI нет. Приложение осталось в `INSTALLED_APPS` только ради модели `PortalFeedback` (исторические обращения, просмотр в админке).
 
 ---
 
@@ -61,13 +61,12 @@
 | `/api/vendors/` | справочник поставщиков |
 | `/api/cash/`, `/api/bank/`, `/api/corporate-card/` | движения по каналам |
 | `/api/notes/` | заметки к сущностям |
-| `/api/feedback/` | AI-уточнение текста + отправка фидбека |
 | `/api/payroll/` | документы/строки ЗП |
 | `/api/wallets/` | кассы (cash registers) и кошельки |
 | `/api/telegram-approvals/webhook/` | callback от Telegram (без JWT, проверка интеграционного токена) |
 | `/api/<n8n_prefix>/` | upsert из n8n (дублирование префикса при кастомном пути — см. settings) |
 
-Переменные окружения (фрагмент): [settings.py](../backend_v2/config/settings.py) — `BASE_DOMAIN`, `N8N_INTEGRATION_*`, webhooks для feedback и Telegram bridge. Токен file gateway — только в `TenantIntegrationConfig.requests_file_gateway_token`.
+Переменные окружения (фрагмент): [settings.py](../backend_v2/config/settings.py) — `BASE_DOMAIN`, `N8N_INTEGRATION_*`, webhook Telegram bridge. Токен file gateway — только в `TenantIntegrationConfig.requests_file_gateway_token`.
 
 Подробный контракт n8n: [n8n_integration.md](../backend_v2/n8n_integration.md).
 
@@ -127,7 +126,7 @@
 
 ### `apps.modules.n8n_integration`
 
-- **Аутентификация**: для upsert/read и справочников — только `X-N8N-Integration-Token` (tenant config или env), без JWT ([authentication.py](../backend_v2/apps/modules/n8n_integration/authentication.py)). Исключение: `POST /api/n8n/requests/ai-create/` — token + JWT (нужен пользователь заявки).
+- **Аутентификация**: для upsert/read и справочников — только `X-N8N-Integration-Token` (tenant config или env), без JWT ([authentication.py](../backend_v2/apps/modules/n8n_integration/authentication.py)).
 - **GET** `wallet-balances/` — остатки кошельков по каналам (как `/api/cash|bank|corporate-card/balances/`).
 - **POST upsert** по целочисленному `id` для: vendors, cash/bank/corporate expenses & revenues, notes, payroll lines ([urls.py](../backend_v2/apps/modules/n8n_integration/urls.py)).
 
@@ -138,8 +137,7 @@
 
 ### `apps.modules.feedback`
 
-- **`PortalFeedback`**: kind error/improvement, доставка в Telegram/n8n по настройкам tenant.
-- Маршруты: `ai-refine/` (прокси к n8n AI path из settings), `submissions/`.
+- **`PortalFeedback`**: исторические обращения (kind error/improvement). Кнопка «Обратная связь» и её API удалены; модель и админка оставлены, чтобы не терять данные.
 
 ---
 

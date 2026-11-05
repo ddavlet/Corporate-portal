@@ -125,20 +125,3 @@ def get_notes_integration_settings(*, tenant: Tenant | None) -> NotesIntegration
     )
 
 
-@dataclass(frozen=True)
-class PortalFeedbackSettings:
-    recipient_id: int | None
-    action: str
-
-
-def get_request_ai_chat_webhook_url(*, tenant: Tenant | None) -> str:
-    cfg = _integration_config(tenant)
-    return (cfg.request_ai_chat_webhook_url if cfg else "").strip()
-
-
-def get_portal_feedback_settings(*, tenant: Tenant | None) -> PortalFeedbackSettings:
-    cfg = _integration_config(tenant)
-    chat_id = cfg.messaging_gateway_feedback_recipient_id if cfg else None
-    raw_action = (cfg.messaging_gateway_feedback_action.strip() if cfg else "") or ""
-    action = raw_action or "send_portal_feedback"
-    return PortalFeedbackSettings(recipient_id=chat_id, action=action)
