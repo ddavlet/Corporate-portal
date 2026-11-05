@@ -2,6 +2,7 @@
 
 import logging
 
+from django.db import transaction
 from django.db.models.signals import post_delete, post_save, pre_save
 from django.dispatch import receiver
 
@@ -58,7 +59,8 @@ def track_confirmed_before_save(sender, instance, **kwargs):
 
 
 def _is_confirmation_transition(instance, *, created: bool, update_fields) -> bool:
-    previous = instance.__dict__.pop(_PREVIOUS_CONFIRMED_ATTR, None)
+    # Читаем без удаления: переход проверяют несколько receiver'ов; pre_save перезаписывает значение на каждом save.
+    previous = instance.__dict__.get(_PREVIOUS_CONFIRMED_ATTR)
     if created or not instance.confirmed:
         return False
     if update_fields is not None and "confirmed" not in update_fields:
@@ -84,3 +86,24 @@ def ensure_cash_revenue_on_investment_save(sender, instance, **kwargs):
         # Пробрасываем: подтверждение идёт в transaction.atomic() и откатится целиком.
         logger.exception("Failed to create investor cash revenue for project investment %s", instance.pk)
         raise
+
+
+@receiver(
+    post_save, sender=ProjectInvestment, dispatch_uid="investments_comment_source_requests_on_investment_paid"
+)
+def comment_source_requests_on_investment_paid(sender, instance, **kwargs):
+    if kwargs.get("raw"):
+        return
+    if not _is_confirmation_transition(
+        instance, created=bool(kwargs.get("created")), update_fields=kwargs.get("update_fields")
+    ):
+        return
+    from apps.modules.investments.funding_pool import comment_source_requests_on_investment_paid as add_comments
+
+    try:
+        # Savepoint: сбой комментариев не должен ломать внешнюю транзакцию подтверждения.
+        with transaction.atomic():
+            add_comments(project_investment=instance)
+    except Exception:
+        # Комментарии — информирование; подтверждение вложения и приход в кассу не откатываем.
+        logger.exception("Failed to comment source requests of paid project investment %s", instance.pk)
