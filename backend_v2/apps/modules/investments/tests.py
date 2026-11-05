@@ -292,6 +292,34 @@ class InvestReturnApprovalTelegramMessageTests(SimpleTestCase):
         self.assertNotIn("Способ вложения", render(None))
 
 
+class CbuRatesSourceTests(SimpleTestCase):
+    """Адрес ЦБ берётся из настроек: в проде — ретранслятор на neuron с Bearer-токеном."""
+
+    def _fetch(self):
+        from apps.modules.investments.services import fetch_cbu_rows_for_date
+
+        resp = MagicMock()
+        resp.json.return_value = [{"Ccy": "USD", "Nominal": "1", "Rate": "12000.00"}]
+        with patch("apps.modules.investments.services.requests.get", return_value=resp) as get, patch(
+            "apps.modules.investments.services.tashkent_today", return_value=date(2026, 11, 5)
+        ):
+            rows = fetch_cbu_rows_for_date(rate_date=date(2026, 11, 4))
+        self.assertEqual(rows[0]["Ccy"], "USD")
+        return get.call_args
+
+    @override_settings(CBU_RATES_BASE_URL="", CBU_RATES_TOKEN="")
+    def test_defaults_to_cbu_uz_without_auth(self):
+        args, kwargs = self._fetch()
+        self.assertEqual(args[0], "https://cbu.uz/ru/arkhiv-kursov-valyut/json/all/2026-11-04/")
+        self.assertEqual(kwargs["headers"], {})
+
+    @override_settings(CBU_RATES_BASE_URL="https://cbu-relay.kolberg.uz/json", CBU_RATES_TOKEN="secret")
+    def test_uses_relay_with_bearer_token(self):
+        args, kwargs = self._fetch()
+        self.assertEqual(args[0], "https://cbu-relay.kolberg.uz/json/all/2026-11-04/")
+        self.assertEqual(kwargs["headers"], {"Authorization": "Bearer secret"})
+
+
 class InvestReturnSerializerTests(TestCase):
     """Курс — только из архива CbuExchangeRate: запросы не ходят на cbu.uz (фетч патчится и не вызывается)."""
 
