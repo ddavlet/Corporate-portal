@@ -108,10 +108,12 @@ class SearchEverywhereTests(TestCase):
 
         now = timezone.now()
         Task.objects.create(
-            tenant=self.tenant, assignee=self.admin, created_by=self.admin, title="Сверка Гипс", last_edit_at=now,
+            tenant=self.tenant, assignee=self.admin, created_by=self.admin, title="Сверка Гипс",
+            last_edit_by=self.admin, last_edit_at=now,
         )
         own = Task.objects.create(
-            tenant=self.tenant, assignee=self.requester, created_by=self.admin, title="Гипс замер", last_edit_at=now,
+            tenant=self.tenant, assignee=self.requester, created_by=self.admin, title="Гипс замер",
+            last_edit_by=self.admin, last_edit_at=now,
         )
         Note.objects.create(
             tenant=self.tenant, created_by=self.admin, recipient_user=self.admin,
