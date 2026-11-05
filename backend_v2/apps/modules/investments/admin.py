@@ -9,6 +9,7 @@ from apps.modules.investments.models import (
     InvestmentApprovalConfigStepApprover,
     InvestmentFormConfig,
     InvestmentFundingConfig,
+    InvestmentFundingExtraCashWallet,
     InvestmentProjectApprovalConfig,
     InvestmentProjectApprovalConfigStep,
     InvestmentProjectApprovalConfigStepApprover,
@@ -78,11 +79,18 @@ class InvestmentFormConfigAdmin(admin.ModelAdmin):
     autocomplete_fields = ("tenant",)
 
 
+class InvestmentFundingExtraCashWalletInline(admin.TabularInline):
+    model = InvestmentFundingExtraCashWallet
+    extra = 0
+    raw_id_fields = ("wallet",)
+
+
 class InvestmentFundingConfigAdmin(admin.ModelAdmin):
     list_display = ("id", "tenant", "is_enabled", "cash_wallet", "bank_wallet", "enabled_at")
     list_filter = ("is_enabled",)
     autocomplete_fields = ("tenant",)
     raw_id_fields = ("cash_wallet", "bank_wallet", "updated_by")
+    inlines = [InvestmentFundingExtraCashWalletInline]
 
 
 class InvestmentApprovalConfigStepApproverInline(admin.TabularInline):
@@ -217,6 +225,13 @@ register_portal(
     "Инвестиционный режим",
     "Инвестиционный режим",
     InvestmentFundingConfigAdmin,
+)
+register_portal(
+    InvestmentFundingExtraCashWallet,
+    "Инвест-касса в другой валюте",
+    "Инвест-кассы в других валютах",
+    list_display=("id", "config", "wallet", "created_at"),
+    raw_id_fields=("config", "wallet"),
 )
 register_portal(
     InvestmentApprovalConfig,

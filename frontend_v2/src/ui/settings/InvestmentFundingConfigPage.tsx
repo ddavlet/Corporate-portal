@@ -24,6 +24,7 @@ export function InvestmentFundingConfigPage() {
   const [isEnabled, setIsEnabled] = useState(false)
   const [cashWalletId, setCashWalletId] = useState<number | null>(null)
   const [bankWalletId, setBankWalletId] = useState<number | null>(null)
+  const [extraCashWalletIds, setExtraCashWalletIds] = useState<number[]>([])
 
   useEffect(() => {
     let cancelled = false
@@ -42,6 +43,7 @@ export function InvestmentFundingConfigPage() {
         setIsEnabled(cfg.is_enabled)
         setCashWalletId(cfg.cash_wallet_id)
         setBankWalletId(cfg.bank_wallet_id)
+        setExtraCashWalletIds(cfg.extra_cash_wallet_ids ?? [])
         setCashRegisters(registers)
         setBankAccounts(accounts)
       } catch (e: unknown) {
@@ -63,6 +65,21 @@ export function InvestmentFundingConfigPage() {
         .map((r) => ({ value: r.wallet_id, label: `${r.name} (${r.currency})` })),
     [cashRegisters, cashWalletId],
   )
+  // Дополнительные кассы — другие валюты: одна касса на валюту, основная в списке не участвует.
+  const primaryCurrency = cashRegisters.find((r) => r.wallet_id === cashWalletId)?.currency ?? null
+  const extraCashOptions = useMemo(() => {
+    const takenCurrencies = new Set(
+      cashRegisters.filter((r) => extraCashWalletIds.includes(r.wallet_id)).map((r) => r.currency),
+    )
+    return cashRegisters
+      .filter((r) => r.wallet_id !== cashWalletId && (r.is_active || extraCashWalletIds.includes(r.wallet_id)))
+      .filter((r) => r.currency !== primaryCurrency)
+      .map((r) => ({
+        value: r.wallet_id,
+        label: `${r.name} (${r.currency})`,
+        disabled: !extraCashWalletIds.includes(r.wallet_id) && takenCurrencies.has(r.currency),
+      }))
+  }, [cashRegisters, cashWalletId, extraCashWalletIds, primaryCurrency])
   const bankOptions = useMemo(
     () => bankAccounts.map((a) => ({ value: a.wallet_id, label: a.account_no ? `${a.label} (${a.account_no})` : a.label })),
     [bankAccounts],
@@ -78,11 +95,13 @@ export function InvestmentFundingConfigPage() {
         is_enabled: isEnabled,
         cash_wallet_id: cashWalletId,
         bank_wallet_id: bankWalletId,
+        extra_cash_wallet_ids: extraCashWalletIds.filter((id) => id !== cashWalletId),
       })
       setConfig(next)
       setIsEnabled(next.is_enabled)
       setCashWalletId(next.cash_wallet_id)
       setBankWalletId(next.bank_wallet_id)
+      setExtraCashWalletIds(next.extra_cash_wallet_ids ?? [])
       message.success('Сохранено')
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Ошибка сохранения')
@@ -144,6 +163,26 @@ export function InvestmentFundingConfigPage() {
               onChange={(v) => setCashWalletId(v ?? null)}
               options={cashOptions}
             />
+          </div>
+
+          <div>
+            <Typography.Text strong style={{ display: 'block', marginBottom: 4 }}>
+              Инвестиционные кассы в других валютах
+            </Typography.Text>
+            <Select
+              aria-label="Инвестиционные кассы в других валютах"
+              mode="multiple"
+              style={{ width: 360, maxWidth: '100%' }}
+              allowClear
+              placeholder="Например, касса в USD"
+              value={extraCashWalletIds.filter((id) => id !== cashWalletId)}
+              onChange={(v: number[]) => setExtraCashWalletIds(v)}
+              options={extraCashOptions}
+            />
+            <Typography.Text type="secondary" style={{ display: 'block', marginTop: 4 }}>
+              По одной кассе на валюту. Заявка «Инвест. наличные» списывается из кассы своей валюты, вложение
+              приходует в неё же.
+            </Typography.Text>
           </div>
 
           <div>

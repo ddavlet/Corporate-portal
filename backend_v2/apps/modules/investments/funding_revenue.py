@@ -39,11 +39,13 @@ def ensure_investor_cash_revenue(*, project_investment: ProjectInvestment) -> Ca
     cfg = get_enabled_funding_config(project_investment.tenant)
     if cfg is None:
         return None
-    if cfg.cash_wallet is None or cfg.cash_wallet.currency != project_investment.currency:
+    wallet = cfg.cash_wallet_for_currency(project_investment.currency)
+    if wallet is None:
         # Дрейф конфигурации не должен блокировать подтверждение — только лог.
         logger.error(
-            "Investor cash revenue skipped for project investment %s: cash wallet missing or currency mismatch.",
+            "Investor cash revenue skipped for project investment %s: no investment cash wallet in %s.",
             project_investment.id,
+            project_investment.currency,
         )
         return None
 
@@ -61,7 +63,7 @@ def ensure_investor_cash_revenue(*, project_investment: ProjectInvestment) -> Ca
     now = timezone.now()
     return CashRevenue.objects.create(
         tenant=project_investment.tenant,
-        wallet=cfg.cash_wallet,
+        wallet=wallet,
         total_sum=project_investment.amount,
         currency=project_investment.currency,
         revenue_at=now,

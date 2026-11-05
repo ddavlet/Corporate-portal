@@ -87,9 +87,10 @@ def eligible_requests(*, tenant, funding_method: str) -> QuerySet:
         submitted_at__gte=cfg.enabled_at,
     ).exclude(id__in=active_link_request_ids(tenant))
     if funding_method == ProjectInvestment.FundingMethod.CASH:
-        if cfg.cash_wallet_id is None:
+        cash_wallet_ids = [w.id for w in cfg.funding_cash_wallets()]
+        if not cash_wallet_ids:
             return Request.objects.none()
-        qs = qs.filter(wallet_ref_id=cfg.cash_wallet_id, payment_type__in=_CASH_POOL_PAYMENT_TYPES)
+        qs = qs.filter(wallet_ref_id__in=cash_wallet_ids, payment_type__in=_CASH_POOL_PAYMENT_TYPES)
     elif funding_method == ProjectInvestment.FundingMethod.BANK_TRANSFER:
         qs = qs.filter(payment_type=Request.PAYMENT_TYPE_INVEST_TRANSFER)
     else:
