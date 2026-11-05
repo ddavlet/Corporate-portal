@@ -543,6 +543,11 @@ class RunAgentTests(SimpleTestCase):
         self.assertNotRegex(SYSTEM_PROMPT, r"\d{4}-\d{2}-\d{2}")
         self.assertNotRegex(SYSTEM_PROMPT, r"\d{1,2}\.\d{1,2}\.\d{2,4}")
 
+    def test_system_prompt_sends_unknown_records_to_search_everywhere(self):
+        # Request 9003 was looked up with list_requests(search="9003") and not found.
+        self.assertIn("search_everywhere first", SYSTEM_PROMPT)
+        self.assertIn("get_request", SYSTEM_PROMPT)
+
     def test_assistant_content_appended_unchanged(self):
         fallback = Block(
             type="fallback",

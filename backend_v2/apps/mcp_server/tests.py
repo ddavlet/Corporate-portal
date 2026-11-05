@@ -1822,6 +1822,7 @@ EXPECTED_TOOL_ACCESS = {
     "get_current_tenant": ("always", None, False),
     "get_my_role": ("always", None, False),
     "list_my_modules": ("always", None, False),
+    "search_everywhere": ("always", None, False),
     "list_requests": ("module", "requests", False),
     "get_request": ("module", "requests", False),
     "list_request_categories": ("module", "requests", False),
