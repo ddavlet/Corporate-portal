@@ -216,6 +216,30 @@ def collect_requests_into_investments(
     return investments
 
 
+def paid_investment_comment(investment_id: int) -> str:
+    return f"Заявка на вложение №{investment_id} выплачена: деньги на эту заявку выделены."
+
+
+def comment_source_requests_on_investment_paid(*, project_investment: ProjectInvestment) -> int:
+    """Пишет в заявки-основания комментарий о выплате вложения (один раз на заявку).
+
+    Вызывается из post_save на переходе confirmed False→True (см. signals.py).
+    """
+    body = paid_investment_comment(project_investment.pk)
+    request_ids = list(
+        ProjectInvestmentRequestLink.objects.filter(project_investment_id=project_investment.pk)
+        .exclude(request__comments__body=body)
+        .values_list("request_id", flat=True)
+    )
+    if not request_ids:
+        return 0
+    author = _system_user(project_investment.created_by)
+    RequestComment.objects.bulk_create(
+        [RequestComment(request_id=request_id, created_by=author, body=body) for request_id in request_ids]
+    )
+    return len(request_ids)
+
+
 def investment_has_cash_revenue(investment: ProjectInvestment) -> bool:
     return CashRevenue.objects.filter(
         tenant_id=investment.tenant_id, payload__project_investment_id=investment.pk

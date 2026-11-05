@@ -9,7 +9,7 @@ from rest_framework.test import APITestCase
 
 from apps.modules.cashier.models import CashExpense, CashRevenue
 from apps.modules.investments.funding import INVESTOR_DEPOSIT_OPERATION, register_funding_policies
-from apps.modules.investments.funding_pool import build_default_comment
+from apps.modules.investments.funding_pool import build_default_comment, paid_investment_comment
 from apps.modules.investments.models import (
     CbuExchangeRate,
     InvestCompany,
@@ -841,6 +841,31 @@ class InvestmentFundingRevenueTests(_FundingModeTestBase):
         self.assertIsNotNone(revenue.source_year)
         self.assertEqual(revenue.payload["project_investment_id"], inv_id)
         self.assertEqual(revenue.created_by_id, self.approver.id)
+
+    def test_paid_investment_comments_source_requests_once(self):
+        self._enable_mode()
+        first = self._make_request(INV_TRANSFER, amount="10")
+        second = self._make_request(INV_TRANSFER, amount="20")
+        inv_id = self._collect_ok("bank_transfer", [first, second])[0]["id"]
+        body = paid_investment_comment(inv_id)
+        self.assertFalse(RequestComment.objects.filter(body=body).exists())
+
+        self._approve(inv_id)
+        for req in (first, second):
+            self.assertEqual(RequestComment.objects.filter(request=req, body=body).count(), 1)
+
+        inv = ProjectInvestment.objects.get(pk=inv_id)
+        inv.save()
+        inv.save(update_fields=["confirmed"])
+        self.assertEqual(RequestComment.objects.filter(body=body).count(), 2)
+
+    def test_paid_cash_investment_comments_source_request_and_creates_revenue(self):
+        self._enable_mode()
+        req = self._make_request(INV_CASH, amount="10")
+        inv_id = self._collect_ok("cash", [req])[0]["id"]
+        self._approve(inv_id)
+        self.assertTrue(RequestComment.objects.filter(request=req, body=paid_investment_comment(inv_id)).exists())
+        self.assertEqual(CashRevenue.objects.filter(tenant=self.tenant).count(), 1)
 
     def test_revenue_idempotent_on_resave(self):
         self._enable_mode()
