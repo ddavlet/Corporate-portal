@@ -57,7 +57,33 @@ export function reportRulePaymentTypeOptions(
   return [...base, ...savedInvest.map((value) => ({ value, label: value }))]
 }
 
-/** Валюта, зафиксированная подсказкой списания; null — у типа валюта не фиксируется (выбирает заявитель). */
-export function lockedCurrencyFromHint(hint: { currency?: string | null } | null | undefined): string | null {
-  return hint?.currency || null
+/** Кошелёк списания из подсказки инвест-типа (``funding_hint`` в form-options). */
+export type FundingHintWallet = { wallet_id: number; wallet_label: string; currency: string | null }
+
+export type FundingHint = FundingHintWallet & {
+  /** «Инвест. наличные»: все инвест-кассы режима (по одной на валюту), основная — первой. */
+  wallets?: FundingHintWallet[]
+}
+
+type HintLike = { currency?: string | null; wallets?: { currency: string | null }[] } | null | undefined
+
+/** Валюты, допустимые подсказкой списания (основная — первой); null — валюту выбирает заявитель. */
+export function fundingCurrenciesFromHint(hint: HintLike): string[] | null {
+  if (!hint) return null
+  const fromWallets = (hint.wallets ?? []).map((w) => w.currency).filter((c): c is string => Boolean(c))
+  if (fromWallets.length) return Array.from(new Set(fromWallets))
+  return hint.currency ? [hint.currency] : null
+}
+
+/** Валюта, зафиксированная подсказкой списания; null — валюта не фиксируется (одна из нескольких или любая). */
+export function lockedCurrencyFromHint(hint: HintLike): string | null {
+  const currencies = fundingCurrenciesFromHint(hint)
+  return currencies && currencies.length === 1 ? currencies[0] : null
+}
+
+/** Подпись кошелька списания для выбранной валюты: при нескольких инвест-кассах — касса этой валюты. */
+export function fundingWalletLabel(hint: FundingHint | null | undefined, currency: string | null | undefined): string | null {
+  if (!hint) return null
+  const match = (hint.wallets ?? []).find((w) => w.currency === currency)
+  return match ? match.wallet_label : hint.wallet_label
 }

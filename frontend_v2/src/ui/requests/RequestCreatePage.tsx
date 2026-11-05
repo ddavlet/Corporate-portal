@@ -35,7 +35,12 @@ import {
   uploadRequestAttachment,
   validateRequestAttachment,
 } from '../../lib/api'
-import { lockedCurrencyFromHint, vendorKindForPaymentType } from '../../lib/requestPaymentTypes'
+import {
+  fundingCurrenciesFromHint,
+  fundingWalletLabel,
+  lockedCurrencyFromHint,
+  vendorKindForPaymentType,
+} from '../../lib/requestPaymentTypes'
 import { labelBlockAboveField } from '../formSpacing'
 import { clampToAllowedBillingMonth, isAllowedBillingMonth } from '../../lib/billingMonth'
 import { monthStartTashkent } from '../../lib/tashkentTime'
@@ -107,6 +112,9 @@ export function RequestCreatePage({ requestsBasePath = '/requests', variant = 'p
   /** Инвест-типы: кошелёк списания и валюта фиксируются настройкой инвестиционного режима. */
   const fundingHint = activePt?.funding_hint ?? null
   const lockedCurrency = lockedCurrencyFromHint(fundingHint)
+  /** «Инвест. наличные» с несколькими инвест-кассами: валюта — одна из валют этих касс. */
+  const fundingCurrencies = fundingCurrenciesFromHint(fundingHint)
+  const currencyOptions = (fundingCurrencies ?? ['UZS', 'USD', 'EUR', 'RUB']).map((c) => ({ value: c, label: c }))
 
   /** Заявители, разрешённые настройками формы для выбранного типа оплаты (не все роли заявителя в тенанте). */
   const allowedRequesters = useMemo(() => activePt?.requesters ?? [], [activePt])
@@ -193,9 +201,13 @@ export function RequestCreatePage({ requestsBasePath = '/requests', variant = 'p
   }, [step, paymentType, formOptions, detailStep])
 
   useEffect(() => {
-    if (step !== detailStep || !lockedCurrency) return
-    setCurrency(lockedCurrency)
-  }, [step, detailStep, lockedCurrency])
+    if (step !== detailStep || !fundingCurrencies?.length) return
+    // Валюта вне инвест-касс режима недопустима — переключаем на основную (первую).
+    if (lockedCurrency) setCurrency(lockedCurrency)
+    else setCurrency((prev) => (fundingCurrencies.includes(prev) ? prev : fundingCurrencies[0]))
+    // fundingCurrencies пересоздаётся каждый рендер — зависимость по строковому ключу.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [step, detailStep, lockedCurrency, fundingCurrencies?.join(',')])
 
   const searchTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
   const onVendorSearch = (value: string) => {
@@ -563,7 +575,7 @@ export function RequestCreatePage({ requestsBasePath = '/requests', variant = 'p
                 </div>
                 {fundingHint ? (
                   <Typography.Text type="secondary" style={{ display: 'block' }}>
-                    Списание: {fundingHint.wallet_label}
+                    Списание: {fundingWalletLabel(fundingHint, currency)}
                   </Typography.Text>
                 ) : null}
                 <div className="tg-field-block">
@@ -576,7 +588,7 @@ export function RequestCreatePage({ requestsBasePath = '/requests', variant = 'p
                     value={currency}
                     onChange={setCurrency}
                     disabled={Boolean(lockedCurrency)}
-                    options={['UZS', 'USD', 'EUR', 'RUB'].map((c) => ({ value: c, label: c }))}
+                    options={currencyOptions}
                     getPopupContainer={tgPopupContainer}
                     popupMatchSelectWidth
                   />
@@ -659,7 +671,7 @@ export function RequestCreatePage({ requestsBasePath = '/requests', variant = 'p
                 </div>
                 {fundingHint ? (
                   <Typography.Text type="secondary" style={{ display: 'block' }}>
-                    Списание: {fundingHint.wallet_label}
+                    Списание: {fundingWalletLabel(fundingHint, currency)}
                   </Typography.Text>
                 ) : null}
                 <div>
@@ -671,7 +683,7 @@ export function RequestCreatePage({ requestsBasePath = '/requests', variant = 'p
                     value={currency}
                     onChange={setCurrency}
                     disabled={Boolean(lockedCurrency)}
-                    options={['UZS', 'USD', 'EUR', 'RUB'].map((c) => ({ value: c, label: c }))}
+                    options={currencyOptions}
                   />
                 </div>
                 <div>

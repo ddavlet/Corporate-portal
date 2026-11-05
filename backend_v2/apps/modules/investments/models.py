@@ -314,6 +314,51 @@ class InvestmentFundingConfig(models.Model):
     class Meta:
         db_table = "investment_funding_config"
 
+    def funding_cash_wallets(self) -> list:
+        """Все инвест-кассы режима: основная (cash_wallet) первой, затем дополнительные (по валютам)."""
+        wallets = [self.cash_wallet] if self.cash_wallet_id else []
+        wallets.extend(
+            link.wallet
+            for link in self.extra_cash_wallet_links.select_related("wallet__cash_register").order_by("id")
+        )
+        return wallets
+
+    def cash_wallet_for_currency(self, currency: str | None):
+        """Инвест-касса в валюте ``currency`` или None, если такой кассы в режиме нет."""
+        if not currency:
+            return None
+        for wallet in self.funding_cash_wallets():
+            if wallet.currency == currency:
+                return wallet
+        return None
+
+
+class InvestmentFundingExtraCashWallet(models.Model):
+    """Дополнительная инвест-касса режима в другой валюте (одна касса на валюту)."""
+
+    config = models.ForeignKey(
+        InvestmentFundingConfig,
+        on_delete=models.CASCADE,
+        related_name="extra_cash_wallet_links",
+        # Индекс покрыт уникальностью (config, wallet).
+        db_index=False,
+    )
+    wallet = models.ForeignKey(
+        "wallets.Wallet",
+        on_delete=models.PROTECT,
+        related_name="+",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        db_table = "investment_funding_extra_cash_wallets"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["config", "wallet"],
+                name="uniq_invest_funding_extra_cash_wallet",
+            )
+        ]
+
 
 class InvestmentApprovalConfig(models.Model):
     tenant = models.ForeignKey(

@@ -339,9 +339,10 @@ class ProjectInvestmentSerializer(_CompanyScopeMixin, serializers.ModelSerialize
         if cfg is None or cfg.cash_wallet is None:
             return
         currency = attrs.get("currency") or (self.instance.currency if self.instance else None)
-        if currency and currency != cfg.cash_wallet.currency:
+        if currency and cfg.cash_wallet_for_currency(currency) is None:
+            currencies = ", ".join(dict.fromkeys(w.currency for w in cfg.funding_cash_wallets()))
             raise serializers.ValidationError(
-                {"currency": f"Валюта вложения должна совпадать с валютой инвестиционной кассы ({cfg.cash_wallet.currency})."}
+                {"currency": f"Валюта вложения должна совпадать с валютой одной из инвестиционных касс ({currencies})."}
             )
 
 
@@ -535,6 +536,10 @@ class InvestmentFundingConfigSerializer(serializers.Serializer):
     is_enabled = serializers.BooleanField()
     cash_wallet_id = serializers.IntegerField(required=False, allow_null=True)
     bank_wallet_id = serializers.IntegerField(required=False, allow_null=True)
+    # Дополнительные инвест-кассы в других валютах; не передано — сохраняются текущие.
+    extra_cash_wallet_ids = serializers.ListField(
+        child=serializers.IntegerField(), required=False, allow_empty=True
+    )
 
     def validate(self, attrs):
         tenant = self.context["tenant"]
@@ -565,7 +570,43 @@ class InvestmentFundingConfigSerializer(serializers.Serializer):
                 raise serializers.ValidationError({"bank_wallet_id": "Выберите инвестиционный счёт."})
         attrs["cash_wallet"] = resolved["cash_wallet_id"]
         attrs["bank_wallet"] = resolved["bank_wallet_id"]
+        attrs["extra_cash_wallets"] = self._resolve_extra_cash_wallets(
+            tenant=tenant, attrs=attrs, stored=stored, primary=resolved["cash_wallet_id"]
+        )
         return attrs
+
+    @staticmethod
+    def _resolve_extra_cash_wallets(*, tenant, attrs, stored, primary) -> list:
+        if "extra_cash_wallet_ids" in attrs:
+            ids = list(dict.fromkeys(attrs["extra_cash_wallet_ids"]))
+            found = {
+                w.id: w
+                for w in Wallet.objects.filter(pk__in=ids, tenant=tenant, wallet_type=Wallet.Type.CASH)
+            }
+            missing = [i for i in ids if i not in found]
+            if missing:
+                raise serializers.ValidationError(
+                    {"extra_cash_wallet_ids": "Дополнительная инвестиционная касса: кошелёк не найден или неверного типа."}
+                )
+            extras = [found[i] for i in ids]
+        elif stored is not None:
+            extras = [link.wallet for link in stored.extra_cash_wallet_links.select_related("wallet").order_by("id")]
+        else:
+            extras = []
+        if primary is not None:
+            extras = [w for w in extras if w.id != primary.id]
+        if extras and primary is None:
+            raise serializers.ValidationError(
+                {"cash_wallet_id": "Сначала выберите основную инвестиционную кассу."}
+            )
+        seen: dict[str, int] = {}
+        for wallet in ([primary] if primary is not None else []) + extras:
+            if wallet.currency in seen:
+                raise serializers.ValidationError(
+                    {"extra_cash_wallet_ids": f"Инвестиционная касса в валюте {wallet.currency} уже выбрана: одна касса на валюту."}
+                )
+            seen[wallet.currency] = wallet.id
+        return extras
 
 
 class InvestmentApprovalConfigSerializer(serializers.Serializer):

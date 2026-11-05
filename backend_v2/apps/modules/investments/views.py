@@ -522,6 +522,9 @@ class InvestmentFundingConfigView(APIView):
             "enabled_at": cfg.enabled_at if cfg else None,
             "has_project_approval_chain": has_active_project_approval_chain(tenant),
             "cash_wallet_currency": cfg.cash_wallet.currency if cfg and cfg.cash_wallet else None,
+            "extra_cash_wallet_ids": (
+                list(cfg.extra_cash_wallet_links.order_by("id").values_list("wallet_id", flat=True)) if cfg else []
+            ),
         }
 
     def get(self, request):
@@ -545,6 +548,7 @@ class InvestmentFundingConfigView(APIView):
             is_enabled=data["is_enabled"],
             cash_wallet=data["cash_wallet"],
             bank_wallet=data["bank_wallet"],
+            extra_cash_wallets=data["extra_cash_wallets"],
         )
         return Response(self._payload(tenant))
 

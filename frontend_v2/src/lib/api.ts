@@ -1,4 +1,5 @@
 import { notifyApiError, notifyNetworkError } from './apiNotify'
+import type { FundingHint } from './requestPaymentTypes'
 
 type Tokens = { access: string; refresh: string }
 
@@ -1843,6 +1844,8 @@ export type InvestmentFundingConfigDto = {
   enabled_at: string | null
   has_project_approval_chain: boolean
   cash_wallet_currency: string | null
+  /** Дополнительные инвест-кассы в других валютах (по одной на валюту). */
+  extra_cash_wallet_ids?: number[]
 }
 
 export async function getInvestmentFundingConfig(): Promise<InvestmentFundingConfigDto> {
@@ -1853,11 +1856,15 @@ export async function getInvestmentFundingConfig(): Promise<InvestmentFundingCon
   return json
 }
 
-/** Опущенные cash_wallet_id/bank_wallet_id сервер оставляет без изменений; null — очищает. */
+/**
+ * Опущенные cash_wallet_id/bank_wallet_id/extra_cash_wallet_ids сервер оставляет без изменений;
+ * null — очищает кошелёк, [] — отключает дополнительные кассы.
+ */
 export async function saveInvestmentFundingConfig(payload: {
   is_enabled: boolean
   cash_wallet_id: number | null
   bank_wallet_id: number | null
+  extra_cash_wallet_ids?: number[]
 }): Promise<InvestmentFundingConfigDto> {
   const res = await apiFetch('/api/investments/funding-config/', {
     method: 'PUT',
@@ -2855,7 +2862,7 @@ export type RequestFormOptionsPaymentType = {
   payment_purposes: Array<{ name: string; category: string }>
   defaults?: RequestFormOptionsFormDefaults
   /** Инвест-типы: кошелёк списания; валюта заявки фиксирована валютой кошелька. */
-  funding_hint?: { wallet_id: number; wallet_label: string; currency: string | null } | null
+  funding_hint?: FundingHint | null
 }
 
 export type RequestFormOptionsResponse = {

@@ -22,6 +22,7 @@ const baseConfig = {
   enabled_at: null,
   has_project_approval_chain: true,
   cash_wallet_currency: 'UZS',
+  extra_cash_wallet_ids: [] as number[],
 }
 
 function renderPage() {
@@ -77,6 +78,7 @@ describe('InvestmentFundingConfigPage', () => {
         is_enabled: false,
         cash_wallet_id: 101,
         bank_wallet_id: 202,
+        extra_cash_wallet_ids: [],
       })
     })
   })
@@ -95,6 +97,30 @@ describe('InvestmentFundingConfigPage', () => {
         is_enabled: true,
         cash_wallet_id: 101,
         bank_wallet_id: 202,
+        extra_cash_wallet_ids: [],
+      })
+    })
+  })
+
+  it('sends stored extra invest cash wallets and offers only other currencies', async () => {
+    getCashRegistersMock.mockReset().mockResolvedValue([
+      { id: 1, name: 'Инвест касса', currency: 'UZS', is_active: true, wallet_id: 101 },
+      { id: 3, name: 'Инвест касса USD', currency: 'USD', is_active: true, wallet_id: 303 },
+      { id: 4, name: 'Основная касса', currency: 'UZS', is_active: true, wallet_id: 404 },
+    ])
+    getInvestmentFundingConfigMock.mockResolvedValueOnce({ ...baseConfig, is_enabled: true, extra_cash_wallet_ids: [303] })
+    saveInvestmentFundingConfigMock.mockResolvedValueOnce({ ...baseConfig, is_enabled: true, extra_cash_wallet_ids: [303] })
+    renderPage()
+
+    expect(await screen.findByText('Инвест касса USD (USD)')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: /Сохранить/ }))
+
+    await waitFor(() => {
+      expect(saveInvestmentFundingConfigMock).toHaveBeenCalledWith({
+        is_enabled: true,
+        cash_wallet_id: 101,
+        bank_wallet_id: 202,
+        extra_cash_wallet_ids: [303],
       })
     })
   })

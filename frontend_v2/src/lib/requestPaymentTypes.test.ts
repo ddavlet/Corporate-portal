@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest'
 import {
   INVEST_REQUEST_PAYMENT_TYPES,
   REQUEST_PAYMENT_TYPES,
+  fundingCurrenciesFromHint,
+  fundingWalletLabel,
   isInvestPaymentType,
   lockedCurrencyFromHint,
   reportRulePaymentTypeOptions,
@@ -38,6 +40,34 @@ describe('lockedCurrencyFromHint', () => {
     expect(lockedCurrencyFromHint({ currency: 'UZS' })).toBe('UZS')
     expect(lockedCurrencyFromHint({ currency: null })).toBeNull()
     expect(lockedCurrencyFromHint(null)).toBeNull()
+  })
+})
+
+describe('multi-currency invest cash hint', () => {
+  const hint = {
+    wallet_id: 1,
+    wallet_label: 'Инвест касса (UZS)',
+    currency: 'UZS',
+    wallets: [
+      { wallet_id: 1, wallet_label: 'Инвест касса (UZS)', currency: 'UZS' },
+      { wallet_id: 2, wallet_label: 'Инвест касса (USD)', currency: 'USD' },
+    ],
+  }
+
+  it('offers currencies of all invest cash wallets, primary first, without locking', () => {
+    expect(fundingCurrenciesFromHint(hint)).toEqual(['UZS', 'USD'])
+    expect(lockedCurrencyFromHint(hint)).toBeNull()
+  })
+
+  it('locks currency when there is a single invest cash wallet', () => {
+    expect(lockedCurrencyFromHint({ ...hint, wallets: [hint.wallets[0]] })).toBe('UZS')
+    expect(fundingCurrenciesFromHint({ currency: null })).toBeNull()
+  })
+
+  it('labels the wallet of the selected currency', () => {
+    expect(fundingWalletLabel(hint, 'USD')).toBe('Инвест касса (USD)')
+    expect(fundingWalletLabel(hint, 'EUR')).toBe('Инвест касса (UZS)')
+    expect(fundingWalletLabel(null, 'USD')).toBeNull()
   })
 })
 
