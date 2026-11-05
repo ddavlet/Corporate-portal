@@ -6,6 +6,11 @@ AGENT_MODEL = "claude-sonnet-5-5"
 AGENT_EFFORT = "medium"
 AGENT_MAX_TOKENS = 16000
 AGENT_MAX_STEPS = 12
+# Классификатор «кому адресовано» для групп: дешёвая модель без thinking.
+ADDRESSEE_MODEL = "claude-haiku-5-5"
+ADDRESSEE_MAX_TOKENS = 200
+ADDRESSEE_CONTEXT_NODES = 6
+ADDRESSEE_TEXT_LIMIT = 1500
 FALLBACK_BETA = "server-side-fallback-2026-07-01"
 # Разрешает thinking.block_binding: thinking-блоки, не прошедшие проверку префикса
 # (изменился system/tools/история), отбрасываются вместо ошибки 400.

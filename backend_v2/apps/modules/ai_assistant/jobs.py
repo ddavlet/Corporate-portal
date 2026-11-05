@@ -10,6 +10,7 @@ from django.db import close_old_connections, transaction
 from django.utils import timezone
 
 from .access import assistant_enabled, resolve_assistant_user
+from .addressee import classify_addressee
 from .agent import TurnUsage, run_agent
 from .chain import add_node, build_messages, path_to_root
 from .config import AGENT_MODEL, CONFIRMATION_TTL_HOURS, EXECUTOR_MAX_WORKERS
@@ -44,9 +45,16 @@ def _safe(func):
     return wrapper
 
 
-def submit_turn(node_id: int) -> None:
-    """Запустить ход агента в фоне после коммита текущей транзакции."""
-    transaction.on_commit(lambda: _executor.submit(_safe(run_turn), node_id))
+def submit_turn(node_id: int, addressee_check: dict | None = None) -> None:
+    """Запустить ход агента в фоне после коммита текущей транзакции.
+
+    addressee_check (только для групп, {"mentions_bot": bool}) — сначала спросить
+    классификатор, адресовано ли сообщение ассистенту.
+    """
+    if addressee_check is None:
+        transaction.on_commit(lambda: _executor.submit(_safe(run_turn), node_id))
+    else:
+        transaction.on_commit(lambda: _executor.submit(_safe(run_turn), node_id, addressee_check))
 
 
 def submit_resume(pending_id: int, decision: str) -> None:
@@ -247,12 +255,42 @@ def _execute(
         close_old_connections()
 
 
-def run_turn(node_id: int) -> None:
+async def _addressee_job(path, mentions_bot):
+    async with AsyncAnthropic() as client:
+        return await classify_addressee(client, path, mentions_bot=mentions_bot)
+
+
+def _is_addressed(node, *, mentions_bot: bool) -> bool:
+    """Решение классификатора. Если он недоступен — отвечаем только на явное упоминание бота."""
+    path = path_to_root(node)
+    try:
+        verdict = asyncio.run(_addressee_job(path, mentions_bot))
+    except Exception:
+        logger.exception(
+            "ai_assistant: addressee classifier failed tenant=%s chat=%s message_id=%s, fallback mentions_bot=%s",
+            node.tenant_id, node.chat_id, node.message_id, mentions_bot,
+        )
+        return bool(mentions_bot)
+    logger.info(
+        "ai_assistant: addressee tenant=%s chat=%s message_id=%s addressed=%s reason=%r tokens=%s/%s",
+        node.tenant_id, node.chat_id, node.message_id, verdict.addressed, verdict.reason,
+        verdict.input_tokens, verdict.output_tokens,
+    )
+    return verdict.addressed
+
+
+def run_turn(node_id: int, addressee_check: dict | None = None) -> None:
     close_old_connections()
     try:
         node = ChainNode.objects.select_related("tenant", "author_user").filter(pk=node_id).first()
         if node is None:
             logger.warning("ai_assistant: chain node %s not found, turn skipped", node_id)
+            return
+        if addressee_check is not None and not _is_addressed(
+            node, mentions_bot=bool(addressee_check.get("mentions_bot"))
+        ):
+            # Реплика для людей: остаётся в цепочке как контекст, но ход агента не запускается.
+            ChainNode.objects.filter(pk=node.pk).update(kind=ChainNode.KIND_MEMBER)
             return
         send_typing(node.tenant, node.chat_id)
         _execute(

@@ -49,7 +49,7 @@ def _usage(model="claude-sonnet-5-5"):
     )
 
 
-class JobsTests(TestCase):
+class _JobsBase(TestCase):
     def setUp(self):
         fake_open_mcp.calls = []
         self.tenant = Tenant.objects.create(name="Acme", subdomain="acme", is_active=True, mcp_enabled=True)
@@ -89,6 +89,8 @@ class JobsTests(TestCase):
     def _answer(self, text="В кассе 100"):
         return AgentOutcome(kind="answer", messages=[{"role": "user", "content": "q"}], text=text, usage=_usage())
 
+
+class JobsTests(_JobsBase):
     def test_answer_saves_bot_agent_nodes_with_snapshot_and_usage(self):
         outcome = self._answer()
         self.run_agent.return_value = outcome
@@ -231,3 +233,55 @@ class JobsTests(TestCase):
         self.run_agent.assert_not_called()
         self.send_answer.assert_not_called()
         self.assertEqual(UsageRecord.objects.count(), 0)
+
+
+class AddresseeCheckTests(_JobsBase):
+    """Группы: перед ходом агента классификатор решает, обращаются ли к ассистенту."""
+
+    def setUp(self):
+        super().setUp()
+        self.classify = mock.AsyncMock()
+        p = mock.patch.object(jobs, "classify_addressee", self.classify)
+        p.start()
+        self.addCleanup(p.stop)
+        self.run_agent.return_value = self._answer()
+
+    def test_not_addressed_is_silent_and_kept_as_member_context(self):
+        self.classify.return_value = jobs_verdict(False)
+        jobs.run_turn(self.node.id, {"mentions_bot": False})
+        self.run_agent.assert_not_called()
+        self.send_typing.assert_not_called()
+        self.send_answer.assert_not_called()
+        self.assertFalse(UsageRecord.objects.exists())
+        self.node.refresh_from_db()
+        self.assertEqual(self.node.kind, ChainNode.KIND_MEMBER)
+
+    def test_addressed_runs_agent(self):
+        self.classify.return_value = jobs_verdict(True)
+        jobs.run_turn(self.node.id, {"mentions_bot": False})
+        self.assertEqual(self.classify.await_args.kwargs, {"mentions_bot": False})
+        self.assertEqual([n.message_id for n in self.classify.await_args.args[1]], [100])
+        self.send_answer.assert_called_once_with(self.tenant, CHAT, 100, "В кассе 100")
+        self.node.refresh_from_db()
+        self.assertEqual(self.node.kind, ChainNode.KIND_USER)
+
+    def test_classifier_failure_answers_only_explicit_mention(self):
+        self.classify.side_effect = RuntimeError("api down")
+        with self.assertLogs(jobs.logger, level="ERROR"):
+            jobs.run_turn(self.node.id, {"mentions_bot": False})
+        self.run_agent.assert_not_called()
+
+        with self.assertLogs(jobs.logger, level="ERROR"):
+            jobs.run_turn(self.node.id, {"mentions_bot": True})
+        self.run_agent.assert_awaited_once()
+
+    def test_private_turn_skips_classifier(self):
+        jobs.run_turn(self.node.id)
+        self.classify.assert_not_called()
+        self.run_agent.assert_awaited_once()
+
+
+def jobs_verdict(addressed):
+    from apps.modules.ai_assistant.addressee import AddresseeVerdict
+
+    return AddresseeVerdict(addressed=addressed, reason="test")

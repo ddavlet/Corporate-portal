@@ -127,6 +127,23 @@ class MessageEventTests(TestCase):
         self.assertEqual(code, 202)
         self.submit.assert_called_once()
 
+    def test_group_turn_asks_addressee_classifier(self):
+        self._user("dir", TenantUserRole.ROLE_DIRECTOR)
+        add_node(
+            tenant=self.tenant, chat_id=CHAT, message_id=50, parent_message_id=None,
+            kind=ChainNode.KIND_BOT_AUTO, text="Касса — остатки",
+        )
+        body, code = handle_message_event(
+            self._event(chat_type="group", reply_to_message_id=50, reply_to_is_bot=True, payload="Все верно")
+        )
+        self.assertEqual(code, 202)
+        node = ChainNode.objects.get(message_id=100)
+        self.submit.assert_called_once_with(node.id, addressee_check={"mentions_bot": False})
+
+        handle_message_event(self._event(chat_type="supergroup", mentions_bot=True, message_id=101))
+        node = ChainNode.objects.get(message_id=101)
+        self.submit.assert_called_with(node.id, addressee_check={"mentions_bot": True})
+
     def test_module_disabled_ignores_everything(self):
         self._user("dir", TenantUserRole.ROLE_DIRECTOR)
         TenantModuleConfig.objects.filter(tenant=self.tenant).update(is_enabled=False)
