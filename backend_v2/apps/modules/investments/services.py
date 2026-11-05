@@ -8,6 +8,7 @@ from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from zoneinfo import ZoneInfo
 
 import requests
+from django.conf import settings
 from django.utils import timezone
 
 logger = logging.getLogger(__name__)
@@ -44,11 +45,19 @@ def _cbu_rows_from_payload(payload: object) -> list[dict]:
 
 
 def fetch_cbu_rows_for_date(*, rate_date: date, timeout: int = 12) -> list[dict]:
-    """Сырые строки бюллетеня ЦБ РУз на дату ``rate_date`` (UZS за Nominal единиц валюты)."""
+    """
+    Сырые строки бюллетеня ЦБ РУз на дату ``rate_date`` (UZS за Nominal единиц валюты).
+
+    Адрес — ``settings.CBU_RATES_BASE_URL`` (ретранслятор на kolberg-tash: cbu.uz не пускает неузбекские IP),
+    по умолчанию cbu.uz напрямую.
+    """
     d = clamp_rate_date_to_cbu_availability(requested=rate_date)
-    url = f"{CBU_JSON_BASE}/all/{d.isoformat()}/"
+    base = getattr(settings, "CBU_RATES_BASE_URL", "") or CBU_JSON_BASE
+    url = f"{base}/all/{d.isoformat()}/"
+    token = getattr(settings, "CBU_RATES_TOKEN", "")
+    headers = {"Authorization": f"Bearer {token}"} if token else {}
     try:
-        resp = requests.get(url, timeout=timeout)
+        resp = requests.get(url, timeout=timeout, headers=headers)
         resp.raise_for_status()
         rows = _cbu_rows_from_payload(resp.json())
     except (OSError, ValueError, requests.RequestException) as exc:
