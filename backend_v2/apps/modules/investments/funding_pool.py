@@ -34,7 +34,8 @@ REQUEST_KIND_TRANSFER = "transfer"
 
 CASH_REGISTER_TRANSFER_PURPOSE = "Перевод между кассами"
 _DESCRIPTION_LIMIT = 80
-_POOL_STATUSES = (Request.STATUS_APPROVED, Request.STATUS_PAYED)
+# Только согласованные и ещё не выплаченные: по выплаченной заявке вложение не собирается.
+_POOL_STATUSES = (Request.STATUS_APPROVED,)
 _CASH_POOL_PAYMENT_TYPES = (Request.PAYMENT_TYPE_INVEST_CASH, Request.PAYMENT_TYPE_CASH)
 _SYSTEM_USER_PK = 1
 

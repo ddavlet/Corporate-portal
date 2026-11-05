@@ -479,13 +479,11 @@ class InvestmentFundingCollectTests(_FundingModeTestBase):
 
     # ---- пул -----------------------------------------------------------------------------------
 
-    def test_pool_contains_approved_and_payed_invest_and_transfer_requests(self):
+    def test_pool_contains_approved_invest_and_transfer_requests(self):
         self._enable_mode()
         enabled_at = InvestmentFundingConfig.objects.get(tenant=self.tenant).enabled_at
         expense = self._make_request(INV_CASH, amount="10", description="компьютер")
-        transfer = self._make_request(
-            "Наличные", amount="5", status=Request.STATUS_PAYED, purpose="Перевод между кассами"
-        )
+        transfer = self._make_request("Наличные", amount="5", purpose="Перевод между кассами")
         draft = self._make_request(INV_CASH, status=Request.STATUS_DRAFT)
         rejected = self._make_request(INV_CASH, status=Request.STATUS_REJECTED)
         other_cash = self._make_request("Наличные", wallet=self.other_cash_wallet)
@@ -498,12 +496,31 @@ class InvestmentFundingCollectTests(_FundingModeTestBase):
             self.assertNotIn(excluded.id, cash_ids)
         rows = {row["id"]: row for row in data["cash"]["requests"]}
         self.assertEqual(rows[transfer.id]["kind"], "transfer")
-        self.assertTrue(rows[transfer.id]["is_payed"])
+        self.assertFalse(rows[transfer.id]["is_payed"])
         self.assertEqual(rows[expense.id]["kind"], "expense")
         self.assertFalse(rows[expense.id]["is_payed"])
         self.assertEqual(data["cash"]["totals"], [{"currency": "UZS", "amount": "15.00", "count": 2}])
         self.assertEqual(data["bank_transfer"]["requests"], [])
         self.assertTrue(data["approval_chain_ok"])
+
+    def test_pool_excludes_payed_requests(self):
+        self._enable_mode()
+        approved = self._make_request(INV_CASH)
+        payed_expense = self._make_request(INV_CASH, status=Request.STATUS_PAYED)
+        payed_transfer = self._make_request(
+            "Наличные", status=Request.STATUS_PAYED, purpose="Перевод между кассами"
+        )
+        payed_bank = self._make_request(INV_TRANSFER, status=Request.STATUS_PAYED)
+
+        data = self._pool()
+        self.assertEqual(self._ids(data["cash"]), {approved.id})
+        self.assertEqual(data["bank_transfer"]["requests"], [])
+
+        res = self._collect("cash", [payed_expense.id, payed_transfer.id])
+        self.assertEqual(res.status_code, 400, res.data)
+        res = self._collect("bank_transfer", [payed_bank.id])
+        self.assertEqual(res.status_code, 400, res.data)
+        self.assertFalse(ProjectInvestmentRequestLink.objects.exists())
 
     def test_pool_bank_contains_only_invest_transfer(self):
         self._enable_mode()
