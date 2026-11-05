@@ -10,7 +10,7 @@ from apps.accounts.views_telegram_login_widget import TelegramLoginWidgetAuthVie
 from apps.accounts.views_telegram_oidc import TelegramOidcConfigView, TelegramOidcExchangeView
 from apps.accounts.views_telegram_webapp import TelegramWebAppAuthView
 from apps.modules.requests.views import FileGatewayView, FileDownloadView
-from apps.modules.n8n_integration.views import AiChatProxyView, CashflowDataProxyView, PnlDataProxyView
+from apps.modules.n8n_integration.views import CashflowDataProxyView, PnlDataProxyView
 from apps.mcp_server.oauth.views import McpLoginView
 from apps.tenants.views import (
     AccessMatrixView,
@@ -43,7 +43,6 @@ urlpatterns = [
     path("api/files/download/", FileDownloadView.as_view(), name="files_download"),
     path("api/pnl-data/", PnlDataProxyView.as_view(), name="api_pnl_data"),
     path("api/cashflow-data/", CashflowDataProxyView.as_view(), name="api_cashflow_data"),
-    path("api/ai-questions/chat/", AiChatProxyView.as_view(), name="api_ai_questions_chat"),
     path("api/reports/", include("apps.modules.reports.urls")),
 
     # Tenants + module config/permissions
@@ -91,7 +90,6 @@ urlpatterns = [
     # Notes module
     path("api/notes/", include("apps.modules.notes.urls")),
 
-    path("api/feedback/", include("apps.modules.feedback.urls")),
 
     # Payroll accruals module
     path("api/payroll/", include("apps.modules.payroll.urls")),

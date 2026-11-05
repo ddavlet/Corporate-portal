@@ -4,7 +4,6 @@ import { useNavigate } from 'react-router-dom'
 import { CalendarOutlined, FileAddOutlined, SearchOutlined } from '@ant-design/icons'
 import { apiFetch } from '../../lib/api'
 import { isPayedMissingLinkedExpense, type RequestExpenseLink } from '../../lib/requestExpense'
-import { RequestAiChatButton } from '../requests/RequestAiChatButton'
 import { AdminEditRecordButton } from '../admin/AdminEditRecordButton'
 import { tgHaptic } from './tgHaptic'
 
@@ -89,9 +88,6 @@ export function TgRequestsPage() {
       <Typography.Title level={4} style={{ margin: '0 0 16px', fontWeight: 700 }}>
         Заявки
       </Typography.Title>
-      <div style={{ marginBottom: 12 }}>
-        <RequestAiChatButton block size="large" />
-      </div>
       <Button
         block
         size="large"

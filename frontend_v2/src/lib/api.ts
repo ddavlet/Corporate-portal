@@ -202,12 +202,9 @@ export type TenantIntegrationConfigResponse = {
   telegram_oidc_client_secret: string
   telegram_oidc_redirect_uri: string
   requests_file_gateway_token: string
-  messaging_gateway_feedback_recipient_id: number | null
-  messaging_gateway_feedback_action: string
   messaging_gateway_webhook_connected: boolean
   messaging_gateway_webhook_url: string
   messaging_gateway_webhook_error: string | null
-  request_ai_chat_webhook_url: string
 }
 
 export type TenantIntegrationConfigUpdatePayload = Partial<{
@@ -217,9 +214,6 @@ export type TenantIntegrationConfigUpdatePayload = Partial<{
   telegram_oidc_client_secret: string
   telegram_oidc_redirect_uri: string
   requests_file_gateway_token: string
-  messaging_gateway_feedback_recipient_id: number | null
-  messaging_gateway_feedback_action: string
-  request_ai_chat_webhook_url: string
 }>
 
 export type MessagingWebhookManageResponse = {
@@ -665,106 +659,6 @@ export async function setUserPreference(key: string, value: unknown): Promise<Us
   const json = (await res.json().catch(() => null)) as UserPreferencesResponseItem | null
   if (!json?.key) throw new Error('Пустой ответ от сервера')
   return json
-}
-
-export type FeedbackKind = 'error' | 'improvement'
-
-export type AskAiQuestionPayload = {
-  question: string
-  session_id?: string
-}
-
-export type AskAiQuestionResponse = {
-  tenant_id?: number | string
-  user_id?: number | string
-  session_id: string
-  response: string
-  reponse?: string
-  history?: Record<string, string>
-}
-
-export async function askAiQuestion(payload: AskAiQuestionPayload): Promise<AskAiQuestionResponse> {
-  const question = String(payload.question || '').trim()
-  if (!question) throw new Error('Вопрос не может быть пустым')
-  const body: Record<string, string> = { question }
-  if (payload.session_id && String(payload.session_id).trim()) {
-    body.session_id = String(payload.session_id).trim()
-  }
-
-  const res = await apiFetch('/api/ai-questions/chat/', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  })
-  if (!res.ok) throw new Error(await parseErrorBody(res))
-  const json = (await res.json().catch(() => null)) as Partial<AskAiQuestionResponse> | null
-  const responseText = typeof json?.response === 'string' ? json.response : typeof json?.reponse === 'string' ? json.reponse : null
-  if (!json?.session_id || !responseText) throw new Error('Пустой ответ от сервера')
-  return {
-    tenant_id: json.tenant_id,
-    user_id: json.user_id,
-    session_id: json.session_id,
-    response: responseText,
-    reponse: responseText,
-    history: json.history,
-  }
-}
-
-export async function refineFeedbackWithAi(payload: { kind: FeedbackKind; text: string }): Promise<{ feedback: string }> {
-  const res = await apiFetch('/api/feedback/ai-refine/', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ kind: payload.kind, text: payload.text }),
-  })
-  if (!res.ok) throw new Error(await parseErrorBody(res))
-  const json = (await res.json().catch(() => null)) as { feedback?: string } | null
-  if (!json?.feedback) throw new Error('Пустой ответ от сервера')
-  return { feedback: json.feedback }
-}
-
-export async function submitFeedback(payload: {
-  kind: FeedbackKind
-  body: string
-  page_path?: string
-}): Promise<{ id: number; delivery: { status: string; error: string | null } }> {
-  const res = await apiFetch('/api/feedback/submissions/', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      kind: payload.kind,
-      body: payload.body,
-      page_path: payload.page_path ?? '',
-    }),
-  })
-  if (!res.ok) throw new Error(await parseErrorBody(res))
-  const json = (await res.json().catch(() => null)) as
-    | { id?: number; delivery?: { status?: string; error?: string | null } }
-    | null
-  if (json?.id == null || !json.delivery?.status) throw new Error('Пустой ответ от сервера')
-  return {
-    id: json.id,
-    delivery: { status: json.delivery.status, error: json.delivery.error ?? null },
-  }
-}
-
-export type FeedbackWorkStatus = 'new' | 'in_progress' | 'done'
-
-export type MyFeedbackItem = {
-  id: number
-  kind: FeedbackKind
-  body: string
-  page_path: string
-  work_status: FeedbackWorkStatus
-  work_status_label: string
-  created_at: string
-  resolved_at: string | null
-}
-
-export async function listMyFeedback(): Promise<MyFeedbackItem[]> {
-  const res = await apiFetch('/api/feedback/my/', { method: 'GET' })
-  if (!res.ok) throw new Error(await parseErrorBody(res))
-  const json = (await res.json().catch(() => null)) as { results?: MyFeedbackItem[] } | null
-  return Array.isArray(json?.results) ? json.results : []
 }
 
 export async function changePassword(payload: {

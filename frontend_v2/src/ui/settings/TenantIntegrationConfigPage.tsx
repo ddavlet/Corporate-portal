@@ -16,12 +16,9 @@ type FormState = {
   telegram_oidc_client_secret: string
   telegram_oidc_redirect_uri: string
   requests_file_gateway_token: string
-  messaging_gateway_feedback_recipient_id: string
-  messaging_gateway_feedback_action: string
   messaging_gateway_webhook_connected: boolean
   messaging_gateway_webhook_url: string
   messaging_gateway_webhook_error: string
-  request_ai_chat_webhook_url: string
 }
 
 const MASK = '********'
@@ -34,13 +31,9 @@ function toFormState(data: TenantIntegrationConfigResponse): FormState {
     telegram_oidc_client_secret: data.telegram_oidc_client_secret || '',
     telegram_oidc_redirect_uri: data.telegram_oidc_redirect_uri || '',
     requests_file_gateway_token: data.requests_file_gateway_token || '',
-    messaging_gateway_feedback_recipient_id:
-      data.messaging_gateway_feedback_recipient_id != null ? String(data.messaging_gateway_feedback_recipient_id) : '',
-    messaging_gateway_feedback_action: data.messaging_gateway_feedback_action || '',
     messaging_gateway_webhook_connected: Boolean(data.messaging_gateway_webhook_connected),
     messaging_gateway_webhook_url: data.messaging_gateway_webhook_url || '',
     messaging_gateway_webhook_error: data.messaging_gateway_webhook_error || '',
-    request_ai_chat_webhook_url: data.request_ai_chat_webhook_url || '',
   }
 }
 
@@ -91,20 +84,6 @@ export function TenantIntegrationConfigPage() {
       if (form.requests_file_gateway_token && form.requests_file_gateway_token !== MASK) {
         payload.requests_file_gateway_token = form.requests_file_gateway_token
       }
-      const chatRaw = form.messaging_gateway_feedback_recipient_id.trim()
-      if (chatRaw === '') {
-        payload.messaging_gateway_feedback_recipient_id = null
-      } else {
-        const n = Number(chatRaw)
-        if (!Number.isFinite(n)) {
-          setError('Chat ID для фидбека должен быть числом.')
-          setSaving(false)
-          return
-        }
-        payload.messaging_gateway_feedback_recipient_id = Math.trunc(n)
-      }
-      payload.messaging_gateway_feedback_action = form.messaging_gateway_feedback_action.trim()
-      payload.request_ai_chat_webhook_url = form.request_ai_chat_webhook_url.trim()
 
       const data = await updateTenantIntegrationConfig(payload)
       setForm(toFormState(data))
@@ -211,20 +190,6 @@ export function TenantIntegrationConfigPage() {
             </Space>
 
             <Divider style={{ margin: '4px 0' }} />
-            <Typography.Text strong>ИИ-чат заявок (n8n)</Typography.Text>
-            <Typography.Text type="secondary">
-              Полный URL Chat Trigger в n8n. Backend шлёт в n8n Basic Auth: user{' '}
-              <Typography.Text code>X-N8N-Integration-Token</Typography.Text>, password — integration
-              token. Портал вызывает{' '}
-              <Typography.Text code>/api/requests/ai-chat/</Typography.Text>.
-            </Typography.Text>
-            <Input
-              placeholder="https://dev.kolberg.uz/webhook/<id>/chat"
-              value={form.request_ai_chat_webhook_url}
-              onChange={(e) => setField('request_ai_chat_webhook_url', e.target.value)}
-            />
-
-            <Divider style={{ margin: '4px 0' }} />
             <Typography.Text strong>Requests file gateway</Typography.Text>
             <Typography.Text type="secondary">
               Токен для входящих запросов file gateway.
@@ -235,21 +200,6 @@ export function TenantIntegrationConfigPage() {
               onChange={(e) => setField('requests_file_gateway_token', e.target.value)}
             />
 
-            <Divider style={{ margin: '4px 0' }} />
-            <Typography.Text strong>Обратная связь портала</Typography.Text>
-            <Typography.Text type="secondary">
-              Сообщения с кнопки «Обратная связь» уходят через messaging gateway.
-            </Typography.Text>
-            <Input
-              placeholder="recipient_id получателя фидбека (число)"
-              value={form.messaging_gateway_feedback_recipient_id}
-              onChange={(e) => setField('messaging_gateway_feedback_recipient_id', e.target.value)}
-            />
-            <Input
-              placeholder="Action, напр. send_portal_feedback"
-              value={form.messaging_gateway_feedback_action}
-              onChange={(e) => setField('messaging_gateway_feedback_action', e.target.value)}
-            />
 
             <Space>
               <Button onClick={() => void load()} disabled={saving}>

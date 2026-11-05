@@ -38,6 +38,4 @@ def get_integration_config(tenant_id: int) -> dict[str, Any]:
         "telegram_oidc_client_id": cfg.telegram_oidc_client_id,
         "telegram_oidc_client_secret_set": bool(cfg.telegram_oidc_client_secret_enc),
         "telegram_oidc_redirect_uri": cfg.telegram_oidc_redirect_uri,
-        "messaging_gateway_feedback_recipient_id": cfg.messaging_gateway_feedback_recipient_id,
-        "messaging_gateway_feedback_action": cfg.messaging_gateway_feedback_action,
     }

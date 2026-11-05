@@ -35,7 +35,7 @@ from apps.tenants.serializers import (
     TenantModuleConfigUpdateSerializer,
     TenantUserPreferenceSerializer,
 )
-from apps.tenants.integration_settings import get_portal_feedback_settings, get_requests_gateway_settings
+from apps.tenants.integration_settings import get_requests_gateway_settings
 
 from apps.modules.registry import list_modules
 
@@ -181,7 +181,6 @@ class TenantIntegrationConfigView(APIView):
         tenant = request.tenant
         cfg, _ = TenantIntegrationConfig.objects.get_or_create(tenant=tenant)
         req = get_requests_gateway_settings(tenant=tenant)
-        pf = get_portal_feedback_settings(tenant=tenant)
         webhook = self._fetch_webhook_info(tenant.get_telegram_bot_token())
         return Response(
             {
@@ -191,12 +190,9 @@ class TenantIntegrationConfigView(APIView):
                 "telegram_oidc_client_id": cfg.telegram_oidc_client_id,
                 "telegram_oidc_client_secret": self._masked(cfg.get_telegram_oidc_client_secret()),
                 "telegram_oidc_redirect_uri": cfg.telegram_oidc_redirect_uri,
-                "messaging_gateway_feedback_recipient_id": pf.recipient_id,
-                "messaging_gateway_feedback_action": pf.action,
                 "messaging_gateway_webhook_connected": webhook["connected"],
                 "messaging_gateway_webhook_url": webhook["url"],
                 "messaging_gateway_webhook_error": webhook.get("error"),
-                "request_ai_chat_webhook_url": cfg.request_ai_chat_webhook_url or "",
             }
         )
 
@@ -216,12 +212,6 @@ class TenantIntegrationConfigView(APIView):
             cfg.set_telegram_oidc_client_secret(data["telegram_oidc_client_secret"])
         if "telegram_oidc_redirect_uri" in data:
             cfg.telegram_oidc_redirect_uri = data["telegram_oidc_redirect_uri"].strip()
-        if "messaging_gateway_feedback_recipient_id" in data:
-            cfg.messaging_gateway_feedback_recipient_id = data["messaging_gateway_feedback_recipient_id"]
-        if "messaging_gateway_feedback_action" in data:
-            cfg.messaging_gateway_feedback_action = data["messaging_gateway_feedback_action"]
-        if "request_ai_chat_webhook_url" in data:
-            cfg.request_ai_chat_webhook_url = data["request_ai_chat_webhook_url"]
         new_bot_token = data.get("telegram_bot_token")
         if "telegram_bot_token" in data:
             tenant.set_telegram_bot_token(new_bot_token)

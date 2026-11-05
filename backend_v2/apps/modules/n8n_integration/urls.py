@@ -5,15 +5,9 @@ from apps.modules.n8n_integration import payroll_hooks
 from apps.modules.n8n_integration import views
 
 urlpatterns = [
-    path("ai-questions/chat/", views.AiChatProxyView.as_view(), name="n8n-ai-questions-chat"),
     path("pnl-data/", views.N8nPnlDataView.as_view(), name="n8n-pnl-data"),
     path("cashflow-data/", views.N8nCashflowDataView.as_view(), name="n8n-cashflow-data"),
     path("requests/", views.N8nRequestUpsertView.as_view(), name="n8n-requests-upsert"),
-    path(
-        "requests/ai-create/",
-        views.N8nAiRequestCreateView.as_view(),
-        name="n8n-requests-ai-create",
-    ),
     path("requests/amortization/", views.N8nRequestAmortizationView.as_view(), name="n8n-requests-amortization"),
     path("requests/batch/", views.N8nRequestBatchUpsertView.as_view(), name="n8n-requests-batch-upsert"),
     path(

@@ -1,4 +1,3 @@
-import base64
 from datetime import date
 from decimal import Decimal, InvalidOperation
 import logging
@@ -13,8 +12,7 @@ from django.db import transaction
 from django.db.models import CharField, Q
 from django.db.models.functions import Cast
 from django.core.files.storage import default_storage
-from django.conf import settings
-from django.http import FileResponse, HttpResponse
+from django.http import FileResponse
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 import requests
@@ -97,8 +95,6 @@ from apps.modules.requests.approval_workflow import (
     min_pending_approval_step,
     route_request_approvals,
 )
-from apps.modules.n8n_integration.views import _n8n_session
-from apps.tenants.integration_settings import get_n8n_integration_settings, get_request_ai_chat_webhook_url
 from apps.modules.telegram_approvals.services import (
     dispatch_pending_approvals,
     refresh_request_messages,
@@ -1966,72 +1962,6 @@ class AutoRequestConfigView(APIView):
             request_obj = create_request_copy_for_template(template)
 
         return Response({"request_id": request_obj.id}, status=status.HTTP_201_CREATED)
-
-
-def _n8n_chat_basic_authorization(integration_token: str) -> str:
-    """n8n Chat Trigger Basic Auth: user X-N8N-Integration-Token, password = token."""
-    encoded = base64.b64encode(f"X-N8N-Integration-Token:{integration_token}".encode()).decode("ascii")
-    return f"Basic {encoded}"
-
-
-class RequestAiChatProxyView(APIView):
-    """
-    Frontend → this view: portal JWT (IsAuthenticated).
-    This view → n8n: Basic Auth (user X-N8N-Integration-Token, password = integration token).
-    """
-
-    module_key = "requests"
-    permission_classes = [IsAuthenticated, HasEffectiveModuleAccess]
-
-    def post(self, request):
-        tenant = getattr(request, "tenant", None)
-        if not tenant:
-            return Response({"detail": "Unknown tenant."}, status=status.HTTP_400_BAD_REQUEST)
-
-        webhook_url = get_request_ai_chat_webhook_url(tenant=tenant)
-        if not webhook_url:
-            return Response(
-                {"detail": "Request AI chat webhook URL is not configured for this tenant."},
-                status=status.HTTP_503_SERVICE_UNAVAILABLE,
-            )
-
-        integration_token = get_n8n_integration_settings(tenant=tenant).integration_token
-        if not integration_token:
-            integration_token = (getattr(settings, "N8N_INTEGRATION_TOKEN", None) or "").strip()
-        if not integration_token:
-            return Response(
-                {"detail": "N8N integration token is not configured."},
-                status=status.HTTP_503_SERVICE_UNAVAILABLE,
-            )
-
-        headers = {
-            "Accept": "application/json",
-            "Content-Type": (request.content_type or "application/json").split(";")[0].strip(),
-            "X-N8N-Integration-Token": integration_token,
-            "Authorization": _n8n_chat_basic_authorization(integration_token),
-        }
-
-        try:
-            upstream = _n8n_session.post(webhook_url, data=request.body, headers=headers, timeout=60)
-        except requests.RequestException as exc:
-            return Response(
-                {"detail": f"Upstream request failed: {exc}"},
-                status=status.HTTP_502_BAD_GATEWAY,
-            )
-
-        if upstream.status_code in (401, 403):
-            return Response(
-                {
-                    "detail": (
-                        "n8n rejected the chat request. "
-                        "Check tenant integration token and Chat Trigger authentication in n8n."
-                    )
-                },
-                status=status.HTTP_502_BAD_GATEWAY,
-            )
-
-        content_type = upstream.headers.get("Content-Type", "application/json")
-        return HttpResponse(upstream.content, status=upstream.status_code, content_type=content_type)
 
 
 class RequestCategoriesView(APIView):

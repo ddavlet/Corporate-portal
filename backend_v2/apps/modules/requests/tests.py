@@ -1,4 +1,3 @@
-import base64
 from datetime import date, datetime, timedelta
 from decimal import Decimal
 from unittest.mock import MagicMock, Mock, patch
@@ -4183,83 +4182,34 @@ class GetRequestsMessagingGatewaySettingsTests(APITestCase):
 
 
 @override_settings(BASE_DOMAIN="example.com", N8N_INTEGRATION_TOKEN="integ-token", ALLOWED_HOSTS=["*"])
-class RequestAiChatProxyTests(APITestCase):
+class RemovedAiAndFeedbackEndpointsTests(APITestCase):
+    """ИИ-заявки, «Вопросы в ИИ» и «Обратная связь» удалены с портала — эндпоинтов больше нет."""
+
+    REMOVED_URLS = (
+        "/api/requests/ai-chat/",
+        "/api/ai-questions/chat/",
+        "/api/n8n/ai-questions/chat/",
+        "/api/n8n/requests/ai-create/",
+        "/api/feedback/ai-refine/",
+        "/api/feedback/submissions/",
+        "/api/feedback/my/",
+    )
+
     def setUp(self):
         self.tenant = Tenant.objects.create(name="Acme", subdomain="acme", is_active=True)
-        self.user = User.objects.create_user(username="req_chat", password="x")
+        self.user = User.objects.create_user(username="req_removed", password="x")
         TenantMembership.objects.create(tenant=self.tenant, user=self.user, is_active=True)
         TenantUserRole.objects.create(tenant=self.tenant, user=self.user, role=TenantUserRole.ROLE_REQUESTER)
         TenantModuleConfig.objects.create(tenant=self.tenant, module_key="requests", is_enabled=True)
         self.host = "acme.example.com"
-        cfg, _ = TenantIntegrationConfig.objects.get_or_create(tenant=self.tenant)
-        cfg.request_ai_chat_webhook_url = "https://dev.kolberg.uz/webhook/uuid/chat"
-        cfg.save(update_fields=["request_ai_chat_webhook_url"])
 
-    @patch("apps.modules.requests.views._n8n_session.post")
-    def test_proxy_forwards_to_configured_url_with_integration_token(self, mocked_post):
-        mocked_response = MagicMock()
-        mocked_response.status_code = 200
-        mocked_response.content = b'{"output":"ok"}'
-        mocked_response.headers = {"Content-Type": "application/json"}
-        mocked_post.return_value = mocked_response
-
+    def test_removed_endpoints_return_404(self):
         self.client.force_authenticate(self.user)
-        res = self.client.post(
-            "/api/requests/ai-chat/",
-            {"action": "sendMessage", "chatInput": "hello", "sessionId": "s1"},
-            format="json",
-            HTTP_HOST=self.host,
-        )
-        self.assertEqual(res.status_code, 200, res.content)
-        self.assertEqual(res.json(), {"output": "ok"})
-
-        mocked_post.assert_called_once()
-        self.assertEqual(mocked_post.call_args.args[0], "https://dev.kolberg.uz/webhook/uuid/chat")
-        headers = mocked_post.call_args.kwargs["headers"]
-        self.assertEqual(headers["X-N8N-Integration-Token"], "integ-token")
-        expected = "Basic " + base64.b64encode(b"X-N8N-Integration-Token:integ-token").decode("ascii")
-        self.assertEqual(headers["Authorization"], expected)
-
-    @patch("apps.modules.requests.views._n8n_session.post")
-    def test_n8n_auth_failure_returns_502_not_opaque_401(self, mocked_post):
-        mocked_response = MagicMock()
-        mocked_response.status_code = 401
-        mocked_response.content = b"Authorization is required!"
-        mocked_response.headers = {"Content-Type": "text/plain"}
-        mocked_post.return_value = mocked_response
-
-        self.client.force_authenticate(self.user)
-        res = self.client.post(
-            "/api/requests/ai-chat/",
-            {"action": "sendMessage"},
-            format="json",
-            HTTP_HOST=self.host,
-        )
-        self.assertEqual(res.status_code, 502)
-        self.assertIn("n8n rejected", res.json()["detail"])
-
-    def test_missing_webhook_url_returns_503(self):
-        cfg = TenantIntegrationConfig.objects.get(tenant=self.tenant)
-        cfg.request_ai_chat_webhook_url = ""
-        cfg.save(update_fields=["request_ai_chat_webhook_url"])
-
-        self.client.force_authenticate(self.user)
-        res = self.client.post(
-            "/api/requests/ai-chat/",
-            {"action": "sendMessage"},
-            format="json",
-            HTTP_HOST=self.host,
-        )
-        self.assertEqual(res.status_code, 503)
-
-    def test_requires_auth(self):
-        res = self.client.post(
-            "/api/requests/ai-chat/",
-            {"action": "sendMessage"},
-            format="json",
-            HTTP_HOST=self.host,
-        )
-        self.assertEqual(res.status_code, 401)
+        for url in self.REMOVED_URLS:
+            with self.subTest(url=url):
+                res = self.client.post(url, {"question": "hi"}, format="json", HTTP_HOST=self.host)
+                # /api/requests/ai-chat/ теперь попадает в detail-роут роутера заявок → 405.
+                self.assertIn(res.status_code, (404, 405), res.content)
 
 
 @override_settings(BASE_DOMAIN="example.com", N8N_INTEGRATION_TOKEN="", ALLOWED_HOSTS=["*"])
