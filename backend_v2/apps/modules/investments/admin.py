@@ -227,6 +227,13 @@ register_portal(
     InvestmentFundingConfigAdmin,
 )
 register_portal(
+    InvestmentFundingExtraCashWallet,
+    "Инвест-касса в другой валюте",
+    "Инвест-кассы в других валютах",
+    list_display=("id", "config", "wallet", "created_at"),
+    raw_id_fields=("config", "wallet"),
+)
+register_portal(
     InvestmentApprovalConfig,
     "Этапы согласования выплат",
     "Этапы согласования выплат",
