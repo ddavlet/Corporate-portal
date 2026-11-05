@@ -4208,7 +4208,8 @@ class RemovedAiAndFeedbackEndpointsTests(APITestCase):
         for url in self.REMOVED_URLS:
             with self.subTest(url=url):
                 res = self.client.post(url, {"question": "hi"}, format="json", HTTP_HOST=self.host)
-                self.assertEqual(res.status_code, 404, res.content)
+                # /api/requests/ai-chat/ теперь попадает в detail-роут роутера заявок → 405.
+                self.assertIn(res.status_code, (404, 405), res.content)
 
 
 @override_settings(BASE_DOMAIN="example.com", N8N_INTEGRATION_TOKEN="", ALLOWED_HOSTS=["*"])
