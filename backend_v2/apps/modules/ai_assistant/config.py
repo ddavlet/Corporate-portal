@@ -6,6 +6,13 @@ AGENT_MODEL = "claude-sonnet-5-5"
 AGENT_EFFORT = "medium"
 AGENT_MAX_TOKENS = 16000
 AGENT_MAX_STEPS = 12
+# Классификатор «кому адресовано» для групп. Нужна точность, поэтому не Haiku, а
+# Opus 5.5 с adaptive thinking (отключить нельзя), запас max_tokens под рассуждение.
+ADDRESSEE_MODEL = "claude-opus-5-5"
+ADDRESSEE_EFFORT = "medium"
+ADDRESSEE_MAX_TOKENS = 8000
+ADDRESSEE_CONTEXT_NODES = 6
+ADDRESSEE_TEXT_LIMIT = 1500
 FALLBACK_BETA = "server-side-fallback-2026-07-01"
 # Разрешает thinking.block_binding: thinking-блоки, не прошедшие проверку префикса
 # (изменился system/tools/история), отбрасываются вместо ошибки 400.

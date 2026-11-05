@@ -106,5 +106,8 @@ def handle_message_event(data: dict) -> tuple[dict, int]:
                 tenant.pk, chat_id, event["message_id"],
             )
             return ACCEPTED
-        submit_turn(node.id)
+        if chat_type == "private":
+            submit_turn(node.id)
+        else:
+            submit_turn(node.id, addressee_check={"mentions_bot": bool(event.get("mentions_bot"))})
     return ACCEPTED
