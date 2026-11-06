@@ -45,6 +45,8 @@ class TransferTargetApiTests(CashDeskFixtures, APITestCase):
         self.assertEqual(res.data["currency"], "UZS")
         target = CashRegisterTransferTarget.objects.get(request=req)
         self.assertEqual(target.to_amount, Decimal("1500000.00"))
+        self.assertEqual(target.source_amount, Decimal("1500000.00"))
+        self.assertEqual(target.source_currency, "UZS")
 
     def test_cross_currency_requires_amount(self):
         req = self.draft()
@@ -53,7 +55,10 @@ class TransferTargetApiTests(CashDeskFixtures, APITestCase):
         self.assertIn("detail", res.data)
         res = self.put(req, {"to_wallet_id": self.usd.id, "to_amount": "120"})
         self.assertEqual(res.status_code, 200, res.data)
-        self.assertEqual(CashRegisterTransferTarget.objects.get(request=req).to_amount, Decimal("120.00"))
+        target = CashRegisterTransferTarget.objects.get(request=req)
+        self.assertEqual(target.to_amount, Decimal("120.00"))
+        self.assertEqual(target.source_amount, Decimal("1500000.00"))
+        self.assertEqual(target.source_currency, "UZS")
         self.assertEqual(res.data["currency"], "USD")
 
     def test_same_currency_mismatched_amount_rejected(self):

@@ -7,9 +7,11 @@ from django.test import TestCase, override_settings
 from apps.modules.cash_desk.constants import TRANSFER_PURPOSE
 from apps.modules.cash_desk.fixtures import CashDeskFixtures
 from apps.modules.cash_desk.models import CashDeskMessage, CashRegisterTransferTarget
-from apps.modules.cash_desk.services import on_request_payed
+from apps.modules.cash_desk.services import SAME_WALLET_ERROR, on_request_payed
+from apps.modules.cash_desk.transfer_revenue import STALE_TARGET_ERROR
 from apps.modules.cash_withdrawals.fixtures import GATEWAY_PATH, gateway_ok
 from apps.modules.cashier.models import CashExpense, CashRevenue
+from apps.modules.requests.models import Request
 from apps.modules.requests.status_events import dispatch_request_payed_event_handlers
 
 
@@ -118,6 +120,92 @@ class CashDeskPayedHandlerTests(CashDeskFixtures, TestCase):
         self.assertEqual(msg.status, CashDeskMessage.Status.SENT)
         self.assertEqual(gw.call_count, 1)
         self.assertIn("Перемещение", gw.call_args.kwargs["payload"]["text"])
+
+    @patch(GATEWAY_PATH)
+    def test_transfer_same_currency_amount_edited_after_target_uses_new_amount(self, gw):
+        gw.side_effect = gateway_ok()
+        req = self._transfer_request()
+        CashRegisterTransferTarget.objects.create(
+            tenant=self.tenant,
+            request=req,
+            to_wallet=self.safe,
+            to_amount=req.amount,
+            source_amount=req.amount,
+            source_currency=req.currency,
+        )
+        Request.objects.filter(pk=req.pk).update(amount=Decimal("1750000.00"))
+        req.refresh_from_db()
+        self._pay(req)
+
+        revenue = CashRevenue.objects.get(tenant=self.tenant, external_id=f"cash-{req.id}")
+        self.assertEqual(revenue.wallet_id, self.safe.id)
+        self.assertEqual(revenue.total_sum, Decimal("1750000.00"))
+        self.assertEqual(CashDeskMessage.objects.get(request=req).revenue_error, "")
+
+    @patch(GATEWAY_PATH)
+    def test_transfer_cross_currency_unchanged_uses_to_amount(self, gw):
+        gw.side_effect = gateway_ok()
+        req = self._transfer_request()
+        CashRegisterTransferTarget.objects.create(
+            tenant=self.tenant,
+            request=req,
+            to_wallet=self.usd,
+            to_amount=Decimal("120.50"),
+            source_amount=req.amount,
+            source_currency=req.currency,
+        )
+        self._pay(req)
+
+        revenue = CashRevenue.objects.get(tenant=self.tenant, external_id=f"cash-{req.id}")
+        self.assertEqual(revenue.wallet_id, self.usd.id)
+        self.assertEqual(revenue.total_sum, Decimal("120.50"))
+        self.assertEqual(revenue.currency, "USD")
+        self.assertEqual(CashDeskMessage.objects.get(request=req).revenue_error, "")
+
+    @patch(GATEWAY_PATH)
+    def test_transfer_cross_currency_amount_changed_no_revenue(self, gw):
+        gw.side_effect = gateway_ok()
+        req = self._transfer_request()
+        CashRegisterTransferTarget.objects.create(
+            tenant=self.tenant,
+            request=req,
+            to_wallet=self.usd,
+            to_amount=Decimal("120.50"),
+            source_amount=req.amount,
+            source_currency=req.currency,
+        )
+        Request.objects.filter(pk=req.pk).update(amount=Decimal("1750000.00"))
+        req.refresh_from_db()
+        with self.assertLogs("apps.modules.cash_desk.services", level="ERROR"):
+            self._pay(req)
+
+        self.assertFalse(CashRevenue.objects.filter(tenant=self.tenant, external_id=f"cash-{req.id}").exists())
+        msg = CashDeskMessage.objects.get(request=req)
+        self.assertEqual(msg.revenue_error, STALE_TARGET_ERROR)
+        self.assertEqual(msg.status, CashDeskMessage.Status.SENT)
+        self.assertEqual(gw.call_count, 1)
+
+    @patch(GATEWAY_PATH)
+    def test_transfer_destination_equals_source_no_revenue(self, gw):
+        gw.side_effect = gateway_ok()
+        req = self._transfer_request(wallet_ref=self.safe)
+        CashRegisterTransferTarget.objects.create(
+            tenant=self.tenant,
+            request=req,
+            to_wallet=self.main,
+            to_amount=req.amount,
+            source_amount=req.amount,
+            source_currency=req.currency,
+        )
+        self._expense(req, self.main)  # cash actually paid from the destination register
+        with self.assertLogs("apps.modules.cash_desk.services", level="ERROR"):
+            self._pay(req)
+
+        self.assertFalse(CashRevenue.objects.filter(tenant=self.tenant, external_id=f"cash-{req.id}").exists())
+        msg = CashDeskMessage.objects.get(request=req)
+        self.assertEqual(msg.revenue_error, SAME_WALLET_ERROR)
+        self.assertEqual(msg.status, CashDeskMessage.Status.SENT)
+        self.assertEqual(gw.call_count, 1)
 
     @patch(GATEWAY_PATH)
     def test_repeat_payed_sends_once(self, gw):

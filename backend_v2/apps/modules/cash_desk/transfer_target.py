@@ -54,6 +54,12 @@ def save_transfer_target(*, request_obj, to_wallet_id: int, to_amount: Decimal |
 
     target, _ = CashRegisterTransferTarget.objects.update_or_create(
         request=request_obj,
-        defaults={"tenant_id": request_obj.tenant_id, "to_wallet": wallet, "to_amount": amount},
+        defaults={
+            "tenant_id": request_obj.tenant_id,
+            "to_wallet": wallet,
+            "to_amount": amount,
+            "source_amount": request_amount,
+            "source_currency": request_obj.currency,
+        },
     )
     return target

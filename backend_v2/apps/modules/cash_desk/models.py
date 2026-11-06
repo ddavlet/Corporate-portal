@@ -39,6 +39,9 @@ class CashRegisterTransferTarget(models.Model):
     request = models.OneToOneField("requests.Request", on_delete=models.CASCADE, related_name="cash_transfer_target")
     to_wallet = models.ForeignKey("wallets.Wallet", on_delete=models.PROTECT, related_name="cash_transfer_targets")
     to_amount = models.DecimalField(max_digits=18, decimal_places=2)
+    # Snapshot of request.amount/currency when the target was saved: detects edits made after it.
+    source_amount = models.DecimalField(max_digits=18, decimal_places=2, null=True, blank=True)
+    source_currency = models.CharField(max_length=3, null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

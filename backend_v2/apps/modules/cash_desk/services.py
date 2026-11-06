@@ -23,6 +23,7 @@ from apps.modules.wallets.resolution import resolve_wallet_for_cash
 logger = logging.getLogger(__name__)
 
 NO_CHAT_ERROR = "Кассовая группа не выбрана"
+SAME_WALLET_ERROR = "Касса-получатель совпадает с кассой-источником — приход не создан"
 
 
 def is_cash_request(request_obj) -> bool:
@@ -58,6 +59,9 @@ def _create_transfer_revenue(*, request_obj, msg: CashDeskMessage) -> None:
     try:
         with transaction.atomic():
             destination = resolve_transfer_destination(request_obj)
+            source_wallet = expense_wallet_for_request(request_obj)
+            if source_wallet is not None and source_wallet.pk == destination.wallet.pk:
+                raise TransferDestinationError(SAME_WALLET_ERROR)
             ensure_transfer_revenue(request_obj=request_obj, destination=destination)
     except TransferDestinationError as exc:
         msg.revenue_error = str(exc)

@@ -5,11 +5,13 @@ from django.test import TestCase
 from apps.modules.cash_desk.fixtures import CashDeskFixtures
 from apps.modules.cash_desk.models import CashRegisterTransferTarget
 from apps.modules.cash_desk.transfer_revenue import (
+    STALE_TARGET_ERROR,
     TransferDestinationError,
     ensure_transfer_revenue,
     resolve_transfer_destination,
 )
 from apps.modules.cashier.models import CashRevenue
+from apps.modules.requests.models import Request
 from apps.modules.wallets.models import CashRegister, Wallet
 
 
@@ -35,12 +37,70 @@ class TransferRevenueTests(CashDeskFixtures, TestCase):
     def test_cross_currency_target_amount_and_currency(self):
         req = self.make_request(wallet_ref=self.main)
         CashRegisterTransferTarget.objects.create(
-            tenant=self.tenant, request=req, to_wallet=self.usd, to_amount=Decimal("120.50")
+            tenant=self.tenant,
+            request=req,
+            to_wallet=self.usd,
+            to_amount=Decimal("120.50"),
+            source_amount=req.amount,
+            source_currency=req.currency,
         )
         dest = resolve_transfer_destination(req)
         self.assertEqual(dest.wallet, self.usd)
         self.assertEqual(dest.amount, Decimal("120.50"))
         self.assertEqual(dest.currency, "USD")
+
+    def test_same_currency_target_uses_current_request_amount(self):
+        req = self.make_request(wallet_ref=self.main)
+        CashRegisterTransferTarget.objects.create(
+            tenant=self.tenant,
+            request=req,
+            to_wallet=self.safe,
+            to_amount=req.amount,
+            source_amount=req.amount,
+            source_currency=req.currency,
+        )
+        Request.objects.filter(pk=req.pk).update(amount=Decimal("2000000.00"))
+        req.refresh_from_db()
+        dest = resolve_transfer_destination(req)
+        self.assertEqual(dest.wallet, self.safe)
+        self.assertEqual(dest.amount, Decimal("2000000.00"))
+        self.assertEqual(dest.currency, "UZS")
+
+    def test_cross_currency_target_amount_changed_raises(self):
+        req = self.make_request(wallet_ref=self.main)
+        CashRegisterTransferTarget.objects.create(
+            tenant=self.tenant,
+            request=req,
+            to_wallet=self.usd,
+            to_amount=Decimal("120.50"),
+            source_amount=req.amount,
+            source_currency=req.currency,
+        )
+        Request.objects.filter(pk=req.pk).update(amount=Decimal("2000000.00"))
+        req.refresh_from_db()
+        with self.assertRaisesMessage(TransferDestinationError, STALE_TARGET_ERROR):
+            resolve_transfer_destination(req)
+
+    def test_cross_currency_target_currency_changed_raises(self):
+        req = self.make_request(wallet_ref=self.main)
+        CashRegisterTransferTarget.objects.create(
+            tenant=self.tenant,
+            request=req,
+            to_wallet=self.usd,
+            to_amount=Decimal("120.50"),
+            source_amount=req.amount,
+            source_currency="EUR",
+        )
+        with self.assertRaisesMessage(TransferDestinationError, STALE_TARGET_ERROR):
+            resolve_transfer_destination(req)
+
+    def test_cross_currency_target_without_snapshot_raises(self):
+        req = self.make_request(wallet_ref=self.main)
+        CashRegisterTransferTarget.objects.create(
+            tenant=self.tenant, request=req, to_wallet=self.usd, to_amount=Decimal("120.50")
+        )
+        with self.assertRaisesMessage(TransferDestinationError, STALE_TARGET_ERROR):
+            resolve_transfer_destination(req)
 
     def test_fallback_by_description_with_currency_suffix(self):
         req = self._transfer("В кассу: Сейф (UZS)")

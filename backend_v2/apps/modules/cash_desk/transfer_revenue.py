@@ -82,14 +82,32 @@ def _resolve_by_description(request_obj) -> TransferDestination:
     return TransferDestination(wallet=wallet, amount=request_obj.amount, currency=wallet.currency)
 
 
+STALE_TARGET_ERROR = (
+    "Сумма или валюта перевода изменились после указания суммы зачисления — приход не создан, внесите вручную"
+)
+
+
+def _resolve_by_target(request_obj, target: CashRegisterTransferTarget) -> TransferDestination:
+    """Same currency: always the current request amount. Cross-currency: stored to_amount, only if unchanged."""
+    wallet = target.to_wallet
+    if wallet.currency == request_obj.currency:
+        return TransferDestination(wallet=wallet, amount=request_obj.amount, currency=wallet.currency)
+    if (
+        target.source_amount is None
+        or not target.source_currency
+        or Decimal(target.source_amount) != Decimal(request_obj.amount)
+        or target.source_currency != request_obj.currency
+    ):
+        raise TransferDestinationError(STALE_TARGET_ERROR)
+    return TransferDestination(wallet=wallet, amount=target.to_amount, currency=wallet.currency)
+
+
 def resolve_transfer_destination(request_obj) -> TransferDestination:
     target = (
         CashRegisterTransferTarget.objects.select_related("to_wallet").filter(request_id=request_obj.pk).first()
     )
     if target is not None:
-        return TransferDestination(
-            wallet=target.to_wallet, amount=target.to_amount, currency=target.to_wallet.currency
-        )
+        return _resolve_by_target(request_obj, target)
     return _resolve_by_description(request_obj)
 
 
