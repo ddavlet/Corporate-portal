@@ -13,3 +13,8 @@ class CashDeskConfigWriteSerializer(serializers.Serializer):
         if chat_id is not None and not TenantTelegramChat.objects.filter(tenant=tenant, pk=chat_id).exists():
             raise serializers.ValidationError({"telegram_chat_id": "Telegram-группа не найдена."})
         return attrs
+
+
+class TransferTargetWriteSerializer(serializers.Serializer):
+    to_wallet_id = serializers.IntegerField()
+    to_amount = serializers.DecimalField(max_digits=18, decimal_places=2, required=False, allow_null=True)
