@@ -33,6 +33,7 @@ import {
   asMoney,
   asNumber,
   byCompany,
+  confirmedInvestorUsdTotal,
   dateText,
   inDateRange,
   makeCompanySelectOptions,
@@ -105,6 +106,7 @@ export function ReturnsTab({
     () => totalsInBothCurrencies(filtered.filter((r) => r.confirmed)),
     [filtered],
   )
+  const investorUsdTotal = useMemo(() => confirmedInvestorUsdTotal(filtered), [filtered])
 
   const columns: ColumnsType<InvestReturnRow> = useMemo(() => {
     const companyCol = {
@@ -135,26 +137,34 @@ export function ReturnsTab({
     },
     ...(usesCompanies ? [companyCol] : []),
     {
-      title: 'Сумма',
+      title: 'В валюте выплаты',
       dataIndex: 'sum',
-      width: 140,
+      width: 150,
       align: 'right',
       render: (v: string | number) => asMoney(v),
       sorter: (a, b) => asNumber(a.sum) - asNumber(b.sum),
-    },
-    {
-      title: 'Сум (UZS)',
-      dataIndex: 'sum_uzs',
-      width: 130,
-      align: 'right',
-      render: (v: string | number | null | undefined) => (v != null && v !== '' ? asMoney(v) : '—'),
-      sorter: (a, b) => asNumber(a.sum_uzs ?? 0) - asNumber(b.sum_uzs ?? 0),
     },
     {
       title: 'Валюта',
       dataIndex: 'currency',
       width: 90,
       sorter: (a, b) => a.currency.localeCompare(b.currency),
+    },
+    {
+      title: 'В сумах',
+      dataIndex: 'sum_uzs',
+      width: 150,
+      align: 'right',
+      render: (v: string | number | null | undefined) => (v != null && v !== '' ? asMoney(v) : '—'),
+      sorter: (a, b) => asNumber(a.sum_uzs ?? 0) - asNumber(b.sum_uzs ?? 0),
+    },
+    {
+      title: 'В долларах',
+      dataIndex: 'sum_usd',
+      width: 130,
+      align: 'right',
+      render: (v: string | number | null | undefined) => (v != null && v !== '' ? asMoney(v) : '—'),
+      sorter: (a, b) => asNumber(a.sum_usd ?? 0) - asNumber(b.sum_usd ?? 0),
     },
     { title: 'Тип', dataIndex: 'type', width: 140 },
     { title: 'Получатель', dataIndex: 'recipient', width: 120 },
@@ -247,10 +257,17 @@ export function ReturnsTab({
       <KpiStrip
         totals={totals}
         totalsLabel="Всего выплат"
-        extra={confirmedTotals.map((t) => ({
-          label: `Подтверждено, ${t.currency}`,
-          value: asMoney(t.total),
-        }))}
+        extra={[
+          ...confirmedTotals.map((t) => ({
+            label: `Подтверждено, ${t.currency}`,
+            value: asMoney(t.total),
+          })),
+          {
+            label: 'Инвестору (подтверждено), USD',
+            value: asMoney(investorUsdTotal),
+            hint: 'Как «Выплачено всего» в отчёте инвесторам',
+          },
+        ]}
       />
 
       {loading ? (
@@ -266,7 +283,7 @@ export function ReturnsTab({
             style: { cursor: 'pointer' },
           })}
           pagination={{ pageSize: 30 }}
-          scroll={{ x: 1700 }}
+          scroll={{ x: 1870 }}
           locale={{
             emptyText: (
               <Empty description="Выплат пока нет" image={Empty.PRESENTED_IMAGE_SIMPLE}>

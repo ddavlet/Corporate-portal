@@ -99,6 +99,21 @@ export function totalsInBothCurrencies<
   ]
 }
 
+/** Получатель выплаты «инвестор» (InvestReturn.Recipient.INVESTOR). */
+export const INVESTOR_RECIPIENT = 'инвестор'
+
+/**
+ * Подтверждённые выплаты инвестору в USD — та же выборка, что «Выплачено всего» в отчёте
+ * инвесторам (investor_report.py): без выплат партнёру и неподтверждённых.
+ */
+export function confirmedInvestorUsdTotal<
+  T extends { confirmed: boolean; recipient: string; sum_usd?: string | number | null },
+>(rows: T[]): number {
+  return rows
+    .filter((r) => r.confirmed && r.recipient === INVESTOR_RECIPIENT)
+    .reduce((acc, r) => acc + asNumber(r.sum_usd ?? 0), 0)
+}
+
 export const CURRENCY_OPTIONS = [
   { value: 'USD', label: 'USD' },
   { value: 'EUR', label: 'EUR' },
