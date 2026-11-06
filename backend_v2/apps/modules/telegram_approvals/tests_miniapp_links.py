@@ -182,3 +182,40 @@ class BotSetupEndpointTests(APITestCase):
         self.assertEqual(res.data["bot_username"], "acme_bot")
         self.assertEqual(len(res.data["direct_links"]), 2)
         self.assertEqual(res.data["direct_links"][0]["link"], "https://t.me/acme_bot/payment")
+
+
+class BotSetupTraefikRouteTests(TestCase):
+    """Regression: /api/messaging-gateway/ is excluded from the public django-v2-api
+    router (internal tg-gateway webhooks). bot-setup had no override, so the settings
+    page got Traefik's "404 page not found" on every tenant.
+    """
+
+    def _compose_text(self) -> str:
+        from pathlib import Path
+
+        compose = Path(__file__).resolve().parents[4] / "docker-compose.yml"
+        if not compose.exists():
+            self.skipTest("docker-compose.yml not available (backend_v2-only checkout)")
+        return compose.read_text()
+
+    def _public_messaging_gateway_prefixes(self, text: str) -> set[str]:
+        import re
+
+        return set(
+            re.findall(
+                r"traefik\.http\.routers\.django-v2-[\w-]+\.rule=\(\$\{TRAEFIK_BACKEND_V2_HOST_RULE\}\)"
+                r" && PathPrefix\(`(/api/messaging-gateway/[^`]*)`\)",
+                text,
+            )
+        )
+
+    def test_bot_setup_is_routed_to_django(self):
+        text = self._compose_text()
+        self.assertIn("/api/messaging-gateway/bot-setup", self._public_messaging_gateway_prefixes(text))
+        self.assertIn("traefik.http.routers.django-v2-tg-bot-setup.service=django-v2", text)
+        self.assertIn("traefik.http.routers.django-v2-tg-bot-setup.priority=1200", text)
+
+    def test_internal_webhooks_stay_private(self):
+        prefixes = self._public_messaging_gateway_prefixes(self._compose_text())
+        for internal in ("/api/messaging-gateway/webhook", "/api/messaging-gateway/events"):
+            self.assertFalse(any(internal.startswith(p) for p in prefixes), internal)

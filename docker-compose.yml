@@ -627,6 +627,14 @@ services:
       - traefik.http.routers.django-v2-tg-chats.service=django-v2
       - traefik.http.routers.django-v2-tg-chats.priority=1200
 
+      # BotFather checklist for tenant admins (settings page): same override as chats
+      - traefik.http.routers.django-v2-tg-bot-setup.rule=(${TRAEFIK_BACKEND_V2_HOST_RULE}) && PathPrefix(`/api/messaging-gateway/bot-setup`)
+      - traefik.http.routers.django-v2-tg-bot-setup.entrypoints=web,websecure
+      - traefik.http.routers.django-v2-tg-bot-setup.tls=true
+      - traefik.http.routers.django-v2-tg-bot-setup.tls.certresolver=mytlschallenge
+      - traefik.http.routers.django-v2-tg-bot-setup.service=django-v2
+      - traefik.http.routers.django-v2-tg-bot-setup.priority=1200
+
       # Integration API: must beat Host-only n8n webhooks on the same hosts (priority > django-v2-api)
       - traefik.http.routers.django-v2-n8n.rule=${TRAEFIK_BACKEND_V2_N8N_RULE}
       - traefik.http.routers.django-v2-n8n.entrypoints=web,websecure
