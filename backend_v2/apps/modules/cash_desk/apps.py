@@ -8,5 +8,7 @@ class CashDeskConfig(AppConfig):
     verbose_name = "Касса"
 
     def ready(self):
-        # Payed-event handler is registered in a later step.
-        pass
+        from apps.modules.cash_desk.services import on_request_payed
+        from apps.modules.requests import status_events
+
+        status_events.register_request_payed_event_handler(on_request_payed)
