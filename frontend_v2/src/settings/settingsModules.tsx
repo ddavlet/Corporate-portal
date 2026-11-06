@@ -195,6 +195,14 @@ export const SETTINGS_MODULES: SettingsModuleItem[] = [
     group: 'finance',
   },
   {
+    key: 'cash-desk-config',
+    title: 'Касса: уведомления в Telegram',
+    description: 'Сообщение «Движение денежных средств» в кассовую группу при оплате наличной заявки и приход при переводе между кассами.',
+    path: '/settings/cash-desk-config',
+    icon: <DollarOutlined />,
+    group: 'finance',
+  },
+  {
     key: 'payroll-config',
     title: 'Начисления ЗП',
     description: 'Формат номера документа, автосоздание заявки на оплату, справочник сотрудников.',

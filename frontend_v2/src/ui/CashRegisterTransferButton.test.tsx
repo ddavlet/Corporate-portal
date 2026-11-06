@@ -8,12 +8,17 @@ const getSettingsAccessMock = vi.fn()
 const createPortalRequestMock = vi.fn()
 const submitRequestForApprovalMock = vi.fn()
 const successMock = vi.fn()
+const setTargetMock = vi.fn()
 
 vi.mock('../lib/api', () => ({
   getCashRegisters: (...args: unknown[]) => getCashRegistersMock(...args),
   getSettingsAccess: (...args: unknown[]) => getSettingsAccessMock(...args),
   createPortalRequest: (...args: unknown[]) => createPortalRequestMock(...args),
   submitRequestForApproval: (...args: unknown[]) => submitRequestForApprovalMock(...args),
+}))
+
+vi.mock('../lib/cashDeskApi', () => ({
+  setCashRegisterTransferTarget: (...args: unknown[]) => setTargetMock(...args),
 }))
 
 vi.mock('antd', async () => {
@@ -40,6 +45,14 @@ const REGISTER_A: CashRegisterDto = {
   wallet_id: 101,
 }
 
+const REGISTER_USD: CashRegisterDto = {
+  ...REGISTER_A,
+  id: 3,
+  currency: 'USD',
+  name: 'Касса USD',
+  wallet_id: 103,
+}
+
 const REGISTER_B: CashRegisterDto = {
   id: 2,
   tenant: 1,
@@ -54,7 +67,7 @@ const REGISTER_B: CashRegisterDto = {
 }
 
 async function openModalWithRegisters() {
-  getCashRegistersMock.mockResolvedValueOnce([REGISTER_A, REGISTER_B])
+  getCashRegistersMock.mockResolvedValueOnce([REGISTER_A, REGISTER_B, REGISTER_USD])
   getSettingsAccessMock.mockResolvedValueOnce({
     can_open_settings: true,
     can_open_admin: true,
@@ -81,6 +94,8 @@ describe('CashRegisterTransferButton', () => {
     createPortalRequestMock.mockReset()
     submitRequestForApprovalMock.mockReset()
     successMock.mockReset()
+    setTargetMock.mockReset()
+    setTargetMock.mockResolvedValue(undefined)
   })
 
   it('opens a modal listing active cash registers on click', async () => {
@@ -143,5 +158,23 @@ describe('CashRegisterTransferButton', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Отправить' }))
 
     expect(await screen.findByRole('alert')).toHaveTextContent('888')
+  })
+
+  it('shows required credited amount for different currencies', async () => {
+    await openModalWithRegisters()
+
+    const fromOptions = await selectOption('Касса-источник', 'Касса А')
+    fireEvent.click(fromOptions[fromOptions.length - 1])
+
+    const toOptions = await selectOption('Касса-назначение', 'Касса USD')
+    fireEvent.click(toOptions[toOptions.length - 1])
+
+    expect(await screen.findByLabelText('Сумма зачисления (USD)')).toBeInTheDocument()
+
+    fireEvent.change(screen.getByLabelText('Сумма'), { target: { value: '50000' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Отправить' }))
+
+    expect(await screen.findByText('Укажите сумму зачисления')).toBeInTheDocument()
+    expect(createPortalRequestMock).not.toHaveBeenCalled()
   })
 })

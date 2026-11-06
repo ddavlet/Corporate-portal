@@ -9,6 +9,10 @@ const getSettingsAccessMock = vi.fn()
 const createPortalRequestMock = vi.fn()
 const submitRequestForApprovalMock = vi.fn()
 
+vi.mock('../../lib/cashDeskApi', () => ({
+  setCashRegisterTransferTarget: vi.fn().mockResolvedValue(undefined),
+}))
+
 vi.mock('../../lib/api', () => ({
   getCashRegisters: (...args: unknown[]) => getCashRegistersMock(...args),
   getSettingsAccess: (...args: unknown[]) => getSettingsAccessMock(...args),
