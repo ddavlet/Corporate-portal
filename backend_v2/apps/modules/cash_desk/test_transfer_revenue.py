@@ -99,7 +99,8 @@ class TransferRevenueTests(CashDeskFixtures, TestCase):
         self.assertEqual(CashRevenue.objects.filter(tenant=self.tenant).count(), 1)
 
     def test_creates_revenue_fields(self):
-        req = self._transfer("В кассу: Сейф", title="Инкассация")
+        req = self._transfer("В кассу: Сейф")
+        req.refresh_from_db()  # Request.save() overwrites title with the tenant name
         dest = resolve_transfer_destination(req)
         revenue, created = ensure_transfer_revenue(request_obj=req, destination=dest)
         self.assertTrue(created)
@@ -110,7 +111,8 @@ class TransferRevenueTests(CashDeskFixtures, TestCase):
         self.assertEqual(revenue.wallet, self.safe)
         self.assertEqual(revenue.total_sum, req.amount)
         self.assertEqual(revenue.currency, "UZS")
-        self.assertEqual(revenue.operation, "Перевод между кассами Инкассация")
+        self.assertEqual(revenue.operation, f"Перевод между кассами {req.title}")
+        self.assertEqual(revenue.operation, "Перевод между кассами Lemonfit AQUA")
         self.assertEqual(revenue.payload, {"source": "cash_desk_transfer", "request_id": req.pk})
         again, created_again = ensure_transfer_revenue(request_obj=req, destination=dest)
         self.assertFalse(created_again)
