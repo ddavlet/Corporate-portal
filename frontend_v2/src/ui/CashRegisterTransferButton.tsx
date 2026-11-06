@@ -17,6 +17,7 @@ type FormValues = {
   from_wallet_id: number
   to_wallet_id: number
   amount: number
+  to_amount?: number
   note?: string
 }
 
@@ -77,6 +78,7 @@ export function CashRegisterTransferButton({ onCreated }: Props) {
         toRegister: toReg,
         amount: values.amount,
         note: values.note,
+        toAmount: values.to_amount,
         requesterId,
       })
       message.success('Заявка на перевод создана и отправлена на согласование')
@@ -133,14 +135,6 @@ export function CashRegisterTransferButton({ onCreated }: Props) {
           >
             <Select placeholder="Касса-назначение" options={toOptions} />
           </Form.Item>
-          {currencyMismatch ? (
-            <Alert
-              type="warning"
-              showIcon
-              style={{ marginBottom: 16 }}
-              message="Кассы в разных валютах — уточните сумму зачисления в примечании."
-            />
-          ) : null}
           <Form.Item
             name="amount"
             label="Сумма"
@@ -148,6 +142,15 @@ export function CashRegisterTransferButton({ onCreated }: Props) {
           >
             <InputNumber min={0.01} style={{ width: '100%' }} />
           </Form.Item>
+          {currencyMismatch && toRegister ? (
+            <Form.Item
+              name="to_amount"
+              label={`Сумма зачисления (${toRegister.currency})`}
+              rules={[{ required: true, message: 'Укажите сумму зачисления' }]}
+            >
+              <InputNumber min={0.01} style={{ width: '100%' }} />
+            </Form.Item>
+          ) : null}
           <Form.Item name="note" label="Примечание">
             <Input.TextArea rows={2} />
           </Form.Item>

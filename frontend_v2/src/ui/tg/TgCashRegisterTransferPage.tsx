@@ -14,6 +14,7 @@ type FormValues = {
   from_wallet_id: number
   to_wallet_id: number
   amount: number
+  to_amount?: number
   note?: string
 }
 
@@ -78,6 +79,7 @@ export function TgCashRegisterTransferPage() {
         toRegister: toReg,
         amount: values.amount,
         note: values.note,
+        toAmount: values.to_amount,
         requesterId,
       })
       navigate('/tg/cash', { replace: true })
@@ -141,14 +143,6 @@ export function TgCashRegisterTransferPage() {
           >
             <Select size="large" placeholder="Касса-назначение" options={toOptions} />
           </Form.Item>
-          {currencyMismatch ? (
-            <Alert
-              type="warning"
-              showIcon
-              style={{ marginBottom: 16, borderRadius: 12 }}
-              message="Кассы в разных валютах — уточните сумму зачисления в примечании."
-            />
-          ) : null}
           <Form.Item
             name="amount"
             label="Сумма"
@@ -156,6 +150,15 @@ export function TgCashRegisterTransferPage() {
           >
             <InputNumber size="large" min={0.01} style={{ width: '100%' }} placeholder="0" />
           </Form.Item>
+          {currencyMismatch && toRegister ? (
+            <Form.Item
+              name="to_amount"
+              label={`Сумма зачисления (${toRegister.currency})`}
+              rules={[{ required: true, message: 'Укажите сумму зачисления' }]}
+            >
+              <InputNumber size="large" min={0.01} style={{ width: '100%' }} />
+            </Form.Item>
+          ) : null}
           <Form.Item name="note" label="Примечание">
             <Input.TextArea rows={2} maxLength={1000} size="large" />
           </Form.Item>
