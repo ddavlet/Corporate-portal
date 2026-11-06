@@ -93,4 +93,41 @@ describe('submitCashRegisterTransfer', () => {
     expect((err as CashRegisterTransferSubmitError).requestId).toBe(777)
     expect(submitRequestForApprovalMock).not.toHaveBeenCalled()
   })
+
+  it('module unavailable (404) with same currency still submits', async () => {
+    setTargetMock.mockRejectedValueOnce(Object.assign(new Error('Not found'), { status: 404 }))
+
+    await expect(
+      submitCashRegisterTransfer({ fromRegister: UZS_A, toRegister: UZS_B, amount: 1000 }),
+    ).resolves.toEqual({ id: 777 })
+    expect(submitRequestForApprovalMock).toHaveBeenCalledWith(777)
+  })
+
+  it('module unavailable (404) with different currencies throws', async () => {
+    setTargetMock.mockRejectedValueOnce(Object.assign(new Error('Not found'), { status: 404 }))
+
+    const err = await submitCashRegisterTransfer({
+      fromRegister: UZS_A,
+      toRegister: USD,
+      amount: 1000,
+      toAmount: 80,
+    }).catch((e: unknown) => e)
+
+    expect(err).toBeInstanceOf(CashRegisterTransferSubmitError)
+    expect((err as CashRegisterTransferSubmitError).requestId).toBe(777)
+    expect(submitRequestForApprovalMock).not.toHaveBeenCalled()
+  })
+
+  it('non-404 target failure with same currency throws', async () => {
+    setTargetMock.mockRejectedValueOnce(Object.assign(new Error('Server error'), { status: 500 }))
+
+    const err = await submitCashRegisterTransfer({
+      fromRegister: UZS_A,
+      toRegister: UZS_B,
+      amount: 1000,
+    }).catch((e: unknown) => e)
+
+    expect(err).toBeInstanceOf(CashRegisterTransferSubmitError)
+    expect(submitRequestForApprovalMock).not.toHaveBeenCalled()
+  })
 })

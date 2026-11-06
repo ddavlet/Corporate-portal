@@ -11,6 +11,16 @@ export type CashDeskConfigResponse = CashDeskConfigDto & {
 
 export class CashDeskConfigUnavailableError extends Error {}
 
+/** Ошибка HTTP модуля «Касса» с кодом ответа (404 — модуль недоступен/выключен). */
+export class CashDeskApiError extends Error {
+  status: number
+
+  constructor(status: number, message: string) {
+    super(message)
+    this.status = status
+  }
+}
+
 const CONFIG_URL = '/api/cash-desk/config/'
 
 async function readConfig(res: Response): Promise<CashDeskConfigResponse> {
@@ -47,5 +57,5 @@ export async function setCashRegisterTransferTarget(
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   })
-  if (!res.ok) throw new Error(await parseErrorBody(res))
+  if (!res.ok) throw new CashDeskApiError(res.status, await parseErrorBody(res))
 }

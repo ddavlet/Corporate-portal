@@ -19,6 +19,10 @@ export class CashRegisterTransferSubmitError extends Error {
   }
 }
 
+function isNotFound(err: unknown): boolean {
+  return typeof err === 'object' && err !== null && (err as { status?: unknown }).status === 404
+}
+
 export type CashRegisterTransferInput = {
   fromRegister: CashRegisterDto
   toRegister: CashRegisterDto
@@ -73,7 +77,10 @@ export async function submitCashRegisterTransfer({
       ...(crossCurrency ? { to_amount: toAmount } : {}),
     })
   } catch (err: unknown) {
-    throw new CashRegisterTransferSubmitError(created.id, err)
+    // Модуль «Касса» недоступен (404): при одной валюте приход найдётся по строке «В кассу: …» в описании.
+    if (crossCurrency || !isNotFound(err)) {
+      throw new CashRegisterTransferSubmitError(created.id, err)
+    }
   }
 
   try {
