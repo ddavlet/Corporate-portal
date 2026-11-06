@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { staleCbuRateDate, totalsInBothCurrencies } from './utils'
+import { confirmedInvestorUsdTotal, staleCbuRateDate, totalsInBothCurrencies } from './utils'
 
 describe('totalsInBothCurrencies', () => {
   it('складывает заявки в разных валютах в общий итог USD/UZS по эквивалентам', () => {
@@ -49,5 +49,22 @@ describe('staleCbuRateDate', () => {
   it('строку с будущей датой сравнивает с сегодняшним днём', () => {
     expect(staleCbuRateDate([{ date: '2026-11-05', rate_date: today }], today)).toBeNull()
     expect(staleCbuRateDate([{ date: '2026-11-05', rate_date: '2026-10-25' }], today)).toBe('2026-10-25')
+  })
+})
+
+describe('confirmedInvestorUsdTotal', () => {
+  it('считает только подтверждённые выплаты инвестору — как «Выплачено всего» в отчёте', () => {
+    const rows = [
+      { confirmed: true, recipient: 'инвестор', sum_usd: '2482.87' },
+      { confirmed: true, recipient: 'инвестор', sum_usd: '43341.00' },
+      { confirmed: true, recipient: 'партнер', sum_usd: '6000.00' },
+      { confirmed: false, recipient: 'инвестор', sum_usd: '1000.00' },
+      { confirmed: true, recipient: 'инвестор', sum_usd: null },
+    ]
+    expect(confirmedInvestorUsdTotal(rows)).toBeCloseTo(45823.87, 2)
+  })
+
+  it('0, когда выплат инвестору нет', () => {
+    expect(confirmedInvestorUsdTotal([{ confirmed: true, recipient: 'партнер', sum_usd: '5000' }])).toBe(0)
   })
 })
