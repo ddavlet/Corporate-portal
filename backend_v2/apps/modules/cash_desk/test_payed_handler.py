@@ -102,6 +102,7 @@ class CashDeskPayedHandlerTests(CashDeskFixtures, TestCase):
         text = gw.call_args.kwargs["payload"]["text"]
         self.assertIn("Перемещение", text)
         self.assertIn("Основная касса → Сейф", text)
+        self.assertNotIn("Приход в кассу-получатель не создан", text)
         msg = CashDeskMessage.objects.get(request=req)
         self.assertEqual(msg.kind, CashDeskMessage.Kind.TRANSFER)
         self.assertEqual(msg.status, CashDeskMessage.Status.SENT)
@@ -119,7 +120,13 @@ class CashDeskPayedHandlerTests(CashDeskFixtures, TestCase):
         self.assertNotEqual(msg.revenue_error, "")
         self.assertEqual(msg.status, CashDeskMessage.Status.SENT)
         self.assertEqual(gw.call_count, 1)
-        self.assertIn("Перемещение", gw.call_args.kwargs["payload"]["text"])
+        text = gw.call_args.kwargs["payload"]["text"]
+        self.assertIn("Перемещение", text)
+        self.assertIn(
+            "🏦 <b>Касса:</b> Основная касса\n⚠️ <b>Приход в кассу-получатель не создан:</b> "
+            "В описании нет строки «В кассу: …»",
+            text,
+        )
 
     @patch(GATEWAY_PATH)
     def test_transfer_same_currency_amount_edited_after_target_uses_new_amount(self, gw):
@@ -184,6 +191,9 @@ class CashDeskPayedHandlerTests(CashDeskFixtures, TestCase):
         self.assertEqual(msg.revenue_error, STALE_TARGET_ERROR)
         self.assertEqual(msg.status, CashDeskMessage.Status.SENT)
         self.assertEqual(gw.call_count, 1)
+        text = gw.call_args.kwargs["payload"]["text"]
+        self.assertIn("🏦 <b>Касса:</b> Основная касса\n⚠️ <b>Приход в кассу-получатель не создан:</b> ", text)
+        self.assertNotIn("Зачислено", text)
 
     @patch(GATEWAY_PATH)
     def test_transfer_destination_equals_source_no_revenue(self, gw):
@@ -206,6 +216,9 @@ class CashDeskPayedHandlerTests(CashDeskFixtures, TestCase):
         self.assertEqual(msg.revenue_error, SAME_WALLET_ERROR)
         self.assertEqual(msg.status, CashDeskMessage.Status.SENT)
         self.assertEqual(gw.call_count, 1)
+        text = gw.call_args.kwargs["payload"]["text"]
+        self.assertIn(f"⚠️ <b>Приход в кассу-получатель не создан:</b> {SAME_WALLET_ERROR}", text)
+        self.assertNotIn("→", text)
 
     @patch(GATEWAY_PATH)
     def test_repeat_payed_sends_once(self, gw):

@@ -48,13 +48,17 @@ def _deliver(msg: CashDeskMessage) -> None:
         return
 
     kind = CashDeskMessage.Kind(msg.kind)
-    destination = _destination(request_obj) if kind == CashDeskMessage.Kind.TRANSFER else None
+    revenue_error = msg.revenue_error or None
+    destination = (
+        _destination(request_obj) if kind == CashDeskMessage.Kind.TRANSFER and not revenue_error else None
+    )
     text = build_movement_text(
         request_obj=request_obj,
         kind=kind,
         from_wallet=expense_wallet_for_request(request_obj),
         destination=destination,
         balances=balances_for_tenant_channel(tenant_id=tenant.pk, wallet_type=Wallet.Type.CASH),
+        revenue_error=revenue_error,
     )
     telegram_message = TelegramDispatcher(tenant).send(
         action=get_requests_messaging_gateway_settings(tenant=tenant).send_action,

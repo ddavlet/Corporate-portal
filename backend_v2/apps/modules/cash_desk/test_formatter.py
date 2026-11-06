@@ -123,3 +123,28 @@ class MovementTextTests(CashDeskFixtures, TestCase):
         )
         self.assertIn("👉 <b>Сейф: 100 000.50 UZS</b>", text)
         self.assertNotIn("Касса USD:", text)
+
+    def test_revenue_error_line_after_register(self):
+        req = self.make_request()
+        text = build_movement_text(
+            request_obj=req,
+            kind=TRANSFER,
+            from_wallet=self.main,
+            destination=None,
+            balances=self._balances(),
+            revenue_error="Не найдена касса-получатель «<Сейф>»",
+        )
+        self.assertIn(
+            "🏦 <b>Касса:</b> Основная касса\n"
+            "⚠️ <b>Приход в кассу-получатель не создан:</b> Не найдена касса-получатель «&lt;Сейф&gt;»\n\n"
+            "💵 <b>Сумма:</b>",
+            text,
+        )
+        self.assertNotIn("→", text)
+
+    def test_no_revenue_error_line_by_default(self):
+        req = self.make_request()
+        text = build_movement_text(
+            request_obj=req, kind=TRANSFER, from_wallet=self.main, destination=None, balances=self._balances()
+        )
+        self.assertNotIn("Приход в кассу-получатель не создан", text)

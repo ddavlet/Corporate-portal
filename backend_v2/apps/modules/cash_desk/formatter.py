@@ -32,7 +32,9 @@ def _balance_name(row: dict) -> str:
     return escape(name)
 
 
-def build_movement_text(*, request_obj, kind: str, from_wallet, destination, balances: list[dict]) -> str:
+def build_movement_text(
+    *, request_obj, kind: str, from_wallet, destination, balances: list[dict], revenue_error: str | None = None
+) -> str:
     kind_label = _KIND_LABELS.get(kind, _KIND_LABELS[CashDeskMessage.Kind.EXPENSE])
     register = escape(wallet_label(from_wallet))
     if kind == CashDeskMessage.Kind.TRANSFER and destination is not None:
@@ -46,6 +48,10 @@ def build_movement_text(*, request_obj, kind: str, from_wallet, destination, bal
         f"📅 <b>Дата:</b> {_date(request_obj)}",
         f"🔄 <b>Вид движения:</b> {kind_label}",
         f"🏦 <b>Касса:</b> {register}",
+    ]
+    if revenue_error:
+        lines.append(f"⚠️ <b>Приход в кассу-получатель не создан:</b> {escape(revenue_error)}")
+    lines += [
         "",
         f"💵 <b>Сумма:</b> <code>{format_money(request_obj.amount)} {currency}</code>",
     ]
