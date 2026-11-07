@@ -7,7 +7,7 @@ DEPLOY_TEST_PATH ?= $(TEST_PATH)
 BRANCH     := $(shell git rev-parse --abbrev-ref HEAD)
 
 .DEFAULT_GOAL := help
-.PHONY: help push test deploy makemigrations showmigrations logs backup-db create-postgres-mcp-role rollback refresh-approval-messages reconcile-card-revenues reconcile-expense-links relink-unresolved-bank-doc-numbers align-payment-purposes clone-tenant-config sync-telegram-bots link-payroll-requests send-to-vacation return-from-vacation reassign-unmatched-bank-expenses backfill-bank-expense-requests backfill-cash-expense-requests backfill-card-expenses backfill-cbu-exchange-rate redispatch-unsent-approval-cards backfill-cash-withdrawals repair-id-sequences import-kapitalbank link-kapitalbank ignore-kapitalbank classify-kapitalbank local-up local-down local-logs test_local
+.PHONY: help push test deploy makemigrations showmigrations logs backup-db create-postgres-mcp-role rollback refresh-approval-messages reconcile-card-revenues reconcile-expense-links relink-unresolved-bank-doc-numbers fix-invest-returns align-payment-purposes clone-tenant-config sync-telegram-bots link-payroll-requests send-to-vacation return-from-vacation reassign-unmatched-bank-expenses backfill-bank-expense-requests backfill-cash-expense-requests backfill-card-expenses backfill-cbu-exchange-rate redispatch-unsent-approval-cards backfill-cash-withdrawals repair-id-sequences import-kapitalbank link-kapitalbank ignore-kapitalbank classify-kapitalbank local-up local-down local-logs test_local
 
 help:
 	@echo ""
@@ -30,6 +30,7 @@ help:
 	@echo "  make reconcile-expense-links TENANT=3 DATE_FROM=2026-09-01 DATE_TO=2026-09-09 — то же самое, с фильтром по дате оплаты"
 	@echo "  make reconcile-expense-links TENANT=3 APPLY=1 — то же самое, но с записью изменений"
 	@echo "  make relink-unresolved-bank-doc-numbers TENANT=lemonfit [APPLY=1] — привязать заявки с неверным № п/п к банковским расходам по сумме+дате"
+	@echo "  make fix-invest-returns TENANT=5 IDS=125-149 BILLING_OFFSET=1 [APPLY=1] — исправить месяц начисления/получателя/тип выплат по инвестициям (RECIPIENT_FROM=PARTNER SET_RECIPIENT=INVESTOR SET_TYPE=PRINCIPAL)"
 	@echo "  make align-payment-purposes PLAN=lemonfit_2026_10 [APPLY=1] — выровнять категории и назначения платежа тенантов по JSON-плану"
 	@echo "  make clone-tenant-config SOURCE=lemonhavo TARGET=lemonnew [NAME=\"Lemonfit NEW\"] [WITH_MEMBERS=1] [APPLY=1] — скопировать настройки тенанта в новый филиал"
 	@echo "  make sync-telegram-bots [TENANT=lemonfit] — обновить профиль Telegram-ботов (команды, описание, кнопка меню); деплой делает это сам"
@@ -202,6 +203,21 @@ relink-unresolved-bank-doc-numbers:
 		python manage.py relink_unresolved_bank_doc_numbers --tenant=$(TENANT) \
 		$(if $(DATE_FROM),--date-from=$(DATE_FROM),) \
 		$(if $(DATE_TO),--date-to=$(DATE_TO),) \
+		$(if $(APPLY),--apply,)"
+
+# ── 7d-1d1. Исправить выплаты по инвестициям (месяц начисления, получатель, тип) ──
+# make fix-invest-returns TENANT=5 IDS=125-149 BILLING_OFFSET=1 [APPLY=1]
+# make fix-invest-returns TENANT=5 RECIPIENT_FROM=PARTNER SET_RECIPIENT=INVESTOR SET_TYPE=PRINCIPAL [APPLY=1]
+fix-invest-returns:
+	@test -n "$(TENANT)" || (echo "Usage: make fix-invest-returns TENANT=<id|subdomain> [IDS=125-149] [RECIPIENT_FROM=PARTNER] [BILLING_OFFSET=1] [SET_RECIPIENT=INVESTOR] [SET_TYPE=PRINCIPAL] [APPLY=1]" && exit 1)
+	ssh $(SERVER) "cd $(REMOTE_DIR) && \
+		docker compose --env-file ./.env exec -T backend_v2 \
+		python manage.py fix_invest_returns --tenant=$(TENANT) \
+		$(if $(IDS),--ids=$(IDS),) \
+		$(if $(RECIPIENT_FROM),--recipient-from=$(RECIPIENT_FROM),) \
+		$(if $(BILLING_OFFSET),--billing-month-offset=$(BILLING_OFFSET),) \
+		$(if $(SET_RECIPIENT),--set-recipient=$(SET_RECIPIENT),) \
+		$(if $(SET_TYPE),--set-type=$(SET_TYPE),) \
 		$(if $(APPLY),--apply,)"
 
 # ── 7d-1d2. Выровнять справочник категорий/назначений платежа по JSON-плану ──
