@@ -123,6 +123,14 @@ export const SETTINGS_MODULES: SettingsModuleItem[] = [
     group: 'investments',
   },
   {
+    key: 'investments-dividend-payout-rules',
+    title: 'Дивиденды: правила выплат',
+    description: 'Какие оплаченные заявки автоматически создают выплату инвестиций: назначение платежа, тип выплаты и получатель.',
+    path: '/settings/dividend-payout-rules',
+    icon: <DollarOutlined />,
+    group: 'investments',
+  },
+  {
     key: 'pnl-report',
     title: 'Отчёт PnL',
     description: 'Источник данных и правила расчёта PnL.',

@@ -37,6 +37,7 @@ import { UserRolesSettingsPage } from '../ui/settings/UserRolesSettingsPage'
 import { CashRegistersSettingsPage } from '../ui/settings/CashRegistersSettingsPage'
 import { CashWithdrawalConfigPage } from '../ui/settings/CashWithdrawalConfigPage'
 import { CashDeskConfigPage } from '../ui/settings/CashDeskConfigPage'
+import { DividendPayoutRulesPage } from '../ui/settings/DividendPayoutRulesPage'
 import { TelegramChatsConfigPage } from '../ui/settings/TelegramChatsConfigPage'
 import { InvestmentApprovalConfigPage } from '../ui/settings/InvestmentApprovalConfigPage'
 import { InvestmentProjectApprovalConfigPage } from '../ui/settings/InvestmentProjectApprovalConfigPage'
@@ -188,6 +189,7 @@ export function App() {
         <Route path="settings/investment-report" element={<InvestmentReportConfigPage />} />
         <Route path="settings/investment-approval-config" element={<InvestmentApprovalConfigPage />} />
         <Route path="settings/investment-project-approval-config" element={<InvestmentProjectApprovalConfigPage />} />
+        <Route path="settings/dividend-payout-rules" element={<DividendPayoutRulesPage />} />
         <Route path="settings/tenant-integration-config" element={<TenantIntegrationConfigPage />} />
         <Route path="settings/users-roles" element={<UserRolesSettingsPage />} />
         <Route path="settings/cash-registers" element={<CashRegistersSettingsPage />} />
