@@ -50,7 +50,7 @@ type PurposeCellProps = {
   value: string
   options: Array<{ value: string }>
   disabled: boolean
-  onCommit: (next: string) => void
+  onCommit: (next: string) => Promise<boolean>
 }
 
 /** Назначение платежа в строке: правка локально, сохранение при выборе подсказки или потере фокуса. */
@@ -63,7 +63,9 @@ function PurposeCell({ value, options, disabled, onCommit }: PurposeCellProps) {
       setDraft(value)
       return
     }
-    onCommit(trimmed)
+    void onCommit(trimmed).then((ok) => {
+      if (!ok) setDraft(value)
+    })
   }
   return (
     <AutoComplete
@@ -117,15 +119,17 @@ export function DividendPayoutRulesPage() {
   const returnTypeOptions = options.return_types
   const recipientOptions = options.recipients.length ? options.recipients : FALLBACK_RECIPIENTS
 
-  const patchRule = async (rule: DividendPayoutRule, patch: Partial<DividendPayoutRuleDto>) => {
+  const patchRule = async (rule: DividendPayoutRule, patch: Partial<DividendPayoutRuleDto>): Promise<boolean> => {
     setBusyId(rule.id)
     setError(null)
     try {
       const updated = await updateDividendPayoutRule(rule.id, patch)
       setRules((prev) => prev.map((r) => (r.id === updated.id ? updated : r)))
       message.success('Сохранено')
+      return true
     } catch (e: unknown) {
       setError(errorText(e, 'Ошибка сохранения'))
+      return false
     } finally {
       setBusyId(null)
     }
@@ -203,7 +207,7 @@ export function DividendPayoutRulesPage() {
           value={rule.payment_purpose}
           options={purposeOptions}
           disabled={busyId === rule.id}
-          onCommit={(next) => void patchRule(rule, { payment_purpose: next })}
+          onCommit={(next) => patchRule(rule, { payment_purpose: next })}
         />
       ),
     },

@@ -17,6 +17,7 @@ from apps.modules.investments.models import (
     InvestmentReturnApproval,
     InvestReturn,
 )
+from apps.modules.requests.models import Request
 from apps.modules.requests.status_events import dispatch_request_payed_event_handlers
 from apps.tenants.models import Tenant, TenantMembership
 
@@ -142,6 +143,25 @@ class DividendPayedHandlerTests(DividendPayoutFixtures, TestCase):
         self._pay(req)
         self.assertEqual(InvestReturn.objects.filter(tenant=self.tenant).count(), 1)
         self.assertEqual(DividendPayoutLink.objects.filter(request=req).count(), 1)
+
+    @patch(f"{SERVICES}.route_invest_return_approvals")
+    def test_failed_link_is_retried(self, _route):
+        from apps.modules.dividend_payouts.services import retry_failed_link
+
+        self.make_rule()
+        req = self.make_request(currency="EUR")
+        with self.assertLogs(SERVICES, level="ERROR"):
+            self._pay(req)
+        link = DividendPayoutLink.objects.get(request=req)
+        self.assertEqual(link.status, DividendPayoutLink.Status.FAILED)
+
+        Request.objects.filter(pk=req.pk).update(currency="USD")
+        link = retry_failed_link(link)
+        self.assertEqual(link.status, DividendPayoutLink.Status.CREATED)
+        self.assertEqual(link.error, "")
+        self.assertIsNotNone(link.invest_return_id)
+        self.assertEqual(DividendPayoutLink.objects.filter(request=req).count(), 1)
+        self.assertEqual(InvestReturn.objects.filter(tenant=self.tenant).count(), 1)
 
     def test_unsupported_currency_stores_failed_link(self):
         self.make_rule()

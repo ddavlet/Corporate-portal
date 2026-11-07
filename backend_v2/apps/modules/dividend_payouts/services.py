@@ -142,9 +142,12 @@ def _handle_payed(request_obj) -> None:
 
     # Serialize concurrent PAYED dispatches of the same request; the OneToOne link is the final guard.
     Request.objects.select_for_update().filter(pk=request_obj.pk).values_list("pk", flat=True).first()
-    if DividendPayoutLink.objects.filter(request_id=request_obj.pk).exists():
+    if DividendPayoutLink.objects.filter(
+        request_id=request_obj.pk, status=DividendPayoutLink.Status.CREATED
+    ).exists():
         logger.info("dividend_payouts: repeated PAYED ignored request_id=%s", request_obj.pk)
         return
+    # A FAILED link (e.g. CBU rate gap) is retried: the row is reused and overwritten below.
 
     try:
         with transaction.atomic():
@@ -154,13 +157,25 @@ def _handle_payed(request_obj) -> None:
             "dividend_payouts: invest return not created request_id=%s tenant_id=%s rule_id=%s",
             request_obj.pk, request_obj.tenant_id, rule.pk,
         )
-        DividendPayoutLink.objects.create(
-            request=request_obj, rule=rule, status=DividendPayoutLink.Status.FAILED, error=error_text(exc)
+        DividendPayoutLink.objects.update_or_create(
+            request=request_obj,
+            defaults={
+                "rule": rule,
+                "invest_return": None,
+                "status": DividendPayoutLink.Status.FAILED,
+                "error": error_text(exc),
+            },
         )
         return
 
-    DividendPayoutLink.objects.create(
-        request=request_obj, rule=rule, invest_return=invest_return, status=DividendPayoutLink.Status.CREATED
+    DividendPayoutLink.objects.update_or_create(
+        request=request_obj,
+        defaults={
+            "rule": rule,
+            "invest_return": invest_return,
+            "status": DividendPayoutLink.Status.CREATED,
+            "error": "",
+        },
     )
     logger.info(
         "dividend_payouts: invest return created request_id=%s invest_return_id=%s type=%s recipient=%s",
@@ -168,6 +183,15 @@ def _handle_payed(request_obj) -> None:
     )
     invest_return_id = invest_return.pk
     transaction.on_commit(lambda: _route_approvals(invest_return_id), robust=True)
+
+
+def retry_failed_link(link: DividendPayoutLink) -> DividendPayoutLink:
+    """Re-run the handler for the link's request (admin «Повторить»); returns the refreshed link."""
+    if link.status == DividendPayoutLink.Status.FAILED:
+        request_obj = Request.objects.select_related("tenant").get(pk=link.request_id)
+        on_request_payed(request_obj=request_obj)
+        link.refresh_from_db()
+    return link
 
 
 def on_request_payed(*, request_obj) -> None:
