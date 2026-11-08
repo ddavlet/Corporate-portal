@@ -75,6 +75,7 @@ INSTALLED_APPS = [
     "apps.modules.tasks",
     "apps.modules.cash_withdrawals",
     "apps.modules.cash_desk",
+    "apps.modules.dividend_payouts",
     "apps.modules.kapitalbank",
     "apps.modules.ai_assistant",
 
