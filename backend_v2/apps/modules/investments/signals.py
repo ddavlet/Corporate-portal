@@ -107,3 +107,28 @@ def comment_source_requests_on_investment_paid(sender, instance, **kwargs):
     except Exception:
         # Комментарии — информирование; подтверждение вложения и приход в кассу не откатываем.
         logger.exception("Failed to comment source requests of paid project investment %s", instance.pk)
+
+
+@receiver(pre_save, sender=InvestReturn, dispatch_uid="investments_track_return_confirmed_before_save")
+def track_return_confirmed_before_save(sender, instance, **kwargs):
+    if kwargs.get("raw"):
+        return
+    previous = None
+    if instance.pk is not None and instance.confirmed:
+        previous = InvestReturn.objects.filter(pk=instance.pk).values_list("confirmed", flat=True).first()
+    setattr(instance, _PREVIOUS_CONFIRMED_ATTR, previous)
+
+
+@receiver(post_save, sender=InvestReturn, dispatch_uid="investments_dispatch_return_confirmed_event")
+def dispatch_return_confirmed_event(sender, instance, **kwargs):
+    if kwargs.get("raw"):
+        return
+    # Только переход False→True: созданная сразу подтверждённой выплата и пересохранение события не шлют.
+    if not _is_confirmation_transition(
+        instance, created=bool(kwargs.get("created")), update_fields=kwargs.get("update_fields")
+    ):
+        return
+    from apps.modules.investments.events import dispatch_invest_return_confirmed
+
+    # После коммита: при откате подтверждения уведомление не уходит.
+    transaction.on_commit(lambda invest_return=instance: dispatch_invest_return_confirmed(invest_return=invest_return))

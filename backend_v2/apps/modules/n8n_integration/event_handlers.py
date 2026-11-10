@@ -162,3 +162,80 @@ def notify_cash_withdrawal_received(*, receipt) -> None:
             )
 
     threading.Thread(target=_send, daemon=True).start()
+
+
+def notify_invest_return_confirmed(*, invest_return) -> None:
+    """Tell n8n an investor payout was confirmed, so a tenant's workflow can post an informational message.
+
+    A tenant without this webhook in n8n is the normal case (404): logged at INFO, not treated as an error.
+    """
+    from django.conf import settings
+    from apps.modules.n8n_integration.views import _build_n8n_url, _n8n_session
+    from apps.tenants.integration_settings import get_n8n_integration_settings
+
+    tenant = invest_return.tenant
+    if not getattr(settings, "BASE_DOMAIN", ""):
+        logger.warning("notify_invest_return_confirmed: BASE_DOMAIN not configured, skipping")
+        return
+    token = get_n8n_integration_settings(tenant=tenant).integration_token
+    if not token:
+        logger.warning(
+            "notify_invest_return_confirmed: no integration token for tenant=%s, skipping", tenant.subdomain
+        )
+        return
+
+    url, host_override, transport = _build_n8n_url(tenant, "/n8n/events/new-invest-return-confirmed")
+    headers = {
+        "Content-Type": "application/json",
+        "X-N8N-Integration-Token": token,
+        "X-Tenant": tenant.subdomain,
+    }
+    if host_override:
+        headers["Host"] = host_override
+
+    company = invest_return.company if invest_return.company_id else None
+    payload = {
+        "event": "invest_return_confirmed",
+        "id": invest_return.pk,
+        "sum": str(invest_return.sum),
+        "currency": invest_return.currency,
+        "type": invest_return.type,
+        "type_label": invest_return.get_type_display(),
+        "recipient": invest_return.recipient,
+        "recipient_label": invest_return.get_recipient_display(),
+        "company_id": invest_return.company_id,
+        "company": company.name if company else "",
+        "date": invest_return.date.isoformat() if invest_return.date else None,
+        "billing_date": invest_return.billing_date.isoformat() if invest_return.billing_date else None,
+        "comment": invest_return.comment,
+        "payout_schedule_id": invest_return.payout_schedule_id,
+        "tenant": tenant.subdomain,
+    }
+    subdomain = tenant.subdomain
+    invest_return_id = invest_return.pk
+
+    def _send():
+        try:
+            resp = _n8n_session.post(url, json=payload, headers=headers, timeout=10)
+            if resp.status_code == 404:
+                logger.info(
+                    "notify_invest_return_confirmed: no n8n webhook for tenant=%s invest_return_id=%s transport=%s",
+                    subdomain, invest_return_id, transport,
+                )
+            elif resp.status_code >= 400:
+                logger.warning(
+                    "notify_invest_return_confirmed: tenant=%s invest_return_id=%s transport=%s status=%s body=%s",
+                    subdomain, invest_return_id, transport, resp.status_code, resp.text[:200],
+                )
+            else:
+                logger.info(
+                    "notify_invest_return_confirmed: tenant=%s invest_return_id=%s transport=%s status=%s",
+                    subdomain, invest_return_id, transport, resp.status_code,
+                )
+        except Exception as exc:
+            logger.warning(
+                "notify_invest_return_confirmed failed: tenant=%s invest_return_id=%s error=%s",
+                subdomain, invest_return_id, exc,
+            )
+
+    threading.Thread(target=_send, daemon=True).start()
