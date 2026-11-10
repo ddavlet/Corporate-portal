@@ -207,8 +207,10 @@ def annotate_card_expense_compliance(qs, *, tenant):
 
 
 def annotate_payroll_compliance(qs, *, tenant):
+    # Nested inside the Request subquery below, so a bare OuterRef("pk") would resolve
+    # to Request.pk (the immediately enclosing query), not the payroll document.
     payroll_total_subquery = (
-        PayrollLine.objects.filter(document_id=OuterRef("pk"))
+        PayrollLine.objects.filter(document_id=OuterRef(OuterRef("pk")))
         .values("document_id")
         .annotate(total=Sum("sum"))
         .values("total")[:1]
