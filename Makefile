@@ -20,7 +20,7 @@ help:
 	@echo "  make makemigrations  — создать миграции и скачать на локал"
 	@echo "  make showmigrations  — показать tenants/requests/vendors миграции на сервере"
 	@echo "  make logs            — логи сервиса на сервере (LOGS_SERVICE=backend_v2 LOGS_TAIL=200)"
-	@echo "  make backup-db       — создать gzip-копию БД на сервере в backups/db"
+	@echo "  make backup-db       — создать gzip-копию БД портала на сервере в backups/db"
 	@echo "  make create-postgres-mcp-role — создать/обновить read-only роль Postgres MCP на сервере"
 	@echo "  make refresh-approval-messages REQUEST_IDS='1 2' — актуализировать Telegram-карточки заявок на сервере"
 	@echo "  make reconcile-card-revenues — привязать заявки 'Пополнение' к corporate_card_revenues по сумме+дате"
@@ -122,14 +122,21 @@ logs:
 		docker compose --env-file ./.env logs --tail=$(LOGS_TAIL) $(LOGS_SERVICE)"
 
 # ── 6. Ручной backup БД на сервере (перед миграциями) ─────────────────────────
-BACKUP_NAME ?= manual_$(shell date +%Y%m%d_%H%M%S)
+# := фиксирует время один раз: с ?= date пересчитывался бы при каждом $(BACKUP_NAME).
+BACKUP_TS := $(shell date +%Y%m%d_%H%M%S)
+BACKUP_NAME ?= manual_$(BACKUP_TS)
 
-# Переменные POSTGRES_* должны раскрываться во внутреннем sh контейнера db, не в ssh-сессии
-# на сервере (иначе пустые — pg_dump берёт локального пользователя и даёт «role root does not exist»).
+# POSTGRES_USER должен раскрываться во внутреннем sh контейнера db, не в ssh-сессии
+# на сервере (иначе пустой — pg_dump берёт локального пользователя и даёт «role root does not exist»).
+# Имя базы портала — POSTGRES_V2_DB из .env на сервере: в контейнере db его нет, а его
+# POSTGRES_DB указывает на несуществующую базу («database "database" does not exist»).
+# Имя передаётся в sh контейнера позиционным аргументом $$1.
 backup-db:
 	ssh $(SERVER) 'cd $(REMOTE_DIR) && \
+		V2_DB=$$(grep -E "^POSTGRES_V2_DB=" .env | tail -n1 | cut -d= -f2- | tr -d "\"\r") && \
+		{ test -n "$$V2_DB" || { echo "POSTGRES_V2_DB не найден в .env" >&2; exit 1; }; } && \
 		mkdir -p backups/db && \
-		docker compose --env-file ./.env exec -T db sh -c '"'"'pg_dump -U "$$POSTGRES_USER" "$$POSTGRES_DB" > /tmp/$(BACKUP_NAME).sql'"'"' && \
+		docker compose --env-file ./.env exec -T db sh -c '"'"'pg_dump -U "$$POSTGRES_USER" "$$1" > /tmp/$(BACKUP_NAME).sql || { rm -f /tmp/$(BACKUP_NAME).sql; exit 1; }'"'"' sh "$$V2_DB" && \
 		docker compose --env-file ./.env exec -T db sh -c '"'"'gzip -f /tmp/$(BACKUP_NAME).sql'"'"' && \
 		docker compose --env-file ./.env cp db:/tmp/$(BACKUP_NAME).sql.gz backups/db/$(BACKUP_NAME).sql.gz && \
 		docker compose --env-file ./.env exec -T db sh -c '"'"'rm -f /tmp/$(BACKUP_NAME).sql.gz'"'"' && \
