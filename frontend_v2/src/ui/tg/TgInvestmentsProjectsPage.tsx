@@ -13,6 +13,7 @@ import {
 import { useInvestmentFundingMode } from '../../lib/useInvestmentFundingMode'
 import { AdminEditRecordButton } from '../admin/AdminEditRecordButton'
 import { fundingMethodLabel } from '../investments/fundingPool'
+import { InvestmentRecordDetailModal } from '../investments/InvestmentRecordDetailModal'
 import { tgHaptic } from './tgHaptic'
 
 const dateFormatter = new Intl.DateTimeFormat('ru-RU', {
@@ -43,6 +44,7 @@ export function TgInvestmentsProjectsPage() {
   const [companies, setCompanies] = useState<InvestCompanyRow[]>([])
   const [search, setSearch] = useState('')
   const [usesCompanies, setUsesCompanies] = useState(true)
+  const [selectedRow, setSelectedRow] = useState<ProjectInvestmentRow | null>(null)
   // Инвестиционный режим: ручная подача запрещена — вложение собирается по заявкам на расход.
   const fundingMode = useInvestmentFundingMode()
 
@@ -138,7 +140,12 @@ export function TgInvestmentsProjectsPage() {
       {!loading && !error
         ? filtered.map((row) => (
             <div key={row.id} style={{ marginBottom: 10 }}>
-              <div className="tg-request-row" style={{ cursor: 'default', marginBottom: 0 }}>
+              <button
+                type="button"
+                className="tg-request-row"
+                style={{ marginBottom: 0 }}
+                onClick={() => { tgHaptic.tap(); setSelectedRow(row) }}
+              >
                 <div className="tg-request-row-title">
                   {usesCompanies ? companyLabel(row.company) : formatAmount(row.amount, row.currency)}
                 </div>
@@ -157,7 +164,7 @@ export function TgInvestmentsProjectsPage() {
                   )}
                   {row.comment ? <span>{row.comment}</span> : null}
                 </div>
-              </div>
+              </button>
               <AdminEditRecordButton
                 endpoint="/api/investments/project-investments/"
                 record={row}
@@ -168,6 +175,16 @@ export function TgInvestmentsProjectsPage() {
             </div>
           ))
         : null}
+
+      <InvestmentRecordDetailModal
+        open={Boolean(selectedRow)}
+        onCancel={() => setSelectedRow(null)}
+        kind="project"
+        record={selectedRow}
+        companyLabel={companyLabel}
+        usesCompanies={usesCompanies}
+        variant="telegram"
+      />
     </div>
   )
 }
