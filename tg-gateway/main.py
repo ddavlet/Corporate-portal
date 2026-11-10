@@ -23,6 +23,11 @@ Actions:
   edit_interactive → editMessageText (with dynamic button update)
   delete           → deleteMessage
   typing           → sendChatAction (typing indicator)
+
+Owner delete (webhook): a reply of exactly "-" from a Telegram user listed in
+OWNER_TELEGRAM_IDS to a message of this bot deletes both the bot's message and
+the "-" reply. Nothing is forwarded to the backend; one gateway_logs row
+(action=owner_delete) with ids only is written. Empty OWNER_TELEGRAM_IDS → off.
 """
 from __future__ import annotations
 
@@ -60,6 +65,15 @@ BACKEND_URL = os.environ.get("BACKEND_WEBHOOK_URL", "")
 BACKEND_WEBHOOK_HTTP_HOST = (os.environ.get("BACKEND_WEBHOOK_HTTP_HOST", "") or "").strip()
 PUBLIC_WEBHOOK_BASE_URL = (os.environ.get("PUBLIC_WEBHOOK_BASE_URL", "") or "").rstrip("/")
 BACKEND_EVENT_LOG_URL = (os.environ.get("BACKEND_EVENT_LOG_URL", "") or "").strip()
+
+
+def _parse_owner_ids(raw: str) -> frozenset[str]:
+    """Comma-separated Telegram user ids → set of strings; blanks ignored."""
+    return frozenset(part.strip() for part in (raw or "").split(",") if part.strip())
+
+
+# Telegram user ids allowed to delete bot messages by replying "-". Empty → feature off.
+OWNER_TELEGRAM_IDS = _parse_owner_ids(os.environ.get("OWNER_TELEGRAM_IDS", ""))
 
 # Full list of Telegram update types to subscribe to when registering a webhook.
 # Includes opt-in types (chat_member, message_reaction, etc.) not sent by default.
@@ -467,6 +481,79 @@ def _extract_forwardable_message(update: dict, bot_id: str, bot_username: str) -
     }
 
 
+def _extract_owner_delete(update: dict, bot_id: str) -> dict | None:
+    """Return delete target if an owner replied exactly "-" to a message of this bot.
+
+    Reads only update["message"]: edited_message, channel_post etc. never trigger
+    a delete. All ids are compared as strings. Empty owner list or bot id → None.
+    """
+    if not OWNER_TELEGRAM_IDS or not bot_id:
+        return None
+    msg = update.get("message")
+    if not isinstance(msg, dict):
+        return None
+    if not isinstance(msg.get("text"), str) or msg["text"].strip() != "-":
+        return None
+    sender = msg.get("from") or {}
+    if sender.get("id") is None or str(sender["id"]) not in OWNER_TELEGRAM_IDS:
+        return None
+    reply = msg.get("reply_to_message")
+    if not isinstance(reply, dict):
+        return None
+    reply_from = reply.get("from") or {}
+    if reply_from.get("id") is None or str(reply_from["id"]) != str(bot_id):
+        return None
+    chat = msg.get("chat") or {}
+    if chat.get("id") is None or msg.get("message_id") is None or reply.get("message_id") is None:
+        return None
+    return {
+        "chat_id": chat["id"],
+        "chat_type": chat.get("type"),
+        "minus_message_id": msg["message_id"],
+        "bot_message_id": reply["message_id"],
+        "actor_user_id": str(sender["id"]),
+    }
+
+
+async def _owner_delete_one(bot_token: str, chat_id: Any, message_id: Any, what: str) -> tuple[bool, str | None]:
+    """deleteMessage best effort. Returns (ok, error). Never raises, never logs the token."""
+    try:
+        data = await _tg_post(bot_token, "deleteMessage", {"chat_id": chat_id, "message_id": message_id})
+    except Exception as exc:  # noqa: BLE001 — the httpx URL carries the token, log the type only
+        logger.error("owner_delete %s failed chat_id=%s message_id=%s: %s",
+                     what, chat_id, message_id, type(exc).__name__)
+        return False, type(exc).__name__
+    if isinstance(data, dict) and data.get("ok"):
+        return True, None
+    description = str((data if isinstance(data, dict) else {}).get("description") or "Unknown Telegram error")
+    logger.warning("owner_delete %s failed chat_id=%s message_id=%s: %s",
+                   what, chat_id, message_id, description)
+    return False, description
+
+
+async def _handle_owner_delete(bot_token: str, target: dict) -> None:
+    """Delete the bot's message, then the owner's "-" (always attempted); log ids only."""
+    chat_id = target["chat_id"]
+    bot_ok, bot_error = await _owner_delete_one(bot_token, chat_id, target["bot_message_id"], "bot_message")
+    minus_ok, minus_error = await _owner_delete_one(bot_token, chat_id, target["minus_message_id"], "minus_message")
+    await db.log_event(
+        direction="in", endpoint="/v1/messaging/webhook",
+        action="owner_delete", recipient_id=str(chat_id),
+        message_id=target["bot_message_id"],
+        ok=bot_ok, status_code=200, error_text=bot_error,
+        payload={
+            "chat_id": chat_id,
+            "chat_type": target.get("chat_type"),
+            "actor_user_id": target.get("actor_user_id"),
+            "bot_message_id": target["bot_message_id"],
+            "minus_message_id": target["minus_message_id"],
+            "bot_message_deleted": bot_ok,
+            "minus_message_deleted": minus_ok,
+            "minus_message_error": minus_error,
+        },
+    )
+
+
 def _is_unaddressed_group_message(forward: dict) -> bool:
     """Group reply forwarded only so the backend can keep it inside a known chain (not addressed to the bot)."""
     return (
@@ -540,6 +627,18 @@ async def messaging_webhook(
 
     cb = update.get("callback_query")
     if not cb:
+        # Filter 0 — owner delete: must run before discovery logging and any forward,
+        # so neither the "-" nor the quoted bot message text leaves the gateway.
+        owner_target = _extract_owner_delete(update, _bot_id_from_token(bot_token))
+        if owner_target:
+            await _handle_owner_delete(bot_token, owner_target)
+            logger.info(
+                "owner_delete chat_id=%s actor_user_id=%s bot_message_id=%s minus_message_id=%s",
+                owner_target["chat_id"], owner_target["actor_user_id"],
+                owner_target["bot_message_id"], owner_target["minus_message_id"],
+            )
+            return {"ok": True}
+
         info = _extract_chat_info(update)
         command_info = _extract_forwardable_command(update)
 
