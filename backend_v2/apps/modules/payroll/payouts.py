@@ -119,6 +119,23 @@ def _expense_title(document: PayrollDocument) -> str:
     return f"ЗП по начислению {document_label(document)}"
 
 
+def _shrink_request_amount_to_paid(document: PayrollDocument, *, request_obj: Request, reason: str) -> None:
+    """Underpaid close: the request must reflect what was actually paid out, not the
+    accrued total. Original amount and the reason are kept in a system comment."""
+    paid = PayrollPayout.objects.filter(document=document).aggregate(s=Sum("amount"))["s"] or ZERO
+    paid = paid.quantize(Decimal("0.01"))
+    original = Decimal(request_obj.amount).quantize(Decimal("0.01"))
+    if paid == original:
+        return
+    request_obj.amount = paid
+    request_obj.save(update_fields=["amount"])
+    add_system_comment(
+        request_obj,
+        f"Сумма заявки изменена с {original} на {paid} {request_obj.currency}: "
+        f"начисление ЗП {document_label(document)} закрыто с недоплатой. Причина: {reason}",
+    )
+
+
 def _close(document: PayrollDocument, *, request_obj: Request, actor, underpaid_comment: str | None) -> None:
     if underpaid_comment is None:
         comment = f"Выплачено полностью по начислению ЗП {document_label(document)}."
@@ -128,6 +145,9 @@ def _close(document: PayrollDocument, *, request_obj: Request, actor, underpaid_
     # complete_request_payment_by_system fires PAYED-transition side effects (n8n
     # notification thread, Telegram card edits) and must run last so that anything
     # reacting to the PAYED status already sees this document as closed.
+    # On underpaid close the request amount is written to the DB before that call too:
+    # complete_request_payment_by_system re-reads the request, so PAYED handlers (n8n
+    # new-payed-request, Telegram) must find the reduced amount already persisted.
     document.status = PayrollDocument.STATUS_CLOSED
     update_fields = ["status"]
     if underpaid_comment is not None:
@@ -136,6 +156,8 @@ def _close(document: PayrollDocument, *, request_obj: Request, actor, underpaid_
         document.close_comment = underpaid_comment
         update_fields += ["closed_underpaid_at", "closed_by", "close_comment"]
     document.save(update_fields=update_fields)
+    if underpaid_comment is not None:
+        _shrink_request_amount_to_paid(document, request_obj=request_obj, reason=underpaid_comment)
     add_system_comment(request_obj, comment)
     complete_request_payment_by_system(request_obj=request_obj, comment=comment)
 
@@ -254,7 +276,13 @@ def close_underpaid(*, document, actor, comment: str) -> PayrollDocument:
         locked = PayrollDocument.objects.select_for_update(of=("self",)).select_related("tenant").get(pk=document.pk)
         if payout_state(locked)["remaining_total"] <= ZERO:
             raise ValidationError({"detail": "Всё начисленное уже выплачено."})
-        request_obj = current_request_for_document(locked)
+        current = current_request_for_document(locked)
+        # Lock the request row too: the underpaid close rewrites its amount, and a
+        # concurrent edit (tenant admin may change non-draft requests) must not be
+        # silently overwritten nor validated against a stale status.
+        request_obj = (
+            Request.objects.select_for_update(of=("self",)).get(pk=current.pk) if current is not None else None
+        )
         if locked.payout_mode != PayrollDocument.PAYOUT_MODE_PORTAL or locked.status != PayrollDocument.STATUS_ACCEPTED:
             raise ValidationError({"detail": "Закрыть можно только принятое начисление с выплатами через портал."})
         if request_obj is None or request_obj.status != Request.STATUS_APPROVED:

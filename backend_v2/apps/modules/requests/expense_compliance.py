@@ -4,7 +4,7 @@ from datetime import date, datetime, timezone as dt_timezone
 from decimal import Decimal
 from typing import Any
 
-from django.db.models import Count, Exists, OuterRef, Q, Subquery, Sum
+from django.db.models import Case, Count, Exists, OuterRef, Q, Subquery, Sum, When
 from django.db.models.functions import Coalesce
 from django.db.models import BooleanField, DecimalField, ExpressionWrapper, IntegerField, Value
 
@@ -207,22 +207,45 @@ def annotate_card_expense_compliance(qs, *, tenant):
 
 
 def annotate_payroll_compliance(qs, *, tenant):
+    # Nested inside the Request subquery below, so a bare OuterRef("pk") would resolve
+    # to Request.pk (the immediately enclosing query), not the payroll document.
     payroll_total_subquery = (
-        PayrollLine.objects.filter(document_id=OuterRef("pk"))
+        PayrollLine.objects.filter(document_id=OuterRef(OuterRef("pk")))
         .values("document_id")
         .annotate(total=Sum("sum"))
         .values("total")[:1]
     )
-    request_subquery = Request.objects.filter(
+    amount_request_subquery = Request.objects.filter(
         tenant=tenant,
         payment_type=Request.PAYMENT_TYPE_PAYROLL,
         amount=Subquery(payroll_total_subquery),
     ).filter(Q(expense_ref_id=OuterRef("pk")) | Q(expense_id=OuterRef("doc_id")))
-    paid_request_subquery = request_subquery.filter(status=Request.STATUS_PAYED)
+    amount_paid_subquery = amount_request_subquery.filter(status=Request.STATUS_PAYED)
+    # A document closed underpaid has its request amount reduced to what was paid out,
+    # so it no longer equals the lines total — match it by the explicit payroll ref
+    # instead. Gated on closed_underpaid_at so legacy n8n documents keep amount matching.
+    underpaid_ref_subquery = Request.objects.filter(
+        tenant=tenant,
+        payment_type=Request.PAYMENT_TYPE_PAYROLL,
+        expense_ref_target=Request.EXPENSE_REF_TARGET_PAYROLL,
+        expense_ref_id=OuterRef("pk"),
+    ).exclude(status=Request.STATUS_REJECTED)
+    underpaid_paid_subquery = underpaid_ref_subquery.filter(status=Request.STATUS_PAYED)
+    underpaid = Q(closed_underpaid_at__isnull=False)
     return qs.annotate(
-        has_request=Exists(request_subquery),
-        has_paid_request=Exists(paid_request_subquery),
-        matched_request_id=Subquery(request_subquery.order_by("-id").values("id")[:1]),
+        has_request=ExpressionWrapper(
+            Q(Exists(amount_request_subquery)) | (underpaid & Q(Exists(underpaid_ref_subquery))),
+            output_field=BooleanField(),
+        ),
+        has_paid_request=ExpressionWrapper(
+            Q(Exists(amount_paid_subquery)) | (underpaid & Q(Exists(underpaid_paid_subquery))),
+            output_field=BooleanField(),
+        ),
+        matched_request_id=Coalesce(
+            Case(When(underpaid, then=Subquery(underpaid_ref_subquery.order_by("-id").values("id")[:1]))),
+            Subquery(amount_request_subquery.order_by("-id").values("id")[:1]),
+            output_field=IntegerField(),
+        ),
         total_sum=Coalesce(
             Sum("lines__sum"),
             Value(Decimal("0")),
