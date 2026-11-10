@@ -12,6 +12,9 @@ class N8NIntegrationConfig(AppConfig):
     cash_withdrawal_received_event_handlers = (
         "apps.modules.n8n_integration.event_handlers.notify_cash_withdrawal_received",
     )
+    invest_return_confirmed_event_handlers = (
+        "apps.modules.n8n_integration.event_handlers.notify_invest_return_confirmed",
+    )
 
     def ready(self):
         from django.utils.module_loading import import_string
@@ -25,3 +28,8 @@ class N8NIntegrationConfig(AppConfig):
 
         for handler_ref in self.cash_withdrawal_received_event_handlers:
             cash_withdrawal_events.register_receipt_confirmed_handler(import_string(handler_ref))
+
+        from apps.modules.investments import events as investment_events
+
+        for handler_ref in self.invest_return_confirmed_event_handlers:
+            investment_events.register_invest_return_confirmed_handler(import_string(handler_ref))

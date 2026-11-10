@@ -2946,3 +2946,112 @@ class NotifyCashWithdrawalReceivedTests(APITestCase):
         notify_cash_withdrawal_received(receipt=self._confirmed_receipt())
         mock_post.assert_not_called()
 
+
+
+@override_settings(
+    BASE_DOMAIN="example.com",
+    N8N_INTEGRATION_TOKEN="integ-test-secret",
+    ALLOWED_HOSTS=["neuron.example.com", "testserver"],
+)
+class NotifyInvestReturnConfirmedTests(APITestCase):
+    LOGGER = "apps.modules.n8n_integration.event_handlers"
+
+    def setUp(self):
+        from apps.modules.investments.models import InvestCompany
+
+        self.tenant = Tenant.objects.create(name="Neuron", subdomain="neuron", is_active=True)
+        self.admin = User.objects.create_user(username="invret_notify_admin", password="pass12345")
+        self.company = InvestCompany.objects.create(tenant=self.tenant, name="NeuronMed", created_by=self.admin)
+        self.invest_return = InvestReturn.objects.create(
+            tenant=self.tenant,
+            company=self.company,
+            date=date(2026, 11, 10),
+            billing_date=date(2026, 11, 1),
+            sum=Decimal("600000000.00"),
+            currency="UZS",
+            type=InvestReturn.ReturnType.DIVIDEND,
+            recipient=InvestReturn.Recipient.INVESTOR,
+            comment="Дивиденды за октябрь",
+            confirmed=True,
+            created_by=self.admin,
+        )
+
+    def _notify(self):
+        from apps.modules.n8n_integration.event_handlers import notify_invest_return_confirmed
+
+        notify_invest_return_confirmed(invest_return=self.invest_return)
+
+    @patch("apps.modules.n8n_integration.event_handlers.threading.Thread")
+    @patch("apps.modules.n8n_integration.views._n8n_session.post")
+    def test_posts_invest_return_confirmed_event(self, mock_post, mock_thread):
+        mock_post.return_value = Mock(status_code=200)
+        mock_thread.side_effect = lambda target, daemon: Mock(start=target)
+
+        self._notify()
+
+        mock_post.assert_called_once()
+        self.assertIn("/n8n/events/new-invest-return-confirmed", mock_post.call_args.args[0])
+        headers = mock_post.call_args.kwargs["headers"]
+        self.assertEqual(headers["X-Tenant"], "neuron")
+        payload = mock_post.call_args.kwargs["json"]
+        self.assertEqual(payload["event"], "invest_return_confirmed")
+        self.assertEqual(payload["id"], self.invest_return.id)
+        self.assertEqual(payload["tenant"], "neuron")
+        self.assertEqual(payload["sum"], "600000000.00")
+        self.assertEqual(payload["currency"], "UZS")
+        self.assertEqual(payload["type"], "дивиденды")
+        self.assertEqual(payload["type_label"], "Дивиденды")
+        self.assertEqual(payload["recipient"], "инвестор")
+        self.assertEqual(payload["recipient_label"], "Инвестор")
+        self.assertEqual(payload["company_id"], self.company.id)
+        self.assertEqual(payload["company"], "NeuronMed")
+        self.assertEqual(payload["date"], "2026-11-10")
+        self.assertEqual(payload["billing_date"], "2026-11-01")
+        self.assertEqual(payload["comment"], "Дивиденды за октябрь")
+
+    @patch("apps.modules.n8n_integration.event_handlers.threading.Thread")
+    @patch("apps.modules.n8n_integration.views._n8n_session.post")
+    def test_missing_webhook_is_logged_as_info_not_error(self, mock_post, mock_thread):
+        # У тенанта нет такого вебхука в n8n — это штатная ситуация, а не ошибка.
+        mock_post.return_value = Mock(status_code=404, text="webhook not registered")
+        mock_thread.side_effect = lambda target, daemon: Mock(start=target)
+
+        with self.assertLogs(self.LOGGER, level="INFO") as logs:
+            self._notify()
+
+        self.assertTrue(logs.records)
+        self.assertTrue(all(r.levelname == "INFO" for r in logs.records), logs.output)
+
+    @patch("apps.modules.n8n_integration.event_handlers.threading.Thread")
+    @patch("apps.modules.n8n_integration.views._n8n_session.post")
+    def test_server_error_is_logged_as_warning(self, mock_post, mock_thread):
+        mock_post.return_value = Mock(status_code=500, text="boom")
+        mock_thread.side_effect = lambda target, daemon: Mock(start=target)
+
+        with self.assertLogs(self.LOGGER, level="WARNING") as logs:
+            self._notify()
+
+        self.assertEqual(len(logs.records), 1)
+
+    @patch("apps.modules.n8n_integration.event_handlers.threading.Thread")
+    @patch("apps.modules.n8n_integration.views._n8n_session.post")
+    def test_network_error_is_logged_as_warning(self, mock_post, mock_thread):
+        mock_post.side_effect = ConnectionError("n8n unreachable")
+        mock_thread.side_effect = lambda target, daemon: Mock(start=target)
+
+        with self.assertLogs(self.LOGGER, level="WARNING") as logs:
+            self._notify()
+
+        self.assertEqual(len(logs.records), 1)
+
+    @override_settings(N8N_INTEGRATION_TOKEN="")
+    @patch("apps.modules.n8n_integration.views._n8n_session.post")
+    def test_skips_without_token(self, mock_post):
+        self._notify()
+        mock_post.assert_not_called()
+
+    def test_handler_is_registered_for_invest_return_confirmed(self):
+        from apps.modules.investments import events
+        from apps.modules.n8n_integration.event_handlers import notify_invest_return_confirmed
+
+        self.assertIn(notify_invest_return_confirmed, events.INVEST_RETURN_CONFIRMED_HANDLERS)
