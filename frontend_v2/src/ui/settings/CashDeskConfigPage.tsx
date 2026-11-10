@@ -10,6 +10,7 @@ import {
   type CashDeskConfigDto,
   type CashDeskConfigResponse,
 } from '../../lib/cashDeskApi'
+import { CardTopupNotifyWidget } from './CardTopupNotifyWidget'
 
 type Chats = CashDeskConfigResponse['options']['telegram_chats']
 
@@ -78,42 +79,45 @@ export function CashDeskConfigPage() {
   }
 
   return (
-    <Card>
-      {back}
-      <Typography.Title level={4} style={{ marginTop: 0 }}>
-        Касса: уведомления в Telegram
-      </Typography.Title>
-      <Typography.Paragraph type="secondary" style={{ marginBottom: 0 }}>
-        При оплате наличной заявки в группу уходит сообщение с остатками касс; перевод между кассами создаёт приход в кассе-получателе
-      </Typography.Paragraph>
-      <Divider />
-      {loading ? <Skeleton active /> : null}
-      {error ? <Alert type="error" showIcon message={error} style={{ marginBottom: 12 }} /> : null}
+    <Space direction="vertical" size={16} style={{ display: 'flex' }}>
+      <Card>
+        {back}
+        <Typography.Title level={4} style={{ marginTop: 0 }}>
+          Касса: уведомления в Telegram
+        </Typography.Title>
+        <Typography.Paragraph type="secondary" style={{ marginBottom: 0 }}>
+          При оплате наличной заявки в группу уходит сообщение с остатками касс; перевод между кассами создаёт приход в кассе-получателе
+        </Typography.Paragraph>
+        <Divider />
+        {loading ? <Skeleton active /> : null}
+        {error ? <Alert type="error" showIcon message={error} style={{ marginBottom: 12 }} /> : null}
 
-      {!loading && data ? (
-        <Space direction="vertical" size={20} style={{ display: 'flex' }}>
-          <Space align="center">
-            <Switch checked={data.is_active} onChange={(v) => patch({ is_active: v })} />
-            <Typography.Text>Включено</Typography.Text>
+        {!loading && data ? (
+          <Space direction="vertical" size={20} style={{ display: 'flex' }}>
+            <Space align="center">
+              <Switch checked={data.is_active} onChange={(v) => patch({ is_active: v })} />
+              <Typography.Text>Включено</Typography.Text>
+            </Space>
+
+            <div>
+              <Typography.Title level={5}>Кассовая группа</Typography.Title>
+              <Select
+                style={{ width: 320 }}
+                allowClear
+                placeholder="Кассовая группа"
+                value={data.telegram_chat_id ?? undefined}
+                onChange={(v) => patch({ telegram_chat_id: v ?? null })}
+                options={chats.map((c) => ({ value: c.id, label: c.name }))}
+              />
+            </div>
+
+            <Button type="primary" onClick={() => void save()} loading={saving}>
+              Сохранить
+            </Button>
           </Space>
-
-          <div>
-            <Typography.Title level={5}>Кассовая группа</Typography.Title>
-            <Select
-              style={{ width: 320 }}
-              allowClear
-              placeholder="Кассовая группа"
-              value={data.telegram_chat_id ?? undefined}
-              onChange={(v) => patch({ telegram_chat_id: v ?? null })}
-              options={chats.map((c) => ({ value: c.id, label: c.name }))}
-            />
-          </div>
-
-          <Button type="primary" onClick={() => void save()} loading={saving}>
-            Сохранить
-          </Button>
-        </Space>
-      ) : null}
-    </Card>
+        ) : null}
+      </Card>
+      <CardTopupNotifyWidget />
+    </Space>
   )
 }

@@ -59,3 +59,43 @@ export async function setCashRegisterTransferTarget(
   })
   if (!res.ok) throw new CashDeskApiError(res.status, await parseErrorBody(res))
 }
+
+export type CardTopupNotifyConfigDto = {
+  is_active: boolean
+  recipient_ids: number[]
+}
+
+export type CardTopupUserOption = { id: number; name: string; has_telegram: boolean }
+
+export type CardTopupNotifyConfigResponse = CardTopupNotifyConfigDto & {
+  available_users: CardTopupUserOption[]
+}
+
+const CARD_TOPUP_CONFIG_URL = '/api/cash-desk/card-topup/config/'
+
+async function readCardTopupConfig(res: Response): Promise<CardTopupNotifyConfigResponse> {
+  if (res.status === 403 || res.status === 404) {
+    throw new CashDeskConfigUnavailableError('Настройка недоступна')
+  }
+  if (!res.ok) throw new Error(await parseErrorBody(res))
+  const json = (await res.json().catch(() => null)) as CardTopupNotifyConfigResponse | null
+  if (!json) throw new Error('Пустой ответ от сервера')
+  return json
+}
+
+/** Настройка уведомления о пополнении корпоративной карты (личные сообщения выбранным людям). */
+export async function getCardTopupNotifyConfig(): Promise<CardTopupNotifyConfigResponse> {
+  return readCardTopupConfig(await apiFetch(CARD_TOPUP_CONFIG_URL))
+}
+
+export async function saveCardTopupNotifyConfig(
+  dto: CardTopupNotifyConfigDto,
+): Promise<CardTopupNotifyConfigResponse> {
+  return readCardTopupConfig(
+    await apiFetch(CARD_TOPUP_CONFIG_URL, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(dto),
+    }),
+  )
+}
