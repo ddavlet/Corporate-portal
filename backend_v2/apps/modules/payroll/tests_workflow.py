@@ -275,6 +275,21 @@ class PayrollDraftWorkflowTests(TestCase):
         doc.refresh_from_db()
         self.assertEqual(doc.payout_mode, PayrollDocument.PAYOUT_MODE_PORTAL)
 
+    def test_new_draft_shows_tenant_payout_mode(self, _tg):
+        self.tenant.payroll_payout_mode = Tenant.PAYROLL_PAYOUT_MODE_PORTAL
+        self.tenant.save(update_fields=["payroll_payout_mode"])
+        doc = self._draft()
+        doc.refresh_from_db()
+        self.assertEqual(doc.payout_mode, PayrollDocument.PAYOUT_MODE_PORTAL)
+        copy = copy_document(document=doc, user=self.user)
+        self.assertEqual(copy.payout_mode, PayrollDocument.PAYOUT_MODE_PORTAL)
+
+    def test_new_draft_keeps_legacy_payout_mode_for_legacy_tenant(self, _tg):
+        self.assertEqual(self.tenant.payroll_payout_mode, Tenant.PAYROLL_PAYOUT_MODE_LEGACY)
+        doc = self._draft()
+        doc.refresh_from_db()
+        self.assertEqual(doc.payout_mode, PayrollDocument.PAYOUT_MODE_LEGACY)
+
     def test_reject_returns_draft_and_reaccept_creates_new_request(self, _tg):
         doc = self._draft()
         first = accept_document(document=doc, actor=self.user)

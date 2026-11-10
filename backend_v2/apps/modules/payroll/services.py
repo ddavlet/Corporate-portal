@@ -193,6 +193,9 @@ def create_draft_document(
             created_by=user,
             status=PayrollDocument.STATUS_DRAFT,
             source=PayrollDocument.SOURCE_PORTAL,
+            # Show the tenant's current mode on the draft; accept_document re-reads it,
+            # so a setting changed while the document is a draft still wins on accept.
+            payout_mode=tenant.payroll_payout_mode,
             period_month=period_month.replace(day=1),
             kind=kind,
             comment=(comment or "").strip(),
