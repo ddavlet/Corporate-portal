@@ -10,16 +10,23 @@ from rest_framework.exceptions import ValidationError
 
 from apps.modules.cashier.models import CashExpense
 from apps.modules.payroll.models import Employee, PayrollDocument, PayrollLine, PayrollPayout
-from apps.modules.payroll.payouts import close_underpaid, create_payout_expense, payout_state
+from apps.modules.payroll.constants import SALARY_CATEGORY
+from apps.modules.payroll.payouts import close_underpaid, create_payout_expense, document_label, payout_state
 from apps.modules.payroll.services import accept_document, create_draft_document
 from apps.modules.payroll.tests_workflow import make_payroll_approval_chain
+from apps.modules.reports.models import TenantReportSettings
+from apps.modules.reports.pnl_builder import build_pnl_payload_from_db
+from apps.modules.reports.tests import full_backend_pnl_config
 from apps.modules.requests.approval_workflow import confirm_approval_by_id
+from apps.modules.requests.expense_compliance import annotate_payroll_compliance, filter_expenses_missing_request
 from apps.modules.requests.models import Approval, Request, RequestComment
 from apps.modules.wallets.models import Wallet
 from apps.modules.wallets.resolution import get_or_create_cash_wallet
 from apps.tenants.models import Tenant, TenantMembership, TenantModuleConfig
 
 User = get_user_model()
+
+AMOUNT_CHANGED_PREFIX = "Сумма заявки изменена"
 
 
 @patch("apps.modules.telegram_approvals.services.TelegramDispatcher.send", return_value=None)
@@ -85,6 +92,7 @@ class PayrollPayoutTests(TestCase):
         self.assertEqual(req.amount, Decimal("1000.00"))
         self.assertEqual(doc.status, PayrollDocument.STATUS_CLOSED)
         self.assertTrue(RequestComment.objects.filter(request=req, body__contains=f"№{doc.pk}").exists())
+        self.assertFalse(RequestComment.objects.filter(request=req, body__startswith=AMOUNT_CHANGED_PREFIX).exists())
         self.assertEqual(PayrollPayout.objects.filter(document=doc).count(), 3)
 
     def test_second_payout_sees_first_and_is_limited(self, _tg):
@@ -198,13 +206,158 @@ class PayrollPayoutTests(TestCase):
         doc.refresh_from_db()
         req.refresh_from_db()
         self.assertEqual(req.status, Request.STATUS_PAYED)
-        self.assertEqual(req.amount, Decimal("1000.00"))
+        self.assertEqual(req.amount, Decimal("100.00"))
         self.assertEqual(doc.status, PayrollDocument.STATUS_CLOSED)
         self.assertIsNotNone(doc.closed_underpaid_at)
         self.assertEqual(doc.closed_by, self.user)
         self.assertEqual(doc.close_comment, "Bob уволился")
         pay = Approval.objects.get(request=req, step_type=Approval.STEP_TYPE_PAYMENT)
         self.assertIn("недоплат", pay.comment)
+
+    def test_close_underpaid_comment_records_original_amount(self, _tg):
+        doc, req = self._approved_doc()
+        self._pay(doc, [(self.alice, "100")])
+        close_underpaid(document=doc, actor=self.user, comment="Bob уволился")
+        amount_comment = RequestComment.objects.get(request=req, body__startswith=AMOUNT_CHANGED_PREFIX)
+        self.assertEqual(amount_comment.created_by_id, self.system.pk)
+        for part in ("1000.00", "100.00", document_label(doc), "Bob уволился"):
+            self.assertIn(part, amount_comment.body)
+        close_comment = RequestComment.objects.get(request=req, body__startswith="Закрыто с недоплатой")
+        self.assertLess(amount_comment.id, close_comment.id)
+
+    def test_close_underpaid_sums_multiple_payouts(self, _tg):
+        doc, req = self._approved_doc()
+        self._pay(doc, [(self.alice, "300")])
+        self._pay(doc, [(self.bob, "200")])
+        close_underpaid(document=doc, actor=self.user, comment="Остаток не выплачивается")
+        req.refresh_from_db()
+        self.assertEqual(req.amount, Decimal("500.00"))
+
+    def test_close_underpaid_without_payouts(self, _tg):
+        doc, req = self._approved_doc()
+        close_underpaid(document=doc, actor=self.user, comment="Выплаты не будет")
+        req.refresh_from_db()
+        self.assertEqual(req.amount, Decimal("0.00"))
+        self.assertEqual(req.status, Request.STATUS_PAYED)
+        self.assertTrue(RequestComment.objects.filter(request=req, body__startswith=AMOUNT_CHANGED_PREFIX).exists())
+
+    def test_payed_handlers_see_reduced_amount(self, _tg):
+        doc, _ = self._approved_doc()
+        self._pay(doc, [(self.alice, "100")])
+        seen = []
+
+        def capture(*, request_obj):
+            seen.append(request_obj.amount)
+
+        with patch("apps.modules.requests.status_events.REQUEST_PAYED_EVENT_HANDLERS", (capture,)):
+            close_underpaid(document=doc, actor=self.user, comment="Bob уволился")
+        self.assertEqual(seen, [Decimal("100.00")])
+
+    def test_close_underpaid_updates_pnl_amount(self, _tg):
+        TenantReportSettings.objects.create(
+            tenant=self.tenant,
+            pnl_source="backend",
+            pnl_config=full_backend_pnl_config(
+                request_payment_types_for_pnl=[Request.PAYMENT_TYPE_PAYROLL],
+                payment_purpose_operational=[SALARY_CATEGORY],
+            ),
+        )
+        doc, req = self._approved_doc()
+        self._pay(doc, [(self.alice, "100")])
+        close_underpaid(document=doc, actor=self.user, comment="Bob уволился")
+        items = build_pnl_payload_from_db(tenant=self.tenant, query_params={})["operational_expenses"]
+        row = next(item for item in items if item.get("request_id") == str(req.id))
+        self.assertEqual(row["amount"], "100.00")
+
+    def test_close_underpaid_rolls_back_amount_on_error(self, _tg):
+        doc, req = self._approved_doc()
+        self._pay(doc, [(self.alice, "100")])
+        with patch(
+            "apps.modules.payroll.payouts.complete_request_payment_by_system",
+            side_effect=ValidationError({"detail": "boom"}),
+        ):
+            with self.assertRaises(ValidationError):
+                close_underpaid(document=doc, actor=self.user, comment="Bob уволился")
+        req.refresh_from_db()
+        doc.refresh_from_db()
+        self.assertEqual(req.amount, Decimal("1000.00"))
+        self.assertEqual(doc.status, PayrollDocument.STATUS_ACCEPTED)
+        self.assertIsNone(doc.closed_underpaid_at)
+        self.assertFalse(RequestComment.objects.filter(request=req, body__startswith=AMOUNT_CHANGED_PREFIX).exists())
+
+    def test_close_underpaid_rejects_not_approved_request(self, _tg):
+        doc, req = self._approved_doc()
+        self._pay(doc, [(self.alice, "100")])
+        Request.objects.filter(pk=req.pk).update(status=Request.STATUS_PROGRESS_1)
+        with self.assertRaises(ValidationError):
+            close_underpaid(document=doc, actor=self.user, comment="Bob уволился")
+        req.refresh_from_db()
+        self.assertEqual(req.amount, Decimal("1000.00"))
+        self.assertFalse(RequestComment.objects.filter(request=req, body__startswith=AMOUNT_CHANGED_PREFIX).exists())
+
+    def test_close_underpaid_rechecks_status_on_fresh_request(self, _tg):
+        doc, req = self._approved_doc()
+        self._pay(doc, [(self.alice, "100")])
+        stale = Request.objects.get(pk=req.pk)
+        Request.objects.filter(pk=req.pk).update(status=Request.STATUS_PROGRESS_1)
+        with patch("apps.modules.payroll.payouts.current_request_for_document", return_value=stale):
+            with self.assertRaises(ValidationError) as ctx:
+                close_underpaid(document=doc, actor=self.user, comment="Bob уволился")
+        # Rejected by close_underpaid's own check, before any write, not by the
+        # later re-check inside complete_request_payment_by_system.
+        self.assertEqual(str(ctx.exception.detail["detail"]), "Заявка должна быть согласована.")
+        req.refresh_from_db()
+        doc.refresh_from_db()
+        self.assertEqual(req.amount, Decimal("1000.00"))
+        self.assertEqual(doc.status, PayrollDocument.STATUS_ACCEPTED)
+
+    def test_close_underpaid_reads_original_amount_from_fresh_request(self, _tg):
+        doc, req = self._approved_doc()
+        self._pay(doc, [(self.alice, "100")])
+        stale = Request.objects.get(pk=req.pk)
+        Request.objects.filter(pk=req.pk).update(amount=Decimal("900"))
+        with patch("apps.modules.payroll.payouts.current_request_for_document", return_value=stale):
+            close_underpaid(document=doc, actor=self.user, comment="Bob уволился")
+        req.refresh_from_db()
+        self.assertEqual(req.amount, Decimal("100.00"))
+        amount_comment = RequestComment.objects.get(request=req, body__startswith=AMOUNT_CHANGED_PREFIX)
+        self.assertIn("900.00", amount_comment.body)
+        self.assertNotIn("1000.00", amount_comment.body)
+
+    def _compliance_row(self, doc):
+        return annotate_payroll_compliance(PayrollDocument.objects.filter(pk=doc.pk), tenant=self.tenant).get()
+
+    def test_underpaid_document_keeps_matched_request(self, _tg):
+        doc, req = self._approved_doc()
+        self._pay(doc, [(self.alice, "100")])
+        close_underpaid(document=doc, actor=self.user, comment="Bob уволился")
+        row = self._compliance_row(doc)
+        self.assertTrue(row.has_request)
+        self.assertTrue(row.has_paid_request)
+        self.assertEqual(row.matched_request_id, req.id)
+        annotated = annotate_payroll_compliance(PayrollDocument.objects.filter(tenant=self.tenant), tenant=self.tenant)
+        self.assertFalse(annotated.filter(has_request=False, pk=doc.pk).exists())
+        missing = filter_expenses_missing_request(
+            annotated, tenant=self.tenant, payment_type=Request.PAYMENT_TYPE_PAYROLL, payroll=True
+        )
+        self.assertNotIn(doc.pk, list(missing.values_list("pk", flat=True)))
+
+    def test_amount_mismatch_without_underpaid_still_unmatched(self, _tg):
+        doc, req = self._approved_doc()
+        Request.objects.filter(pk=req.pk).update(amount=Decimal("999"))
+        row = self._compliance_row(doc)
+        self.assertIsNone(row.closed_underpaid_at)
+        self.assertFalse(row.has_request)
+        self.assertFalse(row.has_paid_request)
+        self.assertIsNone(row.matched_request_id)
+
+    def test_regular_document_matches_request_by_amount(self, _tg):
+        doc, req = self._approved_doc()
+        row = self._compliance_row(doc)
+        self.assertTrue(row.has_request)
+        self.assertFalse(row.has_paid_request)
+        self.assertEqual(row.matched_request_id, req.id)
+        self.assertEqual(row.total_sum, Decimal("1000.00"))
 
     def test_cash_expense_with_payouts_cannot_be_deleted(self, _tg):
         doc, _ = self._approved_doc()
