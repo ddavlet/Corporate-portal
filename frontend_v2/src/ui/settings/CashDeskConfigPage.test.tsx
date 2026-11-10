@@ -14,6 +14,10 @@ vi.mock('../../lib/cashDeskApi', () => {
   }
 })
 
+vi.mock('./CardTopupNotifyWidget', () => ({
+  CardTopupNotifyWidget: () => <div data-testid="card-topup-widget" />,
+}))
+
 import { CashDeskConfigPage } from './CashDeskConfigPage'
 
 const config = {
@@ -40,5 +44,6 @@ describe('CashDeskConfigPage', () => {
     fireEvent.click(screen.getByRole('switch'))
     fireEvent.click(screen.getByRole('button', { name: /Сохранить/ }))
     await waitFor(() => expect(saveMock).toHaveBeenCalledWith({ is_active: true, telegram_chat_id: 7 }))
+    expect(screen.getByTestId('card-topup-widget')).toBeInTheDocument()
   })
 })
