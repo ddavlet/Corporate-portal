@@ -4,6 +4,7 @@ from django.http import JsonResponse
 
 from apps.tenants.middleware import _get_subdomain
 from apps.tenants.models import Tenant
+from apps.tenants.shared_host import is_shared_host
 
 
 class N8nIntegrationTenantMiddleware:
@@ -11,6 +12,8 @@ class N8nIntegrationTenantMiddleware:
     For n8n integration URL prefixes, resolve tenant from the request Host subdomain
     (same rules as TenantSubdomainMiddleware + BASE_DOMAIN).
     Must be listed before TenantSubdomainMiddleware.
+    On the shared portal host (PORTAL_SHARED_HOST) the Host label is not a tenant:
+    no lookup is made and the request gets the same answer as an unknown tenant.
     """
 
     def __init__(self, get_response):
@@ -28,6 +31,9 @@ class N8nIntegrationTenantMiddleware:
         )
         if not matched:
             return self.get_response(request)
+
+        if is_shared_host(request):
+            return JsonResponse({"detail": "Unknown tenant."}, status=404)
 
         sub = _get_subdomain(request.get_host(), getattr(settings, "BASE_DOMAIN", "") or "")
         if not sub:

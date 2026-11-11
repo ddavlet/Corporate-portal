@@ -1,7 +1,15 @@
+import logging
+
 from django.conf import settings
 from django.http import Http404
 
+from apps.tenants import shared_host as sh
 from apps.tenants.models import Tenant
+
+logger = logging.getLogger(__name__)
+
+# Longest X-Tenant value written to the log (the header is client-controlled).
+_LOGGED_HEADER_MAX_CHARS = 64
 
 
 class RewriteDockerInternalHostMiddleware:
@@ -93,3 +101,64 @@ class TenantSubdomainMiddleware:
         request.tenant = tenant
         return self.get_response(request)
 
+
+
+class SharedHostTenantMiddleware(TenantSubdomainMiddleware):
+    """
+    ``TenantSubdomainMiddleware`` plus the shared portal host (``PORTAL_SHARED_HOST``).
+
+    - Other hosts (tenant subdomains): base behavior; ``X-Tenant`` is ignored, a mismatch
+      with the subdomain is only logged.
+    - Shared host, integration path (n8n, messaging-gateway webhook/events, admin, MCP,
+      .well-known): treated as a host without subdomain; ``X-Tenant`` is never read and the
+      tenant is never resolved from the shared host name.
+    - Shared host, any other path: ``request.tenant = None``; the requested company is kept
+      in ``request.tenant_header`` and attached only by ``SharedHostPortalJWTAuthentication``
+      after the membership check (fail closed: no check, no tenant).
+    """
+
+    def __init__(self, get_response):
+        super().__init__(get_response)
+        self._reserved_tenant_checked = False
+
+    def __call__(self, request):
+        if not sh.is_shared_host(request):
+            self._warn_header_mismatch(request, sh.tenant_header(request))
+            return super().__call__(request)
+
+        self._log_reserved_tenant_once()
+        path = request.path or ""
+        if sh.is_excluded_path(path):
+            # Same as a host without subdomain: only an already resolved tenant (n8n
+            # middleware) or the internal messaging callbacks pass; never a Host lookup.
+            if getattr(request, "tenant", None) is not None or _is_internal_messaging_gateway_callback(path):
+                return self.get_response(request)
+            raise Http404("Unknown tenant")
+
+        request.tenant = None
+        request.portal_shared_host = True
+        request.tenant_header = sh.tenant_header(request)
+        return self.get_response(request)
+
+    @staticmethod
+    def _warn_header_mismatch(request, header: str) -> None:
+        # Only while the shared mode is on: with it off X-Tenant means nothing and the log
+        # must not grow on client-controlled values. The value is clipped and quoted (%r).
+        if not header or not sh.shared_host():
+            return
+        sub = _get_subdomain(request.get_host(), getattr(settings, "BASE_DOMAIN", "") or "")
+        if header != sub:
+            logger.warning(
+                "X-Tenant ignored on tenant host: host_subdomain=%s header=%r path=%s",
+                sub or "-",
+                header[:_LOGGED_HEADER_MAX_CHARS],
+                request.path,
+            )
+
+    def _log_reserved_tenant_once(self) -> None:
+        if self._reserved_tenant_checked:
+            return
+        self._reserved_tenant_checked = True
+        taken = sh.reserved_tenants_in_use()
+        if taken:
+            logger.error("Active tenant uses a subdomain reserved for the shared portal host: %s", ", ".join(taken))

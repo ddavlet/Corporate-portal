@@ -6,3 +6,5 @@ class TenantsConfig(AppConfig):
     name = "apps.tenants"
     verbose_name = "Компания"
 
+    def ready(self):
+        from apps.tenants import checks  # noqa: F401  (registers system checks)

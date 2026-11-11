@@ -148,3 +148,27 @@ class TelegramWebAppAuthViewTests(APITestCase):
             res.data.get("detail"),
             "Telegram account is linked to multiple users in this organization.",
         )
+
+
+@override_settings(BASE_DOMAIN="example.com", PORTAL_SHARED_HOST="app.example.com", ALLOWED_HOSTS=["*"])
+class TelegramWebAppSharedHostTests(APITestCase):
+    """Mini App login is only on tenant subdomains: X-Tenant never selects a bot on the shared host."""
+
+    def setUp(self):
+        self.tenant = Tenant.objects.create(name="Acme", subdomain="acme", is_active=True)
+        self.tenant.set_telegram_bot_token("123456:TEST_BOT_TOKEN_FOR_WEBAPP")
+        self.tenant.save(update_fields=["telegram_bot_token_enc"])
+        user = User.objects.create_user(username="tg_shared", password="x")
+        user.telegram_from_id = 424242
+        user.save(update_fields=["telegram_from_id"])
+        TenantMembership.objects.create(tenant=self.tenant, user=user, is_active=True)
+
+    def test_unknown_tenant_with_and_without_header(self):
+        init = _signed_init_data(bot_token=self.tenant.get_telegram_bot_token(), user_id=424242)
+        for headers in ({}, {"HTTP_X_TENANT": "acme"}):
+            with self.subTest(headers=headers):
+                res = self.client.post(
+                    "/api/auth/telegram/webapp/", {"init_data": init}, format="json", HTTP_HOST="app.example.com", **headers
+                )
+                self.assertEqual(res.status_code, 404)
+                self.assertEqual(res.json(), {"detail": "Unknown tenant."})

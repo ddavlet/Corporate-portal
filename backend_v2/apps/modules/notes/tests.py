@@ -109,6 +109,49 @@ class NotesApiTests(APITestCase):
         self.assertEqual(res.status_code, 201, res.content)
         self.assertTrue(Note.objects.filter(tenant=self.tenant, message="Test note message").exists())
 
+    def _post_note_and_get_text(self, mock_send, **extra):
+        from apps.modules.telegram_approvals.models import TelegramMessage
+
+        mock_send.return_value = TelegramMessage.objects.create(
+            tenant=self.tenant,
+            recipient_id=str(self.recipient.telegram_chat_id),
+            message_id=43,
+            sent_at=timezone.now(),
+        )
+        payload = {
+            "recipient_user": self.recipient.id,
+            "target_type": Note.TARGET_REQUEST,
+            "target_id": self.request_obj.id,
+            "message": "Link check",
+        }
+        res = self.client.post("/api/notes/", payload, format="json", **extra)
+        self.assertEqual(res.status_code, 201, res.content)
+        return mock_send.call_args.kwargs["text"]
+
+    @override_settings(PORTAL_SHARED_HOST="app.example.com")
+    @patch("apps.modules.telegram_approvals.services.TelegramDispatcher.send")
+    def test_note_link_on_shared_host_points_to_tenant_subdomain(self, mock_send):  # crit. 21
+        from rest_framework_simplejwt.tokens import RefreshToken
+
+        text = self._post_note_and_get_text(
+            mock_send,
+            HTTP_HOST="app.example.com",
+            HTTP_X_TENANT="acme",
+            HTTP_AUTHORIZATION=f"Bearer {RefreshToken.for_user(self.sender).access_token}",
+        )
+
+        self.assertIn(f"Открыть запись: https://acme.example.com/app/requests/{self.request_obj.id}", text)
+        self.assertNotIn("app.example.com", text)
+
+    @override_settings(PORTAL_SHARED_HOST="app.example.com")
+    @patch("apps.modules.telegram_approvals.services.TelegramDispatcher.send")
+    def test_note_link_on_subdomain_is_unchanged(self, mock_send):
+        self.client.force_authenticate(self.sender)
+
+        text = self._post_note_and_get_text(mock_send, HTTP_HOST=self.host)
+
+        self.assertIn(f"Открыть запись: http://acme.example.com/app/requests/{self.request_obj.id}", text)
+
     def test_create_note_unauthenticated_returns_401(self):
         payload = {
             "recipient_user": self.recipient.id,

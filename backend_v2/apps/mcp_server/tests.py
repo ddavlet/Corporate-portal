@@ -715,10 +715,16 @@ class PortalRejectsMcpTokenTests(TestCase):
     def test_portal_auth_is_default(self):
         from django.conf import settings
 
+        from django.utils.module_loading import import_string
+        from apps.accounts.authentication import PortalJWTAuthentication
+
+        # The shared-host subclass keeps PortalJWTAuthentication's MCP token rejection.
         self.assertEqual(
             settings.REST_FRAMEWORK["DEFAULT_AUTHENTICATION_CLASSES"],
-            ("apps.accounts.authentication.PortalJWTAuthentication",),
+            ("apps.accounts.authentication.SharedHostPortalJWTAuthentication",),
         )
+        default_cls = import_string(settings.REST_FRAMEWORK["DEFAULT_AUTHENTICATION_CLASSES"][0])
+        self.assertTrue(issubclass(default_cls, PortalJWTAuthentication))
 
     def test_mcp_token_rejected_by_portal(self):
         from rest_framework_simplejwt.exceptions import InvalidToken

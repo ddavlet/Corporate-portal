@@ -4,7 +4,7 @@ from django.urls import path, include
 
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 
-from apps.accounts.views_otp import OtpRequestView, OtpVerifyView
+from apps.accounts.views_otp import SharedHostOtpRequestView, SharedHostOtpVerifyView
 from apps.accounts.views_password import ChangePasswordView
 from apps.accounts.views_telegram_login_widget import TelegramLoginWidgetAuthView
 from apps.accounts.views_telegram_oidc import TelegramOidcConfigView, TelegramOidcExchangeView
@@ -15,6 +15,8 @@ from apps.mcp_server.oauth.views import McpLoginView
 from apps.tenants.views import (
     AccessMatrixView,
     ModuleCatalogView,
+    MyCompaniesView,
+    PortalConfigView,
     SettingsAccessView,
     TenantMessagingWebhookView,
     TenantCashExpenseIdFormatView,
@@ -32,8 +34,8 @@ urlpatterns = [
     # JWT auth for React
     path("api/auth/token/", TokenObtainPairView.as_view(), name="token_obtain_pair"),
     path("api/auth/token/refresh/", TokenRefreshView.as_view(), name="token_refresh"),
-    path("api/auth/otp/request/", OtpRequestView.as_view(), name="otp_request"),
-    path("api/auth/otp/verify/", OtpVerifyView.as_view(), name="otp_verify"),
+    path("api/auth/otp/request/", SharedHostOtpRequestView.as_view(), name="otp_request"),
+    path("api/auth/otp/verify/", SharedHostOtpVerifyView.as_view(), name="otp_verify"),
     path("api/auth/telegram/oidc/config/", TelegramOidcConfigView.as_view(), name="telegram_oidc_config"),
     path("api/auth/telegram/oidc/exchange/", TelegramOidcExchangeView.as_view(), name="telegram_oidc_exchange"),
     path("api/auth/telegram/login-widget/", TelegramLoginWidgetAuthView.as_view(), name="telegram_login_widget_auth"),
@@ -67,6 +69,8 @@ urlpatterns = [
     path("api/tenant-integration-config/messaging-webhook/", TenantMessagingWebhookView.as_view(), name="tenant_messaging_webhook"),
     path("api/access-matrix/", AccessMatrixView.as_view(), name="admin_access_matrix"),
     path("api/settings-access/", SettingsAccessView.as_view(), name="settings_access"),
+    path("api/me/companies/", MyCompaniesView.as_view(), name="my_companies"),
+    path("api/portal/config/", PortalConfigView.as_view(), name="portal_config"),
     path("api/user-preferences/", UserPreferencesView.as_view(), name="user_preferences_bulk"),
     path("api/user-preferences/<str:key>/", UserPreferencesView.as_view(), name="user_preference_upsert"),
 

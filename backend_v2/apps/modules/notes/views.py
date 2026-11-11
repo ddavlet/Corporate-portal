@@ -1,3 +1,4 @@
+from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.utils import timezone
 from rest_framework import status
@@ -13,6 +14,7 @@ from apps.modules.telegram_approvals.models import Notification
 from apps.modules.telegram_approvals.services import TelegramDispatcher
 from apps.tenants.integration_settings import get_notes_integration_settings
 from apps.tenants.permissions import HasEffectiveModuleAccess
+from apps.tenants.shared_host import is_shared_host
 
 User = get_user_model()
 
@@ -33,6 +35,17 @@ def _target_path(*, target_type: str, target_id: int, tenant) -> str:
     elif target_type == Note.TARGET_CASH:
         template = cfg.target_path_cash
     return template.replace("{id}", str(target_id))
+
+
+def _tenant_absolute_url(*, request, tenant, path: str) -> str:
+    """Link for the Telegram message: on the shared portal host it points to the tenant subdomain
+    (as telegram_approvals/formatter.py does), since the shared host needs a selected company.
+    Elsewhere (tenant subdomains) it is built from the request as before."""
+    base_domain = (getattr(settings, "BASE_DOMAIN", "") or "").strip().lower().lstrip(".")
+    subdomain = (getattr(tenant, "subdomain", "") or "").strip()
+    if is_shared_host(request) and base_domain and subdomain:
+        return f"https://{subdomain}.{base_domain}/{path.lstrip('/')}"
+    return request.build_absolute_uri(path)
 
 
 def _send_note_via_gateway(*, bot_token: str, chat_id: int, text: str, tenant):
@@ -84,7 +97,11 @@ class NotesCreateView(APIView):
         sender_name = (request.user.full_name or "").strip() or request.user.username
         recipient_name = (recipient.full_name or "").strip() or recipient.username
         target_label = _target_label(note.target_type, note.target_id)
-        target_url = request.build_absolute_uri(_target_path(target_type=note.target_type, target_id=note.target_id, tenant=tenant))
+        target_url = _tenant_absolute_url(
+            request=request,
+            tenant=tenant,
+            path=_target_path(target_type=note.target_type, target_id=note.target_id, tenant=tenant),
+        )
         text = (
             "Новая заметка\n\n"
             f"От: {sender_name}\n"

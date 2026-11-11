@@ -123,3 +123,35 @@ class TelegramOidcAuthViewTests(APITestCase):
             HTTP_HOST=self.host,
         )
         self.assertEqual(res.status_code, 409)
+
+
+@override_settings(BASE_DOMAIN="example.com", PORTAL_SHARED_HOST="app.example.com", ALLOWED_HOSTS=["*"])
+class TelegramOidcSharedHostTests(APITestCase):
+    """OIDC login is only on tenant subdomains: X-Tenant never selects a client on the shared host."""
+
+    def setUp(self):
+        self.tenant = Tenant.objects.create(name="Acme", subdomain="acme", is_active=True)
+        cfg, _ = TenantIntegrationConfig.objects.get_or_create(tenant=self.tenant)
+        cfg.telegram_oidc_client_id = "123456789"
+        cfg.set_telegram_oidc_client_secret("secret-oidc")
+        cfg.telegram_oidc_redirect_uri = "https://acme.example.com/app/login"
+        cfg.save()
+
+    @patch("apps.accounts.views_telegram_oidc.exchange_code_for_tokens")
+    @patch("apps.accounts.views_telegram_oidc.get_telegram_oidc_discovery")
+    def test_config_and_exchange_are_unknown_tenant(self, m_discovery, m_exchange):
+        for headers in ({}, {"HTTP_X_TENANT": "acme"}):
+            with self.subTest(headers=headers):
+                config = self.client.get("/api/auth/telegram/oidc/config/", HTTP_HOST="app.example.com", **headers)
+                exchange = self.client.post(
+                    "/api/auth/telegram/oidc/exchange/",
+                    {"code": "abc", "code_verifier": "v", "redirect_uri": "https://acme.example.com/app/login"},
+                    format="json",
+                    HTTP_HOST="app.example.com",
+                    **headers,
+                )
+                for res in (config, exchange):
+                    self.assertEqual(res.status_code, 404)
+                    self.assertEqual(res.json(), {"detail": "Unknown tenant."})
+        m_discovery.assert_not_called()
+        m_exchange.assert_not_called()

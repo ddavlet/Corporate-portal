@@ -5,7 +5,7 @@ from collections import defaultdict
 import requests
 from django.conf import settings
 from django.db import transaction
-from rest_framework.permissions import IsAuthenticated
+from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status
@@ -36,6 +36,7 @@ from apps.tenants.serializers import (
     TenantUserPreferenceSerializer,
 )
 from apps.tenants.integration_settings import get_requests_gateway_settings
+from apps.tenants.shared_host import member_tenants, shared_host
 
 from apps.modules.registry import list_modules
 
@@ -376,6 +377,45 @@ class SettingsAccessView(APIView):
                 "roles": sorted(list(roles)),
             }
         )
+
+
+class MyCompaniesView(APIView):
+    """Companies of the requesting user for the shared portal switcher, with action-item counters.
+
+    Needs no company (tenantless path on the shared host). A counter that fails is 0 and logged.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        tenants = list(member_tenants(user=request.user))
+        counts: dict[int, int] = {}
+        try:
+            # Optional module: the list must work even if notifications is broken or removed.
+            from apps.modules.notifications.services import collect_action_items_by_tenant
+
+            for tenant, items in collect_action_items_by_tenant(user=request.user, tenants=tenants):
+                counts[tenant.id] = len(items)
+        except Exception:
+            logger.exception("my companies: action items counters failed user_id=%s", request.user.id)
+        return Response(
+            {
+                "companies": [
+                    {"subdomain": t.subdomain, "name": t.name, "action_items_count": counts.get(t.id, 0)}
+                    for t in tenants
+                ]
+            }
+        )
+
+
+class PortalConfigView(APIView):
+    """Public portal mode for the SPA: the shared host name or null when the mode is off."""
+
+    permission_classes = [AllowAny]
+    authentication_classes = []
+
+    def get(self, request):
+        return Response({"shared_host": shared_host() or None})
 
 
 class UserPreferencesView(APIView):
