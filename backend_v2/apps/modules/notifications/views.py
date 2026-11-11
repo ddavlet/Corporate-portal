@@ -3,8 +3,8 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from apps.modules.notifications.serializers import ActionItemSerializer
-from apps.modules.notifications.services import collect_action_items
+from apps.modules.notifications.serializers import ActionItemSerializer, TenantActionItemSerializer
+from apps.modules.notifications.services import collect_action_items, collect_all_action_items
 from apps.tenants.models import TenantMembership
 
 
@@ -24,3 +24,16 @@ class ActionItemsView(APIView):
             return Response({"detail": "Forbidden"}, status=status.HTTP_403_FORBIDDEN)
         items = collect_action_items(tenant=tenant, user=request.user)
         return Response({"count": len(items), "items": ActionItemSerializer(items, many=True).data})
+
+
+class AllActionItemsView(APIView):
+    """Action items across all companies of the requesting user (shared portal host).
+
+    Needs no company: only the user's active memberships in active tenants are read.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        items = collect_all_action_items(user=request.user)
+        return Response({"count": len(items), "items": TenantActionItemSerializer(items, many=True).data})

@@ -9,9 +9,14 @@ from rest_framework.test import APITestCase
 from django.contrib.auth import get_user_model
 from rest_framework_simplejwt.tokens import RefreshToken
 
-from config.settings import _allowed_hosts_from_env
+from config.settings import _allowed_hosts_from_env, _portal_shared_host_from_env
 
-from apps.tenants.middleware import RewriteDockerInternalHostMiddleware, TenantSubdomainMiddleware
+from apps.tenants.middleware import (
+    RewriteDockerInternalHostMiddleware,
+    SharedHostTenantMiddleware,
+    TenantSubdomainMiddleware,
+)
+from apps.tenants import shared_host as sh
 from apps.tenants.admin import TenantAdminForm
 from apps.tenants.models import (
     Tenant,
@@ -129,6 +134,37 @@ class TenantAdminFormTests(TestCase):
 
         mocked_post.assert_called_once()
         self.assertEqual(mocked_post.call_args.kwargs["json"]["bot_token"], "123456:abcdef")
+
+
+    def _form_data(self, subdomain):
+        return {
+            "name": "Reserved",
+            "subdomain": subdomain,
+            "is_active": "on",
+            "telegram_otp_enabled": "",
+            "telegram_bot_token": "",
+            "telegram_bot_username": "",
+            "enabled_modules": ["requests"],
+        }
+
+    def test_rejects_reserved_app_subdomain(self):
+        form = TenantAdminForm(data=self._form_data("app"))
+
+        self.assertFalse(form.is_valid())
+        self.assertIn("subdomain", form.errors)
+
+    @override_settings(PORTAL_SHARED_HOST="portal.kolberg.uz")
+    def test_rejects_first_label_of_shared_host(self):
+        form = TenantAdminForm(data=self._form_data("portal"))
+
+        self.assertFalse(form.is_valid())
+        self.assertIn("subdomain", form.errors)
+
+    def test_existing_tenant_with_reserved_slug_stays_editable(self):
+        tenant = Tenant.objects.create(name="Legacy", subdomain="app", is_active=True)
+        form = TenantAdminForm(instance=tenant, data=self._form_data("app"))
+
+        self.assertTrue(form.is_valid(), form.errors)
 
 
 @override_settings(BASE_DOMAIN="example.com", TENANT_SUBDOMAIN_FALLBACK=True, ALLOWED_HOSTS=["*"])
@@ -719,6 +755,42 @@ class AllowedHostsEnvTests(SimpleTestCase):
             self.assertIn("backend_v2", got)
             self.assertIn("kolberg-django-v2", got)
 
+    def test_restricted_list_includes_shared_portal_host(self):
+        with patch.dict(
+            os.environ,
+            {"DJANGO_ALLOWED_HOSTS": "neuron.kolberg.uz", "PORTAL_SHARED_HOST": " App.Kolberg.uz:443 "},
+            clear=False,
+        ):
+            got = _allowed_hosts_from_env()
+        self.assertEqual(got[0], "neuron.kolberg.uz")
+        self.assertIn("app.kolberg.uz", got)
+
+    def test_empty_shared_host_adds_nothing(self):
+        with patch.dict(
+            os.environ, {"DJANGO_ALLOWED_HOSTS": "neuron.kolberg.uz", "PORTAL_SHARED_HOST": ""}, clear=False
+        ):
+            got = _allowed_hosts_from_env()
+        self.assertEqual(got, ["neuron.kolberg.uz", "django_v2", "backend_v2", "kolberg-django-v2"])
+
+    def test_wildcard_stays_wildcard_with_shared_host(self):
+        with patch.dict(os.environ, {"DJANGO_ALLOWED_HOSTS": "", "PORTAL_SHARED_HOST": "app.kolberg.uz"}, clear=False):
+            self.assertEqual(_allowed_hosts_from_env(), ["*"])
+
+    def test_shared_host_written_as_url_gives_its_host(self):
+        for raw in ("https://App.Kolberg.uz", "https://app.kolberg.uz:443/", "app.kolberg.uz/app", "http://app.kolberg.uz/x"):
+            with self.subTest(raw=raw), patch.dict(
+                os.environ, {"DJANGO_ALLOWED_HOSTS": "neuron.kolberg.uz", "PORTAL_SHARED_HOST": raw}, clear=False
+            ):
+                self.assertEqual(_portal_shared_host_from_env(), "app.kolberg.uz")
+                got = _allowed_hosts_from_env()
+                self.assertIn("app.kolberg.uz", got)
+                self.assertNotIn("https", got)
+                self.assertNotIn("http", got)
+
+    def test_shared_host_url_without_host_disables_mode(self):
+        with patch.dict(os.environ, {"PORTAL_SHARED_HOST": "https://"}, clear=False):
+            self.assertEqual(_portal_shared_host_from_env(), "")
+
 
 class SyncTelegramBotCommandsCommandTests(TestCase):
     def setUp(self):
@@ -757,3 +829,235 @@ class SyncTelegramBotCommandsCommandTests(TestCase):
 
         mocked_post.assert_called_once()
 
+
+
+@override_settings(BASE_DOMAIN="example.com", ALLOWED_HOSTS=["*"])
+class SharedHostHelpersTests(TestCase):
+    def setUp(self):
+        self.factory = RequestFactory()
+
+    def _req(self, host, path="/api/requests/"):
+        return self.factory.get(path, HTTP_HOST=host)
+
+    @override_settings(PORTAL_SHARED_HOST="")
+    def test_empty_setting_disables_everything(self):
+        self.assertEqual(sh.shared_host(), "")
+        self.assertFalse(sh.is_shared_host(self._req("app.example.com")))
+        self.assertEqual(sh.reserved_subdomains(), frozenset({"app"}))
+
+    @override_settings(PORTAL_SHARED_HOST="app.example.com")
+    def test_port_and_case_are_ignored(self):
+        self.assertTrue(sh.is_shared_host(self._req("APP.Example.com:8443")))
+
+    @override_settings(PORTAL_SHARED_HOST="portal.other.org")
+    def test_host_outside_base_domain(self):
+        self.assertTrue(sh.is_shared_host(self._req("portal.other.org")))
+        self.assertFalse(sh.is_shared_host(self._req("app.example.com")))
+        self.assertEqual(sh.reserved_subdomains(), frozenset({"app", "portal"}))
+
+    @override_settings(PORTAL_SHARED_HOST="app.example.com")
+    def test_exact_match_only(self):
+        for host in ("x.app.example.com", "app.example.com.evil.org", "acme.example.com", "example.com"):
+            with self.subTest(host=host):
+                self.assertFalse(sh.is_shared_host(self._req(host)))
+
+    def test_excluded_and_tenantless_paths(self):
+        for path in (
+            "/api/messaging-gateway/webhook/",
+            "/api/messaging-gateway/events/",
+            "/api/admin/",
+            "/mcp",
+            "/mcp/login/",
+            "/.well-known/oauth-authorization-server",
+            "/api/n8n/vendors/",
+        ):
+            with self.subTest(path=path):
+                self.assertTrue(sh.is_excluded_path(path))
+        for path in (
+            "/api/messaging-gateway/chats/",
+            "/api/messaging-gateway/bot-setup/",
+            "/api/requests/",
+            "/api/mcpx/",
+            "/api/administrator/",
+        ):
+            with self.subTest(path=path):
+                self.assertFalse(sh.is_excluded_path(path))
+        for path in (
+            "/api/auth/token/",
+            "/api/me/companies/",
+            "/api/notifications/action-items/all/",
+            "/api/portal/config/",
+            "/api/investments/public/payout-schedule/x/",
+        ):
+            with self.subTest(path=path):
+                self.assertTrue(sh.is_tenantless_path(path))
+        for path in ("/api/notifications/action-items/", "/api/investments/", "/api/requests/"):
+            with self.subTest(path=path):
+                self.assertFalse(sh.is_tenantless_path(path))
+
+    def test_excluded_prefix_requires_path_boundary(self):
+        for path in ("/mcpx", "/api/adminx/", "/.well-knownx", "/api/messaging-gateway/webhooks/"):
+            with self.subTest(path=path):
+                self.assertFalse(sh.is_excluded_path(path))
+        self.assertFalse(sh.is_excluded_path(""))
+
+    def test_resolve_member_tenant(self):
+        user = User.objects.create_user(username="sh-helper", password="x")
+        active = Tenant.objects.create(name="A", subdomain="sh-active", is_active=True)
+        inactive = Tenant.objects.create(name="B", subdomain="sh-inactive", is_active=False)
+        left = Tenant.objects.create(name="C", subdomain="sh-left", is_active=True)
+        Tenant.objects.create(name="D", subdomain="sh-foreign", is_active=True)
+        TenantMembership.objects.create(tenant=active, user=user, is_active=True)
+        TenantMembership.objects.create(tenant=inactive, user=user, is_active=True)
+        TenantMembership.objects.create(tenant=left, user=user, is_active=False)
+
+        cases = (("SH-Active", active), ("sh-inactive", None), ("sh-left", None), ("sh-foreign", None))
+        for subdomain, expected in cases:
+            with self.subTest(subdomain=subdomain), self.assertNumQueries(1):
+                self.assertEqual(sh.resolve_member_tenant(subdomain=subdomain, user=user), expected)
+
+    def test_member_tenants(self):
+        user = User.objects.create_user(username="sh-members", password="x")
+        beta = Tenant.objects.create(name="Beta", subdomain="sh-m-beta", is_active=True)
+        alpha = Tenant.objects.create(name="Alpha", subdomain="sh-m-alpha", is_active=True)
+        inactive = Tenant.objects.create(name="Inactive", subdomain="sh-m-inactive", is_active=False)
+        left = Tenant.objects.create(name="Left", subdomain="sh-m-left", is_active=True)
+        Tenant.objects.create(name="Foreign", subdomain="sh-m-foreign", is_active=True)
+        for tenant in (beta, alpha, inactive):
+            TenantMembership.objects.create(tenant=tenant, user=user, is_active=True)
+        TenantMembership.objects.create(tenant=left, user=user, is_active=False)
+
+        self.assertEqual(list(sh.member_tenants(user=user)), [alpha, beta])
+
+    @override_settings(PORTAL_SHARED_HOST="portal.example.com")
+    def test_reserved_tenants_in_use(self):
+        Tenant.objects.create(name="Portal", subdomain="portal", is_active=True)
+        Tenant.objects.create(name="App", subdomain="app", is_active=True)
+        Tenant.objects.create(name="Off", subdomain="sh-off", is_active=False)
+
+        self.assertEqual(sh.reserved_tenants_in_use(), ["app", "portal"])
+
+    def test_validate_subdomain_not_reserved(self):
+        from django.core.exceptions import ValidationError
+
+        with self.assertRaises(ValidationError):
+            sh.validate_subdomain_not_reserved("App")
+        sh.validate_subdomain_not_reserved("acme")
+
+
+@override_settings(BASE_DOMAIN="example.com", PORTAL_SHARED_HOST="app.example.com", ALLOWED_HOSTS=["*"])
+class SharedHostTenantMiddlewareTests(TestCase):
+    def setUp(self):
+        self.factory = RequestFactory()
+        self.lemonfit = Tenant.objects.create(name="Lemonfit", subdomain="lemonfit", is_active=True)
+        Tenant.objects.create(name="Lemonaqua", subdomain="lemonaqua", is_active=True)
+        self.mw = SharedHostTenantMiddleware(lambda request: request)
+
+    def _call(self, path, host="app.example.com", **headers):
+        return self.mw(self.factory.get(path, HTTP_HOST=host, **headers))
+
+    @override_settings(PORTAL_SHARED_HOST="")
+    def test_empty_setting_keeps_unknown_tenant_404(self):
+        with self.assertRaises(Http404):
+            self._call("/api/requests/", HTTP_X_TENANT="lemonfit")
+
+    def test_shared_host_keeps_header_without_tenant(self):
+        res = self._call("/api/requests/", HTTP_X_TENANT=" LemonFit ")
+
+        self.assertIsNone(res.tenant)
+        self.assertTrue(res.portal_shared_host)
+        self.assertEqual(res.tenant_header, "lemonfit")
+
+    def test_auth_token_path_passes_without_header(self):
+        res = self._call("/api/auth/token/")
+
+        self.assertIsNone(res.tenant)
+        self.assertEqual(res.tenant_header, "")
+
+    def test_integration_paths_are_unknown_tenant(self):
+        for path in ("/api/admin/", "/mcp", "/mcp/login/", "/.well-known/oauth-x"):
+            with self.subTest(path=path), self.assertRaises(Http404):
+                self._call(path, HTTP_X_TENANT="lemonfit")
+
+    def test_reserved_tenant_is_never_resolved_by_shared_host_name(self):
+        Tenant.objects.create(name="App", subdomain="app", is_active=True)
+
+        with self.assertLogs("apps.tenants.middleware", level="ERROR"), self.assertRaises(Http404):
+            self._call("/api/admin/")
+        res = self._call("/api/requests/")
+        self.assertIsNone(res.tenant)
+
+    def test_reserved_tenant_error_is_logged_once_per_process(self):
+        Tenant.objects.create(name="App", subdomain="app", is_active=True)
+
+        with self.assertLogs("apps.tenants.middleware", level="ERROR") as logs:
+            self._call("/api/requests/")
+        self.assertEqual(len(logs.output), 1)
+        with self.assertNoLogs("apps.tenants.middleware", level="ERROR"):
+            self._call("/api/requests/")
+
+    def test_webhook_passes_without_tenant(self):
+        for path in ("/api/messaging-gateway/webhook/", "/api/messaging-gateway/events/"):
+            with self.subTest(path=path):
+                res = self._call(path, HTTP_X_TENANT="lemonfit")
+                self.assertFalse(hasattr(res, "tenant"))
+
+    def test_telegram_chats_use_header_branch(self):
+        for path in ("/api/messaging-gateway/chats/", "/api/messaging-gateway/bot-setup/"):
+            with self.subTest(path=path):
+                res = self._call(path, HTTP_X_TENANT="lemonfit")
+                self.assertIsNone(res.tenant)
+                self.assertEqual(res.tenant_header, "lemonfit")
+
+    def test_subdomain_ignores_mismatching_header_with_one_warning(self):  # crit. 6
+        with self.assertLogs("apps.tenants.middleware", level="WARNING") as logs:
+            res = self._call("/api/requests/", host="lemonfit.example.com", HTTP_X_TENANT="lemonaqua")
+
+        self.assertEqual(res.tenant, self.lemonfit)
+        self.assertEqual(len(logs.output), 1)
+        self.assertIn("header='lemonaqua'", logs.output[0])
+
+    def test_logged_header_is_clipped_and_quoted(self):
+        with self.assertLogs("apps.tenants.middleware", level="WARNING") as logs:
+            self._call("/api/requests/", host="lemonfit.example.com", HTTP_X_TENANT="x" * 500)
+
+        self.assertIn("header='" + "x" * 64 + "'", logs.output[0])
+        self.assertNotIn("x" * 65, logs.output[0])
+
+    @override_settings(PORTAL_SHARED_HOST="")
+    def test_mode_off_does_not_log_header(self):
+        with self.assertNoLogs("apps.tenants.middleware", level="WARNING"):
+            res = self._call("/api/requests/", host="lemonfit.example.com", HTTP_X_TENANT="lemonaqua")
+
+        self.assertEqual(res.tenant, self.lemonfit)
+
+    def test_subdomain_with_matching_header_does_not_warn(self):
+        with self.assertNoLogs("apps.tenants.middleware", level="WARNING"):
+            res = self._call("/api/requests/", host="lemonfit.example.com", HTTP_X_TENANT="lemonfit")
+
+        self.assertEqual(res.tenant, self.lemonfit)
+        self.assertFalse(hasattr(res, "portal_shared_host"))
+
+
+@override_settings(BASE_DOMAIN="example.com", ALLOWED_HOSTS=["*"])
+class ReservedSubdomainCheckTests(TestCase):
+    def _run(self):
+        from apps.tenants.checks import check_reserved_subdomains_unused
+
+        return check_reserved_subdomains_unused()
+
+    def test_no_warning_without_reserved_tenant(self):
+        Tenant.objects.create(name="Acme", subdomain="acme-check", is_active=True)
+
+        self.assertEqual(self._run(), [])
+
+    @override_settings(PORTAL_SHARED_HOST="portal.example.com")
+    def test_warns_about_active_tenant_with_reserved_slug(self):
+        Tenant.objects.create(name="Portal", subdomain="portal", is_active=True)
+        Tenant.objects.create(name="App", subdomain="app", is_active=False)
+
+        warnings = self._run()
+
+        self.assertEqual([w.id for w in warnings], ["tenants.W001"])
+        self.assertIn("portal", warnings[0].msg)
+        self.assertNotIn("app", warnings[0].msg.split(":")[-1])

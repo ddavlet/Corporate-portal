@@ -126,3 +126,31 @@ class TelegramLoginWidgetAuthViewTests(APITestCase):
             HTTP_HOST=self.host,
         )
         self.assertEqual(res.status_code, 409)
+
+
+@override_settings(BASE_DOMAIN="example.com", PORTAL_SHARED_HOST="app.example.com", ALLOWED_HOSTS=["*"])
+class TelegramLoginWidgetSharedHostTests(APITestCase):
+    """Login Widget is only on tenant subdomains: X-Tenant never selects a bot on the shared host."""
+
+    def setUp(self):
+        self.tenant = Tenant.objects.create(
+            name="Acme", subdomain="acme", is_active=True, telegram_bot_username="acme_bot"
+        )
+        self.tenant.set_telegram_bot_token("123456:ABC-DEF_fake_token_for_tests")
+        self.tenant.save(update_fields=["telegram_bot_token_enc"])
+
+    def test_get_and_post_are_unknown_tenant(self):
+        auth_data = _signed_auth_data(bot_token=self.tenant.get_telegram_bot_token(), user_id=424242)
+        for headers in ({}, {"HTTP_X_TENANT": "acme"}):
+            with self.subTest(headers=headers):
+                get = self.client.get("/api/auth/telegram/login-widget/", HTTP_HOST="app.example.com", **headers)
+                post = self.client.post(
+                    "/api/auth/telegram/login-widget/",
+                    {"auth_data": auth_data},
+                    format="json",
+                    HTTP_HOST="app.example.com",
+                    **headers,
+                )
+                for res in (get, post):
+                    self.assertEqual(res.status_code, 404)
+                    self.assertEqual(res.json(), {"detail": "Unknown tenant."})

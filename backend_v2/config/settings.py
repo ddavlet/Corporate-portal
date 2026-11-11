@@ -1,6 +1,7 @@
 from pathlib import Path
 import os
 import sys
+from urllib.parse import urlsplit
 
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
@@ -23,18 +24,37 @@ DOCKER_INTERNAL_BACKEND_DNS_NAME = (
 )
 
 
+def _portal_shared_host_from_env() -> str:
+    """Shared portal host (e.g. ``app.kolberg.uz``): one address for all companies, the company comes
+    from the ``X-Tenant`` header (apps/tenants/shared_host.py). Empty means the mode is off.
+    Normalized to lower case without scheme, path, port and trailing dot; it may lie outside
+    ``BASE_DOMAIN``. A value written as a URL (``https://app.kolberg.uz/``) gives its host.
+    """
+    raw = (os.getenv("PORTAL_SHARED_HOST", "") or "").strip().lower()
+    if "://" in raw:
+        raw = urlsplit(raw).hostname or ""
+    raw = raw.split("/")[0]
+    return raw.split(":")[0].strip().rstrip(".")
+
+
+PORTAL_SHARED_HOST = _portal_shared_host_from_env()
+
+
 def _allowed_hosts_from_env() -> list[str]:
     """Hosts Django accepts on incoming requests.
 
     Internal callbacks (tg-gateway → backend) use Docker DNS. Legacy names ``django_v2`` /
     ``backend_v2`` are kept in this list for compatibility; ``RewriteDockerInternalHostMiddleware``
     rewrites them to :attr:`DOCKER_INTERNAL_BACKEND_DNS_NAME`, which must also be allowed here.
+    An explicit list also gets the shared portal host (``PORTAL_SHARED_HOST``), if set.
     """
     hosts = [h for h in os.getenv("DJANGO_ALLOWED_HOSTS", "").split(",") if h] or ["*"]
     if "*" in hosts:
         return hosts
     internal_service_hosts = ("django_v2", "backend_v2", DOCKER_INTERNAL_BACKEND_DNS_NAME)
-    return list(dict.fromkeys(list(hosts) + list(internal_service_hosts)))
+    shared_host = _portal_shared_host_from_env()
+    extra_hosts = [shared_host] if shared_host else []
+    return list(dict.fromkeys(list(hosts) + list(internal_service_hosts) + extra_hosts))
 
 
 ALLOWED_HOSTS = _allowed_hosts_from_env()
@@ -98,7 +118,8 @@ MIDDLEWARE = [
 
     # n8n internal API: tenant from Host subdomain (before TenantSubdomainMiddleware).
     "apps.modules.n8n_integration.middleware.N8nIntegrationTenantMiddleware",
-    "apps.tenants.middleware.TenantSubdomainMiddleware",
+    # TenantSubdomainMiddleware + shared portal host (PORTAL_SHARED_HOST); same behavior when it is empty.
+    "apps.tenants.middleware.SharedHostTenantMiddleware",
 ]
 
 ROOT_URLCONF = "config.urls"
@@ -222,7 +243,8 @@ AUTH_USER_MODEL = "accounts.User"
 # DRF + JWT
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": (
-        "apps.accounts.authentication.PortalJWTAuthentication",
+        # PortalJWTAuthentication + membership check for the X-Tenant company on the shared host.
+        "apps.accounts.authentication.SharedHostPortalJWTAuthentication",
     ),
     "DEFAULT_PERMISSION_CLASSES": (
         "rest_framework.permissions.IsAuthenticated",

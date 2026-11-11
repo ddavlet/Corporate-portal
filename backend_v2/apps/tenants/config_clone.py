@@ -30,10 +30,12 @@ import re
 from dataclasses import dataclass, field
 
 from django.apps import apps as django_apps
+from django.core.exceptions import ValidationError
 from django.db import transaction
 from django.utils.module_loading import import_string
 
 from apps.tenants.models import Tenant, TenantMembership, TenantModuleConfig, TenantUserRole
+from apps.tenants.shared_host import validate_subdomain_not_reserved
 
 logger = logging.getLogger(__name__)
 
@@ -128,6 +130,10 @@ def _resolve_target(*, subdomain: str, name: str | None) -> tuple[Tenant, bool]:
         return target, False
     if not name:
         raise ValueError(f"Tenant {subdomain!r} not found — pass a name to create it.")
+    try:
+        validate_subdomain_not_reserved(subdomain)
+    except ValidationError as exc:
+        raise ValueError(f"Subdomain {subdomain!r} is reserved for the shared portal host.") from exc
     return Tenant.objects.create(subdomain=subdomain, name=name, is_active=True), True
 
 

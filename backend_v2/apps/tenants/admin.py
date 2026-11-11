@@ -11,6 +11,7 @@ from apps.tenants.models import (
     TenantModuleConfig,
     TenantUserRole,
 )
+from apps.tenants.shared_host import validate_subdomain_not_reserved
 from apps.tenants.views import sync_telegram_bot_commands
 
 
@@ -51,6 +52,13 @@ class TenantAdminForm(forms.ModelForm):
             "telegram_bot_username",
             "enabled_modules",
         ]
+
+    def clean_subdomain(self):
+        value = self.cleaned_data.get("subdomain")
+        # An existing tenant keeps its slug editable; only new/changed slugs are checked.
+        if not (self.instance and self.instance.pk and self.instance.subdomain == value):
+            validate_subdomain_not_reserved(value)
+        return value
 
     def clean(self):
         cleaned = super().clean()

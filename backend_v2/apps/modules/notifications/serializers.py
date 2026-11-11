@@ -14,3 +14,12 @@ class ActionItemSerializer(serializers.Serializer):
     type_label = serializers.CharField(allow_blank=True)
     created_at = serializers.DateTimeField()
     link = serializers.CharField()
+
+
+class ActionItemTenantSerializer(serializers.Serializer):
+    subdomain = serializers.CharField()
+    name = serializers.CharField()
+
+
+class TenantActionItemSerializer(ActionItemSerializer):
+    tenant = ActionItemTenantSerializer()

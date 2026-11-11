@@ -2,13 +2,14 @@ import hashlib
 import json
 import logging
 import os
-import random
+import secrets
 from datetime import timedelta
 
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.contrib.auth.hashers import check_password, make_password
 from django.core.cache import cache
+from django.db.models import F
 from django.utils import timezone
 from rest_framework import status
 from rest_framework.permissions import AllowAny
@@ -19,6 +20,7 @@ from rest_framework_simplejwt.tokens import RefreshToken
 from apps.accounts.models import OtpChallenge
 from apps.modules.telegram_approvals.services import get_tenant_bot_token, post_messaging_gateway
 from apps.tenants.models import TenantMembership, TenantUserRole
+from apps.tenants.shared_host import is_shared_host, member_tenants
 
 logger = logging.getLogger(__name__)
 
@@ -47,6 +49,11 @@ def _tenant_user(tenant, username):
 
 def _otp_cache_key(tenant_id: int, username: str, ip: str):
     return f"otp:req:{tenant_id}:{username.lower()}:{ip or 'na'}"
+
+
+def _generate_code() -> str:
+    """OTP_DIGITS decimal digits from a CSPRNG, zero-padded."""
+    return str(secrets.randbelow(10**OTP_DIGITS)).zfill(OTP_DIGITS)
 
 
 def _hash_code(code: str):
@@ -153,7 +160,7 @@ class OtpRequestView(APIView):
         if not bot_token or not user.telegram_chat_id:
             return Response({"detail": "OTP недоступен для этого пользователя."}, status=status.HTTP_400_BAD_REQUEST)
 
-        code = "".join(str(random.randint(0, 9)) for _ in range(OTP_DIGITS))
+        code = _generate_code()
         expires_at = timezone.now() + timedelta(seconds=OTP_TTL_SECONDS)
         OtpChallenge.objects.create(
             user=user,
@@ -212,23 +219,153 @@ class OtpVerifyView(APIView):
             .order_by("-created_at")
             .first()
         )
-        if not challenge:
-            return Response({"detail": "Неверный код."}, status=status.HTTP_400_BAD_REQUEST)
-        if challenge.expires_at < timezone.now():
-            return Response({"detail": "Срок действия кода истек."}, status=status.HTTP_400_BAD_REQUEST)
-        if challenge.attempts >= OTP_MAX_ATTEMPTS:
-            return Response({"detail": "Превышено число попыток. Запросите новый код."}, status=status.HTTP_400_BAD_REQUEST)
+        return _verify_challenge_response(user=user, challenge=challenge, code=code)
 
-        if not _check_code(code, challenge.code_hash):
-            challenge.attempts += 1
-            challenge.save(update_fields=["attempts"])
-            return Response({"detail": "Неверный код."}, status=status.HTTP_400_BAD_REQUEST)
 
-        challenge.consumed_at = timezone.now()
-        challenge.save(update_fields=["consumed_at"])
+def _verify_challenge_response(*, user, challenge, code: str) -> Response:
+    """Shared OTP checks (expiry, attempts, code); consumes the challenge and issues JWT on success.
 
-        refresh = RefreshToken.for_user(user)
-        return Response(
-            {"access": str(refresh.access_token), "refresh": str(refresh)},
-            status=status.HTTP_200_OK,
+    Every check counts as an attempt, reserved by a conditional UPDATE before the code is
+    compared, and the challenge is consumed by a conditional UPDATE too: parallel requests
+    cannot exceed OTP_MAX_ATTEMPTS or use one code twice (the loaded row may be stale).
+    """
+    if not challenge:
+        return Response({"detail": "Неверный код."}, status=status.HTTP_400_BAD_REQUEST)
+    if challenge.expires_at < timezone.now():
+        return Response({"detail": "Срок действия кода истек."}, status=status.HTTP_400_BAD_REQUEST)
+    if challenge.attempts >= OTP_MAX_ATTEMPTS:
+        return Response({"detail": "Превышено число попыток. Запросите новый код."}, status=status.HTTP_400_BAD_REQUEST)
+
+    reserved = OtpChallenge.objects.filter(
+        pk=challenge.pk, consumed_at__isnull=True, attempts__lt=OTP_MAX_ATTEMPTS
+    ).update(attempts=F("attempts") + 1)
+    if not reserved:
+        return Response({"detail": "Превышено число попыток. Запросите новый код."}, status=status.HTTP_400_BAD_REQUEST)
+
+    if not _check_code(code, challenge.code_hash):
+        return Response({"detail": "Неверный код."}, status=status.HTTP_400_BAD_REQUEST)
+
+    consumed = OtpChallenge.objects.filter(pk=challenge.pk, consumed_at__isnull=True).update(consumed_at=timezone.now())
+    if not consumed:
+        return Response({"detail": "Неверный код."}, status=status.HTTP_400_BAD_REQUEST)
+
+    refresh = RefreshToken.for_user(user)
+    return Response(
+        {"access": str(refresh.access_token), "refresh": str(refresh)},
+        status=status.HTTP_200_OK,
+    )
+
+
+def _shared_otp_cache_key(username: str, ip: str) -> str:
+    return f"otp:req:shared:{username.lower()}:{ip or 'na'}"
+
+
+def _shared_otp_senders(user) -> list[tuple]:
+    """(tenant, bot_token) of the user's active companies with OTP and a bot, by name."""
+    senders = []
+    for tenant in member_tenants(user=user).filter(telegram_otp_enabled=True):
+        bot_token = get_tenant_bot_token(tenant)
+        if bot_token:
+            senders.append((tenant, bot_token))
+    return senders
+
+
+class SharedHostOtpRequestView(OtpRequestView):
+    """OTP request; on the shared portal host it needs no company.
+
+    The code is sent by the bot of the user's first company (by name) with OTP and a bot; if
+    that bot fails, the next such company is tried. One challenge is created per request.
+    Unknown user, no suitable company, the request window being exhausted and gateway
+    failures all give the same 200 answer, so the response does not reveal the user or their
+    companies; failures go to the log only. Response time still differs (the gateway call
+    is synchronous).
+    """
+
+    def post(self, request):
+        if not is_shared_host(request):
+            return super().post(request)
+
+        username = str(request.data.get("username", "")).strip()
+        ip = request.META.get("HTTP_X_REAL_IP") or request.META.get("REMOTE_ADDR") or ""
+        if not username:
+            return Response(_public_ok_message(), status=status.HTTP_200_OK)
+
+        # Cooldown before the user lookup: the same 429 for existing and unknown users.
+        key = _shared_otp_cache_key(username, ip)
+        if cache.get(key):
+            return Response({"detail": "Повторите запрос позже."}, status=status.HTTP_429_TOO_MANY_REQUESTS)
+        cache.set(key, "1", timeout=OTP_RESEND_COOLDOWN_SECONDS)
+        window_start = timezone.now() - timedelta(seconds=OTP_REQUEST_WINDOW_SECONDS)
+        recent_count = OtpChallenge.objects.filter(user__username=username, created_at__gte=window_start).count()
+        if recent_count >= OTP_REQUEST_MAX_IN_WINDOW:
+            # Only a real user can fill the window, so a distinct answer would reveal them.
+            logger.warning("shared-host OTP request window exhausted")
+            return Response(_public_ok_message(), status=status.HTTP_200_OK)
+
+        user = User.objects.filter(username=username).first()
+        if not user or not user.telegram_chat_id:
+            return Response(_public_ok_message(), status=status.HTTP_200_OK)
+        senders = _shared_otp_senders(user)
+        if not senders:
+            return Response(_public_ok_message(), status=status.HTTP_200_OK)
+
+        code = _generate_code()
+        challenge = OtpChallenge.objects.create(
+            user=user,
+            tenant=senders[0][0],
+            code_hash=_hash_code(code),
+            expires_at=timezone.now() + timedelta(seconds=OTP_TTL_SECONDS),
+            created_ip=ip or None,
         )
+        message = (
+            "Код подтверждения входа:\n"
+            f"<code>{code}</code>\n\n"
+            "Срок действия — 5 минут."
+        )
+        for tenant, bot_token in senders:
+            try:
+                sent, gateway_status, _ = _send_otp_via_gateway(
+                    tenant=tenant,
+                    bot_token=bot_token,
+                    chat_id=int(user.telegram_chat_id),
+                    text=message,
+                )
+                if not sent:
+                    raise RuntimeError(f"messaging gateway did not deliver OTP (status={gateway_status})")
+            except Exception:
+                # Same answer as success: the response must not reveal the user's companies.
+                logger.exception("shared-host OTP send failed tenant_id=%s user_id=%s", tenant.id, user.id)
+                continue
+            if tenant.pk != challenge.tenant_id:
+                # The challenge belongs to the company whose bot delivered the code.
+                OtpChallenge.objects.filter(pk=challenge.pk).update(tenant=tenant)
+            break
+        return Response(_public_ok_message(), status=status.HTTP_200_OK)
+
+
+class SharedHostOtpVerifyView(OtpVerifyView):
+    """OTP verify; on the shared portal host the challenge of any active company of the user counts."""
+
+    def post(self, request):
+        if not is_shared_host(request):
+            return super().post(request)
+
+        username = str(request.data.get("username", "")).strip()
+        code = str(request.data.get("code", "")).strip()
+        if not username or not code:
+            return Response({"detail": "Неверный код."}, status=status.HTTP_400_BAD_REQUEST)
+        user = User.objects.filter(username=username).first()
+        if not user:
+            return Response({"detail": "Неверный код."}, status=status.HTTP_400_BAD_REQUEST)
+        challenge = (
+            OtpChallenge.objects.filter(
+                user=user,
+                consumed_at__isnull=True,
+                tenant__is_active=True,
+                tenant__memberships__user=user,
+                tenant__memberships__is_active=True,
+            )
+            .order_by("-created_at")
+            .first()
+        )
+        return _verify_challenge_response(user=user, challenge=challenge, code=code)

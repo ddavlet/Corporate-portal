@@ -6,7 +6,7 @@ tenant without its data, never overwriting what the target already has.
 from io import StringIO
 
 from django.contrib.auth import get_user_model
-from django.core.management import call_command
+from django.core.management import CommandError, call_command
 from django.test import TestCase
 
 from apps.modules.cash_withdrawals.models import CashWithdrawalConfig, CashWithdrawalConfirmer
@@ -227,6 +227,16 @@ class CloneTenantConfigTests(TestCase):
         self.assertIn("Модуль requests включён", out.getvalue())
         self.assertIn("Dry run complete", out.getvalue())
         self.assertFalse(Tenant.objects.filter(subdomain="clone-new").exists())
+
+    def test_reserved_shared_host_subdomain_is_not_created(self):
+        with self.assertRaises(ValueError):
+            clone_tenant_config(
+                source=self.source, target_subdomain="app", target_name="App", with_members=False, apply_changes=True,
+            )
+        with self.assertRaises(CommandError):
+            call_command("clone_tenant_config", "--source=clone-src", "--target=app", "--name=App", "--apply")
+
+        self.assertFalse(Tenant.objects.filter(subdomain="app").exists())
 
 
 class CloneCashRegistersTests(TestCase):

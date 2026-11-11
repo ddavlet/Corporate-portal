@@ -15,7 +15,7 @@ from apps.modules.investments.models import (
     ProjectInvestment,
     ProjectInvestmentApproval,
 )
-from apps.modules.notifications.services import collect_action_items
+from apps.modules.notifications.services import collect_action_items, with_company_param
 from apps.modules.requests.models import Approval, Request
 from apps.tenants.models import Tenant, TenantMembership, TenantModuleConfig, TenantUserRole
 
@@ -311,3 +311,117 @@ class ActionItemsApiTests(APITestCase):
         self.assertEqual(res.json()["count"], 1)
         self.assertEqual(res.json()["items"][0]["kind"], "invest_return")
         self.assertTrue(any("action_items provider failed" in line for line in logs.output))
+
+
+@override_settings(
+    BASE_DOMAIN="example.com", PORTAL_SHARED_HOST="app.example.com", N8N_INTEGRATION_TOKEN="", ALLOWED_HOSTS=["*"]
+)
+class AllActionItemsApiTests(APITestCase):
+    URL = "/api/notifications/action-items/all/"
+
+    def setUp(self):
+        self.user = User.objects.create_user(username="all-notif-user", password="x")
+        self.acme = Tenant.objects.create(name="Acme", subdomain="acme-all", is_active=True)
+        self.beta = Tenant.objects.create(name="Beta", subdomain="beta-all", is_active=True)
+        self.gamma = Tenant.objects.create(name="Gamma", subdomain="gamma-all", is_active=True)
+        TenantMembership.objects.create(tenant=self.acme, user=self.user, is_active=True)
+        TenantMembership.objects.create(tenant=self.beta, user=self.user, is_active=True)
+        TenantMembership.objects.create(tenant=self.gamma, user=self.user, is_active=False)
+        TenantModuleConfig.objects.create(tenant=self.acme, module_key="investments", is_enabled=True)
+        TenantUserRole.objects.create(tenant=self.acme, user=self.user, role=TenantUserRole.ROLE_INVESTOR)
+        self.client.force_authenticate(self.user)
+
+    def _pending_request(self, tenant):
+        req = Request.all_objects.create(
+            tenant=tenant,
+            created_by=self.user,
+            requester=self.user,
+            title="Закупка",
+            amount=Decimal("10.00"),
+            currency=Request.CURRENCY_UZS,
+            payment_type=Request.PAYMENT_TYPE_CASH,
+            status=Request.STATUS_PROGRESS_1,
+            billing_date=timezone.localdate(),
+        )
+        Approval.objects.create(request=req, approver_user=self.user, step=1, step_type=Approval.STEP_TYPE_SERIAL)
+        return req
+
+    def _pending_return(self, tenant):
+        invest_return = InvestReturn.objects.create(
+            tenant=tenant,
+            date=date(2026, 11, 1),
+            billing_date=date(2026, 11, 1),
+            sum=Decimal("1200.00"),
+            currency="USD",
+            type=InvestReturn.ReturnType.DIVIDEND,
+            recipient=InvestReturn.Recipient.INVESTOR,
+            created_by=self.user,
+        )
+        InvestmentReturnApproval.objects.create(
+            tenant=tenant,
+            invest_return=invest_return,
+            step=1,
+            step_type=InvestmentApprovalConfigStep.STEP_TYPE_SERIAL,
+            approver_user=self.user,
+            decision=InvestmentReturnApproval.DECISION_PENDING,
+        )
+        return invest_return
+
+    def test_items_of_all_active_companies_with_tenant_and_company_link(self):  # crit. 10
+        acme_request = self._pending_request(self.acme)
+        acme_return = self._pending_return(self.acme)
+        beta_request = self._pending_request(self.beta)
+        self._pending_request(self.gamma)  # inactive membership: not shown
+
+        res = self.client.get(self.URL, HTTP_HOST="app.example.com")
+
+        self.assertEqual(res.status_code, 200, res.content)
+        body = res.json()
+        self.assertEqual(body["count"], 3)
+        by_key = {(item["kind"], item["id"]): item for item in body["items"]}
+        self.assertEqual(
+            set(by_key),
+            {("request", acme_request.id), ("invest_return", acme_return.id), ("request", beta_request.id)},
+        )
+        self.assertEqual(by_key[("request", beta_request.id)]["tenant"], {"subdomain": "beta-all", "name": "Beta"})
+        self.assertEqual(by_key[("request", acme_request.id)]["link"], f"/requests/{acme_request.id}?company=acme-all")
+        self.assertEqual(
+            by_key[("invest_return", acme_return.id)]["link"],
+            f"/investments?tab=returns&open={acme_return.id}&company=acme-all",
+        )
+
+    def test_failing_company_is_logged_and_skipped(self):
+        self._pending_request(self.acme)
+        beta_request = self._pending_request(self.beta)
+        real_collect = collect_action_items
+
+        def fake_collect(*, tenant, user):
+            if tenant == self.acme:
+                raise RuntimeError("boom")
+            return real_collect(tenant=tenant, user=user)
+
+        with patch(
+            "apps.modules.notifications.services.collect_action_items", side_effect=fake_collect
+        ), self.assertLogs("apps.modules.notifications.services", level="ERROR") as logs:
+            res = self.client.get(self.URL, HTTP_HOST="app.example.com")
+
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual([(i["kind"], i["id"]) for i in res.json()["items"]], [("request", beta_request.id)])
+        self.assertTrue(any("action_items tenant failed" in line for line in logs.output))
+
+    def test_works_on_tenant_subdomain_too(self):
+        self._pending_request(self.beta)
+
+        res = self.client.get(self.URL, HTTP_HOST="acme-all.example.com")
+
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(res.json()["count"], 1)
+
+    def test_anonymous_gets_401(self):
+        self.client.force_authenticate(None)
+
+        self.assertEqual(self.client.get(self.URL, HTTP_HOST="app.example.com").status_code, 401)
+
+    def test_with_company_param(self):
+        self.assertEqual(with_company_param("/requests/5", "acme"), "/requests/5?company=acme")
+        self.assertEqual(with_company_param("/investments?tab=returns&open=1", "acme"), "/investments?tab=returns&open=1&company=acme")
