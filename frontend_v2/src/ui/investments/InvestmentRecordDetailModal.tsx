@@ -24,6 +24,13 @@ type Props = {
   record: ProjectInvestmentRow | InvestReturnRow | null
   companyLabel: (id: number | null) => string
   usesCompanies: boolean
+  /** `telegram` — мини-приложение: ссылки на `/tg/requests`, отступ под кнопки Telegram, подписи над значениями. */
+  variant?: 'portal' | 'telegram'
+}
+
+/** Верх окна ниже системной зоны и кнопок Telegram в полноэкранном режиме (как `.tg-webapp-root`). */
+const TG_MODAL_STYLE = {
+  top: 'calc(var(--tg-safe-area-inset-top, 0px) + var(--tg-content-safe-area-inset-top, 0px) + 12px)',
 }
 
 const dateTimeFormatterTashkent = new Intl.DateTimeFormat('ru-RU', {
@@ -146,7 +153,10 @@ export function InvestmentRecordDetailModal({
   record,
   companyLabel,
   usesCompanies,
+  variant = 'portal',
 }: Props) {
+  const isTg = variant === 'telegram'
+  const requestPathPrefix = isTg ? '/tg/requests' : '/requests'
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [approvals, setApprovals] = useState<InvestmentApprovalItem[]>([])
@@ -210,14 +220,22 @@ export function InvestmentRecordDetailModal({
   const returnRecord = kind === 'return' ? (record as InvestReturnRow | null) : null
 
   return (
-    <Modal open={open} title={title} footer={null} onCancel={onCancel} width={760} destroyOnClose>
+    <Modal
+      open={open}
+      title={title}
+      footer={null}
+      onCancel={onCancel}
+      width={760}
+      destroyOnClose
+      style={isTg ? TG_MODAL_STYLE : undefined}
+    >
       {record ? (
         <>
           <Space wrap style={{ marginBottom: 12 }}>
             <Tag color={summaryTagColor(approvalSummary, confirmed)}>{approvalSummary}</Tag>
             {confirmed ? <Tag color="success">Подтверждена</Tag> : <Tag color="warning">Не подтверждена</Tag>}
           </Space>
-          <Descriptions bordered size="small" column={1}>
+          <Descriptions bordered size="small" column={1} layout={isTg ? 'vertical' : 'horizontal'}>
             <Descriptions.Item label="ID">{record.id}</Descriptions.Item>
             {usesCompanies ? (
               <Descriptions.Item label="Компания">{companyLabel(record.company)}</Descriptions.Item>
@@ -247,7 +265,7 @@ export function InvestmentRecordDetailModal({
               <Descriptions.Item label="Заявки-основания">
                 <Space direction="vertical" size={2}>
                   {projectRecord.source_requests.map((r) => (
-                    <Link key={r.id} to={`/requests/${r.id}`}>
+                    <Link key={r.id} to={`${requestPathPrefix}/${r.id}`}>
                       {`№${r.id} — ${asMoney(r.amount)} ${r.currency} (${r.payment_type})`}
                     </Link>
                   ))}

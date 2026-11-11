@@ -11,6 +11,7 @@ import {
   type InvestReturnRow,
 } from '../../lib/api'
 import { AdminEditRecordButton } from '../admin/AdminEditRecordButton'
+import { InvestmentRecordDetailModal } from '../investments/InvestmentRecordDetailModal'
 import { tgHaptic } from './tgHaptic'
 
 const dateFormatter = new Intl.DateTimeFormat('ru-RU', {
@@ -59,6 +60,7 @@ export function TgInvestmentsReturnsPage() {
   const [companies, setCompanies] = useState<InvestCompanyRow[]>([])
   const [search, setSearch] = useState('')
   const [usesCompanies, setUsesCompanies] = useState(true)
+  const [selectedRow, setSelectedRow] = useState<InvestReturnRow | null>(null)
 
   const loadRows = useCallback(async () => {
     setError(null)
@@ -151,7 +153,12 @@ export function TgInvestmentsReturnsPage() {
       {!loading && !error
         ? filtered.map((row) => (
             <div key={row.id} style={{ marginBottom: 10 }}>
-              <div className="tg-request-row" style={{ cursor: 'default', marginBottom: 0 }}>
+              <button
+                type="button"
+                className="tg-request-row"
+                style={{ marginBottom: 0 }}
+                onClick={() => { tgHaptic.tap(); setSelectedRow(row) }}
+              >
                 {usesCompanies ? (
                   <div className="tg-request-row-title">{companyLabel(row.company)}</div>
                 ) : null}
@@ -166,7 +173,7 @@ export function TgInvestmentsReturnsPage() {
                   <span>{formatDate(row.date)}</span>
                   {row.comment ? <span>{row.comment}</span> : null}
                 </div>
-              </div>
+              </button>
               <AdminEditRecordButton
                 endpoint="/api/investments/returns/"
                 record={row}
@@ -177,6 +184,16 @@ export function TgInvestmentsReturnsPage() {
             </div>
           ))
         : null}
+
+      <InvestmentRecordDetailModal
+        open={Boolean(selectedRow)}
+        onCancel={() => setSelectedRow(null)}
+        kind="return"
+        record={selectedRow}
+        companyLabel={companyLabel}
+        usesCompanies={usesCompanies}
+        variant="telegram"
+      />
     </div>
   )
 }

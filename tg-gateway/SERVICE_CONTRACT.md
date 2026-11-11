@@ -1,6 +1,6 @@
 # Service Contract — Messaging Gateway
 
-Version: 2.4
+Version: 2.5
 Base URL:
 - Internal (backend -> gateway): `http://tg-gateway:8080`
 - Public (Telegram -> gateway webhook only): `https://<TG_GATEWAY_PUBLIC_HOST>`
@@ -110,6 +110,8 @@ gateway treats this as success (200) and returns the original `message_id`.
 ### POST /v1/messaging/webhook/{bot_token}
 
 Receive platform events (Telegram updates). The gateway filters for:
+0. **owner delete** (`-` reply from an owner to a message of this bot) → handled in the gateway,
+   nothing is forwarded (see "Filter 0 — owner delete" below)
 1. **interactive events** (button clicks) → `event=interaction`
 2. **known slash commands** (`/bank_ostatki`, `/cash_ostatki`, `/card_ostatki`) → `event=command`
 
@@ -181,6 +183,37 @@ immediately regardless.
 `reply_to_*` are `null` / `""` / `false` when the message is not a reply. `reply_to_is_bot` is `true` only when the replied-to message was sent by this bot itself (`reply_to_message.from.id == bot_id`); a reply to another bot gives `false`. `mentions_bot` is true for an
 `@bot_username` mention (case-insensitive) or a `text_mention` of the bot user; in private chats it is
 informational. Commands (starting with `/`) never produce `event=message`.
+
+**Filter 0 — owner delete.** Checked first for non-callback updates, before discovery logging,
+command handling and any forward. It fires only when all of these hold:
+- the update has `message` (not `edited_message`, `channel_post`, `callback_query`, etc.);
+- `message.text.strip() == "-"` (so `" - "` also matches; captions and other texts do not);
+- `str(message.from.id)` is listed in `OWNER_TELEGRAM_IDS`;
+- `message.reply_to_message.from.id` equals this bot's id (token prefix before `:`);
+- `OWNER_TELEGRAM_IDS` is non-empty (empty or unset → the feature is off, behaviour unchanged).
+
+Works in private chats and groups/supergroups. Actions, best effort:
+1. `deleteMessage(chat_id, reply_to_message.message_id)` — the bot's message;
+2. `deleteMessage(chat_id, message_id)` — the owner's `-`; attempted even if step 1 failed.
+
+In groups deleting the owner's `-` needs the bot to be an admin with "delete messages"; Telegram also
+refuses to delete messages older than 48 h. Failures (`ok=false` or a network error) are logged with
+the Telegram `description` / exception type only (never the token) and do not change the response.
+
+Nothing is sent to the backend or the event log. Exactly one `gateway_logs` row is written:
+`direction="in"`, `action="owner_delete"`, `recipient_id=<chat.id>`, `message_id=<bot message id>`,
+`ok=<bot message deleted>`, `error_text=<description on failure>`; `payload` holds only ids and
+result flags (`chat_id`, `chat_type`, `actor_user_id` — the owner's Telegram user id, `bot_message_id`,
+`minus_message_id`, `bot_message_deleted`, `minus_message_deleted`, `minus_message_error`) — no message texts. This is an exception from
+filter 3: an owner's `-` reply to the bot is **not** forwarded as `event=message`. A `-` from anyone
+else, or a `-` not replying to this bot, goes through filters 1–3 as before.
+
+Response to Telegram: `{"ok": true}`.
+
+The backend is not told about owner deletes, so its `TelegramMessageHistory` still shows such a message
+as live. A later `delete` / `edit` of it through `/v1/messaging/send` fails with the Telegram description
+(e.g. `message to delete not found`) and HTTP 502; the backend command `delete_telegram_messages` reports
+it as a gateway error.
 
 **Privacy:** group/supergroup messages that are not forwarded are dropped without their text: it is not
 written to logs, `db.log_event` payload, or the event log.
@@ -357,6 +390,7 @@ Every send/edit/delete call and every inbound callback is written to the `gatewa
 | `PUBLIC_WEBHOOK_BASE_URL` | no    | —       | Public base URL used by `/v1/messaging/webhook/set` when `webhook_url` is omitted |
 | `DATABASE_URL`         | no       | —       | PostgreSQL DSN; omit to disable logging |
 | `CALLBACK_COOLDOWN_SECS` | no     | `10`    | Dedup window for identical button clicks |
+| `OWNER_TELEGRAM_IDS`   | no       | empty   | Comma-separated Telegram user ids allowed to delete bot messages by replying `-` (spaces ignored); empty → owner delete off. In compose: `TG_GATEWAY_OWNER_TELEGRAM_IDS` |
 
 `BACKEND_TOKEN` and `N8N_INTEGRATION_TOKEN` are **removed** — network isolation replaces them.
 Bot tokens are passed per-request in the `bot_token` field, not as env vars.

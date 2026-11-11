@@ -738,6 +738,8 @@ services:
       PUBLIC_WEBHOOK_BASE_URL: ${TG_GATEWAY_PUBLIC_BASE_URL:-https://tg-gateway.kolberg.uz}
       CALLBACK_COOLDOWN_SECS: ${CALLBACK_COOLDOWN_SECS:-10}
       DATABASE_URL: ${TG_GATEWAY_DATABASE_URL:-}
+      # Telegram user ids (comma-separated) allowed to delete bot messages by replying "-". Empty = off.
+      OWNER_TELEGRAM_IDS: ${TG_GATEWAY_OWNER_TELEGRAM_IDS:-}
     labels:
       - traefik.enable=true
       - traefik.docker.network=traefik-public

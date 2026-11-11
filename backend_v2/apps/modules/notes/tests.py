@@ -124,8 +124,11 @@ class NotesApiTests(APITestCase):
             "target_id": self.request_obj.id,
             "message": "Link check",
         }
-        res = self.client.post("/api/notes/", payload, format="json", **extra)
+        # The view sends only when the company has a bot token; the test tenant has none.
+        with patch.object(Tenant, "get_telegram_bot_token", return_value="bot-token"):
+            res = self.client.post("/api/notes/", payload, format="json", **extra)
         self.assertEqual(res.status_code, 201, res.content)
+        mock_send.assert_called_once()
         return mock_send.call_args.kwargs["text"]
 
     @override_settings(PORTAL_SHARED_HOST="app.example.com")
