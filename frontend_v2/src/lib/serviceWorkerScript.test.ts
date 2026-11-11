@@ -10,6 +10,8 @@ function loadWorker(source: string = swSource) {
   const handlers: Record<string, Handler> = {}
   const claim = vi.fn().mockResolvedValue(undefined)
   const skipWaiting = vi.fn()
+  // The worker forwards navigations with the global fetch; a stub keeps the test off the real network.
+  const fetchStub = vi.fn().mockResolvedValue({ ok: true })
   const fakeSelf = {
     location: { origin: 'https://acme.kolberg.uz' },
     clients: { claim },
@@ -18,8 +20,8 @@ function loadWorker(source: string = swSource) {
       handlers[type] = handler
     },
   }
-  new Function('self', source)(fakeSelf)
-  return { handlers, claim, skipWaiting }
+  new Function('self', 'fetch', source)(fakeSelf, fetchStub)
+  return { handlers, claim, skipWaiting, fetchStub }
 }
 
 function navigate(handlers: Record<string, Handler>, url: string, mode = 'navigate') {
@@ -65,6 +67,8 @@ describe('public/sw.js', () => {
   it('passes /app/ navigations straight to the network', () => {
     const respondWith = navigate(worker.handlers, 'https://acme.kolberg.uz/app/requests/5')
     expect(respondWith).toHaveBeenCalledTimes(1)
+    expect(worker.fetchStub).toHaveBeenCalledTimes(1)
+    expect(worker.fetchStub.mock.calls[0][0]).toMatchObject({ url: 'https://acme.kolberg.uz/app/requests/5' })
   })
 
   it('does not use Cache Storage', () => {

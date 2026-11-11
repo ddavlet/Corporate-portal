@@ -249,6 +249,23 @@ def list_payment_purposes_by_payment_type(*, tenant_id: int) -> dict[str, list[s
     return result
 
 
+_ACTION_ITEM_DETAIL_MAX = 80
+
+
+def _action_item_request_title(request_obj) -> str:
+    """"Заявка #N · <назначение платежа или первая строка описания>".
+
+    Request.title is not used: Request.save() overwrites it with the tenant name.
+    """
+    detail = (request_obj.payment_purpose or "").strip()
+    if not detail:
+        detail = next((line.strip() for line in (request_obj.description or "").splitlines() if line.strip()), "")
+    if len(detail) > _ACTION_ITEM_DETAIL_MAX:
+        detail = detail[: _ACTION_ITEM_DETAIL_MAX - 1].rstrip() + "…"
+    head = f"Заявка #{request_obj.id}"
+    return f"{head} · {detail}" if detail else head
+
+
 def list_request_action_items(*, tenant, user) -> list[dict]:
     """Requests whose currently active approval step is waiting on `user`.
 
@@ -301,7 +318,7 @@ def list_request_action_items(*, tenant, user) -> list[dict]:
                 "approval_id": row.id,
                 "step": row.step,
                 "step_type": row.step_type,
-                "title": request_obj.title or f"Заявка #{request_obj.id}",
+                "title": _action_item_request_title(request_obj),
                 "amount": request_obj.amount,
                 "currency": request_obj.currency or "",
                 "type_code": request_obj.payment_type or "",

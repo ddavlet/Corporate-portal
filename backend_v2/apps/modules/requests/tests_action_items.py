@@ -32,12 +32,13 @@ class ListRequestActionItemsTests(TestCase):
     def tearDown(self):
         payment_step_guards.PAYMENT_STEP_SUPPRESSORS = self._saved_suppressors
 
-    def _request(self, *, status, tenant=None, title="Закупка", amount="1500.50"):
+    def _request(self, *, status, tenant=None, purpose="Закупка", description="", amount="1500.50"):
         return Request.all_objects.create(
             tenant=tenant or self.tenant,
             created_by=self.user,
             requester=self.user,
-            title=title,
+            payment_purpose=purpose,
+            description=description,
             amount=Decimal(amount),
             currency=Request.CURRENCY_UZS,
             payment_type=Request.PAYMENT_TYPE_CASH,
@@ -72,7 +73,7 @@ class ListRequestActionItemsTests(TestCase):
         self.assertEqual(item["approval_id"], approval.id)
         self.assertEqual(item["step"], 2)
         self.assertEqual(item["step_type"], Approval.STEP_TYPE_SERIAL)
-        self.assertEqual(item["title"], "Закупка")
+        self.assertEqual(item["title"], f"Заявка #{req.id} · Закупка")
         self.assertEqual(item["amount"], Decimal("1500.50"))
         self.assertEqual(item["currency"], Request.CURRENCY_UZS)
         self.assertEqual(item["type_code"], Request.PAYMENT_TYPE_CASH)
@@ -80,11 +81,32 @@ class ListRequestActionItemsTests(TestCase):
         self.assertEqual(item["created_at"], req.created_at)
         self.assertEqual(item["link"], f"/requests/{req.id}")
 
-    def test_empty_title_falls_back_to_request_number(self):
-        req = self._request(status=Request.STATUS_PROGRESS_1, title="")
+    def test_title_is_not_the_tenant_name(self):
+        # Request.save() overwrites Request.title with the tenant name, so it must not be shown.
+        req = self._request(status=Request.STATUS_PROGRESS_1)
+        self._approval(req, step=1)
+
+        self.assertNotIn(self.tenant.name, self._items()[0]["title"])
+
+    def test_title_falls_back_to_first_description_line(self):
+        req = self._request(status=Request.STATUS_PROGRESS_1, purpose="", description="\n  Оплата аренды  \nдетали")
+        self._approval(req, step=1)
+
+        self.assertEqual(self._items()[0]["title"], f"Заявка #{req.id} · Оплата аренды")
+
+    def test_title_without_purpose_and_description_is_request_number(self):
+        req = self._request(status=Request.STATUS_PROGRESS_1, purpose="")
         self._approval(req, step=1)
 
         self.assertEqual(self._items()[0]["title"], f"Заявка #{req.id}")
+
+    def test_long_title_detail_is_truncated(self):
+        req = self._request(status=Request.STATUS_PROGRESS_1, purpose="а" * 200)
+        self._approval(req, step=1)
+
+        title = self._items()[0]["title"]
+        self.assertTrue(title.endswith("…"))
+        self.assertLessEqual(len(title), len(f"Заявка #{req.id} · ") + 80)
 
     # p.7
     def test_future_step_is_not_listed(self):

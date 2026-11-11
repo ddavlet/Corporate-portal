@@ -1,7 +1,7 @@
 /*
  * Kolberg portal service worker (scope /app/).
  *
- * It exists so the portal can be installed as an app. It caches nothing: Cache Storage is not used,
+ * It exists so the portal can be installed as an app. It stores nothing: the Cache Storage API is not used,
  * /api/* and other origins are never intercepted, and page navigations under /app/ go straight to the
  * network. The Telegram Mini App (/app/tg/) is left alone entirely.
  */
