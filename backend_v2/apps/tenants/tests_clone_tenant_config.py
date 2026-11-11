@@ -97,7 +97,7 @@ class CloneTenantConfigTests(TestCase):
         exc_step = RequestApprovalPurposeExceptionStepConfig.objects.create(exception_config=exception, step=1)
         RequestApprovalPurposeExceptionStepApproverConfig.objects.create(step_config=exc_step, approver_user=self.approver)
 
-        InvestmentFormConfig.objects.create(tenant=self.source, uses_companies=False, allowed_return_types=["дивиденды"])
+        InvestmentFormConfig.objects.create(tenant=self.source, allowed_return_types=["дивиденды"])
         inv = InvestmentApprovalConfig.objects.create(tenant=self.source, is_enabled=True)
         inv_step = InvestmentApprovalConfigStep.objects.create(config=inv, step=1, telegram_chat=self.branch_chat)
         InvestmentApprovalConfigStepApprover.objects.create(step=inv_step, approver_user=self.approver)
@@ -162,7 +162,7 @@ class CloneTenantConfigTests(TestCase):
 
         inv_step = InvestmentApprovalConfigStep.objects.get(config__tenant=target)
         self.assertIsNone(inv_step.telegram_chat)
-        self.assertTrue(InvestmentFormConfig.objects.filter(tenant=target, uses_companies=False).exists())
+        self.assertEqual(InvestmentFormConfig.objects.get(tenant=target).allowed_return_types, ["дивиденды"])
         self.assertEqual(InvestNotificationConfig.objects.get(tenant=target).responsible_user_id, self.admin.pk)
         self.assertEqual(TenantReportSettings.objects.get(tenant=target).pnl_source, "backend")
 
@@ -217,6 +217,18 @@ class CloneTenantConfigTests(TestCase):
         )
         # Modules are the one thing switched on: a new branch needs the source's modules.
         self.assertTrue(TenantModuleConfig.objects.get(tenant=target, module_key="cash").is_enabled)
+
+    def test_investment_form_clone_does_not_copy_legacy_uses_companies(self):
+        # Legacy flag (column kept until stage 2): source has it switched off,
+        # the clone must keep the model default instead of copying the source value.
+        InvestmentFormConfig.objects.filter(tenant=self.source).update(uses_companies=False)
+
+        self._clone()
+        target = Tenant.objects.get(subdomain="clone-new")
+
+        form = InvestmentFormConfig.objects.get(tenant=target)
+        self.assertEqual(form.allowed_return_types, ["дивиденды"])
+        self.assertTrue(form.uses_companies)
 
     def test_command_dry_run_prints_report(self):
         out = StringIO()

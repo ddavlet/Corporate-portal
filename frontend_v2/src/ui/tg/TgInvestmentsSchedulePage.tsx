@@ -2,18 +2,10 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Alert, Button, Select, Skeleton, Tag, Typography } from 'antd'
 import { useNavigate } from 'react-router-dom'
 import { ArrowLeftOutlined } from '@ant-design/icons'
-import {
-  DEFAULT_INVESTMENT_FORM_CONFIG,
-  getInvestmentFormConfig,
-  getInvestCompanies,
-  getInvestPayoutSchedule,
-  type InvestCompanyRow,
-  type InvestPayoutScheduleRow,
-} from '../../lib/api'
+import { getInvestPayoutSchedule, type InvestPayoutScheduleRow } from '../../lib/api'
 import { AdminEditRecordButton } from '../admin/AdminEditRecordButton'
 import { tgHaptic } from './tgHaptic'
 
-type CompanyFilter = 'all' | 'none' | number
 type PaidFilter = 'all' | 'paid' | 'unpaid'
 
 const moneyFmt = new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 2 })
@@ -35,31 +27,18 @@ function dateText(value: string): string {
   }).format(d)
 }
 
-function byCompany<T extends { company: number | null }>(rows: T[], filter: CompanyFilter): T[] {
-  if (filter === 'all') return rows
-  if (filter === 'none') return rows.filter((r) => r.company == null)
-  return rows.filter((r) => r.company === filter)
-}
-
 export function TgInvestmentsSchedulePage() {
   const navigate = useNavigate()
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [companyFilter, setCompanyFilter] = useState<CompanyFilter>('all')
   const [paidFilter, setPaidFilter] = useState<PaidFilter>('all')
-  const [companies, setCompanies] = useState<InvestCompanyRow[]>([])
   const [rows, setRows] = useState<InvestPayoutScheduleRow[]>([])
-  const [usesCompanies, setUsesCompanies] = useState(true)
 
   const loadRows = useCallback(async () => {
     setLoading(true)
     setError(null)
     try {
-      const cfgPromise = getInvestmentFormConfig().catch(() => DEFAULT_INVESTMENT_FORM_CONFIG)
-      const [c, s, cfg] = await Promise.all([getInvestCompanies(), getInvestPayoutSchedule(), cfgPromise])
-      setCompanies(c)
-      setRows(s)
-      setUsesCompanies(cfg.uses_companies)
+      setRows(await getInvestPayoutSchedule())
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Ошибка загрузки')
     } finally {
@@ -71,32 +50,10 @@ export function TgInvestmentsSchedulePage() {
     void loadRows()
   }, [loadRows])
 
-  useEffect(() => {
-    if (!usesCompanies) {
-      setCompanyFilter('all')
-    }
-  }, [usesCompanies])
-
-  const companyMap = useMemo(() => new Map(companies.map((c) => [c.id, c.name])), [companies])
-  const companyLabel = (id: number | null) => {
-    if (id == null) return 'Без компании'
-    return companyMap.get(id) || `#${id}`
-  }
-
   const filtered = useMemo(() => {
-    const filteredByCompany = byCompany(rows, companyFilter)
-    const byPaid =
-      paidFilter === 'all'
-        ? filteredByCompany
-        : filteredByCompany.filter((r) => (paidFilter === 'paid' ? r.is_paid : !r.is_paid))
+    const byPaid = paidFilter === 'all' ? rows : rows.filter((r) => (paidFilter === 'paid' ? r.is_paid : !r.is_paid))
     return [...byPaid].sort((a, b) => new Date(a.payout_date).getTime() - new Date(b.payout_date).getTime())
-  }, [rows, companyFilter, paidFilter])
-
-  const companyOptions = [
-    { label: 'Все компании', value: 'all' },
-    { label: 'Без компании', value: 'none' },
-    ...companies.map((c) => ({ label: c.name, value: c.id })),
-  ]
+  }, [rows, paidFilter])
 
   return (
     <div className="tg-schedule-page">
@@ -114,14 +71,6 @@ export function TgInvestmentsSchedulePage() {
       </Typography.Title>
 
       <div className="tg-filters-grid">
-        {usesCompanies ? (
-          <Select
-            size="large"
-            options={companyOptions}
-            value={companyFilter}
-            onChange={(v) => setCompanyFilter(v as CompanyFilter)}
-          />
-        ) : null}
         <Select
           size="large"
           options={[
@@ -154,7 +103,6 @@ export function TgInvestmentsSchedulePage() {
                   <span className="tg-request-row-amount">{asMoney(r.amount, r.currency)}</span>
                   <Tag color={r.is_paid ? 'green' : 'orange'}>{r.is_paid ? 'Оплачено' : 'Не оплачено'}</Tag>
                   <span>Оплаченная сумма: {asMoney(r.payment_amount, r.currency)}</span>
-                  {usesCompanies ? <span>{companyLabel(r.company)}</span> : null}
                   <span>{r.comment || '-'}</span>
                 </div>
               </div>

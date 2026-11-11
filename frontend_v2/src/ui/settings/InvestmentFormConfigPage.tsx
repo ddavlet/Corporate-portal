@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Alert, Button, Card, Checkbox, Divider, Skeleton, Space, Switch, Typography, message } from 'antd'
+import { Alert, Button, Card, Checkbox, Divider, Skeleton, Space, Typography, message } from 'antd'
 import { ArrowLeftOutlined } from '@ant-design/icons'
 import { useNavigate } from 'react-router-dom'
 
@@ -49,10 +49,7 @@ export function InvestmentFormConfigPage() {
     setSaving(true)
     setError(null)
     try {
-      const next = await updateInvestmentFormConfig({
-        uses_companies: data.uses_companies,
-        allowed_return_types: data.allowed_return_types,
-      })
+      const next = await updateInvestmentFormConfig({ allowed_return_types: data.allowed_return_types })
       setData(next)
       message.success('Сохранено')
     } catch (e: unknown) {
@@ -71,7 +68,7 @@ export function InvestmentFormConfigPage() {
         Инвестиции — форма создания
       </Typography.Title>
       <Typography.Paragraph type="secondary" style={{ marginBottom: 0 }}>
-        Разрешённые типы выплат при создании фактической выплаты и использование компаний на экране инвестиций.
+        Разрешённые типы выплат при создании фактической выплаты.
       </Typography.Paragraph>
 
       <Divider />
@@ -80,13 +77,6 @@ export function InvestmentFormConfigPage() {
 
       {!loading && data ? (
         <Space direction="vertical" size={16} style={{ display: 'flex' }}>
-          <Space align="center">
-            <Switch checked={data.uses_companies} onChange={(v) => setData({ ...data, uses_companies: v })} />
-            <Typography.Text>
-              Tenant использует компании (вкладка «Компании», фильтр и поле компании в формах)
-            </Typography.Text>
-          </Space>
-
           <div>
             <Typography.Text strong>Разрешённые типы выплат</Typography.Text>
             <Typography.Paragraph type="secondary" style={{ marginBottom: 8 }}>

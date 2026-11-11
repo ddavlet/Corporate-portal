@@ -77,16 +77,6 @@ urlpatterns = [
         name="n8n-invest-exchange-rates",
     ),
     path(
-        "investments/companies/",
-        views.N8nInvestCompanyUpsertView.as_view(),
-        name="n8n-invest-companies-upsert",
-    ),
-    path(
-        "investments/companies/batch/",
-        views.N8nInvestCompanyBatchUpsertView.as_view(),
-        name="n8n-invest-companies-batch-upsert",
-    ),
-    path(
         "payroll/lines/",
         payroll_hooks.PayrollLineUpsertWithLinkedRequestView.as_view(),
         name="n8n-payroll-lines-upsert",

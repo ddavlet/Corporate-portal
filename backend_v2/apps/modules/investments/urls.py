@@ -2,7 +2,7 @@ from django.urls import include, path
 from rest_framework.routers import DefaultRouter
 
 from apps.modules.investments.views import (
-    InvestCompanyViewSet,
+    InvestCompanyDeprecatedStubViewSet,
     InvestmentApprovalConfigReadViewSet,
     InvestmentApprovalConfigStepApproverReadViewSet,
     InvestmentApprovalConfigStepReadViewSet,
@@ -38,7 +38,8 @@ from apps.modules.investments.views import (
 
 
 router = DefaultRouter()
-router.register(r"companies", InvestCompanyViewSet, basename="invest-companies")
+# DEPRECATED: заглушка удаляется на этапе 2.
+router.register(r"companies", InvestCompanyDeprecatedStubViewSet, basename="invest-companies")
 router.register(r"returns", InvestReturnViewSet, basename="invest-returns")
 router.register(r"payout-schedule", InvestPayoutScheduleViewSet, basename="invest-payout-schedule")
 router.register(r"payout-schedule-share-links", InvestPayoutScheduleShareLinkViewSet, basename="invest-payout-schedule-share-links")

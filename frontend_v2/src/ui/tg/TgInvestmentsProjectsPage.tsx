@@ -2,14 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Alert, Button, Input, Skeleton, Tag, Typography } from 'antd'
 import { useNavigate } from 'react-router-dom'
 import { ArrowLeftOutlined, PlusOutlined, SearchOutlined } from '@ant-design/icons'
-import {
-  DEFAULT_INVESTMENT_FORM_CONFIG,
-  getInvestmentFormConfig,
-  getInvestCompanies,
-  getProjectInvestments,
-  type InvestCompanyRow,
-  type ProjectInvestmentRow,
-} from '../../lib/api'
+import { getProjectInvestments, type ProjectInvestmentRow } from '../../lib/api'
 import { useInvestmentFundingMode } from '../../lib/useInvestmentFundingMode'
 import { AdminEditRecordButton } from '../admin/AdminEditRecordButton'
 import { fundingMethodLabel } from '../investments/fundingPool'
@@ -41,9 +34,7 @@ export function TgInvestmentsProjectsPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [rows, setRows] = useState<ProjectInvestmentRow[]>([])
-  const [companies, setCompanies] = useState<InvestCompanyRow[]>([])
   const [search, setSearch] = useState('')
-  const [usesCompanies, setUsesCompanies] = useState(true)
   const [selectedRow, setSelectedRow] = useState<ProjectInvestmentRow | null>(null)
   // Инвестиционный режим: ручная подача запрещена — вложение собирается по заявкам на расход.
   const fundingMode = useInvestmentFundingMode()
@@ -52,15 +43,7 @@ export function TgInvestmentsProjectsPage() {
     setError(null)
     setLoading(true)
     try {
-      const cfgPromise = getInvestmentFormConfig().catch(() => DEFAULT_INVESTMENT_FORM_CONFIG)
-      const [items, companyRows, cfg] = await Promise.all([
-        getProjectInvestments(),
-        getInvestCompanies(),
-        cfgPromise,
-      ])
-      setRows(items)
-      setCompanies(companyRows)
-      setUsesCompanies(cfg.uses_companies)
+      setRows(await getProjectInvestments())
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Ошибка загрузки')
     } finally {
@@ -72,22 +55,14 @@ export function TgInvestmentsProjectsPage() {
     void loadRows()
   }, [loadRows])
 
-  const companyMap = useMemo(() => new Map(companies.map((c) => [c.id, c.name])), [companies])
-  const companyLabel = (id: number | null): string => {
-    if (id == null) return 'Без компании'
-    return companyMap.get(id) || `Компания #${id}`
-  }
-
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase()
     const sorted = [...rows].sort((a, b) =>
       String(b.date || '').localeCompare(String(a.date || '')),
     )
     if (!q) return sorted
-    return sorted.filter((row) =>
-      JSON.stringify({ ...row, _company: companyLabel(row.company) }).toLowerCase().includes(q),
-    )
-  }, [rows, search, companyMap])
+    return sorted.filter((row) => JSON.stringify(row).toLowerCase().includes(q))
+  }, [rows, search])
 
   return (
     <div className="tg-investments-page" style={{ paddingBottom: 80 }}>
@@ -146,11 +121,8 @@ export function TgInvestmentsProjectsPage() {
                 style={{ marginBottom: 0 }}
                 onClick={() => { tgHaptic.tap(); setSelectedRow(row) }}
               >
-                <div className="tg-request-row-title">
-                  {usesCompanies ? companyLabel(row.company) : formatAmount(row.amount, row.currency)}
-                </div>
+                <div className="tg-request-row-title">{formatAmount(row.amount, row.currency)}</div>
                 <div className="tg-request-row-meta">
-                  <span className="tg-request-row-amount">{formatAmount(row.amount, row.currency)}</span>
                   <span>{formatDate(row.date)}</span>
                   {row.funding_method ? <span>{fundingMethodLabel(row.funding_method)}</span> : null}
                   {row.confirmed ? (
@@ -181,8 +153,6 @@ export function TgInvestmentsProjectsPage() {
         onCancel={() => setSelectedRow(null)}
         kind="project"
         record={selectedRow}
-        companyLabel={companyLabel}
-        usesCompanies={usesCompanies}
         variant="telegram"
       />
     </div>

@@ -127,7 +127,7 @@ def build_investment_return_approval_telegram_message(
 ) -> str:
     """HTML body for Telegram / messaging gateway (same amount style as request approvals)."""
     ir = invest_return
-    company_name = ir.company.name if ir.company else ir.tenant.name
+    company_name = ir.tenant.name
     amount_text = escape(_format_amount_for_telegram(ir.sum))
     currency_text = escape((ir.currency or "").upper() or "-")
     date_text = escape(date_format(ir.date, "j E Y", use_l10n=True)) if ir.date else "-"
@@ -294,7 +294,7 @@ def refresh_invest_return_approval_messages(*, invest_return: InvestReturn) -> i
             invest_return=invest_return,
             telegram_message__isnull=False,
             approver_recipient_id__isnull=False,
-        ).select_related("invest_return", "invest_return__company", "tenant", "approver_user", "telegram_message")
+        ).select_related("invest_return", "invest_return__tenant", "tenant", "approver_user", "telegram_message")
     )
     updated = 0
     dispatcher = TelegramDispatcher(invest_return.tenant)

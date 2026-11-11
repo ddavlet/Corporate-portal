@@ -1,17 +1,13 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Alert, Button, Checkbox, Form, Input, Segmented, Select, Skeleton, Tag, Typography, message } from 'antd'
+import { Alert, Button, Checkbox, Form, Input, Segmented, Skeleton, Tag, Typography, message } from 'antd'
 import { useNavigate } from 'react-router-dom'
 import { ArrowLeftOutlined } from '@ant-design/icons'
 
 import {
-  DEFAULT_INVESTMENT_FORM_CONFIG,
   createInvestmentsFromRequests,
   getFundingPool,
-  getInvestCompanies,
-  getInvestmentFormConfig,
   type FundingPoolDto,
   type FundingPoolRequestDto,
-  type InvestCompanyRow,
 } from '../../lib/api'
 import {
   FUNDING_METHOD_LABELS,
@@ -21,11 +17,9 @@ import {
   type CurrencyTotal,
   type FundingMethod,
 } from '../investments/fundingPool'
-import { asMoney, dateText, makeCompanySelectOptions } from '../investments/utils'
+import { asMoney, dateText } from '../investments/utils'
 import { tgHaptic } from './tgHaptic'
 import { useTgMainButton } from './useTgMainButton'
-
-const tgPopupContainer = () => document.body
 
 function totalLine(total: CurrencyTotal): string {
   const n = total.count
@@ -50,27 +44,16 @@ export function TgInvestmentsCollectPage() {
   const [method, setMethod] = useState<FundingMethod>('cash')
   const [selected, setSelected] = useState<Set<number>>(new Set())
   const [editedComment, setEditedComment] = useState<string | null>(null)
-  const [usesCompanies, setUsesCompanies] = useState(false)
-  const [companies, setCompanies] = useState<InvestCompanyRow[]>([])
-  const [company, setCompany] = useState<number | null>(null)
   const [submitting, setSubmitting] = useState(false)
 
   useEffect(() => {
     let cancelled = false
     ;(async () => {
       try {
-        const [data, cfg] = await Promise.all([
-          getFundingPool(),
-          getInvestmentFormConfig().catch(() => DEFAULT_INVESTMENT_FORM_CONFIG),
-        ])
+        const data = await getFundingPool()
         if (cancelled) return
         setPool(data)
         setSelected(new Set([...data.cash.requests, ...data.bank_transfer.requests].map((r) => r.id)))
-        setUsesCompanies(cfg.uses_companies)
-        if (cfg.uses_companies) {
-          const rows = await getInvestCompanies().catch(() => [] as InvestCompanyRow[])
-          if (!cancelled) setCompanies(rows)
-        }
       } catch (e: unknown) {
         if (!cancelled) setLoadError(e instanceof Error ? e.message : 'Не удалось загрузить заявки')
       }
@@ -86,8 +69,7 @@ export function TgInvestmentsCollectPage() {
   const generated = useMemo(() => defaultCollectComment(chosen), [chosen])
   const comment = editedComment ?? generated
 
-  const companyMissing = usesCompanies && company == null
-  const canSubmit = Boolean(pool) && chosen.length > 0 && !companyMissing
+  const canSubmit = Boolean(pool) && chosen.length > 0
 
   const toggle = (id: number, checked: boolean) => {
     setSelected((prev) => {
@@ -108,7 +90,6 @@ export function TgInvestmentsCollectPage() {
         request_ids: chosen.map((r) => r.id),
         // Текст по умолчанию — только превью: пустой comment бэкенд заменит описанием на каждую валюту.
         comment: editedComment ?? '',
-        ...(usesCompanies ? { company } : {}),
       })
       message.success(`Создано вложений: ${created.investments.map((i) => `№${i.id}`).join(', ')}`)
       navigate('/tg/investments/projects', { replace: true })
@@ -241,18 +222,6 @@ export function TgInvestmentsCollectPage() {
           </Typography.Text>
 
           <Form layout="vertical">
-            {usesCompanies ? (
-              <Form.Item label="Компания" required validateStatus={companyMissing ? 'error' : undefined}>
-                <Select
-                  size="large"
-                  value={company ?? undefined}
-                  onChange={(v) => setCompany(v ?? null)}
-                  options={makeCompanySelectOptions(companies)}
-                  placeholder="Выберите компанию"
-                  getPopupContainer={tgPopupContainer}
-                />
-              </Form.Item>
-            ) : null}
             <Form.Item label="Описание">
               <Input.TextArea
                 rows={3}

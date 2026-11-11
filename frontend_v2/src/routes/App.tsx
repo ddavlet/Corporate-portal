@@ -60,7 +60,6 @@ import { TgRequestDetailPage } from '../ui/tg/TgRequestDetailPage'
 import { TgPaymentConfirmPage } from '../ui/tg/TgPaymentConfirmPage'
 import { TgCommentPage } from '../ui/tg/TgCommentPage'
 import { TgInvestmentsPage } from '../ui/tg/TgInvestmentsPage'
-import { TgInvestmentsCompaniesPage } from '../ui/tg/TgInvestmentsCompaniesPage'
 import { TgInvestmentsProjectsPage } from '../ui/tg/TgInvestmentsProjectsPage'
 import { TgInvestmentsReturnsPage } from '../ui/tg/TgInvestmentsReturnsPage'
 import { TgInvestmentsSchedulePage } from '../ui/tg/TgInvestmentsSchedulePage'
@@ -125,7 +124,8 @@ export function App() {
         <Route index element={<TgHomePage />} />
         <Route path="requests" element={<TgRequestsPage />} />
         <Route path="investments" element={<TgInvestmentsPage />} />
-        <Route path="investments/companies" element={<TgInvestmentsCompaniesPage />} />
+        {/* Компаний внутри тенанта больше нет: старые ссылки ведут на раздел инвестиций. */}
+        <Route path="investments/companies" element={<Navigate to="/tg/investments" replace />} />
         <Route path="investments/projects" element={<TgInvestmentsProjectsPage />} />
         <Route path="investments/projects/new" element={<TgInvestmentsCreatePage />} />
         <Route path="investments/projects/collect" element={<TgInvestmentsCollectPage />} />

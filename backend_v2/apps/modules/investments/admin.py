@@ -3,7 +3,6 @@ from django.contrib import admin
 
 from apps.modules.investments.models import (
     CbuExchangeRate,
-    InvestCompany,
     InvestmentApprovalConfig,
     InvestmentApprovalConfigStep,
     InvestmentApprovalConfigStepApprover,
@@ -27,11 +26,16 @@ from apps.modules.investments.models import (
 )
 
 
+# DEPRECATED: "company" / "uses_companies" are excluded until the columns are dropped at stage 2.
+_DEPRECATED_COMPANY_FIELDS = ("company",)
+
+
 class InvestReturnAdmin(admin.ModelAdmin):
-    list_display = ("id", "tenant", "company", "date", "sum", "currency", "type", "recipient", "confirmed")
+    list_display = ("id", "tenant", "date", "sum", "currency", "type", "recipient", "confirmed")
     list_filter = ("tenant", "confirmed", "type", "recipient")
     search_fields = ("comment",)
-    raw_id_fields = ("tenant", "company", "payout_schedule", "created_by")
+    raw_id_fields = ("tenant", "payout_schedule", "created_by")
+    exclude = _DEPRECATED_COMPANY_FIELDS
     date_hierarchy = "date"
 
 
@@ -39,7 +43,6 @@ class InvestPayoutScheduleAdmin(admin.ModelAdmin):
     list_display = (
         "id",
         "tenant",
-        "company",
         "payout_date",
         "amount",
         "payment_amount",
@@ -48,35 +51,32 @@ class InvestPayoutScheduleAdmin(admin.ModelAdmin):
         "recipient",
     )
     list_filter = ("tenant", "is_paid", "return_type", "recipient")
-    raw_id_fields = ("tenant", "company", "created_return", "created_by")
+    raw_id_fields = ("tenant", "created_return", "created_by")
+    exclude = _DEPRECATED_COMPANY_FIELDS
     date_hierarchy = "payout_date"
 
 
 class ProjectInvestmentAdmin(admin.ModelAdmin):
-    list_display = ("id", "tenant", "company", "date", "amount", "currency", "confirmed")
+    list_display = ("id", "tenant", "date", "amount", "currency", "confirmed")
     list_filter = ("tenant", "confirmed")
     search_fields = ("comment",)
-    raw_id_fields = ("tenant", "company", "created_by")
+    raw_id_fields = ("tenant", "created_by")
+    exclude = _DEPRECATED_COMPANY_FIELDS
     date_hierarchy = "date"
 
 
-class InvestCompanyAdmin(admin.ModelAdmin):
-    list_display = ("id", "tenant", "name", "is_active")
-    list_filter = ("tenant", "is_active")
-    search_fields = ("name",)
-    raw_id_fields = ("tenant", "created_by")
-
-
 class InvestPayoutScheduleShareLinkAdmin(admin.ModelAdmin):
-    list_display = ("id", "tenant", "company", "paid_filter", "is_active", "created_at")
+    list_display = ("id", "tenant", "paid_filter", "is_active", "created_at")
     list_filter = ("tenant", "is_active", "paid_filter")
-    raw_id_fields = ("tenant", "company", "created_by")
+    raw_id_fields = ("tenant", "created_by")
+    exclude = _DEPRECATED_COMPANY_FIELDS
     readonly_fields = ("token",)
 
 
 class InvestmentFormConfigAdmin(admin.ModelAdmin):
-    list_display = ("id", "tenant", "uses_companies", "updated_at")
+    list_display = ("id", "tenant", "updated_at")
     autocomplete_fields = ("tenant",)
+    exclude = ("uses_companies",)  # DEPRECATED: removed at stage 2.
 
 
 class InvestmentFundingExtraCashWalletInline(admin.TabularInline):
@@ -212,7 +212,6 @@ class InvestReportDispatchAdmin(admin.ModelAdmin):
 register_portal(InvestReturn, "Выплата", "Выплаты", InvestReturnAdmin)
 register_portal(InvestPayoutSchedule, "Расписание выплат", "Расписание выплат", InvestPayoutScheduleAdmin)
 register_portal(ProjectInvestment, "Заявка на вложение", "Заявки на вложение", ProjectInvestmentAdmin)
-register_portal(InvestCompany, "Компания (инвестиции)", "Компании", InvestCompanyAdmin)
 register_portal(
     InvestPayoutScheduleShareLink,
     "Ссылка на график выплат",
