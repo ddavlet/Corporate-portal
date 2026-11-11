@@ -4,39 +4,28 @@ import { Alert, Button, Card, Select, Space, Tabs, Typography, message } from 'a
 
 import {
   DEFAULT_INVESTMENT_FORM_CONFIG,
-  getInvestCompanies,
   getInvestmentFormConfig,
   getInvestNotificationConfig,
   getInvestPayoutSchedule,
   getInvestPayoutScheduleShareLinks,
   getInvestReturns,
   getProjectInvestments,
-  type InvestCompanyRow,
   type InvestmentFormConfigResponse,
   type InvestPayoutScheduleRow,
   type InvestPayoutScheduleShareLinkRow,
   type InvestReturnRow,
   type ProjectInvestmentRow,
 } from '../lib/api'
-import { CompaniesTab } from './investments/CompaniesTab'
 import { InvestmentsTab } from './investments/InvestmentsTab'
 import { InvestmentRecordDetailModal } from './investments/InvestmentRecordDetailModal'
 import { ReturnsTab } from './investments/ReturnsTab'
 import { ScheduleTab } from './investments/ScheduleTab'
-import {
-  buildCompanyMap,
-  makeCompanyLabel,
-  makeCompanyOptions,
-  type CompanyFilter,
-  type SchedulePaidFilter,
-} from './investments/utils'
+import { type SchedulePaidFilter } from './investments/utils'
 
 export function InvestmentsPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [companyFilter, setCompanyFilter] = useState<CompanyFilter>('all')
   const [schedulePaidFilter, setSchedulePaidFilter] = useState<SchedulePaidFilter>('all')
-  const [companies, setCompanies] = useState<InvestCompanyRow[]>([])
   const [investments, setInvestments] = useState<ProjectInvestmentRow[]>([])
   const [schedule, setSchedule] = useState<InvestPayoutScheduleRow[]>([])
   const [returns, setReturns] = useState<InvestReturnRow[]>([])
@@ -59,8 +48,7 @@ export function InvestmentsPage() {
     try {
       const cfgPromise = getInvestmentFormConfig().catch(() => DEFAULT_INVESTMENT_FORM_CONFIG)
       const notifyCfgPromise = getInvestNotificationConfig().catch(() => null)
-      const [c, i, s, r, links, cfg, notifyCfg] = await Promise.all([
-        getInvestCompanies(),
+      const [i, s, r, links, cfg, notifyCfg] = await Promise.all([
         getProjectInvestments(),
         getInvestPayoutSchedule(),
         getInvestReturns(),
@@ -68,7 +56,6 @@ export function InvestmentsPage() {
         cfgPromise,
         notifyCfgPromise,
       ])
-      setCompanies(c)
       setInvestments(i)
       setSchedule(s)
       setReturns(r)
@@ -88,33 +75,13 @@ export function InvestmentsPage() {
 
   const effectiveFormCfg = invFormCfg ?? DEFAULT_INVESTMENT_FORM_CONFIG
 
-  useEffect(() => {
-    if (!effectiveFormCfg.uses_companies) {
-      setCompanyFilter('all')
-    }
-  }, [effectiveFormCfg.uses_companies])
-
-  const companyMap = useMemo(() => buildCompanyMap(companies), [companies])
-  const companyLabel = useMemo(() => makeCompanyLabel(companyMap), [companyMap])
-  const companyOptions = useMemo(() => makeCompanyOptions(companies), [companies])
-
   const returnTypeSelectOptions = useMemo(() => {
     const allowed = new Set(effectiveFormCfg.allowed_return_types)
     return effectiveFormCfg.return_type_choices.filter((c) => allowed.has(c.value))
   }, [effectiveFormCfg])
 
-  const tabItems = useMemo(() => {
-    const items = []
-    if (effectiveFormCfg.uses_companies) {
-      items.push({
-        key: 'companies',
-        label: `Компании (${companies.length})`,
-        children: (
-          <CompaniesTab loading={loading} companies={companies} onCreated={loadAll} />
-        ),
-      })
-    }
-    items.push(
+  const tabItems = useMemo(
+    () => [
       {
         key: 'investments',
         label: `Заявки на вложение (${investments.length})`,
@@ -122,10 +89,6 @@ export function InvestmentsPage() {
           <InvestmentsTab
             loading={loading}
             rows={investments}
-            companies={companies}
-            companyLabel={companyLabel}
-            companyFilter={companyFilter}
-            usesCompanies={effectiveFormCfg.uses_companies}
             onCreated={loadAll}
           />
         ),
@@ -137,12 +100,8 @@ export function InvestmentsPage() {
           <ScheduleTab
             loading={loading}
             rows={schedule}
-            companies={companies}
             shareLinks={shareLinks}
-            companyLabel={companyLabel}
-            companyFilter={companyFilter}
             paidFilter={schedulePaidFilter}
-            usesCompanies={effectiveFormCfg.uses_companies}
             notifyDaysBefore={notifyDaysBefore}
             onCreated={loadAll}
             onShareLinkCreated={(l) => setShareLinks((prev) => [l, ...prev])}
@@ -157,30 +116,14 @@ export function InvestmentsPage() {
           <ReturnsTab
             loading={loading}
             rows={returns}
-            companies={companies}
-            companyLabel={companyLabel}
-            companyFilter={companyFilter}
-            usesCompanies={effectiveFormCfg.uses_companies}
             returnTypeSelectOptions={returnTypeSelectOptions}
             onCreated={loadAll}
           />
         ),
       },
-    )
-    return items
-  }, [
-    loading,
-    companies,
-    investments,
-    schedule,
-    returns,
-    shareLinks,
-    companyLabel,
-    companyFilter,
-    schedulePaidFilter,
-    effectiveFormCfg.uses_companies,
-    returnTypeSelectOptions,
-  ])
+    ],
+    [loading, investments, schedule, returns, shareLinks, schedulePaidFilter, returnTypeSelectOptions],
+  )
 
   const effectiveTab = tabItems.some((t) => t.key === activeTab) ? activeTab : tabItems[0]?.key
 
@@ -226,14 +169,6 @@ export function InvestmentsPage() {
             Инвестиции
           </Typography.Title>
           <Space wrap>
-            {effectiveFormCfg.uses_companies ? (
-              <Select
-                style={{ minWidth: 260 }}
-                options={companyOptions}
-                value={companyFilter}
-                onChange={(v) => setCompanyFilter(v as CompanyFilter)}
-              />
-            ) : null}
             <Select
               style={{ minWidth: 220 }}
               options={[
@@ -262,8 +197,6 @@ export function InvestmentsPage() {
         onCancel={closeLinkedRecord}
         kind={linkedRecord?.kind ?? null}
         record={linkedRecord?.record ?? null}
-        companyLabel={companyLabel}
-        usesCompanies={effectiveFormCfg.uses_companies}
       />
     </Space>
   )

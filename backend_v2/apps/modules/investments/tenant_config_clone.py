@@ -1,8 +1,8 @@
 """
 Investments part of `clone_tenant_config` (see apps.tenants.config_clone): the
 form config, payout approval chains (per return type / recipient), the project
-investment approval chain and payout notifications. Companies, investments and
-payouts are tenant data and are not copied.
+investment approval chain and payout notifications. Investments and payouts are
+tenant data and are not copied.
 """
 
 from __future__ import annotations
@@ -49,7 +49,7 @@ def clone(ctx) -> None:
     src_form = InvestmentFormConfig.objects.filter(tenant=ctx.source).first()
     if src_form is not None and not InvestmentFormConfig.objects.filter(tenant=ctx.target).exists():
         InvestmentFormConfig.objects.create(
-            tenant=ctx.target, uses_companies=src_form.uses_companies, allowed_return_types=src_form.allowed_return_types,
+            tenant=ctx.target, allowed_return_types=src_form.allowed_return_types,
         )
         ctx.change("Инвестиции: настройки формы скопированы.")
 

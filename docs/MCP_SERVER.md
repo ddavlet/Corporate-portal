@@ -79,7 +79,7 @@ A tool is listed and callable when its rule allows the user in this company. Mod
 | module `corporate_card` | `list_card_expenses`, `list_card_revenues` |
 | module `reports` | `get_pnl_report`, `get_cashflow_report` |
 | module `payroll` | `list_payroll_documents`, `get_payroll_document` |
-| module `investments` | `get_investment_form_config`, `list_invest_companies`, `list_invest_returns`, `list_project_investments`, `list_invest_payout_schedule` |
+| module `investments` | `get_investment_form_config`, `list_invest_returns`, `list_project_investments`, `list_invest_payout_schedule` |
 | module `budgets` | `list_budgets`, `get_budget`, `list_budget_spend_requests` |
 | module `tasks` | `list_my_tasks`, `get_task`, `update_task_status`, `add_task_comment`, `edit_task`, `delete_task`, `list_assignee_candidates` |
 | module `tasks` + admin/director | `create_task` |
@@ -222,11 +222,10 @@ Response shape (`aggregate=true`): same four keys, each `{ total, count, by_mont
 
 ### 7.10 Investments — module `investments`
 
-- `get_investment_form_config()` — whether company filters apply and which `return_type` values are allowed.
-- `list_invest_companies(name_search, is_active, limit)` — legal entities / projects.
-- `list_invest_returns(date_from, date_to, return_type, recipient, company_id, confirmed, limit)` — payouts to investors (PnL `invest_returns`).
-- `list_project_investments(date_from, date_to, company_id, confirmed, limit)` — capital invested into projects.
-- `list_invest_payout_schedule(date_from, date_to, company_id, is_paid, limit)` — planned payout calendar (plan vs fact).
+- `get_investment_form_config()` — which `return_type` values are allowed.
+- `list_invest_returns(date_from, date_to, return_type, recipient, confirmed, limit)` — payouts to investors (PnL `invest_returns`).
+- `list_project_investments(date_from, date_to, confirmed, limit)` — capital invested into projects.
+- `list_invest_payout_schedule(date_from, date_to, is_paid, limit)` — planned payout calendar (plan vs fact).
 
 ### 7.11 Budgets — module `budgets`
 

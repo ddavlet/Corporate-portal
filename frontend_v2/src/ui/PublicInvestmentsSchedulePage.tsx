@@ -29,7 +29,6 @@ export function PublicInvestmentsSchedulePage() {
   const [error, setError] = useState<string | null>(null)
   const [rows, setRows] = useState<PublicInvestPayoutScheduleRow[]>([])
   const [meta, setMeta] = useState<{
-    company_name: string
     tenant_name: string
     paid_filter: 'all' | 'paid' | 'unpaid'
   } | null>(null)
@@ -44,7 +43,6 @@ export function PublicInvestmentsSchedulePage() {
         if (cancelled) return
         setRows(data.rows)
         setMeta({
-          company_name: data.filters.company_name || '',
           tenant_name: data.filters.tenant_name || '',
           paid_filter: data.filters.paid_filter,
         })
@@ -68,16 +66,11 @@ export function PublicInvestmentsSchedulePage() {
     }
   }, [token])
 
-  const bigTitle = useMemo(() => {
-    const companyName = String(meta?.company_name || '').trim()
-    if (companyName) return companyName
-    return String(meta?.tenant_name || '').trim() || '—'
-  }, [meta])
+  const bigTitle = useMemo(() => String(meta?.tenant_name || '').trim() || '—', [meta])
 
   const columns: ColumnsType<PublicInvestPayoutScheduleRow> = [
     { title: 'ID', dataIndex: 'id', width: 90 },
     { title: 'Дата', dataIndex: 'payout_date', width: 130, render: (v: string) => dateText(v) },
-    { title: 'Компания', dataIndex: 'company_name', width: 240, render: (v: string) => v || 'Без компании' },
     {
       title: 'Сумма',
       dataIndex: 'amount',
@@ -117,7 +110,7 @@ export function PublicInvestmentsSchedulePage() {
 
       {!loading && !error ? (
         <Card>
-          <Table rowKey="id" size="small" columns={columns} dataSource={rows} pagination={{ pageSize: 30 }} scroll={{ x: 1150 }} />
+          <Table rowKey="id" size="small" columns={columns} dataSource={rows} pagination={{ pageSize: 30 }} scroll={{ x: 910 }} />
         </Card>
       ) : null}
     </Space>

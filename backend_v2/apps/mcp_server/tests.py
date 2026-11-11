@@ -208,17 +208,18 @@ class McpInvestmentsBudgetsToolsTests(TestCase):
         self.tenant = Tenant.objects.create(name="T", subdomain="invbud", is_active=True, mcp_enabled=True)
 
     @patch("apps.mcp_server.tools.investments.require_module_access")
-    def test_list_invest_companies_scoped(self, mock_access):
-        from apps.modules.investments.models import InvestCompany
+    def test_investment_form_config_has_no_uses_companies(self, mock_access):
+        from apps.modules.investments.models import InvestmentFormConfig
         from apps.mcp_server.tools import investments as inv_tools
 
         mock_access.return_value = (None, self.tenant)
-        InvestCompany.objects.create(
-            tenant=self.tenant, name="HoldCo", created_by=self.user, is_active=True
-        )
-        rows = inv_tools.list_invest_companies(self.tenant.id)
-        self.assertEqual(len(rows), 1)
-        self.assertEqual(rows[0]["name"], "HoldCo")
+        default = inv_tools.get_investment_form_config(self.tenant.id)
+        self.assertEqual(set(default), {"tenant_id", "configured", "allowed_return_types"})
+
+        InvestmentFormConfig.objects.create(tenant=self.tenant, allowed_return_types=["дивиденды"])
+        saved = inv_tools.get_investment_form_config(self.tenant.id)
+        self.assertEqual(set(saved), {"tenant_id", "configured", "allowed_return_types"})
+        self.assertEqual(saved["allowed_return_types"], ["дивиденды"])
 
     @patch("apps.mcp_server.tools.budgets.require_module_access")
     def test_list_budgets_includes_utilization(self, mock_access):
@@ -1844,7 +1845,6 @@ EXPECTED_TOOL_ACCESS = {
     "list_payroll_documents": ("module", "payroll", False),
     "get_payroll_document": ("module", "payroll", False),
     "get_investment_form_config": ("module", "investments", False),
-    "list_invest_companies": ("module", "investments", False),
     "list_invest_returns": ("module", "investments", False),
     "list_project_investments": ("module", "investments", False),
     "list_invest_payout_schedule": ("module", "investments", False),
@@ -2051,6 +2051,73 @@ class McpToolFilteringTests(TestCase):
         self.assertIn("get_current_tenant", names)
         self.assertIn("list_requests", names)
         self.assertNotIn("list_payroll_documents", names)
+
+
+class McpInvestmentsWithoutCompaniesTests(TestCase):
+    """Invest companies are removed: stale company_id args are dropped, rows carry no company keys."""
+
+    def setUp(self):
+        from django.contrib.auth import get_user_model
+        from apps.modules.investments.models import InvestPayoutSchedule, InvestReturn, ProjectInvestment
+        from apps.tenants.models import Tenant, TenantMembership, TenantModuleConfig, TenantUserRole
+
+        self.tenant = Tenant.objects.create(name="NoCo", subdomain="mcpnoco", is_active=True, mcp_enabled=True)
+        TenantModuleConfig.objects.create(tenant=self.tenant, module_key="investments", is_enabled=True)
+        self.user = get_user_model().objects.create_user(username="mcp-noco-investor")
+        TenantMembership.objects.create(user=self.user, tenant=self.tenant, is_active=True)
+        TenantUserRole.objects.create(tenant=self.tenant, user=self.user, role="investor")
+        InvestReturn.objects.create(
+            tenant=self.tenant, date=date(2026, 6, 1), billing_date=date(2026, 6, 1), sum=Decimal("10.00"),
+            currency="USD", type=InvestReturn.ReturnType.DIVIDEND, recipient=InvestReturn.Recipient.INVESTOR,
+            created_by=self.user,
+        )
+        ProjectInvestment.objects.create(
+            tenant=self.tenant, date=date(2026, 6, 1), amount=Decimal("100.00"), currency="USD",
+            created_by=self.user,
+        )
+        InvestPayoutSchedule.objects.create(
+            tenant=self.tenant, payout_date=date(2026, 6, 1), amount=Decimal("10.00"), currency="USD",
+            created_by=self.user,
+        )
+
+    def tearDown(self):
+        from apps.mcp_server.tenant_context import set_current_tenant
+
+        set_current_tenant(None)
+
+    def _authorize(self):
+        from apps.mcp_server.auth import set_request_token
+
+        _bind_tenant(self.tenant)
+        set_request_token(_mcp_access_token(self.user, self.tenant.id))
+
+    def test_list_tools_has_no_invest_companies(self):
+        from asgiref.sync import async_to_sync
+        from apps.mcp_server.server import mcp
+
+        self._authorize()
+        names = {t.name for t in async_to_sync(mcp.list_tools)()}
+        self.assertIn("list_invest_returns", names)
+        self.assertNotIn("list_invest_companies", names)
+        registered = {info.name: info for info in mcp._tool_manager.list_tools()}
+        self.assertNotIn("list_invest_companies", registered)
+        for name in ("list_invest_returns", "list_project_investments", "list_invest_payout_schedule"):
+            with self.subTest(tool=name):
+                self.assertNotIn("company_id", registered[name].parameters.get("properties", {}))
+
+    def test_list_tools_accept_stale_company_id(self):
+        from asgiref.sync import async_to_sync
+        from apps.mcp_server.server import mcp
+
+        self._authorize()
+        for name in ("list_invest_returns", "list_project_investments", "list_invest_payout_schedule"):
+            with self.subTest(tool=name):
+                result = async_to_sync(mcp.call_tool)(name, {"company_id": 5})
+                text = "".join(getattr(c, "text", "") for c in result.content)
+                self.assertNotIn('"error"', text)
+                self.assertIn('"id"', text)
+                self.assertNotIn("company_id", text)
+                self.assertNotIn("company_name", text)
 
 
 class McpDeploymentConfigTests(TestCase):

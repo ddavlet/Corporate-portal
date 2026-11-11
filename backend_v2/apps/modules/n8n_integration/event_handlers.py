@@ -193,7 +193,6 @@ def notify_invest_return_confirmed(*, invest_return) -> None:
     if host_override:
         headers["Host"] = host_override
 
-    company = invest_return.company if invest_return.company_id else None
     payload = {
         "event": "invest_return_confirmed",
         "id": invest_return.pk,
@@ -203,8 +202,10 @@ def notify_invest_return_confirmed(*, invest_return) -> None:
         "type_label": invest_return.get_type_display(),
         "recipient": invest_return.recipient,
         "recipient_label": invest_return.get_recipient_display(),
-        "company_id": invest_return.company_id,
-        "company": company.name if company else "",
+        # DEPRECATED: invest companies removed; keys kept (null/"") until n8n workflow
+        # guYSA1o3WlGT4tMB stops reading them.
+        "company_id": None,
+        "company": "",
         "date": invest_return.date.isoformat() if invest_return.date else None,
         "billing_date": invest_return.billing_date.isoformat() if invest_return.billing_date else None,
         "comment": invest_return.comment,

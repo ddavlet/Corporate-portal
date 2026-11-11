@@ -84,13 +84,87 @@ def _send_linking_message(tenant):
     return _send
 
 
+class InvestmentTextsWithoutCompanyTests(SimpleTestCase):
+    """Invest companies are removed: cards show the tenant name, reminders have no company line."""
+
+    def _approval(self):
+        approval = MagicMock()
+        approval.step = 1
+        approval.step_type = InvestmentApprovalConfigStep.STEP_TYPE_SERIAL
+        approval.decision = InvestmentReturnApproval.DECISION_PENDING
+        approval.approver_user = None
+        return approval
+
+    @patch("apps.modules.investments.approval_services.CbuExchangeRate")
+    def test_return_card_shows_tenant_name_not_stale_company(self, mock_cbu_model):
+        mock_cbu_model.objects.filter.return_value.values_list.return_value.first.return_value = None
+        ir = MagicMock()
+        ir.id = 5
+        ir.company.name = "Stale Co"
+        ir.tenant.name = "Lemon Fit"
+        ir.sum = Decimal("50.00")
+        ir.currency = "USD"
+        ir.date = date(2026, 5, 1)
+        ir.billing_date = date(2026, 5, 1)
+        ir.comment = ""
+        ir.get_type_display = lambda: "Дивиденды"
+        ir.get_recipient_display = lambda: "Инвестор"
+
+        out = build_investment_return_approval_telegram_message(
+            invest_return=ir, approval=self._approval(), blocked_by_rejection=False, current_pending_step=1
+        )
+        self.assertIn("Компания: <b>Lemon Fit</b>", out)
+        self.assertNotIn("Stale Co", out)
+
+    def test_project_investment_card_shows_tenant_name_not_stale_company(self):
+        pi = MagicMock()
+        pi.id = 6
+        pi.company.name = "Stale Co"
+        pi.tenant.name = "Lemon Fit"
+        pi.amount = Decimal("1000.00")
+        pi.currency = "USD"
+        pi.date = date(2026, 5, 1)
+        pi.comment = ""
+
+        out = build_project_investment_approval_telegram_message(
+            project_investment=pi, approval=self._approval(), blocked_by_rejection=False, current_pending_step=1
+        )
+        self.assertIn("Компания: <b>Lemon Fit</b>", out)
+        self.assertNotIn("Stale Co", out)
+
+    def _schedule(self):
+        schedule = MagicMock()
+        schedule.company.name = "Stale Co"
+        schedule.payout_date = date(2026, 6, 1)
+        schedule.amount = Decimal("1500.00")
+        schedule.currency = "USD"
+        schedule.payment_amount = Decimal("0.00")
+        schedule.comment = ""
+        return schedule
+
+    def test_payout_reminder_has_no_company_line(self):
+        from apps.modules.investments.notification_services import _build_payout_notification_text
+
+        text = _build_payout_notification_text(self._schedule())
+        self.assertNotIn("Компания", text)
+        self.assertNotIn("Stale Co", text)
+        self.assertIn("Сумма: 1,500.00 USD", text)
+
+    def test_overdue_reminder_has_no_company_line(self):
+        from apps.modules.investments.notification_services import _build_overdue_notification_text
+
+        text = _build_overdue_notification_text(self._schedule(), 3)
+        self.assertNotIn("Компания", text)
+        self.assertNotIn("Stale Co", text)
+        self.assertIn("Просрочка: 3 дн.", text)
+
+
 class InvestReturnApprovalTelegramMessageTests(SimpleTestCase):
     @patch("apps.modules.investments.approval_services.CbuExchangeRate")
     def test_message_omits_fx_block_without_both_uzs_and_cbu(self, mock_cbu_model):
         mock_cbu_model.objects.filter.return_value.values_list.return_value.first.return_value = None
         ir = MagicMock()
         ir.id = 99
-        ir.company = None
         ir.tenant = MagicMock()
         ir.tenant.name = "Solo"
         ir.sum = Decimal("50.00")
@@ -132,7 +206,6 @@ class InvestReturnApprovalTelegramMessageTests(SimpleTestCase):
         )
         ir = MagicMock()
         ir.id = 1
-        ir.company = None
         ir.tenant = MagicMock()
         ir.tenant.name = "T"
         ir.sum = Decimal("1.00")
@@ -168,7 +241,6 @@ class InvestReturnApprovalTelegramMessageTests(SimpleTestCase):
         mock_cbu_model.objects.filter.return_value.values_list.return_value.first.return_value = None
         ir = MagicMock()
         ir.id = 2
-        ir.company = None
         ir.tenant = MagicMock()
         ir.tenant.name = "T"
         ir.sum = Decimal("10.00")
@@ -203,7 +275,6 @@ class InvestReturnApprovalTelegramMessageTests(SimpleTestCase):
         mock_cbu_model.objects.filter.return_value.values_list.return_value.first.return_value = None
         ir = MagicMock()
         ir.id = 3
-        ir.company = None
         ir.tenant = MagicMock()
         ir.tenant.name = "T"
         ir.sum = Decimal("10.00")
@@ -233,7 +304,6 @@ class InvestReturnApprovalTelegramMessageTests(SimpleTestCase):
     def test_project_investment_completed_flow_shows_final_header(self):
         pi = MagicMock()
         pi.id = 7
-        pi.company = None
         pi.tenant = MagicMock()
         pi.tenant.name = "T"
         pi.amount = Decimal("1000.00")
@@ -258,7 +328,6 @@ class InvestReturnApprovalTelegramMessageTests(SimpleTestCase):
     def test_project_investment_card_shows_funding_method_under_amount(self):
         pi = MagicMock()
         pi.id = 188
-        pi.company = None
         pi.tenant = MagicMock()
         pi.tenant.name = "T"
         pi.amount = Decimal("16000000.00")
@@ -516,7 +585,6 @@ class InvestReturnSerializerTests(TestCase):
     def test_rejects_disallowed_return_type(self):
         InvestmentFormConfig.objects.create(
             tenant=self.tenant,
-            uses_companies=True,
             allowed_return_types=["проценты"],
         )
         request = factory.post("/api/investments/returns/")
@@ -535,13 +603,8 @@ class InvestReturnSerializerTests(TestCase):
         self.assertFalse(serializer.is_valid())
         self.assertIn("type", serializer.errors)
 
-    def test_create_clears_company_when_form_disables_companies(self):
-        co = InvestCompany.objects.create(tenant=self.tenant, name="Co", created_by=self.user)
-        InvestmentFormConfig.objects.create(
-            tenant=self.tenant,
-            uses_companies=False,
-            allowed_return_types=["дивиденды", "проценты", "доля_прибыли", "тело_инвестиций"],
-        )
+    def test_create_ignores_company_field(self):
+        # Invest companies are removed: a stale "company" key from old clients is dropped silently.
         request = factory.post("/api/investments/returns/")
         request.tenant = self.tenant
         serializer = InvestReturnSerializer(
@@ -552,13 +615,14 @@ class InvestReturnSerializerTests(TestCase):
                 "currency": "USD",
                 "type": "дивиденды",
                 "recipient": "инвестор",
-                "company": co.id,
+                "company": 999999,
             },
             context={"request": request},
         )
         self.assertTrue(serializer.is_valid(), serializer.errors)
         obj = serializer.save(tenant=self.tenant, created_by=self.user)
         self.assertIsNone(obj.company_id)
+        self.assertNotIn("company", InvestReturnSerializer(obj).data)
 
 
 class InvestReturnCbuServicesTests(TestCase):
@@ -851,15 +915,9 @@ class InvestPayoutScheduleSerializerTests(TestCase):
         self.assertEqual(obj.currency, "EUR")
         self.assertIsNotNone(obj.created_at)
         self.assertIsNotNone(obj.last_edit_at)
-        self.assertIsNone(obj.company)
+        self.assertNotIn("company", InvestPayoutScheduleSerializer(obj).data)
 
-    def test_clears_company_when_form_disables_companies(self):
-        co = InvestCompany.objects.create(tenant=self.tenant, name="SchedCo", created_by=self.user)
-        InvestmentFormConfig.objects.create(
-            tenant=self.tenant,
-            uses_companies=False,
-            allowed_return_types=["дивиденды"],
-        )
+    def test_ignores_company_field(self):
         request = factory.post("/api/investments/payout-schedule/")
         request.tenant = self.tenant
         serializer = InvestPayoutScheduleSerializer(
@@ -870,7 +928,7 @@ class InvestPayoutScheduleSerializerTests(TestCase):
                 "is_paid": False,
                 "payment_amount": "0",
                 "comment": "Q2",
-                "company": co.id,
+                "company": 999999,
             },
             context={"request": request},
         )
@@ -899,7 +957,7 @@ class ProjectInvestmentSerializerTests(TestCase):
         self.assertEqual(obj.currency, "USD")
         self.assertFalse(obj.confirmed)
         self.assertIsNotNone(obj.last_edit_at)
-        self.assertIsNone(obj.company)
+        self.assertNotIn("company", ProjectInvestmentSerializer(obj).data)
 
 
 class ProjectInvestmentWithEquivalentsSerializerTests(TestCase):
@@ -956,23 +1014,14 @@ class ProjectInvestmentWithEquivalentsSerializerTests(TestCase):
         mock_fetch.assert_not_called()
 
 
-class InvestCompanyScopeTests(TestCase):
+class ProjectInvestmentCompanyFieldIgnoredTests(TestCase):
+    """Invest companies are removed: any "company" value (even unknown or foreign) is ignored."""
+
     def setUp(self):
         self.tenant = Tenant.objects.create(name="ScopeCo", subdomain="scopeco", is_active=True)
-        self.other_tenant = Tenant.objects.create(name="Other", subdomain="otherco", is_active=True)
         self.user = User.objects.create_user(username="scope-user", password="x")
-        self.company = InvestCompany.objects.create(
-            tenant=self.tenant,
-            name="Company A",
-            created_by=self.user,
-        )
-        self.other_company = InvestCompany.objects.create(
-            tenant=self.other_tenant,
-            name="Company B",
-            created_by=self.user,
-        )
 
-    def test_project_investment_allows_company_from_same_tenant(self):
+    def test_project_investment_ignores_company_field(self):
         request = factory.post("/api/investments/project-investments/")
         request.tenant = self.tenant
         serializer = ProjectInvestmentSerializer(
@@ -981,38 +1030,21 @@ class InvestCompanyScopeTests(TestCase):
                 "amount": "100000.00",
                 "currency": "usd",
                 "funding_method": "cash",
-                "company": self.company.id,
+                "company": 999999,
             },
             context={"request": request},
         )
         self.assertTrue(serializer.is_valid(), serializer.errors)
-
-    def test_project_investment_rejects_company_from_other_tenant(self):
-        request = factory.post("/api/investments/project-investments/")
-        request.tenant = self.tenant
-        serializer = ProjectInvestmentSerializer(
-            data={
-                "date": date(2026, 3, 15),
-                "amount": "100000.00",
-                "currency": "usd",
-                "funding_method": "cash",
-                "company": self.other_company.id,
-            },
-            context={"request": request},
-        )
-        self.assertFalse(serializer.is_valid())
-        self.assertIn("company", serializer.errors)
+        obj = serializer.save(tenant=self.tenant, created_by=self.user)
+        self.assertIsNone(obj.company_id)
 
 
 class InvestPayoutScheduleShareLinkTests(TestCase):
     def setUp(self):
         self.tenant = Tenant.objects.create(name="ShareTenant", subdomain="sharetenant", is_active=True)
         self.user = User.objects.create_user(username="share-user", password="x")
-        self.company = InvestCompany.objects.create(tenant=self.tenant, name="Syrop", created_by=self.user)
-        self.other_company = InvestCompany.objects.create(tenant=self.tenant, name="Other", created_by=self.user)
         self.paid_row = InvestPayoutSchedule.objects.create(
             tenant=self.tenant,
-            company=self.company,
             payout_date=date(2026, 6, 6),
             amount=Decimal("1500.00"),
             currency="USD",
@@ -1023,7 +1055,6 @@ class InvestPayoutScheduleShareLinkTests(TestCase):
         )
         InvestPayoutSchedule.objects.create(
             tenant=self.tenant,
-            company=self.company,
             payout_date=date(2026, 7, 6),
             amount=Decimal("1500.00"),
             currency="USD",
@@ -1034,13 +1065,12 @@ class InvestPayoutScheduleShareLinkTests(TestCase):
         )
         InvestPayoutSchedule.objects.create(
             tenant=self.tenant,
-            company=self.other_company,
             payout_date=date(2026, 8, 6),
             amount=Decimal("1800.00"),
             currency="USD",
             is_paid=False,
             payment_amount=Decimal("0.00"),
-            comment="Other company",
+            comment="Monthly 3%",
             created_by=self.user,
         )
 
@@ -1048,18 +1078,19 @@ class InvestPayoutScheduleShareLinkTests(TestCase):
         request = factory.post("/api/investments/payout-schedule-share-links/")
         request.tenant = self.tenant
         serializer = InvestPayoutScheduleShareLinkSerializer(
-            data={"company": self.company.id, "paid_filter": "paid"},
+            data={"company": 999999, "paid_filter": "paid"},
             context={"request": request},
         )
         self.assertTrue(serializer.is_valid(), serializer.errors)
         obj = serializer.save(tenant=self.tenant, created_by=self.user)
         self.assertTrue(obj.token)
         self.assertGreaterEqual(len(obj.token), 16)
+        self.assertIsNone(obj.company_id)
+        self.assertNotIn("company", InvestPayoutScheduleShareLinkSerializer(obj).data)
 
     def test_public_token_view_applies_saved_filters(self):
         link = InvestPayoutScheduleShareLink.objects.create(
             tenant=self.tenant,
-            company=self.company,
             paid_filter=InvestPayoutScheduleShareLink.PaidFilter.PAID,
             created_by=self.user,
         )
@@ -1071,10 +1102,26 @@ class InvestPayoutScheduleShareLinkTests(TestCase):
         self.assertEqual(len(rows), 1)
         self.assertEqual(rows[0]["id"], self.paid_row.id)
 
+    def test_public_token_view_rejects_legacy_company_link(self):
+        # Legacy fixture (removed with the table at stage 2): a link limited to one company
+        # must not widen to the whole tenant schedule, so it answers 404 (fail-closed).
+        legacy_company = InvestCompany.objects.create(tenant=self.tenant, name="Syrop", created_by=self.user)
+        InvestPayoutSchedule.objects.filter(pk=self.paid_row.pk).update(company=legacy_company)
+        link = InvestPayoutScheduleShareLink.objects.create(
+            tenant=self.tenant,
+            company=legacy_company,
+            paid_filter=InvestPayoutScheduleShareLink.PaidFilter.ALL,
+            created_by=self.user,
+        )
+        view = PublicInvestPayoutScheduleByTokenView.as_view()
+        request = factory.get(f"/api/investments/public/payout-schedule/{link.token}/")
+        response = view(request, token=link.token)
+        self.assertEqual(response.status_code, 404)
+        self.assertNotIn("rows", response.data)
+
     def test_public_token_view_rejects_inactive_link(self):
         link = InvestPayoutScheduleShareLink.objects.create(
             tenant=self.tenant,
-            company=self.company,
             paid_filter=InvestPayoutScheduleShareLink.PaidFilter.ALL,
             is_active=False,
             created_by=self.user,
@@ -1097,15 +1144,20 @@ class InvestmentFormConfigApiTests(APITestCase):
         self.client.force_authenticate(self.user)
         InvestmentFormConfig.objects.create(
             tenant=self.tenant,
-            uses_companies=False,
             allowed_return_types=["дивиденды", "проценты"],
         )
 
     def test_get_form_config_returns_saved_values(self):
         res = self.client.get("/api/investments/form-config/", HTTP_HOST=self.host)
         self.assertEqual(res.status_code, 200)
-        self.assertFalse(res.data["uses_companies"])
+        self.assertEqual(set(res.data.keys()), {"allowed_return_types", "return_type_choices"})
         self.assertEqual(set(res.data["allowed_return_types"]), {"дивиденды", "проценты"})
+
+    def test_get_form_config_without_saved_config(self):
+        InvestmentFormConfig.objects.filter(tenant=self.tenant).delete()
+        res = self.client.get("/api/investments/form-config/", HTTP_HOST=self.host)
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(set(res.data.keys()), {"allowed_return_types", "return_type_choices"})
 
     def test_form_config_records_readonly_list(self):
         res = self.client.get("/api/investments/form-config-records/", HTTP_HOST=self.host)
@@ -1113,29 +1165,176 @@ class InvestmentFormConfigApiTests(APITestCase):
         self.assertIsInstance(res.data, list)
         self.assertEqual(len(res.data), 1)
         self.assertEqual(res.data[0]["id"], InvestmentFormConfig.objects.get(tenant=self.tenant).id)
+        self.assertNotIn("uses_companies", res.data[0])
         self.assertEqual(self.client.post("/api/investments/form-config-records/", {}, format="json", HTTP_HOST=self.host).status_code, 405)
 
     def test_put_updates_form_config(self):
         all_types = [c[0] for c in InvestReturn.ReturnType.choices]
         res = self.client.put(
             "/api/investments/form-config/",
-            {"uses_companies": True, "allowed_return_types": all_types},
+            {"allowed_return_types": all_types},
             format="json",
             HTTP_HOST=self.host,
         )
-        self.assertEqual(res.status_code, 200)
-        self.assertTrue(res.data["uses_companies"])
+        self.assertEqual(res.status_code, 200, res.data)
+        self.assertNotIn("uses_companies", res.data)
         cfg = InvestmentFormConfig.objects.get(tenant=self.tenant)
-        self.assertTrue(cfg.uses_companies)
+        self.assertEqual(set(cfg.allowed_return_types), set(all_types))
 
-    def test_create_company_rejected_when_disabled(self):
-        res = self.client.post(
-            "/api/investments/companies/",
-            {"name": "NewCo", "comment": ""},
+    def test_put_ignores_legacy_uses_companies_key(self):
+        res = self.client.put(
+            "/api/investments/form-config/",
+            {"uses_companies": False, "allowed_return_types": ["проценты"]},
             format="json",
             HTTP_HOST=self.host,
         )
-        self.assertEqual(res.status_code, 400)
+        self.assertEqual(res.status_code, 200, res.data)
+        self.assertNotIn("uses_companies", res.data)
+        self.assertEqual(res.data["allowed_return_types"], ["проценты"])
+        cfg = InvestmentFormConfig.objects.get(tenant=self.tenant)
+        self.assertEqual(cfg.allowed_return_types, ["проценты"])
+
+
+@override_settings(BASE_DOMAIN="example.com", N8N_INTEGRATION_TOKEN="", ALLOWED_HOSTS=["*"])
+class InvestCompanyRemovalApiTests(APITestCase):
+    """Invest companies are removed: legacy params are ignored, /companies/ is an empty stub."""
+
+    def setUp(self):
+        self.tenant = Tenant.objects.create(name="NoCompanies", subdomain="nocompanies", is_active=True)
+        self.host = "nocompanies.example.com"
+        self.user = User.objects.create_user(username="nocompanies_admin", password="x")
+        TenantMembership.objects.create(tenant=self.tenant, user=self.user, is_active=True)
+        TenantUserRole.objects.create(tenant=self.tenant, user=self.user, role=TenantUserRole.ROLE_ADMIN)
+        TenantModuleConfig.objects.create(tenant=self.tenant, module_key="investments", is_enabled=True)
+        self.client.force_authenticate(self.user)
+        CbuExchangeRate.objects.create(date=date(2026, 6, 1), usd_uzs_rate=Decimal("12500"))
+        self.schedule = InvestPayoutSchedule.objects.create(
+            tenant=self.tenant,
+            payout_date=date(2026, 6, 1),
+            amount=Decimal("100.00"),
+            currency="USD",
+            created_by=self.user,
+        )
+        self.linked = self._make_return(payout_schedule=self.schedule)
+        self.unlinked = self._make_return()
+
+    def _make_return(self, *, payout_schedule=None):
+        return InvestReturn.objects.create(
+            tenant=self.tenant,
+            payout_schedule=payout_schedule,
+            date=date(2026, 6, 1),
+            billing_date=date(2026, 6, 1),
+            sum=Decimal("40.00"),
+            currency="USD",
+            type=InvestReturn.ReturnType.DIVIDEND,
+            recipient=InvestReturn.Recipient.INVESTOR,
+            confirmed=True,
+            created_by=self.user,
+        )
+
+    def _ids(self, url):
+        res = self.client.get(url, HTTP_HOST=self.host)
+        self.assertEqual(res.status_code, 200, res.data)
+        return [row["id"] for row in res.data["results"]], res
+
+    def test_returns_company_param_is_ignored(self):
+        baseline, _ = self._ids("/api/investments/returns/")
+        self.assertEqual(sorted(baseline), sorted([self.linked.pk, self.unlinked.pk]))
+        for value in ("5", "null", "abc"):
+            ids, res = self._ids(f"/api/investments/returns/?company={value}")
+            self.assertEqual(ids, baseline, value)
+            for row in res.data["results"]:
+                self.assertNotIn("company", row)
+                self.assertNotIn("company_name", row)
+
+    def test_unlinked_returns_with_company_null(self):
+        ids, _ = self._ids("/api/investments/returns/?unlinked=true&company=null")
+        self.assertEqual(ids, [self.unlinked.pk])
+
+    def test_payout_schedule_company_param_is_ignored(self):
+        baseline, _ = self._ids("/api/investments/payout-schedule/")
+        ids, res = self._ids("/api/investments/payout-schedule/?company=5")
+        self.assertEqual(baseline, [self.schedule.pk])
+        self.assertEqual(ids, baseline)
+        self.assertNotIn("company", res.data["results"][0])
+
+    def test_create_return_ignores_company(self):
+        res = self.client.post(
+            "/api/investments/returns/",
+            {
+                "date": "2026-06-01",
+                "billing_date": "2026-06-01",
+                "sum": "10.00",
+                "currency": "USD",
+                "type": InvestReturn.ReturnType.DIVIDEND,
+                "recipient": InvestReturn.Recipient.INVESTOR,
+                "company": 5,
+            },
+            format="json",
+            HTTP_HOST=self.host,
+        )
+        self.assertEqual(res.status_code, 201, res.data)
+        self.assertNotIn("company", res.data)
+        self.assertNotIn("company_name", res.data)
+        self.assertIsNone(InvestReturn.objects.get(pk=res.data["id"]).company_id)
+
+    def test_patch_schedule_ignores_company(self):
+        res = self.client.patch(
+            f"/api/investments/payout-schedule/{self.schedule.pk}/",
+            {"comment": "edited", "company": 5},
+            format="json",
+            HTTP_HOST=self.host,
+        )
+        self.assertEqual(res.status_code, 200, res.data)
+        self.assertNotIn("company", res.data)
+        self.schedule.refresh_from_db()
+        self.assertEqual(self.schedule.comment, "edited")
+        self.assertIsNone(self.schedule.company_id)
+
+    def test_create_project_investment_ignores_company(self):
+        res = self.client.post(
+            "/api/investments/project-investments/",
+            {"date": "2026-06-01", "amount": "1000.00", "currency": "USD", "funding_method": "cash", "company": 5},
+            format="json",
+            HTTP_HOST=self.host,
+        )
+        self.assertEqual(res.status_code, 201, res.data)
+        self.assertNotIn("company", res.data)
+        self.assertIsNone(ProjectInvestment.objects.get(pk=res.data["id"]).company_id)
+
+    def test_create_share_link_ignores_company(self):
+        res = self.client.post(
+            "/api/investments/payout-schedule-share-links/",
+            {"paid_filter": "all", "company": 5},
+            format="json",
+            HTTP_HOST=self.host,
+        )
+        self.assertEqual(res.status_code, 201, res.data)
+        self.assertNotIn("company", res.data)
+        self.assertIsNone(InvestPayoutScheduleShareLink.objects.get(pk=res.data["id"]).company_id)
+
+    def test_companies_stub_returns_empty_cursor_page(self):
+        res = self.client.get("/api/investments/companies/", HTTP_HOST=self.host)
+        self.assertEqual(res.status_code, 200)
+        self.assertEqual(res.json(), {"next": None, "previous": None, "results": []})
+
+    def test_companies_stub_detail_is_not_found(self):
+        res = self.client.get("/api/investments/companies/1/", HTTP_HOST=self.host)
+        self.assertEqual(res.status_code, 404)
+
+    def test_companies_stub_rejects_writes(self):
+        self.assertEqual(
+            self.client.post("/api/investments/companies/", {"name": "X"}, format="json", HTTP_HOST=self.host).status_code,
+            405,
+        )
+        for method in (self.client.put, self.client.patch, self.client.delete):
+            res = method("/api/investments/companies/1/", {"name": "X"}, format="json", HTTP_HOST=self.host)
+            self.assertEqual(res.status_code, 405, method.__name__)
+
+    def test_companies_stub_requires_module_access(self):
+        TenantModuleConfig.objects.filter(tenant=self.tenant, module_key="investments").update(is_enabled=False)
+        res = self.client.get("/api/investments/companies/", HTTP_HOST=self.host)
+        self.assertEqual(res.status_code, 403)
 
 
 @override_settings(BASE_DOMAIN="example.com", N8N_INTEGRATION_TOKEN="", ALLOWED_HOSTS=["*"])
@@ -2813,11 +3012,8 @@ class InvestPayoutScheduleLinkReturnsAPITest(APITestCase):
         TenantUserRole.objects.create(tenant=self.tenant, user=self.user, role=TenantUserRole.ROLE_ADMIN)
         TenantModuleConfig.objects.create(tenant=self.tenant, module_key="investments", is_enabled=True)
         self.client.force_authenticate(self.user)
-        self.company = InvestCompany.objects.create(tenant=self.tenant, name="Co A", created_by=self.user)
-        self.other_company = InvestCompany.objects.create(tenant=self.tenant, name="Co B", created_by=self.user)
         self.schedule = InvestPayoutSchedule.objects.create(
             tenant=self.tenant,
-            company=self.company,
             payout_date=date(2026, 6, 1),
             amount=Decimal("100.00"),
             currency="USD",
@@ -2826,10 +3022,9 @@ class InvestPayoutScheduleLinkReturnsAPITest(APITestCase):
             created_by=self.user,
         )
 
-    def _make_return(self, *, company=None, sum_=Decimal("40.00"), confirmed=True, payout_schedule=None):
+    def _make_return(self, *, sum_=Decimal("40.00"), confirmed=True, payout_schedule=None):
         return InvestReturn.objects.create(
             tenant=self.tenant,
-            company=company,
             payout_schedule=payout_schedule,
             date=date(2026, 6, 1),
             billing_date=date(2026, 6, 1),
@@ -2842,8 +3037,8 @@ class InvestPayoutScheduleLinkReturnsAPITest(APITestCase):
         )
 
     def test_links_returns_and_recomputes_payment_amount(self):
-        r1 = self._make_return(company=self.company, sum_=Decimal("40.00"))
-        r2 = self._make_return(company=self.company, sum_=Decimal("60.00"))
+        r1 = self._make_return(sum_=Decimal("40.00"))
+        r2 = self._make_return(sum_=Decimal("60.00"))
         response = self.client.post(
             f"/api/investments/payout-schedule/{self.schedule.pk}/link-returns/",
             data={"return_ids": [r1.pk, r2.pk]},
@@ -2859,39 +3054,44 @@ class InvestPayoutScheduleLinkReturnsAPITest(APITestCase):
         self.assertEqual(self.schedule.payment_amount, Decimal("100.00"))
         self.assertTrue(self.schedule.is_paid)
 
-    def test_rejects_return_from_other_company(self):
-        foreign = self._make_return(company=self.other_company)
+    def test_links_returns_regardless_of_legacy_company(self):
+        # Legacy fixture (removed at stage 2): stale, mismatched company links no longer
+        # block linking — invest companies are gone, one tenant is one company.
+        legacy_a = InvestCompany.objects.create(tenant=self.tenant, name="Co A", created_by=self.user)
+        legacy_b = InvestCompany.objects.create(tenant=self.tenant, name="Co B", created_by=self.user)
+        InvestPayoutSchedule.objects.filter(pk=self.schedule.pk).update(company=legacy_a)
+        foreign = self._make_return()
+        InvestReturn.objects.filter(pk=foreign.pk).update(company=legacy_b)
         response = self.client.post(
             f"/api/investments/payout-schedule/{self.schedule.pk}/link-returns/",
             data={"return_ids": [foreign.pk]},
             format="json",
             HTTP_HOST=self.host,
         )
-        self.assertEqual(response.status_code, 400, response.data)
+        self.assertEqual(response.status_code, 200, response.data)
         foreign.refresh_from_db()
-        self.assertIsNone(foreign.payout_schedule_id)
+        self.assertEqual(foreign.payout_schedule_id, self.schedule.pk)
 
-    def test_unlinked_returns_list_filtered_by_company(self):
-        same_co = self._make_return(company=self.company)
-        self._make_return(company=self.other_company)
+    def test_unlinked_returns_list_ignores_company_param(self):
+        unlinked_a = self._make_return()
+        unlinked_b = self._make_return()
         response = self.client.get(
-            f"/api/investments/returns/?unlinked=true&company={self.company.pk}",
+            "/api/investments/returns/?unlinked=true&company=5",
             HTTP_HOST=self.host,
         )
         self.assertEqual(response.status_code, 200, response.data)
         ids = [row["id"] for row in response.data["results"]]
-        self.assertEqual(ids, [same_co.pk])
+        self.assertEqual(sorted(ids), sorted([unlinked_a.pk, unlinked_b.pk]))
 
     def test_rejects_already_linked_return(self):
         other_schedule = InvestPayoutSchedule.objects.create(
             tenant=self.tenant,
-            company=self.company,
             payout_date=date(2026, 7, 1),
             amount=Decimal("10.00"),
             currency="USD",
             created_by=self.user,
         )
-        linked = self._make_return(company=self.company, payout_schedule=other_schedule)
+        linked = self._make_return(payout_schedule=other_schedule)
         response = self.client.post(
             f"/api/investments/payout-schedule/{self.schedule.pk}/link-returns/",
             data={"return_ids": [linked.pk]},

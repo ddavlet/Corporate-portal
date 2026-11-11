@@ -7,14 +7,8 @@ const getProjectInvestmentsMock = vi.fn()
 const getInvestReturnsMock = vi.fn()
 
 vi.mock('../lib/api', () => ({
-  DEFAULT_INVESTMENT_FORM_CONFIG: {
-    uses_companies: false,
-    allowed_return_types: [],
-    return_type_choices: [],
-  },
-  getInvestCompanies: () => Promise.resolve([]),
-  getInvestmentFormConfig: () =>
-    Promise.resolve({ uses_companies: false, allowed_return_types: [], return_type_choices: [] }),
+  DEFAULT_INVESTMENT_FORM_CONFIG: { allowed_return_types: [], return_type_choices: [] },
+  getInvestmentFormConfig: () => Promise.resolve({ allowed_return_types: [], return_type_choices: [] }),
   getInvestNotificationConfig: () => Promise.resolve(null),
   getInvestPayoutSchedule: () => Promise.resolve([]),
   getInvestPayoutScheduleShareLinks: () => Promise.resolve([]),
@@ -23,7 +17,6 @@ vi.mock('../lib/api', () => ({
 }))
 
 // The tabs and the card have their own tests; here only the deep link matters.
-vi.mock('./investments/CompaniesTab', () => ({ CompaniesTab: () => null }))
 vi.mock('./investments/InvestmentsTab', () => ({ InvestmentsTab: () => <div>Вкладка вложений</div> }))
 vi.mock('./investments/ReturnsTab', () => ({ ReturnsTab: () => <div>Вкладка выплат</div> }))
 vi.mock('./investments/ScheduleTab', () => ({ ScheduleTab: () => null }))
@@ -86,5 +79,26 @@ describe('InvestmentsPage deep link ?open=', () => {
     expect(await screen.findByText('Вкладка выплат')).toBeInTheDocument()
     await waitFor(() => expect(getInvestReturnsMock).toHaveBeenCalled())
     expect(warning).not.toHaveBeenCalled()
+  })
+})
+
+describe('InvestmentsPage without companies inside the tenant', () => {
+  beforeEach(() => {
+    getProjectInvestmentsMock.mockResolvedValue([])
+    getInvestReturnsMock.mockResolvedValue([])
+  })
+
+  it('shows no "Компании" tab and no company filter', async () => {
+    renderPage('/investments')
+    expect(await screen.findByRole('tab', { name: /Заявки на вложение/ })).toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: /Расписание/ })).toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: /Выплаты/ })).toBeInTheDocument()
+    expect(screen.queryByRole('tab', { name: /Компании/ })).not.toBeInTheDocument()
+    expect(screen.queryByText('Все компании')).not.toBeInTheDocument()
+  })
+
+  it('opens the first tab even when an old link asks for ?tab=companies', async () => {
+    renderPage('/investments?tab=companies')
+    expect(await screen.findByText('Вкладка вложений')).toBeInTheDocument()
   })
 })

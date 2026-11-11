@@ -9,7 +9,6 @@ from apps.modules.investments.funding_pool import request_kind
 from apps.modules.requests.models import Request
 from apps.modules.wallets.models import Wallet
 from apps.modules.investments.models import (
-    InvestCompany,
     InvestmentApprovalConfig,
     InvestmentApprovalConfigStep,
     InvestmentApprovalConfigStepApprover,
@@ -51,31 +50,7 @@ def _normalize_currency(attrs: dict, key: str = "currency") -> None:
         attrs[key] = str(val).strip().upper()
 
 
-class _CompanyScopeMixin:
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        company_field = self.fields.get("company")
-        if company_field is None:
-            return
-        tenant = getattr(self.context.get("request"), "tenant", None)
-        if tenant:
-            company_field.queryset = InvestCompany.objects.filter(tenant=tenant)
-        else:
-            company_field.queryset = InvestCompany.objects.none()
-
-
-def investment_form_clear_company_if_disabled(attrs, request) -> dict:
-    """When tenant disabled companies in form settings, drop company FK on write."""
-    tenant = getattr(request, "tenant", None)
-    if not tenant:
-        return attrs
-    cfg = InvestmentFormConfig.objects.filter(tenant=tenant).first()
-    if cfg and not cfg.uses_companies:
-        attrs["company"] = None
-    return attrs
-
-
-class InvestReturnSerializer(_CompanyScopeMixin, serializers.ModelSerializer):
+class InvestReturnSerializer(serializers.ModelSerializer):
     """
     ``sum_usd``/``sum_uzs`` — не хранятся в БД, а считаются на лету из ``sum``/``currency``
     и курса ЦБ на дату выплаты (CbuExchangeRate — единая точка правды, см. investments.services).
@@ -92,7 +67,6 @@ class InvestReturnSerializer(_CompanyScopeMixin, serializers.ModelSerializer):
         fields = [
             "id",
             "tenant",
-            "company",
             "payout_schedule",
             "date",
             "billing_date",
@@ -187,7 +161,7 @@ class InvestReturnSerializer(_CompanyScopeMixin, serializers.ModelSerializer):
                         raise serializers.ValidationError(
                             {"type": "Этот тип выплат отключён в настройках формы инвестиций."}
                         )
-        return investment_form_clear_company_if_disabled(attrs, self.context.get("request"))
+        return attrs
 
     def create(self, validated_data):
         self._require_cbu_archive(validated_data["date"])
@@ -204,7 +178,7 @@ class InvestReturnSerializer(_CompanyScopeMixin, serializers.ModelSerializer):
         return super().update(instance, validated_data)
 
 
-class InvestPayoutScheduleSerializer(_CompanyScopeMixin, serializers.ModelSerializer):
+class InvestPayoutScheduleSerializer(serializers.ModelSerializer):
     remaining_amount = serializers.SerializerMethodField()
 
     class Meta:
@@ -212,7 +186,6 @@ class InvestPayoutScheduleSerializer(_CompanyScopeMixin, serializers.ModelSerial
         fields = [
             "id",
             "tenant",
-            "company",
             "payout_date",
             "amount",
             "currency",
@@ -253,10 +226,10 @@ class InvestPayoutScheduleSerializer(_CompanyScopeMixin, serializers.ModelSerial
         # under-paid; reopening lets the amount-based auto-status take over again.
         if "is_paid" in attrs:
             attrs["closed_manually"] = bool(attrs["is_paid"])
-        return investment_form_clear_company_if_disabled(attrs, self.context.get("request"))
+        return attrs
 
 
-class ProjectInvestmentSerializer(_CompanyScopeMixin, serializers.ModelSerializer):
+class ProjectInvestmentSerializer(serializers.ModelSerializer):
     # Заявки на расход — основания вложения (инвестиционный режим), только для чтения.
     source_requests = serializers.SerializerMethodField()
 
@@ -265,7 +238,6 @@ class ProjectInvestmentSerializer(_CompanyScopeMixin, serializers.ModelSerialize
         fields = [
             "id",
             "tenant",
-            "company",
             "date",
             "amount",
             "currency",
@@ -292,7 +264,7 @@ class ProjectInvestmentSerializer(_CompanyScopeMixin, serializers.ModelSerialize
             raise serializers.ValidationError({"funding_method": "Укажите способ внесения."})
         self._validate_collected_fields_locked(attrs)
         self._validate_cash_currency(attrs)
-        return investment_form_clear_company_if_disabled(attrs, self.context.get("request"))
+        return attrs
 
     def get_source_requests(self, obj):
         if not obj.pk:
@@ -415,59 +387,19 @@ class FundingPoolRequestSerializer(serializers.ModelSerializer):
         return obj.status == Request.STATUS_PAYED
 
 
-class FundingCollectPayloadSerializer(_CompanyScopeMixin, serializers.Serializer):
+class FundingCollectPayloadSerializer(serializers.Serializer):
     funding_method = serializers.ChoiceField(choices=ProjectInvestment.FundingMethod.choices)
     request_ids = serializers.ListField(child=serializers.IntegerField(min_value=1), allow_empty=False)
     comment = serializers.CharField(required=False, allow_blank=True, default="")
-    company = serializers.PrimaryKeyRelatedField(
-        queryset=InvestCompany.objects.none(), required=False, allow_null=True, default=None
-    )
-
-    def validate(self, attrs):
-        tenant = getattr(self.context.get("request"), "tenant", None)
-        cfg = InvestmentFormConfig.objects.filter(tenant=tenant).first() if tenant else None
-        uses_companies = cfg.uses_companies if cfg else True
-        if not uses_companies:
-            attrs["company"] = None
-        elif attrs.get("company") is None:
-            raise serializers.ValidationError({"company": "Укажите компанию."})
-        return attrs
 
 
-class InvestCompanySerializer(serializers.ModelSerializer):
-    class Meta:
-        model = InvestCompany
-        fields = [
-            "id",
-            "tenant",
-            "name",
-            "comment",
-            "is_active",
-            "created_at",
-            "last_edit_at",
-            "created_by",
-        ]
-        read_only_fields = ["id", "tenant", "created_at", "last_edit_at", "created_by"]
-
-    def validate_name(self, value: str) -> str:
-        normalized = str(value or "").strip()
-        if not normalized:
-            raise serializers.ValidationError("Name cannot be empty.")
-        return normalized
-
-    def validate(self, attrs):
-        reject_client_pk_on_create(self)
-        return attrs
-
-
-class InvestPayoutScheduleShareLinkSerializer(_CompanyScopeMixin, serializers.ModelSerializer):
+class InvestPayoutScheduleShareLinkSerializer(serializers.ModelSerializer):
     class Meta:
         model = InvestPayoutScheduleShareLink
         fields = [
             "id",
             "tenant",
             "token",
-            "company",
             "paid_filter",
             "is_active",
             "created_at",
@@ -477,7 +409,7 @@ class InvestPayoutScheduleShareLinkSerializer(_CompanyScopeMixin, serializers.Mo
 
     def validate(self, attrs):
         reject_client_pk_on_create(self)
-        return investment_form_clear_company_if_disabled(attrs, self.context.get("request"))
+        return attrs
 
 
 class PublicInvestPayoutScheduleShareViewSerializer(serializers.Serializer):
@@ -487,8 +419,6 @@ class PublicInvestPayoutScheduleShareViewSerializer(serializers.Serializer):
     is_paid = serializers.BooleanField()
     payment_amount = serializers.DecimalField(max_digits=18, decimal_places=2)
     comment = serializers.CharField(allow_blank=True)
-    company = serializers.IntegerField(allow_null=True)
-    company_name = serializers.CharField(allow_blank=True)
     currency = serializers.CharField()
 
 
@@ -523,7 +453,6 @@ class InvestNotificationConfigSerializer(serializers.Serializer):
 
 
 class InvestmentFormConfigSerializer(serializers.Serializer):
-    uses_companies = serializers.BooleanField()
     allowed_return_types = serializers.ListField(
         child=serializers.ChoiceField(choices=InvestReturn.ReturnType.choices),
         allow_empty=False,
@@ -751,7 +680,7 @@ class InvestmentApprovalWebhookSerializer(serializers.Serializer):
 class InvestmentFormConfigReadSerializer(serializers.ModelSerializer):
     class Meta:
         model = InvestmentFormConfig
-        fields = ["id", "tenant", "uses_companies", "allowed_return_types", "created_at", "updated_at"]
+        fields = ["id", "tenant", "allowed_return_types", "created_at", "updated_at"]
         read_only_fields = fields
 
 

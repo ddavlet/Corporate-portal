@@ -34,7 +34,6 @@ const FIELD_LABELS: Record<string, string> = {
   last_edit_at: 'Дата изменения',
   updated_at: 'Дата обновления',
   tenant: 'Компания (tenant)',
-  company: 'Компания',
   company_payer: 'Компания-плательщик',
   recipient: 'Получатель',
   recipient_user: 'Получатель',
@@ -100,7 +99,6 @@ const FIELD_LABELS: Record<string, string> = {
   remaining_amount: 'Остаток',
   return_type: 'Тип выплаты',
   created_return: 'Созданная выплата',
-  uses_companies: 'Используются компании',
   allowed_return_types: 'Разрешённые типы выплат',
 
   // Касса / банк / корп. карта

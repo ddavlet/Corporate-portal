@@ -1,15 +1,9 @@
-import { type ReactNode, useEffect, useMemo, useState } from 'react'
+import { type ReactNode } from 'react'
 import { Typography } from 'antd'
 import { useNavigate } from 'react-router-dom'
 
-import { DEFAULT_INVESTMENT_FORM_CONFIG, getInvestmentFormConfig } from '../../lib/api'
 import { tgHaptic } from './tgHaptic'
-import {
-  BankOutlined,
-  CalendarOutlined,
-  RiseOutlined,
-  TeamOutlined,
-} from '@ant-design/icons'
+import { BankOutlined, CalendarOutlined, RiseOutlined } from '@ant-design/icons'
 
 type Tile = {
   key: string
@@ -21,13 +15,6 @@ type Tile = {
 }
 
 const TILES: Tile[] = [
-  {
-    key: 'companies',
-    title: 'Компании',
-    subtitle: 'Список инвестиционных компаний',
-    path: '/tg/investments/companies',
-    icon: <TeamOutlined />,
-  },
   {
     key: 'projects',
     title: 'Заявки на вложение',
@@ -55,24 +42,6 @@ const TILES: Tile[] = [
 
 export function TgInvestmentsPage() {
   const navigate = useNavigate()
-  const [usesCompanies, setUsesCompanies] = useState(true)
-
-  useEffect(() => {
-    let cancelled = false
-    ;(async () => {
-      try {
-        const cfg = await getInvestmentFormConfig()
-        if (!cancelled) setUsesCompanies(cfg.uses_companies)
-      } catch {
-        if (!cancelled) setUsesCompanies(DEFAULT_INVESTMENT_FORM_CONFIG.uses_companies)
-      }
-    })()
-    return () => {
-      cancelled = true
-    }
-  }, [])
-
-  const tiles = useMemo(() => TILES.filter((t) => t.key !== 'companies' || usesCompanies), [usesCompanies])
 
   return (
     <div className="tg-investments-page">
@@ -80,7 +49,7 @@ export function TgInvestmentsPage() {
         Инвестиции
       </Typography.Title>
       <div className="tg-section-landing">
-        {tiles.map((tile) => (
+        {TILES.map((tile) => (
           <button
             key={tile.key}
             type="button"

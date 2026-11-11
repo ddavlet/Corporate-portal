@@ -383,7 +383,7 @@ def _list_investment_approval_action_items(
         .exclude(step_type=notification_step_type)
         .annotate(current_step=Subquery(current_step), blocked=Exists(has_rejected))
         .filter(blocked=False, step=F("current_step"))
-        .select_related(parent_field, f"{parent_field}__company")
+        .select_related(parent_field)
         .order_by(f"{parent_field}_id", "step", "id")
     )
     result = []
@@ -412,8 +412,6 @@ def list_invest_return_action_items(*, tenant, user) -> list[dict]:
     for row in rows:
         invest_return = row.invest_return
         title = f"Выплата инвестиции #{invest_return.id}"
-        if invest_return.company:
-            title = f"{title} · {invest_return.company.name}"
         items.append(
             {
                 "kind": "invest_return",
@@ -451,8 +449,6 @@ def list_project_investment_action_items(*, tenant, user) -> list[dict]:
     for row in rows:
         investment = row.project_investment
         title = f"Вложение в проект #{investment.id}"
-        if investment.company:
-            title = f"{title} · {investment.company.name}"
         items.append(
             {
                 "kind": "project_investment",
