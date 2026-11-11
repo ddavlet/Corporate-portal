@@ -16,12 +16,14 @@ dayjs.extend(timezone)
 dayjs.tz.setDefault('Asia/Tashkent')
 import { App } from './routes/App'
 import { AuthProvider } from './ui/auth'
-import { registerPortalServiceWorker } from './lib/pwa'
+import { captureInstallPrompt, registerPortalServiceWorker } from './lib/pwa'
 import { initPortalMode } from './lib/portalMode'
 import 'antd/dist/reset.css'
 import './styles.css'
 
 void registerPortalServiceWorker()
+// Chrome fires beforeinstallprompt early: listen before the first render (the banner reads it later).
+captureInstallPrompt()
 
 function renderApp() {
   ReactDOM.createRoot(document.getElementById('root')!).render(
