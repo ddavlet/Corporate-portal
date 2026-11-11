@@ -4,6 +4,7 @@ import { resetReportTemplatesCache } from '../lib/useReportTemplates'
 import { resetActionItemsCache } from '../lib/useActionItems'
 import { clearAppBadgeSafe } from '../lib/appBadge'
 import { clearTabCompany } from '../lib/companyContext'
+import { revokePushSubscription } from '../lib/webPush'
 
 type Tokens = {
   access: string
@@ -63,6 +64,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [])
 
   const logout = useCallback(() => {
+    // First, while the token is still known: the server revoke runs in the background after the tokens are cleared.
+    // After a logout caused by 401 the server cannot be reached with this token; the browser subscription is still
+    // dropped, and the push service then answers 410 to the server, which revokes it there.
+    void revokePushSubscription({ accessToken: loadState()?.access ?? null })
     resetTenantAdminCache()
     resetReportTemplatesCache()
     resetActionItemsCache()

@@ -10,6 +10,7 @@ from django.db.models import Min
 from django.utils import timezone
 from django.utils.formats import date_format
 
+from apps.modules.investments.approval_events import invest_return_ref, notifies_approvals_changed
 from apps.modules.investments.models import (
     CbuExchangeRate,
     InvestmentApprovalConfig,
@@ -436,6 +437,7 @@ def dispatch_pending_invest_return_approvals(*, invest_return: InvestReturn) -> 
     return len(rows)
 
 
+@notifies_approvals_changed(invest_return_ref)
 def route_invest_return_approvals(*, invest_return: InvestReturn) -> int:
     refresh_invest_return_approval_messages(invest_return=invest_return)
     pending = InvestmentReturnApproval.objects.filter(

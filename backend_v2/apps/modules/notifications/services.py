@@ -30,16 +30,15 @@ def _providers_for_user(*, tenant, user) -> list[ActionItemsProvider]:
     return providers
 
 
-def collect_action_items(*, tenant, user) -> list[dict]:
-    """All objects whose current approval step waits on `user`, newest first.
-
-    A failing provider is logged and skipped so one module cannot break the screen.
-    """
+def _collect_action_items_reporting_failure(*, tenant, user) -> tuple[list[dict], bool]:
+    """`collect_action_items` plus whether any provider failed (its items are then missing)."""
     items: list[dict] = []
+    failed = False
     for provider in _providers_for_user(tenant=tenant, user=user):
         try:
             items.extend(provider(tenant=tenant, user=user))
         except Exception:
+            failed = True
             logger.exception(
                 "action_items provider failed provider=%s tenant_id=%s user_id=%s",
                 getattr(provider, "__name__", repr(provider)),
@@ -47,6 +46,15 @@ def collect_action_items(*, tenant, user) -> list[dict]:
                 user.id,
             )
     items.sort(key=lambda item: (item["created_at"], item["id"]), reverse=True)
+    return items, failed
+
+
+def collect_action_items(*, tenant, user) -> list[dict]:
+    """All objects whose current approval step waits on `user`, newest first.
+
+    A failing provider is logged and skipped so one module cannot break the screen.
+    """
+    items, _failed = _collect_action_items_reporting_failure(tenant=tenant, user=user)
     return items
 
 
@@ -87,3 +95,26 @@ def collect_all_action_items(*, user) -> list[dict]:
             items.append({**item, "tenant": company, "link": with_company_param(item["link"], tenant.subdomain)})
     items.sort(key=lambda item: (item["created_at"], item["id"]), reverse=True)
     return items
+
+
+def collect_action_items_by_tenant_reporting_failures(
+    *, user
+) -> tuple[list[tuple[Tenant, list[dict]]], set[str]]:
+    """`collect_action_items_by_tenant` plus subdomains whose items may be incomplete.
+
+    For Web Push: an item missing because its provider failed must not count as closed
+    (it would be pushed again on the next successful sync), so the caller keeps the
+    open push state of those companies as is.
+    """
+    result: list[tuple[Tenant, list[dict]]] = []
+    failed_subdomains: set[str] = set()
+    for tenant in active_member_tenants(user=user):
+        try:
+            items, failed = _collect_action_items_reporting_failure(tenant=tenant, user=user)
+        except Exception:
+            logger.exception("action_items tenant failed tenant_id=%s user_id=%s", tenant.id, user.id)
+            items, failed = [], True
+        if failed:
+            failed_subdomains.add(tenant.subdomain)
+        result.append((tenant, items))
+    return result, failed_subdomains

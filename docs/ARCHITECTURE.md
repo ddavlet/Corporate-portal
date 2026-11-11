@@ -141,7 +141,7 @@
 
 ### `apps.modules.notifications`
 
-- Моделей нет. `GET /api/notifications/action-items/` (JWT, нужно активное членство в тенанте) отдаёт `{count, items}` без пагинации, по `created_at` по убыванию: pending-шаги согласования, ожидающие текущего пользователя ([services.py](../backend_v2/apps/modules/notifications/services.py), [views.py](../backend_v2/apps/modules/notifications/views.py)).
+- Модели Web Push: `PushSubscription` (`push_subscriptions`, без tenant, уникальный `endpoint_hash`) и `ActionItemPushState` (`action_item_push_states`, уникальность `(user, tag)`, хранит шаг согласования). `GET /api/notifications/action-items/` (JWT, нужно активное членство в тенанте) отдаёт `{count, items}` без пагинации, по `created_at` по убыванию: pending-шаги согласования, ожидающие текущего пользователя ([services.py](../backend_v2/apps/modules/notifications/services.py), [views.py](../backend_v2/apps/modules/notifications/views.py)).
 - Провайдеры: заявки (`requests/services.py`, всегда) и выплаты инвестиций / вложения в проекты (`investments/services.py`). Инвестиционные включаются, только если модуль `investments` включён у тенанта и у пользователя есть доступ к нему (роль admin или investor). Сбой провайдера логируется и пропускается.
 - Шаги `notification` в список не попадают; решения по инвестициям принимаются в Telegram, в портале пункт только ведёт на запись (`/investments?tab=...&open=<id>`).
 
@@ -151,7 +151,11 @@
 - Vite-плагин ([vite.config.ts](../frontend_v2/vite.config.ts)) дописывает в `dist/sw.js` строку `// kolberg-build: <хеш>`, чтобы после деплоя браузер видел новый воркер. [pwa.ts](../frontend_v2/src/lib/pwa.ts) регистрирует SW (не в Telegram WebApp и не на `/tg/`), проверяет обновление на focus; [PwaUpdateBridge](../frontend_v2/src/ui/PwaUpdateBridge.tsx) перезагружает страницу при смене контроллера.
 - nginx ([nginx.conf](../frontend_v2/nginx.conf), `nginx.local.conf`): `sw.js` и `index.html` с `Cache-Control: no-cache`, manifest с типом `application/manifest+json`, неизвестные `/app/*.js` в корне дают 404.
 - Клиент: [useActionItems](../frontend_v2/src/lib/useActionItems.ts) опрашивает API раз в 60 с при видимой вкладке (при ошибках бэкофф до 5 мин) и на focus; счётчик показывают бейджи в меню, на колокольчике и на иконке приложения (Badging API, [appBadge.ts](../frontend_v2/src/lib/appBadge.ts)).
-- Web Push пока не реализован.
+- Web Push (`pywebpush`, ключи `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` / `VAPID_SUBJECT`; пустые — push выключен, портал работает как раньше):
+  - API `/api/notifications/push/`: `vapid-public-key/`, `subscribe/`, `unsubscribe/` ([views.py](../backend_v2/apps/modules/notifications/views.py)). Подписка оформляется только на общем хосте (на поддомене 409 `shared_host_only`), push выключен — 409 `push_disabled`. Endpoint допускается только у известных push-сервисов (allow-list), активных подписок у пользователя не больше 10 (старые отзываются, `reason=limit`); чужую активную подписку можно забрать только при совпадении `p256dh` и `auth`, иначе 409 `endpoint_taken`.
+  - Отправка идёт только из cron ([crontab](../backend_v2/cron/crontab)), не в HTTP-запросе: хуки после решения по заявке/выплате/вложению (`approval_events.py`, [signals.py](../backend_v2/apps/modules/notifications/signals.py)) лишь ставят `sync_requested_at`. `sync_action_item_push --requested-only` раз в минуту обрабатывает помеченных, полный проход раз в 5 минут (удалённые заявки, потерянные членства, повтор неудачных отправок); запуски под `flock`.
+  - [push_services.py](../backend_v2/apps/modules/notifications/push_services.py): тег уведомления `<subdomain>:<kind>-<id>`, заголовок с названием компании; новый пункт (или новый шаг того же объекта) даёт один push на устройство. При первой подписке пишется базовая линия без отправки. Ответ 404/410 отзывает подписку, прочие сбои логируются без endpoint и отправка повторяется. Сбой сбора пунктов не закрывает состояние. У деактивированного пользователя подписки отзываются.
+  - [sw.js](../frontend_v2/public/sw.js) показывает уведомление, закрывает те, которых нет в `active_tags`, ставит бейдж и по клику открывает объект; [PushNotificationsWidget](../frontend_v2/src/ui/PushNotificationsWidget.tsx) на экране уведомлений включает/отключает push (только по клику), при logout подписка отзывается.
 
 ### `apps.modules.feedback`
 

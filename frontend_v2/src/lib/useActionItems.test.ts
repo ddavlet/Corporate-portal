@@ -218,6 +218,17 @@ describe('useActionItems', () => {
     unmount()
   })
 
+  it('does not tell the service worker anything when the request fails (shown notifications stay)', async () => {
+    const postMessage = vi.fn()
+    Object.defineProperty(navigator, 'serviceWorker', { configurable: true, value: { controller: { postMessage } } })
+    getActionItemsMock.mockRejectedValue(new Error('offline'))
+    const { result, unmount } = renderHook(() => useActionItems())
+    await flush()
+    expect(result.current.error).toBe(true)
+    expect(postMessage).not.toHaveBeenCalled()
+    unmount()
+  })
+
   it('shows the sum over companies in the count and the icon badge (crit. 19)', async () => {
     const withTenant = (id: number, subdomain: string) => ({ ...ITEM('request', id), tenant: { subdomain, name: subdomain } })
     getActionItemsMock.mockResolvedValue({ count: 3, items: [withTenant(1, 'alpha'), withTenant(2, 'beta'), withTenant(3, 'beta')] })

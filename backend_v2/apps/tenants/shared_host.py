@@ -31,6 +31,7 @@ SHARED_HOST_TENANTLESS_PREFIXES = (
     "/api/auth",
     "/api/me/companies",
     "/api/notifications/action-items/all",
+    "/api/notifications/push",
     "/api/portal/config",
     "/api/investments/public",
 )

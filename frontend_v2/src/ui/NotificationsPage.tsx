@@ -7,6 +7,7 @@ import { actionItemTag, type ActionItem, type ActionItemKind } from '../lib/acti
 import { formatRequestDate } from '../lib/requestUtils'
 import { useActionItems } from '../lib/useActionItems'
 import { useCompany } from './company'
+import { PushNotificationsWidget } from './PushNotificationsWidget'
 
 const KIND_LABELS: Record<ActionItemKind, string> = {
   request: 'Заявка',
@@ -121,6 +122,8 @@ export function NotificationsPage() {
                 : 'Заявки и инвестиции, где сейчас ваш шаг согласования'}
           </MutedText>
         </div>
+
+        <PushNotificationsWidget />
 
         {error ? (
           <Alert

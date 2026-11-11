@@ -32,5 +32,12 @@ BASH_ENV=/etc/kolberg-cron.env
 0 22 * * 1-5 root cd /app && python manage.py import_kapitalbank_statements --mode daytime >> /proc/1/fd/1 2>&1
 0 5 * * * root cd /app && python manage.py import_kapitalbank_statements --mode nightly >> /proc/1/fd/1 2>&1
 
+# Web Push of portal action items: pushes are sent only from here, never in an HTTP request.
+# Every minute: users marked by approval hooks. Every 5 minutes: full catch-up, longest-unsynced first
+# (paths without hooks: bulk DELETED drafts, lost memberships; retries of failed pushes).
+# flock skips a run while the previous one is still going; --max-users / --max-seconds cap the work per run.
+* * * * * root cd /app && flock -n /tmp/sync_action_item_push_requested.lock python manage.py sync_action_item_push --requested-only --max-seconds 50 >> /proc/1/fd/1 2>&1
+*/5 * * * * root cd /app && flock -n /tmp/sync_action_item_push.lock python manage.py sync_action_item_push --max-users 500 --max-seconds 240 >> /proc/1/fd/1 2>&1
+
 # AI-assistant: hard-delete reply-chain branches older than CHAIN_TTL_DAYS (owner-approved exception).
 30 3 * * * root cd /app && python manage.py purge_ai_assistant_chains >> /proc/1/fd/1 2>&1
