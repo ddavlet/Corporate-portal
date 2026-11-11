@@ -1,6 +1,8 @@
 import React, { createContext, useCallback, useContext, useMemo, useState } from 'react'
 import { resetTenantAdminCache } from '../lib/useTenantAdmin'
 import { resetReportTemplatesCache } from '../lib/useReportTemplates'
+import { resetActionItemsCache } from '../lib/useActionItems'
+import { clearAppBadgeSafe } from '../lib/appBadge'
 
 type Tokens = {
   access: string
@@ -54,6 +56,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     // Drop any cached admin flag from a previous session before the new user loads.
     resetTenantAdminCache()
     resetReportTemplatesCache()
+    resetActionItemsCache()
     setState(next)
     saveState(next)
   }, [])
@@ -61,6 +64,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const logout = useCallback(() => {
     resetTenantAdminCache()
     resetReportTemplatesCache()
+    resetActionItemsCache()
+    clearAppBadgeSafe()
     setState(null)
     saveState(null)
   }, [])

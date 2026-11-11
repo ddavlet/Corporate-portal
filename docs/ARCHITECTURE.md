@@ -63,6 +63,7 @@
 | `/api/notes/` | заметки к сущностям |
 | `/api/payroll/` | документы/строки ЗП |
 | `/api/wallets/` | кассы (cash registers) и кошельки |
+| `/api/notifications/action-items/` | GET: что ждёт действия текущего пользователя (заявки и инвестиции) |
 | `/api/telegram-approvals/webhook/` | callback от Telegram (без JWT, проверка интеграционного токена) |
 | `/api/<n8n_prefix>/` | upsert из n8n (дублирование префикса при кастомном пути — см. settings) |
 
@@ -135,6 +136,20 @@
 - **Webhook** `POST .../webhook/`: публичный endpoint, проверка того же интеграционного токена, разбор `callback_query`, валидация chat/from/message vs `Approval`, затем `confirm_approval_by_id` ([views.py](../backend_v2/apps/modules/telegram_approvals/views.py)).
 - Сервисный слой: диспатч в n8n (bridge URL из tenant/env), шаблоны сообщений из `TenantIntegrationConfig` / request integration settings.
 
+### `apps.modules.notifications`
+
+- Моделей нет. `GET /api/notifications/action-items/` (JWT, нужно активное членство в тенанте) отдаёт `{count, items}` без пагинации, по `created_at` по убыванию: pending-шаги согласования, ожидающие текущего пользователя ([services.py](../backend_v2/apps/modules/notifications/services.py), [views.py](../backend_v2/apps/modules/notifications/views.py)).
+- Провайдеры: заявки (`requests/services.py`, всегда) и выплаты инвестиций / вложения в проекты (`investments/services.py`). Инвестиционные включаются, только если модуль `investments` включён у тенанта и у пользователя есть доступ к нему (роль admin или investor). Сбой провайдера логируется и пропускается.
+- Шаги `notification` в список не попадают; решения по инвестициям принимаются в Telegram, в портале пункт только ведёт на запись (`/investments?tab=...&open=<id>`).
+
+### PWA
+
+- [manifest.webmanifest](../frontend_v2/public/manifest.webmanifest) (scope и start_url `/app/`), иконки в `frontend_v2/public/icons/` (временные), [sw.js](../frontend_v2/public/sw.js) без Cache Storage: только перехват навигации и `skipWaiting`/`clients.claim`. Запросы `/api/*` SW не трогает.
+- Vite-плагин ([vite.config.ts](../frontend_v2/vite.config.ts)) дописывает в `dist/sw.js` строку `// kolberg-build: <хеш>`, чтобы после деплоя браузер видел новый воркер. [pwa.ts](../frontend_v2/src/lib/pwa.ts) регистрирует SW (не в Telegram WebApp и не на `/tg/`), проверяет обновление на focus; [PwaUpdateBridge](../frontend_v2/src/ui/PwaUpdateBridge.tsx) перезагружает страницу при смене контроллера.
+- nginx ([nginx.conf](../frontend_v2/nginx.conf), `nginx.local.conf`): `sw.js` и `index.html` с `Cache-Control: no-cache`, manifest с типом `application/manifest+json`, неизвестные `/app/*.js` в корне дают 404.
+- Клиент: [useActionItems](../frontend_v2/src/lib/useActionItems.ts) опрашивает API раз в 60 с при видимой вкладке (при ошибках бэкофф до 5 мин) и на focus; счётчик показывают бейджи в меню, на колокольчике и на иконке приложения (Badging API, [appBadge.ts](../frontend_v2/src/lib/appBadge.ts)).
+- Web Push пока не реализован.
+
 ### `apps.modules.feedback`
 
 - **`PortalFeedback`**: исторические обращения (kind error/improvement). Кнопка «Обратная связь» и её API удалены; модель и админка оставлены, чтобы не терять данные.
@@ -194,6 +209,7 @@ sequenceDiagram
 - **Заявки**: список, создание, деталь, настройки формы/согласований/автозаявок (пути `/requests`, `/settings/request-*`, `/requests/auto-config`).
 - **Финансы**: `/cash`, `/bank`, `/corporate-card`, `/payroll` + детальные страницы по id.
 - **`/settings`** — сетка карточек из [settingsModules.tsx](../frontend_v2/src/settings/settingsModules.tsx): форма заявок, этапы согласования, интеграции tenant, кассы.
+- **`/notifications`** — страница «Уведомления» ([NotificationsPage](../frontend_v2/src/ui/NotificationsPage.tsx)); колокольчик в шапке — [NotificationsBellWidget](../frontend_v2/src/ui/NotificationsBellWidget.tsx). Ссылка `/investments?tab=...&open=<id>` открывает карточку записи на странице инвестиций.
 - **`/tg/*`** — отдельная оболочка [TgWebAppLayout](../frontend_v2/src/ui/tg/TgWebAppLayout.tsx): упрощённые список/создание/деталь заявок и страница подтверждения оплаты (`TgPaymentConfirmPage`), токены в session storage.
 
 Меню ProLayout **не фильтруется** по `effective_enabled` автоматически — фильтрация доступа в основном на API; панель модулей на главной показывает статус включения.

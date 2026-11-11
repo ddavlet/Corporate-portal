@@ -2,10 +2,11 @@ import { useEffect, useMemo, useState, type ReactElement } from 'react'
 import { Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { ProLayout } from '@ant-design/pro-layout'
 import type { MenuProps } from 'antd'
-import { Button, Dropdown, Space, Typography } from 'antd'
+import { Badge, Button, Dropdown, Space, Typography } from 'antd'
 import { Grid } from 'antd'
 import {
   BankOutlined,
+  BellOutlined,
   CheckSquareOutlined,
   ContactsOutlined,
   FundOutlined,
@@ -26,6 +27,8 @@ import { useAuth } from './auth'
 import { ChangePasswordModal } from './user/ChangePasswordModal'
 import { useModuleAccess } from './moduleAccess'
 import { getSettingsAccess } from '../lib/api'
+import { useActionItems } from '../lib/useActionItems'
+import { NotificationsBellWidget } from './NotificationsBellWidget'
 
 type ShellMenuRoute = {
   path: string
@@ -45,6 +48,7 @@ export function AppShell() {
   const [canOpenSettings, setCanOpenSettings] = useState(false)
   const [canOpenAdmin, setCanOpenAdmin] = useState(false)
   const [tenantName, setTenantName] = useState<string>('')
+  const { count: actionItemsCount } = useActionItems()
 
   useEffect(() => {
     let cancelled = false
@@ -73,6 +77,7 @@ export function AppShell() {
     () =>
       ([
         { path: '/', name: 'Панель', icon: <DashboardOutlined /> },
+        { path: '/notifications', name: 'Уведомления', icon: <BellOutlined /> },
         { path: '/requests', name: 'Заявки', icon: <FileTextOutlined />, moduleKey: 'requests' },
         { path: '/tasks', name: 'Задачи', icon: <CheckSquareOutlined />, moduleKey: 'tasks' },
         { path: '/cash', name: 'Касса', icon: <DollarOutlined />, moduleKey: 'cash' },
@@ -120,7 +125,13 @@ export function AppShell() {
             if (item.path) navigate(item.path)
           }}
         >
-          {dom}
+          {item.path === '/notifications' && actionItemsCount > 0 ? (
+            <Badge count={actionItemsCount} size="small" overflowCount={99} offset={[12, 0]}>
+              {dom}
+            </Badge>
+          ) : (
+            dom
+          )}
         </a>
       )}
       rightContentRender={() => (
@@ -130,6 +141,7 @@ export function AppShell() {
               {username}
             </Typography.Text>
           ) : null}
+          <NotificationsBellWidget count={actionItemsCount} onClick={() => navigate('/notifications')} />
           <Dropdown menu={{ items: profileMenu }} trigger={['click']}>
             <Button icon={<UserOutlined />}>Профиль</Button>
           </Dropdown>

@@ -16,8 +16,11 @@ dayjs.extend(timezone)
 dayjs.tz.setDefault('Asia/Tashkent')
 import { App } from './routes/App'
 import { AuthProvider } from './ui/auth'
+import { registerPortalServiceWorker } from './lib/pwa'
 import 'antd/dist/reset.css'
 import './styles.css'
+
+void registerPortalServiceWorker()
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>

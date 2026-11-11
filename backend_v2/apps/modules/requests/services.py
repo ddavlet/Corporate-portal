@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from django.db.models import CharField, Q
+from django.db.models.functions import Cast
 from django.utils import timezone
 from rest_framework.exceptions import ValidationError
 
@@ -8,11 +10,14 @@ from apps.modules.cashier.models import CashExpense
 from apps.modules.corporate_card.models import CardExpense
 from apps.modules.payroll.models import PayrollDocument
 from apps.modules.requests.models import (
+    Approval,
     Request,
     RequestFormConfig,
     RequestFormPaymentTypeConfig,
     RequestPaymentPurposeConfig,
+    UserRequestApproval,
 )
+from apps.modules.requests.payment_step_guards import payment_step_suppression_reason
 from apps.modules.requests.payment_type_families import bank_like_payment_types, canonical_payment_type
 from apps.modules.wallets.serializer_integration import (
     assign_wallet_for_bank_movement,
@@ -242,3 +247,67 @@ def list_payment_purposes_by_payment_type(*, tenant_id: int) -> dict[str, list[s
             _append(str(row["payment_type"]).strip(), name_s)
 
     return result
+
+
+def list_request_action_items(*, tenant, user) -> list[dict]:
+    """Requests whose currently active approval step is waiting on `user`.
+
+    Mirrors the dashboard rule in frontend_v2/src/ui/dashboard/widgets/adapters.ts
+    (toPendingApprovals): a pending, non-notification row is active when the request
+    status equals its step number, or when it is a payment step and the request is
+    APPROVED. One item per request (lowest step, then id).
+
+    Unlike the dashboard, a payment step taken out of the manual flow by
+    payment_step_suppression_reason (e.g. payroll portal payouts) is skipped: the user
+    cannot act on it, the owning module closes it.
+    """
+    rows = (
+        UserRequestApproval.objects.filter(
+            request__tenant=tenant,
+            approver_user=user,
+            decision=Approval.DECISION_PENDING,
+        )
+        .exclude(step_type=Approval.STEP_TYPE_NOTIFICATION)
+        .exclude(
+            request__status__in=[
+                Request.STATUS_DELETED,
+                Request.STATUS_REJECTED,
+                Request.STATUS_PAYED,
+            ]
+        )
+        .filter(
+            Q(request__status=Cast("step", output_field=CharField()))
+            | Q(step_type=Approval.STEP_TYPE_PAYMENT, request__status=Request.STATUS_APPROVED)
+        )
+        .select_related("request", "request__tenant")
+        .order_by("request_id", "step", "id")
+    )
+
+    items: list[dict] = []
+    seen_request_ids: set[int] = set()
+    for row in rows:
+        request_obj = row.request
+        if request_obj.id in seen_request_ids:
+            continue
+        if row.step_type == Approval.STEP_TYPE_PAYMENT and payment_step_suppression_reason(
+            request_obj=request_obj
+        ):
+            continue
+        seen_request_ids.add(request_obj.id)
+        items.append(
+            {
+                "kind": "request",
+                "id": request_obj.id,
+                "approval_id": row.id,
+                "step": row.step,
+                "step_type": row.step_type,
+                "title": request_obj.title or f"Заявка #{request_obj.id}",
+                "amount": request_obj.amount,
+                "currency": request_obj.currency or "",
+                "type_code": request_obj.payment_type or "",
+                "type_label": request_obj.get_payment_type_display() or "",
+                "created_at": request_obj.created_at,
+                "link": f"/requests/{request_obj.id}",
+            }
+        )
+    return items
