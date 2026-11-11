@@ -3,6 +3,7 @@ import { Navigate, Route, Routes, useNavigate, useParams } from 'react-router-do
 import { AppShell } from '../ui/AppShell'
 import { LoginPage } from '../ui/LoginPage'
 import { DashboardPage } from '../ui/DashboardPage'
+import { NotificationsPage } from '../ui/NotificationsPage'
 import { CashPage } from '../ui/CashPage'
 import { CashSectionPage } from '../ui/CashSectionPage'
 import { BankPage } from '../ui/BankPage'
@@ -78,6 +79,7 @@ import { TgTasksPage } from '../ui/tg/TgTasksPage'
 import { useAuth } from '../ui/auth'
 import { ModuleAccessProvider } from '../ui/moduleAccess'
 import { setUnauthorizedHandler } from '../lib/api'
+import { PwaUpdateBridge } from '../ui/PwaUpdateBridge'
 
 function CashExpenseLegacyRedirect() {
   const { id } = useParams()
@@ -102,6 +104,8 @@ export function App() {
   }, [logout, navigate])
 
   return (
+    <>
+    <PwaUpdateBridge />
     <Routes>
       <Route path="/login" element={<LoginPage />} />
       <Route path="/public/investments/schedule/:token" element={<PublicInvestmentsSchedulePage />} />
@@ -149,6 +153,7 @@ export function App() {
         }
       >
         <Route index element={<DashboardPage />} />
+        <Route path="notifications" element={<NotificationsPage />} />
         <Route path="requests" element={<RequestsPage />} />
         <Route path="requests/new" element={<RequestCreatePage />} />
         <Route path="requests/audit" element={<RequestMonthAuditPage />} />
@@ -207,6 +212,7 @@ export function App() {
 
       <Route path="*" element={<Navigate to="/requests" replace />} />
     </Routes>
+    </>
   )
 }
 

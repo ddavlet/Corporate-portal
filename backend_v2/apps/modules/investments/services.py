@@ -339,3 +339,134 @@ def report_dispatch_payload(dispatch, *, chat_names: dict | None = None) -> dict
         "created_by_name": ((getattr(user, "full_name", "") or user.username or "").strip() if user else ""),
         "created_at": dispatch.created_at.isoformat() if dispatch.created_at else None,
     }
+
+
+def _list_investment_approval_action_items(
+    *,
+    tenant,
+    user,
+    approval_model,
+    parent_field: str,
+    notification_step_type: str,
+) -> list:
+    """Pending approval rows of `user` that sit on the current step of their flow.
+
+    Same rule as the Telegram card state (approval_services._investment_flow_flags and
+    project_investment_approval_services._project_investment_flow_flags): the current
+    step is Min(step) among pending rows of the parent, and any rejected row blocks the
+    whole flow. Notification rows and confirmed parents need no action.
+    """
+    from django.db.models import Exists, F, Min, OuterRef, Subquery
+
+    parent_ref = OuterRef(parent_field)
+    current_step = (
+        approval_model.objects.filter(
+            tenant=tenant,
+            **{parent_field: parent_ref},
+            decision=approval_model.DECISION_PENDING,
+        )
+        .values(parent_field)
+        .annotate(value=Min("step"))
+        .values("value")[:1]
+    )
+    has_rejected = approval_model.objects.filter(
+        **{parent_field: parent_ref},
+        decision=approval_model.DECISION_REJECTED,
+    )
+    rows = (
+        approval_model.objects.filter(
+            tenant=tenant,
+            approver_user=user,
+            decision=approval_model.DECISION_PENDING,
+            **{f"{parent_field}__tenant": tenant, f"{parent_field}__confirmed": False},
+        )
+        .exclude(step_type=notification_step_type)
+        .annotate(current_step=Subquery(current_step), blocked=Exists(has_rejected))
+        .filter(blocked=False, step=F("current_step"))
+        .select_related(parent_field, f"{parent_field}__company")
+        .order_by(f"{parent_field}_id", "step", "id")
+    )
+    result = []
+    seen_parent_ids: set[int] = set()
+    for row in rows:
+        parent_id = getattr(row, f"{parent_field}_id")
+        if parent_id in seen_parent_ids:
+            continue
+        seen_parent_ids.add(parent_id)
+        result.append(row)
+    return result
+
+
+def list_invest_return_action_items(*, tenant, user) -> list[dict]:
+    """Investment payouts (InvestReturn) whose current approval step waits on `user`."""
+    from apps.modules.investments.models import InvestmentApprovalConfigStep, InvestmentReturnApproval
+
+    rows = _list_investment_approval_action_items(
+        tenant=tenant,
+        user=user,
+        approval_model=InvestmentReturnApproval,
+        parent_field="invest_return",
+        notification_step_type=InvestmentApprovalConfigStep.STEP_TYPE_NOTIFICATION,
+    )
+    items: list[dict] = []
+    for row in rows:
+        invest_return = row.invest_return
+        title = f"Выплата инвестиции #{invest_return.id}"
+        if invest_return.company:
+            title = f"{title} · {invest_return.company.name}"
+        items.append(
+            {
+                "kind": "invest_return",
+                "id": invest_return.id,
+                "approval_id": row.id,
+                "step": row.step,
+                "step_type": row.step_type,
+                "title": title,
+                "amount": invest_return.sum,
+                "currency": invest_return.currency or "",
+                "type_code": invest_return.type or "",
+                "type_label": invest_return.get_type_display() or "",
+                "created_at": invest_return.created_at,
+                "link": f"/investments?tab=returns&open={invest_return.id}",
+            }
+        )
+    return items
+
+
+def list_project_investment_action_items(*, tenant, user) -> list[dict]:
+    """Project investments whose current approval step waits on `user`."""
+    from apps.modules.investments.models import (
+        InvestmentProjectApprovalConfigStep,
+        ProjectInvestmentApproval,
+    )
+
+    rows = _list_investment_approval_action_items(
+        tenant=tenant,
+        user=user,
+        approval_model=ProjectInvestmentApproval,
+        parent_field="project_investment",
+        notification_step_type=InvestmentProjectApprovalConfigStep.STEP_TYPE_NOTIFICATION,
+    )
+    items: list[dict] = []
+    for row in rows:
+        investment = row.project_investment
+        title = f"Вложение в проект #{investment.id}"
+        if investment.company:
+            title = f"{title} · {investment.company.name}"
+        items.append(
+            {
+                "kind": "project_investment",
+                "id": investment.id,
+                "approval_id": row.id,
+                "step": row.step,
+                "step_type": row.step_type,
+                "title": title,
+                "amount": investment.amount,
+                "currency": investment.currency or "",
+                "type_code": investment.funding_method or "",
+                "type_label": investment.get_funding_method_display() if investment.funding_method else "",
+                "created_at": investment.created_at,
+                "link": f"/investments?tab=investments&open={investment.id}",
+            }
+        )
+    return items

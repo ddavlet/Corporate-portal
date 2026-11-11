@@ -78,6 +78,7 @@ INSTALLED_APPS = [
     "apps.modules.dividend_payouts",
     "apps.modules.kapitalbank",
     "apps.modules.ai_assistant",
+    "apps.modules.notifications",
 
     # MCP server (HTTP disabled by default; code kept to re-enable later)
     "apps.mcp_server",

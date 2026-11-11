@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useState } from 'react'
-import { Alert, Button, Card, Select, Space, Tabs, Typography } from 'antd'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
+import { Alert, Button, Card, Select, Space, Tabs, Typography, message } from 'antd'
 
 import {
   DEFAULT_INVESTMENT_FORM_CONFIG,
@@ -19,6 +20,7 @@ import {
 } from '../lib/api'
 import { CompaniesTab } from './investments/CompaniesTab'
 import { InvestmentsTab } from './investments/InvestmentsTab'
+import { InvestmentRecordDetailModal } from './investments/InvestmentRecordDetailModal'
 import { ReturnsTab } from './investments/ReturnsTab'
 import { ScheduleTab } from './investments/ScheduleTab'
 import {
@@ -41,6 +43,15 @@ export function InvestmentsPage() {
   const [shareLinks, setShareLinks] = useState<InvestPayoutScheduleShareLinkRow[]>([])
   const [invFormCfg, setInvFormCfg] = useState<InvestmentFormConfigResponse | null>(null)
   const [notifyDaysBefore, setNotifyDaysBefore] = useState<number | null>(null)
+  // Deep link from notifications: ?tab=<returns|investments|...>&open=<id> opens that tab and the record's card.
+  const [searchParams, setSearchParams] = useSearchParams()
+  const tabParam = searchParams.get('tab')
+  const openParam = Number(searchParams.get('open'))
+  const [activeTab, setActiveTab] = useState<string | undefined>(tabParam ?? undefined)
+
+  useEffect(() => {
+    if (tabParam) setActiveTab(tabParam)
+  }, [tabParam])
 
   const loadAll = async () => {
     setLoading(true)
@@ -171,6 +182,42 @@ export function InvestmentsPage() {
     returnTypeSelectOptions,
   ])
 
+  const effectiveTab = tabItems.some((t) => t.key === activeTab) ? activeTab : tabItems[0]?.key
+
+  const linkedRecord = useMemo(() => {
+    if (!Number.isInteger(openParam) || openParam <= 0) return null
+    if (effectiveTab === 'returns') {
+      const row = returns.find((r) => r.id === openParam)
+      return row ? { kind: 'return' as const, record: row } : null
+    }
+    if (effectiveTab === 'investments') {
+      const row = investments.find((r) => r.id === openParam)
+      return row ? { kind: 'project' as const, record: row } : null
+    }
+    return null
+  }, [openParam, effectiveTab, returns, investments])
+
+  const closeLinkedRecord = useCallback(() => {
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev)
+        next.delete('open')
+        return next
+      },
+      { replace: true },
+    )
+  }, [setSearchParams])
+
+  // A deep link to a record that is not in the loaded lists (deleted, another tenant, no access to the module or the
+  // load failed) must not fail silently: say so and drop ?open= so the warning does not come back.
+  const hasOpenParam = searchParams.has('open')
+  useEffect(() => {
+    if (loading || !hasOpenParam || linkedRecord) return
+    const valid = Number.isInteger(openParam) && openParam > 0
+    message.warning(valid ? `Запись #${openParam} не найдена или нет доступа` : 'Запись не найдена или нет доступа')
+    closeLinkedRecord()
+  }, [loading, hasOpenParam, linkedRecord, openParam, closeLinkedRecord])
+
   return (
     <Space direction="vertical" size="middle" style={{ width: '100%' }}>
       <Card>
@@ -207,8 +254,17 @@ export function InvestmentsPage() {
       {error ? <Alert type="error" showIcon message={error} /> : null}
 
       <Card>
-        <Tabs items={tabItems} />
+        <Tabs items={tabItems} activeKey={effectiveTab} onChange={setActiveTab} />
       </Card>
+
+      <InvestmentRecordDetailModal
+        open={Boolean(linkedRecord)}
+        onCancel={closeLinkedRecord}
+        kind={linkedRecord?.kind ?? null}
+        record={linkedRecord?.record ?? null}
+        companyLabel={companyLabel}
+        usesCompanies={effectiveFormCfg.uses_companies}
+      />
     </Space>
   )
 }

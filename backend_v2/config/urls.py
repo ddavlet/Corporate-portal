@@ -106,6 +106,7 @@ urlpatterns = [
     path("api/cash-withdrawals/", include("apps.modules.cash_withdrawals.urls")),
     path("api/cash-desk/", include("apps.modules.cash_desk.urls")),
     path("api/dividend-payouts/", include("apps.modules.dividend_payouts.urls")),
+    path("api/notifications/", include("apps.modules.notifications.urls")),
 
     # Messaging gateway webhook
     path("api/messaging-gateway/", include("apps.modules.telegram_approvals.urls")),
