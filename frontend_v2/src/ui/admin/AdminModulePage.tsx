@@ -47,7 +47,6 @@ const SOURCES: Source[] = [
     label: 'Кошельки: корпоративные карты',
     endpoint: '/api/wallets/corporate-card-accounts/',
   },
-  { key: 'invest-companies', label: 'Инвестиции: компании', endpoint: '/api/investments/companies/' },
   { key: 'invest-returns', label: 'Инвестиции: выплаты', endpoint: '/api/investments/returns/' },
   { key: 'invest-payout-schedule', label: 'Инвестиции: график выплат', endpoint: '/api/investments/payout-schedule/' },
   { key: 'invest-project-investments', label: 'Инвестиции: вложения в проект', endpoint: '/api/investments/project-investments/' },

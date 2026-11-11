@@ -23,10 +23,6 @@ function renderTab(rows: ProjectInvestmentRow[] = []) {
       <InvestmentsTab
         loading={false}
         rows={rows}
-        companies={[]}
-        companyLabel={() => '-'}
-        companyFilter="all"
-        usesCompanies={false}
         onCreated={() => {}}
       />
     </MemoryRouter>,
@@ -64,7 +60,6 @@ describe('InvestmentsTab funding mode', () => {
 function row(id: number, confirmed: boolean, sumUsd: number, sumUzs: number): ProjectInvestmentRow {
   return {
     id,
-    company: null,
     date: '2026-10-20',
     amount: String(sumUzs),
     currency: 'UZS',

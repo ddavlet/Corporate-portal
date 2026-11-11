@@ -14,7 +14,6 @@ from apps.modules.corporate_card.models import CardExpense, CardRevenue
 from apps.modules.corporate_card.serializers import CardExpenseSerializer, CardRevenueSerializer
 from apps.modules.notes.models import Note
 from apps.modules.investments.serializers import (
-    InvestCompanySerializer,
     InvestPayoutScheduleSerializer,
     InvestReturnSerializer,
     ProjectInvestmentSerializer,
@@ -370,13 +369,6 @@ class N8nProjectInvestmentImportSerializer(ProjectInvestmentSerializer):
     funding_method_required_on_create = False
 
     class Meta(ProjectInvestmentSerializer.Meta):
-        read_only_fields = ["tenant", "created_at", "last_edit_at", "created_by"]
-
-
-class N8nInvestCompanyImportSerializer(InvestCompanySerializer):
-    id = serializers.IntegerField(required=False)
-
-    class Meta(InvestCompanySerializer.Meta):
         read_only_fields = ["tenant", "created_at", "last_edit_at", "created_by"]
 
 

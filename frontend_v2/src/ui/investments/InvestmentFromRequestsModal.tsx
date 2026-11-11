@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type Key } from 'react'
-import { Alert, Empty, Form, Input, Modal, Select, Skeleton, Space, Table, Tabs, Tag, Typography, message } from 'antd'
+import { Alert, Empty, Form, Input, Modal, Skeleton, Space, Table, Tabs, Tag, Typography, message } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
 
 import {
@@ -7,17 +7,14 @@ import {
   getFundingPool,
   type FundingPoolDto,
   type FundingPoolRequestDto,
-  type InvestCompanyRow,
 } from '../../lib/api'
 import { defaultCollectComment, groupByKind, totalsByCurrency, type FundingMethod } from './fundingPool'
-import { asMoney, dateText, makeCompanySelectOptions } from './utils'
+import { asMoney, dateText } from './utils'
 
 type Props = {
   open: boolean
   onCancel: () => void
   onCreated: () => Promise<void> | void
-  usesCompanies: boolean
-  companies: InvestCompanyRow[]
 }
 
 const columns: ColumnsType<FundingPoolRequestDto> = [
@@ -46,13 +43,12 @@ function totalLine(total: { currency: string; amount: number; count: number }): 
   return `${asMoney(total.amount)} ${total.currency} (${n} ${word})`
 }
 
-function Body({ onCancel, onCreated, usesCompanies, companies }: Omit<Props, 'open'>) {
+function Body({ onCancel, onCreated }: Omit<Props, 'open'>) {
   const [pool, setPool] = useState<FundingPoolDto | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [method, setMethod] = useState<FundingMethod>('cash')
   const [selected, setSelected] = useState<Set<number>>(new Set())
   const [editedComment, setEditedComment] = useState<string | null>(null)
-  const [company, setCompany] = useState<number | null>(null)
   const [submitting, setSubmitting] = useState(false)
 
   useEffect(() => {
@@ -122,8 +118,7 @@ function Body({ onCancel, onCreated, usesCompanies, companies }: Omit<Props, 'op
     )
   }
 
-  const companyMissing = usesCompanies && company == null
-  const canSubmit = chosen.length > 0 && !companyMissing
+  const canSubmit = chosen.length > 0
 
   const submit = async () => {
     setSubmitting(true)
@@ -134,7 +129,6 @@ function Body({ onCancel, onCreated, usesCompanies, companies }: Omit<Props, 'op
         request_ids: chosen.map((r) => r.id),
         // Текст по умолчанию — только превью: пустой comment бэкенд заменит описанием на каждую валюту.
         comment: editedComment ?? '',
-        ...(usesCompanies ? { company } : {}),
       })
     } catch (e: unknown) {
       message.error(e instanceof Error ? e.message : 'Не удалось создать вложение')
@@ -195,16 +189,6 @@ function Body({ onCancel, onCreated, usesCompanies, companies }: Omit<Props, 'op
             {totals.length === 0 ? 'Итого: ничего не выбрано' : `Итого: ${totals.map(totalLine).join('; ')}`}
           </Typography.Text>
           <Form layout="vertical">
-            {usesCompanies ? (
-              <Form.Item label="Компания" required validateStatus={companyMissing ? 'error' : undefined}>
-                <Select
-                  value={company ?? undefined}
-                  onChange={(v) => setCompany(v ?? null)}
-                  options={makeCompanySelectOptions(companies)}
-                  placeholder="Выберите компанию"
-                />
-              </Form.Item>
-            ) : null}
             <Form.Item label="Описание">
               <Input.TextArea rows={3} maxLength={1000} value={comment} onChange={(e) => setEditedComment(e.target.value)} />
             </Form.Item>

@@ -30,6 +30,7 @@ class _Fixtures:
         self.other_tenant = Tenant.objects.create(name="InvAI2", subdomain="invai2", is_active=True)
         self.user = User.objects.create_user(username="invai-user", password="x")
         self.other_user = User.objects.create_user(username="invai-other", password="x")
+        # Legacy fixture (removed at stage 2): a stale invest company link must not reach the title.
         self.company = InvestCompany.objects.create(tenant=self.tenant, name="Lemon", created_by=self.user)
 
 
@@ -80,7 +81,7 @@ class InvestReturnActionItemsTests(_Fixtures, TestCase):
         self.assertEqual(item["approval_id"], approval.id)
         self.assertEqual(item["step"], 1)
         self.assertEqual(item["step_type"], self.SERIAL)
-        self.assertEqual(item["title"], f"Выплата инвестиции #{ir.id} · Lemon")
+        self.assertEqual(item["title"], f"Выплата инвестиции #{ir.id}")
         self.assertEqual(item["amount"], Decimal("1200.00"))
         self.assertEqual(item["currency"], "USD")
         self.assertEqual(item["type_code"], InvestReturn.ReturnType.DIVIDEND)
@@ -186,7 +187,7 @@ class ProjectInvestmentActionItemsTests(_Fixtures, TestCase):
         self.assertEqual(item["kind"], "project_investment")
         self.assertEqual(item["id"], investment.id)
         self.assertEqual(item["approval_id"], approval.id)
-        self.assertEqual(item["title"], f"Вложение в проект #{investment.id} · Lemon")
+        self.assertEqual(item["title"], f"Вложение в проект #{investment.id}")
         self.assertEqual(item["amount"], Decimal("5000.00"))
         self.assertEqual(item["type_code"], ProjectInvestment.FundingMethod.CASH)
         self.assertEqual(item["type_label"], "Наличными")

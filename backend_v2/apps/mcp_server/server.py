@@ -200,7 +200,7 @@ def search_everywhere(tenant_id: int, query: str, types: str = "", limit: int = 
     Types: request, request_comment, request_approval, request_attachment,
     request_category, cash_expense, cash_revenue, bank_expense, bank_revenue,
     card_expense, card_revenue, payroll_document, payroll_line, payroll_payout,
-    employee, invest_company, invest_return, project_investment,
+    employee, invest_return, project_investment,
     invest_payout_schedule, contract, vendor, budget, client_debt, wallet,
     cash_register, bank_account, card_account, task, task_comment, note,
     cash_withdrawal_receipt.
@@ -772,8 +772,8 @@ def get_payroll_document(tenant_id: int, document_id: int) -> dict:
 def get_investment_form_config(tenant_id: int) -> dict:
     """Per-tenant investment settings before other investment tools.
 
-    Returns whether company_id filters apply (uses_companies) and which
-    return_type strings are allowed when filtering list_invest_returns.
+    Returns which return_type strings are allowed when filtering
+    list_invest_returns.
     """
     try:
         return inv_tools.get_investment_form_config(tenant_id=tenant_id)
@@ -784,44 +784,12 @@ def get_investment_form_config(tenant_id: int) -> dict:
 
 
 @tool(access=Access.module("investments"), read_only=True)
-def list_invest_companies(
-    tenant_id: int,
-    name_search: str = "",
-    is_active: str = "",
-    limit: int = 100,
-) -> list:
-    """List investment companies (юрлица / проекты) for grouping returns and schedules.
-
-    Use name_search to find company_id for other investment tools.
-    Empty is_active = all; "true" / "false" to filter active flag.
-
-    Args:
-        name_search: Substring match on company name.
-        is_active: "", "true", or "false".
-        limit: Max rows (default 100, max 200).
-    """
-    try:
-        active = _parse_bool_filter(is_active)
-        return inv_tools.list_invest_companies(
-            tenant_id=tenant_id,
-            name_search=name_search,
-            is_active=active,
-            limit=limit,
-        )
-    except (PermissionError, ValueError) as e:
-        return _list_err(str(e))
-    except Exception as e:
-        return _list_err(f"Unexpected error: {e}")
-
-
-@tool(access=Access.module("investments"), read_only=True)
 def list_invest_returns(
     tenant_id: int,
     date_from: str = "",
     date_to: str = "",
     return_type: str = "",
     recipient: str = "",
-    company_id: int = 0,
     confirmed: str = "",
     limit: int = 50,
 ) -> list:
@@ -834,7 +802,6 @@ def list_invest_returns(
     Args:
         date_from / date_to: Filter payout date (YYYY-MM-DD).
         return_type / recipient: Exact DB enum labels.
-        company_id: Filter by InvestCompany id (0 = all).
         confirmed: "", "true", or "false".
         limit: Max rows (default 50, max 200).
     """
@@ -845,7 +812,6 @@ def list_invest_returns(
             date_to=date_to,
             return_type=return_type,
             recipient=recipient,
-            company_id=company_id,
             confirmed=_parse_bool_filter(confirmed),
             limit=limit,
         )
@@ -860,7 +826,6 @@ def list_project_investments(
     tenant_id: int,
     date_from: str = "",
     date_to: str = "",
-    company_id: int = 0,
     confirmed: str = "",
     limit: int = 50,
 ) -> list:
@@ -868,7 +833,6 @@ def list_project_investments(
 
     Args:
         date_from / date_to: YYYY-MM-DD on investment date.
-        company_id: 0 = all companies.
         confirmed: "", "true", or "false".
         limit: Max rows (default 50, max 200).
     """
@@ -877,7 +841,6 @@ def list_project_investments(
             tenant_id=tenant_id,
             date_from=date_from,
             date_to=date_to,
-            company_id=company_id,
             confirmed=_parse_bool_filter(confirmed),
             limit=limit,
         )
@@ -892,7 +855,6 @@ def list_invest_payout_schedule(
     tenant_id: int,
     date_from: str = "",
     date_to: str = "",
-    company_id: int = 0,
     is_paid: str = "",
     limit: int = 50,
 ) -> list:
@@ -902,7 +864,6 @@ def list_invest_payout_schedule(
 
     Args:
         date_from / date_to: Filter payout_date (YYYY-MM-DD).
-        company_id: 0 = all.
         is_paid: "", "true", or "false".
         limit: Max rows (default 50, max 200).
     """
@@ -911,7 +872,6 @@ def list_invest_payout_schedule(
             tenant_id=tenant_id,
             date_from=date_from,
             date_to=date_to,
-            company_id=company_id,
             is_paid=_parse_bool_filter(is_paid),
             limit=limit,
         )

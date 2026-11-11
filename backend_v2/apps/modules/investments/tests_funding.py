@@ -12,8 +12,8 @@ from apps.modules.investments.funding import INVESTOR_DEPOSIT_OPERATION, registe
 from apps.modules.investments.funding_pool import build_default_comment, paid_investment_comment
 from apps.modules.investments.models import (
     CbuExchangeRate,
-    InvestCompany,
     InvestmentApprovalConfigStep,
+    InvestmentFormConfig,
     InvestmentFundingConfig,
     InvestmentProjectApprovalConfig,
     ProjectInvestment,
@@ -423,7 +423,6 @@ class InvestmentFundingCollectTests(_FundingModeTestBase):
         )
         rate_patcher.start()
         self.addCleanup(rate_patcher.stop)
-        self.company = InvestCompany.objects.create(tenant=self.tenant, name="Инвестор", created_by=self.admin)
 
     # ---- helpers -------------------------------------------------------------------------------
 
@@ -459,7 +458,7 @@ class InvestmentFundingCollectTests(_FundingModeTestBase):
         )
 
     def _collect(self, funding_method, request_ids, **extra):
-        body = {"funding_method": funding_method, "request_ids": request_ids, "company": self.company.id}
+        body = {"funding_method": funding_method, "request_ids": request_ids}
         body.update(extra)
         return self.client.post(COLLECT_URL, body, format="json", HTTP_HOST=self.host)
 
@@ -542,6 +541,30 @@ class InvestmentFundingCollectTests(_FundingModeTestBase):
 
     # ---- сбор ----------------------------------------------------------------------------------
 
+    def test_collect_without_company_when_no_form_config(self):
+        # Invest companies are removed: collecting no longer asks for a company ("Укажите компанию.").
+        self._enable_mode()
+        self.assertFalse(InvestmentFormConfig.objects.filter(tenant=self.tenant).exists())
+        req = self._make_request(INV_TRANSFER, amount="5000000")
+        res = self._collect("bank_transfer", [req.id])
+        self.assertEqual(res.status_code, 201, res.data)
+        self.assertNotIn("company", res.data["investments"][0])
+
+    def test_collect_without_company_when_legacy_form_config_exists(self):
+        # Form config created with model defaults (legacy companies flag on, as at tenant 5).
+        self._enable_mode()
+        InvestmentFormConfig.objects.create(tenant=self.tenant, allowed_return_types=["дивиденды"])
+        req = self._make_request(INV_TRANSFER, amount="5000000")
+        res = self._collect("bank_transfer", [req.id])
+        self.assertEqual(res.status_code, 201, res.data)
+
+    def test_collect_ignores_legacy_company_key(self):
+        self._enable_mode()
+        req = self._make_request(INV_TRANSFER, amount="5000000")
+        res = self._collect("bank_transfer", [req.id], company=999999)
+        self.assertEqual(res.status_code, 201, res.data)
+        self.assertIsNone(ProjectInvestment.objects.get(pk=res.data["investments"][0]["id"]).company_id)
+
     def test_collect_splits_by_currency(self):
         self._enable_mode()
         uzs_a = self._make_request(INV_TRANSFER, amount="5000000")
@@ -557,7 +580,6 @@ class InvestmentFundingCollectTests(_FundingModeTestBase):
         for inv in by_currency.values():
             self.assertEqual(inv.funding_method, ProjectInvestment.FundingMethod.BANK_TRANSFER)
             self.assertFalse(inv.confirmed)
-            self.assertEqual(inv.company_id, self.company.id)
         # Пустой comment → текст по умолчанию на каждую валютную группу.
         self.assertEqual(by_currency["UZS"].comment, f"На основании заявок №{uzs_a.id}, №{uzs_b.id}.")
         self.assertEqual(by_currency["USD"].comment, f"На основании заявки №{usd.id}.")
@@ -807,7 +829,6 @@ class InvestmentFundingRevenueTests(_FundingModeTestBase):
         )
         rate_patcher.start()
         self.addCleanup(rate_patcher.stop)
-        self.company = InvestCompany.objects.create(tenant=self.tenant, name="Инвестор", created_by=self.admin)
 
     def _approve(self, inv_id):
         approval = ProjectInvestmentApproval.objects.get(project_investment_id=inv_id, step=1)

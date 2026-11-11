@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import type { ReactNode } from 'react'
 import { MemoryRouter } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
@@ -6,8 +6,6 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { TgInvestmentsProjectsPage } from './TgInvestmentsProjectsPage'
 import { TgInvestmentsReturnsPage } from './TgInvestmentsReturnsPage'
 
-const getFormConfigMock = vi.fn()
-const getCompaniesMock = vi.fn()
 const getProjectInvestmentsMock = vi.fn()
 const getInvestReturnsMock = vi.fn()
 const getFundingConfigMock = vi.fn()
@@ -15,9 +13,6 @@ const getProjectApprovalsMock = vi.fn()
 const getReturnApprovalsMock = vi.fn()
 
 vi.mock('../../lib/api', () => ({
-  DEFAULT_INVESTMENT_FORM_CONFIG: { uses_companies: false },
-  getInvestmentFormConfig: (...a: unknown[]) => getFormConfigMock(...a),
-  getInvestCompanies: (...a: unknown[]) => getCompaniesMock(...a),
   getProjectInvestments: (...a: unknown[]) => getProjectInvestmentsMock(...a),
   getInvestReturns: (...a: unknown[]) => getInvestReturnsMock(...a),
   getInvestmentFundingConfig: (...a: unknown[]) => getFundingConfigMock(...a),
@@ -33,7 +28,6 @@ vi.mock('../admin/AdminEditRecordButton', () => ({
 
 const PROJECT = {
   id: 42,
-  company: null,
   date: '2026-11-05',
   amount: '5000000',
   currency: 'UZS',
@@ -46,7 +40,6 @@ const PROJECT = {
 
 const RETURN = {
   id: 77,
-  company: null,
   date: '2026-11-06',
   billing_date: '2026-10-01',
   sum: '1200',
@@ -65,8 +58,6 @@ function renderPage(node: ReactNode) {
 describe('Мини-приложение: карточки инвестиций открывают детали', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    getFormConfigMock.mockResolvedValue({ uses_companies: false })
-    getCompaniesMock.mockResolvedValue([])
     getFundingConfigMock.mockResolvedValue({ is_enabled: false })
     getProjectInvestmentsMock.mockResolvedValue([PROJECT])
     getInvestReturnsMock.mockResolvedValue([RETURN])
@@ -86,6 +77,13 @@ describe('Мини-приложение: карточки инвестиций �
     expect(link).toHaveAttribute('href', '/tg/requests/9001')
     // Мини-приложение: подписи над значениями, чтобы на узком экране не сжимать значения
     expect(document.querySelector('.ant-descriptions-item-label')?.closest('tr')?.querySelector('.ant-descriptions-item-content')).toBeNull()
+  })
+
+  it('сумма вложения в карточке списка выводится один раз — в заголовке', async () => {
+    renderPage(<TgInvestmentsProjectsPage />)
+
+    const card = await screen.findByRole('button', { name: /Вложение в ремонт/ })
+    expect(within(card).getAllByText(/UZS/)).toHaveLength(1)
   })
 
   it('нажатие на выплату открывает её детали', async () => {

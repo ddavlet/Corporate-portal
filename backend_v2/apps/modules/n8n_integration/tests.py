@@ -2034,6 +2034,65 @@ class N8nInvestmentsRawDataListTests(APITestCase):
         self.assertEqual(Decimal(str(row["amount"])), Decimal("50000.00"))
         self.assertTrue(row["confirmed"])
 
+    def _legacy_invest_company(self):
+        # Legacy fixture: the invest_companies table still exists until stage 2;
+        # it checks that stale company links are not exposed anymore.
+        from apps.modules.investments.models import InvestCompany
+
+        return InvestCompany.objects.create(tenant=self.tenant, name="LegacyCo", created_by=self.admin)
+
+    def test_returns_list_exposes_company_id_as_null(self):
+        company = self._legacy_invest_company()
+        InvestReturn.objects.create(
+            tenant=self.tenant,
+            company=company,
+            date=date(2026, 6, 1),
+            billing_date=date(2026, 6, 1),
+            sum="500.00",
+            currency="USD",
+            type=InvestReturn.ReturnType.INTEREST,
+            recipient=InvestReturn.Recipient.INVESTOR,
+            confirmed=True,
+            created_by=self.admin,
+        )
+
+        res = self.client.get(self.returns_url, **self._headers())
+        self.assertEqual(res.status_code, 200, res.content)
+        rows = res.json()
+        self.assertEqual(len(rows), 1)
+        self.assertIn("company_id", rows[0])
+        self.assertIsNone(rows[0]["company_id"])
+
+    def test_project_investments_list_exposes_company_id_as_null(self):
+        company = self._legacy_invest_company()
+        ProjectInvestment.objects.create(
+            tenant=self.tenant,
+            company=company,
+            date=date(2026, 1, 10),
+            amount="50000.00",
+            currency="USD",
+            confirmed=True,
+            created_by=self.admin,
+        )
+
+        res = self.client.get(self.project_investments_url, **self._headers())
+        self.assertEqual(res.status_code, 200, res.content)
+        rows = res.json()
+        self.assertEqual(len(rows), 1)
+        self.assertIn("company_id", rows[0])
+        self.assertIsNone(rows[0]["company_id"])
+
+    def test_invest_companies_upsert_endpoints_are_gone(self):
+        prefix = settings.N8N_INTEGRATION_URL_PREFIX.rstrip("/")
+        single = self.client.post(
+            f"{prefix}/investments/companies/", {"name": "NeuronMed"}, format="json", **self._headers()
+        )
+        batch = self.client.post(
+            f"{prefix}/investments/companies/batch/", [{"name": "NeuronMed"}], format="json", **self._headers()
+        )
+        self.assertEqual(single.status_code, 404)
+        self.assertEqual(batch.status_code, 404)
+
     def test_exchange_rates_requires_integration_token(self):
         res = self.client.get(self.exchange_rates_url, **self._headers(integration=False))
         self.assertEqual(res.status_code, 401)
@@ -2957,14 +3016,10 @@ class NotifyInvestReturnConfirmedTests(APITestCase):
     LOGGER = "apps.modules.n8n_integration.event_handlers"
 
     def setUp(self):
-        from apps.modules.investments.models import InvestCompany
-
         self.tenant = Tenant.objects.create(name="Neuron", subdomain="neuron", is_active=True)
         self.admin = User.objects.create_user(username="invret_notify_admin", password="pass12345")
-        self.company = InvestCompany.objects.create(tenant=self.tenant, name="NeuronMed", created_by=self.admin)
         self.invest_return = InvestReturn.objects.create(
             tenant=self.tenant,
-            company=self.company,
             date=date(2026, 11, 10),
             billing_date=date(2026, 11, 1),
             sum=Decimal("600000000.00"),
@@ -3003,11 +3058,30 @@ class NotifyInvestReturnConfirmedTests(APITestCase):
         self.assertEqual(payload["type_label"], "Дивиденды")
         self.assertEqual(payload["recipient"], "инвестор")
         self.assertEqual(payload["recipient_label"], "Инвестор")
-        self.assertEqual(payload["company_id"], self.company.id)
-        self.assertEqual(payload["company"], "NeuronMed")
+        self.assertIsNone(payload["company_id"])
+        self.assertEqual(payload["company"], "")
         self.assertEqual(payload["date"], "2026-11-10")
         self.assertEqual(payload["billing_date"], "2026-11-01")
         self.assertEqual(payload["comment"], "Дивиденды за октябрь")
+
+    @patch("apps.modules.n8n_integration.event_handlers.threading.Thread")
+    @patch("apps.modules.n8n_integration.views._n8n_session.post")
+    def test_legacy_company_link_is_not_exposed_in_event(self, mock_post, mock_thread):
+        # Legacy fixture: a stale company link (table kept until stage 2) must not leak
+        # into the event; the keys stay for n8n compatibility with null/"" values.
+        from apps.modules.investments.models import InvestCompany
+
+        mock_post.return_value = Mock(status_code=200)
+        mock_thread.side_effect = lambda target, daemon: Mock(start=target)
+        company = InvestCompany.objects.create(tenant=self.tenant, name="NeuronMed", created_by=self.admin)
+        InvestReturn.objects.filter(pk=self.invest_return.pk).update(company=company)
+        self.invest_return.refresh_from_db()
+
+        self._notify()
+
+        payload = mock_post.call_args.kwargs["json"]
+        self.assertIsNone(payload["company_id"])
+        self.assertEqual(payload["company"], "")
 
     @patch("apps.modules.n8n_integration.event_handlers.threading.Thread")
     @patch("apps.modules.n8n_integration.views._n8n_session.post")

@@ -22,8 +22,6 @@ type Props = {
   onCancel: () => void
   kind: RecordKind | null
   record: ProjectInvestmentRow | InvestReturnRow | null
-  companyLabel: (id: number | null) => string
-  usesCompanies: boolean
   /** `telegram` — мини-приложение: ссылки на `/tg/requests`, отступ под кнопки Telegram, подписи над значениями. */
   variant?: 'portal' | 'telegram'
 }
@@ -151,8 +149,6 @@ export function InvestmentRecordDetailModal({
   onCancel,
   kind,
   record,
-  companyLabel,
-  usesCompanies,
   variant = 'portal',
 }: Props) {
   const isTg = variant === 'telegram'
@@ -237,9 +233,6 @@ export function InvestmentRecordDetailModal({
           </Space>
           <Descriptions bordered size="small" column={1} layout={isTg ? 'vertical' : 'horizontal'}>
             <Descriptions.Item label="ID">{record.id}</Descriptions.Item>
-            {usesCompanies ? (
-              <Descriptions.Item label="Компания">{companyLabel(record.company)}</Descriptions.Item>
-            ) : null}
             <Descriptions.Item label="Дата">{dateText(record.date)}</Descriptions.Item>
             {returnRecord ? (
               <Descriptions.Item label="Месяц начисления">

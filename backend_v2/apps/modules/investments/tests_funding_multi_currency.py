@@ -9,7 +9,6 @@ from apps.modules.cashier.models import CashRevenue
 from apps.modules.investments import tests_funding as base
 from apps.modules.investments.models import (
     CbuExchangeRate,
-    InvestCompany,
     InvestmentFundingConfig,
     ProjectInvestment,
 )
@@ -177,7 +176,6 @@ class InvestmentFundingExtraCashWalletCollectTests(_MultiCurrencyMixin, base._Fu
         )
         rate_patcher.start()
         self.addCleanup(rate_patcher.stop)
-        self.company = InvestCompany.objects.create(tenant=self.tenant, name="Инвестор", created_by=self.admin)
 
     def test_pool_includes_requests_of_all_invest_cash_wallets(self):
         self._add_usd_wallets()

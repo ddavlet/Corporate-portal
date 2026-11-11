@@ -1297,17 +1297,8 @@ export async function getStructuredCashflowReport(): Promise<StructuredReportPay
 
 // ─── Investments module ──────────────────────────────────────────────────────
 
-export type InvestCompanyRow = {
-  id: number
-  name: string
-  comment: string
-  is_active: boolean
-  created_at: string
-}
-
 export type ProjectInvestmentRow = {
   id: number
-  company: number | null
   date: string
   amount: string | number
   currency: string
@@ -1334,7 +1325,6 @@ export type ProjectInvestmentSourceRequest = {
 
 export type InvestPayoutScheduleRow = {
   id: number
-  company: number | null
   payout_date: string
   amount: string | number
   currency: string
@@ -1352,7 +1342,6 @@ export type InvestPayoutScheduleRow = {
 export type InvestPayoutScheduleShareLinkRow = {
   id: number
   token: string
-  company: number | null
   paid_filter: 'all' | 'paid' | 'unpaid'
   is_active: boolean
   created_at: string
@@ -1360,7 +1349,6 @@ export type InvestPayoutScheduleShareLinkRow = {
 }
 
 export type CreateInvestPayoutScheduleShareLinkPayload = {
-  company?: number | null
   paid_filter: 'all' | 'paid' | 'unpaid'
 }
 
@@ -1371,15 +1359,11 @@ export type PublicInvestPayoutScheduleRow = {
   is_paid: boolean
   payment_amount: string | number
   comment: string
-  company: number | null
-  company_name: string
   currency: string
 }
 
 export type PublicInvestPayoutScheduleResponse = {
   filters: {
-    company: number | null
-    company_name: string
     tenant_name: string
     paid_filter: 'all' | 'paid' | 'unpaid'
   }
@@ -1388,7 +1372,6 @@ export type PublicInvestPayoutScheduleResponse = {
 
 export type InvestReturnRow = {
   id: number
-  company: number | null
   payout_schedule: number | null
   date: string
   billing_date: string
@@ -1406,7 +1389,6 @@ export type InvestReturnRow = {
 }
 
 export type CreateInvestReturnPayload = {
-  company?: number | null
   date: string
   billing_date: string
   sum: string | number
@@ -1492,14 +1474,12 @@ export type InvestmentProjectApprovalConfigResponse = {
 }
 
 export type InvestmentFormConfigResponse = {
-  uses_companies: boolean
   allowed_return_types: string[]
   return_type_choices: InvestmentReturnTypeChoice[]
 }
 
 /** Fallback when form-config API fails — mirrors backend InvestReturn.ReturnType. */
 export const DEFAULT_INVESTMENT_FORM_CONFIG: InvestmentFormConfigResponse = {
-  uses_companies: true,
   allowed_return_types: ['дивиденды', 'проценты', 'доля_прибыли', 'тело_инвестиций'],
   return_type_choices: [
     { value: 'дивиденды', label: 'Дивиденды' },
@@ -1507,10 +1487,6 @@ export const DEFAULT_INVESTMENT_FORM_CONFIG: InvestmentFormConfigResponse = {
     { value: 'доля_прибыли', label: 'Доля прибыли' },
     { value: 'тело_инвестиций', label: 'Тело инвестиций' },
   ],
-}
-
-export async function getInvestCompanies(): Promise<InvestCompanyRow[]> {
-  return fetchAllCursorPages<InvestCompanyRow>('/api/investments/companies/')
 }
 
 export async function getProjectInvestments(): Promise<ProjectInvestmentRow[]> {
@@ -1529,7 +1505,6 @@ export async function createInvestPayoutScheduleShareLink(
   payload: CreateInvestPayoutScheduleShareLinkPayload,
 ): Promise<InvestPayoutScheduleShareLinkRow> {
   const body: Record<string, unknown> = { paid_filter: payload.paid_filter }
-  if (payload.company !== undefined) body.company = payload.company
   const res = await apiFetch('/api/investments/payout-schedule-share-links/', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -1566,9 +1541,8 @@ export async function getInvestReturns(): Promise<InvestReturnRow[]> {
   return fetchAllCursorPages<InvestReturnRow>('/api/investments/returns/')
 }
 
-export async function getUnlinkedInvestReturns(companyId: number | null): Promise<InvestReturnRow[]> {
-  const sp = new URLSearchParams({ unlinked: 'true', company: companyId === null ? 'null' : String(companyId) })
-  return fetchAllCursorPages<InvestReturnRow>(`/api/investments/returns/?${sp.toString()}`)
+export async function getUnlinkedInvestReturns(): Promise<InvestReturnRow[]> {
+  return fetchAllCursorPages<InvestReturnRow>('/api/investments/returns/?unlinked=true')
 }
 
 export async function createInvestReturn(payload: CreateInvestReturnPayload): Promise<InvestReturnRow> {
@@ -1582,7 +1556,6 @@ export async function createInvestReturn(payload: CreateInvestReturnPayload): Pr
     confirmed: false,
     comment: payload.comment ?? '',
   }
-  if (payload.company !== undefined) body.company = payload.company
   const res = await apiFetch('/api/investments/returns/', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -1594,31 +1567,7 @@ export async function createInvestReturn(payload: CreateInvestReturnPayload): Pr
   return json
 }
 
-export type CreateInvestCompanyPayload = {
-  name: string
-  comment?: string
-  is_active?: boolean
-}
-
-export async function createInvestCompany(payload: CreateInvestCompanyPayload): Promise<InvestCompanyRow> {
-  const body: Record<string, unknown> = {
-    name: payload.name,
-    comment: payload.comment ?? '',
-    is_active: payload.is_active ?? true,
-  }
-  const res = await apiFetch('/api/investments/companies/', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  })
-  if (!res.ok) throw new Error(await parseErrorBody(res))
-  const json = (await res.json().catch(() => null)) as InvestCompanyRow | null
-  if (!json) throw new Error('Пустой ответ от сервера')
-  return json
-}
-
 export type CreateProjectInvestmentPayload = {
-  company?: number | null
   date: string
   amount: string | number
   currency: string
@@ -1675,7 +1624,6 @@ export async function createProjectInvestment(payload: CreateProjectInvestmentPa
     currency: payload.currency,
     comment: payload.comment ?? '',
   }
-  if (payload.company !== undefined) body.company = payload.company
   if (payload.funding_method !== undefined) body.funding_method = payload.funding_method
   const res = await apiFetch('/api/investments/project-investments/', {
     method: 'POST',
@@ -1689,7 +1637,6 @@ export async function createProjectInvestment(payload: CreateProjectInvestmentPa
 }
 
 export type CreateInvestPayoutSchedulePayload = {
-  company?: number | null
   payout_date: string
   amount: string | number
   currency: string
@@ -1711,7 +1658,6 @@ export async function createInvestPayoutSchedule(
     is_paid: payload.is_paid ?? false,
     payment_amount: payload.payment_amount ?? '0',
   }
-  if (payload.company !== undefined) body.company = payload.company
   if (payload.return_type !== undefined) body.return_type = payload.return_type
   if (payload.recipient !== undefined) body.recipient = payload.recipient
   const res = await apiFetch('/api/investments/payout-schedule/', {
@@ -1786,7 +1732,7 @@ export async function getInvestmentFormConfig(): Promise<InvestmentFormConfigRes
 }
 
 export async function updateInvestmentFormConfig(
-  payload: Pick<InvestmentFormConfigResponse, 'uses_companies' | 'allowed_return_types'>,
+  payload: Pick<InvestmentFormConfigResponse, 'allowed_return_types'>,
 ): Promise<InvestmentFormConfigResponse> {
   const res = await apiFetch('/api/investments/form-config/', {
     method: 'PUT',
@@ -1874,7 +1820,6 @@ export async function createInvestmentsFromRequests(payload: {
   funding_method: 'cash' | 'bank_transfer'
   request_ids: number[]
   comment: string
-  company?: number | null
 }): Promise<{ investments: ProjectInvestmentRow[] }> {
   const res = await apiFetch('/api/investments/project-investments/from-requests/', {
     method: 'POST',

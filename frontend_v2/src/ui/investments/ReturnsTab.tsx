@@ -18,11 +18,7 @@ import {
 import type { ColumnsType } from 'antd/es/table'
 import dayjs, { type Dayjs } from 'dayjs'
 
-import {
-  createInvestReturn,
-  type InvestCompanyRow,
-  type InvestReturnRow,
-} from '../../lib/api'
+import { createInvestReturn, type InvestReturnRow } from '../../lib/api'
 import { clampToAllowedBillingMonth, isAllowedBillingMonth } from '../../lib/billingMonth'
 import { monthStartTashkent } from '../../lib/tashkentTime'
 import { InvestmentRecordDetailModal } from './InvestmentRecordDetailModal'
@@ -32,30 +28,22 @@ import { KpiStrip } from './KpiStrip'
 import {
   asMoney,
   asNumber,
-  byCompany,
   confirmedInvestorUsdTotal,
   dateText,
   inDateRange,
-  makeCompanySelectOptions,
   precisionFor,
   RETURN_CURRENCY_OPTIONS,
   totalsInBothCurrencies,
-  type CompanyFilter,
 } from './utils'
 
 type Props = {
   loading: boolean
   rows: InvestReturnRow[]
-  companies: InvestCompanyRow[]
-  companyLabel: (id: number | null) => string
-  companyFilter: CompanyFilter
-  usesCompanies: boolean
   returnTypeSelectOptions: { value: string; label: string }[]
   onCreated: () => Promise<void> | void
 }
 
 type FormValues = {
-  company?: number | null
   date: Dayjs
   billing_date: Dayjs
   sum: number
@@ -77,16 +65,7 @@ const RECIPIENT_OPTIONS = [
   { value: 'партнер', label: 'Партнер' },
 ]
 
-export function ReturnsTab({
-  loading,
-  rows,
-  companies,
-  companyLabel,
-  companyFilter,
-  usesCompanies,
-  returnTypeSelectOptions,
-  onCreated,
-}: Props) {
+export function ReturnsTab({ loading, rows, returnTypeSelectOptions, onCreated }: Props) {
   const [form] = Form.useForm<FormValues>()
   const [open, setOpen] = useState(false)
   const [selectedRow, setSelectedRow] = useState<InvestReturnRow | null>(null)
@@ -95,11 +74,10 @@ export function ReturnsTab({
   const watchedCurrency = Form.useWatch('currency', form) || 'USD'
 
   const filtered = useMemo(() => {
-    const byCo = byCompany(rows, companyFilter)
     const from = dateRange?.[0]?.format('YYYY-MM-DD')
     const to = dateRange?.[1]?.format('YYYY-MM-DD')
-    return inDateRange(byCo, 'date', from, to)
-  }, [rows, companyFilter, dateRange])
+    return inDateRange(rows, 'date', from, to)
+  }, [rows, dateRange])
 
   const totals = useMemo(() => totalsInBothCurrencies(filtered), [filtered])
   const confirmedTotals = useMemo(
@@ -109,14 +87,6 @@ export function ReturnsTab({
   const investorUsdTotal = useMemo(() => confirmedInvestorUsdTotal(filtered), [filtered])
 
   const columns: ColumnsType<InvestReturnRow> = useMemo(() => {
-    const companyCol = {
-      title: 'Компания',
-      dataIndex: 'company' as const,
-      width: 220,
-      render: (v: number | null) => companyLabel(v),
-      sorter: (a: InvestReturnRow, b: InvestReturnRow) =>
-        companyLabel(a.company).localeCompare(companyLabel(b.company)),
-    }
     const rest: ColumnsType<InvestReturnRow> = [
     { title: 'ID', dataIndex: 'id', width: 80, sorter: (a, b) => a.id - b.id },
     {
@@ -135,7 +105,6 @@ export function ReturnsTab({
       sorter: (a, b) =>
         String(a.billing_date || '').slice(0, 7).localeCompare(String(b.billing_date || '').slice(0, 7)),
     },
-    ...(usesCompanies ? [companyCol] : []),
     {
       title: 'В валюте выплаты',
       dataIndex: 'sum',
@@ -186,7 +155,7 @@ export function ReturnsTab({
     },
     ]
     return rest
-  }, [usesCompanies, companyLabel, onCreated])
+  }, [onCreated])
 
   const openCreate = () => {
     form.resetFields()
@@ -216,7 +185,6 @@ export function ReturnsTab({
     setSubmitting(true)
     try {
       await createInvestReturn({
-        company: values.company ?? null,
         date: values.date.format('YYYY-MM-DD'),
         billing_date: values.billing_date.startOf('month').format('YYYY-MM-DD'),
         sum: String(values.sum),
@@ -301,8 +269,6 @@ export function ReturnsTab({
         onCancel={() => setSelectedRow(null)}
         kind="return"
         record={selectedRow}
-        companyLabel={companyLabel}
-        usesCompanies={usesCompanies}
       />
 
       <Modal
@@ -317,11 +283,6 @@ export function ReturnsTab({
         width={620}
       >
         <Form form={form} layout="vertical" preserve={false}>
-          {usesCompanies ? (
-            <Form.Item label="Компания" name="company">
-              <Select allowClear options={makeCompanySelectOptions(companies)} placeholder="Без компании" />
-            </Form.Item>
-          ) : null}
           <Form.Item
             label="Месяц начисления"
             name="billing_date"

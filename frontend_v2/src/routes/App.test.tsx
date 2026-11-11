@@ -73,7 +73,15 @@ vi.mock('../ui/settings/CashRegistersSettingsPage', () => ({
   CashRegistersSettingsPage: () => <div>CashRegistersSettingsPage</div>,
 }))
 vi.mock('../ui/admin/AdminModulePage', () => ({ AdminModulePage: () => <div>AdminModulePage</div> }))
-vi.mock('../ui/tg/TgWebAppLayout', () => ({ TgWebAppLayout: () => <div>TgWebAppLayout</div> }))
+vi.mock('../ui/tg/TgWebAppLayout', () => ({
+  TgWebAppLayout: () => (
+    <div>
+      TgWebAppLayout
+      <Outlet />
+    </div>
+  ),
+}))
+vi.mock('../ui/tg/TgInvestmentsPage', () => ({ TgInvestmentsPage: () => <div>TgInvestmentsPage</div> }))
 vi.mock('../ui/tg/TgRequestsPage', () => ({ TgRequestsPage: () => <div>TgRequestsPage</div> }))
 vi.mock('../ui/tg/TgRequestCreatePage', () => ({ TgRequestCreatePage: () => <div>TgRequestCreatePage</div> }))
 vi.mock('../ui/tg/TgRequestDetailPage', () => ({ TgRequestDetailPage: () => <div>TgRequestDetailPage</div> }))
@@ -150,6 +158,16 @@ describe('App routing smoke', () => {
       </MemoryRouter>,
     )
     expect(screen.getByText('TgWebAppLayout')).toBeInTheDocument()
+  })
+
+  it('redirects the removed telegram «Компании» screen to the investments landing', () => {
+    useAuthMock.mockReturnValue({ accessToken: null, logout: vi.fn() })
+    render(
+      <MemoryRouter initialEntries={['/tg/investments/companies']}>
+        <App />
+      </MemoryRouter>,
+    )
+    expect(screen.getByText('TgInvestmentsPage')).toBeInTheDocument()
   })
 })
 

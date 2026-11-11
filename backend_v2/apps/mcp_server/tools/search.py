@@ -115,7 +115,6 @@ SOURCES: tuple[SearchSource, ...] = (
         parent=("payroll_document", "document_id"),
     ),
     SearchSource("employee", "apps.modules.payroll.models.Employee", "payroll"),
-    SearchSource("invest_company", "apps.modules.investments.models.InvestCompany", "investments"),
     SearchSource("invest_return", "apps.modules.investments.models.InvestReturn", "investments"),
     SearchSource("project_investment", "apps.modules.investments.models.ProjectInvestment", "investments"),
     SearchSource("invest_payout_schedule", "apps.modules.investments.models.InvestPayoutSchedule", "investments"),
@@ -139,6 +138,8 @@ SOURCES: tuple[SearchSource, ...] = (
 )
 
 SOURCE_KINDS: tuple[str, ...] = tuple(s.kind for s in SOURCES)
+# DEPRECATED: kinds of removed sources; still accepted in `types` so old callers don't fail.
+DEPRECATED_SOURCE_KINDS: frozenset[str] = frozenset({"invest_company"})
 
 
 # ---------------------------------------------------------------------------
@@ -376,6 +377,10 @@ def _parse_types(types: str) -> set[str] | None:
     wanted = {t.strip() for t in (types or "").split(",") if t.strip()}
     if not wanted:
         return None
+    # Deprecated kinds are accepted for old callers but match nothing; only them → search nothing.
+    wanted -= DEPRECATED_SOURCE_KINDS
+    if not wanted:
+        return set()
     unknown = wanted - set(SOURCE_KINDS)
     if unknown:
         raise ValueError(f"Unknown types: {', '.join(sorted(unknown))}; allowed: {', '.join(SOURCE_KINDS)}")
