@@ -1,8 +1,8 @@
 /** Each card remembers the view it was left in (period, units, filters) until the tab is closed. */
-const PREFIX = 'reports.view.'
+export const REPORT_VIEW_PREFIX = 'reports.view.'
 
 function storageKey(template: string, report: string): string {
-  return `${PREFIX}${template}.${report}`
+  return `${REPORT_VIEW_PREFIX}${template}.${report}`
 }
 
 /** The query string a card keeps, without the template's transient parameters (such as an open drill-down). */

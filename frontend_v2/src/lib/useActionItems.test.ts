@@ -5,7 +5,8 @@ const getActionItemsMock = vi.fn()
 const syncAppBadgeMock = vi.fn()
 
 vi.mock('./actionItemsApi', () => ({
-  getActionItems: () => getActionItemsMock(),
+  // The store asks the endpoint of the current portal mode (one company on a subdomain, all on the shared host).
+  getActionItemsForPortal: () => getActionItemsMock(),
   actionItemTag: (item: { kind: string; id: number }) => `${item.kind}-${item.id}`,
 }))
 vi.mock('./appBadge', () => ({ syncAppBadge: (count: number) => syncAppBadgeMock(count) }))
@@ -214,6 +215,16 @@ describe('useActionItems', () => {
       tags: ['request-7', 'project_investment-3'],
       count: 2,
     })
+    unmount()
+  })
+
+  it('shows the sum over companies in the count and the icon badge (crit. 19)', async () => {
+    const withTenant = (id: number, subdomain: string) => ({ ...ITEM('request', id), tenant: { subdomain, name: subdomain } })
+    getActionItemsMock.mockResolvedValue({ count: 3, items: [withTenant(1, 'alpha'), withTenant(2, 'beta'), withTenant(3, 'beta')] })
+    const { result, unmount } = renderHook(() => useActionItems())
+    await flush()
+    expect(result.current.count).toBe(3)
+    expect(syncAppBadgeMock).toHaveBeenLastCalledWith(3)
     unmount()
   })
 

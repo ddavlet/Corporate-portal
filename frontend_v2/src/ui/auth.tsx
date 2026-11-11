@@ -3,6 +3,7 @@ import { resetTenantAdminCache } from '../lib/useTenantAdmin'
 import { resetReportTemplatesCache } from '../lib/useReportTemplates'
 import { resetActionItemsCache } from '../lib/useActionItems'
 import { clearAppBadgeSafe } from '../lib/appBadge'
+import { clearTabCompany } from '../lib/companyContext'
 
 type Tokens = {
   access: string
@@ -66,6 +67,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     resetReportTemplatesCache()
     resetActionItemsCache()
     clearAppBadgeSafe()
+    // Shared app host: the next sign-in in this tab picks the company again (the device default is kept).
+    clearTabCompany()
     setState(null)
     saveState(null)
   }, [])

@@ -1,5 +1,7 @@
 import { notifyApiError, notifyNetworkError } from './apiNotify'
 import type { FundingHint } from './requestPaymentTypes'
+import { isSharedAppMode } from './portalMode'
+import { getTabCompany } from './companyContext'
 
 type Tokens = { access: string; refresh: string }
 
@@ -62,6 +64,32 @@ export function setTgTokens(tokens: Tokens | null) {
 
 export function setUnauthorizedHandler(handler: (() => void) | null) {
   unauthorizedHandler = handler
+}
+
+/** 403 codes of the shared app host: the company of the request is not (or no longer) available to the user. */
+export type TenantAccessCode = 'tenant_forbidden' | 'tenant_required'
+
+/**
+ * Called on the shared app host when the server answers 403 tenant_forbidden / tenant_required. `sentTenant` is the
+ * X-Tenant of that request (null when none was sent). Returns true when it takes over: the response then shows no toast.
+ */
+export type TenantAccessLostHandler = (code: TenantAccessCode, sentTenant: string | null) => boolean
+
+let tenantAccessLostHandler: TenantAccessLostHandler | null = null
+
+export function setTenantAccessLostHandler(handler: TenantAccessLostHandler | null) {
+  tenantAccessLostHandler = handler
+}
+
+async function readTenantAccessCode(res: Response): Promise<TenantAccessCode | null> {
+  if (res.status !== 403) return null
+  try {
+    const body = (await res.clone().json()) as { code?: unknown } | null
+    const code = body?.code
+    return code === 'tenant_forbidden' || code === 'tenant_required' ? code : null
+  } catch {
+    return null
+  }
 }
 
 function getTokens(): Tokens | null {
@@ -136,11 +164,46 @@ function isAbortError(error: unknown): boolean {
   return (error as { name?: unknown } | null)?.name === 'AbortError'
 }
 
+/** Header with the company subdomain on the shared app host (portalMode.ts, companyContext.ts). */
+export const TENANT_HEADER = 'X-Tenant'
+
+/** Relative URLs and absolute URLs of this origin; never a third-party host. */
+function isSameOriginApiUrl(input: string): boolean {
+  if (typeof window === 'undefined') return false
+  try {
+    const url = new URL(input, window.location.href)
+    return url.origin === window.location.origin && url.pathname.startsWith('/api/')
+  } catch {
+    return false
+  }
+}
+
+/** This origin's /api/ on the shared app host, outside the Mini App: the requests that carry the company. */
+function isSharedHostApiRequest(input: string): boolean {
+  if (pathIsTgWebApp() || !isSharedAppMode()) return false
+  return isSameOriginApiUrl(input)
+}
+
+/** The tab's company, only on the shared app host, outside the Mini App and only for this origin's /api/. */
+function tenantHeaderValue(input: string): string | null {
+  if (!isSharedHostApiRequest(input)) return null
+  return getTabCompany()
+}
+
+/**
+ * Every portal API call goes through here: it adds the token and, on the shared app host, the company (X-Tenant).
+ *
+ * Rule: portal files (request `file_link`, `attachments[].url`, report exports) are absolute same-origin /api/ URLs and
+ * are opened only through apiFetch (then saveFile / a blob link): never as href, img src or window.open, which would
+ * go without Authorization and, on the shared host, without X-Tenant (403).
+ */
 export async function apiFetch(input: string, init: RequestInit = {}, options?: ApiFetchOptions) {
   const tokens = getTokens()
   const headers = new Headers(init.headers || {})
   if (!options?.omitAcceptJson) headers.set('Accept', 'application/json')
   if (tokens?.access) headers.set('Authorization', `Bearer ${tokens.access}`)
+  const tenant = tenantHeaderValue(input)
+  if (tenant) headers.set(TENANT_HEADER, tenant)
 
   const doFetch = () =>
     fetch(input, {
@@ -181,6 +244,11 @@ export async function apiFetch(input: string, init: RequestInit = {}, options?: 
     if (readTgTokens()?.refresh === tokens.refresh) setTgTokens(null)
     if (readPortalTokens()?.refresh === tokens.refresh) setTokens(null)
     unauthorizedHandler?.()
+  }
+
+  if (res.status === 403 && tenantAccessLostHandler && isSharedHostApiRequest(input)) {
+    const code = await readTenantAccessCode(res)
+    if (code && tenantAccessLostHandler(code, tenant)) return res
   }
 
   await maybeNotifyHttpError(res, init, options)

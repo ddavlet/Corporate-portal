@@ -1,5 +1,11 @@
 import type { RequestAttachment } from './api'
 
+/**
+ * Rule: `file_link` and `attachments[].url` are absolute same-origin /api/files/ URLs built by the server
+ * (requests/serializers.py). Open them only through apiFetch (RequestDetailModal's downloadFileViaAuthBlob, or
+ * saveFile after apiFetch): never as an href, img src or window.open. Those go without Authorization and, on the
+ * shared app host, without X-Tenant, so the server answers 401/403.
+ */
 export type RequestFileRow = { key: string; url: string; label: string }
 
 export type RequestFilesSource = {

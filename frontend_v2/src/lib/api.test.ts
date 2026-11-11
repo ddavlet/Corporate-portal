@@ -5,6 +5,10 @@ const { notifyApiErrorMock, notifyNetworkErrorMock } = vi.hoisted(() => ({
   notifyNetworkErrorMock: vi.fn(),
 }))
 
+const portalModeState = vi.hoisted(() => ({ shared: false }))
+
+vi.mock('./portalMode', () => ({ isSharedAppMode: () => portalModeState.shared }))
+
 vi.mock('./apiNotify', () => ({
   notifyApiError: notifyApiErrorMock,
   notifyNetworkError: notifyNetworkErrorMock,
@@ -26,6 +30,7 @@ import {
   listVendors,
   parseErrorBody,
   readTgTokens,
+  setTenantAccessLostHandler,
   setTgTokens,
   setUnauthorizedHandler,
   submitRequestForApproval,
@@ -330,5 +335,136 @@ describe('api module', () => {
     ).toBe('Укажите год. Неверный период.')
     expect(await parseErrorBody(createJsonResponse(400, { detail: 'Нет доступа.' }))).toBe('Нет доступа.')
     expect(await parseErrorBody(createJsonResponse(500, null))).toBe('Ошибка сервера (500)')
+  })
+})
+
+describe('apiFetch X-Tenant on the shared app host', () => {
+  const localStorageMock = createStorageMock()
+  const sessionStorageMock = createStorageMock()
+  const fetchMock = vi.fn()
+
+  function sentHeaders(call = 0): Headers {
+    return (fetchMock.mock.calls[call][1] as RequestInit).headers as Headers
+  }
+
+  beforeEach(() => {
+    setWindowLocation('/app/requests')
+    Object.defineProperty(globalThis, 'localStorage', { value: localStorageMock, configurable: true })
+    Object.defineProperty(globalThis, 'sessionStorage', { value: sessionStorageMock, configurable: true })
+    Object.defineProperty(globalThis, 'fetch', { value: fetchMock, configurable: true })
+    localStorageMock.clear()
+    sessionStorageMock.clear()
+    fetchMock.mockReset()
+    fetchMock.mockImplementation(async () => createJsonResponse(200, {}))
+    localStorageMock.setItem('kolberg_v2_tokens', JSON.stringify({ access: 'acc', refresh: 'ref', username: 'ivan' }))
+    sessionStorageMock.setItem('kolberg_v2_company', 'acme')
+    portalModeState.shared = true
+    notifyApiErrorMock.mockReset()
+    setTenantAccessLostHandler(null)
+  })
+
+  afterEach(() => {
+    portalModeState.shared = false
+    setTenantAccessLostHandler(null)
+  })
+
+  it('sends the tab company with the token', async () => {
+    await apiFetch('/api/requests/')
+    expect(sentHeaders().get('X-Tenant')).toBe('acme')
+    expect(sentHeaders().get('Authorization')).toBe('Bearer acc')
+  })
+
+  it('sends it for an absolute URL of the same origin (file links from the server)', async () => {
+    await apiFetch('https://example.com/api/files/download/?path=x')
+    expect(sentHeaders().get('X-Tenant')).toBe('acme')
+  })
+
+  it('never sends it to another origin', async () => {
+    await apiFetch('https://files.example.org/api/files/download/?path=x')
+    expect(sentHeaders().has('X-Tenant')).toBe(false)
+  })
+
+  it('does not send it on a tenant subdomain', async () => {
+    portalModeState.shared = false
+    await apiFetch('/api/requests/')
+    expect(sentHeaders().has('X-Tenant')).toBe(false)
+  })
+
+  it('does not send it to same-origin URLs outside /api/', async () => {
+    await apiFetch('/static/app.js')
+    expect(sentHeaders().has('X-Tenant')).toBe(false)
+  })
+
+  it('does not send it in the Telegram Mini App', async () => {
+    setWindowLocation('/app/tg/requests')
+    await apiFetch('/api/requests/')
+    expect(sentHeaders().has('X-Tenant')).toBe(false)
+  })
+
+  it('does not send it before a company is picked', async () => {
+    sessionStorageMock.clear()
+    await apiFetch('/api/me/companies/')
+    expect(sentHeaders().has('X-Tenant')).toBe(false)
+  })
+
+  it('hands a lost company (403 tenant_forbidden) to the handler instead of a toast', async () => {
+    const onLost = vi.fn(() => true)
+    setTenantAccessLostHandler(onLost)
+    fetchMock.mockResolvedValueOnce(createJsonResponse(403, { detail: 'Нет доступа к компании.', code: 'tenant_forbidden' }))
+
+    const res = await apiFetch('/api/requests/')
+
+    expect(res.status).toBe(403)
+    expect(onLost).toHaveBeenCalledWith('tenant_forbidden', 'acme')
+    expect(notifyApiErrorMock).not.toHaveBeenCalled()
+  })
+
+  it('reports tenant_required with no company sent', async () => {
+    const onLost = vi.fn(() => true)
+    setTenantAccessLostHandler(onLost)
+    sessionStorageMock.clear()
+    fetchMock.mockResolvedValueOnce(createJsonResponse(403, { detail: 'Не выбрана компания.', code: 'tenant_required' }))
+
+    await apiFetch('/api/requests/')
+
+    expect(onLost).toHaveBeenCalledWith('tenant_required', null)
+  })
+
+  it('keeps the toast when the handler declines, and for other 403 answers', async () => {
+    const onLost = vi.fn(() => false)
+    setTenantAccessLostHandler(onLost)
+    fetchMock
+      .mockResolvedValueOnce(createJsonResponse(403, { detail: 'Нет доступа к компании.', code: 'tenant_forbidden' }))
+      .mockResolvedValueOnce(createJsonResponse(403, { detail: 'Недостаточно прав.' }))
+
+    await apiFetch('/api/requests/')
+    await apiFetch('/api/requests/')
+
+    expect(onLost).toHaveBeenCalledTimes(1)
+    expect(notifyApiErrorMock).toHaveBeenCalledTimes(2)
+  })
+
+  it('does not call the handler on a tenant subdomain', async () => {
+    portalModeState.shared = false
+    const onLost = vi.fn(() => true)
+    setTenantAccessLostHandler(onLost)
+    fetchMock.mockResolvedValueOnce(createJsonResponse(403, { detail: 'x', code: 'tenant_forbidden' }))
+
+    await apiFetch('/api/requests/')
+
+    expect(onLost).not.toHaveBeenCalled()
+    expect(notifyApiErrorMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('sends each tab its own company (two tabs, one device)', async () => {
+    const otherTab = createStorageMock()
+    otherTab.setItem('kolberg_v2_company', 'beta')
+
+    await apiFetch('/api/requests/')
+    Object.defineProperty(globalThis, 'sessionStorage', { value: otherTab, configurable: true })
+    await apiFetch('/api/requests/')
+
+    expect(sentHeaders(0).get('X-Tenant')).toBe('acme')
+    expect(sentHeaders(1).get('X-Tenant')).toBe('beta')
   })
 })

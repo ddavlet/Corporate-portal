@@ -1,10 +1,13 @@
 import { useCallback, useSyncExternalStore } from 'react'
-import { actionItemTag, getActionItems, type ActionItem } from './actionItemsApi'
+import { actionItemTag, getActionItemsForPortal, type ActionItem } from './actionItemsApi'
 import { syncAppBadge } from './appBadge'
 
 /**
  * Shared "requires my action" counter. Every component that shows the count (menu, bell, notifications page) reads one
  * module-level store, so the server is asked once per refresh however many of them are on screen.
+ *
+ * On the shared app host the store holds the items of all the user's companies (count = their sum, tags carry the
+ * company), so the menu badge, the bell and the icon badge show the total.
  *
  * Refresh: on first use, every 60 s while the tab is visible, and when the window gets focus or becomes visible.
  * After each answer the icon badge is synced and the service worker is told the current tags (it will close stale
@@ -64,7 +67,7 @@ export function refreshActionItems(): Promise<void> {
   if (inflight) return inflight
   const startedIn = generation
   lastStartedAt = Date.now()
-  const request = getActionItems()
+  const request = getActionItemsForPortal()
     .then((data) => {
       if (startedIn !== generation) return
       consecutiveFailures = 0

@@ -78,6 +78,7 @@ import { TgBankExpenseDetailPage } from '../ui/tg/TgBankExpenseDetailPage'
 import { TgTasksPage } from '../ui/tg/TgTasksPage'
 import { useAuth } from '../ui/auth'
 import { ModuleAccessProvider } from '../ui/moduleAccess'
+import { CompanyProvider, useCompany } from '../ui/company'
 import { setUnauthorizedHandler } from '../lib/api'
 import { PwaUpdateBridge } from '../ui/PwaUpdateBridge'
 
@@ -89,6 +90,16 @@ function CashExpenseLegacyRedirect() {
 function BankExpenseLegacyRedirect() {
   const { id } = useParams()
   return <Navigate to={`/bank/expenses/${id}`} replace />
+}
+
+/** Remounts the shell (menu, module access, pages, their state) whenever the shared-host company changes. */
+function CompanyScopedShell() {
+  const { current } = useCompany()
+  return (
+    <ModuleAccessProvider key={current ?? ''}>
+      <AppShell />
+    </ModuleAccessProvider>
+  )
 }
 
 export function App() {
@@ -144,9 +155,9 @@ export function App() {
         path="/"
         element={
           accessToken ? (
-            <ModuleAccessProvider>
-              <AppShell />
-            </ModuleAccessProvider>
+            <CompanyProvider>
+              <CompanyScopedShell />
+            </CompanyProvider>
           ) : (
             <Navigate to="/login" replace />
           )
