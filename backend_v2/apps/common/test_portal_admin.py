@@ -5,6 +5,8 @@ from django.test import SimpleTestCase
 # Models that are not portal business tables (or duplicate unmanaged projections).
 _SKIP_UNREGISTERED = {
     "accounts.OtpChallenge",
+    # DEPRECATED: invest companies are hidden from admin; the model is dropped at stage 2.
+    "investments.InvestCompany",
     "requests.UserRequestApproval",
     "tenants.TenantMembership",
     "tenants.TenantUserPreference",

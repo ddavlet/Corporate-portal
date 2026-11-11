@@ -107,7 +107,7 @@ def build_project_investment_approval_telegram_message(
 ) -> str:
     """HTML body for Telegram (aligned with investment return approval cards)."""
     pi = project_investment
-    company_name = pi.company.name if pi.company else pi.tenant.name
+    company_name = pi.tenant.name
     amount_text = escape(_format_amount_for_telegram(pi.amount))
     currency_text = escape((pi.currency or "").upper() or "-")
     date_text = escape(date_format(pi.date, "j E Y", use_l10n=True)) if pi.date else "-"
@@ -230,7 +230,7 @@ def refresh_project_investment_approval_messages(*, project_investment: ProjectI
             project_investment=project_investment,
             telegram_message__isnull=False,
             approver_recipient_id__isnull=False,
-        ).select_related("project_investment", "project_investment__company", "tenant", "telegram_message")
+        ).select_related("project_investment", "project_investment__tenant", "tenant", "telegram_message")
     )
     updated = 0
     dispatcher = TelegramDispatcher(project_investment.tenant)

@@ -130,6 +130,16 @@ class SearchEverywhereTests(TestCase):
         self.assertEqual(self._group(admin_result, "task")["total"], 2)
         self.assertEqual(self._group(admin_result, "note")["total"], 1)
 
+    def test_deprecated_invest_company_type_matches_nothing(self):
+        only_deprecated = self._search(self.admin, "гипс", types="invest_company")
+        self.assertEqual(only_deprecated["groups"], [])
+        self.assertEqual(only_deprecated.get("not_searched_no_access", []), [])
+
+        mixed = self._search(self.admin, "гипс", types="invest_company,vendor")
+        self.assertEqual(mixed, self._search(self.admin, "гипс", types="vendor"))
+        self.assertEqual([g["type"] for g in mixed["groups"]], ["vendor"])
+        self.assertNotIn("invest_company", search_tools.SOURCE_KINDS)
+
     def test_types_filter_and_validation(self):
         result = self._search(self.admin, "гипс", types="vendor")
         self.assertEqual([g["type"] for g in result["groups"]], ["vendor"])

@@ -181,7 +181,7 @@ class TelegramApprovalWebhookView(APIView):
 
         schedule = (
             InvestPayoutSchedule.objects
-            .select_related("tenant", "company")
+            .select_related("tenant")
             .filter(pk=schedule_id)
             .first()
         )

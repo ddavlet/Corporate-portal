@@ -30,13 +30,7 @@ function req(id: number, over: Record<string, unknown> = {}) {
 
 function renderModal(onCreated: () => Promise<void> | void = () => {}) {
   return render(
-    <InvestmentFromRequestsModal
-      open
-      onCancel={() => {}}
-      onCreated={onCreated}
-      usesCompanies={false}
-      companies={[]}
-    />,
+    <InvestmentFromRequestsModal open onCancel={() => {}} onCreated={onCreated} />,
   )
 }
 
@@ -104,6 +98,9 @@ describe('InvestmentFromRequestsModal', () => {
       request_ids: [10],
       comment: '',
     })
+    // Компаний внутри тенанта больше нет: ни поля в форме, ни ключа в запросе.
+    expect(createInvestmentsFromRequestsMock.mock.calls[0][0]).not.toHaveProperty('company')
+    expect(screen.queryByText('Компания')).toBeNull()
   })
 
   it('sends the comment only when the user edited it', async () => {

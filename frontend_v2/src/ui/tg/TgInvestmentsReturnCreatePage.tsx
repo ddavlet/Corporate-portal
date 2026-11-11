@@ -4,13 +4,7 @@ import { useNavigate } from 'react-router-dom'
 import { ArrowLeftOutlined } from '@ant-design/icons'
 import dayjs from 'dayjs'
 import { useTgMainButton } from './useTgMainButton'
-import {
-  DEFAULT_INVESTMENT_FORM_CONFIG,
-  getInvestmentFormConfig,
-  getInvestCompanies,
-  createInvestReturn,
-  type InvestCompanyRow,
-} from '../../lib/api'
+import { DEFAULT_INVESTMENT_FORM_CONFIG, getInvestmentFormConfig, createInvestReturn } from '../../lib/api'
 import { RETURN_CURRENCY_OPTIONS } from '../investments/utils'
 import { isAllowedBillingMonth } from '../../lib/billingMonth'
 import { monthStartTashkent, nowTashkent } from '../../lib/tashkentTime'
@@ -26,8 +20,6 @@ export function TgInvestmentsReturnCreatePage() {
   const [loading, setLoading] = useState(true)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [companies, setCompanies] = useState<InvestCompanyRow[]>([])
-  const [usesCompanies, setUsesCompanies] = useState(false)
   const [returnTypeOptions, setReturnTypeOptions] = useState<{ value: string; label: string }[]>([])
 
   useEffect(() => {
@@ -36,7 +28,6 @@ export function TgInvestmentsReturnCreatePage() {
       try {
         const cfg = await getInvestmentFormConfig().catch(() => DEFAULT_INVESTMENT_FORM_CONFIG)
         if (cancelled) return
-        setUsesCompanies(cfg.uses_companies)
         const allowed = new Set(cfg.allowed_return_types)
         const opts = cfg.return_type_choices.filter((c) => allowed.has(c.value))
         setReturnTypeOptions(opts)
@@ -49,10 +40,6 @@ export function TgInvestmentsReturnCreatePage() {
           type: defaultType,
           recipient: 'инвестор',
         })
-        if (cfg.uses_companies) {
-          const rows = await getInvestCompanies()
-          if (!cancelled) setCompanies(rows)
-        }
       } catch {
         // non-fatal
       } finally {
@@ -80,7 +67,6 @@ export function TgInvestmentsReturnCreatePage() {
     setError(null)
     try {
       await createInvestReturn({
-        company: usesCompanies ? (values.company as number | null) ?? null : null,
         date: dayjs(values.date as dayjs.ConfigType).format('YYYY-MM-DD'),
         billing_date: monthStartTashkent(billingDayjs).format('YYYY-MM-DD'),
         sum: String(values.sum),
@@ -128,17 +114,6 @@ export function TgInvestmentsReturnCreatePage() {
         <Skeleton active paragraph={{ rows: 6 }} />
       ) : (
         <Form form={form} layout="vertical">
-          {usesCompanies ? (
-            <Form.Item label="Компания" name="company">
-              <Select
-                allowClear
-                size="large"
-                placeholder="Без компании"
-                options={companies.map((c) => ({ value: c.id, label: c.name }))}
-              />
-            </Form.Item>
-          ) : null}
-
           <Form.Item
             label="Дата"
             name="date"

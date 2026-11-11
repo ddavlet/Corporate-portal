@@ -8,7 +8,7 @@ from django.db.models import Prefetch
 from django.utils import timezone
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import PermissionDenied, ValidationError
+from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -36,7 +36,6 @@ from apps.modules.investments.funding_pool import (
     investment_has_cash_revenue,
 )
 from apps.modules.investments.models import (
-    InvestCompany,
     InvestmentFundingConfig,
     InvestmentApprovalConfig,
     InvestmentApprovalConfigStep,
@@ -63,7 +62,6 @@ from apps.modules.investments.project_investment_approval_services import (
 )
 from apps.modules.telegram_approvals.models import TelegramMessage
 from apps.modules.investments.serializers import (
-    InvestCompanySerializer,
     InvestmentApprovalConfigReadSerializer,
     InvestmentApprovalConfigSerializer,
     InvestmentApprovalConfigStepApproverReadSerializer,
@@ -249,11 +247,6 @@ class InvestReturnViewSet(_EditableInvestmentsTenantViewSet):
 
     def get_queryset(self):
         qs = super().get_queryset()
-        company_raw = (self.request.query_params.get("company") or "").strip()
-        if company_raw.isdigit():
-            qs = qs.filter(company_id=int(company_raw))
-        elif company_raw.lower() == "null":
-            qs = qs.filter(company_id__isnull=True)
         unlinked = parse_bool_query(self.request, "unlinked")
         if unlinked is True:
             qs = qs.filter(payout_schedule__isnull=True)
@@ -273,9 +266,6 @@ class InvestPayoutScheduleViewSet(_EditableInvestmentsTenantViewSet):
 
     def get_queryset(self):
         qs = super().get_queryset()
-        company_id = (self.request.query_params.get("company") or "").strip()
-        if company_id.isdigit():
-            qs = qs.filter(company_id=int(company_id))
         is_paid = parse_bool_query(self.request, "is_paid")
         if is_paid is True:
             qs = qs.filter(is_paid=True)
@@ -366,32 +356,28 @@ class ProjectInvestmentViewSet(_EditableInvestmentsTenantViewSet):
             funding_method=data["funding_method"],
             request_ids=data["request_ids"],
             comment=data.get("comment", ""),
-            company=data.get("company"),
         )
         body = ProjectInvestmentSerializer(investments, many=True, context=self.get_serializer_context()).data
         return Response({"investments": body}, status=status.HTTP_201_CREATED)
 
 
-class InvestCompanyViewSet(_EditableInvestmentsTenantViewSet):
-    serializer_class = InvestCompanySerializer
-    queryset = InvestCompany.objects.all()
-    ordering_fields = ["name", "id", "created_at"]
-    ordering = ["name", "id"]
+class InvestCompanyDeprecatedStubViewSet(viewsets.ViewSet):
+    """DEPRECATED: удаляется на этапе 2 вместе с моделью компаний инвестиций.
 
-    def get_queryset(self):
-        qs = super().get_queryset()
-        search = (self.request.query_params.get("search") or "").strip()
-        if search:
-            from django.db.models import Q
+    Компании внутри тенанта больше не используются. Заглушка отдаёт пустую cursor-страницу,
+    чтобы открытые вкладки со старым бандлом (общий Promise.all на странице инвестиций) не падали.
+    Запись не поддерживается (405).
+    """
 
-            qs = qs.filter(Q(name__icontains=search))
-        return qs.order_by("name", "id")
+    module_key = "investments"
+    permission_classes = [IsAuthenticated, HasEffectiveModuleAccess]
+    http_method_names = ["get", "head", "options"]
 
-    def perform_create(self, serializer):
-        cfg = InvestmentFormConfig.objects.filter(tenant=self.request.tenant).first()
-        if cfg and not cfg.uses_companies:
-            raise ValidationError({"detail": "Создание компаний отключено в настройках формы инвестиций."})
-        super().perform_create(serializer)
+    def list(self, request):
+        return Response({"next": None, "previous": None, "results": []})
+
+    def retrieve(self, request, pk=None):
+        raise NotFound()
 
 
 class InvestPayoutScheduleShareLinkViewSet(_InvestmentsTenantViewSet):
@@ -401,7 +387,7 @@ class InvestPayoutScheduleShareLinkViewSet(_InvestmentsTenantViewSet):
 
     def get_queryset(self):
         qs = super().get_queryset()
-        return qs.filter(is_active=True).select_related("company")
+        return qs.filter(is_active=True)
 
     def perform_destroy(self, instance):
         instance.is_active = False
@@ -415,15 +401,15 @@ class PublicInvestPayoutScheduleByTokenView(APIView):
     def get(self, request, token: str):
         link = (
             InvestPayoutScheduleShareLink.objects.filter(token=token, is_active=True)
-            .select_related("company", "tenant")
+            .select_related("tenant")
             .first()
         )
-        if not link:
+        # DEPRECATED company scope: a legacy link limited to one company must not widen
+        # to the whole tenant schedule, so it is treated as missing (fail-closed).
+        if not link or link.company_id is not None:
             return Response({"detail": "Link not found."}, status=status.HTTP_404_NOT_FOUND)
 
-        qs = InvestPayoutSchedule.objects.filter(tenant=link.tenant).select_related("company")
-        if link.company_id:
-            qs = qs.filter(company_id=link.company_id)
+        qs = InvestPayoutSchedule.objects.filter(tenant=link.tenant)
         if link.paid_filter == InvestPayoutScheduleShareLink.PaidFilter.PAID:
             qs = qs.filter(is_paid=True)
         elif link.paid_filter == InvestPayoutScheduleShareLink.PaidFilter.UNPAID:
@@ -437,8 +423,6 @@ class PublicInvestPayoutScheduleByTokenView(APIView):
                 "is_paid": row.is_paid,
                 "payment_amount": row.payment_amount,
                 "comment": row.comment,
-                "company": row.company_id,
-                "company_name": row.company.name if row.company else "",
                 "currency": row.currency,
             }
             for row in qs.order_by("payout_date", "id")
@@ -446,8 +430,6 @@ class PublicInvestPayoutScheduleByTokenView(APIView):
         return Response(
             {
                 "filters": {
-                    "company": link.company_id,
-                    "company_name": link.company.name if link.company else "",
                     "tenant_name": link.tenant.name,
                     "paid_filter": link.paid_filter,
                 },
@@ -470,7 +452,6 @@ class InvestmentFormConfigView(APIView):
         all_values = self._all_return_type_values()
         if not cfg:
             return {
-                "uses_companies": True,
                 "allowed_return_types": all_values,
                 "return_type_choices": choices_payload,
             }
@@ -478,7 +459,6 @@ class InvestmentFormConfigView(APIView):
         if not allowed:
             allowed = all_values
         return {
-            "uses_companies": cfg.uses_companies,
             "allowed_return_types": allowed,
             "return_type_choices": choices_payload,
         }
@@ -495,7 +475,6 @@ class InvestmentFormConfigView(APIView):
         InvestmentFormConfig.objects.update_or_create(
             tenant=request.tenant,
             defaults={
-                "uses_companies": payload["uses_companies"],
                 "allowed_return_types": list(payload["allowed_return_types"]),
             },
         )
@@ -654,7 +633,7 @@ class InvestPayoutScheduleCreateReturnView(APIView):
 
         schedule = (
             InvestPayoutSchedule.objects
-            .select_related("tenant", "company")
+            .select_related("tenant")
             .filter(pk=schedule_id, tenant=request.tenant)
             .first()
         )
@@ -725,7 +704,7 @@ class InvestPayoutScheduleLinkReturnsView(APIView):
 
         schedule = (
             InvestPayoutSchedule.objects
-            .select_related("tenant", "company")
+            .select_related("tenant")
             .filter(pk=schedule_id, tenant=request.tenant)
             .first()
         )

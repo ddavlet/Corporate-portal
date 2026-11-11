@@ -28,7 +28,6 @@ import {
   createReturnFromPayoutSchedule,
   deleteInvestPayoutScheduleShareLink,
   markPayoutScheduleAsPaid,
-  type InvestCompanyRow,
   type InvestPayoutScheduleRow,
   type InvestPayoutScheduleShareLinkRow,
 } from '../../lib/api'
@@ -38,28 +37,21 @@ import { AdminEditRecordButton } from '../admin/AdminEditRecordButton'
 import {
   asMoney,
   asNumber,
-  byCompany,
   CURRENCY_OPTIONS,
   dateText,
   generateSeriesDates,
   inDateRange,
   isoDate,
-  makeCompanySelectOptions,
   precisionFor,
   totalsByCurrency,
-  type CompanyFilter,
   type SchedulePaidFilter,
 } from './utils'
 
 type Props = {
   loading: boolean
   rows: InvestPayoutScheduleRow[]
-  companies: InvestCompanyRow[]
   shareLinks: InvestPayoutScheduleShareLinkRow[]
-  companyLabel: (id: number | null) => string
-  companyFilter: CompanyFilter
   paidFilter: SchedulePaidFilter
-  usesCompanies: boolean
   notifyDaysBefore: number | null
   onCreated: () => Promise<void> | void
   onShareLinkCreated: (link: InvestPayoutScheduleShareLinkRow) => void
@@ -79,7 +71,6 @@ const RECIPIENT_OPTIONS = [
 ]
 
 type SingleFormValues = {
-  company?: number | null
   payout_date: Dayjs
   amount: number
   currency: string
@@ -89,7 +80,6 @@ type SingleFormValues = {
 }
 
 type SeriesFormValues = {
-  company?: number | null
   start: Dayjs
   day: number
   count: number
@@ -103,12 +93,8 @@ type SeriesFormValues = {
 export function ScheduleTab({
   loading,
   rows,
-  companies,
   shareLinks,
-  companyLabel,
-  companyFilter,
   paidFilter,
-  usesCompanies,
   notifyDaysBefore,
   onCreated,
   onShareLinkCreated,
@@ -172,13 +158,13 @@ export function ScheduleTab({
   const watchedSeries = Form.useWatch([], seriesForm)
 
   const filtered = useMemo(() => {
-    let r = byCompany(rows, companyFilter)
+    let r = rows
     if (paidFilter === 'paid') r = r.filter((x) => x.is_paid)
     else if (paidFilter === 'unpaid') r = r.filter((x) => !x.is_paid)
     const from = dateRange?.[0]?.format('YYYY-MM-DD')
     const to = dateRange?.[1]?.format('YYYY-MM-DD')
     return inDateRange(r, 'payout_date', from, to)
-  }, [rows, companyFilter, paidFilter, dateRange])
+  }, [rows, paidFilter, dateRange])
 
   const totals = useMemo(() => totalsByCurrency(filtered, 'amount'), [filtered])
   const unpaidTotals = useMemo(
@@ -207,14 +193,6 @@ export function ScheduleTab({
   )
 
   const columns: ColumnsType<InvestPayoutScheduleRow> = useMemo(() => {
-    const companyCol = {
-      title: 'Компания',
-      dataIndex: 'company' as const,
-      width: 220,
-      render: (v: number | null) => companyLabel(v),
-      sorter: (a: InvestPayoutScheduleRow, b: InvestPayoutScheduleRow) =>
-        companyLabel(a.company).localeCompare(companyLabel(b.company)),
-    }
     return [
     { title: 'ID', dataIndex: 'id', width: 80, sorter: (a, b) => a.id - b.id },
     {
@@ -225,7 +203,6 @@ export function ScheduleTab({
       sorter: (a, b) => new Date(a.payout_date).getTime() - new Date(b.payout_date).getTime(),
       defaultSortOrder: 'ascend' as const,
     },
-    ...(usesCompanies ? [companyCol] : []),
     {
       title: 'Сумма',
       dataIndex: 'amount',
@@ -353,7 +330,7 @@ export function ScheduleTab({
       },
     },
     ]
-  }, [usesCompanies, companyLabel, notifyDaysBefore, today, rowActionId, onCreated])
+  }, [notifyDaysBefore, today, rowActionId, onCreated])
 
   const shareLinkRows = useMemo(
     () =>
@@ -367,9 +344,6 @@ export function ScheduleTab({
   const shareLinkColumns: ColumnsType<InvestPayoutScheduleShareLinkRow & { url: string }> = useMemo(() => {
     const base: ColumnsType<InvestPayoutScheduleShareLinkRow & { url: string }> = [
     { title: 'Создано', dataIndex: 'created_at', width: 170, render: (v: string) => dateText(v) },
-    ...(usesCompanies
-      ? [{ title: 'Компания', dataIndex: 'company' as const, width: 220, render: (v: number | null) => companyLabel(v) }]
-      : []),
     {
       title: 'Статус',
       dataIndex: 'paid_filter',
@@ -418,7 +392,7 @@ export function ScheduleTab({
     },
     ]
     return base
-  }, [usesCompanies, companyLabel])
+  }, [deletingShareLinkId, onShareLinkDeleted])
 
   const openSingle = () => {
     singleForm.resetFields()
@@ -442,7 +416,6 @@ export function ScheduleTab({
     setSingleSubmitting(true)
     try {
       await createInvestPayoutSchedule({
-        company: values.company ?? null,
         payout_date: values.payout_date.format('YYYY-MM-DD'),
         amount: String(values.amount),
         currency: values.currency,
@@ -478,7 +451,6 @@ export function ScheduleTab({
       const results = await Promise.allSettled(
         dates.map((d, i) =>
           createInvestPayoutSchedule({
-            company: values.company ?? null,
             payout_date: isoDate(d),
             amount: String(values.amount),
             currency: values.currency,
@@ -539,7 +511,7 @@ export function ScheduleTab({
                 {
                   label: 'Ближайшая выплата',
                   value: dateText(nextPayout.payout_date),
-                  hint: `${asMoney(nextPayout.amount)} ${nextPayout.currency} · ${companyLabel(nextPayout.company)}`,
+                  hint: `${asMoney(nextPayout.amount)} ${nextPayout.currency}`,
                 },
               ]
             : []),
@@ -551,15 +523,8 @@ export function ScheduleTab({
           loading={creatingShareLink}
           onClick={async () => {
             try {
-              if (companyFilter === 'none') {
-                message.error('Для фильтра "Без компании" внешняя ссылка пока не поддерживается')
-                return
-              }
               setCreatingShareLink(true)
-              const created = await createInvestPayoutScheduleShareLink({
-                company: companyFilter === 'all' ? null : companyFilter,
-                paid_filter: paidFilter,
-              })
+              const created = await createInvestPayoutScheduleShareLink({ paid_filter: paidFilter })
               const url = `${window.location.origin}/app/public/investments/schedule/${encodeURIComponent(created.token)}`
               onShareLinkCreated(created)
               await navigator.clipboard.writeText(url)
@@ -628,11 +593,6 @@ export function ScheduleTab({
         width={560}
       >
         <Form form={singleForm} layout="vertical" preserve={false}>
-          {usesCompanies ? (
-            <Form.Item label="Компания" name="company">
-              <Select allowClear options={makeCompanySelectOptions(companies)} placeholder="Без компании" />
-            </Form.Item>
-          ) : null}
           <Space style={{ width: '100%' }} align="start" wrap>
             <Form.Item
               label="Дата"
@@ -685,11 +645,6 @@ export function ScheduleTab({
             message="Сгенерируется N выплат подряд"
             description="Если выбран день 29–31, в коротких месяцах будет использован последний день месяца."
           />
-          {usesCompanies ? (
-            <Form.Item label="Компания" name="company">
-              <Select allowClear options={makeCompanySelectOptions(companies)} placeholder="Без компании" />
-            </Form.Item>
-          ) : null}
           <Space style={{ width: '100%' }} align="start" wrap>
             <Form.Item
               label="Старт (месяц)"

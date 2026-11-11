@@ -143,7 +143,6 @@ def collect_requests_into_investments(
     funding_method: str,
     request_ids: list[int],
     comment: str,
-    company,
 ) -> list[ProjectInvestment]:
     """Создаёт по вложению на каждую валюту выбранных заявок и запускает их согласование."""
     unique_ids = list(dict.fromkeys(int(i) for i in request_ids))
@@ -181,7 +180,6 @@ def collect_requests_into_investments(
                 currency=currency,
                 funding_method=funding_method,
                 comment=comment_text or build_default_comment(group),
-                company=company,
                 confirmed=False,
                 created_by=user,
             )

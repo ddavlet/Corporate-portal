@@ -7,17 +7,12 @@ import { TgInvestmentsProjectsPage } from './TgInvestmentsProjectsPage'
 
 const getFundingPoolMock = vi.fn()
 const createFromRequestsMock = vi.fn()
-const getFormConfigMock = vi.fn()
-const getCompaniesMock = vi.fn()
 const getProjectInvestmentsMock = vi.fn()
 const getFundingConfigMock = vi.fn()
 
 vi.mock('../../lib/api', () => ({
-  DEFAULT_INVESTMENT_FORM_CONFIG: { uses_companies: false },
   getFundingPool: (...a: unknown[]) => getFundingPoolMock(...a),
   createInvestmentsFromRequests: (...a: unknown[]) => createFromRequestsMock(...a),
-  getInvestmentFormConfig: (...a: unknown[]) => getFormConfigMock(...a),
-  getInvestCompanies: (...a: unknown[]) => getCompaniesMock(...a),
   getProjectInvestments: (...a: unknown[]) => getProjectInvestmentsMock(...a),
   getInvestmentFundingConfig: (...a: unknown[]) => getFundingConfigMock(...a),
 }))
@@ -72,8 +67,6 @@ describe('TgInvestmentsCollectPage', () => {
     vi.clearAllMocks()
     mainButtonHandler = null
     window.Telegram = { WebApp: { MainButton: mainButtonMock } } as unknown as typeof window.Telegram
-    getFormConfigMock.mockResolvedValue({ uses_companies: false })
-    getCompaniesMock.mockResolvedValue([])
     getProjectInvestmentsMock.mockResolvedValue([])
     getFundingConfigMock.mockResolvedValue({ is_enabled: true })
   })
@@ -93,6 +86,8 @@ describe('TgInvestmentsCollectPage', () => {
 
     expect(await screen.findByLabelText('Заявка №11')).toBeTruthy()
     expect(screen.getByText(/\(2 заявки\)/)).toBeTruthy()
+    // Компаний внутри тенанта больше нет: выбирать компанию не нужно.
+    expect(screen.queryByText('Компания')).toBeNull()
 
     fireEvent.click(screen.getByLabelText('Заявка №12'))
     await waitFor(() => expect(screen.getByText(/\(1 заявка\)/)).toBeTruthy())
@@ -132,8 +127,6 @@ describe('TgInvestmentsCollectPage', () => {
 describe('TgInvestmentsProjectsPage in investment funding mode', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    getFormConfigMock.mockResolvedValue({ uses_companies: false })
-    getCompaniesMock.mockResolvedValue([])
     getProjectInvestmentsMock.mockResolvedValue([])
     getFundingPoolMock.mockReturnValue(new Promise(() => {}))
   })

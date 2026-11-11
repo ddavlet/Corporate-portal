@@ -21,6 +21,7 @@ class InvestReturn(models.Model):
         PARTNER = "партнер", "Партнер"
 
     tenant = models.ForeignKey(Tenant, on_delete=models.CASCADE, related_name="invest_returns", db_index=False)
+    # DEPRECATED: удаляется на этапе 2 (компании внутри тенанта больше не используются).
     company = models.ForeignKey(
         "InvestCompany",
         on_delete=models.SET_NULL,
@@ -72,6 +73,7 @@ class InvestPayoutSchedule(models.Model):
     """Planned investment payouts: due date, amounts, and payment status."""
 
     tenant = models.ForeignKey(Tenant, on_delete=models.CASCADE, related_name="invest_payout_schedules", db_index=False)
+    # DEPRECATED: удаляется на этапе 2 (компании внутри тенанта больше не используются).
     company = models.ForeignKey(
         "InvestCompany",
         on_delete=models.SET_NULL,
@@ -142,6 +144,7 @@ class ProjectInvestment(models.Model):
         BANK_TRANSFER = "bank_transfer", "Переводом на счёт"
 
     tenant = models.ForeignKey(Tenant, on_delete=models.CASCADE, related_name="project_investments", db_index=False)
+    # DEPRECATED: удаляется на этапе 2 (компании внутри тенанта больше не используются).
     company = models.ForeignKey(
         "InvestCompany",
         on_delete=models.SET_NULL,
@@ -202,6 +205,7 @@ class ProjectInvestmentRequestLink(models.Model):
         ]
 
 
+# DEPRECATED: удаляется на этапе 2 вместе с таблицей invest_companies.
 class InvestCompany(models.Model):
     """Company/legal entity dimension for investments inside one tenant."""
 
@@ -234,6 +238,7 @@ class InvestPayoutScheduleShareLink(models.Model):
 
     tenant = models.ForeignKey(Tenant, on_delete=models.CASCADE, related_name="invest_schedule_share_links", db_index=False)
     token = models.CharField(max_length=64, unique=True, db_index=True)
+    # DEPRECATED: удаляется на этапе 2 (компании внутри тенанта больше не используются).
     company = models.ForeignKey(
         "InvestCompany",
         on_delete=models.SET_NULL,
@@ -255,6 +260,7 @@ class InvestPayoutScheduleShareLink(models.Model):
         ordering = ["-created_at", "-id"]
         indexes = [
             models.Index(fields=["tenant", "is_active"], name="invslink_tenant_active_idx"),
+            # DEPRECATED: удаляется на этапе 2.
             models.Index(fields=["tenant", "company"], name="invslink_tenant_comp_idx"),
         ]
 
@@ -268,6 +274,7 @@ class InvestmentFormConfig(models.Model):
     """Per-tenant UI/create rules for investments (payout types whitelist, companies on/off)."""
 
     tenant = models.OneToOneField(Tenant, on_delete=models.CASCADE, related_name="investment_form_config")
+    # DEPRECATED: удаляется на этапе 2; код флаг не читает.
     uses_companies = models.BooleanField(default=True)
     allowed_return_types = models.JSONField(default=list, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)

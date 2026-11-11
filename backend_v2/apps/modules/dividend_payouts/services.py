@@ -116,7 +116,7 @@ def create_invest_return_for_request(*, request_obj, rule: DividendPayoutRule) -
         "recipient": rule.recipient,
         "comment": payout_comment(request_obj),
     }
-    # The serializer reads tenant (type whitelist, companies) and method/path (client pk guard) from the request.
+    # The serializer reads tenant (type whitelist) and method/path (client pk guard) from the request.
     fake_request = SimpleNamespace(tenant=tenant, user=system_user, method="POST", path="/internal/dividend-payouts/")
     ser = InvestReturnSerializer(data=payload, context={"request": fake_request})
     ser.is_valid(raise_exception=True)

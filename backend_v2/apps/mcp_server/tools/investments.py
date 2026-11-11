@@ -13,42 +13,6 @@ MODULE = "investments"
 _MAX_LIMIT = 200
 
 
-def list_invest_companies(
-    tenant_id: int,
-    *,
-    is_active: bool | None = None,
-    name_search: str = "",
-    limit: int = 100,
-) -> list[dict[str, Any]]:
-    """List investment companies (юрлица / проекты) for a tenant.
-
-    Companies group returns, project investments, and payout schedules.
-    Only meaningful when the tenant uses companies in investment settings
-    (see get_investment_form_config). Filter by name to resolve company_id
-    for other investment tools.
-
-    Required roles: admin, director, investor (module: investments).
-    """
-    _, tenant = require_module_access(tenant_id, MODULE)
-
-    from apps.modules.investments.models import InvestCompany
-
-    qs = InvestCompany.objects.filter(tenant=tenant)
-    if is_active is not None:
-        qs = qs.filter(is_active=is_active)
-    if name_search:
-        qs = qs.filter(name__icontains=name_search.strip())
-
-    limit = min(max(1, int(limit)), _MAX_LIMIT)
-    return json_safe(
-        list(
-            qs.order_by("name", "id")[:limit].values(
-                "id", "name", "comment", "is_active", "created_at", "last_edit_at"
-            )
-        )
-    )
-
-
 def list_invest_returns(
     tenant_id: int,
     *,
@@ -56,7 +20,6 @@ def list_invest_returns(
     date_to: str = "",
     return_type: str = "",
     recipient: str = "",
-    company_id: int = 0,
     confirmed: bool | None = None,
     limit: int = 50,
 ) -> list[dict[str, Any]]:
@@ -70,7 +33,7 @@ def list_invest_returns(
     recipient: инвестор | партнер
 
     Optional filters: date_from, date_to (YYYY-MM-DD), return_type, recipient,
-    company_id (0 = all), confirmed (true/false), limit (max 200).
+    confirmed (true/false), limit (max 200).
 
     Roles: admin, director, investor.
     """
@@ -81,7 +44,7 @@ def list_invest_returns(
 
     from apps.modules.investments.models import InvestReturn
 
-    qs = InvestReturn.objects.filter(tenant=tenant).select_related("company")
+    qs = InvestReturn.objects.filter(tenant=tenant)
     if date_from:
         qs = qs.filter(date__gte=date_from)
     if date_to:
@@ -90,8 +53,6 @@ def list_invest_returns(
         qs = qs.filter(type=return_type.strip())
     if recipient:
         qs = qs.filter(recipient=recipient.strip())
-    if company_id:
-        qs = qs.filter(company_id=company_id)
     if confirmed is not None:
         qs = qs.filter(confirmed=confirmed)
 
@@ -106,8 +67,6 @@ def list_invest_returns(
         rows.append(
             {
                 "id": r.id,
-                "company_id": r.company_id,
-                "company_name": r.company.name if r.company else None,
                 "date": r.date.isoformat(),
                 "billing_date": r.billing_date.isoformat(),
                 "sum": str(r.sum),
@@ -129,16 +88,15 @@ def list_project_investments(
     *,
     date_from: str = "",
     date_to: str = "",
-    company_id: int = 0,
     confirmed: bool | None = None,
     limit: int = 50,
 ) -> list[dict[str, Any]]:
     """List capital investments into projects (вложения в проекты).
 
   Unlike invest_returns (money out to investors), these are inbound /
-  registered capital amounts tied to a company/project dimension.
+  registered capital amounts of the tenant.
 
-  Filters: date_from, date_to (YYYY-MM-DD), company_id, confirmed.
+  Filters: date_from, date_to (YYYY-MM-DD), confirmed.
   Required roles: admin, director, investor.
     """
     _, tenant = require_module_access(tenant_id, MODULE)
@@ -148,13 +106,11 @@ def list_project_investments(
 
     from apps.modules.investments.models import ProjectInvestment
 
-    qs = ProjectInvestment.objects.filter(tenant=tenant).select_related("company")
+    qs = ProjectInvestment.objects.filter(tenant=tenant)
     if date_from:
         qs = qs.filter(date__gte=date_from)
     if date_to:
         qs = qs.filter(date__lte=date_to)
-    if company_id:
-        qs = qs.filter(company_id=company_id)
     if confirmed is not None:
         qs = qs.filter(confirmed=confirmed)
 
@@ -164,8 +120,6 @@ def list_project_investments(
         rows.append(
             {
                 "id": r.id,
-                "company_id": r.company_id,
-                "company_name": r.company.name if r.company else None,
                 "date": r.date.isoformat(),
                 "amount": str(r.amount),
                 "currency": r.currency,
@@ -182,7 +136,6 @@ def list_invest_payout_schedule(
     *,
     date_from: str = "",
     date_to: str = "",
-    company_id: int = 0,
     is_paid: bool | None = None,
     limit: int = 50,
 ) -> list[dict[str, Any]]:
@@ -192,7 +145,7 @@ def list_invest_payout_schedule(
   whether it was paid, and how much was actually paid (payment_amount).
   Use with list_invest_returns to compare plan vs fact.
 
-  Filters: date_from / date_to on payout_date, company_id, is_paid.
+  Filters: date_from / date_to on payout_date, is_paid.
   Required roles: admin, director, investor.
     """
     _, tenant = require_module_access(tenant_id, MODULE)
@@ -202,13 +155,11 @@ def list_invest_payout_schedule(
 
     from apps.modules.investments.models import InvestPayoutSchedule
 
-    qs = InvestPayoutSchedule.objects.filter(tenant=tenant).select_related("company")
+    qs = InvestPayoutSchedule.objects.filter(tenant=tenant)
     if date_from:
         qs = qs.filter(payout_date__gte=date_from)
     if date_to:
         qs = qs.filter(payout_date__lte=date_to)
-    if company_id:
-        qs = qs.filter(company_id=company_id)
     if is_paid is not None:
         qs = qs.filter(is_paid=is_paid)
 
@@ -218,8 +169,6 @@ def list_invest_payout_schedule(
         rows.append(
             {
                 "id": r.id,
-                "company_id": r.company_id,
-                "company_name": r.company.name if r.company else None,
                 "payout_date": r.payout_date.isoformat(),
                 "amount": str(r.amount),
                 "currency": r.currency,
@@ -233,10 +182,10 @@ def list_invest_payout_schedule(
 
 
 def get_investment_form_config(tenant_id: int) -> dict[str, Any]:
-    """Return per-tenant investment UI rules (companies on/off, allowed return types).
+    """Return per-tenant investment UI rules (allowed return types).
 
-  Call before other investment tools to see whether company_id filters apply
-  and which return_type strings are valid for this tenant.
+  Call before other investment tools to see which return_type strings are
+  valid for this tenant.
 
   Required roles: admin, director, investor.
     """
@@ -251,7 +200,6 @@ def get_investment_form_config(tenant_id: int) -> dict[str, Any]:
             {
                 "tenant_id": tenant.id,
                 "configured": False,
-                "uses_companies": True,
                 "allowed_return_types": [],
             }
         )
@@ -260,7 +208,6 @@ def get_investment_form_config(tenant_id: int) -> dict[str, Any]:
         {
             "tenant_id": tenant.id,
             "configured": True,
-            "uses_companies": cfg.uses_companies,
             "allowed_return_types": list(cfg.allowed_return_types or []),
         }
     )

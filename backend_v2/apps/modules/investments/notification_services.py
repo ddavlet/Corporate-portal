@@ -174,10 +174,7 @@ def _payment_progress_lines(schedule) -> list[str]:
 
 
 def _build_payout_notification_text(schedule) -> str:
-    company_name = escape(schedule.company.name) if schedule.company else ""
     parts = ["<b>Напоминание о выплате по инвестициям</b>"]
-    if company_name:
-        parts.append(f"Компания: {company_name}")
     parts.append(f"Дата: {schedule.payout_date.strftime('%d.%m.%Y')}")
     parts.append(f"Сумма: {schedule.amount:,.2f} {escape(schedule.currency)}")
     parts.extend(_payment_progress_lines(schedule))
@@ -187,10 +184,7 @@ def _build_payout_notification_text(schedule) -> str:
 
 
 def _build_overdue_notification_text(schedule, days_overdue: int) -> str:
-    company_name = escape(schedule.company.name) if schedule.company else ""
     parts = ["⚠️ <b>Просроченная выплата по инвестициям</b>"]
-    if company_name:
-        parts.append(f"Компания: {company_name}")
     parts.append(f"Срок оплаты: {schedule.payout_date.strftime('%d.%m.%Y')}")
     parts.append(f"Просрочка: {days_overdue} дн.")
     parts.append(f"Сумма: {schedule.amount:,.2f} {escape(schedule.currency)}")
@@ -335,7 +329,7 @@ def process_due_invest_payout_notifications(*, now_dt: dt.datetime | None = None
         upcoming = outstanding.filter(
             payout_date__lte=threshold_date,
             payout_date__gte=today,
-        ).select_related("company")
+        )
         for schedule in filter(_has_outstanding_remainder, upcoming):
             if _try_send(schedule=schedule, config=config, text=_build_payout_notification_text(schedule)):
                 sent += 1
@@ -344,7 +338,7 @@ def process_due_invest_payout_notifications(*, now_dt: dt.datetime | None = None
         if config.overdue_notify_every_days > 0:
             overdue = outstanding.filter(
                 payout_date__lt=today,
-            ).select_related("company")
+            )
             for schedule in filter(_has_outstanding_remainder, overdue):
                 days_overdue = (today - schedule.payout_date).days
                 if days_overdue % config.overdue_notify_every_days != 0:
@@ -382,7 +376,7 @@ def create_return_for_schedule(*, schedule, created_by, amount=None) -> tuple[ob
     locked = (
         InvestPayoutSchedule.objects
         .select_for_update(of=("self",))
-        .select_related("tenant", "company")
+        .select_related("tenant")
         .get(pk=schedule.pk)
     )
     if locked.is_paid:
@@ -415,7 +409,6 @@ def create_return_for_schedule(*, schedule, created_by, amount=None) -> tuple[ob
     billing_date = locked.payout_date.replace(day=1)
     invest_return = InvestReturn.objects.create(
         tenant=locked.tenant,
-        company=locked.company,
         payout_schedule=locked,
         date=locked.payout_date,
         billing_date=billing_date,
@@ -444,7 +437,7 @@ def link_returns_to_schedule(*, schedule, return_ids: list[int]) -> list:
     The caller MUST wrap this in ``transaction.atomic()``. The schedule is re-fetched with
     ``SELECT FOR UPDATE OF self`` (same lock as ``create_return_for_schedule``) so this can't
     race a concurrent one-tap payout creation. Every requested id must exist, belong to the
-    same tenant and company as the schedule, and not already be linked elsewhere — otherwise
+    same tenant as the schedule, and not already be linked elsewhere — otherwise
     the whole call is rejected with a ``ValidationError`` naming the offending ids, so nothing
     is partially linked.
 
@@ -455,7 +448,7 @@ def link_returns_to_schedule(*, schedule, return_ids: list[int]) -> list:
     locked = (
         InvestPayoutSchedule.objects
         .select_for_update(of=("self",))
-        .select_related("tenant", "company")
+        .select_related("tenant")
         .get(pk=schedule.pk)
     )
 
@@ -476,12 +469,6 @@ def link_returns_to_schedule(*, schedule, return_ids: list[int]) -> list:
     already_linked = [r.pk for r in candidates if r.payout_schedule_id is not None]
     if already_linked:
         raise ValidationError({"return_ids": f"Выплаты уже привязаны к расписанию: {already_linked}"})
-
-    mismatched_company = [r.pk for r in candidates if r.company_id != locked.company_id]
-    if mismatched_company:
-        raise ValidationError(
-            {"return_ids": f"Выплаты относятся к другой компании: {mismatched_company}"}
-        )
 
     InvestReturn.objects.filter(pk__in=found_ids).update(
         payout_schedule=locked, last_edit_at=timezone.now()

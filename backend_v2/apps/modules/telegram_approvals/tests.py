@@ -5,7 +5,9 @@ from unittest.mock import patch
 
 from django.core.management import call_command
 from django.contrib.auth import get_user_model
+from django.db import connection
 from django.test import override_settings
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 from rest_framework.exceptions import ValidationError
 from rest_framework.test import APITestCase
@@ -1366,13 +1368,8 @@ class MessagingGatewayAuxiliaryCallbackTests(APITestCase):
         return_value=True,
     )
     def test_invest_pay_callback_creates_return_for_schedule(self, _cleanup_mock):
-        from apps.modules.investments.models import InvestCompany, InvestReturn
+        from apps.modules.investments.models import InvestReturn
 
-        company = InvestCompany.objects.create(
-            tenant=self.tenant,
-            name="Aux invest co",
-            created_by=self.responsible,
-        )
         self._InvestNotificationConfig.objects.create(
             tenant=self.tenant,
             responsible_user=self.responsible,
@@ -1381,7 +1378,6 @@ class MessagingGatewayAuxiliaryCallbackTests(APITestCase):
         )
         schedule = self._InvestPayoutSchedule.objects.create(
             tenant=self.tenant,
-            company=company,
             payout_date=date(2026, 6, 15),
             amount=self._Decimal("1000.00"),
             currency="USD",
@@ -1389,17 +1385,23 @@ class MessagingGatewayAuxiliaryCallbackTests(APITestCase):
             recipient=InvestReturn.Recipient.INVESTOR,
             created_by=self.responsible,
         )
-        res = self._webhook(
-            {
-                "payload": f"invest_pay:{schedule.pk}",
-                "user_id": str(self.responsible.telegram_chat_id),
-                "recipient_id": str(self.responsible.telegram_chat_id),
-                "message_id": 12001,
-            }
-        )
+        with CaptureQueriesContext(connection) as queries:
+            res = self._webhook(
+                {
+                    "payload": f"invest_pay:{schedule.pk}",
+                    "user_id": str(self.responsible.telegram_chat_id),
+                    "recipient_id": str(self.responsible.telegram_chat_id),
+                    "message_id": 12001,
+                }
+            )
         self.assertEqual(res.status_code, 201, res.content)
+        # The company FK is dropped at stage 2: the callback must not join invest_companies.
+        self.assertFalse(
+            [q["sql"] for q in queries.captured_queries if "invest_companies" in q["sql"]]
+        )
         schedule.refresh_from_db()
         self.assertIsNotNone(schedule.created_return_id)
+        self.assertIsNone(schedule.created_return.company_id)
         self.assertIn("создана", res.data.get("detail", "").lower())
 
 

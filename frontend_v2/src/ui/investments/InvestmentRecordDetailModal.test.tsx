@@ -18,7 +18,6 @@ vi.mock('../../lib/api', () => ({
 
 const projectRecord = {
   id: 77,
-  company: null,
   date: '2026-04-15',
   amount: '1000',
   currency: 'USD',
@@ -49,8 +48,6 @@ function renderModal(kind: 'project' | 'return' = 'project') {
         onCancel={() => {}}
         kind={kind}
         record={projectRecord as never}
-        companyLabel={() => '—'}
-        usesCompanies={false}
       />
     </MemoryRouter>,
   )

@@ -1,6 +1,3 @@
-import type { InvestCompanyRow } from '../../lib/api'
-
-export type CompanyFilter = 'all' | 'none' | number
 export type SchedulePaidFilter = 'all' | 'paid' | 'unpaid'
 
 const moneyFmt = new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 2 })
@@ -26,12 +23,6 @@ export function dateText(value: string): string {
   }).format(d)
 }
 
-export function byCompany<T extends { company: number | null }>(rows: T[], filter: CompanyFilter): T[] {
-  if (filter === 'all') return rows
-  if (filter === 'none') return rows.filter((r) => r.company == null)
-  return rows.filter((r) => r.company === filter)
-}
-
 export function inDateRange<T>(rows: T[], dateField: keyof T, from?: string, to?: string): T[] {
   if (!from && !to) return rows
   return rows.filter((r) => {
@@ -42,29 +33,6 @@ export function inDateRange<T>(rows: T[], dateField: keyof T, from?: string, to?
     if (to && v > to) return false
     return true
   })
-}
-
-export function buildCompanyMap(companies: InvestCompanyRow[]): Map<number, string> {
-  return new Map(companies.map((c) => [c.id, c.name]))
-}
-
-export function makeCompanyLabel(map: Map<number, string>) {
-  return (id: number | null): string => {
-    if (id == null) return 'Без компании'
-    return map.get(id) || `#${id}`
-  }
-}
-
-export function makeCompanyOptions(companies: InvestCompanyRow[]) {
-  return [
-    { label: 'Все компании', value: 'all' as const },
-    { label: 'Без компании', value: 'none' as const },
-    ...companies.map((c) => ({ label: c.name, value: c.id })),
-  ]
-}
-
-export function makeCompanySelectOptions(companies: InvestCompanyRow[]) {
-  return companies.map((c) => ({ value: c.id, label: c.name }))
 }
 
 export type CurrencyTotal = { currency: string; total: number }

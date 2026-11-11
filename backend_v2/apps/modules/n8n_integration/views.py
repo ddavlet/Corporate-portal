@@ -27,7 +27,6 @@ from apps.modules.investments.approval_services import (
 )
 from apps.modules.investments.models import (
     CbuExchangeRate,
-    InvestCompany,
     InvestPayoutSchedule,
     InvestReturn,
     ProjectInvestment,
@@ -55,7 +54,6 @@ from apps.modules.n8n_integration.serializers import (
     N8nClientDebtImportSerializer,
     N8nCashExpenseImportSerializer,
     N8nCashRevenueImportSerializer,
-    N8nInvestCompanyImportSerializer,
     N8nNoteImportSerializer,
     N8nPayrollLineImportSerializer,
     N8nInvestPayoutScheduleImportSerializer,
@@ -1625,10 +1623,12 @@ class N8nInvestReturnBatchUpsertView(_N8nBatchBaseView):
                 "type",
                 "recipient",
                 "confirmed",
-                "company_id",
                 "comment",
             )
         )
+        # DEPRECATED: company_id kept as null until n8n workflows stop reading it.
+        for row in rows:
+            row["company_id"] = None
         return Response(rows)
 
 
@@ -1699,10 +1699,12 @@ class N8nProjectInvestmentBatchUpsertView(_N8nBatchBaseView):
                 "amount",
                 "currency",
                 "confirmed",
-                "company_id",
                 "comment",
             )
         )
+        # DEPRECATED: company_id kept as null until n8n workflows stop reading it.
+        for row in rows:
+            row["company_id"] = None
         return Response(rows)
 
 
@@ -1751,33 +1753,6 @@ class N8nExchangeRateListView(_N8nBaseView):
 
         rows = list(qs.order_by("-date").values("date", "usd_uzs_rate", "updated_at"))
         return Response(rows)
-
-
-class N8nInvestCompanyUpsertView(_N8nBaseView):
-    def post(self, request):
-        tenant = request.tenant
-
-        def get_instance(pk):
-            return InvestCompany.objects.filter(pk=pk, tenant=tenant).first()
-
-        def other_tenant_conflict(pk):
-            o = InvestCompany.objects.filter(pk=pk).first()
-            return o is not None and o.tenant_id != tenant.id
-
-        def build_create_kwargs(req, su):
-            return {"tenant": req.tenant, "created_by": su}
-
-        return _n8n_upsert(
-            request,
-            serializer_class=N8nInvestCompanyImportSerializer,
-            get_instance=get_instance,
-            other_tenant_conflict=other_tenant_conflict,
-            build_create_kwargs=build_create_kwargs,
-        )
-
-
-class N8nInvestCompanyBatchUpsertView(_N8nBatchBaseView):
-    single_view_class = N8nInvestCompanyUpsertView
 
 
 class N8nVendorListView(APIView):

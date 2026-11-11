@@ -27,7 +27,7 @@ export function LinkReturnsModal({ open, schedule, onCancel, onLinked }: Props) 
     if (!open || !schedule) return
     setSelectedIds([])
     setLoading(true)
-    getUnlinkedInvestReturns(schedule.company)
+    getUnlinkedInvestReturns()
       .then(setRows)
       .catch((e: unknown) => message.error(e instanceof Error ? e.message : 'Не удалось загрузить выплаты'))
       .finally(() => setLoading(false))
@@ -85,7 +85,7 @@ export function LinkReturnsModal({ open, schedule, onCancel, onLinked }: Props) 
             onChange: (keys) => setSelectedIds(keys as number[]),
           }}
           locale={{
-            emptyText: <Empty description="Непривязанных выплат этой компании нет" image={Empty.PRESENTED_IMAGE_SIMPLE} />,
+            emptyText: <Empty description="Непривязанных выплат нет" image={Empty.PRESENTED_IMAGE_SIMPLE} />,
           }}
         />
       )}
