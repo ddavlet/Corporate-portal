@@ -6,6 +6,7 @@ import { RightOutlined } from '@ant-design/icons'
 import { actionItemTag, type ActionItem, type ActionItemKind } from '../lib/actionItemsApi'
 import { formatRequestDate } from '../lib/requestUtils'
 import { useActionItems } from '../lib/useActionItems'
+import { useCompany } from './company'
 
 const KIND_LABELS: Record<ActionItemKind, string> = {
   request: 'Заявка',
@@ -66,6 +67,11 @@ function ActionItemRow({ item }: { item: ActionItem }) {
             <Tag style={{ marginInlineEnd: 0, ...kindTagStyle(item.kind, token) }}>
               {KIND_LABELS[item.kind] ?? item.kind}
             </Tag>
+            {item.tenant ? (
+              <Tag style={{ marginInlineEnd: 0, whiteSpace: 'normal', overflowWrap: 'anywhere' }}>
+                {item.tenant.name || item.tenant.subdomain}
+              </Tag>
+            ) : null}
             {item.type_label ? <MutedText>{item.type_label}</MutedText> : null}
           </Space>
           <Typography.Text strong style={{ overflowWrap: 'anywhere' }}>
@@ -88,6 +94,7 @@ function ActionItemRow({ item }: { item: ActionItem }) {
 
 export function NotificationsPage() {
   const { items, count, loading, error, refresh } = useActionItems()
+  const { enabled: allCompanies } = useCompany()
   const [retrying, setRetrying] = useState(false)
 
   const retry = async () => {
@@ -107,7 +114,11 @@ export function NotificationsPage() {
             Уведомления
           </Typography.Title>
           <MutedText>
-            {count > 0 ? `Требуется ваше действие: ${count}` : 'Заявки и инвестиции, где сейчас ваш шаг согласования'}
+            {count > 0
+              ? `Требуется ваше действие: ${count}`
+              : allCompanies
+                ? 'Заявки и инвестиции во всех ваших компаниях, где сейчас ваш шаг согласования'
+                : 'Заявки и инвестиции, где сейчас ваш шаг согласования'}
           </MutedText>
         </div>
 

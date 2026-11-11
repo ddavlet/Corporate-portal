@@ -29,6 +29,8 @@ import { useModuleAccess } from './moduleAccess'
 import { getSettingsAccess } from '../lib/api'
 import { useActionItems } from '../lib/useActionItems'
 import { NotificationsBellWidget } from './NotificationsBellWidget'
+import { CompanySwitcherWidget } from './CompanySwitcherWidget'
+import { useCompany } from './company'
 
 type ShellMenuRoute = {
   path: string
@@ -49,6 +51,9 @@ export function AppShell() {
   const [canOpenAdmin, setCanOpenAdmin] = useState(false)
   const [tenantName, setTenantName] = useState<string>('')
   const { count: actionItemsCount } = useActionItems()
+  const { enabled: companySwitcher, currentCompany } = useCompany()
+  // A phone header has no room for the company switcher next to text buttons: profile and logout become icons.
+  const iconOnlyButtons = isMobile && companySwitcher
 
   useEffect(() => {
     let cancelled = false
@@ -104,7 +109,8 @@ export function AppShell() {
     },
   ]
 
-  const appTitle = tenantName || 'Portal'
+  // Shared app host: the switcher's company name shows at once, before /api/settings-access/ answers.
+  const appTitle = tenantName || currentCompany?.name || 'Portal'
 
   useEffect(() => {
     document.title = appTitle
@@ -136,6 +142,7 @@ export function AppShell() {
       )}
       rightContentRender={() => (
         <Space size="middle" style={{ flexWrap: 'nowrap', alignItems: 'center' }}>
+          <CompanySwitcherWidget compact={isMobile} />
           {!isMobile && username ? (
             <Typography.Text type="secondary" ellipsis style={{ maxWidth: 120, flexShrink: 1 }}>
               {username}
@@ -143,16 +150,19 @@ export function AppShell() {
           ) : null}
           <NotificationsBellWidget count={actionItemsCount} onClick={() => navigate('/notifications')} />
           <Dropdown menu={{ items: profileMenu }} trigger={['click']}>
-            <Button icon={<UserOutlined />}>Профиль</Button>
+            <Button icon={<UserOutlined />} aria-label={iconOnlyButtons ? 'Профиль' : undefined}>
+              {iconOnlyButtons ? null : 'Профиль'}
+            </Button>
           </Dropdown>
           <Button
             icon={<LogoutOutlined />}
+            aria-label={iconOnlyButtons ? 'Выйти' : undefined}
             onClick={() => {
               logout()
               navigate('/login', { replace: true })
             }}
           >
-            Выйти
+            {iconOnlyButtons ? null : 'Выйти'}
           </Button>
         </Space>
       )}

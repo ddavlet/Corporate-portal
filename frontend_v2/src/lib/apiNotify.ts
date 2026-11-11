@@ -22,6 +22,10 @@ export function notifyApiSuccess(text: string, duration = 3): void {
   getMessageApi().success(text, duration)
 }
 
+export function notifyInfo(text: string, duration = 4): void {
+  getMessageApi().info(text, duration)
+}
+
 export function notifyNetworkError(): void {
   notifyApiError(NETWORK_ERROR)
 }

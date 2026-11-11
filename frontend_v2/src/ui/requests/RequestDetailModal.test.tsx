@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { RequestDetailContent } from './RequestDetailModal'
 import type { RequestDetail } from './RequestDetailModal'
 
@@ -14,10 +14,14 @@ import type { RequestDetail } from './RequestDetailModal'
 
 const apiFetchMock = vi.fn()
 
-vi.mock('../../lib/api', () => ({
+vi.mock('../../lib/api', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../lib/api')>()),
   apiFetch: (...args: unknown[]) => apiFetchMock(...args),
   resendApprovalCard: vi.fn(),
 }))
+
+const portalState = vi.hoisted(() => ({ shared: false }))
+vi.mock('../../lib/portalMode', () => ({ isSharedAppMode: () => portalState.shared }))
 
 const requestDetail: RequestDetail = {
   id: 8234,
@@ -107,5 +111,55 @@ describe('RequestDetailContent amortization schedule', () => {
     )
     expect(screen.getByText(/^#2:/).closest('[aria-current="true"]')).not.toBeNull()
     expect(screen.getByText(/^#1:/).closest('[aria-current="true"]')).toBeNull()
+  })
+})
+
+// Shared app host: file links are absolute same-origin URLs from the server. They must go through apiFetch, which adds
+// the token and the company (X-Tenant); a plain href would reach the server without both and get 401/403.
+describe('RequestDetailContent attachment download on the shared app host', () => {
+  const fileUrl = `${window.location.origin}/api/files/download/?path=x`
+  const sharedDetail: RequestDetail = {
+    ...requestDetail,
+    file_link: fileUrl,
+    attachments: [{ id: 1, name: 'счёт.pdf', content_type: 'application/pdf', size_bytes: 10, url: fileUrl }],
+  }
+
+  beforeEach(async () => {
+    const actual = await vi.importActual<typeof import('../../lib/api')>('../../lib/api')
+    apiFetchMock.mockReset()
+    apiFetchMock.mockImplementation(actual.apiFetch)
+    portalState.shared = true
+    localStorage.setItem('kolberg_v2_tokens', JSON.stringify({ access: 'acc', refresh: 'ref', username: 'ivan' }))
+    sessionStorage.setItem('kolberg_v2_company', 'acme')
+    vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:mock')
+    vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => undefined)
+    vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => undefined)
+  })
+
+  afterEach(() => {
+    portalState.shared = false
+    localStorage.clear()
+    sessionStorage.clear()
+  })
+
+  it('fetches the file with X-Tenant and Authorization and puts no direct link to it in the page', async () => {
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(new Blob(['pdf']), { status: 200 }))
+
+    render(
+      <MemoryRouter>
+        <RequestDetailContent detail={sharedDetail} />
+      </MemoryRouter>,
+    )
+
+    expect(document.querySelector('a[href*="/api/files/"], img[src*="/api/files/"]')).toBeNull()
+
+    fireEvent.click(screen.getByRole('button', { name: /счёт\.pdf/ }))
+
+    await waitFor(() => expect(fetchSpy).toHaveBeenCalledTimes(1))
+    const [url, init] = fetchSpy.mock.calls[0] as [string, RequestInit]
+    expect(url).toBe(fileUrl)
+    const headers = new Headers(init.headers)
+    expect(headers.get('X-Tenant')).toBe('acme')
+    expect(headers.get('Authorization')).toBe('Bearer acc')
   })
 })

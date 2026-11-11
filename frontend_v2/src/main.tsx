@@ -17,23 +17,29 @@ dayjs.tz.setDefault('Asia/Tashkent')
 import { App } from './routes/App'
 import { AuthProvider } from './ui/auth'
 import { registerPortalServiceWorker } from './lib/pwa'
+import { initPortalMode } from './lib/portalMode'
 import 'antd/dist/reset.css'
 import './styles.css'
 
 void registerPortalServiceWorker()
 
-ReactDOM.createRoot(document.getElementById('root')!).render(
-  <React.StrictMode>
-    <ConfigProvider locale={ruRU}>
-      <AntdApp>
-        <AppMessageBridge />
-        <AuthProvider>
-          <BrowserRouter basename="/app">
-            <App />
-          </BrowserRouter>
-        </AuthProvider>
-      </AntdApp>
-    </ConfigProvider>
-  </React.StrictMode>,
-)
+function renderApp() {
+  ReactDOM.createRoot(document.getElementById('root')!).render(
+    <React.StrictMode>
+      <ConfigProvider locale={ruRU}>
+        <AntdApp>
+          <AppMessageBridge />
+          <AuthProvider>
+            <BrowserRouter basename="/app">
+              <App />
+            </BrowserRouter>
+          </AuthProvider>
+        </AntdApp>
+      </ConfigProvider>
+    </React.StrictMode>,
+  )
+}
+
+// Subdomain or shared app host: decided before the first render (cached; see lib/portalMode.ts).
+void initPortalMode().then(renderApp)
 

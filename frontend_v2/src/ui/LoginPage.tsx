@@ -4,6 +4,7 @@ import { Alert, Button, Card, Form, Input, Segmented, Space, Typography } from '
 import { LockOutlined, UserOutlined } from '@ant-design/icons'
 import { useAuth } from './auth'
 import { exchangeTelegramOidc, getTelegramOidcConfig } from '../lib/api'
+import { isSharedAppMode } from '../lib/portalMode'
 
 const OIDC_STATE_KEY = 'tg_oidc_state'
 const OIDC_VERIFIER_KEY = 'tg_oidc_code_verifier'
@@ -25,6 +26,8 @@ async function sha256base64url(input: string): Promise<string> {
 export function LoginPage() {
   const navigate = useNavigate()
   const { login } = useAuth()
+  // Shared app host: password and OTP only. Telegram OIDC is configured per company (subdomain), so it is hidden here.
+  const sharedHost = isSharedAppMode()
   const [mode, setMode] = useState<'password' | 'otp' | 'telegram'>('password')
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
@@ -107,6 +110,7 @@ export function LoginPage() {
   }
 
   useEffect(() => {
+    if (sharedHost) return
     const params = new URLSearchParams(window.location.search)
     const code = params.get('code')
     const state = params.get('state')
@@ -155,7 +159,7 @@ export function LoginPage() {
         setLoading(false)
       }
     })()
-  }, [login, navigate])
+  }, [login, navigate, sharedHost])
 
   async function startTelegramOidc() {
     setError(null)
@@ -189,6 +193,7 @@ export function LoginPage() {
   }
 
   useEffect(() => {
+    if (sharedHost) return
     let disposed = false
     void (async () => {
       try {
@@ -201,7 +206,7 @@ export function LoginPage() {
     return () => {
       disposed = true
     }
-  }, [])
+  }, [sharedHost])
 
   return (
     <div className="login-page">
@@ -210,16 +215,22 @@ export function LoginPage() {
           <Typography.Title level={3} style={{ margin: 0 }}>
             Вход в систему
           </Typography.Title>
-          <Typography.Text type="secondary">
-            Тенант определяется автоматически по текущему домену. Все запросы идут в <span className="mono">/api/*</span>.
-          </Typography.Text>
+          {sharedHost ? (
+            <Typography.Text type="secondary">
+              Один вход для всех ваших компаний. Компанию можно выбрать после входа.
+            </Typography.Text>
+          ) : (
+            <Typography.Text type="secondary">
+              Тенант определяется автоматически по текущему домену. Все запросы идут в <span className="mono">/api/*</span>.
+            </Typography.Text>
+          )}
           <Segmented
             block
             value={mode}
             options={[
               { label: 'Пароль', value: 'password' },
               { label: 'OTP в Telegram', value: 'otp' },
-              { label: 'Telegram OIDC', value: 'telegram' },
+              ...(sharedHost ? [] : [{ label: 'Telegram OIDC', value: 'telegram' }]),
             ]}
             onChange={(value) => {
               setMode(value as 'password' | 'otp' | 'telegram')

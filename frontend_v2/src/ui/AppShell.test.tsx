@@ -26,6 +26,19 @@ vi.mock('./auth', () => ({
   useAuth: () => ({ logout: vi.fn(), username: 'ivan' }),
 }))
 
+const SUBDOMAIN_COMPANY = {
+  enabled: false,
+  companies: [] as { subdomain: string; name: string; action_items_count: number }[],
+  current: null as string | null,
+  currentCompany: null as { subdomain: string; name: string; action_items_count: number } | null,
+  switchCompany: vi.fn(),
+}
+let companyValue = SUBDOMAIN_COMPANY
+
+vi.mock('./company', () => ({
+  useCompany: () => companyValue,
+}))
+
 vi.mock('./moduleAccess', () => ({
   useModuleAccess: () => ({ hasAccess: () => true }),
 }))
@@ -51,6 +64,7 @@ function badgeCounters(count: number) {
 describe('AppShell notifications badges', () => {
   beforeEach(() => {
     actionItemsCount = 0
+    companyValue = SUBDOMAIN_COMPANY
   })
 
   it('shows the count on the menu item and on the bell', async () => {
@@ -74,5 +88,32 @@ describe('AppShell notifications badges', () => {
     renderShell()
     await userEvent.click(await screen.findByRole('button', { name: 'Уведомления: требуется действие (2)' }))
     expect(await screen.findByText('Страница уведомлений')).toBeInTheDocument()
+  })
+})
+
+describe('AppShell company switcher', () => {
+  beforeEach(() => {
+    actionItemsCount = 0
+    companyValue = SUBDOMAIN_COMPANY
+  })
+
+  it('has no company switcher on a tenant subdomain', async () => {
+    renderShell()
+    expect(await screen.findByRole('button', { name: 'Уведомления' })).toBeInTheDocument()
+    expect(screen.queryByRole('combobox', { name: 'Компания' })).toBeNull()
+  })
+
+  it('shows the company switcher on the shared app host', async () => {
+    const alpha = { subdomain: 'alpha', name: 'Альфа', action_items_count: 0 }
+    companyValue = {
+      ...SUBDOMAIN_COMPANY,
+      enabled: true,
+      companies: [alpha, { subdomain: 'beta', name: 'Бета', action_items_count: 2 }],
+      current: 'alpha',
+      currentCompany: alpha,
+    }
+    renderShell()
+    const switcher = await screen.findByRole('combobox', { name: 'Компания' })
+    expect(switcher.closest('.ant-select')).toHaveTextContent('Альфа')
   })
 })

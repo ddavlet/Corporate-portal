@@ -1,5 +1,8 @@
 import { useCallback, useEffect, useLayoutEffect, useRef } from 'react'
 
+/** Every list page keeps its snapshot under `list-session:<route>` (cleared when the company changes). */
+export const LIST_PAGE_SESSION_PREFIX = 'list-session:'
+
 export type ListPageSessionSnapshot = {
   scrollY: number
   visibleCount?: number

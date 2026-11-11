@@ -1,8 +1,9 @@
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { NotificationsPage } from './NotificationsPage'
+import { CompanyProvider, useCompany } from './company'
 
 type HookState = {
   items: unknown[]
@@ -17,7 +18,17 @@ let hookState: HookState
 
 vi.mock('../lib/useActionItems', () => ({
   useActionItems: () => hookState,
+  resetActionItemsCache: vi.fn(),
 }))
+
+const { portalState, getMyCompaniesMock } = vi.hoisted(() => ({
+  portalState: { shared: false },
+  getMyCompaniesMock: vi.fn(),
+}))
+
+vi.mock('../lib/portalMode', () => ({ isSharedAppMode: () => portalState.shared }))
+vi.mock('../lib/myCompaniesApi', () => ({ getMyCompanies: () => getMyCompaniesMock() }))
+vi.mock('./auth', () => ({ useAuth: () => ({ logout: vi.fn() }) }))
 
 const ITEMS = [
   {
@@ -175,5 +186,83 @@ describe('NotificationsPage', () => {
     expect(screen.queryByText('Сейчас ничего не ждёт вашего действия')).not.toBeInTheDocument()
     await userEvent.click(screen.getByRole('button', { name: /Повторить/ }))
     expect(refreshMock).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('NotificationsPage on the shared app host (crit. 19)', () => {
+  const SHARED_ITEMS = [
+    {
+      ...ITEMS[0],
+      id: 77,
+      title: 'Закуп в Бете',
+      link: '/requests/77?company=beta',
+      tenant: { subdomain: 'beta', name: 'Бета' },
+    },
+    {
+      ...ITEMS[0],
+      id: 12,
+      title: 'Аренда в Альфе',
+      link: '/requests/12?company=alpha',
+      tenant: { subdomain: 'alpha', name: 'Альфа' },
+    },
+  ]
+
+  function CompanyProbe() {
+    const { current } = useCompany()
+    return <div data-testid="company">{current}</div>
+  }
+
+  function renderShared() {
+    return render(
+      <MemoryRouter initialEntries={['/notifications']}>
+        <CompanyProvider>
+          <Routes>
+            <Route path="/notifications" element={<NotificationsPage />} />
+            <Route
+              path="*"
+              element={
+                <>
+                  <LocationProbe />
+                  <CompanyProbe />
+                </>
+              }
+            />
+          </Routes>
+        </CompanyProvider>
+      </MemoryRouter>,
+    )
+  }
+
+  beforeEach(() => {
+    portalState.shared = true
+    sessionStorage.clear()
+    localStorage.clear()
+    sessionStorage.setItem('kolberg_v2_company', 'alpha')
+    getMyCompaniesMock.mockReset()
+    getMyCompaniesMock.mockResolvedValue([
+      { subdomain: 'alpha', name: 'Альфа', action_items_count: 1 },
+      { subdomain: 'beta', name: 'Бета', action_items_count: 1 },
+    ])
+    hookState = { items: SHARED_ITEMS, count: 2, loading: false, error: false, refresh: refreshMock }
+  })
+
+  afterEach(() => {
+    portalState.shared = false
+  })
+
+  it('shows the total and the company of each item', async () => {
+    renderShared()
+    expect(await screen.findByText('Требуется ваше действие: 2')).toBeInTheDocument()
+    expect(screen.getByText('Бета')).toBeInTheDocument()
+    expect(screen.getByText('Альфа')).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: /Закуп в Бете/ })).toHaveAttribute('data-action-item', 'beta:request-77')
+  })
+
+  it('switches to the item company and opens the object on click', async () => {
+    renderShared()
+    await userEvent.click(await screen.findByRole('link', { name: /Закуп в Бете/ }))
+    expect(await screen.findByTestId('location')).toHaveTextContent(/^\/requests\/77$/)
+    expect(screen.getByTestId('company')).toHaveTextContent('beta')
+    expect(sessionStorage.getItem('kolberg_v2_company')).toBe('beta')
   })
 })

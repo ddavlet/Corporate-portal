@@ -574,6 +574,9 @@ services:
       # apps.* log level in `make logs` (DEBUG/INFO/WARNING/ERROR).
       DJANGO_LOG_LEVEL: ${DJANGO_LOG_LEVEL:-INFO}
       DJANGO_ALLOWED_HOSTS: "${DJANGO_ALLOWED_HOSTS}"
+      # Shared portal host (company from X-Tenant). Empty = off; added to ALLOWED_HOSTS automatically.
+      # Traefik routes it via PORTAL_SHARED_HOST_ROUTER below, so clearing this alone is a safe rollback.
+      PORTAL_SHARED_HOST: "${PORTAL_SHARED_HOST:-}"
       # No leading/trailing slashes (e.g. n8n). Slashes break Traefik labels: /api/${VAR}/ → /api/n8n//
       N8N_INTEGRATION_URL_PATH: ${N8N_INTEGRATION_URL_PATH:-n8n}
       N8N_INTEGRATION_TOKEN: ${N8N_INTEGRATION_TOKEN:-}
@@ -642,6 +645,37 @@ services:
       - traefik.http.routers.django-v2-n8n.tls.certresolver=mytlschallenge
       - traefik.http.routers.django-v2-n8n.service=django-v2
       - traefik.http.routers.django-v2-n8n.priority=1200
+
+      # Shared portal host (PORTAL_SHARED_HOST_ROUTER): user API only. No n8n, MCP, webhook/events
+      # or admin here: those routers stay on TRAEFIK_BACKEND_V2_* host rules, which must not list this host.
+      # n8n is mounted at /api/n8n/ and at /api/${N8N_INTEGRATION_URL_PATH}/ (settings.py), so both are excluded.
+      - traefik.http.routers.django-v2-shared-api.rule=Host(`${PORTAL_SHARED_HOST_ROUTER:-app.kolberg.uz}`) && PathPrefix(`/api`) && !PathPrefix(`/api/n8n/`) && !PathPrefix(`/api/${N8N_INTEGRATION_URL_PATH:-n8n}/`) && !PathPrefix(`/api/messaging-gateway/`) && !PathPrefix(`/api/admin/`)
+      - traefik.http.routers.django-v2-shared-api.entrypoints=web,websecure
+      - traefik.http.routers.django-v2-shared-api.tls=true
+      - traefik.http.routers.django-v2-shared-api.tls.certresolver=mytlschallenge
+      - traefik.http.routers.django-v2-shared-api.service=django-v2
+      - traefik.http.routers.django-v2-shared-api.priority=1100
+
+      - traefik.http.routers.django-v2-shared-static.rule=Host(`${PORTAL_SHARED_HOST_ROUTER:-app.kolberg.uz}`) && PathPrefix(`/static/`)
+      - traefik.http.routers.django-v2-shared-static.entrypoints=web,websecure
+      - traefik.http.routers.django-v2-shared-static.tls=true
+      - traefik.http.routers.django-v2-shared-static.tls.certresolver=mytlschallenge
+      - traefik.http.routers.django-v2-shared-static.service=django-v2
+      - traefik.http.routers.django-v2-shared-static.priority=1100
+
+      - traefik.http.routers.django-v2-shared-tg-chats.rule=Host(`${PORTAL_SHARED_HOST_ROUTER:-app.kolberg.uz}`) && PathPrefix(`/api/messaging-gateway/chats`)
+      - traefik.http.routers.django-v2-shared-tg-chats.entrypoints=web,websecure
+      - traefik.http.routers.django-v2-shared-tg-chats.tls=true
+      - traefik.http.routers.django-v2-shared-tg-chats.tls.certresolver=mytlschallenge
+      - traefik.http.routers.django-v2-shared-tg-chats.service=django-v2
+      - traefik.http.routers.django-v2-shared-tg-chats.priority=1200
+
+      - traefik.http.routers.django-v2-shared-tg-bot-setup.rule=Host(`${PORTAL_SHARED_HOST_ROUTER:-app.kolberg.uz}`) && PathPrefix(`/api/messaging-gateway/bot-setup`)
+      - traefik.http.routers.django-v2-shared-tg-bot-setup.entrypoints=web,websecure
+      - traefik.http.routers.django-v2-shared-tg-bot-setup.tls=true
+      - traefik.http.routers.django-v2-shared-tg-bot-setup.tls.certresolver=mytlschallenge
+      - traefik.http.routers.django-v2-shared-tg-bot-setup.service=django-v2
+      - traefik.http.routers.django-v2-shared-tg-bot-setup.priority=1200
 
       # MCP server (see docs/MCP_SERVER.md): https://<tenant>/mcp + per-host OAuth discovery.
       - traefik.http.routers.django-v2-tenant-mcp.rule=(${TRAEFIK_BACKEND_V2_HOST_RULE}) && (Path(`/mcp`) || PathPrefix(`/mcp/`) || PathPrefix(`/.well-known/oauth-`))
@@ -755,6 +789,22 @@ services:
       - traefik.http.middlewares.frontend-v2-root-to-app.redirectregex.regex=^https?://([a-z0-9-]+)\.kolberg\.uz/?$
       - traefik.http.middlewares.frontend-v2-root-to-app.redirectregex.replacement=https://$${1}.kolberg.uz/app
       - traefik.http.middlewares.frontend-v2-root-to-app.redirectregex.permanent=true
+
+      # Shared portal host (PORTAL_SHARED_HOST_ROUTER): same SPA on /app, root redirects to /app.
+      # frontend-v2-root-to-app only matches *.kolberg.uz; a host outside it needs its own redirect.
+      - traefik.http.routers.frontend-v2-shared.rule=Host(`${PORTAL_SHARED_HOST_ROUTER:-app.kolberg.uz}`) && (${TRAEFIK_FRONTEND_APP_PATH_RULE})
+      - traefik.http.routers.frontend-v2-shared.entrypoints=web,websecure
+      - traefik.http.routers.frontend-v2-shared.tls=true
+      - traefik.http.routers.frontend-v2-shared.tls.certresolver=mytlschallenge
+      - traefik.http.routers.frontend-v2-shared.service=frontend-v2
+      - traefik.http.routers.frontend-v2-shared.priority=1050
+      - traefik.http.routers.frontend-v2-shared-root.rule=Host(`${PORTAL_SHARED_HOST_ROUTER:-app.kolberg.uz}`) && Path(`/`)
+      - traefik.http.routers.frontend-v2-shared-root.entrypoints=web,websecure
+      - traefik.http.routers.frontend-v2-shared-root.tls=true
+      - traefik.http.routers.frontend-v2-shared-root.tls.certresolver=mytlschallenge
+      - traefik.http.routers.frontend-v2-shared-root.service=frontend-v2
+      - traefik.http.routers.frontend-v2-shared-root.priority=1500
+      - traefik.http.routers.frontend-v2-shared-root.middlewares=frontend-v2-root-to-app@docker
 
     networks:
       - traefik-public
