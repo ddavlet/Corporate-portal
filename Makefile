@@ -7,7 +7,7 @@ DEPLOY_TEST_PATH ?= $(TEST_PATH)
 BRANCH     := $(shell git rev-parse --abbrev-ref HEAD)
 
 .DEFAULT_GOAL := help
-.PHONY: help push test deploy makemigrations showmigrations logs backup-db create-postgres-mcp-role rollback refresh-approval-messages reconcile-card-revenues reconcile-expense-links relink-unresolved-bank-doc-numbers fix-invest-returns align-payment-purposes clone-tenant-config sync-telegram-bots link-payroll-requests send-to-vacation return-from-vacation reassign-unmatched-bank-expenses backfill-bank-expense-requests backfill-cash-expense-requests backfill-card-expenses backfill-cbu-exchange-rate redispatch-unsent-approval-cards backfill-cash-withdrawals repair-id-sequences import-kapitalbank link-kapitalbank ignore-kapitalbank classify-kapitalbank local-up local-down local-logs test_local
+.PHONY: help push test deploy makemigrations showmigrations logs backup-db create-postgres-mcp-role rollback refresh-approval-messages delete-telegram-messages reconcile-card-revenues reconcile-expense-links relink-unresolved-bank-doc-numbers fix-invest-returns align-payment-purposes clone-tenant-config sync-telegram-bots link-payroll-requests send-to-vacation return-from-vacation reassign-unmatched-bank-expenses backfill-bank-expense-requests backfill-cash-expense-requests backfill-card-expenses backfill-cbu-exchange-rate redispatch-unsent-approval-cards backfill-cash-withdrawals repair-id-sequences import-kapitalbank link-kapitalbank ignore-kapitalbank classify-kapitalbank local-up local-down local-logs test_local
 
 help:
 	@echo ""
@@ -23,6 +23,8 @@ help:
 	@echo "  make backup-db       — создать gzip-копию БД портала на сервере в backups/db"
 	@echo "  make create-postgres-mcp-role — создать/обновить read-only роль Postgres MCP на сервере"
 	@echo "  make refresh-approval-messages REQUEST_IDS='1 2' — актуализировать Telegram-карточки заявок на сервере"
+	@echo "  make delete-telegram-messages MESSAGE_PKS=15924 REQUEST_IDS=9142 — dry-run: какие сообщения ботов будут удалены в Telegram"
+	@echo "  make delete-telegram-messages MESSAGE_PKS=15924 REQUEST_IDS=9142 APPLY=1 — удалить их через tg-gateway (строки БД не удаляются)"
 	@echo "  make reconcile-card-revenues — привязать заявки 'Пополнение' к corporate_card_revenues по сумме+дате"
 	@echo "  make reconcile-card-revenues TENANT=3 — то же самое, но только для одного тенанта"
 	@echo "  make reconcile-expense-links TENANT=3 — найти и починить ссылки заявок на расходы (bank/cash/card)"
@@ -175,6 +177,27 @@ refresh-approval-messages:
 	ssh $(SERVER) "cd $(REMOTE_DIR) && \
 		docker compose --env-file ./.env exec -T backend_v2 \
 		python manage.py refresh_telegram_approval_messages $(REQUEST_IDS)"
+
+# ── 7a. Telegram: удалить сообщения ботов по pk TelegramMessage и/или ID заявок ─
+# make delete-telegram-messages MESSAGE_PKS=15924,15925 REQUEST_IDS=9142 [APPLY=1] [UNCONFIRMED_HISTORY=1]
+MESSAGE_PKS ?=
+UNCONFIRMED_HISTORY ?=
+
+delete-telegram-messages:
+	@if [ -z "$(strip $(MESSAGE_PKS)$(REQUEST_IDS))" ]; then \
+		echo "Usage: make delete-telegram-messages MESSAGE_PKS=15924,15925 REQUEST_IDS=9142 [APPLY=1] [UNCONFIRMED_HISTORY=1]"; \
+		echo "  без APPLY=1 — dry-run (только показать); нужен MESSAGE_PKS и/или REQUEST_IDS"; \
+		exit 1; \
+	fi
+	@echo "$(MESSAGE_PKS) $(REQUEST_IDS)" | grep -Eq '^[0-9, ]+$$' || \
+		(echo "MESSAGE_PKS/REQUEST_IDS: только цифры, запятые и пробелы" && exit 1)
+	ssh $(SERVER) "cd $(REMOTE_DIR) && \
+		docker compose --env-file ./.env exec -T backend_v2 \
+		python manage.py delete_telegram_messages \
+		$(if $(MESSAGE_PKS),--message-pk='$(MESSAGE_PKS)',) \
+		$(if $(REQUEST_IDS),--request-id='$(REQUEST_IDS)',) \
+		$(if $(APPLY),--apply,) \
+		$(if $(UNCONFIRMED_HISTORY),--unconfirmed-history,)"
 
 APPLY ?=
 

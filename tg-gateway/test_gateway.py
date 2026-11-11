@@ -674,6 +674,222 @@ def test_get_me_cached_per_bot():
         assert fail.await_count == 2  # failures are not cached
 
 
+# ── Webhook: owner «-» delete ────────────────────────────────────────────────
+
+OWNER = "42"  # _msg_update sends from.id=42
+BOT_ID = "110201543"
+SECRET_CARD = "<секретная карточка 1 500 000 UZS>"
+TG_OK = {"ok": True, "result": True}
+
+
+def _reply_to_bot(text="-", chat_type="private", chat_id=500, reply_from=BOT_ID):
+    return _msg_update(
+        text, chat_type=chat_type, chat_id=chat_id,
+        reply_to_message={"message_id": 77, "from": {"id": int(reply_from), "is_bot": True}, "text": SECRET_CARD},
+    )
+
+
+def _owner_hook(update, owners=frozenset({OWNER}), tg_responses=None, path=HOOK_FULL):
+    """Post an update with owners configured; return (resp, tg_mock, fwd_mock, log_mock)."""
+    if tg_responses is None:
+        tg_responses = [TG_OK, TG_OK]
+    with patch("main.OWNER_TELEGRAM_IDS", frozenset(owners)), \
+         patch("main.BACKEND_URL", "http://backend/webhook"), \
+         patch("main.BACKEND_EVENT_LOG_URL", ""), \
+         patch("main._bot_username", new=AsyncMock(return_value="MyBot")), \
+         patch("main._tg_post", new=AsyncMock(side_effect=list(tg_responses))) as tg, \
+         patch("main._forward_backend_event", new=AsyncMock(return_value=(True, 200, None))) as fwd, \
+         patch("main.db.log_event", new=AsyncMock()) as log:
+        resp = client.post(path, json=update)
+    return resp, tg, fwd, log
+
+
+def _delete_calls(tg):
+    return [c for c in tg.await_args_list if c.args[1] == "deleteMessage"]
+
+
+def _assert_no_owner_delete(tg, fwd):
+    assert _delete_calls(tg) == []
+    for call in fwd.await_args_list:
+        assert call.args[0].get("event") in ("message", "command")
+
+
+def test_parse_owner_ids():
+    import main
+    assert main._parse_owner_ids("") == frozenset()
+    assert main._parse_owner_ids(" , ,") == frozenset()
+    assert main._parse_owner_ids(" 42, 7 ,,100500 ") == frozenset({"42", "7", "100500"})
+
+
+def test_owner_minus_deletes_bot_message_then_minus():
+    for chat_type, chat_id in (("private", 500), ("supergroup", -100)):
+        for text in ("-", " - "):
+            resp, tg, fwd, log = _owner_hook(_reply_to_bot(text, chat_type=chat_type, chat_id=chat_id))
+            assert resp.status_code == 200
+            assert resp.json() == {"ok": True}
+            calls = _delete_calls(tg)
+            assert [c.args[2] for c in calls] == [
+                {"chat_id": chat_id, "message_id": 77},
+                {"chat_id": chat_id, "message_id": 123},
+            ]
+            assert all(c.args[0] == TOKEN_FULL for c in calls)
+            fwd.assert_not_awaited()
+            log.assert_awaited_once()
+            kw = log.await_args.kwargs
+            assert kw["action"] == "owner_delete"
+            assert kw["recipient_id"] == str(chat_id)
+            assert kw["message_id"] == 77
+            assert kw["ok"] is True
+            assert kw["error_text"] is None
+            # Audit: who deleted (the owner's Telegram user id), ids only.
+            assert kw["payload"]["actor_user_id"] == OWNER
+
+
+def test_owner_minus_ignored_for_non_owner():
+    resp, tg, fwd, _ = _owner_hook(_reply_to_bot(), owners={"999"})
+    assert resp.status_code == 200
+    _assert_no_owner_delete(tg, fwd)
+    fwd.assert_awaited_once()
+    sent = fwd.await_args.args[0]
+    assert sent["event"] == "message"
+    assert sent["payload"] == "-"
+    assert sent["reply_to_is_bot"] is True
+
+
+def test_owner_minus_ignored_when_owner_list_empty():
+    resp, tg, fwd, _ = _owner_hook(_reply_to_bot(), owners=frozenset())
+    assert resp.status_code == 200
+    _assert_no_owner_delete(tg, fwd)
+    fwd.assert_awaited_once()
+    assert fwd.await_args.args[0]["event"] == "message"
+
+
+def test_owner_minus_to_other_bot_ignored():
+    resp, tg, fwd, _ = _owner_hook(_reply_to_bot(reply_from="999"))
+    assert resp.status_code == 200
+    _assert_no_owner_delete(tg, fwd)
+    assert fwd.await_args.args[0]["reply_to_is_bot"] is False
+
+
+def test_owner_minus_without_reply_or_other_text_ignored():
+    updates = [
+        _msg_update("-"),
+        _reply_to_bot("--"),
+        _reply_to_bot("- ок"),
+    ]
+    for upd in updates:
+        resp, tg, fwd, _ = _owner_hook(upd)
+        assert resp.status_code == 200
+        _assert_no_owner_delete(tg, fwd)
+        fwd.assert_awaited_once()
+        assert fwd.await_args.args[0]["event"] == "message"
+
+
+def test_owner_minus_ignored_without_bot_id_in_token():
+    # Token without a numeric bot id part → empty / foreign bot id → never deletes.
+    for path in ("/v1/messaging/webhook/:AAHdqTcvCH1vGWJxfSeofSAs0K5PALDsaw", HOOK):
+        resp, tg, fwd, _ = _owner_hook(_reply_to_bot(), path=path)
+        assert resp.status_code == 200
+        assert _delete_calls(tg) == []
+    import main
+    with patch("main.OWNER_TELEGRAM_IDS", frozenset({OWNER})):
+        assert main._extract_owner_delete(_reply_to_bot(), "") is None
+
+
+def test_owner_minus_bot_message_delete_fails_still_deletes_minus():
+    responses = [{"ok": False, "description": "Bad Request: message can't be deleted"}, TG_OK]
+    resp, tg, fwd, log = _owner_hook(_reply_to_bot(), tg_responses=responses)
+    assert resp.status_code == 200
+    assert [c.args[2]["message_id"] for c in _delete_calls(tg)] == [77, 123]
+    fwd.assert_not_awaited()
+    kw = log.await_args.kwargs
+    assert kw["ok"] is False
+    assert kw["error_text"] == "Bad Request: message can't be deleted"
+    assert kw["payload"]["minus_message_deleted"] is True
+
+
+def test_owner_minus_group_minus_delete_fails_is_best_effort(caplog):
+    import logging
+
+    import httpx
+    caplog.set_level(logging.INFO, logger="main")
+    failures = [
+        {"ok": False, "description": "Bad Request: message can't be deleted"},
+        httpx.ConnectError("connection refused"),
+    ]
+    for failure in failures:
+        caplog.clear()
+        resp, tg, fwd, log = _owner_hook(
+            _reply_to_bot(chat_type="supergroup", chat_id=-100), tg_responses=[TG_OK, failure],
+        )
+        assert resp.status_code == 200
+        assert resp.json() == {"ok": True}
+        assert len(_delete_calls(tg)) == 2
+        fwd.assert_not_awaited()
+        kw = log.await_args.kwargs
+        assert kw["ok"] is True
+        assert kw["payload"]["minus_message_deleted"] is False
+        assert any(
+            r.levelno >= logging.WARNING and "owner_delete minus_message failed" in r.getMessage()
+            for r in caplog.records
+        )
+
+
+def test_owner_minus_never_logs_texts_or_token(caplog):
+    """Realistic transport failure inside _tg_post: neither texts nor the token reach logs."""
+    import logging
+
+    import httpx
+    caplog.set_level(logging.DEBUG)
+    leaky = httpx.ConnectError(f"failed to POST https://api.telegram.org/bot{TOKEN_FULL}/deleteMessage")
+    m = AsyncMock()
+    m.__aenter__ = AsyncMock(return_value=m)
+    m.__aexit__ = AsyncMock(return_value=False)
+    m.post = AsyncMock(side_effect=leaky)
+    upd = _reply_to_bot("-", chat_type="supergroup", chat_id=-100)
+    with patch("main.OWNER_TELEGRAM_IDS", frozenset({OWNER})), \
+         patch("main.BACKEND_URL", "http://backend/webhook"), \
+         patch("main.BACKEND_EVENT_LOG_URL", ""), \
+         patch("httpx.AsyncClient", return_value=m), \
+         patch("main._forward_backend_event", new=AsyncMock(return_value=(True, 200, None))) as fwd, \
+         patch("main.db.log_event", new=AsyncMock()) as log:
+        resp = client.post(HOOK_FULL, json=upd)
+    assert resp.status_code == 200
+    assert m.post.await_count == 4  # 2 deletes × (1 try + 1 retry)
+    fwd.assert_not_awaited()
+    secret_part = TOKEN_FULL.split(":", 1)[1]
+    logged = str(log.await_args_list)
+    for needle in (SECRET_CARD, "секретная", secret_part):
+        assert needle not in caplog.text
+        assert needle not in logged
+    assert log.await_args.kwargs["ok"] is False
+    assert log.await_args.kwargs["error_text"] == "ConnectError"
+
+
+def test_owner_minus_not_triggered_by_callback_edited_or_command():
+    edited = _reply_to_bot()
+    edited["edited_message"] = edited.pop("message")
+    callback = {
+        "update_id": 3,
+        "callback_query": {
+            "id": "x", "data": "-", "from": {"id": int(OWNER)},
+            "message": {"message_id": 77, "chat": {"id": 500}, "from": {"id": int(BOT_ID)}},
+        },
+    }
+    command = _msg_update(
+        "/bank_ostatki",
+        reply_to_message={"message_id": 77, "from": {"id": int(BOT_ID)}, "text": SECRET_CARD},
+    )
+    with patch("main.db.is_cooldown_ok", new=AsyncMock(return_value=True)):
+        for upd in (edited, callback, command):
+            resp, tg, fwd, _ = _owner_hook(upd)
+            assert resp.status_code == 200
+            assert _delete_calls(tg) == []
+    # callback and command keep their usual forward
+    resp, tg, fwd, _ = _owner_hook(command)
+    assert fwd.await_args.args[0]["event"] == "command"
+
+
 # ── Commands menu (setMyCommands) ────────────────────────────────────────────
 
 def test_commands_set_calls_setMyCommands():
