@@ -1,4 +1,5 @@
 export { RequestCreatePage, type RequestCreatePageProps } from './RequestCreatePage'
+export { RequestCreateRoute } from './RequestCreateRoute'
 export { RequestDetailPage, type RequestDetailPageProps } from './RequestDetailPage'
 export { RequestDetailModal, RequestDetailContent, type RequestDetail, type ApprovalItem } from './RequestDetailModal'
 export { RequestsPage } from './RequestsPage'

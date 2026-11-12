@@ -23,7 +23,7 @@ import { PayrollDocumentDetailPage } from '../ui/PayrollDocumentDetailPage'
 import { CashExpenseDetailPage } from '../ui/CashExpenseDetailPage'
 import { BankExpenseDetailPage } from '../ui/BankExpenseDetailPage'
 import {
-  RequestCreatePage,
+  RequestCreateRoute,
   RequestDetailPage,
   RequestFormConfigPage,
   RequestApprovalConfigPage,
@@ -167,7 +167,7 @@ export function App() {
         <Route index element={<HomeRoute />} />
         <Route path="notifications" element={<NotificationsPage />} />
         <Route path="requests" element={<RequestsRoute />} />
-        <Route path="requests/new" element={<RequestCreatePage />} />
+        <Route path="requests/new" element={<RequestCreateRoute />} />
         <Route path="requests/:id" element={<RequestDetailPage />} />
         <Route path="investments" element={<InvestmentsPage />} />
         {/* No phone layout yet: on a phone these show «Раздел доступен на компьютере» instead of the page. */}

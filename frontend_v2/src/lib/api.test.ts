@@ -28,6 +28,7 @@ import {
   getRequestFormOptions,
   getSettingsAccess,
   listVendors,
+  listVendorsPage,
   parseErrorBody,
   readTgTokens,
   setTenantAccessLostHandler,
@@ -275,6 +276,25 @@ describe('api module', () => {
     expect(rows).toHaveLength(1)
     const [input] = fetchMock.mock.calls[0] as [string, RequestInit]
     expect(input).toContain('/api/vendors/?kind=cash&search=abc')
+  })
+
+  it('loads one page of vendors with page_size and does not follow the cursor', async () => {
+    fetchMock.mockResolvedValueOnce(
+      createJsonResponse(200, {
+        results: [{ id: 1, kind: 'transfer', name: 'Test', tenant: 1, created_at: '', created_by: 1 }],
+        next: 'https://x.kolberg.uz/api/vendors/?cursor=abc&page_size=200',
+        previous: null,
+      }),
+    )
+    const rows = await listVendorsPage({ kind: 'transfer', search: ' ром ', page_size: 200 })
+    expect(rows).toHaveLength(1)
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    const [input] = fetchMock.mock.calls[0] as [string, RequestInit]
+    const url = new URL(input, 'http://localhost')
+    expect(url.pathname).toBe('/api/vendors/')
+    expect(url.searchParams.get('kind')).toBe('transfer')
+    expect(url.searchParams.get('search')).toBe('ром')
+    expect(url.searchParams.get('page_size')).toBe('200')
   })
 
   it('sends createVendor payload and returns row', async () => {

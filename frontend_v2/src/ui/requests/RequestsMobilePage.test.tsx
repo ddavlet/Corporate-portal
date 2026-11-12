@@ -1,5 +1,5 @@
 import { useSyncExternalStore } from 'react'
-import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ActionItem } from '../../lib/actionItemsApi'
@@ -149,6 +149,8 @@ beforeEach(() => {
 })
 
 afterEach(() => {
+  // Unmount before dropping the stubs: a late feed effect must not meet a missing IntersectionObserver.
+  cleanup()
   vi.unstubAllGlobals()
   resetViewport()
 })

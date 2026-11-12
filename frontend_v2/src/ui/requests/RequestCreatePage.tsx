@@ -1,4 +1,3 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Alert,
   Button,
@@ -16,35 +15,14 @@ import {
   Upload,
   message,
 } from 'antd'
-import type { Dayjs } from 'dayjs'
-import type { UploadFile } from 'antd/es/upload/interface'
 import { ArrowLeftOutlined, PlusOutlined } from '@ant-design/icons'
 import { useNavigate } from 'react-router-dom'
-import {
-  ApiError,
-  createContract,
-  createPortalRequest,
-  createVendor,
-  getRequestFormOptions,
-  listContracts,
-  listVendors,
-  REQUEST_ATTACHMENT_MAX_FILES,
-  type CreatedPortalRequest,
-  type PortalRequestCreateBody,
-  type RequestFormOptionsPaymentType,
-  uploadRequestAttachment,
-  validateRequestAttachment,
-} from '../../lib/api'
-import {
-  fundingCurrenciesFromHint,
-  fundingWalletLabel,
-  lockedCurrencyFromHint,
-  vendorKindForPaymentType,
-} from '../../lib/requestPaymentTypes'
-import { generalFormPurposes, isCashRegisterTransferPurpose } from '../../lib/cashRegisterTransfer'
+import { fundingWalletLabel, vendorKindForPaymentType } from '../../lib/requestPaymentTypes'
 import { labelBlockAboveField } from '../formSpacing'
-import { clampToAllowedBillingMonth, isAllowedBillingMonth } from '../../lib/billingMonth'
-import { monthStartTashkent } from '../../lib/tashkentTime'
+import { isAllowedBillingMonth } from '../../lib/billingMonth'
+import { CASH_REGISTER_TRANSFER_HINT_PORTAL, useRequestCreateForm } from './useRequestCreateForm'
+
+const CASH_REGISTER_TRANSFER_HINT_TG = 'Перевод между кассами оформляется в разделе «Касса» плиткой «Перевести между кассами».'
 
 const tgPopupContainer = () => document.body
 
@@ -58,427 +36,91 @@ export type RequestCreatePageProps = {
 export function RequestCreatePage({ requestsBasePath = '/requests', variant = 'portal' }: RequestCreatePageProps) {
   const isTg = variant === 'telegram'
   const navigate = useNavigate()
-  const [loading, setLoading] = useState(true)
-  const [optionsError, setOptionsError] = useState<string | null>(null)
-  const [formOptions, setFormOptions] = useState<RequestFormOptionsPaymentType[]>([])
-  const [contractsModuleEffective, setContractsModuleEffective] = useState(false)
-  const [isTenantAdmin, setIsTenantAdmin] = useState(false)
-  const [isTenantDirector, setIsTenantDirector] = useState(false)
-  const [step, setStep] = useState(0)
-
-  const requiresRequesterSelection = isTenantAdmin || isTenantDirector
-  const detailStep = requiresRequesterSelection ? 2 : 1
-
-  const [paymentType, setPaymentType] = useState<string | null>(null)
-  const [requesterId, setRequesterId] = useState<number | null>(null)
-  const [vendorRefId, setVendorRefId] = useState<number | null>(null)
-  const [vendorOptions, setVendorOptions] = useState<{ label: string; value: number }[]>([])
-  const [vendorSearchLoading, setVendorSearchLoading] = useState(false)
-  const [contractRefId, setContractRefId] = useState<number | null>(null)
-  const [contractOptions, setContractOptions] = useState<{ label: string; value: number }[]>([])
-  const [contractLoading, setContractLoading] = useState(false)
-
-  const [description, setDescription] = useState('')
-  const [amount, setAmount] = useState<number | null>(null)
-  const [currency, setCurrency] = useState('UZS')
-  const [urgency, setUrgency] = useState('Обычно')
-  const [paymentPurpose, setPaymentPurpose] = useState<string | null>(null)
-  const [billingDate, setBillingDate] = useState<Dayjs | null>(() => monthStartTashkent())
-  const [amortizationEnabled, setAmortizationEnabled] = useState(false)
-  const [amortizationMonths, setAmortizationMonths] = useState(2)
-  const [attachmentFileList, setAttachmentFileList] = useState<UploadFile[]>([])
-
-  const [submitting, setSubmitting] = useState(false)
-  const [newVendorOpen, setNewVendorOpen] = useState(false)
-  const [newVendorName, setNewVendorName] = useState('')
-  const [newVendorInn, setNewVendorInn] = useState('')
-  const [newVendorAccount, setNewVendorAccount] = useState('')
-  const [newVendorSaving, setNewVendorSaving] = useState(false)
-  const [newContractOpen, setNewContractOpen] = useState(false)
-  const [newContractSaving, setNewContractSaving] = useState(false)
-  const [ncNumber, setNcNumber] = useState('')
-  const [ncDateFrom, setNcDateFrom] = useState('')
-  const [ncDateTo, setNcDateTo] = useState('')
-  const [ncAmount, setNcAmount] = useState<number | null>(null)
-  const [ncCurrency, setNcCurrency] = useState('UZS')
-  const [ncTerms, setNcTerms] = useState('')
-  const [ncAcc, setNcAcc] = useState('')
-  const [ncFileList, setNcFileList] = useState<UploadFile[]>([])
-
-  const activePt = useMemo(
-    () => formOptions.find((p) => p.payment_type === paymentType) || null,
-    [formOptions, paymentType],
-  )
-
-  /** Инвест-типы: кошелёк списания и валюта фиксируются настройкой инвестиционного режима. */
-  const fundingHint = activePt?.funding_hint ?? null
-  const lockedCurrency = lockedCurrencyFromHint(fundingHint)
-  /** «Инвест. наличные» с несколькими инвест-кассами: валюта — одна из валют этих касс. */
-  const fundingCurrencies = fundingCurrenciesFromHint(fundingHint)
-  const currencyOptions = (fundingCurrencies ?? ['UZS', 'USD', 'EUR', 'RUB']).map((c) => ({ value: c, label: c }))
-
-  /** Заявители, разрешённые настройками формы для выбранного типа оплаты (не все роли заявителя в тенанте). */
-  const allowedRequesters = useMemo(() => activePt?.requesters ?? [], [activePt])
-
-  useEffect(() => {
-    let cancelled = false
-    ;(async () => {
-      setLoading(true)
-      setOptionsError(null)
-      try {
-        const opts = await getRequestFormOptions()
-        if (!cancelled) {
-          setFormOptions(opts.payment_types)
-          setContractsModuleEffective(opts.contracts_module_effective ?? false)
-          setIsTenantAdmin(opts.is_tenant_admin ?? false)
-          setIsTenantDirector(opts.is_tenant_director ?? false)
-        }
-      } catch (e: unknown) {
-        if (!cancelled) setOptionsError(e instanceof Error ? e.message : 'Не удалось загрузить настройки формы')
-      } finally {
-        if (!cancelled) setLoading(false)
-      }
-    })()
-    return () => {
-      cancelled = true
-    }
-  }, [])
-
-  const loadVendors = useCallback(
-    async (search: string) => {
-      if (!paymentType) return
-      const kind = vendorKindForPaymentType(paymentType)
-      setVendorSearchLoading(true)
-      try {
-        const rows = await listVendors({ kind, search })
-        let filtered = rows
-        if (activePt?.vendor_ids?.length) {
-          const allowed = new Set(activePt.vendor_ids)
-          filtered = rows.filter((r) => allowed.has(r.id))
-        }
-        setVendorOptions(
-          filtered.map((r) => ({
-            value: r.id,
-            label: r.kind === 'transfer' && r.inn ? `${r.name} (ИНН ${r.inn})` : r.name,
-          })),
-        )
-      } catch {
-        setVendorOptions([])
-      } finally {
-        setVendorSearchLoading(false)
-      }
-    },
-    [paymentType, activePt],
-  )
-
-  useEffect(() => {
-    if (step >= detailStep && paymentType) {
-      void loadVendors('')
-    }
-  }, [step, paymentType, loadVendors, detailStep])
-
-  useEffect(() => {
-    if (step !== detailStep || !paymentType) return
-    const pt = formOptions.find((p) => p.payment_type === paymentType)
-    const d = pt?.defaults
-    if (d) {
-      setDescription(d.description ?? '')
-      if (d.amount != null && d.amount !== '') {
-        const n = Number(d.amount)
-        setAmount(Number.isFinite(n) ? n : null)
-      } else {
-        setAmount(null)
-      }
-      setCurrency(d.currency || 'UZS')
-      setUrgency(d.urgency || 'Обычно')
-      const monthShift = d.billing_days_offset ?? 0
-      const target = monthStartTashkent().add(monthShift, 'month')
-      setBillingDate(clampToAllowedBillingMonth(target))
-      setPaymentPurpose(d.payment_purpose && !isCashRegisterTransferPurpose(d.payment_purpose) ? d.payment_purpose : null)
-      setVendorRefId(d.vendor_ref ?? null)
-    } else {
-      setBillingDate((prev) => clampToAllowedBillingMonth(prev ?? monthStartTashkent()))
-    }
-  }, [step, paymentType, formOptions, detailStep])
-
-  useEffect(() => {
-    if (step !== detailStep || !fundingCurrencies?.length) return
-    // Валюта вне инвест-касс режима недопустима — переключаем на основную (первую).
-    if (lockedCurrency) setCurrency(lockedCurrency)
-    else setCurrency((prev) => (fundingCurrencies.includes(prev) ? prev : fundingCurrencies[0]))
-    // fundingCurrencies пересоздаётся каждый рендер — зависимость по строковому ключу.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [step, detailStep, lockedCurrency, fundingCurrencies?.join(',')])
-
-  const searchTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
-  const onVendorSearch = (value: string) => {
-    window.clearTimeout(searchTimerRef.current)
-    searchTimerRef.current = setTimeout(() => void loadVendors(value), 300)
-  }
-
-  const contractsRequiredForPt = Boolean(contractsModuleEffective && activePt?.contracts_required)
-
-  useEffect(() => {
-    if (!contractsRequiredForPt || !vendorRefId) {
-      setContractOptions([])
-      setContractRefId(null)
-      return
-    }
-    let cancelled = false
-    setContractLoading(true)
-    listContracts({ vendor: vendorRefId })
-      .then((rows) => {
-        if (cancelled) return
-        setContractOptions(
-          rows.map((r) => ({
-            value: r.id,
-            label: `${r.contract_number} (${r.date_from})${r.is_expired ? ' — просрочен' : ''}`,
-          })),
-        )
-        setContractRefId((prev) => {
-          if (rows.length === 1) return rows[0].id
-          if (prev != null && rows.some((r) => r.id === prev)) return prev
-          return null
-        })
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setContractOptions([])
-          setContractRefId(null)
-        }
-      })
-      .finally(() => {
-        if (!cancelled) setContractLoading(false)
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [contractsRequiredForPt, vendorRefId])
-
-  const transferHintText = isTg
-    ? 'Перевод между кассами оформляется в разделе «Касса» плиткой «Перевести между кассами».'
-    : 'Перевод между кассами оформляется в разделе «Касса» («Все операции», «Расходы» или «Доходы») кнопкой «Перевести между кассами».'
-
-  const { purposeOptions, transferPurposeHidden } = useMemo(() => {
-    const { purposes, transferHidden } = generalFormPurposes(activePt?.payment_purposes)
-    return {
-      purposeOptions: purposes.map((p) => ({
-        value: p.name,
-        label: `${p.name} → ${p.category}`,
-      })),
-      transferPurposeHidden: transferHidden,
-    }
-  }, [activePt])
-
-  const stepItems = useMemo(() => {
-    if (requiresRequesterSelection) {
-      return [{ title: 'Тип оплаты' }, { title: 'Заявитель' }, { title: 'Детали' }]
-    }
-    return [{ title: 'Тип оплаты' }, { title: 'Детали' }]
-  }, [requiresRequesterSelection])
-
-  const goNext = () => {
-    if (step === 0 && !paymentType) {
-      message.warning('Выберите тип оплаты')
-      return
-    }
-    if (step === 1 && requiresRequesterSelection) {
-      if (!paymentType || !activePt) {
-        message.warning('Выберите тип оплаты')
-        return
-      }
-      if (allowedRequesters.length === 0) {
-        message.warning(
-          'Для выбранного типа оплаты не настроены заявители. Укажите их в Настройки → Заявки — форма создания.',
-        )
-        return
-      }
-      if (requesterId == null) {
-        message.warning('Выберите заявителя')
-        return
-      }
-    }
-    setStep((s) => Math.min(s + 1, detailStep))
-  }
-
-  const goBack = () => setStep((s) => Math.max(s - 1, 0))
-
-  const submit = async () => {
-    if (!paymentType) {
-      message.error('Выберите тип оплаты')
-      return
-    }
-    if (requiresRequesterSelection) {
-      if ((activePt?.requesters?.length ?? 0) === 0) {
-        message.error('Для выбранного типа оплаты не настроены заявители.')
-        return
-      }
-      if (requesterId == null) {
-        message.error('Выберите заявителя')
-        return
-      }
-    }
-    if (amount == null || amount <= 0) {
-      message.warning('Укажите сумму')
-      return
-    }
-    if (!billingDate || !isAllowedBillingMonth(billingDate)) {
-      message.warning('Выберите допустимый месяц биллинга')
-      return
-    }
-    if (transferPurposeHidden && purposeOptions.length === 0) {
-      message.warning(transferHintText)
-      return
-    }
-    if (purposeOptions.length > 0 && !paymentPurpose) {
-      message.warning('Выберите назначение платежа')
-      return
-    }
-    if (!vendorRefId) {
-      message.warning('Выберите поставщика из справочника')
-      return
-    }
-    if (contractsRequiredForPt && !contractRefId) {
-      message.warning('Выберите договор')
-      return
-    }
-    const attachments = attachmentFileList.map((f) => f.originFileObj as File).filter((f): f is File => f != null)
-    if (attachments.length > REQUEST_ATTACHMENT_MAX_FILES) {
-      message.warning(`Можно прикрепить максимум ${REQUEST_ATTACHMENT_MAX_FILES} файлов`)
-      return
-    }
-    for (const file of attachments) {
-      const err = validateRequestAttachment(file)
-      if (err) {
-        message.warning(`${file.name}: ${err}`)
-        return
-      }
-    }
-
-    setSubmitting(true)
-    try {
-      const titleResolved =
-        (activePt?.defaults?.title || '').trim() ||
-        (paymentPurpose || '').trim() ||
-        'Заявка'
-      const payload: PortalRequestCreateBody = {
-        title: titleResolved,
-        description: description.trim(),
-        amount,
-        currency,
-        payment_type: paymentType,
-        urgency,
-        billing_date: billingDate.startOf('month').format('YYYY-MM-DD'),
-        status: 'DRAFT',
-        amortization_months: amortizationEnabled ? amortizationMonths : 1,
-      }
-      if (requiresRequesterSelection && requesterId != null) {
-        payload.requester = requesterId
-      }
-      if (paymentPurpose) payload.payment_purpose = paymentPurpose
-      if (vendorRefId) payload.vendor_ref = vendorRefId
-      if (contractRefId) payload.contract_ref = contractRefId
-      const res: CreatedPortalRequest = await createPortalRequest(payload)
-      for (const file of attachments) {
-        await uploadRequestAttachment(res.id, file)
-      }
-      const id = res.id
-      if (typeof id === 'number') navigate(`${requestsBasePath}/${id}`, { state: { justCreated: true } })
-      else navigate(requestsBasePath)
-    } catch (e: unknown) {
-      message.error(e instanceof Error ? e.message : 'Ошибка сохранения')
-    } finally {
-      setSubmitting(false)
-    }
-  }
-
-  const saveNewVendor = async () => {
-    if (!paymentType) return
-    const name = newVendorName.trim()
-    if (!name) {
-      message.warning('Укажите наименование')
-      return
-    }
-    const kind = vendorKindForPaymentType(paymentType)
-    if (kind === 'transfer' && !newVendorInn.trim()) {
-      message.warning('ИНН обязателен для перечисления')
-      return
-    }
-    setNewVendorSaving(true)
-    try {
-      const row = await createVendor({
-        kind,
-        name,
-        inn: kind === 'transfer' ? newVendorInn.trim() : undefined,
-        account_number: newVendorAccount.trim() || undefined,
-      })
-      message.success('Поставщик добавлен')
-      setVendorRefId(row.id)
-      setNewVendorOpen(false)
-      setNewVendorName('')
-      setNewVendorInn('')
-      setNewVendorAccount('')
-      await loadVendors('')
-    } catch (e: unknown) {
-      if (e instanceof ApiError && e.status === 403) {
-        message.error('У вас нет прав на создание поставщика. Обратитесь к администратору.')
-      } else {
-        message.error(e instanceof Error ? e.message : 'Ошибка')
-      }
-    } finally {
-      setNewVendorSaving(false)
-    }
-  }
-
-  const saveNewContract = async () => {
-    if (!vendorRefId) return
-    const num = ncNumber.trim()
-    if (!num) {
-      message.warning('Укажите номер договора')
-      return
-    }
-    if (!ncDateFrom.trim()) {
-      message.warning('Укажите дату начала')
-      return
-    }
-    const f = ncFileList[0]?.originFileObj as File | undefined
-    if (!f) {
-      message.warning('Прикрепите файл договора')
-      return
-    }
-    setNewContractSaving(true)
-    try {
-      const created = await createContract({
-        vendor: vendorRefId,
-        contract_number: num,
-        date_from: ncDateFrom.trim(),
-        date_to: ncDateTo.trim() || undefined,
-        contract_amount: ncAmount != null ? String(ncAmount) : undefined,
-        currency: ncCurrency,
-        contract_terms: ncTerms.trim(),
-        acc_number: ncAcc.trim(),
-        contract_file: f,
-      })
-      message.success('Договор создан')
-      setNewContractOpen(false)
-      const rows = await listContracts({ vendor: vendorRefId })
-      setContractOptions(
-        rows.map((r) => ({
-          value: r.id,
-          label: `${r.contract_number} (${r.date_from})${r.is_expired ? ' — просрочен' : ''}`,
-        })),
-      )
-      setContractRefId(created.id)
-    } catch (e: unknown) {
-      if (e instanceof ApiError && e.status === 403) {
-        message.error('У вас нет прав на создание договора. Обратитесь к администратору.')
-      } else {
-        message.error(e instanceof Error ? e.message : 'Ошибка')
-      }
-    } finally {
-      setNewContractSaving(false)
-    }
-  }
+  const {
+    loading,
+    optionsError,
+    formOptions,
+    step,
+    stepItems,
+    detailStep,
+    requiresRequesterSelection,
+    paymentType,
+    setPaymentType,
+    requesterId,
+    setRequesterId,
+    allowedRequesters,
+    vendorRefId,
+    setVendorRefId,
+    vendorOptions,
+    vendorSearchLoading,
+    onVendorSearch,
+    contractsRequiredForPt,
+    contractRefId,
+    setContractRefId,
+    contractOptions,
+    contractLoading,
+    description,
+    setDescription,
+    amount,
+    setAmount,
+    currency,
+    setCurrency,
+    currencyOptions,
+    lockedCurrency,
+    fundingHint,
+    urgency,
+    setUrgency,
+    paymentPurpose,
+    setPaymentPurpose,
+    purposeOptions,
+    transferPurposeHidden,
+    transferHintText,
+    billingDate,
+    setBillingDate,
+    amortizationEnabled,
+    setAmortizationEnabled,
+    amortizationMonths,
+    setAmortizationMonths,
+    attachmentFileList,
+    setAttachmentFileList,
+    submitting,
+    goNext,
+    goBack,
+    submit,
+    newVendorOpen,
+    setNewVendorOpen,
+    newVendorName,
+    setNewVendorName,
+    newVendorInn,
+    setNewVendorInn,
+    newVendorAccount,
+    setNewVendorAccount,
+    newVendorSaving,
+    saveNewVendor,
+    newContractOpen,
+    setNewContractOpen,
+    newContractSaving,
+    saveNewContract,
+    ncNumber,
+    setNcNumber,
+    ncDateFrom,
+    setNcDateFrom,
+    ncDateTo,
+    setNcDateTo,
+    ncAmount,
+    setNcAmount,
+    ncCurrency,
+    setNcCurrency,
+    ncTerms,
+    setNcTerms,
+    ncAcc,
+    setNcAcc,
+    ncFileList,
+    setNcFileList,
+  } = useRequestCreateForm({
+    requestsBasePath,
+    transferHintText: isTg ? CASH_REGISTER_TRANSFER_HINT_TG : CASH_REGISTER_TRANSFER_HINT_PORTAL,
+  })
 
   return (
     <div className={isTg ? 'tg-create-page' : undefined}>

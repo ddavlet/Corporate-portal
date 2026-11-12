@@ -2833,6 +2833,20 @@ export async function listVendors(params: { kind: 'cash' | 'transfer'; search?: 
   return fetchAllCursorPages<VendorDirectoryRow>(`/api/vendors/?${sp.toString()}`)
 }
 
+/** One page of the vendor directory for a search (pickers): a single request, `page_size` rows at most (server max 200). */
+export async function listVendorsPage(params: {
+  kind: 'cash' | 'transfer'
+  search?: string
+  page_size: number
+}): Promise<VendorDirectoryRow[]> {
+  const sp = new URLSearchParams()
+  sp.set('kind', params.kind)
+  if (params.search?.trim()) sp.set('search', params.search.trim())
+  sp.set('page_size', String(params.page_size))
+  const page = await fetchCursorListPage<VendorDirectoryRow>(`/api/vendors/?${sp.toString()}`)
+  return page.results
+}
+
 export type CreateVendorBody = {
   kind: 'cash' | 'transfer'
   name: string

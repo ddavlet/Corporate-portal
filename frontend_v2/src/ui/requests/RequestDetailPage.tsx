@@ -667,6 +667,8 @@ export function RequestDetailPage({ listPath = '/requests', variant = 'portal' }
           onUploadFiles={() => setUploadOpen(true)}
           onOpenNote={() => setOpenNoteModal(true)}
           onDuplicate={() => void duplicateRequest()}
+          justCreated={showCreatedAlert}
+          onDismissJustCreated={() => setShowCreatedAlert(false)}
         />
         {noteModal}
         {draftEditModal}
