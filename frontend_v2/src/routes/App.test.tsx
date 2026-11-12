@@ -56,10 +56,17 @@ vi.mock('../ui/BankExpenseDetailPage', () => ({ BankExpenseDetailPage: () => <di
 // RequestsRoute is the real switch; the two pages it picks between are stubs.
 vi.mock('../ui/requests/RequestsPage', () => ({ RequestsPage: () => <div>RequestsPage</div> }))
 vi.mock('../ui/requests/RequestsMobilePage', () => ({ RequestsMobilePage: () => <div>RequestsMobilePage</div> }))
+// RequestCreateRoute is the real switch too, between the wizard and the desktop form.
+vi.mock('../ui/requests/RequestCreatePage', () => ({ RequestCreatePage: () => <div>RequestCreatePage</div> }))
+vi.mock('../ui/requests/RequestCreateMobilePage', () => ({
+  RequestCreateMobilePage: () => <div>RequestCreateMobilePage</div>,
+}))
 vi.mock('../ui/requests', async () => ({
   RequestsRoute: (await vi.importActual<typeof import('../ui/requests/RequestsRoute')>('../ui/requests/RequestsRoute'))
     .RequestsRoute,
-  RequestCreatePage: () => <div>RequestCreatePage</div>,
+  RequestCreateRoute: (
+    await vi.importActual<typeof import('../ui/requests/RequestCreateRoute')>('../ui/requests/RequestCreateRoute')
+  ).RequestCreateRoute,
   RequestDetailPage: () => <div>RequestDetailPage</div>,
   RequestFormConfigPage: () => <div>RequestFormConfigPage</div>,
   RequestApprovalConfigPage: () => <div>RequestApprovalConfigPage</div>,
@@ -222,7 +229,7 @@ describe('App routing on a phone', () => {
     for (const [url, page] of [
       ['/requests/12', 'RequestDetailPage'],
       ['/requests', 'RequestsMobilePage'],
-      ['/requests/new', 'RequestCreatePage'],
+      ['/requests/new', 'RequestCreateMobilePage'],
     ]) {
       const { unmount } = renderAt(url)
       expect(screen.getByText(page)).toBeInTheDocument()
@@ -274,6 +281,19 @@ describe('App routing on a phone', () => {
     renderAt('/requests')
     expect(screen.getByText('RequestsPage')).toBeInTheDocument()
     expect(screen.queryByText('RequestsMobilePage')).toBeNull()
+  })
+
+  it('opens the create wizard on a phone and the desktop create form on a desktop', () => {
+    setViewport('phone')
+    const phone = renderAt('/requests/new')
+    expect(screen.getByText('RequestCreateMobilePage')).toBeInTheDocument()
+    expect(screen.queryByText('RequestCreatePage')).toBeNull()
+    phone.unmount()
+
+    setViewport('desktop')
+    renderAt('/requests/new')
+    expect(screen.getByText('RequestCreatePage')).toBeInTheDocument()
+    expect(screen.queryByText('RequestCreateMobilePage')).toBeNull()
   })
 
   it('keeps the dashboard on a desktop', () => {

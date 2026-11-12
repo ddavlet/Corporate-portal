@@ -5,6 +5,7 @@ import utc from 'dayjs/plugin/utc'
 import { MemoryRouter, Route, Routes, useLocation, useParams } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { resetViewport, setViewport, type ViewportKind } from '../../test/viewport'
+import { RequestCreateRoute } from '../requests/RequestCreateRoute'
 import { TgRequestCreatePage } from './TgRequestCreatePage'
 
 dayjs.extend(utc)
@@ -152,5 +153,38 @@ describe.each<ViewportKind>(['phone', 'desktop'])('TgRequestCreatePage on a %s',
       vendor_ref: 5,
     })
     expect((await screen.findByTestId('detail')).textContent).toBe('id=501 state={"justCreated":true}')
+  })
+})
+
+describe('the portal create route inside the Mini App on a phone', () => {
+  beforeEach(() => {
+    setViewport('phone')
+    // The page runs under /tg/: the one switch of the mobile layout (usePortalMobileMode) reads the address.
+    window.history.pushState({}, '', '/tg/requests/new')
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date('2026-11-12T10:00:00Z'))
+    api.getRequestFormOptions.mockReset().mockResolvedValue(options)
+    api.listVendors.mockReset().mockResolvedValue([])
+    api.listContracts.mockReset().mockResolvedValue([])
+  })
+
+  afterEach(() => {
+    window.history.pushState({}, '', '/')
+    resetViewport()
+    vi.useRealTimers()
+  })
+
+  it('never turns into the portal full-screen wizard', async () => {
+    render(
+      <MemoryRouter initialEntries={['/tg/requests/new']}>
+        <Routes>
+          <Route path="/tg/requests/new" element={<RequestCreateRoute />} />
+        </Routes>
+      </MemoryRouter>,
+    )
+    await waitForForm()
+
+    expect(screen.queryByTestId('request-create-mobile')).toBeNull()
+    expect(document.querySelector('.m-fullscreen')).toBeNull()
   })
 })

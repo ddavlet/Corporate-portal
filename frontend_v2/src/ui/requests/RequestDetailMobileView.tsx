@@ -1,6 +1,6 @@
 import { useMemo, useState, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
-import { Button, Typography, message, theme } from 'antd'
+import { Alert, Button, Typography, message, theme } from 'antd'
 import {
   CopyOutlined,
   EditOutlined,
@@ -61,6 +61,9 @@ export type RequestDetailMobileViewProps = {
   onUploadFiles: () => void
   onOpenNote: () => void
   onDuplicate: () => void
+  /** Opened right after the wizard created the request: a success notice on top until it is closed. */
+  justCreated?: boolean
+  onDismissJustCreated?: () => void
 }
 
 const REQUESTS_PATH = '/requests'
@@ -85,6 +88,8 @@ export function RequestDetailMobileView({
   onUploadFiles,
   onOpenNote,
   onDuplicate,
+  justCreated = false,
+  onDismissJustCreated,
 }: RequestDetailMobileViewProps) {
   const { token } = theme.useToken()
   const [menuOpen, setMenuOpen] = useState(false)
@@ -151,6 +156,18 @@ export function RequestDetailMobileView({
 
   return (
     <div className="m-root" data-testid="request-detail-mobile" style={{ display: 'grid', gap: 12, minWidth: 0 }}>
+      {justCreated ? (
+        <Alert
+          data-testid="request-created-alert"
+          type="success"
+          showIcon
+          closable={{ closeIcon: true, 'aria-label': 'Закрыть' }}
+          onClose={onDismissJustCreated}
+          message="Заявка успешно создана!"
+          description="Ваша заявка была создана и отправлена на согласование."
+          style={{ borderRadius: token.borderRadiusLG }}
+        />
+      ) : null}
       <section
         aria-label="Заявка"
         style={{ padding: 16, borderRadius: token.borderRadiusLG, background: token.colorBgContainer, minWidth: 0 }}

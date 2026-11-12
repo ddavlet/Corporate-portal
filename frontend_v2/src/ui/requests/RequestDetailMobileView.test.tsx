@@ -145,7 +145,7 @@ function HeaderProbe({ store }: { store: MobileHeaderStore }) {
   )
 }
 
-function renderPage(path = '/requests/77') {
+function renderPage(path: string | { pathname: string; state: unknown } = '/requests/77') {
   const headerStore = createMobileHeaderStore()
   return render(
     <MobileShellContext.Provider
@@ -209,6 +209,22 @@ describe('RequestDetailPage on a phone', () => {
 
     expect(screen.getByText('Комментарии')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: '+ Добавить' })).toBeInTheDocument()
+  })
+
+  it('shows «Заявка успешно создана!» after the wizard until it is closed', async () => {
+    renderPage({ pathname: '/requests/77', state: { justCreated: true } })
+
+    const notice = (await screen.findByText('Заявка успешно создана!')).closest('[role="alert"]') as HTMLElement
+    expect(notice).not.toBeNull()
+    fireEvent.click(within(notice).getByRole('button', { name: 'Закрыть' }))
+    await waitFor(() => expect(screen.queryByText('Заявка успешно создана!')).toBeNull())
+  })
+
+  it('shows no «created» notice when the card is opened otherwise', async () => {
+    renderPage()
+
+    expect(await screen.findByTestId('request-detail-mobile')).toBeInTheDocument()
+    expect(screen.queryByText('Заявка успешно создана!')).toBeNull()
   })
 
   it('shows the plaque and the decision bar only on the user’s own active step', async () => {
