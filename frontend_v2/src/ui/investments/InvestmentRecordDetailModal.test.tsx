@@ -92,3 +92,67 @@ describe('InvestmentRecordDetailModal — переотправка карточ�
     expect(screen.queryByRole('button', { name: /Переотправить/ })).not.toBeInTheDocument()
   })
 })
+
+describe('InvestmentRecordDetailModal — без переотправки (телефон портала)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('с allowResend={false} не показывает «Переотправить» у ожидающего этапа', async () => {
+    getInvestReturnApprovalsMock.mockResolvedValue([approval({ can_resend: true })])
+    render(
+      <MemoryRouter>
+        <InvestmentRecordDetailModal
+          open
+          onCancel={() => {}}
+          kind="return"
+          record={projectRecord as never}
+          variant="portal"
+          allowResend={false}
+        />
+      </MemoryRouter>,
+    )
+
+    await screen.findByText('Директор')
+    expect(screen.getByText('В ожидании (1)')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /Переотправить/ })).not.toBeInTheDocument()
+    expect(resendReturnMock).not.toHaveBeenCalled()
+  })
+})
+
+describe('InvestmentRecordDetailModal — расположение подписей', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    getProjectInvestmentApprovalsMock.mockResolvedValue([])
+  })
+
+  /** Строка таблицы с подписью «ID»: в горизонтальном виде в ней и значение, в вертикальном — только подпись. */
+  function idLabelRow(): HTMLTableRowElement {
+    const label = [...document.querySelectorAll('.ant-descriptions-item-label')].find((el) => el.textContent === 'ID')
+    return label!.closest('tr') as HTMLTableRowElement
+  }
+
+  it('по умолчанию в портале держит подпись и значение в одной строке', async () => {
+    renderModal('project')
+    await screen.findByText('Заявка на вложение #77')
+    expect(idLabelRow().querySelector('.ant-descriptions-item-content')).not.toBeNull()
+  })
+
+  it('с descriptionsLayout="vertical" ставит подписи над значениями', async () => {
+    render(
+      <MemoryRouter>
+        <InvestmentRecordDetailModal
+          open
+          onCancel={() => {}}
+          kind="project"
+          record={projectRecord as never}
+          variant="portal"
+          descriptionsLayout="vertical"
+        />
+      </MemoryRouter>,
+    )
+    await screen.findByText('Заявка на вложение #77')
+    expect(idLabelRow().querySelector('.ant-descriptions-item-content')).toBeNull()
+    expect(screen.getByText('77')).toBeInTheDocument()
+  })
+})

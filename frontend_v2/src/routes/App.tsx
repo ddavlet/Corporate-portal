@@ -2,7 +2,6 @@ import { useEffect } from 'react'
 import { Navigate, Route, Routes, useNavigate, useParams } from 'react-router-dom'
 import { AppShell } from '../ui/AppShell'
 import { LoginPage } from '../ui/LoginPage'
-import { DashboardPage } from '../ui/DashboardPage'
 import { NotificationsPage } from '../ui/NotificationsPage'
 import { CashPage } from '../ui/CashPage'
 import { CashSectionPage } from '../ui/CashSectionPage'
@@ -15,7 +14,12 @@ import { PayrollPage } from '../ui/PayrollPage'
 import { ReportsPage } from '../ui/reports/ReportsPage'
 import { ReportDetailPage } from '../ui/reports/ReportDetailPage'
 import { ReportNotFoundPage } from '../ui/reports/ReportNotFoundPage'
-import { InvestmentsPage } from '../ui/InvestmentsPage'
+import {
+  InvestmentCollectRoute,
+  InvestmentCreateRoute,
+  InvestmentsRoute,
+  InvestReturnCreateRoute,
+} from '../ui/investments/InvestmentsRoute'
 import { PublicInvestmentsSchedulePage } from '../ui/PublicInvestmentsSchedulePage'
 import { ClientsDebtPage } from '../ui/ClientsDebtPage'
 import { BudgetsPage } from '../ui/BudgetsPage'
@@ -24,13 +28,13 @@ import { PayrollDocumentDetailPage } from '../ui/PayrollDocumentDetailPage'
 import { CashExpenseDetailPage } from '../ui/CashExpenseDetailPage'
 import { BankExpenseDetailPage } from '../ui/BankExpenseDetailPage'
 import {
-  RequestCreatePage,
+  RequestCreateRoute,
   RequestDetailPage,
   RequestFormConfigPage,
   RequestApprovalConfigPage,
   AutoRequestsConfigPage,
   RequestMonthAuditPage,
-  RequestsPage,
+  RequestsRoute,
 } from '../ui/requests'
 import { SettingsPage } from '../ui/SettingsPage'
 import { TenantIntegrationConfigPage } from '../ui/settings/TenantIntegrationConfigPage'
@@ -80,6 +84,8 @@ import { ModuleAccessProvider } from '../ui/moduleAccess'
 import { CompanyProvider, useCompany } from '../ui/company'
 import { setUnauthorizedHandler } from '../lib/api'
 import { PwaUpdateBridge } from '../ui/PwaUpdateBridge'
+import { DesktopOnlyRoute } from '../ui/DesktopOnlyRoute'
+import { HomeRoute } from '../ui/HomeRoute'
 
 function CashExpenseLegacyRedirect() {
   const { id } = useParams()
@@ -163,62 +169,69 @@ export function App() {
           )
         }
       >
-        <Route index element={<DashboardPage />} />
+        <Route index element={<HomeRoute />} />
         <Route path="notifications" element={<NotificationsPage />} />
-        <Route path="requests" element={<RequestsPage />} />
-        <Route path="requests/new" element={<RequestCreatePage />} />
-        <Route path="requests/audit" element={<RequestMonthAuditPage />} />
-        <Route path="requests/auto-config" element={<AutoRequestsConfigPage />} />
+        <Route path="requests" element={<RequestsRoute />} />
+        <Route path="requests/new" element={<RequestCreateRoute />} />
         <Route path="requests/:id" element={<RequestDetailPage />} />
-        <Route path="cash" element={<CashPage />} />
-        <Route path="cash/all" element={<CashSectionPage mode="all" />} />
-        <Route path="cash/expenses" element={<CashSectionPage mode="expenses" />} />
-        <Route path="cash/revenues" element={<CashSectionPage mode="revenues" />} />
-        <Route path="cash/expenses/:id" element={<CashExpenseDetailPage />} />
-        <Route path="cash/:id" element={<CashExpenseLegacyRedirect />} />
-        <Route path="bank" element={<BankPage />} />
-        <Route path="bank/all" element={<BankSectionPage mode="all" />} />
-        <Route path="bank/expenses" element={<BankSectionPage mode="expenses" />} />
-        <Route path="bank/revenues" element={<BankSectionPage mode="revenues" />} />
-        <Route path="bank/expenses/:id" element={<BankExpenseDetailPage />} />
-        <Route path="bank/accounts/:walletId" element={<BankAccountPage />} />
-        <Route path="bank/:id" element={<BankExpenseLegacyRedirect />} />
-        <Route path="corporate-card" element={<CorporateCardPage />} />
-        <Route path="corporate-card/all" element={<CorporateCardSectionPage mode="all" />} />
-        <Route path="corporate-card/expenses" element={<CorporateCardSectionPage mode="expenses" />} />
-        <Route path="corporate-card/revenues" element={<CorporateCardSectionPage mode="revenues" />} />
-        <Route path="payroll" element={<PayrollPage />} />
-        <Route path="reports" element={<ReportsPage />} />
-        <Route path="reports/:template/:report" element={<ReportDetailPage />} />
-        <Route path="reports/*" element={<ReportNotFoundPage />} />
-        <Route path="investments" element={<InvestmentsPage />} />
-        <Route path="clients-debt" element={<ClientsDebtPage />} />
-        <Route path="budgets" element={<BudgetsPage />} />
-        <Route path="contracts" element={<ContractsPage />} />
-        <Route path="payroll/:id" element={<PayrollDocumentDetailPage />} />
-        <Route path="settings" element={<SettingsPage />} />
-        <Route path="settings/request-form-config" element={<RequestFormConfigPage />} />
-        <Route path="settings/request-approval-config" element={<RequestApprovalConfigPage />} />
-        <Route path="settings/investment-funding-config" element={<InvestmentFundingConfigPage />} />
-        <Route path="settings/investment-form-config" element={<InvestmentFormConfigPage />} />
-        <Route path="settings/investment-notification-config" element={<InvestmentNotificationConfigPage />} />
-        <Route path="settings/investment-report" element={<InvestmentReportConfigPage />} />
-        <Route path="settings/investment-approval-config" element={<InvestmentApprovalConfigPage />} />
-        <Route path="settings/investment-project-approval-config" element={<InvestmentProjectApprovalConfigPage />} />
-        <Route path="settings/dividend-payout-rules" element={<DividendPayoutRulesPage />} />
-        <Route path="settings/tenant-integration-config" element={<TenantIntegrationConfigPage />} />
-        <Route path="settings/users-roles" element={<UserRolesSettingsPage />} />
-        <Route path="settings/cash-registers" element={<CashRegistersSettingsPage />} />
-        <Route path="settings/cash-withdrawal-config" element={<CashWithdrawalConfigPage />} />
-        <Route path="settings/cash-desk-config" element={<CashDeskConfigPage />} />
-        <Route path="settings/telegram-chats" element={<TelegramChatsConfigPage />} />
-        <Route path="settings/pnl-report-config" element={<ReportRulesSettingsPage report="pnl" />} />
-        <Route path="settings/cashflow-report-config" element={<ReportRulesSettingsPage report="cashflow" />} />
-        <Route path="settings/report-templates" element={<ReportTemplateSettingsPage />} />
-        <Route path="settings/tasks-config" element={<TasksConfigPage />} />
-        <Route path="settings/payroll-config" element={<PayrollSettingsPage />} />
-        <Route path="admin" element={<AdminRouteGate />} />
-        <Route path="tasks" element={<TasksPage />} />
+        {/* A phone gets the actions on their own full-screen addresses; the desktop opens them as modals on /investments. */}
+        <Route path="investments" element={<InvestmentsRoute />} />
+        <Route path="investments/returns/new" element={<InvestReturnCreateRoute />} />
+        <Route path="investments/collect" element={<InvestmentCollectRoute />} />
+        <Route path="investments/new" element={<InvestmentCreateRoute />} />
+        {/* No phone layout yet: on a phone these show «Раздел доступен на компьютере» instead of the page. */}
+        <Route element={<DesktopOnlyRoute />}>
+          <Route path="requests/audit" element={<RequestMonthAuditPage />} />
+          <Route path="requests/auto-config" element={<AutoRequestsConfigPage />} />
+          <Route path="cash" element={<CashPage />} />
+          <Route path="cash/all" element={<CashSectionPage mode="all" />} />
+          <Route path="cash/expenses" element={<CashSectionPage mode="expenses" />} />
+          <Route path="cash/revenues" element={<CashSectionPage mode="revenues" />} />
+          <Route path="cash/expenses/:id" element={<CashExpenseDetailPage />} />
+          <Route path="cash/:id" element={<CashExpenseLegacyRedirect />} />
+          <Route path="bank" element={<BankPage />} />
+          <Route path="bank/all" element={<BankSectionPage mode="all" />} />
+          <Route path="bank/expenses" element={<BankSectionPage mode="expenses" />} />
+          <Route path="bank/revenues" element={<BankSectionPage mode="revenues" />} />
+          <Route path="bank/expenses/:id" element={<BankExpenseDetailPage />} />
+          <Route path="bank/accounts/:walletId" element={<BankAccountPage />} />
+          <Route path="bank/:id" element={<BankExpenseLegacyRedirect />} />
+          <Route path="corporate-card" element={<CorporateCardPage />} />
+          <Route path="corporate-card/all" element={<CorporateCardSectionPage mode="all" />} />
+          <Route path="corporate-card/expenses" element={<CorporateCardSectionPage mode="expenses" />} />
+          <Route path="corporate-card/revenues" element={<CorporateCardSectionPage mode="revenues" />} />
+          <Route path="payroll" element={<PayrollPage />} />
+          <Route path="reports" element={<ReportsPage />} />
+          <Route path="reports/:template/:report" element={<ReportDetailPage />} />
+          <Route path="reports/*" element={<ReportNotFoundPage />} />
+          <Route path="clients-debt" element={<ClientsDebtPage />} />
+          <Route path="budgets" element={<BudgetsPage />} />
+          <Route path="contracts" element={<ContractsPage />} />
+          <Route path="payroll/:id" element={<PayrollDocumentDetailPage />} />
+          <Route path="settings" element={<SettingsPage />} />
+          <Route path="settings/request-form-config" element={<RequestFormConfigPage />} />
+          <Route path="settings/request-approval-config" element={<RequestApprovalConfigPage />} />
+          <Route path="settings/investment-funding-config" element={<InvestmentFundingConfigPage />} />
+          <Route path="settings/investment-form-config" element={<InvestmentFormConfigPage />} />
+          <Route path="settings/investment-notification-config" element={<InvestmentNotificationConfigPage />} />
+          <Route path="settings/investment-report" element={<InvestmentReportConfigPage />} />
+          <Route path="settings/investment-approval-config" element={<InvestmentApprovalConfigPage />} />
+          <Route path="settings/investment-project-approval-config" element={<InvestmentProjectApprovalConfigPage />} />
+          <Route path="settings/dividend-payout-rules" element={<DividendPayoutRulesPage />} />
+          <Route path="settings/tenant-integration-config" element={<TenantIntegrationConfigPage />} />
+          <Route path="settings/users-roles" element={<UserRolesSettingsPage />} />
+          <Route path="settings/cash-registers" element={<CashRegistersSettingsPage />} />
+          <Route path="settings/cash-withdrawal-config" element={<CashWithdrawalConfigPage />} />
+          <Route path="settings/cash-desk-config" element={<CashDeskConfigPage />} />
+          <Route path="settings/telegram-chats" element={<TelegramChatsConfigPage />} />
+          <Route path="settings/pnl-report-config" element={<ReportRulesSettingsPage report="pnl" />} />
+          <Route path="settings/cashflow-report-config" element={<ReportRulesSettingsPage report="cashflow" />} />
+          <Route path="settings/report-templates" element={<ReportTemplateSettingsPage />} />
+          <Route path="settings/tasks-config" element={<TasksConfigPage />} />
+          <Route path="settings/payroll-config" element={<PayrollSettingsPage />} />
+          <Route path="admin" element={<AdminRouteGate />} />
+          <Route path="tasks" element={<TasksPage />} />
+        </Route>
       </Route>
 
       <Route path="*" element={<Navigate to="/requests" replace />} />

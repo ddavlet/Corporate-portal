@@ -3,8 +3,15 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { MemoryRouter, Outlet } from 'react-router-dom'
 import type { ReactNode } from 'react'
 import { App } from './App'
+import { installViewport, setViewport } from '../test/viewport'
+
+// Routes read the breakpoint (desktop-only sections, start page): desktop unless a test switches to the phone.
+installViewport('desktop')
 
 const useAuthMock = vi.fn()
+const moduleAccessState = vi.hoisted(() => ({
+  value: { loading: false, hasAccess: (_key: string): boolean => true } as { loading: boolean; hasAccess: (key: string) => boolean },
+}))
 const setUnauthorizedHandlerMock = vi.fn()
 
 vi.mock('../ui/auth', () => ({
@@ -17,6 +24,7 @@ vi.mock('../lib/api', () => ({
 
 vi.mock('../ui/moduleAccess', () => ({
   ModuleAccessProvider: ({ children }: { children: ReactNode }) => <>{children}</>,
+  useModuleAccess: () => moduleAccessState.value,
 }))
 
 vi.mock('../ui/AppShell', () => ({
@@ -29,6 +37,7 @@ vi.mock('../ui/AppShell', () => ({
 }))
 vi.mock('../ui/LoginPage', () => ({ LoginPage: () => <div>LoginPage</div> }))
 vi.mock('../ui/DashboardPage', () => ({ DashboardPage: () => <div>DashboardPage</div> }))
+vi.mock('../ui/NotificationsPage', () => ({ NotificationsPage: () => <div>NotificationsPage</div> }))
 vi.mock('../ui/CashPage', () => ({ CashPage: () => <div>CashPage</div> }))
 vi.mock('../ui/CashSectionPage', () => ({ CashSectionPage: () => <div>CashSectionPage</div> }))
 vi.mock('../ui/BankPage', () => ({ BankPage: () => <div>BankPage</div> }))
@@ -44,18 +53,46 @@ vi.mock('../ui/ClientsDebtPage', () => ({ ClientsDebtPage: () => <div>ClientsDeb
 vi.mock('../ui/PayrollDocumentDetailPage', () => ({ PayrollDocumentDetailPage: () => <div>PayrollDocumentDetailPage</div> }))
 vi.mock('../ui/CashExpenseDetailPage', () => ({ CashExpenseDetailPage: () => <div>CashExpenseDetailPage</div> }))
 vi.mock('../ui/BankExpenseDetailPage', () => ({ BankExpenseDetailPage: () => <div>BankExpenseDetailPage</div> }))
-vi.mock('../ui/requests', () => ({
-  RequestCreatePage: () => <div>RequestCreatePage</div>,
+// RequestsRoute is the real switch; the two pages it picks between are stubs.
+vi.mock('../ui/requests/RequestsPage', () => ({ RequestsPage: () => <div>RequestsPage</div> }))
+vi.mock('../ui/requests/RequestsMobilePage', () => ({ RequestsMobilePage: () => <div>RequestsMobilePage</div> }))
+// RequestCreateRoute is the real switch too, between the wizard and the desktop form.
+vi.mock('../ui/requests/RequestCreatePage', () => ({ RequestCreatePage: () => <div>RequestCreatePage</div> }))
+vi.mock('../ui/requests/RequestCreateMobilePage', () => ({
+  RequestCreateMobilePage: () => <div>RequestCreateMobilePage</div>,
+}))
+vi.mock('../ui/requests', async () => ({
+  RequestsRoute: (await vi.importActual<typeof import('../ui/requests/RequestsRoute')>('../ui/requests/RequestsRoute'))
+    .RequestsRoute,
+  RequestCreateRoute: (
+    await vi.importActual<typeof import('../ui/requests/RequestCreateRoute')>('../ui/requests/RequestCreateRoute')
+  ).RequestCreateRoute,
   RequestDetailPage: () => <div>RequestDetailPage</div>,
   RequestFormConfigPage: () => <div>RequestFormConfigPage</div>,
   RequestApprovalConfigPage: () => <div>RequestApprovalConfigPage</div>,
   AutoRequestsConfigPage: () => <div>AutoRequestsConfigPage</div>,
   RequestMonthAuditPage: () => <div>RequestMonthAuditPage</div>,
-  RequestsPage: () => <div>RequestsPage</div>,
+}))
+// InvestmentsRoute and the form routes are the real switches; the pages they pick between are stubs.
+vi.mock('../ui/InvestmentsPage', () => ({ InvestmentsPage: () => <div>InvestmentsPage</div> }))
+vi.mock('../ui/investments/InvestmentsMobilePage', () => ({
+  InvestmentsMobilePage: () => <div>InvestmentsMobilePage</div>,
+}))
+vi.mock('../ui/investments/InvestReturnCreateMobilePage', () => ({
+  InvestReturnCreateMobilePage: () => <div>InvestReturnCreateMobilePage</div>,
+}))
+vi.mock('../ui/investments/InvestmentCollectMobilePage', () => ({
+  InvestmentCollectMobilePage: () => <div>InvestmentCollectMobilePage</div>,
+}))
+vi.mock('../ui/investments/InvestmentCreateMobilePage', () => ({
+  InvestmentCreateMobilePage: () => <div>InvestmentCreateMobilePage</div>,
 }))
 vi.mock('../ui/SettingsPage', () => ({ SettingsPage: () => <div>SettingsPage</div> }))
 vi.mock('../ui/settings/TenantIntegrationConfigPage', () => ({
   TenantIntegrationConfigPage: () => <div>TenantIntegrationConfigPage</div>,
+}))
+vi.mock('../ui/settings/UserRolesSettingsPage', () => ({
+  UserRolesSettingsPage: () => <div>UserRolesSettingsPage</div>,
 }))
 vi.mock('../ui/settings/CashRegistersSettingsPage', () => ({
   CashRegistersSettingsPage: () => <div>CashRegistersSettingsPage</div>,
@@ -79,6 +116,7 @@ describe('App routing smoke', () => {
   beforeEach(() => {
     useAuthMock.mockReset()
     setUnauthorizedHandlerMock.mockReset()
+    moduleAccessState.value = { loading: false, hasAccess: () => true }
   })
 
   it('renders login route when unauthenticated', () => {
@@ -155,5 +193,156 @@ describe('App routing smoke', () => {
       </MemoryRouter>,
     )
     expect(screen.getByText('TgInvestmentsPage')).toBeInTheDocument()
+  })
+})
+
+describe('App routing on a phone', () => {
+  beforeEach(() => {
+    useAuthMock.mockReset()
+    useAuthMock.mockReturnValue({ accessToken: 'token', logout: vi.fn() })
+    setUnauthorizedHandlerMock.mockReset()
+    moduleAccessState.value = { loading: false, hasAccess: () => true }
+  })
+
+  function renderAt(url: string) {
+    return render(
+      <MemoryRouter initialEntries={[url]}>
+        <App />
+      </MemoryRouter>,
+    )
+  }
+
+  const DESKTOP_ONLY: Array<[string, string]> = [
+    ['/cash', 'CashPage'],
+    ['/settings/users-roles', 'UserRolesSettingsPage'],
+    ['/requests/audit', 'RequestMonthAuditPage'],
+  ]
+
+  it('shows the desktop-only placeholder and does not mount the page', () => {
+    setViewport('phone')
+    for (const [url, page] of DESKTOP_ONLY) {
+      const { unmount } = renderAt(url)
+      expect(screen.getByText('Раздел доступен на компьютере')).toBeInTheDocument()
+      expect(screen.queryByText(page)).toBeNull()
+      unmount()
+    }
+  })
+
+  it('opens the same sections on a desktop', () => {
+    setViewport('desktop')
+    for (const [url, page] of DESKTOP_ONLY) {
+      const { unmount } = renderAt(url)
+      expect(screen.getByText(page)).toBeInTheDocument()
+      expect(screen.queryByText('Раздел доступен на компьютере')).toBeNull()
+      unmount()
+    }
+  })
+
+  it('keeps the requests, the request card and the create page on a phone', () => {
+    setViewport('phone')
+    for (const [url, page] of [
+      ['/requests/12', 'RequestDetailPage'],
+      ['/requests', 'RequestsMobilePage'],
+      ['/requests/new', 'RequestCreateMobilePage'],
+    ]) {
+      const { unmount } = renderAt(url)
+      expect(screen.getByText(page)).toBeInTheDocument()
+      unmount()
+    }
+  })
+
+  it('starts on the notifications on a phone', () => {
+    setViewport('phone')
+    renderAt('/')
+    expect(screen.getByText('NotificationsPage')).toBeInTheDocument()
+    expect(screen.queryByText('RequestsMobilePage')).toBeNull()
+    expect(screen.queryByText('DashboardPage')).toBeNull()
+  })
+
+  it('starts on the notifications on a phone without the requests module too', () => {
+    setViewport('phone')
+    moduleAccessState.value = { loading: false, hasAccess: (key: string) => key !== 'requests' }
+    renderAt('/')
+    expect(screen.getByText('NotificationsPage')).toBeInTheDocument()
+  })
+
+  it('keeps the Mini App routes out of the portal layout at phone width', () => {
+    setViewport('phone')
+    for (const url of ['/tg/requests/new', '/tg/requests/12']) {
+      const { unmount } = renderAt(url)
+      expect(screen.getByText('TgWebAppLayout')).toBeInTheDocument()
+      expect(screen.queryByText('AppShell')).toBeNull()
+      expect(screen.queryByText('Раздел доступен на компьютере')).toBeNull()
+      unmount()
+    }
+  })
+
+  it('opens the mobile feed on a phone and the desktop table on a desktop', () => {
+    setViewport('phone')
+    const phone = renderAt('/requests?tab=all')
+    expect(screen.getByText('RequestsMobilePage')).toBeInTheDocument()
+    expect(screen.queryByText('RequestsPage')).toBeNull()
+    phone.unmount()
+
+    setViewport('desktop')
+    renderAt('/requests')
+    expect(screen.getByText('RequestsPage')).toBeInTheDocument()
+    expect(screen.queryByText('RequestsMobilePage')).toBeNull()
+  })
+
+  it('opens the create wizard on a phone and the desktop create form on a desktop', () => {
+    setViewport('phone')
+    const phone = renderAt('/requests/new')
+    expect(screen.getByText('RequestCreateMobilePage')).toBeInTheDocument()
+    expect(screen.queryByText('RequestCreatePage')).toBeNull()
+    phone.unmount()
+
+    setViewport('desktop')
+    renderAt('/requests/new')
+    expect(screen.getByText('RequestCreatePage')).toBeInTheDocument()
+    expect(screen.queryByText('RequestCreateMobilePage')).toBeNull()
+  })
+
+  it('opens the phone investments and their forms on a phone', () => {
+    setViewport('phone')
+    for (const [url, page] of [
+      ['/investments', 'InvestmentsMobilePage'],
+      ['/investments?tab=returns&open=5', 'InvestmentsMobilePage'],
+      ['/investments/returns/new', 'InvestReturnCreateMobilePage'],
+      ['/investments/collect', 'InvestmentCollectMobilePage'],
+      ['/investments/new', 'InvestmentCreateMobilePage'],
+    ]) {
+      const { unmount } = renderAt(url)
+      expect(screen.getByText(page)).toBeInTheDocument()
+      expect(screen.queryByText('InvestmentsPage')).toBeNull()
+      expect(screen.queryByText('Раздел доступен на компьютере')).toBeNull()
+      unmount()
+    }
+  })
+
+  it('keeps the desktop investments and sends the phone form addresses there on a desktop', () => {
+    setViewport('desktop')
+    for (const url of ['/investments', '/investments/returns/new', '/investments/collect', '/investments/new']) {
+      const { unmount } = renderAt(url)
+      expect(screen.getByText('InvestmentsPage')).toBeInTheDocument()
+      expect(screen.queryByText('InvestmentsMobilePage')).toBeNull()
+      expect(screen.queryByText('InvestReturnCreateMobilePage')).toBeNull()
+      expect(screen.queryByText('InvestmentCollectMobilePage')).toBeNull()
+      expect(screen.queryByText('InvestmentCreateMobilePage')).toBeNull()
+      unmount()
+    }
+  })
+
+  it('keeps the Mini App investments at phone width', () => {
+    setViewport('phone')
+    renderAt('/tg/investments')
+    expect(screen.getByText('TgInvestmentsPage')).toBeInTheDocument()
+    expect(screen.queryByText('InvestmentsMobilePage')).toBeNull()
+  })
+
+  it('keeps the dashboard on a desktop', () => {
+    setViewport('desktop')
+    renderAt('/')
+    expect(screen.getByText('DashboardPage')).toBeInTheDocument()
   })
 })

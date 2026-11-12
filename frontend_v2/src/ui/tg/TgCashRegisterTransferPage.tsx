@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react'
-import { Alert, Button, Form, Input, InputNumber, Select, Skeleton, Typography } from 'antd'
+import { Alert, Button, Form, Input, InputNumber, Select, Skeleton, Typography, message } from 'antd'
 import { ArrowLeftOutlined } from '@ant-design/icons'
 import { useNavigate } from 'react-router-dom'
 import { getCashRegisters, getSettingsAccess, type CashRegisterDto } from '../../lib/api'
 import {
-  CashRegisterTransferSubmitError,
+  CashRegisterTransferTargetError,
   cashRegisterLabel,
+  cashRegisterTransferErrorText,
   submitCashRegisterTransfer,
 } from '../../lib/cashRegisterTransfer'
 import { useTgMainButton } from './useTgMainButton'
@@ -84,11 +85,13 @@ export function TgCashRegisterTransferPage() {
       })
       navigate('/tg/cash', { replace: true })
     } catch (err: unknown) {
-      if (err instanceof CashRegisterTransferSubmitError) {
-        setError(`Заявка №${err.requestId} создана, но не отправлена на согласование: ${err.message}`)
-      } else {
-        setError(err instanceof Error ? err.message : 'Не удалось создать заявку')
+      if (err instanceof CashRegisterTransferTargetError) {
+        // Заявка уже на согласовании: уйти с формы, чтобы повторная отправка не создала вторую.
+        message.warning(cashRegisterTransferErrorText(err), 10)
+        navigate('/tg/cash', { replace: true })
+        return
       }
+      setError(cashRegisterTransferErrorText(err))
     } finally {
       setSubmitting(false)
     }

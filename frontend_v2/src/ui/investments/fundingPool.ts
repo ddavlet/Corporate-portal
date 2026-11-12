@@ -1,4 +1,5 @@
 import type { FundingPoolRequestDto } from '../../lib/api'
+import { asMoney } from './utils'
 
 const DESCRIPTION_LIMIT = 80
 
@@ -32,6 +33,18 @@ export function totalsByCurrency(rows: FundingPoolRequestDto[], selectedIds: Set
     map.set(row.currency, item)
   }
   return Array.from(map.values())
+}
+
+/** «5 000 000 UZS (2 заявки)»: одна валюта итога выбранных заявок. */
+export function fundingTotalLine(total: CurrencyTotal): string {
+  const n = total.count
+  const word = n % 10 === 1 && n % 100 !== 11 ? 'заявка' : n % 10 >= 2 && n % 10 <= 4 && (n % 100 < 10 || n % 100 >= 20) ? 'заявки' : 'заявок'
+  return `${asMoney(total.amount)} ${total.currency} (${n} ${word})`
+}
+
+/** Строка итога под выбором заявок: «Итого: ничего не выбрано» либо «Итого: a; b». */
+export function fundingTotalsText(totals: CurrencyTotal[]): string {
+  return totals.length === 0 ? 'Итого: ничего не выбрано' : `Итого: ${totals.map(fundingTotalLine).join('; ')}`
 }
 
 function requestNote(row: FundingPoolRequestDto): string {

@@ -1,7 +1,13 @@
 import { describe, expect, it } from 'vitest'
 
 import type { FundingPoolRequestDto } from '../../lib/api'
-import { defaultCollectComment, groupByKind, totalsByCurrency } from './fundingPool'
+import {
+  defaultCollectComment,
+  fundingTotalLine,
+  fundingTotalsText,
+  groupByKind,
+  totalsByCurrency,
+} from './fundingPool'
 
 function row(over: Partial<FundingPoolRequestDto>): FundingPoolRequestDto {
   return {
@@ -68,5 +74,37 @@ describe('groupByKind', () => {
     const g = groupByKind([row({ id: 1 }), row({ id: 2, kind: 'transfer' })])
     expect(g.expense.map((r) => r.id)).toEqual([1])
     expect(g.transfer.map((r) => r.id)).toEqual([2])
+  })
+})
+
+describe('fundingTotalLine', () => {
+  const line = (count: number) => fundingTotalLine({ currency: 'UZS', amount: 1000, count })
+
+  it('declines «заявка» by the count', () => {
+    expect(line(1)).toMatch(/\(1 заявка\)$/)
+    expect(line(2)).toMatch(/\(2 заявки\)$/)
+    expect(line(5)).toMatch(/\(5 заявок\)$/)
+    expect(line(11)).toMatch(/\(11 заявок\)$/)
+    expect(line(21)).toMatch(/\(21 заявка\)$/)
+    expect(line(22)).toMatch(/\(22 заявки\)$/)
+  })
+
+  it('formats the amount and the currency', () => {
+    expect(fundingTotalLine({ currency: 'UZS', amount: 5000000, count: 1 })).toMatch(/^5\s?000\s?000 UZS \(1 заявка\)$/)
+  })
+})
+
+describe('fundingTotalsText', () => {
+  it('says that nothing is selected for an empty list', () => {
+    expect(fundingTotalsText([])).toBe('Итого: ничего не выбрано')
+  })
+
+  it('joins two currencies with «; »', () => {
+    expect(
+      fundingTotalsText([
+        { currency: 'UZS', amount: 7000000, count: 2 },
+        { currency: 'USD', amount: 100, count: 1 },
+      ]),
+    ).toMatch(/^Итого: 7\s?000\s?000 UZS \(2 заявки\); 100 USD \(1 заявка\)$/)
   })
 })

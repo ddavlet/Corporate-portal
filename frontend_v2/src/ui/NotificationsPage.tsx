@@ -7,6 +7,7 @@ import { actionItemTag, type ActionItem, type ActionItemKind } from '../lib/acti
 import { formatRequestDate } from '../lib/requestUtils'
 import { useActionItems } from '../lib/useActionItems'
 import { useCompany } from './company'
+import { usePortalMobileMode } from '../lib/useIsPhone'
 import { PushNotificationsWidget } from './PushNotificationsWidget'
 
 const KIND_LABELS: Record<ActionItemKind, string> = {
@@ -96,6 +97,7 @@ function ActionItemRow({ item }: { item: ActionItem }) {
 export function NotificationsPage() {
   const { items, count, loading, error, refresh } = useActionItems()
   const { enabled: allCompanies } = useCompany()
+  const isMobile = usePortalMobileMode()
   const [retrying, setRetrying] = useState(false)
 
   const retry = async () => {
@@ -108,12 +110,15 @@ export function NotificationsPage() {
   }
 
   return (
-    <Card>
+    <Card variant={isMobile ? 'borderless' : undefined} styles={isMobile ? { body: { padding: 16 } } : undefined}>
       <Space direction="vertical" size="middle" style={{ width: '100%' }}>
         <div>
-          <Typography.Title level={4} style={{ margin: 0 }}>
-            Уведомления
-          </Typography.Title>
+          {/* Phone: the header already says «Уведомления». */}
+          {isMobile ? null : (
+            <Typography.Title level={4} style={{ margin: 0 }}>
+              Уведомления
+            </Typography.Title>
+          )}
           <MutedText>
             {count > 0
               ? `Требуется ваше действие: ${count}`

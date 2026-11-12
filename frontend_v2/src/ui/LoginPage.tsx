@@ -1,10 +1,12 @@
 import { FormEvent, useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Alert, Button, Card, Form, Input, Segmented, Space, Typography } from 'antd'
+import { Alert, Button, Card, ConfigProvider, Form, Input, Segmented, Space, Typography } from 'antd'
 import { LockOutlined, UserOutlined } from '@ant-design/icons'
 import { useAuth } from './auth'
 import { exchangeTelegramOidc, getTelegramOidcConfig } from '../lib/api'
 import { isSharedAppMode } from '../lib/portalMode'
+import { usePortalMobileMode } from '../lib/useIsPhone'
+import { MOBILE_ANTD_THEME } from './mobileTheme'
 
 const OIDC_STATE_KEY = 'tg_oidc_state'
 const OIDC_VERIFIER_KEY = 'tg_oidc_code_verifier'
@@ -28,6 +30,7 @@ export function LoginPage() {
   const { login } = useAuth()
   // Shared app host: password and OTP only. Telegram OIDC is configured per company (subdomain), so it is hidden here.
   const sharedHost = isSharedAppMode()
+  const isMobile = usePortalMobileMode()
   const [mode, setMode] = useState<'password' | 'otp' | 'telegram'>('password')
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
@@ -208,9 +211,9 @@ export function LoginPage() {
     }
   }, [sharedHost])
 
-  return (
-    <div className="login-page">
-      <Card style={{ width: 420 }}>
+  const page = (
+    <div className={isMobile ? 'login-page m-root' : 'login-page'}>
+      <Card style={{ width: '100%', maxWidth: 420, minWidth: 0 }}>
         <Space direction="vertical" size="middle" style={{ width: '100%' }}>
           <Typography.Title level={3} style={{ margin: 0 }}>
             Вход в систему
@@ -337,5 +340,7 @@ export function LoginPage() {
       </Card>
     </div>
   )
-}
 
+  // Phone: touch-sized controls and 16 px fields (iOS does not zoom into them).
+  return isMobile ? <ConfigProvider theme={MOBILE_ANTD_THEME}>{page}</ConfigProvider> : page
+}

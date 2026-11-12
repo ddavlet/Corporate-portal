@@ -16,6 +16,8 @@ import {
   validateRequestAttachment,
 } from '../../lib/api'
 import { RequestDetailContent, type ApprovalItem, type RequestDetail } from './RequestDetailModal'
+import { isNotificationApprovalStep, isPaymentApprovalStep, minPendingApprovalStep } from './requestApprovalSteps'
+import { RequestDetailMobileView } from './RequestDetailMobileView'
 import { NoteCreateModal } from '../NoteCreateModal'
 import { useAuth } from '../auth'
 import { clampToAllowedBillingMonth, isAllowedBillingMonth } from '../../lib/billingMonth'
@@ -23,6 +25,7 @@ import { canOpenLinkedExpense, linkedExpenseFrontendPath, linkedExpenseLabel } f
 import { readRequestReturnTo, requestReturnState, requestReturnToForDetail } from '../../lib/requestNavigation'
 import type { Dayjs } from 'dayjs'
 import { monthStartTashkent } from '../../lib/tashkentTime'
+import { usePortalMobileMode } from '../../lib/useIsPhone'
 
 export type RequestDetailPageProps = {
   /** Путь к списку заявок для кнопки «Назад» */
@@ -31,24 +34,6 @@ export type RequestDetailPageProps = {
   variant?: 'portal' | 'telegram'
 }
 
-
-function isPaymentApprovalStep(a: ApprovalItem): boolean {
-  return String(a.step_type || '').toLowerCase() === 'payment'
-}
-
-function isNotificationApprovalStep(a: ApprovalItem): boolean {
-  return String(a.step_type || '').toLowerCase() === 'notification'
-}
-
-/** Smallest step number that still has pending approvals (matches backend workflow). */
-function minPendingApprovalStep(approvals: ApprovalItem[] | undefined): number | null {
-  if (!approvals?.length) return null
-  const pendingSteps = approvals
-    .filter((a) => String(a.decision || '').toLowerCase() === 'pending')
-    .map((a) => a.step)
-  if (!pendingSteps.length) return null
-  return Math.min(...pendingSteps)
-}
 
 export function RequestDetailPage({ listPath = '/requests', variant = 'portal' }: RequestDetailPageProps) {
   const navigate = useNavigate()
@@ -81,6 +66,8 @@ export function RequestDetailPage({ listPath = '/requests', variant = 'portal' }
   const [paymentModalOpen, setPaymentModalOpen] = useState(false)
   const [paymentModalApproval, setPaymentModalApproval] = useState<ApprovalItem | null>(null)
   const [paymentExpenseId, setPaymentExpenseId] = useState('')
+  // Phone layout of the portal; never in the Telegram Mini App (variant="telegram" or /tg/), whatever the width.
+  const isMobile = usePortalMobileMode(variant)
 
   const decodeJwtUserId = (token: string | null): number | null => {
     if (!token) return null
@@ -519,6 +506,177 @@ export function RequestDetailPage({ listPath = '/requests', variant = 'portal' }
       </div>
     ) : null
 
+  // Dialogs of the note, the draft and the attachments: the same elements in the desktop and the phone layouts.
+  const noteModal = (
+    <NoteCreateModal
+      open={openNoteModal}
+      onCancel={() => setOpenNoteModal(false)}
+      targetType="request"
+      targetId={detail?.id || null}
+    />
+  )
+
+  const draftEditModal = (
+    <Modal
+      open={editOpen}
+      title="Редактировать черновик"
+      onCancel={() => {
+        setEditOpen(false)
+      }}
+      footer={null}
+      destroyOnClose
+    >
+      <Space direction="vertical" size={12} style={{ display: 'flex' }}>
+        <div>
+          <Typography.Text strong style={{ display: 'block', marginBottom: 6 }}>
+            Название
+          </Typography.Text>
+          <Input value={editTitle} onChange={(e) => setEditTitle(e.target.value)} />
+        </div>
+
+        <div>
+          <Typography.Text strong style={{ display: 'block', marginBottom: 6 }}>
+            Описание
+          </Typography.Text>
+          <Input.TextArea rows={4} value={editDescription} onChange={(e) => setEditDescription(e.target.value)} />
+        </div>
+
+        <Space wrap size={12}>
+          <div style={{ minWidth: 140 }}>
+            <Typography.Text strong style={{ display: 'block', marginBottom: 6 }}>
+              Сумма
+            </Typography.Text>
+            <InputNumber
+              style={{ width: '100%' }}
+              min={0}
+              value={editAmount ?? undefined}
+              onChange={(v) => setEditAmount(typeof v === 'number' ? v : null)}
+            />
+          </div>
+
+          <div style={{ minWidth: 120 }}>
+            <Typography.Text strong style={{ display: 'block', marginBottom: 6 }}>
+              Валюта
+            </Typography.Text>
+            <Select
+              style={{ width: '100%' }}
+              value={editCurrency}
+              onChange={(v) => setEditCurrency(v)}
+              options={['UZS', 'USD', 'EUR', 'RUB'].map((c) => ({ value: c, label: c }))}
+            />
+          </div>
+
+          <div style={{ minWidth: 160 }}>
+            <Typography.Text strong style={{ display: 'block', marginBottom: 6 }}>
+              Срочность
+            </Typography.Text>
+            <Select
+              style={{ width: '100%' }}
+              value={editUrgency}
+              onChange={(v) => setEditUrgency(v)}
+              options={[
+                { value: 'Низко', label: 'Низко' },
+                { value: 'Обычно', label: 'Обычно' },
+                { value: 'Срочно', label: 'Срочно' },
+              ]}
+            />
+          </div>
+        </Space>
+
+        <div>
+          <Typography.Text strong style={{ display: 'block', marginBottom: 6 }}>
+            Месяц биллинга
+          </Typography.Text>
+          <DatePicker
+            picker="month"
+            format="MM.YYYY"
+            style={{ display: 'block', width: '100%' }}
+            value={editBillingDate}
+            onChange={(v) => setEditBillingDate(v)}
+            disabledDate={(current) => !current || !isAllowedBillingMonth(current)}
+            inputReadOnly
+          />
+        </div>
+
+        <Button loading={editSaving} disabled={loading} block onClick={() => void saveDraftOnly()}>
+          Сохранить
+        </Button>
+        <Button type="primary" block loading={editSaving} disabled={loading} onClick={() => void submitDraftForApproval()}>
+          Отправить на согласование
+        </Button>
+      </Space>
+    </Modal>
+  )
+
+  const uploadModal = (
+    <Modal
+      open={uploadOpen}
+      title="Прикрепить файлы"
+      onCancel={() => {
+        setUploadOpen(false)
+        setUploadFileList([])
+      }}
+      footer={null}
+      destroyOnClose
+    >
+      <Space direction="vertical" size={12} style={{ display: 'flex' }}>
+        <Upload
+          multiple
+          beforeUpload={() => false}
+          fileList={uploadFileList}
+          onChange={({ fileList }) => setUploadFileList(fileList)}
+        >
+          <Button icon={<PlusOutlined />}>Выбрать файлы</Button>
+        </Upload>
+        {detail?.attachments?.length ? (
+          <>
+            <Typography.Text type="secondary">Уже прикреплено:</Typography.Text>
+            <Space direction="vertical" size={6} style={{ display: 'flex' }}>
+              {detail.attachments.map((attachment) => (
+                <Space key={attachment.id} style={{ justifyContent: 'space-between', width: '100%' }}>
+                  <Typography.Text>{attachment.name}</Typography.Text>
+                  <Button danger size="small" loading={uploadBusy} onClick={() => void removeAttachment(attachment.id)}>
+                    Удалить
+                  </Button>
+                </Space>
+              ))}
+            </Space>
+          </>
+        ) : null}
+        <Button type="primary" block loading={uploadBusy} disabled={uploadFileList.length === 0} onClick={() => void submitUpload()}>
+          Загрузить
+        </Button>
+      </Space>
+    </Modal>
+  )
+
+  if (isMobile) {
+    return (
+      <>
+        <RequestDetailMobileView
+          detail={detail}
+          loading={loading}
+          error={error}
+          refreshDetail={refreshDetail}
+          activeApprovalStep={activeApprovalStep}
+          pendingApprovalsForMe={pendingApprovalsForMe}
+          canEditDraft={Boolean(canEditDraft)}
+          submitLoading={submitLoading}
+          onSubmitDraft={() => void submitDraft()}
+          onEditDraft={() => setEditOpen(true)}
+          onUploadFiles={() => setUploadOpen(true)}
+          onOpenNote={() => setOpenNoteModal(true)}
+          onDuplicate={() => void duplicateRequest()}
+          justCreated={showCreatedAlert}
+          onDismissJustCreated={() => setShowCreatedAlert(false)}
+        />
+        {noteModal}
+        {draftEditModal}
+        {uploadModal}
+      </>
+    )
+  }
+
   return (
     <Card className={isTg ? 'tg-detail-card' : undefined} styles={{ body: isTg ? { padding: '16px 16px 24px' } : undefined }}>
       <div className={isTg ? 'tg-detail-page' : undefined}>
@@ -642,12 +800,7 @@ export function RequestDetailPage({ listPath = '/requests', variant = 'portal' }
           />
         </Space>
       </div>
-      <NoteCreateModal
-        open={openNoteModal}
-        onCancel={() => setOpenNoteModal(false)}
-        targetType="request"
-        targetId={detail?.id || null}
-      />
+      {noteModal}
       <Modal
         open={paymentModalOpen}
         title="Подтверждение выплаты"
@@ -671,135 +824,9 @@ export function RequestDetailPage({ listPath = '/requests', variant = 'portal' }
         </Space>
       </Modal>
 
-      <Modal
-        open={editOpen}
-        title="Редактировать черновик"
-        onCancel={() => {
-          setEditOpen(false)
-        }}
-        footer={null}
-        destroyOnClose
-      >
-        <Space direction="vertical" size={12} style={{ display: 'flex' }}>
-          <div>
-            <Typography.Text strong style={{ display: 'block', marginBottom: 6 }}>
-              Название
-            </Typography.Text>
-            <Input value={editTitle} onChange={(e) => setEditTitle(e.target.value)} />
-          </div>
+      {draftEditModal}
 
-          <div>
-            <Typography.Text strong style={{ display: 'block', marginBottom: 6 }}>
-              Описание
-            </Typography.Text>
-            <Input.TextArea rows={4} value={editDescription} onChange={(e) => setEditDescription(e.target.value)} />
-          </div>
-
-          <Space wrap size={12}>
-            <div style={{ minWidth: 140 }}>
-              <Typography.Text strong style={{ display: 'block', marginBottom: 6 }}>
-                Сумма
-              </Typography.Text>
-              <InputNumber
-                style={{ width: '100%' }}
-                min={0}
-                value={editAmount ?? undefined}
-                onChange={(v) => setEditAmount(typeof v === 'number' ? v : null)}
-              />
-            </div>
-
-            <div style={{ minWidth: 120 }}>
-              <Typography.Text strong style={{ display: 'block', marginBottom: 6 }}>
-                Валюта
-              </Typography.Text>
-              <Select
-                style={{ width: '100%' }}
-                value={editCurrency}
-                onChange={(v) => setEditCurrency(v)}
-                options={['UZS', 'USD', 'EUR', 'RUB'].map((c) => ({ value: c, label: c }))}
-              />
-            </div>
-
-            <div style={{ minWidth: 160 }}>
-              <Typography.Text strong style={{ display: 'block', marginBottom: 6 }}>
-                Срочность
-              </Typography.Text>
-              <Select
-                style={{ width: '100%' }}
-                value={editUrgency}
-                onChange={(v) => setEditUrgency(v)}
-                options={[
-                  { value: 'Низко', label: 'Низко' },
-                  { value: 'Обычно', label: 'Обычно' },
-                  { value: 'Срочно', label: 'Срочно' },
-                ]}
-              />
-            </div>
-          </Space>
-
-          <div>
-            <Typography.Text strong style={{ display: 'block', marginBottom: 6 }}>
-              Месяц биллинга
-            </Typography.Text>
-            <DatePicker
-              picker="month"
-              format="MM.YYYY"
-              style={{ display: 'block', width: '100%' }}
-              value={editBillingDate}
-              onChange={(v) => setEditBillingDate(v)}
-              disabledDate={(current) => !current || !isAllowedBillingMonth(current)}
-              inputReadOnly
-            />
-          </div>
-
-          <Button loading={editSaving} disabled={loading} block onClick={() => void saveDraftOnly()}>
-            Сохранить
-          </Button>
-          <Button type="primary" block loading={editSaving} disabled={loading} onClick={() => void submitDraftForApproval()}>
-            Отправить на согласование
-          </Button>
-        </Space>
-      </Modal>
-
-      <Modal
-        open={uploadOpen}
-        title="Прикрепить файлы"
-        onCancel={() => {
-          setUploadOpen(false)
-          setUploadFileList([])
-        }}
-        footer={null}
-        destroyOnClose
-      >
-        <Space direction="vertical" size={12} style={{ display: 'flex' }}>
-          <Upload
-            multiple
-            beforeUpload={() => false}
-            fileList={uploadFileList}
-            onChange={({ fileList }) => setUploadFileList(fileList)}
-          >
-            <Button icon={<PlusOutlined />}>Выбрать файлы</Button>
-          </Upload>
-          {detail?.attachments?.length ? (
-            <>
-              <Typography.Text type="secondary">Уже прикреплено:</Typography.Text>
-              <Space direction="vertical" size={6} style={{ display: 'flex' }}>
-                {detail.attachments.map((attachment) => (
-                  <Space key={attachment.id} style={{ justifyContent: 'space-between', width: '100%' }}>
-                    <Typography.Text>{attachment.name}</Typography.Text>
-                    <Button danger size="small" loading={uploadBusy} onClick={() => void removeAttachment(attachment.id)}>
-                      Удалить
-                    </Button>
-                  </Space>
-                ))}
-              </Space>
-            </>
-          ) : null}
-          <Button type="primary" block loading={uploadBusy} disabled={uploadFileList.length === 0} onClick={() => void submitUpload()}>
-            Загрузить
-          </Button>
-        </Space>
-      </Modal>
+      {uploadModal}
     </Card>
   )
 }

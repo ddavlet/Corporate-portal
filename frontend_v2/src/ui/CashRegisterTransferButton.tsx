@@ -3,8 +3,9 @@ import { Alert, Button, Form, Input, InputNumber, Modal, Select, Typography, mes
 import { SwapOutlined } from '@ant-design/icons'
 import { getCashRegisters, getSettingsAccess, type CashRegisterDto } from '../lib/api'
 import {
-  CashRegisterTransferSubmitError,
+  CashRegisterTransferTargetError,
   cashRegisterLabel,
+  cashRegisterTransferErrorText,
   submitCashRegisterTransfer,
 } from '../lib/cashRegisterTransfer'
 
@@ -85,11 +86,14 @@ export function CashRegisterTransferButton({ onCreated }: Props) {
       handleClose()
       onCreated?.()
     } catch (err: unknown) {
-      if (err instanceof CashRegisterTransferSubmitError) {
-        setError(`Заявка №${err.requestId} создана, но не отправлена на согласование: ${err.message}`)
-      } else {
-        setError(err instanceof Error ? err.message : 'Не удалось создать заявку')
+      if (err instanceof CashRegisterTransferTargetError) {
+        // Заявка уже на согласовании: закрыть форму, чтобы повторное «Отправить» не создало вторую.
+        message.warning(cashRegisterTransferErrorText(err), 10)
+        handleClose()
+        onCreated?.()
+        return
       }
+      setError(cashRegisterTransferErrorText(err))
     } finally {
       setSubmitting(false)
     }
