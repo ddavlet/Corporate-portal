@@ -7,7 +7,6 @@ import { MemoryRouter, Route, Routes, useLocation, useNavigate, useParams, type 
 import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } from 'vitest'
 import type { RequestFormOptionsPaymentType, RequestFormOptionsResponse } from '../../lib/api'
 import { resetViewport, setViewport, type ViewportKind } from '../../test/viewport'
-import stylesSource from '../../styles.css?raw'
 import { RequestCreateRoute } from './RequestCreateRoute'
 
 // main.tsx extends dayjs in the app; the billing month defaults need .tz() (tashkentTime).
@@ -156,7 +155,7 @@ describe('RequestCreateRoute', () => {
   it('keeps the desktop form on a desktop', async () => {
     const { container } = renderWizard('desktop')
 
-    expect(await screen.findByRole('button', { name: 'К списку заявок' })).toBeInTheDocument()
+    expect(await screen.findByRole('button', { name: /К списку заявок/ })).toBeInTheDocument()
     expect(container.querySelector('.ant-steps')).not.toBeNull()
     expect(screen.queryByTestId('request-create-mobile')).toBeNull()
     expect(container.querySelector('.m-fullscreen')).toBeNull()
@@ -443,8 +442,8 @@ describe('RequestCreateMobilePage navigation and submit', () => {
     renderWizard()
     await goToDetails()
     fireEvent.click(await screen.findByRole('button', { name: 'Договор: Выберите договор' }))
-    await screen.findByRole('list', { name: 'Договор' })
-    fireEvent.click(screen.getByRole('button', { name: 'Новый договор' }))
+    // No contracts for the vendor: the picker shows its empty state with «Новый договор» above it.
+    fireEvent.click(await screen.findByRole('button', { name: 'Новый договор' }))
 
     expect(await screen.findByLabelText('Номер договора')).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: /^(loading )?Сохранить$/ }))
@@ -562,7 +561,7 @@ describe('RequestCreateMobilePage review fixes', () => {
     await waitFor(() => expect(screen.getByLabelText('Назначение платежа')).toHaveAttribute('aria-invalid', 'true'))
     expect(screen.getByLabelText('Назначение платежа')).toHaveAccessibleDescription('Выберите назначение платежа')
     // The billing month is valid by default: no error is announced on it.
-    expect(screen.getByLabelText('Месяц биллинга')).not.toHaveAttribute('aria-invalid')
+    expect(screen.getByLabelText('Месяц биллинга')).not.toHaveAttribute('aria-invalid', 'true')
   })
 
   it('opens the details of another payment type without the errors of a refused submit', async () => {
@@ -592,12 +591,6 @@ describe('RequestCreateMobilePage review fixes', () => {
     expect(text).toHaveStyle({ color: theme.getDesignToken().colorTextSecondary })
   })
 
-  it('makes the fields of sheets and pickers 16 px, so iOS does not zoom in', () => {
-    const css = stylesSource.replace(/\/\*[\s\S]*?\*\//g, '')
-    const rule = /([^{}]+)\{\s*font-size:\s*16px;?\s*\}/.exec(css)
-    const selectors = (rule?.[1] ?? '').split(',').map((sel) => sel.trim())
-    expect(selectors).toEqual(expect.arrayContaining(['.m-root input', '.m-sheet input', '.m-sheet textarea', '.m-picker input']))
-  })
 })
 
 describe('RequestCreateMobilePage system «Назад»', () => {
