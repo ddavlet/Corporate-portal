@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { CompanyContextValue } from './company'
 
@@ -83,5 +83,54 @@ describe('CompanySwitcherWidget', () => {
     const beta = option('Бета')
     fireEvent.click(beta!)
     expect(switchCompanyMock).toHaveBeenCalledWith('beta')
+  })
+})
+
+describe('CompanySwitcherWidget in the phone header', () => {
+  beforeEach(() => {
+    companyState.value = {
+      enabled: true,
+      companies: COMPANIES,
+      current: 'alpha',
+      currentCompany: COMPANIES[0],
+      switchCompany: switchCompanyMock,
+    }
+    actionItemsState.value = { items: [item('beta', 1), item('beta', 2), item('alpha', 3)], count: 3, loading: false, error: false }
+  })
+
+  it('shows the other companies count while closed, without the current company', () => {
+    render(<CompanySwitcherWidget variant="mobile" />)
+    const badge = screen.getByTestId('company-switcher-other-badge')
+    expect(within(badge).getByTitle('2')).toBeInTheDocument()
+    expect(within(badge).queryByTitle('3')).toBeNull()
+    expect(screen.getByRole('combobox', { name: 'Компания (в других компаниях ждут действия: 2)' })).toBeInTheDocument()
+    expect(badge).toHaveTextContent('Альфа')
+  })
+
+  it('shows no count when only the current company waits', () => {
+    actionItemsState.value = { items: [item('alpha', 3)], count: 1, loading: false, error: false }
+    render(<CompanySwitcherWidget variant="mobile" />)
+    const badge = screen.getByTestId('company-switcher-other-badge')
+    expect(within(badge).queryAllByTitle(/^\d+\+?$/)).toHaveLength(0)
+    expect(screen.getByRole('combobox', { name: 'Компания' })).toBeInTheDocument()
+  })
+
+  it('renders nothing on a tenant subdomain', () => {
+    companyState.value = { ...companyState.value, enabled: false, companies: [], current: null, currentCompany: null }
+    const { container } = render(<CompanySwitcherWidget variant="mobile" />)
+    expect(container).toBeEmptyDOMElement()
+  })
+
+  it('opens when the shell asks for it', async () => {
+    render(<CompanySwitcherWidget variant="mobile" open onOpenChange={vi.fn()} />)
+    await waitFor(() => expect(options().length).toBe(2))
+    fireEvent.click(option('Бета')!)
+    expect(switchCompanyMock).toHaveBeenCalledWith('beta')
+  })
+
+  it('keeps the desktop markup without the new props', () => {
+    render(<CompanySwitcherWidget />)
+    expect(screen.queryByTestId('company-switcher-other-badge')).toBeNull()
+    expect(screen.getByRole('combobox', { name: 'Компания' })).toBeInTheDocument()
   })
 })

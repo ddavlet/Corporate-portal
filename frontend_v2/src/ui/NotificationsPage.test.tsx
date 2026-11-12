@@ -4,6 +4,10 @@ import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { NotificationsPage } from './NotificationsPage'
 import { CompanyProvider, useCompany } from './company'
+import { installViewport, setViewport } from '../test/viewport'
+
+// The page reads the breakpoint (phone layout): desktop unless a test switches to the phone.
+installViewport('desktop')
 
 type HookState = {
   items: unknown[]
@@ -264,5 +268,25 @@ describe('NotificationsPage on the shared app host (crit. 19)', () => {
     expect(await screen.findByTestId('location')).toHaveTextContent(/^\/requests\/77$/)
     expect(screen.getByTestId('company')).toHaveTextContent('beta')
     expect(sessionStorage.getItem('kolberg_v2_company')).toBe('beta')
+  })
+})
+
+describe('NotificationsPage slot for the notifications button', () => {
+  beforeEach(() => {
+    portalState.shared = false
+    hookState = { items: [], count: 0, loading: false, error: false, refresh: refreshMock }
+  })
+
+  it('has the slot on a phone', () => {
+    setViewport('phone')
+    renderPage()
+    expect(screen.getByTestId('push-subscribe-slot')).toBeInTheDocument()
+    expect(screen.getByText('Сейчас ничего не ждёт вашего действия')).toBeInTheDocument()
+  })
+
+  it('has no slot on a desktop', () => {
+    setViewport('desktop')
+    renderPage()
+    expect(screen.queryByTestId('push-subscribe-slot')).toBeNull()
   })
 })

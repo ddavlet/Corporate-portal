@@ -3,6 +3,10 @@ import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { AppShell } from './AppShell'
+import { installViewport } from '../test/viewport'
+
+// The desktop layout (ProLayout); the phone layout is covered in MobileAppShell.test.tsx.
+installViewport('desktop')
 
 let actionItemsCount = 0
 

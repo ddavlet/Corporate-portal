@@ -3,7 +3,6 @@ import { Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { ProLayout } from '@ant-design/pro-layout'
 import type { MenuProps } from 'antd'
 import { Badge, Button, Dropdown, Space, Typography } from 'antd'
-import { Grid } from 'antd'
 import {
   BankOutlined,
   BellOutlined,
@@ -31,6 +30,9 @@ import { useActionItems } from '../lib/useActionItems'
 import { NotificationsBellWidget } from './NotificationsBellWidget'
 import { CompanySwitcherWidget } from './CompanySwitcherWidget'
 import { useCompany } from './company'
+import { usePortalMobileMode } from '../lib/useIsPhone'
+import { MobileAppShell } from './MobileAppShell'
+import type { UserIdStatus } from './mobileShell'
 
 type ShellMenuRoute = {
   path: string
@@ -40,8 +42,7 @@ type ShellMenuRoute = {
 }
 
 export function AppShell() {
-  const screens = Grid.useBreakpoint()
-  const isMobile = !screens.md
+  const isMobile = usePortalMobileMode()
   const location = useLocation()
   const navigate = useNavigate()
   const { logout, username } = useAuth()
@@ -50,6 +51,9 @@ export function AppShell() {
   const [canOpenSettings, setCanOpenSettings] = useState(false)
   const [canOpenAdmin, setCanOpenAdmin] = useState(false)
   const [tenantName, setTenantName] = useState<string>('')
+  // «Мои» of the phone feed filters by this id; without it the tab is hidden rather than showing everyone's requests.
+  const [userId, setUserId] = useState<number | null>(null)
+  const [userIdStatus, setUserIdStatus] = useState<UserIdStatus>('loading')
   const { count: actionItemsCount } = useActionItems()
   const { enabled: companySwitcher, currentCompany } = useCompany()
   // A phone header has no room for the company switcher next to text buttons: profile and logout become icons.
@@ -64,12 +68,17 @@ export function AppShell() {
           setTenantName(String(data.tenant_name || '').trim())
           setCanOpenSettings(Boolean(data.can_open_settings))
           setCanOpenAdmin(Boolean(data.can_open_admin))
+          const id = typeof data.user_id === 'number' ? data.user_id : null
+          setUserId(id)
+          setUserIdStatus(id === null ? 'missing' : 'ready')
         }
       } catch {
         if (!cancelled) {
           setTenantName('')
           setCanOpenSettings(false)
           setCanOpenAdmin(false)
+          setUserId(null)
+          setUserIdStatus('missing')
         }
       }
     })()
@@ -115,6 +124,9 @@ export function AppShell() {
   useEffect(() => {
     document.title = appTitle
   }, [appTitle])
+
+  // After the last hook: the phone layout replaces the whole ProLayout; the desktop markup below stays as it was.
+  if (isMobile) return <MobileAppShell appTitle={appTitle} userId={userId} userIdStatus={userIdStatus} />
 
   return (
     <ProLayout
