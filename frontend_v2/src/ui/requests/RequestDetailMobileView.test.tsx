@@ -1,4 +1,7 @@
 import { useSyncExternalStore } from 'react'
+import dayjs from 'dayjs'
+import timezone from 'dayjs/plugin/timezone'
+import utc from 'dayjs/plugin/utc'
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { message, theme } from 'antd'
@@ -8,6 +11,10 @@ import { contrastRatio } from '../../test/contrast'
 import { resetViewport, setViewport } from '../../test/viewport'
 import type { ApprovalItem, RequestDetail } from './RequestDetailModal'
 import { RequestDetailPage } from './RequestDetailPage'
+
+// main.tsx extends dayjs in the app; the draft edit modal needs .tz() (tashkentTime).
+dayjs.extend(utc)
+dayjs.extend(timezone)
 
 const api = vi.hoisted(() => ({
   apiFetch: vi.fn(),
