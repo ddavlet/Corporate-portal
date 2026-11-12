@@ -238,7 +238,8 @@ describe('InvestReturnCreateMobilePage', () => {
 
     await waitFor(() => expect(errorSpy).toHaveBeenCalledWith('Сервер отклонил выплату'))
     expect(currentPath()).toBe('/investments/returns/new')
-    expect(screen.getByLabelText('Сумма (USD)')).toHaveValue('1500')
+    // InputNumber with precision 2 reformats the value on blur ("1500" → "1500.00").
+    expect((screen.getByLabelText('Сумма (USD)') as HTMLInputElement).value).toMatch(/^1500(\.00)?$/)
     expect(screen.getByLabelText('Комментарий')).toHaveValue('За ноябрь')
     expect(successSpy).not.toHaveBeenCalled()
     expect(submitButton()).not.toBeDisabled()
