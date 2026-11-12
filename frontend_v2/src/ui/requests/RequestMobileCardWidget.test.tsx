@@ -2,6 +2,8 @@ import { render, screen, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { theme } from 'antd'
 import { describe, expect, it } from 'vitest'
+import { contrastRatio } from '../../test/contrast'
+import { mobileToneTextColor } from './mobileActionsTheme'
 import { RequestMobileCardWidget, RequestStatusTag, type RequestFeedRow } from './RequestMobileCardWidget'
 
 const token = theme.getDesignToken()
@@ -33,14 +35,15 @@ function renderCard(request: RequestFeedRow) {
 
 describe('RequestStatusTag — contrast', () => {
   it.each([
-    ['APPROVED', 'Согласована', 'success', token.colorSuccessTextHover, token.colorSuccessBg],
-    ['3', 'На согласовании · шаг 3', 'processing', token.colorInfoTextHover, token.colorInfoBg],
-    ['REJECTED', 'Отклонена', 'error', token.colorErrorTextHover, token.colorErrorBg],
-  ])('writes %s at shade 8 on the light fill', (status, label, tone, color, backgroundColor) => {
+    ['APPROVED', 'Согласована', 'success', mobileToneTextColor('success', token), token.colorSuccessBg],
+    ['3', 'На согласовании · шаг 3', 'processing', mobileToneTextColor('info', token), token.colorInfoBg],
+    ['REJECTED', 'Отклонена', 'error', mobileToneTextColor('error', token), token.colorErrorBg],
+  ])('writes %s in a dark shade on the light fill, at 4.5:1 or more', (status, label, tone, color, backgroundColor) => {
     render(<RequestStatusTag status={status} />)
     const tag = screen.getByText(label)
     expect(tag).toHaveAttribute('data-tone', tone)
     expect(tag).toHaveStyle({ color, backgroundColor })
+    expect(contrastRatio(tag.style.color, tag.style.backgroundColor)).toBeGreaterThanOrEqual(4.5)
   })
 
   it('keeps the regular text colour for a neutral status', () => {
@@ -63,7 +66,9 @@ describe('RequestMobileCardWidget — contrast', () => {
     renderCard(row({ status: 'PAYED', expense_link: null }))
     const note = screen.getByTestId('payed-no-expense-note')
     expect(note).toHaveTextContent('Оплачена, но расход не найден')
-    expect(note).toHaveStyle({ color: token.colorErrorTextHover })
+    expect(note).toHaveStyle({ color: mobileToneTextColor('error', token) })
     expect(note).not.toHaveStyle({ color: token.colorError })
+    // The card's red tint (styles.css .m-card--payed-no-expense).
+    expect(contrastRatio(note.style.color, 'rgba(255, 77, 79, 0.09)')).toBeGreaterThanOrEqual(4.5)
   })
 })

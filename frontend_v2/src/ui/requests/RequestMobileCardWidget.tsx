@@ -5,6 +5,7 @@ import { ExclamationCircleOutlined } from '@ant-design/icons'
 import { isPayedMissingLinkedExpense, type RequestExpenseLink } from '../../lib/requestExpense'
 import { formatRequestDate } from '../../lib/requestUtils'
 import { requestStatusColor, requestStatusLabel, type RequestStatusTone } from '../../lib/requestStatusLabels'
+import { mobileToneTextColor } from './mobileActionsTheme'
 
 /** A row of `GET /api/requests/` as the mobile feed reads it. */
 export type RequestFeedRow = {
@@ -104,16 +105,16 @@ export function RequestMobileCardBody({ id, statusTag, title, subtitle, amount, 
 
 /**
  * Colours of a status tag: the antd presets keep the text at shade 6 (#52c41a on #f6ffed is below 4.5:1), so the text
- * takes shade 8 (`color*TextHover`) and the fill and border stay the preset's shades 1 and 3.
+ * takes the darker shade of mobileToneTextColor and the fill and border stay the preset's shades 1 and 3.
  */
 function statusToneStyle(tone: RequestStatusTone, token: GlobalToken): CSSProperties {
   switch (tone) {
     case 'success':
-      return { color: token.colorSuccessTextHover, backgroundColor: token.colorSuccessBg, borderColor: token.colorSuccessBorder }
+      return { color: mobileToneTextColor('success', token), backgroundColor: token.colorSuccessBg, borderColor: token.colorSuccessBorder }
     case 'processing':
-      return { color: token.colorInfoTextHover, backgroundColor: token.colorInfoBg, borderColor: token.colorInfoBorder }
+      return { color: mobileToneTextColor('info', token), backgroundColor: token.colorInfoBg, borderColor: token.colorInfoBorder }
     case 'error':
-      return { color: token.colorErrorTextHover, backgroundColor: token.colorErrorBg, borderColor: token.colorErrorBorder }
+      return { color: mobileToneTextColor('error', token), backgroundColor: token.colorErrorBg, borderColor: token.colorErrorBorder }
     default:
       return { color: token.colorText }
   }
@@ -158,8 +159,8 @@ export function RequestMobileCardWidget({ request }: { request: RequestFeedRow }
         meta={[request.payment_type, requester, request.submitted_at ? formatRequestDate(request.submitted_at) : null]}
         note={
           payedNoExpense ? (
-            // Text at shade 8: colorError (#ff4d4f) on the red tint is about 2.7:1; the icon keeps colorError.
-            <Typography.Text data-testid="payed-no-expense-note" style={{ color: token.colorErrorTextHover, fontSize: 13 }}>
+            // Dark red text: colorError (#ff4d4f) on the red tint is about 2.7:1, red 7 about 5:1; the icon keeps colorError.
+            <Typography.Text data-testid="payed-no-expense-note" style={{ color: mobileToneTextColor('error', token), fontSize: 13 }}>
               <ExclamationCircleOutlined aria-hidden style={{ color: token.colorError }} /> Оплачена, но расход не найден
             </Typography.Text>
           ) : null

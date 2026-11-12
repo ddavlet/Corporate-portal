@@ -105,7 +105,7 @@ const dateTimeFormatterTashkent = new Intl.DateTimeFormat('ru-RU', {
   timeZone: 'Asia/Tashkent',
 })
 
-function formatDateTime(value?: string | null): string {
+export function formatDateTime(value?: string | null): string {
   if (!value) return '-'
   const parsed = new Date(value)
   if (Number.isNaN(parsed.getTime())) return '-'
@@ -113,7 +113,7 @@ function formatDateTime(value?: string | null): string {
 }
 
 /** В БД часто хранится как YYYYMMDD (например 20260103). */
-function formatPayedAt(value?: number | null): string {
+export function formatPayedAt(value?: number | null): string {
   if (value == null) return '-'
   const n = Number(value)
   if (!Number.isFinite(n)) return String(value)
@@ -127,7 +127,7 @@ function formatPayedAt(value?: number | null): string {
   return String(value)
 }
 
-function formatContractPeriod(info: RequestDetail['contract_ref_info']): string {
+export function formatContractPeriod(info: RequestDetail['contract_ref_info']): string {
   if (!info) return ''
   const from = (info.date_from || '').trim()
   const to = (info.date_to || '').trim()
@@ -141,7 +141,7 @@ function decisionKey(decision?: string | null) {
   return String(decision || '').toLowerCase()
 }
 
-function getDecisionColor(decision?: string | null): string | undefined {
+export function getDecisionColor(decision?: string | null): string | undefined {
   const key = decisionKey(decision)
   if (key === 'approved') return 'green'
   if (key === 'rejected') return 'red'
@@ -149,7 +149,7 @@ function getDecisionColor(decision?: string | null): string | undefined {
   return 'default'
 }
 
-function translateDecision(decision?: string | null): string {
+export function translateDecision(decision?: string | null): string {
   const key = decisionKey(decision)
   if (key === 'approved') return 'Одобрено'
   if (key === 'rejected') return 'Отклонено'
@@ -157,7 +157,7 @@ function translateDecision(decision?: string | null): string {
   return String(decision || '').toUpperCase()
 }
 
-function translateStepType(stepType?: string | null): string {
+export function translateStepType(stepType?: string | null): string {
   const key = String(stepType || '').toLowerCase()
   if (key === 'approval') return 'согласование'
   if (key === 'payment') return 'выплата'
@@ -166,7 +166,7 @@ function translateStepType(stepType?: string | null): string {
 
 const RESEND_MAX = 3
 
-function ApprovalResendButton({ item, requestId, onResent }: {
+export function ApprovalResendButton({ item, requestId, onResent }: {
   item: ApprovalItem
   requestId: number
   onResent: () => void
