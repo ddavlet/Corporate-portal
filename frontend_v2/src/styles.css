@@ -224,6 +224,12 @@ body {
   white-space: nowrap;
 }
 
+/* A card that is a checkbox's label (antd Checkbox with the card as its children): the text takes the whole width. */
+.m-check-card > .ant-checkbox-label {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
 /* The phone request card's decision bar: fixed to the bottom of the screen (.m-content scrolls horizontally, which
    would stop a sticky bar from sticking), with a spacer of the same height so it never covers the last block. */
 .m-bottom-bar--fixed {

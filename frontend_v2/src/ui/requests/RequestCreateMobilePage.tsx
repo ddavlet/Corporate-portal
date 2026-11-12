@@ -10,6 +10,7 @@ import { MobileActionsTheme } from './mobileActionsTheme'
 import { Field } from './MobileFormFieldWidget'
 import { NewContractSheet } from './NewContractSheet'
 import { NewVendorSheet } from './NewVendorSheet'
+import { StepsProgressWidget } from './StepsProgressWidget'
 import { useRequestCreateForm, type RequestCreateOption } from './useRequestCreateForm'
 
 export type RequestCreateMobilePageProps = {
@@ -398,7 +399,7 @@ export function RequestCreateMobilePage({ requestsBasePath = '/requests' }: Requ
         <h1 className="m-header__title m-ellipsis">Новая заявка</h1>
       </header>
 
-      <StepsProgress titles={form.stepItems.map((s) => s.title)} current={step} />
+      <StepsProgressWidget titles={form.stepItems.map((s) => s.title)} current={step} />
 
       <div ref={bodyRef} className="m-fullscreen__body">
         <div style={{ display: 'grid', gap: 16, padding: 16, minWidth: 0 }}>{content}</div>
@@ -499,43 +500,6 @@ export function RequestCreateMobilePage({ requestsBasePath = '/requests' }: Requ
       <NewVendorSheet form={form} />
       <NewContractSheet form={form} vendorLabel={vendorLabel} />
     </div>
-  )
-}
-
-/** The wizard's progress: one bar per step with its title; the current step is marked for screen readers. */
-function StepsProgress({ titles, current }: { titles: string[]; current: number }) {
-  const { token } = theme.useToken()
-  return (
-    <nav
-      aria-label="Шаги"
-      style={{ padding: '10px 16px 12px', background: token.colorBgContainer, borderBottom: `1px solid ${token.colorBorderSecondary}` }}
-    >
-      <ol style={{ display: 'flex', gap: 6, listStyle: 'none', margin: 0, padding: 0 }}>
-        {titles.map((title, index) => (
-          <li key={title} aria-current={index === current ? 'step' : undefined} style={{ flex: 1, minWidth: 0 }}>
-            <div
-              aria-hidden
-              style={{
-                height: 4,
-                borderRadius: 2,
-                background: index <= current ? token.colorPrimary : token.colorFillSecondary,
-              }}
-            />
-            <div
-              className="m-ellipsis"
-              style={{
-                marginTop: 6,
-                fontSize: 13,
-                fontWeight: index === current ? 600 : 400,
-                color: index === current ? token.colorText : token.colorTextSecondary,
-              }}
-            >
-              {title}
-            </div>
-          </li>
-        ))}
-      </ol>
-    </nav>
   )
 }
 

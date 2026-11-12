@@ -16,15 +16,20 @@ import {
   message,
 } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
-import dayjs, { type Dayjs } from 'dayjs'
+import type { Dayjs } from 'dayjs'
 
-import { createInvestReturn, type InvestReturnRow } from '../../lib/api'
-import { clampToAllowedBillingMonth, isAllowedBillingMonth } from '../../lib/billingMonth'
-import { monthStartTashkent } from '../../lib/tashkentTime'
+import type { InvestReturnRow } from '../../lib/api'
+import { isAllowedBillingMonth } from '../../lib/billingMonth'
 import { InvestmentRecordDetailModal } from './InvestmentRecordDetailModal'
 import { AdminEditRecordButton } from '../admin/AdminEditRecordButton'
 import { CbuRateAlert } from './CbuRateAlert'
 import { KpiStrip } from './KpiStrip'
+import {
+  INVEST_RETURN_RECIPIENT_OPTIONS,
+  investReturnDefaults,
+  useInvestReturnCreateForm,
+  type InvestReturnFormValues,
+} from './useInvestReturnCreateForm'
 import {
   asMoney,
   asNumber,
@@ -43,16 +48,6 @@ type Props = {
   onCreated: () => Promise<void> | void
 }
 
-type FormValues = {
-  date: Dayjs
-  billing_date: Dayjs
-  sum: number
-  currency: string
-  type: string
-  recipient: string
-  comment?: string
-}
-
 function accrualMonthLabel(iso: string | undefined): string {
   if (!iso || iso.length < 7) return '—'
   const [y, m] = iso.slice(0, 10).split('-')
@@ -60,16 +55,16 @@ function accrualMonthLabel(iso: string | undefined): string {
   return `${m}.${y}`
 }
 
-const RECIPIENT_OPTIONS = [
-  { value: 'инвестор', label: 'Инвестор' },
-  { value: 'партнер', label: 'Партнер' },
-]
-
 export function ReturnsTab({ loading, rows, returnTypeSelectOptions, onCreated }: Props) {
-  const [form] = Form.useForm<FormValues>()
+  const [form] = Form.useForm<InvestReturnFormValues>()
   const [open, setOpen] = useState(false)
   const [selectedRow, setSelectedRow] = useState<InvestReturnRow | null>(null)
-  const [submitting, setSubmitting] = useState(false)
+  const createForm = useInvestReturnCreateForm({
+    onCreated: async () => {
+      setOpen(false)
+      await onCreated()
+    },
+  })
   const [dateRange, setDateRange] = useState<[Dayjs | null, Dayjs | null] | null>(null)
   const watchedCurrency = Form.useWatch('currency', form) || 'USD'
 
@@ -159,48 +154,19 @@ export function ReturnsTab({ loading, rows, returnTypeSelectOptions, onCreated }
 
   const openCreate = () => {
     form.resetFields()
-    const firstType = returnTypeSelectOptions[0]?.value ?? 'дивиденды'
-    const bm = clampToAllowedBillingMonth(monthStartTashkent(dayjs()))
-    form.setFieldsValue({
-      date: dayjs(),
-      billing_date: bm,
-      currency: 'USD',
-      type: firstType,
-      recipient: 'инвестор',
-    })
+    form.setFieldsValue(investReturnDefaults(returnTypeSelectOptions))
     setOpen(true)
   }
 
   const submit = async () => {
-    let values: FormValues
+    let values: InvestReturnFormValues
     try {
       values = await form.validateFields()
     } catch {
       return
     }
-    if (!values.billing_date || !isAllowedBillingMonth(values.billing_date)) {
-      message.warning('Выберите допустимый месяц назначения')
-      return
-    }
-    setSubmitting(true)
-    try {
-      await createInvestReturn({
-        date: values.date.format('YYYY-MM-DD'),
-        billing_date: values.billing_date.startOf('month').format('YYYY-MM-DD'),
-        sum: String(values.sum),
-        currency: values.currency,
-        type: values.type,
-        recipient: values.recipient,
-        comment: values.comment ?? '',
-      })
-      message.success('Выплата создана и отправлена на согласование')
-      setOpen(false)
-      await onCreated()
-    } catch (e: unknown) {
-      message.error(e instanceof Error ? e.message : 'Не удалось создать выплату')
-    } finally {
-      setSubmitting(false)
-    }
+    const result = await createForm.submit(values)
+    if (result === 'invalid_month') message.warning('Выберите допустимый месяц назначения')
   }
 
   return (
@@ -276,7 +242,7 @@ export function ReturnsTab({ loading, rows, returnTypeSelectOptions, onCreated }
         title="Создать выплату"
         okText="Создать"
         cancelText="Отмена"
-        confirmLoading={submitting}
+        confirmLoading={createForm.submitting}
         onOk={submit}
         onCancel={() => setOpen(false)}
         destroyOnClose
@@ -316,7 +282,7 @@ export function ReturnsTab({ loading, rows, returnTypeSelectOptions, onCreated }
               <Select style={{ width: 200 }} options={returnTypeSelectOptions} />
             </Form.Item>
             <Form.Item label="Получатель" name="recipient" rules={[{ required: true }]}>
-              <Select style={{ width: 180 }} options={RECIPIENT_OPTIONS} />
+              <Select style={{ width: 180 }} options={INVEST_RETURN_RECIPIENT_OPTIONS} />
             </Form.Item>
           </Space>
           <Form.Item label="Комментарий" name="comment">

@@ -73,6 +73,17 @@ vi.mock('../ui/requests', async () => ({
   AutoRequestsConfigPage: () => <div>AutoRequestsConfigPage</div>,
   RequestMonthAuditPage: () => <div>RequestMonthAuditPage</div>,
 }))
+// InvestmentsRoute and the form routes are the real switches; the pages they pick between are stubs.
+vi.mock('../ui/InvestmentsPage', () => ({ InvestmentsPage: () => <div>InvestmentsPage</div> }))
+vi.mock('../ui/investments/InvestmentsMobilePage', () => ({
+  InvestmentsMobilePage: () => <div>InvestmentsMobilePage</div>,
+}))
+vi.mock('../ui/investments/InvestReturnCreateMobilePage', () => ({
+  InvestReturnCreateMobilePage: () => <div>InvestReturnCreateMobilePage</div>,
+}))
+vi.mock('../ui/investments/InvestmentCollectMobilePage', () => ({
+  InvestmentCollectMobilePage: () => <div>InvestmentCollectMobilePage</div>,
+}))
 vi.mock('../ui/SettingsPage', () => ({ SettingsPage: () => <div>SettingsPage</div> }))
 vi.mock('../ui/settings/TenantIntegrationConfigPage', () => ({
   TenantIntegrationConfigPage: () => <div>TenantIntegrationConfigPage</div>,
@@ -287,6 +298,41 @@ describe('App routing on a phone', () => {
     renderAt('/requests/new')
     expect(screen.getByText('RequestCreatePage')).toBeInTheDocument()
     expect(screen.queryByText('RequestCreateMobilePage')).toBeNull()
+  })
+
+  it('opens the phone investments and their forms on a phone', () => {
+    setViewport('phone')
+    for (const [url, page] of [
+      ['/investments', 'InvestmentsMobilePage'],
+      ['/investments?tab=returns&open=5', 'InvestmentsMobilePage'],
+      ['/investments/returns/new', 'InvestReturnCreateMobilePage'],
+      ['/investments/collect', 'InvestmentCollectMobilePage'],
+    ]) {
+      const { unmount } = renderAt(url)
+      expect(screen.getByText(page)).toBeInTheDocument()
+      expect(screen.queryByText('InvestmentsPage')).toBeNull()
+      expect(screen.queryByText('Раздел доступен на компьютере')).toBeNull()
+      unmount()
+    }
+  })
+
+  it('keeps the desktop investments and sends the phone form addresses there on a desktop', () => {
+    setViewport('desktop')
+    for (const url of ['/investments', '/investments/returns/new', '/investments/collect']) {
+      const { unmount } = renderAt(url)
+      expect(screen.getByText('InvestmentsPage')).toBeInTheDocument()
+      expect(screen.queryByText('InvestmentsMobilePage')).toBeNull()
+      expect(screen.queryByText('InvestReturnCreateMobilePage')).toBeNull()
+      expect(screen.queryByText('InvestmentCollectMobilePage')).toBeNull()
+      unmount()
+    }
+  })
+
+  it('keeps the Mini App investments at phone width', () => {
+    setViewport('phone')
+    renderAt('/tg/investments')
+    expect(screen.getByText('TgInvestmentsPage')).toBeInTheDocument()
+    expect(screen.queryByText('InvestmentsMobilePage')).toBeNull()
   })
 
   it('keeps the dashboard on a desktop', () => {
