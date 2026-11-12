@@ -2,6 +2,7 @@ export { RequestCreatePage, type RequestCreatePageProps } from './RequestCreateP
 export { RequestDetailPage, type RequestDetailPageProps } from './RequestDetailPage'
 export { RequestDetailModal, RequestDetailContent, type RequestDetail, type ApprovalItem } from './RequestDetailModal'
 export { RequestsPage } from './RequestsPage'
+export { RequestsRoute } from './RequestsRoute'
 export { RequestFormConfigPage } from './RequestFormConfigPage'
 export { RequestApprovalConfigPage } from './RequestApprovalConfigPage'
 export { AutoRequestsConfigPage } from './AutoRequestsConfigPage'

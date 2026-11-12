@@ -138,8 +138,13 @@ body {
 }
 .m-sheet .ant-drawer-content {
   border-radius: 16px 16px 0 0;
+  /* The wrapper's max-height does not bound the content (height: auto): bound it here so a long body scrolls and
+     the footer with the sheet's actions stays on screen. */
+  max-height: 85vh;
+  max-height: 85dvh;
 }
 .m-sheet .ant-drawer-body {
+  min-height: 0;
   padding-bottom: calc(16px + env(safe-area-inset-bottom, 0px));
 }
 .m-sheet .ant-drawer-footer {

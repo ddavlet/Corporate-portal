@@ -29,7 +29,7 @@ import {
   RequestApprovalConfigPage,
   AutoRequestsConfigPage,
   RequestMonthAuditPage,
-  RequestsPage,
+  RequestsRoute,
 } from '../ui/requests'
 import { SettingsPage } from '../ui/SettingsPage'
 import { TenantIntegrationConfigPage } from '../ui/settings/TenantIntegrationConfigPage'
@@ -166,7 +166,7 @@ export function App() {
       >
         <Route index element={<HomeRoute />} />
         <Route path="notifications" element={<NotificationsPage />} />
-        <Route path="requests" element={<RequestsPage />} />
+        <Route path="requests" element={<RequestsRoute />} />
         <Route path="requests/new" element={<RequestCreatePage />} />
         <Route path="requests/:id" element={<RequestDetailPage />} />
         <Route path="investments" element={<InvestmentsPage />} />
