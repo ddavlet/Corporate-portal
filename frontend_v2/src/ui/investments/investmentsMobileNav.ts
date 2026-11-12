@@ -1,9 +1,10 @@
 import type { NavigateFunction } from 'react-router-dom'
 
-/** Addresses of the phone «Инвестиции»: the section and its two full-screen forms. */
+/** Addresses of the phone «Инвестиции»: the section and its full-screen forms. */
 export const INVESTMENTS_PATH = '/investments'
 export const INVEST_RETURN_NEW_PATH = '/investments/returns/new'
 export const INVESTMENT_COLLECT_PATH = '/investments/collect'
+export const INVESTMENT_NEW_PATH = '/investments/new'
 
 /**
  * Leaves a full-screen investments form: back to the earlier page of the portal in this tab (it keeps its state),

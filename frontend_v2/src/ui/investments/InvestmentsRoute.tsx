@@ -3,6 +3,7 @@ import { Navigate } from 'react-router-dom'
 import { usePortalMobileMode } from '../../lib/useIsPhone'
 import { InvestmentsPage } from '../InvestmentsPage'
 import { InvestmentCollectMobilePage } from './InvestmentCollectMobilePage'
+import { InvestmentCreateMobilePage } from './InvestmentCreateMobilePage'
 import { InvestmentsMobilePage } from './InvestmentsMobilePage'
 import { InvestReturnCreateMobilePage } from './InvestReturnCreateMobilePage'
 import { INVESTMENTS_PATH } from './investmentsMobileNav'
@@ -26,4 +27,10 @@ export function InvestReturnCreateRoute() {
 export function InvestmentCollectRoute() {
   const isMobile = usePortalMobileMode()
   return isMobile ? <InvestmentCollectMobilePage /> : <Navigate to={INVESTMENTS_PATH} replace />
+}
+
+/** `/investments/new`: the phone «Подать заявку на вложение»; the desktop opens it in a modal on `/investments`. */
+export function InvestmentCreateRoute() {
+  const isMobile = usePortalMobileMode()
+  return isMobile ? <InvestmentCreateMobilePage /> : <Navigate to={INVESTMENTS_PATH} replace />
 }

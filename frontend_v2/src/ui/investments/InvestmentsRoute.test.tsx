@@ -3,7 +3,7 @@ import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { resetViewport, setViewport, type ViewportKind } from '../../test/viewport'
-import { InvestmentCollectRoute, InvestmentsRoute, InvestReturnCreateRoute } from './InvestmentsRoute'
+import { InvestmentCollectRoute, InvestmentCreateRoute, InvestmentsRoute, InvestReturnCreateRoute } from './InvestmentsRoute'
 
 vi.mock('../InvestmentsPage', () => ({ InvestmentsPage: () => <div>InvestmentsPage</div> }))
 vi.mock('./InvestmentsMobilePage', () => ({ InvestmentsMobilePage: () => <div>InvestmentsMobilePage</div> }))
@@ -12,6 +12,9 @@ vi.mock('./InvestReturnCreateMobilePage', () => ({
 }))
 vi.mock('./InvestmentCollectMobilePage', () => ({
   InvestmentCollectMobilePage: () => <div>InvestmentCollectMobilePage</div>,
+}))
+vi.mock('./InvestmentCreateMobilePage', () => ({
+  InvestmentCreateMobilePage: () => <div>InvestmentCreateMobilePage</div>,
 }))
 
 function LocationProbe() {
@@ -27,6 +30,7 @@ function renderAt(url: string, viewport: ViewportKind) {
         <Route path="/investments" element={<InvestmentsRoute />} />
         <Route path="/investments/returns/new" element={<InvestReturnCreateRoute />} />
         <Route path="/investments/collect" element={<InvestmentCollectRoute />} />
+        <Route path="/investments/new" element={<InvestmentCreateRoute />} />
       </Routes>
       <LocationProbe />
     </MemoryRouter>,
@@ -57,17 +61,23 @@ describe('InvestmentsRoute', () => {
     expect(screen.getByText('InvestReturnCreateMobilePage')).toBeInTheDocument()
     first.unmount()
 
-    renderAt('/investments/collect', 'phone')
+    const second = renderAt('/investments/collect', 'phone')
     expect(screen.getByText('InvestmentCollectMobilePage')).toBeInTheDocument()
+    second.unmount()
+
+    renderAt('/investments/new', 'phone')
+    expect(screen.getByText('InvestmentCreateMobilePage')).toBeInTheDocument()
+    expect(screen.queryByText('InvestmentsMobilePage')).toBeNull()
   })
 
   it('sends the phone form addresses to /investments on a desktop', () => {
-    for (const url of ['/investments/returns/new', '/investments/collect']) {
+    for (const url of ['/investments/returns/new', '/investments/collect', '/investments/new']) {
       const { unmount } = renderAt(url, 'desktop')
       expect(currentPath()).toBe('/investments')
       expect(screen.getByText('InvestmentsPage')).toBeInTheDocument()
       expect(screen.queryByText('InvestReturnCreateMobilePage')).toBeNull()
       expect(screen.queryByText('InvestmentCollectMobilePage')).toBeNull()
+      expect(screen.queryByText('InvestmentCreateMobilePage')).toBeNull()
       unmount()
     }
   })
@@ -80,8 +90,13 @@ describe('InvestmentsRoute', () => {
     expect(screen.queryByText('InvestmentsMobilePage')).toBeNull()
     first.unmount()
 
-    renderAt('/investments/collect', 'phone')
+    const second = renderAt('/investments/collect', 'phone')
     expect(currentPath()).toBe('/investments')
     expect(screen.queryByText('InvestmentCollectMobilePage')).toBeNull()
+    second.unmount()
+
+    renderAt('/investments/new', 'phone')
+    expect(currentPath()).toBe('/investments')
+    expect(screen.queryByText('InvestmentCreateMobilePage')).toBeNull()
   })
 })
