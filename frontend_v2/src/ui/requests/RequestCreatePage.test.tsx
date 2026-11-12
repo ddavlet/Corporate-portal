@@ -397,6 +397,7 @@ describe('RequestCreatePage submit', () => {
 
     await waitFor(() => expect(error).toHaveBeenCalledWith('Лимит превышен'))
     expect(screen.queryByTestId('detail')).toBeNull()
-    expect(screen.getByRole('button', { name: 'Создать заявку' })).toBeInTheDocument()
+    // The button drops its loading state (and the «loading» icon in its name) once the request settles.
+    expect(await screen.findByRole('button', { name: 'Создать заявку' })).toBeInTheDocument()
   })
 })
