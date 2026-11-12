@@ -29,6 +29,8 @@ export type MobileMenu = {
 
 const MAIN_ITEMS: MobileMenuItem[] = [
   { path: '/requests', name: 'Заявки', icon: FileTextOutlined, moduleKey: 'requests' },
+  // Wave 2: on a phone «Инвестиции» is two actions (InvestmentsMobilePage); their full-screen forms
+  // (/investments/returns/new, /investments/collect) take the header title from this item.
   { path: '/investments', name: 'Инвестиции', icon: RiseOutlined, moduleKey: 'investments' },
 ]
 

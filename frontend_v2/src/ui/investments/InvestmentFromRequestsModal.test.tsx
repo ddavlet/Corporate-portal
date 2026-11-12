@@ -117,6 +117,25 @@ describe('InvestmentFromRequestsModal', () => {
     expect(createInvestmentsFromRequestsMock.mock.calls[0][0]).toMatchObject({ comment: 'Своё описание' })
   })
 
+  it('keeps the button enabled with a spinner while sending and sends once', async () => {
+    getFundingPoolMock.mockResolvedValue(cashPool())
+    let resolve!: (v: unknown) => void
+    createInvestmentsFromRequestsMock.mockReturnValue(new Promise((res) => (resolve = res)))
+    vi.spyOn(message, 'success').mockImplementation(() => undefined as never)
+    renderModal()
+
+    fireEvent.click(await enabledSubmitButton())
+    await waitFor(() => expect(createInvestmentsFromRequestsMock).toHaveBeenCalledTimes(1))
+    // As before the hook: the button is not disabled (grey) during the send, only loading.
+    const sending = screen.getByRole('button', { name: /Создать вложение/ }) as HTMLButtonElement
+    expect(sending.disabled).toBe(false)
+    fireEvent.click(sending)
+    expect(createInvestmentsFromRequestsMock).toHaveBeenCalledTimes(1)
+
+    resolve({ investments: [{ id: 77 }] })
+    await waitFor(() => expect(message.success).toHaveBeenCalledWith('Создано вложений: №77'))
+  })
+
   it('warns that investments will not be confirmed without an approval chain', async () => {
     getFundingPoolMock.mockResolvedValue(cashPool({ approval_chain_ok: false }))
     renderModal()

@@ -60,4 +60,9 @@ describe('findMobileSectionTitle', () => {
     expect(findMobileSectionTitle('/requests/12')).toBe('Заявки')
     expect(findMobileSectionTitle('/settingsx')).toBeNull()
   })
+
+  it('names the phone investments forms «Инвестиции»', () => {
+    expect(findMobileSectionTitle('/investments/collect')).toBe('Инвестиции')
+    expect(findMobileSectionTitle('/investments/returns/new')).toBe('Инвестиции')
+  })
 })

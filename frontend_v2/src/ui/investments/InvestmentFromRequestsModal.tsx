@@ -1,14 +1,9 @@
-import { useEffect, useMemo, useState, type Key } from 'react'
-import { Alert, Empty, Form, Input, Modal, Skeleton, Space, Table, Tabs, Tag, Typography, message } from 'antd'
+import { Alert, Empty, Form, Input, Modal, Skeleton, Space, Table, Tabs, Tag, Typography } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
 
-import {
-  createInvestmentsFromRequests,
-  getFundingPool,
-  type FundingPoolDto,
-  type FundingPoolRequestDto,
-} from '../../lib/api'
-import { defaultCollectComment, groupByKind, totalsByCurrency, type FundingMethod } from './fundingPool'
+import type { FundingPoolRequestDto } from '../../lib/api'
+import { fundingTotalsText, groupByKind, type FundingMethod } from './fundingPool'
+import { useInvestmentFromRequests } from './useInvestmentFromRequests'
 import { asMoney, dateText } from './utils'
 
 type Props = {
@@ -37,50 +32,9 @@ const columns: ColumnsType<FundingPoolRequestDto> = [
   },
 ]
 
-function totalLine(total: { currency: string; amount: number; count: number }): string {
-  const n = total.count
-  const word = n % 10 === 1 && n % 100 !== 11 ? 'заявка' : n % 10 >= 2 && n % 10 <= 4 && (n % 100 < 10 || n % 100 >= 20) ? 'заявки' : 'заявок'
-  return `${asMoney(total.amount)} ${total.currency} (${n} ${word})`
-}
-
 function Body({ onCancel, onCreated }: Omit<Props, 'open'>) {
-  const [pool, setPool] = useState<FundingPoolDto | null>(null)
-  const [loadError, setLoadError] = useState<string | null>(null)
-  const [method, setMethod] = useState<FundingMethod>('cash')
-  const [selected, setSelected] = useState<Set<number>>(new Set())
-  const [editedComment, setEditedComment] = useState<string | null>(null)
-  const [submitting, setSubmitting] = useState(false)
-
-  useEffect(() => {
-    let cancelled = false
-    getFundingPool()
-      .then((data) => {
-        if (cancelled) return
-        setPool(data)
-        setSelected(new Set([...data.cash.requests, ...data.bank_transfer.requests].map((r) => r.id)))
-      })
-      .catch((e: unknown) => {
-        if (!cancelled) setLoadError(e instanceof Error ? e.message : 'Не удалось загрузить заявки')
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [])
-
-  const rows = useMemo(() => (pool ? pool[method].requests : []), [pool, method])
-  const chosen = useMemo(() => rows.filter((r) => selected.has(r.id)), [rows, selected])
-  const totals = useMemo(() => totalsByCurrency(rows, selected), [rows, selected])
-  const generated = useMemo(() => defaultCollectComment(chosen), [chosen])
-  const comment = editedComment ?? generated
-
-  const toggle = (ids: number[], keys: Key[]) => {
-    setSelected((prev) => {
-      const next = new Set(prev)
-      ids.forEach((id) => next.delete(id))
-      keys.forEach((k) => next.add(Number(k)))
-      return next
-    })
-  }
+  const collect = useInvestmentFromRequests()
+  const { pool, loadError, method, selected, totals, comment } = collect
 
   const renderTable = (title: string | null, list: FundingPoolRequestDto[]) => (
     <Space direction="vertical" size={4} style={{ width: '100%' }}>
@@ -94,9 +48,9 @@ function Body({ onCancel, onCreated }: Omit<Props, 'open'>) {
         rowSelection={{
           selectedRowKeys: list.filter((r) => selected.has(r.id)).map((r) => r.id),
           onChange: (keys) =>
-            toggle(
+            collect.replaceSelection(
               list.map((r) => r.id),
-              keys,
+              keys.map(Number),
             ),
         }}
         scroll={{ x: 700 }}
@@ -118,26 +72,9 @@ function Body({ onCancel, onCreated }: Omit<Props, 'open'>) {
     )
   }
 
-  const canSubmit = chosen.length > 0
-
   const submit = async () => {
-    setSubmitting(true)
-    let created: Awaited<ReturnType<typeof createInvestmentsFromRequests>>
-    try {
-      created = await createInvestmentsFromRequests({
-        funding_method: method,
-        request_ids: chosen.map((r) => r.id),
-        // Текст по умолчанию — только превью: пустой comment бэкенд заменит описанием на каждую валюту.
-        comment: editedComment ?? '',
-      })
-    } catch (e: unknown) {
-      message.error(e instanceof Error ? e.message : 'Не удалось создать вложение')
-      setSubmitting(false)
-      return
-    }
-    const ids = created.investments.map((i) => `№${i.id}`).join(', ')
-    message.success(`Создано вложений: ${ids}`)
-    setSubmitting(false)
+    const created = await collect.submit()
+    if (!created) return
     onCancel()
     try {
       await onCreated()
@@ -153,8 +90,10 @@ function Body({ onCancel, onCreated }: Omit<Props, 'open'>) {
       title="Вложение по заявкам"
       okText="Создать вложение"
       cancelText="Отмена"
-      okButtonProps={{ disabled: !pool || !canSubmit }}
-      confirmLoading={submitting}
+      // Not canSubmit: it is false while sending, and a disabled button turns grey instead of showing the spinner.
+      // A second send is blocked by confirmLoading and the hook itself.
+      okButtonProps={{ disabled: !pool || collect.chosen.length === 0 || Boolean(collect.created) }}
+      confirmLoading={collect.submitting}
       onOk={() => void submit()}
       onCancel={onCancel}
       width={900}
@@ -172,10 +111,7 @@ function Body({ onCancel, onCreated }: Omit<Props, 'open'>) {
           ) : null}
           <Tabs
             activeKey={method}
-            onChange={(k) => {
-              setMethod(k as FundingMethod)
-              setEditedComment(null)
-            }}
+            onChange={(k) => collect.setMethod(k as FundingMethod)}
             items={[
               { key: 'cash', label: `Наличными (${pool.cash.requests.length})`, children: renderTab('cash') },
               {
@@ -186,11 +122,11 @@ function Body({ onCancel, onCreated }: Omit<Props, 'open'>) {
             ]}
           />
           <Typography.Text strong>
-            {totals.length === 0 ? 'Итого: ничего не выбрано' : `Итого: ${totals.map(totalLine).join('; ')}`}
+            {fundingTotalsText(totals)}
           </Typography.Text>
           <Form layout="vertical">
             <Form.Item label="Описание">
-              <Input.TextArea rows={3} maxLength={1000} value={comment} onChange={(e) => setEditedComment(e.target.value)} />
+              <Input.TextArea rows={3} maxLength={1000} value={comment} onChange={(e) => collect.setComment(e.target.value)} />
             </Form.Item>
           </Form>
         </Space>

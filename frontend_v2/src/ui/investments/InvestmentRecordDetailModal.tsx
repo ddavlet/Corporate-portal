@@ -24,6 +24,10 @@ type Props = {
   record: ProjectInvestmentRow | InvestReturnRow | null
   /** `telegram` — мини-приложение: ссылки на `/tg/requests`, отступ под кнопки Telegram, подписи над значениями. */
   variant?: 'portal' | 'telegram'
+  /** Подписи слева или над значениями; по умолчанию — над значениями только в мини-приложении. */
+  descriptionsLayout?: 'horizontal' | 'vertical'
+  /** Кнопка «Переотправить» у ожидающих этапов; на телефоне портала переотправки нет. По умолчанию — есть. */
+  allowResend?: boolean
 }
 
 /** Верх окна ниже системной зоны и кнопок Telegram в полноэкранном режиме (как `.tg-webapp-root`). */
@@ -150,6 +154,8 @@ export function InvestmentRecordDetailModal({
   kind,
   record,
   variant = 'portal',
+  descriptionsLayout,
+  allowResend = true,
 }: Props) {
   const isTg = variant === 'telegram'
   const requestPathPrefix = isTg ? '/tg/requests' : '/requests'
@@ -231,7 +237,7 @@ export function InvestmentRecordDetailModal({
             <Tag color={summaryTagColor(approvalSummary, confirmed)}>{approvalSummary}</Tag>
             {confirmed ? <Tag color="success">Подтверждена</Tag> : <Tag color="warning">Не подтверждена</Tag>}
           </Space>
-          <Descriptions bordered size="small" column={1} layout={isTg ? 'vertical' : 'horizontal'}>
+          <Descriptions bordered size="small" column={1} layout={descriptionsLayout ?? (isTg ? 'vertical' : 'horizontal')}>
             <Descriptions.Item label="ID">{record.id}</Descriptions.Item>
             <Descriptions.Item label="Дата">{dateText(record.date)}</Descriptions.Item>
             {returnRecord ? (
@@ -278,10 +284,16 @@ export function InvestmentRecordDetailModal({
           <Space direction="vertical" size={12} style={{ display: 'flex' }}>
             {renderApprovalGroup(`Одобрено (${approvedApprovals.length})`, approvedApprovals)}
             {renderApprovalGroup(`Отклонено (${rejectedApprovals.length})`, rejectedApprovals)}
-            {renderApprovalGroup(`В ожидании (${pendingApprovals.length})`, pendingApprovals, {
-              resend: kind === 'project' ? resendProjectInvestmentApprovalCard : resendInvestReturnApprovalCard,
-              onResent: () => void loadApprovals(),
-            })}
+            {renderApprovalGroup(
+              `В ожидании (${pendingApprovals.length})`,
+              pendingApprovals,
+              allowResend
+                ? {
+                    resend: kind === 'project' ? resendProjectInvestmentApprovalCard : resendInvestReturnApprovalCard,
+                    onResent: () => void loadApprovals(),
+                  }
+                : undefined,
+            )}
           </Space>
         </>
       ) : null}
