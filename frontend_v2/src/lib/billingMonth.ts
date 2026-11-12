@@ -1,4 +1,5 @@
 import type { Dayjs } from 'dayjs'
+import 'dayjs/locale/ru'
 import { monthStartTashkent, nowTashkent } from './tashkentTime'
 
 /** До 20-го включительно: прошлый, текущий и следующий календарный месяц. С 21-го: только текущий и следующий. */
@@ -26,4 +27,13 @@ export function clampToAllowedBillingMonth(value: Dayjs, today: Dayjs = nowTashk
     return monthStartTashkent(value)
   }
   return monthStartTashkent(today)
+}
+
+/**
+ * Billing month for display, e.g. «ноябрь 2026».
+ * The locale is set explicitly so the label never depends on the locale carried by the value
+ * (the field showed «November 2026» in a dev build).
+ */
+export function formatBillingMonth(value: Dayjs): string {
+  return value.locale('ru').format('MMMM YYYY')
 }
