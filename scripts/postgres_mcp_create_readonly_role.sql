@@ -34,7 +34,8 @@ SELECT format('REVOKE SELECT ON TABLE %I FROM %I', t.tbl, :'mcp_user')
 FROM (VALUES
     ('django_session'),
     ('accounts_otpchallenge'),
-    ('mcp_oauth_authorization_code')
+    ('mcp_oauth_authorization_code'),
+    ('push_subscriptions')
 ) AS t(tbl)
 WHERE to_regclass('public.' || quote_ident(t.tbl)) IS NOT NULL\gexec
 

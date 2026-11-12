@@ -60,7 +60,8 @@ function notifyServiceWorker(items: ActionItem[], count: number) {
 function applyResult(items: ActionItem[], count: number, error: boolean) {
   setState({ items, count, loading: false, error })
   syncAppBadge(count)
-  notifyServiceWorker(items, count)
+  // A failed request says nothing about which steps are closed: the worker keeps its notifications until a real answer.
+  if (!error) notifyServiceWorker(items, count)
 }
 
 export function refreshActionItems(): Promise<void> {

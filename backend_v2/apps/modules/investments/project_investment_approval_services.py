@@ -8,6 +8,7 @@ from django.db.models import Min
 from django.utils import timezone
 from django.utils.formats import date_format
 
+from apps.modules.investments.approval_events import notifies_approvals_changed, project_investment_ref
 from apps.modules.investments.approval_services import INVESTMENT_APPROVAL_CASCADE_REJECTION_COMMENT
 from apps.modules.investments.models import (
     InvestmentProjectApprovalConfig,
@@ -368,6 +369,7 @@ def dispatch_pending_project_investment_approvals(*, project_investment: Project
     return len(rows)
 
 
+@notifies_approvals_changed(project_investment_ref)
 def route_project_investment_approvals(*, project_investment: ProjectInvestment) -> int:
     refresh_project_investment_approval_messages(project_investment=project_investment)
     pending = ProjectInvestmentApproval.objects.filter(

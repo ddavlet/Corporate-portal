@@ -295,6 +295,13 @@ N8N_INTEGRATION_TOKEN = os.getenv("N8N_INTEGRATION_TOKEN", "").strip()
 CBU_RATES_BASE_URL = (os.getenv("CBU_RATES_BASE_URL", "") or "").strip().rstrip("/")
 CBU_RATES_TOKEN = os.getenv("CBU_RATES_TOKEN", "").strip()
 
+# Web Push (VAPID) for portal "action required" notifications. Push is on only when all three are set
+# (apps.modules.notifications.push_services.web_push_enabled); otherwise the portal works without it.
+# The private key is a secret: never log it.
+VAPID_PUBLIC_KEY = os.getenv("VAPID_PUBLIC_KEY", "").strip()
+VAPID_PRIVATE_KEY = os.getenv("VAPID_PRIVATE_KEY", "").strip()
+VAPID_SUBJECT = os.getenv("VAPID_SUBJECT", "").strip()
+
 # Internal base URL for n8n webhook calls (skips Traefik+TLS when backend and n8n share a docker network).
 # Example: http://n8n:5678/webhook -> backend builds http://n8n:5678/webhook/<tenant>/<endpoint>.
 # When empty, backend falls back to the public https://{subdomain}.{BASE_DOMAIN} path.

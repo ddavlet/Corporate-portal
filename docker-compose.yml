@@ -582,6 +582,10 @@ services:
       N8N_INTEGRATION_TOKEN: ${N8N_INTEGRATION_TOKEN:-}
       CBU_RATES_BASE_URL: ${CBU_RATES_BASE_URL:-}
       CBU_RATES_TOKEN: ${CBU_RATES_TOKEN:-}
+      # Web Push (VAPID). Empty = push off; the portal and the notifications screen keep working.
+      VAPID_PUBLIC_KEY: ${VAPID_PUBLIC_KEY:-}
+      VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY:-}
+      VAPID_SUBJECT: ${VAPID_SUBJECT:-}
       # Internal n8n webhook base; bypasses Traefik+TLS so report proxies stop paying the public-hop cost.
       # Unset in .env to fall back to https://{subdomain}.{BASE_DOMAIN}.
       N8N_INTERNAL_BASE_URL: ${N8N_INTERNAL_BASE_URL:-http://n8n:5678/webhook}
@@ -715,6 +719,10 @@ services:
       N8N_INTEGRATION_TOKEN: ${N8N_INTEGRATION_TOKEN:-}
       CBU_RATES_BASE_URL: ${CBU_RATES_BASE_URL:-}
       CBU_RATES_TOKEN: ${CBU_RATES_TOKEN:-}
+      # Web Push (VAPID): sync_action_item_push sends from cron too.
+      VAPID_PUBLIC_KEY: ${VAPID_PUBLIC_KEY:-}
+      VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY:-}
+      VAPID_SUBJECT: ${VAPID_SUBJECT:-}
       N8N_INTERNAL_BASE_URL: ${N8N_INTERNAL_BASE_URL:-http://n8n:5678/webhook}
       MESSAGING_GATEWAY_SEND_URL: http://tg_gateway:8080/v1/messaging/send
       MESSAGING_GATEWAY_ADMIN_URL: http://tg_gateway:8080

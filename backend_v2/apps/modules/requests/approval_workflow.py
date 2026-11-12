@@ -5,6 +5,7 @@ from django.utils import timezone
 from rest_framework.exceptions import APIException, NotFound, PermissionDenied, ValidationError
 
 from apps.modules.requests.approval_config_resolver import resolve_effective_payment_step_config_for_request
+from apps.modules.requests.approval_events import notifies_approvals_changed, request_ref
 from apps.modules.requests.models import Approval, Request, RequestApprovalStepConfig
 from apps.modules.requests.payment_step_guards import payment_step_suppression_reason
 from apps.modules.requests.payment_type_policies import check_request_mutation
@@ -139,6 +140,7 @@ def _recalculate_request_status(request_obj: Request) -> str:
     return request_obj.status
 
 
+@notifies_approvals_changed(request_ref)
 def route_request_approvals(*, request_obj: Request) -> None:
     """
     Status-driven orchestration:

@@ -30,7 +30,18 @@ const { portalState, getMyCompaniesMock } = vi.hoisted(() => ({
   getMyCompaniesMock: vi.fn(),
 }))
 
-vi.mock('../lib/portalMode', () => ({ isSharedAppMode: () => portalState.shared }))
+vi.mock('../lib/portalMode', () => ({
+  isSharedAppMode: () => portalState.shared,
+  getSharedHost: () => 'app.kolberg.uz',
+}))
+// The push block has its own tests (PushNotificationsWidget.test.tsx); here only its place on the page matters.
+const { getPushSupportMock } = vi.hoisted(() => ({ getPushSupportMock: vi.fn() }))
+vi.mock('../lib/webPush', () => ({
+  getPushSupport: () => getPushSupportMock(),
+  enablePush: vi.fn(),
+  revokePushSubscription: vi.fn(),
+  syncPushSubscription: vi.fn(() => Promise.resolve(false)),
+}))
 vi.mock('../lib/myCompaniesApi', () => ({ getMyCompanies: () => getMyCompaniesMock() }))
 vi.mock('./auth', () => ({ useAuth: () => ({ logout: vi.fn() }) }))
 
@@ -125,7 +136,22 @@ function renderPage() {
 describe('NotificationsPage', () => {
   beforeEach(() => {
     refreshMock.mockClear()
+    // No links or buttons of its own, so the counts of item links below stay exact.
+    getPushSupportMock.mockReset().mockResolvedValue('unsupported')
     hookState = { items: [], count: 0, loading: false, error: false, refresh: refreshMock }
+  })
+
+  it('shows the push notifications block under the title', async () => {
+    getPushSupportMock.mockResolvedValue('subdomain-use-shared-host')
+    renderPage()
+    const block = await screen.findByRole('region', { name: 'Push-уведомления' })
+    expect(block).toHaveTextContent('Уведомления доступны в приложении по адресу app.kolberg.uz')
+  })
+
+  it('offers the enable button on the shared app host', async () => {
+    getPushSupportMock.mockResolvedValue('default')
+    renderPage()
+    expect(await screen.findByRole('button', { name: /Включить уведомления/ })).toBeInTheDocument()
   })
 
   it('lists requests and both kinds of investments with amount, step and kind', () => {
@@ -242,6 +268,7 @@ describe('NotificationsPage on the shared app host (crit. 19)', () => {
     sessionStorage.clear()
     localStorage.clear()
     sessionStorage.setItem('kolberg_v2_company', 'alpha')
+    getPushSupportMock.mockReset().mockResolvedValue('default')
     getMyCompaniesMock.mockReset()
     getMyCompaniesMock.mockResolvedValue([
       { subdomain: 'alpha', name: 'Альфа', action_items_count: 1 },
@@ -271,22 +298,23 @@ describe('NotificationsPage on the shared app host (crit. 19)', () => {
   })
 })
 
-describe('NotificationsPage slot for the notifications button', () => {
+describe('NotificationsPage push block on a phone and a desktop', () => {
   beforeEach(() => {
     portalState.shared = false
     hookState = { items: [], count: 0, loading: false, error: false, refresh: refreshMock }
+    getPushSupportMock.mockReset().mockResolvedValue('default')
   })
 
-  it('has the slot on a phone', () => {
+  it('shows the push block on a phone', async () => {
     setViewport('phone')
     renderPage()
-    expect(screen.getByTestId('push-subscribe-slot')).toBeInTheDocument()
+    expect(await screen.findByRole('region', { name: 'Push-уведомления' })).toBeInTheDocument()
     expect(screen.getByText('Сейчас ничего не ждёт вашего действия')).toBeInTheDocument()
   })
 
-  it('has no slot on a desktop', () => {
+  it('shows the push block on a desktop', async () => {
     setViewport('desktop')
     renderPage()
-    expect(screen.queryByTestId('push-subscribe-slot')).toBeNull()
+    expect(await screen.findByRole('region', { name: 'Push-уведомления' })).toBeInTheDocument()
   })
 })

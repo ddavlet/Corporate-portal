@@ -8,6 +8,7 @@ import { formatRequestDate } from '../lib/requestUtils'
 import { useActionItems } from '../lib/useActionItems'
 import { useCompany } from './company'
 import { usePortalMobileMode } from '../lib/useIsPhone'
+import { PushNotificationsWidget } from './PushNotificationsWidget'
 
 const KIND_LABELS: Record<ActionItemKind, string> = {
   request: 'Заявка',
@@ -127,8 +128,7 @@ export function NotificationsPage() {
           </MutedText>
         </div>
 
-        {/* Phone: the place of the future «Включить уведомления» button (Web Push). */}
-        {isMobile ? <div data-testid="push-subscribe-slot" /> : null}
+        <PushNotificationsWidget />
 
         {error ? (
           <Alert
