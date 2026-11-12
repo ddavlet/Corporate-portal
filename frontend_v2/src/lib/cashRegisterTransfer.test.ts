@@ -4,6 +4,8 @@ import {
   CashRegisterTransferSubmitError,
   CashRegisterTransferTargetError,
   cashRegisterTransferErrorText,
+  generalFormPurposes,
+  isCashRegisterTransferPurpose,
   submitCashRegisterTransfer,
 } from './cashRegisterTransfer'
 
@@ -172,5 +174,31 @@ describe('submitCashRegisterTransfer', () => {
 
     expect(err).toBeInstanceOf(CashRegisterTransferSubmitError)
     expect(submitRequestForApprovalMock).not.toHaveBeenCalled()
+  })
+})
+
+describe('generalFormPurposes', () => {
+  it('hides the cash-register transfer purpose and reports it', () => {
+    const { purposes, transferHidden } = generalFormPurposes([
+      { name: 'Хозтовары', category: 'Хоз' },
+      { name: 'Перевод между кассами', category: 'Перевод между кассами' },
+    ])
+    expect(purposes.map((p) => p.name)).toEqual(['Хозтовары'])
+    expect(transferHidden).toBe(true)
+  })
+
+  it('keeps other purposes untouched', () => {
+    expect(generalFormPurposes([{ name: 'Хозтовары' }])).toEqual({
+      purposes: [{ name: 'Хозтовары' }],
+      transferHidden: false,
+    })
+    expect(generalFormPurposes(undefined)).toEqual({ purposes: [], transferHidden: false })
+    expect(generalFormPurposes([{ name: 'Перевод между кассами' }])).toEqual({ purposes: [], transferHidden: true })
+  })
+
+  it('matches the purpose name ignoring surrounding spaces', () => {
+    expect(isCashRegisterTransferPurpose(' Перевод между кассами ')).toBe(true)
+    expect(isCashRegisterTransferPurpose('Перевод')).toBe(false)
+    expect(isCashRegisterTransferPurpose(null)).toBe(false)
   })
 })
