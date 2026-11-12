@@ -248,7 +248,7 @@ describe('RequestsMobilePage — cursor feed', () => {
     expect(approved).not.toHaveClass('m-card--payed-no-expense')
     expect(within(approved).getByText('Согласована')).toBeInTheDocument()
     expect(within(approved).getByText('ООО Альфа')).toBeInTheDocument()
-    expect(within(approved).getByText(`${(2500000).toLocaleString('ru-RU')} UZS`)).toBeInTheDocument()
+    expect(within(approved).getByText(`${(2500000).toLocaleString('ru-RU').replace(/\s/g, ' ')} UZS`)).toBeInTheDocument()
     expect(within(approved).getByText(/Перечисление · ivanov/)).toBeInTheDocument()
     expect(within(screen.getByTestId('request-card-3')).getByText('На согласовании · шаг 3')).toBeInTheDocument()
     expect(approved).toHaveAttribute('href', '/requests/1')
