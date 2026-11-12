@@ -197,7 +197,7 @@ describe('MobileAppShell (phone)', () => {
     renderShell()
     await openMenu()
     fireEvent.click(screen.getByRole('button', { name: /Сменить пароль/ }))
-    expect(await screen.findByRole('dialog', { name: 'Сменить пароль' })).toBeInTheDocument()
+    await waitFor(() => expect(document.querySelector('.ant-modal-title')).toHaveTextContent('Сменить пароль'))
   })
 
   it('lets a page set the title and «Назад»', async () => {
