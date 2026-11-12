@@ -41,6 +41,7 @@ import {
   lockedCurrencyFromHint,
   vendorKindForPaymentType,
 } from '../../lib/requestPaymentTypes'
+import { generalFormPurposes, isCashRegisterTransferPurpose } from '../../lib/cashRegisterTransfer'
 import { labelBlockAboveField } from '../formSpacing'
 import { clampToAllowedBillingMonth, isAllowedBillingMonth } from '../../lib/billingMonth'
 import { monthStartTashkent } from '../../lib/tashkentTime'
@@ -193,7 +194,7 @@ export function RequestCreatePage({ requestsBasePath = '/requests', variant = 'p
       const monthShift = d.billing_days_offset ?? 0
       const target = monthStartTashkent().add(monthShift, 'month')
       setBillingDate(clampToAllowedBillingMonth(target))
-      setPaymentPurpose(d.payment_purpose ?? null)
+      setPaymentPurpose(d.payment_purpose && !isCashRegisterTransferPurpose(d.payment_purpose) ? d.payment_purpose : null)
       setVendorRefId(d.vendor_ref ?? null)
     } else {
       setBillingDate((prev) => clampToAllowedBillingMonth(prev ?? monthStartTashkent()))
@@ -254,12 +255,19 @@ export function RequestCreatePage({ requestsBasePath = '/requests', variant = 'p
     }
   }, [contractsRequiredForPt, vendorRefId])
 
-  const purposeOptions = useMemo(() => {
-    if (!activePt?.payment_purposes?.length) return []
-    return activePt.payment_purposes.map((p) => ({
-      value: p.name,
-      label: `${p.name} → ${p.category}`,
-    }))
+  const transferHintText = isTg
+    ? 'Перевод между кассами оформляется в разделе «Касса» плиткой «Перевести между кассами».'
+    : 'Перевод между кассами оформляется в разделе «Касса» («Все операции», «Расходы» или «Доходы») кнопкой «Перевести между кассами».'
+
+  const { purposeOptions, transferPurposeHidden } = useMemo(() => {
+    const { purposes, transferHidden } = generalFormPurposes(activePt?.payment_purposes)
+    return {
+      purposeOptions: purposes.map((p) => ({
+        value: p.name,
+        label: `${p.name} → ${p.category}`,
+      })),
+      transferPurposeHidden: transferHidden,
+    }
   }, [activePt])
 
   const stepItems = useMemo(() => {
@@ -316,6 +324,10 @@ export function RequestCreatePage({ requestsBasePath = '/requests', variant = 'p
     }
     if (!billingDate || !isAllowedBillingMonth(billingDate)) {
       message.warning('Выберите допустимый месяц биллинга')
+      return
+    }
+    if (transferPurposeHidden && purposeOptions.length === 0) {
+      message.warning(transferHintText)
       return
     }
     if (purposeOptions.length > 0 && !paymentPurpose) {
@@ -742,21 +754,33 @@ export function RequestCreatePage({ requestsBasePath = '/requests', variant = 'p
                 ) : null}
               </Space>
             )}
-            {purposeOptions.length > 0 ? (
+            {purposeOptions.length > 0 || transferPurposeHidden ? (
               <div className={isTg ? 'tg-field-block' : undefined}>
-                <Typography.Text strong style={labelBlockAboveField}>
-                  Назначение платежа
-                </Typography.Text>
-                <Select
-                  placeholder="Выберите назначение"
-                  size={isTg ? 'large' : undefined}
-                  style={{ display: 'block', width: '100%', maxWidth: isTg ? undefined : 560 }}
-                  value={paymentPurpose || undefined}
-                  onChange={setPaymentPurpose}
-                  options={purposeOptions}
-                  getPopupContainer={isTg ? tgPopupContainer : undefined}
-                  popupMatchSelectWidth={isTg ? true : undefined}
-                />
+                {purposeOptions.length > 0 ? (
+                  <>
+                    <Typography.Text strong style={labelBlockAboveField}>
+                      Назначение платежа
+                    </Typography.Text>
+                    <Select
+                      placeholder="Выберите назначение"
+                      size={isTg ? 'large' : undefined}
+                      style={{ display: 'block', width: '100%', maxWidth: isTg ? undefined : 560 }}
+                      value={paymentPurpose || undefined}
+                      onChange={setPaymentPurpose}
+                      options={purposeOptions}
+                      getPopupContainer={isTg ? tgPopupContainer : undefined}
+                      popupMatchSelectWidth={isTg ? true : undefined}
+                    />
+                  </>
+                ) : null}
+                {transferPurposeHidden ? (
+                  <Typography.Text
+                    type="secondary"
+                    style={{ display: 'block', marginTop: purposeOptions.length > 0 ? 8 : 0 }}
+                  >
+                    {transferHintText}
+                  </Typography.Text>
+                ) : null}
               </div>
             ) : null}
             <div className={isTg ? 'tg-field-block' : undefined}>

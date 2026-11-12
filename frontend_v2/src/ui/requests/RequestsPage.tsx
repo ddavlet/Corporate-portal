@@ -27,6 +27,7 @@ import { labelBlockAboveField } from '../formSpacing'
 import { AdminEditRecordButton } from '../admin/AdminEditRecordButton'
 import { NoteCreateModal } from '../NoteCreateModal'
 import { useInfiniteList, useRestoreInfinitePages } from '../../lib/useInfiniteList'
+import { generalFormPurposes, isCashRegisterTransferPurpose } from '../../lib/cashRegisterTransfer'
 import {
   requestPaymentTypeSelectOptions,
   vendorKindForPaymentType,
@@ -426,12 +427,15 @@ export function RequestsPage() {
   )
 
   const editPurposeSelectOptions = useMemo(() => {
-    if (!editPaymentTypeFormConfig?.payment_purposes?.length) return []
-    return editPaymentTypeFormConfig.payment_purposes.map((p) => ({
+    const all = editPaymentTypeFormConfig?.payment_purposes ?? []
+    // Перевод между кассами — только кнопкой перевода; у уже такого черновика значение оставляем.
+    const keepTransfer = isCashRegisterTransferPurpose(editDraft?.payment_purpose)
+    const visible = keepTransfer ? all : generalFormPurposes(all).purposes
+    return visible.map((p) => ({
       value: p.name,
       label: `${p.name} → ${p.category}`,
     }))
-  }, [editPaymentTypeFormConfig])
+  }, [editPaymentTypeFormConfig, editDraft?.payment_purpose])
 
   const requesterOptions = useMemo(() => {
     if (requesterCandidates.length > 0) {

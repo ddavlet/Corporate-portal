@@ -5,6 +5,20 @@ import { createPortalRequest, submitRequestForApproval, type CashRegisterDto } f
 export const CASH_REGISTER_TRANSFER_PAYMENT_TYPE = 'Наличные'
 export const CASH_REGISTER_TRANSFER_PAYMENT_PURPOSE = 'Перевод между кассами'
 
+/** Назначение «Перевод между кассами» оформляется только кнопкой перевода: в общей форме нет поля кассы-получателя. */
+export function isCashRegisterTransferPurpose(name: string | null | undefined): boolean {
+  return (name || '').trim() === CASH_REGISTER_TRANSFER_PAYMENT_PURPOSE
+}
+
+/** Назначения для общей формы заявки без перевода между кассами; `transferHidden` — было ли оно в списке. */
+export function generalFormPurposes<T extends { name: string }>(
+  purposes: readonly T[] | null | undefined,
+): { purposes: T[]; transferHidden: boolean } {
+  const all = purposes ?? []
+  const kept = all.filter((p) => !isCashRegisterTransferPurpose(p.name))
+  return { purposes: kept, transferHidden: kept.length !== all.length }
+}
+
 export function cashRegisterLabel(r: CashRegisterDto): string {
   return (r.name || '').trim() || r.currency
 }
