@@ -1,21 +1,16 @@
 import { Navigate } from 'react-router-dom'
 import { usePortalMobileMode } from '../lib/useIsPhone'
-import { useModuleAccess } from './moduleAccess'
 import { DashboardPage } from './DashboardPage'
-import { MobileStateWidget } from './MobileStateWidget'
-
-/** Start page of the phone layout (also the installed app's start_url): «Заявки → Ждут меня». */
-export const MOBILE_HOME_PATH = '/requests?tab=waiting'
 
 /**
- * `/`: the dashboard on a desktop. On a phone it opens the requests waiting on the user, or the notifications when the
- * company has no requests module.
+ * Start page of the phone layout (also the installed app's start_url): «Уведомления» — everything waiting on the
+ * user in one list (expense requests, investment payouts and investments), whatever modules the company has.
  */
+export const MOBILE_HOME_PATH = '/notifications'
+
+/** `/`: the dashboard on a desktop, the notifications on a phone. */
 export function HomeRoute() {
   const isMobile = usePortalMobileMode()
-  const { loading, hasAccess } = useModuleAccess()
   if (!isMobile) return <DashboardPage />
-  // Until the module list arrives every module reads as switched off: wait instead of sending the user elsewhere.
-  if (loading) return <MobileStateWidget state="loading" />
-  return <Navigate to={hasAccess('requests') ? MOBILE_HOME_PATH : '/notifications'} replace />
+  return <Navigate to={MOBILE_HOME_PATH} replace />
 }

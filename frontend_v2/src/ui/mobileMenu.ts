@@ -23,20 +23,21 @@ export type MobileMenuItem = {
 }
 
 export type MobileMenu = {
-  /** Sections that work on the phone. */
+  /** Sections of the phone app: only «Заявки» and «Инвестиции». */
   main: MobileMenuItem[]
-  /** «На компьютере»: on a phone they open the «Раздел доступен на компьютере» placeholder. */
-  desktop: MobileMenuItem[]
 }
 
 const MAIN_ITEMS: MobileMenuItem[] = [
   { path: '/requests', name: 'Заявки', icon: FileTextOutlined, moduleKey: 'requests' },
-  { path: '/notifications', name: 'Уведомления', icon: BellOutlined },
-  // Wave 1: the desktop page as it is (its mobile layout comes in wave 2).
   { path: '/investments', name: 'Инвестиции', icon: RiseOutlined, moduleKey: 'investments' },
 ]
 
-const DESKTOP_ITEMS: MobileMenuItem[] = [
+/**
+ * Sections that are not in the phone menu but still get a header title when opened by a link: «Уведомления» (the
+ * bell opens it) and the desktop-only sections, which show the «Раздел доступен на компьютере» placeholder.
+ */
+const OTHER_SECTIONS: MobileMenuItem[] = [
+  { path: '/notifications', name: 'Уведомления', icon: BellOutlined },
   { path: '/tasks', name: 'Задачи', icon: CheckSquareOutlined, moduleKey: 'tasks' },
   { path: '/cash', name: 'Касса', icon: DollarOutlined, moduleKey: 'cash' },
   { path: '/bank', name: 'Банк', icon: BankOutlined, moduleKey: 'bank' },
@@ -54,13 +55,13 @@ const DESKTOP_ITEMS: MobileMenuItem[] = [
  */
 export function buildMobileMenu(hasAccess: (moduleKey: string) => boolean): MobileMenu {
   const allowed = (item: MobileMenuItem) => !item.moduleKey || hasAccess(item.moduleKey)
-  return { main: MAIN_ITEMS.filter(allowed), desktop: DESKTOP_ITEMS.filter(allowed) }
+  return { main: MAIN_ITEMS.filter(allowed) }
 }
 
 /** The menu item a path belongs to (`/requests/12` → «Заявки»). */
 export function findMobileMenuItem(pathname: string): MobileMenuItem | null {
   return (
-    [...MAIN_ITEMS, ...DESKTOP_ITEMS].find((item) => pathname === item.path || pathname.startsWith(`${item.path}/`)) ??
+    [...MAIN_ITEMS, ...OTHER_SECTIONS].find((item) => pathname === item.path || pathname.startsWith(`${item.path}/`)) ??
     null
   )
 }

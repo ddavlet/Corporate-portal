@@ -237,26 +237,19 @@ describe('App routing on a phone', () => {
     }
   })
 
-  it('starts on «Заявки → Ждут меня» on a phone', () => {
+  it('starts on the notifications on a phone', () => {
     setViewport('phone')
     renderAt('/')
-    expect(screen.getByText('RequestsMobilePage')).toBeInTheDocument()
+    expect(screen.getByText('NotificationsPage')).toBeInTheDocument()
+    expect(screen.queryByText('RequestsMobilePage')).toBeNull()
     expect(screen.queryByText('DashboardPage')).toBeNull()
   })
 
-  it('starts on the notifications on a phone without the requests module', () => {
+  it('starts on the notifications on a phone without the requests module too', () => {
     setViewport('phone')
     moduleAccessState.value = { loading: false, hasAccess: (key: string) => key !== 'requests' }
     renderAt('/')
     expect(screen.getByText('NotificationsPage')).toBeInTheDocument()
-  })
-
-  it('waits for the module list before choosing the start page', () => {
-    setViewport('phone')
-    moduleAccessState.value = { loading: true, hasAccess: () => false }
-    renderAt('/')
-    expect(screen.getByRole('status', { name: 'Загрузка' })).toBeInTheDocument()
-    expect(screen.queryByText('NotificationsPage')).toBeNull()
   })
 
   it('keeps the Mini App routes out of the portal layout at phone width', () => {
