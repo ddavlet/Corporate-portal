@@ -1,3 +1,4 @@
+from datetime import timedelta
 from pathlib import Path
 import os
 import sys
@@ -251,6 +252,19 @@ REST_FRAMEWORK = {
     ),
     "DEFAULT_PAGINATION_CLASS": "apps.common.pagination.PortalCursorPagination",
     "PAGE_SIZE": 50,
+}
+
+# Portal sign-in lasts 30 days from the last use: every refresh issues a new refresh token (sliding session),
+# so the installed app (PWA) does not ask to sign in again each day. Without this, SimpleJWT defaults to a
+# 1-day refresh token that is never renewed. Old refresh tokens stay valid until they expire (no blacklist app),
+# so a password change revokes every token of the user (CHECK_REVOKE_TOKEN: tokens carry a password-hash claim,
+# checked on each request and on refresh), and MCP refresh tokens are not renewed here (PortalTokenRefreshSerializer).
+SIMPLE_JWT = {
+    "ACCESS_TOKEN_LIFETIME": timedelta(minutes=5),
+    "REFRESH_TOKEN_LIFETIME": timedelta(days=30),
+    "ROTATE_REFRESH_TOKENS": True,
+    "CHECK_REVOKE_TOKEN": True,
+    "TOKEN_REFRESH_SERIALIZER": "apps.accounts.serializers.PortalTokenRefreshSerializer",
 }
 
 # n8n integration API (path prefix + shared secret)
