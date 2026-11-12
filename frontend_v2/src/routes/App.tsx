@@ -16,6 +16,7 @@ import { ReportDetailPage } from '../ui/reports/ReportDetailPage'
 import { ReportNotFoundPage } from '../ui/reports/ReportNotFoundPage'
 import {
   InvestmentCollectRoute,
+  InvestmentCreateRoute,
   InvestmentsRoute,
   InvestReturnCreateRoute,
 } from '../ui/investments/InvestmentsRoute'
@@ -173,10 +174,11 @@ export function App() {
         <Route path="requests" element={<RequestsRoute />} />
         <Route path="requests/new" element={<RequestCreateRoute />} />
         <Route path="requests/:id" element={<RequestDetailPage />} />
-        {/* A phone gets two actions on their own full-screen addresses; the desktop opens them as modals on /investments. */}
+        {/* A phone gets the actions on their own full-screen addresses; the desktop opens them as modals on /investments. */}
         <Route path="investments" element={<InvestmentsRoute />} />
         <Route path="investments/returns/new" element={<InvestReturnCreateRoute />} />
         <Route path="investments/collect" element={<InvestmentCollectRoute />} />
+        <Route path="investments/new" element={<InvestmentCreateRoute />} />
         {/* No phone layout yet: on a phone these show «Раздел доступен на компьютере» instead of the page. */}
         <Route element={<DesktopOnlyRoute />}>
           <Route path="requests/audit" element={<RequestMonthAuditPage />} />

@@ -1,16 +1,16 @@
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { Button, Typography, message, theme } from 'antd'
-import { MergeCellsOutlined, PlusOutlined } from '@ant-design/icons'
+import { FileAddOutlined, MergeCellsOutlined, PlusOutlined } from '@ant-design/icons'
 
 import { getInvestReturns, getProjectInvestments, type InvestReturnRow, type ProjectInvestmentRow } from '../../lib/api'
-import { useInvestmentFundingMode } from '../../lib/useInvestmentFundingMode'
+import { useInvestmentFundingModeStatus } from '../../lib/useInvestmentFundingModeStatus'
 import { MobileStateWidget } from '../MobileStateWidget'
 import { useMobileHeader } from '../mobileShell'
 import { useModuleAccess } from '../moduleAccess'
 import { MobileActionsTheme } from '../requests/mobileActionsTheme'
 import { InvestmentRecordDetailModal } from './InvestmentRecordDetailModal'
-import { INVEST_RETURN_NEW_PATH, INVESTMENT_COLLECT_PATH } from './investmentsMobileNav'
+import { INVEST_RETURN_NEW_PATH, INVESTMENT_COLLECT_PATH, INVESTMENT_NEW_PATH } from './investmentsMobileNav'
 
 type LinkedRecord =
   | { kind: 'return'; record: InvestReturnRow }
@@ -27,8 +27,10 @@ async function findLinkedRecord(tab: string, id: number): Promise<LinkedRecord |
 }
 
 /**
- * `/investments` on a phone: two actions instead of the desktop tables — «Создать выплату» and, in the investment
- * mode, «Собрать из заявок» — each on its own full-screen address. A notification's link
+ * `/investments` on a phone: two actions instead of the desktop tables — «Создать выплату» and, as on the desktop,
+ * either «Собрать из заявок» (the investment mode) or «Подать заявку на вложение» (without it; also when the mode's
+ * config does not load) — each on its own full-screen address. Until the mode is known the second action is not
+ * shown, so it does not change under the finger. A notification's link
  * `?tab=<returns|investments>&open=<id>` loads only that list and opens the record's card; a record that is not there
  * is reported and `open` is dropped. The card has no «Переотправить»: resending approvals stays on the desktop.
  * Other parameters (`schedule=`) are ignored.
@@ -39,7 +41,7 @@ export function InvestmentsMobilePage() {
   const navigate = useNavigate()
   const { loading: accessLoading, hasAccess } = useModuleAccess()
   const allowed = !accessLoading && hasAccess('investments')
-  const fundingMode = useInvestmentFundingMode(allowed)
+  const fundingMode = useInvestmentFundingModeStatus(allowed)
 
   const [searchParams, setSearchParams] = useSearchParams()
   const hasOpen = searchParams.has('open')
@@ -116,11 +118,15 @@ export function InvestmentsMobilePage() {
           <Button type="primary" block size="large" icon={<PlusOutlined />} style={{ height: 48 }} onClick={() => navigate(INVEST_RETURN_NEW_PATH)}>
             Создать выплату
           </Button>
-          {fundingMode ? (
+          {fundingMode.loading ? null : fundingMode.enabled ? (
             <Button block size="large" icon={<MergeCellsOutlined />} style={{ height: 48 }} onClick={() => navigate(INVESTMENT_COLLECT_PATH)}>
               Собрать из заявок
             </Button>
-          ) : null}
+          ) : (
+            <Button block size="large" icon={<FileAddOutlined />} style={{ height: 48 }} onClick={() => navigate(INVESTMENT_NEW_PATH)}>
+              Подать заявку на вложение
+            </Button>
+          )}
         </div>
       </MobileActionsTheme>
       <Typography.Text style={{ color: token.colorTextSecondary }}>

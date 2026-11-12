@@ -84,6 +84,9 @@ vi.mock('../ui/investments/InvestReturnCreateMobilePage', () => ({
 vi.mock('../ui/investments/InvestmentCollectMobilePage', () => ({
   InvestmentCollectMobilePage: () => <div>InvestmentCollectMobilePage</div>,
 }))
+vi.mock('../ui/investments/InvestmentCreateMobilePage', () => ({
+  InvestmentCreateMobilePage: () => <div>InvestmentCreateMobilePage</div>,
+}))
 vi.mock('../ui/SettingsPage', () => ({ SettingsPage: () => <div>SettingsPage</div> }))
 vi.mock('../ui/settings/TenantIntegrationConfigPage', () => ({
   TenantIntegrationConfigPage: () => <div>TenantIntegrationConfigPage</div>,
@@ -307,6 +310,7 @@ describe('App routing on a phone', () => {
       ['/investments?tab=returns&open=5', 'InvestmentsMobilePage'],
       ['/investments/returns/new', 'InvestReturnCreateMobilePage'],
       ['/investments/collect', 'InvestmentCollectMobilePage'],
+      ['/investments/new', 'InvestmentCreateMobilePage'],
     ]) {
       const { unmount } = renderAt(url)
       expect(screen.getByText(page)).toBeInTheDocument()
@@ -318,12 +322,13 @@ describe('App routing on a phone', () => {
 
   it('keeps the desktop investments and sends the phone form addresses there on a desktop', () => {
     setViewport('desktop')
-    for (const url of ['/investments', '/investments/returns/new', '/investments/collect']) {
+    for (const url of ['/investments', '/investments/returns/new', '/investments/collect', '/investments/new']) {
       const { unmount } = renderAt(url)
       expect(screen.getByText('InvestmentsPage')).toBeInTheDocument()
       expect(screen.queryByText('InvestmentsMobilePage')).toBeNull()
       expect(screen.queryByText('InvestReturnCreateMobilePage')).toBeNull()
       expect(screen.queryByText('InvestmentCollectMobilePage')).toBeNull()
+      expect(screen.queryByText('InvestmentCreateMobilePage')).toBeNull()
       unmount()
     }
   })

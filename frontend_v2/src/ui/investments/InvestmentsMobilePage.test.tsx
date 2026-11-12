@@ -65,6 +65,7 @@ function renderPage(url = '/investments', store: MobileHeaderStore | null = null
           <Route path="/investments" element={<InvestmentsMobilePage />} />
           <Route path="/investments/returns/new" element={<div>Форма выплаты</div>} />
           <Route path="/investments/collect" element={<div>Мастер сбора</div>} />
+          <Route path="/investments/new" element={<div>Форма вложения</div>} />
         </Routes>
         <LocationProbe />
       </MemoryRouter>
@@ -113,24 +114,35 @@ describe('InvestmentsMobilePage', () => {
     expect(api.getProjectInvestments).not.toHaveBeenCalled()
   })
 
-  it('offers «Собрать из заявок» only in the investment mode', async () => {
+  it('offers «Собрать из заявок» and not «Подать заявку на вложение» in the investment mode', async () => {
     api.getInvestmentFundingConfig.mockResolvedValue({ is_enabled: true })
     renderPage()
     expect(await screen.findByRole('button', { name: /Собрать из заявок/ })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /Подать заявку на вложение/ })).toBeNull()
+    expect(screen.getByRole('button', { name: /Создать выплату/ })).toBeInTheDocument()
   })
 
-  it('hides «Собрать из заявок» without the investment mode', async () => {
+  it('offers «Подать заявку на вложение» and not «Собрать из заявок» without the investment mode', async () => {
     renderPage()
-    await settle()
-    expect(screen.queryByRole('button', { name: /Собрать из заявок/ })).toBeNull()
-  })
-
-  it('hides «Собрать из заявок» when the funding config does not load', async () => {
-    api.getInvestmentFundingConfig.mockRejectedValue(new Error('403'))
-    renderPage()
-    await settle()
+    expect(await screen.findByRole('button', { name: /Подать заявку на вложение/ })).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /Собрать из заявок/ })).toBeNull()
     expect(screen.getByRole('button', { name: /Создать выплату/ })).toBeInTheDocument()
+  })
+
+  it('offers «Подать заявку на вложение» when the funding config does not load, as the desktop does', async () => {
+    api.getInvestmentFundingConfig.mockRejectedValue(new Error('403'))
+    renderPage()
+    expect(await screen.findByRole('button', { name: /Подать заявку на вложение/ })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /Собрать из заявок/ })).toBeNull()
+    expect(screen.getByRole('button', { name: /Создать выплату/ })).toBeInTheDocument()
+  })
+
+  it('shows neither mode action until the funding config answers', () => {
+    api.getInvestmentFundingConfig.mockReturnValue(new Promise(() => undefined))
+    renderPage()
+    expect(screen.getByRole('button', { name: /Создать выплату/ })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /Собрать из заявок/ })).toBeNull()
+    expect(screen.queryByRole('button', { name: /Подать заявку на вложение/ })).toBeNull()
   })
 
   it('opens the payout form and the collect wizard', async () => {
@@ -143,6 +155,13 @@ describe('InvestmentsMobilePage', () => {
     renderPage()
     fireEvent.click(await screen.findByRole('button', { name: /Собрать из заявок/ }))
     expect(currentPath()).toBe('/investments/collect')
+  })
+
+  it('opens the investment form without the investment mode', async () => {
+    renderPage()
+    fireEvent.click(await screen.findByRole('button', { name: /Подать заявку на вложение/ }))
+    expect(currentPath()).toBe('/investments/new')
+    expect(screen.getByText('Форма вложения')).toBeInTheDocument()
   })
 
   it('shows an empty state without access to the module', async () => {
