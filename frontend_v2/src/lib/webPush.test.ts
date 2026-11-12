@@ -226,7 +226,7 @@ describe('webPush', () => {
 
     it('drops a subscription made with an old VAPID key instead of re-registering it', async () => {
       const stale = fakeSubscription()
-      stale.options.applicationServerKey = urlBase64ToUint8Array('BOldVapidKey_-xyz').buffer
+      stale.options.applicationServerKey = urlBase64ToUint8Array('BOldVapidKey_-xy').buffer
       installPushEnv({ permission: 'granted', existing: stale })
       await expect(syncPushSubscription()).resolves.toBe(false)
       expect(stale.unsubscribe).toHaveBeenCalledTimes(1)
