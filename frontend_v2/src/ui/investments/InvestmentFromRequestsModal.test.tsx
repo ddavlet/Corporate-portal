@@ -138,4 +138,66 @@ describe('InvestmentFromRequestsModal', () => {
     expect(successSpy).toHaveBeenCalledWith('Создано вложений: №77')
     expect(errorSpy).not.toHaveBeenCalled()
   })
+
+  it('preselects the requests of both funding methods', async () => {
+    getFundingPoolMock.mockResolvedValue({
+      cash: { requests: [req(10), req(11, { amount: '1000000' })], totals: [] },
+      bank_transfer: {
+        requests: [req(20, { payment_type: 'Перечисление', amount: '3000000' })],
+        totals: [],
+      },
+      approval_chain_ok: true,
+    })
+    createInvestmentsFromRequestsMock.mockResolvedValue({ investments: [{ id: 78 }] })
+    vi.spyOn(message, 'success').mockImplementation(() => undefined as never)
+    renderModal()
+
+    // Наличные: обе заявки выбраны сразу.
+    await enabledSubmitButton()
+    expect(screen.getByText(/Итого: 6\s?000\s?000 UZS \(2 заявки\)/)).toBeTruthy()
+
+    // Перевод на счёт: заявка тоже выбрана, хотя вкладку не открывали при загрузке.
+    fireEvent.click(screen.getByRole('tab', { name: /Переводом на счёт/ }))
+    expect(await screen.findByText(/Итого: 3\s?000\s?000 UZS \(1 заявка\)/)).toBeTruthy()
+
+    fireEvent.click(await enabledSubmitButton())
+    await waitFor(() => expect(createInvestmentsFromRequestsMock).toHaveBeenCalledTimes(1))
+    expect(createInvestmentsFromRequestsMock.mock.calls[0][0]).toMatchObject({
+      funding_method: 'bank_transfer',
+      request_ids: [20],
+    })
+  })
+
+  it('drops the edited description on switching tabs back and forth and sends an empty comment', async () => {
+    getFundingPoolMock.mockResolvedValue({
+      cash: { requests: [req(10)], totals: [] },
+      bank_transfer: { requests: [req(20, { payment_type: 'Перечисление' })], totals: [] },
+      approval_chain_ok: true,
+    })
+    createInvestmentsFromRequestsMock.mockResolvedValue({ investments: [{ id: 79 }] })
+    vi.spyOn(message, 'success').mockImplementation(() => undefined as never)
+    renderModal()
+
+    await enabledSubmitButton()
+    fireEvent.change(screen.getByDisplayValue('На основании заявки №10. №10 — компьютер'), {
+      target: { value: 'Своё описание' },
+    })
+    expect(screen.getByDisplayValue('Своё описание')).toBeTruthy()
+
+    fireEvent.click(screen.getByRole('tab', { name: /Переводом на счёт/ }))
+    expect(await screen.findByDisplayValue('На основании заявки №20. №20 — компьютер')).toBeTruthy()
+    expect(screen.queryByDisplayValue('Своё описание')).toBeNull()
+
+    fireEvent.click(screen.getByRole('tab', { name: /Наличными/ }))
+    expect(await screen.findByDisplayValue('На основании заявки №10. №10 — компьютер')).toBeTruthy()
+    expect(screen.queryByDisplayValue('Своё описание')).toBeNull()
+
+    fireEvent.click(await enabledSubmitButton())
+    await waitFor(() => expect(createInvestmentsFromRequestsMock).toHaveBeenCalledTimes(1))
+    expect(createInvestmentsFromRequestsMock.mock.calls[0][0]).toMatchObject({
+      funding_method: 'cash',
+      request_ids: [10],
+      comment: '',
+    })
+  })
 })
