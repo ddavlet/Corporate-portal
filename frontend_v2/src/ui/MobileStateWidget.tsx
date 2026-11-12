@@ -33,7 +33,10 @@ export function MobileStateWidget(props: MobileStateWidgetProps) {
     return (
       <div data-testid="mobile-state-empty" style={{ padding: '32px 16px', textAlign: 'center' }}>
         <Empty
-          image={props.icon ?? Empty.PRESENTED_IMAGE_SIMPLE}
+          // The picture is decoration: antd's simple image carries an svg <title> («No data» / «Empty») that screen
+          // readers would announce before the hint. `ant-empty-normal` is the class antd gives the simple image itself.
+          className={props.icon ? undefined : 'ant-empty-normal'}
+          image={<span aria-hidden="true">{props.icon ?? Empty.PRESENTED_IMAGE_SIMPLE}</span>}
           description={
             <Space direction="vertical" size={4}>
               <Typography.Text strong>{props.title}</Typography.Text>

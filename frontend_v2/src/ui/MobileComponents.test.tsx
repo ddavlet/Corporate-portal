@@ -124,6 +124,14 @@ describe('MobileStateWidget', () => {
     expect(screen.getByRole('button', { name: 'Сбросить фильтры' })).toBeInTheDocument()
   })
 
+  it('hides the empty picture from screen readers', () => {
+    render(<MobileStateWidget state="empty" title="Заявок нет" />)
+    const empty = screen.getByTestId('mobile-state-empty')
+    const picture = empty.querySelector('svg')
+    expect(picture).not.toBeNull()
+    expect(picture!.closest('[aria-hidden="true"]')).not.toBeNull()
+  })
+
   it('shows an error with «Повторить»', () => {
     const onRetry = vi.fn()
     render(<MobileStateWidget state="error" onRetry={onRetry} />)

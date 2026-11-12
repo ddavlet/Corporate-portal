@@ -199,6 +199,11 @@ body {
   text-align: left;
   cursor: pointer;
 }
+/* antd colorTextDisabled: an unavailable row (an action in flight) must not look tappable. */
+.m-list-row:disabled {
+  color: rgba(0, 0, 0, 0.25);
+  cursor: not-allowed;
+}
 
 /* PAYED, но расход в кассе/банке не найден — the same tint as the desktop table row. */
 .m-card--payed-no-expense {
@@ -210,4 +215,16 @@ body {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* The phone request card's decision bar: fixed to the bottom of the screen (.m-content scrolls horizontally, which
+   would stop a sticky bar from sticking), with a spacer of the same height so it never covers the last block. */
+.m-bottom-bar--fixed {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+}
+.m-bottom-bar-spacer {
+  height: calc(68px + env(safe-area-inset-bottom, 0px));
 }
