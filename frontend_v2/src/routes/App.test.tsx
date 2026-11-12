@@ -53,14 +53,18 @@ vi.mock('../ui/ClientsDebtPage', () => ({ ClientsDebtPage: () => <div>ClientsDeb
 vi.mock('../ui/PayrollDocumentDetailPage', () => ({ PayrollDocumentDetailPage: () => <div>PayrollDocumentDetailPage</div> }))
 vi.mock('../ui/CashExpenseDetailPage', () => ({ CashExpenseDetailPage: () => <div>CashExpenseDetailPage</div> }))
 vi.mock('../ui/BankExpenseDetailPage', () => ({ BankExpenseDetailPage: () => <div>BankExpenseDetailPage</div> }))
-vi.mock('../ui/requests', () => ({
+// RequestsRoute is the real switch; the two pages it picks between are stubs.
+vi.mock('../ui/requests/RequestsPage', () => ({ RequestsPage: () => <div>RequestsPage</div> }))
+vi.mock('../ui/requests/RequestsMobilePage', () => ({ RequestsMobilePage: () => <div>RequestsMobilePage</div> }))
+vi.mock('../ui/requests', async () => ({
+  RequestsRoute: (await vi.importActual<typeof import('../ui/requests/RequestsRoute')>('../ui/requests/RequestsRoute'))
+    .RequestsRoute,
   RequestCreatePage: () => <div>RequestCreatePage</div>,
   RequestDetailPage: () => <div>RequestDetailPage</div>,
   RequestFormConfigPage: () => <div>RequestFormConfigPage</div>,
   RequestApprovalConfigPage: () => <div>RequestApprovalConfigPage</div>,
   AutoRequestsConfigPage: () => <div>AutoRequestsConfigPage</div>,
   RequestMonthAuditPage: () => <div>RequestMonthAuditPage</div>,
-  RequestsPage: () => <div>RequestsPage</div>,
 }))
 vi.mock('../ui/SettingsPage', () => ({ SettingsPage: () => <div>SettingsPage</div> }))
 vi.mock('../ui/settings/TenantIntegrationConfigPage', () => ({
@@ -217,7 +221,7 @@ describe('App routing on a phone', () => {
     setViewport('phone')
     for (const [url, page] of [
       ['/requests/12', 'RequestDetailPage'],
-      ['/requests', 'RequestsPage'],
+      ['/requests', 'RequestsMobilePage'],
       ['/requests/new', 'RequestCreatePage'],
     ]) {
       const { unmount } = renderAt(url)
@@ -229,7 +233,7 @@ describe('App routing on a phone', () => {
   it('starts on «Заявки → Ждут меня» on a phone', () => {
     setViewport('phone')
     renderAt('/')
-    expect(screen.getByText('RequestsPage')).toBeInTheDocument()
+    expect(screen.getByText('RequestsMobilePage')).toBeInTheDocument()
     expect(screen.queryByText('DashboardPage')).toBeNull()
   })
 
@@ -257,6 +261,19 @@ describe('App routing on a phone', () => {
       expect(screen.queryByText('Раздел доступен на компьютере')).toBeNull()
       unmount()
     }
+  })
+
+  it('opens the mobile feed on a phone and the desktop table on a desktop', () => {
+    setViewport('phone')
+    const phone = renderAt('/requests?tab=all')
+    expect(screen.getByText('RequestsMobilePage')).toBeInTheDocument()
+    expect(screen.queryByText('RequestsPage')).toBeNull()
+    phone.unmount()
+
+    setViewport('desktop')
+    renderAt('/requests')
+    expect(screen.getByText('RequestsPage')).toBeInTheDocument()
+    expect(screen.queryByText('RequestsMobilePage')).toBeNull()
   })
 
   it('keeps the dashboard on a desktop', () => {
