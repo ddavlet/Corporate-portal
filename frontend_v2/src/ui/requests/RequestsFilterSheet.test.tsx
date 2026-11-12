@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { MobileShellContext, type MobileShellContextValue } from '../mobileShell'
@@ -91,6 +91,8 @@ beforeEach(() => {
 })
 
 afterEach(() => {
+  // Unmount before dropping the stubs: a late feed effect must not meet a missing IntersectionObserver.
+  cleanup()
   vi.unstubAllGlobals()
 })
 
