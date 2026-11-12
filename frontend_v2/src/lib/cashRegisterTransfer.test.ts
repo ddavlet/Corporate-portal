@@ -1,6 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { CashRegisterDto } from './api'
-import { CashRegisterTransferSubmitError, submitCashRegisterTransfer } from './cashRegisterTransfer'
+import {
+  CashRegisterTransferSubmitError,
+  CashRegisterTransferTargetError,
+  cashRegisterTransferErrorText,
+  submitCashRegisterTransfer,
+} from './cashRegisterTransfer'
 
 const createPortalRequestMock = vi.fn()
 const submitRequestForApprovalMock = vi.fn()
@@ -59,6 +64,44 @@ describe('submitCashRegisterTransfer', () => {
 
     expect(order).toEqual(['create', 'target', 'submit'])
     expect(setTargetMock).toHaveBeenCalledWith(777, { to_wallet_id: 102 })
+  })
+
+  it('request already on approval after create: saves target, does not submit again', async () => {
+    createPortalRequestMock.mockResolvedValueOnce({ id: 777, status: '1' })
+
+    await expect(
+      submitCashRegisterTransfer({ fromRegister: UZS_A, toRegister: UZS_B, amount: 1000 }),
+    ).resolves.toEqual({ id: 777 })
+
+    expect(setTargetMock).toHaveBeenCalledWith(777, { to_wallet_id: 102 })
+    expect(submitRequestForApprovalMock).not.toHaveBeenCalled()
+  })
+
+  it('draft after create is submitted', async () => {
+    createPortalRequestMock.mockResolvedValueOnce({ id: 777, status: 'DRAFT' })
+
+    await submitCashRegisterTransfer({ fromRegister: UZS_A, toRegister: UZS_B, amount: 1000 })
+
+    expect(submitRequestForApprovalMock).toHaveBeenCalledWith(777)
+  })
+
+  it('target failure after auto-submit throws CashRegisterTransferTargetError', async () => {
+    createPortalRequestMock.mockResolvedValueOnce({ id: 777, status: '1' })
+    setTargetMock.mockRejectedValueOnce(new Error('Заявка уже оплачена или закрыта.'))
+
+    const err = await submitCashRegisterTransfer({
+      fromRegister: UZS_A,
+      toRegister: UZS_B,
+      amount: 1000,
+    }).catch((e: unknown) => e)
+
+    expect(err).toBeInstanceOf(CashRegisterTransferTargetError)
+    expect((err as CashRegisterTransferTargetError).requestId).toBe(777)
+    expect(cashRegisterTransferErrorText(err)).toBe(
+      'Заявка №777 отправлена на согласование, но касса-получатель не сохранена (Заявка уже оплачена или закрыта). ' +
+        'Если после оплаты приход не появится, внесите его вручную.',
+    )
+    expect(submitRequestForApprovalMock).not.toHaveBeenCalled()
   })
 
   it('sends to_amount only for different currencies', async () => {

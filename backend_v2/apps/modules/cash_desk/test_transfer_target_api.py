@@ -72,6 +72,62 @@ class TransferTargetApiTests(CashDeskFixtures, APITestCase):
         res = self.put(req, {"to_wallet_id": self.safe.id})
         self.assertEqual(res.status_code, 400)
 
+    def test_accepts_first_target_after_submit(self):
+        # A request with approval steps leaves DRAFT on creation, before the form sends the target.
+        for status in (Request.STATUS_PROGRESS_1, Request.STATUS_APPROVED):
+            req = self.draft(status=status, description="Перевод ДС между кассами.\nВ кассу: Сейф (UZS)")
+            res = self.put(req, {"to_wallet_id": self.safe.id})
+            self.assertEqual(res.status_code, 200, res.data)
+            self.assertEqual(CashRegisterTransferTarget.objects.get(request=req).to_wallet_id, self.safe.id)
+
+    def test_after_submit_target_must_match_description(self):
+        # Approvers saw «В кассу: Сейф»: the first target after DRAFT must not redirect the money elsewhere.
+        req = self.draft(status=Request.STATUS_APPROVED, description="В кассу: Сейф (UZS)")
+        res = self.put(req, {"to_wallet_id": self.usd.id, "to_amount": "800"})
+        self.assertEqual(res.status_code, 400)
+        no_line = self.draft(status=Request.STATUS_APPROVED, description="Без строки")
+        self.assertEqual(self.put(no_line, {"to_wallet_id": self.safe.id}).status_code, 400)
+        self.assertFalse(CashRegisterTransferTarget.objects.exists())
+
+    def test_after_submit_cross_currency_amount_must_match_description(self):
+        description = "В кассу: Касса USD (USD)\nСумма зачисления: 120.5 USD"
+        req = self.draft(status=Request.STATUS_PROGRESS_1, description=description)
+        self.assertEqual(self.put(req, {"to_wallet_id": self.usd.id, "to_amount": "800"}).status_code, 400)
+        res = self.put(req, {"to_wallet_id": self.usd.id, "to_amount": "120.50"})
+        self.assertEqual(res.status_code, 200, res.data)
+        self.assertEqual(CashRegisterTransferTarget.objects.get(request=req).to_amount, Decimal("120.50"))
+
+    def test_submitted_target_cannot_be_changed(self):
+        req = self.draft()
+        self.assertEqual(self.put(req, {"to_wallet_id": self.safe.id}).status_code, 200)
+        Request.objects.filter(pk=req.pk).update(status=Request.STATUS_PROGRESS_1)
+        res = self.put(req, {"to_wallet_id": self.usd.id, "to_amount": "130"})
+        self.assertEqual(res.status_code, 400)
+        self.assertEqual(CashRegisterTransferTarget.objects.get(request=req).to_wallet_id, self.safe.id)
+
+    def test_rejects_closed_statuses(self):
+        rejected = self.draft(status=Request.STATUS_REJECTED)
+        self.assertEqual(self.put(rejected, {"to_wallet_id": self.safe.id}).status_code, 400)
+        deleted = self.draft(status=Request.STATUS_DELETED)
+        self.assertEqual(self.put(deleted, {"to_wallet_id": self.safe.id}).status_code, 404)
+        self.assertFalse(CashRegisterTransferTarget.objects.exists())
+
+    def test_after_submit_ambiguous_or_wrong_currency_description_rejected(self):
+        two_lines = self.draft(status=Request.STATUS_PROGRESS_1, description="В кассу: Сейф\nВ кассу: Касса USD")
+        self.assertEqual(self.put(two_lines, {"to_wallet_id": self.safe.id}).status_code, 400)
+        uzs_credit = self.draft(
+            status=Request.STATUS_PROGRESS_1, description="В кассу: Касса USD (USD)\nСумма зачисления: 50000 UZS"
+        )
+        self.assertEqual(self.put(uzs_credit, {"to_wallet_id": self.usd.id, "to_amount": "50000"}).status_code, 400)
+        self.assertFalse(CashRegisterTransferTarget.objects.exists())
+
+    def test_repeated_same_target_after_submit_is_idempotent(self):
+        req = self.draft(status=Request.STATUS_PROGRESS_1, description="В кассу: Сейф (UZS)")
+        self.assertEqual(self.put(req, {"to_wallet_id": self.safe.id}).status_code, 200)
+        res = self.put(req, {"to_wallet_id": self.safe.id})
+        self.assertEqual(res.status_code, 200, res.data)
+        self.assertEqual(CashRegisterTransferTarget.objects.filter(request=req).count(), 1)
+
     def test_rejects_non_transfer_purpose(self):
         req = self.draft(payment_purpose="Хозтовары")
         res = self.put(req, {"to_wallet_id": self.safe.id})

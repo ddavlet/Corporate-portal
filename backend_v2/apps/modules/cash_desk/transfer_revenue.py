@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 import re
 from dataclasses import dataclass
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from zoneinfo import ZoneInfo
 
 from django.contrib.auth import get_user_model
@@ -20,6 +20,7 @@ logger = logging.getLogger(__name__)
 TASHKENT_TZ = ZoneInfo("Asia/Tashkent")
 
 _DEST_LINE_RE = re.compile(r"^В кассу:[ \t]*(.+?)[ \t]*(?:\(([A-Z]{3})\))?[ \t]*$", re.MULTILINE)
+_CREDIT_LINE_RE = re.compile(r"^Сумма зачисления:[ \t]*([0-9]+(?:[.,][0-9]+)?)[ \t]*([A-Z]{3})?[ \t]*$", re.MULTILINE)
 _TRAILING_SUFFIX_RE = re.compile(r"\s*\((?:касса|[A-Za-z]{3})\)\s*$", re.IGNORECASE)
 
 
@@ -50,10 +51,14 @@ def _register_wallet(register: CashRegister):
         return None
 
 
-def _resolve_by_description(request_obj) -> TransferDestination:
-    match = _DEST_LINE_RE.search(request_obj.description or "")
-    if not match:
+def description_wallet(request_obj) -> Wallet:
+    """Destination wallet named in the «В кассу: …» line that approvers see (no currency check)."""
+    matches = list(_DEST_LINE_RE.finditer(request_obj.description or ""))
+    if not matches:
         raise TransferDestinationError("В описании нет строки «В кассу: …»")
+    if len(matches) > 1:
+        raise TransferDestinationError("В описании несколько строк «В кассу: …»")
+    match = matches[0]
     raw_name = match.group(1).strip()
     wanted = _normalize(raw_name)
 
@@ -70,12 +75,36 @@ def _resolve_by_description(request_obj) -> TransferDestination:
         raise TransferDestinationError(f"Не найдена касса-получатель «{raw_name}»")
     if len(wallets) > 1:
         narrowed = [w for w in wallets if w.pk != request_obj.wallet_ref_id]
+        if len(narrowed) > 1:
+            # Names are compared without the currency suffix, so "Касса (UZS)" and "Касса (USD)" collide.
+            wanted_currency = match.group(2) or request_obj.currency
+            narrowed = [w for w in narrowed if w.currency == wanted_currency]
+            if not narrowed:
+                raise TransferDestinationError(f"Не найдена касса-получатель «{raw_name}» в валюте {wanted_currency}")
         if len(narrowed) != 1:
             raise TransferDestinationError(f"Найдено несколько касс «{raw_name}»")
         wallets = narrowed
+    return wallets[0]
 
-    wallet = wallets[0]
+
+def description_credit_amount(request_obj, currency: str) -> Decimal | None:
+    """Amount from the single «Сумма зачисления: N XXX» line (cross-currency transfers), if its currency fits."""
+    matches = list(_CREDIT_LINE_RE.finditer(request_obj.description or ""))
+    if len(matches) != 1:
+        return None
+    match = matches[0]
+    if match.group(2) and match.group(2) != currency:
+        return None
+    try:
+        return Decimal(match.group(1).replace(",", "."))
+    except InvalidOperation:
+        return None
+
+
+def _resolve_by_description(request_obj) -> TransferDestination:
+    wallet = description_wallet(request_obj)
     if wallet.currency != request_obj.currency:
+        raw_name = _DEST_LINE_RE.search(request_obj.description or "").group(1).strip()
         raise TransferDestinationError(
             f"Валюта кассы «{raw_name}» ({wallet.currency}) не совпадает с валютой заявки ({request_obj.currency})"
         )

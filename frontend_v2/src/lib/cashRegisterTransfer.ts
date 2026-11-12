@@ -19,6 +19,30 @@ export class CashRegisterTransferSubmitError extends Error {
   }
 }
 
+/** Заявка уже ушла на согласование, но касса-получатель не сохранилась — приход может не создаться. */
+export class CashRegisterTransferTargetError extends Error {
+  requestId: number
+
+  constructor(requestId: number, cause: unknown) {
+    super(cause instanceof Error ? cause.message : 'ошибка')
+    this.requestId = requestId
+  }
+}
+
+/** Текст ошибки отправки перевода для формы. */
+export function cashRegisterTransferErrorText(err: unknown): string {
+  if (err instanceof CashRegisterTransferTargetError) {
+    return (
+      `Заявка №${err.requestId} отправлена на согласование, но касса-получатель не сохранена (${err.message.replace(/\.$/, '')}). ` +
+      'Если после оплаты приход не появится, внесите его вручную.'
+    )
+  }
+  if (err instanceof CashRegisterTransferSubmitError) {
+    return `Заявка №${err.requestId} создана, но не отправлена на согласование: ${err.message}`
+  }
+  return err instanceof Error ? err.message : 'Не удалось создать заявку'
+}
+
 function isNotFound(err: unknown): boolean {
   return typeof err === 'object' && err !== null && (err as { status?: unknown }).status === 404
 }
@@ -32,7 +56,7 @@ export type CashRegisterTransferInput = {
   requesterId?: number | null
 }
 
-/** Создаёт заявку типа "Наличные"/"Перевод между кассами" и сразу отправляет её на согласование. */
+/** Создаёт заявку типа "Наличные"/"Перевод между кассами", сохраняет кассу-получателя и отправляет на согласование. */
 export async function submitCashRegisterTransfer({
   fromRegister,
   toRegister,
@@ -71,6 +95,9 @@ export async function submitCashRegisterTransfer({
     ...(requesterId != null ? { requester: requesterId } : {}),
   })
 
+  // При настроенных шагах согласования бэкенд отправляет заявку на согласование уже при создании.
+  const alreadySubmitted = Boolean(created.status) && created.status !== 'DRAFT'
+
   try {
     await setCashRegisterTransferTarget(created.id, {
       to_wallet_id: toRegister.wallet_id,
@@ -79,9 +106,12 @@ export async function submitCashRegisterTransfer({
   } catch (err: unknown) {
     // Модуль «Касса» недоступен (404): при одной валюте приход найдётся по строке «В кассу: …» в описании.
     if (crossCurrency || !isNotFound(err)) {
+      if (alreadySubmitted) throw new CashRegisterTransferTargetError(created.id, err)
       throw new CashRegisterTransferSubmitError(created.id, err)
     }
   }
+
+  if (alreadySubmitted) return { id: created.id }
 
   try {
     await submitRequestForApproval(created.id)

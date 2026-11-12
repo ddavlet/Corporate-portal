@@ -2855,6 +2855,8 @@ export async function createVendor(body: CreateVendorBody): Promise<VendorDirect
 /** Response from POST /api/requests/ (create). */
 export interface CreatedPortalRequest {
   id: number
+  /** Статус сразу после создания: при настроенных шагах согласования заявка уже не черновик. */
+  status?: string
 }
 
 export type RequestAttachment = {

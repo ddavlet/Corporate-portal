@@ -15,6 +15,13 @@ from apps.modules.requests.models import Request
 from apps.modules.wallets.models import CashRegister, Wallet
 
 
+def _make_named_wallet(tenant, name: str, currency: str) -> Wallet:
+    register = CashRegister.objects.create(tenant=tenant, currency=currency, name=name, is_active=True)
+    return Wallet.objects.create(
+        tenant=tenant, wallet_type=Wallet.Type.CASH, currency=currency, opening_balance=0, cash_register=register
+    )
+
+
 class TransferRevenueTests(CashDeskFixtures, TestCase):
     def setUp(self):
         self.make_fixtures()
@@ -134,6 +141,30 @@ class TransferRevenueTests(CashDeskFixtures, TestCase):
         )
         req = self._transfer("В кассу: Сейф")
         with self.assertRaisesMessage(TransferDestinationError, "Найдено несколько касс «Сейф»"):
+            resolve_transfer_destination(req)
+
+    def test_fallback_same_name_other_currency_picks_request_currency(self):
+        # HAVO #9186: "Инвестиционная касса (UZS)" and "(USD)" match the same name without the suffix.
+        uzs = _make_named_wallet(self.tenant, "Инвестиционная касса (UZS)", "UZS")
+        _make_named_wallet(self.tenant, "Инвестиционная касса (USD)", "USD")
+        req = self._transfer("В кассу: Инвестиционная касса (UZS) (UZS)", wallet_ref=self.safe)
+        dest = resolve_transfer_destination(req)
+        self.assertEqual(dest.wallet, uzs)
+        self.assertEqual(dest.currency, "UZS")
+
+    def test_fallback_same_name_without_suffix_uses_request_currency(self):
+        uzs = _make_named_wallet(self.tenant, "Инвестиционная касса (UZS)", "UZS")
+        _make_named_wallet(self.tenant, "Инвестиционная касса (USD)", "USD")
+        req = self._transfer("В кассу: Инвестиционная касса", wallet_ref=self.safe)
+        self.assertEqual(resolve_transfer_destination(req).wallet, uzs)
+
+    def test_fallback_same_name_no_register_in_currency_raises(self):
+        _make_named_wallet(self.tenant, "Инвестиционная касса (UZS)", "UZS")
+        _make_named_wallet(self.tenant, "Инвестиционная касса (USD)", "USD")
+        req = self._transfer("В кассу: Инвестиционная касса (EUR)", wallet_ref=self.safe)
+        with self.assertRaisesMessage(
+            TransferDestinationError, "Не найдена касса-получатель «Инвестиционная касса» в валюте EUR"
+        ):
             resolve_transfer_destination(req)
 
     def test_fallback_currency_mismatch_raises(self):
