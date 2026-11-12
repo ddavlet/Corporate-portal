@@ -19,7 +19,7 @@ import { ArrowLeftOutlined, PlusOutlined } from '@ant-design/icons'
 import { useNavigate } from 'react-router-dom'
 import { fundingWalletLabel, vendorKindForPaymentType } from '../../lib/requestPaymentTypes'
 import { labelBlockAboveField } from '../formSpacing'
-import { isAllowedBillingMonth } from '../../lib/billingMonth'
+import { formatBillingMonth, isAllowedBillingMonth } from '../../lib/billingMonth'
 import { CASH_REGISTER_TRANSFER_HINT_PORTAL, useRequestCreateForm } from './useRequestCreateForm'
 
 const CASH_REGISTER_TRANSFER_HINT_TG = 'Перевод между кассами оформляется в разделе «Касса» плиткой «Перевести между кассами».'
@@ -362,7 +362,7 @@ export function RequestCreatePage({ requestsBasePath = '/requests', variant = 'p
                   <DatePicker
                     picker="month"
                     style={{ display: 'block', maxWidth: 280 }}
-                    format="MMMM YYYY"
+                    format={formatBillingMonth}
                     value={billingDate}
                     onChange={(v) => setBillingDate(v ? v.startOf('month') : null)}
                     disabledDate={(current) => !current || !isAllowedBillingMonth(current)}

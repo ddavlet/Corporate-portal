@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { Alert, Button, DatePicker, Input, InputNumber, Segmented, Select, Switch, Typography, Upload, theme } from 'antd'
 import { ArrowLeftOutlined, CheckOutlined, CloseOutlined, PlusOutlined, RightOutlined } from '@ant-design/icons'
-import { isAllowedBillingMonth } from '../../lib/billingMonth'
+import { formatBillingMonth, isAllowedBillingMonth } from '../../lib/billingMonth'
 import { fundingWalletLabel } from '../../lib/requestPaymentTypes'
 import { MobilePickerSheet, PICKER_PAGE_SIZE } from '../MobilePickerSheet'
 import { MobileStateWidget } from '../MobileStateWidget'
@@ -279,7 +279,7 @@ export function RequestCreateMobilePage({ requestsBasePath = '/requests' }: Requ
           <DatePicker
             id="create-billing-month"
             picker="month"
-            format="MMMM YYYY"
+            format={formatBillingMonth}
             style={{ width: '100%' }}
             status={errors.billingDate ? 'error' : undefined}
             aria-invalid={errors.billingDate ? true : undefined}
