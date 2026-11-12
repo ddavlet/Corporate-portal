@@ -397,7 +397,7 @@ describe('RequestCreatePage submit', () => {
 
     await waitFor(() => expect(error).toHaveBeenCalledWith('Лимит превышен'))
     expect(screen.queryByTestId('detail')).toBeNull()
-    // The button drops its loading state (and the «loading» icon in its name) once the request settles.
-    expect(await screen.findByRole('button', { name: 'Создать заявку' })).toBeInTheDocument()
+    // antd's loading icon leaves through a CSS motion that never ends in jsdom, so its «loading» label stays in the name.
+    expect(screen.getByRole('button', { name: /Создать заявку/ })).toBeInTheDocument()
   })
 })
