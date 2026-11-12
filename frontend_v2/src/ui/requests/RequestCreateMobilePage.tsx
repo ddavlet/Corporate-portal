@@ -304,6 +304,11 @@ export function RequestCreateMobilePage({ requestsBasePath = '/requests' }: Requ
             />
           </Field>
         ) : null}
+        {form.transferPurposeHidden ? (
+          <Typography.Text type="secondary" style={{ display: 'block' }}>
+            {form.transferHintText}
+          </Typography.Text>
+        ) : null}
         <PickerField
           id="create-vendor"
           label="Поставщик"

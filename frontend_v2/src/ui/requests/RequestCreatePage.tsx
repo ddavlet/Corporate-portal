@@ -20,7 +20,9 @@ import { useNavigate } from 'react-router-dom'
 import { fundingWalletLabel, vendorKindForPaymentType } from '../../lib/requestPaymentTypes'
 import { labelBlockAboveField } from '../formSpacing'
 import { isAllowedBillingMonth } from '../../lib/billingMonth'
-import { useRequestCreateForm } from './useRequestCreateForm'
+import { CASH_REGISTER_TRANSFER_HINT_PORTAL, useRequestCreateForm } from './useRequestCreateForm'
+
+const CASH_REGISTER_TRANSFER_HINT_TG = 'Перевод между кассами оформляется в разделе «Касса» плиткой «Перевести между кассами».'
 
 const tgPopupContainer = () => document.body
 
@@ -71,6 +73,8 @@ export function RequestCreatePage({ requestsBasePath = '/requests', variant = 'p
     paymentPurpose,
     setPaymentPurpose,
     purposeOptions,
+    transferPurposeHidden,
+    transferHintText,
     billingDate,
     setBillingDate,
     amortizationEnabled,
@@ -113,7 +117,10 @@ export function RequestCreatePage({ requestsBasePath = '/requests', variant = 'p
     setNcAcc,
     ncFileList,
     setNcFileList,
-  } = useRequestCreateForm({ requestsBasePath })
+  } = useRequestCreateForm({
+    requestsBasePath,
+    transferHintText: isTg ? CASH_REGISTER_TRANSFER_HINT_TG : CASH_REGISTER_TRANSFER_HINT_PORTAL,
+  })
 
   return (
     <div className={isTg ? 'tg-create-page' : undefined}>
@@ -389,21 +396,33 @@ export function RequestCreatePage({ requestsBasePath = '/requests', variant = 'p
                 ) : null}
               </Space>
             )}
-            {purposeOptions.length > 0 ? (
+            {purposeOptions.length > 0 || transferPurposeHidden ? (
               <div className={isTg ? 'tg-field-block' : undefined}>
-                <Typography.Text strong style={labelBlockAboveField}>
-                  Назначение платежа
-                </Typography.Text>
-                <Select
-                  placeholder="Выберите назначение"
-                  size={isTg ? 'large' : undefined}
-                  style={{ display: 'block', width: '100%', maxWidth: isTg ? undefined : 560 }}
-                  value={paymentPurpose || undefined}
-                  onChange={setPaymentPurpose}
-                  options={purposeOptions}
-                  getPopupContainer={isTg ? tgPopupContainer : undefined}
-                  popupMatchSelectWidth={isTg ? true : undefined}
-                />
+                {purposeOptions.length > 0 ? (
+                  <>
+                    <Typography.Text strong style={labelBlockAboveField}>
+                      Назначение платежа
+                    </Typography.Text>
+                    <Select
+                      placeholder="Выберите назначение"
+                      size={isTg ? 'large' : undefined}
+                      style={{ display: 'block', width: '100%', maxWidth: isTg ? undefined : 560 }}
+                      value={paymentPurpose || undefined}
+                      onChange={setPaymentPurpose}
+                      options={purposeOptions}
+                      getPopupContainer={isTg ? tgPopupContainer : undefined}
+                      popupMatchSelectWidth={isTg ? true : undefined}
+                    />
+                  </>
+                ) : null}
+                {transferPurposeHidden ? (
+                  <Typography.Text
+                    type="secondary"
+                    style={{ display: 'block', marginTop: purposeOptions.length > 0 ? 8 : 0 }}
+                  >
+                    {transferHintText}
+                  </Typography.Text>
+                ) : null}
               </div>
             ) : null}
             <div className={isTg ? 'tg-field-block' : undefined}>

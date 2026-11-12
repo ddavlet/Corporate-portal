@@ -107,3 +107,49 @@ describe('useRequestCreateForm vendor search', () => {
     expect(api.listVendors.mock.calls.length).toBe(calls)
   })
 })
+
+describe('useRequestCreateForm cash-register transfer purpose (#409)', () => {
+  const withPurposes = (payment_purposes: { name: string; category: string }[], payment_purpose: string | null = null) =>
+    api.getRequestFormOptions.mockResolvedValue({
+      payment_types: [
+        {
+          payment_type: 'Перечисление',
+          requester_ids: [],
+          requesters: [],
+          vendor_ids: [],
+          payment_purposes,
+          defaults: {
+            title: '', description: '', amount: '1000', currency: 'UZS', urgency: 'Обычно',
+            billing_days_offset: 0, payment_purpose, vendor_ref: 5,
+          },
+        },
+      ],
+    })
+
+  it('hides the transfer purpose, drops it as a default and shows the hint', async () => {
+    withPurposes(
+      [
+        { name: 'Хозтовары', category: 'Хоз' },
+        { name: 'Перевод между кассами', category: 'Перевод между кассами' },
+      ],
+      'Перевод между кассами',
+    )
+    const hook = await renderOnDetails()
+
+    expect(hook.result.current.purposeOptions.map((o) => o.value)).toEqual(['Хозтовары'])
+    expect(hook.result.current.transferPurposeHidden).toBe(true)
+    expect(hook.result.current.paymentPurpose).toBeNull()
+  })
+
+  it('refuses to create when the transfer is the only purpose of the type', async () => {
+    withPurposes([{ name: 'Перевод между кассами', category: 'Перевод между кассами' }])
+    const hook = await renderOnDetails()
+
+    await act(async () => {
+      await hook.result.current.submit()
+    })
+
+    expect(hook.result.current.purposeOptions).toEqual([])
+    expect(message.warning).toHaveBeenCalledWith(hook.result.current.transferHintText)
+  })
+})

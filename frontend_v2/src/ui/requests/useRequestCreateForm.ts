@@ -27,6 +27,7 @@ import {
 } from '../../lib/requestPaymentTypes'
 import { clampToAllowedBillingMonth, isAllowedBillingMonth } from '../../lib/billingMonth'
 import { monthStartTashkent } from '../../lib/tashkentTime'
+import { generalFormPurposes, isCashRegisterTransferPurpose } from '../../lib/cashRegisterTransfer'
 
 /** Fields of the create form (and of its «Новый поставщик» / «Новый договор» dialogs) that can carry an error. */
 export type RequestCreateField =
@@ -55,7 +56,12 @@ export type UseRequestCreateFormOptions = {
   requestsBasePath: string
   /** Called with the new request's id instead of opening `${requestsBasePath}/{id}`. */
   onCreated?: (id: number) => void
+  /** Where to make a cash-register transfer instead: the general form hides that purpose (no target-register field). */
+  transferHintText?: string
 }
+
+export const CASH_REGISTER_TRANSFER_HINT_PORTAL =
+  'Перевод между кассами оформляется в разделе «Касса» («Все операции», «Расходы» или «Доходы») кнопкой «Перевести между кассами».'
 
 const vendorOptionLabel = (r: Pick<VendorDirectoryRow, 'kind' | 'name' | 'inn'>) =>
   r.kind === 'transfer' && r.inn ? `${r.name} (ИНН ${r.inn})` : r.name
@@ -68,7 +74,11 @@ const contractOptionLabel = (r: { contract_number: string; date_from: string; is
  * Validation shows the same toasts as before; `fieldErrors` additionally holds the error of each field after the user
  * tried to go on (or to save a dialog), recomputed from the current values, so a fixed field loses its error at once.
  */
-export function useRequestCreateForm({ requestsBasePath, onCreated }: UseRequestCreateFormOptions) {
+export function useRequestCreateForm({
+  requestsBasePath,
+  onCreated,
+  transferHintText = CASH_REGISTER_TRANSFER_HINT_PORTAL,
+}: UseRequestCreateFormOptions) {
   const navigate = useNavigate()
   const [loading, setLoading] = useState(true)
   const [optionsError, setOptionsError] = useState<string | null>(null)
@@ -245,7 +255,7 @@ export function useRequestCreateForm({ requestsBasePath, onCreated }: UseRequest
       const monthShift = d.billing_days_offset ?? 0
       const target = monthStartTashkent().add(monthShift, 'month')
       setBillingDate(clampToAllowedBillingMonth(target))
-      setPaymentPurpose(d.payment_purpose ?? null)
+      setPaymentPurpose(d.payment_purpose && !isCashRegisterTransferPurpose(d.payment_purpose) ? d.payment_purpose : null)
       setVendorRefId(d.vendor_ref ?? null)
     } else {
       setBillingDate((prev) => clampToAllowedBillingMonth(prev ?? monthStartTashkent()))
@@ -321,12 +331,15 @@ export function useRequestCreateForm({ requestsBasePath, onCreated }: UseRequest
     return options
   }, [vendorRefId])
 
-  const purposeOptions = useMemo(() => {
-    if (!activePt?.payment_purposes?.length) return []
-    return activePt.payment_purposes.map((p) => ({
-      value: p.name,
-      label: `${p.name} → ${p.category}`,
-    }))
+  const { purposeOptions, transferPurposeHidden } = useMemo(() => {
+    const { purposes, transferHidden } = generalFormPurposes(activePt?.payment_purposes)
+    return {
+      purposeOptions: purposes.map((p) => ({
+        value: p.name,
+        label: `${p.name} → ${p.category}`,
+      })),
+      transferPurposeHidden: transferHidden,
+    }
   }, [activePt])
 
   const stepItems = useMemo(() => {
@@ -378,6 +391,9 @@ export function useRequestCreateForm({ requestsBasePath, onCreated }: UseRequest
     if (amount == null || amount <= 0) issues.push({ field: 'amount', level: 'warning', text: 'Укажите сумму' })
     if (!billingDate || !isAllowedBillingMonth(billingDate)) {
       issues.push({ field: 'billingDate', level: 'warning', text: 'Выберите допустимый месяц биллинга' })
+    }
+    if (transferPurposeHidden && purposeOptions.length === 0) {
+      issues.push({ field: 'paymentPurpose', level: 'warning', text: transferHintText })
     }
     if (purposeOptions.length > 0 && !paymentPurpose) {
       issues.push({ field: 'paymentPurpose', level: 'warning', text: 'Выберите назначение платежа' })
@@ -673,6 +689,8 @@ export function useRequestCreateForm({ requestsBasePath, onCreated }: UseRequest
     paymentPurpose,
     setPaymentPurpose,
     purposeOptions,
+    transferPurposeHidden,
+    transferHintText,
     billingDate,
     setBillingDate,
     amortizationEnabled,
