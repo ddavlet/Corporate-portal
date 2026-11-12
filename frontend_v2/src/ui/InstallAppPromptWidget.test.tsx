@@ -54,7 +54,7 @@ describe('InstallAppPromptWidget', () => {
   it('explains «Поделиться → На экран Домой» on iOS', () => {
     pwa.ios = true
     render(<InstallAppPromptWidget />)
-    expect(screen.getByText(/«Поделиться», затем «На экран Домой»/)).toBeInTheDocument()
+    expect(screen.getByText(/«Поделиться» \(в новом Safari — сначала «⋯» справа от адреса\), затем «На экран Домой»/)).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Установить' })).toBeNull()
   })
 

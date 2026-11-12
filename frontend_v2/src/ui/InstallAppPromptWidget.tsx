@@ -66,7 +66,7 @@ export function InstallAppPromptWidget() {
         </Typography.Text>
         {ios ? (
           <Typography.Text style={{ display: 'block', color: token.colorTextSecondary }}>
-            Нажмите «Поделиться», затем «На экран Домой»: портал откроется как приложение.
+            Нажмите «Поделиться» (в новом Safari — сначала «⋯» справа от адреса), затем «На экран Домой»: портал откроется как приложение.
           </Typography.Text>
         ) : (
           <>

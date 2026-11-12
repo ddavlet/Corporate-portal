@@ -4,38 +4,22 @@ import { buildMobileMenu, findMobileMenuItem, findMobileSectionTitle } from './m
 const names = (items: { name: string }[]) => items.map((item) => item.name)
 
 describe('buildMobileMenu', () => {
-  it('lists every section when all modules are available', () => {
+  it('offers only «Заявки» and «Инвестиции» on the phone', () => {
     const menu = buildMobileMenu(() => true)
-    expect(names(menu.main)).toEqual(['Заявки', 'Уведомления', 'Инвестиции'])
-    expect(names(menu.desktop)).toEqual([
-      'Задачи',
-      'Касса',
-      'Банк',
-      'Корп. карта',
-      'Начисления ЗП',
-      'Отчёты',
-      'Долги клиентов',
-      'Бюджеты',
-      'Договоры',
-    ])
+    expect(names(menu.main)).toEqual(['Заявки', 'Инвестиции'])
+    expect(Object.keys(menu)).toEqual(['main'])
   })
 
-  it('never offers «Панель», «Настройки» or «Админка»', () => {
-    const menu = buildMobileMenu(() => true)
-    const all = names([...menu.main, ...menu.desktop])
-    for (const forbidden of ['Панель', 'Настройки', 'Админка']) expect(all).not.toContain(forbidden)
+  it('never offers «Панель», «Настройки», «Админка» or the desktop-only sections', () => {
+    const all = names(buildMobileMenu(() => true).main)
+    for (const forbidden of ['Панель', 'Настройки', 'Админка', 'Уведомления', 'Касса', 'Банк', 'Корп. карта', 'Начисления ЗП', 'Договоры']) {
+      expect(all).not.toContain(forbidden)
+    }
   })
 
-  it('drops the sections of modules without access, keeps the ones without a module', () => {
-    const menu = buildMobileMenu((key) => key === 'requests' || key === 'bank')
-    expect(names(menu.main)).toEqual(['Заявки', 'Уведомления'])
-    expect(names(menu.desktop)).toEqual(['Банк'])
-  })
-
-  it('keeps only «Уведомления» when no module is available', () => {
-    const menu = buildMobileMenu(() => false)
-    expect(names(menu.main)).toEqual(['Уведомления'])
-    expect(menu.desktop).toEqual([])
+  it('drops the sections of modules without access', () => {
+    expect(names(buildMobileMenu((key) => key === 'requests').main)).toEqual(['Заявки'])
+    expect(buildMobileMenu(() => false).main).toEqual([])
   })
 })
 
@@ -64,6 +48,11 @@ describe('findMobileSectionTitle', () => {
     expect(findMobileSectionTitle('/admin')).toBe('Админка')
     expect(findMobileSectionTitle('/requests/audit')).toBe('Аудит месяцев')
     expect(findMobileSectionTitle('/requests/auto-config')).toBe('Автозаявки')
+  })
+
+  it('still names «Уведомления» and the desktop-only sections opened by a link', () => {
+    expect(findMobileSectionTitle('/notifications')).toBe('Уведомления')
+    expect(findMobileSectionTitle('/bank')).toBe('Банк')
   })
 
   it('falls back to the menu item, and to nothing for unknown paths', () => {

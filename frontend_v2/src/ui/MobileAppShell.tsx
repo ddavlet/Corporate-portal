@@ -199,12 +199,7 @@ function MobileNavDrawer({ open, onClose, appTitle, onChangePassword }: NavDrawe
     }
   }
 
-  const items: MenuProps['items'] = [
-    { type: 'group', key: 'main', label: 'Основное', children: menu.main.map(toMenuItem) },
-    ...(menu.desktop.length > 0
-      ? [{ type: 'group' as const, key: 'desktop', label: 'На компьютере', children: menu.desktop.map(toMenuItem) }]
-      : []),
-  ]
+  const items: MenuProps['items'] = menu.main.map(toMenuItem)
 
   const selected = findMobileMenuItem(location.pathname)?.path
 
