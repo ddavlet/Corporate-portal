@@ -564,6 +564,49 @@ describe('RequestCreateMobilePage review fixes', () => {
     expect(screen.getByLabelText('Месяц биллинга')).not.toHaveAttribute('aria-invalid', 'true')
   })
 
+  it('hides «Перевод между кассами» from the purposes without a hint where to do it', async () => {
+    api.getRequestFormOptions.mockResolvedValue(
+      formOptions({
+        payment_types: [
+          paymentType({
+            payment_purposes: [
+              { name: 'Аренда', category: 'Офис' },
+              { name: 'Перевод между кассами', category: 'Касса' },
+            ],
+          }),
+        ],
+      }),
+    )
+    renderWizard()
+    await goToDetails()
+
+    expect(screen.getByLabelText('Назначение платежа')).toBeInTheDocument()
+    expect(screen.queryByText(/Перевод между кассами/)).toBeNull()
+    expect(screen.queryByText(/Перевести между кассами/)).toBeNull()
+  })
+
+  it('points to «Касса» on the phone when the only purpose is the hidden cash transfer', async () => {
+    api.getRequestFormOptions.mockResolvedValue(
+      formOptions({
+        payment_types: [paymentType({ payment_purposes: [{ name: 'Перевод между кассами', category: 'Касса' }] })],
+      }),
+    )
+    renderWizard()
+    const amount = await goToDetails()
+    fireEvent.change(amount, { target: { value: '75000' } })
+    fireEvent.blur(amount)
+
+    fireEvent.click(screen.getByRole('button', { name: /Создать заявку/ }))
+
+    await waitFor(() =>
+      expect(warning).toHaveBeenCalledWith(
+        'Перевод между кассами оформляется в разделе «Касса» кнопкой «Перевести между кассами».',
+      ),
+    )
+    expect(warning).not.toHaveBeenCalledWith(expect.stringContaining('Все операции'))
+    expect(api.createPortalRequest).not.toHaveBeenCalled()
+  })
+
   it('opens the details of another payment type without the errors of a refused submit', async () => {
     api.getRequestFormOptions.mockResolvedValue(
       formOptions({ payment_types: [paymentType(), paymentType({ payment_type: 'Наличные' })] }),

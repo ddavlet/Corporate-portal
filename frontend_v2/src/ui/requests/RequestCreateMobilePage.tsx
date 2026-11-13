@@ -11,7 +11,11 @@ import { Field } from './MobileFormFieldWidget'
 import { NewContractSheet } from './NewContractSheet'
 import { NewVendorSheet } from './NewVendorSheet'
 import { StepsProgressWidget } from './StepsProgressWidget'
-import { useRequestCreateForm, type RequestCreateOption } from './useRequestCreateForm'
+import {
+  CASH_REGISTER_TRANSFER_HINT_MOBILE,
+  useRequestCreateForm,
+  type RequestCreateOption,
+} from './useRequestCreateForm'
 
 export type RequestCreateMobilePageProps = {
   /** Base path of the requests list without the trailing «/». */
@@ -47,6 +51,7 @@ export function RequestCreateMobilePage({ requestsBasePath = '/requests' }: Requ
     navigate(`${requestsBasePath}/${id}`, { replace: true, state: { justCreated: true } })
   const form = useRequestCreateForm({
     requestsBasePath,
+    transferHintText: CASH_REGISTER_TRANSFER_HINT_MOBILE,
     // Replace the wizard: «Назад» from the new card leads to the list, not to an empty form. The guard entry is left
     // first, so the card replaces the wizard's own entry.
     onCreated: (id) => {
@@ -304,11 +309,6 @@ export function RequestCreateMobilePage({ requestsBasePath = '/requests' }: Requ
               options={form.purposeOptions}
             />
           </Field>
-        ) : null}
-        {form.transferPurposeHidden ? (
-          <Typography.Text type="secondary" style={{ display: 'block' }}>
-            {form.transferHintText}
-          </Typography.Text>
         ) : null}
         <PickerField
           id="create-vendor"

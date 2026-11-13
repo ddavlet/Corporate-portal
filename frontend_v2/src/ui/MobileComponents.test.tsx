@@ -193,13 +193,9 @@ describe('MobileCardFeedWidget', () => {
 })
 
 describe('DesktopOnlyPage', () => {
-  const originalClipboard = Object.getOwnPropertyDescriptor(navigator, 'clipboard')
-
   afterEach(() => {
     moduleAccess.loading = false
     moduleAccess.denied = new Set()
-    if (originalClipboard) Object.defineProperty(navigator, 'clipboard', originalClipboard)
-    else delete (navigator as unknown as Record<string, unknown>).clipboard
   })
 
   function renderStub() {
@@ -207,43 +203,31 @@ describe('DesktopOnlyPage', () => {
       <MemoryRouter initialEntries={['/cash/expenses?wallet=3']}>
         <Routes>
           <Route path="/cash/expenses" element={<DesktopOnlyPage />} />
-          <Route path="/requests" element={<div>Лента заявок</div>} />
-          <Route path="/notifications" element={<div>Страница уведомлений</div>} />
+          <Route path="/" element={<div>Главный экран</div>} />
         </Routes>
       </MemoryRouter>,
     )
   }
 
-  it('shows the address and copies it', async () => {
-    const writeText = vi.fn().mockResolvedValue(undefined)
-    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } })
+  it('says the section is not available in the app, with no address and no copy button', () => {
     renderStub()
-    const url = `${window.location.origin}/cash/expenses?wallet=3`
-    expect(screen.getByRole('heading', { name: 'Раздел доступен на компьютере' })).toBeInTheDocument()
-    expect(screen.getByTestId('desktop-only-url')).toHaveTextContent(url)
-    fireEvent.click(screen.getByRole('button', { name: /Скопировать ссылку/ }))
-    await waitFor(() => expect(writeText).toHaveBeenCalledWith(url))
+    expect(screen.getByRole('heading', { name: 'Раздел недоступен в приложении' })).toBeInTheDocument()
+    expect(screen.queryByText(/компьютер/)).toBeNull()
+    expect(screen.queryByText(/cash\/expenses/)).toBeNull()
+    expect(screen.queryByRole('button', { name: /Скопировать ссылку/ })).toBeNull()
+    expect(screen.getAllByRole('button')).toHaveLength(1)
   })
 
-  it('leads to the requests', () => {
+  it('leads to the start screen', () => {
     renderStub()
-    fireEvent.click(screen.getByRole('button', { name: /Перейти к заявкам/ }))
-    expect(screen.getByText('Лента заявок')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: /На главный экран/ }))
+    expect(screen.getByText('Главный экран')).toBeInTheDocument()
   })
 
-  it('leads to the notifications when the requests module is not available', () => {
+  it('leads to the start screen without the requests module too', () => {
     moduleAccess.denied = new Set(['requests'])
     renderStub()
-    expect(screen.queryByRole('button', { name: /Перейти к заявкам/ })).toBeNull()
-    fireEvent.click(screen.getByRole('button', { name: /Перейти к уведомлениям/ }))
-    expect(screen.getByText('Страница уведомлений')).toBeInTheDocument()
-  })
-
-  it('offers neither way out while the module list is loading', () => {
-    moduleAccess.loading = true
-    renderStub()
-    expect(screen.getByRole('button', { name: /Скопировать ссылку/ })).toBeInTheDocument()
-    expect(screen.queryByRole('button', { name: /Перейти к заявкам/ })).toBeNull()
-    expect(screen.queryByRole('button', { name: /Перейти к уведомлениям/ })).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: /На главный экран/ }))
+    expect(screen.getByText('Главный экран')).toBeInTheDocument()
   })
 })

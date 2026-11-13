@@ -112,6 +112,8 @@ describe('InvestmentsMobilePage', () => {
     expect(container.querySelector('.ant-select')).toBeNull()
     expect(api.getInvestReturns).not.toHaveBeenCalled()
     expect(api.getProjectInvestments).not.toHaveBeenCalled()
+    // No «на компьютере» hints: what a phone cannot do is simply not offered.
+    expect(screen.queryByText(/компьютер/)).toBeNull()
   })
 
   it('offers «Собрать из заявок» and not «Подать заявку на вложение» in the investment mode', async () => {
