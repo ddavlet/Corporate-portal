@@ -63,6 +63,10 @@ export type UseRequestCreateFormOptions = {
 export const CASH_REGISTER_TRANSFER_HINT_PORTAL =
   'Перевод между кассами оформляется в разделе «Касса» («Все операции», «Расходы» или «Доходы») кнопкой «Перевести между кассами».'
 
+/** The phone has only «Касса» with the transfer button, without the «Все операции» / «Расходы» / «Доходы» lists. */
+export const CASH_REGISTER_TRANSFER_HINT_MOBILE =
+  'Перевод между кассами оформляется в разделе «Касса» кнопкой «Перевести между кассами».'
+
 const vendorOptionLabel = (r: Pick<VendorDirectoryRow, 'kind' | 'name' | 'inn'>) =>
   r.kind === 'transfer' && r.inn ? `${r.name} (ИНН ${r.inn})` : r.name
 

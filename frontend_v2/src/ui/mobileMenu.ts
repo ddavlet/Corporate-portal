@@ -23,7 +23,7 @@ export type MobileMenuItem = {
 }
 
 export type MobileMenu = {
-  /** Sections of the phone app: only «Заявки» and «Инвестиции». */
+  /** Sections of the phone app: only «Заявки», «Инвестиции» and «Касса». */
   main: MobileMenuItem[]
 }
 
@@ -32,16 +32,18 @@ const MAIN_ITEMS: MobileMenuItem[] = [
   // Wave 2: on a phone «Инвестиции» is two actions (InvestmentsMobilePage); their full-screen forms
   // (/investments/returns/new, /investments/collect) take the header title from this item.
   { path: '/investments', name: 'Инвестиции', icon: RiseOutlined, moduleKey: 'investments' },
+  // On a phone «Касса» is one action, «Перевести между кассами» (CashMobilePage); its full-screen form
+  // (/cash/transfer) and the desktop-only cash pages opened by a link take the header title from this item.
+  { path: '/cash', name: 'Касса', icon: DollarOutlined, moduleKey: 'cash' },
 ]
 
 /**
  * Sections that are not in the phone menu but still get a header title when opened by a link: «Уведомления» (the
- * bell opens it) and the desktop-only sections, which show the «Раздел доступен на компьютере» placeholder.
+ * bell opens it) and the sections without a phone layout, which show the «Раздел недоступен в приложении» placeholder.
  */
 const OTHER_SECTIONS: MobileMenuItem[] = [
   { path: '/notifications', name: 'Уведомления', icon: BellOutlined },
   { path: '/tasks', name: 'Задачи', icon: CheckSquareOutlined, moduleKey: 'tasks' },
-  { path: '/cash', name: 'Касса', icon: DollarOutlined, moduleKey: 'cash' },
   { path: '/bank', name: 'Банк', icon: BankOutlined, moduleKey: 'bank' },
   { path: '/corporate-card', name: 'Корп. карта', icon: CreditCardOutlined, moduleKey: 'corporate_card' },
   { path: '/payroll', name: 'Начисления ЗП', icon: TeamOutlined, moduleKey: 'payroll' },

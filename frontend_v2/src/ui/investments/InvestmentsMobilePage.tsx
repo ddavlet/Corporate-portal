@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { Button, Typography, message, theme } from 'antd'
+import { Button, message } from 'antd'
 import { FileAddOutlined, MergeCellsOutlined, PlusOutlined } from '@ant-design/icons'
 
 import { getInvestReturns, getProjectInvestments, type InvestReturnRow, type ProjectInvestmentRow } from '../../lib/api'
@@ -37,7 +37,6 @@ async function findLinkedRecord(tab: string, id: number): Promise<LinkedRecord |
  */
 export function InvestmentsMobilePage() {
   useMobileHeader({ title: 'Инвестиции' })
-  const { token } = theme.useToken()
   const navigate = useNavigate()
   const { loading: accessLoading, hasAccess } = useModuleAccess()
   const allowed = !accessLoading && hasAccess('investments')
@@ -129,9 +128,6 @@ export function InvestmentsMobilePage() {
           )}
         </div>
       </MobileActionsTheme>
-      <Typography.Text style={{ color: token.colorTextSecondary }}>
-        Списки вложений, расписание и выплаты — в версии для компьютера.
-      </Typography.Text>
 
       <InvestmentRecordDetailModal
         open={Boolean(linked)}

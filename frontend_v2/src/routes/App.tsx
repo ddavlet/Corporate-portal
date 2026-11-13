@@ -3,7 +3,7 @@ import { Navigate, Route, Routes, useNavigate, useParams } from 'react-router-do
 import { AppShell } from '../ui/AppShell'
 import { LoginPage } from '../ui/LoginPage'
 import { NotificationsPage } from '../ui/NotificationsPage'
-import { CashPage } from '../ui/CashPage'
+import { CashRegisterTransferRoute, CashRoute } from '../ui/CashRoute'
 import { CashSectionPage } from '../ui/CashSectionPage'
 import { BankPage } from '../ui/BankPage'
 import { BankSectionPage } from '../ui/BankSectionPage'
@@ -179,11 +179,13 @@ export function App() {
         <Route path="investments/returns/new" element={<InvestReturnCreateRoute />} />
         <Route path="investments/collect" element={<InvestmentCollectRoute />} />
         <Route path="investments/new" element={<InvestmentCreateRoute />} />
-        {/* No phone layout yet: on a phone these show «Раздел доступен на компьютере» instead of the page. */}
+        {/* «Касса» on a phone is one action, «Перевести между кассами», on its own full-screen address. */}
+        <Route path="cash" element={<CashRoute />} />
+        <Route path="cash/transfer" element={<CashRegisterTransferRoute />} />
+        {/* No phone layout yet: on a phone these show «Раздел недоступен в приложении» instead of the page. */}
         <Route element={<DesktopOnlyRoute />}>
           <Route path="requests/audit" element={<RequestMonthAuditPage />} />
           <Route path="requests/auto-config" element={<AutoRequestsConfigPage />} />
-          <Route path="cash" element={<CashPage />} />
           <Route path="cash/all" element={<CashSectionPage mode="all" />} />
           <Route path="cash/expenses" element={<CashSectionPage mode="expenses" />} />
           <Route path="cash/revenues" element={<CashSectionPage mode="revenues" />} />

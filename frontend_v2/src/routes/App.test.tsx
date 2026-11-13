@@ -38,7 +38,12 @@ vi.mock('../ui/AppShell', () => ({
 vi.mock('../ui/LoginPage', () => ({ LoginPage: () => <div>LoginPage</div> }))
 vi.mock('../ui/DashboardPage', () => ({ DashboardPage: () => <div>DashboardPage</div> }))
 vi.mock('../ui/NotificationsPage', () => ({ NotificationsPage: () => <div>NotificationsPage</div> }))
+// CashRoute and CashRegisterTransferRoute are the real switches; the pages they pick between are stubs.
 vi.mock('../ui/CashPage', () => ({ CashPage: () => <div>CashPage</div> }))
+vi.mock('../ui/CashMobilePage', () => ({ CashMobilePage: () => <div>CashMobilePage</div> }))
+vi.mock('../ui/CashRegisterTransferMobilePage', () => ({
+  CashRegisterTransferMobilePage: () => <div>CashRegisterTransferMobilePage</div>,
+}))
 vi.mock('../ui/CashSectionPage', () => ({ CashSectionPage: () => <div>CashSectionPage</div> }))
 vi.mock('../ui/BankPage', () => ({ BankPage: () => <div>BankPage</div> }))
 vi.mock('../ui/BankSectionPage', () => ({ BankSectionPage: () => <div>BankSectionPage</div> }))
@@ -110,6 +115,9 @@ vi.mock('../ui/tg/TgInvestmentsPage', () => ({ TgInvestmentsPage: () => <div>TgI
 vi.mock('../ui/tg/TgRequestsPage', () => ({ TgRequestsPage: () => <div>TgRequestsPage</div> }))
 vi.mock('../ui/tg/TgRequestCreatePage', () => ({ TgRequestCreatePage: () => <div>TgRequestCreatePage</div> }))
 vi.mock('../ui/tg/TgRequestDetailPage', () => ({ TgRequestDetailPage: () => <div>TgRequestDetailPage</div> }))
+vi.mock('../ui/tg/TgCashRegisterTransferPage', () => ({
+  TgCashRegisterTransferPage: () => <div>TgCashRegisterTransferPage</div>,
+}))
 vi.mock('../ui/tg/TgPaymentConfirmPage', () => ({ TgPaymentConfirmPage: () => <div>TgPaymentConfirmPage</div> }))
 
 describe('App routing smoke', () => {
@@ -213,7 +221,8 @@ describe('App routing on a phone', () => {
   }
 
   const DESKTOP_ONLY: Array<[string, string]> = [
-    ['/cash', 'CashPage'],
+    ['/cash/all', 'CashSectionPage'],
+    ['/cash/expenses/5', 'CashExpenseDetailPage'],
     ['/settings/users-roles', 'UserRolesSettingsPage'],
     ['/requests/audit', 'RequestMonthAuditPage'],
   ]
@@ -222,7 +231,7 @@ describe('App routing on a phone', () => {
     setViewport('phone')
     for (const [url, page] of DESKTOP_ONLY) {
       const { unmount } = renderAt(url)
-      expect(screen.getByText('Раздел доступен на компьютере')).toBeInTheDocument()
+      expect(screen.getByText('Раздел недоступен в приложении')).toBeInTheDocument()
       expect(screen.queryByText(page)).toBeNull()
       unmount()
     }
@@ -233,7 +242,7 @@ describe('App routing on a phone', () => {
     for (const [url, page] of DESKTOP_ONLY) {
       const { unmount } = renderAt(url)
       expect(screen.getByText(page)).toBeInTheDocument()
-      expect(screen.queryByText('Раздел доступен на компьютере')).toBeNull()
+      expect(screen.queryByText('Раздел недоступен в приложении')).toBeNull()
       unmount()
     }
   })
@@ -272,7 +281,7 @@ describe('App routing on a phone', () => {
       const { unmount } = renderAt(url)
       expect(screen.getByText('TgWebAppLayout')).toBeInTheDocument()
       expect(screen.queryByText('AppShell')).toBeNull()
-      expect(screen.queryByText('Раздел доступен на компьютере')).toBeNull()
+      expect(screen.queryByText('Раздел недоступен в приложении')).toBeNull()
       unmount()
     }
   })
@@ -315,7 +324,7 @@ describe('App routing on a phone', () => {
       const { unmount } = renderAt(url)
       expect(screen.getByText(page)).toBeInTheDocument()
       expect(screen.queryByText('InvestmentsPage')).toBeNull()
-      expect(screen.queryByText('Раздел доступен на компьютере')).toBeNull()
+      expect(screen.queryByText('Раздел недоступен в приложении')).toBeNull()
       unmount()
     }
   })
@@ -338,6 +347,58 @@ describe('App routing on a phone', () => {
     renderAt('/tg/investments')
     expect(screen.getByText('TgInvestmentsPage')).toBeInTheDocument()
     expect(screen.queryByText('InvestmentsMobilePage')).toBeNull()
+  })
+
+  it('opens the phone «Касса» and its transfer form on a phone', () => {
+    setViewport('phone')
+    for (const [url, page] of [
+      ['/cash', 'CashMobilePage'],
+      ['/cash/transfer', 'CashRegisterTransferMobilePage'],
+    ]) {
+      const { unmount } = renderAt(url)
+      expect(screen.getByText(page)).toBeInTheDocument()
+      expect(screen.queryByText('CashPage')).toBeNull()
+      expect(screen.queryByText('CashExpenseDetailPage')).toBeNull()
+      expect(screen.queryByText('Раздел недоступен в приложении')).toBeNull()
+      unmount()
+    }
+  })
+
+  it('keeps the desktop «Касса» and sends /cash/transfer there on a desktop', () => {
+    setViewport('desktop')
+    for (const url of ['/cash', '/cash/transfer']) {
+      const { unmount } = renderAt(url)
+      expect(screen.getByText('CashPage')).toBeInTheDocument()
+      expect(screen.queryByText('CashMobilePage')).toBeNull()
+      expect(screen.queryByText('CashRegisterTransferMobilePage')).toBeNull()
+      // «transfer» is not taken for the legacy `/cash/:id` redirect.
+      expect(screen.queryByText('CashExpenseDetailPage')).toBeNull()
+      unmount()
+    }
+  })
+
+  it('keeps the desktop «Касса» in Telegram WebApp at phone width', () => {
+    setViewport('phone')
+    window.Telegram = { WebApp: { initData: 'query_id=1', initDataUnsafe: {}, ready: () => undefined } }
+    try {
+      for (const url of ['/cash', '/cash/transfer']) {
+        const { unmount } = renderAt(url)
+        expect(screen.getByText('CashPage')).toBeInTheDocument()
+        expect(screen.queryByText('CashMobilePage')).toBeNull()
+        expect(screen.queryByText('CashRegisterTransferMobilePage')).toBeNull()
+        unmount()
+      }
+    } finally {
+      delete window.Telegram
+    }
+  })
+
+  it('keeps the Mini App cash transfer at phone width', () => {
+    setViewport('phone')
+    renderAt('/tg/cash/transfer')
+    expect(screen.getByText('TgWebAppLayout')).toBeInTheDocument()
+    expect(screen.getByText('TgCashRegisterTransferPage')).toBeInTheDocument()
+    expect(screen.queryByText('CashRegisterTransferMobilePage')).toBeNull()
   })
 
   it('keeps the dashboard on a desktop', () => {

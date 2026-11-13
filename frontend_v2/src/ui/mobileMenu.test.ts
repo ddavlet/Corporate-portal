@@ -4,15 +4,15 @@ import { buildMobileMenu, findMobileMenuItem, findMobileSectionTitle } from './m
 const names = (items: { name: string }[]) => items.map((item) => item.name)
 
 describe('buildMobileMenu', () => {
-  it('offers only «Заявки» and «Инвестиции» on the phone', () => {
+  it('offers only «Заявки», «Инвестиции» and «Касса» on the phone', () => {
     const menu = buildMobileMenu(() => true)
-    expect(names(menu.main)).toEqual(['Заявки', 'Инвестиции'])
+    expect(names(menu.main)).toEqual(['Заявки', 'Инвестиции', 'Касса'])
     expect(Object.keys(menu)).toEqual(['main'])
   })
 
   it('never offers «Панель», «Настройки», «Админка» or the desktop-only sections', () => {
     const all = names(buildMobileMenu(() => true).main)
-    for (const forbidden of ['Панель', 'Настройки', 'Админка', 'Уведомления', 'Касса', 'Банк', 'Корп. карта', 'Начисления ЗП', 'Договоры']) {
+    for (const forbidden of ['Панель', 'Настройки', 'Админка', 'Уведомления', 'Банк', 'Корп. карта', 'Начисления ЗП', 'Договоры']) {
       expect(all).not.toContain(forbidden)
     }
   })
@@ -20,6 +20,11 @@ describe('buildMobileMenu', () => {
   it('drops the sections of modules without access', () => {
     expect(names(buildMobileMenu((key) => key === 'requests').main)).toEqual(['Заявки'])
     expect(buildMobileMenu(() => false).main).toEqual([])
+  })
+
+  it('offers «Касса» only with access to the cash module', () => {
+    expect(names(buildMobileMenu((key) => key === 'cash').main)).toEqual(['Касса'])
+    expect(names(buildMobileMenu((key) => key !== 'cash').main)).toEqual(['Заявки', 'Инвестиции'])
   })
 })
 
@@ -59,6 +64,11 @@ describe('findMobileSectionTitle', () => {
     expect(findMobileSectionTitle('/cash/expenses/5')).toBe('Касса')
     expect(findMobileSectionTitle('/requests/12')).toBe('Заявки')
     expect(findMobileSectionTitle('/settingsx')).toBeNull()
+  })
+
+  it('names the phone cash transfer form «Касса»', () => {
+    expect(findMobileSectionTitle('/cash')).toBe('Касса')
+    expect(findMobileSectionTitle('/cash/transfer')).toBe('Касса')
   })
 
   it('names the phone investments forms «Инвестиции»', () => {

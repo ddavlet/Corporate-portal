@@ -143,10 +143,10 @@ describe('MobileAppShell (phone)', () => {
     const nav = await openMenu()
     expect(await screen.findByText('Тестовая компания')).toBeInTheDocument()
     expect(screen.getByText('ivan')).toBeInTheDocument()
-    // The phone app has only «Заявки» and «Инвестиции»; the bell opens «Уведомления».
-    expect(within(nav).getAllByRole('menuitem').map((el) => el.textContent)).toEqual(['Заявки', 'Инвестиции'])
+    // The phone app has only «Заявки», «Инвестиции» and «Касса»; the bell opens «Уведомления».
+    expect(within(nav).getAllByRole('menuitem').map((el) => el.textContent)).toEqual(['Заявки', 'Инвестиции', 'Касса'])
     expect(within(nav).queryByText('На компьютере')).toBeNull()
-    for (const name of ['Уведомления', 'Задачи', 'Касса', 'Банк', 'Корп. карта', 'Начисления ЗП', 'Отчёты', 'Договоры']) {
+    for (const name of ['Уведомления', 'Задачи', 'Банк', 'Корп. карта', 'Начисления ЗП', 'Отчёты', 'Договоры']) {
       expect(menuItem(nav, name), name).toBeUndefined()
     }
     expect(screen.getByRole('button', { name: /Сменить пароль/ })).toBeInTheDocument()
@@ -168,6 +168,14 @@ describe('MobileAppShell (phone)', () => {
     const nav = await openMenu()
     expect(menuItem(nav, 'Инвестиции')).toBeUndefined()
     expect(menuItem(nav, 'Заявки')).toBeDefined()
+  })
+
+  it('hides «Касса» without access to the cash module', async () => {
+    state.denied = new Set(['cash'])
+    renderShell()
+    const nav = await openMenu()
+    expect(menuItem(nav, 'Касса')).toBeUndefined()
+    expect(within(nav).getAllByRole('menuitem').map((el) => el.textContent)).toEqual(['Заявки', 'Инвестиции'])
   })
 
   it('shows the action count on «Заявки» and on the bell', async () => {
