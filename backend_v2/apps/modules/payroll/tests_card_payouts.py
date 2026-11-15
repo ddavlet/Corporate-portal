@@ -7,6 +7,7 @@ HTTP session, so the passport / INN / birth-date whitelist is exercised end to e
 
 import copy
 import datetime
+import logging
 import re
 from datetime import date, timedelta
 from datetime import timezone as dt_timezone
@@ -277,6 +278,8 @@ class CardSyncTests(_SyncMixin, TestCase):
         # Criterion 7.
         self.bank.errors["GetZP1C"] = {"error": {"code": 70001, "message": "Нет данных"}}
         with self.assertLogs(level="DEBUG") as logs:
+            # assertLogs fails when nothing is logged; a clean run may log nothing at all.
+            logging.getLogger(__name__).debug("pii scan start")
             self.run_sync("nightly")
         self.assertTrue(BankPayrollEmployee.objects.exists())
         texts = ["\n".join(logs.output)]
