@@ -1,9 +1,14 @@
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { AppShell } from './AppShell'
 import { installViewport } from '../test/viewport'
+
+// ProLayout's menu items set their collapsed state in a 400 ms setTimeout after mount
+// (@ant-design/pro-layout SiderMenu/BaseMenu). Let those timers fire while jsdom is still alive:
+// otherwise they run after teardown and fail the run with «window is not defined».
+afterAll(() => new Promise<void>((resolve) => setTimeout(resolve, 500)))
 
 // The desktop layout (ProLayout); the phone layout is covered in MobileAppShell.test.tsx.
 installViewport('desktop')
