@@ -1,5 +1,6 @@
 import logging
 
+from apps.modules.payroll.card_balance import has_card_payouts
 from apps.modules.payroll.constants import PORTAL_PAYOUT_BLOCK_REASON
 from apps.modules.payroll.models import PayrollDocument, PayrollPayout
 from apps.modules.payroll.services import add_system_comment
@@ -44,6 +45,15 @@ def revert_document_to_draft_on_reject(*, request_obj: Request) -> None:
         # out from under the payouts). Log and no-op instead.
         logger.warning(
             "payroll: reject received for document_id=%s with existing payouts, not reverting to draft",
+            document.pk,
+        )
+        return
+    if has_card_payouts(document):
+        # Should be unreachable too: card rows attach only once the request is approved
+        # (card_payouts._attachable). If salary did reach cards against this document, it must
+        # not become an editable draft either.
+        logger.warning(
+            "payroll: reject received for document_id=%s with card payouts, not reverting to draft",
             document.pk,
         )
         return

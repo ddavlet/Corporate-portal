@@ -470,16 +470,40 @@ export type PayrollDocumentDetailDto = {
   current_request: { id: number; status: string } | null
   paid_total: string
   remaining_total: string
+  /** Card payouts (transit 23106) counted in this accrual; absent on older backends. */
+  card_paid_total?: string
+  /** Cash + card above the accrued sum; absent on older backends. */
+  overpaid_total?: string
   lines: PayrollDocumentLineDto[]
 }
 
 export type PayrollPayoutStateDto = {
   can_pay: boolean
   reason: string | null
-  employees: { employee_id: number; full_name: string; accrued: string; paid: string; remaining: string }[]
+  employees: {
+    employee_id: number
+    full_name: string
+    accrued: string
+    /** Cash only. */
+    paid: string
+    /** accrued − cash − card fact. */
+    remaining: string
+    /** Card fields are present only when the accrual counts card payouts. */
+    card_paid?: string
+    card_expected?: string
+    card_reserved?: string
+    /** What the cash desk may still pay: remaining minus the card amount still expected. */
+    cash_limit?: string
+    overpaid?: string
+  }[]
   accrued_total: string
+  /** Cash only. */
   paid_total: string
   remaining_total: string
+  card_paid_total?: string
+  card_expected_total?: string
+  overpaid_total?: string
+  cash_limit_total?: string
   expenses: { cash_expense_id: number; date: string; amount: string; wallet_id: number }[]
   request: { id: number; status: string } | null
 }

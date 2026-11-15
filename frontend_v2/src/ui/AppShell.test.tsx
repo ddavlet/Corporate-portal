@@ -9,6 +9,17 @@ import { installViewport } from '../test/viewport'
 installViewport('desktop')
 
 let actionItemsCount = 0
+let payrollCardCount = 0
+
+vi.mock('../lib/usePayrollCardAttention', () => ({
+  usePayrollCardAttention: (enabled = true) => ({
+    data: null,
+    loading: false,
+    error: null,
+    count: enabled ? payrollCardCount : 0,
+    refresh: () => Promise.resolve(),
+  }),
+}))
 
 vi.mock('../lib/useActionItems', () => ({
   useActionItems: () => ({
@@ -68,6 +79,7 @@ function badgeCounters(count: number) {
 describe('AppShell notifications badges', () => {
   beforeEach(() => {
     actionItemsCount = 0
+    payrollCardCount = 0
     companyValue = SUBDOMAIN_COMPANY
   })
 
@@ -119,5 +131,26 @@ describe('AppShell company switcher', () => {
     renderShell()
     const switcher = await screen.findByRole('combobox', { name: 'Компания' })
     expect(switcher.closest('.ant-select')).toHaveTextContent('Альфа')
+  })
+})
+
+describe('AppShell payroll card review badge', () => {
+  beforeEach(() => {
+    actionItemsCount = 0
+    payrollCardCount = 0
+    companyValue = SUBDOMAIN_COMPANY
+  })
+
+  it('shows the card review count on «Начисления ЗП»', async () => {
+    payrollCardCount = 5
+    renderShell()
+    expect((await screen.findAllByText('Начисления ЗП')).length).toBeGreaterThan(0)
+    await waitFor(() => expect(badgeCounters(5)).toHaveLength(1))
+  })
+
+  it('shows no badge at zero (also when the API answered 403)', async () => {
+    renderShell()
+    expect((await screen.findAllByText('Начисления ЗП')).length).toBeGreaterThan(0)
+    expect(screen.queryAllByTitle(/^\d+$/)).toHaveLength(0)
   })
 })

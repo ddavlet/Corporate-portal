@@ -29,13 +29,18 @@ SELECT format('ALTER DEFAULT PRIVILEGES FOR ROLE %I IN SCHEMA public GRANT SELEC
               :'app_owner', :'mcp_user')\gexec
 
 -- Secrets: auth plumbing tables, fully closed (nothing useful for analytics there).
+-- Personal data: payroll card payouts from the bank (names, card accounts, masked cards).
 -- Guarded by apps/common/test_postgres_mcp_role.py — keep the VALUES format.
 SELECT format('REVOKE SELECT ON TABLE %I FROM %I', t.tbl, :'mcp_user')
 FROM (VALUES
     ('django_session'),
     ('accounts_otpchallenge'),
     ('mcp_oauth_authorization_code'),
-    ('push_subscriptions')
+    ('push_subscriptions'),
+    ('payroll_bank_employees'),
+    ('payroll_bank_employee_accounts'),
+    ('payroll_card_batches'),
+    ('payroll_card_payouts')
 ) AS t(tbl)
 WHERE to_regclass('public.' || quote_ident(t.tbl)) IS NOT NULL\gexec
 

@@ -154,3 +154,204 @@ class PayrollPayout(models.Model):
 
     def __str__(self) -> str:
         return f"{self.document_id}:{self.employee_id}:{self.amount}"
+
+
+# ── Salary card payouts from the Kapitalbank payroll transit account (23106) ──
+# Filled by card_sync (statement rows) and card_payouts (links, expected card). Rows are never
+# deleted; passport, INN and birth date from the bank directory are never stored.
+
+
+class BankPayrollEmployee(models.Model):
+    """An employee of the bank's payroll project (GetWorkers1C / GetZP1C ``employee_id``)."""
+
+    bank_client_id = models.CharField(max_length=32)
+    external_id = models.CharField(max_length=32)
+    full_name = models.CharField(max_length=200, blank=True, default="")  # Latin, as the bank sends it
+    masked_card = models.CharField(max_length=32, blank=True, default="")
+    branch = models.CharField(max_length=5, blank=True, default="")
+    first_seen_at = models.DateTimeField(default=timezone.now)
+    last_seen_at = models.DateTimeField(default=timezone.now)
+
+    class Meta:
+        db_table = "payroll_bank_employees"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["bank_client_id", "external_id"], name="uniq_payroll_bank_employee_client_external"
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.bank_client_id}:{self.external_id}"
+
+
+class BankPayrollEmployeeAccount(models.Model):
+    """Card account of a bank employee. A reissued card adds a row; old rows stay."""
+
+    SOURCE_WORKERS = "workers"
+    SOURCE_ZP = "zp"
+    SOURCE_CHOICES = [(SOURCE_WORKERS, "GetWorkers1C"), (SOURCE_ZP, "GetZP1C")]
+
+    bank_employee = models.ForeignKey(BankPayrollEmployee, on_delete=models.PROTECT, related_name="accounts")
+    account_no = models.CharField(max_length=20, unique=True)
+    source = models.CharField(max_length=10, choices=SOURCE_CHOICES)
+    first_seen_at = models.DateTimeField(default=timezone.now)
+    last_seen_at = models.DateTimeField(default=timezone.now)
+
+    class Meta:
+        db_table = "payroll_bank_employee_accounts"
+
+    def __str__(self) -> str:
+        return f"…{self.account_no[-4:]}"
+
+
+class PayrollCardBatch(models.Model):
+    """Incoming dtype 21 on the transit account: one payroll sheet funded from the tenant's account."""
+
+    transit_account = models.CharField(max_length=20)
+    transit_branch = models.CharField(max_length=5, blank=True, default="")
+    bank_doc_key = models.CharField(max_length=64)  # general_id, else b2_id
+    num = models.CharField(max_length=50, blank=True, default="")
+    doc_date = models.DateField()
+    amount = models.DecimalField(max_digits=18, decimal_places=2)
+    payer_account = models.CharField(max_length=20, blank=True, default="")
+    purpose = models.TextField(blank=True, default="")
+    period_month = models.DateField()  # first day of the month before doc_date
+    tenant = models.ForeignKey(
+        Tenant, on_delete=models.CASCADE, null=True, blank=True, related_name="payroll_card_batches"
+    )
+    bank_expense = models.ForeignKey(
+        "bank_expenses.BankExpense",
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name="payroll_card_batches",
+    )
+    tenant_resolved_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(default=timezone.now)
+
+    class Meta:
+        db_table = "payroll_card_batches"
+        constraints = [
+            models.UniqueConstraint(fields=["transit_account", "bank_doc_key"], name="uniq_payroll_card_batch_doc"),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.num} {self.doc_date}"
+
+
+class PayrollCardPayout(models.Model):
+    """Outgoing dtype 06 on the transit account: one salary credit to an employee's card."""
+
+    batch = models.ForeignKey(
+        PayrollCardBatch, on_delete=models.PROTECT, null=True, blank=True, related_name="payouts"
+    )
+    tenant = models.ForeignKey(
+        Tenant, on_delete=models.CASCADE, null=True, blank=True, related_name="payroll_card_payouts", db_index=False
+    )
+    transit_account = models.CharField(max_length=20)
+    bank_doc_key = models.CharField(max_length=64)
+    card_account = models.CharField(max_length=20)
+    amount = models.DecimalField(max_digits=15, decimal_places=2)
+    paid_on = models.DateField()
+    period_month = models.DateField()  # first day of the month before paid_on
+    purpose = models.TextField(blank=True, default="")
+    name_from_purpose = models.CharField(max_length=200, blank=True, default="")
+    bank_employee = models.ForeignKey(
+        BankPayrollEmployee, on_delete=models.PROTECT, null=True, blank=True, related_name="payouts"
+    )
+    employee = models.ForeignKey(
+        Employee, on_delete=models.PROTECT, null=True, blank=True, related_name="card_payouts"
+    )
+    employee_assigned_manually = models.BooleanField(default=False)
+    assigned_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name="+"
+    )
+    document = models.ForeignKey(
+        PayrollDocument, on_delete=models.PROTECT, null=True, blank=True, related_name="card_payouts"
+    )
+    attached_at = models.DateTimeField(null=True, blank=True)
+    unassigned_alerted_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(default=timezone.now)
+
+    class Meta:
+        db_table = "payroll_card_payouts"
+        constraints = [
+            models.UniqueConstraint(fields=["transit_account", "bank_doc_key"], name="uniq_payroll_card_payout_doc"),
+            models.CheckConstraint(condition=models.Q(amount__gt=0), name="payroll_card_payout_amount_positive"),
+        ]
+        indexes = [models.Index(fields=["tenant", "period_month"], name="payroll_card_payout_tenant_pm")]
+
+    def __str__(self) -> str:
+        return f"{self.paid_on}:{self.amount}"
+
+
+class PayrollBankEmployeeLink(models.Model):
+    """A person confirmed that this bank employee is this portal employee (within the tenant)."""
+
+    tenant = models.ForeignKey(
+        Tenant, on_delete=models.CASCADE, related_name="payroll_bank_employee_links", db_index=False
+    )
+    bank_employee = models.ForeignKey(BankPayrollEmployee, on_delete=models.PROTECT, related_name="links")
+    employee = models.ForeignKey(Employee, on_delete=models.PROTECT, related_name="bank_links")
+    decided_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name="+"
+    )
+    decided_at = models.DateTimeField(default=timezone.now)
+
+    class Meta:
+        db_table = "payroll_bank_employee_links"
+        constraints = [
+            models.UniqueConstraint(fields=["tenant", "bank_employee"], name="uniq_payroll_bank_employee_link"),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.tenant_id}:{self.bank_employee_id}->{self.employee_id}"
+
+
+class PayrollExpectedCard(models.Model):
+    """How much of an employee's accrual is expected to arrive on the card (reserved from the cash limit)."""
+
+    document = models.ForeignKey(
+        PayrollDocument, on_delete=models.PROTECT, related_name="expected_cards", db_index=False
+    )
+    employee = models.ForeignKey(Employee, on_delete=models.PROTECT, related_name="expected_cards")
+    amount = models.DecimalField(max_digits=15, decimal_places=2)
+    is_manual = models.BooleanField(default=False)
+    updated_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.SET_NULL, null=True, blank=True, related_name="+"
+    )
+    updated_at = models.DateTimeField(default=timezone.now)
+
+    class Meta:
+        db_table = "payroll_expected_cards"
+        constraints = [
+            models.UniqueConstraint(fields=["document", "employee"], name="uniq_payroll_expected_card"),
+            models.CheckConstraint(
+                condition=models.Q(amount__gte=0), name="payroll_expected_card_amount_non_negative"
+            ),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.document_id}:{self.employee_id}:{self.amount}"
+
+
+class PayrollCardSettings(models.Model):
+    """Per-tenant switch. card_start_period NULL = card payouts are not counted (everything as before)."""
+
+    tenant = models.OneToOneField(Tenant, on_delete=models.CASCADE, related_name="payroll_card_settings")
+    # First month (day 1) of accruals the card payouts count against; earlier rows are history.
+    card_start_period = models.DateField(null=True, blank=True)
+    # Close a document when card + cash cover it (fires n8n new-payed-request): off until n8n is checked.
+    auto_close_enabled = models.BooleanField(default=False)
+
+    class Meta:
+        db_table = "payroll_card_settings"
+
+    def save(self, *args, **kwargs):
+        # Periods are first days of months: 15.11 in admin means «from November».
+        if self.card_start_period is not None:
+            self.card_start_period = self.card_start_period.replace(day=1)
+        super().save(*args, **kwargs)
+
+    def __str__(self) -> str:
+        return f"{self.tenant_id}: {self.card_start_period or '—'}"

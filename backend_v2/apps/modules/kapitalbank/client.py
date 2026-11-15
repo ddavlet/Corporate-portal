@@ -1,9 +1,11 @@
-"""Kapitalbank (KapitalAPI V3) HTTP client: GetDoc1C statements and APILogin account list."""
+"""Kapitalbank (KapitalAPI V3) HTTP client: GetDoc1C statements, APILogin account and client lists,
+GetWorkers1C / GetZP1C payroll directories (parsed by a whitelist: no passport, INN or birth date)."""
 
 from __future__ import annotations
 
 import base64
 import logging
+import re
 from dataclasses import dataclass
 from datetime import date, datetime
 from decimal import Decimal
@@ -72,6 +74,53 @@ class BankListedAccount:
     balance: Decimal
 
 
+@dataclass(frozen=True)
+class BankClient:
+    """An organisation of the bank login (APILogin ``clients[]``) and its payroll transit accounts."""
+
+    client_id: str
+    branch: str
+    payroll_accounts: tuple[tuple[str, str], ...]  # (account_no, branch) from zp_accs / zp_humo_accs / zp_upi_accs
+
+
+@dataclass(frozen=True)
+class BankWorker:
+    """GetWorkers1C row: only the fields the portal keeps (passport, INN, birth date are dropped)."""
+
+    employee_id: str
+    account_no: str
+    full_name: str
+    masked_card: str
+    branch: str
+
+
+@dataclass(frozen=True)
+class BankPayrollSheetRow:
+    """GetZP1C ``documents[]`` row flattened with its sheet (ведомость)."""
+
+    sheet_name: str
+    sheet_date: date | None
+    employee_id: str
+    account_no: str
+    full_name: str
+    amount: Decimal
+
+
+_PAYROLL_ACCOUNT_FIELDS = ("zp_accs", "zp_humo_accs", "zp_upi_accs")
+_CARD_DIGITS_RE = re.compile(r"\d")
+
+
+def mask_card(value) -> str:
+    """Keep a bank-masked card (8600********7777) as is; mask a full card number the same way."""
+    raw = _s(value).strip()
+    if not raw or "*" in raw:
+        return raw[:32]
+    digits = "".join(_CARD_DIGITS_RE.findall(raw))
+    if len(digits) < 12:
+        return ""
+    return (digits[:4] + "*" * (len(digits) - 8) + digits[-4:])[:32]
+
+
 def _money(tiyin) -> Decimal:
     return (Decimal(int(tiyin or 0)) / _TIYIN).quantize(_CENTS)
 
@@ -80,6 +129,14 @@ def _parse_date(value) -> date | None:
     if not value:
         return None
     return datetime.strptime(str(value), "%d.%m.%Y").date()
+
+
+def _parse_date_loose(value) -> date | None:
+    """GetZP1C ``date_oper`` may carry a time part; an unparsable value is dropped, not raised."""
+    try:
+        return _parse_date(_s(value).strip()[:10])
+    except ValueError:
+        return None
 
 
 def _s(value) -> str:
@@ -91,6 +148,16 @@ def _code(value, width: int) -> str:
     ("01158", "000") the statement API, n8n and the portal accounts use."""
     raw = _s(value).strip()
     return raw.zfill(width) if raw.isdigit() else raw
+
+
+def _client_id_param(client_id: str):
+    """The bank expects client_id as a number (APILogin returns it as one)."""
+    return int(client_id) if str(client_id).isdigit() else client_id
+
+
+def _result_list(payload: dict) -> list[dict]:
+    result = payload.get("result") if isinstance(payload, dict) else None
+    return [row for row in result if isinstance(row, dict)] if isinstance(result, list) else []
 
 
 class KapitalbankClient:
@@ -185,3 +252,53 @@ class KapitalbankClient:
                     )
                 )
         return accounts
+
+    def list_clients(self) -> list[BankClient]:
+        payload = self._call("APILogin", {}, log_ctx="list_clients")
+        result = payload.get("result") or {}
+        clients: list[BankClient] = []
+        for client in result.get("clients") or []:
+            branch = _code(client.get("branch"), 5)
+            accounts: list[tuple[str, str]] = []
+            for field in _PAYROLL_ACCOUNT_FIELDS:
+                for acc in client.get(field) or []:
+                    account_no = _s(acc.get("account")).strip()
+                    if account_no:
+                        accounts.append((account_no, _code(acc.get("branch"), 5) or branch))
+            clients.append(BankClient(client_id=_s(client.get("id")).strip(), branch=branch, payroll_accounts=tuple(accounts)))
+        return clients
+
+    def list_payroll_workers(self, *, client_id: str) -> list[BankWorker]:
+        payload = self._call("GetWorkers1C", {"client_id": _client_id_param(client_id)}, log_ctx=f"client_id={client_id}")
+        return [
+            BankWorker(
+                employee_id=_s(row.get("employee_id")).strip(),
+                account_no=_s(row.get("acc")).strip(),
+                full_name=_s(row.get("fio")).strip(),
+                masked_card=mask_card(row.get("masked_card")),
+                branch=_code(row.get("branch"), 5),
+            )
+            for row in _result_list(payload)
+        ]
+
+    def get_payroll_sheets(self, *, client_id: str, day: date) -> list[BankPayrollSheetRow]:
+        body = {"client_id": _client_id_param(client_id), "date": day.strftime("%d.%m.%Y")}
+        payload = self._call("GetZP1C", body, log_ctx=f"client_id={client_id}")
+        rows: list[BankPayrollSheetRow] = []
+        for sheet in _result_list(payload):
+            sheet_name = _s(sheet.get("name")).strip()
+            sheet_date = _parse_date_loose(sheet.get("date_oper"))
+            for doc in sheet.get("documents") or []:
+                if not isinstance(doc, dict):
+                    continue
+                rows.append(
+                    BankPayrollSheetRow(
+                        sheet_name=sheet_name,
+                        sheet_date=sheet_date,
+                        employee_id=_s(doc.get("employee_id")).strip(),
+                        account_no=_s(doc.get("acc")).strip(),
+                        full_name=_s(doc.get("fio")).strip(),
+                        amount=_money(doc.get("amount")),
+                    )
+                )
+        return rows

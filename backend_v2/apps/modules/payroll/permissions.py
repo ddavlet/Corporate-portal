@@ -21,3 +21,15 @@ class HasPayrollPayoutAccess(BasePermission):
         if role_allows_module(user=user, tenant=tenant, module_key=MODULE_KEY):
             return True
         return _enabled(tenant, "cash") and role_allows_module(user=user, tenant=tenant, module_key="cash")
+
+
+class HasPayrollCardAccess(BasePermission):
+    """Card payouts review, bank links and expected card: payroll module enabled and payroll role.
+    No cash branch: a cashier sees card sums only in payout-state (for the cash limit)."""
+
+    def has_permission(self, request, view) -> bool:
+        user = request.user
+        tenant = getattr(request, "tenant", None)
+        if not user or not user.is_authenticated or not tenant or not _enabled(tenant, MODULE_KEY):
+            return False
+        return role_allows_module(user=user, tenant=tenant, module_key=MODULE_KEY)

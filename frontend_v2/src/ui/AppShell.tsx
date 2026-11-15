@@ -27,6 +27,7 @@ import { ChangePasswordModal } from './user/ChangePasswordModal'
 import { useModuleAccess } from './moduleAccess'
 import { getSettingsAccess } from '../lib/api'
 import { useActionItems } from '../lib/useActionItems'
+import { usePayrollCardAttention } from '../lib/usePayrollCardAttention'
 import { NotificationsBellWidget } from './NotificationsBellWidget'
 import { CompanySwitcherWidget } from './CompanySwitcherWidget'
 import { useCompany } from './company'
@@ -55,6 +56,8 @@ export function AppShell() {
   const [userId, setUserId] = useState<number | null>(null)
   const [userIdStatus, setUserIdStatus] = useState<UserIdStatus>('loading')
   const { count: actionItemsCount } = useActionItems()
+  // Card payouts that need a decision; the phone layout has no payroll section, so it does not ask.
+  const { count: payrollCardCount } = usePayrollCardAttention(!isMobile && hasAccess('payroll'))
   const { enabled: companySwitcher, currentCompany } = useCompany()
   // A phone header has no room for the company switcher next to text buttons: profile and logout become icons.
   const iconOnlyButtons = isMobile && companySwitcher
@@ -145,6 +148,10 @@ export function AppShell() {
         >
           {item.path === '/notifications' && actionItemsCount > 0 ? (
             <Badge count={actionItemsCount} size="small" overflowCount={99} offset={[12, 0]}>
+              {dom}
+            </Badge>
+          ) : item.path === '/payroll' && payrollCardCount > 0 ? (
+            <Badge count={payrollCardCount} size="small" overflowCount={99} offset={[12, 0]}>
               {dom}
             </Badge>
           ) : (

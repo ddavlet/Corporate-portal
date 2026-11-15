@@ -23,17 +23,22 @@ from rest_framework.views import APIView
 from apps.common.pagination import PortalCursorPagination
 from apps.common.query_params import parse_bool_query, parse_date_query, parse_decimal_query
 from apps.common.viewsets import PortalListViewSetMixin
+from apps.modules.payroll import card_payouts
+from apps.modules.payroll.card_balance import document_card_summary
 from apps.modules.payroll.constants import MODULE_KEY
 from apps.modules.payroll.models import Employee, PayrollDocument, PayrollLine, PayrollPayout
 from apps.modules.payroll.payouts import close_underpaid, create_payout_expense, document_label, payout_state
-from apps.modules.payroll.permissions import HasPayrollPayoutAccess
+from apps.modules.payroll.permissions import HasPayrollCardAccess, HasPayrollPayoutAccess
 from apps.modules.payroll.serializers import (
     EmployeeCreateSerializer,
     EmployeeSerializer,
+    PayrollBankEmployeeLinkCreateSerializer,
+    PayrollCardPayoutAssignSerializer,
     PayrollCloseUnderpaidSerializer,
-    PayrollDocumentWorkflowDetailSerializer,
-    PayrollDocumentWorkflowListSerializer,
+    PayrollDocumentCardDetailSerializer,
+    PayrollDocumentCardListSerializer,
     PayrollDraftSerializer,
+    PayrollExpectedCardSerializer,
     PayrollPayoutCreateSerializer,
 )
 from apps.modules.payroll.services import (
@@ -160,15 +165,25 @@ class PayrollDocumentViewSet(PortalListViewSetMixin, viewsets.ReadOnlyModelViewS
 
     def get_serializer_class(self):
         if self.action == "list":
-            return PayrollDocumentWorkflowListSerializer
-        return PayrollDocumentWorkflowDetailSerializer
+            return PayrollDocumentCardListSerializer
+        return PayrollDocumentCardDetailSerializer
+
+    def get_serializer(self, *args, **kwargs):
+        if self.action == "list" and args and kwargs.get("many"):
+            # Card sums for the whole page at once (no per-row queries).
+            page = list(args[0])
+            args = (page, *args[1:])
+            context = kwargs.pop("context", None) or self.get_serializer_context()
+            context["card_totals"] = document_card_summary([d.pk for d in page])
+            kwargs["context"] = context
+        return super().get_serializer(*args, **kwargs)
 
     def _detail(self, document, status_code=status.HTTP_200_OK):
         # Fresh read without list filters (cancelled/status) so every action returns the document.
         fresh = PayrollDocument.objects.prefetch_related(
             Prefetch("lines", queryset=PayrollLine.objects.order_by("line_no", "id"))
         ).get(pk=document.pk)
-        return Response(PayrollDocumentWorkflowDetailSerializer(fresh).data, status=status_code)
+        return Response(PayrollDocumentCardDetailSerializer(fresh).data, status=status_code)
 
     def partial_update(self, request, *args, **kwargs):
         document = self.get_object()
@@ -224,7 +239,7 @@ class PayrollDocumentCreateView(generics.CreateAPIView):
         fresh = PayrollDocument.objects.prefetch_related(
             Prefetch("lines", queryset=PayrollLine.objects.order_by("line_no", "id"))
         ).get(pk=document.pk)
-        out = PayrollDocumentWorkflowDetailSerializer(fresh)
+        out = PayrollDocumentCardDetailSerializer(fresh)
         return Response(out.data, status=status.HTTP_201_CREATED)
 
 
@@ -288,7 +303,7 @@ class PayrollCloseUnderpaidView(APIView):
         ser.is_valid(raise_exception=True)
         close_underpaid(document=document, actor=request.user, comment=ser.validated_data["comment"])
         fresh = PayrollDocument.objects.prefetch_related("lines").get(pk=document.pk)
-        return Response(PayrollDocumentWorkflowDetailSerializer(fresh).data)
+        return Response(PayrollDocumentCardDetailSerializer(fresh).data)
 
 
 class PayablePayrollDocumentsView(APIView):
@@ -311,7 +326,8 @@ class PayablePayrollDocumentsView(APIView):
                         "label": document_label(document),
                         "period_month": document.period_month.isoformat() if document.period_month else None,
                         "kind": document.kind,
-                        "remaining_total": str(state["remaining_total"]),
+                        # What the cash desk may still pay: card money paid and expected is excluded.
+                        "remaining_total": str(state["cash_limit_total"]),
                     }
                 )
         return Response(out)
@@ -369,3 +385,59 @@ class EmployeeCreateView(APIView):
             EmployeeSerializer(employee).data,
             status=status.HTTP_201_CREATED if created else status.HTTP_200_OK,
         )
+
+
+class PayrollCardAttentionView(APIView):
+    """Review screen «Выплаты на карту: разбор»: unlinked rows, rows waiting for an accrual,
+    missing card, overpaid. enabled=false while card_start_period is not set (or legacy tenant)."""
+
+    permission_classes = [IsAuthenticated, HasPayrollCardAccess]
+
+    def get(self, request):
+        return Response(_serialize_state(card_payouts.attention_state(request.tenant)))
+
+
+class PayrollBankEmployeeLinkCreateView(APIView):
+    permission_classes = [IsAuthenticated, HasPayrollCardAccess]
+
+    def post(self, request):
+        ser = PayrollBankEmployeeLinkCreateSerializer(data=request.data)
+        ser.is_valid(raise_exception=True)
+        link = card_payouts.link_bank_employee(
+            tenant=request.tenant,
+            bank_employee_id=ser.validated_data["bank_employee_id"],
+            employee_id=ser.validated_data["employee_id"],
+            actor=request.user,
+        )
+        return Response(
+            {
+                "id": link.pk,
+                "bank_employee_id": link.bank_employee_id,
+                "employee_id": link.employee_id,
+                "full_name": link.employee.full_name,
+            },
+            status=status.HTTP_201_CREATED,
+        )
+
+
+class PayrollCardPayoutAssignView(APIView):
+    permission_classes = [IsAuthenticated, HasPayrollCardAccess]
+
+    def post(self, request, pk):
+        ser = PayrollCardPayoutAssignSerializer(data=request.data)
+        ser.is_valid(raise_exception=True)
+        payout = card_payouts.assign_payout(
+            tenant=request.tenant, payout_id=pk, employee_id=ser.validated_data["employee_id"], actor=request.user
+        )
+        return Response({"payout_id": payout.pk, "employee_id": payout.employee_id, "document_id": payout.document_id})
+
+
+class PayrollExpectedCardView(APIView):
+    permission_classes = [IsAuthenticated, HasPayrollCardAccess]
+
+    def put(self, request, pk):
+        document = _tenant_document(request, pk)
+        ser = PayrollExpectedCardSerializer(data=request.data)
+        ser.is_valid(raise_exception=True)
+        state = card_payouts.set_expected(document=document, items=ser.validated_data["items"], actor=request.user)
+        return Response(_serialize_state(state))

@@ -21,6 +21,12 @@ vi.mock('../lib/api', async () => {
   }
 })
 
+// Card payouts review state: null = no payroll role (no «Ожидаемая карта» button).
+let cardAttention: { enabled: boolean } | null = null
+vi.mock('../lib/usePayrollCardAttention', () => ({
+  usePayrollCardAttention: () => ({ data: cardAttention, loading: false, error: null, count: 0, refresh: vi.fn() }),
+}))
+
 function baseDoc(overrides: Partial<PayrollDocumentDetailDto> = {}): PayrollDocumentDetailDto {
   return {
     id: 1,
@@ -210,5 +216,103 @@ describe('PayrollDocumentDetailPage confirm dialogs', () => {
     expect(dialog).not.toBeNull()
     fireEvent.click(within(dialog).getByRole('button', { name: 'Отменить' }))
     await waitFor(() => expect(cancelPayrollDocumentMock).toHaveBeenCalledWith(1))
+  })
+})
+
+/** Column titles of the data tables (Descriptions has no thead, so its labels are not here). */
+function tableHeaders(): string[] {
+  return Array.from(document.querySelectorAll('thead th')).map((th) => (th.textContent ?? '').trim())
+}
+
+describe('PayrollDocumentDetailPage card payouts', () => {
+  beforeEach(() => {
+    getPayrollDocumentMock.mockReset()
+    getPayrollPayoutStateMock.mockReset()
+    cardAttention = null
+  })
+
+  const employee = {
+    employee_id: 7,
+    full_name: 'Иванов Иван',
+    accrued: '3000000.00',
+    paid: '1500000.00',
+    remaining: '0.00',
+  }
+
+  it('keeps the old employee columns when the accrual has no card money', async () => {
+    getPayrollDocumentMock.mockResolvedValue(baseDoc({ status: 'accepted' }))
+    getPayrollPayoutStateMock.mockResolvedValue(
+      basePayoutState({
+        employees: [{ ...employee, card_paid: '0.00', card_expected: '0.00', card_reserved: '0.00', cash_limit: '0.00', overpaid: '0.00' }],
+        card_paid_total: '0.00',
+        card_expected_total: '0.00',
+        overpaid_total: '0.00',
+      }),
+    )
+    renderPage()
+
+    expect(await screen.findByText('Иванов Иван')).toBeInTheDocument()
+    expect(tableHeaders()).toContain('Выплачено')
+    expect(tableHeaders()).not.toContain('Карта')
+    expect(tableHeaders()).not.toContain('Ожидается на карту')
+    expect(screen.queryByText(/Переплата/)).not.toBeInTheDocument()
+  })
+
+  it('shows card columns, the overpaid tag and the breakdown (criterion 15)', async () => {
+    getPayrollDocumentMock.mockResolvedValue(
+      baseDoc({
+        status: 'closed',
+        total_sum: '3000000.00',
+        paid_total: '1500000.00',
+        remaining_total: '0.00',
+        card_paid_total: '2000000.00',
+        overpaid_total: '500000.00',
+      }),
+    )
+    getPayrollPayoutStateMock.mockResolvedValue(
+      basePayoutState({
+        can_pay: false,
+        reason: 'Остаток выплачен.',
+        employees: [
+          { ...employee, card_paid: '2000000.00', card_expected: '2000000.00', card_reserved: '0.00', cash_limit: '0.00', overpaid: '500000.00' },
+        ],
+        card_paid_total: '2000000.00',
+        card_expected_total: '2000000.00',
+        overpaid_total: '500000.00',
+      }),
+    )
+    renderPage()
+
+    await screen.findByText('Иванов Иван')
+    expect(tableHeaders()).toEqual(
+      expect.arrayContaining(['Начислено', 'Касса', 'Карта', 'Ожидается на карту', 'Остаток']),
+    )
+    // Red alert above the table and the tag next to the employee.
+    expect(screen.getAllByText(/Переплата 500\s000,00/).length).toBe(2)
+    expect(
+      screen.getByText(/Начислено 3\s000\s000,00 · касса 1\s500\s000,00 · карта 2\s000\s000,00/),
+    ).toBeInTheDocument()
+  })
+
+  it('offers «Ожидаемая карта» for a draft portal accrual only with card accounting on', async () => {
+    getPayrollDocumentMock.mockResolvedValue(baseDoc({ status: 'draft' }))
+    cardAttention = { enabled: true }
+    renderPage()
+    expect(await screen.findByRole('button', { name: 'Ожидаемая карта' })).toBeInTheDocument()
+  })
+
+  it('hides «Ожидаемая карта» without the payroll role or for a closed accrual', async () => {
+    getPayrollDocumentMock.mockResolvedValue(baseDoc({ status: 'draft' }))
+    const { unmount } = renderPage()
+    expect(await screen.findByRole('button', { name: 'Принять' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Ожидаемая карта' })).not.toBeInTheDocument()
+    unmount()
+
+    cardAttention = { enabled: true }
+    getPayrollDocumentMock.mockResolvedValue(baseDoc({ status: 'closed' }))
+    getPayrollPayoutStateMock.mockResolvedValue(basePayoutState({ can_pay: false, reason: 'Закрыто' }))
+    renderPage()
+    expect(await screen.findByText('Закрыто', { selector: '.ant-tag' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Ожидаемая карта' })).not.toBeInTheDocument()
   })
 })

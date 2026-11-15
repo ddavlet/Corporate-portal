@@ -3,6 +3,7 @@ import { REPORT_VIEW_PREFIX } from '../ui/reports/reportViewMemory'
 import { resetTenantAdminCache } from './useTenantAdmin'
 import { resetReportTemplatesCache } from './useReportTemplates'
 import { resetActionItemsCache } from './useActionItems'
+import { resetPayrollCardAttentionCache } from './usePayrollCardAttention'
 import { isSharedAppMode } from './portalMode'
 
 /**
@@ -75,6 +76,8 @@ export function resetCompanyScopedState(): void {
   resetTenantAdminCache()
   resetReportTemplatesCache()
   if (!isSharedAppMode()) resetActionItemsCache()
+  // Card payouts review is per company in both modes.
+  resetPayrollCardAttentionCache()
   try {
     const keys: string[] = []
     for (let i = 0; i < sessionStorage.length; i += 1) {

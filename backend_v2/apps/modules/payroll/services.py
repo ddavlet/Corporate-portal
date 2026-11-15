@@ -10,7 +10,7 @@ from django.utils import timezone
 from rest_framework.exceptions import ValidationError
 
 from apps.modules.payroll.constants import KIND_LABELS, SALARY_CATEGORY
-from apps.modules.payroll.models import PayrollDocument, PayrollLine, PayrollPayout
+from apps.modules.payroll.models import PayrollCardPayout, PayrollDocument, PayrollLine, PayrollPayout
 from apps.modules.requests.approval_bootstrap import create_approval_rows_for_request
 from apps.modules.requests.approval_workflow import _recalculate_request_status, route_request_approvals
 from apps.modules.requests.models import Request, RequestComment
@@ -183,6 +183,15 @@ def _lock_draft(document: PayrollDocument) -> PayrollDocument:
     return locked
 
 
+def _refuse_if_paid(locked: PayrollDocument) -> None:
+    """Cash or card money against the document: its lines must not change under it."""
+    if (
+        PayrollPayout.objects.filter(document=locked).exists()
+        or PayrollCardPayout.objects.filter(document=locked).exists()
+    ):
+        raise ValidationError({"detail": "По начислению уже есть выплаты."})
+
+
 def create_draft_document(
     *, tenant, user, period_month: date, kind: str, lines_data: list[dict], comment: str = ""
 ) -> PayrollDocument:
@@ -201,6 +210,11 @@ def create_draft_document(
             comment=(comment or "").strip(),
         )
         _write_draft_lines(document, kind=kind, lines_data=lines_data)
+    # Local import: card_payouts imports payouts, which imports this module.
+    from apps.modules.payroll import card_payouts
+
+    # After the draft is committed and never failing it: an error is logged, the draft stays.
+    card_payouts.safe_prefill_expected(document.pk)
     return document
 
 
@@ -210,8 +224,7 @@ def update_draft_document(
     """comment=None keeps the stored comment (clients that do not send it)."""
     with transaction.atomic():
         locked = _lock_draft(document)
-        if PayrollPayout.objects.filter(document=locked).exists():
-            raise ValidationError({"detail": "По начислению уже есть выплаты."})
+        _refuse_if_paid(locked)
         locked.period_month = period_month.replace(day=1)
         locked.kind = kind
         update_fields = ["period_month", "kind"]
@@ -223,6 +236,10 @@ def update_draft_document(
         # never accepted, no payouts reference them.
         locked.lines.all().delete()
         _write_draft_lines(locked, kind=kind, lines_data=lines_data)
+    from apps.modules.payroll import card_payouts
+
+    # Lines, period or kind changed: the expected card follows (never failing the update).
+    card_payouts.safe_prefill_expected(locked.pk)
     return locked
 
 
@@ -233,8 +250,7 @@ def cancel_draft_document(*, document: PayrollDocument) -> PayrollDocument:
         # payouts (payouts require STATUS_ACCEPTED + portal payout_mode — see
         # payouts._blocked_reason), but revert_document_to_draft_on_reject refuses to
         # revert a doc with payouts for the same reason, so this mirrors that guard.
-        if PayrollPayout.objects.filter(document=locked).exists():
-            raise ValidationError({"detail": "По начислению уже есть выплаты."})
+        _refuse_if_paid(locked)
         locked.status = PayrollDocument.STATUS_CANCELLED
         locked.save(update_fields=["status"])
     return locked
@@ -290,6 +306,12 @@ def accept_document(*, document: PayrollDocument, actor) -> Request | None:
         locked.status = PayrollDocument.STATUS_ACCEPTED
         locked.payout_mode = locked.tenant.payroll_payout_mode
         locked.save(update_fields=["status", "payout_mode"])
+        from apps.modules.payroll import card_payouts
+
+        # Expected card and waiting card rows are handled after the commit: an error there is
+        # logged and never rolls the accept back.
+        document_pk = locked.pk
+        transaction.on_commit(lambda: card_payouts.on_document_accepted(document_pk))
         request_obj = maybe_create_linked_request(locked, actor_user=actor, force=True)
         # Without an approval chain configured for «Начисление ЗП», create_approval_rows_
         # for_request creates zero rows and the Request is left in DRAFT with nothing to

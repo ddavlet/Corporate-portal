@@ -6,9 +6,13 @@ from apps.modules.payroll.views import (
     EmployeeCreateView,
     EmployeeListView,
     PayablePayrollDocumentsView,
+    PayrollBankEmployeeLinkCreateView,
+    PayrollCardAttentionView,
+    PayrollCardPayoutAssignView,
     PayrollCloseUnderpaidView,
     PayrollDocumentCreateView,
     PayrollDocumentViewSet,
+    PayrollExpectedCardView,
     PayrollPayoutCreateView,
     PayrollPayoutStateView,
 )
@@ -25,5 +29,11 @@ urlpatterns = [
     path("cash-expenses/<int:pk>/payouts/", CashExpensePayrollPayoutsView.as_view(), name="payroll-cash-expense-payouts"),
     path("employees/", EmployeeListView.as_view(), name="payroll-employees"),
     path("employees/create/", EmployeeCreateView.as_view(), name="payroll-employees-create"),
+    path("card-payouts/attention/", PayrollCardAttentionView.as_view(), name="payroll-card-attention"),
+    path("card-payouts/<int:pk>/assign/", PayrollCardPayoutAssignView.as_view(), name="payroll-card-payout-assign"),
+    path("bank-employee-links/", PayrollBankEmployeeLinkCreateView.as_view(), name="payroll-bank-employee-links"),
+    path(
+        "documents/<int:pk>/expected-card/", PayrollExpectedCardView.as_view(), name="payroll-document-expected-card"
+    ),
     path("", include(router.urls)),
 ]

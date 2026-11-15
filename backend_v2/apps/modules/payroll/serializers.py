@@ -3,6 +3,7 @@ from decimal import Decimal
 from django.db.models import Sum
 from rest_framework import serializers
 
+from apps.modules.payroll.card_balance import document_card_summary
 from apps.modules.payroll.models import Employee, PayrollDocument, PayrollLine
 from apps.modules.payroll.payouts import document_label
 from apps.modules.payroll.services import current_request_for_document
@@ -211,3 +212,70 @@ class PayrollDocumentWorkflowDetailSerializer(PayrollDocumentDetailSerializer):
 
     def get_remaining_total(self, obj):
         return str(max(self.get_total_sum(obj) - self._paid(obj), Decimal("0")))
+
+
+class PayrollDocumentCardListSerializer(PayrollDocumentWorkflowListSerializer):
+    """List row + card money; sums come from context["card_totals"] (one query set per page)."""
+
+    card_paid_total = serializers.SerializerMethodField()
+    overpaid_total = serializers.SerializerMethodField()
+
+    class Meta(PayrollDocumentWorkflowListSerializer.Meta):
+        fields = PayrollDocumentWorkflowListSerializer.Meta.fields + ["card_paid_total", "overpaid_total"]
+        read_only_fields = fields
+
+    def _card(self, obj) -> dict:
+        return (self.context.get("card_totals") or {}).get(obj.pk) or {}
+
+    def get_card_paid_total(self, obj):
+        return str(self._card(obj).get("card_paid_total", Decimal("0.00")))
+
+    def get_overpaid_total(self, obj):
+        return str(self._card(obj).get("overpaid_total", Decimal("0.00")))
+
+
+class PayrollDocumentCardDetailSerializer(PayrollDocumentWorkflowDetailSerializer):
+    """Detail + card money: remaining_total = sum of per-employee remainders (accrued − cash − card)."""
+
+    card_paid_total = serializers.SerializerMethodField()
+    overpaid_total = serializers.SerializerMethodField()
+
+    class Meta(PayrollDocumentWorkflowDetailSerializer.Meta):
+        fields = PayrollDocumentWorkflowDetailSerializer.Meta.fields + ["card_paid_total", "overpaid_total"]
+        read_only_fields = fields
+
+    def _card(self, obj) -> dict:
+        cache = self.__dict__.setdefault("_card_cache", {})
+        if obj.pk not in cache:
+            cache[obj.pk] = document_card_summary([obj.pk]).get(obj.pk) or {}
+        return cache[obj.pk]
+
+    def get_card_paid_total(self, obj):
+        return str(self._card(obj).get("card_paid_total", Decimal("0.00")))
+
+    def get_overpaid_total(self, obj):
+        return str(self._card(obj).get("overpaid_total", Decimal("0.00")))
+
+    def get_remaining_total(self, obj):
+        card = self._card(obj)
+        if not card:
+            return super().get_remaining_total(obj)
+        return str(card["remaining_total"])
+
+
+class PayrollBankEmployeeLinkCreateSerializer(serializers.Serializer):
+    bank_employee_id = serializers.IntegerField()
+    employee_id = serializers.IntegerField()
+
+
+class PayrollCardPayoutAssignSerializer(serializers.Serializer):
+    employee_id = serializers.IntegerField()
+
+
+class PayrollExpectedCardItemSerializer(serializers.Serializer):
+    employee_id = serializers.IntegerField()
+    amount = serializers.DecimalField(max_digits=15, decimal_places=2, min_value=Decimal("0"))
+
+
+class PayrollExpectedCardSerializer(serializers.Serializer):
+    items = PayrollExpectedCardItemSerializer(many=True)
