@@ -7,7 +7,7 @@ DEPLOY_TEST_PATH ?= $(TEST_PATH)
 BRANCH     := $(shell git rev-parse --abbrev-ref HEAD)
 
 .DEFAULT_GOAL := help
-.PHONY: help push test deploy makemigrations showmigrations logs backup-db create-postgres-mcp-role rollback refresh-approval-messages delete-telegram-messages reconcile-card-revenues reconcile-expense-links relink-unresolved-bank-doc-numbers fix-invest-returns align-payment-purposes clone-tenant-config sync-telegram-bots link-payroll-requests send-to-vacation return-from-vacation reassign-unmatched-bank-expenses backfill-bank-expense-requests backfill-cash-expense-requests backfill-card-expenses backfill-cbu-exchange-rate redispatch-unsent-approval-cards backfill-cash-withdrawals repair-id-sequences import-kapitalbank link-kapitalbank ignore-kapitalbank classify-kapitalbank local-up local-down local-logs test_local
+.PHONY: help push test deploy makemigrations showmigrations logs backup-db create-postgres-mcp-role rollback refresh-approval-messages delete-telegram-messages reconcile-card-revenues reconcile-expense-links relink-unresolved-bank-doc-numbers fix-invest-returns align-payment-purposes clone-tenant-config sync-telegram-bots link-payroll-requests send-to-vacation return-from-vacation reassign-unmatched-bank-expenses backfill-bank-expense-requests backfill-cash-expense-requests backfill-card-expenses backfill-cbu-exchange-rate redispatch-unsent-approval-cards backfill-cash-withdrawals repair-id-sequences import-kapitalbank link-kapitalbank ignore-kapitalbank classify-kapitalbank sync-payroll-card local-up local-down local-logs test_local
 
 help:
 	@echo ""
@@ -55,6 +55,8 @@ help:
 	@echo "  make link-kapitalbank [TENANT=kp] [APPLY=1] — dry-run: привязать счета «ожидает решения» к счёту портала с тем же номером и МФО (карта — external_ref)"
 	@echo "  make ignore-kapitalbank TENANT=kp ACCOUNTS=a,b REASON='...' [APPLY=1] — dry-run: отметить счета «ожидает решения» «не отслеживать» с общей причиной"
 	@echo "  make classify-kapitalbank TENANT=kp ACCOUNTS=a,b TYPE=controlled|informational|service [APPLY=1] — dry-run: привязать счета «ожидает решения» с этим типом или сменить тип привязанных"
+	@echo "  make sync-payroll-card MODE=manual TENANT=kp SINCE=2026-09-01 DRY_RUN=1 — пробная загрузка выплат ЗП на карты (транзитный 23106) без записи"
+	@echo "  make sync-payroll-card MODE=hourly|nightly [TENANT=kp] — загрузить выплаты ЗП на карты как по расписанию"
 	@echo "  make local-up        — поднять docker-compose.local.yml локально"
 	@echo "  make local-down      — остановить локальный compose (без удаления volumes)"
 	@echo "  make local-logs      — логи локального compose"
@@ -380,6 +382,22 @@ classify-kapitalbank:
 		$(foreach a,$(subst $(comma), ,$(ACCOUNTS)),--account=$(a)) \
 		--type=$(TYPE) \
 		$(if $(APPLY),--apply,)"
+
+# ── 7d-9d. Выплаты ЗП на карты из транзитного счёта 23106 (по требованию; по расписанию — backend_cron) ──
+# make sync-payroll-card MODE=manual TENANT=kp SINCE=2026-09-01 [DRY_RUN=1]
+# make sync-payroll-card MODE=hourly|nightly [TENANT=kp] [DRY_RUN=1]
+# Проверку сочетаний параметров делает сама команда sync_payroll_card_payouts.
+SINCE ?=
+
+sync-payroll-card:
+	@test -n "$(MODE)" || (echo "Usage: make sync-payroll-card MODE=hourly|nightly|manual [TENANT=<subdomain>] [SINCE=YYYY-MM-DD] [DRY_RUN=1]" && exit 1)
+	ssh $(SERVER) "cd $(REMOTE_DIR) && \
+		docker compose --env-file ./.env exec -T backend_v2 \
+		python manage.py sync_payroll_card_payouts \
+		--mode=$(MODE) \
+		$(if $(TENANT),--tenant=$(TENANT),) \
+		$(if $(SINCE),--since=$(SINCE),) \
+		$(if $(DRY_RUN),--dry-run,)"
 
 # ── 7d-10. По требованию: backfill-команды (dry-run по умолчанию) ──
 # TENANT=1,lemonaqua (id или subdomain, через запятую) или ALL_TENANTS=1; DATE_FROM/DATE_TO=YYYY-MM-DD

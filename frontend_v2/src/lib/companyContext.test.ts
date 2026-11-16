@@ -11,6 +11,7 @@ const { resetTenantAdminMock, resetReportTemplatesMock, resetActionItemsMock, po
 vi.mock('./useTenantAdmin', () => ({ resetTenantAdminCache: resetTenantAdminMock }))
 vi.mock('./useReportTemplates', () => ({ resetReportTemplatesCache: resetReportTemplatesMock }))
 vi.mock('./useActionItems', () => ({ resetActionItemsCache: resetActionItemsMock }))
+vi.mock('./usePayrollCardAttention', () => ({ resetPayrollCardAttentionCache: vi.fn() }))
 vi.mock('./portalMode', () => ({ isSharedAppMode: () => portalState.shared }))
 
 import {

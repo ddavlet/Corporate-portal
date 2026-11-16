@@ -1,14 +1,30 @@
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
-import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { AppShell } from './AppShell'
 import { installViewport } from '../test/viewport'
+
+// ProLayout's menu items set their collapsed state in a 400 ms setTimeout after mount
+// (@ant-design/pro-layout SiderMenu/BaseMenu). Let those timers fire while jsdom is still alive:
+// otherwise they run after teardown and fail the run with «window is not defined».
+afterAll(() => new Promise<void>((resolve) => setTimeout(resolve, 500)))
 
 // The desktop layout (ProLayout); the phone layout is covered in MobileAppShell.test.tsx.
 installViewport('desktop')
 
 let actionItemsCount = 0
+let payrollCardCount = 0
+
+vi.mock('../lib/usePayrollCardAttention', () => ({
+  usePayrollCardAttention: (enabled = true) => ({
+    data: null,
+    loading: false,
+    error: null,
+    count: enabled ? payrollCardCount : 0,
+    refresh: () => Promise.resolve(),
+  }),
+}))
 
 vi.mock('../lib/useActionItems', () => ({
   useActionItems: () => ({
@@ -68,6 +84,7 @@ function badgeCounters(count: number) {
 describe('AppShell notifications badges', () => {
   beforeEach(() => {
     actionItemsCount = 0
+    payrollCardCount = 0
     companyValue = SUBDOMAIN_COMPANY
   })
 
@@ -119,5 +136,26 @@ describe('AppShell company switcher', () => {
     renderShell()
     const switcher = await screen.findByRole('combobox', { name: 'Компания' })
     expect(switcher.closest('.ant-select')).toHaveTextContent('Альфа')
+  })
+})
+
+describe('AppShell payroll card review badge', () => {
+  beforeEach(() => {
+    actionItemsCount = 0
+    payrollCardCount = 0
+    companyValue = SUBDOMAIN_COMPANY
+  })
+
+  it('shows the card review count on «Начисления ЗП»', async () => {
+    payrollCardCount = 5
+    renderShell()
+    expect((await screen.findAllByText('Начисления ЗП')).length).toBeGreaterThan(0)
+    await waitFor(() => expect(badgeCounters(5)).toHaveLength(1))
+  })
+
+  it('shows no badge at zero (also when the API answered 403)', async () => {
+    renderShell()
+    expect((await screen.findAllByText('Начисления ЗП')).length).toBeGreaterThan(0)
+    expect(screen.queryAllByTitle(/^\d+$/)).toHaveLength(0)
   })
 })

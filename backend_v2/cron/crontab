@@ -32,6 +32,11 @@ BASH_ENV=/etc/kolberg-cron.env
 0 22 * * 1-5 root cd /app && python manage.py import_kapitalbank_statements --mode daytime >> /proc/1/fd/1 2>&1
 0 5 * * * root cd /app && python manage.py import_kapitalbank_statements --mode nightly >> /proc/1/fd/1 2>&1
 
+# Salary card payouts from the payroll transit account 23106 (payroll module, separate lock from the import):
+# hourly on weekdays 06-22 (yesterday and today), nightly at 05:30 (40 days, bank payroll directory, regrouping).
+15 6-22 * * 1-5 root cd /app && flock -n /tmp/sync_payroll_card_payouts.lock python manage.py sync_payroll_card_payouts --mode hourly >> /proc/1/fd/1 2>&1
+30 5 * * * root cd /app && flock -n /tmp/sync_payroll_card_payouts.lock python manage.py sync_payroll_card_payouts --mode nightly >> /proc/1/fd/1 2>&1
+
 # Web Push of portal action items: pushes are sent only from here, never in an HTTP request.
 # Every minute: users marked by approval hooks. Every 5 minutes: full catch-up, longest-unsynced first
 # (paths without hooks: bulk DELETED drafts, lost memberships; retries of failed pushes).

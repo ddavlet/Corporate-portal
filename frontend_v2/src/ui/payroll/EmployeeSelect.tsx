@@ -9,12 +9,18 @@ export function EmployeeSelect({
   excludeIds = [],
   employees,
   onEmployeeCreated,
+  id,
+  loading,
 }: {
   value?: number
   onChange?: (id: number) => void
   excludeIds?: number[]
   employees: EmployeeDto[]
   onEmployeeCreated?: (employee: EmployeeDto) => void
+  /** Id of the search input, for a <label htmlFor>. */
+  id?: string
+  /** The employee list is still loading. */
+  loading?: boolean
 }) {
   const [newName, setNewName] = useState('')
   const [creating, setCreating] = useState(false)
@@ -45,6 +51,8 @@ export function EmployeeSelect({
 
   return (
     <Select
+      id={id}
+      loading={loading}
       showSearch
       placeholder="Сотрудник"
       optionFilterProp="label"

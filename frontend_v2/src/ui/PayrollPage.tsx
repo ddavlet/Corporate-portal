@@ -17,7 +17,7 @@ import {
 } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
 import type { Dayjs } from 'dayjs'
-import { useNavigate } from 'react-router-dom'
+import { useHref, useNavigate } from 'react-router-dom'
 import {
   PAYROLL_STATUS_LABELS,
   type PayrollDocumentDetailDto,
@@ -28,6 +28,8 @@ import { useInfiniteList } from '../lib/useInfiniteList'
 import { ListInfiniteScrollFooter } from './ListInfiniteScrollFooter'
 import { labelBlockAboveField } from './formSpacing'
 import { PayrollDocumentFormModal } from './payroll/PayrollDocumentFormModal'
+import { PayrollOverpaidTag } from './payroll/PayrollOverpaidTag'
+import { usePayrollCardAttention } from '../lib/usePayrollCardAttention'
 import { PAYROLL_STATUS_COLORS } from './payroll/payrollStatus'
 import { fmtMoney, formatPeriodMonth } from './payroll/payrollFormat'
 
@@ -45,6 +47,8 @@ type PayrollDocumentRow = {
   period_month: string | null
   kind: PayrollKind | null
   paid_total: string | number
+  card_paid_total?: string | number
+  overpaid_total?: string | number
 }
 
 const dateFormatterTashkent = new Intl.DateTimeFormat('ru-RU', {
@@ -65,8 +69,11 @@ function compareDateStrings(a?: string | null, b?: string | null): number {
   return String(a || '').localeCompare(String(b || ''))
 }
 
+const CARD_REVIEW_PATH = '/payroll/card-review'
+
 export function PayrollPage() {
   const navigate = useNavigate()
+  const cardReviewHref = useHref(CARD_REVIEW_PATH)
   const [search, setSearch] = useState('')
   const [docIdFilter, setDocIdFilter] = useState('')
   const [employeeSearch, setEmployeeSearch] = useState('')
@@ -77,6 +84,7 @@ export function PayrollPage() {
   const [requestFilter, setRequestFilter] = useState<string | undefined>(undefined)
   const [statusFilter, setStatusFilter] = useState<PayrollDocumentStatus | undefined>(undefined)
   const [createModalOpen, setCreateModalOpen] = useState(false)
+  const { count: cardReviewCount } = usePayrollCardAttention()
 
   const listUrl = useMemo(() => {
     const params = new URLSearchParams()
@@ -173,8 +181,27 @@ export function PayrollPage() {
       {
         title: 'Выплачено',
         key: 'paid_total',
-        width: 160,
-        render: (_, r) => `${fmtMoney(r.paid_total)} / ${fmtMoney(r.total_sum)}`,
+        width: 200,
+        render: (_, r) => {
+          const card = Number(r.card_paid_total ?? 0)
+          if (card <= 0 && !(Number(r.overpaid_total ?? 0) > 0)) {
+            return `${fmtMoney(r.paid_total)} / ${fmtMoney(r.total_sum)}`
+          }
+          return (
+            <Space direction="vertical" size={2}>
+              <span>{`${fmtMoney(Number(r.paid_total) + card)} / ${fmtMoney(r.total_sum)}`}</span>
+              <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                касса {fmtMoney(r.paid_total)} · карта {fmtMoney(card)}
+              </Typography.Text>
+              <PayrollOverpaidTag
+                overpaid={r.overpaid_total}
+                accrued={r.total_sum}
+                cash={r.paid_total}
+                card={r.card_paid_total}
+              />
+            </Space>
+          )
+        },
       },
       {
         title: 'Заявка',
@@ -212,9 +239,25 @@ export function PayrollPage() {
       <Typography.Title level={4} style={{ marginTop: 0 }}>
         Начисления ЗП
       </Typography.Title>
-      <Button type="primary" onClick={() => setCreateModalOpen(true)} style={{ marginBottom: 16 }}>
-        Создать начисление
-      </Button>
+      <Space wrap style={{ marginBottom: 16 }}>
+        <Button type="primary" onClick={() => setCreateModalOpen(true)}>
+          Создать начисление
+        </Button>
+        {cardReviewCount > 0 ? (
+          // A real link (opens in a new tab with Ctrl/Cmd or the middle button); a plain click stays in the SPA.
+          <Button
+            danger
+            href={cardReviewHref}
+            onClick={(e) => {
+              if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return
+              e.preventDefault()
+              navigate(CARD_REVIEW_PATH)
+            }}
+          >
+            Требует разбора: {cardReviewCount}
+          </Button>
+        ) : null}
+      </Space>
       <Typography.Paragraph type="secondary">
         Документы начислений по <span className="mono">doc_id</span>; заявки с типом оплаты «Начисление ЗП» привязываются к
         документу по <span className="mono">expense_id</span>.

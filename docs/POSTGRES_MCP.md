@@ -24,6 +24,7 @@ This is **not** the Kolberg domain MCP (tenant/JWT business tools). See [`MCP_SE
 `scripts/postgres_mcp_create_readonly_role.sql` grants SELECT on all tables, then revokes credentials:
 
 - **Whole tables:** `django_session`, `accounts_otpchallenge`, `mcp_oauth_authorization_code`.
+- **Personal data, whole tables:** `payroll_bank_employees`, `payroll_bank_employee_accounts`, `payroll_card_batches`, `payroll_card_payouts` (salary card payouts from the Kapitalbank transit account 23106: bank names, card accounts, masked cards, payment purposes with names). `ALTER DEFAULT PRIVILEGES` grants SELECT on a new table as soon as its migration runs, so migration `payroll/0008_card_payouts` itself revokes SELECT on these four tables from every role except the table owner; re-running `make create-postgres-mcp-role` later keeps them hidden.
 - **Single columns** (`mcp_hidden_columns`): `accounts_user.password`, `*_token_enc` / `*_secret_enc` / webhook URL in `tenants_tenant` and `tenant_integration_configs`, `mcp_service_credential.key_hash`, `mcp_oauth_client.client_secret`, `invest_payout_schedule_share_links.token`. These tables get a column-level grant, so `SELECT *` on them fails — list columns explicitly. A column added to such a table later stays hidden until `make create-postgres-mcp-role` is re-run.
 
 `apps/common/test_postgres_mcp_role.py` fails CI if a model gains a secret-looking column that is not on these lists.

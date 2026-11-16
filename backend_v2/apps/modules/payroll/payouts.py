@@ -8,6 +8,7 @@ from django.utils import timezone
 from rest_framework.exceptions import ValidationError
 
 from apps.modules.cashier.models import CashExpense
+from apps.modules.payroll.card_balance import auto_close_allowed, card_amounts
 from apps.modules.payroll.constants import KIND_LABELS
 from apps.modules.payroll.models import PayrollDocument, PayrollLine, PayrollPayout
 from apps.modules.payroll.services import add_system_comment, current_request_for_document
@@ -34,7 +35,10 @@ def _cash_enabled(tenant) -> bool:
     return TenantModuleConfig.objects.filter(tenant=tenant, module_key="cash", is_enabled=True).exists()
 
 
-def _employee_rows(document: PayrollDocument) -> list[dict]:
+def _employee_rows(document: PayrollDocument, card: dict | None = None) -> list[dict]:
+    """Per employee: accrued, cash paid ("paid"), card fact of attached rows and expected card
+    (card_balance.card_amounts). Without card data the numbers are the old ones."""
+    card = card or {}
     accrued = (
         PayrollLine.objects.filter(document=document, employee_fk__isnull=False)
         .values("employee_fk_id", "employee_fk__full_name")
@@ -51,13 +55,22 @@ def _employee_rows(document: PayrollDocument) -> list[dict]:
         eid = row["employee_fk_id"]
         accrued_sum = row["total"] or ZERO
         paid_sum = paid.get(eid) or ZERO
+        card_paid = card.get(eid, {}).get("fact", ZERO)
+        card_expected = card.get(eid, {}).get("expected", ZERO)
+        remaining = max(accrued_sum - paid_sum - card_paid, ZERO)
+        card_reserved = max(card_expected - card_paid, ZERO)
         rows.append(
             {
                 "employee_id": eid,
                 "full_name": row["employee_fk__full_name"],
                 "accrued": accrued_sum,
                 "paid": paid_sum,
-                "remaining": max(accrued_sum - paid_sum, ZERO),
+                "remaining": remaining,
+                "card_paid": card_paid,
+                "card_expected": card_expected,
+                "card_reserved": card_reserved,
+                "cash_limit": max(remaining - card_reserved, ZERO),
+                "overpaid": max(paid_sum + card_paid - accrued_sum, ZERO),
             }
         )
     rows.sort(key=lambda r: r["full_name"])
@@ -92,22 +105,36 @@ def _blocked_reason(document, request_obj, rows) -> str | None:
         return "Модуль «Касса» выключен."
     if sum((r["remaining"] for r in rows), ZERO) <= ZERO:
         return "Всё начисленное уже выплачено."
+    if sum((r["cash_limit"] for r in rows), ZERO) <= ZERO:
+        return "Остаток ожидается на карту."
     return None
 
 
 def payout_state(document: PayrollDocument) -> dict:
     request_obj = current_request_for_document(document)
-    rows = _employee_rows(document)
+    card = card_amounts(document)
+    rows = _employee_rows(document, card)
     reason = _blocked_reason(document, request_obj, rows)
     accrued_total = document.lines.aggregate(s=Sum("sum"))["s"] or ZERO
+    # paid / paid_total stay cash only; card money has its own fields.
     paid_total = PayrollPayout.objects.filter(document=document).aggregate(s=Sum("amount"))["s"] or ZERO
+    card_paid_total = sum((v["fact"] for v in card.values()), ZERO)
+    # Per employee, not accrued − paid over the document: card money is not capped by the
+    # employee's balance, so an overpaid employee must not hide another one's debt. Lines without
+    # an employee (they block payouts) still count as unpaid.
+    unassigned = document.lines.filter(employee_fk__isnull=True).aggregate(s=Sum("sum"))["s"] or ZERO
+    remaining_total = sum((r["remaining"] for r in rows), ZERO) + unassigned
     return {
         "can_pay": reason is None,
         "reason": reason,
         "employees": rows,
         "accrued_total": accrued_total,
         "paid_total": paid_total,
-        "remaining_total": max(accrued_total - paid_total, ZERO),
+        "remaining_total": remaining_total,
+        "card_paid_total": card_paid_total,
+        "card_expected_total": sum((v["expected"] for v in card.values()), ZERO),
+        "overpaid_total": sum((r["overpaid"] for r in rows), ZERO),
+        "cash_limit_total": sum((r["cash_limit"] for r in rows), ZERO),
         "expenses": _expense_rows(document),
         "request": {"id": request_obj.id, "status": request_obj.status} if request_obj else None,
     }
@@ -120,9 +147,10 @@ def _expense_title(document: PayrollDocument) -> str:
 
 
 def _shrink_request_amount_to_paid(document: PayrollDocument, *, request_obj: Request, reason: str) -> None:
-    """Underpaid close: the request must reflect what was actually paid out, not the
-    accrued total. Original amount and the reason are kept in a system comment."""
+    """Underpaid close: the request must reflect what was actually paid out (cash plus card),
+    not the accrued total. Original amount and the reason are kept in a system comment."""
     paid = PayrollPayout.objects.filter(document=document).aggregate(s=Sum("amount"))["s"] or ZERO
+    paid += sum((v["fact"] for v in card_amounts(document).values()), ZERO)
     paid = paid.quantize(Decimal("0.01"))
     original = Decimal(request_obj.amount).quantize(Decimal("0.01"))
     if paid == original:
@@ -207,9 +235,10 @@ def create_payout_expense(*, document, wallet_id: int, date: dt.date, items: lis
                 raise ValidationError({"items": f"Сотрудника id={eid} нет в начислении."})
             if amount <= ZERO:
                 raise ValidationError({"items": f"{row['full_name']}: сумма должна быть больше нуля."})
-            if amount > row["remaining"]:
+            # cash_limit == remaining unless card money is paid or expected (card_balance).
+            if amount > row["cash_limit"]:
                 raise ValidationError(
-                    {"items": f"{row['full_name']}: можно выплатить не более {row['remaining']}."}
+                    {"items": f"{row['full_name']}: можно выплатить не более {row['cash_limit']}."}
                 )
             total += amount
 
@@ -263,7 +292,8 @@ def create_payout_expense(*, document, wallet_id: int, date: dt.date, items: lis
                 amount=Decimal(item["amount"]),
                 created_by=actor,
             )
-        if payout_state(locked)["remaining_total"] <= ZERO:
+        after = payout_state(locked)
+        if after["remaining_total"] <= ZERO and auto_close_allowed(locked, after):
             _close(locked, request_obj=current_request_for_document(locked), actor=actor, underpaid_comment=None)
     return expense
 

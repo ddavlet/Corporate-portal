@@ -25,6 +25,7 @@ import { ClientsDebtPage } from '../ui/ClientsDebtPage'
 import { BudgetsPage } from '../ui/BudgetsPage'
 import { ContractsPage } from '../ui/ContractsPage'
 import { PayrollDocumentDetailPage } from '../ui/PayrollDocumentDetailPage'
+import { PayrollCardReviewPage } from '../ui/PayrollCardReviewPage'
 import { CashExpenseDetailPage } from '../ui/CashExpenseDetailPage'
 import { BankExpenseDetailPage } from '../ui/BankExpenseDetailPage'
 import {
@@ -203,6 +204,7 @@ export function App() {
           <Route path="corporate-card/expenses" element={<CorporateCardSectionPage mode="expenses" />} />
           <Route path="corporate-card/revenues" element={<CorporateCardSectionPage mode="revenues" />} />
           <Route path="payroll" element={<PayrollPage />} />
+          <Route path="payroll/card-review" element={<PayrollCardReviewPage />} />
           <Route path="reports" element={<ReportsPage />} />
           <Route path="reports/:template/:report" element={<ReportDetailPage />} />
           <Route path="reports/*" element={<ReportNotFoundPage />} />

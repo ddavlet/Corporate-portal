@@ -5,6 +5,9 @@ import { Link, useNavigate, useParams } from 'react-router-dom'
 import { RequestReturnBackButton } from './requests/RequestReturnBackButton'
 import { PayrollDocumentFormModal } from './payroll/PayrollDocumentFormModal'
 import { PayrollPayoutModal } from './payroll/PayrollPayoutModal'
+import { PayrollExpectedCardModal } from './payroll/PayrollExpectedCardModal'
+import { PayrollOverpaidTag, overpaidBreakdown } from './payroll/PayrollOverpaidTag'
+import { usePayrollCardAttention } from '../lib/usePayrollCardAttention'
 import { PAYROLL_STATUS_COLORS } from './payroll/payrollStatus'
 import { fmtMoney, formatPeriodMonth } from './payroll/payrollFormat'
 import {
@@ -45,6 +48,9 @@ export function PayrollDocumentDetailPage() {
 
   const [editOpen, setEditOpen] = useState(false)
   const [payoutOpen, setPayoutOpen] = useState(false)
+  const [expectedCardOpen, setExpectedCardOpen] = useState(false)
+  // attention is null without the payroll role (403): then the expected card cannot be edited either.
+  const { data: cardAttention } = usePayrollCardAttention()
   const [underpaidOpen, setUnderpaidOpen] = useState(false)
   const [underpaidComment, setUnderpaidComment] = useState('')
   const [underpaidSaving, setUnderpaidSaving] = useState(false)
@@ -190,12 +196,42 @@ export function PayrollDocumentDetailPage() {
     },
   ]
 
-  const employeeColumns: ColumnsType<NonNullable<PayrollPayoutStateDto['employees']>[number]> = [
-    { title: 'Сотрудник', dataIndex: 'full_name' },
-    { title: 'Начислено', dataIndex: 'accrued', width: 140, render: (v: string) => fmtMoney(v) },
-    { title: 'Выплачено', dataIndex: 'paid', width: 140, render: (v: string) => fmtMoney(v) },
-    { title: 'Остаток', dataIndex: 'remaining', width: 140, render: (v: string) => fmtMoney(v) },
-  ]
+  // Card columns appear only when the accrual has card money: otherwise the table stays as before.
+  const hasCardData =
+    Number(state?.card_paid_total ?? 0) > 0 ||
+    Number(state?.card_expected_total ?? 0) > 0 ||
+    Number(detail?.card_paid_total ?? 0) > 0
+  const overpaidTotal = Number(state?.overpaid_total ?? detail?.overpaid_total ?? 0)
+
+  const employeeColumns: ColumnsType<NonNullable<PayrollPayoutStateDto['employees']>[number]> = hasCardData
+    ? [
+        {
+          title: 'Сотрудник',
+          dataIndex: 'full_name',
+          render: (v: string, r) => (
+            <Space size={4} wrap>
+              <span>{v}</span>
+              <PayrollOverpaidTag overpaid={r.overpaid} accrued={r.accrued} cash={r.paid} card={r.card_paid} />
+            </Space>
+          ),
+        },
+        { title: 'Начислено', dataIndex: 'accrued', width: 130, render: (v: string) => fmtMoney(v) },
+        { title: 'Касса', dataIndex: 'paid', width: 130, render: (v: string) => fmtMoney(v) },
+        { title: 'Карта', dataIndex: 'card_paid', width: 130, render: (v?: string) => fmtMoney(v ?? 0) },
+        {
+          title: 'Ожидается на карту',
+          dataIndex: 'card_expected',
+          width: 160,
+          render: (v?: string) => fmtMoney(v ?? 0),
+        },
+        { title: 'Остаток', dataIndex: 'remaining', width: 130, render: (v: string) => fmtMoney(v) },
+      ]
+    : [
+        { title: 'Сотрудник', dataIndex: 'full_name' },
+        { title: 'Начислено', dataIndex: 'accrued', width: 140, render: (v: string) => fmtMoney(v) },
+        { title: 'Выплачено', dataIndex: 'paid', width: 140, render: (v: string) => fmtMoney(v) },
+        { title: 'Остаток', dataIndex: 'remaining', width: 140, render: (v: string) => fmtMoney(v) },
+      ]
 
   const expenseColumns: ColumnsType<NonNullable<PayrollPayoutStateDto['expenses']>[number]> = [
     { title: 'Дата', dataIndex: 'date', width: 140, render: (v: string) => formatDate(v) },
@@ -213,6 +249,10 @@ export function PayrollDocumentDetailPage() {
   const canAccept = detail?.status === 'draft'
   const canCancel = detail?.status === 'draft'
   const canPay = Boolean(state?.can_pay)
+  const canEditExpectedCard =
+    Boolean(cardAttention?.enabled) &&
+    detail?.payout_mode === 'portal' &&
+    (detail?.status === 'draft' || detail?.status === 'accepted')
   const canCloseUnderpaid =
     detail?.payout_mode === 'portal' && detail?.status === 'accepted' && detail?.current_request?.status === 'APPROVED'
   const showPayoutReasonAlert =
@@ -232,6 +272,18 @@ export function PayrollDocumentDetailPage() {
               </Typography.Title>
               <Tag color={PAYROLL_STATUS_COLORS[detail.status]}>{PAYROLL_STATUS_LABELS[detail.status]}</Tag>
             </Space>
+            {overpaidTotal > 0 ? (
+              <Alert
+                type="error"
+                showIcon
+                message={`Переплата ${fmtMoney(overpaidTotal)}`}
+                description={overpaidBreakdown(
+                  detail.total_sum,
+                  detail.paid_total,
+                  state?.card_paid_total ?? detail.card_paid_total ?? 0,
+                )}
+              />
+            ) : null}
             <Descriptions bordered size="small" column={2}>
               <Descriptions.Item label="Период">{formatPeriodMonth(detail.period_month)}</Descriptions.Item>
               <Descriptions.Item label="Тип">{detail.kind ? PAYROLL_KIND_LABELS[detail.kind] : '-'}</Descriptions.Item>
@@ -245,7 +297,12 @@ export function PayrollDocumentDetailPage() {
                 </Descriptions.Item>
               ) : null}
               <Descriptions.Item label="Итого">{fmtMoney(detail.total_sum)}</Descriptions.Item>
-              <Descriptions.Item label="Выплачено">{fmtMoney(detail.paid_total)}</Descriptions.Item>
+              <Descriptions.Item label={hasCardData ? 'Касса' : 'Выплачено'}>{fmtMoney(detail.paid_total)}</Descriptions.Item>
+              {hasCardData ? (
+                <Descriptions.Item label="Карта">
+                  {fmtMoney(state?.card_paid_total ?? detail.card_paid_total ?? 0)}
+                </Descriptions.Item>
+              ) : null}
               <Descriptions.Item label="Остаток">{fmtMoney(detail.remaining_total)}</Descriptions.Item>
               <Descriptions.Item label="Заявка">
                 {detail.current_request ? (
@@ -281,6 +338,9 @@ export function PayrollDocumentDetailPage() {
                   Создать расход
                 </Button>
               ) : null}
+              {canEditExpectedCard ? (
+                <Button onClick={() => setExpectedCardOpen(true)}>Ожидаемая карта</Button>
+              ) : null}
               {canCloseUnderpaid ? (
                 <Button onClick={() => setUnderpaidOpen(true)}>Закрыть с недоплатой</Button>
               ) : null}
@@ -294,6 +354,7 @@ export function PayrollDocumentDetailPage() {
                 <Table
                   rowKey="employee_id"
                   size="small"
+                  scroll={{ x: 'max-content' }}
                   columns={employeeColumns}
                   dataSource={state.employees}
                   pagination={false}
@@ -332,6 +393,15 @@ export function PayrollDocumentDetailPage() {
           onClose={() => setEditOpen(false)}
           onSaved={() => void reload()}
           initial={detail}
+        />
+      ) : null}
+
+      {detail && canEditExpectedCard ? (
+        <PayrollExpectedCardModal
+          open={expectedCardOpen}
+          documentId={detail.id}
+          onClose={() => setExpectedCardOpen(false)}
+          onSaved={() => void reload()}
         />
       ) : null}
 

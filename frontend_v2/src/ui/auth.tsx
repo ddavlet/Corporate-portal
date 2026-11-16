@@ -2,6 +2,7 @@ import React, { createContext, useCallback, useContext, useMemo, useState } from
 import { resetTenantAdminCache } from '../lib/useTenantAdmin'
 import { resetReportTemplatesCache } from '../lib/useReportTemplates'
 import { resetActionItemsCache } from '../lib/useActionItems'
+import { resetPayrollCardAttentionCache } from '../lib/usePayrollCardAttention'
 import { clearAppBadgeSafe } from '../lib/appBadge'
 import { clearTabCompany } from '../lib/companyContext'
 import { revokePushSubscription } from '../lib/webPush'
@@ -59,6 +60,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     resetTenantAdminCache()
     resetReportTemplatesCache()
     resetActionItemsCache()
+    resetPayrollCardAttentionCache()
     setState(next)
     saveState(next)
   }, [])
@@ -71,6 +73,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     resetTenantAdminCache()
     resetReportTemplatesCache()
     resetActionItemsCache()
+    resetPayrollCardAttentionCache()
     clearAppBadgeSafe()
     // Shared app host: the next sign-in in this tab picks the company again (the device default is kept).
     clearTabCompany()

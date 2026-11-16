@@ -12,7 +12,22 @@ import {
   type PayrollPayoutStateDto,
 } from '../../lib/api'
 
-type Row = { employee_id: number; full_name: string; remaining: number; amount: number | null }
+/** remaining here is what the cash desk may pay: cash_limit when the accrual counts card payouts. */
+type Row = {
+  employee_id: number
+  full_name: string
+  remaining: number
+  /** Card amount still expected for the employee (already excluded from remaining). */
+  cardReserved: number
+  amount: number | null
+}
+
+type StateEmployee = PayrollPayoutStateDto['employees'][number]
+
+/** Cash limit of an employee; older backends (no card fields) fall back to remaining. */
+export function cashLimitOf(e: StateEmployee): number {
+  return Number(e.cash_limit ?? e.remaining)
+}
 
 const fmt = (n: number) => n.toLocaleString('ru-RU', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 
@@ -38,6 +53,8 @@ export function PayrollPayoutModal({
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [showValidation, setShowValidation] = useState(false)
+  /** Employees with a remainder that is all expected on the card: nothing to pay from the cash desk. */
+  const [cardOnlyCount, setCardOnlyCount] = useState(0)
 
   useEffect(() => {
     if (!open) return
@@ -68,6 +85,7 @@ export function PayrollPayoutModal({
     if (!open || selectedDoc === undefined) {
       setState(null)
       setRows([])
+      setCardOnlyCount(0)
       return
     }
     let cancelled = false
@@ -76,14 +94,16 @@ export function PayrollPayoutModal({
       .then((s) => {
         if (cancelled) return
         setState(s)
+        setCardOnlyCount(s.employees.filter((e) => Number(e.remaining) > 0 && cashLimitOf(e) <= 0).length)
         setRows(
           s.employees
-            .filter((e) => Number(e.remaining) > 0)
+            .filter((e) => cashLimitOf(e) > 0)
             .map((e) => ({
               employee_id: e.employee_id,
               full_name: e.full_name,
-              remaining: Number(e.remaining),
-              amount: Number(e.remaining),
+              remaining: cashLimitOf(e),
+              cardReserved: Number(e.card_reserved ?? 0),
+              amount: cashLimitOf(e),
             })),
         )
       })
@@ -183,7 +203,22 @@ export function PayrollPayoutModal({
             dataSource={rows}
             columns={[
               { title: 'Сотрудник', dataIndex: 'full_name' },
-              { title: 'Остаток', dataIndex: 'remaining', width: 140, render: (v: number) => fmt(v) },
+              {
+                // Not the card's «Остаток»: the part still expected on the card is already taken out.
+                title: 'Можно из кассы',
+                dataIndex: 'remaining',
+                width: 160,
+                render: (v: number, r) => (
+                  <Space direction="vertical" size={0}>
+                    <span>{fmt(v)}</span>
+                    {r.cardReserved > 0 ? (
+                      <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+                        ожидается на карту {fmt(r.cardReserved)}
+                      </Typography.Text>
+                    ) : null}
+                  </Space>
+                ),
+              },
               {
                 title: 'К выплате',
                 key: 'amount',
@@ -215,6 +250,11 @@ export function PayrollPayoutModal({
               },
             ]}
           />
+        ) : null}
+        {state?.can_pay && cardOnlyCount > 0 ? (
+          <Typography.Text type="secondary">
+            Не показаны сотрудники, у которых весь остаток ожидается на карту: {cardOnlyCount}.
+          </Typography.Text>
         ) : null}
         {showValidation && validationError ? <Alert type="error" showIcon message={validationError} /> : null}
         <Typography.Text strong>Итого расход: {fmt(total)}</Typography.Text>
