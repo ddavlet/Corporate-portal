@@ -118,6 +118,8 @@
 ### `apps.modules.corporate_card`
 
 - **`CardExpense`**, **`CardRevenue`** (в т.ч. `bank_expense_id` как soft link), **`Wallet`**.
+- **`CardExpenseAutoRequestConfig`** — настройка автозаявок по карте (миграция `0009`; включение, назначение платежа, контрагент, условие «содержит» по описанию). Настройка: `GET`/`PATCH /api/corporate-card/auto-request-configs/<wallet_id>/` (только админ тенанта, модуль `corporate_card` включён); UI — кнопка «Автозаявки» во вкладке «Корпоративная карта» настроек касс и счетов ([CardAutoRequestSettingsModal](../frontend_v2/src/ui/settings/CardAutoRequestSettingsModal.tsx)).
+- **Автозаявки по расходам карт**: [card_expense_auto_requests.py](../backend_v2/apps/modules/requests/card_expense_auto_requests.py) создаёт оплаченную заявку «Платежная карта» под расход, не связанный ни с одной заявкой; [card_expense_pending_request_close.py](../backend_v2/apps/modules/requests/card_expense_pending_request_close.py) вместо новой закрывает подходящую согласованную заявку (та же сумма и валюта, окно −30/+3 дня). Хук запускается через `transaction.on_commit` после сверки в n8n-эндпоинтах `card-expense` (upsert и batch; импорт Капиталбанка идёт через batch); ошибки пишутся в лог, ответ не меняется. Расходы, пропущенные хуком, добирает `make backfill-card-expense-auto-requests TENANT=.. [ALL_TENANTS=1] [DATE_FROM=.. DATE_TO=..] [APPLY=1]` (без `APPLY=1` — dry-run).
 
 ### `apps.modules.payroll`
 

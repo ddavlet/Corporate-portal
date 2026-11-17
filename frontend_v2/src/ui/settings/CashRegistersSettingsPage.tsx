@@ -37,6 +37,7 @@ import {
   apiFetch,
   updateTenantCashExpenseIdFormat,
 } from '../../lib/api'
+import { CardAutoRequestSettingsModal } from './CardAutoRequestSettingsModal'
 
 function previewCashExpenseCanonicalId(prefix: string, digitWidth: number, sampleNumeric: number): string {
   const w = Number.isFinite(digitWidth) ? Math.min(32, Math.max(1, Math.floor(digitWidth))) : 9
@@ -611,6 +612,7 @@ function CorpCardTab() {
   const [modalOpen, setModalOpen] = useState(false)
   const [editing, setEditing] = useState<CorporateCardAccountDto | null>(null)
   const [openingModalFor, setOpeningModalFor] = useState<CorporateCardAccountDto | null>(null)
+  const [autoRequestWalletId, setAutoRequestWalletId] = useState<number | null>(null)
   const [form] = Form.useForm()
   const [openingForm] = Form.useForm()
 
@@ -690,14 +692,17 @@ function CorpCardTab() {
     {
       title: '',
       key: 'actions',
-      width: 220,
+      width: 320,
       render: (_, r) => (
-        <Space>
+        <Space wrap>
           <Button size="small" onClick={() => openEdit(r)}>
             Изменить
           </Button>
           <Button size="small" onClick={() => setOpeningModalFor(r)}>
             Остаток 1 янв
+          </Button>
+          <Button size="small" onClick={() => setAutoRequestWalletId(r.wallet_id)}>
+            Автозаявки
           </Button>
           <Button
             size="small"
@@ -785,6 +790,8 @@ function CorpCardTab() {
           </Form>
         ) : null}
       </Modal>
+
+      <CardAutoRequestSettingsModal walletId={autoRequestWalletId} onClose={() => setAutoRequestWalletId(null)} />
     </>
   )
 }
