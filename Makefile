@@ -7,7 +7,7 @@ DEPLOY_TEST_PATH ?= $(TEST_PATH)
 BRANCH     := $(shell git rev-parse --abbrev-ref HEAD)
 
 .DEFAULT_GOAL := help
-.PHONY: help push test deploy makemigrations showmigrations logs backup-db create-postgres-mcp-role rollback refresh-approval-messages delete-telegram-messages reconcile-card-revenues reconcile-expense-links relink-unresolved-bank-doc-numbers fix-invest-returns align-payment-purposes clone-tenant-config sync-telegram-bots link-payroll-requests send-to-vacation return-from-vacation reassign-unmatched-bank-expenses backfill-bank-expense-requests backfill-cash-expense-requests backfill-card-expenses backfill-cbu-exchange-rate redispatch-unsent-approval-cards backfill-cash-withdrawals repair-id-sequences import-kapitalbank link-kapitalbank ignore-kapitalbank classify-kapitalbank sync-payroll-card local-up local-down local-logs test_local
+.PHONY: help push test deploy makemigrations showmigrations logs backup-db create-postgres-mcp-role rollback refresh-approval-messages delete-telegram-messages reconcile-card-revenues reconcile-expense-links relink-unresolved-bank-doc-numbers fix-invest-returns align-payment-purposes clone-tenant-config sync-telegram-bots link-payroll-requests send-to-vacation return-from-vacation reassign-unmatched-bank-expenses backfill-bank-expense-requests backfill-cash-expense-requests backfill-card-expenses backfill-card-expense-auto-requests backfill-cbu-exchange-rate redispatch-unsent-approval-cards backfill-cash-withdrawals repair-id-sequences import-kapitalbank link-kapitalbank ignore-kapitalbank classify-kapitalbank sync-payroll-card local-up local-down local-logs test_local
 
 help:
 	@echo ""
@@ -44,6 +44,7 @@ help:
 	@echo "  make backfill-bank-expense-requests TENANT=1,lemonaqua [DATE_FROM=.. DATE_TO=..] [APPLY=1] — заявки под расходы банка без заявки"
 	@echo "  make backfill-cash-expense-requests TENANT=1 [ALL_TENANTS=1] [DATE_FROM=.. DATE_TO=..] [APPLY=1] — заявки под расходы кассы без заявки"
 	@echo "  make backfill-card-expenses TENANT=3 [DATE_FROM=.. DATE_TO=..] [APPLY=1] — CardExpense для оплаченных карточных заявок без расхода"
+	@echo "  make backfill-card-expense-auto-requests TENANT=1 [ALL_TENANTS=1] [DATE_FROM=.. DATE_TO=..] [APPLY=1] — автозаявки по расходам карт с включённой настройкой (не путать с backfill-card-expenses)"
 	@echo "  make backfill-cbu-exchange-rate [DATE_FROM=.. DATE_TO=..] [OVERWRITE=1] [APPLY=1] — дозаполнить архив курсов ЦБ"
 	@echo "  make redispatch-unsent-approval-cards TENANT=5 — dry-run: заявки, ждущие карточку согласования, которая не была отправлена в Telegram"
 	@echo "  make redispatch-unsent-approval-cards TENANT=5 DATE_FROM=2026-09-18 DATE_TO=2026-09-19 PAYMENT_TYPE=\"Наличные,Перечисление\" — то же, с фильтрами (TENANT/PAYMENT_TYPE — через запятую; без TENANT — все тенанты)"
@@ -421,6 +422,11 @@ backfill-card-expenses:
 	ssh $(SERVER) "cd $(REMOTE_DIR) && \
 		docker compose --env-file ./.env exec -T backend_v2 \
 		python manage.py backfill_card_expenses $(BACKFILL_ARGS)"
+
+backfill-card-expense-auto-requests:
+	ssh $(SERVER) "cd $(REMOTE_DIR) && \
+		docker compose --env-file ./.env exec -T backend_v2 \
+		python manage.py backfill_card_expense_auto_requests $(BACKFILL_ARGS)"
 
 backfill-cbu-exchange-rate:
 	ssh $(SERVER) "cd $(REMOTE_DIR) && \

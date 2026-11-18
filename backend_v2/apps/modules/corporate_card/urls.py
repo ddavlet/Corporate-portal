@@ -1,6 +1,7 @@
 from django.urls import include, path
 from rest_framework.routers import DefaultRouter
 
+from apps.modules.corporate_card.auto_request_config_views import CardExpenseAutoRequestConfigView
 from apps.modules.corporate_card.views import (
     CardExpenseViewSet,
     CardRevenueViewSet,
@@ -14,6 +15,11 @@ router.register(r"revenues", CardRevenueViewSet, basename="corporate-card-revenu
 
 urlpatterns = [
     path("balances/", CorporateCardBalancesView.as_view(), name="corporate-card-balances"),
+    path(
+        "auto-request-configs/<int:wallet_id>/",
+        CardExpenseAutoRequestConfigView.as_view(),
+        name="corporate-card-auto-request-config",
+    ),
     path("", include(router.urls)),
 ]
 

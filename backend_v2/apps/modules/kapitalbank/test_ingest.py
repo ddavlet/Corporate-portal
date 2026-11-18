@@ -1,15 +1,18 @@
 from dataclasses import replace
-from datetime import date
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from django.test import TestCase
 from rest_framework.response import Response
 
 from apps.modules.bank_expenses.models import BankExpense, BankRevenue
-from apps.modules.corporate_card.models import CardExpense, CardRevenue
+from apps.modules.corporate_card.models import CardExpense, CardExpenseAutoRequestConfig, CardRevenue
 from apps.modules.n8n_integration.views import N8nBankExpenseBatchUpsertView
 from django.contrib.auth import get_user_model
+from apps.modules.requests import payment_step_guards, status_events
+from apps.modules.requests.models import Request
+from apps.modules.requests.tests_card_expense_auto_requests import PURPOSE, enable_card_auto_requests_for
 from apps.modules.vendors.models import Vendor
 from apps.tenants.models import Tenant
 
@@ -162,6 +165,51 @@ class IngestStatementTests(KapitalbankFixtures, TestCase):
 
         self.assertEqual(result.created, 1)
         self.assertEqual(CardRevenue.objects.get(external_id="GEN005").wallet, link.wallet())
+
+    def test_card_expense_auto_request_closes_approved_request_only_after_ingest_commit(self):
+        link = BankAccountLink.objects.create(
+            tenant=self.tenant,
+            account_no=CARD_REF,
+            branch=MFO,
+            decision=BankAccountLink.LINKED,
+            card_account=self.card_account,
+        )
+        system = get_user_model().objects.get(pk=1)
+        enable_card_auto_requests_for(self.tenant, updated_by=system)
+        CardExpenseAutoRequestConfig.objects.create(
+            tenant=self.tenant, wallet=link.wallet(), is_enabled=True, payment_purpose=PURPOSE
+        )
+        approved = Request.objects.create(
+            tenant=self.tenant,
+            created_by=system,
+            requester=system,
+            title="t",
+            amount=Decimal("50000.00"),
+            currency="UZS",
+            payment_type=Request.PAYMENT_TYPE_CARD,
+            status=Request.STATUS_APPROVED,
+            billing_date=date(2026, 2, 1),
+            created_at=datetime(2026, 2, 20, 12, 0, tzinfo=timezone(timedelta(hours=5))),
+        )
+        payed_handler = Mock()
+        statement = make_statement(make_doc(6, incoming=False, account=CARD_REF))
+
+        with patch.object(status_events, "REQUEST_PAYED_EVENT_HANDLERS", (payed_handler,)), patch.object(
+            payment_step_guards, "PAYMENT_STEP_SUPPRESSORS", ()
+        ):
+            with self.captureOnCommitCallbacks(execute=True):
+                result = ingest_statement(link, statement)
+                # ingest_statement posts inside its own atomic block: nothing is closed before commit.
+                approved.refresh_from_db()
+                self.assertEqual(approved.status, Request.STATUS_APPROVED)
+                payed_handler.assert_not_called()
+
+        self.assertEqual(result.created, 1)
+        expense = CardExpense.objects.get(external_id="GEN006")
+        approved.refresh_from_db()
+        self.assertEqual(approved.status, Request.STATUS_PAYED)
+        self.assertEqual(approved.expense_ref_id, expense.pk)
+        payed_handler.assert_called_once()
 
     def _n8n_expense(self, n, *, wallet=None, purpose=None, process_date=date(2026, 2, 24), external_id=""):
         """A BankExpense as n8n creates it: no external_id, deduplicated by the natural key."""

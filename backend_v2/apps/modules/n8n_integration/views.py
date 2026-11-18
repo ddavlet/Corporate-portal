@@ -1,5 +1,6 @@
 import logging
 import time
+from functools import partial
 from datetime import date, datetime
 import requests
 from requests.adapters import HTTPAdapter
@@ -38,6 +39,7 @@ from apps.modules.requests.payment_type_families import bank_like_payment_types
 from apps.modules.requests.amortization import build_amortization_schedule_rows, is_request_amortized
 from apps.modules.requests.bank_expense_reassignment import reassign_unmatched_bank_expenses
 from apps.modules.requests.bank_expense_reconciliation import reconcile_bank_expenses_by_vendor_amount_date
+from apps.modules.requests.card_expense_auto_requests import run_card_expense_auto_requests_hook
 from apps.modules.requests.card_expense_reconciliation import reconcile_card_expenses_by_amount_date
 from apps.modules.requests.card_revenue_reconciliation import reconcile_card_revenues_by_amount_date
 from apps.modules.requests.services import list_payment_purposes_by_payment_type
@@ -1206,6 +1208,35 @@ class N8nBankRevenueUpsertView(_N8nBaseView):
         )
 
 
+def _created_card_expense_ids(results) -> list[int]:
+    """Ids of CardExpense rows created (HTTP 201) by an upsert/batch response."""
+    ids: list[int] = []
+    for row in results or []:
+        if not isinstance(row, dict) or int(row.get("status") or 0) != status.HTTP_201_CREATED:
+            continue
+        payload = row.get("data")
+        raw_id = payload.get("id") if isinstance(payload, dict) else None
+        try:
+            ids.append(int(raw_id))
+        except (TypeError, ValueError):
+            continue
+    return ids
+
+
+def _schedule_card_expense_auto_requests(*, tenant, expense_ids: list[int]) -> None:
+    """Run the auto-request hook after the surrounding transaction commits (at once in autocommit).
+
+    The Kapitalbank import posts card batches inside its own atomic block: requests must not
+    be closed (Telegram cards, n8n events) for a statement that is rolled back later.
+    """
+    if not expense_ids:
+        return
+    transaction.on_commit(
+        partial(run_card_expense_auto_requests_hook, tenant=tenant, expense_ids=list(expense_ids)),
+        robust=True,
+    )
+
+
 class N8nCardExpenseUpsertView(_N8nBaseView):
     def post(self, request):
         tenant = request.tenant
@@ -1223,6 +1254,11 @@ class N8nCardExpenseUpsertView(_N8nBaseView):
             request, "skip_card_expense_relink", False
         ):
             reconcile_card_expenses_by_amount_date(tenant=tenant)
+            if int(response.status_code) == status.HTTP_201_CREATED:
+                _schedule_card_expense_auto_requests(
+                    tenant=tenant,
+                    expense_ids=_created_card_expense_ids([{"status": 201, "data": response.data}]),
+                )
         return response
 
 
@@ -1538,6 +1574,11 @@ class N8nCardExpenseBatchUpsertView(_N8nBatchBaseView):
         results = data.get("results", []) if isinstance(data, dict) else []
         if results:
             reconcile_card_expenses_by_amount_date(tenant=request.tenant)
+            # After the batch (and any caller's) transaction commits; each expense then runs
+            # in its own atomic block.
+            _schedule_card_expense_auto_requests(
+                tenant=request.tenant, expense_ids=_created_card_expense_ids(results)
+            )
         return response
 
 
