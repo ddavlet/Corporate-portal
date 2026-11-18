@@ -128,7 +128,7 @@ services:
        - traefik.http.middlewares.n8n.headers.STSPreload=true
 
       # ---------- CORS middleware for dev.kolberg.uz  ----------
-       - traefik.http.middlewares.n8n-dev-cors.headers.accessControlAllowOriginList=https://neuron.kolberg.uz,https://construction.kolberg.uz,https://lemonfit.kolberg.uz,https://lemonaqua.kolberg.uz,https://main.kolberg.uz,https://zarqand.kolberg.uz,https://invest.kolberg.uz,https://syrop.kolberg.uz,https://qulay.kolberg.uz,https://lemonhavo.kolberg.uz,https://kp.kolberg.uz
+       - traefik.http.middlewares.n8n-dev-cors.headers.accessControlAllowOriginList=https://neuron.kolberg.uz,https://construction.kolberg.uz,https://lemonfit.kolberg.uz,https://lemonone.kolberg.uz,https://lemonaqua.kolberg.uz,https://main.kolberg.uz,https://zarqand.kolberg.uz,https://invest.kolberg.uz,https://syrop.kolberg.uz,https://qulay.kolberg.uz,https://lemonhavo.kolberg.uz,https://kp.kolberg.uz
        - traefik.http.middlewares.n8n-dev-cors.headers.accessControlAllowMethods=GET,POST,OPTIONS
        - traefik.http.middlewares.n8n-dev-cors.headers.accessControlAllowHeaders=Content-Type,Authorization
        - traefik.http.middlewares.n8n-dev-cors.headers.addVaryHeader=true
@@ -141,6 +141,8 @@ services:
        - traefik.http.routers.n8n-ui.middlewares=n8n@docker,n8n-dev-cors@docker,n8n-error-pages@docker
        - traefik.http.routers.n8n-ui.service=n8n
 
+      # lemonfit.kolberg.uz -> управляющая компания после переноса Lemonfit ONE на lemonone.
+      # Маршруты ниже оставлены, пока воркфлоу ONE в n8n не переведены на /lemonone/.
       # ---------- Webhooks & Forms for lemonfit.kolberg.uz ----------
        # Form: https://lemonfit.kolberg.uz/form/<path> -> n8n /form/lemonfit/<path>
        - traefik.http.middlewares.n8n-lemonfit-form.replacepathregex.regex=^/form/(.*)$
@@ -163,6 +165,29 @@ services:
        - traefik.http.routers.n8n-whp-lemonfit.priority=100
        - traefik.http.routers.n8n-whp-lemonfit.middlewares=n8n-lemonfit-whp@docker,n8n@docker,n8n-error-pages@docker
        - traefik.http.routers.n8n-whp-lemonfit.service=n8n
+
+      # ---------- Webhooks & Forms for lemonone.kolberg.uz (Lemonfit ONE, tenant 1) ----------
+       # Form: https://lemonone.kolberg.uz/form/<path> -> n8n /form/lemonone/<path>
+       - traefik.http.middlewares.n8n-lemonone-form.replacepathregex.regex=^/form/(.*)$
+       - traefik.http.middlewares.n8n-lemonone-form.replacepathregex.replacement=/form/lemonone/$1
+       - traefik.http.routers.n8n-form-lemonone.rule=Host(`lemonone.kolberg.uz`) && PathPrefix(`/form/`)
+       - traefik.http.routers.n8n-form-lemonone.entrypoints=web,websecure
+       - traefik.http.routers.n8n-form-lemonone.tls=true
+       - traefik.http.routers.n8n-form-lemonone.tls.certresolver=mytlschallenge
+       - traefik.http.routers.n8n-form-lemonone.priority=100
+       - traefik.http.routers.n8n-form-lemonone.middlewares=n8n-lemonone-form@docker,n8n@docker,n8n-error-pages@docker
+       - traefik.http.routers.n8n-form-lemonone.service=n8n
+
+       # Webhook prefix: https://lemonone.kolberg.uz/webhook/<path> -> n8n /webhook/lemonone/<path>
+       - traefik.http.middlewares.n8n-lemonone-whp.replacepathregex.regex=^/webhook/(.*)$
+       - traefik.http.middlewares.n8n-lemonone-whp.replacepathregex.replacement=/webhook/lemonone/$1
+       - traefik.http.routers.n8n-whp-lemonone.rule=Host(`lemonone.kolberg.uz`) && PathPrefix(`/webhook/`)
+       - traefik.http.routers.n8n-whp-lemonone.entrypoints=web,websecure
+       - traefik.http.routers.n8n-whp-lemonone.tls=true
+       - traefik.http.routers.n8n-whp-lemonone.tls.certresolver=mytlschallenge
+       - traefik.http.routers.n8n-whp-lemonone.priority=100
+       - traefik.http.routers.n8n-whp-lemonone.middlewares=n8n-lemonone-whp@docker,n8n@docker,n8n-error-pages@docker
+       - traefik.http.routers.n8n-whp-lemonone.service=n8n
 
       # ---------- Webhooks & Forms for construction.kolberg.uz ----------
        # Form: https://construction.kolberg.uz/form/<path> -> n8n /form/construction/<path>
