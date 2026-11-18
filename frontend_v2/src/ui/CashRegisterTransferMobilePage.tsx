@@ -9,7 +9,13 @@ import { MobileStateWidget } from './MobileStateWidget'
 import { useModuleAccess } from './moduleAccess'
 import { MobileActionsTheme, mobileToneTextColor } from './requests/mobileActionsTheme'
 import { Field } from './requests/MobileFormFieldWidget'
-import { useCashRegisterTransferForm, type CashRegisterTransferField } from './useCashRegisterTransferForm'
+import {
+  formatAmountInput,
+  parseAmountInput,
+  useCashRegisterTransferForm,
+  type CashRegisterBalancePreview,
+  type CashRegisterTransferField,
+} from './useCashRegisterTransferForm'
 
 const TITLE = 'Перевод между кассами'
 const TEST_ID = 'cash-transfer-mobile'
@@ -67,6 +73,50 @@ function Screen({ onClose, bottom, bodyRef, children }: {
         {children}
       </div>
       {bottom}
+    </div>
+  )
+}
+
+const NBSP = '\u00a0'
+
+/** 12500000 → «12 500 000», -1.5 → «−1,5»; no-break spaces, so a sum is never split across lines. */
+function formatBalance(n: number): string {
+  const [int, frac] = Math.abs(Math.round(n * 100) / 100).toFixed(2).split('.')
+  const grouped = int.replace(/\B(?=(\d{3})+(?!\d))/g, NBSP)
+  return `${n < 0 ? '−' : ''}${grouped}${frac === '00' ? '' : `,${frac}`}`
+}
+
+/**
+ * Under a register: its balance now and, once a sum is entered, after the transfer with the change — so a sum with
+ * a zero too many or too few is seen before sending. A source that would go below zero is shown in red.
+ */
+function BalanceHint({ preview, testId, isSource = false }: {
+  preview: CashRegisterBalancePreview | null
+  testId: string
+  /** Only the source can go below zero because of the transfer: the red warning is shown for it alone. */
+  isSource?: boolean
+}) {
+  const { token } = theme.useToken()
+  if (!preview) return null
+  const { current, after, delta, currency } = preview
+  const negative = isSource && after != null && after < 0
+  return (
+    <div data-testid={testId} style={{ marginTop: 6, fontSize: 14, color: token.colorTextSecondary, overflowWrap: 'anywhere' }}>
+      <div>
+        Остаток: <span style={{ color: token.colorText }}>{formatBalance(current)}{NBSP}{currency}</span>
+      </div>
+      {after != null && delta != null ? (
+        <div>
+          После перевода:{' '}
+          <span style={{ fontWeight: 600, color: negative ? mobileToneTextColor('error', token) : token.colorText }}>
+            {formatBalance(after)}{NBSP}{currency}
+          </span>{' '}
+          ({delta > 0 ? '+' : ''}{formatBalance(delta)})
+        </div>
+      ) : null}
+      {negative ? (
+        <div style={{ color: mobileToneTextColor('error', token) }}>Сумма больше остатка кассы</div>
+      ) : null}
     </div>
   )
 }
@@ -162,6 +212,7 @@ function CashRegisterTransferForm({ onClose }: { onClose: () => void }) {
             options={form.fromOptions}
             {...errorProps('fromId', 'cash-transfer-from')}
           />
+          <BalanceHint preview={form.fromBalance} testId="cash-transfer-from-balance" isSource />
         </Field>
         <Field label="В кассу" htmlFor="cash-transfer-to" error={errors.toId} errorId="cash-transfer-to-error">
           <Select<number>
@@ -173,6 +224,7 @@ function CashRegisterTransferForm({ onClose }: { onClose: () => void }) {
             options={form.toOptions}
             {...errorProps('toId', 'cash-transfer-to')}
           />
+          <BalanceHint preview={form.toBalance} testId="cash-transfer-to-balance" />
         </Field>
         <Field
           label={fromRegister ? `Сумма (${fromRegister.currency})` : 'Сумма'}
@@ -185,6 +237,8 @@ function CashRegisterTransferForm({ onClose }: { onClose: () => void }) {
             style={{ width: '100%' }}
             min={0.01}
             inputMode="decimal"
+            formatter={formatAmountInput}
+            parser={parseAmountInput}
             value={values.amount}
             onChange={(v) => form.setAmount(typeof v === 'number' ? v : null)}
             {...errorProps('amount', 'cash-transfer-amount')}
@@ -206,6 +260,8 @@ function CashRegisterTransferForm({ onClose }: { onClose: () => void }) {
                 style={{ width: '100%' }}
                 min={0.01}
                 inputMode="decimal"
+                formatter={formatAmountInput}
+                parser={parseAmountInput}
                 value={values.toAmount}
                 onChange={(v) => form.setToAmount(typeof v === 'number' ? v : null)}
                 {...errorProps('toAmount', 'cash-transfer-to-amount')}

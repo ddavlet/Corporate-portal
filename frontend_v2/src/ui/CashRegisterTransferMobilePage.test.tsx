@@ -3,19 +3,21 @@ import { message } from 'antd'
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import type { CashRegisterDto } from '../lib/api'
+import type { CashRegisterDto, ChannelBalanceRow } from '../lib/api'
 import { CashRegisterTransferTargetError } from '../lib/cashRegisterTransfer'
 import { CashRegisterTransferMobilePage } from './CashRegisterTransferMobilePage'
 
 const api = vi.hoisted(() => ({
   getCashRegisters: vi.fn(),
   getSettingsAccess: vi.fn(),
+  getCashBalances: vi.fn(),
 }))
 
 vi.mock('../lib/api', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../lib/api')>()),
   getCashRegisters: (...a: unknown[]) => api.getCashRegisters(...a),
   getSettingsAccess: (...a: unknown[]) => api.getSettingsAccess(...a),
+  getCashBalances: (...a: unknown[]) => api.getCashBalances(...a),
 }))
 
 const transfer = vi.hoisted(() => ({ submit: vi.fn() }))
@@ -55,6 +57,17 @@ const REGISTER_A = register(1, 'Касса А', 'UZS')
 const REGISTER_B = register(2, 'Касса Б', 'UZS')
 const REGISTER_INACTIVE = register(3, 'Касса закрытая', 'UZS', { is_active: false })
 const REGISTER_USD = register(4, 'Касса долларовая', 'USD')
+
+const balanceRow = (reg: CashRegisterDto, current: string): ChannelBalanceRow => ({
+  wallet_id: reg.wallet_id,
+  opening_balance: '0',
+  movements_net: current,
+  current_balance: current,
+  currency: reg.currency,
+  cash_register_id: reg.id,
+  display_name: reg.name,
+  anchor_is_active: reg.is_active,
+})
 
 function LocationProbe() {
   const location = useLocation()
@@ -132,6 +145,7 @@ beforeEach(() => {
   access.value = { loading: false, hasAccess: () => true }
   api.getCashRegisters.mockReset().mockResolvedValue([REGISTER_A, REGISTER_B, REGISTER_INACTIVE, REGISTER_USD])
   api.getSettingsAccess.mockReset().mockResolvedValue({ user_id: 555 })
+  api.getCashBalances.mockReset().mockResolvedValue([])
   transfer.submit.mockReset().mockResolvedValue({ id: 900 })
   successSpy = vi.spyOn(message, 'success').mockImplementation(() => undefined as never)
   warningSpy = vi.spyOn(message, 'warning').mockImplementation(() => undefined as never)
@@ -256,7 +270,7 @@ describe('CashRegisterTransferMobilePage', () => {
     expect(currentPath()).toBe('/cash/transfer')
     expect(selectedText('cash-transfer-from')).toBe('Касса А')
     expect(selectedText('cash-transfer-to')).toBe('Касса Б')
-    expect(screen.getByLabelText('Сумма (UZS)')).toHaveValue('50000')
+    expect(screen.getByLabelText('Сумма (UZS)')).toHaveValue('50 000')
     expect(successSpy).not.toHaveBeenCalled()
     await waitFor(() => expect(submitButton()).not.toBeDisabled())
   })
@@ -299,5 +313,80 @@ describe('CashRegisterTransferMobilePage', () => {
     // «Закрыть» in the header and in the empty state lead to the same place.
     fireEvent.click(screen.getAllByRole('button', { name: 'Закрыть' })[1])
     expect(currentPath()).toBe('/cash')
+  })
+
+  it('shows the balances of both registers and how the transfer changes them', async () => {
+    api.getCashBalances.mockResolvedValue([balanceRow(REGISTER_A, '12500000.00'), balanceRow(REGISTER_B, '300000')])
+    renderPage()
+    await screen.findByLabelText('Из кассы')
+    await choose('cash-transfer-from', 'Касса А')
+    expect(await screen.findByTestId('cash-transfer-from-balance')).toHaveTextContent('Остаток: 12 500 000 UZS')
+    expect(screen.getByTestId('cash-transfer-from-balance')).not.toHaveTextContent('После перевода')
+
+    await choose('cash-transfer-to', 'Касса Б')
+    // Typed with group spaces, as the input shows it.
+    typeNumber(screen.getByLabelText('Сумма (UZS)'), '1 000 000')
+    expect(screen.getByLabelText('Сумма (UZS)')).toHaveValue('1 000 000')
+
+    expect(screen.getByTestId('cash-transfer-from-balance')).toHaveTextContent('После перевода: 11 500 000 UZS (−1 000 000)')
+    expect(screen.getByTestId('cash-transfer-to-balance')).toHaveTextContent('Остаток: 300 000 UZS')
+    expect(screen.getByTestId('cash-transfer-to-balance')).toHaveTextContent('После перевода: 1 300 000 UZS (+1 000 000)')
+    expect(screen.queryByText('Сумма больше остатка кассы')).toBeNull()
+
+    fireEvent.click(submitButton())
+    await waitFor(() => expect(transfer.submit).toHaveBeenCalledWith(expect.objectContaining({ amount: 1000000 })))
+  })
+
+  it('warns when the sum is more than the source balance', async () => {
+    api.getCashBalances.mockResolvedValue([balanceRow(REGISTER_A, '500000'), balanceRow(REGISTER_B, '0')])
+    renderPage()
+    await fillSameCurrency('5000000')
+
+    expect(await screen.findByTestId('cash-transfer-from-balance')).toHaveTextContent('После перевода: −4 500 000 UZS')
+    expect(screen.getAllByText('Сумма больше остатка кассы')).toHaveLength(1)
+  })
+
+  it('does not warn under the target that is already below zero', async () => {
+    api.getCashBalances.mockResolvedValue([balanceRow(REGISTER_A, '1000000'), balanceRow(REGISTER_B, '-500000')])
+    renderPage()
+    await fillSameCurrency('100000')
+
+    expect(await screen.findByTestId('cash-transfer-to-balance')).toHaveTextContent('После перевода: −400 000 UZS (+100 000)')
+    expect(screen.queryByText('Сумма больше остатка кассы')).toBeNull()
+  })
+
+  it('reads «50,000» as fifty thousand and «1,5» as one and a half', async () => {
+    renderPage()
+    await fillSameCurrency('50,000')
+    expect(screen.getByLabelText('Сумма (UZS)')).toHaveValue('50 000')
+    typeNumber(screen.getByLabelText('Сумма (UZS)'), '1,5')
+    expect(screen.getByLabelText('Сумма (UZS)')).toHaveValue('1.5')
+  })
+
+  it('credits the target with the credited sum when the currencies differ', async () => {
+    api.getCashBalances.mockResolvedValue([balanceRow(REGISTER_A, '2000000'), balanceRow(REGISTER_USD, '50.5')])
+    renderPage()
+    await screen.findByLabelText('Из кассы')
+    await choose('cash-transfer-from', 'Касса А')
+    await choose('cash-transfer-to', 'Касса долларовая')
+    typeNumber(screen.getByLabelText('Сумма (UZS)'), '1270000')
+    expect(await screen.findByTestId('cash-transfer-to-balance')).toHaveTextContent('Остаток: 50,50 USD')
+    expect(screen.getByTestId('cash-transfer-to-balance')).not.toHaveTextContent('После перевода')
+
+    typeNumber(screen.getByLabelText('Сумма зачисления (USD)'), '100')
+    expect(screen.getByTestId('cash-transfer-to-balance')).toHaveTextContent('После перевода: 150,50 USD (+100)')
+    expect(screen.getByTestId('cash-transfer-from-balance')).toHaveTextContent('После перевода: 730 000 UZS (−1 270 000)')
+  })
+
+  it('keeps the form working when the balances do not load', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    api.getCashBalances.mockRejectedValue(new Error('Нет связи'))
+    renderPage()
+    await fillSameCurrency()
+
+    expect(screen.queryByTestId('cash-transfer-from-balance')).toBeNull()
+    expect(screen.queryByTestId('cash-transfer-to-balance')).toBeNull()
+    fireEvent.click(submitButton())
+    await waitFor(() => expect(currentPath()).toBe('/cash'))
   })
 })
