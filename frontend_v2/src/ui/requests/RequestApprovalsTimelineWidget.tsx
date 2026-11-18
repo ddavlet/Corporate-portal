@@ -1,4 +1,4 @@
-import type { CSSProperties } from 'react'
+import type { CSSProperties, ReactNode } from 'react'
 import { Timeline, Typography, theme, type GlobalToken } from 'antd'
 import {
   formatDateTime,
@@ -34,14 +34,17 @@ function timelineDotColor(decision: string | null | undefined, notStarted: boole
  * Approvals of a request as one vertical timeline in step order: step and its kind, the approver, the decision, its
  * date and comment (the rejection reason). A pending step after the active one (`activeApprovalStep`, the smallest
  * pending step) is «Не начат»: the queue has not reached it. Built on the helpers of the desktop card; the desktop
- * groups stay as they are.
+ * groups stay as they are. `renderAction` adds a control under a row (the phone puts the resend button of that
+ * approver there); it returns null for rows without one.
  */
 export function RequestApprovalsTimelineWidget({
   approvals,
   activeApprovalStep = null,
+  renderAction,
 }: {
   approvals: ApprovalItem[]
   activeApprovalStep?: number | null
+  renderAction?: (item: ApprovalItem) => ReactNode
 }) {
   const { token } = theme.useToken()
   if (!approvals.length) {
@@ -84,6 +87,7 @@ export function RequestApprovalsTimelineWidget({
                 {!pending && item.comment?.trim() ? (
                   <Typography.Text style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{item.comment}</Typography.Text>
                 ) : null}
+                {renderAction ? renderAction(item) : null}
               </div>
             ),
           }

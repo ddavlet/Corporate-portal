@@ -345,28 +345,33 @@ describe('RequestDetailPage on a phone', () => {
     expect(within(menu).getAllByRole('button').map((b) => b.textContent)).toEqual(['Добавить заметку', 'Копировать заявку'])
   })
 
-  it('resends the approval card from its sheet and keeps the cooldown', async () => {
+  it('puts a resend button into the row of each pending approver and keeps the cooldown', async () => {
     const inAMinute = new Date(Date.now() + 60_000).toISOString()
     currentDetail = makeDetail({
       approvals: [
         approval({ id: 1, step: 1, decision: 'approved' }),
         approval({ id: 2, step: 2, decision: 'pending', approver_user: 99, approver_username: 'other', decided_at: null, can_resend: true, resend_count: 1 }),
         approval({ id: 3, step: 2, decision: 'pending', approver_user: 98, approver_username: 'third', decided_at: null, can_resend: true, resend_available_at: inAMinute }),
+        approval({ id: 4, step: 2, decision: 'pending', approver_user: ME, approver_username: 'me', decided_at: null, can_resend: true }),
       ],
     })
     api.resendApprovalCard.mockResolvedValue(undefined)
     renderPage()
     await screen.findByTestId('request-detail-mobile')
 
-    const menu = await openMenu()
-    fireEvent.click(within(menu).getByRole('button', { name: 'Переотправить согласование' }))
-
-    const ready = await screen.findByTestId('resend-approval-2')
-    const cooling = screen.getByTestId('resend-approval-3')
+    // Each button sits in its approver's row, so it is clear whom the card goes to; nothing for the decided step.
+    const ready = within(screen.getByTestId('approval-2')).getByTestId('resend-approval-2')
+    expect(screen.getByTestId('approval-2')).toHaveTextContent('other')
+    const cooling = within(screen.getByTestId('approval-3')).getByTestId('resend-approval-3')
     expect(within(cooling).getByRole('button', { name: /Подождите \d+с/ })).toBeDisabled()
-
-    fireEvent.click(within(ready).getByRole('button', { name: /Переотправить \(2 из 3\)/ }))
+    expect(screen.queryByTestId('resend-approval-1')).toBeNull()
+    // Not for the user's own step: the decision bar is there instead.
+    expect(screen.queryByTestId('resend-approval-4')).toBeNull()
+    // The accessible name says whom the card goes to, since the buttons of a step look alike.
+    fireEvent.click(within(ready).getByRole('button', { name: 'Переотправить (2 из 3): other, шаг 2' }))
     await waitFor(() => expect(api.resendApprovalCard).toHaveBeenCalledWith(77, 2))
+    // The general menu entry is gone: resending is per approver only.
+    expect(within(await openMenu()).queryByRole('button', { name: 'Переотправить согласование' })).toBeNull()
   })
 
   it('flags a paid request without a linked expense in dark red, at 4.5:1 or more', async () => {
@@ -432,8 +437,9 @@ describe('RequestDetailPage on a phone', () => {
     renderPage()
     await screen.findByTestId('request-detail-mobile')
 
-    fireEvent.click(within(await openMenu()).getByRole('button', { name: 'Переотправить согласование' }))
-    expect(await screen.findByTestId('resend-approval-5')).toHaveTextContent('Шаг 2 · cashier')
+    const row = screen.getByTestId('approval-5')
+    expect(row).toHaveTextContent('cashier')
+    expect(within(row).getByRole('button', { name: /Переотправить/ })).toBeEnabled()
   })
 
   it('does not flag a paid request whose expense is a cash record', async () => {

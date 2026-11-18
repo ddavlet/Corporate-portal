@@ -8,7 +8,6 @@ import {
   FileTextOutlined,
   MoreOutlined,
   PaperClipOutlined,
-  ReloadOutlined,
   SendOutlined,
   UploadOutlined,
 } from '@ant-design/icons'
@@ -71,7 +70,8 @@ const REQUESTS_PATH = '/requests'
 /**
  * A request on a phone: hero with the human status, «Ждёт вашего решения» and a pinned «Отклонить / Одобрить» bar when
  * the user's step is active, fields as «label over value», files as rows, the approvals timeline and the comments.
- * The «⋯» menu of the header holds the draft actions, resending the approval card, a note and a copy.
+ * Each approver still waiting for a decision gets a resend button in their timeline row (the card goes to that one
+ * person). The «⋯» menu of the header holds the draft actions, a note and a copy.
  * Data and the draft/note/upload dialogs stay in RequestDetailPage; decisions go through useMobileApprovalActions.
  */
 export function RequestDetailMobileView({
@@ -93,7 +93,6 @@ export function RequestDetailMobileView({
 }: RequestDetailMobileViewProps) {
   const { token } = theme.useToken()
   const [menuOpen, setMenuOpen] = useState(false)
-  const [resendOpen, setResendOpen] = useState(false)
   const [rejectOpen, setRejectOpen] = useState(false)
   const [paymentOpen, setPaymentOpen] = useState(false)
   const actions = useMobileApprovalActions(detail?.id ?? null, refreshDetail)
@@ -107,10 +106,15 @@ export function RequestDetailMobileView({
 
   // The backend's can_resend already checks the pending decision, the Telegram card and the resend limit; the request
   // status is not limited here, so the payment step of an APPROVED request can be resent too (as on the desktop).
-  const resendable = useMemo(
-    () => (detail?.approvals || []).filter((a) => String(a.decision || '').toLowerCase() === 'pending' && a.can_resend),
-    [detail],
-  )
+  // The user's own rows are left out: the decision bar is right there, and resending would only spend a try on themselves.
+  const resendableIds = useMemo(() => {
+    const mine = new Set(pendingApprovalsForMe.map((a) => a.id))
+    return new Set(
+      (detail?.approvals || [])
+        .filter((a) => String(a.decision || '').toLowerCase() === 'pending' && a.can_resend && !mine.has(a.id))
+        .map((a) => a.id),
+    )
+  }, [detail, pendingApprovalsForMe])
 
   const headerAction = useMemo(
     () =>
@@ -237,7 +241,20 @@ export function RequestDetailMobileView({
       </Section>
 
       <Section title="Согласования">
-        <RequestApprovalsTimelineWidget approvals={detail.approvals || []} activeApprovalStep={activeApprovalStep} />
+        <RequestApprovalsTimelineWidget
+          approvals={detail.approvals || []}
+          activeApprovalStep={activeApprovalStep}
+          renderAction={(item) =>
+            resendableIds.has(item.id) ? (
+              // The desktop button with its cooldown; the phone theme only makes its small size a 44 px target.
+              <div data-testid={`resend-approval-${item.id}`} style={{ marginTop: 6 }}>
+                <MobileActionsTheme>
+                  <ApprovalResendButton item={item} requestId={detail.id} namedForApprover onResent={() => void refreshDetail()} />
+                </MobileActionsTheme>
+              </div>
+            ) : null
+          }
+        />
         {activeApprovalStep != null && !myApproval && !myNotificationOnly ? (
           <Typography.Text style={{ display: 'block', color: token.colorTextSecondary }}>
             Сейчас на шаге {activeApprovalStep}.
@@ -305,11 +322,6 @@ export function RequestDetailMobileView({
               </MenuRow>
             </>
           ) : null}
-          {resendable.length > 0 ? (
-            <MenuRow icon={<ReloadOutlined />} onClick={runMenu(() => setResendOpen(true))}>
-              Переотправить согласование
-            </MenuRow>
-          ) : null}
           <MenuRow icon={<FileTextOutlined />} onClick={runMenu(onOpenNote)}>
             Добавить заметку
           </MenuRow>
@@ -317,29 +329,6 @@ export function RequestDetailMobileView({
             Копировать заявку
           </MenuRow>
         </ul>
-      </MobileSheet>
-
-      <MobileSheet open={resendOpen} onClose={() => setResendOpen(false)} title="Переотправить согласование">
-        <div style={{ display: 'grid', gap: 12 }}>
-          <Typography.Text style={{ color: token.colorTextSecondary }}>
-            Карточка заявки придёт согласующему в Telegram ещё раз.
-          </Typography.Text>
-          {resendable.map((item) => (
-            <div
-              key={item.id}
-              data-testid={`resend-approval-${item.id}`}
-              style={{ display: 'grid', gap: 8, padding: 12, borderRadius: token.borderRadiusLG, background: token.colorFillQuaternary }}
-            >
-              <Typography.Text style={{ overflowWrap: 'anywhere' }}>
-                {`Шаг ${item.step} · ${item.approver_username || 'Согласующий не определён'}`}
-              </Typography.Text>
-              {/* The desktop button with its cooldown; the phone theme only makes its small size a 44 px target. */}
-              <MobileActionsTheme>
-                <ApprovalResendButton item={item} requestId={detail.id} onResent={() => void refreshDetail()} />
-              </MobileActionsTheme>
-            </div>
-          ))}
-        </div>
       </MobileSheet>
 
       <RejectRequestSheet

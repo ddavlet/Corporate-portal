@@ -65,6 +65,21 @@ describe('RequestApprovalsTimelineWidget', () => {
     expect(screen.queryByText('Не начат')).toBeNull()
   })
 
+  it('puts the control from renderAction into that approver\'s row only', () => {
+    render(
+      <RequestApprovalsTimelineWidget
+        approvals={[
+          approval({ id: 1, step: 1, decision: 'approved' }),
+          approval({ id: 2, step: 2, decision: 'pending', decided_at: null, approver_username: 'ivanov' }),
+        ]}
+        renderAction={(item) => (item.id === 2 ? <button type="button">action-{item.id}</button> : null)}
+      />,
+    )
+
+    expect(within(screen.getByTestId('approval-2')).getByRole('button', { name: 'action-2' })).toBeInTheDocument()
+    expect(within(screen.getByTestId('approval-1')).queryByRole('button')).toBeNull()
+  })
+
   it('writes every decision at 4.5:1 or more on white', () => {
     render(
       <RequestApprovalsTimelineWidget

@@ -166,10 +166,12 @@ export function translateStepType(stepType?: string | null): string {
 
 const RESEND_MAX = 3
 
-export function ApprovalResendButton({ item, requestId, onResent }: {
+export function ApprovalResendButton({ item, requestId, onResent, namedForApprover = false }: {
   item: ApprovalItem
   requestId: number
   onResent: () => void
+  /** Adds the approver to the accessible name, for a list where several such buttons stand next to each other. */
+  namedForApprover?: boolean
 }) {
   const [loading, setLoading] = useState(false)
   const [secondsLeft, setSecondsLeft] = useState(0)
@@ -195,6 +197,10 @@ export function ApprovalResendButton({ item, requestId, onResent }: {
   if (!item.can_resend) return null
 
   const inCooldown = secondsLeft > 0
+  const visibleLabel = inCooldown
+    ? `Подождите ${secondsLeft}с`
+    : `Переотправить (${RESEND_MAX - (item.resend_count ?? 0)} из ${RESEND_MAX})`
+  const approverLabel = `${item.approver_username || 'согласующему'}, шаг ${item.step}`
 
   const handleResend = async () => {
     setLoading(true)
@@ -225,11 +231,10 @@ export function ApprovalResendButton({ item, requestId, onResent }: {
           ? `Переотправка доступна через ${secondsLeft}с`
           : `Переотправить карточку (осталось ${RESEND_MAX - (item.resend_count ?? 0)} из ${RESEND_MAX})`
       }
+      aria-label={namedForApprover ? `${visibleLabel}: ${approverLabel}` : undefined}
       onClick={() => void handleResend()}
     >
-      {inCooldown
-        ? `Подождите ${secondsLeft}с`
-        : `Переотправить (${RESEND_MAX - (item.resend_count ?? 0)} из ${RESEND_MAX})`}
+      {visibleLabel}
     </Button>
   )
 }
