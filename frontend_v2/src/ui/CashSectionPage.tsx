@@ -18,6 +18,8 @@ import { ChannelBalancesSummary } from './ChannelBalancesSummary'
 import { AdminEditRecordButton } from './admin/AdminEditRecordButton'
 import { renderExpenseRequestStatusTag, shouldHighlightMissingRequiredRequest } from './expenseRequestStatus'
 import { PayrollPayoutModal } from './payroll/PayrollPayoutModal'
+import { payrollProbeDecision } from './payroll/payrollProbe'
+import { useModuleAccess } from './moduleAccess'
 
 type CashExpenseRow = {
   id: number
@@ -100,6 +102,8 @@ export function CashSectionPage({ mode }: { mode: CashSectionMode }) {
   const [openFullRequestModal, setOpenFullRequestModal] = useState(false)
   const [openNoteModal, setOpenNoteModal] = useState(false)
   const [canPayPayroll, setCanPayPayroll] = useState(false)
+  const moduleAccess = useModuleAccess()
+  const payrollTenantEnabled = moduleAccess.tenantEnabled ? moduleAccess.tenantEnabled('payroll') : null
   const [openPayoutModal, setOpenPayoutModal] = useState(false)
 
   const expenseListUrl = useMemo(() => {
@@ -178,7 +182,12 @@ export function CashSectionPage({ mode }: { mode: CashSectionMode }) {
   }, [needExpenses, needRevenues])
 
   useEffect(() => {
-    if (!needExpenses) {
+    const decision = payrollProbeDecision({
+      needExpenses,
+      catalogLoading: moduleAccess.loading,
+      payrollTenantEnabled,
+    })
+    if (decision !== 'probe') {
       setCanPayPayroll(false)
       return
     }
@@ -196,7 +205,7 @@ export function CashSectionPage({ mode }: { mode: CashSectionMode }) {
     return () => {
       cancelled = true
     }
-  }, [needExpenses])
+  }, [needExpenses, moduleAccess.loading, payrollTenantEnabled])
 
   const listLoading = (needExpenses && expensesLoading) || (needRevenues && revenuesLoading)
   const listError = expensesError || revenuesError
