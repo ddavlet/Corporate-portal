@@ -1,7 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { message } from 'antd'
 
-import { getCashRegisters, getSettingsAccess, type CashRegisterDto } from '../lib/api'
+import {
+  getCashBalances,
+  getCashRegisters,
+  getSettingsAccess,
+  type CashRegisterDto,
+  type ChannelBalanceRow,
+} from '../lib/api'
 import {
   CashRegisterTransferTargetError,
   cashRegisterLabel,
@@ -42,6 +48,56 @@ export const cashRegisterTransferDefaults = (): CashRegisterTransferFormValues =
 
 const isPositive = (v: number | null): v is number => typeof v === 'number' && Number.isFinite(v) && v > 0
 
+/** Balance of one register now and after the transfer; `after` is null until a sum is entered. */
+export type CashRegisterBalancePreview = {
+  currency: string
+  current: number
+  after: number | null
+  /** Signed change: negative for the source, positive for the target. */
+  delta: number | null
+}
+
+/** Current balance of the register from GET /api/cash/balances/, or null when it is not there. */
+export function findCashRegisterBalance(rows: ChannelBalanceRow[], register: CashRegisterDto): number | null {
+  const row =
+    rows.find((r) => r.cash_register_id === register.id) ?? rows.find((r) => r.wallet_id === register.wallet_id)
+  if (!row) return null
+  const n = Number(row.current_balance)
+  return Number.isFinite(n) ? n : null
+}
+
+const round2 = (n: number) => Math.round(n * 100) / 100
+
+export function cashRegisterBalancePreview(
+  register: CashRegisterDto | null,
+  rows: ChannelBalanceRow[] | null,
+  delta: number | null,
+): CashRegisterBalancePreview | null {
+  if (!register || !rows) return null
+  const current = findCashRegisterBalance(rows, register)
+  if (current == null) return null
+  const d = typeof delta === 'number' && Number.isFinite(delta) && delta !== 0 ? delta : null
+  return { currency: register.currency, current, after: d == null ? null : round2(current + d), delta: d }
+}
+
+/** «1234567.5» → «1 234 567.5»: digit groups for the sum inputs, so a missing or extra zero is seen at once. */
+export function formatAmountInput(value: string | number | undefined): string {
+  if (value === undefined || value === null || value === '') return ''
+  const [int, frac] = String(value).split('.')
+  const grouped = int.replace(/\B(?=(\d{3})+(?!\d))/g, ' ')
+  return frac === undefined ? grouped : `${grouped}.${frac}`
+}
+
+/**
+ * Back from the input: drops the group spaces; «50,000» (a comma before exactly three digits) is a digit group, as
+ * people type thousands; any other «,» is the decimal point (the iOS keypad in ru gives «1,5»).
+ */
+export function parseAmountInput(value: string | undefined): string {
+  const compact = (value ?? '').replace(/[\s\u00a0\u202f]/g, '')
+  if (/^-?\d{1,3}(,\d{3})+$/.test(compact)) return compact.replace(/,/g, '')
+  return compact.replace(',', '.')
+}
+
 /** Errors of the form, with the rules of the desktop modal; empty when it can be sent. */
 export function validateCashRegisterTransferValues(
   v: CashRegisterTransferFormValues,
@@ -67,6 +123,8 @@ export function useCashRegisterTransferForm() {
   const [reloadKey, setReloadKey] = useState(0)
   const [registers, setRegisters] = useState<CashRegisterDto[]>([])
   const [requesterId, setRequesterId] = useState<number | null>(null)
+  // null — not loaded (or failed): the form works without the balances, they are only a hint.
+  const [balances, setBalances] = useState<ChannelBalanceRow[] | null>(null)
   const [values, setValues] = useState<CashRegisterTransferFormValues>(cashRegisterTransferDefaults)
   const [errors, setErrors] = useState<CashRegisterTransferFieldErrors>({})
   const [submitError, setSubmitError] = useState<string | null>(null)
@@ -89,6 +147,14 @@ export function useCashRegisterTransferForm() {
       .finally(() => {
         if (!cancelled) setLoading(false)
       })
+    getCashBalances()
+      .then((rows) => {
+        if (!cancelled) setBalances(rows)
+      })
+      .catch((e: unknown) => {
+        if (!cancelled) setBalances(null)
+        console.warn('cash transfer: balances not loaded', e)
+      })
     return () => {
       cancelled = true
     }
@@ -99,6 +165,9 @@ export function useCashRegisterTransferForm() {
   const fromRegister = registers.find((r) => r.id === values.fromId) ?? null
   const toRegister = registers.find((r) => r.id === values.toId) ?? null
   const currencyMismatch = Boolean(fromRegister && toRegister && fromRegister.currency !== toRegister.currency)
+  const toDelta = currencyMismatch ? values.toAmount : values.amount
+  const fromBalance = cashRegisterBalancePreview(fromRegister, balances, values.amount == null ? null : -values.amount)
+  const toBalance = cashRegisterBalancePreview(toRegister, balances, toDelta)
   const fromOptions = registers
     .filter((r) => r.id !== values.toId)
     .map((r) => ({ value: r.id, label: cashRegisterLabel(r) }))
@@ -164,6 +233,8 @@ export function useCashRegisterTransferForm() {
     fromRegister,
     toRegister,
     currencyMismatch,
+    fromBalance,
+    toBalance,
     fromOptions,
     toOptions,
     setFromId: (v: number | null) => update('fromId', v),
