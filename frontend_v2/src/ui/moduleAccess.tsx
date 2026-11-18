@@ -4,6 +4,8 @@ import { getModuleCatalog, type ModuleCatalogRow } from '../lib/api'
 type ModuleAccessContextValue = {
   loading: boolean
   hasAccess: (moduleKey: string) => boolean
+  /** Module switched on for the tenant regardless of the user's role; null while the catalog is unknown. */
+  tenantEnabled?: (moduleKey: string) => boolean | null
 }
 
 const ModuleAccessContext = createContext<ModuleAccessContextValue | null>(null)
@@ -32,11 +34,16 @@ export function ModuleAccessProvider({ children }: { children: React.ReactNode }
 
   const value = useMemo<ModuleAccessContextValue>(() => {
     const allowed = new Set((rows || []).filter((r) => r.effective_enabled).map((r) => r.module_key))
+    const tenantOn = new Set((rows || []).filter((r) => r.tenant_enabled).map((r) => r.module_key))
     return {
       loading,
       hasAccess: (moduleKey: string) => {
         if (!rows) return false
         return allowed.has(moduleKey)
+      },
+      tenantEnabled: (moduleKey: string) => {
+        if (!rows) return null
+        return tenantOn.has(moduleKey)
       },
     }
   }, [loading, rows])
