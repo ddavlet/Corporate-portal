@@ -643,3 +643,10 @@ class N8nNoteImportSerializer(serializers.ModelSerializer):
         if not exists:
             raise serializers.ValidationError({"target_id": "Target entry not found in this tenant."})
         return attrs
+
+
+class N8nIntercompanyCashReceiptSerializer(serializers.Serializer):
+    """Payload of POST cash-withdrawals/intercompany-receipts/: PAYED request of another tenant → cash wallet here."""
+
+    request_id = serializers.IntegerField(min_value=1)
+    wallet_id = serializers.IntegerField(min_value=1)

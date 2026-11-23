@@ -2591,7 +2591,8 @@ class NotifyRequestPayedTests(APITestCase):
 
         from apps.modules.n8n_integration.event_handlers import notify_request_payed
         req = self._make_payed_request()
-        notify_request_payed(request_obj=req)
+        with self.captureOnCommitCallbacks(execute=True):
+            notify_request_payed(request_obj=req)
 
         mock_post.assert_called_once()
         call_url = mock_post.call_args.args[0]
@@ -2601,6 +2602,24 @@ class NotifyRequestPayedTests(APITestCase):
         self.assertEqual(payload["status"], "PAYED")
         self.assertEqual(payload["tenant"], "acme")
         self.assertEqual(payload["amount"], "500.00")
+
+    @patch("apps.modules.n8n_integration.event_handlers.threading.Thread")
+    @patch("apps.modules.n8n_integration.views._n8n_session.post")
+    def test_sends_only_after_transaction_commit(self, mock_post, mock_thread):
+        """Regression: n8n must not see the event before PAYED is committed."""
+        mock_post.return_value = Mock(status_code=200)
+        mock_thread.side_effect = lambda target, daemon: Mock(start=target)
+
+        from apps.modules.n8n_integration.event_handlers import notify_request_payed
+        req = self._make_payed_request()
+        with self.captureOnCommitCallbacks(execute=False) as callbacks:
+            notify_request_payed(request_obj=req)
+            mock_post.assert_not_called()
+
+        self.assertEqual(len(callbacks), 1)
+        mock_post.assert_not_called()
+        callbacks[0]()
+        mock_post.assert_called_once()
 
     @override_settings(BASE_DOMAIN="")
     @patch("apps.modules.n8n_integration.views._n8n_session.post")

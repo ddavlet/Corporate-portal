@@ -11,7 +11,7 @@ from django.db.models import Q
 from django.utils.dateparse import parse_date
 from rest_framework import status
 from rest_framework.exceptions import APIException
-from rest_framework.exceptions import ValidationError
+from rest_framework.exceptions import ErrorDetail, ValidationError
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -56,6 +56,7 @@ from apps.modules.n8n_integration.serializers import (
     N8nClientDebtImportSerializer,
     N8nCashExpenseImportSerializer,
     N8nCashRevenueImportSerializer,
+    N8nIntercompanyCashReceiptSerializer,
     N8nNoteImportSerializer,
     N8nPayrollLineImportSerializer,
     N8nInvestPayoutScheduleImportSerializer,
@@ -1550,6 +1551,53 @@ class N8nBankExpenseReassignUnmatchedView(_N8nBaseView):
             for r in reassign_unmatched_bank_expenses(tenant=tenant, other_tenant=other_tenant, created_by=su)
         ]
         return Response({"reassigned": reassigned, "count": len(reassigned)}, status=status.HTTP_200_OK)
+
+
+class N8nIntercompanyCashReceiptView(_N8nBaseView):
+    """
+    Called on the receiving tenant's host (e.g. the group's management company) after a
+    group company's request handing over cash got PAYED: creates the expected cash receipt
+    here (card with «Деньги получены», overdue alerts), reusing the cash_withdrawals flow.
+    201 — created, 200 — already existed with the same wallet, 409 — exists for another
+    tenant/wallet, 400 — refused (inactive settings, request not PAYED, wallet, currency).
+    """
+
+    def post(self, request):
+        from apps.modules.cash_withdrawals.services import IntercompanyReceiptError, create_intercompany_receipt
+
+        ser = N8nIntercompanyCashReceiptSerializer(data=request.data)
+        ser.is_valid(raise_exception=True)
+        try:
+            with transaction.atomic():
+                receipt, created = create_intercompany_receipt(
+                    tenant=request.tenant,
+                    request_id=ser.validated_data["request_id"],
+                    wallet_id=ser.validated_data["wallet_id"],
+                )
+        except IntercompanyReceiptError as exc:
+            if exc.code == IntercompanyReceiptError.CONFLICT:
+                return Response(
+                    _n8n_error_payload(
+                        exc.message,
+                        error_type="conflict",
+                        error_location=request.path,
+                        extra={"code": exc.code},
+                    ),
+                    status=status.HTTP_409_CONFLICT,
+                )
+            raise ValidationError({exc.field: [ErrorDetail(exc.message, code=exc.code)]})
+        return Response(
+            {
+                "id": receipt.pk,
+                "status": receipt.status,
+                "request_id": receipt.request_id,
+                "wallet_id": receipt.wallet_id,
+                "amount": str(receipt.amount),
+                "currency": receipt.currency,
+                "created": created,
+            },
+            status=status.HTTP_201_CREATED if created else status.HTTP_200_OK,
+        )
 
 
 class N8nBankRevenueBatchUpsertView(_N8nBatchBaseView):

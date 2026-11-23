@@ -1866,12 +1866,13 @@ class RequestApprovalsTests(APITestCase):
         )
 
         self.client.force_authenticate(self.approver)
-        res = self.client.post(
-            "/api/requests/approvals/payment-webapp/confirm/",
-            {"approval_id": approval.id, "expense_id": "INV-2026-002"},
-            format="json",
-            HTTP_HOST=self.host,
-        )
+        with self.captureOnCommitCallbacks(execute=True):
+            res = self.client.post(
+                "/api/requests/approvals/payment-webapp/confirm/",
+                {"approval_id": approval.id, "expense_id": "INV-2026-002"},
+                format="json",
+                HTTP_HOST=self.host,
+            )
         self.assertEqual(res.status_code, 200, res.content)
         target = None
         for call in mock_n8n_post.call_args_list:
