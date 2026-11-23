@@ -93,6 +93,106 @@ def create_receipt_for_request(*, request_obj, send: bool = True) -> CashWithdra
     return receipt
 
 
+class IntercompanyReceiptError(Exception):
+    """Refusal to create an intercompany receipt; `field` is the payload key it relates to."""
+
+    CONFLICT = "conflict"
+
+    def __init__(self, message: str, *, code: str, field: str = "non_field_errors"):
+        super().__init__(message)
+        self.message = message
+        self.code = code
+        self.field = field
+
+
+def _intercompany_refuse(message: str, *, code: str, field: str = "non_field_errors", **log_ctx):
+    logger.warning(
+        "cash_withdrawals: intercompany receipt refused code=%s %s",
+        code, " ".join(f"{k}={v}" for k, v in log_ctx.items()),
+    )
+    return IntercompanyReceiptError(message, code=code, field=field)
+
+
+def create_intercompany_receipt(*, tenant, request_id: int, wallet_id: int) -> tuple[CashWithdrawalReceipt, bool]:
+    """Expected cash receipt in `tenant` (e.g. the holding's management company) for a PAYED
+    request of another tenant (cash handed over by a group company).
+
+    Amount and currency come from the request. Idempotent per request: a repeat call with the
+    same tenant and wallet returns the existing receipt (created=False) without re-sending cards.
+    """
+    from apps.modules.requests.models import Request
+    from apps.modules.wallets.models import Wallet
+
+    if tenant is None:
+        raise _intercompany_refuse(
+            "Компания-получатель не определена.", code="config_inactive", request_id=request_id, wallet_id=wallet_id
+        )
+    ctx = {"tenant_id": tenant.pk, "request_id": request_id, "wallet_id": wallet_id}
+    if get_active_config(tenant) is None:
+        raise _intercompany_refuse(
+            "Ожидание поступлений наличных не включено у компании-получателя.", code="config_inactive", **ctx
+        )
+    # all_objects: soft-deleted requests are reported as «не оплачена», not as missing.
+    request_obj = (
+        Request.all_objects.select_related("tenant").filter(pk=request_id, tenant__is_active=True).first()
+    )
+    if request_obj is None:
+        raise _intercompany_refuse("Заявка не найдена.", code="request_not_found", field="request_id", **ctx)
+    if request_obj.status != Request.STATUS_PAYED:
+        raise _intercompany_refuse(
+            f"Заявка №{request_obj.pk} не оплачена (статус {request_obj.status}).",
+            code="request_not_payed", field="request_id", request_status=request_obj.status, **ctx,
+        )
+    if request_obj.tenant_id == tenant.pk:
+        raise _intercompany_refuse(
+            "Заявка той же компании: ожидание внутри компании создаётся по правилам настроек.",
+            code="same_tenant", field="request_id", **ctx,
+        )
+    wallet = (
+        Wallet.objects.select_related("cash_register")
+        .filter(pk=wallet_id, tenant=tenant, wallet_type=Wallet.Type.CASH)
+        .first()
+    )
+    if wallet is None:
+        raise _intercompany_refuse(
+            "Касса не найдена среди наличных касс компании-получателя.", code="wallet_invalid", field="wallet_id", **ctx
+        )
+    if _norm(request_obj.currency) != _norm(wallet.currency):
+        raise _intercompany_refuse(
+            f"Валюта заявки ({request_obj.currency}) не совпадает с валютой кассы ({wallet.currency}).",
+            code="currency_mismatch", field="wallet_id", **ctx,
+        )
+
+    # get_or_create already re-reads on IntegrityError (parallel call won the OneToOne race).
+    receipt, created = CashWithdrawalReceipt.objects.get_or_create(
+        request=request_obj,
+        defaults={
+            "tenant": tenant,
+            "wallet": wallet,
+            "amount": request_obj.amount,
+            "currency": request_obj.currency,
+        },
+    )
+    if not created and (receipt.tenant_id != tenant.pk or receipt.wallet_id != wallet.pk):
+        raise _intercompany_refuse(
+            f"По заявке №{request_obj.pk} уже есть ожидание поступления в другую кассу или компанию.",
+            code=IntercompanyReceiptError.CONFLICT,
+            field="request_id",
+            existing_receipt_id=receipt.pk,
+            existing_tenant_id=receipt.tenant_id,
+            existing_wallet_id=receipt.wallet_id,
+            **ctx,
+        )
+    if created:
+        logger.info(
+            "cash_withdrawals: intercompany receipt created receipt_id=%s request_id=%s from_tenant_id=%s to_tenant_id=%s",
+            receipt.pk, request_obj.pk, request_obj.tenant_id, tenant.pk,
+        )
+        receipt_id = receipt.pk
+        transaction.on_commit(lambda: _send_cards_safely(receipt_id))
+    return receipt, created
+
+
 def on_request_payed(*, request_obj) -> None:
     """Registered PAYED handler (see apps.CashWithdrawalsConfig.ready).
 
@@ -139,6 +239,42 @@ def _after_confirm(receipt_id: int) -> None:
     events.dispatch_receipt_confirmed(receipt=receipt)
 
 
+def _is_intercompany(receipt, request_obj) -> bool:
+    return receipt.tenant_id != request_obj.tenant_id
+
+
+def _revenue_fields(receipt, request_obj) -> dict:
+    """operation/counterparty/comment for the CashRevenue created on confirmation.
+
+    P&L and cash-flow reports group incomes by the exact `operation` text, so the intercompany
+    label is constant per sender (no request number); the request number goes to the comment.
+    """
+    if not _is_intercompany(receipt, request_obj):
+        return {
+            "operation": f"Наличные с банка {request_obj.title or ''}".strip()[:255],
+            "counterparty": "",
+            "comment": request_obj.description or "",
+        }
+    # Intercompany: the request (and its title, which is always the tenant name) belongs to the sender.
+    sender = request_obj.tenant.name
+    note = f"Заявка №{request_obj.pk} компании {sender}"
+    description = (request_obj.description or "").strip()
+    return {
+        "operation": f"Наличные от {sender}"[:255],
+        "counterparty": sender[:255],
+        "comment": f"{note}. {description}" if description else note,
+    }
+
+
+def _existing_intercompany_revenue(receipt, *, external_id: str, source_year: int):
+    """Guard against a duplicate income if the same cash was already entered by hand/n8n."""
+    return (
+        CashRevenue.objects.select_for_update()
+        .filter(tenant=receipt.tenant, external_id=external_id, source_year=source_year)
+        .first()
+    )
+
+
 def confirm_receipt(*, receipt_id: int, user) -> tuple[CashWithdrawalReceipt, bool]:
     with transaction.atomic():
         receipt = (
@@ -150,21 +286,34 @@ def confirm_receipt(*, receipt_id: int, user) -> tuple[CashWithdrawalReceipt, bo
             return receipt, False
         request_obj = receipt.request
         now = timezone.now()
-        revenue = CashRevenue.objects.create(
-            tenant=receipt.tenant,
-            wallet=receipt.wallet,
-            total_sum=receipt.amount,
-            currency=receipt.currency,
-            revenue_at=now,
-            confirmed=True,
-            operation=f"Наличные с банка {request_obj.title or ''}".strip()[:255],
-            comment=request_obj.description or "",
-            external_id=f"cash-{request_obj.pk}",
-            # Production column is NOT NULL (unlike the migration); CashRevenueSerializer derives it the same way.
-            source_year=timezone.localtime(now, TASHKENT_TZ).year,
-            created_by=user,
-            payload={"source": "cash_withdrawals", "receipt_id": receipt.pk, "request_id": request_obj.pk},
-        )
+        external_id = f"cash-{request_obj.pk}"
+        # Production column is NOT NULL (unlike the migration); CashRevenueSerializer derives it the same way.
+        source_year = timezone.localtime(now, TASHKENT_TZ).year
+        revenue = None
+        if _is_intercompany(receipt, request_obj):
+            revenue = _existing_intercompany_revenue(receipt, external_id=external_id, source_year=source_year)
+            if revenue is not None:
+                logger.warning(
+                    "cash_withdrawals: intercompany receipt_id=%s linked to existing revenue_id=%s external_id=%s",
+                    receipt.pk, revenue.pk, external_id,
+                )
+        if revenue is None:
+            payload = {"source": "cash_withdrawals", "receipt_id": receipt.pk, "request_id": request_obj.pk}
+            if _is_intercompany(receipt, request_obj):
+                payload["from_tenant_id"] = request_obj.tenant_id
+            revenue = CashRevenue.objects.create(
+                tenant=receipt.tenant,
+                wallet=receipt.wallet,
+                total_sum=receipt.amount,
+                currency=receipt.currency,
+                revenue_at=now,
+                confirmed=True,
+                external_id=external_id,
+                source_year=source_year,
+                created_by=user,
+                payload=payload,
+                **_revenue_fields(receipt, request_obj),
+            )
         receipt.status = CashWithdrawalReceipt.Status.CONFIRMED
         receipt.confirmed_by = user
         receipt.confirmed_at = now

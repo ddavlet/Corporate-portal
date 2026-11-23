@@ -77,6 +77,14 @@ def _amount(receipt) -> str:
     return f"{format_money(receipt.amount)} {escape(receipt.currency or '')}".strip()
 
 
+def _sender_lines(receipt) -> list[str]:
+    """«От компании: …» when the cash comes from another tenant of the group (intercompany receipt)."""
+    request_obj = receipt.request
+    if receipt.tenant_id == request_obj.tenant_id:
+        return []
+    return [f"От компании: {escape(request_obj.tenant.name or '')}"]
+
+
 def card_buttons(receipt) -> list[list[dict]]:
     return [[{"label": CONFIRM_BUTTON_LABEL, "value": f"{CALLBACK_PREFIX}{receipt.pk}"}]]
 
@@ -88,6 +96,7 @@ def _pending_text(receipt, confirmers) -> str:
         "",
         f"Сумма: <b>{_amount(receipt)}</b>",
         f"Касса: {escape(wallet_label(receipt.wallet))}",
+        *_sender_lines(receipt),
         _request_ref(request_obj),
     ]
     comment = (request_obj.description or "").strip()
@@ -104,6 +113,7 @@ def _confirmed_text(receipt) -> str:
             "✅ <b>Поступило в кассу</b>",
             f"{_amount(receipt)} → {escape(wallet_label(receipt.wallet))}",
             f"Подтвердил: {escape(short_user_name(receipt.confirmed_by))} · {when}",
+            *_sender_lines(receipt),
             _request_ref(receipt.request),
         ]
     )
@@ -114,6 +124,7 @@ def _closed_text(receipt) -> str:
         [
             "⛔ <b>Закрыто без дохода</b>",
             f"{_amount(receipt)} · {_request_ref(receipt.request)}",
+            *_sender_lines(receipt),
             f"Причина: {escape(receipt.closed_comment or '—')}",
         ]
     )
@@ -140,6 +151,7 @@ def build_alert_text(*, receipt, days: int, responsible: list) -> str:
             f"⚠️ <b>Деньги не оприходованы в кассу — {days} дн.</b>",
             "",
             f"{ref} оплачена {format_payed_date(request_obj)}{purpose_part}",
+            *_sender_lines(receipt),
             f"Сумма: {_amount(receipt)} → {escape(wallet_label(receipt.wallet))}",
             "Дохода в кассе нет — никто не подтвердил получение.",
             "",

@@ -137,6 +137,7 @@
 - **Аутентификация**: для upsert/read и справочников — только `X-N8N-Integration-Token` (tenant config или env), без JWT ([authentication.py](../backend_v2/apps/modules/n8n_integration/authentication.py)).
 - **GET** `wallet-balances/` — остатки кошельков по каналам (как `/api/cash|bank|corporate-card/balances/`).
 - **POST upsert** по целочисленному `id` для: vendors, cash/bank/corporate expenses & revenues, notes, payroll lines ([urls.py](../backend_v2/apps/modules/n8n_integration/urls.py)).
+- **POST** `cash-withdrawals/intercompany-receipts/` `{"request_id", "wallet_id"}` — вызывается на поддомене компании-получателя (например, УК группы) по оплаченной заявке другой компании («Передача в УК»): создаёт ожидание поступления наличных `CashWithdrawalReceipt` в наличную кассу `wallet_id` этого тенанта (карточка «Деньги получены», напоминания, при подтверждении — приход в кассу). Сумма и валюта берутся из заявки. Ответ: 201 — создано, 200 — уже есть с той же кассой, 409 — по заявке уже есть ожидание в другую кассу или компанию, 400 — отказ (не включено ожидание поступлений, заявка не PAYED или из этого же тенанта, касса не наличная или чужая, валюта не совпадает). Логика — `create_intercompany_receipt` в [cash_withdrawals/services.py](../backend_v2/apps/modules/cash_withdrawals/services.py).
 
 ### `apps.modules.telegram_approvals`
 

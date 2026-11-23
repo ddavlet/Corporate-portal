@@ -2,6 +2,8 @@ from __future__ import annotations
 import logging
 import threading
 
+from django.db import transaction
+
 from apps.modules.requests.models import Request
 
 logger = logging.getLogger(__name__)
@@ -74,7 +76,9 @@ def notify_request_payed(*, request_obj: Request) -> None:
                 subdomain, request_id, exc,
             )
 
-    threading.Thread(target=_send, daemon=True).start()
+    # The PAYED status is saved inside the approval transaction; n8n may call
+    # back right away (e.g. intercompany cash receipt), so send only after commit.
+    transaction.on_commit(lambda: threading.Thread(target=_send, daemon=True).start())
 
 
 def notify_cash_withdrawal_received(*, receipt) -> None:
