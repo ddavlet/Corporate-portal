@@ -27,15 +27,17 @@ BASH_ENV=/etc/kolberg-cron.env
 # command filters by them, InvestReportDispatch dedups per tenant/day).
 0 * * * * root cd /app && python manage.py run_invest_reports >> /proc/1/fd/1 2>&1
 
-# Kapitalbank statement import: daytime every 10 min on weekdays 06-22, nightly self-heal at 05:00.
+# Kapitalbank statement import: daytime every 10 min on weekdays 06-22, nightly self-heal at 05:45
+# (around 05:00 the bank regularly answers "Что-то пошло не так", and a nightly failure alerts at once).
 */10 6-21 * * 1-5 root cd /app && python manage.py import_kapitalbank_statements --mode daytime >> /proc/1/fd/1 2>&1
 0 22 * * 1-5 root cd /app && python manage.py import_kapitalbank_statements --mode daytime >> /proc/1/fd/1 2>&1
-0 5 * * * root cd /app && python manage.py import_kapitalbank_statements --mode nightly >> /proc/1/fd/1 2>&1
+45 5 * * * root cd /app && python manage.py import_kapitalbank_statements --mode nightly >> /proc/1/fd/1 2>&1
 
 # Salary card payouts from the payroll transit account 23106 (payroll module, separate lock from the import):
-# hourly on weekdays 06-22 (yesterday and today), nightly at 05:30 (40 days, bank payroll directory, regrouping).
+# hourly on weekdays 06-22 (yesterday and today), nightly at 06:00 (40 days, bank payroll directory, regrouping)
+# — after the 05:45 statement import, whose BankExpense rows resolve the payroll batch tenant.
 15 6-22 * * 1-5 root cd /app && flock -n /tmp/sync_payroll_card_payouts.lock python manage.py sync_payroll_card_payouts --mode hourly >> /proc/1/fd/1 2>&1
-30 5 * * * root cd /app && flock -n /tmp/sync_payroll_card_payouts.lock python manage.py sync_payroll_card_payouts --mode nightly >> /proc/1/fd/1 2>&1
+0 6 * * * root cd /app && flock -n /tmp/sync_payroll_card_payouts.lock python manage.py sync_payroll_card_payouts --mode nightly >> /proc/1/fd/1 2>&1
 
 # Web Push of portal action items: pushes are sent only from here, never in an HTTP request.
 # Every minute: users marked by approval hooks. Every 5 minutes: full catch-up, longest-unsynced first

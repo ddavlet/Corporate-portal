@@ -588,7 +588,7 @@ class RunnerTests(KapitalbankFixtures, TestCase):
         self.assertEqual(AccountSyncState.objects.get(link=self.link2).consecutive_failures, 6)
 
     def test_single_daytime_failure_does_not_alert_down(self):
-        # e.g. the first daytime run after the 05:00 success fails once at 06:10
+        # e.g. the first daytime run after the 05:45 nightly success fails once at 06:10
         AccountSyncState.objects.create(link=self.link2, last_success_at=NOW - timedelta(hours=7))
         self.fake.errors[ACCOUNT_2] = KapitalbankError(None, "HTTP 502")
 

@@ -107,7 +107,7 @@ class ImportKapitalbankStatementsCommandTests(SimpleTestCase):
         for line in (
             f"*/10 6-21 * * 1-5 root {tail} --mode daytime {out}",
             f"0 22 * * 1-5 root {tail} --mode daytime {out}",
-            f"0 5 * * * root {tail} --mode nightly {out}",
+            f"45 5 * * * root {tail} --mode nightly {out}",
         ):
             self.assertIn(line, crontab)
 
