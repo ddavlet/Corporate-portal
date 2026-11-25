@@ -92,7 +92,8 @@ describe('RequestEditModal', () => {
     fireEvent.change(await screen.findByLabelText('Название'), { target: { value: 'Другое название' } })
     fireEvent.click(screen.getByRole('button', { name: 'Отмена' }))
 
-    expect(await screen.findByText('Закрыть без сохранения?')).toBeInTheDocument()
+    // antd пишет заголовок подтверждения в двух местах разметки.
+    expect((await screen.findAllByText('Закрыть без сохранения?')).length).toBeGreaterThan(0)
     expect(onCancel).not.toHaveBeenCalled()
 
     fireEvent.click(screen.getByRole('button', { name: 'Закрыть' }))
