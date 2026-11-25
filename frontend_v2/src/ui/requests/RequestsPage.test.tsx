@@ -147,7 +147,7 @@ describe('RequestsPage vendor edit', () => {
     await waitFor(() => expect(apiFetchMock).toHaveBeenCalledWith('/api/requests/7766/'))
     await screen.findAllByText('DAVLETYAROV RAVSHAN BATIROVICH')
 
-    const editButton = await screen.findByRole('button', { name: 'Редактировать' })
+    const editButton = await screen.findByRole('button', { name: /Редактировать/ })
     fireEvent.click(editButton)
 
     // The old bug: options came only from `rows` on screen, which never includes a
@@ -164,7 +164,9 @@ describe('RequestsPage vendor edit', () => {
     await waitFor(() => expect(apiFetchMock).toHaveBeenCalledWith('/api/requests/7766/'))
     await screen.findAllByText('DAVLETYAROV RAVSHAN BATIROVICH')
 
-    fireEvent.click(await screen.findByRole('button', { name: 'Редактировать' }))
+    fireEvent.click(await screen.findByRole('button', { name: /Редактировать/ }))
+    // «Сохранить» неактивна, пока в форме нет изменений.
+    fireEvent.change(await screen.findByLabelText('Описание'), { target: { value: 'Уточнили описание' } })
     fireEvent.click(await screen.findByRole('button', { name: 'Сохранить' }))
 
     await waitFor(() => {
@@ -174,6 +176,7 @@ describe('RequestsPage vendor edit', () => {
       expect(patchCall).toBeTruthy()
       const body = JSON.parse((patchCall![1] as RequestInit).body as string)
       expect(body.vendor_ref).toBe(546)
+      expect(body.description).toBe('Уточнили описание')
     })
   })
 })

@@ -1,17 +1,16 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Alert, Button, Card, Collapse, DatePicker, Input, InputNumber, Modal, Select, Skeleton, Space, Switch, Table, Tag, Typography, message } from 'antd'
+import { Alert, Button, Card, Collapse, DatePicker, Input, InputNumber, Select, Skeleton, Space, Switch, Table, Tag, Typography, message } from 'antd'
 import type { ColumnsType, TableProps } from 'antd/es/table'
 import type { Dayjs } from 'dayjs'
 import dayjs from 'dayjs'
 import { useNavigate } from 'react-router-dom'
-import { CopyOutlined, FileAddOutlined, FileSearchOutlined, MessageOutlined, SendOutlined } from '@ant-design/icons'
+import { CopyOutlined, EditOutlined, FileAddOutlined, FileSearchOutlined, MessageOutlined, SendOutlined } from '@ant-design/icons'
 import {
   apiFetch,
   copyPortalRequest,
   getRequestFormOptions,
   getRequestCategories,
   getRequestVendors,
-  listVendors,
   parseErrorBody,
   submitRequestForApproval,
   type RequestCategoryOption,
@@ -23,14 +22,12 @@ import { isPayedMissingLinkedExpense, type RequestExpenseLink } from '../../lib/
 import { formatRequestBillingMonth, formatRequestDate, getRequestStatusColor } from '../../lib/requestUtils'
 import { requestReturnToForDetail } from '../../lib/requestNavigation'
 import { RequestDetailModal, type RequestDetail } from './RequestDetailModal'
-import { labelBlockAboveField } from '../formSpacing'
+import { RequestEditModal, requestEditDraftFromDetail, type RequestEditDraft } from './RequestEditModal'
 import { AdminEditRecordButton } from '../admin/AdminEditRecordButton'
 import { NoteCreateModal } from '../NoteCreateModal'
 import { useInfiniteList, useRestoreInfinitePages } from '../../lib/useInfiniteList'
-import { generalFormPurposes, isCashRegisterTransferPurpose } from '../../lib/cashRegisterTransfer'
 import {
   requestPaymentTypeSelectOptions,
-  vendorKindForPaymentType,
   withoutInvestTypesUnlessEnabled,
 } from '../../lib/requestPaymentTypes'
 import { useInvestmentFundingMode } from '../../lib/useInvestmentFundingMode'
@@ -63,25 +60,6 @@ type RequestRow = {
 type SortState = {
   field: keyof RequestRow | null
   order: 'ascend' | 'descend' | null
-}
-
-type RequestModalEditDraft = {
-  title: string
-  description: string
-  amount: number | null
-  currency: string
-  status: string
-  urgency: string
-  payment_type: string
-  category: string
-  vendor: string
-  vendorRefId: number | null
-  payment_purpose: string
-  expense_id: string
-  billing_date: Dayjs | null
-  requester: string
-  amortization_enabled: boolean
-  amortization_months: number
 }
 
 type RequestsPagePreferences = {
@@ -190,9 +168,7 @@ export function RequestsPage() {
   const [isTenantAdmin, setIsTenantAdmin] = useState(false)
   const [editOpen, setEditOpen] = useState(false)
   const [editSaving, setEditSaving] = useState(false)
-  const [editDraft, setEditDraft] = useState<RequestModalEditDraft | null>(null)
-  const [vendorEditOptions, setVendorEditOptions] = useState<{ label: string; value: number }[]>([])
-  const [vendorEditLoading, setVendorEditLoading] = useState(false)
+  const [editDraft, setEditDraft] = useState<RequestEditDraft | null>(null)
   const [requestFormPaymentTypes, setRequestFormPaymentTypes] = useState<RequestFormOptionsPaymentType[]>([])
   const [requesterCandidates, setRequesterCandidates] = useState<RequestFormOptionsRequester[]>([])
   const [vendorSearchApi, setVendorSearchApi] = useState('')
@@ -372,44 +348,6 @@ export function RequestsPage() {
     loadMore,
   })
 
-  const optionize = (values: string[]) =>
-    [...new Set(values.filter(Boolean))].sort((a, b) => a.localeCompare(b)).map((value) => ({
-      label: value,
-      value,
-    }))
-
-  const loadVendorEditOptions = useCallback(async (search: string) => {
-    const paymentType = editDraft?.payment_type
-    if (!paymentType) return
-    const kind = vendorKindForPaymentType(paymentType)
-    setVendorEditLoading(true)
-    try {
-      const vendorRows = await listVendors({ kind, search })
-      setVendorEditOptions(
-        vendorRows.map((r) => ({
-          value: r.id,
-          label: r.kind === 'transfer' && r.inn ? `${r.name} (ИНН ${r.inn})` : r.name,
-        })),
-      )
-    } catch {
-      setVendorEditOptions([])
-    } finally {
-      setVendorEditLoading(false)
-    }
-  }, [editDraft?.payment_type])
-
-  useEffect(() => {
-    if (editOpen && editDraft?.payment_type) {
-      void loadVendorEditOptions('')
-    }
-  }, [editOpen, editDraft?.payment_type, loadVendorEditOptions])
-
-  const vendorEditSearchTimerRef = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
-  const onVendorEditSearch = (value: string) => {
-    window.clearTimeout(vendorEditSearchTimerRef.current)
-    vendorEditSearchTimerRef.current = setTimeout(() => void loadVendorEditOptions(value), 300)
-  }
-
   const editModalPaymentTypeOptions = useMemo(() => {
     const uniq = new Set<string>()
     for (const p of requestFormPaymentTypes) {
@@ -420,22 +358,6 @@ export function RequestsPage() {
     }
     return [...uniq].sort((a, b) => a.localeCompare(b)).map((value) => ({ label: value, value }))
   }, [requestFormPaymentTypes, rows])
-
-  const editPaymentTypeFormConfig = useMemo(
-    () => requestFormPaymentTypes.find((p) => p.payment_type === editDraft?.payment_type) ?? null,
-    [requestFormPaymentTypes, editDraft?.payment_type],
-  )
-
-  const editPurposeSelectOptions = useMemo(() => {
-    const all = editPaymentTypeFormConfig?.payment_purposes ?? []
-    // Перевод между кассами — только кнопкой перевода; у уже такого черновика значение оставляем.
-    const keepTransfer = isCashRegisterTransferPurpose(editDraft?.payment_purpose)
-    const visible = keepTransfer ? all : generalFormPurposes(all).purposes
-    return visible.map((p) => ({
-      value: p.name,
-      label: `${p.name} → ${p.category}`,
-    }))
-  }, [editPaymentTypeFormConfig, editDraft?.payment_purpose])
 
   const requesterOptions = useMemo(() => {
     if (requesterCandidates.length > 0) {
@@ -478,23 +400,9 @@ export function RequestsPage() {
     }
   }, [rows])
 
-  const saveDetailEdit = async () => {
-    if (!selectedRow || !selectedDetail || !editDraft) return
-    if (!editDraft) return
-    if (!editDraft.title.trim()) {
-      message.warning('Введите название заявки')
-      return
-    }
-    const ptCfg = requestFormPaymentTypes.find((p) => p.payment_type === editDraft.payment_type)
-    const purposesConfigured = Boolean(ptCfg?.payment_purposes?.length)
-    if (purposesConfigured && !editDraft.payment_purpose.trim()) {
-      message.warning('Выберите назначение платежа')
-      return
-    }
-    if (!editDraft.vendor.trim()) {
-      message.warning('Укажите поставщика')
-      return
-    }
+  // Проверка полей — в RequestEditModal; здесь только PATCH и обновление списка/карточки.
+  const saveDetailEdit = async (editDraft: RequestEditDraft) => {
+    if (!selectedRow || !selectedDetail) return
     setEditSaving(true)
     try {
       const payload = {
@@ -502,7 +410,6 @@ export function RequestsPage() {
         description: editDraft.description.trim(),
         amount: editDraft.amount ?? 0,
         currency: editDraft.currency,
-        status: editDraft.status,
         urgency: editDraft.urgency,
         payment_type: editDraft.payment_type,
         category: editDraft.category,
@@ -533,7 +440,6 @@ export function RequestsPage() {
         description: payload.description,
         amount: payload.amount,
         currency: payload.currency,
-        status: payload.status,
         urgency: payload.urgency,
         payment_type: payload.payment_type,
         category: payload.category,
@@ -554,7 +460,6 @@ export function RequestsPage() {
               description: payload.description,
               amount: payload.amount,
               currency: payload.currency,
-              status: payload.status,
               urgency: payload.urgency,
               payment_type: payload.payment_type,
               category: payload.category,
@@ -576,7 +481,6 @@ export function RequestsPage() {
                 description: payload.description,
                 amount: payload.amount,
                 currency: payload.currency,
-                status: payload.status,
                 urgency: payload.urgency,
                 payment_type: payload.payment_type,
                 category: payload.category,
@@ -970,29 +874,11 @@ export function RequestsPage() {
               ) : null}
               {isTenantAdmin ? (
                 <Button
+                  icon={<EditOutlined />}
+                  disabled={!selectedDetail}
                   onClick={() => {
                     if (!selectedDetail) return
-                    setEditDraft({
-                      title: selectedDetail.title || '',
-                      description: selectedDetail.description || '',
-                      amount: Number.isFinite(Number(selectedDetail.amount)) ? Number(selectedDetail.amount) : null,
-                      currency: selectedDetail.currency || 'UZS',
-                      status: selectedDetail.status || '',
-                      urgency: selectedDetail.urgency || '',
-                      payment_type: selectedDetail.payment_type || '',
-                      category: selectedDetail.category || '',
-                      vendor: selectedDetail.vendor || '',
-                      vendorRefId: selectedDetail.vendor_ref ?? null,
-                      payment_purpose: selectedDetail.payment_purpose || '',
-                      expense_id: (selectedDetail.expense_id || '').trim(),
-                      billing_date: selectedDetail.billing_date ? dayjs(selectedDetail.billing_date) : null,
-                      requester: selectedDetail.requester != null ? String(selectedDetail.requester) : '',
-                      amortization_enabled: Number(selectedDetail.amortization_months || 1) > 1,
-                      amortization_months:
-                        Number(selectedDetail.amortization_months || 1) > 1
-                          ? Number(selectedDetail.amortization_months || 2)
-                          : 2,
-                    })
+                    setEditDraft(requestEditDraftFromDetail(selectedDetail))
                     setEditOpen(true)
                   }}
                 >
@@ -1009,211 +895,18 @@ export function RequestsPage() {
         targetType="request"
         targetId={selectedRow?.id || null}
       />
-      <Modal
+      <RequestEditModal
         open={editOpen}
-        title={selectedRow ? `Редактировать заявку #${selectedRow.id}` : 'Редактировать заявку'}
+        requestId={selectedRow?.id ?? null}
+        initialDraft={editDraft}
+        paymentTypeConfigs={requestFormPaymentTypes}
+        paymentTypeOptions={editModalPaymentTypeOptions}
+        categoryOptions={categoryOptions}
+        requesterOptions={requesterOptions}
+        saving={editSaving}
         onCancel={() => setEditOpen(false)}
-        footer={null}
-        destroyOnClose
-      >
-        <Space direction="vertical" size={12} style={{ display: 'flex' }}>
-          <Input
-            placeholder="Название"
-            value={editDraft?.title || ''}
-            onChange={(e) => setEditDraft((prev) => (prev ? { ...prev, title: e.target.value } : prev))}
-          />
-          <Input.TextArea
-            rows={4}
-            placeholder="Описание"
-            value={editDraft?.description || ''}
-            onChange={(e) => setEditDraft((prev) => (prev ? { ...prev, description: e.target.value } : prev))}
-          />
-          <Space wrap>
-            <InputNumber
-              min={0}
-              placeholder="Сумма"
-              value={editDraft?.amount ?? undefined}
-              onChange={(value) => setEditDraft((prev) => (prev ? { ...prev, amount: typeof value === 'number' ? value : null } : prev))}
-            />
-            <Select
-              style={{ width: 120 }}
-              placeholder="Валюта"
-              value={editDraft?.currency}
-              onChange={(value) => setEditDraft((prev) => (prev ? { ...prev, currency: value } : prev))}
-              options={optionize(rows.map((r) => r.currency))}
-            />
-            <Select
-              style={{ width: 160 }}
-              placeholder="Статус"
-              value={editDraft?.status}
-              onChange={(value) => setEditDraft((prev) => (prev ? { ...prev, status: value } : prev))}
-              options={optionize(rows.map((r) => r.status))}
-              showSearch
-            />
-            <Select
-              style={{ width: 180 }}
-              placeholder="Срочность"
-              value={editDraft?.urgency}
-              onChange={(value) => setEditDraft((prev) => (prev ? { ...prev, urgency: value } : prev))}
-              options={optionize(rows.map((r) => r.urgency))}
-              showSearch
-            />
-          </Space>
-          <Space wrap>
-            <Select
-              style={{ minWidth: 220 }}
-              placeholder="Тип оплаты"
-              value={editDraft?.payment_type}
-              onChange={(value) =>
-                setEditDraft((prev) => {
-                  if (!prev) return prev
-                  const cfg = requestFormPaymentTypes.find((p) => p.payment_type === value)
-                  const purposes = cfg?.payment_purposes ?? []
-                  if (purposes.length === 0) {
-                    return { ...prev, payment_type: value }
-                  }
-                  const matched = purposes.find((p) => p.name === prev.payment_purpose)
-                  if (matched) {
-                    return { ...prev, payment_type: value, category: matched.category }
-                  }
-                  return { ...prev, payment_type: value, payment_purpose: '', category: '' }
-                })
-              }
-              options={editModalPaymentTypeOptions}
-              showSearch
-            />
-            {editPurposeSelectOptions.length === 0 ? (
-              <Select
-                style={{ minWidth: 220 }}
-                placeholder="Категория"
-                value={editDraft?.category}
-                onChange={(value) => setEditDraft((prev) => (prev ? { ...prev, category: value } : prev))}
-                options={optionize(rows.map((r) => r.category))}
-                showSearch
-              />
-            ) : null}
-            <Select
-              style={{ minWidth: 220 }}
-              placeholder="Поставщик"
-              labelInValue
-              value={
-                editDraft?.vendorRefId != null
-                  ? { value: editDraft.vendorRefId, label: editDraft.vendor }
-                  : undefined
-              }
-              onChange={(selected: { value: number; label: string } | undefined) =>
-                setEditDraft((prev) =>
-                  prev
-                    ? {
-                        ...prev,
-                        vendorRefId: selected?.value ?? null,
-                        vendor: selected?.label ?? '',
-                      }
-                    : prev,
-                )
-              }
-              options={vendorEditOptions}
-              onSearch={onVendorEditSearch}
-              loading={vendorEditLoading}
-              filterOption={false}
-              showSearch
-              notFoundContent={vendorEditLoading ? 'Поиск…' : 'Не найдено'}
-            />
-          </Space>
-          {editPurposeSelectOptions.length > 0 ? (
-            <div>
-              <Typography.Text strong style={labelBlockAboveField}>
-                Назначение платежа
-              </Typography.Text>
-              <Select
-                placeholder="Выберите назначение"
-                style={{ display: 'block', width: '100%', maxWidth: 560 }}
-                value={editDraft?.payment_purpose || undefined}
-                onChange={(purposeName) =>
-                  setEditDraft((prev) => {
-                    if (!prev) return prev
-                    const cfg = requestFormPaymentTypes.find((p) => p.payment_type === prev.payment_type)
-                    const matched = cfg?.payment_purposes?.find((p) => p.name === purposeName)
-                    return {
-                      ...prev,
-                      payment_purpose: purposeName,
-                      category: matched?.category ?? '',
-                    }
-                  })
-                }
-                options={editPurposeSelectOptions}
-                showSearch
-                optionFilterProp="label"
-              />
-            </div>
-          ) : (
-            <Input
-              placeholder="Назначение платежа"
-              value={editDraft?.payment_purpose || ''}
-              onChange={(e) => setEditDraft((prev) => (prev ? { ...prev, payment_purpose: e.target.value } : prev))}
-            />
-          )}
-          <div>
-            <Typography.Text strong style={labelBlockAboveField}>
-              ID расхода (expense_id)
-            </Typography.Text>
-            <Input
-              allowClear
-              placeholder="Номер расхода / документа"
-              value={editDraft?.expense_id || ''}
-              onChange={(e) => setEditDraft((prev) => (prev ? { ...prev, expense_id: e.target.value } : prev))}
-            />
-          </div>
-          <Space wrap>
-            <DatePicker
-              picker="month"
-              format="MM.YYYY"
-              value={editDraft?.billing_date ?? null}
-              onChange={(value) => setEditDraft((prev) => (prev ? { ...prev, billing_date: value } : prev))}
-              inputReadOnly
-            />
-            <Select
-              style={{ minWidth: 220 }}
-              placeholder="Заявитель"
-              value={editDraft?.requester || undefined}
-              onChange={(value) => setEditDraft((prev) => (prev ? { ...prev, requester: value } : prev))}
-              options={requesterOptions}
-              allowClear
-              showSearch
-            />
-          </Space>
-          <Space wrap align="center">
-            <Typography.Text style={{ marginBottom: 0 }}>Амортизировать расход</Typography.Text>
-            <Switch
-              checked={Boolean(editDraft?.amortization_enabled)}
-              onChange={(checked) =>
-                setEditDraft((prev) =>
-                  prev
-                    ? {
-                        ...prev,
-                        amortization_enabled: checked,
-                        amortization_months: checked ? prev.amortization_months : 2,
-                      }
-                    : prev,
-                )
-              }
-            />
-            {editDraft?.amortization_enabled ? (
-              <Select
-                style={{ width: 180 }}
-                value={editDraft.amortization_months}
-                onChange={(value) =>
-                  setEditDraft((prev) => (prev ? { ...prev, amortization_months: value } : prev))
-                }
-                options={[2, 3, 4, 5, 6].map((m) => ({ value: m, label: `${m}` }))}
-              />
-            ) : null}
-          </Space>
-          <Button type="primary" loading={editSaving} onClick={() => void saveDetailEdit()}>
-            Сохранить
-          </Button>
-        </Space>
-      </Modal>
+        onSave={(draft) => void saveDetailEdit(draft)}
+      />
     </Card>
   )
 }
