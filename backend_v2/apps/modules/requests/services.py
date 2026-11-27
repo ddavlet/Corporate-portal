@@ -2,6 +2,9 @@ from __future__ import annotations
 
 from django.db.models import CharField, Q
 from django.db.models.functions import Cast
+import os
+
+from django.core.files.storage import default_storage
 from django.utils import timezone
 from rest_framework.exceptions import ValidationError
 
@@ -12,6 +15,7 @@ from apps.modules.payroll.models import PayrollDocument
 from apps.modules.requests.models import (
     Approval,
     Request,
+    RequestAttachment,
     RequestFormConfig,
     RequestFormPaymentTypeConfig,
     RequestPaymentPurposeConfig,
@@ -25,6 +29,57 @@ from apps.modules.wallets.serializer_integration import (
     assign_wallet_for_corporate_movement,
 )
 from apps.tenants.models import TenantModuleConfig
+
+ALLOWED_ATTACHMENT_EXTENSIONS = {"pdf", "jpg", "jpeg", "png", "doc", "docx", "xls", "xlsx"}
+MAX_ATTACHMENT_SIZE_BYTES = 10 * 1024 * 1024
+MAX_ATTACHMENTS_PER_REQUEST = 5
+
+
+def sanitize_attachment_filename(upload) -> str:
+    filename = os.path.basename(getattr(upload, "name", "") or "file") or "file"
+    filename = filename.replace("\x00", "").replace("/", "_").replace("\\", "_")
+    return filename.strip() or "file"
+
+
+def validate_request_attachment_uploads(uploads, *, existing_count: int = 0) -> None:
+    """Raise ValidationError({"file": ...}) if any upload breaks the type/size/count limits."""
+    if existing_count + len(uploads) > MAX_ATTACHMENTS_PER_REQUEST:
+        raise ValidationError(
+            {"file": f"Attachments limit reached (max {MAX_ATTACHMENTS_PER_REQUEST} files per request)."}
+        )
+    for upload in uploads:
+        filename = sanitize_attachment_filename(upload)
+        ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
+        if ext not in ALLOWED_ATTACHMENT_EXTENSIONS:
+            raise ValidationError(
+                {"file": f"Unsupported file type. Allowed: {', '.join(sorted(ALLOWED_ATTACHMENT_EXTENSIONS))}."}
+            )
+        if int(getattr(upload, "size", 0) or 0) > MAX_ATTACHMENT_SIZE_BYTES:
+            raise ValidationError({"file": "File is too large. Max allowed size is 10 MB."})
+
+
+def store_request_attachment(*, request_obj: Request, upload, user) -> RequestAttachment:
+    """
+    Save an already-validated upload under requests/<tenant_id>/<request_id>/<filename>,
+    create its RequestAttachment row and fill Request.file_link if it is still empty.
+    """
+    if not request_obj.tenant_id or not request_obj.id:
+        raise ValidationError({"detail": "Cannot resolve tenant_id/request_id for storage."})
+    filename = sanitize_attachment_filename(upload)
+    saved_name = default_storage.save(f"requests/{request_obj.tenant_id}/{request_obj.id}/{filename}", upload)
+    attachment = RequestAttachment.objects.create(
+        request=request_obj,
+        tenant_id=request_obj.tenant_id,
+        created_by=user,
+        file_path=saved_name,
+        file_name=filename,
+        content_type=str(getattr(upload, "content_type", "") or ""),
+        size_bytes=int(getattr(upload, "size", 0) or 0),
+    )
+    if not request_obj.file_link:
+        request_obj.file_link = saved_name
+        request_obj.save(update_fields=["file_link"])
+    return attachment
 
 
 def resolve_payment_type_form_defaults(*, tenant, payment_type: str, payment_purpose: str) -> dict:

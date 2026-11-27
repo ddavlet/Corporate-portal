@@ -230,6 +230,16 @@ def _format_comments_indicator(*, request_obj: Request) -> str:
     )
 
 
+def _format_attachments_block(*, request_obj: Request) -> str:
+    names = list(
+        RequestAttachment.objects.filter(request=request_obj).order_by("id").values_list("file_name", flat=True)
+    )
+    if not names:
+        return ""
+    lines = "\n".join(f"• {escape(str(name or '-'))}" for name in names)
+    return f"\n\n📎 <b>Вложения ({len(names)})</b>\n{lines}"
+
+
 def build_approval_message(*, request_obj: Request, approval: Approval | None = None) -> str:
     header, subheader = _message_header(request_obj=request_obj, approval=approval)
     vendor_name = (request_obj.vendor_ref.name if request_obj.vendor_ref_id and request_obj.vendor_ref else request_obj.vendor) or "-"
@@ -283,8 +293,12 @@ def build_approval_message(*, request_obj: Request, approval: Approval | None = 
             f"• Заявитель: {context['requester']}\n\n"
             f"🕒 Подано: {context['submitted_at']}"
         )
+    attachments_block = _format_attachments_block(request_obj=request_obj)
     comments_block = _format_comments_indicator(request_obj=request_obj)
-    return f"{body}{comments_block}{_expected_decision_footer(request_obj=request_obj, approval=approval)}"
+    return (
+        f"{body}{attachments_block}{comments_block}"
+        f"{_expected_decision_footer(request_obj=request_obj, approval=approval)}"
+    )
 
 
 def _button_data(*, approval: Approval, decision: str) -> str:
