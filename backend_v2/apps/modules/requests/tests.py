@@ -2675,11 +2675,10 @@ class RequestAttachmentsTests(APITestCase):
         self.assertEqual(upload_res.status_code, 200, upload_res.content)
         self.assertEqual(RequestAttachment.objects.filter(request_id=request_id).count(), 1)
 
-    def test_upload_succeeds_when_create_routes_straight_to_approved_with_pending_payment(self):
-        # Regression: a payment type whose only step is a payment step is routed to
-        # APPROVED inside perform_create(), before the create form's follow-up
-        # file-upload call. APPROVED with a pending payment step isn't resolved yet,
-        # so the attachment must still be accepted.
+    def test_attachments_locked_when_approved_with_pending_payment(self):
+        # APPROVED with a still-pending payment step is the normal state of any request
+        # once all approvers said yes. The approved basis documents must not be deleted
+        # or swapped before the cashier pays, so both upload and delete are rejected.
         payer = User.objects.create_user(username="att_payer", password="x")
         TenantMembership.objects.create(tenant=self.tenant, user=payer, is_active=True)
         appr_cfg = RequestApprovalConfig.objects.create(tenant=self.tenant, updated_by=self.requester)
@@ -2691,19 +2690,8 @@ class RequestAttachmentsTests(APITestCase):
         )
         RequestApprovalStepApproverConfig.objects.create(step_config=step_cfg, approver_user=payer)
 
-        created = self.client.post(
-            "/api/requests/",
-            {
-                "title": "T3",
-                "description": "",
-                "amount": 10,
-                "currency": "UZS",
-                "payment_type": "Наличные",
-                "urgency": "Обычно",
-                "billing_date": "2026-01-01",
-            },
-            format="json",
-            HTTP_HOST=self.host,
+        created = self._create_multipart(
+            [SimpleUploadedFile(name="invoice.pdf", content=b"orig", content_type="application/pdf")]
         )
         self.assertEqual(created.status_code, 201, created.content)
         request_id = created.data["id"]
@@ -2714,15 +2702,25 @@ class RequestAttachmentsTests(APITestCase):
                 request=req, step_type=Approval.STEP_TYPE_PAYMENT, decision=Approval.DECISION_PENDING
             ).exists()
         )
+        original = RequestAttachment.objects.get(request_id=request_id)
 
-        file_obj = SimpleUploadedFile(name="ok.pdf", content=b"dummy", content_type="application/pdf")
+        file_obj = SimpleUploadedFile(name="swapped.pdf", content=b"other", content_type="application/pdf")
         upload_res = self.client.post(
             f"/api/requests/{request_id}/file-upload/",
             {"file": file_obj},
             HTTP_HOST=self.host,
         )
-        self.assertEqual(upload_res.status_code, 200, upload_res.content)
-        self.assertEqual(RequestAttachment.objects.filter(request_id=request_id).count(), 1)
+        self.assertEqual(upload_res.status_code, 400, upload_res.content)
+
+        delete_res = self.client.delete(
+            f"/api/requests/{request_id}/attachments/{original.id}/",
+            HTTP_HOST=self.host,
+        )
+        self.assertEqual(delete_res.status_code, 400, delete_res.content)
+        self.assertEqual(
+            list(RequestAttachment.objects.filter(request_id=request_id).values_list("id", flat=True)),
+            [original.id],
+        )
 
     def _create_multipart(self, files):
         return self.client.post(

@@ -498,19 +498,12 @@ class RequestFilesMixin:
     }
 
     def _attachments_locked(self, request_obj: Request) -> bool:
-        # A payment type whose only remaining steps are payment steps is routed straight to
-        # APPROVED inside perform_create(), before the create form's follow-up file-upload
-        # call arrives. APPROVED with a still-pending payment step is not resolved yet (the
-        # cashier hasn't paid), so attachments stay editable until payment is decided.
-        if request_obj.status not in self.ATTACHMENT_LOCKED_STATUSES:
-            return False
-        if request_obj.status != Request.STATUS_APPROVED:
-            return True
-        return not Approval.objects.filter(
-            request=request_obj,
-            step_type=Approval.STEP_TYPE_PAYMENT,
-            decision=Approval.DECISION_PENDING,
-        ).exists()
+        # APPROVED locks attachments even while the payment step is still pending: that is
+        # the normal state of every request once all approvers said yes, and the files are
+        # the basis they approved. Changing them before payment would let the cashier pay
+        # against a document nobody approved. Payment-step-only payment types (routed
+        # straight to APPROVED in perform_create) get their files in the create call itself.
+        return request_obj.status in self.ATTACHMENT_LOCKED_STATUSES
 
     def _refresh_cards_after_attachment_change(self, request_obj: Request) -> None:
         # Telegram cards already sent list the request's attachments, so re-render them.
