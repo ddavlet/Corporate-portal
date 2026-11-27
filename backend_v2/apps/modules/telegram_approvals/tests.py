@@ -997,6 +997,26 @@ class TelegramApprovalsTests(APITestCase):
         att_btn = next(b for row in rows for b in row if b["label"] == "📎 Вложения")
         self.assertEqual(att_btn["url"], f"https://acme.example.com/app/requests/{with_file.id}")
 
+    def test_build_approval_message_lists_attachment_names(self):
+        from apps.modules.requests.models import RequestAttachment
+
+        request_row = Request.objects.create(
+            tenant=self.tenant, created_by=self.admin, requester=self.requester,
+            title="Files in card", status=Request.STATUS_PROGRESS_1, billing_date=date(2026, 3, 31),
+        )
+        approval = self._make_pending_approval(request_row)
+        self.assertNotIn("📎 <b>Вложения", build_approval_message(request_obj=request_row, approval=approval))
+
+        for name in ("invoice.pdf", "photo <1>.jpg"):
+            RequestAttachment.objects.create(
+                request=request_row, tenant=self.tenant, created_by=self.admin,
+                file_path=f"requests/acme/x/{name}", file_name=name,
+            )
+        txt = build_approval_message(request_obj=request_row, approval=approval)
+        self.assertIn("📎 <b>Вложения (2)</b>", txt)
+        self.assertIn("• invoice.pdf", txt)
+        self.assertIn("• photo &lt;1&gt;.jpg", txt)
+
     def test_message_headers_for_statuses(self):
         request_row = Request.objects.create(
             tenant=self.tenant,

@@ -17,7 +17,6 @@ import {
   type PortalRequestCreateBody,
   type RequestFormOptionsPaymentType,
   type VendorDirectoryRow,
-  uploadRequestAttachment,
   validateRequestAttachment,
 } from '../../lib/api'
 import {
@@ -536,10 +535,7 @@ export function useRequestCreateForm({
       if (paymentPurpose) payload.payment_purpose = paymentPurpose
       if (vendorRefId) payload.vendor_ref = vendorRefId
       if (contractRefId) payload.contract_ref = contractRefId
-      const res: CreatedPortalRequest = await createPortalRequest(payload)
-      for (const file of attachments) {
-        await uploadRequestAttachment(res.id, file)
-      }
+      const res: CreatedPortalRequest = await createPortalRequest(payload, attachments)
       const id = res.id
       if (typeof id === 'number') {
         if (onCreated) onCreated(id)

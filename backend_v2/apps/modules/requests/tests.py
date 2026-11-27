@@ -2675,6 +2675,128 @@ class RequestAttachmentsTests(APITestCase):
         self.assertEqual(upload_res.status_code, 200, upload_res.content)
         self.assertEqual(RequestAttachment.objects.filter(request_id=request_id).count(), 1)
 
+    def test_upload_succeeds_when_create_routes_straight_to_approved_with_pending_payment(self):
+        # Regression: a payment type whose only step is a payment step is routed to
+        # APPROVED inside perform_create(), before the create form's follow-up
+        # file-upload call. APPROVED with a pending payment step isn't resolved yet,
+        # so the attachment must still be accepted.
+        payer = User.objects.create_user(username="att_payer", password="x")
+        TenantMembership.objects.create(tenant=self.tenant, user=payer, is_active=True)
+        appr_cfg = RequestApprovalConfig.objects.create(tenant=self.tenant, updated_by=self.requester)
+        pt_cfg = RequestApprovalPaymentTypeConfig.objects.create(
+            config=appr_cfg, payment_type="Наличные", is_enabled=True
+        )
+        step_cfg = RequestApprovalStepConfig.objects.create(
+            payment_type_config=pt_cfg, step=1, step_type=Approval.STEP_TYPE_PAYMENT, is_enabled=True
+        )
+        RequestApprovalStepApproverConfig.objects.create(step_config=step_cfg, approver_user=payer)
+
+        created = self.client.post(
+            "/api/requests/",
+            {
+                "title": "T3",
+                "description": "",
+                "amount": 10,
+                "currency": "UZS",
+                "payment_type": "Наличные",
+                "urgency": "Обычно",
+                "billing_date": "2026-01-01",
+            },
+            format="json",
+            HTTP_HOST=self.host,
+        )
+        self.assertEqual(created.status_code, 201, created.content)
+        request_id = created.data["id"]
+        req = Request.objects.get(id=request_id)
+        self.assertEqual(req.status, Request.STATUS_APPROVED)
+        self.assertTrue(
+            Approval.objects.filter(
+                request=req, step_type=Approval.STEP_TYPE_PAYMENT, decision=Approval.DECISION_PENDING
+            ).exists()
+        )
+
+        file_obj = SimpleUploadedFile(name="ok.pdf", content=b"dummy", content_type="application/pdf")
+        upload_res = self.client.post(
+            f"/api/requests/{request_id}/file-upload/",
+            {"file": file_obj},
+            HTTP_HOST=self.host,
+        )
+        self.assertEqual(upload_res.status_code, 200, upload_res.content)
+        self.assertEqual(RequestAttachment.objects.filter(request_id=request_id).count(), 1)
+
+    def _create_multipart(self, files):
+        return self.client.post(
+            "/api/requests/",
+            {
+                "title": "With files",
+                "description": "",
+                "amount": "10",
+                "currency": "UZS",
+                "payment_type": "Наличные",
+                "urgency": "Обычно",
+                "billing_date": "2026-01-01",
+                "files": files,
+            },
+            format="multipart",
+            HTTP_HOST=self.host,
+        )
+
+    def test_create_attaches_files_before_routing_to_approved(self):
+        # Regression: payment-step-only payment types are routed straight to APPROVED in
+        # perform_create(), so the create form now sends files in the create call itself
+        # and they must be stored together with the request.
+        payer = User.objects.create_user(username="att_payer2", password="x")
+        TenantMembership.objects.create(tenant=self.tenant, user=payer, is_active=True)
+        appr_cfg = RequestApprovalConfig.objects.create(tenant=self.tenant, updated_by=self.requester)
+        pt_cfg = RequestApprovalPaymentTypeConfig.objects.create(
+            config=appr_cfg, payment_type="Наличные", is_enabled=True
+        )
+        step_cfg = RequestApprovalStepConfig.objects.create(
+            payment_type_config=pt_cfg, step=1, step_type=Approval.STEP_TYPE_PAYMENT, is_enabled=True
+        )
+        RequestApprovalStepApproverConfig.objects.create(step_config=step_cfg, approver_user=payer)
+
+        res = self._create_multipart(
+            [
+                SimpleUploadedFile(name="a.pdf", content=b"a", content_type="application/pdf"),
+                SimpleUploadedFile(name="b.jpg", content=b"b", content_type="image/jpeg"),
+            ]
+        )
+        self.assertEqual(res.status_code, 201, res.content)
+        req = Request.objects.get(id=res.data["id"])
+        self.assertEqual(req.status, Request.STATUS_APPROVED)
+        names = set(RequestAttachment.objects.filter(request=req).values_list("file_name", flat=True))
+        self.assertEqual(names, {"a.pdf", "b.jpg"})
+        self.assertTrue(req.file_link)
+
+    def test_create_with_invalid_file_creates_nothing(self):
+        before = Request.objects.count()
+        res = self._create_multipart(
+            [SimpleUploadedFile(name="bad.exe", content=b"x", content_type="application/octet-stream")]
+        )
+        self.assertEqual(res.status_code, 400, res.content)
+        self.assertIn("file", res.data)
+        self.assertEqual(Request.objects.count(), before)
+
+    def test_upload_and_delete_refresh_sent_telegram_cards(self):
+        # Cards list the request's attachments, so already-sent cards are re-rendered;
+        # a gateway failure during that refresh must not fail the upload itself.
+        with patch(
+            "apps.modules.requests.views.refresh_request_messages", side_effect=RuntimeError("gateway down")
+        ) as refresh_mock:
+            res = self._upload("card.pdf", b"dummy", "application/pdf")
+            self.assertEqual(res.status_code, 200, res.content)
+            refresh_mock.assert_called_once()
+            self.assertEqual(refresh_mock.call_args.kwargs["request_obj"].pk, self.request_id)
+
+            refresh_mock.reset_mock()
+            res = self.client.delete(
+                f"/api/requests/{self.request_id}/attachments/{res.data['id']}/",
+                HTTP_HOST=self.host,
+            )
+            self.assertEqual(res.status_code, 204, res.content)
+            refresh_mock.assert_called_once()
+
     def test_upload_rejected_once_request_is_resolved(self):
         req = Request.objects.get(pk=self.request_id)
         req.status = Request.STATUS_PAYED

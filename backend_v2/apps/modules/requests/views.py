@@ -88,6 +88,7 @@ from apps.modules.requests.approval_config_resolver import resolve_effective_pay
 from apps.modules.requests.auto_requests import create_request_copy_for_template
 from apps.modules.requests.payment_step_guards import payment_step_suppression_reason
 from apps.modules.requests.telegram_webapp_links import tenant_bot_username
+from apps.modules.requests.services import store_request_attachment, validate_request_attachment_uploads
 from apps.modules.requests.approval_workflow import (
     _recalculate_request_status,
     confirm_approval_by_id,
@@ -117,9 +118,6 @@ from apps.tenants.models import TenantMembership, TenantUserRole
 
 User = get_user_model()
 
-ALLOWED_ATTACHMENT_EXTENSIONS = {"pdf", "jpg", "jpeg", "png", "doc", "docx", "xls", "xlsx"}
-MAX_ATTACHMENT_SIZE_BYTES = 10 * 1024 * 1024
-MAX_ATTACHMENTS_PER_REQUEST = 5
 
 
 def _display_user_name(user) -> str:
@@ -499,6 +497,29 @@ class RequestFilesMixin:
         Request.STATUS_DELETED,
     }
 
+    def _attachments_locked(self, request_obj: Request) -> bool:
+        # A payment type whose only remaining steps are payment steps is routed straight to
+        # APPROVED inside perform_create(), before the create form's follow-up file-upload
+        # call arrives. APPROVED with a still-pending payment step is not resolved yet (the
+        # cashier hasn't paid), so attachments stay editable until payment is decided.
+        if request_obj.status not in self.ATTACHMENT_LOCKED_STATUSES:
+            return False
+        if request_obj.status != Request.STATUS_APPROVED:
+            return True
+        return not Approval.objects.filter(
+            request=request_obj,
+            step_type=Approval.STEP_TYPE_PAYMENT,
+            decision=Approval.DECISION_PENDING,
+        ).exists()
+
+    def _refresh_cards_after_attachment_change(self, request_obj: Request) -> None:
+        # Telegram cards already sent list the request's attachments, so re-render them.
+        # A gateway failure must not fail the upload/delete itself.
+        try:
+            refresh_request_messages(request_obj=request_obj)
+        except Exception:
+            logger.exception("Failed to refresh messages after attachment change request_id=%s", request_obj.pk)
+
     @action(detail=True, methods=["post"], url_path="file-upload")
     def file_upload(self, request, pk=None):
         """
@@ -510,46 +531,20 @@ class RequestFilesMixin:
         """
         request_obj = self.get_object()
 
-        if request_obj.status in self.ATTACHMENT_LOCKED_STATUSES:
+        if self._attachments_locked(request_obj):
             raise ValidationError({"detail": "Files can no longer be attached to a resolved request."})
 
         upload = request.FILES.get("file")
         if not upload:
             raise ValidationError({"file": "Multipart field `file` is required."})
 
-        tenant_id = request_obj.tenant_id
-        req_id = request_obj.id
-        if not tenant_id or not req_id:
-            raise ValidationError({"detail": "Cannot resolve tenant_id/request_id for storage."})
-
-        filename = os.path.basename(upload.name or "file") or "file"
-        filename = filename.replace("\x00", "").replace("/", "_").replace("\\", "_")
-        filename = filename.strip() or "file"
-        ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
-        if ext not in ALLOWED_ATTACHMENT_EXTENSIONS:
-            raise ValidationError(
-                {"file": f"Unsupported file type. Allowed: {', '.join(sorted(ALLOWED_ATTACHMENT_EXTENSIONS))}."}
-            )
-        if int(getattr(upload, "size", 0) or 0) > MAX_ATTACHMENT_SIZE_BYTES:
-            raise ValidationError({"file": "File is too large. Max allowed size is 10 MB."})
-        if RequestAttachment.objects.filter(request=request_obj).count() >= MAX_ATTACHMENTS_PER_REQUEST:
-            raise ValidationError({"file": "Attachments limit reached (max 5 files per request)."})
-
-        storage_rel_path = f"requests/{tenant_id}/{req_id}/{filename}"
-        saved_name = default_storage.save(storage_rel_path, upload)
-
-        attachment = RequestAttachment.objects.create(
-            request=request_obj,
-            tenant_id=request_obj.tenant_id,
-            created_by=request.user,
-            file_path=saved_name,
-            file_name=filename,
-            content_type=str(getattr(upload, "content_type", "") or ""),
-            size_bytes=int(getattr(upload, "size", 0) or 0),
+        validate_request_attachment_uploads(
+            [upload],
+            existing_count=RequestAttachment.objects.filter(request=request_obj).count(),
         )
-        if not request_obj.file_link:
-            request_obj.file_link = saved_name
-            request_obj.save(update_fields=["file_link"])
+        attachment = store_request_attachment(request_obj=request_obj, upload=upload, user=request.user)
+        saved_name = attachment.file_path
+        self._refresh_cards_after_attachment_change(request_obj)
 
         return Response(
             {
@@ -562,7 +557,7 @@ class RequestFilesMixin:
     @action(detail=True, methods=["delete"], url_path=r"attachments/(?P<attachment_id>[^/.]+)")
     def attachment_delete(self, request, pk=None, attachment_id=None):
         request_obj = self.get_object()
-        if request_obj.status in self.ATTACHMENT_LOCKED_STATUSES:
+        if self._attachments_locked(request_obj):
             raise ValidationError({"detail": "Files can no longer be deleted from a resolved request."})
         try:
             attachment_id_int = int(str(attachment_id or "").strip())
@@ -599,6 +594,7 @@ class RequestFilesMixin:
             )
             request_obj.file_link = next_path or None
             request_obj.save(update_fields=["file_link"])
+        self._refresh_cards_after_attachment_change(request_obj)
         return Response(status=status.HTTP_204_NO_CONTENT)
 
 
@@ -811,9 +807,16 @@ class PortalRequestViewSet(
     def perform_create(self, serializer):
         tenant = self.request.tenant
         obj: Request | None = None
+        # Files picked on the create form arrive in the same multipart call (field `files`)
+        # so they are attached before routing: approval cards then already see them, and a
+        # bad file rejects the whole create instead of leaving a request without its file.
+        uploads = self.request.FILES.getlist("files") if hasattr(self.request, "FILES") else []
+        validate_request_attachment_uploads(uploads)
 
         with transaction.atomic():
             obj = serializer.save(tenant=tenant, created_by=self.request.user)
+            for upload in uploads:
+                store_request_attachment(request_obj=obj, upload=upload, user=self.request.user)
             n = create_approval_rows_for_request(obj)
             if n and obj and obj.status == Request.STATUS_DRAFT:
                 _recalculate_request_status(obj)

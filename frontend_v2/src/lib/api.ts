@@ -2973,12 +2973,31 @@ export async function getInProgressRequests(): Promise<InProgressRequestRow[]> {
 }
 
 /** Insert a new request only (POST create). No update. */
-export async function createPortalRequest(body: PortalRequestCreateBody): Promise<CreatedPortalRequest> {
-  const res = await apiFetch('/api/requests/', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  })
+/**
+ * Creates a portal request. Files are sent in the same multipart call (field `files`) so the
+ * backend attaches them before routing the request for approval.
+ */
+export async function createPortalRequest(
+  body: PortalRequestCreateBody,
+  files: File[] = [],
+): Promise<CreatedPortalRequest> {
+  let init: RequestInit
+  if (files.length > 0) {
+    const fd = new FormData()
+    for (const [key, value] of Object.entries(body)) {
+      if (value === undefined || value === null) continue
+      fd.append(key, String(value))
+    }
+    for (const file of files) fd.append('files', file)
+    init = { method: 'POST', body: fd }
+  } else {
+    init = {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    }
+  }
+  const res = await apiFetch('/api/requests/', init)
   if (!res.ok) throw new Error(await parseErrorBody(res))
   const json = (await res.json().catch(() => null)) as CreatedPortalRequest | null
   if (!json) throw new Error('Пустой ответ от сервера')
